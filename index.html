@@ -214,9 +214,29 @@
     if(counts.nC>0) circles.push({id:'C',x:d.Cx,y:d.Cy,r:d.rC,color:style.colorC});
     for(const c of circles){ const p=toPx(c.x,c.y); makeEl('circle',{cx:p.x,cy:p.y,r:c.r*scale,fill:c.color,'fill-opacity':style.opacity,stroke:style.borderColor,'stroke-width':style.borderWidth}); console.debug('circle drawn', c.id); }
     function addText(txt,x,y,regionCode){ const t=makeEl('text',{x:x,y:y,'font-size':style.fontsize,'text-anchor':'middle',fill:'#333'}); t.textContent=txt; if(regionCode){ const title=makeEl('title',{}); title.textContent=getRegionText(regionCode); t.appendChild(title); console.debug('tooltip added for', regionCode); } enableDrag(t); return t; }
-    const pA=toPx(d.Ax-d.rA*0.45,d.Ay-d.rA*0.15); addText(labels.A+' ('+counts.nA+')',pA.x,pA.y);
-    const pB=toPx(d.Bx+d.rB*0.45,d.By-d.rB*0.15); addText(labels.B+' ('+counts.nB+')',pB.x,pB.y);
-    if(counts.nC>0){ const pC=toPx(d.Cx,d.Cy-d.rC*0.9); addText(labels.C+' ('+counts.nC+')',pC.x,pC.y); }
+    const labelBoxes=[];
+    function placeCircleLabel(circle,label,count){
+      const center=toPx(circle.x,circle.y);
+      const others=circles.filter(c=>c.id!==circle.id);
+      const isTop=others.every(o=>circle.y<=o.y);
+      const margin=style.fontsize*0.6;
+      let y=center.y+(isTop?-(circle.r*scale+margin):(circle.r*scale+margin));
+      const t=addText(label+' ('+count+')',center.x,y);
+      console.debug('label placed',circle.id,{isTop,x:center.x,y});
+      let box=t.getBBox();
+      for(const b of labelBoxes){
+        while(!(box.x+box.width<b.x||b.x+b.width<box.x||box.y+box.height<b.y||b.y+b.height<box.y)){
+          y+=isTop?-style.fontsize:style.fontsize;
+          t.setAttribute('y',y);
+          box=t.getBBox();
+          console.debug('label adjusted',circle.id,{x:center.x,y});
+        }
+      }
+      labelBoxes.push(box);
+    }
+    placeCircleLabel({id:'A',x:d.Ax,y:d.Ay,r:d.rA},labels.A,counts.nA);
+    placeCircleLabel({id:'B',x:d.Bx,y:d.By,r:d.rB},labels.B,counts.nB);
+    if(counts.nC>0) placeCircleLabel({id:'C',x:d.Cx,y:d.Cy,r:d.rC},labels.C,counts.nC);
     function mid(p,q,t){ return {x:p.x+(q.x-p.x)*(t||0.5), y:p.y+(q.y-p.y)*(t||0.5)}; }
     const cA=toPx(d.Ax,d.Ay), cB=toPx(d.Bx,d.By), cC=toPx(d.Cx,d.Cy);
     const rAp=d.rA*scale, rBp=d.rB*scale, rCp=d.rC*scale;
