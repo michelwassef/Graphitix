@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>BioVenn-like Venn Diagram</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; }
+#input-area { display: flex; gap: 10px; }
+textarea { width: 30%; height: 120px; }
+#venn { margin-top: 20px; }
+</style>
+<script src="https://d3js.org/d3.v5.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/venn.js@0.2.20/build/venn.min.js"></script>
+</head>
+<body>
+<h1>Client-side Venn Diagram</h1>
+<p>Paste lists (one item per line) into the boxes and click <strong>Draw</strong>.</p>
+<div id="input-area">
+<textarea id="listA" placeholder="List A"></textarea>
+<textarea id="listB" placeholder="List B"></textarea>
+<textarea id="listC" placeholder="List C (optional)"></textarea>
+</div>
+<button id="drawBtn">Draw</button>
+<div id="venn"></div>
+<script>
+function parseList(text) {
+  const items = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  console.log('parseList input:', text, 'parsed:', items);
+  return new Set(items);
+}
+
+function computeRegions(A, B, C) {
+  const AB = new Set([...A].filter(x => B.has(x)));
+  const AC = new Set([...A].filter(x => C.has(x)));
+  const BC = new Set([...B].filter(x => C.has(x)));
+  const ABC = new Set([...AB].filter(x => C.has(x)));
+  const Aonly = new Set([...A].filter(x => !B.has(x) && !C.has(x)));
+  const Bonly = new Set([...B].filter(x => !A.has(x) && !C.has(x)));
+  const Conly = new Set([...C].filter(x => !A.has(x) && !B.has(x)));
+  const ABonly = new Set([...AB].filter(x => !C.has(x)));
+  const AConly = new Set([...AC].filter(x => !B.has(x)));
+  const BConly = new Set([...BC].filter(x => !A.has(x)));
+  const result = { Aonly, Bonly, Conly, ABonly, AConly, BConly, ABC };
+  console.log('computeRegions result:', result);
+  return result;
+}
+
+function updateDiagram() {
+  const A = parseList(document.getElementById('listA').value);
+  const B = parseList(document.getElementById('listB').value);
+  const C = parseList(document.getElementById('listC').value);
+  const { Aonly, Bonly, Conly, ABonly, AConly, BConly, ABC } = computeRegions(A, B, C);
+  const hasC = C.size > 0;
+  const sets = [
+    { sets: ['A'], size: Aonly.size },
+    { sets: ['B'], size: Bonly.size }
+  ];
+  if (hasC) {
+    sets.push({ sets: ['C'], size: Conly.size });
+    sets.push({ sets: ['A', 'B'], size: ABonly.size });
+    sets.push({ sets: ['A', 'C'], size: AConly.size });
+    sets.push({ sets: ['B', 'C'], size: BConly.size });
+    sets.push({ sets: ['A', 'B', 'C'], size: ABC.size });
+  } else {
+    sets.push({ sets: ['A', 'B'], size: ABonly.size });
+  }
+  console.log('updateDiagram sets:', sets);
+  const chart = venn.VennDiagram();
+  d3.select('#venn').datum(sets).call(chart);
+  d3.selectAll('#venn .label').style('font-size', '14px');
+}
+
+document.getElementById('drawBtn').addEventListener('click', updateDiagram);
+</script>
+</body>
+</html>
