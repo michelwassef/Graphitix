@@ -1,76 +1,301 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>BioVenn-like Venn Diagram</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BioVenn-like Venn - HTML + JS only</title>
 <style>
-body { font-family: Arial, sans-serif; margin: 20px; }
-#input-area { display: flex; gap: 10px; }
-textarea { width: 30%; height: 120px; }
-#venn { margin-top: 20px; }
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;background:#0f1220;color:#e6e6f0}
+  header{padding:14px 16px;border-bottom:1px solid #232a4d}
+  .wrap{display:grid;grid-template-columns:360px 1fr;gap:12px;padding:12px}
+  .panel{background:#151a2e;border:1px solid #232a4d;border-radius:12px;padding:12px}
+  label{font-size:12.5px;color:#a5acc1}
+  textarea{width:100%;min-height:110px;background:#0e1330;border:1px solid #232a4d;color:#e6e6f0;border-radius:10px;padding:8px}
+  input[type=text],input[type=number],select{width:100%;background:#0e1330;border:1px solid #232a4d;color:#e6e6f0;border-radius:10px;padding:8px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn{background:#1b2141;border:1px solid #232a4d;color:#e6e6f0;border-radius:10px;padding:8px 12px;cursor:pointer}
+  .svgbox{background:#121735;border:1px solid #232a4d;border-radius:12px;padding:8px}
+  #stage{width:100%;height:680px;display:block}
+  .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .chip{display:flex;gap:6px;align-items:center;background:#111633;border:1px solid #232a4d;border-radius:999px;padding:4px 8px}
+  .dot{width:10px;height:10px;border-radius:999px;border:1px solid rgba(255,255,255,.6)}
+  details{background:#111633;border:1px solid #232a4d;border-radius:10px;padding:8px}
+  pre{background:#0c0f22;border:1px dashed #3b457a;border-radius:10px;padding:8px;max-height:220px;overflow:auto}
+  @media (max-width:1000px){.wrap{grid-template-columns:1fr}#stage{height:560px}}
 </style>
-<script src="https://d3js.org/d3.v5.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/venn.js@0.2.20/build/venn.min.js"></script>
 </head>
 <body>
-<h1>Client-side Venn Diagram</h1>
-<p>Paste lists (one item per line) into the boxes and click <strong>Draw</strong>.</p>
-<div id="input-area">
-<textarea id="listA" placeholder="List A"></textarea>
-<textarea id="listB" placeholder="List B"></textarea>
-<textarea id="listC" placeholder="List C (optional)"></textarea>
+<header><h2 style="margin:0">Area proportional Venn - BioVenn like</h2><div style="color:#a5acc1;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
+<div class="wrap">
+  <div class="panel">
+    <div class="row">
+      <div style="flex:1 1 100%">
+        <label>Set A label</label><input id="labelA" type="text" value="A">
+        <label>List A</label><textarea id="listA"></textarea>
+      </div>
+      <div style="flex:1 1 100%">
+        <label>Set B label</label><input id="labelB" type="text" value="B">
+        <label>List B</label><textarea id="listB"></textarea>
+      </div>
+      <div style="flex:1 1 100%">
+        <label>Set C label</label><input id="labelC" type="text" value="C">
+        <label>List C - optional</label><textarea id="listC"></textarea>
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <span class="chip"><span class="dot" id="dotA"></span><input id="colorA" type="color" value="#e74c3c"></span>
+      <span class="chip"><span class="dot" id="dotB"></span><input id="colorB" type="color" value="#2ecc71"></span>
+      <span class="chip"><span class="dot" id="dotC"></span><input id="colorC" type="color" value="#3498db"></span>
+      <span>Opacity <input id="opacity" type="range" min="0.05" max="0.9" step="0.05" value="0.35"> <span id="opacityVal">0.35</span></span>
+      <span>Font <input id="fontsize" type="range" min="10" max="36" step="1" value="16"> <span id="fontsizeVal">16</span> px</span>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label><input id="caseSensitive" type="checkbox"> Case sensitive</label>
+      <label>Delimiter
+        <select id="delimiter">
+          <option value="auto">Auto</option><option value="newline">Newline</option><option value="comma">Comma</option><option value="tab">Tab</option><option value="space">Spaces</option>
+        </select>
+      </label>
+      <button class="btn" id="draw">Draw Venn</button>
+      <button class="btn" id="sample">Example</button>
+      <button class="btn" id="reset">Reset</button>
+    </div>
+    <details style="margin-top:8px">
+      <summary>Numeric mode - counts only</summary>
+      <div class="row">
+        <div><label>|A|</label><input id="nA" type="number" min="0" value="0"></div>
+        <div><label>|B|</label><input id="nB" type="number" min="0" value="0"></div>
+        <div><label>|C|</label><input id="nC" type="number" min="0" value="0"></div>
+        <div><label>|A∩B|</label><input id="nAB" type="number" min="0" value="0"></div>
+        <div><label>|A∩C|</label><input id="nAC" type="number" min="0" value="0"></div>
+        <div><label>|B∩C|</label><input id="nBC" type="number" min="0" value="0"></div>
+        <div><label>|A∩B∩C|</label><input id="nABC" type="number" min="0" value="0"></div>
+        <button class="btn" id="useNumeric">Use numeric</button>
+      </div>
+    </details>
+    <details style="margin-top:8px">
+      <summary>Debug console</summary>
+      <div class="row" style="margin:6px 0"><label><input id="enableDebug" type="checkbox"> Enable debug</label><button class="btn" id="clearDebug" type="button">Clear</button></div>
+      <pre id="debug"></pre>
+    </details>
+  </div>
+  <div class="panel">
+    <div class="svgbox">
+      <svg id="stage" viewBox="0 0 1000 680" xmlns="http://www.w3.org/2000/svg" aria-label="Venn diagram"></svg>
+      <div class="legend" id="legend"></div>
+      <div class="row" style="justify-content:flex-end;margin-top:6px">
+        <button class="btn" id="exportSVG">Export SVG</button>
+        <button class="btn" id="exportPNG">Export PNG</button>
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <select id="regionSelect">
+        <option value="A">A only</option><option value="B">B only</option><option value="C">C only</option>
+        <option value="AB">A∩B only</option><option value="AC">A∩C only</option><option value="BC">B∩C only</option><option value="ABC">A∩B∩C</option>
+      </select>
+      <button class="btn" id="refreshRegion">Show</button>
+      <button class="btn" id="copyRegion">Copy</button>
+      <button class="btn" id="downloadRegion">Download</button>
+    </div>
+    <div id="regionList" style="background:#0f1430;border:1px solid #2a3161;border-radius:8px;padding:8px;max-height:190px;overflow:auto;margin-top:6px"></div>
+    <div class="row" style="margin-top:6px;font-size:13px;color:#cfd5ff">
+      <span>A: <code id="countA">0</code></span><span>B: <code id="countB">0</code></span><span>C: <code id="countC">0</code></span>
+      <span>A∩B: <code id="countAB">0</code></span><span>A∩C: <code id="countAC">0</code></span><span>B∩C: <code id="countBC">0</code></span>
+      <span>A∩B∩C: <code id="countABC">0</code></span>
+    </div>
+  </div>
 </div>
-<button id="drawBtn">Draw</button>
-<div id="venn"></div>
+
 <script>
-function parseList(text) {
-  const items = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  console.log('parseList input:', text, 'parsed:', items);
-  return new Set(items);
-}
+(function(){
+  "use strict";
+  const debugEl = document.getElementById('debug');
+  const enableDebug = document.getElementById('enableDebug');
+  function log(){ if(!enableDebug.checked) return; const t=new Date().toISOString().split('T')[1].split('.')[0]; debugEl.textContent += '['+t+'] '+Array.from(arguments).join(' ')+'\\n'; debugEl.scrollTop=debugEl.scrollHeight; }
+  document.getElementById('clearDebug').addEventListener('click',()=>debugEl.textContent='');
 
-function computeRegions(A, B, C) {
-  const AB = new Set([...A].filter(x => B.has(x)));
-  const AC = new Set([...A].filter(x => C.has(x)));
-  const BC = new Set([...B].filter(x => C.has(x)));
-  const ABC = new Set([...AB].filter(x => C.has(x)));
-  const Aonly = new Set([...A].filter(x => !B.has(x) && !C.has(x)));
-  const Bonly = new Set([...B].filter(x => !A.has(x) && !C.has(x)));
-  const Conly = new Set([...C].filter(x => !A.has(x) && !B.has(x)));
-  const ABonly = new Set([...AB].filter(x => !C.has(x)));
-  const AConly = new Set([...AC].filter(x => !B.has(x)));
-  const BConly = new Set([...BC].filter(x => !A.has(x)));
-  const result = { Aonly, Bonly, Conly, ABonly, AConly, BConly, ABC };
-  console.log('computeRegions result:', result);
-  return result;
-}
+  const $ = (s)=>document.querySelector(s);
+  const stage = $('#stage'); const legend = $('#legend');
+  const inputs = {
+    A: $('#listA'), B: $('#listB'), C: $('#listC'),
+    labelA: $('#labelA'), labelB: $('#labelB'), labelC: $('#labelC'),
+    colorA: $('#colorA'), colorB: $('#colorB'), colorC: $('#colorC'),
+    opacity: $('#opacity'), fontsize: $('#fontsize'),
+    opacityVal: $('#opacityVal'), fontsizeVal: $('#fontsizeVal'),
+    caseSensitive: $('#caseSensitive'), delimiter: $('#delimiter'),
+    counts: { nA: $('#nA'), nB: $('#nB'), nC: $('#nC'), nAB: $('#nAB'), nAC: $('#nAC'), nBC: $('#nBC'), nABC: $('#nABC') }
+  };
+  inputs.opacity.addEventListener('input',()=>inputs.opacityVal.textContent=inputs.opacity.value);
+  inputs.fontsize.addEventListener('input',()=>inputs.fontsizeVal.textContent=inputs.fontsize.value);
+  ['colorA','colorB','colorC'].forEach(id=>{ const d={colorA:'dotA',colorB:'dotB',colorC:'dotC'}[id]; document.getElementById(d).style.background=inputs[id].value; inputs[id].addEventListener('input',e=>document.getElementById(d).style.background=e.target.value); });
 
-function updateDiagram() {
-  const A = parseList(document.getElementById('listA').value);
-  const B = parseList(document.getElementById('listB').value);
-  const C = parseList(document.getElementById('listC').value);
-  const { Aonly, Bonly, Conly, ABonly, AConly, BConly, ABC } = computeRegions(A, B, C);
-  const hasC = C.size > 0;
-  const sets = [
-    { sets: ['A'], size: Aonly.size },
-    { sets: ['B'], size: Bonly.size }
-  ];
-  if (hasC) {
-    sets.push({ sets: ['C'], size: Conly.size });
-    sets.push({ sets: ['A', 'B'], size: ABonly.size });
-    sets.push({ sets: ['A', 'C'], size: AConly.size });
-    sets.push({ sets: ['B', 'C'], size: BConly.size });
-    sets.push({ sets: ['A', 'B', 'C'], size: ABC.size });
-  } else {
-    sets.push({ sets: ['A', 'B'], size: ABonly.size });
+  function splitItems(text, mode){
+    if(mode==='newline') return text.split(/\\r?\\n/);
+    if(mode==='comma') return text.split(/,/);
+    if(mode==='tab') return text.split(/\\t/);
+    if(mode==='space') return text.split(/\\s+/);
+    return text.split(/[\\r\\n,\\t;\\s]+/);
   }
-  console.log('updateDiagram sets:', sets);
-  const chart = venn.VennDiagram();
-  d3.select('#venn').datum(sets).call(chart);
-  d3.selectAll('#venn .label').style('font-size', '14px');
-}
+  function parseList(raw, cs, mode){
+    const arr = splitItems(raw.trim(), mode).map(s=>cs?s.trim():s.trim().toLowerCase()).filter(Boolean);
+    const seen=new Set(), out=[]; for(const x of arr){ if(!seen.has(x)){ seen.add(x); out.push(x); } } return out;
+  }
+  function setsFromLists(listA, listB, listC){
+    const A=new Set(listA),B=new Set(listB),C=new Set(listC);
+    const inter=(S,T)=>new Set([...S].filter(x=>T.has(x)));
+    const diff=(S,T)=>new Set([...S].filter(x=>!T.has(x)));
+    const union=(S,T)=>new Set([...S,...T]);
+    const ABC=inter(inter(A,B),C);
+    const AB=diff(inter(A,B),C);
+    const AC=diff(inter(A,C),B);
+    const BC=diff(inter(B,C),A);
+    const Aonly=diff(A,union(B,C));
+    const Bonly=diff(B,union(A,C));
+    const Conly=diff(C,union(A,B));
+    return {A,B,C,Aonly,Bonly,Conly,AB,AC,BC,ABC};
+  }
+  function circleIntersectionArea(r1,r2,d){
+    if(d>=r1+r2) return 0;
+    if(d<=Math.abs(r1-r2)) return Math.PI*Math.min(r1,r2)**2;
+    const a=2*Math.acos((r1*r1+d*d-r2*r2)/(2*r1*d));
+    const b=2*Math.acos((r2*r2+d*d-r1*r1)/(2*r2*d));
+    return 0.5*r1*r1*(a-Math.sin(a)) + 0.5*r2*r2*(b-Math.sin(b));
+  }
+  function distanceForOverlap(r1,r2,target){
+    const maxA=Math.PI*Math.min(r1,r2)**2;
+    const t=Math.max(0,Math.min(target,maxA));
+    let lo=Math.max(0,Math.abs(r1-r2)), hi=r1+r2;
+    for(let i=0;i<60;i++){ const m=(lo+hi)/2; const A=circleIntersectionArea(r1,r2,m); if(A>t) lo=m; else hi=m; }
+    return (lo+hi)/2;
+  }
+  function trilaterate(dAB,dAC,dBC){
+    const x=(dAB*dAB+dAC*dAC-dBC*dBC)/(2*(dAB||1e-6));
+    const y2=dAC*dAC-x*x; return {Ax:0,Ay:0,Bx:dAB,By:0,Cx:x,Cy:Math.sqrt(Math.max(0,y2))};
+  }
+  function layoutFromCounts(nA,nB,nC,nAB,nAC,nBC){
+    const rA=Math.sqrt(Math.max(nA,0)/Math.PI);
+    const rB=Math.sqrt(Math.max(nB,0)/Math.PI);
+    const rC=Math.sqrt(Math.max(nC,0)/Math.PI);
+    const dAB=distanceForOverlap(rA,rB,Math.max(nAB,0));
+    const dAC=distanceForOverlap(rA,rC,Math.max(nAC,0));
+    const dBC=distanceForOverlap(rB,rC,Math.max(nBC,0));
+    return {...trilaterate(dAB,dAC,dBC), rA,rB,rC,dAB,dAC,dBC};
+  }
+  function clearSVG(){ while(stage.firstChild) stage.removeChild(stage.firstChild); }
+  function makeEl(tag,attrs={},parent=stage){ const el=document.createElementNS('http://www.w3.org/2000/svg',tag); for(const[k,v] of Object.entries(attrs)) el.setAttribute(k,String(v)); parent.appendChild(el); return el; }
+  function enableDrag(el){ let drag=false,start={x:0,y:0},orig={x:0,y:0}; el.style.cursor='move';
+    el.addEventListener('mousedown',e=>{drag=true; const pt=stage.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; const loc=pt.matrixTransform(stage.getScreenCTM().inverse()); start={x:loc.x,y:loc.y}; orig={x:parseFloat(el.getAttribute('x')||'0'),y:parseFloat(el.getAttribute('y')||'0')}; e.preventDefault();});
+    window.addEventListener('mousemove',e=>{ if(!drag) return; const pt=stage.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; const loc=pt.matrixTransform(stage.getScreenCTM().inverse()); el.setAttribute('x',String(orig.x+(loc.x-start.x))); el.setAttribute('y',String(orig.y+(loc.y-start.y))); });
+    window.addEventListener('mouseup',()=>drag=false);
+  }
+  function fitAndDraw(d, style, labels, counts){
+    clearSVG();
+    const W=1000,H=680,pad=40;
+    const xs=[d.Ax-d.rA,d.Ax+d.rA,d.Bx-d.rB,d.Bx+d.rB]; const ys=[d.Ay-d.rA,d.Ay+d.rA,d.By-d.rB,d.By+d.rB];
+    if(counts.nC>0){ xs.push(d.Cx-d.rC,d.Cx+d.rC); ys.push(d.Cy-d.rC,d.Cy+d.rC); }
+    const minX=Math.min.apply(null,xs), maxX=Math.max.apply(null,xs);
+    const minY=Math.min.apply(null,ys), maxY=Math.max.apply(null,ys);
+    const scale=Math.min((W-2*pad)/Math.max(1e-6,maxX-minX),(H-2*pad)/Math.max(1e-6,maxY-minY));
+    const tx=(W-scale*(minX+maxX))/2, ty=(H-scale*(minY+maxY))/2;
+    function toPx(x,y){ return {x:x*scale+tx,y:y*scale+ty}; }
+    const circles=[{id:'A',x:d.Ax,y:d.Ay,r:d.rA,color:style.colorA},{id:'B',x:d.Bx,y:d.By,r:d.rB,color:style.colorB}];
+    if(counts.nC>0) circles.push({id:'C',x:d.Cx,y:d.Cy,r:d.rC,color:style.colorC});
+    for(const c of circles){ const p=toPx(c.x,c.y); makeEl('circle',{cx:p.x,cy:p.y,r:c.r*scale,fill:c.color,'fill-opacity':style.opacity,stroke:'rgba(255,255,255,.75)','stroke-width':1.2}); }
+    function addText(txt,x,y){ const t=makeEl('text',{x:x,y:y,'font-size':style.fontsize,'text-anchor':'middle',fill:'#f5f6ff'}); t.textContent=txt; enableDrag(t); return t; }
+    const pA=toPx(d.Ax-d.rA*0.45,d.Ay-d.rA*0.15); addText(labels.A+' ('+counts.nA+')',pA.x,pA.y);
+    const pB=toPx(d.Bx+d.rB*0.45,d.By-d.rB*0.15); addText(labels.B+' ('+counts.nB+')',pB.x,pB.y);
+    if(counts.nC>0){ const pC=toPx(d.Cx,d.Cy-d.rC*0.9); addText(labels.C+' ('+counts.nC+')',pC.x,pC.y); }
+    function mid(p,q,t){ return {x:p.x+(q.x-p.x)*(t||0.5), y:p.y+(q.y-p.y)*(t||0.5)}; }
+    const cA=toPx(d.Ax,d.Ay), cB=toPx(d.Bx,d.By), cC=toPx(d.Cx,d.Cy);
+    const rAp=d.rA*scale, rBp=d.rB*scale, rCp=d.rC*scale;
+    function inside(pt,center,r){ return Math.hypot(pt.x-center.x,pt.y-center.y) <= r-1; }
+    function adjustPair(base, avoidCenter, avoidR, must1, r1, must2, r2, tag){
+      let p={...base}; const margin=10;
+      for(let i=0;i<30;i++){ const dist=Math.hypot(p.x-avoidCenter.x,p.y-avoidCenter.y); if(dist>avoidR+margin) break;
+        const vx=(p.x-avoidCenter.x)||1e-6, vy=(p.y-avoidCenter.y)||0; const u=Math.hypot(vx,vy)||1; const t=avoidR+margin+1;
+        p.x=avoidCenter.x+(vx/u)*t; p.y=avoidCenter.y+(vy/u)*t;
+      }
+      for(let k=0;k<20 && (!inside(p,must1,r1)||!inside(p,must2,r2)); k++){ p.x=(p.x+base.x)/2; p.y=(p.y+base.y)/2; }
+      log('label-adjust',tag,JSON.stringify(p)); return p;
+    }
+    addText(String(counts.Aonly), toPx(d.Ax-d.rA*0.5,d.Ay+d.rA*0.1).x, toPx(d.Ax-d.rA*0.5,d.Ay+d.rA*0.1).y);
+    addText(String(counts.Bonly), toPx(d.Bx+d.rB*0.5,d.By+d.rB*0.1).x, toPx(d.Bx+d.rB*0.5,d.By+d.rB*0.1).y);
+    let ABp=mid(cA,cB); if(counts.nC>0) ABp=adjustPair(ABp,cC,rCp,cA,rAp,cB,rBp,'AB'); addText(String(counts.AB),ABp.x,ABp.y);
+    if(counts.nC>0){
+      addText(String(counts.Conly), toPx(d.Cx,d.Cy+d.rC*0.65).x, toPx(d.Cx,d.Cy+d.rC*0.65).y);
+      let ACp=mid(cA,cC); ACp=adjustPair(ACp,cB,rBp,cA,rAp,cC,rCp,'AC'); addText(String(counts.AC),ACp.x,ACp.y);
+      let BCp=mid(cB,cC); BCp=adjustPair(BCp,cA,rAp,cB,rBp,cC,rCp,'BC'); addText(String(counts.BC),BCp.x,BCp.y);
+      const ABCp={x:(cA.x+cB.x+cC.x)/3,y:(cA.y+cB.y+cC.y)/3}; addText(String(counts.ABC),ABCp.x,ABCp.y);
+    }
+    stage.onclick=(evt)=>{
+      const pt=stage.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY; const loc=pt.matrixTransform(stage.getScreenCTM().inverse());
+      const inA=Math.hypot(loc.x-cA.x,loc.y-cA.y)<=rAp, inB=Math.hypot(loc.x-cB.x,loc.y-cB.y)<=rBp, inC=(counts.nC>0)&&Math.hypot(loc.x-cC.x,loc.y-cC.y)<=rCp;
+      let region=null;
+      if(inA&&!inB&&!inC) region='A'; else if(!inA&&inB&&!inC) region='B'; else if(!inA&&!inB&&inC) region='C';
+      else if(inA&&inB&&!inC) region='AB'; else if(inA&&inC&&!inB) region='AC'; else if(inB&&inC&&!inA) region='BC'; else if(inA&&inB&&inC) region='ABC';
+      if(region){ $('#regionSelect').value=region; populateRegion(region); }
+    };
+    legend.innerHTML=''; const items=[{label:labels.A,color:style.colorA,n:counts.nA},{label:labels.B,color:style.colorB,n:counts.nB}]; if(counts.nC>0) items.push({label:labels.C,color:style.colorC,n:counts.nC});
+    for(const it of items){ const el=document.createElement('div'); el.className='chip'; const dot=document.createElement('span'); dot.className='dot'; dot.style.background=it.color; el.appendChild(dot); const sp=document.createElement('span'); sp.textContent=it.label+' ('+it.n+')'; el.appendChild(sp); legend.appendChild(el); }
+  }
 
-document.getElementById('drawBtn').addEventListener('click', updateDiagram);
+  function exportSVG(){ const xml=new XMLSerializer().serializeToString(stage); const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); downloadURL(url,'venn.svg'); setTimeout(()=>URL.revokeObjectURL(url),5000); }
+  function exportPNG(){ const xml=new XMLSerializer().serializeToString(stage); const img=new Image(); img.onload=function(){ const c=document.createElement('canvas'); c.width=stage.viewBox.baseVal.width; c.height=stage.viewBox.baseVal.height; const ctx=c.getContext('2d'); ctx.drawImage(img,0,0); c.toBlob(b=>{ const url=URL.createObjectURL(b); downloadURL(url,'venn.png'); setTimeout(()=>URL.revokeObjectURL(url),5000); },'image/png'); }; img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml); }
+  function downloadURL(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
+
+  const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
+  const regionSelect=$('#regionSelect'), regionList=$('#regionList');
+  $('#refreshRegion').addEventListener('click',()=>populateRegion(regionSelect.value));
+  $('#copyRegion').addEventListener('click',()=>navigator.clipboard.writeText(getRegionText(regionSelect.value)));
+  $('#downloadRegion').addEventListener('click',()=>{ const blob=new Blob([getRegionText(regionSelect.value)],{type:'text/plain'}); const url=URL.createObjectURL(blob); downloadURL(url,regionSelect.value+'.txt'); setTimeout(()=>URL.revokeObjectURL(url),5000); });
+
+  let lastRegions=null;
+  function populateRegion(code){ if(!lastRegions) return; const map={A:lastRegions.Aonly,B:lastRegions.Bonly,C:lastRegions.Conly,AB:lastRegions.AB,AC:lastRegions.AC,BC:lastRegions.BC,ABC:lastRegions.ABC};
+    const arr=[...(map[code]||new Set())].sort(); regionList.innerHTML=arr.length?arr.map(x=>'<div>'+x+'</div>').join(''):'(empty)'; }
+  function getRegionText(code){ if(!lastRegions) return ''; const map={A:lastRegions.Aonly,B:lastRegions.Bonly,C:lastRegions.Conly,AB:lastRegions.AB,AC:lastRegions.AC,BC:lastRegions.BC,ABC:lastRegions.ABC}; return [...(map[code]||new Set())].join('\\n'); }
+
+  function refreshCounts(c){ countsUI.A.textContent=c.nA; countsUI.B.textContent=c.nB; countsUI.C.textContent=c.nC; countsUI.AB.textContent=c.AB+c.ABC; countsUI.AC.textContent=c.AC+c.ABC; countsUI.BC.textContent=c.BC+c.ABC; countsUI.ABC.textContent=c.ABC; }
+
+  function drawFromLists(){
+    const mode=inputs.delimiter.value, cs=inputs.caseSensitive.checked;
+    const A=parseList(inputs.A.value,cs,mode), B=parseList(inputs.B.value,cs,mode), C=parseList(inputs.C.value,cs,mode);
+    const regions=setsFromLists(A,B,C); lastRegions=regions;
+    const counts={nA:regions.A.size,nB:regions.B.size,nC:regions.C.size,Aonly:regions.Aonly.size,Bonly:regions.Bonly.size,Conly:regions.Conly.size,AB:regions.AB.size,AC:regions.AC.size,BC:regions.BC.size,ABC:regions.ABC.size};
+    refreshCounts(counts);
+    const pairs={nAB:counts.AB+counts.ABC,nAC:counts.AC+counts.ABC,nBC:counts.BC+counts.ABC};
+    const L=layoutFromCounts(counts.nA,counts.nB,counts.nC,pairs.nAB,pairs.nAC,pairs.nBC);
+    const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value};
+    const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
+    fitAndDraw(L,style,labels,counts);
+  }
+
+  function drawFromNumeric(){
+    const nA=+inputs.counts.nA.value||0, nB=+inputs.counts.nB.value||0, nC=+inputs.counts.nC.value||0;
+    const nAB=+inputs.counts.nAB.value||0, nAC=+inputs.counts.nAC.value||0, nBC=+inputs.counts.nBC.value||0, nABC=+inputs.counts.nABC.value||0;
+    const Aonly=Math.max(0,nA-(nAB+nAC-nABC)), Bonly=Math.max(0,nB-(nAB+nBC-nABC)), Conly=Math.max(0,nC-(nAC+nBC-nABC));
+    const counts={nA,nB,nC,Aonly,Bonly,Conly,AB:Math.max(0,nAB-nABC),AC:Math.max(0,nAC-nABC),BC:Math.max(0,nBC-nABC),ABC:nABC};
+    lastRegions={A:new Set(),B:new Set(),C:new Set(),Aonly:new Set(),Bonly:new Set(),Conly:new Set(),AB:new Set(),AC:new Set(),BC:new Set(),ABC:new Set()};
+    refreshCounts(counts);
+    const L=layoutFromCounts(nA,nB,nC,nAB,nAC,nBC);
+    const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value};
+    const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
+    fitAndDraw(L,style,labels,counts);
+  }
+
+  document.getElementById('draw').addEventListener('click',drawFromLists);
+  document.getElementById('useNumeric').addEventListener('click',drawFromNumeric);
+  document.getElementById('exportSVG').addEventListener('click',exportSVG);
+  document.getElementById('exportPNG').addEventListener('click',exportPNG);
+  document.getElementById('sample').addEventListener('click',()=>{
+    inputs.labelA.value='Transcriptomic'; inputs.labelB.value='Proteomic'; inputs.labelC.value='Phospho';
+    inputs.A.value='BRCA1\\nATM\\nBAP1\\nEZH2\\nSUZ12\\nRING1B';
+    inputs.B.value='BRCA1\\nBAP1\\nRING1B\\nCBX2\\nHDAC1\\nPAXIP1\\nHUWE1';
+    inputs.C.value='BRCA1\\nPAXIP1\\nCSNK2A1\\nRING1B\\nKAT7'; drawFromLists();
+  });
+  document.getElementById('reset').addEventListener('click',()=>{ inputs.A.value=''; inputs.B.value=''; inputs.C.value=''; Object.values(inputs.counts).forEach(x=>x.value=0); clearSVG(); legend.innerHTML=''; lastRegions=null; regionList.textContent=''; Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{}); document.getElementById('countA').textContent='0'; document.getElementById('countB').textContent='0'; document.getElementById('countC').textContent='0'; document.getElementById('countAB').textContent='0'; document.getElementById('countAC').textContent='0'; document.getElementById('countBC').textContent='0'; document.getElementById('countABC').textContent='0'; });
+  window.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); drawFromLists(); } });
+  log('Ready. Paste lists and click Draw.');
+})();
 </script>
 </body>
 </html>
