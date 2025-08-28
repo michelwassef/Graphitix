@@ -119,15 +119,35 @@
   ['colorA','colorB','colorC'].forEach(id=>{ const d={colorA:'dotA',colorB:'dotB',colorC:'dotC'}[id]; document.getElementById(d).style.background=inputs[id].value; inputs[id].addEventListener('input',e=>document.getElementById(d).style.background=e.target.value); });
 
   function splitItems(text, mode){
-    if(mode==='newline') return text.split(/\\r?\\n/);
-    if(mode==='comma') return text.split(/,/);
-    if(mode==='tab') return text.split(/\\t/);
-    if(mode==='space') return text.split(/\\s+/);
-    return text.split(/[\\r\\n,\\t;\\s]+/);
+    if(mode==='newline'){
+      const parts=text.split(/\r?\n/);
+      console.debug('splitItems newline',parts);
+      return parts;
+    }
+    if(mode==='comma'){
+      const parts=text.split(/,/);
+      console.debug('splitItems comma',parts);
+      return parts;
+    }
+    if(mode==='tab'){
+      const parts=text.split(/\t/);
+      console.debug('splitItems tab',parts);
+      return parts;
+    }
+    if(mode==='space'){
+      const parts=text.split(/\s+/);
+      console.debug('splitItems space',parts);
+      return parts;
+    }
+    const parts=text.split(/[\r\n,\t;\s]+/);
+    console.debug('splitItems auto',parts);
+    return parts;
   }
   function parseList(raw, cs, mode){
     const arr = splitItems(raw.trim(), mode).map(s=>cs?s.trim():s.trim().toLowerCase()).filter(Boolean);
-    const seen=new Set(), out=[]; for(const x of arr){ if(!seen.has(x)){ seen.add(x); out.push(x); } } return out;
+    const seen=new Set(), out=[]; for(const x of arr){ if(!seen.has(x)){ seen.add(x); out.push(x); } }
+    console.debug('parseList', {raw, mode, out});
+    return out;
   }
   function setsFromLists(listA, listB, listC){
     const A=new Set(listA),B=new Set(listB),C=new Set(listC);
