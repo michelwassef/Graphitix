@@ -9,9 +9,9 @@
   header{padding:14px 16px;border-bottom:1px solid #ddd;background:#f7f7f7}
   .wrap{display:grid;grid-template-columns:360px 1fr;gap:12px;padding:12px}
   .panel{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px}
-  label{font-size:13px;color:#333}
-  textarea{width:100%;min-height:110px;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px}
-  input[type=text],input[type=number],select{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px}
+  label{font-size:16px;color:#333}
+  textarea{width:100%;min-height:110px;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px;resize:vertical;box-sizing:border-box}
+  input[type=text],input[type=number],select{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px;box-sizing:border-box}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .btn{background:#fff;border:1px solid #ccc;color:#333;border-radius:6px;padding:8px 12px;cursor:pointer}
   .btn:hover{background:#f0f0f0}
@@ -46,7 +46,7 @@
       <span class="chip"><span class="dot" id="dotA"></span><input id="colorA" type="color" value="#e74c3c"></span>
       <span class="chip"><span class="dot" id="dotB"></span><input id="colorB" type="color" value="#2ecc71"></span>
       <span class="chip"><span class="dot" id="dotC"></span><input id="colorC" type="color" value="#3498db"></span>
-      <span>Opacity <input id="opacity" type="range" min="0.05" max="0.9" step="0.05" value="0.35"> <span id="opacityVal">0.35</span></span>
+      <span>Opacity <input id="opacity" type="range" min="0.05" max="0.9" step="0.05" value="0.75"> <span id="opacityVal">0.75</span></span>
       <span>Font <input id="fontsize" type="range" min="10" max="36" step="1" value="16"> <span id="fontsizeVal">16</span> px</span>
     </div>
     <div class="row" style="margin-top:6px">
@@ -94,9 +94,9 @@
     </div>
     <div id="regionList" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:190px;overflow:auto;margin-top:6px"></div>
     <div class="row" style="margin-top:6px;font-size:13px;color:#333">
-      <span>A: <code id="countA">0</code></span><span>B: <code id="countB">0</code></span><span>C: <code id="countC">0</code></span>
-      <span>A∩B: <code id="countAB">0</code></span><span>A∩C: <code id="countAC">0</code></span><span>B∩C: <code id="countBC">0</code></span>
-      <span>A∩B∩C: <code id="countABC">0</code></span>
+      <span><span id="labelAName">A</span>: <code id="countA">0</code></span><span><span id="labelBName">B</span>: <code id="countB">0</code></span><span><span id="labelCName">C</span>: <code id="countC">0</code></span>
+      <span><span id="labelABName">A∩B</span>: <code id="countAB">0</code></span><span><span id="labelACName">A∩C</span>: <code id="countAC">0</code></span><span><span id="labelBCName">B∩C</span>: <code id="countBC">0</code></span>
+      <span><span id="labelABCName">A∩B∩C</span>: <code id="countABC">0</code></span>
     </div>
   </div>
 </div>
@@ -116,9 +116,9 @@
     caseSensitive: $('#caseSensitive'), delimiter: $('#delimiter'),
     counts: { nA: $('#nA'), nB: $('#nB'), nC: $('#nC'), nAB: $('#nAB'), nAC: $('#nAC'), nBC: $('#nBC'), nABC: $('#nABC') }
   };
-  inputs.opacity.addEventListener('input',()=>inputs.opacityVal.textContent=inputs.opacity.value);
-  inputs.fontsize.addEventListener('input',()=>inputs.fontsizeVal.textContent=inputs.fontsize.value);
-  ['colorA','colorB','colorC'].forEach(id=>{ const d={colorA:'dotA',colorB:'dotB',colorC:'dotC'}[id]; document.getElementById(d).style.background=inputs[id].value; inputs[id].addEventListener('input',e=>document.getElementById(d).style.background=e.target.value); });
+  inputs.opacity.addEventListener('input',()=>{ inputs.opacityVal.textContent=inputs.opacity.value; console.debug('opacity changed', inputs.opacity.value); refreshDiagram(); });
+  inputs.fontsize.addEventListener('input',()=>{ inputs.fontsizeVal.textContent=inputs.fontsize.value; console.debug('fontsize changed', inputs.fontsize.value); refreshDiagram(); });
+  ['colorA','colorB','colorC'].forEach(id=>{ const d={colorA:'dotA',colorB:'dotB',colorC:'dotC'}[id]; document.getElementById(d).style.background=inputs[id].value; inputs[id].addEventListener('input',e=>{ document.getElementById(d).style.background=e.target.value; console.debug('color changed', id, e.target.value); refreshDiagram(); }); });
 
   function splitItems(text, mode){
     if(mode==='newline'){
@@ -212,7 +212,7 @@
     const circles=[{id:'A',x:d.Ax,y:d.Ay,r:d.rA,color:style.colorA},{id:'B',x:d.Bx,y:d.By,r:d.rB,color:style.colorB}];
     if(counts.nC>0) circles.push({id:'C',x:d.Cx,y:d.Cy,r:d.rC,color:style.colorC});
     for(const c of circles){ const p=toPx(c.x,c.y); makeEl('circle',{cx:p.x,cy:p.y,r:c.r*scale,fill:c.color,'fill-opacity':style.opacity,stroke:'rgba(255,255,255,.75)','stroke-width':1.2}); }
-    function addText(txt,x,y){ const t=makeEl('text',{x:x,y:y,'font-size':style.fontsize,'text-anchor':'middle',fill:'#f5f6ff'}); t.textContent=txt; enableDrag(t); return t; }
+    function addText(txt,x,y){ const t=makeEl('text',{x:x,y:y,'font-size':style.fontsize,'text-anchor':'middle',fill:'#333'}); t.textContent=txt; enableDrag(t); return t; }
     const pA=toPx(d.Ax-d.rA*0.45,d.Ay-d.rA*0.15); addText(labels.A+' ('+counts.nA+')',pA.x,pA.y);
     const pB=toPx(d.Bx+d.rB*0.45,d.By-d.rB*0.15); addText(labels.B+' ('+counts.nB+')',pB.x,pB.y);
     if(counts.nC>0){ const pC=toPx(d.Cx,d.Cy-d.rC*0.9); addText(labels.C+' ('+counts.nC+')',pC.x,pC.y); }
@@ -289,7 +289,12 @@
   $('#copyRegion').addEventListener('click',()=>navigator.clipboard.writeText(getRegionText(regionSelect.value)));
   $('#downloadRegion').addEventListener('click',()=>{ const blob=new Blob([getRegionText(regionSelect.value)],{type:'text/plain'}); const url=URL.createObjectURL(blob); downloadURL(url,regionSelect.value+'.txt'); setTimeout(()=>URL.revokeObjectURL(url),5000); });
 
-  let lastRegions=null;
+  let lastRegions=null, lastDrawMode=null;
+  function refreshDiagram(){
+    if(!lastDrawMode) return;
+    console.debug('refreshDiagram called', lastDrawMode);
+    if(lastDrawMode==='lists') drawFromLists(); else drawFromNumeric();
+  }
   function populateRegion(code){
     console.debug('populateRegion called', code);
     if(!lastRegions) return;
@@ -310,17 +315,43 @@
     countsUI.ABC.textContent=c.ABC;
   }
 
+  function updateCountLabels(labels){
+    console.debug('updateCountLabels called', labels);
+    $('#labelAName').textContent=labels.A;
+    $('#labelBName').textContent=labels.B;
+    $('#labelCName').textContent=labels.C;
+    $('#labelABName').textContent=labels.A+'∩'+labels.B;
+    $('#labelACName').textContent=labels.A+'∩'+labels.C;
+    $('#labelBCName').textContent=labels.B+'∩'+labels.C;
+    $('#labelABCName').textContent=labels.A+'∩'+labels.B+'∩'+labels.C;
+  }
+
+  function updateRegionSelect(labels){
+    console.debug('updateRegionSelect called', labels);
+    const map={
+      A:labels.A+' only',
+      B:labels.B+' only',
+      C:labels.C+' only',
+      AB:labels.A+'∩'+labels.B+' only',
+      AC:labels.A+'∩'+labels.C+' only',
+      BC:labels.B+'∩'+labels.C+' only',
+      ABC:labels.A+'∩'+labels.B+'∩'+labels.C
+    };
+    [...regionSelect.options].forEach(o=>{ if(map[o.value]) o.textContent=map[o.value]; });
+  }
+
   function drawFromLists(){
     console.debug('drawFromLists triggered');
     const mode=inputs.delimiter.value, cs=inputs.caseSensitive.checked;
     const A=parseList(inputs.A.value,cs,mode), B=parseList(inputs.B.value,cs,mode), C=parseList(inputs.C.value,cs,mode);
-    const regions=setsFromLists(A,B,C); lastRegions=regions;
+    const regions=setsFromLists(A,B,C); lastRegions=regions; lastDrawMode='lists';
     const counts={nA:regions.A.size,nB:regions.B.size,nC:regions.C.size,Aonly:regions.Aonly.size,Bonly:regions.Bonly.size,Conly:regions.Conly.size,AB:regions.AB.size,AC:regions.AC.size,BC:regions.BC.size,ABC:regions.ABC.size};
     refreshCounts(counts);
     const pairs={nAB:counts.AB+counts.ABC,nAC:counts.AC+counts.ABC,nBC:counts.BC+counts.ABC};
     const L=layoutFromCounts(counts.nA,counts.nB,counts.nC,pairs.nAB,pairs.nAC,pairs.nBC);
     const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value};
     const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
+    updateCountLabels(labels); updateRegionSelect(labels);
     fitAndDraw(L,style,labels,counts);
   }
 
@@ -330,11 +361,12 @@
     const nAB=+inputs.counts.nAB.value||0, nAC=+inputs.counts.nAC.value||0, nBC=+inputs.counts.nBC.value||0, nABC=+inputs.counts.nABC.value||0;
     const Aonly=Math.max(0,nA-(nAB+nAC-nABC)), Bonly=Math.max(0,nB-(nAB+nBC-nABC)), Conly=Math.max(0,nC-(nAC+nBC-nABC));
     const counts={nA,nB,nC,Aonly,Bonly,Conly,AB:Math.max(0,nAB-nABC),AC:Math.max(0,nAC-nABC),BC:Math.max(0,nBC-nABC),ABC:nABC};
-    lastRegions={A:new Set(),B:new Set(),C:new Set(),Aonly:new Set(),Bonly:new Set(),Conly:new Set(),AB:new Set(),AC:new Set(),BC:new Set(),ABC:new Set()};
+    lastRegions={A:new Set(),B:new Set(),C:new Set(),Aonly:new Set(),Bonly:new Set(),Conly:new Set(),AB:new Set(),AC:new Set(),BC:new Set(),ABC:new Set()}; lastDrawMode='numeric';
     refreshCounts(counts);
     const L=layoutFromCounts(nA,nB,nC,nAB,nAC,nBC);
     const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value};
     const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
+    updateCountLabels(labels); updateRegionSelect(labels);
     fitAndDraw(L,style,labels,counts);
   }
 
@@ -364,7 +396,7 @@ RING1B
 KAT7`;
     drawFromLists();
   });
-  document.getElementById('reset').addEventListener('click',()=>{ inputs.A.value=''; inputs.B.value=''; inputs.C.value=''; Object.values(inputs.counts).forEach(x=>x.value=0); clearSVG(); legend.innerHTML=''; lastRegions=null; regionList.textContent=''; Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{}); document.getElementById('countA').textContent='0'; document.getElementById('countB').textContent='0'; document.getElementById('countC').textContent='0'; document.getElementById('countAB').textContent='0'; document.getElementById('countAC').textContent='0'; document.getElementById('countBC').textContent='0'; document.getElementById('countABC').textContent='0'; });
+  document.getElementById('reset').addEventListener('click',()=>{ inputs.A.value=''; inputs.B.value=''; inputs.C.value=''; Object.values(inputs.counts).forEach(x=>x.value=0); clearSVG(); legend.innerHTML=''; lastRegions=null; lastDrawMode=null; regionList.textContent=''; Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{}); document.getElementById('countA').textContent='0'; document.getElementById('countB').textContent='0'; document.getElementById('countC').textContent='0'; document.getElementById('countAB').textContent='0'; document.getElementById('countAC').textContent='0'; document.getElementById('countBC').textContent='0'; document.getElementById('countABC').textContent='0'; updateCountLabels({A:'A',B:'B',C:'C'}); updateRegionSelect({A:'A',B:'B',C:'C'}); });
   window.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); drawFromLists(); } });
 })();
 </script>
