@@ -47,6 +47,8 @@
       <span class="chip"><span class="dot" id="dotB"></span><input id="colorB" type="color" value="#2ecc71"></span>
       <span class="chip"><span class="dot" id="dotC"></span><input id="colorC" type="color" value="#3498db"></span>
       <span>Opacity <input id="opacity" type="range" min="0.05" max="0.9" step="0.05" value="0.75"> <span id="opacityVal">0.75</span></span>
+      <span>Border <input id="borderColor" type="color" value="#ffffff"></span>
+      <span>Border width <input id="borderWidth" type="range" min="0" max="10" step="0.1" value="1.2"> <span id="borderWidthVal">1.2</span> px</span>
       <span>Font <input id="fontsize" type="range" min="10" max="36" step="1" value="16"> <span id="fontsizeVal">16</span> px</span>
     </div>
     <div class="row" style="margin-top:6px">
@@ -88,9 +90,6 @@
         <option value="A">A only</option><option value="B">B only</option><option value="C">C only</option>
         <option value="AB">A∩B only</option><option value="AC">A∩C only</option><option value="BC">B∩C only</option><option value="ABC">A∩B∩C</option>
       </select>
-      <button class="btn" id="refreshRegion">Show</button>
-      <button class="btn" id="copyRegion">Copy</button>
-      <button class="btn" id="downloadRegion">Download</button>
     </div>
     <div id="regionList" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:190px;overflow:auto;margin-top:6px"></div>
     <div class="row" style="margin-top:6px;font-size:13px;color:#333">
@@ -111,14 +110,16 @@
     A: $('#listA'), B: $('#listB'), C: $('#listC'),
     labelA: $('#labelA'), labelB: $('#labelB'), labelC: $('#labelC'),
     colorA: $('#colorA'), colorB: $('#colorB'), colorC: $('#colorC'),
-    opacity: $('#opacity'), fontsize: $('#fontsize'),
-    opacityVal: $('#opacityVal'), fontsizeVal: $('#fontsizeVal'),
+    opacity: $('#opacity'), fontsize: $('#fontsize'), borderColor: $('#borderColor'), borderWidth: $('#borderWidth'),
+    opacityVal: $('#opacityVal'), fontsizeVal: $('#fontsizeVal'), borderWidthVal: $('#borderWidthVal'),
     caseSensitive: $('#caseSensitive'), delimiter: $('#delimiter'),
     counts: { nA: $('#nA'), nB: $('#nB'), nC: $('#nC'), nAB: $('#nAB'), nAC: $('#nAC'), nBC: $('#nBC'), nABC: $('#nABC') }
   };
   inputs.opacity.addEventListener('input',()=>{ inputs.opacityVal.textContent=inputs.opacity.value; console.debug('opacity changed', inputs.opacity.value); refreshDiagram(); });
   inputs.fontsize.addEventListener('input',()=>{ inputs.fontsizeVal.textContent=inputs.fontsize.value; console.debug('fontsize changed', inputs.fontsize.value); refreshDiagram(); });
   ['colorA','colorB','colorC'].forEach(id=>{ const d={colorA:'dotA',colorB:'dotB',colorC:'dotC'}[id]; document.getElementById(d).style.background=inputs[id].value; inputs[id].addEventListener('input',e=>{ document.getElementById(d).style.background=e.target.value; console.debug('color changed', id, e.target.value); refreshDiagram(); }); });
+  inputs.borderColor.addEventListener('input',e=>{ console.debug('border color changed', e.target.value); refreshDiagram(); });
+  inputs.borderWidth.addEventListener('input',()=>{ inputs.borderWidthVal.textContent=inputs.borderWidth.value; console.debug('border width changed', inputs.borderWidth.value); refreshDiagram(); });
 
   function splitItems(text, mode){
     if(mode==='newline'){
@@ -211,8 +212,8 @@
     function toPx(x,y){ return {x:x*scale+tx,y:y*scale+ty}; }
     const circles=[{id:'A',x:d.Ax,y:d.Ay,r:d.rA,color:style.colorA},{id:'B',x:d.Bx,y:d.By,r:d.rB,color:style.colorB}];
     if(counts.nC>0) circles.push({id:'C',x:d.Cx,y:d.Cy,r:d.rC,color:style.colorC});
-    for(const c of circles){ const p=toPx(c.x,c.y); makeEl('circle',{cx:p.x,cy:p.y,r:c.r*scale,fill:c.color,'fill-opacity':style.opacity,stroke:'rgba(255,255,255,.75)','stroke-width':1.2}); }
-    function addText(txt,x,y){ const t=makeEl('text',{x:x,y:y,'font-size':style.fontsize,'text-anchor':'middle',fill:'#333'}); t.textContent=txt; enableDrag(t); return t; }
+    for(const c of circles){ const p=toPx(c.x,c.y); makeEl('circle',{cx:p.x,cy:p.y,r:c.r*scale,fill:c.color,'fill-opacity':style.opacity,stroke:style.borderColor,'stroke-width':style.borderWidth}); console.debug('circle drawn', c.id); }
+    function addText(txt,x,y,regionCode){ const t=makeEl('text',{x:x,y:y,'font-size':style.fontsize,'text-anchor':'middle',fill:'#333'}); t.textContent=txt; if(regionCode){ const title=makeEl('title',{}); title.textContent=getRegionText(regionCode); t.appendChild(title); console.debug('tooltip added for', regionCode); } enableDrag(t); return t; }
     const pA=toPx(d.Ax-d.rA*0.45,d.Ay-d.rA*0.15); addText(labels.A+' ('+counts.nA+')',pA.x,pA.y);
     const pB=toPx(d.Bx+d.rB*0.45,d.By-d.rB*0.15); addText(labels.B+' ('+counts.nB+')',pB.x,pB.y);
     if(counts.nC>0){ const pC=toPx(d.Cx,d.Cy-d.rC*0.9); addText(labels.C+' ('+counts.nC+')',pC.x,pC.y); }
@@ -229,23 +230,24 @@
       for(let k=0;k<20 && (!inside(p,must1,r1)||!inside(p,must2,r2)); k++){ p.x=(p.x+base.x)/2; p.y=(p.y+base.y)/2; }
       return p;
     }
-    if(counts.Aonly) addText(String(counts.Aonly), toPx(d.Ax-d.rA*0.5,d.Ay+d.rA*0.1).x, toPx(d.Ax-d.rA*0.5,d.Ay+d.rA*0.1).y);
-    if(counts.Bonly) addText(String(counts.Bonly), toPx(d.Bx+d.rB*0.5,d.By+d.rB*0.1).x, toPx(d.Bx+d.rB*0.5,d.By+d.rB*0.1).y);
+    function regionCenter(circle,others){ let vx=0,vy=0; for(const o of others){ vx+=o.x-circle.x; vy+=o.y-circle.y; } const len=Math.hypot(vx,vy)||1; const px=circle.x-(vx/len)*circle.r*0.5; const py=circle.y-(vy/len)*circle.r*0.5; const p=toPx(px,py); console.debug('regionCenter',circle.id,p); return p; }
+    if(counts.Aonly){ const p=regionCenter({id:'A',x:d.Ax,y:d.Ay,r:d.rA},circles.filter(c=>c.id!=='A')); addText(String(counts.Aonly),p.x,p.y,'A'); }
+    if(counts.Bonly){ const p=regionCenter({id:'B',x:d.Bx,y:d.By,r:d.rB},circles.filter(c=>c.id!=='B')); addText(String(counts.Bonly),p.x,p.y,'B'); }
     if(counts.AB){
       let ABp=mid(cA,cB);
       if(counts.nC>0) ABp=adjustPair(ABp,cC,rCp,cA,rAp,cB,rBp,'AB');
-      addText(String(counts.AB),ABp.x,ABp.y);
+      addText(String(counts.AB),ABp.x,ABp.y,'AB');
     }
     if(counts.nC>0){
-      if(counts.Conly) addText(String(counts.Conly), toPx(d.Cx,d.Cy+d.rC*0.65).x, toPx(d.Cx,d.Cy+d.rC*0.65).y);
+      if(counts.Conly){ const p=regionCenter({id:'C',x:d.Cx,y:d.Cy,r:d.rC},circles.filter(c=>c.id!=='C')); addText(String(counts.Conly),p.x,p.y,'C'); }
       if(counts.AC){
-        let ACp=mid(cA,cC); ACp=adjustPair(ACp,cB,rBp,cA,rAp,cC,rCp,'AC'); addText(String(counts.AC),ACp.x,ACp.y);
+        let ACp=mid(cA,cC); ACp=adjustPair(ACp,cB,rBp,cA,rAp,cC,rCp,'AC'); addText(String(counts.AC),ACp.x,ACp.y,'AC');
       }
       if(counts.BC){
-        let BCp=mid(cB,cC); BCp=adjustPair(BCp,cA,rAp,cB,rBp,cC,rCp,'BC'); addText(String(counts.BC),BCp.x,BCp.y);
+        let BCp=mid(cB,cC); BCp=adjustPair(BCp,cA,rAp,cB,rBp,cC,rCp,'BC'); addText(String(counts.BC),BCp.x,BCp.y,'BC');
       }
       if(counts.ABC){
-        const ABCp={x:(cA.x+cB.x+cC.x)/3,y:(cA.y+cB.y+cC.y)/3}; addText(String(counts.ABC),ABCp.x,ABCp.y);
+        const ABCp={x:(cA.x+cB.x+cC.x)/3,y:(cA.y+cB.y+cC.y)/3}; addText(String(counts.ABC),ABCp.x,ABCp.y,'ABC');
       }
     }
     stage.onclick=(evt)=>{
@@ -285,9 +287,7 @@
 
   const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
   const regionSelect=$('#regionSelect'), regionList=$('#regionList');
-  $('#refreshRegion').addEventListener('click',()=>populateRegion(regionSelect.value));
-  $('#copyRegion').addEventListener('click',()=>navigator.clipboard.writeText(getRegionText(regionSelect.value)));
-  $('#downloadRegion').addEventListener('click',()=>{ const blob=new Blob([getRegionText(regionSelect.value)],{type:'text/plain'}); const url=URL.createObjectURL(blob); downloadURL(url,regionSelect.value+'.txt'); setTimeout(()=>URL.revokeObjectURL(url),5000); });
+  regionSelect.addEventListener('change',()=>{ console.debug('regionSelect changed', regionSelect.value); populateRegion(regionSelect.value); });
 
   let lastRegions=null, lastDrawMode=null;
   function refreshDiagram(){
@@ -349,10 +349,12 @@
     refreshCounts(counts);
     const pairs={nAB:counts.AB+counts.ABC,nAC:counts.AC+counts.ABC,nBC:counts.BC+counts.ABC};
     const L=layoutFromCounts(counts.nA,counts.nB,counts.nC,pairs.nAB,pairs.nAC,pairs.nBC);
-    const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value};
+    const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value,borderColor:inputs.borderColor.value,borderWidth:inputs.borderWidth.value};
     const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
     updateCountLabels(labels); updateRegionSelect(labels);
     fitAndDraw(L,style,labels,counts);
+    populateRegion(regionSelect.value);
+    console.debug('populateRegion after drawFromLists', regionSelect.value);
   }
 
   function drawFromNumeric(){
@@ -364,10 +366,12 @@
     lastRegions={A:new Set(),B:new Set(),C:new Set(),Aonly:new Set(),Bonly:new Set(),Conly:new Set(),AB:new Set(),AC:new Set(),BC:new Set(),ABC:new Set()}; lastDrawMode='numeric';
     refreshCounts(counts);
     const L=layoutFromCounts(nA,nB,nC,nAB,nAC,nBC);
-    const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value};
+    const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value,borderColor:inputs.borderColor.value,borderWidth:inputs.borderWidth.value};
     const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
     updateCountLabels(labels); updateRegionSelect(labels);
     fitAndDraw(L,style,labels,counts);
+    populateRegion(regionSelect.value);
+    console.debug('populateRegion after drawFromNumeric', regionSelect.value);
   }
 
   document.getElementById('draw').addEventListener('click',drawFromLists);
