@@ -20,7 +20,6 @@
   .chip{display:flex;gap:6px;align-items:center;background:#111633;border:1px solid #232a4d;border-radius:999px;padding:4px 8px}
   .dot{width:10px;height:10px;border-radius:999px;border:1px solid rgba(255,255,255,.6)}
   details{background:#111633;border:1px solid #232a4d;border-radius:10px;padding:8px}
-  pre{background:#0c0f22;border:1px dashed #3b457a;border-radius:10px;padding:8px;max-height:220px;overflow:auto}
   @media (max-width:1000px){.wrap{grid-template-columns:1fr}#stage{height:560px}}
 </style>
 </head>
@@ -73,12 +72,7 @@
         <button class="btn" id="useNumeric">Use numeric</button>
       </div>
     </details>
-    <details style="margin-top:8px">
-      <summary>Debug console</summary>
-      <div class="row" style="margin:6px 0"><label><input id="enableDebug" type="checkbox"> Enable debug</label><button class="btn" id="clearDebug" type="button">Clear</button></div>
-      <pre id="debug"></pre>
-    </details>
-  </div>
+    </div>
   <div class="panel">
     <div class="svgbox">
       <svg id="stage" viewBox="0 0 1000 680" xmlns="http://www.w3.org/2000/svg" aria-label="Venn diagram"></svg>
@@ -109,11 +103,6 @@
 <script>
 (function(){
   "use strict";
-  const debugEl = document.getElementById('debug');
-  const enableDebug = document.getElementById('enableDebug');
-  function log(){ if(!enableDebug.checked) return; const t=new Date().toISOString().split('T')[1].split('.')[0]; debugEl.textContent += '['+t+'] '+Array.from(arguments).join(' ')+'\\n'; debugEl.scrollTop=debugEl.scrollHeight; }
-  document.getElementById('clearDebug').addEventListener('click',()=>debugEl.textContent='');
-
   const $ = (s)=>document.querySelector(s);
   const stage = $('#stage'); const legend = $('#legend');
   const inputs = {
@@ -216,16 +205,26 @@
         p.x=avoidCenter.x+(vx/u)*t; p.y=avoidCenter.y+(vy/u)*t;
       }
       for(let k=0;k<20 && (!inside(p,must1,r1)||!inside(p,must2,r2)); k++){ p.x=(p.x+base.x)/2; p.y=(p.y+base.y)/2; }
-      log('label-adjust',tag,JSON.stringify(p)); return p;
+      return p;
     }
-    addText(String(counts.Aonly), toPx(d.Ax-d.rA*0.5,d.Ay+d.rA*0.1).x, toPx(d.Ax-d.rA*0.5,d.Ay+d.rA*0.1).y);
-    addText(String(counts.Bonly), toPx(d.Bx+d.rB*0.5,d.By+d.rB*0.1).x, toPx(d.Bx+d.rB*0.5,d.By+d.rB*0.1).y);
-    let ABp=mid(cA,cB); if(counts.nC>0) ABp=adjustPair(ABp,cC,rCp,cA,rAp,cB,rBp,'AB'); addText(String(counts.AB),ABp.x,ABp.y);
+    if(counts.Aonly) addText(String(counts.Aonly), toPx(d.Ax-d.rA*0.5,d.Ay+d.rA*0.1).x, toPx(d.Ax-d.rA*0.5,d.Ay+d.rA*0.1).y);
+    if(counts.Bonly) addText(String(counts.Bonly), toPx(d.Bx+d.rB*0.5,d.By+d.rB*0.1).x, toPx(d.Bx+d.rB*0.5,d.By+d.rB*0.1).y);
+    if(counts.AB){
+      let ABp=mid(cA,cB);
+      if(counts.nC>0) ABp=adjustPair(ABp,cC,rCp,cA,rAp,cB,rBp,'AB');
+      addText(String(counts.AB),ABp.x,ABp.y);
+    }
     if(counts.nC>0){
-      addText(String(counts.Conly), toPx(d.Cx,d.Cy+d.rC*0.65).x, toPx(d.Cx,d.Cy+d.rC*0.65).y);
-      let ACp=mid(cA,cC); ACp=adjustPair(ACp,cB,rBp,cA,rAp,cC,rCp,'AC'); addText(String(counts.AC),ACp.x,ACp.y);
-      let BCp=mid(cB,cC); BCp=adjustPair(BCp,cA,rAp,cB,rBp,cC,rCp,'BC'); addText(String(counts.BC),BCp.x,BCp.y);
-      const ABCp={x:(cA.x+cB.x+cC.x)/3,y:(cA.y+cB.y+cC.y)/3}; addText(String(counts.ABC),ABCp.x,ABCp.y);
+      if(counts.Conly) addText(String(counts.Conly), toPx(d.Cx,d.Cy+d.rC*0.65).x, toPx(d.Cx,d.Cy+d.rC*0.65).y);
+      if(counts.AC){
+        let ACp=mid(cA,cC); ACp=adjustPair(ACp,cB,rBp,cA,rAp,cC,rCp,'AC'); addText(String(counts.AC),ACp.x,ACp.y);
+      }
+      if(counts.BC){
+        let BCp=mid(cB,cC); BCp=adjustPair(BCp,cA,rAp,cB,rBp,cC,rCp,'BC'); addText(String(counts.BC),BCp.x,BCp.y);
+      }
+      if(counts.ABC){
+        const ABCp={x:(cA.x+cB.x+cC.x)/3,y:(cA.y+cB.y+cC.y)/3}; addText(String(counts.ABC),ABCp.x,ABCp.y);
+      }
     }
     stage.onclick=(evt)=>{
       const pt=stage.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY; const loc=pt.matrixTransform(stage.getScreenCTM().inverse());
@@ -288,13 +287,28 @@
   document.getElementById('exportPNG').addEventListener('click',exportPNG);
   document.getElementById('sample').addEventListener('click',()=>{
     inputs.labelA.value='Transcriptomic'; inputs.labelB.value='Proteomic'; inputs.labelC.value='Phospho';
-    inputs.A.value='BRCA1\\nATM\\nBAP1\\nEZH2\\nSUZ12\\nRING1B';
-    inputs.B.value='BRCA1\\nBAP1\\nRING1B\\nCBX2\\nHDAC1\\nPAXIP1\\nHUWE1';
-    inputs.C.value='BRCA1\\nPAXIP1\\nCSNK2A1\\nRING1B\\nKAT7'; drawFromLists();
+    inputs.A.value=`BRCA1
+ATM
+BAP1
+EZH2
+SUZ12
+RING1B`;
+    inputs.B.value=`BRCA1
+BAP1
+RING1B
+CBX2
+HDAC1
+PAXIP1
+HUWE1`;
+    inputs.C.value=`BRCA1
+PAXIP1
+CSNK2A1
+RING1B
+KAT7`;
+    drawFromLists();
   });
   document.getElementById('reset').addEventListener('click',()=>{ inputs.A.value=''; inputs.B.value=''; inputs.C.value=''; Object.values(inputs.counts).forEach(x=>x.value=0); clearSVG(); legend.innerHTML=''; lastRegions=null; regionList.textContent=''; Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{}); document.getElementById('countA').textContent='0'; document.getElementById('countB').textContent='0'; document.getElementById('countC').textContent='0'; document.getElementById('countAB').textContent='0'; document.getElementById('countAC').textContent='0'; document.getElementById('countBC').textContent='0'; document.getElementById('countABC').textContent='0'; });
   window.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); drawFromLists(); } });
-  log('Ready. Paste lists and click Draw.');
 })();
 </script>
 </body>
