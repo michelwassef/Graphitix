@@ -330,16 +330,24 @@
     const arr=[...(map[code]||new Set())].sort();
     regionList.innerHTML=arr.length?arr.map(x=>'<div>'+x+'</div>').join(''):'(empty)';
   }
-  function getRegionText(code){ if(!lastRegions) return ''; const map={A:lastRegions.Aonly,B:lastRegions.Bonly,C:lastRegions.Conly,AB:lastRegions.AB,AC:lastRegions.AC,BC:lastRegions.BC,ABC:lastRegions.ABC}; return [...(map[code]||new Set())].join('\\n'); }
+  function getRegionText(code){
+    if(!lastRegions) return '';
+    const map={A:lastRegions.Aonly,B:lastRegions.Bonly,C:lastRegions.Conly,AB:lastRegions.AB,AC:lastRegions.AC,BC:lastRegions.BC,ABC:lastRegions.ABC};
+    const genes=[...(map[code]||new Set())];
+    console.debug('getRegionText genes', code, genes);
+    return genes.join('\n');
+  }
 
   function runGOAnalysis(genes){
     console.debug('runGOAnalysis called', genes);
-    if(!genes.length){ goResults.innerHTML='<i>No genes for analysis</i>'; return; }
+    const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
+    console.debug('GO analysis formatted genes', formatted);
+    if(!formatted.length){ goResults.innerHTML='<i>No genes for analysis</i>'; return; }
     goResults.innerHTML='<i>Running GO analysis...</i>';
     fetch('https://biit.cs.ut.ee/gprofiler/api/gost/profile/',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({organism:'hsapiens',query:genes})
+      body:JSON.stringify({organism:'hsapiens',query:formatted})
     }).then(r=>{
       console.debug('GO analysis HTTP status', r.status);
       if(!r.ok) throw new Error('GO API HTTP '+r.status);
@@ -360,16 +368,16 @@
 
   function runStringAnalysis(genes){
     console.debug('runStringAnalysis called', genes);
-    if(!genes.length){ stringResults.innerHTML='<i>No genes for analysis</i>'; return; }
+    const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
+    console.debug('STRING analysis formatted genes', formatted);
+    if(!formatted.length){ stringResults.innerHTML='<i>No genes for analysis</i>'; return; }
     stringResults.innerHTML='<i>Running STRING analysis...</i>';
     const params=new URLSearchParams();
-    params.set('identifiers',genes.join('\n'));
+    params.set('identifiers',formatted.join('\n'));
     params.set('species','9606');
-    fetch('https://string-db.org/api/json/enrichment',{
-      method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:params.toString()
-    }).then(r=>{
+    console.debug('STRING analysis request params', params.toString());
+    fetch('https://string-db.org/api/json/enrichment?'+params.toString())
+    .then(r=>{
       console.debug('STRING analysis HTTP status', r.status);
       if(!r.ok) throw new Error('STRING API HTTP '+r.status);
       return r.json();
@@ -484,8 +492,18 @@ KAT7`;
     drawFromLists();
   });
   document.getElementById('reset').addEventListener('click',()=>{ inputs.A.value=''; inputs.B.value=''; inputs.C.value=''; Object.values(inputs.counts).forEach(x=>x.value=0); clearSVG(); legend.innerHTML=''; lastRegions=null; lastDrawMode=null; regionList.textContent=''; Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{}); document.getElementById('countA').textContent='0'; document.getElementById('countB').textContent='0'; document.getElementById('countC').textContent='0'; document.getElementById('countAB').textContent='0'; document.getElementById('countAC').textContent='0'; document.getElementById('countBC').textContent='0'; document.getElementById('countABC').textContent='0'; updateCountLabels({A:'A',B:'B',C:'C'}); updateRegionSelect({A:'A',B:'B',C:'C'}); });
-  goBtn.addEventListener('click',()=>{ console.debug('goBtn clicked'); const genes=getRegionText(regionSelect.value).split(/\n/).filter(x=>x); runGOAnalysis(genes); });
-  stringBtn.addEventListener('click',()=>{ console.debug('stringBtn clicked'); const genes=getRegionText(regionSelect.value).split(/\n/).filter(x=>x); runStringAnalysis(genes); });
+  goBtn.addEventListener('click',()=>{
+    console.debug('goBtn clicked');
+    const genes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
+    console.debug('goBtn genes', genes);
+    runGOAnalysis(genes);
+  });
+  stringBtn.addEventListener('click',()=>{
+    console.debug('stringBtn clicked');
+    const genes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
+    console.debug('stringBtn genes', genes);
+    runStringAnalysis(genes);
+  });
   window.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); drawFromLists(); } });
 })();
 </script>
