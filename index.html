@@ -17,9 +17,7 @@
   .btn:hover{background:#f0f0f0}
   .svgbox{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px;margin:8px 0}
   #stage{width:100%;max-width:500px;height:340px;display:block}
-  .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
-  .chip{display:flex;gap:6px;align-items:center;background:#fff;border:1px solid #ddd;border-radius:999px;padding:4px 8px}
-  .dot{width:10px;height:10px;border-radius:999px;border:1px solid #999}
+  .color-picker{display:flex;align-items:center;gap:6px}
   .diagram-area{display:flex;gap:12px;align-items:flex-start}
   .config-options{display:flex;flex-direction:column;gap:12px;min-width:140px}
   .config-options .color-pickers{display:flex;flex-direction:column;gap:8px}
@@ -76,7 +74,6 @@
     <div class="diagram-area">
       <div class="svgbox">
         <svg id="stage" viewBox="0 0 500 340" xmlns="http://www.w3.org/2000/svg" aria-label="Venn diagram"></svg>
-        <div class="legend" id="legend"></div>
         <div class="row" style="justify-content:flex-end;margin-top:6px">
           <button class="btn" id="exportSVG">Export SVG</button>
           <button class="btn" id="exportPNG">Export PNG</button>
@@ -84,9 +81,9 @@
       </div>
       <div class="config-options">
         <div class="color-pickers">
-          <label class="chip"><span class="dot" id="dotA"></span><input id="colorA" type="color" value="#e74c3c" aria-label="Color for set A"></label>
-          <label class="chip"><span class="dot" id="dotB"></span><input id="colorB" type="color" value="#2ecc71" aria-label="Color for set B"></label>
-          <label class="chip"><span class="dot" id="dotC"></span><input id="colorC" type="color" value="#3498db" aria-label="Color for set C"></label>
+          <label class="color-picker"><input id="colorA" type="color" value="#e74c3c" aria-label="Color for set A"><span id="colorLabelA">A</span></label>
+          <label class="color-picker"><input id="colorB" type="color" value="#2ecc71" aria-label="Color for set B"><span id="colorLabelB">B</span></label>
+          <label class="color-picker"><input id="colorC" type="color" value="#3498db" aria-label="Color for set C"><span id="colorLabelC">C</span></label>
         </div>
         <label>Opacity <input id="opacity" type="range" min="0.05" max="0.9" step="0.05" value="0.75"> <span id="opacityVal">0.75</span></label>
         <label>Border color <input id="borderColor" type="color" value="#d3d3d3" aria-label="Diagram border color"></label>
@@ -125,7 +122,7 @@
 (function(){
   "use strict";
   const $ = (s)=>document.querySelector(s);
-  const stage = $('#stage'); const legend = $('#legend');
+  const stage = $('#stage');
   console.debug('App initialized');
   const inputs = {
     A: $('#listA'), B: $('#listB'), C: $('#listC'),
@@ -145,7 +142,19 @@
   });
   inputs.opacity.addEventListener('input',()=>{ inputs.opacityVal.textContent=inputs.opacity.value; console.debug('opacity changed', inputs.opacity.value); refreshDiagram(); });
   inputs.fontsize.addEventListener('input',()=>{ inputs.fontsizeVal.textContent=inputs.fontsize.value; console.debug('fontsize changed', inputs.fontsize.value); refreshDiagram(); });
-  ['colorA','colorB','colorC'].forEach(id=>{ const d={colorA:'dotA',colorB:'dotB',colorC:'dotC'}[id]; document.getElementById(d).style.background=inputs[id].value; inputs[id].addEventListener('input',e=>{ document.getElementById(d).style.background=e.target.value; console.debug('color changed', id, e.target.value); refreshDiagram(); }); });
+  ['colorA','colorB','colorC'].forEach(id=>{
+    inputs[id].addEventListener('input',e=>{ console.debug('color changed', id, e.target.value); refreshDiagram(); });
+  });
+  ['labelA','labelB','labelC'].forEach(id=>{
+    inputs[id].addEventListener('input',()=>{
+      const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
+      console.debug('label changed', labels);
+      updateColorLabels(labels);
+      updateRegionSelect(labels);
+      updateCountLabels(labels);
+    });
+  });
+  updateColorLabels({A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'});
   inputs.borderColor.addEventListener('input',e=>{ console.debug('border color changed', e.target.value); refreshDiagram(); });
   inputs.borderWidth.addEventListener('input',()=>{ inputs.borderWidthVal.textContent=inputs.borderWidth.value; console.debug('border width changed', inputs.borderWidth.value); refreshDiagram(); });
 
@@ -328,8 +337,6 @@
       else if(inA&&inB&&!inC) region='AB'; else if(inA&&inC&&!inB) region='AC'; else if(inB&&inC&&!inA) region='BC'; else if(inA&&inB&&inC) region='ABC';
       if(region){ $('#regionSelect').value=region; populateRegion(region); }
     };
-    legend.innerHTML=''; const items=[{label:labels.A,color:style.colorA,n:counts.nA},{label:labels.B,color:style.colorB,n:counts.nB}]; if(counts.nC>0) items.push({label:labels.C,color:style.colorC,n:counts.nC});
-    for(const it of items){ const el=document.createElement('div'); el.className='chip'; const dot=document.createElement('span'); dot.className='dot'; dot.style.background=it.color; el.appendChild(dot); const sp=document.createElement('span'); sp.textContent=it.label+' ('+it.n+')'; el.appendChild(sp); legend.appendChild(el); }
   }
 
   function exportSVG(){
@@ -360,6 +367,12 @@
   const tooltip=$('#tooltip');
   console.debug('stringNetwork element', stringNetwork);
   console.debug('tooltip element', tooltip);
+  function clearAnalysis(){
+    console.debug('clearAnalysis called');
+    goResults.innerHTML='';
+    stringResults.innerHTML='';
+    stringNetwork.innerHTML='';
+  }
   regionSelect.addEventListener('change',()=>{ console.debug('regionSelect changed', regionSelect.value); populateRegion(regionSelect.value); });
 
   let lastRegions=null, lastDrawMode=null;
@@ -370,6 +383,7 @@
   }
   function populateRegion(code){
     console.debug('populateRegion called', code);
+    clearAnalysis();
     if(!lastRegions) return;
     const map={A:lastRegions.Aonly,B:lastRegions.Bonly,C:lastRegions.Conly,AB:lastRegions.AB,AC:lastRegions.AC,BC:lastRegions.BC,ABC:lastRegions.ABC};
     const arr=[...(map[code]||new Set())].sort();
@@ -497,6 +511,13 @@
     [...regionSelect.options].forEach(o=>{ if(map[o.value]) o.textContent=map[o.value]; });
   }
 
+  function updateColorLabels(labels){
+    console.debug('updateColorLabels called', labels);
+    $('#colorLabelA').textContent=labels.A;
+    $('#colorLabelB').textContent=labels.B;
+    $('#colorLabelC').textContent=labels.C;
+  }
+
   function drawFromLists(){
     console.debug('drawFromLists triggered');
     const mode=inputs.delimiter.value, cs=inputs.caseSensitive.checked;
@@ -508,7 +529,7 @@
     const L=layoutFromCounts(counts.nA,counts.nB,counts.nC,pairs.nAB,pairs.nAC,pairs.nBC);
     const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value,borderColor:inputs.borderColor.value,borderWidth:inputs.borderWidth.value};
     const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
-    updateCountLabels(labels); updateRegionSelect(labels);
+    updateCountLabels(labels); updateRegionSelect(labels); updateColorLabels(labels);
     fitAndDraw(L,style,labels,counts);
     populateRegion(regionSelect.value);
     console.debug('populateRegion after drawFromLists', regionSelect.value);
@@ -525,7 +546,7 @@
     const L=layoutFromCounts(nA,nB,nC,nAB,nAC,nBC);
     const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value,borderColor:inputs.borderColor.value,borderWidth:inputs.borderWidth.value};
     const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
-    updateCountLabels(labels); updateRegionSelect(labels);
+    updateCountLabels(labels); updateRegionSelect(labels); updateColorLabels(labels);
     fitAndDraw(L,style,labels,counts);
     populateRegion(regionSelect.value);
     console.debug('populateRegion after drawFromNumeric', regionSelect.value);
@@ -557,7 +578,7 @@ RING1B
 KAT7`;
     drawFromLists();
   });
-  document.getElementById('reset').addEventListener('click',()=>{ inputs.A.value=''; inputs.B.value=''; inputs.C.value=''; Object.values(inputs.counts).forEach(x=>x.value=0); clearSVG(); legend.innerHTML=''; lastRegions=null; lastDrawMode=null; regionList.textContent=''; Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{}); document.getElementById('countA').textContent='0'; document.getElementById('countB').textContent='0'; document.getElementById('countC').textContent='0'; document.getElementById('countAB').textContent='0'; document.getElementById('countAC').textContent='0'; document.getElementById('countBC').textContent='0'; document.getElementById('countABC').textContent='0'; updateCountLabels({A:'A',B:'B',C:'C'}); updateRegionSelect({A:'A',B:'B',C:'C'}); });
+  document.getElementById('reset').addEventListener('click',()=>{ inputs.A.value=''; inputs.B.value=''; inputs.C.value=''; Object.values(inputs.counts).forEach(x=>x.value=0); clearSVG(); lastRegions=null; lastDrawMode=null; regionList.textContent=''; Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{}); document.getElementById('countA').textContent='0'; document.getElementById('countB').textContent='0'; document.getElementById('countC').textContent='0'; document.getElementById('countAB').textContent='0'; document.getElementById('countAC').textContent='0'; document.getElementById('countBC').textContent='0'; document.getElementById('countABC').textContent='0'; updateCountLabels({A:'A',B:'B',C:'C'}); updateColorLabels({A:'A',B:'B',C:'C'}); updateRegionSelect({A:'A',B:'B',C:'C'}); clearAnalysis(); });
   goBtn.addEventListener('click',()=>{
     console.debug('goBtn clicked');
     const genes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
