@@ -92,6 +92,14 @@
       </select>
     </div>
     <div id="regionList" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:190px;overflow:auto;margin-top:6px"></div>
+    <div class="row" style="margin-top:6px">
+      <button class="btn" id="goBtn">GO analysis</button>
+      <button class="btn" id="stringBtn">STRING analysis</button>
+    </div>
+    <div id="analysisResults" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:190px;overflow:auto;margin-top:6px">
+      <div id="goResults"></div>
+      <div id="stringResults" style="margin-top:8px"></div>
+    </div>
     <div class="row" style="margin-top:6px;font-size:13px;color:#333">
       <span><span id="labelAName">A</span>: <code id="countA">0</code></span><span><span id="labelBName">B</span>: <code id="countB">0</code></span><span><span id="labelCName">C</span>: <code id="countC">0</code></span>
       <span><span id="labelABName">A∩B</span>: <code id="countAB">0</code></span><span><span id="labelACName">A∩C</span>: <code id="countAC">0</code></span><span><span id="labelBCName">B∩C</span>: <code id="countBC">0</code></span>
@@ -306,7 +314,7 @@
   function downloadURL(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
 
   const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
-  const regionSelect=$('#regionSelect'), regionList=$('#regionList');
+  const regionSelect=$('#regionSelect'), regionList=$('#regionList'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringResults=$('#stringResults');
   regionSelect.addEventListener('change',()=>{ console.debug('regionSelect changed', regionSelect.value); populateRegion(regionSelect.value); });
 
   let lastRegions=null, lastDrawMode=null;
@@ -323,6 +331,48 @@
     regionList.innerHTML=arr.length?arr.map(x=>'<div>'+x+'</div>').join(''):'(empty)';
   }
   function getRegionText(code){ if(!lastRegions) return ''; const map={A:lastRegions.Aonly,B:lastRegions.Bonly,C:lastRegions.Conly,AB:lastRegions.AB,AC:lastRegions.AC,BC:lastRegions.BC,ABC:lastRegions.ABC}; return [...(map[code]||new Set())].join('\\n'); }
+
+  function runGOAnalysis(genes){
+    console.debug('runGOAnalysis called', genes);
+    if(!genes.length){ goResults.innerHTML='<i>No genes for analysis</i>'; return; }
+    goResults.innerHTML='<i>Running GO analysis...</i>';
+    fetch('https://biit.cs.ut.ee/gprofiler/api/gost/profile/',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({organism:'hsapiens',query:genes})
+    }).then(r=>r.json()).then(d=>{
+      console.debug('GO analysis response', d);
+      if(d.result){
+        const items=d.result.slice(0,5).map(r=>'<div>'+r.term_name+' (p='+Number(r.p_value).toExponential(2)+')</div>').join('');
+        goResults.innerHTML='<strong>GO terms</strong>'+items;
+      }else{
+        goResults.innerHTML='<div>No GO results</div>';
+      }
+    }).catch(err=>{
+      console.error('GO analysis error', err);
+      goResults.innerHTML='<div>Error fetching GO analysis</div>';
+    });
+  }
+
+  function runStringAnalysis(genes){
+    console.debug('runStringAnalysis called', genes);
+    if(!genes.length){ stringResults.innerHTML='<i>No genes for analysis</i>'; return; }
+    stringResults.innerHTML='<i>Running STRING analysis...</i>';
+    const ids=encodeURIComponent(genes.join('%0d'));
+    fetch('https://string-db.org/api/json/enrichment?identifiers='+ids+'&species=9606')
+      .then(r=>r.json()).then(d=>{
+        console.debug('STRING analysis response', d);
+        if(Array.isArray(d)){
+          const items=d.slice(0,5).map(r=>'<div>'+r.termDescription+' (FDR='+Number(r.fdr).toExponential(2)+')</div>').join('');
+          stringResults.innerHTML='<strong>STRING enrichment</strong>'+items;
+        }else{
+          stringResults.innerHTML='<div>No STRING results</div>';
+        }
+      }).catch(err=>{
+        console.error('STRING analysis error', err);
+        stringResults.innerHTML='<div>Error fetching STRING analysis</div>';
+      });
+  }
 
   function refreshCounts(c){
     console.debug('refreshCounts called', c);
@@ -421,6 +471,8 @@ KAT7`;
     drawFromLists();
   });
   document.getElementById('reset').addEventListener('click',()=>{ inputs.A.value=''; inputs.B.value=''; inputs.C.value=''; Object.values(inputs.counts).forEach(x=>x.value=0); clearSVG(); legend.innerHTML=''; lastRegions=null; lastDrawMode=null; regionList.textContent=''; Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{}); document.getElementById('countA').textContent='0'; document.getElementById('countB').textContent='0'; document.getElementById('countC').textContent='0'; document.getElementById('countAB').textContent='0'; document.getElementById('countAC').textContent='0'; document.getElementById('countBC').textContent='0'; document.getElementById('countABC').textContent='0'; updateCountLabels({A:'A',B:'B',C:'C'}); updateRegionSelect({A:'A',B:'B',C:'C'}); });
+  goBtn.addEventListener('click',()=>{ console.debug('goBtn clicked'); const genes=getRegionText(regionSelect.value).split(/\n/).filter(x=>x); runGOAnalysis(genes); });
+  stringBtn.addEventListener('click',()=>{ console.debug('stringBtn clicked'); const genes=getRegionText(regionSelect.value).split(/\n/).filter(x=>x); runStringAnalysis(genes); });
   window.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); drawFromLists(); } });
 })();
 </script>
