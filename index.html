@@ -434,9 +434,10 @@
       const fn=await fetchUniProtFunction(gene);
       console.debug('regionList gene function', gene, fn);
       tooltip.innerHTML=fn?`<strong>${gene}</strong><br>${fn}`:`<strong>${gene}</strong><br><i>Function not found</i>`;
-      const box=e.target.getBoundingClientRect();
-      tooltip.style.left=(box.right+window.scrollX+8)+'px';
-      tooltip.style.top=(box.top+window.scrollY)+'px';
+      const x=e.pageX, y=e.pageY;
+      console.debug('tooltip position calculated', {x, y});
+      tooltip.style.left=(x+8)+'px';
+      tooltip.style.top=(y+8)+'px';
       tooltip.style.display='block';
     }
   });
