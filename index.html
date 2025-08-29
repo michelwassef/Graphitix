@@ -355,7 +355,11 @@
     }).then(d=>{
       console.debug('GO analysis response', d);
       if(d.result){
-        const items=d.result.slice(0,5).map(r=>'<div>'+r.term_name+' (p='+Number(r.p_value).toExponential(2)+')</div>').join('');
+        const items=d.result.slice(0,5).map(r=>{
+          const term=r.term_name||r.name||'unknown term';
+          console.debug('GO result item', r, term);
+          return '<div>'+term+' (p='+Number(r.p_value).toExponential(2)+')</div>';
+        }).join('');
         goResults.innerHTML='<strong>GO terms</strong>'+items;
       }else{
         goResults.innerHTML='<div>No GO results</div>';
@@ -384,7 +388,11 @@
     }).then(d=>{
       console.debug('STRING analysis response', d);
       if(Array.isArray(d)){
-        const items=d.slice(0,5).map(r=>'<div>'+r.termDescription+' (FDR='+Number(r.fdr).toExponential(2)+')</div>').join('');
+        const items=d.slice(0,5).map(r=>{
+          const desc=r.termDescription||r.description||'unknown term';
+          console.debug('STRING result item', r, desc);
+          return '<div>'+desc+' (FDR='+Number(r.fdr).toExponential(2)+')</div>';
+        }).join('');
         stringResults.innerHTML='<strong>STRING enrichment</strong>'+items;
       }else{
         stringResults.innerHTML='<div>No STRING results</div>';
