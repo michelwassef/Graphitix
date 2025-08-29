@@ -382,7 +382,9 @@
     stringNetwork.innerHTML='<i>Loading STRING network...</i>';
     stringResults.innerHTML='<i>Running STRING enrichment...</i>';
     const params=new URLSearchParams();
-    params.set('identifiers',formatted.join('\\n'));
+    const joinedIds=formatted.join('\n');
+    console.debug('STRING joined identifiers', joinedIds);
+    params.set('identifiers', joinedIds);
     params.set('species','9606');
     console.debug('STRING analysis request params', params.toString());
     const networkUrl='https://string-db.org/api/image/network?'+params.toString();
