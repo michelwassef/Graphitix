@@ -96,9 +96,12 @@
       <button class="btn" id="goBtn">GO analysis</button>
       <button class="btn" id="stringBtn">STRING analysis</button>
     </div>
-    <div id="analysisResults" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:190px;overflow:auto;margin-top:6px">
+    <div id="analysisResults" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:400px;overflow:auto;margin-top:6px">
       <div id="goResults"></div>
-      <div id="stringResults" style="margin-top:8px"></div>
+      <div id="stringSection" style="display:flex;gap:8px;margin-top:8px">
+        <div id="stringNetwork" style="flex:1"></div>
+        <div id="stringResults" style="flex:1"></div>
+      </div>
     </div>
     <div class="row" style="margin-top:6px;font-size:13px;color:#333">
       <span><span id="labelAName">A</span>: <code id="countA">0</code></span><span><span id="labelBName">B</span>: <code id="countB">0</code></span><span><span id="labelCName">C</span>: <code id="countC">0</code></span>
@@ -314,7 +317,8 @@
   function downloadURL(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
 
   const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
-  const regionSelect=$('#regionSelect'), regionList=$('#regionList'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringResults=$('#stringResults');
+  const regionSelect=$('#regionSelect'), regionList=$('#regionList'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults');
+  console.debug('stringNetwork element', stringNetwork);
   regionSelect.addEventListener('change',()=>{ console.debug('regionSelect changed', regionSelect.value); populateRegion(regionSelect.value); });
 
   let lastRegions=null, lastDrawMode=null;
@@ -374,12 +378,23 @@
     console.debug('runStringAnalysis called', genes);
     const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
     console.debug('STRING analysis formatted genes', formatted);
-    if(!formatted.length){ stringResults.innerHTML='<i>No genes for analysis</i>'; return; }
-    stringResults.innerHTML='<i>Running STRING analysis...</i>';
+    if(!formatted.length){ stringNetwork.innerHTML=''; stringResults.innerHTML='<i>No genes for analysis</i>'; return; }
+    stringNetwork.innerHTML='<i>Loading STRING network...</i>';
+    stringResults.innerHTML='<i>Running STRING enrichment...</i>';
     const params=new URLSearchParams();
-    params.set('identifiers',formatted.join('\n'));
+    params.set('identifiers',formatted.join('\\n'));
     params.set('species','9606');
     console.debug('STRING analysis request params', params.toString());
+    const networkUrl='https://string-db.org/api/image/network?'+params.toString();
+    console.debug('STRING network image URL', networkUrl);
+    const img=new Image();
+    img.src=networkUrl;
+    img.alt='STRING network graph';
+    img.style.maxWidth='100%';
+    img.onload=()=>console.debug('STRING network image loaded');
+    img.onerror=e=>console.error('STRING network image error', e);
+    stringNetwork.innerHTML='';
+    stringNetwork.appendChild(img);
     fetch('https://string-db.org/api/json/enrichment?'+params.toString())
     .then(r=>{
       console.debug('STRING analysis HTTP status', r.status);
