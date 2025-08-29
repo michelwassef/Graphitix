@@ -86,7 +86,7 @@
           <label class="color-picker"><input id="colorC" type="color" value="#3498db" aria-label="Color for set C"><span id="colorLabelC">C</span></label>
         </div>
         <label>Opacity <input id="opacity" type="range" min="0.05" max="0.9" step="0.05" value="0.75"> <span id="opacityVal">0.75</span></label>
-        <label>Border color <input id="borderColor" type="color" value="#d3d3d3" aria-label="Diagram border color"></label>
+        <label>Border color <input id="borderColor" type="color" value="#999999" aria-label="Diagram border color"></label>
         <label>Border width <input id="borderWidth" type="range" min="0" max="10" step="0.1" value="1.2"> <span id="borderWidthVal">1.2</span> px</label>
         <label>Font size <input id="fontsize" type="range" min="10" max="36" step="1" value="16"> <span id="fontsizeVal">16</span> px</label>
       </div>
@@ -184,24 +184,49 @@
     return parts;
   }
   function parseList(raw, cs, mode){
-    const arr = splitItems(raw.trim(), mode).map(s=>cs?s.trim():s.trim().toLowerCase()).filter(Boolean);
-    const seen=new Set(), out=[]; for(const x of arr){ if(!seen.has(x)){ seen.add(x); out.push(x); } }
+    const arr = splitItems(raw.trim(), mode).map(s=>s.trim()).filter(Boolean);
+    const seen=new Set(), out=[];
+    for(const x of arr){
+      const key=cs?x:x.toLowerCase();
+      if(!seen.has(key)){
+        seen.add(key);
+        out.push({key,val:x});
+      }
+    }
     console.debug('parseList', {raw, mode, out});
     return out;
   }
   function setsFromLists(listA, listB, listC){
-    const A=new Set(listA),B=new Set(listB),C=new Set(listC);
+    console.debug('setsFromLists input', {listA, listB, listC});
+    const mapA=new Map(listA.map(o=>[o.key,o.val]));
+    const mapB=new Map(listB.map(o=>[o.key,o.val]));
+    const mapC=new Map(listC.map(o=>[o.key,o.val]));
+    const keysA=new Set(mapA.keys()), keysB=new Set(mapB.keys()), keysC=new Set(mapC.keys());
     const inter=(S,T)=>new Set([...S].filter(x=>T.has(x)));
     const diff=(S,T)=>new Set([...S].filter(x=>!T.has(x)));
     const union=(S,T)=>new Set([...S,...T]);
-    const ABC=inter(inter(A,B),C);
-    const AB=diff(inter(A,B),C);
-    const AC=diff(inter(A,C),B);
-    const BC=diff(inter(B,C),A);
-    const Aonly=diff(A,union(B,C));
-    const Bonly=diff(B,union(A,C));
-    const Conly=diff(C,union(A,B));
-    return {A,B,C,Aonly,Bonly,Conly,AB,AC,BC,ABC};
+    const ABCk=inter(inter(keysA,keysB),keysC);
+    const ABk=diff(inter(keysA,keysB),keysC);
+    const ACk=diff(inter(keysA,keysC),keysB);
+    const BCk=diff(inter(keysB,keysC),keysA);
+    const Aonlyk=diff(keysA,union(keysB,keysC));
+    const Bonlyk=diff(keysB,union(keysA,keysC));
+    const Conlyk=diff(keysC,union(keysA,keysB));
+    const mapVal=(keys,map)=>new Set([...keys].map(k=>map.get(k)));
+    const res={
+      A:mapVal(keysA,mapA),
+      B:mapVal(keysB,mapB),
+      C:mapVal(keysC,mapC),
+      Aonly:mapVal(Aonlyk,mapA),
+      Bonly:mapVal(Bonlyk,mapB),
+      Conly:mapVal(Conlyk,mapC),
+      AB:mapVal(ABk,mapA),
+      AC:mapVal(ACk,mapA),
+      BC:mapVal(BCk,mapB),
+      ABC:mapVal(ABCk,mapA)
+    };
+    console.debug('setsFromLists result', res);
+    return res;
   }
   function circleIntersectionArea(r1,r2,d){
     if(d>=r1+r2) return 0;
@@ -383,6 +408,44 @@
   const tooltip=$('#tooltip');
   console.debug('stringNetwork element', stringNetwork);
   console.debug('tooltip element', tooltip);
+  const uniProtCache={};
+  console.debug('UniProt cache initialized', uniProtCache);
+  async function fetchUniProtFunction(gene){
+    const q=gene.toUpperCase();
+    console.debug('fetchUniProtFunction called', q);
+    if(uniProtCache[q]){ console.debug('fetchUniProtFunction cache hit', q); return uniProtCache[q]; }
+    try{
+      const url=`https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(q)}+AND+reviewed:true&fields=cc_function&format=json&size=1`;
+      console.debug('fetchUniProtFunction url', url);
+      const resp=await fetch(url);
+      console.debug('fetchUniProtFunction response', resp.status);
+      if(!resp.ok) return null;
+      const data=await resp.json();
+      console.debug('fetchUniProtFunction data', data);
+      const value=data.results?.[0]?.comments?.find(c=>c.commentType==='FUNCTION')?.texts?.[0]?.value||null;
+      uniProtCache[q]=value;
+      return value;
+    }catch(err){ console.error('fetchUniProtFunction error', err); return null; }
+  }
+  regionList.addEventListener('mouseover',async e=>{
+    if(e.target&&e.target.parentElement===regionList){
+      const gene=e.target.textContent.trim();
+      console.debug('regionList gene mouseover', gene);
+      const fn=await fetchUniProtFunction(gene);
+      console.debug('regionList gene function', gene, fn);
+      tooltip.innerHTML=fn?`<strong>${gene}</strong><br>${fn}`:`<strong>${gene}</strong><br><i>Function not found</i>`;
+      const box=e.target.getBoundingClientRect();
+      tooltip.style.left=(box.right+window.scrollX+8)+'px';
+      tooltip.style.top=(box.top+window.scrollY)+'px';
+      tooltip.style.display='block';
+    }
+  });
+  regionList.addEventListener('mouseout',e=>{
+    if(e.target&&e.target.parentElement===regionList){
+      console.debug('regionList gene mouseout', e.target.textContent.trim());
+      tooltip.style.display='none';
+    }
+  });
   function clearAnalysis(){
     console.debug('clearAnalysis called');
     goResults.innerHTML='';
