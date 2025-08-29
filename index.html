@@ -16,12 +16,13 @@
   .btn{background:#fff;border:1px solid #ccc;color:#333;border-radius:6px;padding:8px 12px;cursor:pointer}
   .btn:hover{background:#f0f0f0}
   .svgbox{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
-  #stage{width:100%;height:680px;display:block}
+  #stage{width:100%;max-width:500px;height:340px;display:block}
   .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
   .chip{display:flex;gap:6px;align-items:center;background:#fff;border:1px solid #ddd;border-radius:999px;padding:4px 8px}
   .dot{width:10px;height:10px;border-radius:999px;border:1px solid #999}
   details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
-  @media (max-width:1000px){.wrap{grid-template-columns:1fr}#stage{height:560px}}
+  @media (max-width:1000px){.wrap{grid-template-columns:1fr}#stage{height:280px}}
+  #tooltip{position:absolute;background:#fff;border:1px solid #ccc;border-radius:4px;padding:8px;display:none;max-height:200px;overflow:auto;column-width:160px;column-gap:12px;z-index:1000;}
 </style>
 </head>
 <body>
@@ -78,7 +79,7 @@
     </div>
   <div class="panel">
     <div class="svgbox">
-      <svg id="stage" viewBox="0 0 1000 680" xmlns="http://www.w3.org/2000/svg" aria-label="Venn diagram"></svg>
+      <svg id="stage" viewBox="0 0 500 340" xmlns="http://www.w3.org/2000/svg" aria-label="Venn diagram"></svg>
       <div class="legend" id="legend"></div>
       <div class="row" style="justify-content:flex-end;margin-top:6px">
         <button class="btn" id="exportSVG">Export SVG</button>
@@ -99,8 +100,8 @@
     <div id="analysisResults" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:400px;overflow:auto;margin-top:6px">
       <div id="goResults"></div>
       <div id="stringSection" style="display:flex;gap:8px;margin-top:8px">
-        <div id="stringNetwork" style="flex:1"></div>
         <div id="stringResults" style="flex:1"></div>
+        <div id="stringNetwork" style="flex:1"></div>
       </div>
     </div>
     <div class="row" style="margin-top:6px;font-size:13px;color:#333">
@@ -110,6 +111,7 @@
     </div>
   </div>
 </div>
+<div id="tooltip"></div>
 
 <script>
 (function(){
@@ -213,7 +215,7 @@
   }
   function fitAndDraw(d, style, labels, counts){
     clearSVG();
-    const W=1000,H=680,pad=40;
+    const W=500,H=340,pad=20;
     const xs=[d.Ax-d.rA,d.Ax+d.rA,d.Bx-d.rB,d.Bx+d.rB]; const ys=[d.Ay-d.rA,d.Ay+d.rA,d.By-d.rB,d.By+d.rB];
     if(counts.nC>0){ xs.push(d.Cx-d.rC,d.Cx+d.rC); ys.push(d.Cy-d.rC,d.Cy+d.rC); }
     const minX=Math.min.apply(null,xs), maxX=Math.max.apply(null,xs);
@@ -224,7 +226,29 @@
     const circles=[{id:'A',x:d.Ax,y:d.Ay,r:d.rA,color:style.colorA},{id:'B',x:d.Bx,y:d.By,r:d.rB,color:style.colorB}];
     if(counts.nC>0) circles.push({id:'C',x:d.Cx,y:d.Cy,r:d.rC,color:style.colorC});
     for(const c of circles){ const p=toPx(c.x,c.y); makeEl('circle',{cx:p.x,cy:p.y,r:c.r*scale,fill:c.color,'fill-opacity':style.opacity,stroke:style.borderColor,'stroke-width':style.borderWidth}); console.debug('circle drawn', c.id); }
-    function addText(txt,x,y,regionCode){ const t=makeEl('text',{x:x,y:y,'font-size':style.fontsize,'text-anchor':'middle',fill:'#333'}); t.textContent=txt; if(regionCode){ const title=makeEl('title',{}); title.textContent=getRegionText(regionCode); t.appendChild(title); console.debug('tooltip added for', regionCode); } enableDrag(t); return t; }
+    function addText(txt,x,y,regionCode){
+      const t=makeEl('text',{x:x,y:y,'font-size':style.fontsize,'text-anchor':'middle',fill:'#333'});
+      t.textContent=txt;
+      if(regionCode){
+        const genes=getRegionText(regionCode).split(/\n/).filter(g=>g);
+        console.debug('tooltip data prepared', regionCode, genes.length);
+        t.addEventListener('mouseenter',e=>{
+          console.debug('tooltip show', regionCode);
+          tooltip.innerHTML=genes.map(g=>'<div>'+g+'</div>').join('');
+          tooltip.style.columnCount=Math.max(1,Math.ceil(genes.length/30));
+          const box=e.target.getBoundingClientRect();
+          tooltip.style.left=(box.right+window.scrollX+8)+'px';
+          tooltip.style.top=(box.top+window.scrollY)+'px';
+          tooltip.style.display='block';
+        });
+        t.addEventListener('mouseleave',()=>{
+          console.debug('tooltip hide', regionCode);
+          tooltip.style.display='none';
+        });
+      }
+      enableDrag(t);
+      return t;
+    }
     const labelBoxes=[];
     function placeCircleLabel(circle,label,count){
       const center=toPx(circle.x,circle.y);
@@ -318,7 +342,9 @@
 
   const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
   const regionSelect=$('#regionSelect'), regionList=$('#regionList'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults');
+  const tooltip=$('#tooltip');
   console.debug('stringNetwork element', stringNetwork);
+  console.debug('tooltip element', tooltip);
   regionSelect.addEventListener('change',()=>{ console.debug('regionSelect changed', regionSelect.value); populateRegion(regionSelect.value); });
 
   let lastRegions=null, lastDrawMode=null;
