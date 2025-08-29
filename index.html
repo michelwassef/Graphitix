@@ -239,13 +239,15 @@
   }
   function fitAndDraw(d, style, labels, counts){
     clearSVG();
-    const W=500,H=340,pad=20;
+    const W=500,H=340,pad=20,labelPad=style.fontsize*2;
     const xs=[d.Ax-d.rA,d.Ax+d.rA,d.Bx-d.rB,d.Bx+d.rB]; const ys=[d.Ay-d.rA,d.Ay+d.rA,d.By-d.rB,d.By+d.rB];
     if(counts.nC>0){ xs.push(d.Cx-d.rC,d.Cx+d.rC); ys.push(d.Cy-d.rC,d.Cy+d.rC); }
     const minX=Math.min.apply(null,xs), maxX=Math.max.apply(null,xs);
     const minY=Math.min.apply(null,ys), maxY=Math.max.apply(null,ys);
-    const scale=Math.min((W-2*pad)/Math.max(1e-6,maxX-minX),(H-2*pad)/Math.max(1e-6,maxY-minY));
-    const tx=(W-scale*(minX+maxX))/2, ty=(H-scale*(minY+maxY))/2;
+    const scale=Math.min((W-2*pad)/Math.max(1e-6,maxX-minX),(H-2*pad-2*labelPad)/Math.max(1e-6,maxY-minY));
+    const tx=(W-scale*(minX+maxX))/2;
+    const ty=(H-2*labelPad-scale*(minY+maxY))/2+labelPad;
+    console.debug('fitAndDraw scale', {labelPad,scale,tx,ty});
     function toPx(x,y){ return {x:x*scale+tx,y:y*scale+ty}; }
     const circles=[{id:'A',x:d.Ax,y:d.Ay,r:d.rA,color:style.colorA},{id:'B',x:d.Bx,y:d.By,r:d.rB,color:style.colorB}];
     if(counts.nC>0) circles.push({id:'C',x:d.Cx,y:d.Cy,r:d.rC,color:style.colorC});
@@ -279,19 +281,33 @@
       const others=circles.filter(c=>c.id!==circle.id);
       const isTop=others.every(o=>circle.y<=o.y);
       const margin=style.fontsize*0.6;
-      let y=center.y+(isTop?-(circle.r*scale+margin):(circle.r*scale+margin));
-      const t=addText(label+' ('+count+')',center.x,y);
-      console.debug('label placed',circle.id,{isTop,x:center.x,y});
-      let box=t.getBBox();
-      for(const b of labelBoxes){
-        while(!(box.x+box.width<b.x||b.x+b.width<box.x||box.y+box.height<b.y||b.y+b.height<box.y)){
-          y+=isTop?-style.fontsize:style.fontsize;
+        let y=center.y+(isTop?-(circle.r*scale+margin):(circle.r*scale+margin));
+        const t=addText(label+' ('+count+')',center.x,y);
+        console.debug('label placed',circle.id,{isTop,x:center.x,y});
+        let box=t.getBBox();
+        for(const b of labelBoxes){
+          while(!(box.x+box.width<b.x||b.x+b.width<box.x||box.y+box.height<b.y||b.y+b.height<box.y)){
+            y+=isTop?-style.fontsize:style.fontsize;
+            t.setAttribute('y',y);
+            box=t.getBBox();
+            console.debug('label adjusted',circle.id,{x:center.x,y});
+          }
+        }
+        const minYBound=style.fontsize;
+        const maxYBound=H-style.fontsize;
+        if(box.y<minYBound){
+          y+=minYBound-box.y;
           t.setAttribute('y',y);
           box=t.getBBox();
-          console.debug('label adjusted',circle.id,{x:center.x,y});
+          console.debug('label clamped top',circle.id,{x:center.x,y});
         }
-      }
-      labelBoxes.push(box);
+        if(box.y+box.height>maxYBound){
+          y-=box.y+box.height-maxYBound;
+          t.setAttribute('y',y);
+          box=t.getBBox();
+          console.debug('label clamped bottom',circle.id,{x:center.x,y});
+        }
+        labelBoxes.push(box);
     }
     placeCircleLabel({id:'A',x:d.Ax,y:d.Ay,r:d.rA},labels.A,counts.nA);
     placeCircleLabel({id:'B',x:d.Bx,y:d.By,r:d.rB},labels.B,counts.nB);
