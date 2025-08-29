@@ -340,7 +340,11 @@
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({organism:'hsapiens',query:genes})
-    }).then(r=>r.json()).then(d=>{
+    }).then(r=>{
+      console.debug('GO analysis HTTP status', r.status);
+      if(!r.ok) throw new Error('GO API HTTP '+r.status);
+      return r.json();
+    }).then(d=>{
       console.debug('GO analysis response', d);
       if(d.result){
         const items=d.result.slice(0,5).map(r=>'<div>'+r.term_name+' (p='+Number(r.p_value).toExponential(2)+')</div>').join('');
@@ -358,20 +362,29 @@
     console.debug('runStringAnalysis called', genes);
     if(!genes.length){ stringResults.innerHTML='<i>No genes for analysis</i>'; return; }
     stringResults.innerHTML='<i>Running STRING analysis...</i>';
-    const ids=encodeURIComponent(genes.join('%0d'));
-    fetch('https://string-db.org/api/json/enrichment?identifiers='+ids+'&species=9606')
-      .then(r=>r.json()).then(d=>{
-        console.debug('STRING analysis response', d);
-        if(Array.isArray(d)){
-          const items=d.slice(0,5).map(r=>'<div>'+r.termDescription+' (FDR='+Number(r.fdr).toExponential(2)+')</div>').join('');
-          stringResults.innerHTML='<strong>STRING enrichment</strong>'+items;
-        }else{
-          stringResults.innerHTML='<div>No STRING results</div>';
-        }
-      }).catch(err=>{
-        console.error('STRING analysis error', err);
-        stringResults.innerHTML='<div>Error fetching STRING analysis</div>';
-      });
+    const params=new URLSearchParams();
+    params.set('identifiers',genes.join('\n'));
+    params.set('species','9606');
+    fetch('https://string-db.org/api/json/enrichment',{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:params.toString()
+    }).then(r=>{
+      console.debug('STRING analysis HTTP status', r.status);
+      if(!r.ok) throw new Error('STRING API HTTP '+r.status);
+      return r.json();
+    }).then(d=>{
+      console.debug('STRING analysis response', d);
+      if(Array.isArray(d)){
+        const items=d.slice(0,5).map(r=>'<div>'+r.termDescription+' (FDR='+Number(r.fdr).toExponential(2)+')</div>').join('');
+        stringResults.innerHTML='<strong>STRING enrichment</strong>'+items;
+      }else{
+        stringResults.innerHTML='<div>No STRING results</div>';
+      }
+    }).catch(err=>{
+      console.error('STRING analysis error', err);
+      stringResults.innerHTML='<div>Error fetching STRING analysis</div>';
+    });
   }
 
   function refreshCounts(c){
