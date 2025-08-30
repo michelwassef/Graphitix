@@ -25,6 +25,11 @@
   details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
   @media (max-width:1000px){.wrap{grid-template-columns:1fr}#stage{height:280px}}
   #tooltip{position:absolute;background:#fff;border:1px solid #ccc;border-radius:4px;padding:8px;display:none;max-height:200px;overflow:auto;column-width:160px;column-gap:12px;z-index:1000;}
+  .analysis-controls{flex-wrap:nowrap}
+  .analysis-controls label{display:flex;align-items:center;gap:4px}
+  .analysis-controls select{width:auto}
+  .gene-item{display:inline-flex;align-items:center;gap:4px}
+  .gene-link{cursor:pointer;margin-left:4px}
 </style>
 </head>
 <body>
@@ -98,7 +103,7 @@
       </select>
     </div>
     <div id="regionList" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:190px;overflow:auto;margin-top:6px"></div>
-    <div class="row" style="margin-top:6px">
+    <div class="row analysis-controls" style="margin-top:6px">
       <label>Species
         <select id="speciesSelect">
           <option value="hsapiens" data-string="9606">H. sapiens</option>
@@ -112,9 +117,9 @@
     </div>
     <div id="analysisResults" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:400px;overflow:auto;margin-top:6px">
       <div id="goResults"></div>
-      <div id="stringSection" style="display:flex;gap:8px;margin-top:8px">
-        <div id="stringResults" style="flex:1"></div>
-        <div id="stringNetwork" style="flex:2"></div>
+      <div id="stringSection" style="display:flex;gap:8px;margin-top:8px;align-items:flex-start">
+        <div id="stringResults"></div>
+        <div id="stringNetwork"></div>
       </div>
     </div>
     <div class="row" style="margin-top:6px;font-size:13px;color:#333">
@@ -567,11 +572,12 @@
     }catch(err){ console.error('fetchUniProtFunction error', err); return null; }
   }
   regionList.addEventListener('mouseover',async e=>{
-    if(e.target&&e.target.parentElement===regionList){
-      const gene=e.target.textContent.trim();
-      console.debug('regionList gene mouseover', gene);
+    const link=e.target.closest('.gene-link');
+    if(link&&regionList.contains(link)){
+      const gene=link.dataset.gene;
+      console.debug('gene-link mouseover', gene);
       const fn=await fetchUniProtFunction(gene);
-      console.debug('regionList gene function', gene, fn);
+      console.debug('gene-link function', gene, fn);
       tooltip.innerHTML=fn?`<strong>${gene}</strong><br>${fn}`:`<strong>${gene}</strong><br><i>Function not found</i>`;
       tooltip.style.fontSize='12px';
       tooltip.style.maxHeight='none';
@@ -597,8 +603,9 @@
     }
   });
   regionList.addEventListener('mouseout',e=>{
-    if(e.target&&e.target.parentElement===regionList){
-      console.debug('regionList gene mouseout', e.target.textContent.trim());
+    const link=e.target.closest('.gene-link');
+    if(link&&regionList.contains(link)){
+      console.debug('gene-link mouseout', link.dataset.gene);
       tooltip.style.display='none';
     }
   });
@@ -623,7 +630,8 @@
     if(!lastRegions) return;
     const map={A:lastRegions.Aonly,B:lastRegions.Bonly,C:lastRegions.Conly,AB:lastRegions.AB,AC:lastRegions.AC,BC:lastRegions.BC,ABC:lastRegions.ABC};
     const arr=[...(map[code]||new Set())].sort();
-    regionList.innerHTML=arr.length?arr.map(x=>'<div>'+x+'</div>').join(''):'(empty)';
+    regionList.innerHTML=arr.length?arr.map(x=>`<div class="gene-item">${x}<span class="gene-link" data-gene="${x}">&#128279;</span></div>`).join(''):'(empty)';
+    console.debug('regionList populated', arr);
   }
   function getRegionText(code){
     if(!lastRegions) return '';
