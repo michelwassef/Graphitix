@@ -262,6 +262,120 @@
     window.addEventListener('mousemove',e=>{ if(!drag) return; const pt=stage.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; const loc=pt.matrixTransform(stage.getScreenCTM().inverse()); el.setAttribute('x',String(orig.x+(loc.x-start.x))); el.setAttribute('y',String(orig.y+(loc.y-start.y))); });
     window.addEventListener('mouseup',()=>drag=false);
   }
+
+  // ---------- Label placement on circular Venn regions (polylabel over implicit regions)
+  function _makeRegionSpec(code, cA, rA, cB, rB, cC, rC, hasC){
+    const spec = [];
+    const inC  = (ctr,r)=>spec.push({ctr, r, type:'in'});
+    const outC = (ctr,r)=>spec.push({ctr, r, type:'out'});
+
+    if(code==='A'){ inC(cA,rA); outC(cB,rB); if(hasC) outC(cC,rC); }
+    if(code==='B'){ inC(cB,rB); outC(cA,rA); if(hasC) outC(cC,rC); }
+    if(code==='C'){ inC(cC,rC); outC(cA,rA); outC(cB,rB); }
+    if(code==='AB'){ inC(cA,rA); inC(cB,rB); if(hasC) outC(cC,rC); }
+    if(code==='AC'){ inC(cA,rA); if(hasC) inC(cC,rC); outC(cB,rB); }
+    if(code==='BC'){ inC(cB,rB); if(hasC) inC(cC,rC); outC(cA,rA); }
+    if(code==='ABC'){ inC(cA,rA); inC(cB,rB); if(hasC) inC(cC,rC); }
+    return spec;
+  }
+
+  // Signed distance to the region boundary: positive inside, negative outside.
+  // Margin for an "inside" constraint is (r - dist); for an "outside" constraint is (dist - r).
+  function _signedDistToRegion(x, y, spec){
+    let minMargin = Infinity;
+    for(const c of spec){
+      const dist = Math.hypot(x - c.ctr.x, y - c.ctr.y);
+      const margin = (c.type === 'in') ? (c.r - dist) : (dist - c.r);
+      if(margin < minMargin) minMargin = margin;
+    }
+    return minMargin;
+  }
+
+  // Bounding box for search: intersection of the bounding boxes of all "inside" circles.
+  function _bboxForSpec(spec){
+    const ins = spec.filter(c => c.type === 'in');
+    if(!ins.length) return null;
+    let b = {x1: -Infinity, y1: -Infinity, x2: Infinity, y2: Infinity};
+    for(const c of ins){
+      const bb = {x1: c.ctr.x - c.r, y1: c.ctr.y - c.r, x2: c.ctr.x + c.r, y2: c.ctr.y + c.r};
+      b = { x1: Math.max(b.x1, bb.x1), y1: Math.max(b.y1, bb.y1),
+            x2: Math.min(b.x2, bb.x2), y2: Math.min(b.y2, bb.y2) };
+    }
+    if(b.x1 >= b.x2 || b.y1 >= b.y2) return null;
+    return b;
+  }
+
+  // Simple priority-queue based "polylabel" over the implicit region
+  function _polylabelRegion(spec, bbox, tolerancePx){
+    // A cell is a square defined by center (x,y) and half-size h. max = d + h*sqrt(2)
+    function makeCell(x, y, h){
+      const d = _signedDistToRegion(x, y, spec);
+      return {x, y, h, d, max: d + h*Math.SQRT2};
+    }
+
+    const width  = bbox.x2 - bbox.x1;
+    const height = bbox.y2 - bbox.y1;
+    const size   = Math.max(width, height);
+    const h0     = size / 2;
+    const nInit  = 4; // 4x4 initial grid
+    const step   = size / nInit;
+
+    // Priority queue as array with manual sorting. OK for tiny queues.
+    const queue = [];
+    function push(c){ queue.push(c); }
+    function pop(){ queue.sort((a,b)=>b.max - a.max); return queue.shift(); }
+
+    // Build initial grid
+    for(let x = bbox.x1; x < bbox.x2 + 1e-6; x += step){
+      for(let y = bbox.y1; y < bbox.y2 + 1e-6; y += step){
+        push(makeCell(x + step/2, y + step/2, step/2));
+      }
+    }
+
+    // Best point starts at bbox center (works even when outside, d will be negative)
+    let best = makeCell((bbox.x1+bbox.x2)/2, (bbox.y1+bbox.y2)/2, h0);
+    if(best.d < 0){
+      // Try to seed with any inside cell if available
+      for(const c of queue){ if(c.d > best.d) best = c; }
+    }
+    console.debug('polylabel seed', {bestD: best.d.toFixed(3), step: step.toFixed(2)});
+
+    while(queue.length){
+      const cell = pop();
+      if(cell.d > best.d) best = cell;
+      // If this cell cannot improve beyond current best by more than tolerance, skip subdividing
+      if(cell.max - best.d <= tolerancePx) continue;
+      // Subdivide into 4 children
+      const h = cell.h / 2;
+      push(makeCell(cell.x - h, cell.y - h, h));
+      push(makeCell(cell.x + h, cell.y - h, h));
+      push(makeCell(cell.x - h, cell.y + h, h));
+      push(makeCell(cell.x + h, cell.y + h, h));
+    }
+
+    // If best.d is still <= 0 we failed to find an inside center. Fallback to bbox center.
+    if(best.d <= 0){
+      console.debug('polylabel fallback, best.d <= 0', best.d);
+    }else{
+      console.debug('polylabel best inside', {x: best.x, y: best.y, d: best.d.toFixed(3)});
+    }
+    return {x: best.x, y: best.y};
+  }
+
+  // Entry point: returns pixel coords for the label point of a region code.
+  function _findRegionLabelPoint(code, cA, rA, cB, rB, cC, rC, hasC, tolerancePx){
+    const spec = _makeRegionSpec(code, cA, rA, cB, rB, cC, rC, hasC);
+    const bbox = _bboxForSpec(spec);
+    if(!bbox){
+      console.debug('bboxForSpec returned null for', code);
+      return null;
+    }
+    const tol = Math.max(0.25, tolerancePx||0.5);
+    const pt  = _polylabelRegion(spec, bbox, tol);
+    console.debug('region label point', code, pt);
+    return pt;
+  }
+
   function fitAndDraw(d, style, labels, counts){
     clearSVG();
     const W=500,H=340,pad=20,labelPad=style.fontsize*2;
@@ -343,38 +457,47 @@
     placeCircleLabel({id:'A',x:d.Ax,y:d.Ay,r:d.rA},labels.A,counts.nA);
     placeCircleLabel({id:'B',x:d.Bx,y:d.By,r:d.rB},labels.B,counts.nB);
     if(counts.nC>0) placeCircleLabel({id:'C',x:d.Cx,y:d.Cy,r:d.rC},labels.C,counts.nC);
-    function mid(p,q,t){ return {x:p.x+(q.x-p.x)*(t||0.5), y:p.y+(q.y-p.y)*(t||0.5)}; }
     const cA=toPx(d.Ax,d.Ay), cB=toPx(d.Bx,d.By), cC=toPx(d.Cx,d.Cy);
     const rAp=d.rA*scale, rBp=d.rB*scale, rCp=d.rC*scale;
-    function inside(pt,center,r){ return Math.hypot(pt.x-center.x,pt.y-center.y) <= r-1; }
-    function adjustPair(base, avoidCenter, avoidR, must1, r1, must2, r2, tag){
-      let p={...base}; const margin=10;
-      for(let i=0;i<30;i++){ const dist=Math.hypot(p.x-avoidCenter.x,p.y-avoidCenter.y); if(dist>avoidR+margin) break;
-        const vx=(p.x-avoidCenter.x)||1e-6, vy=(p.y-avoidCenter.y)||0; const u=Math.hypot(vx,vy)||1; const t=avoidR+margin+1;
-        p.x=avoidCenter.x+(vx/u)*t; p.y=avoidCenter.y+(vy/u)*t;
-      }
-      for(let k=0;k<20 && (!inside(p,must1,r1)||!inside(p,must2,r2)); k++){ p.x=(p.x+base.x)/2; p.y=(p.y+base.y)/2; }
-      return p;
+
+    // --- New optimal placement for region numbers (uses _findRegionLabelPoint) ---
+    const hasC = counts.nC > 0;
+
+    // A only
+    if(counts.Aonly){
+      const p = _findRegionLabelPoint('A', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
+      if(p) addText(String(counts.Aonly), p.x, p.y, 'A');
     }
-    function regionCenter(circle,others){ let vx=0,vy=0; for(const o of others){ vx+=o.x-circle.x; vy+=o.y-circle.y; } const len=Math.hypot(vx,vy)||1; const px=circle.x-(vx/len)*circle.r*0.5; const py=circle.y-(vy/len)*circle.r*0.5; const p=toPx(px,py); console.debug('regionCenter',circle.id,p); return p; }
-    if(counts.Aonly){ const p=regionCenter({id:'A',x:d.Ax,y:d.Ay,r:d.rA},circles.filter(c=>c.id!=='A')); addText(String(counts.Aonly),p.x,p.y,'A'); }
-    if(counts.Bonly){ const p=regionCenter({id:'B',x:d.Bx,y:d.By,r:d.rB},circles.filter(c=>c.id!=='B')); addText(String(counts.Bonly),p.x,p.y,'B'); }
+    // B only
+    if(counts.Bonly){
+      const p = _findRegionLabelPoint('B', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
+      if(p) addText(String(counts.Bonly), p.x, p.y, 'B');
+    }
+
+    if(hasC && counts.Conly){
+      const p = _findRegionLabelPoint('C', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
+      if(p) addText(String(counts.Conly), p.x, p.y, 'C');
+    }
+
+    // A∩B only
     if(counts.AB){
-      let ABp=mid(cA,cB);
-      if(counts.nC>0) ABp=adjustPair(ABp,cC,rCp,cA,rAp,cB,rBp,'AB');
-      addText(String(counts.AB),ABp.x,ABp.y,'AB');
+      const p = _findRegionLabelPoint('AB', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
+      if(p) addText(String(counts.AB), p.x, p.y, 'AB');
     }
-    if(counts.nC>0){
-      if(counts.Conly){ const p=regionCenter({id:'C',x:d.Cx,y:d.Cy,r:d.rC},circles.filter(c=>c.id!=='C')); addText(String(counts.Conly),p.x,p.y,'C'); }
-      if(counts.AC){
-        let ACp=mid(cA,cC); ACp=adjustPair(ACp,cB,rBp,cA,rAp,cC,rCp,'AC'); addText(String(counts.AC),ACp.x,ACp.y,'AC');
-      }
-      if(counts.BC){
-        let BCp=mid(cB,cC); BCp=adjustPair(BCp,cA,rAp,cB,rBp,cC,rCp,'BC'); addText(String(counts.BC),BCp.x,BCp.y,'BC');
-      }
-      if(counts.ABC){
-        const ABCp={x:(cA.x+cB.x+cC.x)/3,y:(cA.y+cB.y+cC.y)/3}; addText(String(counts.ABC),ABCp.x,ABCp.y,'ABC');
-      }
+    // A∩C only
+    if(hasC && counts.AC){
+      const p = _findRegionLabelPoint('AC', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
+      if(p) addText(String(counts.AC), p.x, p.y, 'AC');
+    }
+    // B∩C only
+    if(hasC && counts.BC){
+      const p = _findRegionLabelPoint('BC', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
+      if(p) addText(String(counts.BC), p.x, p.y, 'BC');
+    }
+    // A∩B∩C
+    if(hasC && counts.ABC){
+      const p = _findRegionLabelPoint('ABC', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
+      if(p) addText(String(counts.ABC), p.x, p.y, 'ABC');
     }
     stage.onclick=(evt)=>{
       const pt=stage.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY; const loc=pt.matrixTransform(stage.getScreenCTM().inverse());
