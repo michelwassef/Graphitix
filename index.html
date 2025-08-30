@@ -455,12 +455,11 @@
       tooltip.style.top=(y+8)+'px';
       tooltip.style.display='block';
       requestAnimationFrame(()=>{
-        let h=tooltip.scrollHeight;
-        tooltip.style.width=(h*2)+'px';
-        h=tooltip.scrollHeight;
+        const w=tooltip.scrollWidth;
+        const h=tooltip.scrollHeight;
+        tooltip.style.width=w+'px';
         tooltip.style.height=h+'px';
-        tooltip.style.width=(h*2)+'px';
-        console.debug('tooltip resized for UniProt', {height:h,width:h*2});
+        console.debug('tooltip resized to content', {width:w,height:h});
       });
     }
   });
