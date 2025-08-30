@@ -99,6 +99,14 @@
     </div>
     <div id="regionList" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:190px;overflow:auto;margin-top:6px"></div>
     <div class="row" style="margin-top:6px">
+      <label>Species
+        <select id="speciesSelect">
+          <option value="hsapiens" data-string="9606">H. sapiens</option>
+          <option value="mmusculus" data-string="10090">M. musculus</option>
+          <option value="dmelanogaster" data-string="7227">D. melanogaster</option>
+          <option value="celegans" data-string="6239">C. elegans</option>
+        </select>
+      </label>
       <button class="btn" id="goBtn">GO analysis</button>
       <button class="btn" id="stringBtn">STRING analysis</button>
     </div>
@@ -106,7 +114,7 @@
       <div id="goResults"></div>
       <div id="stringSection" style="display:flex;gap:8px;margin-top:8px">
         <div id="stringResults" style="flex:1"></div>
-        <div id="stringNetwork" style="flex:1"></div>
+        <div id="stringNetwork" style="flex:2"></div>
       </div>
     </div>
     <div class="row" style="margin-top:6px;font-size:13px;color:#333">
@@ -400,7 +408,8 @@
         t.addEventListener('mouseenter',e=>{
           console.debug('tooltip show', regionCode);
           tooltip.innerHTML=genes.map(g=>'<div>'+g+'</div>').join('');
-          tooltip.style.fontSize='16px';
+          tooltip.style.fontSize='12px';
+          console.debug('tooltip font size set for gene list', tooltip.style.fontSize);
           tooltip.style.maxHeight='200px';
           tooltip.style.overflow='auto';
           tooltip.style.width='auto';
@@ -533,11 +542,12 @@
   function downloadURL(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
 
   const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
-  const regionSelect=$('#regionSelect'), regionList=$('#regionList'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults');
-  const tooltip=$('#tooltip');
-  console.debug('stringNetwork element', stringNetwork);
-  console.debug('tooltip element', tooltip);
-  const uniProtCache={};
+    const regionSelect=$('#regionSelect'), regionList=$('#regionList'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults'), speciesSelect=$('#speciesSelect');
+    const tooltip=$('#tooltip');
+    console.debug('stringNetwork element', stringNetwork);
+    console.debug('tooltip element', tooltip);
+    console.debug('speciesSelect element', speciesSelect);
+    const uniProtCache={};
   console.debug('UniProt cache initialized', uniProtCache);
   async function fetchUniProtFunction(gene){
     const q=gene.toUpperCase();
@@ -599,6 +609,7 @@
     stringNetwork.innerHTML='';
   }
   regionSelect.addEventListener('change',()=>{ console.debug('regionSelect changed', regionSelect.value); populateRegion(regionSelect.value); });
+  speciesSelect.addEventListener('change',()=>{ console.debug('speciesSelect changed', speciesSelect.value); });
 
   let lastRegions=null, lastDrawMode=null;
   function refreshDiagram(){
@@ -627,11 +638,13 @@
     const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
     console.debug('GO analysis formatted genes', formatted);
     if(!formatted.length){ goResults.innerHTML='<i>No genes for analysis</i>'; return; }
+    const organism=speciesSelect.value;
+    console.debug('GO analysis organism', organism);
     goResults.innerHTML='<i>Running GO analysis...</i>';
     fetch('https://biit.cs.ut.ee/gprofiler/api/gost/profile/',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({organism:'hsapiens',query:formatted})
+      body:JSON.stringify({organism,query:formatted})
     }).then(r=>{
       console.debug('GO analysis HTTP status', r.status);
       if(!r.ok) throw new Error('GO API HTTP '+r.status);
@@ -665,7 +678,9 @@
     const joinedIds=formatted.join('\n');
     console.debug('STRING joined identifiers', joinedIds);
     params.set('identifiers', joinedIds);
-    params.set('species','9606');
+    const stringSpecies=speciesSelect.selectedOptions[0].dataset.string||'9606';
+    console.debug('STRING analysis species', stringSpecies);
+    params.set('species', stringSpecies);
     console.debug('STRING analysis request params', params.toString());
     const networkUrl='https://string-db.org/api/image/network?'+params.toString();
     console.debug('STRING network image URL', networkUrl);
@@ -673,6 +688,9 @@
     img.src=networkUrl;
     img.alt='STRING network graph';
     img.style.maxWidth='100%';
+    img.width=600;
+    img.height=600;
+    console.debug('STRING network image dimensions set', {width:img.width,height:img.height});
     img.onload=()=>console.debug('STRING network image loaded');
     img.onerror=e=>console.error('STRING network image error', e);
     stringNetwork.innerHTML='';
