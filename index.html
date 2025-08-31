@@ -817,13 +817,38 @@
     tooltip.style.columnWidth='auto';
     tooltip.style.width='max-content';
     console.debug('goBtn tooltip style adjusted');
+    // prepare tooltip for measurement
+    tooltip.style.visibility='hidden';
+    tooltip.style.display='block';
     const rect=goBtn.getBoundingClientRect();
     let left=rect.right+window.scrollX+8;
     let top=rect.top+window.scrollY;
+    console.debug('goBtn tooltip initial position', {left,top});
     tooltip.style.left=left+'px';
     tooltip.style.top=top+'px';
-    tooltip.style.display='block';
     positionTooltip(left, top);
+    let tRect=tooltip.getBoundingClientRect();
+    const overlaps=!(tRect.right<rect.left || tRect.left>rect.right || tRect.bottom<rect.top || tRect.top>rect.bottom);
+    console.debug('goBtn tooltip overlap check', {overlaps,tRect,btnRect:rect});
+    if(overlaps){
+      left=rect.left+window.scrollX;
+      top=rect.bottom+window.scrollY+8;
+      tooltip.style.left=left+'px';
+      tooltip.style.top=top+'px';
+      positionTooltip(left, top);
+      tRect=tooltip.getBoundingClientRect();
+      console.debug('goBtn tooltip repositioned below', {left,top});
+      const stillOverlap=!(tRect.right<rect.left || tRect.left>rect.right || tRect.bottom<rect.top || tRect.top>rect.bottom);
+      console.debug('goBtn tooltip overlap recheck', {stillOverlap,tRect});
+      if(stillOverlap){
+        top=rect.top+window.scrollY-tRect.height-8;
+        tooltip.style.left=left+'px';
+        tooltip.style.top=top+'px';
+        positionTooltip(left, top);
+        console.debug('goBtn tooltip repositioned above', {left,top});
+      }
+    }
+    tooltip.style.visibility='visible';
     console.debug('goBtn tooltip shown', rect, {width: tooltip.offsetWidth, height: tooltip.offsetHeight});
   });
   goBtn.addEventListener('mouseleave',()=>{
