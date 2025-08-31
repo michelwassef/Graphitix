@@ -968,7 +968,11 @@
     if(goUseAllBackground.checked){
       const bg=getAllGenes().map(g=>g.trim().toUpperCase()).filter(x=>x);
       console.debug('GO analysis background genes', bg);
-      if(bg.length) body.background=bg;
+      if(bg.length){
+        body.background=bg;
+        body.domain_scope='custom';
+        console.debug('GO analysis domain scope', body.domain_scope);
+      }
     }
     fetch('https://biit.cs.ut.ee/gprofiler/api/gost/profile/',{
       method:'POST',
