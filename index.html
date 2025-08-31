@@ -146,7 +146,27 @@
         </select>
       </label>
       <button class="btn" id="goBtn">GO analysis</button>
+      <button class="btn" id="goOptsBtn" aria-label="GO analysis options">⚙️</button>
       <button class="btn" id="stringBtn">STRING analysis</button>
+      <button class="btn" id="stringOptsBtn" aria-label="STRING analysis options">⚙️</button>
+    </div>
+    <div id="goOptions" class="analysis-options" style="display:none;margin-top:4px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;padding:4px">
+      <label><input type="checkbox" id="goUseAllBackground"> Use union of all input genes as background</label>
+    </div>
+    <div id="stringOptions" class="analysis-options" style="display:none;margin-top:4px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;padding:4px">
+      <div style="margin-bottom:4px"><strong>Network type:</strong>
+        <label><input type="radio" name="stringNetworkType" value="full" checked> full STRING network</label>
+        <label><input type="radio" name="stringNetworkType" value="physical"> physical subnetwork</label>
+      </div>
+      <div style="margin-bottom:4px"><strong>Meaning of network edges:</strong>
+        <label><input type="radio" name="stringEdgeMeaning" value="evidence" checked> evidence</label>
+        <label><input type="radio" name="stringEdgeMeaning" value="confidence"> confidence</label>
+      </div>
+      <div><strong>Active interaction sources:</strong>
+        <label><input type="checkbox" class="stringSource" value="textmining" checked> Textmining</label>
+        <label><input type="checkbox" class="stringSource" value="experiments" checked> Experiments</label>
+        <label><input type="checkbox" class="stringSource" value="databases" checked> Databases</label>
+      </div>
     </div>
     <div id="analysisResults" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:400px;overflow:auto;margin-top:6px">
       <div id="goResults"></div>
@@ -179,6 +199,9 @@
     caseSensitive: $('#caseSensitive'), delimiter: $('#delimiter'),
     counts: { nA: $('#nA'), nB: $('#nB'), nC: $('#nC'), nAB: $('#nAB'), nAC: $('#nAC'), nBC: $('#nBC'), nABC: $('#nABC') }
   };
+  const goOptsBtn=$('#goOptsBtn'), goOptions=$('#goOptions'), goUseAllBackground=$('#goUseAllBackground');
+  const stringOptsBtn=$('#stringOptsBtn'), stringOptions=$('#stringOptions');
+  console.debug('analysis option elements initialized', {goOptsBtn, stringOptsBtn});
   console.debug('inputs initialized', {
     colorA: inputs.colorA.value,
     colorB: inputs.colorB.value,
@@ -660,6 +683,16 @@
     const text=getRegionText(regionSelect.value);
     navigator.clipboard.writeText(text).then(()=>console.debug('genes copied', text)).catch(err=>console.error('copyRegionBtn error', err));
   });
+  goOptsBtn.addEventListener('click',()=>{
+    const show=goOptions.style.display==='none';
+    goOptions.style.display=show?'block':'none';
+    console.debug('go options toggled', show);
+  });
+  stringOptsBtn.addEventListener('click',()=>{
+    const show=stringOptions.style.display==='none';
+    stringOptions.style.display=show?'block':'none';
+    console.debug('string options toggled', show);
+  });
   console.debug('speciesSelect element', speciesSelect);
   ['A','B','C'].forEach(k=>{
     inputs[k].addEventListener('input',()=>{
@@ -931,10 +964,16 @@
     lastGOOrganism=org;
     lastGOResult=null;
     goResults.innerHTML='<i>Running GO analysis...</i>';
+    const body={organism:org,query:formatted};
+    if(goUseAllBackground.checked){
+      const bg=getAllGenes().map(g=>g.trim().toUpperCase()).filter(x=>x);
+      console.debug('GO analysis background genes', bg);
+      if(bg.length) body.background=bg;
+    }
     fetch('https://biit.cs.ut.ee/gprofiler/api/gost/profile/',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({organism:org,query:formatted})
+      body:JSON.stringify(body)
     }).then(r=>{
       console.debug('GO analysis HTTP status', r.status);
       if(!r.ok) throw new Error('GO API HTTP '+r.status);
@@ -977,6 +1016,13 @@
     const stringSpecies=stringMap[org]||speciesSelect.selectedOptions[0]?.dataset.string||'9606';
     console.debug('STRING analysis species', stringSpecies);
     params.set('species', stringSpecies);
+    const networkType=document.querySelector('input[name="stringNetworkType"]:checked').value;
+    const edgeMeaning=document.querySelector('input[name="stringEdgeMeaning"]:checked').value;
+    const sources=[...document.querySelectorAll('.stringSource:checked')].map(el=>el.value);
+    console.debug('STRING analysis options', {networkType, edgeMeaning, sources});
+    params.set('network_type', networkType);
+    params.set('network_flavor', edgeMeaning);
+    if(sources.length) params.set('sources', sources.join('%0d'));
     console.debug('STRING analysis request params', params.toString());
     const networkUrl='https://string-db.org/api/image/network?'+params.toString();
     console.debug('STRING network image URL', networkUrl);
