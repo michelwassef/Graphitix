@@ -878,6 +878,43 @@
     return best;
   }
 
+  function getAllGenes(){
+    console.debug('getAllGenes called');
+    const mode=inputs.delimiter.value, cs=inputs.caseSensitive.checked;
+    const A=parseList(inputs.A.value,cs,mode).map(o=>o.val);
+    const B=parseList(inputs.B.value,cs,mode).map(o=>o.val);
+    const C=parseList(inputs.C.value,cs,mode).map(o=>o.val);
+    const unique=[...new Set([...A,...B,...C])];
+    console.debug('getAllGenes unique', unique);
+    return unique;
+  }
+
+  function setSpeciesIndicator(success){
+    if(success===null){
+      speciesSelect.style.backgroundColor='';
+      console.debug('setSpeciesIndicator reset');
+      return;
+    }
+    const color=success?'#b5d99c':'#f28b82';
+    speciesSelect.style.backgroundColor=color;
+    console.debug('setSpeciesIndicator', {success,color});
+  }
+
+  async function recognizeSpeciesFromInput(){
+    console.debug('recognizeSpeciesFromInput triggered');
+    const genes=getAllGenes();
+    console.debug('recognizeSpeciesFromInput genes', genes);
+    const guess=genes.length?await guessSpecies(genes):null;
+    console.debug('recognizeSpeciesFromInput guess', guess);
+    if(guess){
+      speciesSelect.value=guess;
+      setSpeciesIndicator(true);
+    }else{
+      speciesSelect.value='';
+      setSpeciesIndicator(false);
+    }
+  }
+
   function runGOAnalysis(genes, organism){
     console.debug('runGOAnalysis called', genes, organism);
     const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
@@ -1033,6 +1070,7 @@
     fitAndDraw(L,style,labels,counts);
     populateRegion(regionSelect.value);
     console.debug('populateRegion after drawFromLists', regionSelect.value);
+    recognizeSpeciesFromInput().catch(err=>{console.error('recognizeSpeciesFromInput error', err);});
   }
 
   function drawFromNumeric(){
@@ -1095,43 +1133,54 @@ KAT7`;
     updateRegionSelect({A:'A',B:'B',C:'C'});
     clearAnalysis();
     speciesSelect.value='';
+    setSpeciesIndicator(null);
     console.debug('speciesSelect reset');
   });
   goBtn.addEventListener('click',async()=>{
     console.debug('goBtn clicked');
-    const genes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
-    console.debug('goBtn genes', genes);
+    const regionGenes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
+    console.debug('goBtn regionGenes', regionGenes);
     let organism=speciesSelect.value;
     console.debug('goBtn organism initial', organism);
     if(!organism){
-      const guess=await guessSpecies(genes);
+      const allGenes=getAllGenes();
+      console.debug('goBtn allGenes for guess', allGenes);
+      const guess=allGenes.length?await guessSpecies(allGenes):null;
       console.debug('goBtn organism guess', guess);
       if(guess){
         speciesSelect.value=organism=guess;
+        setSpeciesIndicator(true);
       }else{
+        setSpeciesIndicator(false);
         alert('Please select a species before running GO analysis.');
+        console.debug('goBtn missing species after guess');
         return;
       }
     }
-    runGOAnalysis(genes, organism);
+    runGOAnalysis(regionGenes, organism);
   });
   stringBtn.addEventListener('click',async()=>{
     console.debug('stringBtn clicked');
-    const genes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
-    console.debug('stringBtn genes', genes);
+    const regionGenes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
+    console.debug('stringBtn regionGenes', regionGenes);
     let organism=speciesSelect.value;
     console.debug('stringBtn organism initial', organism);
     if(!organism){
-      const guess=await guessSpecies(genes);
+      const allGenes=getAllGenes();
+      console.debug('stringBtn allGenes for guess', allGenes);
+      const guess=allGenes.length?await guessSpecies(allGenes):null;
       console.debug('stringBtn organism guess', guess);
       if(guess){
         speciesSelect.value=organism=guess;
+        setSpeciesIndicator(true);
       }else{
+        setSpeciesIndicator(false);
         alert('Please select a species before running STRING analysis.');
+        console.debug('stringBtn missing species after guess');
         return;
       }
     }
-    runStringAnalysis(genes, organism);
+    runStringAnalysis(regionGenes, organism);
   });
   window.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); drawFromLists(); } });
 })();
