@@ -34,8 +34,11 @@
   .analysis-controls{flex-wrap:nowrap}
   .analysis-controls label{display:flex;align-items:center;gap:4px}
   .analysis-controls select{width:auto}
-  .gene-item{display:flex;align-items:center;gap:2px;margin-right:0;margin-bottom:4px}
-  .gene-link{cursor:pointer;margin-left:0}
+  .gene-item{display:flex;align-items:center;gap:2px;margin-right:0;margin-bottom:4px;font-size:13px}
+  .gene-link{cursor:pointer;margin-left:0;font-size:13px}
+  .config-options fieldset{border:none;padding:0;margin:0}
+  .config-options legend{font-size:14px;font-weight:600;margin-bottom:4px;margin-left:-4px}
+  .config-options .control label{width:90px;font-size:14px}
 </style>
 </head>
 <body>
@@ -132,7 +135,7 @@
       </select>
     </div>
     <div id="regionListContainer" style="position:relative;margin-top:6px">
-      <button class="btn" id="copyRegionBtn" style="position:absolute;top:4px;right:4px;display:none;font-size:12px;padding:4px 8px">Copy</button>
+      <button class="btn" id="copyRegionBtn" style="position:absolute;top:4px;right:24px;display:none;font-size:12px;padding:4px 8px">Copy list</button>
       <div id="regionList" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:24px 8px 8px;max-height:190px;overflow:auto"></div>
     </div>
     <div class="row analysis-controls" style="margin-top:6px">
@@ -811,6 +814,9 @@
     tooltip.style.maxHeight='none';
     tooltip.style.overflow='visible';
     tooltip.style.columnCount=1;
+    tooltip.style.columnWidth='auto';
+    tooltip.style.width='max-content';
+    console.debug('goBtn tooltip style adjusted');
     const rect=goBtn.getBoundingClientRect();
     let left=rect.right+window.scrollX+8;
     let top=rect.top+window.scrollY;
@@ -818,7 +824,7 @@
     tooltip.style.top=top+'px';
     tooltip.style.display='block';
     positionTooltip(left, top);
-    console.debug('goBtn tooltip shown', rect);
+    console.debug('goBtn tooltip shown', rect, {width: tooltip.offsetWidth, height: tooltip.offsetHeight});
   });
   goBtn.addEventListener('mouseleave',()=>{
     console.debug('goBtn mouseleave');
