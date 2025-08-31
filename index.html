@@ -840,7 +840,7 @@
     return genes.join('\n');
   }
 
-  function guessSpecies(genes){
+  async function guessSpecies(genes){
     console.debug('guessSpecies called', genes);
     const score={hsapiens:0,mmusculus:0,dmelanogaster:0,celegans:0};
     genes.forEach(g=>{
@@ -849,14 +849,47 @@
       if(/^CG\d+$/.test(g)||/^FBgn\d+$/.test(g)) score.dmelanogaster++;
       if(/^[a-z]{3,}-\d+/.test(g)) score.celegans++;
     });
-    console.debug('guessSpecies score', score);
+    console.debug('guessSpecies heuristic score', score);
     const entries=Object.entries(score);
     const total=entries.reduce((s,[,v])=>s+v,0);
-    if(total===0) return null;
-    const [best,bestScore]=entries.reduce((m,e)=>e[1]>m[1]?e:m,['',0]);
-    if(bestScore/total<0.5) return null;
-    console.debug('guessSpecies best', best, bestScore, total);
-    return best;
+    if(total>0){
+      const [best,bestScore]=entries.reduce((m,e)=>e[1]>m[1]?e:m,['',0]);
+      if(bestScore/total>=0.5){
+        console.debug('guessSpecies heuristic winner', best, bestScore, total);
+        return best;
+      }
+    }
+    console.debug('guessSpecies heuristic inconclusive, trying API');
+    try{
+      const counts={hsapiens:0,mmusculus:0,dmelanogaster:0,celegans:0};
+      const taxMap={'9606':'hsapiens','10090':'mmusculus','7227':'dmelanogaster','6239':'celegans'};
+      const sample=genes.slice(0,10);
+      for(const g of sample){
+        const url=`https://mygene.info/v3/query?q=${encodeURIComponent(g)}&fields=taxid&size=1`;
+        console.debug('guessSpecies API lookup', {gene:g,url});
+        try{
+          const resp=await fetch(url);
+          console.debug('guessSpecies API status', {gene:g,status:resp.status});
+          if(!resp.ok) continue;
+          const data=await resp.json();
+          console.debug('guessSpecies API data', {gene:g,data});
+          const tax=data.hits?.[0]?.taxid?.toString();
+          const sp=taxMap[tax];
+          if(sp) counts[sp]++;
+        }catch(err){ console.error('guessSpecies API gene error', g, err); }
+      }
+      console.debug('guessSpecies API counts', counts);
+      const e2=Object.entries(counts);
+      const t2=e2.reduce((s,[,v])=>s+v,0);
+      if(t2===0) return null;
+      const [best2,score2]=e2.reduce((m,e)=>e[1]>m[1]?e:m,['',0]);
+      if(score2/t2<0.5) return null;
+      console.debug('guessSpecies API winner', best2, score2, t2);
+      return best2;
+    }catch(err){
+      console.error('guessSpecies API error', err);
+      return null;
+    }
   }
 
   function runGOAnalysis(genes, organism){
@@ -866,6 +899,11 @@
     if(!formatted.length){ goResults.innerHTML='<i>No genes for analysis</i>'; return; }
     const org=organism || speciesSelect.value;
     console.debug('GO analysis organism', org);
+    if(!org){
+      goResults.innerHTML='<div>Please select a species before running GO analysis.</div>';
+      console.debug('GO analysis aborted: missing species');
+      return;
+    }
     lastGOFormatted=formatted;
     lastGOOrganism=org;
     lastGOResult=null;
@@ -898,14 +936,20 @@
     const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
     console.debug('STRING analysis formatted genes', formatted);
     if(!formatted.length){ stringNetwork.innerHTML=''; stringResults.innerHTML='<i>No genes for analysis</i>'; return; }
+    const org=organism || speciesSelect.value;
+    console.debug('STRING analysis organism', org);
+    if(!org){
+      stringNetwork.innerHTML='';
+      stringResults.innerHTML='<div>Please select a species before running STRING analysis.</div>';
+      console.debug('STRING analysis aborted: missing species');
+      return;
+    }
     stringNetwork.innerHTML='<i>Loading STRING network...</i>';
     stringResults.innerHTML='<i>Running STRING enrichment...</i>';
     const params=new URLSearchParams();
     const joinedIds=formatted.join('\n');
     console.debug('STRING joined identifiers', joinedIds);
     params.set('identifiers', joinedIds);
-    const org=organism || speciesSelect.value;
-    console.debug('STRING analysis organism', org);
     const stringMap={hsapiens:'9606',mmusculus:'10090',dmelanogaster:'7227',celegans:'6239'};
     const stringSpecies=stringMap[org]||speciesSelect.selectedOptions[0]?.dataset.string||'9606';
     console.debug('STRING analysis species', stringSpecies);
@@ -1049,14 +1093,14 @@ KAT7`;
     drawFromLists();
   });
   document.getElementById('reset').addEventListener('click',()=>{ inputs.A.value=''; inputs.B.value=''; inputs.C.value=''; Object.values(inputs.counts).forEach(x=>x.value=0); clearSVG(); lastRegions=null; lastDrawMode=null; regionList.textContent=''; Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{}); document.getElementById('countA').textContent='0'; document.getElementById('countB').textContent='0'; document.getElementById('countC').textContent='0'; document.getElementById('countAB').textContent='0'; document.getElementById('countAC').textContent='0'; document.getElementById('countBC').textContent='0'; document.getElementById('countABC').textContent='0'; updateCountLabels({A:'A',B:'B',C:'C'}); updateColorLabels({A:'A',B:'B',C:'C'}); updateRegionSelect({A:'A',B:'B',C:'C'}); clearAnalysis(); });
-  goBtn.addEventListener('click',()=>{
+  goBtn.addEventListener('click',async()=>{
     console.debug('goBtn clicked');
     const genes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
     console.debug('goBtn genes', genes);
     let organism=speciesSelect.value;
     console.debug('goBtn organism initial', organism);
     if(!organism){
-      const guess=guessSpecies(genes);
+      const guess=await guessSpecies(genes);
       console.debug('goBtn organism guess', guess);
       if(guess){
         speciesSelect.value=organism=guess;
@@ -1067,14 +1111,14 @@ KAT7`;
     }
     runGOAnalysis(genes, organism);
   });
-  stringBtn.addEventListener('click',()=>{
+  stringBtn.addEventListener('click',async()=>{
     console.debug('stringBtn clicked');
     const genes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
     console.debug('stringBtn genes', genes);
     let organism=speciesSelect.value;
     console.debug('stringBtn organism initial', organism);
     if(!organism){
-      const guess=guessSpecies(genes);
+      const guess=await guessSpecies(genes);
       console.debug('stringBtn organism guess', guess);
       if(guess){
         speciesSelect.value=organism=guess;
