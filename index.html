@@ -131,7 +131,10 @@
         <option value="AB">A∩B only</option><option value="AC">A∩C only</option><option value="BC">B∩C only</option><option value="ABC">A∩B∩C</option>
       </select>
     </div>
-    <div id="regionList" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:190px;overflow:auto;margin-top:6px"></div>
+    <div id="regionListContainer" style="position:relative;margin-top:6px">
+      <button class="btn" id="copyRegionBtn" style="position:absolute;top:4px;right:4px;display:none;font-size:12px;padding:4px 8px">Copy</button>
+      <div id="regionList" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:24px 8px 8px;max-height:190px;overflow:auto"></div>
+    </div>
     <div class="row analysis-controls" style="margin-top:6px">
       <label>Species
         <select id="speciesSelect">
@@ -183,6 +186,13 @@
     borderColor: inputs.borderColor.value
   });
   console.debug('fieldsets configured', document.querySelectorAll('.config-options fieldset').length);
+  function handlePlainPaste(e){
+    console.debug('handlePlainPaste triggered', e.target.id);
+    e.preventDefault();
+    const text=(e.clipboardData||window.clipboardData).getData('text/plain').replace(/\r/g,'').replace(/\u00A0/g,' ');
+    document.execCommand('insertText', false, text);
+  }
+  [inputs.A,inputs.B,inputs.C].forEach(el=>el.addEventListener('paste',handlePlainPaste));
   const STYLE_KEY='vennStylePrefs';
   function loadStylePrefs(){
     try{
@@ -484,7 +494,18 @@
           tooltip.style.width='auto';
           tooltip.style.height='auto';
           const lineHeight=parseFloat(getComputedStyle(tooltip).lineHeight);
-          const columnWidth=160, columnGap=12;
+          const tempSpan=document.createElement('span');
+          tempSpan.style.visibility='hidden';
+          tempSpan.style.position='absolute';
+          tempSpan.style.fontSize='12px';
+          tempSpan.style.whiteSpace='pre';
+          document.body.appendChild(tempSpan);
+          let longestWidth=0;
+          genes.forEach(g=>{ tempSpan.textContent=g; const w=tempSpan.getBoundingClientRect().width; if(w>longestWidth) longestWidth=w; });
+          document.body.removeChild(tempSpan);
+          const columnGap=12;
+          const columnWidth=Math.ceil(longestWidth)+16;
+          console.debug('tooltip column metrics', {longestWidth,columnWidth});
           const maxWidth=window.innerWidth-16, maxHeight=window.innerHeight-16;
           const maxCols=Math.max(1,Math.floor((maxWidth+columnGap)/(columnWidth+columnGap)));
           const maxRows=Math.max(1,Math.floor(maxHeight/lineHeight));
@@ -493,6 +514,8 @@
           const width=columns*columnWidth+(columns-1)*columnGap;
           const height=rowsPerCol*lineHeight;
           tooltip.style.columnCount=columns;
+          tooltip.style.columnWidth=columnWidth+'px';
+          tooltip.style.columnGap=columnGap+'px';
           tooltip.style.width=width+'px';
           tooltip.style.height=height+'px';
           console.debug('tooltip dimensions set', {genes:genes.length,columns,rowsPerCol,width,height});
@@ -626,11 +649,16 @@
   function downloadURL(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
 
   const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
-    const regionSelect=$('#regionSelect'), regionList=$('#regionList'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults'), speciesSelect=$('#speciesSelect');
-    const tooltip=$('#tooltip');
-    let lastGOResult=null, lastGOFormatted=[], lastGOOrganism='hsapiens';
-    console.debug('stringNetwork element', stringNetwork);
-    console.debug('tooltip element', tooltip);
+  const regionSelect=$('#regionSelect'), regionList=$('#regionList'), copyRegionBtn=$('#copyRegionBtn'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults'), speciesSelect=$('#speciesSelect');
+  const tooltip=$('#tooltip');
+  let lastGOResult=null, lastGOFormatted=[], lastGOOrganism='hsapiens';
+  console.debug('stringNetwork element', stringNetwork);
+  console.debug('tooltip element', tooltip);
+  copyRegionBtn.addEventListener('click',()=>{
+    console.debug('copyRegionBtn clicked', regionSelect.value);
+    const text=getRegionText(regionSelect.value);
+    navigator.clipboard.writeText(text).then(()=>console.debug('genes copied', text)).catch(err=>console.error('copyRegionBtn error', err));
+  });
     console.debug('speciesSelect element', speciesSelect);
     console.debug('GO analysis state initialized', {lastGOResult,lastGOFormatted,lastGOOrganism});
     const uniProtCache={};
@@ -800,6 +828,7 @@
     const map={A:lastRegions.Aonly,B:lastRegions.Bonly,C:lastRegions.Conly,AB:lastRegions.AB,AC:lastRegions.AC,BC:lastRegions.BC,ABC:lastRegions.ABC};
     const arr=[...(map[code]||new Set())].sort();
     regionList.innerHTML=arr.length?arr.map(x=>`<div class="gene-item">${x}<span class="gene-link" data-gene="${x}">&#128279;</span></div>`).join(''):'(empty)';
+    copyRegionBtn.style.display=arr.length?'block':'none';
     console.debug('regionList populated', arr);
   }
   function getRegionText(code){
