@@ -874,12 +874,29 @@
     const values=data.map(r=>-Math.log10(r.p_value));
     console.debug('renderGOChart data', {labels,values});
     if(goChart){ goChart.destroy(); console.debug('renderGOChart destroyed previous chart'); }
-    goChart=new Chart(canvas.getContext('2d'),{
+    canvas.style.display='block';
+    canvas.width=canvas.offsetWidth;
+    canvas.height=canvas.offsetHeight;
+    console.debug('renderGOChart canvas resized',{width:canvas.width,height:canvas.height});
+    const ctx=canvas.getContext('2d');
+    ctx.setTransform(1,0,0,1,0,0);
+    console.debug('renderGOChart context transform reset', ctx.getTransform());
+    const config={
       type:'bar',
       data:{labels,datasets:[{label:'-log10(p)',data:values,backgroundColor:'#69b3a2'}]},
-      options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{title:{display:true,text:'-log10(p)'}}}}
-    });
-    canvas.style.display='block';
+      options:{
+        indexAxis:'y',
+        responsive:true,
+        maintainAspectRatio:true,
+        plugins:{legend:{display:false}},
+        scales:{
+          x:{title:{display:true,text:'-log10(p)'},grid:{display:false}},
+          y:{grid:{display:false}}
+        }
+      }
+    };
+    console.debug('renderGOChart config', config);
+    goChart=new Chart(ctx,config);
   }
 
   function renderGOResults(limit=5){
