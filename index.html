@@ -156,6 +156,11 @@
     </div>
     <div id="goOptions" class="analysis-options" style="display:none;margin-top:4px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;padding:4px">
       <label><input type="checkbox" id="goUseAllBackground"> Use union of all input genes as background</label>
+      <div style="margin-top:4px"><strong>GO categories:</strong>
+        <label><input type="checkbox" class="goCategory" value="GO:BP" checked> Biological Process</label>
+        <label><input type="checkbox" class="goCategory" value="GO:MF" checked> Molecular Function</label>
+        <label><input type="checkbox" class="goCategory" value="GO:CC" checked> Cellular Component</label>
+      </div>
     </div>
     <div id="stringOptions" class="analysis-options" style="display:none;margin-top:4px;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;padding:4px">
       <div style="margin-bottom:4px"><strong>Network type:</strong>
@@ -206,6 +211,8 @@
     counts: { nA: $('#nA'), nB: $('#nB'), nC: $('#nC'), nAB: $('#nAB'), nAC: $('#nAC'), nBC: $('#nBC'), nABC: $('#nABC') }
   };
   const goOptsBtn=$('#goOptsBtn'), goOptions=$('#goOptions'), goUseAllBackground=$('#goUseAllBackground');
+  const goCategoryChecks=[...document.querySelectorAll('.goCategory')];
+  console.debug('GO category checkboxes initialized', goCategoryChecks.map(cb=>({value:cb.value, checked:cb.checked})));
   const stringOptsBtn=$('#stringOptsBtn'), stringOptions=$('#stringOptions');
   console.debug('analysis option elements initialized', {goOptsBtn, stringOptsBtn});
   console.debug('option buttons computed font sizes', getComputedStyle(goOptsBtn).fontSize, getComputedStyle(stringOptsBtn).fontSize);
@@ -904,8 +911,9 @@
     if(!lastGOResult||!lastGOResult.length){ goResults.innerHTML='<div>No GO results</div>'; return; }
     const items=lastGOResult.slice(0,limit).map(r=>{
       const term=r.term_name||r.name||'unknown term';
-      console.debug('renderGOResults item', r, term);
-      return `<div>${term} (p=${Number(r.p_value).toExponential(2)})</div>`;
+      const src=r.source||'unknown source';
+      console.debug('renderGOResults item', r, term, src);
+      return `<div>${term} [${src}] (p=${Number(r.p_value).toExponential(2)})</div>`;
     }).join('');
     const fullUrl=`https://biit.cs.ut.ee/gprofiler/gost?organism=${lastGOOrganism}&query=${encodeURIComponent(lastGOFormatted.join('\n'))}`;
     console.debug('renderGOResults fullUrl', fullUrl);
@@ -1038,12 +1046,19 @@
       console.debug('GO analysis aborted: missing species');
       return;
     }
+    const sources=goCategoryChecks.filter(cb=>cb.checked).map(cb=>cb.value);
+    console.debug('GO analysis selected sources', sources);
+    if(!sources.length){
+      goResults.innerHTML='<div>Please select at least one GO category.</div>';
+      console.debug('GO analysis aborted: no GO categories');
+      return;
+    }
     lastGOFormatted=formatted;
     lastGOOrganism=org;
     lastGOResult=null;
     renderGOChart();
     goResults.innerHTML='<i>Running GO analysis...</i>';
-    const body={organism:org,query:formatted};
+    const body={organism:org,query:formatted,sources:sources};
     if(goUseAllBackground.checked){
       const bg=getAllGenes().map(g=>g.trim().toUpperCase()).filter(x=>x);
       console.debug('GO analysis background genes', bg);
@@ -1063,7 +1078,7 @@
       return r.json();
     }).then(d=>{
       console.debug('GO analysis response', d);
-      lastGOResult=d.result||[];
+      lastGOResult=(d.result||[]).filter(r=>sources.includes(r.source));
       console.debug('GO analysis result stored', lastGOResult.length);
       if(lastGOResult.length){
         renderGOResults(5);
