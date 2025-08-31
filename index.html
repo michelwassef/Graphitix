@@ -183,10 +183,44 @@
     borderColor: inputs.borderColor.value
   });
   console.debug('fieldsets configured', document.querySelectorAll('.config-options fieldset').length);
-  inputs.opacity.addEventListener('input',()=>{ inputs.opacityVal.textContent=inputs.opacity.value; console.debug('opacity changed', inputs.opacity.value); refreshDiagram(); });
-  inputs.fontsize.addEventListener('input',()=>{ inputs.fontsizeVal.textContent=inputs.fontsize.value; console.debug('fontsize changed', inputs.fontsize.value); refreshDiagram(); });
+  const STYLE_KEY='vennStylePrefs';
+  function loadStylePrefs(){
+    try{
+      const saved=JSON.parse(localStorage.getItem(STYLE_KEY));
+      console.debug('loadStylePrefs', saved);
+      if(saved){
+        if(saved.colorA) inputs.colorA.value=saved.colorA;
+        if(saved.colorB) inputs.colorB.value=saved.colorB;
+        if(saved.colorC) inputs.colorC.value=saved.colorC;
+        if(saved.opacity) inputs.opacity.value=saved.opacity;
+        if(saved.fontsize) inputs.fontsize.value=saved.fontsize;
+        if(saved.borderColor) inputs.borderColor.value=saved.borderColor;
+        if(saved.borderWidth) inputs.borderWidth.value=saved.borderWidth;
+      }
+      inputs.opacityVal.textContent=inputs.opacity.value;
+      inputs.fontsizeVal.textContent=inputs.fontsize.value;
+      inputs.borderWidthVal.textContent=inputs.borderWidth.value;
+    }catch(err){ console.error('loadStylePrefs error', err); }
+  }
+  function saveStylePrefs(){
+    const prefs={
+      colorA: inputs.colorA.value,
+      colorB: inputs.colorB.value,
+      colorC: inputs.colorC.value,
+      opacity: inputs.opacity.value,
+      fontsize: inputs.fontsize.value,
+      borderColor: inputs.borderColor.value,
+      borderWidth: inputs.borderWidth.value
+    };
+    console.debug('saveStylePrefs', prefs);
+    try{ localStorage.setItem(STYLE_KEY, JSON.stringify(prefs)); }
+    catch(err){ console.error('saveStylePrefs error', err); }
+  }
+  loadStylePrefs();
+  inputs.opacity.addEventListener('input',()=>{ inputs.opacityVal.textContent=inputs.opacity.value; console.debug('opacity changed', inputs.opacity.value); refreshDiagram(); saveStylePrefs(); });
+  inputs.fontsize.addEventListener('input',()=>{ inputs.fontsizeVal.textContent=inputs.fontsize.value; console.debug('fontsize changed', inputs.fontsize.value); refreshDiagram(); saveStylePrefs(); });
   ['colorA','colorB','colorC'].forEach(id=>{
-    inputs[id].addEventListener('input',e=>{ console.debug('color changed', id, e.target.value); refreshDiagram(); });
+    inputs[id].addEventListener('input',e=>{ console.debug('color changed', id, e.target.value); refreshDiagram(); saveStylePrefs(); });
   });
   ['labelA','labelB','labelC'].forEach(id=>{
     inputs[id].addEventListener('input',()=>{
@@ -198,8 +232,8 @@
     });
   });
   updateColorLabels({A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'});
-  inputs.borderColor.addEventListener('input',e=>{ console.debug('border color changed', e.target.value); refreshDiagram(); });
-  inputs.borderWidth.addEventListener('input',()=>{ inputs.borderWidthVal.textContent=inputs.borderWidth.value; console.debug('border width changed', inputs.borderWidth.value); refreshDiagram(); });
+  inputs.borderColor.addEventListener('input',e=>{ console.debug('border color changed', e.target.value); refreshDiagram(); saveStylePrefs(); });
+  inputs.borderWidth.addEventListener('input',()=>{ inputs.borderWidthVal.textContent=inputs.borderWidth.value; console.debug('border width changed', inputs.borderWidth.value); refreshDiagram(); saveStylePrefs(); });
 
   function splitItems(text, mode){
     if(mode==='newline'){
@@ -451,9 +485,12 @@
           tooltip.style.height='auto';
           tooltip.style.columnCount=Math.max(1,Math.ceil(genes.length/30));
           const box=e.target.getBoundingClientRect();
-          tooltip.style.left=(box.right+window.scrollX+8)+'px';
-          tooltip.style.top=(box.top+window.scrollY)+'px';
+          let left=box.right+window.scrollX+8;
+          let top=box.top+window.scrollY;
+          tooltip.style.left=left+'px';
+          tooltip.style.top=top+'px';
           tooltip.style.display='block';
+          positionTooltip(left, top);
           console.debug('tooltip style reset for gene list');
         });
         t.addEventListener('mouseleave',()=>{
@@ -586,6 +623,21 @@
     console.debug('GO analysis state initialized', {lastGOResult,lastGOFormatted,lastGOOrganism});
     const uniProtCache={};
   console.debug('UniProt cache initialized', uniProtCache);
+
+  function positionTooltip(x,y){
+    console.debug('positionTooltip called', {x,y});
+    let left=x, top=y;
+    tooltip.style.left=left+'px';
+    tooltip.style.top=top+'px';
+    const rect=tooltip.getBoundingClientRect();
+    const rightBound=window.scrollX+window.innerWidth-8;
+    const bottomBound=window.scrollY+window.innerHeight-8;
+    if(rect.right>rightBound){ left=Math.max(window.scrollX+8,rightBound-rect.width); }
+    if(rect.bottom>bottomBound){ top=Math.max(window.scrollY+8,bottomBound-rect.height); }
+    tooltip.style.left=left+'px';
+    tooltip.style.top=top+'px';
+    console.debug('positionTooltip adjusted', {left,top,width:rect.width,height:rect.height});
+  }
   async function fetchUniProtFunction(gene){
     const q=gene.toUpperCase();
     console.debug('fetchUniProtFunction called', q);
@@ -622,8 +674,10 @@
       tooltip.style.whiteSpace='normal';
       const x=e.pageX, y=e.pageY;
       console.debug('tooltip position calculated', {x, y});
-      tooltip.style.left=(x+8)+'px';
-      tooltip.style.top=(y+8)+'px';
+      let left=x+8;
+      let top=y+8;
+      tooltip.style.left=left+'px';
+      tooltip.style.top=top+'px';
       tooltip.style.display='block';
       requestAnimationFrame(()=>{
         const w=tooltip.scrollWidth;
@@ -631,6 +685,7 @@
         tooltip.style.width=w+'px';
         tooltip.style.height=h+'px';
         console.debug('tooltip resized to content', {width:w,height:h});
+        positionTooltip(left, top);
       });
     }
   });
@@ -641,14 +696,30 @@
       tooltip.style.display='none';
     }
   });
-  regionList.addEventListener('click',e=>{
+  regionList.addEventListener('click',async e=>{
     const link=e.target.closest('.gene-link');
     if(link&&regionList.contains(link)){
       const gene=link.dataset.gene;
       console.debug('gene-link click', gene);
-      const url=`https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
-      console.debug('opening UniProt page', url);
-      window.open(url,'_blank','noopener');
+      const taxId=speciesSelect.selectedOptions[0].dataset.string||'9606';
+      console.debug('gene-link species taxId', taxId);
+      const apiUrl=`https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(gene)}+AND+organism_id:${taxId}+AND+reviewed:true&fields=accession&format=json&size=1`;
+      console.debug('gene-link lookup url', apiUrl);
+      try{
+        const resp=await fetch(apiUrl);
+        console.debug('gene-link lookup response', resp.status);
+        const data=await resp.json();
+        console.debug('gene-link lookup data', data);
+        const acc=data.results?.[0]?.primaryAccession;
+        const url=acc?`https://www.uniprot.org/uniprotkb/${acc}/entry`:`https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
+        console.debug('opening UniProt page', url);
+        window.open(url,'_blank','noopener');
+      }catch(err){
+        console.error('gene-link lookup error', err);
+        const url=`https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
+        console.debug('opening fallback UniProt page', url);
+        window.open(url,'_blank','noopener');
+      }
     }
   });
 
@@ -661,9 +732,12 @@
     tooltip.style.overflow='visible';
     tooltip.style.columnCount=1;
     const rect=goBtn.getBoundingClientRect();
-    tooltip.style.left=(rect.right+window.scrollX+8)+'px';
-    tooltip.style.top=(rect.top+window.scrollY)+'px';
+    let left=rect.right+window.scrollX+8;
+    let top=rect.top+window.scrollY;
+    tooltip.style.left=left+'px';
+    tooltip.style.top=top+'px';
     tooltip.style.display='block';
+    positionTooltip(left, top);
     console.debug('goBtn tooltip shown', rect);
   });
   goBtn.addEventListener('mouseleave',()=>{
