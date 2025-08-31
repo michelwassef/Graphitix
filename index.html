@@ -549,9 +549,11 @@
   const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
     const regionSelect=$('#regionSelect'), regionList=$('#regionList'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults'), speciesSelect=$('#speciesSelect');
     const tooltip=$('#tooltip');
+    let lastGOResult=null, lastGOFormatted=[], lastGOOrganism='hsapiens';
     console.debug('stringNetwork element', stringNetwork);
     console.debug('tooltip element', tooltip);
     console.debug('speciesSelect element', speciesSelect);
+    console.debug('GO analysis state initialized', {lastGOResult,lastGOFormatted,lastGOOrganism});
     const uniProtCache={};
   console.debug('UniProt cache initialized', uniProtCache);
   async function fetchUniProtFunction(gene){
@@ -619,6 +621,47 @@
       window.open(url,'_blank','noopener');
     }
   });
+
+  const goBtnTip='Sends the selected species and gene list to g:Profiler GOSt, returns all GO categories and default sources, and displays the top five terms by significance.';
+  goBtn.addEventListener('mouseenter',()=>{
+    console.debug('goBtn mouseenter');
+    tooltip.innerHTML=goBtnTip;
+    tooltip.style.fontSize='12px';
+    tooltip.style.maxHeight='none';
+    tooltip.style.overflow='visible';
+    tooltip.style.columnCount=1;
+    const rect=goBtn.getBoundingClientRect();
+    tooltip.style.left=(rect.right+window.scrollX+8)+'px';
+    tooltip.style.top=(rect.top+window.scrollY)+'px';
+    tooltip.style.display='block';
+    console.debug('goBtn tooltip shown', rect);
+  });
+  goBtn.addEventListener('mouseleave',()=>{
+    console.debug('goBtn mouseleave');
+    tooltip.style.display='none';
+  });
+
+  function renderGOResults(limit=5){
+    console.debug('renderGOResults called', {limit,total:lastGOResult?.length||0});
+    if(!lastGOResult||!lastGOResult.length){ goResults.innerHTML='<div>No GO results</div>'; return; }
+    const items=lastGOResult.slice(0,limit).map(r=>{
+      const term=r.term_name||r.name||'unknown term';
+      console.debug('renderGOResults item', r, term);
+      return `<div>${term} (p=${Number(r.p_value).toExponential(2)})</div>`;
+    }).join('');
+    const fullUrl=`https://biit.cs.ut.ee/gprofiler/gost?organism=${lastGOOrganism}&query=${encodeURIComponent(lastGOFormatted.join('\n'))}`;
+    console.debug('renderGOResults fullUrl', fullUrl);
+    const link=`<div><a href="${fullUrl}" target="_blank" rel="noopener">View full GO analysis</a>${lastGOResult.length>5?` | <button class="btn" id="toggleGoResults" data-state="${limit===5?'top5':'all'}">${limit===5?'Show all results':'Show top 5'}</button>`:''}</div>`;
+    goResults.innerHTML=`<strong>${limit===5?'Top 5 GO terms':'All GO terms'}</strong>`+items+link;
+  }
+  goResults.addEventListener('click',e=>{
+    if(e.target.id==='toggleGoResults'){
+      const state=e.target.dataset.state;
+      console.debug('toggleGoResults clicked', state);
+      if(state==='top5'){ renderGOResults(lastGOResult.length); }
+      else{ renderGOResults(5); }
+    }
+  });
   function clearAnalysis(){
     console.debug('clearAnalysis called');
     goResults.innerHTML='';
@@ -658,6 +701,9 @@
     if(!formatted.length){ goResults.innerHTML='<i>No genes for analysis</i>'; return; }
     const organism=speciesSelect.value;
     console.debug('GO analysis organism', organism);
+    lastGOFormatted=formatted;
+    lastGOOrganism=organism;
+    lastGOResult=null;
     goResults.innerHTML='<i>Running GO analysis...</i>';
     fetch('https://biit.cs.ut.ee/gprofiler/api/gost/profile/',{
       method:'POST',
@@ -669,13 +715,10 @@
       return r.json();
     }).then(d=>{
       console.debug('GO analysis response', d);
-      if(d.result){
-        const items=d.result.slice(0,5).map(r=>{
-          const term=r.term_name||r.name||'unknown term';
-          console.debug('GO result item', r, term);
-          return '<div>'+term+' (p='+Number(r.p_value).toExponential(2)+')</div>';
-        }).join('');
-        goResults.innerHTML='<strong>GO terms</strong>'+items;
+      lastGOResult=d.result||[];
+      console.debug('GO analysis result stored', lastGOResult.length);
+      if(lastGOResult.length){
+        renderGOResults(5);
       }else{
         goResults.innerHTML='<div>No GO results</div>';
       }
