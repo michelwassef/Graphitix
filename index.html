@@ -138,6 +138,7 @@
     <div class="row analysis-controls" style="margin-top:6px">
       <label>Species
         <select id="speciesSelect">
+          <option value="" selected>Select species</option>
           <option value="hsapiens" data-string="9606">H. sapiens</option>
           <option value="mmusculus" data-string="10090">M. musculus</option>
           <option value="dmelanogaster" data-string="7227">D. melanogaster</option>
@@ -839,21 +840,40 @@
     return genes.join('\n');
   }
 
-  function runGOAnalysis(genes){
-    console.debug('runGOAnalysis called', genes);
+  function guessSpecies(genes){
+    console.debug('guessSpecies called', genes);
+    const score={hsapiens:0,mmusculus:0,dmelanogaster:0,celegans:0};
+    genes.forEach(g=>{
+      if(/^[A-Z0-9]+$/.test(g)) score.hsapiens++;
+      if(/^[A-Z][a-z0-9]+$/.test(g)) score.mmusculus++;
+      if(/^CG\d+$/.test(g)||/^FBgn\d+$/.test(g)) score.dmelanogaster++;
+      if(/^[a-z]{3,}-\d+/.test(g)) score.celegans++;
+    });
+    console.debug('guessSpecies score', score);
+    const entries=Object.entries(score);
+    const total=entries.reduce((s,[,v])=>s+v,0);
+    if(total===0) return null;
+    const [best,bestScore]=entries.reduce((m,e)=>e[1]>m[1]?e:m,['',0]);
+    if(bestScore/total<0.5) return null;
+    console.debug('guessSpecies best', best, bestScore, total);
+    return best;
+  }
+
+  function runGOAnalysis(genes, organism){
+    console.debug('runGOAnalysis called', genes, organism);
     const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
     console.debug('GO analysis formatted genes', formatted);
     if(!formatted.length){ goResults.innerHTML='<i>No genes for analysis</i>'; return; }
-    const organism=speciesSelect.value;
-    console.debug('GO analysis organism', organism);
+    const org=organism || speciesSelect.value;
+    console.debug('GO analysis organism', org);
     lastGOFormatted=formatted;
-    lastGOOrganism=organism;
+    lastGOOrganism=org;
     lastGOResult=null;
     goResults.innerHTML='<i>Running GO analysis...</i>';
     fetch('https://biit.cs.ut.ee/gprofiler/api/gost/profile/',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({organism,query:formatted})
+      body:JSON.stringify({organism:org,query:formatted})
     }).then(r=>{
       console.debug('GO analysis HTTP status', r.status);
       if(!r.ok) throw new Error('GO API HTTP '+r.status);
@@ -873,8 +893,8 @@
     });
   }
 
-  function runStringAnalysis(genes){
-    console.debug('runStringAnalysis called', genes);
+  function runStringAnalysis(genes, organism){
+    console.debug('runStringAnalysis called', genes, organism);
     const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
     console.debug('STRING analysis formatted genes', formatted);
     if(!formatted.length){ stringNetwork.innerHTML=''; stringResults.innerHTML='<i>No genes for analysis</i>'; return; }
@@ -884,7 +904,10 @@
     const joinedIds=formatted.join('\n');
     console.debug('STRING joined identifiers', joinedIds);
     params.set('identifiers', joinedIds);
-    const stringSpecies=speciesSelect.selectedOptions[0].dataset.string||'9606';
+    const org=organism || speciesSelect.value;
+    console.debug('STRING analysis organism', org);
+    const stringMap={hsapiens:'9606',mmusculus:'10090',dmelanogaster:'7227',celegans:'6239'};
+    const stringSpecies=stringMap[org]||speciesSelect.selectedOptions[0]?.dataset.string||'9606';
     console.debug('STRING analysis species', stringSpecies);
     params.set('species', stringSpecies);
     console.debug('STRING analysis request params', params.toString());
@@ -1030,13 +1053,37 @@ KAT7`;
     console.debug('goBtn clicked');
     const genes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
     console.debug('goBtn genes', genes);
-    runGOAnalysis(genes);
+    let organism=speciesSelect.value;
+    console.debug('goBtn organism initial', organism);
+    if(!organism){
+      const guess=guessSpecies(genes);
+      console.debug('goBtn organism guess', guess);
+      if(guess){
+        speciesSelect.value=organism=guess;
+      }else{
+        alert('Please select a species before running GO analysis.');
+        return;
+      }
+    }
+    runGOAnalysis(genes, organism);
   });
   stringBtn.addEventListener('click',()=>{
     console.debug('stringBtn clicked');
     const genes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
     console.debug('stringBtn genes', genes);
-    runStringAnalysis(genes);
+    let organism=speciesSelect.value;
+    console.debug('stringBtn organism initial', organism);
+    if(!organism){
+      const guess=guessSpecies(genes);
+      console.debug('stringBtn organism guess', guess);
+      if(guess){
+        speciesSelect.value=organism=guess;
+      }else{
+        alert('Please select a species before running STRING analysis.');
+        return;
+      }
+    }
+    runStringAnalysis(genes, organism);
   });
   window.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); drawFromLists(); } });
 })();
