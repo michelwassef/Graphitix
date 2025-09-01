@@ -180,9 +180,17 @@
     <div id="analysisResults" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;max-height:400px;overflow:auto;margin-top:6px">
       <div id="goResults"></div>
       <canvas id="goChart" style="display:none;width:100%;height:300px;margin-top:8px"></canvas>
-      <div id="stringSection" style="display:flex;gap:8px;margin-top:8px;align-items:flex-start">
+      <div class="row" id="goChartExport" style="display:none;justify-content:flex-end;margin-top:6px">
+        <button class="btn" id="goChartPNG">Download PNG</button>
+        <button class="btn" id="goChartSVG">Download SVG</button>
+      </div>
+      <div id="stringSection" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;align-items:flex-start">
         <div id="stringResults"></div>
         <div id="stringNetwork"></div>
+        <div class="row" id="stringNetworkExport" style="display:none;justify-content:flex-end;margin-top:6px">
+          <button class="btn" id="stringPNG">Download PNG</button>
+          <button class="btn" id="stringSVG">Download SVG</button>
+        </div>
       </div>
     </div>
     <div class="row" style="margin-top:6px;font-size:13px;color:#333">
@@ -688,13 +696,58 @@
   }
   function downloadURL(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
 
+  function exportGoChart(format){
+    console.debug('exportGoChart called', format);
+    if(!goChart){ console.debug('exportGoChart aborted: no chart'); return; }
+    const canvas=document.getElementById('goChart');
+    let url;
+    if(format==='png'){
+      url=canvas.toDataURL('image/png');
+    }else if(format==='svg'){
+      try{
+        url=goChart.toBase64Image('image/svg+xml');
+      }catch(err){
+        console.error('exportGoChart SVG error', err);
+        return;
+      }
+    }
+    downloadURL(url,'go_chart.'+format);
+  }
+
+  async function downloadStringPNG(){
+    console.debug('downloadStringPNG called');
+    if(!lastStringSVG){ console.debug('downloadStringPNG aborted: no SVG data'); return; }
+    const svgBlob=new Blob([lastStringSVG],{type:'image/svg+xml'});
+    const url=URL.createObjectURL(svgBlob);
+    const img=new Image();
+    img.src=url;
+    await img.decode().catch(err=>{console.error('downloadStringPNG decode error', err);});
+    const canvas=document.createElement('canvas');
+    canvas.width=img.width; canvas.height=img.height;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(img,0,0);
+    URL.revokeObjectURL(url);
+    canvas.toBlob(b=>{ const pngUrl=URL.createObjectURL(b); downloadURL(pngUrl,'string_network.png'); setTimeout(()=>URL.revokeObjectURL(pngUrl),5000); },'image/png');
+  }
+
+  function downloadStringSVG(){
+    console.debug('downloadStringSVG called');
+    if(!lastStringSVG){ console.debug('downloadStringSVG aborted: no SVG data'); return; }
+    const blob=new Blob([lastStringSVG],{type:'image/svg+xml'});
+    const url=URL.createObjectURL(blob);
+    downloadURL(url,'string_network.svg');
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+  }
+
   const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
-  const regionSelect=$('#regionSelect'), regionList=$('#regionList'), copyRegionBtn=$('#copyRegionBtn'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults'), speciesSelect=$('#speciesSelect');
+  const regionSelect=$('#regionSelect'), regionList=$('#regionList'), copyRegionBtn=$('#copyRegionBtn'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults'), speciesSelect=$('#speciesSelect'), goChartExport=$('#goChartExport'), stringNetworkExport=$('#stringNetworkExport');
   const tooltip=$('#tooltip');
   let lastGOResult=null, lastGOFormatted=[], lastGOOrganism='hsapiens';
-  let goChart=null;
+  let goChart=null, lastStringSVG=null;
   console.debug('stringNetwork element', stringNetwork);
   console.debug('tooltip element', tooltip);
+  console.debug('goChartExport element', goChartExport);
+  console.debug('stringNetworkExport element', stringNetworkExport);
   copyRegionBtn.addEventListener('click',()=>{
     console.debug('copyRegionBtn clicked', regionSelect.value);
     const text=getRegionText(regionSelect.value);
@@ -873,8 +926,11 @@
   function renderGOChart(limit=5){
     console.debug('renderGOChart called', {limit});
     const canvas=document.getElementById('goChart');
+    const exportRow=document.getElementById('goChartExport');
     if(!lastGOResult||!lastGOResult.length){
       canvas.style.display='none';
+      exportRow.style.display='none';
+      console.debug('renderGOChart no data - chart and export hidden');
       if(goChart){ goChart.destroy(); goChart=null; console.debug('renderGOChart cleared chart'); }
       return;
     }
@@ -884,6 +940,8 @@
     console.debug('renderGOChart data', {labels,values});
     if(goChart){ goChart.destroy(); console.debug('renderGOChart destroyed previous chart'); }
     canvas.style.display='block';
+    exportRow.style.display='flex';
+    console.debug('renderGOChart displaying chart and showing export row');
     canvas.width=canvas.offsetWidth;
     canvas.height=canvas.offsetHeight;
     console.debug('renderGOChart canvas resized',{width:canvas.width,height:canvas.height});
@@ -1102,17 +1160,20 @@
     console.debug('runStringAnalysis called', genes, organism);
     const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
     console.debug('STRING analysis formatted genes', formatted);
-    if(!formatted.length){ stringNetwork.innerHTML=''; stringResults.innerHTML='<i>No genes for analysis</i>'; return; }
+    if(!formatted.length){ stringNetwork.innerHTML=''; stringResults.innerHTML='<i>No genes for analysis</i>'; stringNetworkExport.style.display='none'; console.debug('STRING analysis aborted: no genes'); return; }
     const org=organism || speciesSelect.value;
     console.debug('STRING analysis organism', org);
     if(!org){
       stringNetwork.innerHTML='';
       stringResults.innerHTML='<div>Please select a species before running STRING analysis.</div>';
+      stringNetworkExport.style.display='none';
       console.debug('STRING analysis aborted: missing species');
       return;
     }
     stringNetwork.innerHTML='<i>Loading STRING network...</i>';
     stringResults.innerHTML='<i>Running STRING enrichment...</i>';
+    stringNetworkExport.style.display='none';
+    console.debug('STRING network export hidden while loading');
     const params=new URLSearchParams();
     const joinedIds=formatted.join('\n');
     console.debug('STRING joined identifiers', joinedIds);
@@ -1129,17 +1190,33 @@
     params.set('network_flavor', edgeMeaning);
     if(sources.length) params.set('sources', sources.join('%0d'));
     console.debug('STRING analysis request params', params.toString());
-    const networkUrl='https://string-db.org/api/image/network?'+params.toString();
-    console.debug('STRING network image URL', networkUrl);
-    const img=new Image();
-    img.src=networkUrl;
-    img.alt='STRING network graph';
-    img.style.maxWidth='150%';
-    console.debug('STRING network image dimensions set', {width:img.width,height:img.height});
-    img.onload=()=>console.debug('STRING network image loaded');
-    img.onerror=e=>console.error('STRING network image error', e);
-    stringNetwork.innerHTML='';
-    stringNetwork.appendChild(img);
+    const networkUrl='https://string-db.org/api/svg/network?'+params.toString();
+    console.debug('STRING network SVG URL', networkUrl);
+    fetch(networkUrl)
+    .then(r=>{ console.debug('STRING network fetch status', r.status); if(!r.ok) throw new Error('STRING network HTTP '+r.status); return r.text(); })
+    .then(svgText=>{
+      console.debug('STRING network SVG fetched', svgText.slice(0,100));
+      lastStringSVG=svgText;
+      const wrapper=document.createElement('div');
+      wrapper.innerHTML=svgText;
+      const svgEl=wrapper.querySelector('svg');
+      stringNetwork.innerHTML='';
+      if(svgEl){
+        svgEl.style.maxWidth='150%';
+        stringNetwork.appendChild(svgEl);
+        stringNetworkExport.style.display='flex';
+        console.debug('STRING network SVG appended and export shown');
+      }else{
+        stringNetwork.innerHTML='<div>Failed to load STRING network</div>';
+        console.debug('STRING network SVG missing svg element');
+      }
+    })
+    .catch(err=>{
+      console.error('STRING network SVG error', err);
+      stringNetwork.innerHTML='<div>Error loading STRING network</div>';
+      stringNetworkExport.style.display='none';
+      console.debug('STRING network export hidden after error');
+    });
     fetch('https://string-db.org/api/json/enrichment?'+params.toString())
     .then(r=>{
       console.debug('STRING analysis HTTP status', r.status);
@@ -1245,6 +1322,10 @@
   document.getElementById('useNumeric').addEventListener('click',drawFromNumeric);
   document.getElementById('exportSVG').addEventListener('click',exportSVG);
   document.getElementById('exportPNG').addEventListener('click',exportPNG);
+  document.getElementById('goChartPNG').addEventListener('click',()=>{console.debug('goChartPNG button clicked'); exportGoChart('png');});
+  document.getElementById('goChartSVG').addEventListener('click',()=>{console.debug('goChartSVG button clicked'); exportGoChart('svg');});
+  document.getElementById('stringPNG').addEventListener('click',()=>{console.debug('stringPNG button clicked'); downloadStringPNG();});
+  document.getElementById('stringSVG').addEventListener('click',()=>{console.debug('stringSVG button clicked'); downloadStringSVG();});
   document.getElementById('sample').addEventListener('click',()=>{
     inputs.labelA.value='Transcriptomic'; inputs.labelB.value='Proteomic'; inputs.labelC.value='Phospho';
     inputs.A.value=`BRCA1
