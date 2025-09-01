@@ -142,8 +142,18 @@
     </div>
     <div id="regionListContainer" style="position:relative;margin-top:6px">
       <button class="btn" id="copyRegionBtn" style="position:absolute;top:4px;right:24px;display:none;font-size:12px;padding:4px 8px">Copy list</button>
-      <div id="regionList" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:24px 8px 8px;max-height:190px;overflow:auto"></div>
+    <div id="regionList" style="background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:24px 8px 8px;max-height:190px;overflow:auto"></div>
     </div>
+    <details id="significanceSection" style="margin-top:8px">
+      <summary>Overlap significance</summary>
+      <div class="row" style="margin-top:4px">
+        <label style="flex:1">Total genes
+          <input id="totalGenes" type="number" min="1" style="width:100%">
+        </label>
+        <button class="btn" id="calcSignificance">Calculate</button>
+      </div>
+      <div id="significanceResults" style="margin-top:4px;font-size:13px"></div>
+    </details>
     <div class="row analysis-controls" style="margin-top:6px">
       <label>Species
         <select id="speciesSelect">
@@ -767,6 +777,8 @@
   const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
   const regionSelect=$('#regionSelect'), regionList=$('#regionList'), copyRegionBtn=$('#copyRegionBtn'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults'), speciesSelect=$('#speciesSelect'), goChartExport=$('#goChartExport'), stringNetworkExport=$('#stringNetworkExport');
   const tooltip=$('#tooltip');
+  const totalGenesInput=$('#totalGenes'), calcSignificanceBtn=$('#calcSignificance'), significanceResults=$('#significanceResults');
+  console.debug('significance section elements initialized', {totalGenesInput, calcSignificanceBtn, significanceResults});
   let lastGOResult=null, lastGOFormatted=[], lastGOOrganism='hsapiens';
   let goChart=null, lastStringSVG=null;
   console.debug('stringNetwork element', stringNetwork);
@@ -1036,7 +1048,7 @@
   regionSelect.addEventListener('change',()=>{ console.debug('regionSelect changed', regionSelect.value); populateRegion(regionSelect.value); });
   speciesSelect.addEventListener('change',()=>{ console.debug('speciesSelect changed', speciesSelect.value); });
 
-  let lastRegions=null, lastDrawMode=null;
+  let lastRegions=null, lastDrawMode=null, lastCounts=null;
   function refreshDiagram(){
     if(!lastDrawMode) return;
     console.debug('refreshDiagram called', lastDrawMode);
@@ -1058,6 +1070,57 @@
     const genes=[...(map[code]||new Set())];
     console.debug('getRegionText genes', code, genes);
     return genes.join('\n');
+  }
+
+  function logFact(n){
+    let res=0;
+    for(let i=2;i<=n;i++) res+=Math.log(i);
+    return res;
+  }
+  function logChoose(n,k){
+    if(k<0||k>n) return -Infinity;
+    return logFact(n)-logFact(k)-logFact(n-k);
+  }
+  function hypergeomPval(N,K,n,k){
+    console.debug('hypergeomPval called',{N,K,n,k});
+    let p=0;
+    for(let i=k;i<=Math.min(K,n);i++){
+      const term=Math.exp(logChoose(K,i)+logChoose(N-K,n-i)-logChoose(N,n));
+      p+=term;
+    }
+    console.debug('hypergeomPval result',p);
+    return p;
+  }
+  function calculateSignificance(){
+    console.debug('calculateSignificance triggered');
+    if(!lastCounts){
+      significanceResults.textContent='Draw a Venn diagram first.';
+      console.debug('calculateSignificance aborted: no counts');
+      return;
+    }
+    const total=+totalGenesInput.value;
+    console.debug('calculateSignificance total',total);
+    if(!total||total<Math.max(lastCounts.nA,lastCounts.nB,lastCounts.nC)){
+      significanceResults.textContent='Please enter a valid total gene count.';
+      console.debug('calculateSignificance invalid total');
+      return;
+    }
+    const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
+    const res=[];
+    const pAB=hypergeomPval(total,lastCounts.nA,lastCounts.nB,lastCounts.AB+lastCounts.ABC);
+    res.push({name:`${labels.A}∩${labels.B}`,p:pAB});
+    if(lastCounts.nC>0){
+      const pAC=hypergeomPval(total,lastCounts.nA,lastCounts.nC,lastCounts.AC+lastCounts.ABC);
+      res.push({name:`${labels.A}∩${labels.C}`,p:pAC});
+      const pBC=hypergeomPval(total,lastCounts.nB,lastCounts.nC,lastCounts.BC+lastCounts.ABC);
+      res.push({name:`${labels.B}∩${labels.C}`,p:pBC});
+      const pABC=hypergeomPval(total,lastCounts.AB+lastCounts.ABC,lastCounts.nC,lastCounts.ABC);
+      res.push({name:`${labels.A}∩${labels.B}∩${labels.C}`,p:pABC});
+    }
+    significanceResults.innerHTML='<table><tr><th>Overlap</th><th>p-value</th><th>Significant</th></tr>'+
+      res.map(r=>`<tr><td>${r.name}</td><td>${r.p.toExponential(2)}</td><td>${r.p<0.05?'yes':'no'}</td></tr>`).join('')+
+      '</table>';
+    console.debug('calculateSignificance results',res);
   }
 
   async function guessSpecies(genes){
@@ -1319,6 +1382,9 @@
     const A=parseList(inputs.A.value,cs,mode), B=parseList(inputs.B.value,cs,mode), C=parseList(inputs.C.value,cs,mode);
     const regions=setsFromLists(A,B,C); lastRegions=regions; lastDrawMode='lists';
     const counts={nA:regions.A.size,nB:regions.B.size,nC:regions.C.size,Aonly:regions.Aonly.size,Bonly:regions.Bonly.size,Conly:regions.Conly.size,AB:regions.AB.size,AC:regions.AC.size,BC:regions.BC.size,ABC:regions.ABC.size};
+    lastCounts=counts;
+    significanceResults.innerHTML='';
+    console.debug('drawFromLists counts stored', lastCounts);
     refreshCounts(counts);
     const pairs={nAB:counts.AB+counts.ABC,nAC:counts.AC+counts.ABC,nBC:counts.BC+counts.ABC};
     const L=layoutFromCounts(counts.nA,counts.nB,counts.nC,pairs.nAB,pairs.nAC,pairs.nBC);
@@ -1338,6 +1404,9 @@
     const Aonly=Math.max(0,nA-(nAB+nAC-nABC)), Bonly=Math.max(0,nB-(nAB+nBC-nABC)), Conly=Math.max(0,nC-(nAC+nBC-nABC));
     const counts={nA,nB,nC,Aonly,Bonly,Conly,AB:Math.max(0,nAB-nABC),AC:Math.max(0,nAC-nABC),BC:Math.max(0,nBC-nABC),ABC:nABC};
     lastRegions={A:new Set(),B:new Set(),C:new Set(),Aonly:new Set(),Bonly:new Set(),Conly:new Set(),AB:new Set(),AC:new Set(),BC:new Set(),ABC:new Set()}; lastDrawMode='numeric';
+    lastCounts=counts;
+    significanceResults.innerHTML='';
+    console.debug('drawFromNumeric counts stored', lastCounts);
     refreshCounts(counts);
     const L=layoutFromCounts(nA,nB,nC,nAB,nAC,nBC);
     const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value,borderColor:inputs.borderColor.value,borderWidth:inputs.borderWidth.value};
@@ -1356,6 +1425,8 @@
   document.getElementById('goChartSVG').addEventListener('click',()=>{console.debug('goChartSVG button clicked'); exportGoChart('svg');});
   document.getElementById('stringPNG').addEventListener('click',()=>{console.debug('stringPNG button clicked'); downloadStringPNG();});
   document.getElementById('stringSVG').addEventListener('click',()=>{console.debug('stringSVG button clicked'); downloadStringSVG();});
+  calcSignificanceBtn.addEventListener('click',calculateSignificance);
+  console.debug('calcSignificanceBtn listener attached');
   document.getElementById('sample').addEventListener('click',()=>{
     inputs.labelA.value='Transcriptomic'; inputs.labelB.value='Proteomic'; inputs.labelC.value='Phospho';
     inputs.A.value=`BRCA1
@@ -1381,7 +1452,7 @@ KAT7`;
   document.getElementById('reset').addEventListener('click',()=>{
     inputs.A.value=''; inputs.B.value=''; inputs.C.value='';
     Object.values(inputs.counts).forEach(x=>x.value=0);
-    clearSVG(); lastRegions=null; lastDrawMode=null; regionList.textContent='';
+    clearSVG(); lastRegions=null; lastDrawMode=null; lastCounts=null; regionList.textContent='';
     Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{});
     document.getElementById('countA').textContent='0';
     document.getElementById('countB').textContent='0';
@@ -1396,6 +1467,9 @@ KAT7`;
     clearAnalysis();
     speciesSelect.value='';
     setSpeciesIndicator(null);
+    totalGenesInput.value='';
+    significanceResults.innerHTML='';
+    console.debug('significance reset');
     console.debug('speciesSelect reset');
   });
   goBtn.addEventListener('click',async()=>{
