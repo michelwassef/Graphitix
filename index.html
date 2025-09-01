@@ -788,6 +788,12 @@
   console.debug('analysis options computed font sizes',{go:getComputedStyle(goOptions).fontSize,string:getComputedStyle(stringOptions).fontSize});
   console.debug('analysis results computed font size', getComputedStyle(analysisResults).fontSize);
   console.debug('stringNetworkExport initial width', getComputedStyle(stringNetworkExport).width);
+  document.addEventListener('click',e=>{
+    if(tooltip.style.display==='block' && !tooltip.contains(e.target)){
+      tooltip.style.display='none';
+      console.debug('tooltip hidden on document click', e.target);
+    }
+  });
   copyRegionBtn.addEventListener('click',()=>{
     console.debug('copyRegionBtn clicked', regionSelect.value);
     const text=getRegionText(regionSelect.value);
@@ -1044,6 +1050,9 @@
     if(goChart){ goChart.destroy(); goChart=null; console.debug('clearAnalysis destroyed goChart'); }
     const canvas=document.getElementById('goChart');
     canvas.style.display='none';
+    goChartExport.style.display='none';
+    stringNetworkExport.style.display='none';
+    console.debug('clearAnalysis hidden export buttons');
   }
   regionSelect.addEventListener('change',()=>{ console.debug('regionSelect changed', regionSelect.value); populateRegion(regionSelect.value); });
   speciesSelect.addEventListener('change',()=>{ console.debug('speciesSelect changed', speciesSelect.value); });
