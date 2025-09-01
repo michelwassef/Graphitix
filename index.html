@@ -40,6 +40,11 @@
   .config-options fieldset{border:none;padding:0;margin:0}
   .config-options legend{font-size:14px;font-weight:600;margin-bottom:4px;margin-left:-4px}
   .config-options .control label{width:90px;font-size:14px}
+  .analysis-options{font-size:13px}
+  .analysis-options label{font-size:13px}
+  .analysis-options strong{font-size:13px}
+  #analysisResults{font-size:13px}
+  #analysisResults canvas{font-size:initial}
 </style>
 </head>
 <body>
@@ -187,7 +192,7 @@
       <div id="stringSection" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;align-items:flex-start">
         <div id="stringResults"></div>
         <div id="stringNetwork"></div>
-        <div class="row" id="stringNetworkExport" style="display:none;justify-content:flex-end;margin-top:6px">
+        <div class="row" id="stringNetworkExport" style="display:none;justify-content:flex-end;margin-top:6px;width:100%">
           <button class="btn" id="stringPNG">Download PNG</button>
           <button class="btn" id="stringSVG">Download SVG</button>
         </div>
@@ -705,13 +710,33 @@
       url=canvas.toDataURL('image/png');
     }else if(format==='svg'){
       try{
-        url=goChart.toBase64Image('image/svg+xml');
+        const {labels}=goChart.data;
+        const values=goChart.data.datasets[0].data;
+        const color=goChart.data.datasets[0].backgroundColor;
+        const width=canvas.width, height=canvas.height;
+        console.debug('exportGoChart SVG metrics',{labels,values,width,height,color});
+        const paddingLeft=100, paddingRight=20;
+        const barHeight=height/labels.length;
+        const maxVal=Math.max(...values);
+        let svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
+        for(let i=0;i<labels.length;i++){
+          const y=i*barHeight;
+          const barWidth=(values[i]/maxVal)*(width-paddingLeft-paddingRight);
+          svg+=`<text x="4" y="${y+barHeight/2}" dominant-baseline="middle" font-size="12">${labels[i]}</text>`;
+          svg+=`<rect x="${paddingLeft}" y="${y+2}" width="${barWidth}" height="${barHeight-4}" fill="${color}"/>`;
+          svg+=`<text x="${paddingLeft+barWidth+4}" y="${y+barHeight/2}" dominant-baseline="middle" font-size="12">${values[i].toFixed(2)}</text>`;
+        }
+        svg+='</svg>';
+        const blob=new Blob([svg],{type:'image/svg+xml'});
+        url=URL.createObjectURL(blob);
+        console.debug('exportGoChart SVG URL created', url);
       }catch(err){
         console.error('exportGoChart SVG error', err);
         return;
       }
     }
     downloadURL(url,'go_chart.'+format);
+    if(format==='svg'){ setTimeout(()=>URL.revokeObjectURL(url),5000); }
   }
 
   async function downloadStringPNG(){
@@ -748,6 +773,9 @@
   console.debug('tooltip element', tooltip);
   console.debug('goChartExport element', goChartExport);
   console.debug('stringNetworkExport element', stringNetworkExport);
+  console.debug('analysis options computed font sizes',{go:getComputedStyle(goOptions).fontSize,string:getComputedStyle(stringOptions).fontSize});
+  console.debug('analysis results computed font size', getComputedStyle(analysisResults).fontSize);
+  console.debug('stringNetworkExport initial width', getComputedStyle(stringNetworkExport).width);
   copyRegionBtn.addEventListener('click',()=>{
     console.debug('copyRegionBtn clicked', regionSelect.value);
     const text=getRegionText(regionSelect.value);
@@ -937,7 +965,8 @@
     const data=lastGOResult.slice(0,limit);
     const labels=data.map(r=>r.term_name||r.name||'');
     const values=data.map(r=>-Math.log10(r.p_value));
-    console.debug('renderGOChart data', {labels,values});
+    const barColor='#64b5f6';
+    console.debug('renderGOChart data', {labels,values,barColor});
     if(goChart){ goChart.destroy(); console.debug('renderGOChart destroyed previous chart'); }
     canvas.style.display='block';
     exportRow.style.display='flex';
@@ -950,7 +979,7 @@
     console.debug('renderGOChart context transform reset', ctx.getTransform());
     const config={
       type:'bar',
-      data:{labels,datasets:[{label:'-log10(p)',data:values,backgroundColor:'#69b3a2'}]},
+      data:{labels,datasets:[{label:'-log10(p)',data:values,backgroundColor:barColor}]},
       options:{
         indexAxis:'y',
         responsive:true,
@@ -968,6 +997,7 @@
       locale:'en-US'
     };
     console.debug('renderGOChart config', config);
+    console.debug('renderGOChart bar color applied', barColor);
     goChart=new Chart(ctx,config);
   }
 
