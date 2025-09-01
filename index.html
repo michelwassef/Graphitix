@@ -989,21 +989,25 @@
     canvas.style.display='block';
     exportRow.style.display='flex';
     console.debug('renderGOChart displaying chart and showing export row');
-    const barHeight=25;
+    const isAll=limit>5;
+    const baseBarHeight=25;
+    const minBarHeight=18;
+    const barHeight=isAll?minBarHeight:baseBarHeight;
     const chartHeight=Math.max(300,barHeight*labels.length);
+    console.debug('renderGOChart sizing',{isAll,barHeight,chartHeight,labelsCount:labels.length});
     canvas.style.height=chartHeight+'px';
-    canvas.width=canvas.offsetWidth;
     canvas.height=chartHeight;
-    console.debug('renderGOChart canvas resized',{width:canvas.width,height:canvas.height,barHeight,labelsCount:labels.length});
+    canvas.width=canvas.offsetWidth;
+    console.debug('renderGOChart canvas resized',{width:canvas.width,height:canvas.height});
     const ctx=canvas.getContext('2d');
     ctx.setTransform(1,0,0,1,0,0);
     console.debug('renderGOChart context transform reset', ctx.getTransform());
     const config={
       type:'bar',
-      data:{labels,datasets:[{label:'-log10(p)',data:values,backgroundColor:barColor}]},
+      data:{labels,datasets:[{label:'-log10(p)',data:values,backgroundColor:barColor,barThickness:barHeight-5}]},
       options:{
         indexAxis:'y',
-        responsive:true,
+        responsive:false,
         maintainAspectRatio:false,
         plugins:{legend:{display:false}},
         scales:{
