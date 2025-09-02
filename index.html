@@ -929,7 +929,8 @@
     tooltip.style.columnCount=1;
     tooltip.style.columnWidth='auto';
     tooltip.style.width='max-content';
-    console.debug('goBtn tooltip style adjusted');
+    tooltip.style.height='auto';
+    console.debug('goBtn tooltip style adjusted', {width: tooltip.style.width, height: tooltip.style.height});
     // prepare tooltip for measurement
     tooltip.style.visibility='hidden';
     tooltip.style.display='block';
