@@ -47,9 +47,9 @@
   #analysisResults{font-size:13px}
   #analysisResults canvas{font-size:initial}
   /* Box plot layout adjustments */
-  #boxPage .wrap{grid-template-columns:1fr 1fr;align-items:flex-start}
+  #boxPage .wrap{grid-template-columns:360px 1fr;align-items:flex-start}
   #boxPage .panel{display:flex;flex-direction:column}
-  #boxPage #boxPlot{width:100%;height:340px}
+  #boxPage #boxPlot{min-width:600px;height:340px;resize:both;overflow:auto}
   @media (max-width:1000px){#boxPage .wrap{grid-template-columns:1fr}}
   </style>
  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
@@ -241,8 +241,8 @@
       </div>
       <div class="panel" style="align-items:center">
         <div class="diagram-area">
-          <div class="svgbox" style="flex:1">
-            <div id="boxPlot" style="width:100%;height:340px"></div>
+            <div class="svgbox" style="flex:1">
+            <div id="boxPlot"></div>
             <div class="row" style="justify-content:flex-end;margin-top:6px">
               <button class="btn" id="boxPNG">Download PNG</button>
               <button class="btn" id="boxSVG">Download SVG</button>
@@ -260,6 +260,12 @@
               <legend>Border</legend>
               <div class="control">
                 <label>Width</label><input type="number" id="boxBorderWidth" value="2" min="0" max="10" style="width:60px">
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Font</legend>
+              <div class="control">
+                <label>Size</label><input type="range" id="boxFontSize" min="10" max="36" step="1" value="16"><output id="boxFontSizeVal">16</output>
               </div>
             </fieldset>
           </div>
@@ -296,10 +302,17 @@
         if(!TH.dataset.editable){
           TH.contentEditable='true';
           TH.addEventListener('blur',()=>{
-            colHeaders[col]=TH.textContent;
-            console.debug('column header updated',{col,text:TH.textContent});
+            colHeaders[col]=TH.textContent.trim();
+            hot.render();
+            console.debug('column header updated',{col,text:TH.textContent.trim()});
           });
           TH.dataset.editable='true';
+        }
+      },
+      beforeOnCellMouseDown(e, coords){
+        if(coords.row===-1){
+          e.stopImmediatePropagation();
+          console.debug('header mouse down prevented', coords);
         }
       },
       afterCreateCol(index, amount){
@@ -314,8 +327,18 @@
       }
     });
     console.debug('Handsontable initialized with editable headers', colHeaders);
-    const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth');
-    console.debug('Box plot color controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value});
+    const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal');
+    console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value});
+    boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; console.debug('boxFontSize changed', boxFontSize.value); });
+    const boxPlotDiv=document.getElementById('boxPlot');
+    const boxResizeObserver=new ResizeObserver(()=>{
+      if(boxPlotDiv && boxPlotDiv.data){
+        Plotly.Plots.resize(boxPlotDiv);
+        console.debug('boxPlot resized via observer',{w:boxPlotDiv.clientWidth,h:boxPlotDiv.clientHeight});
+      }
+    });
+    boxResizeObserver.observe(boxPlotDiv);
+    console.debug('ResizeObserver attached to boxPlot');
   Chart.defaults.locale='en-US';
   console.debug('Chart.js default locale set', Chart.defaults.locale);
   console.debug('App initialized');
@@ -1729,6 +1752,8 @@ KAT7`;
       const fill=$('#boxFill').value;
       const border=$('#boxBorder').value;
       const bw=Number($('#boxBorderWidth').value);
+      const fs=Number($('#boxFontSize').value);
+      console.debug('box plot style',{fill,border,bw,fs});
       const traces=[];
       colHeaders.slice(0, hot.countCols()).forEach((h,i)=>{
         const col=hot.getDataAtCol(i).map(v=>parseFloat(v)).filter(v=>!isNaN(v));
@@ -1743,8 +1768,16 @@ KAT7`;
         console.debug('drawBoxplot aborted no data');
         return;
       }
-      const layout={boxmode:'group',paper_bgcolor:'#fff',plot_bgcolor:'#fff',xaxis:{title:{text:'X label'}},yaxis:{title:{text:'Y label'}},editable:true};
-      const config={editable:true};
+      const layout={
+        boxmode:'group',
+        paper_bgcolor:'#fff',
+        plot_bgcolor:'#fff',
+        font:{size:fs},
+        xaxis:{title:{text:'X label',font:{size:fs}},showline:true,linecolor:'#000',linewidth:2,mirror:false,ticks:'outside',tickfont:{size:fs},showgrid:false,zeroline:false},
+        yaxis:{title:{text:'Y label',font:{size:fs}},showline:true,linecolor:'#000',linewidth:2,mirror:false,ticks:'outside',tickfont:{size:fs},showgrid:false,zeroline:false},
+        editable:true
+      };
+      const config={editable:true,responsive:true};
       console.debug('boxplot layout', {layout,config});
       Plotly.newPlot('boxPlot', traces, layout, config);
       console.debug('boxplot drawn', traces);
