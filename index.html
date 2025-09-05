@@ -372,6 +372,10 @@
     let statsMode='all';
     let statsRef=0;
     console.debug('stats defaults',{statsTest,statsMode,statsRef});
+
+    const ANN_BASE_OFFSET=25;
+    const ANN_LEVEL_GAP=25;
+    console.debug('annotation constants set',{ANN_BASE_OFFSET,ANN_LEVEL_GAP});
 	
 	
 	
@@ -2109,7 +2113,8 @@ KAT7`;
     }
     function annotateOverall(svg,xCenters,y2px,maxVal,p,level=0){
       console.debug('annotateOverall called',{xCenters,maxVal,p,level});
-      const y=y2px(maxVal)-20-level*15;
+      const y=y2px(maxVal)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP;
+      console.debug('annotateOverall y',{y});
       const txt=document.createElementNS(NS,'text');
       txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2);
       txt.setAttribute('y',y-12);
@@ -2140,7 +2145,8 @@ KAT7`;
         const to=Math.max(indices[0],indices[1]);
         let rangeMax=-Infinity;
         for(let k=from;k<=to;k++) rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
-        const y=helpers.y2px(rangeMax)-20;
+        const y=helpers.y2px(rangeMax)-ANN_BASE_OFFSET;
+        console.debug('pair annotation position',{rangeMax,y});
         annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),y,res.p);
         console.debug('computeStats pair result',{res,param,rangeMax,y});
         return;
@@ -2197,7 +2203,8 @@ KAT7`;
         pairs.forEach(pr=>{
           let level=0;
           while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
-          const y=helpers.y2px(pr.rangeMax)-20-level*15;
+          const y=helpers.y2px(pr.rangeMax)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP;
+          console.debug('pair level placement',{rangeMax:pr.rangeMax,level,y});
           annotatePair(svg,helpers.xCenter(pr.ai),helpers.xCenter(pr.bi),y,pr.p);
           pr.level=level;
           placed.push(pr);
@@ -2259,16 +2266,19 @@ KAT7`;
 
 	  // Create SVG
           const svg = document.createElementNS(NS, 'svg');
-	  svg.setAttribute('id', 'boxSvg');
-	  svg.setAttribute('width', String(W));
-	  svg.setAttribute('height', String(H));
-	  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-	  $box.appendChild(svg);
+          svg.setAttribute('id', 'boxSvg');
+          svg.setAttribute('width', String(W));
+          svg.setAttribute('height', String(H));
+          svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+          svg.setAttribute('font-family','sans-serif');
+          console.debug('svg font-family set','sans-serif');
+          $box.appendChild(svg);
 
 	  // Margins and plotting area
           const baseTop=Math.max(32,Math.round(fs*2.2));
           const maxLevelEstimate=selectedCols.size>1?selectedCols.size:0;
-          const topExtra=maxLevelEstimate?(20+maxLevelEstimate*15):0;
+          const topExtra=maxLevelEstimate?(ANN_BASE_OFFSET+maxLevelEstimate*ANN_LEVEL_GAP):0;
+          console.debug('topExtra computed',{topExtra,maxLevelEstimate});
           const margin={
                 top:baseTop+topExtra,
                 right:20,
@@ -2368,21 +2378,18 @@ KAT7`;
             });
 
             const yLabelGap = 30;
-            const yFo=add('foreignObject',{x:0,y:margin.top,width:margin.left-yLabelGap,height:plotH});
-            const yDiv=document.createElement('div');
-            yDiv.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
-            yDiv.textContent=boxYLabelText;
-            yDiv.contentEditable='true';
-            yDiv.style.display='flex';
-            yDiv.style.justifyContent='center';
-            yDiv.style.alignItems='center';
-            yDiv.style.height='100%';
-            yDiv.style.transform='rotate(-90deg)';
-            yDiv.style.transformOrigin='center';
-            yDiv.style.fontSize=(fs+4)+'px';
-            yDiv.addEventListener('input',()=>{boxYLabelText=yDiv.textContent;console.debug('boxYLabelText updated',boxYLabelText);});
-            yFo.appendChild(yDiv);
-            console.debug('y-axis label spacing set',{left:margin.left,gap:yLabelGap});
+            const yX = margin.left / 2;
+            const yText = add('text', {
+              x: yX,
+              y: margin.top + plotH / 2,
+              transform: `rotate(-90 ${yX} ${margin.top + plotH / 2})`,
+              'text-anchor': 'middle',
+              'font-size': fs + 4
+            });
+            yText.textContent = boxYLabelText;
+            yText.setAttribute('contentEditable','true');
+            yText.addEventListener('input',()=>{boxYLabelText=yText.textContent;console.debug('boxYLabelText updated',boxYLabelText);});
+            console.debug('y-axis label placed',{x:yX,gap:yLabelGap});
 
             // Boxes
             traces.forEach((t, i) => {
@@ -2419,17 +2426,16 @@ KAT7`;
 
                 console.debug('box drawn', { label: t.name, min, q1, med, q3, max, cx, boxW });
           });
-              const titleFo = add('foreignObject',{x:margin.left,y:0,width:plotW,height:margin.top});
-            const titleDiv=document.createElement('div');
-            titleDiv.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
-            titleDiv.textContent=boxTitleText;
-            titleDiv.contentEditable='true';
-            titleDiv.style.textAlign='center';
-            titleDiv.style.fontSize=(fs+4)+'px';
-            titleDiv.addEventListener('input',()=>{boxTitleText=titleDiv.textContent;console.debug('boxTitleText updated',boxTitleText);});
-            titleFo.appendChild(titleDiv);
-            svg.appendChild(titleFo);
-            console.debug('boxplot title rendered on top');
+            const titleText = add('text', {
+              x: margin.left + plotW / 2,
+              y: margin.top / 2,
+              'text-anchor': 'middle',
+              'font-size': fs + 4
+            });
+            titleText.textContent = boxTitleText;
+            titleText.setAttribute('contentEditable','true');
+            titleText.addEventListener('input',()=>{boxTitleText=titleText.textContent;console.debug('boxTitleText updated',boxTitleText);});
+            console.debug('boxplot title rendered',{x:margin.left + plotW / 2,y:margin.top / 2});
 
           console.debug('svg boxplot complete', { W, H, plotW, plotH, labelsUsed, yScale });
 
@@ -2456,6 +2462,7 @@ KAT7`;
     console.debug('boxPNG clicked');
     const svgEl = document.getElementById('boxSvg');
     if (!svgEl) { console.debug('boxPNG aborted: no svg'); return; }
+    console.debug('boxPNG font family', svgEl.getAttribute('font-family'));
     const xml = new XMLSerializer().serializeToString(svgEl);
     const img = new Image();
     const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
