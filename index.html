@@ -2266,13 +2266,16 @@ KAT7`;
 	  $box.appendChild(svg);
 
 	  // Margins and plotting area
-          const margin = {
-                top: Math.max(32, Math.round(fs * 2.2)),
-                right: 20,
-                bottom: Math.max(32, Math.round(fs * 2.2)),
-                left: Math.max(48, Math.round(fs * 3.0))
+          const baseTop=Math.max(32,Math.round(fs*2.2));
+          const maxLevelEstimate=selectedCols.size>1?selectedCols.size:0;
+          const topExtra=maxLevelEstimate?(20+maxLevelEstimate*15):0;
+          const margin={
+                top:baseTop+topExtra,
+                right:20,
+                bottom:Math.max(32,Math.round(fs*2.2)),
+                left:Math.max(48,Math.round(fs*3.0))
           };
-          console.debug('boxplot margins', margin);
+          console.debug('boxplot margins',{baseTop,maxLevelEstimate,topExtra,margin});
 	  const plotW = Math.max(20, W - margin.left - margin.right);
 	  const plotH = Math.max(20, H - margin.top - margin.bottom);
 
@@ -2352,17 +2355,20 @@ KAT7`;
 		txt.textContent = String(t);
 	  });
 	  // X axis baseline
-	  const xAxisY = margin.top + plotH;
-	  add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
-	  // X ticks and labels
+            const xAxisY = margin.top + plotH;
+            add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
+            const xLabelOffset = Math.max(14, fs) + 6;
+            console.debug('x-axis label offset', {xLabelOffset});
+            // X ticks and labels
             labelsUsed.forEach((lab, i) => {
                 const x = xCenter(i);
                 add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + 6, stroke: '#000', 'stroke-width': 1 });
-                const t = add('text', { x, y: xAxisY + Math.max(14, fs), 'font-size': fs, 'text-anchor': 'middle', fill: '#000' });
+                const t = add('text', { x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', fill: '#000' });
                 t.textContent = lab || `Col ${i + 1}`;
             });
 
-            const yFo=add('foreignObject',{x:0,y:margin.top,width:margin.left-20,height:plotH});
+            const yLabelGap = 30;
+            const yFo=add('foreignObject',{x:0,y:margin.top,width:margin.left-yLabelGap,height:plotH});
             const yDiv=document.createElement('div');
             yDiv.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
             yDiv.textContent=boxYLabelText;
@@ -2376,7 +2382,7 @@ KAT7`;
             yDiv.style.fontSize=(fs+4)+'px';
             yDiv.addEventListener('input',()=>{boxYLabelText=yDiv.textContent;console.debug('boxYLabelText updated',boxYLabelText);});
             yFo.appendChild(yDiv);
-            console.debug('y-axis label spacing set',{left:margin.left});
+            console.debug('y-axis label spacing set',{left:margin.left,gap:yLabelGap});
 
             // Boxes
             traces.forEach((t, i) => {
