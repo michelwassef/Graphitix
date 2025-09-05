@@ -325,6 +325,12 @@
               </div>
             </fieldset>
             <fieldset>
+              <legend>Grid</legend>
+              <div class="control">
+                <label><input type="checkbox" id="boxShowGrid" checked> Show horizontal grid</label>
+              </div>
+            </fieldset>
+            <fieldset>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label><input type="range" id="boxFontSize" min="10" max="36" step="1" value="16"><output id="boxFontSizeVal">16</output>
@@ -413,9 +419,10 @@
 
 
 	
-    const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal');
-    console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value});
+    const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid');
+    console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value,showGrid:boxShowGrid.checked});
     boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; console.debug('boxFontSize changed', boxFontSize.value); });
+    boxShowGrid.addEventListener('change',()=>{ console.debug('boxShowGrid toggled', boxShowGrid.checked); drawBoxplot(); });
 	
 
 	// --- improved resizers for separate X / Y resizing ---
@@ -2206,11 +2213,12 @@ KAT7`;
 	  console.debug('drawBoxplot (SVG) called');
 
 	  // Appearance controls
-	  const fill = $('#boxFill').value;
-	  const border = $('#boxBorder').value;
-	  const bw = Number($('#boxBorderWidth').value);
-	  const fs = Number($('#boxFontSize').value);
-	  console.debug('box plot style', { fill, border, bw, fs });
+          const fill = $('#boxFill').value;
+          const border = $('#boxBorder').value;
+          const bw = Number($('#boxBorderWidth').value);
+          const fs = Number($('#boxFontSize').value);
+          const showGrid = $('#boxShowGrid').checked;
+          console.debug('box plot style', { fill, border, bw, fs, showGrid });
 
 	  // Build traces from first-row headers; numeric data are rows 1..N
 	  const traces = [];
@@ -2270,9 +2278,15 @@ KAT7`;
 
 	  // Scales
 	  const allY = traces.flatMap(t => t.y);
-	  let ymin = Math.min(...allY);
-	  let ymax = Math.max(...allY);
-	  if (ymin === ymax) { ymin -= 1; ymax += 1; }
+          let ymin = Math.min(...allY);
+          let ymax = Math.max(...allY);
+          if (ymin === ymax) { ymin -= 1; ymax += 1; }
+          const range = ymax - ymin;
+          const padTop = range * 0.15;
+          const padBottom = range * 0.05;
+          ymax += padTop;
+          ymin -= padBottom;
+          console.debug('y-range padded', { ymin, ymax, padTop, padBottom });
 
 	  function niceNum(range, round){
 		const exp = Math.floor(Math.log10(range));
@@ -2313,14 +2327,23 @@ KAT7`;
 	  }
 
 	  // Axes
-	  function add(tag, attrs){
-		const el = document.createElementNS(NS, tag);
-		for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
-		svg.appendChild(el);
-		return el;
-	  }
-	  // Y axis line
-	  add('line', { x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotH, stroke: '#000', 'stroke-width': 2 });
+          function add(tag, attrs){
+                const el = document.createElementNS(NS, tag);
+                for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+                svg.appendChild(el);
+                return el;
+          }
+          if (showGrid) {
+                yScale.ticks.forEach(t => {
+                  const y = y2px(t);
+                  add('line', { x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#ddd', 'stroke-width': 1 });
+                });
+                console.debug('grid lines drawn', { ticks: yScale.ticks });
+          } else {
+                console.debug('grid lines skipped');
+          }
+          // Y axis line
+          add('line', { x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotH, stroke: '#000', 'stroke-width': 2 });
 	  // Y ticks and labels
 	  yScale.ticks.forEach(t => {
 		const y = y2px(t);
