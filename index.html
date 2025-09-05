@@ -332,7 +332,10 @@
             </fieldset>
           </div>
         </div>
-        <div id="statsResults" style="width:100%;margin-top:12px"></div>
+        <div id="statsPanel" style="width:100%;margin-top:12px">
+          <div id="statsControls"></div>
+          <div id="statsResults" style="margin-top:8px"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -354,6 +357,11 @@
     console.debug('Draw boxplot button initialized', drawBoxplotBtn);
     const hotContainer=document.getElementById('hot');
     let colHeaders=['A','B','C'];
+
+    const NS='http://www.w3.org/2000/svg';
+    let selectedCols=new Set();
+    let boxTitleText='Boxplot';
+    let boxYLabelText='Value';
 	
 	
 	
@@ -1927,21 +1935,143 @@ KAT7`;
       console.debug('mannWhitney results', {U,z,p});
       return {U,z,p};
     }
-    function computeStats(traces){
-      console.debug('computeStats called', traces);
+    function p2stars(p){
+      const stars=p<0.0001?'****':p<0.001?'***':p<0.01?'**':p<0.05?'*':'ns';
+      console.debug('p2stars called', {p,stars});
+      return stars;
+    }
+    const mean=arr=>arr.reduce((s,v)=>s+v,0)/arr.length;
+    function anova(groups){
+      console.debug('anova inputs', groups);
+      const k=groups.length;
+      const n=groups.reduce((s,g)=>s+g.length,0);
+      const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n;
+      let ssBetween=0, ssWithin=0;
+      groups.forEach(g=>{
+        const m=mean(g);
+        ssBetween+=g.length*Math.pow(m-grand,2);
+        ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0);
+      });
+      const dfBetween=k-1;
+      const dfWithin=n-k;
+      const msBetween=ssBetween/dfBetween;
+      const msWithin=ssWithin/dfWithin;
+      const F=msBetween/msWithin;
+      const p=1-jStat.centralF.cdf(F,dfBetween,dfWithin);
+      console.debug('anova results', {F,p});
+      return {F,p};
+    }
+    function rankArray(arr){
+      console.debug('rankArray inputs', arr);
+      const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v);
+      const ranks=new Array(arr.length);
+      let i=0;
+      while(i<sorted.length){
+        let j=i;
+        while(j<sorted.length && sorted[j].v===sorted[i].v) j++;
+        const avg=(i+j-1)/2+1;
+        for(let k=i;k<j;k++) ranks[sorted[k].i]=avg;
+        i=j;
+      }
+      console.debug('rankArray result', ranks);
+      return ranks;
+    }
+    function kruskalWallis(groups){
+      console.debug('kruskalWallis inputs', groups);
+      const n=groups.reduce((s,g)=>s+g.length,0);
+      const all=groups.flat();
+      const ranks=rankArray(all);
+      let idx=0;
+      const R=groups.map(g=>{
+        const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0);
+        idx+=g.length;
+        return r;
+      });
+      const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1);
+      const df=groups.length-1;
+      const p=1-jStat.chisquare.cdf(H,df);
+      console.debug('kruskalWallis results', {H,p});
+      return {H,p};
+    }
+    function renderStatsControls(traces){
+      console.debug('renderStatsControls called', traces);
+      const controls=document.getElementById('statsControls');
+      controls.innerHTML='';
+      if(selectedCols.size<2 && traces.length>=2){
+        selectedCols.clear();
+        selectedCols.add(0);
+        selectedCols.add(1);
+        console.debug('renderStatsControls default selection', Array.from(selectedCols));
+      }
+      traces.forEach((t,i)=>{
+        const id=`statCol${i}`;
+        const chk=document.createElement('input');
+        chk.type='checkbox'; chk.id=id; chk.dataset.index=i;
+        chk.checked=selectedCols.has(i);
+        chk.addEventListener('change',()=>{
+          console.debug('stats column checkbox changed',{index:i,checked:chk.checked});
+          if(chk.checked) selectedCols.add(i); else selectedCols.delete(i);
+          drawBoxplot();
+        });
+        const lab=document.createElement('label');
+        lab.setAttribute('for',id);
+        lab.textContent=t.name;
+        controls.appendChild(chk);
+        controls.appendChild(lab);
+      });
+    }
+    function annotatePair(svg,x1,x2,y2px,maxVal,p){
+      console.debug('annotatePair called',{x1,x2,maxVal,p});
+      const y=y2px(maxVal)-20;
+      const path=document.createElementNS(NS,'path');
+      path.setAttribute('d',`M${x1},${y} L${x1},${y-10} L${x2},${y-10} L${x2},${y}`);
+      path.setAttribute('stroke','#000');
+      path.setAttribute('fill','none');
+      svg.appendChild(path);
+      const txt=document.createElementNS(NS,'text');
+      txt.setAttribute('x',(x1+x2)/2);
+      txt.setAttribute('y',y-12);
+      txt.setAttribute('text-anchor','middle');
+      txt.textContent=p2stars(p);
+      svg.appendChild(txt);
+    }
+    function annotateOverall(svg,xCenters,y2px,maxVal,p){
+      console.debug('annotateOverall called',{xCenters,maxVal,p});
+      const y=y2px(maxVal)-20;
+      const txt=document.createElementNS(NS,'text');
+      txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2);
+      txt.setAttribute('y',y-12);
+      txt.setAttribute('text-anchor','middle');
+      txt.textContent=p2stars(p);
+      svg.appendChild(txt);
+    }
+    function computeStats(traces,svg,helpers){
+      console.debug('computeStats called', {traces,selectedCols:Array.from(selectedCols)});
       const statsDiv=document.getElementById('statsResults');
       statsDiv.innerHTML='';
-      if(traces.length!==2){
-        statsDiv.textContent='Parametric t-test and non-parametric Mann-Whitney require exactly two columns.';
-        console.debug('computeStats insufficient columns', traces.length);
+      const indices=[...selectedCols];
+      if(indices.length<2){
+        statsDiv.textContent='Select at least two columns for statistical analysis.';
+        console.debug('computeStats insufficient selection', indices.length);
         return;
       }
-      const a=traces[0].y;
-      const b=traces[1].y;
-      const tRes=tTest(a,b);
-      const mwRes=mannWhitney(a,b);
-      statsDiv.innerHTML=`<div><strong>t-test</strong> p=${tRes.p.toExponential(3)}</div><div><strong>Mann-Whitney U</strong> p=${mwRes.p.toExponential(3)}</div>`;
-      console.debug('computeStats results', {tRes,mwRes});
+      const groups=indices.map(i=>traces[i].y);
+      if(indices.length===2){
+        const [a,b]=groups;
+        const tRes=tTest(a,b);
+        const mwRes=mannWhitney(a,b);
+        statsDiv.innerHTML=`<div><strong>t-test</strong> p=${tRes.p.toExponential(3)}</div><div><strong>Mann-Whitney U</strong> p=${mwRes.p.toExponential(3)}</div>`;
+        annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),helpers.y2px,Math.max(...a,...b),tRes.p);
+        console.debug('computeStats pair results',{tRes,mwRes});
+      }else{
+        const anRes=anova(groups);
+        const kwRes=kruskalWallis(groups);
+        statsDiv.innerHTML=`<div><strong>ANOVA</strong> p=${anRes.p.toExponential(3)}</div><div><strong>Kruskal-Wallis</strong> p=${kwRes.p.toExponential(3)}</div>`;
+        const maxVal=Math.max(...groups.flat());
+        const xs=indices.map(i=>helpers.xCenter(i));
+        annotateOverall(svg,xs,helpers.y2px,maxVal,anRes.p);
+        console.debug('computeStats multi results',{anRes,kwRes});
+      }
     }
 	
 	function drawBoxplot(){
@@ -1976,25 +2106,23 @@ KAT7`;
 		}
 	  }
 
-	  if (!traces.length) {
-		console.debug('drawBoxplot aborted no data (no numeric rows below headers)');
-		return;
-	  }
+          if (!traces.length) {
+                console.debug('drawBoxplot aborted no data (no numeric rows below headers)');
+                return;
+          }
+          renderStatsControls(traces);
 
-
-
-	  // Helpers
-	  const $box = document.getElementById('boxPlot');
-	  // Clear old drawing
-	  while ($box.firstChild) $box.removeChild($box.firstChild);
+          // Helpers
+          const $box = document.getElementById('boxPlot');
+          // Clear old drawing
+          while ($box.firstChild) $box.removeChild($box.firstChild);
 
 	  // Size
 	  const W = Math.max(50, Math.floor($box.clientWidth || 50));
 	  const H = Math.max(40, Math.floor($box.clientHeight || 40));
 
 	  // Create SVG
-	  const NS = 'http://www.w3.org/2000/svg';
-	  const svg = document.createElementNS(NS, 'svg');
+          const svg = document.createElementNS(NS, 'svg');
 	  svg.setAttribute('id', 'boxSvg');
 	  svg.setAttribute('width', String(W));
 	  svg.setAttribute('height', String(H));
@@ -2075,15 +2203,40 @@ KAT7`;
 	  const xAxisY = margin.top + plotH;
 	  add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
 	  // X ticks and labels
-	  labelsUsed.forEach((lab, i) => {
-		const x = xCenter(i);
-		add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + 6, stroke: '#000', 'stroke-width': 1 });
-		const t = add('text', { x, y: xAxisY + Math.max(14, fs), 'font-size': fs, 'text-anchor': 'middle', fill: '#000' });
-		t.textContent = lab || `Col ${i + 1}`;
-	  });
+            labelsUsed.forEach((lab, i) => {
+                const x = xCenter(i);
+                add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + 6, stroke: '#000', 'stroke-width': 1 });
+                const t = add('text', { x, y: xAxisY + Math.max(14, fs), 'font-size': fs, 'text-anchor': 'middle', fill: '#000' });
+                t.textContent = lab || `Col ${i + 1}`;
+            });
 
-	  // Boxes
-	  traces.forEach((t, i) => {
+            const titleFo = add('foreignObject',{x:margin.left,y:0,width:plotW,height:margin.top-4});
+            const titleDiv=document.createElement('div');
+            titleDiv.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+            titleDiv.textContent=boxTitleText;
+            titleDiv.contentEditable='true';
+            titleDiv.style.textAlign='center';
+            titleDiv.style.fontSize=(fs+4)+'px';
+            titleDiv.addEventListener('input',()=>{boxTitleText=titleDiv.textContent;console.debug('boxTitleText updated',boxTitleText);});
+            titleFo.appendChild(titleDiv);
+
+            const yFo=add('foreignObject',{x:0,y:margin.top,width:margin.left-4,height:plotH});
+            const yDiv=document.createElement('div');
+            yDiv.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+            yDiv.textContent=boxYLabelText;
+            yDiv.contentEditable='true';
+            yDiv.style.display='flex';
+            yDiv.style.justifyContent='center';
+            yDiv.style.alignItems='center';
+            yDiv.style.height='100%';
+            yDiv.style.transform='rotate(-90deg)';
+            yDiv.style.transformOrigin='center';
+            yDiv.style.fontSize=(fs+4)+'px';
+            yDiv.addEventListener('input',()=>{boxYLabelText=yDiv.textContent;console.debug('boxYLabelText updated',boxYLabelText);});
+            yFo.appendChild(yDiv);
+
+            // Boxes
+            traces.forEach((t, i) => {
 		const vals = [...t.y].sort((a, b) => a - b);
 		if (!vals.length) return;
 
@@ -2118,15 +2271,15 @@ KAT7`;
 		console.debug('box drawn', { label: t.name, min, q1, med, q3, max, cx, boxW });
 	  });
 
-	  console.debug('svg boxplot complete', { W, H, plotW, plotH, labelsUsed, yScale });
+          console.debug('svg boxplot complete', { W, H, plotW, plotH, labelsUsed, yScale });
 
-	  // Keep your stats panel working
-	  try {
-		computeStats(traces);
-	  } catch (e) {
-		console.error('computeStats failed', e);
-	  }
-	}
+          const helpers={xCenter,y2px};
+          try {
+                computeStats(traces,svg,helpers);
+          } catch (e) {
+                console.error('computeStats failed', e);
+          }
+        }
 
 
   // Draw button (optional, still works)
