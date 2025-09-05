@@ -49,7 +49,60 @@
   /* Box plot layout adjustments */
   #boxPage .wrap{grid-template-columns:360px 1fr;align-items:flex-start}
   #boxPage .panel{display:flex;flex-direction:column}
-  #boxPage #boxPlot{min-width:600px;height:340px;resize:both;overflow:auto}
+  #boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+  /* boxplot: use custom resizers rather than native resize handles */
+  #boxPage .svgbox{
+    position: relative;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    width: 640px;     /* default; resizer will change this */
+    height: 420px;    /* default; resizer will change this */
+    box-sizing: border-box;
+  }
+
+
+  /* invisible wide targets for easy grabbing */
+  #boxPage .svgbox .resizer {
+    position: absolute;
+    z-index: 40;
+    background: rgba(0,0,0,0); /* invisible; the corner gets a small visual cue */
+    touch-action: none;        /* allow pointer events without browser gestures */
+  }
+
+  /* vertical handle on the right edge (change width) */
+  #boxPage .svgbox .resizer-vertical {
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 100%;
+    cursor: ew-resize;
+  }
+
+  /* horizontal handle at bottom edge (change height) */
+  #boxPage .svgbox .resizer-horizontal {
+    bottom: 0;
+    left: 0;
+    height: 12px;
+    width: 100%;
+    cursor: ns-resize;
+  }
+
+  /* small visible corner to hint both-axis resizing */
+  #boxPage .svgbox .resizer-corner {
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+    border-radius: 2px;
+  }
+
+
+
   @media (max-width:1000px){#boxPage .wrap{grid-template-columns:1fr}}
   </style>
  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
@@ -241,13 +294,22 @@
       </div>
       <div class="panel" style="align-items:center">
         <div class="diagram-area">
-            <div class="svgbox" style="flex:1">
-            <div id="boxPlot"></div>
-            <div class="row" style="justify-content:flex-end;margin-top:6px">
-              <button class="btn" id="boxPNG">Download PNG</button>
-              <button class="btn" id="boxSVG">Download SVG</button>
-            </div>
-          </div>
+			<div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:640px; height:420px;">
+			  <!-- Resizers -->
+			  <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+			  <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+			  <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+
+			  <!-- Plot area -->
+			  <div id="boxPlot" style="width:100%; height:100%"></div>
+
+			  <!-- Export buttons -->
+			  <div class="row" style="justify-content:flex-end;margin-top:6px">
+				<button class="btn" id="boxPNG">Download PNG</button>
+				<button class="btn" id="boxSVG">Download SVG</button>
+			  </div>
+			</div>
+
           <div class="config-options">
             <fieldset>
               <legend>Colors</legend>
@@ -292,29 +354,32 @@
     console.debug('Draw boxplot button initialized', drawBoxplotBtn);
     const hotContainer=document.getElementById('hot');
     let colHeaders=['A','B','C'];
+	
+	
+	
     const hot=new Handsontable(hotContainer,{
       data:Handsontable.helper.createEmptySpreadsheetData(5,3),
       rowHeaders:true,
-      colHeaders:(index)=>colHeaders[index]||String.fromCharCode(65+index),
+      // Keep simple A,B,C headers in the TH; we now use ROW 0 for user headers
+      colHeaders:true,
       contextMenu:true,
       licenseKey:'non-commercial-and-evaluation',
-      afterGetColHeader(col, TH){
-        if(!TH.dataset.editable){
-          TH.contentEditable='true';
-          TH.addEventListener('blur',()=>{
-            colHeaders[col]=TH.textContent.trim();
-            hot.render();
-            console.debug('column header updated',{col,text:TH.textContent.trim()});
-          });
-          TH.dataset.editable='true';
+
+      // First row acts as "header row": darker background, bold
+      cells(row,col){
+        const props={};
+        if(row===0){
+          props.renderer=function(instance,td,r,c,prop,value,cellProperties){
+            Handsontable.renderers.TextRenderer.apply(this,arguments);
+            td.style.background='#e9ecef';
+            td.style.fontWeight='600';
+            td.title='Header (first row)';
+          };
         }
+        return props;
       },
-      beforeOnCellMouseDown(e, coords){
-        if(coords.row===-1){
-          e.stopImmediatePropagation();
-          console.debug('header mouse down prevented', coords);
-        }
-      },
+
+      // Keep your existing column add/remove logs (colHeaders array kept for compatibility)
       afterCreateCol(index, amount){
         for(let i=0;i<amount;i++){
           colHeaders.splice(index+i,0,String.fromCharCode(65+index+i));
@@ -324,20 +389,151 @@
       afterRemoveCol(index, amount){
         colHeaders.splice(index,amount);
         console.debug('column removed',{index,amount,headers:colHeaders});
+      },
+
+      // Debug changes in the sheet
+      afterChange(changes, source){
+        if(!changes || source==='loadData') return;
+        console.debug('hot afterChange', {changes, source});
       }
     });
-    console.debug('Handsontable initialized with editable headers', colHeaders);
+    console.debug('Handsontable initialized with first-row headers');
+
+
+	
     const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal');
     console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value});
     boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; console.debug('boxFontSize changed', boxFontSize.value); });
-    const boxPlotDiv=document.getElementById('boxPlot');
-    const boxResizeObserver=new ResizeObserver(()=>{
-      if(boxPlotDiv && boxPlotDiv.data){
-        Plotly.Plots.resize(boxPlotDiv);
-        console.debug('boxPlot resized via observer',{w:boxPlotDiv.clientWidth,h:boxPlotDiv.clientHeight});
-      }
-    });
-    boxResizeObserver.observe(boxPlotDiv);
+	
+
+	// --- improved resizers for separate X / Y resizing ---
+	const boxPlotDiv = document.getElementById('boxPlot');
+	const boxContainer = boxPlotDiv.closest('.svgbox') || boxPlotDiv.parentElement;
+
+
+	(function initBoxResizers(){
+	  if(!boxContainer) {
+		console.debug('No svgbox container found — skipping resizer init');
+		return;
+	  }
+
+	  const MIN_W = 50; // allow smaller sizes; change if you want a different minimum
+	  const MIN_H = 40;
+
+	  // helper to format px and read numeric px values
+	  function px(n){ return Math.round(n) + 'px'; }
+	  function getNumPx(v){ return v ? parseFloat(String(v).replace('px','')) : 0; }
+
+	  // find handles
+	  const vHandle = boxContainer.querySelector('.resizer-vertical');
+	  const hHandle = boxContainer.querySelector('.resizer-horizontal');
+	  const cHandle = boxContainer.querySelector('.resizer-corner');
+
+	  // core drag logic: axis = 'x' | 'y' | 'both'
+	  function attachDrag(handle, axis){
+		if(!handle) return;
+
+		let startX=0, startY=0, startW=0, startH=0, pointerId=null;
+
+		const onPointerDown = (e) => {
+		  e.preventDefault();
+		  pointerId = e.pointerId;
+		  try { handle.setPointerCapture(pointerId); } catch(_) {}
+
+		  // Use computed size to get current real width/height
+		  const rect = boxContainer.getBoundingClientRect();
+		  startW = Math.round(rect.width);
+		  startH = Math.round(rect.height);
+		  startX = e.clientX;
+		  startY = e.clientY;
+
+		  // Lock layout so inline width/height change is honored
+		  boxContainer.style.boxSizing = 'border-box';
+		  boxContainer.style.width = px(startW);
+		  boxContainer.style.height = px(startH);
+		  // prevent flex from overriding our explicit width/height
+		  boxContainer.style.flex = '0 0 auto';
+		  boxContainer.style.maxWidth = 'none';
+		  boxContainer.style.maxHeight = 'none';
+
+		  document.documentElement.style.userSelect = 'none';
+		  document.documentElement.style.touchAction = 'none';
+		  console.debug('resizer pointerdown', { axis, startW, startH });
+
+		  const onPointerMove = (ev) => {
+			ev.preventDefault();
+			const dx = ev.clientX - startX;
+			const dy = ev.clientY - startY;
+			if(axis === 'x' || axis === 'both'){
+			  let newW = Math.max(MIN_W, Math.round(startW + dx));
+			  boxContainer.style.width = px(newW);
+			}
+			if(axis === 'y' || axis === 'both'){
+			  let newH = Math.max(MIN_H, Math.round(startH + dy));
+			  boxContainer.style.height = px(newH);
+			}
+			// do not call drawBoxplot on every move by default (keeps dragging smooth)
+		  };
+
+		  const onPointerUp = (ev) => {
+			try { handle.releasePointerCapture(pointerId); } catch(_) {}
+			document.removeEventListener('pointermove', onPointerMove);
+			document.removeEventListener('pointerup', onPointerUp);
+			document.documentElement.style.userSelect = '';
+			document.documentElement.style.touchAction = '';
+
+			// Final redraw once drag completes
+			try {
+			  drawBoxplot();
+			  console.debug('resizer pointerup - drawBoxplot called', {
+				w: boxContainer.clientWidth,
+				h: boxContainer.clientHeight
+			  });
+			} catch (err) {
+			  console.error('drawBoxplot error after resize', err);
+			}
+		  };
+
+		  document.addEventListener('pointermove', onPointerMove);
+		  document.addEventListener('pointerup', onPointerUp);
+		};
+
+		handle.addEventListener('pointerdown', onPointerDown);
+
+		// double click resets to default size
+		handle.addEventListener('dblclick', (ev) => {
+		  ev.preventDefault();
+		  boxContainer.style.width = '640px';
+		  boxContainer.style.height = '420px';
+		  // preserve fixed sizing after reset so subsequent drags work predictably
+		  boxContainer.style.flex = '0 0 auto';
+		  drawBoxplot();
+		  console.debug('resizer doubleclick - reset size and redraw');
+		});
+	  }
+
+	  attachDrag(vHandle, 'x');
+	  attachDrag(hHandle, 'y');
+	  attachDrag(cHandle, 'both');
+
+	  // Keep resize observer to catch external changes (CSS / window layout) and redraw
+	  const boxResizeObserver = new ResizeObserver(() => {
+		try {
+		  drawBoxplot();
+		  console.debug('boxPlot redrawn on container resize', {
+			w: boxContainer.clientWidth,
+			h: boxContainer.clientHeight
+		  });
+		} catch (e) {
+		  console.error('boxPlot resize redraw error', e);
+		}
+	  });
+	  boxResizeObserver.observe(boxContainer);
+	  console.debug('Resizer init complete and ResizeObserver attached to svgbox container');
+	})();
+
+
+
     console.debug('ResizeObserver attached to boxPlot');
   Chart.defaults.locale='en-US';
   console.debug('Chart.js default locale set', Chart.defaults.locale);
@@ -1747,47 +1943,249 @@ KAT7`;
       statsDiv.innerHTML=`<div><strong>t-test</strong> p=${tRes.p.toExponential(3)}</div><div><strong>Mann-Whitney U</strong> p=${mwRes.p.toExponential(3)}</div>`;
       console.debug('computeStats results', {tRes,mwRes});
     }
-    function drawBoxplot(){
-      console.debug('drawBoxplot called');
-      const fill=$('#boxFill').value;
-      const border=$('#boxBorder').value;
-      const bw=Number($('#boxBorderWidth').value);
-      const fs=Number($('#boxFontSize').value);
-      console.debug('box plot style',{fill,border,bw,fs});
-      const traces=[];
-      colHeaders.slice(0, hot.countCols()).forEach((h,i)=>{
-        const col=hot.getDataAtCol(i).map(v=>parseFloat(v)).filter(v=>!isNaN(v));
-        console.debug('column processed', {index:i,header:h,values:col});
-        if(col.length){
-          traces.push({y:col,name:h||`Col ${i+1}`,type:'box',boxpoints:false,fillcolor:fill,line:{color:border,width:bw},marker:{color:fill}});
-        }
-      });
-      console.debug('colHeaders used for traces', colHeaders);
-      if(!traces.length){
-        alert('Please enter numeric data.');
-        console.debug('drawBoxplot aborted no data');
-        return;
-      }
-      const layout={
-        boxmode:'group',
-        paper_bgcolor:'#fff',
-        plot_bgcolor:'#fff',
-        font:{size:fs},
-        xaxis:{title:{text:'X label',font:{size:fs}},showline:true,linecolor:'#000',linewidth:2,mirror:false,ticks:'outside',tickfont:{size:fs},showgrid:false,zeroline:false},
-        yaxis:{title:{text:'Y label',font:{size:fs}},showline:true,linecolor:'#000',linewidth:2,mirror:false,ticks:'outside',tickfont:{size:fs},showgrid:false,zeroline:false},
-        editable:true
-      };
-      const config={editable:true,responsive:true};
-      console.debug('boxplot layout', {layout,config});
-      Plotly.newPlot('boxPlot', traces, layout, config);
-      console.debug('boxplot drawn', traces);
-      computeStats(traces);
+	
+	function drawBoxplot(){
+	  console.debug('drawBoxplot (SVG) called');
+
+	  // Appearance controls
+	  const fill = $('#boxFill').value;
+	  const border = $('#boxBorder').value;
+	  const bw = Number($('#boxBorderWidth').value);
+	  const fs = Number($('#boxFontSize').value);
+	  console.debug('box plot style', { fill, border, bw, fs });
+
+	  // Build traces from first-row headers; numeric data are rows 1..N
+	  const traces = [];
+	  const labelsUsed = [];
+	  const nCols = hot.countCols();
+
+	  for (let i = 0; i < nCols; i++) {
+		const headerCell = hot.getDataAtCell(0, i);
+		const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
+
+		const col = hot.getDataAtCol(i)
+		  .slice(1) // skip row 0 (used as header)
+		  .map(v => parseFloat(v))
+		  .filter(v => !isNaN(v));
+
+		console.debug('column processed (row0 header)', { index: i, header: label, values: col });
+
+		if (col.length) {
+		  labelsUsed.push(label);
+		  traces.push({ name: label, y: col, type: 'box' });
+		}
+	  }
+
+	  if (!traces.length) {
+		console.debug('drawBoxplot aborted no data (no numeric rows below headers)');
+		return;
+	  }
+
+
+
+	  // Helpers
+	  const $box = document.getElementById('boxPlot');
+	  // Clear old drawing
+	  while ($box.firstChild) $box.removeChild($box.firstChild);
+
+	  // Size
+	  const W = Math.max(50, Math.floor($box.clientWidth || 50));
+	  const H = Math.max(40, Math.floor($box.clientHeight || 40));
+
+	  // Create SVG
+	  const NS = 'http://www.w3.org/2000/svg';
+	  const svg = document.createElementNS(NS, 'svg');
+	  svg.setAttribute('id', 'boxSvg');
+	  svg.setAttribute('width', String(W));
+	  svg.setAttribute('height', String(H));
+	  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+	  $box.appendChild(svg);
+
+	  // Margins and plotting area
+	  const margin = {
+		top: Math.max(16, Math.round(fs * 1.0)),
+		right: 20,
+		bottom: Math.max(32, Math.round(fs * 2.2)),
+		left: Math.max(48, Math.round(fs * 3.0))
+	  };
+	  const plotW = Math.max(20, W - margin.left - margin.right);
+	  const plotH = Math.max(20, H - margin.top - margin.bottom);
+
+	  // Scales
+	  const allY = traces.flatMap(t => t.y);
+	  let ymin = Math.min(...allY);
+	  let ymax = Math.max(...allY);
+	  if (ymin === ymax) { ymin -= 1; ymax += 1; }
+
+	  function niceNum(range, round){
+		const exp = Math.floor(Math.log10(range));
+		const f = range / Math.pow(10, exp);
+		let nf;
+		if (round){
+		  if (f < 1.5) nf = 1; else if (f < 3) nf = 2; else if (f < 7) nf = 5; else nf = 10;
+		} else {
+		  if (f <= 1) nf = 1; else if (f <= 2) nf = 2; else if (f <= 5) nf = 5; else nf = 10;
+		}
+		return nf * Math.pow(10, exp);
+	  }
+	  function niceScale(min, max, maxTicks){
+		const range = niceNum(max - min, false);
+		const step = niceNum(range / (maxTicks - 1), true);
+		const graphMin = Math.floor(min / step) * step;
+		const graphMax = Math.ceil(max / step) * step;
+		const ticks = [];
+		for (let v = graphMin; v <= graphMax + 1e-9; v += step) ticks.push(v);
+		return { min: graphMin, max: graphMax, ticks, step };
+	  }
+	  const yScale = niceScale(ymin, ymax, 6);
+	  const y2px = v => margin.top + plotH * (1 - (v - yScale.min) / (yScale.max - yScale.min));
+
+	  const bandW = plotW / labelsUsed.length;
+	  const boxW = Math.max(6, Math.min(60, bandW * 0.6));
+	  const xCenter = i => margin.left + (i + 0.5) * bandW;
+
+	  // Percentiles
+	  function percentile(sorted, p){
+		if (!sorted.length) return NaN;
+		const pos = (sorted.length - 1) * p;
+		const base = Math.floor(pos);
+		const rest = pos - base;
+		return (sorted[base + 1] !== undefined)
+		  ? sorted[base] + rest * (sorted[base + 1] - sorted[base])
+		  : sorted[base];
+	  }
+
+	  // Axes
+	  function add(tag, attrs){
+		const el = document.createElementNS(NS, tag);
+		for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+		svg.appendChild(el);
+		return el;
+	  }
+	  // Y axis line
+	  add('line', { x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotH, stroke: '#000', 'stroke-width': 2 });
+	  // Y ticks and labels
+	  yScale.ticks.forEach(t => {
+		const y = y2px(t);
+		add('line', { x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1 });
+		const txt = add('text', { x: margin.left - 8, y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: '#000' });
+		txt.textContent = String(t);
+	  });
+	  // X axis baseline
+	  const xAxisY = margin.top + plotH;
+	  add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
+	  // X ticks and labels
+	  labelsUsed.forEach((lab, i) => {
+		const x = xCenter(i);
+		add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + 6, stroke: '#000', 'stroke-width': 1 });
+		const t = add('text', { x, y: xAxisY + Math.max(14, fs), 'font-size': fs, 'text-anchor': 'middle', fill: '#000' });
+		t.textContent = lab || `Col ${i + 1}`;
+	  });
+
+	  // Boxes
+	  traces.forEach((t, i) => {
+		const vals = [...t.y].sort((a, b) => a - b);
+		if (!vals.length) return;
+
+		const min = vals[0];
+		const q1 = percentile(vals, 0.25);
+		const med = percentile(vals, 0.5);
+		const q3 = percentile(vals, 0.75);
+		const max = vals[vals.length - 1];
+
+		const cx = xCenter(i);
+		const x0 = cx - boxW / 2;
+		const x1 = cx + boxW / 2;
+
+		const yQ1 = y2px(q1);
+		const yMed = y2px(med);
+		const yQ3 = y2px(q3);
+		const yMin = y2px(min);
+		const yMax = y2px(max);
+
+		// Box
+		add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fill, stroke: border, 'stroke-width': bw });
+		// Median line
+		add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: border, 'stroke-width': bw });
+		// Whiskers
+		add('line', { x1: cx, y1: yQ3, x2: cx, y2: yMax, stroke: border, 'stroke-width': bw });
+		add('line', { x1: cx, y1: yQ1, x2: cx, y2: yMin, stroke: border, 'stroke-width': bw });
+		// Caps
+		const cap = Math.max(6, boxW * 0.4);
+		add('line', { x1: cx - cap / 2, y1: yMax, x2: cx + cap / 2, y2: yMax, stroke: border, 'stroke-width': bw });
+		add('line', { x1: cx - cap / 2, y1: yMin, x2: cx + cap / 2, y2: yMin, stroke: border, 'stroke-width': bw });
+
+		console.debug('box drawn', { label: t.name, min, q1, med, q3, max, cx, boxW });
+	  });
+
+	  console.debug('svg boxplot complete', { W, H, plotW, plotH, labelsUsed, yScale });
+
+	  // Keep your stats panel working
+	  try {
+		computeStats(traces);
+	  } catch (e) {
+		console.error('computeStats failed', e);
+	  }
+	}
+
+
+  // Draw button (optional, still works)
+  $('#drawBoxplot').addEventListener('click', drawBoxplot);
+
+  // Real-time updates when style controls change
+  $('#boxFill').addEventListener('input', drawBoxplot);
+  $('#boxBorder').addEventListener('input', drawBoxplot);
+  $('#boxBorderWidth').addEventListener('input', drawBoxplot);
+  $('#boxFontSize').addEventListener('input', drawBoxplot);
+
+  // Export to PNG
+  $('#boxPNG').addEventListener('click', async () => {
+    console.debug('boxPNG clicked');
+    const svgEl = document.getElementById('boxSvg');
+    if (!svgEl) { console.debug('boxPNG aborted: no svg'); return; }
+    const xml = new XMLSerializer().serializeToString(svgEl);
+    const img = new Image();
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+    img.src = url;
+    await img.decode().catch(err => console.error('boxPNG decode error', err));
+    const canvas = document.createElement('canvas');
+    canvas.width = svgEl.viewBox.baseVal.width || svgEl.clientWidth || 800;
+    canvas.height = svgEl.viewBox.baseVal.height || svgEl.clientHeight || 400;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    canvas.toBlob(b => {
+      const pngUrl = URL.createObjectURL(b);
+      const a = document.createElement('a');
+      a.href = pngUrl; a.download = 'boxplot.png';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(pngUrl), 4000);
+    }, 'image/png');
+  });
+
+  // Export to SVG
+  $('#boxSVG').addEventListener('click', () => {
+    console.debug('boxSVG clicked');
+    const svgEl = document.getElementById('boxSvg');
+    if (!svgEl) { console.debug('boxSVG aborted: no svg'); return; }
+    const xml = new XMLSerializer().serializeToString(svgEl);
+    const blob = new Blob([xml], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'boxplot.svg';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  });
+
+  // Shortcut: Ctrl+Enter → drawFromLists
+  window.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      drawFromLists();
     }
-    $('#drawBoxplot').addEventListener('click', drawBoxplot);
-    $('#boxPNG').addEventListener('click',()=>{console.debug('boxPNG clicked'); Plotly.downloadImage('boxPlot',{format:'png',filename:'boxplot'});});
-    $('#boxSVG').addEventListener('click',()=>{console.debug('boxSVG clicked'); Plotly.downloadImage('boxPlot',{format:'svg',filename:'boxplot'});});
-    window.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); drawFromLists(); } });
-  })();
+  });
+})();
+
+
 </script>
 </body>
 </html>
