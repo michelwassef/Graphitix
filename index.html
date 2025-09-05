@@ -362,6 +362,10 @@
     let selectedCols=new Set();
     let boxTitleText='Boxplot';
     let boxYLabelText='Value';
+    let statsTest='parametric';
+    let statsMode='all';
+    let statsRef=0;
+    console.debug('stats defaults',{statsTest,statsMode,statsRef});
 	
 	
 	
@@ -2003,6 +2007,68 @@ KAT7`;
         selectedCols.add(1);
         console.debug('renderStatsControls default selection', Array.from(selectedCols));
       }
+      if(statsMode==='reference' && !selectedCols.has(statsRef)){
+        selectedCols.add(statsRef);
+        console.debug('renderStatsControls added reference', statsRef);
+      }
+      console.debug('renderStatsControls build options',{statsTest,statsMode,statsRef});
+      const optionWrap=document.createElement('div');
+
+      const testLabel=document.createElement('label');
+      testLabel.textContent='Test:';
+      const testSel=document.createElement('select');
+      ['parametric','nonparametric'].forEach(v=>{
+        const o=document.createElement('option');
+        o.value=v; o.textContent=v==='parametric'?'Parametric':'Non-parametric';
+        if(statsTest===v) o.selected=true;
+        testSel.appendChild(o);
+      });
+      testSel.addEventListener('change',()=>{
+        statsTest=testSel.value;
+        console.debug('statsTest changed', statsTest);
+        drawBoxplot();
+      });
+      optionWrap.appendChild(testLabel);
+      optionWrap.appendChild(testSel);
+
+      const modeLabel=document.createElement('label');
+      modeLabel.textContent='Comparison:';
+      const modeSel=document.createElement('select');
+      [['all','All pairwise'],['reference','Versus reference']].forEach(([v,t])=>{
+        const o=document.createElement('option');
+        o.value=v; o.textContent=t;
+        if(statsMode===v) o.selected=true;
+        modeSel.appendChild(o);
+      });
+      modeSel.addEventListener('change',()=>{
+        statsMode=modeSel.value;
+        console.debug('statsMode changed', statsMode);
+        renderStatsControls(traces);
+        drawBoxplot();
+      });
+      optionWrap.appendChild(modeLabel);
+      optionWrap.appendChild(modeSel);
+
+      if(statsMode==='reference'){
+        const refLabel=document.createElement('label');
+        refLabel.textContent='Reference:';
+        const refSel=document.createElement('select');
+        traces.forEach((t,i)=>{
+          const o=document.createElement('option');
+          o.value=i; o.textContent=t.name;
+          if(i===statsRef) o.selected=true;
+          refSel.appendChild(o);
+        });
+        refSel.addEventListener('change',()=>{
+          statsRef=+refSel.value;
+          console.debug('statsRef changed', statsRef);
+          renderStatsControls(traces);
+          drawBoxplot();
+        });
+        optionWrap.appendChild(refLabel);
+        optionWrap.appendChild(refSel);
+      }
+      controls.appendChild(optionWrap);
       traces.forEach((t,i)=>{
         const id=`statCol${i}`;
         const chk=document.createElement('input');
@@ -2046,7 +2112,7 @@ KAT7`;
       svg.appendChild(txt);
     }
     function computeStats(traces,svg,helpers){
-      console.debug('computeStats called', {traces,selectedCols:Array.from(selectedCols)});
+      console.debug('computeStats called', {traces,selectedCols:Array.from(selectedCols),statsTest,statsMode,statsRef});
       const statsDiv=document.getElementById('statsResults');
       statsDiv.innerHTML='';
       const indices=[...selectedCols];
@@ -2056,22 +2122,57 @@ KAT7`;
         return;
       }
       const groups=indices.map(i=>traces[i].y);
+      const labels=indices.map(i=>traces[i].name);
+      const param=statsTest==='parametric';
+      const pairTest=param?tTest:mannWhitney;
+      const overallTest=param?anova:kruskalWallis;
+
       if(indices.length===2){
-        const [a,b]=groups;
-        const tRes=tTest(a,b);
-        const mwRes=mannWhitney(a,b);
-        statsDiv.innerHTML=`<div><strong>t-test</strong> p=${tRes.p.toExponential(3)}</div><div><strong>Mann-Whitney U</strong> p=${mwRes.p.toExponential(3)}</div>`;
-        annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),helpers.y2px,Math.max(...a,...b),tRes.p);
-        console.debug('computeStats pair results',{tRes,mwRes});
-      }else{
-        const anRes=anova(groups);
-        const kwRes=kruskalWallis(groups);
-        statsDiv.innerHTML=`<div><strong>ANOVA</strong> p=${anRes.p.toExponential(3)}</div><div><strong>Kruskal-Wallis</strong> p=${kwRes.p.toExponential(3)}</div>`;
-        const maxVal=Math.max(...groups.flat());
-        const xs=indices.map(i=>helpers.xCenter(i));
-        annotateOverall(svg,xs,helpers.y2px,maxVal,anRes.p);
-        console.debug('computeStats multi results',{anRes,kwRes});
+        const res=pairTest(groups[0],groups[1]);
+        statsDiv.innerHTML=`<div><strong>${param?'t-test':'Mann-Whitney U'}</strong> p=${res.p.toExponential(3)}</div>`;
+        annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),helpers.y2px,Math.max(...groups[0],...groups[1]),res.p);
+        console.debug('computeStats pair result',{res,param});
+        return;
       }
+
+      const overall=overallTest(groups);
+      statsDiv.innerHTML=`<div><strong>${param?'ANOVA':'Kruskal-Wallis'}</strong> p=${overall.p.toExponential(3)}</div>`;
+      const maxVal=Math.max(...groups.flat());
+      const xs=indices.map(i=>helpers.xCenter(i));
+      annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p);
+      if(statsMode==='all'){
+        const pairs=[];
+        for(let i=0;i<indices.length;i++){
+          for(let j=i+1;j<indices.length;j++){
+            const r=pairTest(traces[indices[i]].y,traces[indices[j]].y);
+            pairs.push({a:i,b:j,p:r.p});
+            console.debug('computeStats pair',{i:indices[i],j:indices[j],p:r.p});
+          }
+        }
+        const m=pairs.length;
+        pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
+        statsDiv.innerHTML+=pairs.map(pr=>`<div>${labels[pr.a]} vs ${labels[pr.b]} p=${pr.adjP.toExponential(3)}</div>`).join('');
+      }else if(statsMode==='reference'){
+        const refIdx=indices.indexOf(statsRef);
+        if(refIdx===-1){
+          statsDiv.innerHTML+='<div>Select reference column among the chosen groups.</div>';
+          console.debug('computeStats missing reference', statsRef);
+          return;
+        }
+        const refLabel=labels[refIdx];
+        const refData=groups[refIdx];
+        const pairs=[];
+        indices.forEach((idx,i)=>{
+          if(i===refIdx) return;
+          const r=pairTest(refData,traces[idx].y);
+          pairs.push({label:labels[i],p:r.p});
+          console.debug('computeStats ref pair',{ref:statsRef,other:idx,p:r.p});
+        });
+        const m=pairs.length;
+        pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
+        statsDiv.innerHTML+=pairs.map(pr=>`<div>${refLabel} vs ${pr.label} p=${pr.adjP.toExponential(3)}</div>`).join('');
+      }
+      console.debug('computeStats completed');
     }
 	
 	function drawBoxplot(){
@@ -2210,17 +2311,7 @@ KAT7`;
                 t.textContent = lab || `Col ${i + 1}`;
             });
 
-            const titleFo = add('foreignObject',{x:margin.left,y:0,width:plotW,height:margin.top-4});
-            const titleDiv=document.createElement('div');
-            titleDiv.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
-            titleDiv.textContent=boxTitleText;
-            titleDiv.contentEditable='true';
-            titleDiv.style.textAlign='center';
-            titleDiv.style.fontSize=(fs+4)+'px';
-            titleDiv.addEventListener('input',()=>{boxTitleText=titleDiv.textContent;console.debug('boxTitleText updated',boxTitleText);});
-            titleFo.appendChild(titleDiv);
-
-            const yFo=add('foreignObject',{x:0,y:margin.top,width:margin.left-4,height:plotH});
+            const yFo=add('foreignObject',{x:0,y:margin.top,width:margin.left-20,height:plotH});
             const yDiv=document.createElement('div');
             yDiv.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
             yDiv.textContent=boxYLabelText;
@@ -2234,6 +2325,7 @@ KAT7`;
             yDiv.style.fontSize=(fs+4)+'px';
             yDiv.addEventListener('input',()=>{boxYLabelText=yDiv.textContent;console.debug('boxYLabelText updated',boxYLabelText);});
             yFo.appendChild(yDiv);
+            console.debug('y-axis label spacing set',{left:margin.left});
 
             // Boxes
             traces.forEach((t, i) => {
@@ -2268,8 +2360,19 @@ KAT7`;
 		add('line', { x1: cx - cap / 2, y1: yMax, x2: cx + cap / 2, y2: yMax, stroke: border, 'stroke-width': bw });
 		add('line', { x1: cx - cap / 2, y1: yMin, x2: cx + cap / 2, y2: yMin, stroke: border, 'stroke-width': bw });
 
-		console.debug('box drawn', { label: t.name, min, q1, med, q3, max, cx, boxW });
-	  });
+                console.debug('box drawn', { label: t.name, min, q1, med, q3, max, cx, boxW });
+          });
+            const titleFo = add('foreignObject',{x:margin.left,y:0,width:plotW,height:margin.top-4});
+            const titleDiv=document.createElement('div');
+            titleDiv.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+            titleDiv.textContent=boxTitleText;
+            titleDiv.contentEditable='true';
+            titleDiv.style.textAlign='center';
+            titleDiv.style.fontSize=(fs+4)+'px';
+            titleDiv.addEventListener('input',()=>{boxTitleText=titleDiv.textContent;console.debug('boxTitleText updated',boxTitleText);});
+            titleFo.appendChild(titleDiv);
+            svg.appendChild(titleFo);
+            console.debug('boxplot title rendered on top');
 
           console.debug('svg boxplot complete', { W, H, plotW, plotH, labelsUsed, yScale });
 
