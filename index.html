@@ -2086,9 +2086,8 @@ KAT7`;
         controls.appendChild(lab);
       });
     }
-    function annotatePair(svg,x1,x2,y2px,maxVal,p){
-      console.debug('annotatePair called',{x1,x2,maxVal,p});
-      const y=y2px(maxVal)-20;
+    function annotatePair(svg,x1,x2,y,p){
+      console.debug('annotatePair called',{x1,x2,y,p});
       const path=document.createElementNS(NS,'path');
       path.setAttribute('d',`M${x1},${y} L${x1},${y-10} L${x2},${y-10} L${x2},${y}`);
       path.setAttribute('stroke','#000');
@@ -2101,9 +2100,9 @@ KAT7`;
       txt.textContent=p2stars(p);
       svg.appendChild(txt);
     }
-    function annotateOverall(svg,xCenters,y2px,maxVal,p){
-      console.debug('annotateOverall called',{xCenters,maxVal,p});
-      const y=y2px(maxVal)-20;
+    function annotateOverall(svg,xCenters,y2px,maxVal,p,level=0){
+      console.debug('annotateOverall called',{xCenters,maxVal,p,level});
+      const y=y2px(maxVal)-20-level*15;
       const txt=document.createElementNS(NS,'text');
       txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2);
       txt.setAttribute('y',y-12);
@@ -2130,8 +2129,13 @@ KAT7`;
       if(indices.length===2){
         const res=pairTest(groups[0],groups[1]);
         statsDiv.innerHTML=`<div><strong>${param?'t-test':'Mann-Whitney U'}</strong> p=${res.p.toExponential(3)}</div>`;
-        annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),helpers.y2px,Math.max(...groups[0],...groups[1]),res.p);
-        console.debug('computeStats pair result',{res,param});
+        const from=Math.min(indices[0],indices[1]);
+        const to=Math.max(indices[0],indices[1]);
+        let rangeMax=-Infinity;
+        for(let k=from;k<=to;k++) rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
+        const y=helpers.y2px(rangeMax)-20;
+        annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),y,res.p);
+        console.debug('computeStats pair result',{res,param,rangeMax,y});
         return;
       }
 
@@ -2139,14 +2143,18 @@ KAT7`;
       statsDiv.innerHTML=`<div><strong>${param?'ANOVA':'Kruskal-Wallis'}</strong> p=${overall.p.toExponential(3)}</div>`;
       const maxVal=Math.max(...groups.flat());
       const xs=indices.map(i=>helpers.xCenter(i));
-      annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p);
+      let pairs=[];
       if(statsMode==='all'){
-        const pairs=[];
         for(let i=0;i<indices.length;i++){
           for(let j=i+1;j<indices.length;j++){
-            const r=pairTest(traces[indices[i]].y,traces[indices[j]].y);
-            pairs.push({a:i,b:j,p:r.p});
-            console.debug('computeStats pair',{i:indices[i],j:indices[j],p:r.p});
+            const aIdx=indices[i],bIdx=indices[j];
+            const r=pairTest(traces[aIdx].y,traces[bIdx].y);
+            let rangeMax=-Infinity;
+            for(let k=Math.min(aIdx,bIdx);k<=Math.max(aIdx,bIdx);k++){
+              rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
+            }
+            pairs.push({a:i,b:j,ai:aIdx,bi:bIdx,p:r.p,rangeMax});
+            console.debug('computeStats pair',{i:aIdx,j:bIdx,p:r.p,rangeMax});
           }
         }
         const m=pairs.length;
@@ -2161,18 +2169,37 @@ KAT7`;
         }
         const refLabel=labels[refIdx];
         const refData=groups[refIdx];
-        const pairs=[];
         indices.forEach((idx,i)=>{
           if(i===refIdx) return;
           const r=pairTest(refData,traces[idx].y);
-          pairs.push({label:labels[i],p:r.p});
-          console.debug('computeStats ref pair',{ref:statsRef,other:idx,p:r.p});
+          let rangeMax=-Infinity;
+          for(let k=Math.min(statsRef,idx);k<=Math.max(statsRef,idx);k++){
+            rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
+          }
+          pairs.push({a:refIdx,b:i,ai:statsRef,bi:idx,p:r.p,rangeMax,label:labels[i]});
+          console.debug('computeStats ref pair',{ref:statsRef,other:idx,p:r.p,rangeMax});
         });
         const m=pairs.length;
         pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
         statsDiv.innerHTML+=pairs.map(pr=>`<div>${refLabel} vs ${pr.label} p=${pr.adjP.toExponential(3)}</div>`).join('');
       }
-      console.debug('computeStats completed');
+      // Annotate pairwise comparisons
+      if(pairs.length){
+        pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+        const placed=[];
+        pairs.forEach(pr=>{
+          let level=0;
+          while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
+          const y=helpers.y2px(pr.rangeMax)-20-level*15;
+          annotatePair(svg,helpers.xCenter(pr.ai),helpers.xCenter(pr.bi),y,pr.p);
+          pr.level=level;
+          placed.push(pr);
+          console.debug('computeStats annotate pair',{ai:pr.ai,bi:pr.bi,level,y});
+        });
+      }
+      const maxLevel=pairs.length?Math.max(...pairs.map(pr=>pr.level))+1:0;
+      annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p,maxLevel);
+      console.debug('computeStats completed',{maxLevel});
     }
 	
 	function drawBoxplot(){
@@ -2231,12 +2258,13 @@ KAT7`;
 	  $box.appendChild(svg);
 
 	  // Margins and plotting area
-	  const margin = {
-		top: Math.max(16, Math.round(fs * 1.0)),
-		right: 20,
-		bottom: Math.max(32, Math.round(fs * 2.2)),
-		left: Math.max(48, Math.round(fs * 3.0))
-	  };
+          const margin = {
+                top: Math.max(32, Math.round(fs * 2.2)),
+                right: 20,
+                bottom: Math.max(32, Math.round(fs * 2.2)),
+                left: Math.max(48, Math.round(fs * 3.0))
+          };
+          console.debug('boxplot margins', margin);
 	  const plotW = Math.max(20, W - margin.left - margin.right);
 	  const plotH = Math.max(20, H - margin.top - margin.bottom);
 
@@ -2362,7 +2390,7 @@ KAT7`;
 
                 console.debug('box drawn', { label: t.name, min, q1, med, q3, max, cx, boxW });
           });
-            const titleFo = add('foreignObject',{x:margin.left,y:0,width:plotW,height:margin.top-4});
+              const titleFo = add('foreignObject',{x:margin.left,y:0,width:plotW,height:margin.top});
             const titleDiv=document.createElement('div');
             titleDiv.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
             titleDiv.textContent=boxTitleText;
