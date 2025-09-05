@@ -46,7 +46,15 @@
   .analysis-options strong{font-size:13px}
   #analysisResults{font-size:13px}
   #analysisResults canvas{font-size:initial}
- </style>
+  /* Box plot layout adjustments */
+  #boxPage .wrap{grid-template-columns:1fr 1fr;align-items:flex-start}
+  #boxPage .panel{display:flex;flex-direction:column}
+  #boxPage .box-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end}
+  #boxPage .box-controls button{width:100%}
+  #boxPage .download-controls{gap:8px;flex-wrap:wrap}
+  #boxPage #boxPlot{width:100%;height:340px}
+  @media (max-width:1000px){#boxPage .wrap{grid-template-columns:1fr}}
+  </style>
  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
 </head>
 <body>
@@ -227,26 +235,26 @@
 
 <div id="boxPage" style="display:none;">
   <header><h2 style="margin:0">Box Plot</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a GraphPad-style box plot.</div></header>
-  <div class="wrap">
-    <div class="panel">
-      <div id="hot" style="width:100%;height:300px"></div>
-      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px">
-        <label>Fill <input type="color" id="boxFill" value="#4472c4"></label>
-        <label>Border <input type="color" id="boxBorder" value="#000000"></label>
-        <label>Border W <input type="number" id="boxBorderWidth" value="2" min="0" max="10" style="width:60px"></label>
-        <button class="btn" id="drawBoxplot">Draw</button>
+    <div class="wrap">
+      <div class="panel">
+        <div id="hot" style="width:100%;height:300px"></div>
+        <div id="boxControls" class="row box-controls" style="margin-top:8px">
+          <label>Fill <input type="color" id="boxFill" value="#4472c4"></label>
+          <label>Border <input type="color" id="boxBorder" value="#000000"></label>
+          <label>Border W <input type="number" id="boxBorderWidth" value="2" min="0" max="10" style="width:60px"></label>
+          <button class="btn" id="drawBoxplot">Draw</button>
+        </div>
+        <div id="boxDownloads" class="row download-controls" style="margin-top:8px">
+          <button class="btn" id="boxPNG">Download PNG</button>
+          <button class="btn" id="boxSVG">Download SVG</button>
+        </div>
       </div>
-      <div class="row" style="margin-top:8px;gap:8px">
-        <button class="btn" id="boxPNG">Download PNG</button>
-        <button class="btn" id="boxSVG">Download SVG</button>
+      <div class="panel" style="align-items:center">
+        <div id="boxPlot" class="svgbox" style="width:100%;height:340px"></div>
+        <div id="statsResults" style="width:100%;margin-top:12px"></div>
       </div>
-    </div>
-    <div class="panel" style="display:flex;flex-direction:column;align-items:center">
-      <div id="boxPlot" class="svgbox" style="width:100%;max-width:500px;height:340px"></div>
-      <div id="statsResults" style="width:100%;margin-top:12px"></div>
     </div>
   </div>
-</div>
 
 <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
@@ -258,10 +266,12 @@
   const $ = (s)=>document.querySelector(s);
   const stage = $('#stage');
   const vennPage=$('#vennPage');
-  const boxPage=$('#boxPage');
-  const tabVenn=$('#tabVenn');
-  const tabBox=$('#tabBox');
-  const hotContainer=document.getElementById('hot');
+    const boxPage=$('#boxPage');
+    const tabVenn=$('#tabVenn');
+    const tabBox=$('#tabBox');
+    const boxControls=$('#boxControls'), boxDownloads=$('#boxDownloads');
+    console.debug('Box plot layout elements', {boxControls, boxDownloads});
+    const hotContainer=document.getElementById('hot');
   const hot=new Handsontable(hotContainer,{
     data:Handsontable.helper.createEmptySpreadsheetData(5,3),
     rowHeaders:true,
