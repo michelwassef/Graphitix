@@ -1955,6 +1955,11 @@ KAT7`;
       console.debug('p2stars called', {p,stars});
       return stars;
     }
+    function formatP(p){
+      const formatted=p.toLocaleString('en-US',{maximumSignificantDigits:6});
+      console.debug('formatP called',{p,formatted});
+      return formatted;
+    }
     const mean=arr=>arr.reduce((s,v)=>s+v,0)/arr.length;
     function anova(groups){
       console.debug('anova inputs', groups);
@@ -2140,7 +2145,7 @@ KAT7`;
 
       if(indices.length===2){
         const res=pairTest(groups[0],groups[1]);
-        statsDiv.innerHTML=`<div><strong>${param?'t-test':'Mann-Whitney U'}</strong> p=${res.p.toExponential(3)}</div>`;
+        statsDiv.innerHTML=`<div><strong>${param?'t-test':'Mann-Whitney U'}</strong> p=${formatP(res.p)}</div>`;
         const from=Math.min(indices[0],indices[1]);
         const to=Math.max(indices[0],indices[1]);
         let rangeMax=-Infinity;
@@ -2153,7 +2158,7 @@ KAT7`;
       }
 
       const overall=overallTest(groups);
-      statsDiv.innerHTML=`<div><strong>${param?'ANOVA':'Kruskal-Wallis'}</strong> p=${overall.p.toExponential(3)}</div>`;
+      statsDiv.innerHTML=`<div><strong>${param?'ANOVA':'Kruskal-Wallis'}</strong> p=${formatP(overall.p)}</div>`;
       const maxVal=Math.max(...groups.flat());
       const xs=indices.map(i=>helpers.xCenter(i));
       let pairs=[];
@@ -2172,7 +2177,7 @@ KAT7`;
         }
         const m=pairs.length;
         pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
-        statsDiv.innerHTML+=pairs.map(pr=>`<div>${labels[pr.a]} vs ${labels[pr.b]} p=${pr.adjP.toExponential(3)}</div>`).join('');
+        statsDiv.innerHTML+=pairs.map(pr=>`<div>${labels[pr.a]} vs ${labels[pr.b]} p=${formatP(pr.adjP)}</div>`).join('');
       }else if(statsMode==='reference'){
         const refIdx=indices.indexOf(statsRef);
         if(refIdx===-1){
@@ -2194,7 +2199,7 @@ KAT7`;
         });
         const m=pairs.length;
         pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
-        statsDiv.innerHTML+=pairs.map(pr=>`<div>${refLabel} vs ${pr.label} p=${pr.adjP.toExponential(3)}</div>`).join('');
+        statsDiv.innerHTML+=pairs.map(pr=>`<div>${refLabel} vs ${pr.label} p=${formatP(pr.adjP)}</div>`).join('');
       }
       // Annotate pairwise comparisons
       if(pairs.length){
@@ -2215,9 +2220,20 @@ KAT7`;
       annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p,maxLevel);
       console.debug('computeStats completed',{maxLevel});
     }
-	
-	function drawBoxplot(){
-	  console.debug('drawBoxplot (SVG) called');
+
+    function makeEditable(el,onChange){
+      el.setAttribute('contentEditable','true');
+      el.style.cursor='text';
+      el.style.userSelect='text';
+      el.addEventListener('input',()=>{
+        console.debug('editable text changed',{text:el.textContent});
+        onChange(el.textContent);
+      });
+      console.debug('makeEditable applied');
+    }
+
+        function drawBoxplot(){
+          console.debug('drawBoxplot (SVG) called');
 
 	  // Appearance controls
           const fill = $('#boxFill').value;
@@ -2357,14 +2373,19 @@ KAT7`;
           }
           // Y axis line
           add('line', { x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotH, stroke: '#000', 'stroke-width': 2 });
-	  // Y ticks and labels
-	  yScale.ticks.forEach(t => {
-		const y = y2px(t);
-		add('line', { x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1 });
-		const txt = add('text', { x: margin.left - 8, y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: '#000' });
-		txt.textContent = String(t);
-	  });
-	  // X axis baseline
+          // Y ticks and labels
+          const yTickEls=[];
+          yScale.ticks.forEach(t => {
+                const y = y2px(t);
+                add('line', { x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1 });
+                const txt = add('text', { x: margin.left - 8, y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: '#000' });
+                txt.textContent = String(t);
+                yTickEls.push(txt);
+          });
+          const maxTickWidth=yTickEls.reduce((m,el)=>Math.max(m,el.getBBox().width),0);
+          const yLabelGap=maxTickWidth+fs;
+          console.debug('y-axis ticks measured',{maxTickWidth,yLabelGap});
+          // X axis baseline
             const xAxisY = margin.top + plotH;
             add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
             const xLabelOffset = Math.max(14, fs) + 6;
@@ -2377,8 +2398,7 @@ KAT7`;
                 t.textContent = lab || `Col ${i + 1}`;
             });
 
-            const yLabelGap = 30;
-            const yX = margin.left / 2;
+            const yX = margin.left - yLabelGap;
             const yText = add('text', {
               x: yX,
               y: margin.top + plotH / 2,
@@ -2387,8 +2407,7 @@ KAT7`;
               'font-size': fs + 4
             });
             yText.textContent = boxYLabelText;
-            yText.setAttribute('contentEditable','true');
-            yText.addEventListener('input',()=>{boxYLabelText=yText.textContent;console.debug('boxYLabelText updated',boxYLabelText);});
+            makeEditable(yText,txt=>{boxYLabelText=txt;console.debug('boxYLabelText updated',boxYLabelText);});
             console.debug('y-axis label placed',{x:yX,gap:yLabelGap});
 
             // Boxes
@@ -2433,8 +2452,7 @@ KAT7`;
               'font-size': fs + 4
             });
             titleText.textContent = boxTitleText;
-            titleText.setAttribute('contentEditable','true');
-            titleText.addEventListener('input',()=>{boxTitleText=titleText.textContent;console.debug('boxTitleText updated',boxTitleText);});
+            makeEditable(titleText,txt=>{boxTitleText=txt;console.debug('boxTitleText updated',boxTitleText);});
             console.debug('boxplot title rendered',{x:margin.left + plotW / 2,y:margin.top / 2});
 
           console.debug('svg boxplot complete', { W, H, plotW, plotH, labelsUsed, yScale });
@@ -2445,6 +2463,12 @@ KAT7`;
           } catch (e) {
                 console.error('computeStats failed', e);
           }
+          const otherBoxes=Array.from(svg.children).filter(el=>el!==titleText && el.getBBox).map(el=>el.getBBox());
+          const topMost=Math.min(...otherBoxes.map(b=>b.y));
+          const spacing=fs+4;
+          const newY=Math.max(spacing,topMost-spacing);
+          titleText.setAttribute('y',newY);
+          console.debug('title margin adjusted',{topMost,newY,spacing});
         }
 
 
