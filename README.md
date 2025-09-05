@@ -1,11 +1,13 @@
 # Venn
 
-Client-side Venn diagram generator using only HTML and JavaScript.
+Client-side Venn diagram generator using only HTML and JavaScript. Also includes a GraphPad-style box plot tool.
 
 ## Usage
 
 Open `index.html` in a web browser. Paste newline-separated lists into the text areas and press **Draw** to render a
 Venn diagram. Numbers are automatically positioned in their respective regions.
+
+Switch to the **Box Plot** tab to paste tabular data and generate customizable box plots with downloadable PNG/SVG and basic t-test and Mann–Whitney U test results.
 
 ## Overlap significance
 

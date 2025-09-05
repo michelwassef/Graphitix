@@ -15,6 +15,7 @@
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .btn{background:#fff;border:1px solid #ccc;color:#333;border-radius:6px;padding:8px 12px;cursor:pointer}
   .btn:hover{background:#f0f0f0}
+  .btn.active{background:#e0e0e0}
   #goOptsBtn,#stringOptsBtn{font-size:12px;padding:4px 6px}
   .svgbox{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px;margin:8px 0}
   #stage{width:100%;max-width:500px;height:340px;display:block}
@@ -45,9 +46,15 @@
   .analysis-options strong{font-size:13px}
   #analysisResults{font-size:13px}
   #analysisResults canvas{font-size:initial}
-</style>
+ </style>
+ <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
 </head>
 <body>
+<div id="tabs" style="padding:8px;border-bottom:1px solid #ddd;display:flex;gap:8px">
+  <button id="tabVenn" class="btn">Venn</button>
+  <button id="tabBox" class="btn">Box Plot</button>
+</div>
+<div id="vennPage">
 <header><h2 style="margin:0">Area proportional Venn - BioVenn like</h2><div style="color:#555;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
 <div class="wrap">
   <div class="panel">
@@ -213,16 +220,56 @@
       <span><span id="labelABName">A∩B</span>: <code id="countAB">0</code></span><span><span id="labelACName">A∩C</span>: <code id="countAC">0</code></span><span><span id="labelBCName">B∩C</span>: <code id="countBC">0</code></span>
       <span><span id="labelABCName">A∩B∩C</span>: <code id="countABC">0</code></span>
     </div>
+    </div>
+  </div>
+  <div id="tooltip"></div>
+</div>
+
+<div id="boxPage" style="display:none;">
+  <header><h2 style="margin:0">Box Plot</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a GraphPad-style box plot.</div></header>
+  <div class="wrap">
+    <div class="panel">
+      <div id="hot" style="width:100%;height:300px"></div>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px">
+        <label>Fill <input type="color" id="boxFill" value="#4472c4"></label>
+        <label>Border <input type="color" id="boxBorder" value="#000000"></label>
+        <label>Border W <input type="number" id="boxBorderWidth" value="2" min="0" max="10" style="width:60px"></label>
+        <button class="btn" id="drawBoxplot">Draw</button>
+      </div>
+      <div class="row" style="margin-top:8px;gap:8px">
+        <button class="btn" id="boxPNG">Download PNG</button>
+        <button class="btn" id="boxSVG">Download SVG</button>
+      </div>
+    </div>
+    <div class="panel" style="display:flex;flex-direction:column;align-items:center">
+      <div id="boxPlot" class="svgbox" style="width:100%;max-width:500px;height:340px"></div>
+      <div id="statsResults" style="width:100%;margin-top:12px"></div>
+    </div>
   </div>
 </div>
-<div id="tooltip"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function(){
   "use strict";
   const $ = (s)=>document.querySelector(s);
   const stage = $('#stage');
+  const vennPage=$('#vennPage');
+  const boxPage=$('#boxPage');
+  const tabVenn=$('#tabVenn');
+  const tabBox=$('#tabBox');
+  const hotContainer=document.getElementById('hot');
+  const hot=new Handsontable(hotContainer,{
+    data:Handsontable.helper.createEmptySpreadsheetData(5,3),
+    rowHeaders:true,
+    colHeaders:true,
+    contextMenu:true,
+    licenseKey:'non-commercial-and-evaluation'
+  });
+  console.debug('Handsontable initialized');
   Chart.defaults.locale='en-US';
   console.debug('Chart.js default locale set', Chart.defaults.locale);
   console.debug('App initialized');
@@ -1532,8 +1579,8 @@ KAT7`;
     }
     runGOAnalysis(regionGenes, organism);
   });
-  stringBtn.addEventListener('click',async()=>{
-    console.debug('stringBtn clicked');
+    stringBtn.addEventListener('click',async()=>{
+      console.debug('stringBtn clicked');
     const regionGenes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
     console.debug('stringBtn regionGenes', regionGenes);
     let organism=speciesSelect.value;
@@ -1553,10 +1600,111 @@ KAT7`;
         return;
       }
     }
-    runStringAnalysis(regionGenes, organism);
-  });
-  window.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); drawFromLists(); } });
-})();
+      runStringAnalysis(regionGenes, organism);
+    });
+    function showVenn(){
+      console.debug('showVenn called');
+      vennPage.style.display='block';
+      boxPage.style.display='none';
+      tabVenn.classList.add('active');
+      tabBox.classList.remove('active');
+    }
+    function showBox(){
+      console.debug('showBox called');
+      vennPage.style.display='none';
+      boxPage.style.display='block';
+      tabBox.classList.add('active');
+      tabVenn.classList.remove('active');
+    }
+    tabVenn.addEventListener('click',()=>{console.debug('tabVenn clicked'); showVenn();});
+    tabBox.addEventListener('click',()=>{console.debug('tabBox clicked'); showBox();});
+    showVenn();
+
+    function tTest(a,b){
+      console.debug('tTest inputs', {a,b});
+      const meanA=jStat.mean(a), meanB=jStat.mean(b);
+      const varA=jStat.variance(a,true), varB=jStat.variance(b,true);
+      const nA=a.length, nB=b.length;
+      const t=(meanA-meanB)/Math.sqrt(varA/nA+varB/nB);
+      const df=Math.pow(varA/nA+varB/nB,2)/(Math.pow(varA/nA,2)/(nA-1)+Math.pow(varB/nB,2)/(nB-1));
+      const p=2*(1-jStat.studentt.cdf(Math.abs(t),df));
+      console.debug('tTest results', {t,df,p});
+      return {t,df,p};
+    }
+    function rank(arr){
+      console.debug('rank called', arr);
+      const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v);
+      const ranks=Array(arr.length);
+      for(let i=0;i<sorted.length;i++){
+        let j=i;
+        while(j<sorted.length && sorted[j].v===sorted[i].v) j++;
+        const avg=(i+j-1)/2+1;
+        for(let k=i;k<j;k++) ranks[sorted[k].i]=avg;
+        i=j-1;
+      }
+      console.debug('rank result', ranks);
+      return ranks;
+    }
+    function mannWhitney(a,b){
+      console.debug('mannWhitney inputs', {a,b});
+      const all=a.concat(b);
+      const ranks=rank(all);
+      const ranksA=ranks.slice(0,a.length);
+      const R1=ranksA.reduce((s,r)=>s+r,0);
+      const n1=a.length, n2=b.length;
+      const U1=R1 - n1*(n1+1)/2;
+      const U2=n1*n2 - U1;
+      const U=Math.min(U1,U2);
+      const mu=n1*n2/2;
+      const sigma=Math.sqrt(n1*n2*(n1+n2+1)/12);
+      const z=(U-mu)/sigma;
+      const p=2*(1-jStat.normal.cdf(Math.abs(z),0,1));
+      console.debug('mannWhitney results', {U,z,p});
+      return {U,z,p};
+    }
+    function computeStats(traces){
+      console.debug('computeStats called', traces);
+      const statsDiv=document.getElementById('statsResults');
+      statsDiv.innerHTML='';
+      if(traces.length!==2){
+        statsDiv.textContent='Parametric t-test and non-parametric Mann-Whitney require exactly two columns.';
+        console.debug('computeStats insufficient columns', traces.length);
+        return;
+      }
+      const a=traces[0].y;
+      const b=traces[1].y;
+      const tRes=tTest(a,b);
+      const mwRes=mannWhitney(a,b);
+      statsDiv.innerHTML=`<div><strong>t-test</strong> p=${tRes.p.toExponential(3)}</div><div><strong>Mann-Whitney U</strong> p=${mwRes.p.toExponential(3)}</div>`;
+      console.debug('computeStats results', {tRes,mwRes});
+    }
+    function drawBoxplot(){
+      console.debug('drawBoxplot called');
+      const fill=$('#boxFill').value;
+      const border=$('#boxBorder').value;
+      const bw=Number($('#boxBorderWidth').value);
+      const traces=[];
+      hot.getColHeader().forEach((h,i)=>{
+        const col=hot.getDataAtCol(i).map(v=>parseFloat(v)).filter(v=>!isNaN(v));
+        console.debug('column processed', {index:i,header:h,values:col});
+        if(col.length){
+          traces.push({y:col,name:h||`Col ${i+1}`,type:'box',boxpoints:'all',fillcolor:fill,line:{color:border,width:bw},marker:{color:fill}});
+        }
+      });
+      if(!traces.length){
+        alert('Please enter numeric data.');
+        console.debug('drawBoxplot aborted no data');
+        return;
+      }
+      Plotly.newPlot('boxPlot', traces, {boxmode:'group',paper_bgcolor:'#fff',plot_bgcolor:'#fff'});
+      console.debug('boxplot drawn', traces);
+      computeStats(traces);
+    }
+    $('#drawBoxplot').addEventListener('click', drawBoxplot);
+    $('#boxPNG').addEventListener('click',()=>{console.debug('boxPNG clicked'); Plotly.downloadImage('boxPlot',{format:'png',filename:'boxplot'});});
+    $('#boxSVG').addEventListener('click',()=>{console.debug('boxSVG clicked'); Plotly.downloadImage('boxPlot',{format:'svg',filename:'boxplot'});});
+    window.addEventListener('keydown',e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); drawFromLists(); } });
+  })();
 </script>
 </body>
 </html>
