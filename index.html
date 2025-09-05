@@ -49,9 +49,6 @@
   /* Box plot layout adjustments */
   #boxPage .wrap{grid-template-columns:1fr 1fr;align-items:flex-start}
   #boxPage .panel{display:flex;flex-direction:column}
-  #boxPage .box-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;align-items:end}
-  #boxPage .box-controls button{width:100%}
-  #boxPage .download-controls{gap:8px;flex-wrap:wrap}
   #boxPage #boxPlot{width:100%;height:340px}
   @media (max-width:1000px){#boxPage .wrap{grid-template-columns:1fr}}
   </style>
@@ -238,19 +235,35 @@
     <div class="wrap">
       <div class="panel">
         <div id="hot" style="width:100%;height:300px"></div>
-        <div id="boxControls" class="row box-controls" style="margin-top:8px">
-          <label>Fill <input type="color" id="boxFill" value="#4472c4"></label>
-          <label>Border <input type="color" id="boxBorder" value="#000000"></label>
-          <label>Border W <input type="number" id="boxBorderWidth" value="2" min="0" max="10" style="width:60px"></label>
+        <div class="row" style="margin-top:8px;justify-content:flex-end">
           <button class="btn" id="drawBoxplot">Draw</button>
-        </div>
-        <div id="boxDownloads" class="row download-controls" style="margin-top:8px">
-          <button class="btn" id="boxPNG">Download PNG</button>
-          <button class="btn" id="boxSVG">Download SVG</button>
         </div>
       </div>
       <div class="panel" style="align-items:center">
-        <div id="boxPlot" class="svgbox" style="width:100%;height:340px"></div>
+        <div class="diagram-area">
+          <div class="svgbox" style="flex:1">
+            <div id="boxPlot" style="width:100%;height:340px"></div>
+            <div class="row" style="justify-content:flex-end;margin-top:6px">
+              <button class="btn" id="boxPNG">Download PNG</button>
+              <button class="btn" id="boxSVG">Download SVG</button>
+            </div>
+          </div>
+          <div class="config-options">
+            <fieldset>
+              <legend>Colors</legend>
+              <div class="color-pickers">
+                <label>Fill <input type="color" id="boxFill" value="#4472c4"></label>
+                <label>Border <input type="color" id="boxBorder" value="#000000"></label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Border</legend>
+              <div class="control">
+                <label>Width</label><input type="number" id="boxBorderWidth" value="2" min="0" max="10" style="width:60px">
+              </div>
+            </fieldset>
+          </div>
+        </div>
         <div id="statsResults" style="width:100%;margin-top:12px"></div>
       </div>
     </div>
@@ -269,17 +282,40 @@
     const boxPage=$('#boxPage');
     const tabVenn=$('#tabVenn');
     const tabBox=$('#tabBox');
-    const boxControls=$('#boxControls'), boxDownloads=$('#boxDownloads');
-    console.debug('Box plot layout elements', {boxControls, boxDownloads});
+    const drawBoxplotBtn=$('#drawBoxplot');
+    console.debug('Draw boxplot button initialized', drawBoxplotBtn);
     const hotContainer=document.getElementById('hot');
-  const hot=new Handsontable(hotContainer,{
-    data:Handsontable.helper.createEmptySpreadsheetData(5,3),
-    rowHeaders:true,
-    colHeaders:true,
-    contextMenu:true,
-    licenseKey:'non-commercial-and-evaluation'
-  });
-  console.debug('Handsontable initialized');
+    let colHeaders=['A','B','C'];
+    const hot=new Handsontable(hotContainer,{
+      data:Handsontable.helper.createEmptySpreadsheetData(5,3),
+      rowHeaders:true,
+      colHeaders:(index)=>colHeaders[index]||String.fromCharCode(65+index),
+      contextMenu:true,
+      licenseKey:'non-commercial-and-evaluation',
+      afterGetColHeader(col, TH){
+        if(!TH.dataset.editable){
+          TH.contentEditable='true';
+          TH.addEventListener('blur',()=>{
+            colHeaders[col]=TH.textContent;
+            console.debug('column header updated',{col,text:TH.textContent});
+          });
+          TH.dataset.editable='true';
+        }
+      },
+      afterCreateCol(index, amount){
+        for(let i=0;i<amount;i++){
+          colHeaders.splice(index+i,0,String.fromCharCode(65+index+i));
+        }
+        console.debug('column created',{index,amount,headers:colHeaders});
+      },
+      afterRemoveCol(index, amount){
+        colHeaders.splice(index,amount);
+        console.debug('column removed',{index,amount,headers:colHeaders});
+      }
+    });
+    console.debug('Handsontable initialized with editable headers', colHeaders);
+    const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth');
+    console.debug('Box plot color controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value});
   Chart.defaults.locale='en-US';
   console.debug('Chart.js default locale set', Chart.defaults.locale);
   console.debug('App initialized');
@@ -1694,19 +1730,23 @@ KAT7`;
       const border=$('#boxBorder').value;
       const bw=Number($('#boxBorderWidth').value);
       const traces=[];
-      hot.getColHeader().forEach((h,i)=>{
+      colHeaders.slice(0, hot.countCols()).forEach((h,i)=>{
         const col=hot.getDataAtCol(i).map(v=>parseFloat(v)).filter(v=>!isNaN(v));
         console.debug('column processed', {index:i,header:h,values:col});
         if(col.length){
-          traces.push({y:col,name:h||`Col ${i+1}`,type:'box',boxpoints:'all',fillcolor:fill,line:{color:border,width:bw},marker:{color:fill}});
+          traces.push({y:col,name:h||`Col ${i+1}`,type:'box',boxpoints:false,fillcolor:fill,line:{color:border,width:bw},marker:{color:fill}});
         }
       });
+      console.debug('colHeaders used for traces', colHeaders);
       if(!traces.length){
         alert('Please enter numeric data.');
         console.debug('drawBoxplot aborted no data');
         return;
       }
-      Plotly.newPlot('boxPlot', traces, {boxmode:'group',paper_bgcolor:'#fff',plot_bgcolor:'#fff'});
+      const layout={boxmode:'group',paper_bgcolor:'#fff',plot_bgcolor:'#fff',xaxis:{title:{text:'X label'}},yaxis:{title:{text:'Y label'}},editable:true};
+      const config={editable:true};
+      console.debug('boxplot layout', {layout,config});
+      Plotly.newPlot('boxPlot', traces, layout, config);
       console.debug('boxplot drawn', traces);
       computeStats(traces);
     }
