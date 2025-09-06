@@ -47,8 +47,11 @@
   #analysisResults{font-size:13px}
   #analysisResults canvas{font-size:initial}
   /* Box plot layout adjustments */
-  #boxPage .wrap{grid-template-columns:360px 1fr;align-items:flex-start}
+  #boxPage .wrap{display:flex;align-items:stretch;gap:0}
+  #boxPage #boxTablePanel{flex:3;min-width:150px}
+  #boxPage #boxGraphPanel{flex:2;min-width:150px;display:flex;flex-direction:column}
   #boxPage .panel{display:flex;flex-direction:column;min-width:0}
+  #boxPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
   #boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
   /* boxplot: use custom resizers rather than native resize handles */
   #boxPage .svgbox{
@@ -58,7 +61,7 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    width: 640px;     /* default; resizer will change this */
+    width: 100%;
     height: 420px;    /* default; resizer will change this */
     box-sizing: border-box;
   }
@@ -286,24 +289,25 @@
 <div id="boxPage" style="display:none;">
   <header><h2 style="margin:0">Box Plot</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a GraphPad-style box plot.</div></header>
     <div class="wrap">
-      <div class="panel">
+      <div class="panel" id="boxTablePanel">
         <div id="hotWrapper" style="width:100%;height:300px;overflow:auto"><div id="hot" style="width:100%;height:100%"></div></div>
         <div class="row" style="margin-top:8px;justify-content:space-between">
           <div class="row" style="gap:8px">
             <button class="btn" id="boxLoadExample">Load Example</button>
             <button class="btn" id="boxImport">Import File</button>
-            <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods" style="display:none">
+            <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none">
           </div>
           <button class="btn" id="drawBoxplot">Draw</button>
         </div>
       </div>
-      <div class="panel" style="align-items:center">
+      <div id="boxPanelResizer" class="panel-resizer" aria-hidden="true"></div>
+      <div class="panel" style="align-items:center" id="boxGraphPanel">
         <div class="diagram-area">
-			<div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:640px; height:420px;">
-			  <!-- Resizers -->
-			  <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
-			  <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
-			  <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+                        <div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:100%; height:420px;">
+                          <!-- Resizers -->
+                          <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+                          <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+                          <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
 
 			  <!-- Plot area -->
 			  <div id="boxPlot" style="width:100%; height:100%"></div>
@@ -376,7 +380,10 @@
     console.debug('Draw boxplot button initialized', drawBoxplotBtn);
     const hotContainer=document.getElementById('hot');
     const hotWrapper=document.getElementById('hotWrapper');
-    console.debug('hot elements initialized', {hotContainer, hotWrapper});
+    const tablePanel=document.getElementById('boxTablePanel');
+    const graphPanel=document.getElementById('boxGraphPanel');
+    const panelResizer=document.getElementById('boxPanelResizer');
+    console.debug('hot elements initialized', {hotContainer, hotWrapper, tablePanel, graphPanel, panelResizer});
     const DEFAULT_ROWS=100, DEFAULT_COLS=10;
     console.debug('table defaults', {rows:DEFAULT_ROWS, cols:DEFAULT_COLS});
     let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
@@ -491,9 +498,20 @@
           processImportedRows(rows);
         };
         reader.readAsText(file);
-      }else if(['xls','xlsx','ods'].includes(ext)){
-        reader.onload=ev=>{
+      }else if(['xls','xlsx','ods','odg'].includes(ext)){
+        reader.onload=async ev=>{
           try{
+            if(!window.XLSX){
+              console.debug('XLSX library not found, attempting dynamic load');
+              await new Promise((resolve,reject)=>{
+                const s=document.createElement('script');
+                s.src='https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js';
+                s.onload=()=>{console.debug('XLSX dynamically loaded');resolve();};
+                s.onerror=err=>reject(new Error('Failed to load XLSX script'));
+                document.head.appendChild(s);
+              });
+            }
+            if(!window.XLSX) throw new Error('XLSX library unavailable');
             const data=new Uint8Array(ev.target.result);
             const workbook=XLSX.read(data,{type:'array'});
             console.debug('spreadsheet workbook', {sheets:workbook.SheetNames});
@@ -522,7 +540,9 @@
       rows=rows.map(r=>{const row=Array.from(r); while(row.length<targetCols) row.push(''); return row;});
       let headerRow=new Array(targetCols).fill('');
       const firstRow=rows[0]||[];
-      const hasHeader=firstRow.every(c=>typeof c==='string' && c.trim() && isNaN(Number(c)));
+      const hasHeader=firstRow.some(c=>String(c).trim() && isNaN(Number(c))) &&
+                      firstRow.every(c=>!String(c).trim() || isNaN(Number(c)));
+      console.debug('header detection',{firstRow,hasHeader});
       if(hasHeader){ headerRow=firstRow.map(v=>String(v)); rows=rows.slice(1); }
       const dataRows=[headerRow,...rows];
       const targetRows=Math.max(DEFAULT_ROWS,dataRows.length);
@@ -662,11 +682,43 @@
 		  console.error('boxPlot resize redraw error', e);
 		}
 	  });
-	  boxResizeObserver.observe(boxContainer);
-	  console.debug('Resizer init complete and ResizeObserver attached to svgbox container');
-	})();
+        boxResizeObserver.observe(boxContainer);
+        console.debug('Resizer init complete and ResizeObserver attached to svgbox container');
+      })();
 
-
+    (function initPanelResizer(){
+      if(!panelResizer||!tablePanel||!graphPanel){
+        console.debug('panel resizer init skipped',{panelResizer,tablePanel,graphPanel});
+        return;
+      }
+      panelResizer.addEventListener('pointerdown',e=>{
+        e.preventDefault();
+        const startX=e.clientX;
+        const startTable=tablePanel.getBoundingClientRect().width;
+        const startGraph=graphPanel.getBoundingClientRect().width;
+        const total=startTable+startGraph;
+        console.debug('panelResizer pointerdown',{startX,startTable,startGraph});
+        function onMove(ev){
+          const dx=ev.clientX-startX;
+          let newTable=Math.max(150,startTable+dx);
+          let newGraph=Math.max(150,total-newTable);
+          if(newTable+newGraph!==total){
+            newTable=total-newGraph;
+          }
+          tablePanel.style.flex=`0 0 ${newTable}px`;
+          graphPanel.style.flex=`1 1 ${newGraph}px`;
+          console.debug('panelResizer move',{dx,newTable,newGraph});
+        }
+        function onUp(){
+          document.removeEventListener('pointermove',onMove);
+          document.removeEventListener('pointerup',onUp);
+          console.debug('panelResizer pointerup');
+        }
+        document.addEventListener('pointermove',onMove);
+        document.addEventListener('pointerup',onUp);
+      });
+      console.debug('panel resizer initialized');
+    })();
 
     console.debug('ResizeObserver attached to boxPlot');
   Chart.defaults.locale='en-US';
