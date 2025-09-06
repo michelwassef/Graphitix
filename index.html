@@ -331,6 +331,12 @@
               </div>
             </fieldset>
             <fieldset>
+              <legend>Axis</legend>
+              <div class="control">
+                <label><input type="checkbox" id="boxLogScale"> Log scale (Y)</label>
+              </div>
+            </fieldset>
+            <fieldset>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label><input type="range" id="boxFontSize" min="10" max="36" step="1" value="16"><output id="boxFontSizeVal">16</output>
@@ -371,7 +377,10 @@
     let statsTest='parametric';
     let statsMode='all';
     let statsRef=0;
-    console.debug('stats defaults',{statsTest,statsMode,statsRef});
+    let statsPaired=false;
+    let statsPairsText='';
+    let statsCustomPairs=[];
+    console.debug('stats defaults',{statsTest,statsMode,statsRef,statsPaired,statsPairsText});
 
     const ANN_BASE_OFFSET=25;
     const ANN_LEVEL_GAP=25;
@@ -423,10 +432,11 @@
 
 
 	
-    const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid');
-    console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value,showGrid:boxShowGrid.checked});
+    const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale');
+    console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value,showGrid:boxShowGrid.checked,logScale:boxLogScale.checked});
     boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; console.debug('boxFontSize changed', boxFontSize.value); });
     boxShowGrid.addEventListener('change',()=>{ console.debug('boxShowGrid toggled', boxShowGrid.checked); drawBoxplot(); });
+    boxLogScale.addEventListener('change',()=>{ console.debug('boxLogScale toggled', boxLogScale.checked); drawBoxplot(); });
 	
 
 	// --- improved resizers for separate X / Y resizing ---
@@ -1919,6 +1929,19 @@ KAT7`;
       console.debug('tTest results', {t,df,p});
       return {t,df,p};
     }
+    function tTestPaired(a,b){
+      console.debug('tTestPaired inputs',{a,b});
+      const n=Math.min(a.length,b.length);
+      const diffs=[];
+      for(let i=0;i<n;i++) diffs.push(a[i]-b[i]);
+      const mean=jStat.mean(diffs);
+      const sd=jStat.stdev(diffs,true);
+      const t=mean/(sd/Math.sqrt(n));
+      const df=n-1;
+      const p=2*(1-jStat.studentt.cdf(Math.abs(t),df));
+      console.debug('tTestPaired results',{t,df,p});
+      return {t,df,p};
+    }
     function rank(arr){
       console.debug('rank called', arr);
       const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v);
@@ -1949,6 +1972,36 @@ KAT7`;
       const p=2*(1-jStat.normal.cdf(Math.abs(z),0,1));
       console.debug('mannWhitney results', {U,z,p});
       return {U,z,p};
+    }
+    function wilcoxonSignedRank(a,b){
+      console.debug('wilcoxonSignedRank inputs',{a,b});
+      const n=Math.min(a.length,b.length);
+      const diffs=[];
+      for(let i=0;i<n;i++){
+        const d=a[i]-b[i];
+        if(d!==0) diffs.push(d);
+      }
+      const absSorted=diffs.map((d,i)=>({d,abs:Math.abs(d),i})).sort((x,y)=>x.abs-y.abs);
+      const ranks=new Array(absSorted.length);
+      let r=1;
+      for(let i=0;i<absSorted.length;i++){
+        let j=i;
+        while(j<absSorted.length&&absSorted[j].abs===absSorted[i].abs) j++;
+        const avg=(r+(r+j-i-1))/2;
+        for(let k=i;k<j;k++) ranks[absSorted[k].i]=avg;
+        r+=j-i;
+        i=j-1;
+      }
+      let Wpos=0,Wneg=0;
+      ranks.forEach((rk,i)=>{ if(diffs[i]>0) Wpos+=rk; else Wneg+=rk; });
+      const W=Math.min(Wpos,Wneg);
+      const nEff=ranks.length;
+      const mu=nEff*(nEff+1)/4;
+      const sigma=Math.sqrt(nEff*(nEff+1)*(2*nEff+1)/24);
+      const z=(W-mu)/sigma;
+      const p=2*(1-jStat.normal.cdf(Math.abs(z),0,1));
+      console.debug('wilcoxonSignedRank results',{W,z,p});
+      return {W,z,p};
     }
     function p2stars(p){
       const stars=p<0.0001?'****':p<0.001?'***':p<0.01?'**':p<0.05?'*':'ns';
@@ -2013,6 +2066,16 @@ KAT7`;
       console.debug('kruskalWallis results', {H,p});
       return {H,p};
     }
+    function parsePairString(str,traces){
+      console.debug('parsePairString called',{str});
+      return str.split(/[\n,]+/).map(p=>p.trim()).filter(p=>p).map(p=>{
+        const [a,b]=p.split('-').map(s=>s.trim());
+        const ai=isNaN(parseInt(a))?traces.findIndex(t=>t.name===a):parseInt(a)-1;
+        const bi=isNaN(parseInt(b))?traces.findIndex(t=>t.name===b):parseInt(b)-1;
+        console.debug('pair parsed',{pair:p,a,ai,b,bi});
+        return (ai>=0&&bi>=0)?{ai,bi}:null;
+      }).filter(Boolean);
+    }
     function renderStatsControls(traces){
       console.debug('renderStatsControls called', traces);
       const controls=document.getElementById('statsControls');
@@ -2047,10 +2110,27 @@ KAT7`;
       optionWrap.appendChild(testLabel);
       optionWrap.appendChild(testSel);
 
+      const pairedLabel=document.createElement('label');
+      pairedLabel.textContent='Pairing:';
+      const pairedSel=document.createElement('select');
+      [['unpaired','Unpaired'],['paired','Paired']].forEach(([v,t])=>{
+        const o=document.createElement('option');
+        o.value=v; o.textContent=t;
+        if((statsPaired && v==='paired') || (!statsPaired && v==='unpaired')) o.selected=true;
+        pairedSel.appendChild(o);
+      });
+      pairedSel.addEventListener('change',()=>{
+        statsPaired=pairedSel.value==='paired';
+        console.debug('statsPaired changed', statsPaired);
+        drawBoxplot();
+      });
+      optionWrap.appendChild(pairedLabel);
+      optionWrap.appendChild(pairedSel);
+
       const modeLabel=document.createElement('label');
       modeLabel.textContent='Comparison:';
       const modeSel=document.createElement('select');
-      [['all','All pairwise'],['reference','Versus reference']].forEach(([v,t])=>{
+      [['all','All pairwise'],['reference','Versus reference'],['custom','Custom pairs']].forEach(([v,t])=>{
         const o=document.createElement('option');
         o.value=v; o.textContent=t;
         if(statsMode===v) o.selected=true;
@@ -2083,6 +2163,23 @@ KAT7`;
         });
         optionWrap.appendChild(refLabel);
         optionWrap.appendChild(refSel);
+      } else if(statsMode==='custom'){
+        const pairLabel=document.createElement('label');
+        pairLabel.textContent='Pairs:';
+        const pairInput=document.createElement('input');
+        pairInput.type='text';
+        pairInput.value=statsPairsText;
+        pairInput.placeholder='1-3,2-4';
+        pairInput.addEventListener('change',()=>{
+          statsPairsText=pairInput.value;
+          statsCustomPairs=parsePairString(statsPairsText,traces);
+          console.debug('statsCustomPairs updated',statsCustomPairs);
+          drawBoxplot();
+        });
+        optionWrap.appendChild(pairLabel);
+        optionWrap.appendChild(pairInput);
+        statsCustomPairs=parsePairString(statsPairsText,traces);
+        console.debug('statsCustomPairs parsed on render',statsCustomPairs);
       }
       controls.appendChild(optionWrap);
       traces.forEach((t,i)=>{
@@ -2128,24 +2225,75 @@ KAT7`;
       svg.appendChild(txt);
     }
     function computeStats(traces,svg,helpers){
-      console.debug('computeStats called', {traces,selectedCols:Array.from(selectedCols),statsTest,statsMode,statsRef});
+      console.debug('computeStats called', {traces,selectedCols:Array.from(selectedCols),statsTest,statsMode,statsRef,statsPaired,statsCustomPairs});
       const statsDiv=document.getElementById('statsResults');
       statsDiv.innerHTML='';
+
+      if(statsMode==='custom'){
+        if(!statsCustomPairs.length){
+          statsDiv.textContent='Specify pairs for comparison.';
+          console.debug('computeStats custom no pairs');
+          return;
+        }
+        const pairTest=statsTest==='parametric'?(statsPaired?tTestPaired:tTest):(statsPaired?wilcoxonSignedRank:mannWhitney);
+        const pairs=[];
+        statsCustomPairs.forEach(pr=>{
+          const aData=traces[pr.ai].rawY;
+          const bData=traces[pr.bi].rawY;
+          if(statsPaired && aData.length!==bData.length){
+            console.debug('computeStats pair length mismatch',pr);
+            return;
+          }
+          const r=pairTest(aData,bData);
+          let rangeMax=-Infinity;
+          for(let k=Math.min(pr.ai,pr.bi);k<=Math.max(pr.ai,pr.bi);k++){
+            rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
+          }
+          pairs.push({...pr,p:r.p,rangeMax,labelA:traces[pr.ai].name,labelB:traces[pr.bi].name});
+          console.debug('computeStats custom pair',{ai:pr.ai,bi:pr.bi,p:r.p,rangeMax});
+        });
+        const m=pairs.length;
+        pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
+        statsDiv.innerHTML+=pairs.map(pr=>`<div>${pr.labelA} vs ${pr.labelB} p=${formatP(pr.adjP)}</div>`).join('');
+        if(pairs.length){
+          pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+          const placed=[];
+          pairs.forEach(pr=>{
+            let level=0;
+            while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
+            const y=helpers.y2px(pr.rangeMax)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP;
+            console.debug('pair level placement',{rangeMax:pr.rangeMax,level,y});
+            annotatePair(svg,helpers.xCenter(pr.ai),helpers.xCenter(pr.bi),y,pr.p);
+            pr.level=level;
+            placed.push(pr);
+            console.debug('computeStats annotate pair',{ai:pr.ai,bi:pr.bi,level,y});
+          });
+        }
+        console.debug('computeStats completed',{mode:'custom',pairs:pairs.length});
+        return;
+      }
+
       const indices=[...selectedCols];
       if(indices.length<2){
         statsDiv.textContent='Select at least two columns for statistical analysis.';
         console.debug('computeStats insufficient selection', indices.length);
         return;
       }
-      const groups=indices.map(i=>traces[i].y);
+      const groups=indices.map(i=>traces[i].rawY);
       const labels=indices.map(i=>traces[i].name);
       const param=statsTest==='parametric';
-      const pairTest=param?tTest:mannWhitney;
+      const pairTest=param?(statsPaired?tTestPaired:tTest):(statsPaired?wilcoxonSignedRank:mannWhitney);
       const overallTest=param?anova:kruskalWallis;
+
+      if(statsPaired && groups.some(g=>g.length!==groups[0].length)){
+        statsDiv.textContent='Paired tests require equal group sizes.';
+        console.debug('computeStats paired size mismatch');
+        return;
+      }
 
       if(indices.length===2){
         const res=pairTest(groups[0],groups[1]);
-        statsDiv.innerHTML=`<div><strong>${param?'t-test':'Mann-Whitney U'}</strong> p=${formatP(res.p)}</div>`;
+        statsDiv.innerHTML=`<div><strong>${param?(statsPaired?'Paired t-test':'t-test'):(statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U')}</strong> p=${formatP(res.p)}</div>`;
         const from=Math.min(indices[0],indices[1]);
         const to=Math.max(indices[0],indices[1]);
         let rangeMax=-Infinity;
@@ -2157,16 +2305,21 @@ KAT7`;
         return;
       }
 
-      const overall=overallTest(groups);
-      statsDiv.innerHTML=`<div><strong>${param?'ANOVA':'Kruskal-Wallis'}</strong> p=${formatP(overall.p)}</div>`;
-      const maxVal=Math.max(...groups.flat());
+      let overall;
+      if(!statsPaired){
+        overall=overallTest(groups);
+        statsDiv.innerHTML=`<div><strong>${param?'ANOVA':'Kruskal-Wallis'}</strong> p=${formatP(overall.p)}</div>`;
+      } else {
+        statsDiv.innerHTML='<div>Overall test not available for paired data.</div>';
+      }
+      const maxVal=Math.max(...indices.map(i=>Math.max(...traces[i].y)));
       const xs=indices.map(i=>helpers.xCenter(i));
       let pairs=[];
       if(statsMode==='all'){
         for(let i=0;i<indices.length;i++){
           for(let j=i+1;j<indices.length;j++){
             const aIdx=indices[i],bIdx=indices[j];
-            const r=pairTest(traces[aIdx].y,traces[bIdx].y);
+            const r=pairTest(traces[aIdx].rawY,traces[bIdx].rawY);
             let rangeMax=-Infinity;
             for(let k=Math.min(aIdx,bIdx);k<=Math.max(aIdx,bIdx);k++){
               rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
@@ -2189,7 +2342,7 @@ KAT7`;
         const refData=groups[refIdx];
         indices.forEach((idx,i)=>{
           if(i===refIdx) return;
-          const r=pairTest(refData,traces[idx].y);
+          const r=pairTest(refData,traces[idx].rawY);
           let rangeMax=-Infinity;
           for(let k=Math.min(statsRef,idx);k<=Math.max(statsRef,idx);k++){
             rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
@@ -2201,7 +2354,6 @@ KAT7`;
         pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
         statsDiv.innerHTML+=pairs.map(pr=>`<div>${refLabel} vs ${pr.label} p=${formatP(pr.adjP)}</div>`).join('');
       }
-      // Annotate pairwise comparisons
       if(pairs.length){
         pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
         const placed=[];
@@ -2217,7 +2369,9 @@ KAT7`;
         });
       }
       const maxLevel=pairs.length?Math.max(...pairs.map(pr=>pr.level))+1:0;
-      annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p,maxLevel);
+      if(!statsPaired){
+        annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p,maxLevel);
+      }
       console.debug('computeStats completed',{maxLevel});
     }
 
@@ -2258,35 +2412,50 @@ KAT7`;
           const bw = Number($('#boxBorderWidth').value);
           const fs = Number($('#boxFontSize').value);
           const showGrid = $('#boxShowGrid').checked;
-          console.debug('box plot style', { fill, border, bw, fs, showGrid });
+          const logScale = $('#boxLogScale').checked;
+          console.debug('box plot style', { fill, border, bw, fs, showGrid, logScale });
 
 	  // Build traces from first-row headers; numeric data are rows 1..N
-	  const traces = [];
-	  const labelsUsed = [];
-	  const nCols = hot.countCols();
+          const traces = [];
+          const labelsUsed = [];
+          const nCols = hot.countCols();
 
-	  for (let i = 0; i < nCols; i++) {
-		const headerCell = hot.getDataAtCell(0, i);
-		const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
+          for (let i = 0; i < nCols; i++) {
+                const headerCell = hot.getDataAtCell(0, i);
+                const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
 
-		const col = hot.getDataAtCol(i)
-		  .slice(1) // skip row 0 (used as header)
-		  .map(v => parseFloat(v))
-		  .filter(v => !isNaN(v));
+                const col = hot.getDataAtCol(i)
+                  .slice(1) // skip row 0 (used as header)
+                  .map(v => parseFloat(v))
+                  .filter(v => !isNaN(v));
 
-		console.debug('column processed (row0 header)', { index: i, header: label, values: col });
+                console.debug('column processed (row0 header)', { index: i, header: label, values: col });
 
-		if (col.length) {
-		  labelsUsed.push(label);
-		  traces.push({ name: label, y: col, type: 'box' });
-		}
-	  }
+                if (col.length) {
+                  labelsUsed.push(label);
+                  traces.push({ name: label, rawY: col });
+                }
+          }
 
           if (!traces.length) {
                 console.debug('drawBoxplot aborted no data (no numeric rows below headers)');
                 return;
           }
+
           renderStatsControls(traces);
+
+          if(logScale){
+                const hasNonPos=traces.some(t=>t.rawY.some(v=>v<=0));
+                if(hasNonPos){
+                  document.getElementById('boxPlot').innerHTML='<i>Log scale requires positive values.</i>';
+                  document.getElementById('statsResults').innerHTML='';
+                  console.debug('drawBoxplot aborted: non-positive values with log scale');
+                  return;
+                }
+                traces.forEach(t=>{ t.y=t.rawY.map(v=>Math.log10(v)); });
+          }else{
+                traces.forEach(t=>{ t.y=[...t.rawY]; });
+          }
 
           // Helpers
           const $box = document.getElementById('boxPlot');
@@ -2351,7 +2520,7 @@ KAT7`;
                 return width;
           }
           const tickFont = `${fs}px sans-serif`;
-          const tickWidths = yScale.ticks.map(t => measureTextWidth(String(t), tickFont));
+          const tickWidths = yScale.ticks.map(t => measureTextWidth(String(logScale?Math.pow(10,t):t), tickFont));
           const maxTickWidth = Math.max(...tickWidths, 0);
           const yLabelGap = maxTickWidth + fs;
           console.debug('tick widths estimated',{tickFont,tickWidths,maxTickWidth,yLabelGap});
@@ -2411,9 +2580,9 @@ KAT7`;
                 const y = y2px(t);
                 add('line', { x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1 });
                 const txt = add('text', { x: margin.left - 8, y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: '#000' });
-                txt.textContent = String(t);
+                txt.textContent = String(logScale?Math.pow(10,t):t);
           });
-          console.debug('y-axis ticks drawn',{ticks:yScale.ticks});
+          console.debug('y-axis ticks drawn',{ticks:yScale.ticks,logScale});
           // X axis baseline
             const xAxisY = margin.top + plotH;
             add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
@@ -2484,7 +2653,7 @@ KAT7`;
             makeEditable(titleText,txt=>{boxTitleText=txt;console.debug('boxTitleText updated',boxTitleText);});
             console.debug('boxplot title rendered',{x:margin.left + plotW / 2,y:margin.top / 2});
 
-          console.debug('svg boxplot complete', { W, H, plotW, plotH, labelsUsed, yScale });
+          console.debug('svg boxplot complete', { W, H, plotW, plotH, labelsUsed, yScale, logScale });
 
           const helpers={xCenter,y2px};
           try {
