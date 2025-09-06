@@ -288,7 +288,12 @@
     <div class="wrap">
       <div class="panel">
         <div id="hot" style="width:100%;height:300px"></div>
-        <div class="row" style="margin-top:8px;justify-content:flex-end">
+        <div class="row" style="margin-top:8px;justify-content:space-between">
+          <div class="row" style="gap:8px">
+            <button class="btn" id="boxLoadExample">Load Example</button>
+            <button class="btn" id="boxImport">Import File</button>
+            <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods" style="display:none">
+          </div>
           <button class="btn" id="drawBoxplot">Draw</button>
         </div>
       </div>
@@ -347,6 +352,7 @@
         <div id="statsPanel" style="width:100%;margin-top:12px">
           <div id="statsControls"></div>
           <div id="statsResults" style="margin-top:8px"></div>
+          <div id="statsTable" style="margin-top:8px"></div>
         </div>
       </div>
     </div>
@@ -356,6 +362,7 @@
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -394,6 +401,7 @@
       // Keep simple A,B,C headers in the TH; we now use ROW 0 for user headers
       colHeaders:true,
       contextMenu:true,
+      manualColumnMove:true,
       licenseKey:'non-commercial-and-evaluation',
 
       // First row acts as "header row": darker background, bold
@@ -416,23 +424,95 @@
           colHeaders.splice(index+i,0,String.fromCharCode(65+index+i));
         }
         console.debug('column created',{index,amount,headers:colHeaders});
+        selectedCols.clear();
+        drawBoxplot();
       },
       afterRemoveCol(index, amount){
         colHeaders.splice(index,amount);
         console.debug('column removed',{index,amount,headers:colHeaders});
+        selectedCols.clear();
+        drawBoxplot();
       },
 
       // Debug changes in the sheet
       afterChange(changes, source){
         if(!changes || source==='loadData') return;
         console.debug('hot afterChange', {changes, source});
+        drawBoxplot();
+      },
+      afterColumnMove(moved, finalIndex, dropIndex, movePossible, orderChanged){
+        console.debug('column moved',{moved,finalIndex,dropIndex,movePossible,orderChanged});
+        if(orderChanged) drawBoxplot();
       }
     });
     console.debug('Handsontable initialized with first-row headers');
 
+    const loadExampleBtn=$('#boxLoadExample'), importBtn=$('#boxImport'), fileInput=$('#boxFile');
+    const exampleData=[
+      ['Group 1','Group 2','Group 3'],
+      [5,7,6],
+      [6,5,7],
+      [7,8,9],
+      [4,3,5],
+      [6,7,8]
+    ];
+    loadExampleBtn.addEventListener('click',()=>{
+      console.debug('boxLoadExample clicked');
+      selectedCols.clear();
+      hot.loadData(exampleData);
+      drawBoxplot();
+    });
+    importBtn.addEventListener('click',()=>{
+      console.debug('boxImport clicked');
+      fileInput.value='';
+      fileInput.click();
+    });
+    fileInput.addEventListener('change',e=>{
+      const file=e.target.files[0];
+      if(!file){ console.debug('boxFile change no file'); return; }
+      console.debug('boxFile selected',{name:file.name,size:file.size});
+      const ext=file.name.split('.').pop().toLowerCase();
+      const reader=new FileReader();
+      if(['csv','tsv','txt'].includes(ext)){
+        reader.onload=ev=>{
+          const text=ev.target.result;
+          const delim=ext==='csv'?',':'\t';
+          let rows=text.split(/\r?\n/).map(r=>r.split(delim));
+          console.debug('text file parsed',{rows});
+          processImportedRows(rows);
+        };
+        reader.readAsText(file);
+      }else{
+        reader.onload=ev=>{
+          const data=new Uint8Array(ev.target.result);
+          const workbook=XLSX.read(data,{type:'array'});
+          const sheet=workbook.Sheets[workbook.SheetNames[0]];
+          let rows=XLSX.utils.sheet_to_json(sheet,{header:1});
+          console.debug('workbook parsed',{rows});
+          processImportedRows(rows);
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    });
+    function processImportedRows(rows){
+      console.debug('processImportedRows called', rows);
+      if(!rows || !rows.length){ console.debug('processImportedRows empty'); return; }
+      rows=rows.filter(r=>r && r.some(c=>c!==null && c!==undefined && String(c).trim()!==''));
+      if(!rows.length){ console.debug('processImportedRows no usable rows'); return; }
+      const colCount=Math.max(...rows.map(r=>r.length));
+      rows=rows.map(r=>{const row=Array.from(r); while(row.length<colCount) row.push(''); return row;});
+      let headerRow=new Array(colCount).fill('');
+      const firstRow=rows[0]||[];
+      const hasHeader=firstRow.every(c=>typeof c==='string' && c.trim() && isNaN(Number(c)));
+      if(hasHeader){ headerRow=firstRow.map(v=>String(v)); rows=rows.slice(1); }
+      const dataRows=[headerRow,...rows];
+      selectedCols.clear();
+      hot.loadData(dataRows);
+      console.debug('hot.loadData from import',{cols:colCount,rows:dataRows.length,hasHeader});
+      drawBoxplot();
+    }
 
-	
-    const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale');
+      const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale');
     console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value,showGrid:boxShowGrid.checked,logScale:boxLogScale.checked});
     boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; console.debug('boxFontSize changed', boxFontSize.value); });
     boxShowGrid.addEventListener('change',()=>{ console.debug('boxShowGrid toggled', boxShowGrid.checked); drawBoxplot(); });
@@ -2375,6 +2455,29 @@ KAT7`;
       console.debug('computeStats completed',{maxLevel});
     }
 
+    function renderStatsTable(traces){
+      console.debug('renderStatsTable called', traces);
+      const tableDiv=document.getElementById('statsTable');
+      if(!traces.length){ tableDiv.innerHTML=''; return; }
+      const rows=traces.map(t=>{
+        const arr=t.rawY;
+        const n=arr.length;
+        const mean=jStat.mean(arr);
+        const med=jStat.median(arr);
+        const sd=jStat.stdev(arr,true);
+        const min=Math.min(...arr);
+        const q1=jStat.percentile(arr,0.25);
+        const q3=jStat.percentile(arr,0.75);
+        const max=Math.max(...arr);
+        return {name:t.name,n,mean,med,sd,min,q1,q3,max};
+      });
+      let html='<table style="border-collapse:collapse">';
+      html+='<thead><tr>'+['Column','N','Mean','Median','SD','Min','Q1','Q3','Max'].map(h=>`<th style="border:1px solid #ccc;padding:4px">${h}</th>`).join('')+'</tr></thead>';
+      html+='<tbody>'+rows.map(r=>`<tr><td style="border:1px solid #ccc;padding:4px">${r.name}</td><td style="border:1px solid #ccc;padding:4px">${r.n}</td><td style="border:1px solid #ccc;padding:4px">${r.mean.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.med.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.sd.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.min}</td><td style="border:1px solid #ccc;padding:4px">${r.q1.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.q3.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.max}</td></tr>`).join('')+'</tbody></table>';
+      tableDiv.innerHTML=html;
+      console.debug('renderStatsTable complete');
+    }
+
     function makeEditable(el,onChange){
       el.style.cursor='pointer';
       el.addEventListener('dblclick',()=>{
@@ -2438,6 +2541,9 @@ KAT7`;
           }
 
           if (!traces.length) {
+                document.getElementById('boxPlot').innerHTML='';
+                document.getElementById('statsResults').innerHTML='';
+                document.getElementById('statsTable').innerHTML='';
                 console.debug('drawBoxplot aborted no data (no numeric rows below headers)');
                 return;
           }
@@ -2449,6 +2555,7 @@ KAT7`;
                 if(hasNonPos){
                   document.getElementById('boxPlot').innerHTML='<i>Log scale requires positive values.</i>';
                   document.getElementById('statsResults').innerHTML='';
+                  document.getElementById('statsTable').innerHTML='';
                   console.debug('drawBoxplot aborted: non-positive values with log scale');
                   return;
                 }
@@ -2655,13 +2762,18 @@ KAT7`;
 
           console.debug('svg boxplot complete', { W, H, plotW, plotH, labelsUsed, yScale, logScale });
 
-          const helpers={xCenter,y2px};
-          try {
-                computeStats(traces,svg,helpers);
-          } catch (e) {
-                console.error('computeStats failed', e);
-          }
-          const otherBoxes=Array.from(svg.children).filter(el=>el!==titleText && el.getBBox).map(el=>el.getBBox());
+            const helpers={xCenter,y2px};
+            try {
+                  computeStats(traces,svg,helpers);
+            } catch (e) {
+                  console.error('computeStats failed', e);
+            }
+            try {
+                  renderStatsTable(traces);
+            } catch(e){
+                  console.error('renderStatsTable failed', e);
+            }
+            const otherBoxes=Array.from(svg.children).filter(el=>el!==titleText && el.getBBox).map(el=>el.getBBox());
           const topMost=Math.min(...otherBoxes.map(b=>b.y));
           const spacing=fs+4;
           const newY=Math.max(spacing,topMost-spacing);
