@@ -362,6 +362,7 @@
               <div class="control">
                 <label>Display</label>
                 <select id="boxPointMode">
+                  <option value="none" selected>None</option>
                   <option value="overlay">Overlay</option>
                   <option value="side">Side</option>
                 </select>
@@ -2435,16 +2436,22 @@ KAT7`;
             return;
           }
           const r=pairTest(aData,bData);
+          const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
+          const statVal=r[statName];
           let rangeMax=-Infinity;
           for(let k=Math.min(pr.ai,pr.bi);k<=Math.max(pr.ai,pr.bi);k++){
             rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
           }
-          pairs.push({...pr,p:r.p,rangeMax,labelA:traces[pr.ai].name,labelB:traces[pr.bi].name});
-          console.debug('computeStats custom pair',{ai:pr.ai,bi:pr.bi,p:r.p,rangeMax});
+          pairs.push({...pr,p:r.p,rangeMax,labelA:traces[pr.ai].name,labelB:traces[pr.bi].name,stat:statVal,statName,df:r.df});
+          console.debug('computeStats custom pair',{ai:pr.ai,bi:pr.bi,p:r.p,rangeMax,statName,statVal,df:r.df});
         });
         const m=pairs.length;
         pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
-        statsDiv.innerHTML+=pairs.map(pr=>`<div>${pr.labelA} vs ${pr.labelB} p=${formatP(pr.adjP)}</div>`).join('');
+        let html='<table><tr><th>Comparison</th><th>Statistic</th><th>df</th><th>P (adj)</th></tr>';
+        pairs.forEach(pr=>{html+=`<tr><td>${pr.labelA} vs ${pr.labelB}</td><td>${pr.statName}=${pr.stat.toFixed(4)}</td><td>${pr.df??''}</td><td>${formatP(pr.adjP)}</td></tr>`;});
+        html+='</table>';
+        statsDiv.innerHTML=html;
+        console.debug('computeStats custom table rendered',{pairs});
         if(pairs.length){
           pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
           const placed=[];
@@ -2483,7 +2490,15 @@ KAT7`;
 
       if(indices.length===2){
         const res=pairTest(groups[0],groups[1]);
-        statsDiv.innerHTML=`<div><strong>${param?(statsPaired?'Paired t-test':'t-test'):(statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U')}</strong> p=${formatP(res.p)}</div>`;
+        const statName=res.t!==undefined?'t':res.U!==undefined?'U':res.W!==undefined?'W':'stat';
+        const rows=[
+          ['Comparison', `${labels[0]} vs ${labels[1]}`],
+          ['Test', param?(statsPaired?'Paired t-test':'t-test'):(statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U')],
+          [statName, res[statName].toFixed(4)]
+        ];
+        if(res.df!==undefined) rows.push(['df', res.df.toFixed(4)]);
+        rows.push(['P value', formatP(res.p)]);
+        statsDiv.innerHTML='<table>'+rows.map(r=>`<tr><th>${r[0]}</th><td>${r[1]}</td></tr>`).join('')+'</table>';
         const from=Math.min(indices[0],indices[1]);
         const to=Math.max(indices[0],indices[1]);
         let rangeMax=-Infinity;
@@ -2491,16 +2506,16 @@ KAT7`;
         const y=helpers.y2px(rangeMax)-ANN_BASE_OFFSET;
         console.debug('pair annotation position',{rangeMax,y});
         annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),y,res.p);
-        console.debug('computeStats pair result',{res,param,rangeMax,y});
+        console.debug('computeStats pair result',{res,param,rangeMax,y,statName});
         return;
       }
 
-      let overall;
+      let overall=null;
       if(!statsPaired){
         overall=overallTest(groups);
-        statsDiv.innerHTML=`<div><strong>${param?'ANOVA':'Kruskal-Wallis'}</strong> p=${formatP(overall.p)}</div>`;
+        console.debug('overall test computed', {overall});
       } else {
-        statsDiv.innerHTML='<div>Overall test not available for paired data.</div>';
+        console.debug('overall test skipped for paired data');
       }
       const maxVal=Math.max(...indices.map(i=>Math.max(...traces[i].y)));
       const xs=indices.map(i=>helpers.xCenter(i));
@@ -2510,17 +2525,18 @@ KAT7`;
           for(let j=i+1;j<indices.length;j++){
             const aIdx=indices[i],bIdx=indices[j];
             const r=pairTest(traces[aIdx].rawY,traces[bIdx].rawY);
+            const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
+            const statVal=r[statName];
             let rangeMax=-Infinity;
             for(let k=Math.min(aIdx,bIdx);k<=Math.max(aIdx,bIdx);k++){
               rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
             }
-            pairs.push({a:i,b:j,ai:aIdx,bi:bIdx,p:r.p,rangeMax});
-            console.debug('computeStats pair',{i:aIdx,j:bIdx,p:r.p,rangeMax});
+            pairs.push({a:i,b:j,ai:aIdx,bi:bIdx,p:r.p,rangeMax,stat:statVal,statName,df:r.df});
+            console.debug('computeStats pair',{i:aIdx,j:bIdx,p:r.p,rangeMax,statName,statVal,df:r.df});
           }
         }
         const m=pairs.length;
         pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
-        statsDiv.innerHTML+=pairs.map(pr=>`<div>${labels[pr.a]} vs ${labels[pr.b]} p=${formatP(pr.adjP)}</div>`).join('');
       }else if(statsMode==='reference'){
         const refIdx=indices.indexOf(statsRef);
         if(refIdx===-1){
@@ -2533,18 +2549,33 @@ KAT7`;
         indices.forEach((idx,i)=>{
           if(i===refIdx) return;
           const r=pairTest(refData,traces[idx].rawY);
+          const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
+          const statVal=r[statName];
           let rangeMax=-Infinity;
           for(let k=Math.min(statsRef,idx);k<=Math.max(statsRef,idx);k++){
             rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
           }
-          pairs.push({a:refIdx,b:i,ai:statsRef,bi:idx,p:r.p,rangeMax,label:labels[i]});
-          console.debug('computeStats ref pair',{ref:statsRef,other:idx,p:r.p,rangeMax});
+          pairs.push({a:refIdx,b:i,ai:statsRef,bi:idx,p:r.p,rangeMax,label:labels[i],stat:statVal,statName,df:r.df});
+          console.debug('computeStats ref pair',{ref:statsRef,other:idx,p:r.p,rangeMax,statName,statVal,df:r.df});
         });
         const m=pairs.length;
         pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
-        statsDiv.innerHTML+=pairs.map(pr=>`<div>${refLabel} vs ${pr.label} p=${formatP(pr.adjP)}</div>`).join('');
       }
       if(pairs.length){
+        let html='';
+        if(!statsPaired){
+          const overallStatName=param?'F':'H';
+          html+=`<table><tr><th>Overall test</th><td>${param?'ANOVA':'Kruskal-Wallis'}</td></tr><tr><th>${overallStatName}</th><td>${overall[overallStatName].toFixed(4)}</td></tr>`;
+          if(param) html+=`<tr><th>df</th><td>${groups.length-1},${groups.reduce((s,g)=>s+g.length,0)-groups.length}</td></tr>`;
+          else html+=`<tr><th>df</th><td>${groups.length-1}</td></tr>`;
+          html+=`<tr><th>P value</th><td>${formatP(overall.p)}</td></tr></table>`;
+        }
+        html+='<table><tr><th>Comparison</th><th>Statistic</th><th>df</th><th>P (adj)</th></tr>';
+        pairs.forEach(pr=>{html+=`<tr><td>${labels[pr.a]} vs ${labels[pr.b]}</td><td>${pr.statName}=${pr.stat.toFixed(4)}</td><td>${pr.df??''}</td><td>${formatP(pr.adjP)}</td></tr>`;});
+        html+='</table>';
+        statsDiv.innerHTML=html;
+        console.debug('computeStats pairwise table rendered',{pairsCount:pairs.length});
+
         pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
         const placed=[];
         pairs.forEach(pr=>{
@@ -2559,8 +2590,11 @@ KAT7`;
         });
       }
       const maxLevel=pairs.length?Math.max(...pairs.map(pr=>pr.level))+1:0;
-      if(!statsPaired){
+      if(!statsPaired && pairs.length===0){
         annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p,maxLevel);
+        console.debug('overall annotation rendered',{p:overall.p});
+      } else {
+        console.debug('overall annotation skipped',{statsPaired,pairsLength:pairs.length});
       }
       console.debug('computeStats completed',{maxLevel});
     }
@@ -2699,7 +2733,10 @@ KAT7`;
           const allY = traces.flatMap(t => t.y);
             let ymin = Math.min(...allY);
             let ymax = Math.max(...allY);
-            if (graphType === 'bar') ymin = Math.min(0, ymin);
+            if (graphType === 'bar') {
+              ymin = logScale ? Math.log10(1) : 0;
+              console.debug('barplot y-axis min enforced',{ymin,logScale});
+            }
             if (ymin === ymax) { ymin -= 1; ymax += 1; }
           const range = ymax - ymin;
           const padTop = range * 0.15;
@@ -2882,17 +2919,21 @@ KAT7`;
                 }
 
                 // Points
-                vals.forEach(v => {
-                    const y = y2px(v);
-                    let px;
-                    if (pointMode === 'overlay') {
-                        px = cx + (Math.random() - 0.5) * boxW * 0.6;
-                    } else {
-                        px = x1 + boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
-                    }
-                    add('circle', { cx: px, cy: y, r: 3, fill: border, 'fill-opacity': 0.6 });
-                });
-                console.debug('points rendered', { label: t.name, count: vals.length, mode: pointMode });
+                if(pointMode!=='none'){
+                  vals.forEach(v => {
+                      const y = y2px(v);
+                      let px;
+                      if (pointMode === 'overlay') {
+                          px = cx + (Math.random() - 0.5) * boxW * 0.6;
+                      } else {
+                          px = x1 + boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
+                      }
+                      add('circle', { cx: px, cy: y, r: 3, fill: border, 'fill-opacity': 0.6 });
+                  });
+                  console.debug('points rendered', { label: t.name, count: vals.length, mode: pointMode });
+                } else {
+                  console.debug('points skipped', { label: t.name });
+                }
           });
             const titleText = add('text', {
               x: margin.left + plotW / 2,
