@@ -2614,8 +2614,14 @@ KAT7`;
                 const ticks = [];
                 for (let v = graphMin; v <= graphMax + 1e-9; v += step) ticks.push(v);
                 return { min: graphMin, max: graphMax, ticks, step };
-          }
+          } 
           const yScale = niceScale(ymin, ymax, 6);
+
+          function formatTick(v){
+                const formatted=v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});
+                console.debug('formatTick',{v,formatted});
+                return formatted;
+          }
 
           // Estimate Y tick label width to adjust left margin
           function measureTextWidth(text, font){
@@ -2627,10 +2633,11 @@ KAT7`;
                 return width;
           }
           const tickFont = `${fs}px sans-serif`;
-          const tickWidths = yScale.ticks.map(t => measureTextWidth(String(logScale?Math.pow(10,t):t), tickFont));
+          const tickLabels = yScale.ticks.map(t=>formatTick(logScale?Math.pow(10,t):t));
+          const tickWidths = tickLabels.map(lbl => measureTextWidth(lbl, tickFont));
           const maxTickWidth = Math.max(...tickWidths, 0);
           const yLabelGap = maxTickWidth + fs;
-          console.debug('tick widths estimated',{tickFont,tickWidths,maxTickWidth,yLabelGap});
+          console.debug('tick widths estimated',{tickFont,tickLabels,tickWidths,maxTickWidth,yLabelGap});
 
           // Margins and plotting area
           const baseTop=Math.max(32,Math.round(fs*2.2));
@@ -2687,7 +2694,8 @@ KAT7`;
                 const y = y2px(t);
                 add('line', { x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1 });
                 const txt = add('text', { x: margin.left - 8, y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: '#000' });
-                txt.textContent = String(logScale?Math.pow(10,t):t);
+                txt.textContent = formatTick(logScale?Math.pow(10,t):t);
+                console.debug('y-axis tick label',{tick:t,label:txt.textContent});
           });
           console.debug('y-axis ticks drawn',{ticks:yScale.ticks,logScale});
           // X axis baseline
