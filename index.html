@@ -48,8 +48,10 @@
   #analysisResults canvas{font-size:initial}
   /* Box plot layout adjustments */
   #boxPage .wrap{display:flex;align-items:stretch;gap:0}
-  #boxPage #boxTablePanel{flex:3;min-width:150px}
-  #boxPage #boxGraphPanel{flex:2;min-width:150px;display:flex;flex-direction:column}
+  #boxPage #boxTablePanel{flex:1 1 33%;min-width:150px}
+  #boxPage #boxGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+  #boxPage .diagram-area .svgbox{flex:1}
+  #boxPage .diagram-area .config-options{flex:1}
   #boxPage .panel{display:flex;flex-direction:column;min-width:0}
   #boxPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
   #boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
@@ -366,7 +368,7 @@
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
+<script src="libs/xlsx.full.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -383,7 +385,21 @@
     const tablePanel=document.getElementById('boxTablePanel');
     const graphPanel=document.getElementById('boxGraphPanel');
     const panelResizer=document.getElementById('boxPanelResizer');
-    console.debug('hot elements initialized', {hotContainer, hotWrapper, tablePanel, graphPanel, panelResizer});
+    const boxSvgBox=graphPanel.querySelector('.svgbox');
+    const configPanel=graphPanel.querySelector('.config-options');
+    console.debug('hot elements initialized', {hotContainer, hotWrapper, tablePanel, graphPanel, panelResizer, boxSvgBox, configPanel});
+
+    function syncBoxWidths(){
+      const tableWidth=tablePanel.getBoundingClientRect().width;
+      boxSvgBox.style.width=tableWidth+'px';
+      console.debug('syncBoxWidths', {tableWidth});
+    }
+    const tableObserver=new ResizeObserver(entries=>{
+      console.debug('tablePanel resized', entries[0].contentRect.width);
+      syncBoxWidths();
+    });
+    tableObserver.observe(tablePanel);
+    syncBoxWidths();
     const DEFAULT_ROWS=100, DEFAULT_COLS=10;
     console.debug('table defaults', {rows:DEFAULT_ROWS, cols:DEFAULT_COLS});
     let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
@@ -505,7 +521,8 @@
               console.debug('XLSX library not found, attempting dynamic load');
               await new Promise((resolve,reject)=>{
                 const s=document.createElement('script');
-                s.src='https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js';
+                s.src='libs/xlsx.full.min.js';
+                console.debug('Loading local XLSX library from libs/xlsx.full.min.js');
                 s.onload=()=>{console.debug('XLSX dynamically loaded');resolve();};
                 s.onerror=err=>reject(new Error('Failed to load XLSX script'));
                 document.head.appendChild(s);
@@ -700,13 +717,11 @@
         console.debug('panelResizer pointerdown',{startX,startTable,startGraph});
         function onMove(ev){
           const dx=ev.clientX-startX;
-          let newTable=Math.max(150,startTable+dx);
-          let newGraph=Math.max(150,total-newTable);
-          if(newTable+newGraph!==total){
-            newTable=total-newGraph;
-          }
+          let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+          let newGraph=total-newTable;
           tablePanel.style.flex=`0 0 ${newTable}px`;
-          graphPanel.style.flex=`1 1 ${newGraph}px`;
+          graphPanel.style.flex=`0 0 ${newGraph}px`;
+          syncBoxWidths();
           console.debug('panelResizer move',{dx,newTable,newGraph});
         }
         function onUp(){
