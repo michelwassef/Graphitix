@@ -48,7 +48,7 @@
   #analysisResults canvas{font-size:initial}
   /* Box plot layout adjustments */
   #boxPage .wrap{grid-template-columns:360px 1fr;align-items:flex-start}
-  #boxPage .panel{display:flex;flex-direction:column}
+  #boxPage .panel{display:flex;flex-direction:column;min-width:0}
   #boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
   /* boxplot: use custom resizers rather than native resize handles */
   #boxPage .svgbox{
@@ -287,7 +287,7 @@
   <header><h2 style="margin:0">Box Plot</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a GraphPad-style box plot.</div></header>
     <div class="wrap">
       <div class="panel">
-        <div id="hot" style="width:100%;height:300px"></div>
+        <div id="hotWrapper" style="width:100%;height:300px;overflow:auto"><div id="hot" style="width:100%;height:100%"></div></div>
         <div class="row" style="margin-top:8px;justify-content:space-between">
           <div class="row" style="gap:8px">
             <button class="btn" id="boxLoadExample">Load Example</button>
@@ -375,7 +375,11 @@
     const drawBoxplotBtn=$('#drawBoxplot');
     console.debug('Draw boxplot button initialized', drawBoxplotBtn);
     const hotContainer=document.getElementById('hot');
-    let colHeaders=['A','B','C'];
+    const hotWrapper=document.getElementById('hotWrapper');
+    console.debug('hot elements initialized', {hotContainer, hotWrapper});
+    const DEFAULT_ROWS=100, DEFAULT_COLS=10;
+    console.debug('table defaults', {rows:DEFAULT_ROWS, cols:DEFAULT_COLS});
+    let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
 
     const NS='http://www.w3.org/2000/svg';
     let selectedCols=new Set();
@@ -395,11 +399,16 @@
 	
 	
 	
+    hotWrapper.style.overflow='auto';
+    console.debug('hotWrapper overflow set');
+
     const hot=new Handsontable(hotContainer,{
-      data:Handsontable.helper.createEmptySpreadsheetData(5,3),
+      data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,DEFAULT_COLS),
       rowHeaders:true,
       // Keep simple A,B,C headers in the TH; we now use ROW 0 for user headers
       colHeaders:true,
+      minRows:DEFAULT_ROWS,
+      minCols:DEFAULT_COLS,
       contextMenu:true,
       manualColumnMove:true,
       licenseKey:'non-commercial-and-evaluation',
@@ -445,7 +454,7 @@
         if(orderChanged) drawBoxplot();
       }
     });
-    console.debug('Handsontable initialized with first-row headers');
+    console.debug('Handsontable initialized with first-row headers and defaults',{rows:DEFAULT_ROWS,cols:DEFAULT_COLS});
 
     const loadExampleBtn=$('#boxLoadExample'), importBtn=$('#boxImport'), fileInput=$('#boxFile');
     const exampleData=[
@@ -482,16 +491,25 @@
           processImportedRows(rows);
         };
         reader.readAsText(file);
-      }else{
+      }else if(['xls','xlsx','ods'].includes(ext)){
         reader.onload=ev=>{
-          const data=new Uint8Array(ev.target.result);
-          const workbook=XLSX.read(data,{type:'array'});
-          const sheet=workbook.Sheets[workbook.SheetNames[0]];
-          let rows=XLSX.utils.sheet_to_json(sheet,{header:1});
-          console.debug('workbook parsed',{rows});
-          processImportedRows(rows);
+          try{
+            const data=new Uint8Array(ev.target.result);
+            const workbook=XLSX.read(data,{type:'array'});
+            console.debug('spreadsheet workbook', {sheets:workbook.SheetNames});
+            const sheet=workbook.Sheets[workbook.SheetNames[0]];
+            let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+            console.debug('spreadsheet parsed',{rows});
+            processImportedRows(rows);
+          }catch(err){
+            console.error('spreadsheet import failed', err);
+            alert('Failed to import spreadsheet: '+err.message);
+          }
         };
         reader.readAsArrayBuffer(file);
+      }else{
+        alert('Unsupported file format: '+ext);
+        console.debug('import unsupported extension', ext);
       }
     });
     function processImportedRows(rows){
@@ -500,15 +518,18 @@
       rows=rows.filter(r=>r && r.some(c=>c!==null && c!==undefined && String(c).trim()!==''));
       if(!rows.length){ console.debug('processImportedRows no usable rows'); return; }
       const colCount=Math.max(...rows.map(r=>r.length));
-      rows=rows.map(r=>{const row=Array.from(r); while(row.length<colCount) row.push(''); return row;});
-      let headerRow=new Array(colCount).fill('');
+      const targetCols=Math.max(DEFAULT_COLS,colCount);
+      rows=rows.map(r=>{const row=Array.from(r); while(row.length<targetCols) row.push(''); return row;});
+      let headerRow=new Array(targetCols).fill('');
       const firstRow=rows[0]||[];
       const hasHeader=firstRow.every(c=>typeof c==='string' && c.trim() && isNaN(Number(c)));
       if(hasHeader){ headerRow=firstRow.map(v=>String(v)); rows=rows.slice(1); }
       const dataRows=[headerRow,...rows];
+      const targetRows=Math.max(DEFAULT_ROWS,dataRows.length);
+      while(dataRows.length<targetRows){ dataRows.push(new Array(targetCols).fill('')); }
       selectedCols.clear();
-      hot.loadData(dataRows);
-      console.debug('hot.loadData from import',{cols:colCount,rows:dataRows.length,hasHeader});
+      hot.updateSettings({data:dataRows,minRows:targetRows,minCols:targetCols});
+      console.debug('hot.updateSettings from import',{cols:targetCols,rows:targetRows,hasHeader});
       drawBoxplot();
     }
 
