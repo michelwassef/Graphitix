@@ -348,6 +348,26 @@
               </div>
             </fieldset>
             <fieldset>
+              <legend>Graph</legend>
+              <div class="control">
+                <label>Type</label>
+                <select id="boxGraphType">
+                  <option value="box">Box plot</option>
+                  <option value="bar">Bar plot</option>
+                </select>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Points</legend>
+              <div class="control">
+                <label>Display</label>
+                <select id="boxPointMode">
+                  <option value="overlay">Overlay</option>
+                  <option value="side">Side</option>
+                </select>
+              </div>
+            </fieldset>
+            <fieldset>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label><input type="range" id="boxFontSize" min="10" max="36" step="1" value="16"><output id="boxFontSizeVal">16</output>
@@ -570,11 +590,13 @@
       drawBoxplot();
     }
 
-      const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale');
-    console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value,showGrid:boxShowGrid.checked,logScale:boxLogScale.checked});
-    boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; console.debug('boxFontSize changed', boxFontSize.value); });
-    boxShowGrid.addEventListener('change',()=>{ console.debug('boxShowGrid toggled', boxShowGrid.checked); drawBoxplot(); });
-    boxLogScale.addEventListener('change',()=>{ console.debug('boxLogScale toggled', boxLogScale.checked); drawBoxplot(); });
+        const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode');
+      console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value,showGrid:boxShowGrid.checked,logScale:boxLogScale.checked,graphType:boxGraphType.value,pointMode:boxPointMode.value});
+      boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; console.debug('boxFontSize changed', boxFontSize.value); });
+      boxShowGrid.addEventListener('change',()=>{ console.debug('boxShowGrid toggled', boxShowGrid.checked); drawBoxplot(); });
+      boxLogScale.addEventListener('change',()=>{ console.debug('boxLogScale toggled', boxLogScale.checked); drawBoxplot(); });
+      boxGraphType.addEventListener('change',()=>{ console.debug('boxGraphType changed', boxGraphType.value); drawBoxplot(); });
+      boxPointMode.addEventListener('change',()=>{ console.debug('boxPointMode changed', boxPointMode.value); drawBoxplot(); });
 	
 
 	// --- improved resizers for separate X / Y resizing ---
@@ -2598,13 +2620,15 @@ KAT7`;
           console.debug('drawBoxplot (SVG) called');
 
 	  // Appearance controls
-          const fill = $('#boxFill').value;
-          const border = $('#boxBorder').value;
-          const bw = Number($('#boxBorderWidth').value);
-          const fs = Number($('#boxFontSize').value);
-          const showGrid = $('#boxShowGrid').checked;
-          const logScale = $('#boxLogScale').checked;
-          console.debug('box plot style', { fill, border, bw, fs, showGrid, logScale });
+            const fill = $('#boxFill').value;
+            const border = $('#boxBorder').value;
+            const bw = Number($('#boxBorderWidth').value);
+            const fs = Number($('#boxFontSize').value);
+            const showGrid = $('#boxShowGrid').checked;
+            const logScale = $('#boxLogScale').checked;
+            const graphType = $('#boxGraphType').value;
+            const pointMode = $('#boxPointMode').value;
+            console.debug('box plot style', { fill, border, bw, fs, showGrid, logScale, graphType, pointMode });
 
 	  // Build traces from first-row headers; numeric data are rows 1..N
           const traces = [];
@@ -2673,9 +2697,10 @@ KAT7`;
 
           // Determine Y scale before setting margins
           const allY = traces.flatMap(t => t.y);
-          let ymin = Math.min(...allY);
-          let ymax = Math.max(...allY);
-          if (ymin === ymax) { ymin -= 1; ymax += 1; }
+            let ymin = Math.min(...allY);
+            let ymax = Math.max(...allY);
+            if (graphType === 'bar') ymin = Math.min(0, ymin);
+            if (ymin === ymax) { ymin -= 1; ymax += 1; }
           const range = ymax - ymin;
           const padTop = range * 0.15;
           const padBottom = range * 0.05;
@@ -2811,40 +2836,63 @@ KAT7`;
             makeEditable(yText,txt=>{boxYLabelText=txt;console.debug('boxYLabelText updated',boxYLabelText);});
             console.debug('y-axis label placed',{x:yX,gap:yLabelGap});
 
-            // Boxes
+            // Boxes/Bars and points
             traces.forEach((t, i) => {
-		const vals = [...t.y].sort((a, b) => a - b);
-		if (!vals.length) return;
+                const vals = [...t.y].sort((a, b) => a - b);
+                if (!vals.length) return;
 
-		const min = vals[0];
-		const q1 = percentile(vals, 0.25);
-		const med = percentile(vals, 0.5);
-		const q3 = percentile(vals, 0.75);
-		const max = vals[vals.length - 1];
+                const cx = xCenter(i);
+                const x0 = cx - boxW / 2;
+                const x1 = cx + boxW / 2;
 
-		const cx = xCenter(i);
-		const x0 = cx - boxW / 2;
-		const x1 = cx + boxW / 2;
+                if (graphType === 'box') {
+                    const min = vals[0];
+                    const q1 = percentile(vals, 0.25);
+                    const med = percentile(vals, 0.5);
+                    const q3 = percentile(vals, 0.75);
+                    const max = vals[vals.length - 1];
 
-		const yQ1 = y2px(q1);
-		const yMed = y2px(med);
-		const yQ3 = y2px(q3);
-		const yMin = y2px(min);
-		const yMax = y2px(max);
+                    const yQ1 = y2px(q1);
+                    const yMed = y2px(med);
+                    const yQ3 = y2px(q3);
+                    const yMin = y2px(min);
+                    const yMax = y2px(max);
 
-		// Box
-		add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fill, stroke: border, 'stroke-width': bw });
-		// Median line
-		add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: border, 'stroke-width': bw });
-		// Whiskers
-		add('line', { x1: cx, y1: yQ3, x2: cx, y2: yMax, stroke: border, 'stroke-width': bw });
-		add('line', { x1: cx, y1: yQ1, x2: cx, y2: yMin, stroke: border, 'stroke-width': bw });
-		// Caps
-		const cap = Math.max(6, boxW * 0.4);
-		add('line', { x1: cx - cap / 2, y1: yMax, x2: cx + cap / 2, y2: yMax, stroke: border, 'stroke-width': bw });
-		add('line', { x1: cx - cap / 2, y1: yMin, x2: cx + cap / 2, y2: yMin, stroke: border, 'stroke-width': bw });
+                    // Box
+                    add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fill, stroke: border, 'stroke-width': bw });
+                    // Median line
+                    add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: border, 'stroke-width': bw });
+                    // Whiskers
+                    add('line', { x1: cx, y1: yQ3, x2: cx, y2: yMax, stroke: border, 'stroke-width': bw });
+                    add('line', { x1: cx, y1: yQ1, x2: cx, y2: yMin, stroke: border, 'stroke-width': bw });
+                    // Caps
+                    const cap = Math.max(6, boxW * 0.4);
+                    add('line', { x1: cx - cap / 2, y1: yMax, x2: cx + cap / 2, y2: yMax, stroke: border, 'stroke-width': bw });
+                    add('line', { x1: cx - cap / 2, y1: yMin, x2: cx + cap / 2, y2: yMin, stroke: border, 'stroke-width': bw });
 
-                console.debug('box drawn', { label: t.name, min, q1, med, q3, max, cx, boxW });
+                    console.debug('box drawn', { label: t.name, min, q1, med, q3, max, cx, boxW });
+                } else {
+                    const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+                    const yMean = y2px(mean);
+                    const yZero = y2px(0);
+                    const rectY = Math.min(yMean, yZero);
+                    const rectH = Math.abs(yZero - yMean);
+                    add('rect', { x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fill, stroke: border, 'stroke-width': bw });
+                    console.debug('bar drawn', { label: t.name, mean, cx, boxW });
+                }
+
+                // Points
+                vals.forEach(v => {
+                    const y = y2px(v);
+                    let px;
+                    if (pointMode === 'overlay') {
+                        px = cx + (Math.random() - 0.5) * boxW * 0.6;
+                    } else {
+                        px = x1 + boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
+                    }
+                    add('circle', { cx: px, cy: y, r: 3, fill: border, 'fill-opacity': 0.6 });
+                });
+                console.debug('points rendered', { label: t.name, count: vals.length, mode: pointMode });
           });
             const titleText = add('text', {
               x: margin.left + plotW / 2,
