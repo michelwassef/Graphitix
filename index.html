@@ -2222,12 +2222,16 @@ KAT7`;
     }
 
     function makeEditable(el,onChange){
-      el.setAttribute('contentEditable','true');
-      el.style.cursor='text';
-      el.style.userSelect='text';
-      el.addEventListener('input',()=>{
-        console.debug('editable text changed',{text:el.textContent});
-        onChange(el.textContent);
+      el.style.cursor='pointer';
+      el.addEventListener('dblclick',()=>{
+        console.debug('makeEditable dblclick',{text:el.textContent});
+        const txt=prompt('Edit text',el.textContent);
+        console.debug('makeEditable prompt result',txt);
+        if(txt!==null){
+          el.textContent=txt;
+          onChange(txt);
+          console.debug('editable text updated',{text:txt});
+        }
       });
       console.debug('makeEditable applied');
     }
