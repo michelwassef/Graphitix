@@ -2232,6 +2232,19 @@ KAT7`;
       console.debug('makeEditable applied');
     }
 
+    function serializeCleanSVG(svgEl){
+      console.debug('serializeCleanSVG start', svgEl);
+      const clone = svgEl.cloneNode(true);
+      clone.querySelectorAll('[contenteditable],[contentEditable]').forEach(el=>{
+        el.removeAttribute('contenteditable');
+        el.removeAttribute('contentEditable');
+        console.debug('contenteditable stripped from', el);
+      });
+      const xml = new XMLSerializer().serializeToString(clone);
+      console.debug('serializeCleanSVG complete', {length:xml.length});
+      return xml;
+    }
+
         function drawBoxplot(){
           console.debug('drawBoxplot (SVG) called');
 
@@ -2487,7 +2500,7 @@ KAT7`;
     const svgEl = document.getElementById('boxSvg');
     if (!svgEl) { console.debug('boxPNG aborted: no svg'); return; }
     console.debug('boxPNG font family', svgEl.getAttribute('font-family'));
-    const xml = new XMLSerializer().serializeToString(svgEl);
+    const xml = serializeCleanSVG(svgEl);
     const img = new Image();
     const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
     img.src = url;
@@ -2511,7 +2524,7 @@ KAT7`;
     console.debug('boxSVG clicked');
     const svgEl = document.getElementById('boxSvg');
     if (!svgEl) { console.debug('boxSVG aborted: no svg'); return; }
-    const xml = new XMLSerializer().serializeToString(svgEl);
+    const xml = serializeCleanSVG(svgEl);
     const blob = new Blob([xml], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
