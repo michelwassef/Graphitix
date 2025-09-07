@@ -435,7 +435,9 @@
     let statsPaired=false;
     let statsPairsText='';
     let statsCustomPairs=[];
+    let boxColOrder=[];
     console.debug('stats defaults',{statsTest,statsMode,statsRef,statsPaired,statsPairsText});
+    console.debug('boxColOrder initialized', boxColOrder);
 
     const ANN_BASE_OFFSET=25;
     const ANN_LEVEL_GAP=25;
@@ -2669,7 +2671,12 @@ KAT7`;
           const labelsUsed = [];
           const nCols = hot.countCols();
 
-          for (let i = 0; i < nCols; i++) {
+          if(boxColOrder.length !== nCols){
+                boxColOrder = Array.from({length:nCols}, (_, i) => i);
+                console.debug('boxColOrder reset', boxColOrder);
+          }
+
+          boxColOrder.forEach(i => {
                 const headerCell = hot.getDataAtCell(0, i);
                 const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
 
@@ -2684,7 +2691,7 @@ KAT7`;
                   labelsUsed.push(label);
                   traces.push({ name: label, rawY: col });
                 }
-          }
+          });
 
           if (!traces.length) {
                 document.getElementById('boxPlot').innerHTML='';
@@ -2859,7 +2866,40 @@ KAT7`;
                 add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + 6, stroke: '#000', 'stroke-width': 1 });
                 const t = add('text', { x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', fill: '#000' });
                 t.textContent = lab || `Col ${i + 1}`;
+                t.style.cursor='ew-resize';
+                enableLabelDrag(t,i);
             });
+
+            function enableLabelDrag(t, idx){
+                t.addEventListener('mousedown', e => {
+                    console.debug('label drag start',{label:labelsUsed[idx],index:idx,clientX:e.clientX});
+                    e.preventDefault();
+                    const svgRect=svg.getBoundingClientRect();
+                    const onMove=ev=>{
+                        const svgX=ev.clientX - svgRect.left;
+                        t.setAttribute('x', svgX);
+                        console.debug('label drag move',{index:idx,svgX});
+                    };
+                    const onUp=ev=>{
+                        document.removeEventListener('mousemove',onMove);
+                        document.removeEventListener('mouseup',onUp);
+                        const svgX=ev.clientX - svgRect.left;
+                        let targetIdx=Math.floor((svgX - margin.left)/bandW);
+                        targetIdx=Math.max(0,Math.min(labelsUsed.length-1,targetIdx));
+                        console.debug('label drag end',{from:idx,to:targetIdx,svgX});
+                        if(targetIdx!==idx){
+                            const moved=boxColOrder.splice(idx,1)[0];
+                            boxColOrder.splice(targetIdx,0,moved);
+                            console.debug('boxColOrder after drag',boxColOrder);
+                        }else{
+                            console.debug('label drag no change',{index:idx});
+                        }
+                        drawBoxplot();
+                    };
+                    document.addEventListener('mousemove',onMove);
+                    document.addEventListener('mouseup',onUp);
+                });
+            }
 
             const yX = margin.left - yLabelGap;
             const yText = add('text', {
