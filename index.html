@@ -442,13 +442,14 @@
               <legend>Colors</legend>
               <div class="color-pickers">
                 <label>Fill <input type="color" id="scatterFill" value="#4472c4"></label>
-                <label>Border <input type="color" id="scatterBorder" value="#000000"></label>
+                <label><input type="checkbox" id="scatterShowBorder"> Border</label>
+                <input type="color" id="scatterBorder" value="#000000" disabled>
               </div>
             </fieldset>
             <fieldset>
               <legend>Border</legend>
               <div class="control">
-                <label>Width</label><input type="number" id="scatterBorderWidth" value="2" min="0" max="10" style="width:60px">
+                <label>Width</label><input type="number" id="scatterBorderWidth" value="2" min="0" max="10" style="width:60px" disabled>
               </div>
             </fieldset>
             <fieldset>
@@ -467,16 +468,6 @@
               </div>
             </fieldset>
             <fieldset>
-              <legend>Statistics</legend>
-              <div class="control">
-                <label>Method</label>
-                <select id="scatterStatType">
-                  <option value="pearson">Parametric (Pearson)</option>
-                  <option value="spearman">Non-parametric (Spearman)</option>
-                </select>
-              </div>
-            </fieldset>
-            <fieldset>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label><input type="range" id="scatterFontSize" min="10" max="36" step="1" value="16"><output id="scatterFontSizeVal">16</output>
@@ -485,6 +476,16 @@
           </div>
         </div>
         <div id="scatterStats" style="width:100%;margin-top:12px">
+          <fieldset>
+            <legend>Statistics</legend>
+            <div class="control">
+              <label>Method</label>
+              <select id="scatterStatType">
+                <option value="pearson">Parametric (Pearson)</option>
+                <option value="spearman">Non-parametric (Spearman)</option>
+              </select>
+            </div>
+          </fieldset>
           <div id="scatterStatsResults" style="margin-top:8px"></div>
         </div>
       </div>
@@ -872,9 +873,15 @@
   }
 
   const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth');
+  const scatterShowBorder=$('#scatterShowBorder');
   const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
   const scatterShowGrid=$('#scatterShowGrid'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
   const scatterStatType=$('#scatterStatType');
+  scatterShowBorder.addEventListener('change',()=>{
+    console.log('scatterShowBorder changed', scatterShowBorder.checked);
+    scatterBorder.disabled=scatterBorderWidth.disabled=!scatterShowBorder.checked;
+    drawScatter();
+  });
   scatterFontSize.addEventListener('input',()=>{scatterFontSizeVal.textContent=scatterFontSize.value; drawScatter();});
   [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType].forEach(el=>el.addEventListener('change',()=>{drawScatter();}));
 
@@ -882,29 +889,73 @@
   const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
   (function initScatterResizers(){
     if(!scatterContainer) return;
-    const MIN_W=50, MIN_H=40;
+    console.log('init scatter resizers');
+    const MIN_W=50;
+    const MIN_H=40;
     function px(n){return Math.round(n)+'px';}
-    function getNumPx(v){return v?parseFloat(String(v).replace('px','')):0;}
     const vHandle=scatterContainer.querySelector('.resizer-vertical');
     const hHandle=scatterContainer.querySelector('.resizer-horizontal');
     const cHandle=scatterContainer.querySelector('.resizer-corner');
-    function startResize(e,vert,horiz){
-      e.preventDefault();
-      const startW=getNumPx(scatterContainer.style.width)||scatterContainer.clientWidth;
-      const startH=getNumPx(scatterContainer.style.height)||scatterContainer.clientHeight;
-      const startX=e.clientX,startY=e.clientY;
-      function onMove(ev){
-        if(vert){scatterContainer.style.width=px(Math.max(MIN_W,startW+ev.clientX-startX)); syncScatterWidths();}
-        if(horiz){scatterContainer.style.height=px(Math.max(MIN_H,startH+ev.clientY-startY));}
+    function attachDrag(handle,axis){
+      if(!handle) return;
+      let startX=0,startY=0,startW=0,startH=0,pointerId=null;
+      const onPointerDown=e=>{
+        e.preventDefault();
+        console.log('scatter resize start',axis);
+        pointerId=e.pointerId;
+        try{handle.setPointerCapture(pointerId);}catch(_){ }
+        const rect=scatterContainer.getBoundingClientRect();
+        startW=Math.round(rect.width);
+        startH=Math.round(rect.height);
+        startX=e.clientX;
+        startY=e.clientY;
+        scatterContainer.style.boxSizing='border-box';
+        scatterContainer.style.width=px(startW);
+        scatterContainer.style.height=px(startH);
+        scatterContainer.style.flex='0 0 auto';
+        scatterContainer.style.maxWidth='none';
+        scatterContainer.style.maxHeight='none';
+        document.documentElement.style.userSelect='none';
+        document.documentElement.style.touchAction='none';
+        const onPointerMove=ev=>{
+          ev.preventDefault();
+          const dx=ev.clientX-startX;
+          const dy=ev.clientY-startY;
+          if(axis==='x'||axis==='both'){
+            const newW=Math.max(MIN_W,Math.round(startW+dx));
+            scatterContainer.style.width=px(newW);
+          }
+          if(axis==='y'||axis==='both'){
+            const newH=Math.max(MIN_H,Math.round(startH+dy));
+            scatterContainer.style.height=px(newH);
+          }
+          drawScatter();
+        };
+        const onPointerUp=ev=>{
+          try{handle.releasePointerCapture(pointerId);}catch(_){ }
+          document.removeEventListener('pointermove',onPointerMove);
+          document.removeEventListener('pointerup',onPointerUp);
+          document.documentElement.style.userSelect='';
+          document.documentElement.style.touchAction='';
+          drawScatter();
+        };
+        document.addEventListener('pointermove',onPointerMove);
+        document.addEventListener('pointerup',onPointerUp);
+      };
+      handle.addEventListener('pointerdown',onPointerDown);
+      handle.addEventListener('dblclick',ev=>{
+        ev.preventDefault();
+        scatterContainer.style.width='640px';
+        scatterContainer.style.height='420px';
+        scatterContainer.style.flex='0 0 auto';
         drawScatter();
-      }
-      function onUp(){document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onUp);}
-      document.addEventListener('pointermove',onMove);
-      document.addEventListener('pointerup',onUp);
+      });
     }
-    vHandle?.addEventListener('pointerdown',e=>startResize(e,true,false));
-    hHandle?.addEventListener('pointerdown',e=>startResize(e,false,true));
-    cHandle?.addEventListener('pointerdown',e=>startResize(e,true,true));
+    attachDrag(vHandle,'x');
+    attachDrag(hHandle,'y');
+    attachDrag(cHandle,'both');
+    const scatterResizeObserver=new ResizeObserver(()=>{drawScatter();});
+    scatterResizeObserver.observe(scatterContainer);
   })();
 
   (function initScatterPanelResizer(){
@@ -936,8 +987,10 @@
   function drawScatter(){
     console.log('drawScatter called');
     const fill=scatterFill.value;
-    const border=scatterBorder.value;
-    const bw=Number(scatterBorderWidth.value);
+    const showBorder=scatterShowBorder.checked;
+    const border=showBorder?scatterBorder.value:'none';
+    const bw=showBorder?Number(scatterBorderWidth.value):0;
+    console.log('drawScatter border',showBorder,border,bw);
     const fs=Number(scatterFontSize.value);
     const showGrid=scatterShowGrid.checked;
     const logX=scatterLogX.checked;
@@ -2671,9 +2724,10 @@ KAT7`;
     if (ymin === ymax) { ymin -= 1; ymax += 1; }
     const range = ymax - ymin;
     const padTop = range * 0.15;
-    const padBottom = range * 0.05;
+    const padBottom = graphType === 'bar' ? 0 : range * 0.05;
     ymax += padTop;
     ymin -= padBottom;
+    console.log('boxplot range',{ymin,ymax});
     function niceNum(range, round){
       const exp = Math.floor(Math.log10(range));
       const f = range / Math.pow(10, exp);
@@ -2823,11 +2877,19 @@ KAT7`;
         add('line', { x1: cx - cap / 2, y1: yMin, x2: cx + cap / 2, y2: yMin, stroke: border, 'stroke-width': bw });
       } else {
         const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+        const sd = Math.sqrt(vals.reduce((a,b)=>a+Math.pow(b-mean,2),0)/(vals.length-1||1));
+        console.log('bar stats',{mean,sd});
         const yMean = y2px(mean);
         const yZero = y2px(0);
         const rectY = Math.min(yMean, yZero);
         const rectH = Math.abs(yZero - yMean);
         add('rect', { x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fill, stroke: border, 'stroke-width': bw });
+        const ySdTop = y2px(mean + sd);
+        const ySdBottom = y2px(mean - sd);
+        add('line',{x1:cx,y1:ySdTop,x2:cx,y2:ySdBottom,stroke:border,'stroke-width':bw});
+        const cap = Math.max(6, boxW * 0.4);
+        add('line',{x1:cx-cap/2,y1:ySdTop,x2:cx+cap/2,y2:ySdTop,stroke:border,'stroke-width':bw});
+        add('line',{x1:cx-cap/2,y1:ySdBottom,x2:cx+cap/2,y2:ySdBottom,stroke:border,'stroke-width':bw});
       }
       if(pointMode!=='none'){
         vals.forEach(v => {
