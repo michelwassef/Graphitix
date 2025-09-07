@@ -92,6 +92,55 @@
     border-radius: 2px;
   }
   @media (max-width:1000px){#boxPage .wrap{grid-template-columns:1fr}}
+  #scatterPage .wrap{display:flex;align-items:stretch;gap:0}
+  #scatterPage #scatterTablePanel{flex:1 1 33%;min-width:150px}
+  #scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+  #scatterPage .diagram-area .svgbox{flex:1}
+  #scatterPage .diagram-area .config-options{flex:1}
+  #scatterPage .panel{display:flex;flex-direction:column;min-width:0}
+  #scatterPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+  #scatterPage #scatterPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+  #scatterPage .svgbox{
+    position: relative;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 420px;
+    box-sizing: border-box;
+  }
+  #scatterPage .svgbox .resizer {
+    position: absolute;
+    z-index: 40;
+    background: rgba(0,0,0,0);
+    touch-action: none;
+  }
+  #scatterPage .svgbox .resizer-vertical {
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 100%;
+    cursor: ew-resize;
+  }
+  #scatterPage .svgbox .resizer-horizontal {
+    bottom: 0;
+    left: 0;
+    height: 12px;
+    width: 100%;
+    cursor: ns-resize;
+  }
+  #scatterPage .svgbox .resizer-corner {
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+    border-radius: 2px;
+  }
+  @media (max-width:1000px){#scatterPage .wrap{grid-template-columns:1fr}}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
 </head>
@@ -99,6 +148,7 @@
 <div id="tabs" style="padding:8px;border-bottom:1px solid #ddd;display:flex;gap:8px">
   <button id="tabVenn" class="btn">Venn</button>
   <button id="tabBox" class="btn">Box Plot</button>
+  <button id="tabScatter" class="btn">Scatter Plot</button>
 </div>
 <div id="vennPage">
 <header><h2 style="margin:0">Area proportional Venn - BioVenn like</h2><div style="color:#555;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
@@ -352,10 +402,90 @@
             </fieldset>
           </div>
         </div>
-        <div id="statsPanel" style="width:100%;margin-top:12px">
-          <div id="statsControls"></div>
-          <div id="statsResults" style="margin-top:8px"></div>
-          <div id="statsTable" style="margin-top:8px"></div>
+  <div id="statsPanel" style="width:100%;margin-top:12px">
+    <div id="statsControls"></div>
+    <div id="statsResults" style="margin-top:8px"></div>
+    <div id="statsTable" style="margin-top:8px"></div>
+  </div>
+  </div>
+  </div>
+  </div>
+<div id="scatterPage" style="display:none;">
+  <header><h2 style="margin:0">Scatter Plot</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a scatter plot.</div></header>
+    <div class="wrap">
+      <div class="panel" id="scatterTablePanel">
+        <div id="scatterHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="scatterHot" style="width:100%;height:100%"></div></div>
+        <div class="row" style="margin-top:8px;justify-content:space-between">
+          <div class="row" style="gap:8px">
+            <button class="btn" id="scatterLoadExample">Load Example</button>
+            <button class="btn" id="scatterImport">Import File</button>
+            <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none">
+          </div>
+          <button class="btn" id="drawScatter">Draw</button>
+        </div>
+      </div>
+      <div id="scatterPanelResizer" class="panel-resizer" aria-hidden="true"></div>
+      <div class="panel" style="align-items:center" id="scatterGraphPanel">
+        <div class="diagram-area">
+                        <div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:100%; height:420px;">
+                          <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+                          <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+                          <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+                          <div id="scatterPlot" style="width:100%; height:100%"></div>
+                          <div class="row" style="justify-content:flex-end;margin-top:6px">
+                                <button class="btn" id="scatterPNG">Download PNG</button>
+                                <button class="btn" id="scatterSVG">Download SVG</button>
+                          </div>
+                        </div>
+          <div class="config-options">
+            <fieldset>
+              <legend>Colors</legend>
+              <div class="color-pickers">
+                <label>Fill <input type="color" id="scatterFill" value="#4472c4"></label>
+                <label>Border <input type="color" id="scatterBorder" value="#000000"></label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Border</legend>
+              <div class="control">
+                <label>Width</label><input type="number" id="scatterBorderWidth" value="2" min="0" max="10" style="width:60px">
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Grid</legend>
+              <div class="control">
+                <label><input type="checkbox" id="scatterShowGrid" checked> Show grid</label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Axis</legend>
+              <div class="control">
+                <label><input type="checkbox" id="scatterLogX"> Log scale (X)</label>
+              </div>
+              <div class="control">
+                <label><input type="checkbox" id="scatterLogY"> Log scale (Y)</label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Statistics</legend>
+              <div class="control">
+                <label>Method</label>
+                <select id="scatterStatType">
+                  <option value="pearson">Parametric (Pearson)</option>
+                  <option value="spearman">Non-parametric (Spearman)</option>
+                </select>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Font</legend>
+              <div class="control">
+                <label>Size</label><input type="range" id="scatterFontSize" min="10" max="36" step="1" value="16"><output id="scatterFontSizeVal">16</output>
+              </div>
+            </fieldset>
+          </div>
+        </div>
+        <div id="scatterStats" style="width:100%;margin-top:12px">
+          <div id="scatterStatsResults" style="margin-top:8px"></div>
         </div>
       </div>
     </div>
@@ -371,8 +501,10 @@
   const stage = $('#stage');
   const vennPage=$('#vennPage');
   const boxPage=$('#boxPage');
+  const scatterPage=$('#scatterPage');
   const tabVenn=$('#tabVenn');
   const tabBox=$('#tabBox');
+  const tabScatter=$('#tabScatter');
   const drawBoxplotBtn=$('#drawBoxplot');
   const hotContainer=document.getElementById('hot');
   const hotWrapper=document.getElementById('hotWrapper');
@@ -635,6 +767,293 @@
       document.addEventListener('pointerup',onUp);
     });
   })();
+
+  // Scatter plot setup
+  const scatterHotContainer=document.getElementById('scatterHot');
+  const scatterHotWrapper=document.getElementById('scatterHotWrapper');
+  const scatterTablePanel=document.getElementById('scatterTablePanel');
+  const scatterGraphPanel=document.getElementById('scatterGraphPanel');
+  const scatterPanelResizer=document.getElementById('scatterPanelResizer');
+  const scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
+
+  function syncScatterWidths(){
+    const tableWidth=scatterTablePanel.getBoundingClientRect().width;
+    if(scatterSvgBox) scatterSvgBox.style.width=tableWidth+'px';
+  }
+  const scatterTableObserver=new ResizeObserver(()=>{syncScatterWidths();});
+  scatterTableObserver.observe(scatterTablePanel);
+  syncScatterWidths();
+
+  scatterHotWrapper.style.overflow='auto';
+  const scatterHot=new Handsontable(scatterHotContainer,{
+    data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,2),
+    rowHeaders:true,
+    colHeaders:true,
+    minRows:DEFAULT_ROWS,
+    minCols:2,
+    contextMenu:true,
+    licenseKey:'non-commercial-and-evaluation',
+    cells(row,col){
+      const props={};
+      if(row===0){
+        props.renderer=function(instance,td,r,c,prop,value,cellProperties){
+          Handsontable.renderers.TextRenderer.apply(this,arguments);
+          td.style.background='#e9ecef';
+          td.style.fontWeight='600';
+          td.title='Header (first row)';
+        };
+      }
+      return props;
+    },
+    afterChange(changes,source){
+      if(!changes||source==='loadData') return;
+      drawScatter();
+    }
+  });
+
+  const scatterExample=[['X','Y'],[1,2],[2,3],[3,3.5],[4,5],[5,5.5]];
+  document.getElementById('scatterLoadExample').addEventListener('click',()=>{
+    scatterHot.loadData(scatterExample);
+    drawScatter();
+  });
+  document.getElementById('scatterImport').addEventListener('click',()=>{
+    const f=document.getElementById('scatterFile');
+    f.value='';
+    f.click();
+  });
+  document.getElementById('scatterFile').addEventListener('change',e=>{
+    const file=e.target.files[0];
+    if(!file) return;
+    const ext=file.name.split('.').pop().toLowerCase();
+    const reader=new FileReader();
+    if(['csv','tsv','txt'].includes(ext)){
+      reader.onload=ev=>{
+        const text=ev.target.result;
+        const delim=ext==='csv'?',':'\t';
+        let rows=text.split(/\r?\n/).map(r=>r.split(delim));
+        scatterProcessImportedRows(rows);
+      };
+      reader.readAsText(file);
+    }else if(['xls','xlsx','ods','odg'].includes(ext)){
+      reader.onload=async ev=>{
+        try{
+          if(!window.XLSX){
+            await new Promise((resolve,reject)=>{
+              const s=document.createElement('script');
+              s.src='libs/xlsx.full.min.js';
+              s.onload=()=>resolve();
+              s.onerror=err=>reject(new Error('Failed to load XLSX script'));
+              document.head.appendChild(s);
+            });
+          }
+          const data=new Uint8Array(ev.target.result);
+          const workbook=XLSX.read(data,{type:'array'});
+          const sheet=workbook.Sheets[workbook.SheetNames[0]];
+          let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+          scatterProcessImportedRows(rows);
+        }catch(err){
+          alert('Failed to import spreadsheet: '+err.message);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }else{
+      alert('Unsupported file format: '+ext);
+    }
+  });
+
+  function scatterProcessImportedRows(rows){
+    if(!rows||!rows.length) return;
+    rows=rows.filter(r=>r && r.some(c=>String(c).trim()!==''));
+    if(!rows.length) return;
+    const colCount=Math.max(2,...rows.map(r=>r.length));
+    rows=rows.map(r=>{const row=Array.from(r);while(row.length<colCount) row.push('');return row;});
+    scatterHot.updateSettings({data:rows,minRows:Math.max(DEFAULT_ROWS,rows.length),minCols:colCount});
+    drawScatter();
+  }
+
+  const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth');
+  const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
+  const scatterShowGrid=$('#scatterShowGrid'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
+  const scatterStatType=$('#scatterStatType');
+  scatterFontSize.addEventListener('input',()=>{scatterFontSizeVal.textContent=scatterFontSize.value; drawScatter();});
+  [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType].forEach(el=>el.addEventListener('change',()=>{drawScatter();}));
+
+  const scatterPlotDiv=document.getElementById('scatterPlot');
+  const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
+  (function initScatterResizers(){
+    if(!scatterContainer) return;
+    const MIN_W=50, MIN_H=40;
+    function px(n){return Math.round(n)+'px';}
+    function getNumPx(v){return v?parseFloat(String(v).replace('px','')):0;}
+    const vHandle=scatterContainer.querySelector('.resizer-vertical');
+    const hHandle=scatterContainer.querySelector('.resizer-horizontal');
+    const cHandle=scatterContainer.querySelector('.resizer-corner');
+    function startResize(e,vert,horiz){
+      e.preventDefault();
+      const startW=getNumPx(scatterContainer.style.width)||scatterContainer.clientWidth;
+      const startH=getNumPx(scatterContainer.style.height)||scatterContainer.clientHeight;
+      const startX=e.clientX,startY=e.clientY;
+      function onMove(ev){
+        if(vert){scatterContainer.style.width=px(Math.max(MIN_W,startW+ev.clientX-startX)); syncScatterWidths();}
+        if(horiz){scatterContainer.style.height=px(Math.max(MIN_H,startH+ev.clientY-startY));}
+        drawScatter();
+      }
+      function onUp(){document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onUp);}
+      document.addEventListener('pointermove',onMove);
+      document.addEventListener('pointerup',onUp);
+    }
+    vHandle?.addEventListener('pointerdown',e=>startResize(e,true,false));
+    hHandle?.addEventListener('pointerdown',e=>startResize(e,false,true));
+    cHandle?.addEventListener('pointerdown',e=>startResize(e,true,true));
+  })();
+
+  (function initScatterPanelResizer(){
+    if(!scatterPanelResizer||!scatterTablePanel||!scatterGraphPanel) return;
+    scatterPanelResizer.addEventListener('pointerdown',e=>{
+      e.preventDefault();
+      const startX=e.clientX;
+      const startTable=scatterTablePanel.getBoundingClientRect().width;
+      const startGraph=scatterGraphPanel.getBoundingClientRect().width;
+      const total=startTable+startGraph;
+      function onMove(ev){
+        const dx=ev.clientX-startX;
+        let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+        let newGraph=total-newTable;
+        scatterTablePanel.style.flex=`0 0 ${newTable}px`;
+        scatterGraphPanel.style.flex=`0 0 ${newGraph}px`;
+        syncScatterWidths();
+      }
+      function onUp(){document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onUp);}
+      document.addEventListener('pointermove',onMove);
+      document.addEventListener('pointerup',onUp);
+    });
+  })();
+
+  let scatterTitleText='Scatter plot';
+  let scatterXLabelText='X';
+  let scatterYLabelText='Y';
+
+  function drawScatter(){
+    console.log('drawScatter called');
+    const fill=scatterFill.value;
+    const border=scatterBorder.value;
+    const bw=Number(scatterBorderWidth.value);
+    const fs=Number(scatterFontSize.value);
+    const showGrid=scatterShowGrid.checked;
+    const logX=scatterLogX.checked;
+    const logY=scatterLogY.checked;
+    const method=scatterStatType.value;
+    const xLabelRaw=scatterHot.getDataAtCell(0,0);
+    const yLabelRaw=scatterHot.getDataAtCell(0,1);
+    scatterXLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
+    scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
+    const nRows=scatterHot.countRows();
+    const points=[];
+    for(let r=1;r<nRows;r++){
+      const xv=parseFloat(scatterHot.getDataAtCell(r,0));
+      const yv=parseFloat(scatterHot.getDataAtCell(r,1));
+      if(!isNaN(xv)&&!isNaN(yv)) points.push({x:xv,y:yv});
+    }
+    console.log('scatter points',points.length);
+    const plotEl=document.getElementById('scatterPlot');
+    while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+    document.getElementById('scatterStatsResults').innerHTML='';
+    if(!points.length) return;
+    if(logX&&points.some(p=>p.x<=0)){plotEl.innerHTML='<i>Log scale requires positive X values.</i>';return;}
+    if(logY&&points.some(p=>p.y<=0)){plotEl.innerHTML='<i>Log scale requires positive Y values.</i>';return;}
+    const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
+    const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
+    const svg=document.createElementNS(NS,'svg');
+    svg.setAttribute('id','scatterSvg');
+    svg.setAttribute('width',String(W));
+    svg.setAttribute('height',String(H));
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    svg.setAttribute('font-family','sans-serif');
+    plotEl.appendChild(svg);
+    const xVals=points.map(p=>logX?Math.log10(p.x):p.x);
+    const yVals=points.map(p=>logY?Math.log10(p.y):p.y);
+    const xmin=Math.min(...xVals), xmax=Math.max(...xVals);
+    const ymin=Math.min(...yVals), ymax=Math.max(...yVals);
+    function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);} 
+    function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
+    const xScale=niceScale(xmin,xmax,6);
+    const yScale=niceScale(ymin,ymax,6);
+    function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
+    const measureCanvas=drawScatter._canvas||(drawScatter._canvas=document.createElement('canvas'));
+    const ctx=measureCanvas.getContext('2d');
+    function measureTextWidth(text,font){ctx.font=font;return ctx.measureText(text).width;}
+    const tickFont=`${fs}px sans-serif`;
+    const xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t));
+    const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
+    const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont));
+    const maxYLabelWidth=Math.max(...yLabelWidths,0);
+    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs)};
+    const plotW=Math.max(20,W-margin.left-margin.right);
+    const plotH=Math.max(20,H-margin.top-margin.bottom);
+    const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
+    const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
+    function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v] of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
+    if(showGrid){xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});}
+    add('line',{x1:margin.left,y1:margin.top+plotH,x2:margin.left+plotW,y2:margin.top+plotH,stroke:'#000','stroke-width':2});
+    add('line',{x1:margin.left,y1:margin.top,x2:margin.left,y2:margin.top+plotH,stroke:'#000','stroke-width':2});
+    xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+6,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:margin.top+plotH+6+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
+    yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-6,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:margin.left-8,y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+    points.forEach(p=>{const xv=logX?Math.log10(p.x):p.x;const yv=logY?Math.log10(p.y):p.y;add('circle',{cx:x2px(xv),cy:y2px(yv),r:3,fill:fill,stroke:border,'stroke-width':bw,'fill-opacity':0.7});});
+    const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditable(xText,txt=>{scatterXLabelText=txt;});
+    const yX=margin.left-(maxYLabelWidth+fs*1.5);const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});yText.textContent=scatterYLabelText;makeEditable(yText,txt=>{scatterYLabelText=txt;});
+    const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=scatterTitleText;makeEditable(titleText,txt=>{scatterTitleText=txt;});
+    const stats=computeScatterStats(points,method);
+    const resDiv=document.getElementById('scatterStatsResults');
+    resDiv.innerHTML=`<table><tr><th>Method</th><td>${stats.method}</td></tr><tr><th>r</th><td>${stats.r.toFixed(4)}</td></tr><tr><th>P value</th><td>${formatP(stats.p)}</td></tr></table>`;
+  }
+
+  function computeScatterStats(points,method){
+    console.log('computeScatterStats',method,points.length);
+    const x=points.map(p=>p.x);
+    const y=points.map(p=>p.y);
+    const n=points.length;
+    if(n<3) return {method, r:NaN, p:NaN};
+    let r, label;
+    if(method==='pearson'){r=jStat.corrcoeff(x,y); label='Pearson';}
+    else {r=jStat.spearmancoeff(x,y); label='Spearman';}
+    const t=r*Math.sqrt((n-2)/(1-r*r));
+    const p=2*(1-jStat.studentt.cdf(Math.abs(t),n-2));
+    return {method:label, r, p};
+  }
+
+  document.getElementById('drawScatter').addEventListener('click',drawScatter);
+  document.getElementById('scatterPNG').addEventListener('click',async()=>{
+    const svgEl=document.getElementById('scatterSvg');
+    if(!svgEl) return;
+    const xml=serializeCleanSVG(svgEl);
+    const img=new Image();
+    const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
+    img.src=url;
+    await img.decode().catch(()=>{});
+    const canvas=document.createElement('canvas');
+    canvas.width=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
+    canvas.height=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(img,0,0);
+    canvas.toBlob(b=>{
+      const pngUrl=URL.createObjectURL(b);
+      const a=document.createElement('a');
+      a.href=pngUrl; a.download='scatter.png';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(pngUrl),4000);
+    },'image/png');
+  });
+  document.getElementById('scatterSVG').addEventListener('click',()=>{
+    const svgEl=document.getElementById('scatterSvg');
+    if(!svgEl) return;
+    const xml=serializeCleanSVG(svgEl);
+    const blob=new Blob([xml],{type:'image/svg+xml'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='scatter.svg';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+  });
 
   Chart.defaults.locale='en-US';
   const inputs = {
@@ -1704,17 +2123,30 @@ KAT7`;
   function showVenn(){
     vennPage.style.display='block';
     boxPage.style.display='none';
+    scatterPage.style.display='none';
     tabVenn.classList.add('active');
     tabBox.classList.remove('active');
+    tabScatter.classList.remove('active');
   }
   function showBox(){
     vennPage.style.display='none';
     boxPage.style.display='block';
+    scatterPage.style.display='none';
     tabBox.classList.add('active');
     tabVenn.classList.remove('active');
+    tabScatter.classList.remove('active');
+  }
+  function showScatter(){
+    vennPage.style.display='none';
+    boxPage.style.display='none';
+    scatterPage.style.display='block';
+    tabScatter.classList.add('active');
+    tabVenn.classList.remove('active');
+    tabBox.classList.remove('active');
   }
   tabVenn.addEventListener('click',()=>{ showVenn();});
   tabBox.addEventListener('click',()=>{ showBox();});
+  tabScatter.addEventListener('click',()=>{ showScatter();});
   showVenn();
   function tTest(a,b){
     const meanA=jStat.mean(a), meanB=jStat.mean(b);
