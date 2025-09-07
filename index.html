@@ -403,9 +403,12 @@
           </div>
         </div>
   <div id="statsPanel" style="width:100%;margin-top:12px">
-    <div id="statsControls"></div>
-    <div id="statsResults" style="margin-top:8px"></div>
-    <div id="statsTable" style="margin-top:8px"></div>
+    <fieldset>
+      <legend>Statistics</legend>
+      <div id="statsControls"></div>
+      <div id="statsResults" style="margin-top:8px"></div>
+      <div id="statsTable" style="margin-top:8px"></div>
+    </fieldset>
   </div>
   </div>
   </div>
@@ -441,7 +444,7 @@
             <fieldset>
               <legend>Colors</legend>
               <div class="color-pickers">
-                <label>Fill <input type="color" id="scatterFill" value="#4472c4"></label>
+                <label>Fill <input type="color" id="scatterFill" value="#555555"></label>
                 <label><input type="checkbox" id="scatterShowBorder"> Border</label>
                 <input type="color" id="scatterBorder" value="#000000" disabled>
               </div>
@@ -450,6 +453,12 @@
               <legend>Border</legend>
               <div class="control">
                 <label>Width</label><input type="number" id="scatterBorderWidth" value="2" min="0" max="10" style="width:60px" disabled>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Dots</legend>
+              <div class="control">
+                <label>Size</label><input type="number" id="scatterDotSize" value="3" min="1" max="20" style="width:60px">
               </div>
             </fieldset>
             <fieldset>
@@ -485,8 +494,8 @@
                 <option value="spearman">Non-parametric (Spearman)</option>
               </select>
             </div>
+            <div id="scatterStatsResults" style="margin-top:8px"></div>
           </fieldset>
-          <div id="scatterStatsResults" style="margin-top:8px"></div>
         </div>
       </div>
     </div>
@@ -872,11 +881,15 @@
     drawScatter();
   }
 
-  const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth');
+  const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize');
   const scatterShowBorder=$('#scatterShowBorder');
   const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
   const scatterShowGrid=$('#scatterShowGrid'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
   const scatterStatType=$('#scatterStatType');
+  scatterFill.addEventListener('input',()=>{console.log('scatterFill changed', scatterFill.value); drawScatter();});
+  scatterBorder.addEventListener('input',()=>{console.log('scatterBorder changed', scatterBorder.value); drawScatter();});
+  scatterBorderWidth.addEventListener('input',()=>{console.log('scatterBorderWidth changed', scatterBorderWidth.value); drawScatter();});
+  scatterDotSize.addEventListener('input',()=>{console.log('scatterDotSize changed', scatterDotSize.value); drawScatter();});
   scatterShowBorder.addEventListener('change',()=>{
     console.log('scatterShowBorder changed', scatterShowBorder.checked);
     scatterBorder.disabled=scatterBorderWidth.disabled=!scatterShowBorder.checked;
@@ -995,7 +1008,12 @@
     const showGrid=scatterShowGrid.checked;
     const logX=scatterLogX.checked;
     const logY=scatterLogY.checked;
+    const dotSize=Number(scatterDotSize.value)||3;
+    console.log('drawScatter dot size', dotSize);
     const method=scatterStatType.value;
+    const originX=logX?1:0;
+    const originY=logY?1:0;
+    console.log('scatter origins', {originX, originY});
     const xLabelRaw=scatterHot.getDataAtCell(0,0);
     const yLabelRaw=scatterHot.getDataAtCell(0,1);
     scatterXLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
@@ -1025,12 +1043,14 @@
     plotEl.appendChild(svg);
     const xVals=points.map(p=>logX?Math.log10(p.x):p.x);
     const yVals=points.map(p=>logY?Math.log10(p.y):p.y);
-    const xmin=Math.min(...xVals), xmax=Math.max(...xVals);
-    const ymin=Math.min(...yVals), ymax=Math.max(...yVals);
-    function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);} 
+    const xMax=Math.max(...xVals);
+    const yMax=Math.max(...yVals);
+    function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
     function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
-    const xScale=niceScale(xmin,xmax,6);
-    const yScale=niceScale(ymin,ymax,6);
+    const xOriginT=logX?Math.log10(originX):originX;
+    const yOriginT=logY?Math.log10(originY):originY;
+    const xScale=niceScale(xOriginT, Math.max(xMax,xOriginT),6); xScale.min=xOriginT;
+    const yScale=niceScale(yOriginT, Math.max(yMax,yOriginT),6); yScale.min=yOriginT;
     function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
     const measureCanvas=drawScatter._canvas||(drawScatter._canvas=document.createElement('canvas'));
     const ctx=measureCanvas.getContext('2d');
@@ -1051,13 +1071,13 @@
     add('line',{x1:margin.left,y1:margin.top,x2:margin.left,y2:margin.top+plotH,stroke:'#000','stroke-width':2});
     xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+6,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:margin.top+plotH+6+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
     yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-6,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:margin.left-8,y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
-    points.forEach(p=>{const xv=logX?Math.log10(p.x):p.x;const yv=logY?Math.log10(p.y):p.y;add('circle',{cx:x2px(xv),cy:y2px(yv),r:3,fill:fill,stroke:border,'stroke-width':bw,'fill-opacity':0.7});});
+    points.forEach(p=>{const xv=logX?Math.log10(p.x):p.x;const yv=logY?Math.log10(p.y):p.y;add('circle',{cx:x2px(xv),cy:y2px(yv),r:dotSize,fill:fill,stroke:border,'stroke-width':bw,'fill-opacity':0.7});});
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditable(xText,txt=>{scatterXLabelText=txt;});
     const yX=margin.left-(maxYLabelWidth+fs*1.5);const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});yText.textContent=scatterYLabelText;makeEditable(yText,txt=>{scatterYLabelText=txt;});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=scatterTitleText;makeEditable(titleText,txt=>{scatterTitleText=txt;});
     const stats=computeScatterStats(points,method);
     const resDiv=document.getElementById('scatterStatsResults');
-    resDiv.innerHTML=`<table><tr><th>Method</th><td>${stats.method}</td></tr><tr><th>r</th><td>${stats.r.toFixed(4)}</td></tr><tr><th>P value</th><td>${formatP(stats.p)}</td></tr></table>`;
+    resDiv.innerHTML=`<table><tr><th>r</th><td>${stats.r.toFixed(4)}</td></tr><tr><th>P value</th><td>${formatP(stats.p)}</td></tr></table>`;
   }
 
   function computeScatterStats(points,method){
