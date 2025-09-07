@@ -38,15 +38,11 @@
   .analysis-controls select{width:auto}
   .gene-item{display:flex;align-items:center;gap:2px;margin-right:0;margin-bottom:4px;font-size:13px}
   .gene-link{cursor:pointer;margin-left:0;font-size:13px}
-  .config-options fieldset{border:none;padding:0;margin:0}
-  .config-options legend{font-size:14px;font-weight:600;margin-bottom:4px;margin-left:-4px}
-  .config-options .control label{width:90px;font-size:14px}
   .analysis-options{font-size:13px}
   .analysis-options label{font-size:13px}
   .analysis-options strong{font-size:13px}
   #analysisResults{font-size:13px}
   #analysisResults canvas{font-size:initial}
-  /* Box plot layout adjustments */
   #boxPage .wrap{display:flex;align-items:stretch;gap:0}
   #boxPage #boxTablePanel{flex:1 1 33%;min-width:150px}
   #boxPage #boxGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
@@ -55,68 +51,7 @@
   #boxPage .panel{display:flex;flex-direction:column;min-width:0}
   #boxPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
   #boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
-  /* Scatter plot layout adjustments */
-  #scatterPage .wrap{display:flex;align-items:stretch;gap:0}
-  #scatterPage #scatterTablePanel{flex:1 1 33%;min-width:150px}
-  #scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
-  #scatterPage .diagram-area .svgbox{flex:1}
-  #scatterPage .diagram-area .config-options{flex:1}
-  #scatterPage .panel{display:flex;flex-direction:column;min-width:0}
-  #scatterPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
-  #scatterPage #scatterPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
-  /* boxplot: use custom resizers rather than native resize handles */
   #boxPage .svgbox{
-    position: relative;
-    overflow: visible;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    width: 100%;
-    height: 420px;    /* default; resizer will change this */
-    box-sizing: border-box;
-  }
-
-
-  /* invisible wide targets for easy grabbing */
-  #boxPage .svgbox .resizer {
-    position: absolute;
-    z-index: 40;
-    background: rgba(0,0,0,0); /* invisible; the corner gets a small visual cue */
-    touch-action: none;        /* allow pointer events without browser gestures */
-  }
-
-  /* vertical handle on the right edge (change width) */
-  #boxPage .svgbox .resizer-vertical {
-    top: 0;
-    right: 0;
-    width: 12px;
-    height: 100%;
-    cursor: ew-resize;
-  }
-
-  /* horizontal handle at bottom edge (change height) */
-  #boxPage .svgbox .resizer-horizontal {
-    bottom: 0;
-    left: 0;
-    height: 12px;
-    width: 100%;
-    cursor: ns-resize;
-  }
-
-  /* small visible corner to hint both-axis resizing */
-  #boxPage .svgbox .resizer-corner {
-    right: 0;
-    bottom: 0;
-    width: 16px;
-    height: 16px;
-    cursor: nwse-resize;
-    background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
-    border-radius: 2px;
-  }
-
-  /* scatterplot: use custom resizers */
-  #scatterPage .svgbox{
     position: relative;
     overflow: visible;
     display: flex;
@@ -127,27 +62,27 @@
     height: 420px;
     box-sizing: border-box;
   }
-  #scatterPage .svgbox .resizer {
+  #boxPage .svgbox .resizer {
     position: absolute;
     z-index: 40;
     background: rgba(0,0,0,0);
     touch-action: none;
   }
-  #scatterPage .svgbox .resizer-vertical {
+  #boxPage .svgbox .resizer-vertical {
     top: 0;
     right: 0;
     width: 12px;
     height: 100%;
     cursor: ew-resize;
   }
-  #scatterPage .svgbox .resizer-horizontal {
+  #boxPage .svgbox .resizer-horizontal {
     bottom: 0;
     left: 0;
     height: 12px;
     width: 100%;
     cursor: ns-resize;
   }
-  #scatterPage .svgbox .resizer-corner {
+  #boxPage .svgbox .resizer-corner {
     right: 0;
     bottom: 0;
     width: 16px;
@@ -156,19 +91,14 @@
     background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
     border-radius: 2px;
   }
-
-
-
   @media (max-width:1000px){#boxPage .wrap{grid-template-columns:1fr}}
-  @media (max-width:1000px){#scatterPage .wrap{grid-template-columns:1fr}}
-  </style>
- <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
+</style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
 </head>
 <body>
 <div id="tabs" style="padding:8px;border-bottom:1px solid #ddd;display:flex;gap:8px">
   <button id="tabVenn" class="btn">Venn</button>
   <button id="tabBox" class="btn">Box Plot</button>
-  <button id="tabScatter" class="btn">Scatter Plot</button>
 </div>
 <div id="vennPage">
 <header><h2 style="margin:0">Area proportional Venn - BioVenn like</h2><div style="color:#555;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
@@ -340,7 +270,6 @@
   </div>
   <div id="tooltip"></div>
 </div>
-
 <div id="boxPage" style="display:none;">
   <header><h2 style="margin:0">Box Plot</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a GraphPad-style box plot.</div></header>
     <div class="wrap">
@@ -359,21 +288,15 @@
       <div class="panel" style="align-items:center" id="boxGraphPanel">
         <div class="diagram-area">
                         <div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:100%; height:420px;">
-                          <!-- Resizers -->
                           <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
                           <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
                           <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-
-			  <!-- Plot area -->
 			  <div id="boxPlot" style="width:100%; height:100%"></div>
-
-			  <!-- Export buttons -->
 			  <div class="row" style="justify-content:flex-end;margin-top:6px">
 				<button class="btn" id="boxPNG">Download PNG</button>
 				<button class="btn" id="boxSVG">Download SVG</button>
 			  </div>
 			</div>
-
           <div class="config-options">
             <fieldset>
               <legend>Colors</legend>
@@ -429,85 +352,15 @@
             </fieldset>
           </div>
         </div>
-  <div id="statsPanel" style="width:100%;margin-top:12px">
+        <div id="statsPanel" style="width:100%;margin-top:12px">
           <div id="statsControls"></div>
           <div id="statsResults" style="margin-top:8px"></div>
           <div id="statsTable" style="margin-top:8px"></div>
-        </div>
-  </div>
-  </div>
-  </div>
-
-<div id="scatterPage" style="display:none;">
-  <header><h2 style="margin:0">Scatter Plot</h2><div style="color:#555;font-size:13px">Paste paired data into the table and draw a scatter plot with correlation analysis.</div></header>
-    <div class="wrap">
-      <div class="panel" id="scatterTablePanel">
-        <div id="scatterHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="scatterHot" style="width:100%;height:100%"></div></div>
-        <div class="row" style="margin-top:8px;justify-content:space-between">
-          <div class="row" style="gap:8px">
-            <button class="btn" id="scatterLoadExample">Load Example</button>
-            <button class="btn" id="scatterImport">Import File</button>
-            <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none">
-          </div>
-          <button class="btn" id="drawScatter">Draw</button>
-        </div>
-      </div>
-      <div id="scatterPanelResizer" class="panel-resizer" aria-hidden="true"></div>
-      <div class="panel" style="align-items:center" id="scatterGraphPanel">
-        <div class="diagram-area">
-          <div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:100%; height:420px;">
-            <!-- Resizers -->
-            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
-            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
-            <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-
-            <!-- Plot area -->
-            <div id="scatterPlot" style="width:100%; height:100%"></div>
-
-            <!-- Export buttons -->
-            <div class="row" style="justify-content:flex-end;margin-top:6px">
-              <button class="btn" id="scatterPNG">Download PNG</button>
-              <button class="btn" id="scatterSVG">Download SVG</button>
-            </div>
-          </div>
-
-          <div class="config-options">
-            <fieldset>
-              <legend>Colors</legend>
-              <div class="color-pickers">
-                <label>Fill <input type="color" id="scatterFill" value="#4472c4"></label>
-                <label>Border <input type="color" id="scatterBorder" value="#000000"></label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Points</legend>
-              <div class="control">
-                <label>Size</label><input type="range" id="scatterPointSize" min="2" max="20" step="1" value="6"><output id="scatterPointSizeVal">6</output>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Grid</legend>
-              <div class="control">
-                <label><input type="checkbox" id="scatterShowGrid" checked> Show grid</label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Font</legend>
-              <div class="control">
-                <label>Size</label><input type="range" id="scatterFontSize" min="10" max="36" step="1" value="16"><output id="scatterFontSizeVal">16</output>
-              </div>
-            </fieldset>
-          </div>
-        </div>
-        <div id="scatterStatsPanel" style="width:100%;margin-top:12px">
-          <div id="scatterStatsControls"></div>
-          <div id="scatterStatsResults" style="margin-top:8px"></div>
         </div>
       </div>
     </div>
   </div>
 <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.js"></script>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="libs/xlsx.full.min.js"></script>
@@ -517,844 +370,273 @@
   const $ = (s)=>document.querySelector(s);
   const stage = $('#stage');
   const vennPage=$('#vennPage');
-    const boxPage=$('#boxPage');
-    const tabVenn=$('#tabVenn');
-    const tabBox=$('#tabBox');
-    const scatterPage=$('#scatterPage');
-    const tabScatter=$('#tabScatter');
-    const drawBoxplotBtn=$('#drawBoxplot');
-    console.debug('Draw boxplot button initialized', drawBoxplotBtn);
-    const drawScatterBtn=$('#drawScatter');
-    console.debug('Draw scatter button initialized', drawScatterBtn);
-    const hotContainer=document.getElementById('hot');
-    const hotWrapper=document.getElementById('hotWrapper');
-    const tablePanel=document.getElementById('boxTablePanel');
-    const graphPanel=document.getElementById('boxGraphPanel');
-    const panelResizer=document.getElementById('boxPanelResizer');
-    const boxSvgBox=graphPanel.querySelector('.svgbox');
-    const configPanel=graphPanel.querySelector('.config-options');
-    console.debug('hot elements initialized', {hotContainer, hotWrapper, tablePanel, graphPanel, panelResizer, boxSvgBox, configPanel});
+  const boxPage=$('#boxPage');
+  const tabVenn=$('#tabVenn');
+  const tabBox=$('#tabBox');
+  const drawBoxplotBtn=$('#drawBoxplot');
+  const hotContainer=document.getElementById('hot');
+  const hotWrapper=document.getElementById('hotWrapper');
+  const tablePanel=document.getElementById('boxTablePanel');
+  const graphPanel=document.getElementById('boxGraphPanel');
+  const panelResizer=document.getElementById('boxPanelResizer');
+  const boxSvgBox=graphPanel.querySelector('.svgbox');
+  const configPanel=graphPanel.querySelector('.config-options');
 
-    const scatterHotContainer=document.getElementById('scatterHot');
-    const scatterHotWrapper=document.getElementById('scatterHotWrapper');
-    const scatterTablePanel=document.getElementById('scatterTablePanel');
-    const scatterGraphPanel=document.getElementById('scatterGraphPanel');
-    const scatterPanelResizer=document.getElementById('scatterPanelResizer');
-    const scatterSvgBox=scatterGraphPanel.querySelector('.svgbox');
-    const scatterConfigPanel=scatterGraphPanel.querySelector('.config-options');
-    console.debug('scatter elements initialized', {scatterHotContainer, scatterHotWrapper, scatterTablePanel, scatterGraphPanel, scatterPanelResizer, scatterSvgBox, scatterConfigPanel});
+  function syncBoxWidths(){
+    const tableWidth=tablePanel.getBoundingClientRect().width;
+    boxSvgBox.style.width=tableWidth+'px';
+  }
 
-    function syncBoxWidths(){
-      const tableWidth=tablePanel.getBoundingClientRect().width;
-      boxSvgBox.style.width=tableWidth+'px';
-      console.debug('syncBoxWidths', {tableWidth});
-    }
-    const tableObserver=new ResizeObserver(entries=>{
-      console.debug('tablePanel resized', entries[0].contentRect.width);
-      syncBoxWidths();
-    });
-    tableObserver.observe(tablePanel);
+  const tableObserver=new ResizeObserver(entries=>{
     syncBoxWidths();
+  });
+  tableObserver.observe(tablePanel);
+  syncBoxWidths();
 
-    function syncScatterWidths(){
-      const tableWidth=scatterTablePanel.getBoundingClientRect().width;
-      scatterSvgBox.style.width=tableWidth+'px';
-      console.debug('syncScatterWidths', {tableWidth});
-    }
-    const scatterTableObserver=new ResizeObserver(entries=>{
-      console.debug('scatterTablePanel resized', entries[0].contentRect.width);
-      syncScatterWidths();
-    });
-    scatterTableObserver.observe(scatterTablePanel);
-    syncScatterWidths();
-    const DEFAULT_ROWS=100, DEFAULT_COLS=10;
-    console.debug('table defaults', {rows:DEFAULT_ROWS, cols:DEFAULT_COLS});
-    let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
+  const DEFAULT_ROWS=100, DEFAULT_COLS=10;
+  let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
+  const NS='http://www.w3.org/2000/svg';
+  let selectedCols=new Set();
+  let boxTitleText='Boxplot';
+  let boxYLabelText='Value';
+  let statsTest='parametric';
+  let statsMode='all';
+  let statsRef=0;
+  let statsPaired=false;
+  let statsPairsText='';
+  let statsCustomPairs=[];
+  let boxColOrder=[];
+  const ANN_BASE_OFFSET=25;
+  const ANN_LEVEL_GAP=25;
 
-    const NS='http://www.w3.org/2000/svg';
-    let selectedCols=new Set();
-    let boxTitleText='Boxplot';
-    let boxYLabelText='Value';
-    let statsTest='parametric';
-    let statsMode='all';
-    let statsRef=0;
-    let statsPaired=false;
-    let statsPairsText='';
-    let statsCustomPairs=[];
-    let boxColOrder=[];
-    console.debug('stats defaults',{statsTest,statsMode,statsRef,statsPaired,statsPairsText});
-    console.debug('boxColOrder initialized', boxColOrder);
-
-    let scatterColHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
-    let scatterXCol=0;
-    let scatterYCol=1;
-    let scatterStatsTest='parametric';
-    let scatterTitleText='Scatter Plot';
-    let scatterXLabelText='X';
-    let scatterYLabelText='Y';
-
-    const ANN_BASE_OFFSET=25;
-    const ANN_LEVEL_GAP=25;
-    console.debug('annotation constants set',{ANN_BASE_OFFSET,ANN_LEVEL_GAP});
-	
-	
-	
-    hotWrapper.style.overflow='auto';
-    console.debug('hotWrapper overflow set');
-
-    scatterHotWrapper.style.overflow='auto';
-    console.debug('scatterHotWrapper overflow set');
-
-    const hot=new Handsontable(hotContainer,{
-      data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,DEFAULT_COLS),
-      rowHeaders:true,
-      // Keep simple A,B,C headers in the TH; we now use ROW 0 for user headers
-      colHeaders:true,
-      minRows:DEFAULT_ROWS,
-      minCols:DEFAULT_COLS,
-      contextMenu:true,
-      manualColumnMove:true,
-      licenseKey:'non-commercial-and-evaluation',
-
-      // First row acts as "header row": darker background, bold
-      cells(row,col){
-        const props={};
-        if(row===0){
-          props.renderer=function(instance,td,r,c,prop,value,cellProperties){
-            Handsontable.renderers.TextRenderer.apply(this,arguments);
-            td.style.background='#e9ecef';
-            td.style.fontWeight='600';
-            td.title='Header (first row)';
-          };
-        }
-        return props;
-      },
-
-      // Keep your existing column add/remove logs (colHeaders array kept for compatibility)
-      afterCreateCol(index, amount){
-        for(let i=0;i<amount;i++){
-          colHeaders.splice(index+i,0,String.fromCharCode(65+index+i));
-        }
-        console.debug('column created',{index,amount,headers:colHeaders});
-        selectedCols.clear();
-        drawBoxplot();
-      },
-      afterRemoveCol(index, amount){
-        colHeaders.splice(index,amount);
-        console.debug('column removed',{index,amount,headers:colHeaders});
-        selectedCols.clear();
-        drawBoxplot();
-      },
-
-      // Debug changes in the sheet
-      afterChange(changes, source){
-        if(!changes || source==='loadData') return;
-        console.debug('hot afterChange', {changes, source});
-        drawBoxplot();
-      },
-      afterColumnMove(moved, finalIndex, dropIndex, movePossible, orderChanged){
-        console.debug('column moved',{moved,finalIndex,dropIndex,movePossible,orderChanged});
-        if(orderChanged) drawBoxplot();
+  hotWrapper.style.overflow='auto';
+  const hot=new Handsontable(hotContainer,{
+    data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,DEFAULT_COLS),
+    rowHeaders:true,
+    colHeaders:true,
+    minRows:DEFAULT_ROWS,
+    minCols:DEFAULT_COLS,
+    contextMenu:true,
+    manualColumnMove:true,
+    licenseKey:'non-commercial-and-evaluation',
+    cells(row,col){
+      const props={};
+      if(row===0){
+        props.renderer=function(instance,td,r,c,prop,value,cellProperties){
+          Handsontable.renderers.TextRenderer.apply(this,arguments);
+          td.style.background='#e9ecef';
+          td.style.fontWeight='600';
+          td.title='Header (first row)';
+        };
       }
-    });
-    console.debug('Handsontable initialized with first-row headers and defaults',{rows:DEFAULT_ROWS,cols:DEFAULT_COLS});
-
-    const scatterHot=new Handsontable(scatterHotContainer,{
-      data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,DEFAULT_COLS),
-      rowHeaders:true,
-      colHeaders:true,
-      minRows:DEFAULT_ROWS,
-      minCols:DEFAULT_COLS,
-      contextMenu:true,
-      manualColumnMove:true,
-      licenseKey:'non-commercial-and-evaluation',
-      cells(row,col){
-        const props={};
-        if(row===0){
-          props.renderer=function(instance,td,r,c,prop,value,cellProperties){
-            Handsontable.renderers.TextRenderer.apply(this,arguments);
-            td.style.background='#e9ecef';
-            td.style.fontWeight='600';
-            td.title='Header (first row)';
-          };
-        }
-        return props;
-      },
-      afterCreateCol(index,amount){
-        for(let i=0;i<amount;i++){
-          scatterColHeaders.splice(index+i,0,String.fromCharCode(65+index+i));
-        }
-        console.debug('scatter column created',{index,amount,headers:scatterColHeaders});
-        renderScatterStatsControls();
-      },
-      afterRemoveCol(index,amount){
-        scatterColHeaders.splice(index,amount);
-        console.debug('scatter column removed',{index,amount,headers:scatterColHeaders});
-        renderScatterStatsControls();
-      },
-      afterChange(changes,source){
-        if(!changes || source==='loadData') return;
-        console.debug('scatterHot afterChange',{changes,source});
-        if(changes.some(([row])=>row===0)) renderScatterStatsControls();
-        drawScatter();
-      },
-      afterColumnMove(moved,finalIndex,dropIndex,movePossible,orderChanged){
-        console.debug('scatter column moved',{moved,finalIndex,dropIndex,movePossible,orderChanged});
-        if(orderChanged) renderScatterStatsControls();
-        drawScatter();
+      return props;
+    },
+    afterCreateCol(index, amount){
+      for(let i=0;i<amount;i++){
+        colHeaders.splice(index+i,0,String.fromCharCode(65+index+i));
       }
-    });
-    console.debug('Scatter Handsontable initialized');
-
-    renderScatterStatsControls();
-
-    const loadExampleBtn=$('#boxLoadExample'), importBtn=$('#boxImport'), fileInput=$('#boxFile');
-    const exampleData=[
-      ['Group 1','Group 2','Group 3'],
-      [5,7,6],
-      [6,5,7],
-      [7,8,9],
-      [4,3,5],
-      [6,7,8]
-    ];
-    loadExampleBtn.addEventListener('click',()=>{
-      console.debug('boxLoadExample clicked');
       selectedCols.clear();
-      hot.loadData(exampleData);
       drawBoxplot();
-    });
-    importBtn.addEventListener('click',()=>{
-      console.debug('boxImport clicked');
-      fileInput.value='';
-      fileInput.click();
-    });
-    fileInput.addEventListener('change',e=>{
-      const file=e.target.files[0];
-      if(!file){ console.debug('boxFile change no file'); return; }
-      console.debug('boxFile selected',{name:file.name,size:file.size});
-      const ext=file.name.split('.').pop().toLowerCase();
-      const reader=new FileReader();
-      if(['csv','tsv','txt'].includes(ext)){
-        reader.onload=ev=>{
-          const text=ev.target.result;
-          const delim=ext==='csv'?',':'\t';
-          let rows=text.split(/\r?\n/).map(r=>r.split(delim));
-          console.debug('text file parsed',{rows});
-          processImportedRows(rows);
-        };
-        reader.readAsText(file);
-      }else if(['xls','xlsx','ods','odg'].includes(ext)){
-        reader.onload=async ev=>{
-          try{
-            if(!window.XLSX){
-              console.debug('XLSX library not found, attempting dynamic load');
-              await new Promise((resolve,reject)=>{
-                const s=document.createElement('script');
-                s.src='libs/xlsx.full.min.js';
-                console.debug('Loading local XLSX library from libs/xlsx.full.min.js');
-                s.onload=()=>{console.debug('XLSX dynamically loaded');resolve();};
-                s.onerror=err=>reject(new Error('Failed to load XLSX script'));
-                document.head.appendChild(s);
-              });
-            }
-            if(!window.XLSX) throw new Error('XLSX library unavailable');
-            const data=new Uint8Array(ev.target.result);
-            const workbook=XLSX.read(data,{type:'array'});
-            console.debug('spreadsheet workbook', {sheets:workbook.SheetNames});
-            const sheet=workbook.Sheets[workbook.SheetNames[0]];
-            let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
-            console.debug('spreadsheet parsed',{rows});
-            processImportedRows(rows);
-          }catch(err){
-            console.error('spreadsheet import failed', err);
-            alert('Failed to import spreadsheet: '+err.message);
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      }else{
-        alert('Unsupported file format: '+ext);
-        console.debug('import unsupported extension', ext);
-      }
-    });
-
-    const scatterLoadExampleBtn=$('#scatterLoadExample'), scatterImportBtn=$('#scatterImport'), scatterFileInput=$('#scatterFile');
-    const scatterExampleData=[
-      ['X','Y'],
-      [1,2],
-      [2,4],
-      [3,5],
-      [4,4],
-      [5,6]
-    ];
-    scatterLoadExampleBtn.addEventListener('click',()=>{
-      console.debug('scatterLoadExample clicked');
-      scatterHot.loadData(scatterExampleData);
-      renderScatterStatsControls();
-      drawScatter();
-    });
-    scatterImportBtn.addEventListener('click',()=>{
-      console.debug('scatterImport clicked');
-      scatterFileInput.value='';
-      scatterFileInput.click();
-    });
-    scatterFileInput.addEventListener('change',e=>{
-      const file=e.target.files[0];
-      if(!file){ console.debug('scatterFile change no file'); return; }
-      console.debug('scatterFile selected',{name:file.name,size:file.size});
-      const ext=file.name.split('.').pop().toLowerCase();
-      const reader=new FileReader();
-      if(['csv','tsv','txt'].includes(ext)){
-        reader.onload=ev=>{
-          const text=ev.target.result;
-          const delim=ext==='csv'?',':'\t';
-          let rows=text.split(/\r?\n/).map(r=>r.split(delim));
-          console.debug('scatter text file parsed',{rows});
-          processScatterImportedRows(rows);
-        };
-        reader.readAsText(file);
-      }else if(['xls','xlsx','ods','odg'].includes(ext)){
-        reader.onload=async ev=>{
-          try{
-            if(!window.XLSX){
-              console.debug('XLSX library not found, attempting dynamic load');
-              await new Promise((resolve,reject)=>{
-                const s=document.createElement('script');
-                s.src='libs/xlsx.full.min.js';
-                console.debug('Loading local XLSX library from libs/xlsx.full.min.js');
-                s.onload=()=>{console.debug('XLSX dynamically loaded');resolve();};
-                s.onerror=err=>reject(new Error('Failed to load XLSX script'));
-                document.head.appendChild(s);
-              });
-            }
-            if(!window.XLSX) throw new Error('XLSX library unavailable');
-            const data=new Uint8Array(ev.target.result);
-            const workbook=XLSX.read(data,{type:'array'});
-            console.debug('scatter workbook',{sheets:workbook.SheetNames});
-            const sheet=workbook.Sheets[workbook.SheetNames[0]];
-            let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
-            console.debug('scatter spreadsheet parsed',{rows});
-            processScatterImportedRows(rows);
-          }catch(err){
-            console.error('scatter spreadsheet import failed', err);
-            alert('Failed to import spreadsheet: '+err.message);
-          }
-        };
-        reader.readAsArrayBuffer(file);
-      }else{
-        alert('Unsupported file format: '+ext);
-        console.debug('scatter import unsupported extension', ext);
-      }
-    });
-    function processImportedRows(rows){
-      console.debug('processImportedRows called', rows);
-      if(!rows || !rows.length){ console.debug('processImportedRows empty'); return; }
-      rows=rows.filter(r=>r && r.some(c=>c!==null && c!==undefined && String(c).trim()!==''));
-      if(!rows.length){ console.debug('processImportedRows no usable rows'); return; }
-      const colCount=Math.max(...rows.map(r=>r.length));
-      const targetCols=Math.max(DEFAULT_COLS,colCount);
-      rows=rows.map(r=>{const row=Array.from(r); while(row.length<targetCols) row.push(''); return row;});
-      let headerRow=new Array(targetCols).fill('');
-      const firstRow=rows[0]||[];
-      const hasHeader=firstRow.some(c=>String(c).trim() && isNaN(Number(c))) &&
-                      firstRow.every(c=>!String(c).trim() || isNaN(Number(c)));
-      console.debug('header detection',{firstRow,hasHeader});
-      if(hasHeader){ headerRow=firstRow.map(v=>String(v)); rows=rows.slice(1); }
-      const dataRows=[headerRow,...rows];
-      const targetRows=Math.max(DEFAULT_ROWS,dataRows.length);
-      while(dataRows.length<targetRows){ dataRows.push(new Array(targetCols).fill('')); }
+    },
+    afterRemoveCol(index, amount){
+      colHeaders.splice(index,amount);
       selectedCols.clear();
-      hot.updateSettings({data:dataRows,minRows:targetRows,minCols:targetCols});
-      console.debug('hot.updateSettings from import',{cols:targetCols,rows:targetRows,hasHeader});
       drawBoxplot();
+    },
+    afterChange(changes, source){
+      if(!changes || source==='loadData') return;
+      drawBoxplot();
+    },
+    afterColumnMove(moved, finalIndex, dropIndex, movePossible, orderChanged){
+      if(orderChanged) drawBoxplot();
     }
+  });
 
-    function processScatterImportedRows(rows){
-      console.debug('processScatterImportedRows called', rows);
-      if(!rows || !rows.length){ console.debug('processScatterImportedRows empty'); return; }
-      rows=rows.filter(r=>r && r.some(c=>c!==null && c!==undefined && String(c).trim()!==''));
-      if(!rows.length){ console.debug('processScatterImportedRows no usable rows'); return; }
-      const colCount=Math.max(...rows.map(r=>r.length));
-      const targetCols=Math.max(DEFAULT_COLS,colCount);
-      rows=rows.map(r=>{const row=Array.from(r); while(row.length<targetCols) row.push(''); return row;});
-      let headerRow=new Array(targetCols).fill('');
-      const firstRow=rows[0]||[];
-      const hasHeader=firstRow.some(c=>String(c).trim() && isNaN(Number(c))) &&
-                      firstRow.every(c=>!String(c).trim() || isNaN(Number(c)));
-      console.debug('scatter header detection',{firstRow,hasHeader});
-      if(hasHeader){ headerRow=firstRow.map(v=>String(v)); rows=rows.slice(1); }
-      const dataRows=[headerRow,...rows];
-      const targetRows=Math.max(DEFAULT_ROWS,dataRows.length);
-      while(dataRows.length<targetRows){ dataRows.push(new Array(targetCols).fill('')); }
-      scatterHot.updateSettings({data:dataRows,minRows:targetRows,minCols:targetCols});
-      console.debug('scatterHot.updateSettings from import',{cols:targetCols,rows:targetRows,hasHeader});
-      renderScatterStatsControls();
-      drawScatter();
-    }
-
-        const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode');
-      console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value,showGrid:boxShowGrid.checked,logScale:boxLogScale.checked,graphType:boxGraphType.value,pointMode:boxPointMode.value});
-      boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; console.debug('boxFontSize changed', boxFontSize.value); });
-      boxShowGrid.addEventListener('change',()=>{ console.debug('boxShowGrid toggled', boxShowGrid.checked); drawBoxplot(); });
-      boxLogScale.addEventListener('change',()=>{ console.debug('boxLogScale toggled', boxLogScale.checked); drawBoxplot(); });
-      boxGraphType.addEventListener('change',()=>{ console.debug('boxGraphType changed', boxGraphType.value); drawBoxplot(); });
-      boxPointMode.addEventListener('change',()=>{ console.debug('boxPointMode changed', boxPointMode.value); drawBoxplot(); });
-
-      const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterPointSize=$('#scatterPointSize'), scatterPointSizeVal=$('#scatterPointSizeVal'), scatterShowGrid=$('#scatterShowGrid'), scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
-      console.debug('Scatter appearance controls initialized',{fill:scatterFill.value,border:scatterBorder.value,pointSize:scatterPointSize.value,showGrid:scatterShowGrid.checked,fontSize:scatterFontSize.value});
-      scatterPointSize.addEventListener('input',()=>{ scatterPointSizeVal.textContent=scatterPointSize.value; console.debug('scatterPointSize changed', scatterPointSize.value); drawScatter(); });
-      scatterShowGrid.addEventListener('change',()=>{ console.debug('scatterShowGrid toggled', scatterShowGrid.checked); drawScatter(); });
-      scatterFontSize.addEventListener('input',()=>{ scatterFontSizeVal.textContent=scatterFontSize.value; console.debug('scatterFontSize changed', scatterFontSize.value); drawScatter(); });
-      scatterFill.addEventListener('input', drawScatter);
-      scatterBorder.addEventListener('input', drawScatter);
-
-
-        // --- improved resizers for separate X / Y resizing ---
-	const boxPlotDiv = document.getElementById('boxPlot');
-	const boxContainer = boxPlotDiv.closest('.svgbox') || boxPlotDiv.parentElement;
-
-
-	(function initBoxResizers(){
-	  if(!boxContainer) {
-		console.debug('No svgbox container found — skipping resizer init');
-		return;
-	  }
-
-	  const MIN_W = 50; // allow smaller sizes; change if you want a different minimum
-	  const MIN_H = 40;
-
-	  // helper to format px and read numeric px values
-	  function px(n){ return Math.round(n) + 'px'; }
-	  function getNumPx(v){ return v ? parseFloat(String(v).replace('px','')) : 0; }
-
-	  // find handles
-	  const vHandle = boxContainer.querySelector('.resizer-vertical');
-	  const hHandle = boxContainer.querySelector('.resizer-horizontal');
-	  const cHandle = boxContainer.querySelector('.resizer-corner');
-
-	  // core drag logic: axis = 'x' | 'y' | 'both'
-	  function attachDrag(handle, axis){
-		if(!handle) return;
-
-		let startX=0, startY=0, startW=0, startH=0, pointerId=null;
-
-		const onPointerDown = (e) => {
-		  e.preventDefault();
-		  pointerId = e.pointerId;
-		  try { handle.setPointerCapture(pointerId); } catch(_) {}
-
-		  // Use computed size to get current real width/height
-		  const rect = boxContainer.getBoundingClientRect();
-		  startW = Math.round(rect.width);
-		  startH = Math.round(rect.height);
-		  startX = e.clientX;
-		  startY = e.clientY;
-
-		  // Lock layout so inline width/height change is honored
-		  boxContainer.style.boxSizing = 'border-box';
-		  boxContainer.style.width = px(startW);
-		  boxContainer.style.height = px(startH);
-		  // prevent flex from overriding our explicit width/height
-		  boxContainer.style.flex = '0 0 auto';
-		  boxContainer.style.maxWidth = 'none';
-		  boxContainer.style.maxHeight = 'none';
-
-		  document.documentElement.style.userSelect = 'none';
-		  document.documentElement.style.touchAction = 'none';
-		  console.debug('resizer pointerdown', { axis, startW, startH });
-
-		  const onPointerMove = (ev) => {
-			ev.preventDefault();
-			const dx = ev.clientX - startX;
-			const dy = ev.clientY - startY;
-			if(axis === 'x' || axis === 'both'){
-			  let newW = Math.max(MIN_W, Math.round(startW + dx));
-			  boxContainer.style.width = px(newW);
-			}
-			if(axis === 'y' || axis === 'both'){
-			  let newH = Math.max(MIN_H, Math.round(startH + dy));
-			  boxContainer.style.height = px(newH);
-			}
-			// do not call drawBoxplot on every move by default (keeps dragging smooth)
-		  };
-
-		  const onPointerUp = (ev) => {
-			try { handle.releasePointerCapture(pointerId); } catch(_) {}
-			document.removeEventListener('pointermove', onPointerMove);
-			document.removeEventListener('pointerup', onPointerUp);
-			document.documentElement.style.userSelect = '';
-			document.documentElement.style.touchAction = '';
-
-			// Final redraw once drag completes
-			try {
-			  drawBoxplot();
-			  console.debug('resizer pointerup - drawBoxplot called', {
-				w: boxContainer.clientWidth,
-				h: boxContainer.clientHeight
-			  });
-			} catch (err) {
-			  console.error('drawBoxplot error after resize', err);
-			}
-		  };
-
-		  document.addEventListener('pointermove', onPointerMove);
-		  document.addEventListener('pointerup', onPointerUp);
-		};
-
-		handle.addEventListener('pointerdown', onPointerDown);
-
-		// double click resets to default size
-		handle.addEventListener('dblclick', (ev) => {
-		  ev.preventDefault();
-		  boxContainer.style.width = '640px';
-		  boxContainer.style.height = '420px';
-		  // preserve fixed sizing after reset so subsequent drags work predictably
-		  boxContainer.style.flex = '0 0 auto';
-		  drawBoxplot();
-		  console.debug('resizer doubleclick - reset size and redraw');
-		});
-	  }
-
-	  attachDrag(vHandle, 'x');
-	  attachDrag(hHandle, 'y');
-	  attachDrag(cHandle, 'both');
-
-	  // Keep resize observer to catch external changes (CSS / window layout) and redraw
-	  const boxResizeObserver = new ResizeObserver(() => {
-		try {
-		  drawBoxplot();
-		  console.debug('boxPlot redrawn on container resize', {
-			w: boxContainer.clientWidth,
-			h: boxContainer.clientHeight
-		  });
-		} catch (e) {
-		  console.error('boxPlot resize redraw error', e);
-		}
-	  });
-        boxResizeObserver.observe(boxContainer);
-        console.debug('Resizer init complete and ResizeObserver attached to svgbox container');
-      })();
-
-    (function initPanelResizer(){
-      if(!panelResizer||!tablePanel||!graphPanel){
-        console.debug('panel resizer init skipped',{panelResizer,tablePanel,graphPanel});
-        return;
-      }
-      panelResizer.addEventListener('pointerdown',e=>{
-        e.preventDefault();
-        const startX=e.clientX;
-        const startTable=tablePanel.getBoundingClientRect().width;
-        const startGraph=graphPanel.getBoundingClientRect().width;
-        const total=startTable+startGraph;
-        console.debug('panelResizer pointerdown',{startX,startTable,startGraph});
-        function onMove(ev){
-          const dx=ev.clientX-startX;
-          let newTable=Math.max(150,Math.min(total/2,startTable+dx));
-          let newGraph=total-newTable;
-          tablePanel.style.flex=`0 0 ${newTable}px`;
-          graphPanel.style.flex=`0 0 ${newGraph}px`;
-          syncBoxWidths();
-          console.debug('panelResizer move',{dx,newTable,newGraph});
-        }
-        function onUp(){
-          document.removeEventListener('pointermove',onMove);
-          document.removeEventListener('pointerup',onUp);
-          console.debug('panelResizer pointerup');
-        }
-        document.addEventListener('pointermove',onMove);
-        document.addEventListener('pointerup',onUp);
-      });
-    console.debug('panel resizer initialized');
-    })();
-
-    const scatterPlotDiv = document.getElementById('scatterPlot');
-    const scatterContainer = scatterPlotDiv.closest('.svgbox') || scatterPlotDiv.parentElement;
-
-    (function initScatterResizers(){
-      if(!scatterContainer){
-        console.debug('No scatter svgbox container found — skipping resizer init');
-        return;
-      }
-      const MIN_W=50, MIN_H=40;
-      function px(n){ return Math.round(n)+'px'; }
-      const vHandle=scatterContainer.querySelector('.resizer-vertical');
-      const hHandle=scatterContainer.querySelector('.resizer-horizontal');
-      const cHandle=scatterContainer.querySelector('.resizer-corner');
-      function attachDrag(handle,axis){
-        if(!handle) return;
-        let startX=0,startY=0,startW=0,startH=0,pointerId=null;
-        const onPointerDown=e=>{
-          e.preventDefault();
-          pointerId=e.pointerId;
-          try{handle.setPointerCapture(pointerId);}catch(_){ }
-          const rect=scatterContainer.getBoundingClientRect();
-          startW=Math.round(rect.width); startH=Math.round(rect.height);
-          startX=e.clientX; startY=e.clientY;
-          scatterContainer.style.boxSizing='border-box';
-          scatterContainer.style.width=px(startW);
-          scatterContainer.style.height=px(startH);
-          scatterContainer.style.flex='0 0 auto';
-          scatterContainer.style.maxWidth='none';
-          scatterContainer.style.maxHeight='none';
-          document.documentElement.style.userSelect='none';
-          document.documentElement.style.touchAction='none';
-          console.debug('scatter resizer pointerdown',{axis,startW,startH});
-          const onPointerMove=ev=>{
-            ev.preventDefault();
-            const dx=ev.clientX-startX;
-            const dy=ev.clientY-startY;
-            if(axis==='x'||axis==='both'){
-              let newW=Math.max(MIN_W,Math.round(startW+dx));
-              scatterContainer.style.width=px(newW);
-            }
-            if(axis==='y'||axis==='both'){
-              let newH=Math.max(MIN_H,Math.round(startH+dy));
-              scatterContainer.style.height=px(newH);
-            }
-          };
-          const onPointerUp=ev=>{
-            try{handle.releasePointerCapture(pointerId);}catch(_){ }
-            document.removeEventListener('pointermove',onPointerMove);
-            document.removeEventListener('pointerup',onPointerUp);
-            document.documentElement.style.userSelect='';
-            document.documentElement.style.touchAction='';
-            try{ drawScatter(); console.debug('scatter resizer pointerup redraw',{w:scatterContainer.clientWidth,h:scatterContainer.clientHeight}); }catch(err){ console.error('drawScatter error after resize',err); }
-          };
-          document.addEventListener('pointermove',onPointerMove);
-          document.addEventListener('pointerup',onPointerUp);
-        };
-        handle.addEventListener('pointerdown',onPointerDown);
-        handle.addEventListener('dblclick',ev=>{
-          ev.preventDefault();
-          scatterContainer.style.width='640px';
-          scatterContainer.style.height='420px';
-          scatterContainer.style.flex='0 0 auto';
-          drawScatter();
-          console.debug('scatter resizer doubleclick reset');
-        });
-      }
-      attachDrag(vHandle,'x');
-      attachDrag(hHandle,'y');
-      attachDrag(cHandle,'both');
-      const scatterResizeObserver=new ResizeObserver(()=>{
+  const loadExampleBtn=$('#boxLoadExample'), importBtn=$('#boxImport'), fileInput=$('#boxFile');
+  const exampleData=[
+    ['Group 1','Group 2','Group 3'],
+    [5,7,6],
+    [6,5,7],
+    [7,8,9],
+    [4,3,5],
+    [6,7,8]
+  ];
+  loadExampleBtn.addEventListener('click',()=>{
+    selectedCols.clear();
+    hot.loadData(exampleData);
+    drawBoxplot();
+  });
+  importBtn.addEventListener('click',()=>{
+    fileInput.value='';
+    fileInput.click();
+  });
+  fileInput.addEventListener('change',e=>{
+    const file=e.target.files[0];
+    if(!file) return;
+    const ext=file.name.split('.').pop().toLowerCase();
+    const reader=new FileReader();
+    if(['csv','tsv','txt'].includes(ext)){
+      reader.onload=ev=>{
+        const text=ev.target.result;
+        const delim=ext==='csv'?',':'\t';
+        let rows=text.split(/\r?\n/).map(r=>r.split(delim));
+        processImportedRows(rows);
+      };
+      reader.readAsText(file);
+    }else if(['xls','xlsx','ods','odg'].includes(ext)){
+      reader.onload=async ev=>{
         try{
-          drawScatter();
-          console.debug('scatterPlot redrawn on container resize',{w:scatterContainer.clientWidth,h:scatterContainer.clientHeight});
-        }catch(e){
-          console.error('scatterPlot resize redraw error',e);
+          if(!window.XLSX){
+            await new Promise((resolve,reject)=>{
+              const s=document.createElement('script');
+              s.src='libs/xlsx.full.min.js';
+              s.onload=()=>resolve();
+              s.onerror=err=>reject(new Error('Failed to load XLSX script'));
+              document.head.appendChild(s);
+            });
+          }
+          if(!window.XLSX) throw new Error('XLSX library unavailable');
+          const data=new Uint8Array(ev.target.result);
+          const workbook=XLSX.read(data,{type:'array'});
+          const sheet=workbook.Sheets[workbook.SheetNames[0]];
+          let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+          processImportedRows(rows);
+        }catch(err){
+          alert('Failed to import spreadsheet: '+err.message);
         }
-      });
-      scatterResizeObserver.observe(scatterContainer);
-      console.debug('Scatter resizer init complete');
-    })();
+      };
+      reader.readAsArrayBuffer(file);
+    }else{
+      alert('Unsupported file format: '+ext);
+    }
+  });
 
-    (function initScatterPanelResizer(){
-      if(!scatterPanelResizer||!scatterTablePanel||!scatterGraphPanel){
-        console.debug('scatter panel resizer init skipped',{scatterPanelResizer,scatterTablePanel,scatterGraphPanel});
-        return;
-      }
-      scatterPanelResizer.addEventListener('pointerdown',e=>{
+  function processImportedRows(rows){
+    if(!rows || !rows.length) return;
+    rows=rows.filter(r=>r && r.some(c=>c!==null && c!==undefined && String(c).trim()!==''));
+    if(!rows.length) return;
+    const colCount=Math.max(...rows.map(r=>r.length));
+    const targetCols=Math.max(DEFAULT_COLS,colCount);
+    rows=rows.map(r=>{const row=Array.from(r); while(row.length<targetCols) row.push(''); return row;});
+    let headerRow=new Array(targetCols).fill('');
+    const firstRow=rows[0]||[];
+    const hasHeader=firstRow.some(c=>String(c).trim() && isNaN(Number(c))) &&
+                    firstRow.every(c=>!String(c).trim() || isNaN(Number(c)));
+    if(hasHeader){ headerRow=firstRow.map(v=>String(v)); rows=rows.slice(1); }
+    const dataRows=[headerRow,...rows];
+    const targetRows=Math.max(DEFAULT_ROWS,dataRows.length);
+    while(dataRows.length<targetRows){ dataRows.push(new Array(targetCols).fill('')); }
+    selectedCols.clear();
+    hot.updateSettings({data:dataRows,minRows:targetRows,minCols:targetCols});
+    drawBoxplot();
+  }
+
+  const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode');
+  boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; });
+  boxShowGrid.addEventListener('change',()=>{ drawBoxplot(); });
+  boxLogScale.addEventListener('change',()=>{ drawBoxplot(); });
+  boxGraphType.addEventListener('change',()=>{ drawBoxplot(); });
+  boxPointMode.addEventListener('change',()=>{ drawBoxplot(); });
+
+  const boxPlotDiv = document.getElementById('boxPlot');
+  const boxContainer = boxPlotDiv.closest('.svgbox') || boxPlotDiv.parentElement;
+  (function initBoxResizers(){
+    if(!boxContainer) return;
+    const MIN_W = 50;
+    const MIN_H = 40;
+    function px(n){ return Math.round(n) + 'px'; }
+    function getNumPx(v){ return v ? parseFloat(String(v).replace('px','')) : 0; }
+    const vHandle = boxContainer.querySelector('.resizer-vertical');
+    const hHandle = boxContainer.querySelector('.resizer-horizontal');
+    const cHandle = boxContainer.querySelector('.resizer-corner');
+    function attachDrag(handle, axis){
+      if(!handle) return;
+      let startX=0, startY=0, startW=0, startH=0, pointerId=null;
+      const onPointerDown = (e) => {
         e.preventDefault();
-        const startX=e.clientX;
-        const startTable=scatterTablePanel.getBoundingClientRect().width;
-        const startGraph=scatterGraphPanel.getBoundingClientRect().width;
-        const total=startTable+startGraph;
-        console.debug('scatter panelResizer pointerdown',{startX,startTable,startGraph});
-        function onMove(ev){
-          const dx=ev.clientX-startX;
-          let newTable=Math.max(150,Math.min(total/2,startTable+dx));
-          let newGraph=total-newTable;
-          scatterTablePanel.style.flex=`0 0 ${newTable}px`;
-          scatterGraphPanel.style.flex=`0 0 ${newGraph}px`;
-          syncScatterWidths();
-          console.debug('scatter panelResizer move',{dx,newTable,newGraph});
-        }
-        function onUp(){
-          document.removeEventListener('pointermove',onMove);
-          document.removeEventListener('pointerup',onUp);
-          console.debug('scatter panelResizer pointerup');
-        }
-        document.addEventListener('pointermove',onMove);
-        document.addEventListener('pointerup',onUp);
+        pointerId = e.pointerId;
+        try { handle.setPointerCapture(pointerId); } catch(_) {}
+        const rect = boxContainer.getBoundingClientRect();
+        startW = Math.round(rect.width);
+        startH = Math.round(rect.height);
+        startX = e.clientX;
+        startY = e.clientY;
+        boxContainer.style.boxSizing = 'border-box';
+        boxContainer.style.width = px(startW);
+        boxContainer.style.height = px(startH);
+        boxContainer.style.flex = '0 0 auto';
+        boxContainer.style.maxWidth = 'none';
+        boxContainer.style.maxHeight = 'none';
+        document.documentElement.style.userSelect = 'none';
+        document.documentElement.style.touchAction = 'none';
+        const onPointerMove = (ev) => {
+          ev.preventDefault();
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+          if(axis === 'x' || axis === 'both'){
+            let newW = Math.max(MIN_W, Math.round(startW + dx));
+            boxContainer.style.width = px(newW);
+          }
+          if(axis === 'y' || axis === 'both'){
+            let newH = Math.max(MIN_H, Math.round(startH + dy));
+            boxContainer.style.height = px(newH);
+          }
+        };
+        const onPointerUp = (ev) => {
+          try { handle.releasePointerCapture(pointerId); } catch(_) {}
+          document.removeEventListener('pointermove', onPointerMove);
+          document.removeEventListener('pointerup', onPointerUp);
+          document.documentElement.style.userSelect = '';
+          document.documentElement.style.touchAction = '';
+          drawBoxplot();
+        };
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp);
+      };
+      handle.addEventListener('pointerdown', onPointerDown);
+      handle.addEventListener('dblclick', (ev) => {
+        ev.preventDefault();
+        boxContainer.style.width = '640px';
+        boxContainer.style.height = '420px';
+        boxContainer.style.flex = '0 0 auto';
+        drawBoxplot();
       });
-      console.debug('scatter panel resizer initialized');
-    })();
-    function updateScatterLabelsFromHeaders(){
-      const headers=scatterHot.getDataAtRow(0);
-      scatterXLabelText=headers[scatterXCol] || scatterColHeaders[scatterXCol] || `Col ${scatterXCol+1}`;
-      scatterYLabelText=headers[scatterYCol] || scatterColHeaders[scatterYCol] || `Col ${scatterYCol+1}`;
-      console.debug('updateScatterLabelsFromHeaders',{scatterXLabelText,scatterYLabelText});
     }
+    attachDrag(vHandle, 'x');
+    attachDrag(hHandle, 'y');
+    attachDrag(cHandle, 'both');
+    const boxResizeObserver = new ResizeObserver(() => {
+      drawBoxplot();
+    });
+    boxResizeObserver.observe(boxContainer);
+  })();
 
-    function renderScatterStatsControls(){
-      console.debug('renderScatterStatsControls called');
-      const controls=document.getElementById('scatterStatsControls');
-      controls.innerHTML='';
-      const cols=scatterHot.countCols();
-      const header=scatterHot.getDataAtRow(0);
-      const names=Array.from({length:cols},(_,i)=>header[i]||scatterColHeaders[i]||`Col ${i+1}`);
-      const testLabel=document.createElement('label');
-      testLabel.textContent='Test:';
-      const testSel=document.createElement('select');
-      ['parametric','nonparametric'].forEach(v=>{
-        const o=document.createElement('option');
-        o.value=v; o.textContent=v==='parametric'?'Parametric':'Non-parametric';
-        if(scatterStatsTest===v) o.selected=true;
-        testSel.appendChild(o);
-      });
-      testSel.addEventListener('change',()=>{scatterStatsTest=testSel.value; console.debug('scatterStatsTest changed',scatterStatsTest); drawScatter();});
-      controls.appendChild(testLabel);
-      controls.appendChild(testSel);
-      const xLabel=document.createElement('label'); xLabel.textContent='X:';
-      const xSel=document.createElement('select');
-      names.forEach((n,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=n; if(i===scatterXCol) o.selected=true; xSel.appendChild(o); });
-      xSel.addEventListener('change',()=>{scatterXCol=+xSel.value; updateScatterLabelsFromHeaders(); console.debug('scatterXCol changed',scatterXCol); drawScatter();});
-      controls.appendChild(xLabel); controls.appendChild(xSel);
-      const yLabel=document.createElement('label'); yLabel.textContent='Y:';
-      const ySel=document.createElement('select');
-      names.forEach((n,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=n; if(i===scatterYCol) o.selected=true; ySel.appendChild(o); });
-      ySel.addEventListener('change',()=>{scatterYCol=+ySel.value; updateScatterLabelsFromHeaders(); console.debug('scatterYCol changed',scatterYCol); drawScatter();});
-      controls.appendChild(yLabel); controls.appendChild(ySel);
-      updateScatterLabelsFromHeaders();
-    }
+  (function initPanelResizer(){
+    if(!panelResizer||!tablePanel||!graphPanel) return;
+    panelResizer.addEventListener('pointerdown',e=>{
+      e.preventDefault();
+      const startX=e.clientX;
+      const startTable=tablePanel.getBoundingClientRect().width;
+      const startGraph=graphPanel.getBoundingClientRect().width;
+      const total=startTable+startGraph;
+      function onMove(ev){
+        const dx=ev.clientX-startX;
+        let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+        let newGraph=total-newTable;
+        tablePanel.style.flex=`0 0 ${newTable}px`;
+        graphPanel.style.flex=`0 0 ${newGraph}px`;
+        syncBoxWidths();
+      }
+      function onUp(){
+        document.removeEventListener('pointermove',onMove);
+        document.removeEventListener('pointerup',onUp);
+      }
+      document.addEventListener('pointermove',onMove);
+      document.addEventListener('pointerup',onUp);
+    });
+  })();
 
-    function drawScatter(){
-      console.debug('drawScatter called');
-      const data=scatterHot.getData();
-      const xs=[], ys=[];
-      for(let r=1;r<data.length;r++){
-        const xv=parseFloat(data[r][scatterXCol]);
-        const yv=parseFloat(data[r][scatterYCol]);
-        if(!isNaN(xv)&&!isNaN(yv)){
-          xs.push(xv); ys.push(yv);
-        }
-      }
-      const plotDiv=document.getElementById('scatterPlot');
-      while(plotDiv.firstChild) plotDiv.removeChild(plotDiv.firstChild);
-      const W=Math.max(50,Math.floor(plotDiv.clientWidth||50));
-      const H=Math.max(40,Math.floor(plotDiv.clientHeight||40));
-      const svg=document.createElementNS(NS,'svg');
-      svg.setAttribute('id','scatterSvg');
-      svg.setAttribute('width',W); svg.setAttribute('height',H);
-      svg.setAttribute('font-family','sans-serif');
-      const resDiv=document.getElementById('scatterStatsResults');
-      resDiv.textContent='';
-      if(xs.length===0){
-        plotDiv.appendChild(svg);
-        resDiv.textContent='No data';
-        console.debug('drawScatter no data');
-        return;
-      }
-      const margin={left:50,right:20,top:40,bottom:50};
-      const plotW=W-margin.left-margin.right;
-      const plotH=H-margin.top-margin.bottom;
-      const minX=Math.min(...xs), maxX=Math.max(...xs);
-      const minY=Math.min(...ys), maxY=Math.max(...ys);
-      const x2px=x=>margin.left+((x-minX)/(maxX-minX||1))*plotW;
-      const y2px=y=>margin.top+plotH-((y-minY)/(maxY-minY||1))*plotH;
-      const showGrid=document.getElementById('scatterShowGrid').checked;
-      const fontSize=parseInt(document.getElementById('scatterFontSize').value,10);
-      const gGrid=document.createElementNS(NS,'g');
-      if(showGrid){
-        const xTicks=5, yTicks=5;
-        for(let i=0;i<=xTicks;i++){
-          const x=minX+(i*(maxX-minX)/xTicks);
-          const px=x2px(x);
-          const line=document.createElementNS(NS,'line');
-          line.setAttribute('x1',px); line.setAttribute('x2',px);
-          line.setAttribute('y1',margin.top); line.setAttribute('y2',margin.top+plotH);
-          line.setAttribute('stroke','#ddd');
-          gGrid.appendChild(line);
-          const txt=document.createElementNS(NS,'text');
-          txt.setAttribute('x',px); txt.setAttribute('y',margin.top+plotH+15);
-          txt.setAttribute('text-anchor','middle');
-          txt.setAttribute('font-size',fontSize*0.8);
-          txt.textContent=x.toFixed(2);
-          svg.appendChild(txt);
-        }
-        for(let i=0;i<=yTicks;i++){
-          const y=minY+(i*(maxY-minY)/yTicks);
-          const py=y2px(y);
-          const line=document.createElementNS(NS,'line');
-          line.setAttribute('x1',margin.left); line.setAttribute('x2',margin.left+plotW);
-          line.setAttribute('y1',py); line.setAttribute('y2',py);
-          line.setAttribute('stroke','#ddd');
-          gGrid.appendChild(line);
-          const txt=document.createElementNS(NS,'text');
-          txt.setAttribute('x',margin.left-8); txt.setAttribute('y',py+4);
-          txt.setAttribute('text-anchor','end');
-          txt.setAttribute('font-size',fontSize*0.8);
-          txt.textContent=y.toFixed(2);
-          svg.appendChild(txt);
-        }
-      }
-      svg.appendChild(gGrid);
-      const xAxis=document.createElementNS(NS,'line');
-      xAxis.setAttribute('x1',margin.left); xAxis.setAttribute('x2',margin.left+plotW);
-      xAxis.setAttribute('y1',margin.top+plotH); xAxis.setAttribute('y2',margin.top+plotH);
-      xAxis.setAttribute('stroke','#000'); svg.appendChild(xAxis);
-      const yAxis=document.createElementNS(NS,'line');
-      yAxis.setAttribute('x1',margin.left); yAxis.setAttribute('x2',margin.left);
-      yAxis.setAttribute('y1',margin.top); yAxis.setAttribute('y2',margin.top+plotH);
-      yAxis.setAttribute('stroke','#000'); svg.appendChild(yAxis);
-      const fill=document.getElementById('scatterFill').value;
-      const border=document.getElementById('scatterBorder').value;
-      const r=parseInt(document.getElementById('scatterPointSize').value,10);
-      xs.forEach((x,i)=>{
-        const y=ys[i];
-        const c=document.createElementNS(NS,'circle');
-        c.setAttribute('cx',x2px(x));
-        c.setAttribute('cy',y2px(y));
-        c.setAttribute('r',r);
-        c.setAttribute('fill',fill);
-        c.setAttribute('stroke',border);
-        svg.appendChild(c);
-      });
-      const title=document.createElementNS(NS,'text');
-      title.setAttribute('x',margin.left+plotW/2);
-      title.setAttribute('y',margin.top/2);
-      title.setAttribute('text-anchor','middle');
-      title.setAttribute('font-size',fontSize*1.2);
-      title.textContent=scatterTitleText;
-      makeEditable(title,txt=>{scatterTitleText=txt; console.debug('scatterTitleText updated',scatterTitleText);});
-      svg.appendChild(title);
-      const xText=document.createElementNS(NS,'text');
-      xText.setAttribute('x',margin.left+plotW/2);
-      xText.setAttribute('y',H-5);
-      xText.setAttribute('text-anchor','middle');
-      xText.textContent=scatterXLabelText;
-      makeEditable(xText,txt=>{scatterXLabelText=txt; console.debug('scatterXLabelText updated',scatterXLabelText);});
-      svg.appendChild(xText);
-      const yText=document.createElementNS(NS,'text');
-      yText.setAttribute('transform',`translate(15 ${margin.top+plotH/2}) rotate(-90)`);
-      yText.setAttribute('text-anchor','middle');
-      yText.textContent=scatterYLabelText;
-      makeEditable(yText,txt=>{scatterYLabelText=txt; console.debug('scatterYLabelText updated',scatterYLabelText);});
-      svg.appendChild(yText);
-      plotDiv.appendChild(svg);
-      if(xs.length>1){
-        if(scatterStatsTest==='parametric'){
-          const rVal=jStat.corrcoeff(xs,ys);
-          const t=rVal*Math.sqrt((xs.length-2)/(1-rVal*rVal));
-          const p=2*(1-jStat.studentt.cdf(Math.abs(t),xs.length-2));
-          resDiv.textContent=`Pearson r=${rVal.toFixed(3)}, p=${p.toExponential(3)}`;
-          console.debug('Pearson correlation',{r:rVal,p});
-        }else{
-          const rho=jStat.spearmancoeff(xs,ys);
-          const t=rho*Math.sqrt((xs.length-2)/(1-rho*rho));
-          const p=2*(1-jStat.studentt.cdf(Math.abs(t),xs.length-2));
-          resDiv.textContent=`Spearman ρ=${rho.toFixed(3)}, p=${p.toExponential(3)}`;
-          console.debug('Spearman correlation',{rho,p});
-        }
-      }else{
-        resDiv.textContent='Not enough data';
-        console.debug('scatter correlation skipped: insufficient data');
-      }
-    }
-
-    console.debug('ResizeObserver attached to boxPlot');
   Chart.defaults.locale='en-US';
-  console.debug('Chart.js default locale set', Chart.defaults.locale);
-  console.debug('App initialized');
   const inputs = {
     A: $('#listA'), B: $('#listB'), C: $('#listC'),
     labelA: $('#labelA'), labelB: $('#labelB'), labelC: $('#labelC'),
@@ -1366,20 +648,8 @@
   };
   const goOptsBtn=$('#goOptsBtn'), goOptions=$('#goOptions'), goUseAllBackground=$('#goUseAllBackground');
   const goCategoryChecks=[...document.querySelectorAll('.goCategory')];
-  console.debug('GO category checkboxes initialized', goCategoryChecks.map(cb=>({value:cb.value, checked:cb.checked})));
   const stringOptsBtn=$('#stringOptsBtn'), stringOptions=$('#stringOptions');
-  console.debug('analysis option elements initialized', {goOptsBtn, stringOptsBtn});
-  console.debug('option buttons computed font sizes', getComputedStyle(goOptsBtn).fontSize, getComputedStyle(stringOptsBtn).fontSize);
-  console.debug('inputs initialized', {
-    colorA: inputs.colorA.value,
-    colorB: inputs.colorB.value,
-    colorC: inputs.colorC.value,
-    opacity: inputs.opacity.value,
-    borderColor: inputs.borderColor.value
-  });
-  console.debug('fieldsets configured', document.querySelectorAll('.config-options fieldset').length);
   function handlePlainPaste(e){
-    console.debug('handlePlainPaste triggered', e.target.id);
     e.preventDefault();
     const text=(e.clipboardData||window.clipboardData).getData('text/plain').replace(/\r/g,'').replace(/\u00A0/g,' ');
     document.execCommand('insertText', false, text);
@@ -1389,7 +659,6 @@
   function loadStylePrefs(){
     try{
       const saved=JSON.parse(localStorage.getItem(STYLE_KEY));
-      console.debug('loadStylePrefs', saved);
       if(saved){
         if(saved.colorA) inputs.colorA.value=saved.colorA;
         if(saved.colorB) inputs.colorB.value=saved.colorB;
@@ -1402,7 +671,7 @@
       inputs.opacityVal.textContent=inputs.opacity.value;
       inputs.fontsizeVal.textContent=inputs.fontsize.value;
       inputs.borderWidthVal.textContent=inputs.borderWidth.value;
-    }catch(err){ console.error('loadStylePrefs error', err); }
+    }catch(err){}
   }
   function saveStylePrefs(){
     const prefs={
@@ -1414,53 +683,40 @@
       borderColor: inputs.borderColor.value,
       borderWidth: inputs.borderWidth.value
     };
-    console.debug('saveStylePrefs', prefs);
     try{ localStorage.setItem(STYLE_KEY, JSON.stringify(prefs)); }
-    catch(err){ console.error('saveStylePrefs error', err); }
+    catch(err){}
   }
   loadStylePrefs();
-  inputs.opacity.addEventListener('input',()=>{ inputs.opacityVal.textContent=inputs.opacity.value; console.debug('opacity changed', inputs.opacity.value); refreshDiagram(); saveStylePrefs(); });
-  inputs.fontsize.addEventListener('input',()=>{ inputs.fontsizeVal.textContent=inputs.fontsize.value; console.debug('fontsize changed', inputs.fontsize.value); refreshDiagram(); saveStylePrefs(); });
+  inputs.opacity.addEventListener('input',()=>{ inputs.opacityVal.textContent=inputs.opacity.value; refreshDiagram(); saveStylePrefs(); });
+  inputs.fontsize.addEventListener('input',()=>{ inputs.fontsizeVal.textContent=inputs.fontsize.value; refreshDiagram(); saveStylePrefs(); });
   ['colorA','colorB','colorC'].forEach(id=>{
-    inputs[id].addEventListener('input',e=>{ console.debug('color changed', id, e.target.value); refreshDiagram(); saveStylePrefs(); });
+    inputs[id].addEventListener('input',e=>{ refreshDiagram(); saveStylePrefs(); });
   });
   ['labelA','labelB','labelC'].forEach(id=>{
     inputs[id].addEventListener('input',()=>{
       const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
-      console.debug('label changed', labels);
       updateColorLabels(labels);
       updateRegionSelect(labels);
       updateCountLabels(labels);
     });
   });
   updateColorLabels({A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'});
-  inputs.borderColor.addEventListener('input',e=>{ console.debug('border color changed', e.target.value); refreshDiagram(); saveStylePrefs(); });
-  inputs.borderWidth.addEventListener('input',()=>{ inputs.borderWidthVal.textContent=inputs.borderWidth.value; console.debug('border width changed', inputs.borderWidth.value); refreshDiagram(); saveStylePrefs(); });
-
+  inputs.borderColor.addEventListener('input',e=>{ refreshDiagram(); saveStylePrefs(); });
+  inputs.borderWidth.addEventListener('input',()=>{ inputs.borderWidthVal.textContent=inputs.borderWidth.value; refreshDiagram(); saveStylePrefs(); });
   function splitItems(text, mode){
     if(mode==='newline'){
-      const parts=text.split(/\r?\n/);
-      console.debug('splitItems newline',parts);
-      return parts;
+      return text.split(/\r?\n/);
     }
     if(mode==='comma'){
-      const parts=text.split(/,/);
-      console.debug('splitItems comma',parts);
-      return parts;
+      return text.split(/,/);
     }
     if(mode==='tab'){
-      const parts=text.split(/\t/);
-      console.debug('splitItems tab',parts);
-      return parts;
+      return text.split(/\t/);
     }
     if(mode==='space'){
-      const parts=text.split(/\s+/);
-      console.debug('splitItems space',parts);
-      return parts;
+      return text.split(/\s+/);
     }
-    const parts=text.split(/[\r\n,\t;\s]+/);
-    console.debug('splitItems auto',parts);
-    return parts;
+    return text.split(/[\r\n,\t;\s]+/);
   }
   function parseList(raw, cs, mode){
     const arr = splitItems(raw.trim(), mode).map(s=>s.trim()).filter(Boolean);
@@ -1472,11 +728,9 @@
         out.push({key,val:x});
       }
     }
-    console.debug('parseList', {raw, mode, out});
     return out;
   }
   function setsFromLists(listA, listB, listC){
-    console.debug('setsFromLists input', {listA, listB, listC});
     const mapA=new Map(listA.map(o=>[o.key,o.val]));
     const mapB=new Map(listB.map(o=>[o.key,o.val]));
     const mapC=new Map(listC.map(o=>[o.key,o.val]));
@@ -1504,7 +758,6 @@
       BC:mapVal(BCk,mapB),
       ABC:mapVal(ABCk,mapA)
     };
-    console.debug('setsFromLists result', res);
     return res;
   }
   function circleIntersectionArea(r1,r2,d){
@@ -1541,13 +794,10 @@
     window.addEventListener('mousemove',e=>{ if(!drag) return; const pt=stage.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; const loc=pt.matrixTransform(stage.getScreenCTM().inverse()); el.setAttribute('x',String(orig.x+(loc.x-start.x))); el.setAttribute('y',String(orig.y+(loc.y-start.y))); });
     window.addEventListener('mouseup',()=>drag=false);
   }
-
-  // ---------- Label placement on circular Venn regions (polylabel over implicit regions)
   function _makeRegionSpec(code, cA, rA, cB, rB, cC, rC, hasC){
     const spec = [];
     const inC  = (ctr,r)=>spec.push({ctr, r, type:'in'});
     const outC = (ctr,r)=>spec.push({ctr, r, type:'out'});
-
     if(code==='A'){ inC(cA,rA); outC(cB,rB); if(hasC) outC(cC,rC); }
     if(code==='B'){ inC(cB,rB); outC(cA,rA); if(hasC) outC(cC,rC); }
     if(code==='C'){ inC(cC,rC); outC(cA,rA); outC(cB,rB); }
@@ -1557,9 +807,6 @@
     if(code==='ABC'){ inC(cA,rA); inC(cB,rB); if(hasC) inC(cC,rC); }
     return spec;
   }
-
-  // Signed distance to the region boundary: positive inside, negative outside.
-  // Margin for an "inside" constraint is (r - dist); for an "outside" constraint is (dist - r).
   function _signedDistToRegion(x, y, spec){
     let minMargin = Infinity;
     for(const c of spec){
@@ -1569,8 +816,6 @@
     }
     return minMargin;
   }
-
-  // Bounding box for search: intersection of the bounding boxes of all "inside" circles.
   function _bboxForSpec(spec){
     const ins = spec.filter(c => c.type === 'in');
     if(!ins.length) return null;
@@ -1583,78 +828,49 @@
     if(b.x1 >= b.x2 || b.y1 >= b.y2) return null;
     return b;
   }
-
-  // Simple priority-queue based "polylabel" over the implicit region
   function _polylabelRegion(spec, bbox, tolerancePx){
-    // A cell is a square defined by center (x,y) and half-size h. max = d + h*sqrt(2)
     function makeCell(x, y, h){
       const d = _signedDistToRegion(x, y, spec);
       return {x, y, h, d, max: d + h*Math.SQRT2};
     }
-
     const width  = bbox.x2 - bbox.x1;
     const height = bbox.y2 - bbox.y1;
     const size   = Math.max(width, height);
     const h0     = size / 2;
-    const nInit  = 4; // 4x4 initial grid
+    const nInit  = 4;
     const step   = size / nInit;
-
-    // Priority queue as array with manual sorting. OK for tiny queues.
     const queue = [];
     function push(c){ queue.push(c); }
     function pop(){ queue.sort((a,b)=>b.max - a.max); return queue.shift(); }
-
-    // Build initial grid
     for(let x = bbox.x1; x < bbox.x2 + 1e-6; x += step){
       for(let y = bbox.y1; y < bbox.y2 + 1e-6; y += step){
         push(makeCell(x + step/2, y + step/2, step/2));
       }
     }
-
-    // Best point starts at bbox center (works even when outside, d will be negative)
     let best = makeCell((bbox.x1+bbox.x2)/2, (bbox.y1+bbox.y2)/2, h0);
     if(best.d < 0){
-      // Try to seed with any inside cell if available
       for(const c of queue){ if(c.d > best.d) best = c; }
     }
-    console.debug('polylabel seed', {bestD: best.d.toFixed(3), step: step.toFixed(2)});
-
     while(queue.length){
       const cell = pop();
       if(cell.d > best.d) best = cell;
-      // If this cell cannot improve beyond current best by more than tolerance, skip subdividing
       if(cell.max - best.d <= tolerancePx) continue;
-      // Subdivide into 4 children
       const h = cell.h / 2;
       push(makeCell(cell.x - h, cell.y - h, h));
       push(makeCell(cell.x + h, cell.y - h, h));
       push(makeCell(cell.x - h, cell.y + h, h));
       push(makeCell(cell.x + h, cell.y + h, h));
     }
-
-    // If best.d is still <= 0 we failed to find an inside center. Fallback to bbox center.
-    if(best.d <= 0){
-      console.debug('polylabel fallback, best.d <= 0', best.d);
-    }else{
-      console.debug('polylabel best inside', {x: best.x, y: best.y, d: best.d.toFixed(3)});
-    }
     return {x: best.x, y: best.y};
   }
-
-  // Entry point: returns pixel coords for the label point of a region code.
   function _findRegionLabelPoint(code, cA, rA, cB, rB, cC, rC, hasC, tolerancePx){
     const spec = _makeRegionSpec(code, cA, rA, cB, rB, cC, rC, hasC);
     const bbox = _bboxForSpec(spec);
-    if(!bbox){
-      console.debug('bboxForSpec returned null for', code);
-      return null;
-    }
+    if(!bbox) return null;
     const tol = Math.max(0.25, tolerancePx||0.5);
     const pt  = _polylabelRegion(spec, bbox, tol);
-    console.debug('region label point', code, pt);
     return pt;
   }
-
   function fitAndDraw(d, style, labels, counts){
     clearSVG();
     const W=500,H=340,pad=20,labelPad=style.fontsize*2;
@@ -1665,19 +881,16 @@
     const scale=Math.min((W-2*pad)/Math.max(1e-6,maxX-minX),(H-2*pad-2*labelPad)/Math.max(1e-6,maxY-minY));
     const tx=(W-scale*(minX+maxX))/2;
     const ty=(H-2*labelPad-scale*(minY+maxY))/2+labelPad;
-    console.debug('fitAndDraw scale', {labelPad,scale,tx,ty});
     function toPx(x,y){ return {x:x*scale+tx,y:y*scale+ty}; }
     const circles=[{id:'A',x:d.Ax,y:d.Ay,r:d.rA,color:style.colorA},{id:'B',x:d.Bx,y:d.By,r:d.rB,color:style.colorB}];
     if(counts.nC>0) circles.push({id:'C',x:d.Cx,y:d.Cy,r:d.rC,color:style.colorC});
-    for(const c of circles){ const p=toPx(c.x,c.y); makeEl('circle',{cx:p.x,cy:p.y,r:c.r*scale,fill:c.color,'fill-opacity':style.opacity,stroke:style.borderColor,'stroke-width':style.borderWidth}); console.debug('circle drawn', c.id); }
+    for(const c of circles){ const p=toPx(c.x,c.y); makeEl('circle',{cx:p.x,cy:p.y,r:c.r*scale,fill:c.color,'fill-opacity':style.opacity,stroke:style.borderColor,'stroke-width':style.borderWidth}); }
     function addText(txt,x,y,regionCode){
       const t=makeEl('text',{x:x,y:y,'font-size':style.fontsize,'text-anchor':'middle',fill:'#333'});
       t.textContent=txt;
       if(regionCode){
         const genes=getRegionText(regionCode).split(/\n/).filter(g=>g);
-        console.debug('tooltip data prepared', regionCode, genes.length);
         t.addEventListener('mouseenter',e=>{
-          console.debug('tooltip show', regionCode);
           tooltip.innerHTML=genes.map(g=>'<div>'+g+'</div>').join('');
           tooltip.style.fontSize='12px';
           tooltip.style.maxHeight='none';
@@ -1697,7 +910,6 @@
           document.body.removeChild(tempSpan);
           const columnGap=12;
           const columnWidth=Math.ceil(longestWidth)+16;
-          console.debug('tooltip column metrics', {longestWidth,columnWidth});
           const maxWidth=window.innerWidth-16, maxHeight=window.innerHeight-16;
           const maxCols=Math.max(1,Math.floor((maxWidth+columnGap)/(columnWidth+columnGap)));
           const maxRows=Math.max(1,Math.floor(maxHeight/lineHeight));
@@ -1710,7 +922,6 @@
           tooltip.style.columnGap=columnGap+'px';
           tooltip.style.width=width+'px';
           tooltip.style.height=height+'px';
-          console.debug('tooltip dimensions set', {genes:genes.length,columns,rowsPerCol,width,height});
           const box=e.target.getBoundingClientRect();
           let left=box.right+window.scrollX+8;
           let top=box.top+window.scrollY;
@@ -1718,10 +929,8 @@
           tooltip.style.top=top+'px';
           tooltip.style.display='block';
           positionTooltip(left, top);
-          console.debug('tooltip positioned', {left,top});
         });
         t.addEventListener('mouseleave',()=>{
-          console.debug('tooltip hide', regionCode);
           tooltip.style.display='none';
         });
       }
@@ -1736,14 +945,12 @@
       const margin=style.fontsize*0.6;
         let y=center.y+(isTop?-(circle.r*scale+margin):(circle.r*scale+margin));
         const t=addText(label+' ('+count+')',center.x,y);
-        console.debug('label placed',circle.id,{isTop,x:center.x,y});
         let box=t.getBBox();
         for(const b of labelBoxes){
           while(!(box.x+box.width<b.x||b.x+b.width<box.x||box.y+box.height<b.y||b.y+b.height<box.y)){
             y+=isTop?-style.fontsize:style.fontsize;
             t.setAttribute('y',y);
             box=t.getBBox();
-            console.debug('label adjusted',circle.id,{x:center.x,y});
           }
         }
         const minYBound=style.fontsize;
@@ -1752,13 +959,11 @@
           y+=minYBound-box.y;
           t.setAttribute('y',y);
           box=t.getBBox();
-          console.debug('label clamped top',circle.id,{x:center.x,y});
         }
         if(box.y+box.height>maxYBound){
           y-=box.y+box.height-maxYBound;
           t.setAttribute('y',y);
           box=t.getBBox();
-          console.debug('label clamped bottom',circle.id,{x:center.x,y});
         }
         labelBoxes.push(box);
     }
@@ -1767,42 +972,31 @@
     if(counts.nC>0) placeCircleLabel({id:'C',x:d.Cx,y:d.Cy,r:d.rC},labels.C,counts.nC);
     const cA=toPx(d.Ax,d.Ay), cB=toPx(d.Bx,d.By), cC=toPx(d.Cx,d.Cy);
     const rAp=d.rA*scale, rBp=d.rB*scale, rCp=d.rC*scale;
-
-    // --- New optimal placement for region numbers (uses _findRegionLabelPoint) ---
     const hasC = counts.nC > 0;
-
-    // A only
     if(counts.Aonly){
       const p = _findRegionLabelPoint('A', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
       if(p) addText(String(counts.Aonly), p.x, p.y, 'A');
     }
-    // B only
     if(counts.Bonly){
       const p = _findRegionLabelPoint('B', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
       if(p) addText(String(counts.Bonly), p.x, p.y, 'B');
     }
-
     if(hasC && counts.Conly){
       const p = _findRegionLabelPoint('C', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
       if(p) addText(String(counts.Conly), p.x, p.y, 'C');
     }
-
-    // A∩B only
     if(counts.AB){
       const p = _findRegionLabelPoint('AB', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
       if(p) addText(String(counts.AB), p.x, p.y, 'AB');
     }
-    // A∩C only
     if(hasC && counts.AC){
       const p = _findRegionLabelPoint('AC', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
       if(p) addText(String(counts.AC), p.x, p.y, 'AC');
     }
-    // B∩C only
     if(hasC && counts.BC){
       const p = _findRegionLabelPoint('BC', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
       if(p) addText(String(counts.BC), p.x, p.y, 'BC');
     }
-    // A∩B∩C
     if(hasC && counts.ABC){
       const p = _findRegionLabelPoint('ABC', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
       if(p) addText(String(counts.ABC), p.x, p.y, 'ABC');
@@ -1816,9 +1010,7 @@
       if(region){ $('#regionSelect').value=region; populateRegion(region); }
     };
   }
-
   function exportSVG(){
-    console.debug('exportSVG called');
     const xml=new XMLSerializer().serializeToString(stage);
     const blob=new Blob([xml],{type:'image/svg+xml'});
     const url=URL.createObjectURL(blob);
@@ -1826,7 +1018,6 @@
     setTimeout(()=>URL.revokeObjectURL(url),5000);
   }
   function exportPNG(){
-    console.debug('exportPNG called');
     const xml=new XMLSerializer().serializeToString(stage);
     const img=new Image();
     img.onload=function(){
@@ -1839,10 +1030,8 @@
     img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
   }
   function downloadURL(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
-
   function exportGoChart(format){
-    console.debug('exportGoChart called', format);
-    if(!goChart){ console.debug('exportGoChart aborted: no chart'); return; }
+    if(!goChart) return;
     const canvas=document.getElementById('goChart');
     let url;
     if(format==='png'){
@@ -1857,13 +1046,11 @@
         measureCtx.font='12px sans-serif';
         const labelWidths=labels.map(l=>measureCtx.measureText(l).width);
         const maxLabelWidth=Math.ceil(Math.max(...labelWidths));
-        console.debug('exportGoChart SVG metrics',{labels,values,width,height,color,labelWidths,maxLabelWidth});
         const padding={left:maxLabelWidth+12,right:20,top:10,bottom:30};
         const chartWidth=width-padding.left-padding.right;
         const chartHeight=height-padding.top-padding.bottom;
         const barHeight=chartHeight/labels.length;
         const maxVal=Math.max(...values);
-        console.debug('exportGoChart SVG layout',{padding,chartWidth,chartHeight,barHeight,maxVal});
         let svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
         svg+=`<rect width="${width}" height="${height}" fill="white"/>`;
         for(let i=0;i<labels.length;i++){
@@ -1887,24 +1074,20 @@
         svg+='</svg>';
         const blob=new Blob([svg],{type:'image/svg+xml'});
         url=URL.createObjectURL(blob);
-        console.debug('exportGoChart SVG URL created',{url,padding,barHeight,axisY});
       }catch(err){
-        console.error('exportGoChart SVG error', err);
         return;
       }
     }
     downloadURL(url,'go_chart.'+format);
     if(format==='svg'){ setTimeout(()=>URL.revokeObjectURL(url),5000); }
   }
-
   async function downloadStringPNG(){
-    console.debug('downloadStringPNG called');
-    if(!lastStringSVG){ console.debug('downloadStringPNG aborted: no SVG data'); return; }
+    if(!lastStringSVG) return;
     const svgBlob=new Blob([lastStringSVG],{type:'image/svg+xml'});
     const url=URL.createObjectURL(svgBlob);
     const img=new Image();
     img.src=url;
-    await img.decode().catch(err=>{console.error('downloadStringPNG decode error', err);});
+    await img.decode().catch(err=>{});
     const canvas=document.createElement('canvas');
     canvas.width=img.width; canvas.height=img.height;
     const ctx=canvas.getContext('2d');
@@ -1912,64 +1095,43 @@
     URL.revokeObjectURL(url);
     canvas.toBlob(b=>{ const pngUrl=URL.createObjectURL(b); downloadURL(pngUrl,'string_network.png'); setTimeout(()=>URL.revokeObjectURL(pngUrl),5000); },'image/png');
   }
-
   function downloadStringSVG(){
-    console.debug('downloadStringSVG called');
-    if(!lastStringSVG){ console.debug('downloadStringSVG aborted: no SVG data'); return; }
+    if(!lastStringSVG) return;
     const blob=new Blob([lastStringSVG],{type:'image/svg+xml'});
     const url=URL.createObjectURL(blob);
     downloadURL(url,'string_network.svg');
     setTimeout(()=>URL.revokeObjectURL(url),5000);
   }
-
   const countsUI={A:$('#countA'),B:$('#countB'),C:$('#countC'),AB:$('#countAB'),AC:$('#countAC'),BC:$('#countBC'),ABC:$('#countABC')};
   const regionSelect=$('#regionSelect'), regionList=$('#regionList'), copyRegionBtn=$('#copyRegionBtn'), analysisResults=$('#analysisResults'), goBtn=$('#goBtn'), stringBtn=$('#stringBtn'), goResults=$('#goResults'), stringNetwork=$('#stringNetwork'), stringResults=$('#stringResults'), speciesSelect=$('#speciesSelect'), goChartExport=$('#goChartExport'), stringNetworkExport=$('#stringNetworkExport');
   const tooltip=$('#tooltip');
   const totalGenesInput=$('#totalGenes'), calcSignificanceBtn=$('#calcSignificance'), significanceResults=$('#significanceResults');
-  console.debug('significance section elements initialized', {totalGenesInput, calcSignificanceBtn, significanceResults});
   let lastGOResult=null, lastGOFormatted=[], lastGOOrganism='hsapiens';
   let goChart=null, lastStringSVG=null;
-  console.debug('stringNetwork element', stringNetwork);
-  console.debug('tooltip element', tooltip);
-  console.debug('goChartExport element', goChartExport);
-  console.debug('stringNetworkExport element', stringNetworkExport);
-  console.debug('analysis options computed font sizes',{go:getComputedStyle(goOptions).fontSize,string:getComputedStyle(stringOptions).fontSize});
-  console.debug('analysis results computed font size', getComputedStyle(analysisResults).fontSize);
-  console.debug('stringNetworkExport initial width', getComputedStyle(stringNetworkExport).width);
   document.addEventListener('click',e=>{
     if(tooltip.style.display==='block' && !tooltip.contains(e.target)){
       tooltip.style.display='none';
-      console.debug('tooltip hidden on document click', e.target);
     }
   });
   copyRegionBtn.addEventListener('click',()=>{
-    console.debug('copyRegionBtn clicked', regionSelect.value);
     const text=getRegionText(regionSelect.value);
-    navigator.clipboard.writeText(text).then(()=>console.debug('genes copied', text)).catch(err=>console.error('copyRegionBtn error', err));
+    navigator.clipboard.writeText(text).then(()=>{}).catch(err=>{});
   });
   goOptsBtn.addEventListener('click',()=>{
     const show=goOptions.style.display==='none';
     goOptions.style.display=show?'block':'none';
-    console.debug('go options toggled', show);
   });
   stringOptsBtn.addEventListener('click',()=>{
     const show=stringOptions.style.display==='none';
     stringOptions.style.display=show?'block':'none';
-    console.debug('string options toggled', show);
   });
-  console.debug('speciesSelect element', speciesSelect);
   ['A','B','C'].forEach(k=>{
     inputs[k].addEventListener('input',()=>{
       speciesSelect.value='';
-      console.debug('speciesSelect cleared on input', k);
     });
   });
-  console.debug('GO analysis state initialized', {lastGOResult,lastGOFormatted,lastGOOrganism, goChart});
   const uniProtCache={};
-  console.debug('UniProt cache initialized', uniProtCache);
-
   function positionTooltip(x,y){
-    console.debug('positionTooltip called', {x,y});
     let left=x, top=y;
     tooltip.style.left=left+'px';
     tooltip.style.top=top+'px';
@@ -1980,32 +1142,25 @@
     if(rect.bottom>bottomBound){ top=Math.max(window.scrollY+8,bottomBound-rect.height); }
     tooltip.style.left=left+'px';
     tooltip.style.top=top+'px';
-    console.debug('positionTooltip adjusted', {left,top,width:rect.width,height:rect.height});
   }
   async function fetchUniProtFunction(gene){
     const q=gene.toUpperCase();
-    console.debug('fetchUniProtFunction called', q);
-    if(uniProtCache[q]){ console.debug('fetchUniProtFunction cache hit', q); return uniProtCache[q]; }
+    if(uniProtCache[q]) return uniProtCache[q];
     try{
       const url=`https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(q)}+AND+reviewed:true&fields=cc_function&format=json&size=1`;
-      console.debug('fetchUniProtFunction url', url);
       const resp=await fetch(url);
-      console.debug('fetchUniProtFunction response', resp.status);
       if(!resp.ok) return null;
       const data=await resp.json();
-      console.debug('fetchUniProtFunction data', data);
       const value=data.results?.[0]?.comments?.find(c=>c.commentType==='FUNCTION')?.texts?.[0]?.value||null;
       uniProtCache[q]=value;
       return value;
-    }catch(err){ console.error('fetchUniProtFunction error', err); return null; }
+    }catch(err){ return null; }
   }
   regionList.addEventListener('mouseover',async e=>{
     const link=e.target.closest('.gene-link');
     if(link&&regionList.contains(link)){
       const gene=link.dataset.gene;
-      console.debug('gene-link mouseover', gene);
       const fn=await fetchUniProtFunction(gene);
-      console.debug('gene-link function', gene, fn);
       tooltip.innerHTML=fn?`<strong>${gene}</strong><br>${fn}`:`<strong>${gene}</strong><br><i>Function not found</i>`;
       tooltip.style.fontSize='12px';
       tooltip.style.maxHeight='none';
@@ -2016,10 +1171,8 @@
       tooltip.style.width='auto';
       tooltip.style.height='auto';
       tooltip.style.whiteSpace='normal';
-      const x=e.pageX, y=e.pageY;
-      console.debug('tooltip position calculated', {x, y});
-      let left=x+8;
-      let top=y+8;
+      let left=e.pageX+8;
+      let top=e.pageY+8;
       tooltip.style.left=left+'px';
       tooltip.style.top=top+'px';
       tooltip.style.display='block';
@@ -2028,7 +1181,6 @@
         const h=tooltip.scrollHeight;
         tooltip.style.width=w+'px';
         tooltip.style.height=h+'px';
-        console.debug('tooltip resized to content', {width:w,height:h});
         positionTooltip(left, top);
       });
     }
@@ -2036,7 +1188,6 @@
   regionList.addEventListener('mouseout',e=>{
     const link=e.target.closest('.gene-link');
     if(link&&regionList.contains(link)){
-      console.debug('gene-link mouseout', link.dataset.gene);
       tooltip.style.display='none';
     }
   });
@@ -2044,32 +1195,22 @@
     const link=e.target.closest('.gene-link');
     if(link&&regionList.contains(link)){
       const gene=link.dataset.gene;
-      console.debug('gene-link click', gene);
       const taxId=speciesSelect.selectedOptions[0].dataset.string||'9606';
-      console.debug('gene-link species taxId', taxId);
       const apiUrl=`https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(gene)}+AND+organism_id:${taxId}+AND+reviewed:true&fields=accession&format=json&size=1`;
-      console.debug('gene-link lookup url', apiUrl);
       try{
         const resp=await fetch(apiUrl);
-        console.debug('gene-link lookup response', resp.status);
         const data=await resp.json();
-        console.debug('gene-link lookup data', data);
         const acc=data.results?.[0]?.primaryAccession;
         const url=acc?`https://www.uniprot.org/uniprotkb/${acc}/entry`:`https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
-        console.debug('opening UniProt page', url);
         window.open(url,'_blank','noopener');
       }catch(err){
-        console.error('gene-link lookup error', err);
         const url=`https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
-        console.debug('opening fallback UniProt page', url);
         window.open(url,'_blank','noopener');
       }
     }
   });
-
   const goBtnTip='Sends the selected species and gene list to g:Profiler GOSt, returns all GO categories and default sources, and displays the top five terms by significance.';
   goBtn.addEventListener('mouseenter',()=>{
-    console.debug('goBtn mouseenter');
     tooltip.innerHTML=goBtnTip;
     tooltip.style.fontSize='12px';
     tooltip.style.maxHeight='none';
@@ -2078,20 +1219,16 @@
     tooltip.style.columnWidth='auto';
     tooltip.style.width='max-content';
     tooltip.style.height='auto';
-    console.debug('goBtn tooltip style adjusted', {width: tooltip.style.width, height: tooltip.style.height});
-    // prepare tooltip for measurement
     tooltip.style.visibility='hidden';
     tooltip.style.display='block';
     const rect=goBtn.getBoundingClientRect();
     let left=rect.right+window.scrollX+8;
     let top=rect.top+window.scrollY;
-    console.debug('goBtn tooltip initial position', {left,top});
     tooltip.style.left=left+'px';
     tooltip.style.top=top+'px';
     positionTooltip(left, top);
     let tRect=tooltip.getBoundingClientRect();
     const overlaps=!(tRect.right<rect.left || tRect.left>rect.right || tRect.bottom<rect.top || tRect.top>rect.bottom);
-    console.debug('goBtn tooltip overlap check', {overlaps,tRect,btnRect:rect});
     if(overlaps){
       left=rect.left+window.scrollX;
       top=rect.bottom+window.scrollY+8;
@@ -2099,58 +1236,44 @@
       tooltip.style.top=top+'px';
       positionTooltip(left, top);
       tRect=tooltip.getBoundingClientRect();
-      console.debug('goBtn tooltip repositioned below', {left,top});
       const stillOverlap=!(tRect.right<rect.left || tRect.left>rect.right || tRect.bottom<rect.top || tRect.top>rect.bottom);
-      console.debug('goBtn tooltip overlap recheck', {stillOverlap,tRect});
       if(stillOverlap){
         top=rect.top+window.scrollY-tRect.height-8;
         tooltip.style.left=left+'px';
         tooltip.style.top=top+'px';
         positionTooltip(left, top);
-        console.debug('goBtn tooltip repositioned above', {left,top});
       }
     }
     tooltip.style.visibility='visible';
-    console.debug('goBtn tooltip shown', rect, {width: tooltip.offsetWidth, height: tooltip.offsetHeight});
   });
   goBtn.addEventListener('mouseleave',()=>{
-    console.debug('goBtn mouseleave');
     tooltip.style.display='none';
   });
-
   function renderGOChart(limit=5){
-    console.debug('renderGOChart called', {limit});
-    const canvas=document.getElementById('goChart');
-    const exportRow=document.getElementById('goChartExport');
     if(!lastGOResult||!lastGOResult.length){
-      canvas.style.display='none';
-      exportRow.style.display='none';
-      console.debug('renderGOChart no data - chart and export hidden');
-      if(goChart){ goChart.destroy(); goChart=null; console.debug('renderGOChart cleared chart'); }
+      document.getElementById('goChart').style.display='none';
+      document.getElementById('goChartExport').style.display='none';
+      if(goChart){ goChart.destroy(); goChart=null; }
       return;
     }
     const data=lastGOResult.slice(0,limit);
     const labels=data.map(r=>r.term_name||r.name||'');
     const values=data.map(r=>-Math.log10(r.p_value));
     const barColor='#64b5f6';
-    console.debug('renderGOChart data', {labels,values,barColor});
-    if(goChart){ goChart.destroy(); console.debug('renderGOChart destroyed previous chart'); }
-    canvas.style.display='block';
-    exportRow.style.display='flex';
-    console.debug('renderGOChart displaying chart and showing export row');
+    if(goChart){ goChart.destroy(); }
+    document.getElementById('goChart').style.display='block';
+    document.getElementById('goChartExport').style.display='flex';
     const isAll=limit>5;
     const baseBarHeight=25;
     const minBarHeight=18;
     const barHeight=isAll?minBarHeight:baseBarHeight;
     const chartHeight=Math.max(300,barHeight*labels.length);
-    console.debug('renderGOChart sizing',{isAll,barHeight,chartHeight,labelsCount:labels.length});
+    const canvas=document.getElementById('goChart');
     canvas.style.height=chartHeight+'px';
     canvas.height=chartHeight;
     canvas.width=canvas.offsetWidth;
-    console.debug('renderGOChart canvas resized',{width:canvas.width,height:canvas.height});
     const ctx=canvas.getContext('2d');
     ctx.setTransform(1,0,0,1,0,0);
-    console.debug('renderGOChart context transform reset', ctx.getTransform());
     const config={
       type:'bar',
       data:{labels,datasets:[{label:'-log10(p)',data:values,backgroundColor:barColor,barThickness:barHeight-5}]},
@@ -2163,30 +1286,23 @@
           x:{
             title:{display:true,text:'-log10(p)'},
             grid:{display:false},
-            ticks:{callback:v=>{const f=v.toLocaleString('en-US',{maximumFractionDigits:2}); console.debug('renderGOChart tick', {value:v,formatted:f}); return f;}}
+            ticks:{callback:v=>v.toLocaleString('en-US',{maximumFractionDigits:2})}
           },
           y:{grid:{display:false},ticks:{autoSkip:false}}
         }
       },
       locale:'en-US'
     };
-    console.debug('renderGOChart config', config);
-    console.debug('renderGOChart y-axis tick options', config.options.scales.y.ticks);
-    console.debug('renderGOChart bar color applied', barColor);
     goChart=new Chart(ctx,config);
   }
-
   function renderGOResults(limit=5){
-    console.debug('renderGOResults called', {limit,total:lastGOResult?.length||0});
     if(!lastGOResult||!lastGOResult.length){ goResults.innerHTML='<div>No GO results</div>'; return; }
     const items=lastGOResult.slice(0,limit).map(r=>{
       const term=r.term_name||r.name||'unknown term';
       const src=r.source||'unknown source';
-      console.debug('renderGOResults item', r, term, src);
       return `<div>${term} [${src}] (p=${Number(r.p_value).toExponential(2)})</div>`;
     }).join('');
     const fullUrl=`https://biit.cs.ut.ee/gprofiler/gost?organism=${lastGOOrganism}&query=${encodeURIComponent(lastGOFormatted.join('\n'))}`;
-    console.debug('renderGOResults fullUrl', fullUrl);
     const link=`<div><a href="${fullUrl}" target="_blank" rel="noopener">View full GO analysis</a>${lastGOResult.length>5?` | <button class="btn" id="toggleGoResults" data-state="${limit===5?'top5':'all'}">${limit===5?'Show all results':'Show top 5'}</button>`:''}</div>`;
     goResults.innerHTML=`<strong>${limit===5?'Top 5 GO terms':'All GO terms'}</strong>`+items+link;
     renderGOChart(limit);
@@ -2194,50 +1310,41 @@
   goResults.addEventListener('click',e=>{
     if(e.target.id==='toggleGoResults'){
       const state=e.target.dataset.state;
-      console.debug('toggleGoResults clicked', state);
       if(state==='top5'){ renderGOResults(lastGOResult.length); }
       else{ renderGOResults(5); }
     }
   });
   function clearAnalysis(){
-    console.debug('clearAnalysis called');
     goResults.innerHTML='';
     stringResults.innerHTML='';
     stringNetwork.innerHTML='';
-    if(goChart){ goChart.destroy(); goChart=null; console.debug('clearAnalysis destroyed goChart'); }
+    if(goChart){ goChart.destroy(); goChart=null; }
     const canvas=document.getElementById('goChart');
     canvas.style.display='none';
     goChartExport.style.display='none';
     stringNetworkExport.style.display='none';
-    console.debug('clearAnalysis hidden export buttons');
   }
-  regionSelect.addEventListener('change',()=>{ console.debug('regionSelect changed', regionSelect.value); populateRegion(regionSelect.value); });
-  speciesSelect.addEventListener('change',()=>{ console.debug('speciesSelect changed', speciesSelect.value); });
-
+  regionSelect.addEventListener('change',()=>{ populateRegion(regionSelect.value); });
+  speciesSelect.addEventListener('change',()=>{});
   let lastRegions=null, lastDrawMode=null, lastCounts=null;
   function refreshDiagram(){
     if(!lastDrawMode) return;
-    console.debug('refreshDiagram called', lastDrawMode);
     if(lastDrawMode==='lists') drawFromLists(); else drawFromNumeric();
   }
   function populateRegion(code){
-    console.debug('populateRegion called', code);
     clearAnalysis();
     if(!lastRegions) return;
     const map={A:lastRegions.Aonly,B:lastRegions.Bonly,C:lastRegions.Conly,AB:lastRegions.AB,AC:lastRegions.AC,BC:lastRegions.BC,ABC:lastRegions.ABC};
     const arr=[...(map[code]||new Set())].sort();
     regionList.innerHTML=arr.length?arr.map(x=>`<div class="gene-item">${x}<span class="gene-link" data-gene="${x}">&#128279;</span></div>`).join(''):'(empty)';
     copyRegionBtn.style.display=arr.length?'block':'none';
-    console.debug('regionList populated', arr);
   }
   function getRegionText(code){
     if(!lastRegions) return '';
     const map={A:lastRegions.Aonly,B:lastRegions.Bonly,C:lastRegions.Conly,AB:lastRegions.AB,AC:lastRegions.AC,BC:lastRegions.BC,ABC:lastRegions.ABC};
     const genes=[...(map[code]||new Set())];
-    console.debug('getRegionText genes', code, genes);
     return genes.join('\n');
   }
-
   function logFact(n){
     let res=0;
     for(let i=2;i<=n;i++) res+=Math.log(i);
@@ -2248,27 +1355,21 @@
     return logFact(n)-logFact(k)-logFact(n-k);
   }
   function hypergeomPval(N,K,n,k){
-    console.debug('hypergeomPval called',{N,K,n,k});
     let p=0;
     for(let i=k;i<=Math.min(K,n);i++){
       const term=Math.exp(logChoose(K,i)+logChoose(N-K,n-i)-logChoose(N,n));
       p+=term;
     }
-    console.debug('hypergeomPval result',p);
     return p;
   }
   function calculateSignificance(){
-    console.debug('calculateSignificance triggered');
     if(!lastCounts){
       significanceResults.textContent='Draw a Venn diagram first.';
-      console.debug('calculateSignificance aborted: no counts');
       return;
     }
     const total=+totalGenesInput.value;
-    console.debug('calculateSignificance total',total);
     if(!total||total<Math.max(lastCounts.nA,lastCounts.nB,lastCounts.nC)){
       significanceResults.textContent='Please enter a valid total gene count.';
-      console.debug('calculateSignificance invalid total');
       return;
     }
     const labels={A:inputs.labelA.value||'A',B:inputs.labelB.value||'B',C:inputs.labelC.value||'C'};
@@ -2286,69 +1387,50 @@
     significanceResults.innerHTML='<table><tr><th>Overlap</th><th>p-value</th><th>Significant</th></tr>'+
       res.map(r=>`<tr><td>${r.name}</td><td>${r.p.toExponential(2)}</td><td>${r.p<0.05?'yes':'no'}</td></tr>`).join('')+
       '</table>';
-    console.debug('calculateSignificance results',res);
   }
-
   async function guessSpecies(genes){
-    console.debug('guessSpecies called', genes);
     const counts={hsapiens:0,mmusculus:0,dmelanogaster:0,celegans:0};
     const taxMap={'9606':'hsapiens','10090':'mmusculus','7227':'dmelanogaster','6239':'celegans'};
     const sample=genes.slice(0,20);
     for(const g of sample){
       const url=`https://mygene.info/v3/query?q=${encodeURIComponent(g)}&fields=symbol,taxid&species=9606,10090,7227,6239&size=5`;
-      console.debug('guessSpecies API lookup', {gene:g,url});
       try{
         const resp=await fetch(url);
-        console.debug('guessSpecies API status', {gene:g,status:resp.status});
         if(!resp.ok) continue;
         const data=await resp.json();
-        console.debug('guessSpecies API data', {gene:g,data});
         const hit=data.hits?.find(h=>h.symbol===g) ||
                   data.hits?.find(h=>h.symbol?.toLowerCase()===g.toLowerCase()) ||
                   data.hits?.[0];
-        console.debug('guessSpecies selected hit', {gene:g,hit});
         const tax=hit?.taxid?.toString();
         const sp=taxMap[tax];
         if(sp) counts[sp]++;
-      }catch(err){ console.error('guessSpecies API gene error', g, err); }
+      }catch(err){}
     }
-    console.debug('guessSpecies counts', counts);
     const total=Object.values(counts).reduce((a,b)=>a+b,0);
     if(total===0) return null;
     const [best,bestScore]=Object.entries(counts).reduce((m,e)=>e[1]>m[1]?e:m,['',0]);
     if(bestScore/total<0.6) return null;
-    console.debug('guessSpecies winner', {best,bestScore,total});
     return best;
   }
-
   function getAllGenes(){
-    console.debug('getAllGenes called');
     const mode=inputs.delimiter.value, cs=inputs.caseSensitive.checked;
     const A=parseList(inputs.A.value,cs,mode).map(o=>o.val);
     const B=parseList(inputs.B.value,cs,mode).map(o=>o.val);
     const C=parseList(inputs.C.value,cs,mode).map(o=>o.val);
     const unique=[...new Set([...A,...B,...C])];
-    console.debug('getAllGenes unique', unique);
     return unique;
   }
-
   function setSpeciesIndicator(success){
     if(success===null){
       speciesSelect.style.backgroundColor='';
-      console.debug('setSpeciesIndicator reset');
       return;
     }
     const color=success?'#b5d99c':'#f28b82';
     speciesSelect.style.backgroundColor=color;
-    console.debug('setSpeciesIndicator', {success,color});
   }
-
   async function recognizeSpeciesFromInput(){
-    console.debug('recognizeSpeciesFromInput triggered');
     const genes=getAllGenes();
-    console.debug('recognizeSpeciesFromInput genes', genes);
     const guess=genes.length?await guessSpecies(genes):null;
-    console.debug('recognizeSpeciesFromInput guess', guess);
     if(guess){
       speciesSelect.value=guess;
       setSpeciesIndicator(true);
@@ -2357,24 +1439,17 @@
       setSpeciesIndicator(false);
     }
   }
-
   function runGOAnalysis(genes, organism){
-    console.debug('runGOAnalysis called', genes, organism);
     const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
-    console.debug('GO analysis formatted genes', formatted);
     if(!formatted.length){ goResults.innerHTML='<i>No genes for analysis</i>'; return; }
     const org=organism || speciesSelect.value;
-    console.debug('GO analysis organism', org);
     if(!org){
       goResults.innerHTML='<div>Please select a species before running GO analysis.</div>';
-      console.debug('GO analysis aborted: missing species');
       return;
     }
     const sources=goCategoryChecks.filter(cb=>cb.checked).map(cb=>cb.value);
-    console.debug('GO analysis selected sources', sources);
     if(!sources.length){
       goResults.innerHTML='<div>Please select at least one GO category.</div>';
-      console.debug('GO analysis aborted: no GO categories');
       return;
     }
     lastGOFormatted=formatted;
@@ -2385,11 +1460,9 @@
     const body={organism:org,query:formatted,sources:sources};
     if(goUseAllBackground.checked){
       const bg=getAllGenes().map(g=>g.trim().toUpperCase()).filter(x=>x);
-      console.debug('GO analysis background genes', bg);
       if(bg.length){
         body.background=bg;
         body.domain_scope='custom';
-        console.debug('GO analysis domain scope', body.domain_scope);
       }
     }
     fetch('https://biit.cs.ut.ee/gprofiler/api/gost/profile/',{
@@ -2397,64 +1470,48 @@
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(body)
     }).then(r=>{
-      console.debug('GO analysis HTTP status', r.status);
       if(!r.ok) throw new Error('GO API HTTP '+r.status);
       return r.json();
     }).then(d=>{
-      console.debug('GO analysis response', d);
       lastGOResult=(d.result||[]).filter(r=>sources.includes(r.source));
-      console.debug('GO analysis result stored', lastGOResult.length);
       if(lastGOResult.length){
         renderGOResults(5);
       }else{
         goResults.innerHTML='<div>No GO results</div>';
       }
     }).catch(err=>{
-      console.error('GO analysis error', err);
       goResults.innerHTML='<div>Error fetching GO analysis</div>';
     });
   }
-
   function runStringAnalysis(genes, organism){
-    console.debug('runStringAnalysis called', genes, organism);
     const formatted=genes.map(g=>g.trim().toUpperCase()).filter(x=>x);
-    console.debug('STRING analysis formatted genes', formatted);
-    if(!formatted.length){ stringNetwork.innerHTML=''; stringResults.innerHTML='<i>No genes for analysis</i>'; stringNetworkExport.style.display='none'; console.debug('STRING analysis aborted: no genes'); return; }
+    if(!formatted.length){ stringNetwork.innerHTML=''; stringResults.innerHTML='<i>No genes for analysis</i>'; stringNetworkExport.style.display='none'; return; }
     const org=organism || speciesSelect.value;
-    console.debug('STRING analysis organism', org);
     if(!org){
       stringNetwork.innerHTML='';
       stringResults.innerHTML='<div>Please select a species before running STRING analysis.</div>';
       stringNetworkExport.style.display='none';
-      console.debug('STRING analysis aborted: missing species');
       return;
     }
     stringNetwork.innerHTML='<i>Loading STRING network...</i>';
     stringResults.innerHTML='<i>Running STRING enrichment...</i>';
     stringNetworkExport.style.display='none';
-    console.debug('STRING network export hidden while loading');
     const params=new URLSearchParams();
     const joinedIds=formatted.join('\n');
-    console.debug('STRING joined identifiers', joinedIds);
     params.set('identifiers', joinedIds);
     const stringMap={hsapiens:'9606',mmusculus:'10090',dmelanogaster:'7227',celegans:'6239'};
     const stringSpecies=stringMap[org]||speciesSelect.selectedOptions[0]?.dataset.string||'9606';
-    console.debug('STRING analysis species', stringSpecies);
     params.set('species', stringSpecies);
     const networkType=document.querySelector('input[name="stringNetworkType"]:checked').value;
     const edgeMeaning=document.querySelector('input[name="stringEdgeMeaning"]:checked').value;
     const sources=[...document.querySelectorAll('.stringSource:checked')].map(el=>el.value);
-    console.debug('STRING analysis options', {networkType, edgeMeaning, sources});
     params.set('network_type', networkType);
     params.set('network_flavor', edgeMeaning);
     if(sources.length) params.set('sources', sources.join('%0d'));
-    console.debug('STRING analysis request params', params.toString());
     const networkUrl='https://string-db.org/api/svg/network?'+params.toString();
-    console.debug('STRING network SVG URL', networkUrl);
     fetch(networkUrl)
-    .then(r=>{ console.debug('STRING network fetch status', r.status); if(!r.ok) throw new Error('STRING network HTTP '+r.status); return r.text(); })
+    .then(r=>{ if(!r.ok) throw new Error('STRING network HTTP '+r.status); return r.text(); })
     .then(svgText=>{
-      console.debug('STRING network SVG fetched', svgText.slice(0,100));
       lastStringSVG=svgText;
       const wrapper=document.createElement('div');
       wrapper.innerHTML=svgText;
@@ -2464,29 +1521,22 @@
         svgEl.style.maxWidth='150%';
         stringNetwork.appendChild(svgEl);
         stringNetworkExport.style.display='flex';
-        console.debug('STRING network SVG appended and export shown');
       }else{
         stringNetwork.innerHTML='<div>Failed to load STRING network</div>';
-        console.debug('STRING network SVG missing svg element');
       }
     })
     .catch(err=>{
-      console.error('STRING network SVG error', err);
       stringNetwork.innerHTML='<div>Error loading STRING network</div>';
       stringNetworkExport.style.display='none';
-      console.debug('STRING network export hidden after error');
     });
     fetch('https://string-db.org/api/json/enrichment?'+params.toString())
     .then(r=>{
-      console.debug('STRING analysis HTTP status', r.status);
       if(!r.ok) throw new Error('STRING API HTTP '+r.status);
       return r.json();
     }).then(d=>{
-      console.debug('STRING analysis response', d);
       if(Array.isArray(d)){
         const items=d.slice(0,5).map(r=>{
           const desc=r.termDescription||r.description||'unknown term';
-          console.debug('STRING result item', r, desc);
           return '<div>'+desc+' (FDR='+Number(r.fdr).toExponential(2)+')</div>';
         }).join('');
         stringResults.innerHTML='<strong>STRING enrichment</strong>'+items;
@@ -2494,13 +1544,10 @@
         stringResults.innerHTML='<div>No STRING results</div>';
       }
     }).catch(err=>{
-      console.error('STRING analysis error', err);
       stringResults.innerHTML='<div>Error fetching STRING analysis</div>';
     });
   }
-
   function refreshCounts(c){
-    console.debug('refreshCounts called', c);
     countsUI.A.textContent=c.nA;
     countsUI.B.textContent=c.nB;
     countsUI.C.textContent=c.nC;
@@ -2509,9 +1556,7 @@
     countsUI.BC.textContent=c.BC+c.ABC;
     countsUI.ABC.textContent=c.ABC;
   }
-
   function updateCountLabels(labels){
-    console.debug('updateCountLabels called', labels);
     $('#labelAName').textContent=labels.A;
     $('#labelBName').textContent=labels.B;
     $('#labelCName').textContent=labels.C;
@@ -2520,9 +1565,7 @@
     $('#labelBCName').textContent=labels.B+'∩'+labels.C;
     $('#labelABCName').textContent=labels.A+'∩'+labels.B+'∩'+labels.C;
   }
-
   function updateRegionSelect(labels){
-    console.debug('updateRegionSelect called', labels);
     const map={
       A:labels.A+' only',
       B:labels.B+' only',
@@ -2534,23 +1577,18 @@
     };
     [...regionSelect.options].forEach(o=>{ if(map[o.value]) o.textContent=map[o.value]; });
   }
-
   function updateColorLabels(labels){
-    console.debug('updateColorLabels called', labels);
     $('#colorLabelA').textContent=labels.A;
     $('#colorLabelB').textContent=labels.B;
     $('#colorLabelC').textContent=labels.C;
   }
-
   function drawFromLists(){
-    console.debug('drawFromLists triggered');
     const mode=inputs.delimiter.value, cs=inputs.caseSensitive.checked;
     const A=parseList(inputs.A.value,cs,mode), B=parseList(inputs.B.value,cs,mode), C=parseList(inputs.C.value,cs,mode);
     const regions=setsFromLists(A,B,C); lastRegions=regions; lastDrawMode='lists';
     const counts={nA:regions.A.size,nB:regions.B.size,nC:regions.C.size,Aonly:regions.Aonly.size,Bonly:regions.Bonly.size,Conly:regions.Conly.size,AB:regions.AB.size,AC:regions.AC.size,BC:regions.BC.size,ABC:regions.ABC.size};
     lastCounts=counts;
     significanceResults.innerHTML='';
-    console.debug('drawFromLists counts stored', lastCounts);
     refreshCounts(counts);
     const pairs={nAB:counts.AB+counts.ABC,nAC:counts.AC+counts.ABC,nBC:counts.BC+counts.ABC};
     const L=layoutFromCounts(counts.nA,counts.nB,counts.nC,pairs.nAB,pairs.nAC,pairs.nBC);
@@ -2559,12 +1597,9 @@
     updateCountLabels(labels); updateRegionSelect(labels); updateColorLabels(labels);
     fitAndDraw(L,style,labels,counts);
     populateRegion(regionSelect.value);
-    console.debug('populateRegion after drawFromLists', regionSelect.value);
-    recognizeSpeciesFromInput().catch(err=>{console.error('recognizeSpeciesFromInput error', err);});
+    recognizeSpeciesFromInput().catch(err=>{});
   }
-
   function drawFromNumeric(){
-    console.debug('drawFromNumeric triggered');
     const nA=+inputs.counts.nA.value||0, nB=+inputs.counts.nB.value||0, nC=+inputs.counts.nC.value||0;
     const nAB=+inputs.counts.nAB.value||0, nAC=+inputs.counts.nAC.value||0, nBC=+inputs.counts.nBC.value||0, nABC=+inputs.counts.nABC.value||0;
     const Aonly=Math.max(0,nA-(nAB+nAC-nABC)), Bonly=Math.max(0,nB-(nAB+nBC-nABC)), Conly=Math.max(0,nC-(nAC+nBC-nABC));
@@ -2572,7 +1607,6 @@
     lastRegions={A:new Set(),B:new Set(),C:new Set(),Aonly:new Set(),Bonly:new Set(),Conly:new Set(),AB:new Set(),AC:new Set(),BC:new Set(),ABC:new Set()}; lastDrawMode='numeric';
     lastCounts=counts;
     significanceResults.innerHTML='';
-    console.debug('drawFromNumeric counts stored', lastCounts);
     refreshCounts(counts);
     const L=layoutFromCounts(nA,nB,nC,nAB,nAC,nBC);
     const style={colorA:inputs.colorA.value,colorB:inputs.colorB.value,colorC:inputs.colorC.value,opacity:inputs.opacity.value,fontsize:inputs.fontsize.value,borderColor:inputs.borderColor.value,borderWidth:inputs.borderWidth.value};
@@ -2580,19 +1614,16 @@
     updateCountLabels(labels); updateRegionSelect(labels); updateColorLabels(labels);
     fitAndDraw(L,style,labels,counts);
     populateRegion(regionSelect.value);
-    console.debug('populateRegion after drawFromNumeric', regionSelect.value);
   }
-
   document.getElementById('draw').addEventListener('click',drawFromLists);
   document.getElementById('useNumeric').addEventListener('click',drawFromNumeric);
   document.getElementById('exportSVG').addEventListener('click',exportSVG);
   document.getElementById('exportPNG').addEventListener('click',exportPNG);
-  document.getElementById('goChartPNG').addEventListener('click',()=>{console.debug('goChartPNG button clicked'); exportGoChart('png');});
-  document.getElementById('goChartSVG').addEventListener('click',()=>{console.debug('goChartSVG button clicked'); exportGoChart('svg');});
-  document.getElementById('stringPNG').addEventListener('click',()=>{console.debug('stringPNG button clicked'); downloadStringPNG();});
-  document.getElementById('stringSVG').addEventListener('click',()=>{console.debug('stringSVG button clicked'); downloadStringSVG();});
+  document.getElementById('goChartPNG').addEventListener('click',()=>{ exportGoChart('png');});
+  document.getElementById('goChartSVG').addEventListener('click',()=>{ exportGoChart('svg');});
+  document.getElementById('stringPNG').addEventListener('click',()=>{ downloadStringPNG();});
+  document.getElementById('stringSVG').addEventListener('click',()=>{ downloadStringSVG();});
   calcSignificanceBtn.addEventListener('click',calculateSignificance);
-  console.debug('calcSignificanceBtn listener attached');
   document.getElementById('sample').addEventListener('click',()=>{
     inputs.labelA.value='Transcriptomic'; inputs.labelB.value='Proteomic'; inputs.labelC.value='Phospho';
     inputs.A.value=`BRCA1
@@ -2635,1005 +1666,780 @@ KAT7`;
     setSpeciesIndicator(null);
     totalGenesInput.value='';
     significanceResults.innerHTML='';
-    console.debug('significance reset');
-    console.debug('speciesSelect reset');
   });
   goBtn.addEventListener('click',async()=>{
-    console.debug('goBtn clicked');
     const regionGenes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
-    console.debug('goBtn regionGenes', regionGenes);
     let organism=speciesSelect.value;
-    console.debug('goBtn organism initial', organism);
     if(!organism){
       const allGenes=getAllGenes();
-      console.debug('goBtn allGenes for guess', allGenes);
       const guess=allGenes.length?await guessSpecies(allGenes):null;
-      console.debug('goBtn organism guess', guess);
       if(guess){
         speciesSelect.value=organism=guess;
         setSpeciesIndicator(true);
       }else{
         setSpeciesIndicator(false);
         alert('Please select a species before running GO analysis.');
-        console.debug('goBtn missing species after guess');
         return;
       }
     }
     runGOAnalysis(regionGenes, organism);
   });
-    stringBtn.addEventListener('click',async()=>{
-      console.debug('stringBtn clicked');
+  stringBtn.addEventListener('click',async()=>{
     const regionGenes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
-    console.debug('stringBtn regionGenes', regionGenes);
     let organism=speciesSelect.value;
-    console.debug('stringBtn organism initial', organism);
     if(!organism){
       const allGenes=getAllGenes();
-      console.debug('stringBtn allGenes for guess', allGenes);
       const guess=allGenes.length?await guessSpecies(allGenes):null;
-      console.debug('stringBtn organism guess', guess);
       if(guess){
         speciesSelect.value=organism=guess;
         setSpeciesIndicator(true);
       }else{
         setSpeciesIndicator(false);
         alert('Please select a species before running STRING analysis.');
-        console.debug('stringBtn missing species after guess');
         return;
       }
     }
-      runStringAnalysis(regionGenes, organism);
+    runStringAnalysis(regionGenes, organism);
+  });
+  function showVenn(){
+    vennPage.style.display='block';
+    boxPage.style.display='none';
+    tabVenn.classList.add('active');
+    tabBox.classList.remove('active');
+  }
+  function showBox(){
+    vennPage.style.display='none';
+    boxPage.style.display='block';
+    tabBox.classList.add('active');
+    tabVenn.classList.remove('active');
+  }
+  tabVenn.addEventListener('click',()=>{ showVenn();});
+  tabBox.addEventListener('click',()=>{ showBox();});
+  showVenn();
+  function tTest(a,b){
+    const meanA=jStat.mean(a), meanB=jStat.mean(b);
+    const varA=jStat.variance(a,true), varB=jStat.variance(b,true);
+    const nA=a.length, nB=b.length;
+    const t=(meanA-meanB)/Math.sqrt(varA/nA+varB/nB);
+    const df=Math.pow(varA/nA+varB/nB,2)/(Math.pow(varA/nA,2)/(nA-1)+Math.pow(varB/nB,2)/(nB-1));
+    const p=2*(1-jStat.studentt.cdf(Math.abs(t),df));
+    return {t,df,p};
+  }
+  function tTestPaired(a,b){
+    const n=Math.min(a.length,b.length);
+    const diffs=[];
+    for(let i=0;i<n;i++) diffs.push(a[i]-b[i]);
+    const mean=jStat.mean(diffs);
+    const sd=jStat.stdev(diffs,true);
+    const t=mean/(sd/Math.sqrt(n));
+    const df=n-1;
+    const p=2*(1-jStat.studentt.cdf(Math.abs(t),df));
+    return {t,df,p};
+  }
+  function rank(arr){
+    const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v);
+    const ranks=Array(arr.length);
+    for(let i=0;i<sorted.length;i++){
+      let j=i;
+      while(j<sorted.length && sorted[j].v===sorted[i].v) j++;
+      const avg=(i+j-1)/2+1;
+      for(let k=i;k<j;k++) ranks[sorted[k].i]=avg;
+      i=j-1;
+    }
+    return ranks;
+  }
+  function mannWhitney(a,b){
+    const all=a.concat(b);
+    const ranks=rank(all);
+    const ranksA=ranks.slice(0,a.length);
+    const R1=ranksA.reduce((s,r)=>s+r,0);
+    const n1=a.length, n2=b.length;
+    const U1=R1 - n1*(n1+1)/2;
+    const U2=n1*n2 - U1;
+    const U=Math.min(U1,U2);
+    const mu=n1*n2/2;
+    const sigma=Math.sqrt(n1*n2*(n1+n2+1)/12);
+    const z=(U-mu)/sigma;
+    const p=2*(1-jStat.normal.cdf(Math.abs(z),0,1));
+    return {U,z,p};
+  }
+  function wilcoxonSignedRank(a,b){
+    const n=Math.min(a.length,b.length);
+    const diffs=[];
+    for(let i=0;i<n;i++){
+      const d=a[i]-b[i];
+      if(d!==0) diffs.push(d);
+    }
+    const absSorted=diffs.map((d,i)=>({d,abs:Math.abs(d),i})).sort((x,y)=>x.abs-y.abs);
+    const ranks=new Array(absSorted.length);
+    let r=1;
+    for(let i=0;i<absSorted.length;i++){
+      let j=i;
+      while(j<absSorted.length&&absSorted[j].abs===absSorted[i].abs) j++;
+      const avg=(r+(r+j-i-1))/2;
+      for(let k=i;k<j;k++) ranks[absSorted[k].i]=avg;
+      r+=j-i;
+      i=j-1;
+    }
+    let Wpos=0,Wneg=0;
+    ranks.forEach((rk,i)=>{ if(diffs[i]>0) Wpos+=rk; else Wneg+=rk; });
+    const W=Math.min(Wpos,Wneg);
+    const nEff=ranks.length;
+    const mu=nEff*(nEff+1)/4;
+    const sigma=Math.sqrt(nEff*(nEff+1)*(2*nEff+1)/24);
+    const z=(W-mu)/sigma;
+    const p=2*(1-jStat.normal.cdf(Math.abs(z),0,1));
+    return {W,z,p};
+  }
+  function p2stars(p){
+    const stars=p<0.0001?'****':p<0.001?'***':p<0.01?'**':p<0.05?'*':'ns';
+    return stars;
+  }
+  function formatP(p){
+    return p.toLocaleString('en-US',{maximumSignificantDigits:6});
+  }
+  const mean=arr=>arr.reduce((s,v)=>s+v,0)/arr.length;
+  function anova(groups){
+    const k=groups.length;
+    const n=groups.reduce((s,g)=>s+g.length,0);
+    const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n;
+    let ssBetween=0, ssWithin=0;
+    groups.forEach(g=>{
+      const m=mean(g);
+      ssBetween+=g.length*Math.pow(m-grand,2);
+      ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0);
     });
-    function showVenn(){
-      console.debug('showVenn called');
-      vennPage.style.display='block';
-      boxPage.style.display='none';
-      scatterPage.style.display='none';
-      tabVenn.classList.add('active');
-      tabBox.classList.remove('active');
-      tabScatter.classList.remove('active');
+    const dfBetween=k-1;
+    const dfWithin=n-k;
+    const msBetween=ssBetween/dfBetween;
+    const msWithin=ssWithin/dfWithin;
+    const F=msBetween/msWithin;
+    const p=1-jStat.centralF.cdf(F,dfBetween,dfWithin);
+    return {F,p};
+  }
+  function rankArray(arr){
+    const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v);
+    const ranks=new Array(arr.length);
+    let i=0;
+    while(i<sorted.length){
+      let j=i;
+      while(j<sorted.length && sorted[j].v===sorted[i].v) j++;
+      const avg=(i+j-1)/2+1;
+      for(let k=i;k<j;k++) ranks[sorted[k].i]=avg;
+      i=j;
     }
-    function showBox(){
-      console.debug('showBox called');
-      vennPage.style.display='none';
-      boxPage.style.display='block';
-      scatterPage.style.display='none';
-      tabBox.classList.add('active');
-      tabVenn.classList.remove('active');
-      tabScatter.classList.remove('active');
+    return ranks;
+  }
+  function kruskalWallis(groups){
+    const n=groups.reduce((s,g)=>s+g.length,0);
+    const all=groups.flat();
+    const ranks=rankArray(all);
+    let idx=0;
+    const R=groups.map(g=>{
+      const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0);
+      idx+=g.length;
+      return r;
+    });
+    const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1);
+    const df=groups.length-1;
+    const p=1-jStat.chisquare.cdf(H,df);
+    return {H,p};
+  }
+  function parsePairString(str,traces){
+    return str.split(/[\n,]+/).map(p=>p.trim()).filter(p=>p).map(p=>{
+      const [a,b]=p.split('-').map(s=>s.trim());
+      const ai=isNaN(parseInt(a))?traces.findIndex(t=>t.name===a):parseInt(a)-1;
+      const bi=isNaN(parseInt(b))?traces.findIndex(t=>t.name===b):parseInt(b)-1;
+      return (ai>=0&&bi>=0)?{ai,bi}:null;
+    }).filter(Boolean);
+  }
+  function renderStatsControls(traces){
+    const controls=document.getElementById('statsControls');
+    controls.innerHTML='';
+    if(selectedCols.size<2 && traces.length>=2){
+      selectedCols.clear();
+      selectedCols.add(0);
+      selectedCols.add(1);
     }
-    function showScatter(){
-      console.debug('showScatter called');
-      vennPage.style.display='none';
-      boxPage.style.display='none';
-      scatterPage.style.display='block';
-      tabScatter.classList.add('active');
-      tabVenn.classList.remove('active');
-      tabBox.classList.remove('active');
+    if(statsMode==='reference' && !selectedCols.has(statsRef)){
+      selectedCols.add(statsRef);
     }
-    tabVenn.addEventListener('click',()=>{console.debug('tabVenn clicked'); showVenn();});
-    tabBox.addEventListener('click',()=>{console.debug('tabBox clicked'); showBox();});
-    tabScatter.addEventListener('click',()=>{console.debug('tabScatter clicked'); showScatter();});
-    showVenn();
-
-    function tTest(a,b){
-      console.debug('tTest inputs', {a,b});
-      const meanA=jStat.mean(a), meanB=jStat.mean(b);
-      const varA=jStat.variance(a,true), varB=jStat.variance(b,true);
-      const nA=a.length, nB=b.length;
-      const t=(meanA-meanB)/Math.sqrt(varA/nA+varB/nB);
-      const df=Math.pow(varA/nA+varB/nB,2)/(Math.pow(varA/nA,2)/(nA-1)+Math.pow(varB/nB,2)/(nB-1));
-      const p=2*(1-jStat.studentt.cdf(Math.abs(t),df));
-      console.debug('tTest results', {t,df,p});
-      return {t,df,p};
-    }
-    function tTestPaired(a,b){
-      console.debug('tTestPaired inputs',{a,b});
-      const n=Math.min(a.length,b.length);
-      const diffs=[];
-      for(let i=0;i<n;i++) diffs.push(a[i]-b[i]);
-      const mean=jStat.mean(diffs);
-      const sd=jStat.stdev(diffs,true);
-      const t=mean/(sd/Math.sqrt(n));
-      const df=n-1;
-      const p=2*(1-jStat.studentt.cdf(Math.abs(t),df));
-      console.debug('tTestPaired results',{t,df,p});
-      return {t,df,p};
-    }
-    function rank(arr){
-      console.debug('rank called', arr);
-      const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v);
-      const ranks=Array(arr.length);
-      for(let i=0;i<sorted.length;i++){
-        let j=i;
-        while(j<sorted.length && sorted[j].v===sorted[i].v) j++;
-        const avg=(i+j-1)/2+1;
-        for(let k=i;k<j;k++) ranks[sorted[k].i]=avg;
-        i=j-1;
-      }
-      console.debug('rank result', ranks);
-      return ranks;
-    }
-    function mannWhitney(a,b){
-      console.debug('mannWhitney inputs', {a,b});
-      const all=a.concat(b);
-      const ranks=rank(all);
-      const ranksA=ranks.slice(0,a.length);
-      const R1=ranksA.reduce((s,r)=>s+r,0);
-      const n1=a.length, n2=b.length;
-      const U1=R1 - n1*(n1+1)/2;
-      const U2=n1*n2 - U1;
-      const U=Math.min(U1,U2);
-      const mu=n1*n2/2;
-      const sigma=Math.sqrt(n1*n2*(n1+n2+1)/12);
-      const z=(U-mu)/sigma;
-      const p=2*(1-jStat.normal.cdf(Math.abs(z),0,1));
-      console.debug('mannWhitney results', {U,z,p});
-      return {U,z,p};
-    }
-    function wilcoxonSignedRank(a,b){
-      console.debug('wilcoxonSignedRank inputs',{a,b});
-      const n=Math.min(a.length,b.length);
-      const diffs=[];
-      for(let i=0;i<n;i++){
-        const d=a[i]-b[i];
-        if(d!==0) diffs.push(d);
-      }
-      const absSorted=diffs.map((d,i)=>({d,abs:Math.abs(d),i})).sort((x,y)=>x.abs-y.abs);
-      const ranks=new Array(absSorted.length);
-      let r=1;
-      for(let i=0;i<absSorted.length;i++){
-        let j=i;
-        while(j<absSorted.length&&absSorted[j].abs===absSorted[i].abs) j++;
-        const avg=(r+(r+j-i-1))/2;
-        for(let k=i;k<j;k++) ranks[absSorted[k].i]=avg;
-        r+=j-i;
-        i=j-1;
-      }
-      let Wpos=0,Wneg=0;
-      ranks.forEach((rk,i)=>{ if(diffs[i]>0) Wpos+=rk; else Wneg+=rk; });
-      const W=Math.min(Wpos,Wneg);
-      const nEff=ranks.length;
-      const mu=nEff*(nEff+1)/4;
-      const sigma=Math.sqrt(nEff*(nEff+1)*(2*nEff+1)/24);
-      const z=(W-mu)/sigma;
-      const p=2*(1-jStat.normal.cdf(Math.abs(z),0,1));
-      console.debug('wilcoxonSignedRank results',{W,z,p});
-      return {W,z,p};
-    }
-    function p2stars(p){
-      const stars=p<0.0001?'****':p<0.001?'***':p<0.01?'**':p<0.05?'*':'ns';
-      console.debug('p2stars called', {p,stars});
-      return stars;
-    }
-    function formatP(p){
-      const formatted=p.toLocaleString('en-US',{maximumSignificantDigits:6});
-      console.debug('formatP called',{p,formatted});
-      return formatted;
-    }
-    const mean=arr=>arr.reduce((s,v)=>s+v,0)/arr.length;
-    function anova(groups){
-      console.debug('anova inputs', groups);
-      const k=groups.length;
-      const n=groups.reduce((s,g)=>s+g.length,0);
-      const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n;
-      let ssBetween=0, ssWithin=0;
-      groups.forEach(g=>{
-        const m=mean(g);
-        ssBetween+=g.length*Math.pow(m-grand,2);
-        ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0);
-      });
-      const dfBetween=k-1;
-      const dfWithin=n-k;
-      const msBetween=ssBetween/dfBetween;
-      const msWithin=ssWithin/dfWithin;
-      const F=msBetween/msWithin;
-      const p=1-jStat.centralF.cdf(F,dfBetween,dfWithin);
-      console.debug('anova results', {F,p});
-      return {F,p};
-    }
-    function rankArray(arr){
-      console.debug('rankArray inputs', arr);
-      const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v);
-      const ranks=new Array(arr.length);
-      let i=0;
-      while(i<sorted.length){
-        let j=i;
-        while(j<sorted.length && sorted[j].v===sorted[i].v) j++;
-        const avg=(i+j-1)/2+1;
-        for(let k=i;k<j;k++) ranks[sorted[k].i]=avg;
-        i=j;
-      }
-      console.debug('rankArray result', ranks);
-      return ranks;
-    }
-    function kruskalWallis(groups){
-      console.debug('kruskalWallis inputs', groups);
-      const n=groups.reduce((s,g)=>s+g.length,0);
-      const all=groups.flat();
-      const ranks=rankArray(all);
-      let idx=0;
-      const R=groups.map(g=>{
-        const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0);
-        idx+=g.length;
-        return r;
-      });
-      const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1);
-      const df=groups.length-1;
-      const p=1-jStat.chisquare.cdf(H,df);
-      console.debug('kruskalWallis results', {H,p});
-      return {H,p};
-    }
-    function parsePairString(str,traces){
-      console.debug('parsePairString called',{str});
-      return str.split(/[\n,]+/).map(p=>p.trim()).filter(p=>p).map(p=>{
-        const [a,b]=p.split('-').map(s=>s.trim());
-        const ai=isNaN(parseInt(a))?traces.findIndex(t=>t.name===a):parseInt(a)-1;
-        const bi=isNaN(parseInt(b))?traces.findIndex(t=>t.name===b):parseInt(b)-1;
-        console.debug('pair parsed',{pair:p,a,ai,b,bi});
-        return (ai>=0&&bi>=0)?{ai,bi}:null;
-      }).filter(Boolean);
-    }
-    function renderStatsControls(traces){
-      console.debug('renderStatsControls called', traces);
-      const controls=document.getElementById('statsControls');
-      controls.innerHTML='';
-      if(selectedCols.size<2 && traces.length>=2){
-        selectedCols.clear();
-        selectedCols.add(0);
-        selectedCols.add(1);
-        console.debug('renderStatsControls default selection', Array.from(selectedCols));
-      }
-      if(statsMode==='reference' && !selectedCols.has(statsRef)){
-        selectedCols.add(statsRef);
-        console.debug('renderStatsControls added reference', statsRef);
-      }
-      console.debug('renderStatsControls build options',{statsTest,statsMode,statsRef});
-      const optionWrap=document.createElement('div');
-
-      const testLabel=document.createElement('label');
-      testLabel.textContent='Test:';
-      const testSel=document.createElement('select');
-      ['parametric','nonparametric'].forEach(v=>{
+    const optionWrap=document.createElement('div');
+    const testLabel=document.createElement('label');
+    testLabel.textContent='Test:';
+    const testSel=document.createElement('select');
+    ['parametric','nonparametric'].forEach(v=>{
+      const o=document.createElement('option');
+      o.value=v; o.textContent=v==='parametric'?'Parametric':'Non-parametric';
+      if(statsTest===v) o.selected=true;
+      testSel.appendChild(o);
+    });
+    testSel.addEventListener('change',()=>{
+      statsTest=testSel.value;
+      drawBoxplot();
+    });
+    optionWrap.appendChild(testLabel);
+    optionWrap.appendChild(testSel);
+    const pairedLabel=document.createElement('label');
+    pairedLabel.textContent='Pairing:';
+    const pairedSel=document.createElement('select');
+    [['unpaired','Unpaired'],['paired','Paired']].forEach(([v,t])=>{
+      const o=document.createElement('option');
+      o.value=v; o.textContent=t;
+      if((statsPaired && v==='paired') || (!statsPaired && v==='unpaired')) o.selected=true;
+      pairedSel.appendChild(o);
+    });
+    pairedSel.addEventListener('change',()=>{
+      statsPaired=pairedSel.value==='paired';
+      drawBoxplot();
+    });
+    optionWrap.appendChild(pairedLabel);
+    optionWrap.appendChild(pairedSel);
+    const modeLabel=document.createElement('label');
+    modeLabel.textContent='Comparison:';
+    const modeSel=document.createElement('select');
+    [['all','All pairwise'],['reference','Versus reference'],['custom','Custom pairs']].forEach(([v,t])=>{
+      const o=document.createElement('option');
+      o.value=v; o.textContent=t;
+      if(statsMode===v) o.selected=true;
+      modeSel.appendChild(o);
+    });
+    modeSel.addEventListener('change',()=>{
+      statsMode=modeSel.value;
+      renderStatsControls(traces);
+      drawBoxplot();
+    });
+    optionWrap.appendChild(modeLabel);
+    optionWrap.appendChild(modeSel);
+    if(statsMode==='reference'){
+      const refLabel=document.createElement('label');
+      refLabel.textContent='Reference:';
+      const refSel=document.createElement('select');
+      traces.forEach((t,i)=>{
         const o=document.createElement('option');
-        o.value=v; o.textContent=v==='parametric'?'Parametric':'Non-parametric';
-        if(statsTest===v) o.selected=true;
-        testSel.appendChild(o);
+        o.value=i; o.textContent=t.name;
+        if(i===statsRef) o.selected=true;
+        refSel.appendChild(o);
       });
-      testSel.addEventListener('change',()=>{
-        statsTest=testSel.value;
-        console.debug('statsTest changed', statsTest);
-        drawBoxplot();
-      });
-      optionWrap.appendChild(testLabel);
-      optionWrap.appendChild(testSel);
-
-      const pairedLabel=document.createElement('label');
-      pairedLabel.textContent='Pairing:';
-      const pairedSel=document.createElement('select');
-      [['unpaired','Unpaired'],['paired','Paired']].forEach(([v,t])=>{
-        const o=document.createElement('option');
-        o.value=v; o.textContent=t;
-        if((statsPaired && v==='paired') || (!statsPaired && v==='unpaired')) o.selected=true;
-        pairedSel.appendChild(o);
-      });
-      pairedSel.addEventListener('change',()=>{
-        statsPaired=pairedSel.value==='paired';
-        console.debug('statsPaired changed', statsPaired);
-        drawBoxplot();
-      });
-      optionWrap.appendChild(pairedLabel);
-      optionWrap.appendChild(pairedSel);
-
-      const modeLabel=document.createElement('label');
-      modeLabel.textContent='Comparison:';
-      const modeSel=document.createElement('select');
-      [['all','All pairwise'],['reference','Versus reference'],['custom','Custom pairs']].forEach(([v,t])=>{
-        const o=document.createElement('option');
-        o.value=v; o.textContent=t;
-        if(statsMode===v) o.selected=true;
-        modeSel.appendChild(o);
-      });
-      modeSel.addEventListener('change',()=>{
-        statsMode=modeSel.value;
-        console.debug('statsMode changed', statsMode);
+      refSel.addEventListener('change',()=>{
+        statsRef=+refSel.value;
         renderStatsControls(traces);
         drawBoxplot();
       });
-      optionWrap.appendChild(modeLabel);
-      optionWrap.appendChild(modeSel);
-
-      if(statsMode==='reference'){
-        const refLabel=document.createElement('label');
-        refLabel.textContent='Reference:';
-        const refSel=document.createElement('select');
-        traces.forEach((t,i)=>{
-          const o=document.createElement('option');
-          o.value=i; o.textContent=t.name;
-          if(i===statsRef) o.selected=true;
-          refSel.appendChild(o);
-        });
-        refSel.addEventListener('change',()=>{
-          statsRef=+refSel.value;
-          console.debug('statsRef changed', statsRef);
-          renderStatsControls(traces);
-          drawBoxplot();
-        });
-        optionWrap.appendChild(refLabel);
-        optionWrap.appendChild(refSel);
-      } else if(statsMode==='custom'){
-        const pairLabel=document.createElement('label');
-        pairLabel.textContent='Pairs:';
-        const pairInput=document.createElement('input');
-        pairInput.type='text';
-        pairInput.value=statsPairsText;
-        pairInput.placeholder='1-3,2-4';
-        pairInput.addEventListener('change',()=>{
-          statsPairsText=pairInput.value;
-          statsCustomPairs=parsePairString(statsPairsText,traces);
-          console.debug('statsCustomPairs updated',statsCustomPairs);
-          drawBoxplot();
-        });
-        optionWrap.appendChild(pairLabel);
-        optionWrap.appendChild(pairInput);
+      optionWrap.appendChild(refLabel);
+      optionWrap.appendChild(refSel);
+    } else if(statsMode==='custom'){
+      const pairLabel=document.createElement('label');
+      pairLabel.textContent='Pairs:';
+      const pairInput=document.createElement('input');
+      pairInput.type='text';
+      pairInput.value=statsPairsText;
+      pairInput.placeholder='1-3,2-4';
+      pairInput.addEventListener('change',()=>{
+        statsPairsText=pairInput.value;
         statsCustomPairs=parsePairString(statsPairsText,traces);
-        console.debug('statsCustomPairs parsed on render',statsCustomPairs);
-      }
-      controls.appendChild(optionWrap);
-      traces.forEach((t,i)=>{
-        const id=`statCol${i}`;
-        const chk=document.createElement('input');
-        chk.type='checkbox'; chk.id=id; chk.dataset.index=i;
-        chk.checked=selectedCols.has(i);
-        chk.addEventListener('change',()=>{
-          console.debug('stats column checkbox changed',{index:i,checked:chk.checked});
-          if(chk.checked) selectedCols.add(i); else selectedCols.delete(i);
-          drawBoxplot();
-        });
-        const lab=document.createElement('label');
-        lab.setAttribute('for',id);
-        lab.textContent=t.name;
-        controls.appendChild(chk);
-        controls.appendChild(lab);
+        drawBoxplot();
       });
+      optionWrap.appendChild(pairLabel);
+      optionWrap.appendChild(pairInput);
+      statsCustomPairs=parsePairString(statsPairsText,traces);
     }
-    function annotatePair(svg,x1,x2,y,p){
-      console.debug('annotatePair called',{x1,x2,y,p});
-      const path=document.createElementNS(NS,'path');
-      path.setAttribute('d',`M${x1},${y} L${x1},${y-10} L${x2},${y-10} L${x2},${y}`);
-      path.setAttribute('stroke','#000');
-      path.setAttribute('fill','none');
-      svg.appendChild(path);
-      const txt=document.createElementNS(NS,'text');
-      txt.setAttribute('x',(x1+x2)/2);
-      txt.setAttribute('y',y-12);
-      txt.setAttribute('text-anchor','middle');
-      txt.textContent=p2stars(p);
-      svg.appendChild(txt);
-    }
-    function annotateOverall(svg,xCenters,y2px,maxVal,p,level=0){
-      console.debug('annotateOverall called',{xCenters,maxVal,p,level});
-      const y=y2px(maxVal)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP;
-      console.debug('annotateOverall y',{y});
-      const txt=document.createElementNS(NS,'text');
-      txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2);
-      txt.setAttribute('y',y-12);
-      txt.setAttribute('text-anchor','middle');
-      txt.textContent=p2stars(p);
-      svg.appendChild(txt);
-    }
-    function computeStats(traces,svg,helpers){
-      console.debug('computeStats called', {traces,selectedCols:Array.from(selectedCols),statsTest,statsMode,statsRef,statsPaired,statsCustomPairs});
-      const statsDiv=document.getElementById('statsResults');
-      statsDiv.innerHTML='';
-
-      if(statsMode==='custom'){
-        if(!statsCustomPairs.length){
-          statsDiv.textContent='Specify pairs for comparison.';
-          console.debug('computeStats custom no pairs');
+    controls.appendChild(optionWrap);
+    traces.forEach((t,i)=>{
+      const id=`statCol${i}`;
+      const chk=document.createElement('input');
+      chk.type='checkbox'; chk.id=id; chk.dataset.index=i;
+      chk.checked=selectedCols.has(i);
+      chk.addEventListener('change',()=>{
+        if(chk.checked) selectedCols.add(i); else selectedCols.delete(i);
+        drawBoxplot();
+      });
+      const lab=document.createElement('label');
+      lab.setAttribute('for',id);
+      lab.textContent=t.name;
+      controls.appendChild(chk);
+      controls.appendChild(lab);
+    });
+  }
+  function annotatePair(svg,x1,x2,y,p){
+    const path=document.createElementNS(NS,'path');
+    path.setAttribute('d',`M${x1},${y} L${x1},${y-10} L${x2},${y-10} L${x2},${y}`);
+    path.setAttribute('stroke','#000');
+    path.setAttribute('fill','none');
+    svg.appendChild(path);
+    const txt=document.createElementNS(NS,'text');
+    txt.setAttribute('x',(x1+x2)/2);
+    txt.setAttribute('y',y-12);
+    txt.setAttribute('text-anchor','middle');
+    txt.textContent=p2stars(p);
+    svg.appendChild(txt);
+  }
+  function annotateOverall(svg,xCenters,y2px,maxVal,p,level=0){
+    const y=y2px(maxVal)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP;
+    const txt=document.createElementNS(NS,'text');
+    txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2);
+    txt.setAttribute('y',y-12);
+    txt.setAttribute('text-anchor','middle');
+    txt.textContent=p2stars(p);
+    svg.appendChild(txt);
+  }
+  function computeStats(traces,svg,helpers){
+    const statsDiv=document.getElementById('statsResults');
+    statsDiv.innerHTML='';
+    if(statsMode==='custom'){
+      if(!statsCustomPairs.length){
+        statsDiv.textContent='Specify pairs for comparison.';
+        return;
+      }
+      const pairTest=statsTest==='parametric'?(statsPaired?tTestPaired:tTest):(statsPaired?wilcoxonSignedRank:mannWhitney);
+      const pairs=[];
+      statsCustomPairs.forEach(pr=>{
+        const aData=traces[pr.ai].rawY;
+        const bData=traces[pr.bi].rawY;
+        if(statsPaired && aData.length!==bData.length){
           return;
         }
-        const pairTest=statsTest==='parametric'?(statsPaired?tTestPaired:tTest):(statsPaired?wilcoxonSignedRank:mannWhitney);
-        const pairs=[];
-        statsCustomPairs.forEach(pr=>{
-          const aData=traces[pr.ai].rawY;
-          const bData=traces[pr.bi].rawY;
-          if(statsPaired && aData.length!==bData.length){
-            console.debug('computeStats pair length mismatch',pr);
-            return;
-          }
-          const r=pairTest(aData,bData);
-          const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
-          const statVal=r[statName];
-          let rangeMax=-Infinity;
-          for(let k=Math.min(pr.ai,pr.bi);k<=Math.max(pr.ai,pr.bi);k++){
-            rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
-          }
-          pairs.push({...pr,p:r.p,rangeMax,labelA:traces[pr.ai].name,labelB:traces[pr.bi].name,stat:statVal,statName,df:r.df});
-          console.debug('computeStats custom pair',{ai:pr.ai,bi:pr.bi,p:r.p,rangeMax,statName,statVal,df:r.df});
-        });
-        const m=pairs.length;
-        pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
-        let html='<table><tr><th>Comparison</th><th>Statistic</th><th>df</th><th>P (adj)</th></tr>';
-        pairs.forEach(pr=>{html+=`<tr><td>${pr.labelA} vs ${pr.labelB}</td><td>${pr.statName}=${pr.stat.toFixed(4)}</td><td>${pr.df??''}</td><td>${formatP(pr.adjP)}</td></tr>`;});
-        html+='</table>';
-        statsDiv.innerHTML=html;
-        console.debug('computeStats custom table rendered',{pairs});
-        if(pairs.length){
-          pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
-          const placed=[];
-          pairs.forEach(pr=>{
-            let level=0;
-            while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
-            const y=helpers.y2px(pr.rangeMax)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP;
-            console.debug('pair level placement',{rangeMax:pr.rangeMax,level,y});
-            annotatePair(svg,helpers.xCenter(pr.ai),helpers.xCenter(pr.bi),y,pr.p);
-            pr.level=level;
-            placed.push(pr);
-            console.debug('computeStats annotate pair',{ai:pr.ai,bi:pr.bi,level,y});
-          });
-        }
-        console.debug('computeStats completed',{mode:'custom',pairs:pairs.length});
-        return;
-      }
-
-      const indices=[...selectedCols];
-      if(indices.length<2){
-        statsDiv.textContent='Select at least two columns for statistical analysis.';
-        console.debug('computeStats insufficient selection', indices.length);
-        return;
-      }
-      const groups=indices.map(i=>traces[i].rawY);
-      const labels=indices.map(i=>traces[i].name);
-      const param=statsTest==='parametric';
-      const pairTest=param?(statsPaired?tTestPaired:tTest):(statsPaired?wilcoxonSignedRank:mannWhitney);
-      const overallTest=param?anova:kruskalWallis;
-
-      if(statsPaired && groups.some(g=>g.length!==groups[0].length)){
-        statsDiv.textContent='Paired tests require equal group sizes.';
-        console.debug('computeStats paired size mismatch');
-        return;
-      }
-
-      if(indices.length===2){
-        const res=pairTest(groups[0],groups[1]);
-        const statName=res.t!==undefined?'t':res.U!==undefined?'U':res.W!==undefined?'W':'stat';
-        const rows=[
-          ['Comparison', `${labels[0]} vs ${labels[1]}`],
-          ['Test', param?(statsPaired?'Paired t-test':'t-test'):(statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U')],
-          [statName, res[statName].toFixed(4)]
-        ];
-        if(res.df!==undefined) rows.push(['df', res.df.toFixed(4)]);
-        rows.push(['P value', formatP(res.p)]);
-        statsDiv.innerHTML='<table>'+rows.map(r=>`<tr><th>${r[0]}</th><td>${r[1]}</td></tr>`).join('')+'</table>';
-        const from=Math.min(indices[0],indices[1]);
-        const to=Math.max(indices[0],indices[1]);
+        const r=pairTest(aData,bData);
+        const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
+        const statVal=r[statName];
         let rangeMax=-Infinity;
-        for(let k=from;k<=to;k++) rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
-        const y=helpers.y2px(rangeMax)-ANN_BASE_OFFSET;
-        console.debug('pair annotation position',{rangeMax,y});
-        annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),y,res.p);
-        console.debug('computeStats pair result',{res,param,rangeMax,y,statName});
-        return;
-      }
-
-      let overall=null;
-      if(!statsPaired){
-        overall=overallTest(groups);
-        console.debug('overall test computed', {overall});
-      } else {
-        console.debug('overall test skipped for paired data');
-      }
-      const maxVal=Math.max(...indices.map(i=>Math.max(...traces[i].y)));
-      const xs=indices.map(i=>helpers.xCenter(i));
-      let pairs=[];
-      if(statsMode==='all'){
-        for(let i=0;i<indices.length;i++){
-          for(let j=i+1;j<indices.length;j++){
-            const aIdx=indices[i],bIdx=indices[j];
-            const r=pairTest(traces[aIdx].rawY,traces[bIdx].rawY);
-            const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
-            const statVal=r[statName];
-            let rangeMax=-Infinity;
-            for(let k=Math.min(aIdx,bIdx);k<=Math.max(aIdx,bIdx);k++){
-              rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
-            }
-            pairs.push({a:i,b:j,ai:aIdx,bi:bIdx,p:r.p,rangeMax,stat:statVal,statName,df:r.df});
-            console.debug('computeStats pair',{i:aIdx,j:bIdx,p:r.p,rangeMax,statName,statVal,df:r.df});
-          }
+        for(let k=Math.min(pr.ai,pr.bi);k<=Math.max(pr.ai,pr.bi);k++){
+          rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
         }
-        const m=pairs.length;
-        pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
-      }else if(statsMode==='reference'){
-        const refIdx=indices.indexOf(statsRef);
-        if(refIdx===-1){
-          statsDiv.innerHTML+='<div>Select reference column among the chosen groups.</div>';
-          console.debug('computeStats missing reference', statsRef);
-          return;
-        }
-        const refLabel=labels[refIdx];
-        const refData=groups[refIdx];
-        indices.forEach((idx,i)=>{
-          if(i===refIdx) return;
-          const r=pairTest(refData,traces[idx].rawY);
-          const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
-          const statVal=r[statName];
-          let rangeMax=-Infinity;
-          for(let k=Math.min(statsRef,idx);k<=Math.max(statsRef,idx);k++){
-            rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
-          }
-          pairs.push({a:refIdx,b:i,ai:statsRef,bi:idx,p:r.p,rangeMax,label:labels[i],stat:statVal,statName,df:r.df});
-          console.debug('computeStats ref pair',{ref:statsRef,other:idx,p:r.p,rangeMax,statName,statVal,df:r.df});
-        });
-        const m=pairs.length;
-        pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
-      }
+        pairs.push({...pr,p:r.p,rangeMax,labelA:traces[pr.ai].name,labelB:traces[pr.bi].name,stat:statVal,statName,df:r.df});
+      });
+      const m=pairs.length;
+      pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
+      let html='<table><tr><th>Comparison</th><th>Statistic</th><th>df</th><th>P (adj)</th></tr>';
+      pairs.forEach(pr=>{html+=`<tr><td>${pr.labelA} vs ${pr.labelB}</td><td>${pr.statName}=${pr.stat.toFixed(4)}</td><td>${pr.df??''}</td><td>${formatP(pr.adjP)}</td></tr>`;});
+      html+='</table>';
+      statsDiv.innerHTML=html;
       if(pairs.length){
-        let html='';
-        if(!statsPaired){
-          const overallStatName=param?'F':'H';
-          html+=`<table><tr><th>Overall test</th><td>${param?'ANOVA':'Kruskal-Wallis'}</td></tr><tr><th>${overallStatName}</th><td>${overall[overallStatName].toFixed(4)}</td></tr>`;
-          if(param) html+=`<tr><th>df</th><td>${groups.length-1},${groups.reduce((s,g)=>s+g.length,0)-groups.length}</td></tr>`;
-          else html+=`<tr><th>df</th><td>${groups.length-1}</td></tr>`;
-          html+=`<tr><th>P value</th><td>${formatP(overall.p)}</td></tr></table>`;
-        }
-        html+='<table><tr><th>Comparison</th><th>Statistic</th><th>df</th><th>P (adj)</th></tr>';
-        pairs.forEach(pr=>{html+=`<tr><td>${labels[pr.a]} vs ${labels[pr.b]}</td><td>${pr.statName}=${pr.stat.toFixed(4)}</td><td>${pr.df??''}</td><td>${formatP(pr.adjP)}</td></tr>`;});
-        html+='</table>';
-        statsDiv.innerHTML=html;
-        console.debug('computeStats pairwise table rendered',{pairsCount:pairs.length});
-
         pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
         const placed=[];
         pairs.forEach(pr=>{
           let level=0;
           while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
           const y=helpers.y2px(pr.rangeMax)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP;
-          console.debug('pair level placement',{rangeMax:pr.rangeMax,level,y});
           annotatePair(svg,helpers.xCenter(pr.ai),helpers.xCenter(pr.bi),y,pr.p);
           pr.level=level;
           placed.push(pr);
-          console.debug('computeStats annotate pair',{ai:pr.ai,bi:pr.bi,level,y});
         });
       }
-      const maxLevel=pairs.length?Math.max(...pairs.map(pr=>pr.level))+1:0;
-      if(!statsPaired && pairs.length===0){
-        annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p,maxLevel);
-        console.debug('overall annotation rendered',{p:overall.p});
-      } else {
-        console.debug('overall annotation skipped',{statsPaired,pairsLength:pairs.length});
+      return;
+    }
+    const indices=[...selectedCols];
+    if(indices.length<2){
+      statsDiv.textContent='Select at least two columns for statistical analysis.';
+      return;
+    }
+    const groups=indices.map(i=>traces[i].rawY);
+    const labels=indices.map(i=>traces[i].name);
+    const param=statsTest==='parametric';
+    const pairTest=param?(statsPaired?tTestPaired:tTest):(statsPaired?wilcoxonSignedRank:mannWhitney);
+    const overallTest=param?anova:kruskalWallis;
+    if(statsPaired && groups.some(g=>g.length!==groups[0].length)){
+      statsDiv.textContent='Paired tests require equal group sizes.';
+      return;
+    }
+    if(indices.length===2){
+      const res=pairTest(groups[0],groups[1]);
+      const statName=res.t!==undefined?'t':res.U!==undefined?'U':res.W!==undefined?'W':'stat';
+      const rows=[
+        ['Comparison', `${labels[0]} vs ${labels[1]}`],
+        ['Test', param?(statsPaired?'Paired t-test':'t-test'):(statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U')],
+        [statName, res[statName].toFixed(4)]
+      ];
+      if(res.df!==undefined) rows.push(['df', res.df.toFixed(4)]);
+      rows.push(['P value', formatP(res.p)]);
+      statsDiv.innerHTML='<table>'+rows.map(r=>`<tr><th>${r[0]}</th><td>${r[1]}</td></tr>`).join('')+'</table>';
+      const from=Math.min(indices[0],indices[1]);
+      const to=Math.max(indices[0],indices[1]);
+      let rangeMax=-Infinity;
+      for(let k=from;k<=to;k++) rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
+      const y=helpers.y2px(rangeMax)-ANN_BASE_OFFSET;
+      annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),y,res.p);
+      return;
+    }
+    let overall=null;
+    if(!statsPaired){
+      overall=overallTest(groups);
+    }
+    const maxVal=Math.max(...indices.map(i=>Math.max(...traces[i].y)));
+    const xs=indices.map(i=>helpers.xCenter(i));
+    let pairs=[];
+    if(statsMode==='all'){
+      for(let i=0;i<indices.length;i++){
+        for(let j=i+1;j<indices.length;j++){
+          const aIdx=indices[i],bIdx=indices[j];
+          const r=pairTest(traces[aIdx].rawY,traces[bIdx].rawY);
+          const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
+          const statVal=r[statName];
+          let rangeMax=-Infinity;
+          for(let k=Math.min(aIdx,bIdx);k<=Math.max(aIdx,bIdx);k++){
+            rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
+          }
+          pairs.push({a:i,b:j,ai:aIdx,bi:bIdx,p:r.p,rangeMax,stat:statVal,statName,df:r.df});
+        }
       }
-      console.debug('computeStats completed',{maxLevel});
-    }
-
-    function renderStatsTable(traces){
-      console.debug('renderStatsTable called', traces);
-      const tableDiv=document.getElementById('statsTable');
-      if(!traces.length){ tableDiv.innerHTML=''; return; }
-      const rows=traces.map(t=>{
-        const arr=t.rawY;
-        const n=arr.length;
-        const mean=jStat.mean(arr);
-        const med=jStat.median(arr);
-        const sd=jStat.stdev(arr,true);
-        const min=Math.min(...arr);
-        const q1=jStat.percentile(arr,0.25);
-        const q3=jStat.percentile(arr,0.75);
-        const max=Math.max(...arr);
-        return {name:t.name,n,mean,med,sd,min,q1,q3,max};
-      });
-      let html='<table style="border-collapse:collapse">';
-      html+='<thead><tr>'+['Column','N','Mean','Median','SD','Min','Q1','Q3','Max'].map(h=>`<th style="border:1px solid #ccc;padding:4px">${h}</th>`).join('')+'</tr></thead>';
-      html+='<tbody>'+rows.map(r=>`<tr><td style="border:1px solid #ccc;padding:4px">${r.name}</td><td style="border:1px solid #ccc;padding:4px">${r.n}</td><td style="border:1px solid #ccc;padding:4px">${r.mean.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.med.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.sd.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.min}</td><td style="border:1px solid #ccc;padding:4px">${r.q1.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.q3.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.max}</td></tr>`).join('')+'</tbody></table>';
-      tableDiv.innerHTML=html;
-      console.debug('renderStatsTable complete');
-    }
-
-    function makeEditable(el,onChange){
-      el.style.cursor='pointer';
-      el.addEventListener('dblclick',()=>{
-        console.debug('makeEditable dblclick',{text:el.textContent});
-        const txt=prompt('Edit text',el.textContent);
-        console.debug('makeEditable prompt result',txt);
-        if(txt!==null){
-          el.textContent=txt;
-          onChange(txt);
-          console.debug('editable text updated',{text:txt});
+      const m=pairs.length;
+      pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
+    }else if(statsMode==='reference'){
+      const refIdx=indices.indexOf(statsRef);
+      if(refIdx===-1){
+        statsDiv.innerHTML+='<div>Select reference column among the chosen groups.</div>';
+        return;
+      }
+      const refLabel=labels[refIdx];
+      const refData=groups[refIdx];
+      indices.forEach((idx,i)=>{
+        if(i===refIdx) return;
+        const r=pairTest(refData,traces[idx].rawY);
+        const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
+        const statVal=r[statName];
+        let rangeMax=-Infinity;
+        for(let k=Math.min(statsRef,idx);k<=Math.max(statsRef,idx);k++){
+          rangeMax=Math.max(rangeMax,Math.max(...traces[k].y));
         }
+        pairs.push({a:refIdx,b:i,ai:statsRef,bi:idx,p:r.p,rangeMax,label:labels[i],stat:statVal,statName,df:r.df});
       });
-      console.debug('makeEditable applied');
+      const m=pairs.length;
+      pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
     }
-
-    function serializeCleanSVG(svgEl){
-      console.debug('serializeCleanSVG start', svgEl);
-      const clone = svgEl.cloneNode(true);
-      clone.querySelectorAll('[contenteditable],[contentEditable]').forEach(el=>{
-        el.removeAttribute('contenteditable');
-        el.removeAttribute('contentEditable');
-        console.debug('contenteditable stripped from', el);
+    if(pairs.length){
+      let html='';
+      if(!statsPaired){
+        const overallStatName=param?'F':'H';
+        html+=`<table><tr><th>Overall test</th><td>${param?'ANOVA':'Kruskal-Wallis'}</td></tr><tr><th>${overallStatName}</th><td>${overall[overallStatName].toFixed(4)}</td></tr>`;
+        if(param) html+=`<tr><th>df</th><td>${groups.length-1},${groups.reduce((s,g)=>s+g.length,0)-groups.length}</td></tr>`;
+        else html+=`<tr><th>df</th><td>${groups.length-1}</td></tr>`;
+        html+=`<tr><th>P value</th><td>${formatP(overall.p)}</td></tr></table>`;
+      }
+      html+='<table><tr><th>Comparison</th><th>Statistic</th><th>df</th><th>P (adj)</th></tr>';
+      pairs.forEach(pr=>{html+=`<tr><td>${labels[pr.a]} vs ${labels[pr.b]}</td><td>${pr.statName}=${pr.stat.toFixed(4)}</td><td>${pr.df??''}</td><td>${formatP(pr.adjP)}</td></tr>`;});
+      html+='</table>';
+      statsDiv.innerHTML=html;
+      pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+      const placed=[];
+      pairs.forEach(pr=>{
+        let level=0;
+        while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
+        const y=helpers.y2px(pr.rangeMax)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP;
+        annotatePair(svg,helpers.xCenter(pr.ai),helpers.xCenter(pr.bi),y,pr.p);
+        pr.level=level;
+        placed.push(pr);
       });
-      const xml = new XMLSerializer().serializeToString(clone);
-      console.debug('serializeCleanSVG complete', {length:xml.length});
-      return xml;
     }
-
-        function drawBoxplot(){
-          console.debug('drawBoxplot (SVG) called');
-
-	  // Appearance controls
-            const fill = $('#boxFill').value;
-            const border = $('#boxBorder').value;
-            const bw = Number($('#boxBorderWidth').value);
-            const fs = Number($('#boxFontSize').value);
-            const showGrid = $('#boxShowGrid').checked;
-            const logScale = $('#boxLogScale').checked;
-            const graphType = $('#boxGraphType').value;
-            const pointMode = $('#boxPointMode').value;
-            console.debug('box plot style', { fill, border, bw, fs, showGrid, logScale, graphType, pointMode });
-
-	  // Build traces from first-row headers; numeric data are rows 1..N
-          const traces = [];
-          const labelsUsed = [];
-          const nCols = hot.countCols();
-
-          if(boxColOrder.length !== nCols){
-                boxColOrder = Array.from({length:nCols}, (_, i) => i);
-                console.debug('boxColOrder reset', boxColOrder);
+    const maxLevel=pairs.length?Math.max(...pairs.map(pr=>pr.level))+1:0;
+    if(!statsPaired && pairs.length===0){
+      annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p,maxLevel);
+    }
+  }
+  function renderStatsTable(traces){
+    const tableDiv=document.getElementById('statsTable');
+    if(!traces.length){ tableDiv.innerHTML=''; return; }
+    const rows=traces.map(t=>{
+      const arr=t.rawY;
+      const n=arr.length;
+      const mean=jStat.mean(arr);
+      const med=jStat.median(arr);
+      const sd=jStat.stdev(arr,true);
+      const min=Math.min(...arr);
+      const q1=jStat.percentile(arr,0.25);
+      const q3=jStat.percentile(arr,0.75);
+      const max=Math.max(...arr);
+      return {name:t.name,n,mean,med,sd,min,q1,q3,max};
+    });
+    let html='<table style="border-collapse:collapse">';
+    html+='<thead><tr>'+['Column','N','Mean','Median','SD','Min','Q1','Q3','Max'].map(h=>`<th style="border:1px solid #ccc;padding:4px">${h}</th>`).join('')+'</tr></thead>';
+    html+='<tbody>'+rows.map(r=>`<tr><td style="border:1px solid #ccc;padding:4px">${r.name}</td><td style="border:1px solid #ccc;padding:4px">${r.n}</td><td style="border:1px solid #ccc;padding:4px">${r.mean.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.med.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.sd.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.min}</td><td style="border:1px solid #ccc;padding:4px">${r.q1.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.q3.toFixed(2)}</td><td style="border:1px solid #ccc;padding:4px">${r.max}</td></tr>`).join('')+'</tbody></table>';
+    tableDiv.innerHTML=html;
+  }
+  function makeEditable(el,onChange){
+    el.style.cursor='pointer';
+    el.addEventListener('dblclick',()=>{
+      const txt=prompt('Edit text',el.textContent);
+      if(txt!==null){
+        el.textContent=txt;
+        onChange(txt);
+      }
+    });
+  }
+  function serializeCleanSVG(svgEl){
+    const clone = svgEl.cloneNode(true);
+    clone.querySelectorAll('[contenteditable],[contentEditable]').forEach(el=>{
+      el.removeAttribute('contenteditable');
+      el.removeAttribute('contentEditable');
+    });
+    return new XMLSerializer().serializeToString(clone);
+  }
+  function drawBoxplot(){
+    const fill = $('#boxFill').value;
+    const border = $('#boxBorder').value;
+    const bw = Number($('#boxBorderWidth').value);
+    const fs = Number($('#boxFontSize').value);
+    const showGrid = $('#boxShowGrid').checked;
+    const logScale = $('#boxLogScale').checked;
+    const graphType = $('#boxGraphType').value;
+    const pointMode = $('#boxPointMode').value;
+    const traces = [];
+    const labelsUsed = [];
+    const nCols = hot.countCols();
+    if(boxColOrder.length !== nCols){
+      boxColOrder = Array.from({length:nCols}, (_, i) => i);
+    }
+    boxColOrder.forEach(i => {
+      const headerCell = hot.getDataAtCell(0, i);
+      const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
+      const col = hot.getDataAtCol(i)
+        .slice(1)
+        .map(v => parseFloat(v))
+        .filter(v => !isNaN(v));
+      if (col.length) {
+        labelsUsed.push(label);
+        traces.push({ name: label, rawY: col });
+      }
+    });
+    if (!traces.length) {
+      document.getElementById('boxPlot').innerHTML='';
+      document.getElementById('statsResults').innerHTML='';
+      document.getElementById('statsTable').innerHTML='';
+      return;
+    }
+    renderStatsControls(traces);
+    if(logScale){
+      const hasNonPos=traces.some(t=>t.rawY.some(v=>v<=0));
+      if(hasNonPos){
+        document.getElementById('boxPlot').innerHTML='<i>Log scale requires positive values.</i>';
+        document.getElementById('statsResults').innerHTML='';
+        document.getElementById('statsTable').innerHTML='';
+        return;
+      }
+      traces.forEach(t=>{ t.y=t.rawY.map(v=>Math.log10(v)); });
+    }else{
+      traces.forEach(t=>{ t.y=[...t.rawY]; });
+    }
+    const $box = document.getElementById('boxPlot');
+    while ($box.firstChild) $box.removeChild($box.firstChild);
+    const W = Math.max(50, Math.floor($box.clientWidth || 50));
+    const H = Math.max(40, Math.floor($box.clientHeight || 40));
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('id', 'boxSvg');
+    svg.setAttribute('width', String(W));
+    svg.setAttribute('height', String(H));
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('font-family','sans-serif');
+    $box.appendChild(svg);
+    const allY = traces.flatMap(t => t.y);
+    let ymin = Math.min(...allY);
+    let ymax = Math.max(...allY);
+    if (graphType === 'bar') {
+      ymin = logScale ? Math.log10(1) : 0;
+    }
+    if (ymin === ymax) { ymin -= 1; ymax += 1; }
+    const range = ymax - ymin;
+    const padTop = range * 0.15;
+    const padBottom = range * 0.05;
+    ymax += padTop;
+    ymin -= padBottom;
+    function niceNum(range, round){
+      const exp = Math.floor(Math.log10(range));
+      const f = range / Math.pow(10, exp);
+      let nf;
+      if (round){
+        if (f < 1.5) nf = 1; else if (f < 3) nf = 2; else if (f < 7) nf = 5; else nf = 10;
+      } else {
+        if (f <= 1) nf = 1; else if (f <= 2) nf = 2; else if (f <= 5) nf = 5; else nf = 10;
+      }
+      return nf * Math.pow(10, exp);
+    }
+    function niceScale(min, max, maxTicks){
+      const range = niceNum(max - min, false);
+      const step = niceNum(range / (maxTicks - 1), true);
+      const graphMin = Math.floor(min / step) * step;
+      const graphMax = Math.ceil(max / step) * step;
+      const ticks = [];
+      for (let v = graphMin; v <= graphMax + 1e-9; v += step) ticks.push(v);
+      return { min: graphMin, max: graphMax, ticks, step };
+    }
+    const yScale = niceScale(ymin, ymax, 6);
+    function formatTick(v){
+      return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});
+    }
+    function measureTextWidth(text, font){
+      const canvas = measureTextWidth.canvas || (measureTextWidth.canvas = document.createElement('canvas'));
+      const ctx = canvas.getContext('2d');
+      ctx.font = font;
+      return ctx.measureText(text).width;
+    }
+    const tickFont = `${fs}px sans-serif`;
+    const tickLabels = yScale.ticks.map(t=>formatTick(logScale?Math.pow(10,t):t));
+    const tickWidths = tickLabels.map(lbl => measureTextWidth(lbl, tickFont));
+    const maxTickWidth = Math.max(...tickWidths, 0);
+    const yLabelGap = maxTickWidth + fs;
+    const baseTop=Math.max(32,Math.round(fs*2.2));
+    const maxLevelEstimate=selectedCols.size>1?selectedCols.size:0;
+    const topExtra=maxLevelEstimate?(ANN_BASE_OFFSET+maxLevelEstimate*ANN_LEVEL_GAP):0;
+    const margin={
+      top:baseTop+topExtra,
+      right:20,
+      bottom:Math.max(32,Math.round(fs*2.2)),
+      left:Math.max(48,Math.round(fs*3.0), yLabelGap + fs)
+    };
+    const plotW = Math.max(20, W - margin.left - margin.right);
+    const plotH = Math.max(20, H - margin.top - margin.bottom);
+    const y2px = v => margin.top + plotH * (1 - (v - yScale.min) / (yScale.max - yScale.min));
+    const bandW = plotW / labelsUsed.length;
+    const boxW = Math.max(6, Math.min(60, bandW * 0.6));
+    const xCenter = i => margin.left + (i + 0.5) * bandW;
+    function percentile(sorted, p){
+      if (!sorted.length) return NaN;
+      const pos = (sorted.length - 1) * p;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      return (sorted[base + 1] !== undefined)
+        ? sorted[base] + rest * (sorted[base + 1] - sorted[base])
+        : sorted[base];
+    }
+    function add(tag, attrs){
+      const el = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+      svg.appendChild(el);
+      return el;
+    }
+    if (showGrid) {
+      yScale.ticks.forEach(t => {
+        const y = y2px(t);
+        add('line', { x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#ddd', 'stroke-width': 1 });
+      });
+    }
+    add('line', { x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotH, stroke: '#000', 'stroke-width': 2 });
+    yScale.ticks.forEach(t => {
+      const y = y2px(t);
+      add('line', { x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1 });
+      const txt = add('text', { x: margin.left - 8, y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: '#000' });
+      txt.textContent = formatTick(logScale?Math.pow(10,t):t);
+    });
+    const xAxisY = margin.top + plotH;
+    add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
+    const xLabelOffset = Math.max(14, fs) + 6;
+    labelsUsed.forEach((lab, i) => {
+      const x = xCenter(i);
+      add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + 6, stroke: '#000', 'stroke-width': 1 });
+      const t = add('text', { x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', fill: '#000' });
+      t.textContent = lab || `Col ${i + 1}`;
+      t.style.cursor='ew-resize';
+      enableLabelDrag(t,i);
+    });
+    function enableLabelDrag(t, idx){
+      t.addEventListener('mousedown', e => {
+        e.preventDefault();
+        const svgRect=svg.getBoundingClientRect();
+        const onMove=ev=>{
+          const svgX=ev.clientX - svgRect.left;
+          t.setAttribute('x', svgX);
+        };
+        const onUp=ev=>{
+          document.removeEventListener('mousemove',onMove);
+          document.removeEventListener('mouseup',onUp);
+          const svgX=ev.clientX - svgRect.left;
+          let targetIdx=Math.floor((svgX - margin.left)/bandW);
+          targetIdx=Math.max(0,Math.min(labelsUsed.length-1,targetIdx));
+          if(targetIdx!==idx){
+            const moved=boxColOrder.splice(idx,1)[0];
+            boxColOrder.splice(targetIdx,0,moved);
           }
-
-          boxColOrder.forEach(i => {
-                const headerCell = hot.getDataAtCell(0, i);
-                const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
-
-                const col = hot.getDataAtCol(i)
-                  .slice(1) // skip row 0 (used as header)
-                  .map(v => parseFloat(v))
-                  .filter(v => !isNaN(v));
-
-                console.debug('column processed (row0 header)', { index: i, header: label, values: col });
-
-                if (col.length) {
-                  labelsUsed.push(label);
-                  traces.push({ name: label, rawY: col });
-                }
-          });
-
-          if (!traces.length) {
-                document.getElementById('boxPlot').innerHTML='';
-                document.getElementById('statsResults').innerHTML='';
-                document.getElementById('statsTable').innerHTML='';
-                console.debug('drawBoxplot aborted no data (no numeric rows below headers)');
-                return;
-          }
-
-          renderStatsControls(traces);
-
-          if(logScale){
-                const hasNonPos=traces.some(t=>t.rawY.some(v=>v<=0));
-                if(hasNonPos){
-                  document.getElementById('boxPlot').innerHTML='<i>Log scale requires positive values.</i>';
-                  document.getElementById('statsResults').innerHTML='';
-                  document.getElementById('statsTable').innerHTML='';
-                  console.debug('drawBoxplot aborted: non-positive values with log scale');
-                  return;
-                }
-                traces.forEach(t=>{ t.y=t.rawY.map(v=>Math.log10(v)); });
-          }else{
-                traces.forEach(t=>{ t.y=[...t.rawY]; });
-          }
-
-          // Helpers
-          const $box = document.getElementById('boxPlot');
-          // Clear old drawing
-          while ($box.firstChild) $box.removeChild($box.firstChild);
-
-          // Size
-          const W = Math.max(50, Math.floor($box.clientWidth || 50));
-          const H = Math.max(40, Math.floor($box.clientHeight || 40));
-
-          // Create SVG
-          const svg = document.createElementNS(NS, 'svg');
-          svg.setAttribute('id', 'boxSvg');
-          svg.setAttribute('width', String(W));
-          svg.setAttribute('height', String(H));
-          svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-          svg.setAttribute('font-family','sans-serif');
-          console.debug('svg font-family set','sans-serif');
-          $box.appendChild(svg);
-
-          // Determine Y scale before setting margins
-          const allY = traces.flatMap(t => t.y);
-            let ymin = Math.min(...allY);
-            let ymax = Math.max(...allY);
-            if (graphType === 'bar') {
-              ymin = logScale ? Math.log10(1) : 0;
-              console.debug('barplot y-axis min enforced',{ymin,logScale});
-            }
-            if (ymin === ymax) { ymin -= 1; ymax += 1; }
-          const range = ymax - ymin;
-          const padTop = range * 0.15;
-          const padBottom = range * 0.05;
-          ymax += padTop;
-          ymin -= padBottom;
-          console.debug('y-range padded', { ymin, ymax, padTop, padBottom });
-
-          function niceNum(range, round){
-                const exp = Math.floor(Math.log10(range));
-                const f = range / Math.pow(10, exp);
-                let nf;
-                if (round){
-                  if (f < 1.5) nf = 1; else if (f < 3) nf = 2; else if (f < 7) nf = 5; else nf = 10;
-                } else {
-                  if (f <= 1) nf = 1; else if (f <= 2) nf = 2; else if (f <= 5) nf = 5; else nf = 10;
-                }
-                return nf * Math.pow(10, exp);
-          }
-          function niceScale(min, max, maxTicks){
-                const range = niceNum(max - min, false);
-                const step = niceNum(range / (maxTicks - 1), true);
-                const graphMin = Math.floor(min / step) * step;
-                const graphMax = Math.ceil(max / step) * step;
-                const ticks = [];
-                for (let v = graphMin; v <= graphMax + 1e-9; v += step) ticks.push(v);
-                return { min: graphMin, max: graphMax, ticks, step };
-          } 
-          const yScale = niceScale(ymin, ymax, 6);
-
-          function formatTick(v){
-                const formatted=v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});
-                console.debug('formatTick',{v,formatted});
-                return formatted;
-          }
-
-          // Estimate Y tick label width to adjust left margin
-          function measureTextWidth(text, font){
-                const canvas = measureTextWidth.canvas || (measureTextWidth.canvas = document.createElement('canvas'));
-                const ctx = canvas.getContext('2d');
-                ctx.font = font;
-                const width = ctx.measureText(text).width;
-                console.debug('measureTextWidth', { text, font, width });
-                return width;
-          }
-          const tickFont = `${fs}px sans-serif`;
-          const tickLabels = yScale.ticks.map(t=>formatTick(logScale?Math.pow(10,t):t));
-          const tickWidths = tickLabels.map(lbl => measureTextWidth(lbl, tickFont));
-          const maxTickWidth = Math.max(...tickWidths, 0);
-          const yLabelGap = maxTickWidth + fs;
-          console.debug('tick widths estimated',{tickFont,tickLabels,tickWidths,maxTickWidth,yLabelGap});
-
-          // Margins and plotting area
-          const baseTop=Math.max(32,Math.round(fs*2.2));
-          const maxLevelEstimate=selectedCols.size>1?selectedCols.size:0;
-          const topExtra=maxLevelEstimate?(ANN_BASE_OFFSET+maxLevelEstimate*ANN_LEVEL_GAP):0;
-          console.debug('topExtra computed',{topExtra,maxLevelEstimate});
-          const margin={
-                top:baseTop+topExtra,
-                right:20,
-                bottom:Math.max(32,Math.round(fs*2.2)),
-                left:Math.max(48,Math.round(fs*3.0), yLabelGap + fs)
-          };
-          console.debug('boxplot margins',{baseTop,maxLevelEstimate,topExtra,margin});
-          const plotW = Math.max(20, W - margin.left - margin.right);
-          const plotH = Math.max(20, H - margin.top - margin.bottom);
-
-          const y2px = v => margin.top + plotH * (1 - (v - yScale.min) / (yScale.max - yScale.min));
-
-          const bandW = plotW / labelsUsed.length;
-          const boxW = Math.max(6, Math.min(60, bandW * 0.6));
-          const xCenter = i => margin.left + (i + 0.5) * bandW;
-
-	  // Percentiles
-	  function percentile(sorted, p){
-		if (!sorted.length) return NaN;
-		const pos = (sorted.length - 1) * p;
-		const base = Math.floor(pos);
-		const rest = pos - base;
-		return (sorted[base + 1] !== undefined)
-		  ? sorted[base] + rest * (sorted[base + 1] - sorted[base])
-		  : sorted[base];
-	  }
-
-	  // Axes
-          function add(tag, attrs){
-                const el = document.createElementNS(NS, tag);
-                for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
-                svg.appendChild(el);
-                return el;
-          }
-          if (showGrid) {
-                yScale.ticks.forEach(t => {
-                  const y = y2px(t);
-                  add('line', { x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#ddd', 'stroke-width': 1 });
-                });
-                console.debug('grid lines drawn', { ticks: yScale.ticks });
+          drawBoxplot();
+        };
+        document.addEventListener('mousemove',onMove);
+        document.addEventListener('mouseup',onUp);
+      });
+    }
+    const yX = margin.left - yLabelGap;
+    const yText = add('text', {
+      x: yX,
+      y: margin.top + plotH / 2,
+      transform: `rotate(-90 ${yX} ${margin.top + plotH / 2})`,
+      'text-anchor': 'middle',
+      'font-size': fs + 4
+    });
+    yText.textContent = boxYLabelText;
+    makeEditable(yText,txt=>{boxYLabelText=txt;});
+    traces.forEach((t, i) => {
+      const vals = [...t.y].sort((a, b) => a - b);
+      if (!vals.length) return;
+      const cx = xCenter(i);
+      const x0 = cx - boxW / 2;
+      const x1 = cx + boxW / 2;
+      if (graphType === 'box') {
+        const min = vals[0];
+        const q1 = percentile(vals, 0.25);
+        const med = percentile(vals, 0.5);
+        const q3 = percentile(vals, 0.75);
+        const max = vals[vals.length - 1];
+        const yQ1 = y2px(q1);
+        const yMed = y2px(med);
+        const yQ3 = y2px(q3);
+        const yMin = y2px(min);
+        const yMax = y2px(max);
+        add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fill, stroke: border, 'stroke-width': bw });
+        add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: border, 'stroke-width': bw });
+        add('line', { x1: cx, y1: yQ3, x2: cx, y2: yMax, stroke: border, 'stroke-width': bw });
+        add('line', { x1: cx, y1: yQ1, x2: cx, y2: yMin, stroke: border, 'stroke-width': bw });
+        const cap = Math.max(6, boxW * 0.4);
+        add('line', { x1: cx - cap / 2, y1: yMax, x2: cx + cap / 2, y2: yMax, stroke: border, 'stroke-width': bw });
+        add('line', { x1: cx - cap / 2, y1: yMin, x2: cx + cap / 2, y2: yMin, stroke: border, 'stroke-width': bw });
+      } else {
+        const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
+        const yMean = y2px(mean);
+        const yZero = y2px(0);
+        const rectY = Math.min(yMean, yZero);
+        const rectH = Math.abs(yZero - yMean);
+        add('rect', { x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fill, stroke: border, 'stroke-width': bw });
+      }
+      if(pointMode!=='none'){
+        vals.forEach(v => {
+          const y = y2px(v);
+          let px;
+          if (pointMode === 'overlay') {
+            px = cx + (Math.random() - 0.5) * boxW * 0.6;
           } else {
-                console.debug('grid lines skipped');
+            px = x1 + boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
           }
-          // Y axis line
-          add('line', { x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotH, stroke: '#000', 'stroke-width': 2 });
-          // Y ticks and labels
-          yScale.ticks.forEach(t => {
-                const y = y2px(t);
-                add('line', { x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1 });
-                const txt = add('text', { x: margin.left - 8, y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: '#000' });
-                txt.textContent = formatTick(logScale?Math.pow(10,t):t);
-                console.debug('y-axis tick label',{tick:t,label:txt.textContent});
-          });
-          console.debug('y-axis ticks drawn',{ticks:yScale.ticks,logScale});
-          // X axis baseline
-            const xAxisY = margin.top + plotH;
-            add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
-            const xLabelOffset = Math.max(14, fs) + 6;
-            console.debug('x-axis label offset', {xLabelOffset});
-            // X ticks and labels
-            labelsUsed.forEach((lab, i) => {
-                const x = xCenter(i);
-                add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + 6, stroke: '#000', 'stroke-width': 1 });
-                const t = add('text', { x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', fill: '#000' });
-                t.textContent = lab || `Col ${i + 1}`;
-                t.style.cursor='ew-resize';
-                enableLabelDrag(t,i);
-            });
-
-            function enableLabelDrag(t, idx){
-                t.addEventListener('mousedown', e => {
-                    console.debug('label drag start',{label:labelsUsed[idx],index:idx,clientX:e.clientX});
-                    e.preventDefault();
-                    const svgRect=svg.getBoundingClientRect();
-                    const onMove=ev=>{
-                        const svgX=ev.clientX - svgRect.left;
-                        t.setAttribute('x', svgX);
-                        console.debug('label drag move',{index:idx,svgX});
-                    };
-                    const onUp=ev=>{
-                        document.removeEventListener('mousemove',onMove);
-                        document.removeEventListener('mouseup',onUp);
-                        const svgX=ev.clientX - svgRect.left;
-                        let targetIdx=Math.floor((svgX - margin.left)/bandW);
-                        targetIdx=Math.max(0,Math.min(labelsUsed.length-1,targetIdx));
-                        console.debug('label drag end',{from:idx,to:targetIdx,svgX});
-                        if(targetIdx!==idx){
-                            const moved=boxColOrder.splice(idx,1)[0];
-                            boxColOrder.splice(targetIdx,0,moved);
-                            console.debug('boxColOrder after drag',boxColOrder);
-                        }else{
-                            console.debug('label drag no change',{index:idx});
-                        }
-                        drawBoxplot();
-                    };
-                    document.addEventListener('mousemove',onMove);
-                    document.addEventListener('mouseup',onUp);
-                });
-            }
-
-            const yX = margin.left - yLabelGap;
-            const yText = add('text', {
-              x: yX,
-              y: margin.top + plotH / 2,
-              transform: `rotate(-90 ${yX} ${margin.top + plotH / 2})`,
-              'text-anchor': 'middle',
-              'font-size': fs + 4
-            });
-            yText.textContent = boxYLabelText;
-            makeEditable(yText,txt=>{boxYLabelText=txt;console.debug('boxYLabelText updated',boxYLabelText);});
-            console.debug('y-axis label placed',{x:yX,gap:yLabelGap});
-
-            // Boxes/Bars and points
-            traces.forEach((t, i) => {
-                const vals = [...t.y].sort((a, b) => a - b);
-                if (!vals.length) return;
-
-                const cx = xCenter(i);
-                const x0 = cx - boxW / 2;
-                const x1 = cx + boxW / 2;
-
-                if (graphType === 'box') {
-                    const min = vals[0];
-                    const q1 = percentile(vals, 0.25);
-                    const med = percentile(vals, 0.5);
-                    const q3 = percentile(vals, 0.75);
-                    const max = vals[vals.length - 1];
-
-                    const yQ1 = y2px(q1);
-                    const yMed = y2px(med);
-                    const yQ3 = y2px(q3);
-                    const yMin = y2px(min);
-                    const yMax = y2px(max);
-
-                    // Box
-                    add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fill, stroke: border, 'stroke-width': bw });
-                    // Median line
-                    add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: border, 'stroke-width': bw });
-                    // Whiskers
-                    add('line', { x1: cx, y1: yQ3, x2: cx, y2: yMax, stroke: border, 'stroke-width': bw });
-                    add('line', { x1: cx, y1: yQ1, x2: cx, y2: yMin, stroke: border, 'stroke-width': bw });
-                    // Caps
-                    const cap = Math.max(6, boxW * 0.4);
-                    add('line', { x1: cx - cap / 2, y1: yMax, x2: cx + cap / 2, y2: yMax, stroke: border, 'stroke-width': bw });
-                    add('line', { x1: cx - cap / 2, y1: yMin, x2: cx + cap / 2, y2: yMin, stroke: border, 'stroke-width': bw });
-
-                    console.debug('box drawn', { label: t.name, min, q1, med, q3, max, cx, boxW });
-                } else {
-                    const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
-                    const yMean = y2px(mean);
-                    const yZero = y2px(0);
-                    const rectY = Math.min(yMean, yZero);
-                    const rectH = Math.abs(yZero - yMean);
-                    add('rect', { x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fill, stroke: border, 'stroke-width': bw });
-                    console.debug('bar drawn', { label: t.name, mean, cx, boxW });
-                }
-
-                // Points
-                if(pointMode!=='none'){
-                  vals.forEach(v => {
-                      const y = y2px(v);
-                      let px;
-                      if (pointMode === 'overlay') {
-                          px = cx + (Math.random() - 0.5) * boxW * 0.6;
-                      } else {
-                          px = x1 + boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
-                      }
-                      add('circle', { cx: px, cy: y, r: 3, fill: border, 'fill-opacity': 0.6 });
-                  });
-                  console.debug('points rendered', { label: t.name, count: vals.length, mode: pointMode });
-                } else {
-                  console.debug('points skipped', { label: t.name });
-                }
-          });
-            const titleText = add('text', {
-              x: margin.left + plotW / 2,
-              y: margin.top / 2,
-              'text-anchor': 'middle',
-              'font-size': fs + 4
-            });
-            titleText.textContent = boxTitleText;
-            makeEditable(titleText,txt=>{boxTitleText=txt;console.debug('boxTitleText updated',boxTitleText);});
-            console.debug('boxplot title rendered',{x:margin.left + plotW / 2,y:margin.top / 2});
-
-          console.debug('svg boxplot complete', { W, H, plotW, plotH, labelsUsed, yScale, logScale });
-
-            const helpers={xCenter,y2px};
-            try {
-                  computeStats(traces,svg,helpers);
-            } catch (e) {
-                  console.error('computeStats failed', e);
-            }
-            try {
-                  renderStatsTable(traces);
-            } catch(e){
-                  console.error('renderStatsTable failed', e);
-            }
-            const otherBoxes=Array.from(svg.children).filter(el=>el!==titleText && el.getBBox).map(el=>el.getBBox());
-          const topMost=Math.min(...otherBoxes.map(b=>b.y));
-          const spacing=fs+4;
-          const newY=Math.max(spacing,topMost-spacing);
-          titleText.setAttribute('y',newY);
-          console.debug('title margin adjusted',{topMost,newY,spacing});
-        }
-
-
-  // Draw button (optional, still works)
+          add('circle', { cx: px, cy: y, r: 3, fill: border, 'fill-opacity': 0.6 });
+        });
+      }
+    });
+    const titleText = add('text', {
+      x: margin.left + plotW / 2,
+      y: margin.top / 2,
+      'text-anchor': 'middle',
+      'font-size': fs + 4
+    });
+    titleText.textContent = boxTitleText;
+    makeEditable(titleText,txt=>{boxTitleText=txt;});
+    const helpers={xCenter,y2px};
+    computeStats(traces,svg,helpers);
+    renderStatsTable(traces);
+    const otherBoxes=Array.from(svg.children).filter(el=>el!==titleText && el.getBBox).map(el=>el.getBBox());
+    const topMost=Math.min(...otherBoxes.map(b=>b.y));
+    const spacing=fs+4;
+    const newY=Math.max(spacing,topMost-spacing);
+    titleText.setAttribute('y',newY);
+  }
   $('#drawBoxplot').addEventListener('click', drawBoxplot);
-
-  $('#drawScatter').addEventListener('click', () => { console.debug('drawScatter button clicked'); drawScatter(); });
-
-  // Real-time updates when style controls change
   $('#boxFill').addEventListener('input', drawBoxplot);
   $('#boxBorder').addEventListener('input', drawBoxplot);
   $('#boxBorderWidth').addEventListener('input', drawBoxplot);
   $('#boxFontSize').addEventListener('input', drawBoxplot);
-
-  // Export to PNG
   $('#boxPNG').addEventListener('click', async () => {
-    console.debug('boxPNG clicked');
     const svgEl = document.getElementById('boxSvg');
-    if (!svgEl) { console.debug('boxPNG aborted: no svg'); return; }
-    console.debug('boxPNG font family', svgEl.getAttribute('font-family'));
+    if (!svgEl) return;
     const xml = serializeCleanSVG(svgEl);
     const img = new Image();
     const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
     img.src = url;
-    await img.decode().catch(err => console.error('boxPNG decode error', err));
+    await img.decode().catch(err => {});
     const canvas = document.createElement('canvas');
     canvas.width = svgEl.viewBox.baseVal.width || svgEl.clientWidth || 800;
     canvas.height = svgEl.viewBox.baseVal.height || svgEl.clientHeight || 400;
@@ -3647,12 +2453,9 @@ KAT7`;
       setTimeout(() => URL.revokeObjectURL(pngUrl), 4000);
     }, 'image/png');
   });
-
-  // Export to SVG
   $('#boxSVG').addEventListener('click', () => {
-    console.debug('boxSVG clicked');
     const svgEl = document.getElementById('boxSvg');
-    if (!svgEl) { console.debug('boxSVG aborted: no svg'); return; }
+    if (!svgEl) return;
     const xml = serializeCleanSVG(svgEl);
     const blob = new Blob([xml], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
@@ -3661,46 +2464,6 @@ KAT7`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   });
-
-  // Export scatter to PNG
-  $('#scatterPNG').addEventListener('click', async () => {
-    console.debug('scatterPNG clicked');
-    const svgEl=document.getElementById('scatterSvg');
-    if(!svgEl){ console.debug('scatterPNG aborted: no svg'); return; }
-    const xml=serializeCleanSVG(svgEl);
-    const img=new Image();
-    const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
-    img.src=url;
-    await img.decode().catch(err=>console.error('scatterPNG decode error',err));
-    const canvas=document.createElement('canvas');
-    canvas.width=svgEl.viewBox.baseVal.width || svgEl.clientWidth || 800;
-    canvas.height=svgEl.viewBox.baseVal.height || svgEl.clientHeight || 400;
-    const ctx=canvas.getContext('2d');
-    ctx.drawImage(img,0,0);
-    canvas.toBlob(b=>{
-      const pngUrl=URL.createObjectURL(b);
-      const a=document.createElement('a');
-      a.href=pngUrl; a.download='scatterplot.png';
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=>URL.revokeObjectURL(pngUrl),4000);
-    },'image/png');
-  });
-
-  // Export scatter to SVG
-  $('#scatterSVG').addEventListener('click', () => {
-    console.debug('scatterSVG clicked');
-    const svgEl=document.getElementById('scatterSvg');
-    if(!svgEl){ console.debug('scatterSVG aborted: no svg'); return; }
-    const xml=serializeCleanSVG(svgEl);
-    const blob=new Blob([xml],{type:'image/svg+xml'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url; a.download='scatterplot.svg';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url),4000);
-  });
-
-  // Shortcut: Ctrl+Enter → drawFromLists
   window.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
@@ -3708,8 +2471,6 @@ KAT7`;
     }
   });
 })();
-
-
 </script>
 </body>
 </html>
