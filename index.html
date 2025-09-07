@@ -55,6 +55,15 @@
   #boxPage .panel{display:flex;flex-direction:column;min-width:0}
   #boxPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
   #boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+  /* Scatter plot layout adjustments */
+  #scatterPage .wrap{display:flex;align-items:stretch;gap:0}
+  #scatterPage #scatterTablePanel{flex:1 1 33%;min-width:150px}
+  #scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+  #scatterPage .diagram-area .svgbox{flex:1}
+  #scatterPage .diagram-area .config-options{flex:1}
+  #scatterPage .panel{display:flex;flex-direction:column;min-width:0}
+  #scatterPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+  #scatterPage #scatterPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
   /* boxplot: use custom resizers rather than native resize handles */
   #boxPage .svgbox{
     position: relative;
@@ -106,9 +115,52 @@
     border-radius: 2px;
   }
 
+  /* scatterplot: use custom resizers */
+  #scatterPage .svgbox{
+    position: relative;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 420px;
+    box-sizing: border-box;
+  }
+  #scatterPage .svgbox .resizer {
+    position: absolute;
+    z-index: 40;
+    background: rgba(0,0,0,0);
+    touch-action: none;
+  }
+  #scatterPage .svgbox .resizer-vertical {
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 100%;
+    cursor: ew-resize;
+  }
+  #scatterPage .svgbox .resizer-horizontal {
+    bottom: 0;
+    left: 0;
+    height: 12px;
+    width: 100%;
+    cursor: ns-resize;
+  }
+  #scatterPage .svgbox .resizer-corner {
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+    border-radius: 2px;
+  }
+
 
 
   @media (max-width:1000px){#boxPage .wrap{grid-template-columns:1fr}}
+  @media (max-width:1000px){#scatterPage .wrap{grid-template-columns:1fr}}
   </style>
  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
 </head>
@@ -116,6 +168,7 @@
 <div id="tabs" style="padding:8px;border-bottom:1px solid #ddd;display:flex;gap:8px">
   <button id="tabVenn" class="btn">Venn</button>
   <button id="tabBox" class="btn">Box Plot</button>
+  <button id="tabScatter" class="btn">Scatter Plot</button>
 </div>
 <div id="vennPage">
 <header><h2 style="margin:0">Area proportional Venn - BioVenn like</h2><div style="color:#555;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
@@ -376,15 +429,83 @@
             </fieldset>
           </div>
         </div>
-        <div id="statsPanel" style="width:100%;margin-top:12px">
+  <div id="statsPanel" style="width:100%;margin-top:12px">
           <div id="statsControls"></div>
           <div id="statsResults" style="margin-top:8px"></div>
           <div id="statsTable" style="margin-top:8px"></div>
         </div>
+  </div>
+  </div>
+  </div>
+
+<div id="scatterPage" style="display:none;">
+  <header><h2 style="margin:0">Scatter Plot</h2><div style="color:#555;font-size:13px">Paste paired data into the table and draw a scatter plot with correlation analysis.</div></header>
+    <div class="wrap">
+      <div class="panel" id="scatterTablePanel">
+        <div id="scatterHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="scatterHot" style="width:100%;height:100%"></div></div>
+        <div class="row" style="margin-top:8px;justify-content:space-between">
+          <div class="row" style="gap:8px">
+            <button class="btn" id="scatterLoadExample">Load Example</button>
+            <button class="btn" id="scatterImport">Import File</button>
+            <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none">
+          </div>
+          <button class="btn" id="drawScatter">Draw</button>
+        </div>
+      </div>
+      <div id="scatterPanelResizer" class="panel-resizer" aria-hidden="true"></div>
+      <div class="panel" style="align-items:center" id="scatterGraphPanel">
+        <div class="diagram-area">
+          <div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:100%; height:420px;">
+            <!-- Resizers -->
+            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+            <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+
+            <!-- Plot area -->
+            <div id="scatterPlot" style="width:100%; height:100%"></div>
+
+            <!-- Export buttons -->
+            <div class="row" style="justify-content:flex-end;margin-top:6px">
+              <button class="btn" id="scatterPNG">Download PNG</button>
+              <button class="btn" id="scatterSVG">Download SVG</button>
+            </div>
+          </div>
+
+          <div class="config-options">
+            <fieldset>
+              <legend>Colors</legend>
+              <div class="color-pickers">
+                <label>Fill <input type="color" id="scatterFill" value="#4472c4"></label>
+                <label>Border <input type="color" id="scatterBorder" value="#000000"></label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Points</legend>
+              <div class="control">
+                <label>Size</label><input type="range" id="scatterPointSize" min="2" max="20" step="1" value="6"><output id="scatterPointSizeVal">6</output>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Grid</legend>
+              <div class="control">
+                <label><input type="checkbox" id="scatterShowGrid" checked> Show grid</label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Font</legend>
+              <div class="control">
+                <label>Size</label><input type="range" id="scatterFontSize" min="10" max="36" step="1" value="16"><output id="scatterFontSizeVal">16</output>
+              </div>
+            </fieldset>
+          </div>
+        </div>
+        <div id="scatterStatsPanel" style="width:100%;margin-top:12px">
+          <div id="scatterStatsControls"></div>
+          <div id="scatterStatsResults" style="margin-top:8px"></div>
+        </div>
       </div>
     </div>
   </div>
-
 <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js"></script>
@@ -399,8 +520,12 @@
     const boxPage=$('#boxPage');
     const tabVenn=$('#tabVenn');
     const tabBox=$('#tabBox');
+    const scatterPage=$('#scatterPage');
+    const tabScatter=$('#tabScatter');
     const drawBoxplotBtn=$('#drawBoxplot');
     console.debug('Draw boxplot button initialized', drawBoxplotBtn);
+    const drawScatterBtn=$('#drawScatter');
+    console.debug('Draw scatter button initialized', drawScatterBtn);
     const hotContainer=document.getElementById('hot');
     const hotWrapper=document.getElementById('hotWrapper');
     const tablePanel=document.getElementById('boxTablePanel');
@@ -409,6 +534,15 @@
     const boxSvgBox=graphPanel.querySelector('.svgbox');
     const configPanel=graphPanel.querySelector('.config-options');
     console.debug('hot elements initialized', {hotContainer, hotWrapper, tablePanel, graphPanel, panelResizer, boxSvgBox, configPanel});
+
+    const scatterHotContainer=document.getElementById('scatterHot');
+    const scatterHotWrapper=document.getElementById('scatterHotWrapper');
+    const scatterTablePanel=document.getElementById('scatterTablePanel');
+    const scatterGraphPanel=document.getElementById('scatterGraphPanel');
+    const scatterPanelResizer=document.getElementById('scatterPanelResizer');
+    const scatterSvgBox=scatterGraphPanel.querySelector('.svgbox');
+    const scatterConfigPanel=scatterGraphPanel.querySelector('.config-options');
+    console.debug('scatter elements initialized', {scatterHotContainer, scatterHotWrapper, scatterTablePanel, scatterGraphPanel, scatterPanelResizer, scatterSvgBox, scatterConfigPanel});
 
     function syncBoxWidths(){
       const tableWidth=tablePanel.getBoundingClientRect().width;
@@ -421,6 +555,18 @@
     });
     tableObserver.observe(tablePanel);
     syncBoxWidths();
+
+    function syncScatterWidths(){
+      const tableWidth=scatterTablePanel.getBoundingClientRect().width;
+      scatterSvgBox.style.width=tableWidth+'px';
+      console.debug('syncScatterWidths', {tableWidth});
+    }
+    const scatterTableObserver=new ResizeObserver(entries=>{
+      console.debug('scatterTablePanel resized', entries[0].contentRect.width);
+      syncScatterWidths();
+    });
+    scatterTableObserver.observe(scatterTablePanel);
+    syncScatterWidths();
     const DEFAULT_ROWS=100, DEFAULT_COLS=10;
     console.debug('table defaults', {rows:DEFAULT_ROWS, cols:DEFAULT_COLS});
     let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
@@ -439,6 +585,14 @@
     console.debug('stats defaults',{statsTest,statsMode,statsRef,statsPaired,statsPairsText});
     console.debug('boxColOrder initialized', boxColOrder);
 
+    let scatterColHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
+    let scatterXCol=0;
+    let scatterYCol=1;
+    let scatterStatsTest='parametric';
+    let scatterTitleText='Scatter Plot';
+    let scatterXLabelText='X';
+    let scatterYLabelText='Y';
+
     const ANN_BASE_OFFSET=25;
     const ANN_LEVEL_GAP=25;
     console.debug('annotation constants set',{ANN_BASE_OFFSET,ANN_LEVEL_GAP});
@@ -447,6 +601,9 @@
 	
     hotWrapper.style.overflow='auto';
     console.debug('hotWrapper overflow set');
+
+    scatterHotWrapper.style.overflow='auto';
+    console.debug('scatterHotWrapper overflow set');
 
     const hot=new Handsontable(hotContainer,{
       data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,DEFAULT_COLS),
@@ -501,6 +658,55 @@
       }
     });
     console.debug('Handsontable initialized with first-row headers and defaults',{rows:DEFAULT_ROWS,cols:DEFAULT_COLS});
+
+    const scatterHot=new Handsontable(scatterHotContainer,{
+      data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,DEFAULT_COLS),
+      rowHeaders:true,
+      colHeaders:true,
+      minRows:DEFAULT_ROWS,
+      minCols:DEFAULT_COLS,
+      contextMenu:true,
+      manualColumnMove:true,
+      licenseKey:'non-commercial-and-evaluation',
+      cells(row,col){
+        const props={};
+        if(row===0){
+          props.renderer=function(instance,td,r,c,prop,value,cellProperties){
+            Handsontable.renderers.TextRenderer.apply(this,arguments);
+            td.style.background='#e9ecef';
+            td.style.fontWeight='600';
+            td.title='Header (first row)';
+          };
+        }
+        return props;
+      },
+      afterCreateCol(index,amount){
+        for(let i=0;i<amount;i++){
+          scatterColHeaders.splice(index+i,0,String.fromCharCode(65+index+i));
+        }
+        console.debug('scatter column created',{index,amount,headers:scatterColHeaders});
+        renderScatterStatsControls();
+      },
+      afterRemoveCol(index,amount){
+        scatterColHeaders.splice(index,amount);
+        console.debug('scatter column removed',{index,amount,headers:scatterColHeaders});
+        renderScatterStatsControls();
+      },
+      afterChange(changes,source){
+        if(!changes || source==='loadData') return;
+        console.debug('scatterHot afterChange',{changes,source});
+        if(changes.some(([row])=>row===0)) renderScatterStatsControls();
+        drawScatter();
+      },
+      afterColumnMove(moved,finalIndex,dropIndex,movePossible,orderChanged){
+        console.debug('scatter column moved',{moved,finalIndex,dropIndex,movePossible,orderChanged});
+        if(orderChanged) renderScatterStatsControls();
+        drawScatter();
+      }
+    });
+    console.debug('Scatter Handsontable initialized');
+
+    renderScatterStatsControls();
 
     const loadExampleBtn=$('#boxLoadExample'), importBtn=$('#boxImport'), fileInput=$('#boxFile');
     const exampleData=[
@@ -570,6 +776,75 @@
         console.debug('import unsupported extension', ext);
       }
     });
+
+    const scatterLoadExampleBtn=$('#scatterLoadExample'), scatterImportBtn=$('#scatterImport'), scatterFileInput=$('#scatterFile');
+    const scatterExampleData=[
+      ['X','Y'],
+      [1,2],
+      [2,4],
+      [3,5],
+      [4,4],
+      [5,6]
+    ];
+    scatterLoadExampleBtn.addEventListener('click',()=>{
+      console.debug('scatterLoadExample clicked');
+      scatterHot.loadData(scatterExampleData);
+      renderScatterStatsControls();
+      drawScatter();
+    });
+    scatterImportBtn.addEventListener('click',()=>{
+      console.debug('scatterImport clicked');
+      scatterFileInput.value='';
+      scatterFileInput.click();
+    });
+    scatterFileInput.addEventListener('change',e=>{
+      const file=e.target.files[0];
+      if(!file){ console.debug('scatterFile change no file'); return; }
+      console.debug('scatterFile selected',{name:file.name,size:file.size});
+      const ext=file.name.split('.').pop().toLowerCase();
+      const reader=new FileReader();
+      if(['csv','tsv','txt'].includes(ext)){
+        reader.onload=ev=>{
+          const text=ev.target.result;
+          const delim=ext==='csv'?',':'\t';
+          let rows=text.split(/\r?\n/).map(r=>r.split(delim));
+          console.debug('scatter text file parsed',{rows});
+          processScatterImportedRows(rows);
+        };
+        reader.readAsText(file);
+      }else if(['xls','xlsx','ods','odg'].includes(ext)){
+        reader.onload=async ev=>{
+          try{
+            if(!window.XLSX){
+              console.debug('XLSX library not found, attempting dynamic load');
+              await new Promise((resolve,reject)=>{
+                const s=document.createElement('script');
+                s.src='libs/xlsx.full.min.js';
+                console.debug('Loading local XLSX library from libs/xlsx.full.min.js');
+                s.onload=()=>{console.debug('XLSX dynamically loaded');resolve();};
+                s.onerror=err=>reject(new Error('Failed to load XLSX script'));
+                document.head.appendChild(s);
+              });
+            }
+            if(!window.XLSX) throw new Error('XLSX library unavailable');
+            const data=new Uint8Array(ev.target.result);
+            const workbook=XLSX.read(data,{type:'array'});
+            console.debug('scatter workbook',{sheets:workbook.SheetNames});
+            const sheet=workbook.Sheets[workbook.SheetNames[0]];
+            let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+            console.debug('scatter spreadsheet parsed',{rows});
+            processScatterImportedRows(rows);
+          }catch(err){
+            console.error('scatter spreadsheet import failed', err);
+            alert('Failed to import spreadsheet: '+err.message);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }else{
+        alert('Unsupported file format: '+ext);
+        console.debug('scatter import unsupported extension', ext);
+      }
+    });
     function processImportedRows(rows){
       console.debug('processImportedRows called', rows);
       if(!rows || !rows.length){ console.debug('processImportedRows empty'); return; }
@@ -593,6 +868,29 @@
       drawBoxplot();
     }
 
+    function processScatterImportedRows(rows){
+      console.debug('processScatterImportedRows called', rows);
+      if(!rows || !rows.length){ console.debug('processScatterImportedRows empty'); return; }
+      rows=rows.filter(r=>r && r.some(c=>c!==null && c!==undefined && String(c).trim()!==''));
+      if(!rows.length){ console.debug('processScatterImportedRows no usable rows'); return; }
+      const colCount=Math.max(...rows.map(r=>r.length));
+      const targetCols=Math.max(DEFAULT_COLS,colCount);
+      rows=rows.map(r=>{const row=Array.from(r); while(row.length<targetCols) row.push(''); return row;});
+      let headerRow=new Array(targetCols).fill('');
+      const firstRow=rows[0]||[];
+      const hasHeader=firstRow.some(c=>String(c).trim() && isNaN(Number(c))) &&
+                      firstRow.every(c=>!String(c).trim() || isNaN(Number(c)));
+      console.debug('scatter header detection',{firstRow,hasHeader});
+      if(hasHeader){ headerRow=firstRow.map(v=>String(v)); rows=rows.slice(1); }
+      const dataRows=[headerRow,...rows];
+      const targetRows=Math.max(DEFAULT_ROWS,dataRows.length);
+      while(dataRows.length<targetRows){ dataRows.push(new Array(targetCols).fill('')); }
+      scatterHot.updateSettings({data:dataRows,minRows:targetRows,minCols:targetCols});
+      console.debug('scatterHot.updateSettings from import',{cols:targetCols,rows:targetRows,hasHeader});
+      renderScatterStatsControls();
+      drawScatter();
+    }
+
         const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode');
       console.debug('Box plot appearance controls initialized',{fill:boxFill.value,border:boxBorder.value,borderWidth:boxBorderWidth.value,fontSize:boxFontSize.value,showGrid:boxShowGrid.checked,logScale:boxLogScale.checked,graphType:boxGraphType.value,pointMode:boxPointMode.value});
       boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; console.debug('boxFontSize changed', boxFontSize.value); });
@@ -600,9 +898,17 @@
       boxLogScale.addEventListener('change',()=>{ console.debug('boxLogScale toggled', boxLogScale.checked); drawBoxplot(); });
       boxGraphType.addEventListener('change',()=>{ console.debug('boxGraphType changed', boxGraphType.value); drawBoxplot(); });
       boxPointMode.addEventListener('change',()=>{ console.debug('boxPointMode changed', boxPointMode.value); drawBoxplot(); });
-	
 
-	// --- improved resizers for separate X / Y resizing ---
+      const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterPointSize=$('#scatterPointSize'), scatterPointSizeVal=$('#scatterPointSizeVal'), scatterShowGrid=$('#scatterShowGrid'), scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
+      console.debug('Scatter appearance controls initialized',{fill:scatterFill.value,border:scatterBorder.value,pointSize:scatterPointSize.value,showGrid:scatterShowGrid.checked,fontSize:scatterFontSize.value});
+      scatterPointSize.addEventListener('input',()=>{ scatterPointSizeVal.textContent=scatterPointSize.value; console.debug('scatterPointSize changed', scatterPointSize.value); drawScatter(); });
+      scatterShowGrid.addEventListener('change',()=>{ console.debug('scatterShowGrid toggled', scatterShowGrid.checked); drawScatter(); });
+      scatterFontSize.addEventListener('input',()=>{ scatterFontSizeVal.textContent=scatterFontSize.value; console.debug('scatterFontSize changed', scatterFontSize.value); drawScatter(); });
+      scatterFill.addEventListener('input', drawScatter);
+      scatterBorder.addEventListener('input', drawScatter);
+
+
+        // --- improved resizers for separate X / Y resizing ---
 	const boxPlotDiv = document.getElementById('boxPlot');
 	const boxContainer = boxPlotDiv.closest('.svgbox') || boxPlotDiv.parentElement;
 
@@ -757,8 +1063,293 @@
         document.addEventListener('pointermove',onMove);
         document.addEventListener('pointerup',onUp);
       });
-      console.debug('panel resizer initialized');
+    console.debug('panel resizer initialized');
     })();
+
+    const scatterPlotDiv = document.getElementById('scatterPlot');
+    const scatterContainer = scatterPlotDiv.closest('.svgbox') || scatterPlotDiv.parentElement;
+
+    (function initScatterResizers(){
+      if(!scatterContainer){
+        console.debug('No scatter svgbox container found — skipping resizer init');
+        return;
+      }
+      const MIN_W=50, MIN_H=40;
+      function px(n){ return Math.round(n)+'px'; }
+      const vHandle=scatterContainer.querySelector('.resizer-vertical');
+      const hHandle=scatterContainer.querySelector('.resizer-horizontal');
+      const cHandle=scatterContainer.querySelector('.resizer-corner');
+      function attachDrag(handle,axis){
+        if(!handle) return;
+        let startX=0,startY=0,startW=0,startH=0,pointerId=null;
+        const onPointerDown=e=>{
+          e.preventDefault();
+          pointerId=e.pointerId;
+          try{handle.setPointerCapture(pointerId);}catch(_){ }
+          const rect=scatterContainer.getBoundingClientRect();
+          startW=Math.round(rect.width); startH=Math.round(rect.height);
+          startX=e.clientX; startY=e.clientY;
+          scatterContainer.style.boxSizing='border-box';
+          scatterContainer.style.width=px(startW);
+          scatterContainer.style.height=px(startH);
+          scatterContainer.style.flex='0 0 auto';
+          scatterContainer.style.maxWidth='none';
+          scatterContainer.style.maxHeight='none';
+          document.documentElement.style.userSelect='none';
+          document.documentElement.style.touchAction='none';
+          console.debug('scatter resizer pointerdown',{axis,startW,startH});
+          const onPointerMove=ev=>{
+            ev.preventDefault();
+            const dx=ev.clientX-startX;
+            const dy=ev.clientY-startY;
+            if(axis==='x'||axis==='both'){
+              let newW=Math.max(MIN_W,Math.round(startW+dx));
+              scatterContainer.style.width=px(newW);
+            }
+            if(axis==='y'||axis==='both'){
+              let newH=Math.max(MIN_H,Math.round(startH+dy));
+              scatterContainer.style.height=px(newH);
+            }
+          };
+          const onPointerUp=ev=>{
+            try{handle.releasePointerCapture(pointerId);}catch(_){ }
+            document.removeEventListener('pointermove',onPointerMove);
+            document.removeEventListener('pointerup',onPointerUp);
+            document.documentElement.style.userSelect='';
+            document.documentElement.style.touchAction='';
+            try{ drawScatter(); console.debug('scatter resizer pointerup redraw',{w:scatterContainer.clientWidth,h:scatterContainer.clientHeight}); }catch(err){ console.error('drawScatter error after resize',err); }
+          };
+          document.addEventListener('pointermove',onPointerMove);
+          document.addEventListener('pointerup',onPointerUp);
+        };
+        handle.addEventListener('pointerdown',onPointerDown);
+        handle.addEventListener('dblclick',ev=>{
+          ev.preventDefault();
+          scatterContainer.style.width='640px';
+          scatterContainer.style.height='420px';
+          scatterContainer.style.flex='0 0 auto';
+          drawScatter();
+          console.debug('scatter resizer doubleclick reset');
+        });
+      }
+      attachDrag(vHandle,'x');
+      attachDrag(hHandle,'y');
+      attachDrag(cHandle,'both');
+      const scatterResizeObserver=new ResizeObserver(()=>{
+        try{
+          drawScatter();
+          console.debug('scatterPlot redrawn on container resize',{w:scatterContainer.clientWidth,h:scatterContainer.clientHeight});
+        }catch(e){
+          console.error('scatterPlot resize redraw error',e);
+        }
+      });
+      scatterResizeObserver.observe(scatterContainer);
+      console.debug('Scatter resizer init complete');
+    })();
+
+    (function initScatterPanelResizer(){
+      if(!scatterPanelResizer||!scatterTablePanel||!scatterGraphPanel){
+        console.debug('scatter panel resizer init skipped',{scatterPanelResizer,scatterTablePanel,scatterGraphPanel});
+        return;
+      }
+      scatterPanelResizer.addEventListener('pointerdown',e=>{
+        e.preventDefault();
+        const startX=e.clientX;
+        const startTable=scatterTablePanel.getBoundingClientRect().width;
+        const startGraph=scatterGraphPanel.getBoundingClientRect().width;
+        const total=startTable+startGraph;
+        console.debug('scatter panelResizer pointerdown',{startX,startTable,startGraph});
+        function onMove(ev){
+          const dx=ev.clientX-startX;
+          let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+          let newGraph=total-newTable;
+          scatterTablePanel.style.flex=`0 0 ${newTable}px`;
+          scatterGraphPanel.style.flex=`0 0 ${newGraph}px`;
+          syncScatterWidths();
+          console.debug('scatter panelResizer move',{dx,newTable,newGraph});
+        }
+        function onUp(){
+          document.removeEventListener('pointermove',onMove);
+          document.removeEventListener('pointerup',onUp);
+          console.debug('scatter panelResizer pointerup');
+        }
+        document.addEventListener('pointermove',onMove);
+        document.addEventListener('pointerup',onUp);
+      });
+      console.debug('scatter panel resizer initialized');
+    })();
+    function updateScatterLabelsFromHeaders(){
+      const headers=scatterHot.getDataAtRow(0);
+      scatterXLabelText=headers[scatterXCol] || scatterColHeaders[scatterXCol] || `Col ${scatterXCol+1}`;
+      scatterYLabelText=headers[scatterYCol] || scatterColHeaders[scatterYCol] || `Col ${scatterYCol+1}`;
+      console.debug('updateScatterLabelsFromHeaders',{scatterXLabelText,scatterYLabelText});
+    }
+
+    function renderScatterStatsControls(){
+      console.debug('renderScatterStatsControls called');
+      const controls=document.getElementById('scatterStatsControls');
+      controls.innerHTML='';
+      const cols=scatterHot.countCols();
+      const header=scatterHot.getDataAtRow(0);
+      const names=Array.from({length:cols},(_,i)=>header[i]||scatterColHeaders[i]||`Col ${i+1}`);
+      const testLabel=document.createElement('label');
+      testLabel.textContent='Test:';
+      const testSel=document.createElement('select');
+      ['parametric','nonparametric'].forEach(v=>{
+        const o=document.createElement('option');
+        o.value=v; o.textContent=v==='parametric'?'Parametric':'Non-parametric';
+        if(scatterStatsTest===v) o.selected=true;
+        testSel.appendChild(o);
+      });
+      testSel.addEventListener('change',()=>{scatterStatsTest=testSel.value; console.debug('scatterStatsTest changed',scatterStatsTest); drawScatter();});
+      controls.appendChild(testLabel);
+      controls.appendChild(testSel);
+      const xLabel=document.createElement('label'); xLabel.textContent='X:';
+      const xSel=document.createElement('select');
+      names.forEach((n,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=n; if(i===scatterXCol) o.selected=true; xSel.appendChild(o); });
+      xSel.addEventListener('change',()=>{scatterXCol=+xSel.value; updateScatterLabelsFromHeaders(); console.debug('scatterXCol changed',scatterXCol); drawScatter();});
+      controls.appendChild(xLabel); controls.appendChild(xSel);
+      const yLabel=document.createElement('label'); yLabel.textContent='Y:';
+      const ySel=document.createElement('select');
+      names.forEach((n,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=n; if(i===scatterYCol) o.selected=true; ySel.appendChild(o); });
+      ySel.addEventListener('change',()=>{scatterYCol=+ySel.value; updateScatterLabelsFromHeaders(); console.debug('scatterYCol changed',scatterYCol); drawScatter();});
+      controls.appendChild(yLabel); controls.appendChild(ySel);
+      updateScatterLabelsFromHeaders();
+    }
+
+    function drawScatter(){
+      console.debug('drawScatter called');
+      const data=scatterHot.getData();
+      const xs=[], ys=[];
+      for(let r=1;r<data.length;r++){
+        const xv=parseFloat(data[r][scatterXCol]);
+        const yv=parseFloat(data[r][scatterYCol]);
+        if(!isNaN(xv)&&!isNaN(yv)){
+          xs.push(xv); ys.push(yv);
+        }
+      }
+      const plotDiv=document.getElementById('scatterPlot');
+      while(plotDiv.firstChild) plotDiv.removeChild(plotDiv.firstChild);
+      const W=Math.max(50,Math.floor(plotDiv.clientWidth||50));
+      const H=Math.max(40,Math.floor(plotDiv.clientHeight||40));
+      const svg=document.createElementNS(NS,'svg');
+      svg.setAttribute('id','scatterSvg');
+      svg.setAttribute('width',W); svg.setAttribute('height',H);
+      svg.setAttribute('font-family','sans-serif');
+      const resDiv=document.getElementById('scatterStatsResults');
+      resDiv.textContent='';
+      if(xs.length===0){
+        plotDiv.appendChild(svg);
+        resDiv.textContent='No data';
+        console.debug('drawScatter no data');
+        return;
+      }
+      const margin={left:50,right:20,top:40,bottom:50};
+      const plotW=W-margin.left-margin.right;
+      const plotH=H-margin.top-margin.bottom;
+      const minX=Math.min(...xs), maxX=Math.max(...xs);
+      const minY=Math.min(...ys), maxY=Math.max(...ys);
+      const x2px=x=>margin.left+((x-minX)/(maxX-minX||1))*plotW;
+      const y2px=y=>margin.top+plotH-((y-minY)/(maxY-minY||1))*plotH;
+      const showGrid=document.getElementById('scatterShowGrid').checked;
+      const fontSize=parseInt(document.getElementById('scatterFontSize').value,10);
+      const gGrid=document.createElementNS(NS,'g');
+      if(showGrid){
+        const xTicks=5, yTicks=5;
+        for(let i=0;i<=xTicks;i++){
+          const x=minX+(i*(maxX-minX)/xTicks);
+          const px=x2px(x);
+          const line=document.createElementNS(NS,'line');
+          line.setAttribute('x1',px); line.setAttribute('x2',px);
+          line.setAttribute('y1',margin.top); line.setAttribute('y2',margin.top+plotH);
+          line.setAttribute('stroke','#ddd');
+          gGrid.appendChild(line);
+          const txt=document.createElementNS(NS,'text');
+          txt.setAttribute('x',px); txt.setAttribute('y',margin.top+plotH+15);
+          txt.setAttribute('text-anchor','middle');
+          txt.setAttribute('font-size',fontSize*0.8);
+          txt.textContent=x.toFixed(2);
+          svg.appendChild(txt);
+        }
+        for(let i=0;i<=yTicks;i++){
+          const y=minY+(i*(maxY-minY)/yTicks);
+          const py=y2px(y);
+          const line=document.createElementNS(NS,'line');
+          line.setAttribute('x1',margin.left); line.setAttribute('x2',margin.left+plotW);
+          line.setAttribute('y1',py); line.setAttribute('y2',py);
+          line.setAttribute('stroke','#ddd');
+          gGrid.appendChild(line);
+          const txt=document.createElementNS(NS,'text');
+          txt.setAttribute('x',margin.left-8); txt.setAttribute('y',py+4);
+          txt.setAttribute('text-anchor','end');
+          txt.setAttribute('font-size',fontSize*0.8);
+          txt.textContent=y.toFixed(2);
+          svg.appendChild(txt);
+        }
+      }
+      svg.appendChild(gGrid);
+      const xAxis=document.createElementNS(NS,'line');
+      xAxis.setAttribute('x1',margin.left); xAxis.setAttribute('x2',margin.left+plotW);
+      xAxis.setAttribute('y1',margin.top+plotH); xAxis.setAttribute('y2',margin.top+plotH);
+      xAxis.setAttribute('stroke','#000'); svg.appendChild(xAxis);
+      const yAxis=document.createElementNS(NS,'line');
+      yAxis.setAttribute('x1',margin.left); yAxis.setAttribute('x2',margin.left);
+      yAxis.setAttribute('y1',margin.top); yAxis.setAttribute('y2',margin.top+plotH);
+      yAxis.setAttribute('stroke','#000'); svg.appendChild(yAxis);
+      const fill=document.getElementById('scatterFill').value;
+      const border=document.getElementById('scatterBorder').value;
+      const r=parseInt(document.getElementById('scatterPointSize').value,10);
+      xs.forEach((x,i)=>{
+        const y=ys[i];
+        const c=document.createElementNS(NS,'circle');
+        c.setAttribute('cx',x2px(x));
+        c.setAttribute('cy',y2px(y));
+        c.setAttribute('r',r);
+        c.setAttribute('fill',fill);
+        c.setAttribute('stroke',border);
+        svg.appendChild(c);
+      });
+      const title=document.createElementNS(NS,'text');
+      title.setAttribute('x',margin.left+plotW/2);
+      title.setAttribute('y',margin.top/2);
+      title.setAttribute('text-anchor','middle');
+      title.setAttribute('font-size',fontSize*1.2);
+      title.textContent=scatterTitleText;
+      makeEditable(title,txt=>{scatterTitleText=txt; console.debug('scatterTitleText updated',scatterTitleText);});
+      svg.appendChild(title);
+      const xText=document.createElementNS(NS,'text');
+      xText.setAttribute('x',margin.left+plotW/2);
+      xText.setAttribute('y',H-5);
+      xText.setAttribute('text-anchor','middle');
+      xText.textContent=scatterXLabelText;
+      makeEditable(xText,txt=>{scatterXLabelText=txt; console.debug('scatterXLabelText updated',scatterXLabelText);});
+      svg.appendChild(xText);
+      const yText=document.createElementNS(NS,'text');
+      yText.setAttribute('transform',`translate(15 ${margin.top+plotH/2}) rotate(-90)`);
+      yText.setAttribute('text-anchor','middle');
+      yText.textContent=scatterYLabelText;
+      makeEditable(yText,txt=>{scatterYLabelText=txt; console.debug('scatterYLabelText updated',scatterYLabelText);});
+      svg.appendChild(yText);
+      plotDiv.appendChild(svg);
+      if(xs.length>1){
+        if(scatterStatsTest==='parametric'){
+          const rVal=jStat.corrcoeff(xs,ys);
+          const t=rVal*Math.sqrt((xs.length-2)/(1-rVal*rVal));
+          const p=2*(1-jStat.studentt.cdf(Math.abs(t),xs.length-2));
+          resDiv.textContent=`Pearson r=${rVal.toFixed(3)}, p=${p.toExponential(3)}`;
+          console.debug('Pearson correlation',{r:rVal,p});
+        }else{
+          const rho=jStat.spearmancoeff(xs,ys);
+          const t=rho*Math.sqrt((xs.length-2)/(1-rho*rho));
+          const p=2*(1-jStat.studentt.cdf(Math.abs(t),xs.length-2));
+          resDiv.textContent=`Spearman ρ=${rho.toFixed(3)}, p=${p.toExponential(3)}`;
+          console.debug('Spearman correlation',{rho,p});
+        }
+      }else{
+        resDiv.textContent='Not enough data';
+        console.debug('scatter correlation skipped: insufficient data');
+      }
+    }
 
     console.debug('ResizeObserver attached to boxPlot');
   Chart.defaults.locale='en-US';
@@ -2097,18 +2688,32 @@ KAT7`;
       console.debug('showVenn called');
       vennPage.style.display='block';
       boxPage.style.display='none';
+      scatterPage.style.display='none';
       tabVenn.classList.add('active');
       tabBox.classList.remove('active');
+      tabScatter.classList.remove('active');
     }
     function showBox(){
       console.debug('showBox called');
       vennPage.style.display='none';
       boxPage.style.display='block';
+      scatterPage.style.display='none';
       tabBox.classList.add('active');
       tabVenn.classList.remove('active');
+      tabScatter.classList.remove('active');
+    }
+    function showScatter(){
+      console.debug('showScatter called');
+      vennPage.style.display='none';
+      boxPage.style.display='none';
+      scatterPage.style.display='block';
+      tabScatter.classList.add('active');
+      tabVenn.classList.remove('active');
+      tabBox.classList.remove('active');
     }
     tabVenn.addEventListener('click',()=>{console.debug('tabVenn clicked'); showVenn();});
     tabBox.addEventListener('click',()=>{console.debug('tabBox clicked'); showBox();});
+    tabScatter.addEventListener('click',()=>{console.debug('tabScatter clicked'); showScatter();});
     showVenn();
 
     function tTest(a,b){
@@ -3010,6 +3615,8 @@ KAT7`;
   // Draw button (optional, still works)
   $('#drawBoxplot').addEventListener('click', drawBoxplot);
 
+  $('#drawScatter').addEventListener('click', () => { console.debug('drawScatter button clicked'); drawScatter(); });
+
   // Real-time updates when style controls change
   $('#boxFill').addEventListener('input', drawBoxplot);
   $('#boxBorder').addEventListener('input', drawBoxplot);
@@ -3053,6 +3660,44 @@ KAT7`;
     a.href = url; a.download = 'boxplot.svg';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
+  });
+
+  // Export scatter to PNG
+  $('#scatterPNG').addEventListener('click', async () => {
+    console.debug('scatterPNG clicked');
+    const svgEl=document.getElementById('scatterSvg');
+    if(!svgEl){ console.debug('scatterPNG aborted: no svg'); return; }
+    const xml=serializeCleanSVG(svgEl);
+    const img=new Image();
+    const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
+    img.src=url;
+    await img.decode().catch(err=>console.error('scatterPNG decode error',err));
+    const canvas=document.createElement('canvas');
+    canvas.width=svgEl.viewBox.baseVal.width || svgEl.clientWidth || 800;
+    canvas.height=svgEl.viewBox.baseVal.height || svgEl.clientHeight || 400;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(img,0,0);
+    canvas.toBlob(b=>{
+      const pngUrl=URL.createObjectURL(b);
+      const a=document.createElement('a');
+      a.href=pngUrl; a.download='scatterplot.png';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(pngUrl),4000);
+    },'image/png');
+  });
+
+  // Export scatter to SVG
+  $('#scatterSVG').addEventListener('click', () => {
+    console.debug('scatterSVG clicked');
+    const svgEl=document.getElementById('scatterSvg');
+    if(!svgEl){ console.debug('scatterSVG aborted: no svg'); return; }
+    const xml=serializeCleanSVG(svgEl);
+    const blob=new Blob([xml],{type:'image/svg+xml'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='scatterplot.svg';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
   });
 
   // Shortcut: Ctrl+Enter → drawFromLists
