@@ -442,23 +442,17 @@
                         </div>
           <div class="config-options">
             <fieldset>
-              <legend>Colors</legend>
-              <div class="color-pickers">
-                <label>Fill <input type="color" id="scatterFill" value="#555555"></label>
-                <label><input type="checkbox" id="scatterShowBorder"> Border</label>
-                <input type="color" id="scatterBorder" value="#000000" disabled>
+              <legend>Dots</legend>
+              <div class="control" style="flex-wrap:wrap">
+                <label>Size</label><input type="number" id="scatterDotSize" value="3" min="1" max="20" style="width:60px">
+                <label>Color</label><input type="color" id="scatterFill" value="#555555">
               </div>
             </fieldset>
             <fieldset>
               <legend>Border</legend>
-              <div class="control">
-                <label>Width</label><input type="number" id="scatterBorderWidth" value="2" min="0" max="10" style="width:60px" disabled>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Dots</legend>
-              <div class="control">
-                <label>Size</label><input type="number" id="scatterDotSize" value="3" min="1" max="20" style="width:60px">
+              <div class="control" style="flex-wrap:wrap">
+                <label>Thickness</label><input type="number" id="scatterBorderWidth" value="2" min="0" max="10" style="width:60px">
+                <label>Color</label><input type="color" id="scatterBorder" value="#000000">
               </div>
             </fieldset>
             <fieldset>
@@ -882,7 +876,6 @@
   }
 
   const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize');
-  const scatterShowBorder=$('#scatterShowBorder');
   const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
   const scatterShowGrid=$('#scatterShowGrid'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
   const scatterStatType=$('#scatterStatType');
@@ -890,11 +883,6 @@
   scatterBorder.addEventListener('input',()=>{console.log('scatterBorder changed', scatterBorder.value); drawScatter();});
   scatterBorderWidth.addEventListener('input',()=>{console.log('scatterBorderWidth changed', scatterBorderWidth.value); drawScatter();});
   scatterDotSize.addEventListener('input',()=>{console.log('scatterDotSize changed', scatterDotSize.value); drawScatter();});
-  scatterShowBorder.addEventListener('change',()=>{
-    console.log('scatterShowBorder changed', scatterShowBorder.checked);
-    scatterBorder.disabled=scatterBorderWidth.disabled=!scatterShowBorder.checked;
-    drawScatter();
-  });
   scatterFontSize.addEventListener('input',()=>{scatterFontSizeVal.textContent=scatterFontSize.value; drawScatter();});
   [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType].forEach(el=>el.addEventListener('change',()=>{drawScatter();}));
 
@@ -1000,10 +988,11 @@
   function drawScatter(){
     console.log('drawScatter called');
     const fill=scatterFill.value;
-    const showBorder=scatterShowBorder.checked;
-    const border=showBorder?scatterBorder.value:'none';
-    const bw=showBorder?Number(scatterBorderWidth.value):0;
-    console.log('drawScatter border',showBorder,border,bw);
+    const borderWidth=Number(scatterBorderWidth.value);
+    const borderColor=scatterBorder.value;
+    console.log('drawScatter border', {borderWidth, borderColor});
+    const border=borderWidth>0?borderColor:'none';
+    const bw=borderWidth;
     const fs=Number(scatterFontSize.value);
     const showGrid=scatterShowGrid.checked;
     const logX=scatterLogX.checked;
@@ -1066,11 +1055,16 @@
     const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
     const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
     function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v] of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
-    if(showGrid){xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});}
-    add('line',{x1:margin.left,y1:margin.top+plotH,x2:margin.left+plotW,y2:margin.top+plotH,stroke:'#000','stroke-width':2});
-    add('line',{x1:margin.left,y1:margin.top,x2:margin.left,y2:margin.top+plotH,stroke:'#000','stroke-width':2});
-    xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+6,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:margin.top+plotH+6+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
-    yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-6,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:margin.left-8,y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+    const tickLen=6;
+    if(showGrid){
+      xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});
+      yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});
+    }
+    console.log('scatter axes', {tickLen});
+    add('line',{x1:margin.left - tickLen,y1:margin.top+plotH,x2:margin.left+plotW + tickLen,y2:margin.top+plotH,stroke:'#000','stroke-width':2});
+    add('line',{x1:margin.left,y1:margin.top - tickLen,x2:margin.left,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':2});
+    xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:margin.top+plotH+tickLen+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
+    yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:margin.left-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
     points.forEach(p=>{const xv=logX?Math.log10(p.x):p.x;const yv=logY?Math.log10(p.y):p.y;add('circle',{cx:x2px(xv),cy:y2px(yv),r:dotSize,fill:fill,stroke:border,'stroke-width':bw,'fill-opacity':0.7});});
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditable(xText,txt=>{scatterXLabelText=txt;});
     const yX=margin.left-(maxYLabelWidth+fs*1.5);const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});yText.textContent=scatterYLabelText;makeEditable(yText,txt=>{scatterYLabelText=txt;});
@@ -2813,25 +2807,27 @@ KAT7`;
       svg.appendChild(el);
       return el;
     }
+    const tickLen=6;
     if (showGrid) {
       yScale.ticks.forEach(t => {
         const y = y2px(t);
         add('line', { x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#ddd', 'stroke-width': 1 });
       });
     }
-    add('line', { x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotH, stroke: '#000', 'stroke-width': 2 });
+    console.log('boxplot axes',{tickLen});
+    add('line', { x1: margin.left, y1: margin.top - tickLen, x2: margin.left, y2: margin.top + plotH + tickLen, stroke: '#000', 'stroke-width': 2 });
     yScale.ticks.forEach(t => {
       const y = y2px(t);
-      add('line', { x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1 });
-      const txt = add('text', { x: margin.left - 8, y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: '#000' });
+      add('line', { x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1 });
+      const txt = add('text', { x: margin.left - (tickLen+2), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: '#000' });
       txt.textContent = formatTick(logScale?Math.pow(10,t):t);
     });
     const xAxisY = margin.top + plotH;
-    add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
-    const xLabelOffset = Math.max(14, fs) + 6;
+    add('line', { x1: margin.left - tickLen, y1: xAxisY, x2: margin.left + plotW + tickLen, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
+    const xLabelOffset = Math.max(14, fs) + tickLen;
     labelsUsed.forEach((lab, i) => {
       const x = xCenter(i);
-      add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + 6, stroke: '#000', 'stroke-width': 1 });
+      add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: '#000', 'stroke-width': 1 });
       const t = add('text', { x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', fill: '#000' });
       t.textContent = lab || `Col ${i + 1}`;
       t.style.cursor='ew-resize';
