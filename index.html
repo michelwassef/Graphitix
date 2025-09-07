@@ -362,15 +362,10 @@
               </div>
             </fieldset>
             <fieldset>
-              <legend>Grid</legend>
-              <div class="control">
-                <label><input type="checkbox" id="boxShowGrid" checked> Show horizontal grid</label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Axis</legend>
-              <div class="control">
-                <label><input type="checkbox" id="boxLogScale"> Log scale (Y)</label>
+              <legend>Grid & Axis</legend>
+              <div class="control" style="flex-wrap:wrap">
+                <label style="width:auto"><input type="checkbox" id="boxShowGrid" checked> Show horizontal grid</label>
+                <label style="width:auto"><input type="checkbox" id="boxLogScale"> Log scale (Y)</label>
               </div>
             </fieldset>
             <fieldset>
@@ -444,30 +439,31 @@
             <fieldset>
               <legend>Dots</legend>
               <div class="control" style="flex-wrap:wrap">
-                <label>Size</label><input type="number" id="scatterDotSize" value="3" min="1" max="20" style="width:60px">
-                <label>Color</label><input type="color" id="scatterFill" value="#555555">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="width:auto">Size</label><input type="number" id="scatterDotSize" value="3" min="1" max="20" style="width:60px">
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="width:auto">Color</label><input type="color" id="scatterFill" value="#555555">
+                </div>
               </div>
             </fieldset>
             <fieldset>
               <legend>Border</legend>
               <div class="control" style="flex-wrap:wrap">
-                <label>Thickness</label><input type="number" id="scatterBorderWidth" value="2" min="0" max="10" style="width:60px">
-                <label>Color</label><input type="color" id="scatterBorder" value="#000000">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="width:auto">Thickness</label><input type="number" id="scatterBorderWidth" value="2" min="0" max="10" style="width:60px">
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="width:auto">Color</label><input type="color" id="scatterBorder" value="#000000">
+                </div>
               </div>
             </fieldset>
             <fieldset>
-              <legend>Grid</legend>
-              <div class="control">
-                <label><input type="checkbox" id="scatterShowGrid" checked> Show grid</label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Axis</legend>
-              <div class="control">
-                <label><input type="checkbox" id="scatterLogX"> Log scale (X)</label>
-              </div>
-              <div class="control">
-                <label><input type="checkbox" id="scatterLogY"> Log scale (Y)</label>
+              <legend>Grid & Axis</legend>
+              <div class="control" style="flex-wrap:wrap">
+                <label style="width:auto"><input type="checkbox" id="scatterShowGrid" checked> Show grid</label>
+                <label style="width:auto"><input type="checkbox" id="scatterLogX"> Log scale (X)</label>
+                <label style="width:auto"><input type="checkbox" id="scatterLogY"> Log scale (Y)</label>
               </div>
             </fieldset>
             <fieldset>
@@ -1071,7 +1067,8 @@
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=scatterTitleText;makeEditable(titleText,txt=>{scatterTitleText=txt;});
     const stats=computeScatterStats(points,method);
     const resDiv=document.getElementById('scatterStatsResults');
-    resDiv.innerHTML=`<table><tr><th>r</th><td>${stats.r.toFixed(4)}</td></tr><tr><th>P value</th><td>${formatP(stats.p)}</td></tr></table>`;
+    resDiv.innerHTML=`<table><tr><th>r</th><td>${stats.r.toFixed(4)}</td></tr><tr><th>R²</th><td>${stats.r2.toFixed(4)}</td></tr><tr><th>P value</th><td>${formatP(stats.p)}</td></tr></table>`;
+    console.log('scatter stats', stats);
   }
 
   function computeScatterStats(points,method){
@@ -1079,13 +1076,16 @@
     const x=points.map(p=>p.x);
     const y=points.map(p=>p.y);
     const n=points.length;
-    if(n<3) return {method, r:NaN, p:NaN};
-    let r, label;
-    if(method==='pearson'){r=jStat.corrcoeff(x,y); label='Pearson';}
+    if(n<3) return {method, r:NaN, p:NaN, r2:NaN};
+    const pearson=jStat.corrcoeff(x,y);
+    let r,label;
+    if(method==='pearson'){r=pearson; label='Pearson';}
     else {r=jStat.spearmancoeff(x,y); label='Spearman';}
     const t=r*Math.sqrt((n-2)/(1-r*r));
     const p=2*(1-jStat.studentt.cdf(Math.abs(t),n-2));
-    return {method:label, r, p};
+    const r2=pearson*pearson;
+    console.log('computeScatterStats result',{method:label,r,r2,p});
+    return {method:label, r, p, r2};
   }
 
   document.getElementById('drawScatter').addEventListener('click',drawScatter);
@@ -2914,7 +2914,8 @@ KAT7`;
           if (pointMode === 'overlay') {
             px = cx + (Math.random() - 0.5) * boxW * 0.6;
           } else {
-            px = x1 + boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
+            px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
+            console.log('side point', {px, y});
           }
           add('circle', { cx: px, cy: y, r: 3, fill: border, 'fill-opacity': 0.6 });
         });
