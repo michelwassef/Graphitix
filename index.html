@@ -517,7 +517,6 @@
   }
   const scheduleDrawBoxplot = debounceFrame(drawBoxplot);
   const scheduleDrawScatter = debounceFrame(drawScatter);
-  const nextFrame=()=>new Promise(requestAnimationFrame);
   let boxplotDrawToken=0; // debug: track boxplot render cycles
   let scatterDrawToken=0; // debug: track scatter render cycles
   const $ = (s)=>document.querySelector(s);
@@ -1078,10 +1077,8 @@
       const xv=parseFloat(xCol[r]);
       const yv=parseFloat(yCol[r]);
       if(!isNaN(xv)&&!isNaN(yv)) points.push({x:xv,y:yv});
-      if(r%1000===0){
-        await nextFrame();
-        if(token!==scatterDrawToken){console.log('scatter collect cancelled',{token});return;}
-        console.log('scatter collect yield', r);
+      if(r%10000===0){
+        console.log('scatter collect progress',{row:r,token});
       }
     }
     console.timeEnd(`scatterCollectPoints_${token}`);
@@ -1112,10 +1109,8 @@
       if(xv>xMax) xMax=xv;
       if(yv>yMax) yMax=yv;
       rangeIndex++;
-      if(rangeIndex%1000===0){
-        await nextFrame();
-        if(token!==scatterDrawToken){console.log('scatter range cancelled',{token});return;}
-        console.log('scatter range yield', rangeIndex);
+      if(rangeIndex%10000===0){
+        console.log('scatter range progress',{rangeIndex,token});
       }
     }
     console.log('scatter computed ranges',{xMax,yMax});
@@ -1161,10 +1156,8 @@
       const cy=y2px(yv);
       circlePath.push(`M ${cx} ${cy} m -${dotSize} 0 a ${dotSize} ${dotSize} 0 1 0 ${dotSize*2} 0 a ${dotSize} ${dotSize} 0 1 0 -${dotSize*2} 0 z`);
       pointIndex++;
-      if(pointIndex%1000===0){
-        await nextFrame();
-        if(token!==scatterDrawToken){console.log('scatter draw cancelled during render',{token});return;}
-        console.log('scatter draw yield', pointIndex);
+      if(pointIndex%10000===0){
+        console.log('scatter draw progress',{pointIndex,token});
       }
     }
     if(circlePath.length){
@@ -2817,10 +2810,8 @@ KAT7`;
       for (let r = 1; r < colData.length; r++) {
         const v = parseFloat(colData[r]);
         if (!isNaN(v)) col.push(v);
-        if(r%1000===0){
-          await nextFrame();
-          if(token!==boxplotDrawToken){console.log('boxplot collect cancelled',{token});return;}
-          console.log('boxplot collect yield', {col:i,row:r});
+        if(r%10000===0){
+          console.log('boxplot collect progress',{col:i,row:r,token});
         }
       }
       console.timeEnd(`boxColCollect_${i}_${token}`);
@@ -2871,10 +2862,8 @@ KAT7`;
         const v=t.y[j];
         if(v<ymin) ymin=v;
         if(v>ymax) ymax=v;
-        if(j%1000===0){
-          await nextFrame();
-          if(token!==boxplotDrawToken){console.log('boxplot range cancelled',{token});return;}
-          console.log('boxplot range yield',{trace:ti,row:j});
+        if(j%10000===0){
+          console.log('boxplot range progress',{trace:ti,row:j,token});
         }
       }
     }
@@ -3042,10 +3031,8 @@ KAT7`;
           if(v > wMax) wMax = v;
         }
         valIdx++;
-        if(valIdx%1000===0){
-          await nextFrame();
-          if(token!==boxplotDrawToken){console.log('boxplot fence cancelled',{token});return;}
-          console.log('boxplot fence yield',{index:i,valIdx});
+        if(valIdx%10000===0){
+          console.log('boxplot fence progress',{index:i,valIdx,token});
         }
       }
       if(wMin === Infinity){
@@ -3126,10 +3113,8 @@ KAT7`;
             const y=y2px(v);
             outPath.push(`M ${cx} ${y} m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 z`);
             outIdx++;
-            if(outIdx%1000===0){
-              await nextFrame();
-              if(token!==boxplotDrawToken){console.log('boxplot outlier cancelled',{token});return;}
-              console.log('boxplot outlier yield',{index:i,outIdx});
+            if(outIdx%10000===0){
+              console.log('boxplot outlier progress',{index:i,outIdx,token});
             }
           }
           if(outPath.length){add('path',{d:outPath.join(' '),fill:border,'fill-opacity':0.6});}
@@ -3150,10 +3135,8 @@ KAT7`;
             }
             ptPath.push(`M ${px} ${y} m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 z`);
             ptIdx++;
-            if(ptIdx%1000===0){
-              await nextFrame();
-              if(token!==boxplotDrawToken){console.log('boxplot point cancelled',{token});return;}
-              console.log('boxplot point yield',{index:i,ptIdx});
+            if(ptIdx%10000===0){
+              console.log('boxplot point progress',{index:i,ptIdx,token});
             }
           }
           if(ptPath.length){add('path',{d:ptPath.join(' '),fill:border,'fill-opacity':0.6});}
