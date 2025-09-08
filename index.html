@@ -518,6 +518,8 @@
   const scheduleDrawBoxplot = debounceFrame(drawBoxplot);
   const scheduleDrawScatter = debounceFrame(drawScatter);
   const nextFrame=()=>new Promise(requestAnimationFrame);
+  let boxplotDrawToken=0; // debug: track boxplot render cycles
+  let scatterDrawToken=0; // debug: track scatter render cycles
   const $ = (s)=>document.querySelector(s);
   const stage = $('#stage');
   const vennPage=$('#vennPage');
@@ -1043,7 +1045,8 @@
   let scatterYLabelText='Y';
 
   async function drawScatter(){
-    console.log('drawScatter called');
+    const token=++scatterDrawToken; // debug token for cancellation
+    console.log('drawScatter called',{token});
     const fill=scatterFill.value;
     const borderWidth=Number(scatterBorderWidth.value);
     const borderColor=scatterBorder.value;
@@ -1070,18 +1073,20 @@
     scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
     const maxLen=Math.max(xCol.length,yCol.length);
     const points=[];
-    console.time('scatterCollectPoints');
+    console.time(`scatterCollectPoints_${token}`);
     for(let r=1;r<maxLen;r++){
       const xv=parseFloat(xCol[r]);
       const yv=parseFloat(yCol[r]);
       if(!isNaN(xv)&&!isNaN(yv)) points.push({x:xv,y:yv});
       if(r%1000===0){
         await nextFrame();
+        if(token!==scatterDrawToken){console.log('scatter collect cancelled',{token});return;}
         console.log('scatter collect yield', r);
       }
     }
-    console.timeEnd('scatterCollectPoints');
+    console.timeEnd(`scatterCollectPoints_${token}`);
     console.log('scatter points collected',points.length);
+    if(token!==scatterDrawToken){console.log('scatter draw cancelled after collect',{token});return;}
     const plotEl=document.getElementById('scatterPlot');
     while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     document.getElementById('scatterStatsResults').innerHTML='';
@@ -1109,10 +1114,12 @@
       rangeIndex++;
       if(rangeIndex%1000===0){
         await nextFrame();
+        if(token!==scatterDrawToken){console.log('scatter range cancelled',{token});return;}
         console.log('scatter range yield', rangeIndex);
       }
     }
     console.log('scatter computed ranges',{xMax,yMax});
+    if(token!==scatterDrawToken){console.log('scatter draw cancelled after range',{token});return;}
     function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
     function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
     const xOriginT=logX?Math.log10(originX):originX;
@@ -1144,7 +1151,7 @@
     add('line',{x1:margin.left,y1:margin.top - tickLen,x2:margin.left,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':2});
     xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:margin.top+plotH+tickLen+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
     yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:margin.left-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
-    console.time('scatterDrawPoints');
+    console.time(`scatterDrawPoints_${token}`);
     const circlePath=[];
     let pointIndex=0;
     for(const p of points){
@@ -1156,17 +1163,19 @@
       pointIndex++;
       if(pointIndex%1000===0){
         await nextFrame();
+        if(token!==scatterDrawToken){console.log('scatter draw cancelled during render',{token});return;}
         console.log('scatter draw yield', pointIndex);
       }
     }
     if(circlePath.length){
       add('path',{d:circlePath.join(' '),fill:fill,stroke:border,'stroke-width':bw,'fill-opacity':0.7});
     }
-    console.timeEnd('scatterDrawPoints');
+    console.timeEnd(`scatterDrawPoints_${token}`);
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditable(xText,txt=>{scatterXLabelText=txt;});
     const yX=margin.left-(maxYLabelWidth+fs*1.5);const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});yText.textContent=scatterYLabelText;makeEditable(yText,txt=>{scatterYLabelText=txt;});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=scatterTitleText;makeEditable(titleText,txt=>{scatterTitleText=txt;});
     const stats=computeScatterStats(points,method);
+    if(token!==scatterDrawToken){console.log('scatter draw cancelled before stats',{token});return;}
     const resDiv=document.getElementById('scatterStatsResults');
     resDiv.innerHTML=`<table><tr><th>r</th><td>${stats.r.toFixed(4)}</td></tr><tr><th>R²</th><td>${stats.r2.toFixed(4)}</td></tr><tr><th>P value</th><td>${formatP(stats.p)}</td></tr></table>`;
     console.log('scatter stats', stats);
@@ -2780,6 +2789,8 @@ KAT7`;
     return new XMLSerializer().serializeToString(clone);
   }
   async function drawBoxplot(){
+    const token=++boxplotDrawToken; // debug token for cancellation
+    console.log('boxplot draw start',{token});
     const defaultFill = $('#boxFill').value;
     const border = $('#boxBorder').value;
     const bw = Number($('#boxBorderWidth').value);
@@ -2802,22 +2813,25 @@ KAT7`;
       const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
       const colData = hot.getDataAtCol(i);
       const col = [];
-      console.time(`boxColCollect_${i}`);
+      console.time(`boxColCollect_${i}_${token}`);
       for (let r = 1; r < colData.length; r++) {
         const v = parseFloat(colData[r]);
         if (!isNaN(v)) col.push(v);
         if(r%1000===0){
           await nextFrame();
+          if(token!==boxplotDrawToken){console.log('boxplot collect cancelled',{token});return;}
           console.log('boxplot collect yield', {col:i,row:r});
         }
       }
-      console.timeEnd(`boxColCollect_${i}`);
+      console.timeEnd(`boxColCollect_${i}_${token}`);
       console.log('boxplot collected column', {index:i, values:col.length});
+      if(token!==boxplotDrawToken){console.log('boxplot draw cancelled after collect',{token});return;}
       if (col.length) {
         labelsUsed.push(label);
         traces.push({ name: label, rawY: col });
       }
     }
+    if(token!==boxplotDrawToken){console.log('boxplot draw cancelled before traces ready',{token});return;}
     if (!traces.length) {
       boxColorPerBox.innerHTML='';
       document.getElementById('boxPlot').innerHTML='';
@@ -2859,10 +2873,12 @@ KAT7`;
         if(v>ymax) ymax=v;
         if(j%1000===0){
           await nextFrame();
+          if(token!==boxplotDrawToken){console.log('boxplot range cancelled',{token});return;}
           console.log('boxplot range yield',{trace:ti,row:j});
         }
       }
     }
+    if(token!==boxplotDrawToken){console.log('boxplot draw cancelled after range calc',{token});return;}
     console.log('boxplot ymin/ymax', {ymin, ymax});
     if (graphType === 'bar') {
       ymin = logScale ? Math.log10(1) : 0;
@@ -3001,6 +3017,7 @@ KAT7`;
     yText.textContent = boxYLabelText;
     makeEditable(yText,txt=>{boxYLabelText=txt;});
     for(let i=0;i<traces.length;i++){
+      if(token!==boxplotDrawToken){console.log('boxplot draw cancelled during render loop',{token});return;}
       const t=traces[i];
       const vals = [...t.y].sort((a, b) => a - b);
       if (!vals.length) continue;
@@ -3027,6 +3044,7 @@ KAT7`;
         valIdx++;
         if(valIdx%1000===0){
           await nextFrame();
+          if(token!==boxplotDrawToken){console.log('boxplot fence cancelled',{token});return;}
           console.log('boxplot fence yield',{index:i,valIdx});
         }
       }
@@ -3101,7 +3119,7 @@ KAT7`;
       }
       if(pointMode!=='none'){
         if(pointMode==='outliers'){
-          console.time('boxplotOutliers');
+          console.time(`boxplotOutliers_${token}`);
           const outPath=[];
           let outIdx=0;
           for(const v of outliers){
@@ -3110,14 +3128,15 @@ KAT7`;
             outIdx++;
             if(outIdx%1000===0){
               await nextFrame();
+              if(token!==boxplotDrawToken){console.log('boxplot outlier cancelled',{token});return;}
               console.log('boxplot outlier yield',{index:i,outIdx});
             }
           }
           if(outPath.length){add('path',{d:outPath.join(' '),fill:border,'fill-opacity':0.6});}
-          console.timeEnd('boxplotOutliers');
+          console.timeEnd(`boxplotOutliers_${token}`);
           console.log('drawing outliers',{index:i,count:outliers.length});
         }else{
-          console.time('boxplotPoints');
+          console.time(`boxplotPoints_${token}`);
           const ptPath=[];
           let ptIdx=0;
           for(const v of vals){
@@ -3133,14 +3152,16 @@ KAT7`;
             ptIdx++;
             if(ptIdx%1000===0){
               await nextFrame();
+              if(token!==boxplotDrawToken){console.log('boxplot point cancelled',{token});return;}
               console.log('boxplot point yield',{index:i,ptIdx});
             }
           }
           if(ptPath.length){add('path',{d:ptPath.join(' '),fill:border,'fill-opacity':0.6});}
-          console.timeEnd('boxplotPoints');
+          console.timeEnd(`boxplotPoints_${token}`);
         }
       }
     }
+    if(token!==boxplotDrawToken){console.log('boxplot draw cancelled before finalize',{token});return;}
     const titleText = add('text', {
       x: margin.left + plotW / 2,
       y: margin.top / 2,
