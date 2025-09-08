@@ -351,9 +351,10 @@
             <fieldset>
               <legend>Colors</legend>
               <div class="color-pickers">
-                <label>Fill <input type="color" id="boxFill" value="#4472c4"></label>
+                <label>Default Fill <input type="color" id="boxFill" value="#4472c4"></label>
                 <label>Border <input type="color" id="boxBorder" value="#000000"></label>
               </div>
+              <div id="boxColorPerBox" class="color-pickers"></div>
             </fieldset>
             <fieldset>
               <legend>Border</legend>
@@ -374,8 +375,12 @@
                 <label>Type</label>
                 <select id="boxGraphType">
                   <option value="box">Box plot</option>
+                  <option value="notched">Notched box plot</option>
                   <option value="bar">Bar plot</option>
                 </select>
+              </div>
+              <div class="control" style="flex-wrap:wrap">
+                <label style="width:auto"><input type="checkbox" id="boxShowCaps" checked> Show whisker caps</label>
               </div>
             </fieldset>
             <fieldset>
@@ -386,6 +391,7 @@
                   <option value="none" selected>None</option>
                   <option value="overlay">Overlay</option>
                   <option value="side">Side</option>
+                  <option value="outliers">Outliers</option>
                 </select>
               </div>
             </fieldset>
@@ -538,6 +544,7 @@
   let statsPairsText='';
   let statsCustomPairs=[];
   let boxColOrder=[];
+  let boxColors=[];
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
 
@@ -663,12 +670,35 @@
     drawBoxplot();
   }
 
-  const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode');
+  const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode'), boxShowCaps=$('#boxShowCaps'), boxColorPerBox=$('#boxColorPerBox');
   boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; });
   boxShowGrid.addEventListener('change',()=>{ drawBoxplot(); });
   boxLogScale.addEventListener('change',()=>{ drawBoxplot(); });
   boxGraphType.addEventListener('change',()=>{ drawBoxplot(); });
   boxPointMode.addEventListener('change',()=>{ drawBoxplot(); });
+  boxShowCaps.addEventListener('change',()=>{ drawBoxplot(); });
+
+  function updateBoxColorPickers(labels, defaultColor){
+    boxColorPerBox.innerHTML='';
+    labels.forEach((lab,i)=>{
+      if(!boxColors[i]) boxColors[i]=defaultColor;
+      const input=document.createElement('input');
+      input.type='color';
+      input.value=boxColors[i];
+      input.id=`boxColor${i}`;
+      input.addEventListener('input',e=>{
+        boxColors[i]=e.target.value;
+        console.log('color changed',{index:i,color:boxColors[i]});
+        drawBoxplot();
+      });
+      const lbl=document.createElement('label');
+      lbl.textContent=lab+' ';
+      lbl.appendChild(input);
+      boxColorPerBox.appendChild(lbl);
+    });
+    boxColors.length=labels.length;
+    console.log('updateBoxColorPickers',boxColors);
+  }
 
   const boxPlotDiv = document.getElementById('boxPlot');
   const boxContainer = boxPlotDiv.closest('.svgbox') || boxPlotDiv.parentElement;
@@ -2673,7 +2703,7 @@ KAT7`;
     return new XMLSerializer().serializeToString(clone);
   }
   function drawBoxplot(){
-    const fill = $('#boxFill').value;
+    const defaultFill = $('#boxFill').value;
     const border = $('#boxBorder').value;
     const bw = Number($('#boxBorderWidth').value);
     const fs = Number($('#boxFontSize').value);
@@ -2681,6 +2711,7 @@ KAT7`;
     const logScale = $('#boxLogScale').checked;
     const graphType = $('#boxGraphType').value;
     const pointMode = $('#boxPointMode').value;
+    const showCaps = boxShowCaps.checked;
     const traces = [];
     const labelsUsed = [];
     const nCols = hot.countCols();
@@ -2700,11 +2731,13 @@ KAT7`;
       }
     });
     if (!traces.length) {
+      boxColorPerBox.innerHTML='';
       document.getElementById('boxPlot').innerHTML='';
       document.getElementById('statsResults').innerHTML='';
       document.getElementById('statsTable').innerHTML='';
       return;
     }
+    updateBoxColorPickers(labelsUsed, defaultFill);
     renderStatsControls(traces);
     if(logScale){
       const hasNonPos=traces.some(t=>t.rawY.some(v=>v<=0));
@@ -2873,24 +2906,56 @@ KAT7`;
       const cx = xCenter(i);
       const x0 = cx - boxW / 2;
       const x1 = cx + boxW / 2;
-      if (graphType === 'box') {
-        const min = vals[0];
-        const q1 = percentile(vals, 0.25);
-        const med = percentile(vals, 0.5);
-        const q3 = percentile(vals, 0.75);
-        const max = vals[vals.length - 1];
-        const yQ1 = y2px(q1);
-        const yMed = y2px(med);
-        const yQ3 = y2px(q3);
-        const yMin = y2px(min);
-        const yMax = y2px(max);
-        add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fill, stroke: border, 'stroke-width': bw });
+      const q1 = percentile(vals, 0.25);
+      const med = percentile(vals, 0.5);
+      const q3 = percentile(vals, 0.75);
+      const iqr = q3 - q1;
+      const lowerFence = q1 - 1.5 * iqr;
+      const upperFence = q3 + 1.5 * iqr;
+      const nonOutliers = vals.filter(v => v >= lowerFence && v <= upperFence);
+      const outliers = vals.filter(v => v < lowerFence || v > upperFence);
+      const wMin = nonOutliers.length ? Math.min(...nonOutliers) : vals[0];
+      const wMax = nonOutliers.length ? Math.max(...nonOutliers) : vals[vals.length - 1];
+      const yQ1 = y2px(q1);
+      const yMed = y2px(med);
+      const yQ3 = y2px(q3);
+      const yWMin = y2px(wMin);
+      const yWMax = y2px(wMax);
+      const fillColor = boxColors[i] || defaultFill;
+      console.log('box stats',{index:i,q1,med,q3,wMin,wMax,outliers});
+      if (graphType === 'box' || graphType === 'notched') {
+        if(graphType === 'box'){
+          add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: border, 'stroke-width': bw });
+        } else {
+          const notchSpan = 1.57 * iqr / Math.sqrt(vals.length);
+          const notchLower = Math.max(q1, med - notchSpan);
+          const notchUpper = Math.min(q3, med + notchSpan);
+          const yNL = y2px(notchLower);
+          const yNU = y2px(notchUpper);
+          const d = [
+            `M ${x0} ${yQ3}`,
+            `L ${x1} ${yQ3}`,
+            `L ${x1} ${yNU}`,
+            `L ${cx} ${yMed}`,
+            `L ${x1} ${yNL}`,
+            `L ${x1} ${yQ1}`,
+            `L ${x0} ${yQ1}`,
+            `L ${x0} ${yNL}`,
+            `L ${cx} ${yMed}`,
+            `L ${x0} ${yNU}`,
+            'Z'
+          ].join(' ');
+          add('path',{d, fill: fillColor, stroke: border, 'stroke-width': bw});
+          console.log('drawing notched box',{index:i,notchLower,notchUpper});
+        }
         add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: border, 'stroke-width': bw });
-        add('line', { x1: cx, y1: yQ3, x2: cx, y2: yMax, stroke: border, 'stroke-width': bw });
-        add('line', { x1: cx, y1: yQ1, x2: cx, y2: yMin, stroke: border, 'stroke-width': bw });
-        const cap = Math.max(6, boxW * 0.4);
-        add('line', { x1: cx - cap / 2, y1: yMax, x2: cx + cap / 2, y2: yMax, stroke: border, 'stroke-width': bw });
-        add('line', { x1: cx - cap / 2, y1: yMin, x2: cx + cap / 2, y2: yMin, stroke: border, 'stroke-width': bw });
+        add('line', { x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: border, 'stroke-width': bw });
+        add('line', { x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: border, 'stroke-width': bw });
+        if(showCaps){
+          const cap = Math.max(6, boxW * 0.4);
+          add('line', { x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: border, 'stroke-width': bw });
+          add('line', { x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: border, 'stroke-width': bw });
+        }
       } else {
         const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
         const sd = Math.sqrt(vals.reduce((a,b)=>a+Math.pow(b-mean,2),0)/(vals.length-1||1));
@@ -2899,7 +2964,7 @@ KAT7`;
         const yZero = y2px(0);
         const rectY = Math.min(yMean, yZero);
         const rectH = Math.abs(yZero - yMean);
-        add('rect', { x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fill, stroke: border, 'stroke-width': bw });
+        add('rect', { x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fillColor, stroke: border, 'stroke-width': bw });
         const ySdTop = y2px(mean + sd);
         const ySdBottom = y2px(mean - sd);
         add('line',{x1:cx,y1:ySdTop,x2:cx,y2:ySdBottom,stroke:border,'stroke-width':bw});
@@ -2908,17 +2973,25 @@ KAT7`;
         add('line',{x1:cx-cap/2,y1:ySdBottom,x2:cx+cap/2,y2:ySdBottom,stroke:border,'stroke-width':bw});
       }
       if(pointMode!=='none'){
-        vals.forEach(v => {
-          const y = y2px(v);
-          let px;
-          if (pointMode === 'overlay') {
-            px = cx + (Math.random() - 0.5) * boxW * 0.6;
-          } else {
-            px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
-            console.log('side point', {px, y});
-          }
-          add('circle', { cx: px, cy: y, r: 3, fill: border, 'fill-opacity': 0.6 });
-        });
+        if(pointMode==='outliers'){
+          outliers.forEach(v=>{
+            const y=y2px(v);
+            add('circle',{cx:cx, cy:y, r:3, fill:border, 'fill-opacity':0.6});
+          });
+          console.log('drawing outliers',{index:i,count:outliers.length});
+        }else{
+          vals.forEach(v => {
+            const y = y2px(v);
+            let px;
+            if (pointMode === 'overlay') {
+              px = cx + (Math.random() - 0.5) * boxW * 0.6;
+            } else {
+              px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
+              console.log('side point', {px, y});
+            }
+            add('circle', { cx: px, cy: y, r: 3, fill: border, 'fill-opacity': 0.6 });
+          });
+        }
       }
     });
     const titleText = add('text', {
