@@ -501,8 +501,22 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="libs/xlsx.full.min.js"></script>
 <script>
-(function(){
+ (function(){
   "use strict";
+  function debounceFrame(fn){
+    let frame;
+    return (...args)=>{
+      if(frame) cancelAnimationFrame(frame);
+      console.log('debounceFrame scheduled', fn.name, args.length);
+      frame=requestAnimationFrame(()=>{
+        console.log('debounceFrame executing', fn.name);
+        frame=null;
+        fn(...args);
+      });
+    };
+  }
+  const scheduleDrawBoxplot = debounceFrame(drawBoxplot);
+  const scheduleDrawScatter = debounceFrame(drawScatter);
   const $ = (s)=>document.querySelector(s);
   const stage = $('#stage');
   const vennPage=$('#vennPage');
@@ -575,19 +589,25 @@
         colHeaders.splice(index+i,0,String.fromCharCode(65+index+i));
       }
       selectedCols.clear();
-      drawBoxplot();
+      console.log('boxplot afterCreateCol', {index, amount});
+      scheduleDrawBoxplot();
     },
     afterRemoveCol(index, amount){
       colHeaders.splice(index,amount);
       selectedCols.clear();
-      drawBoxplot();
+      console.log('boxplot afterRemoveCol', {index, amount});
+      scheduleDrawBoxplot();
     },
     afterChange(changes, source){
       if(!changes || source==='loadData') return;
-      drawBoxplot();
+      console.log('boxplot afterChange', {count:changes.length, source});
+      scheduleDrawBoxplot();
     },
     afterColumnMove(moved, finalIndex, dropIndex, movePossible, orderChanged){
-      if(orderChanged) drawBoxplot();
+      if(orderChanged){
+        console.log('boxplot afterColumnMove', {finalIndex, dropIndex});
+        scheduleDrawBoxplot();
+      }
     }
   });
 
@@ -603,7 +623,8 @@
   loadExampleBtn.addEventListener('click',()=>{
     selectedCols.clear();
     hot.loadData(exampleData);
-    drawBoxplot();
+    console.log('boxplot example loaded');
+    scheduleDrawBoxplot();
   });
   importBtn.addEventListener('click',()=>{
     fileInput.value='';
@@ -667,16 +688,17 @@
     while(dataRows.length<targetRows){ dataRows.push(new Array(targetCols).fill('')); }
     selectedCols.clear();
     hot.updateSettings({data:dataRows,minRows:targetRows,minCols:targetCols});
-    drawBoxplot();
+    console.log('boxplot data imported', {rows:dataRows.length, cols:targetCols});
+    scheduleDrawBoxplot();
   }
 
   const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode'), boxShowCaps=$('#boxShowCaps'), boxColorPerBox=$('#boxColorPerBox');
   boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; });
-  boxShowGrid.addEventListener('change',()=>{ drawBoxplot(); });
-  boxLogScale.addEventListener('change',()=>{ drawBoxplot(); });
-  boxGraphType.addEventListener('change',()=>{ drawBoxplot(); });
-  boxPointMode.addEventListener('change',()=>{ drawBoxplot(); });
-  boxShowCaps.addEventListener('change',()=>{ drawBoxplot(); });
+  boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', boxShowGrid.checked); scheduleDrawBoxplot(); });
+  boxLogScale.addEventListener('change',()=>{ console.log('boxLogScale changed', boxLogScale.checked); scheduleDrawBoxplot(); });
+  boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', boxGraphType.value); scheduleDrawBoxplot(); });
+  boxPointMode.addEventListener('change',()=>{ console.log('boxPointMode changed', boxPointMode.value); scheduleDrawBoxplot(); });
+  boxShowCaps.addEventListener('change',()=>{ console.log('boxShowCaps changed', boxShowCaps.checked); scheduleDrawBoxplot(); });
 
   function updateBoxColorPickers(labels, defaultColor){
     boxColorPerBox.innerHTML='';
@@ -689,7 +711,7 @@
       input.addEventListener('input',e=>{
         boxColors[i]=e.target.value;
         console.log('color changed',{index:i,color:boxColors[i]});
-        drawBoxplot();
+        scheduleDrawBoxplot();
       });
       const lbl=document.createElement('label');
       lbl.textContent=lab+' ';
@@ -750,7 +772,8 @@
           document.removeEventListener('pointerup', onPointerUp);
           document.documentElement.style.userSelect = '';
           document.documentElement.style.touchAction = '';
-          drawBoxplot();
+          console.log('boxplot drag end');
+          scheduleDrawBoxplot();
         };
         document.addEventListener('pointermove', onPointerMove);
         document.addEventListener('pointerup', onPointerUp);
@@ -761,14 +784,16 @@
         boxContainer.style.width = '640px';
         boxContainer.style.height = '420px';
         boxContainer.style.flex = '0 0 auto';
-        drawBoxplot();
+        console.log('boxplot size reset');
+        scheduleDrawBoxplot();
       });
     }
     attachDrag(vHandle, 'x');
     attachDrag(hHandle, 'y');
     attachDrag(cHandle, 'both');
     const boxResizeObserver = new ResizeObserver(() => {
-      drawBoxplot();
+      console.log('boxplot resize observer triggered');
+      scheduleDrawBoxplot();
     });
     boxResizeObserver.observe(boxContainer);
   })();
@@ -837,14 +862,16 @@
     },
     afterChange(changes,source){
       if(!changes||source==='loadData') return;
-      drawScatter();
+      console.log('scatter afterChange', {count:changes.length, source});
+      scheduleDrawScatter();
     }
   });
 
   const scatterExample=[['X','Y'],[1,2],[2,3],[3,3.5],[4,5],[5,5.5]];
   document.getElementById('scatterLoadExample').addEventListener('click',()=>{
     scatterHot.loadData(scatterExample);
-    drawScatter();
+    console.log('scatter example loaded');
+    scheduleDrawScatter();
   });
   document.getElementById('scatterImport').addEventListener('click',()=>{
     const f=document.getElementById('scatterFile');
@@ -898,19 +925,20 @@
     const colCount=Math.max(2,...rows.map(r=>r.length));
     rows=rows.map(r=>{const row=Array.from(r);while(row.length<colCount) row.push('');return row;});
     scatterHot.updateSettings({data:rows,minRows:Math.max(DEFAULT_ROWS,rows.length),minCols:colCount});
-    drawScatter();
+    console.log('scatter data imported',{rows:rows.length,cols:colCount});
+    scheduleDrawScatter();
   }
 
   const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize');
   const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
   const scatterShowGrid=$('#scatterShowGrid'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
   const scatterStatType=$('#scatterStatType');
-  scatterFill.addEventListener('input',()=>{console.log('scatterFill changed', scatterFill.value); drawScatter();});
-  scatterBorder.addEventListener('input',()=>{console.log('scatterBorder changed', scatterBorder.value); drawScatter();});
-  scatterBorderWidth.addEventListener('input',()=>{console.log('scatterBorderWidth changed', scatterBorderWidth.value); drawScatter();});
-  scatterDotSize.addEventListener('input',()=>{console.log('scatterDotSize changed', scatterDotSize.value); drawScatter();});
-  scatterFontSize.addEventListener('input',()=>{scatterFontSizeVal.textContent=scatterFontSize.value; drawScatter();});
-  [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType].forEach(el=>el.addEventListener('change',()=>{drawScatter();}));
+  scatterFill.addEventListener('input',()=>{console.log('scatterFill changed', scatterFill.value); scheduleDrawScatter();});
+  scatterBorder.addEventListener('input',()=>{console.log('scatterBorder changed', scatterBorder.value); scheduleDrawScatter();});
+  scatterBorderWidth.addEventListener('input',()=>{console.log('scatterBorderWidth changed', scatterBorderWidth.value); scheduleDrawScatter();});
+  scatterDotSize.addEventListener('input',()=>{console.log('scatterDotSize changed', scatterDotSize.value); scheduleDrawScatter();});
+  scatterFontSize.addEventListener('input',()=>{scatterFontSizeVal.textContent=scatterFontSize.value; scheduleDrawScatter();});
+  [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType].forEach(el=>el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
 
   const scatterPlotDiv=document.getElementById('scatterPlot');
   const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
@@ -956,7 +984,7 @@
             const newH=Math.max(MIN_H,Math.round(startH+dy));
             scatterContainer.style.height=px(newH);
           }
-          drawScatter();
+          scheduleDrawScatter();
         };
         const onPointerUp=ev=>{
           try{handle.releasePointerCapture(pointerId);}catch(_){ }
@@ -964,7 +992,8 @@
           document.removeEventListener('pointerup',onPointerUp);
           document.documentElement.style.userSelect='';
           document.documentElement.style.touchAction='';
-          drawScatter();
+          console.log('scatter drag end');
+          scheduleDrawScatter();
         };
         document.addEventListener('pointermove',onPointerMove);
         document.addEventListener('pointerup',onPointerUp);
@@ -975,13 +1004,14 @@
         scatterContainer.style.width='640px';
         scatterContainer.style.height='420px';
         scatterContainer.style.flex='0 0 auto';
-        drawScatter();
+        console.log('scatter size reset');
+        scheduleDrawScatter();
       });
     }
     attachDrag(vHandle,'x');
     attachDrag(hHandle,'y');
     attachDrag(cHandle,'both');
-    const scatterResizeObserver=new ResizeObserver(()=>{drawScatter();});
+    const scatterResizeObserver=new ResizeObserver(()=>{console.log('scatter resize observer triggered'); scheduleDrawScatter();});
     scatterResizeObserver.observe(scatterContainer);
   })();
 
@@ -2425,7 +2455,8 @@ KAT7`;
     });
     testSel.addEventListener('change',()=>{
       statsTest=testSel.value;
-      drawBoxplot();
+      console.log('boxplot statsTest changed', statsTest);
+      scheduleDrawBoxplot();
     });
     optionWrap.appendChild(testLabel);
     optionWrap.appendChild(testSel);
@@ -2440,7 +2471,8 @@ KAT7`;
     });
     pairedSel.addEventListener('change',()=>{
       statsPaired=pairedSel.value==='paired';
-      drawBoxplot();
+      console.log('boxplot statsPaired changed', statsPaired);
+      scheduleDrawBoxplot();
     });
     optionWrap.appendChild(pairedLabel);
     optionWrap.appendChild(pairedSel);
@@ -2455,8 +2487,9 @@ KAT7`;
     });
     modeSel.addEventListener('change',()=>{
       statsMode=modeSel.value;
+      console.log('boxplot statsMode changed', statsMode);
       renderStatsControls(traces);
-      drawBoxplot();
+      scheduleDrawBoxplot();
     });
     optionWrap.appendChild(modeLabel);
     optionWrap.appendChild(modeSel);
@@ -2472,8 +2505,9 @@ KAT7`;
       });
       refSel.addEventListener('change',()=>{
         statsRef=+refSel.value;
+        console.log('boxplot statsRef changed', statsRef);
         renderStatsControls(traces);
-        drawBoxplot();
+        scheduleDrawBoxplot();
       });
       optionWrap.appendChild(refLabel);
       optionWrap.appendChild(refSel);
@@ -2487,7 +2521,8 @@ KAT7`;
       pairInput.addEventListener('change',()=>{
         statsPairsText=pairInput.value;
         statsCustomPairs=parsePairString(statsPairsText,traces);
-        drawBoxplot();
+        console.log('boxplot custom pairs changed', statsPairsText);
+        scheduleDrawBoxplot();
       });
       optionWrap.appendChild(pairLabel);
       optionWrap.appendChild(pairInput);
@@ -2501,7 +2536,8 @@ KAT7`;
       chk.checked=selectedCols.has(i);
       chk.addEventListener('change',()=>{
         if(chk.checked) selectedCols.add(i); else selectedCols.delete(i);
-        drawBoxplot();
+        console.log('boxplot column toggle', {index:i, checked:chk.checked});
+        scheduleDrawBoxplot();
       });
       const lab=document.createElement('label');
       lab.setAttribute('for',id);
@@ -2910,7 +2946,8 @@ KAT7`;
             const moved=boxColOrder.splice(idx,1)[0];
             boxColOrder.splice(targetIdx,0,moved);
           }
-          drawBoxplot();
+          console.log('boxplot label drag end',{from:idx,to:targetIdx});
+          scheduleDrawBoxplot();
         };
         document.addEventListener('mousemove',onMove);
         document.addEventListener('mouseup',onUp);
