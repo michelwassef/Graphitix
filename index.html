@@ -2931,25 +2931,27 @@ KAT7`;
           add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: border, 'stroke-width': bw });
         } else {
           const notchSpan = 1.57 * iqr / Math.sqrt(vals.length);
-          const notchLower = Math.max(q1, med - notchSpan);
-          const notchUpper = Math.min(q3, med + notchSpan);
+          let notchLower = Math.max(q1, med - notchSpan);
+          let notchUpper = Math.min(q3, med + notchSpan);
+          if (notchLower > notchUpper) {
+            const mid = (notchLower + notchUpper) / 2;
+            notchLower = notchUpper = mid;
+          }
           const yNL = y2px(notchLower);
           const yNU = y2px(notchUpper);
-          const notchWidth = boxW * 0.5;
+          const notchWidth = boxW * 0.4;
           const xNL = cx - notchWidth / 2;
           const xNR = cx + notchWidth / 2;
           const d = [
             `M ${x0} ${yQ3}`,
             `L ${x1} ${yQ3}`,
             `L ${x1} ${yNU}`,
-            `L ${xNR} ${yNU}`,
-            `L ${xNR} ${yNL}`,
+            `L ${xNR} ${yMed}`,
             `L ${x1} ${yNL}`,
             `L ${x1} ${yQ1}`,
             `L ${x0} ${yQ1}`,
             `L ${x0} ${yNL}`,
-            `L ${xNL} ${yNL}`,
-            `L ${xNL} ${yNU}`,
+            `L ${xNL} ${yMed}`,
             `L ${x0} ${yNU}`,
             'Z'
           ].join(' ');
