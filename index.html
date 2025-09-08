@@ -365,7 +365,7 @@
             <fieldset>
               <legend>Grid & Axis</legend>
               <div class="control" style="flex-wrap:wrap">
-                <label style="width:auto"><input type="checkbox" id="boxShowGrid" checked> Show horizontal grid</label>
+                <label style="width:auto"><input type="checkbox" id="boxShowGrid"> Show horizontal grid</label>
                 <label style="width:auto"><input type="checkbox" id="boxLogScale"> Log scale (Y)</label>
               </div>
             </fieldset>
@@ -457,7 +457,7 @@
               <legend>Border</legend>
               <div class="control" style="flex-wrap:wrap">
                 <div style="display:flex;align-items:center;gap:6px">
-                  <label style="width:auto">Thickness</label><input type="number" id="scatterBorderWidth" value="2" min="0" max="10" style="width:60px">
+                  <label style="width:auto">Thickness</label><input type="number" id="scatterBorderWidth" value="0" min="0" max="10" style="width:60px">
                 </div>
                 <div style="display:flex;align-items:center;gap:6px">
                   <label style="width:auto">Color</label><input type="color" id="scatterBorder" value="#000000">
@@ -467,7 +467,7 @@
             <fieldset>
               <legend>Grid & Axis</legend>
               <div class="control" style="flex-wrap:wrap">
-                <label style="width:auto"><input type="checkbox" id="scatterShowGrid" checked> Show grid</label>
+                <label style="width:auto"><input type="checkbox" id="scatterShowGrid"> Show grid</label>
                 <label style="width:auto"><input type="checkbox" id="scatterLogX"> Log scale (X)</label>
                 <label style="width:auto"><input type="checkbox" id="scatterLogY"> Log scale (Y)</label>
               </div>
@@ -1021,6 +1021,7 @@
     const bw=borderWidth;
     const fs=Number(scatterFontSize.value);
     const showGrid=scatterShowGrid.checked;
+    console.log('scatter showGrid', showGrid);
     const logX=scatterLogX.checked;
     const logY=scatterLogY.checked;
     const dotSize=Number(scatterDotSize.value)||3;
@@ -2708,6 +2709,7 @@ KAT7`;
     const bw = Number($('#boxBorderWidth').value);
     const fs = Number($('#boxFontSize').value);
     const showGrid = $('#boxShowGrid').checked;
+    console.log('boxplot showGrid', showGrid);
     const logScale = $('#boxLogScale').checked;
     const graphType = $('#boxGraphType').value;
     const pointMode = $('#boxPointMode').value;
@@ -2926,29 +2928,35 @@ KAT7`;
       if (graphType === 'box' || graphType === 'notched') {
         if(graphType === 'box'){
           add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: border, 'stroke-width': bw });
+          add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: border, 'stroke-width': bw });
         } else {
           const notchSpan = 1.57 * iqr / Math.sqrt(vals.length);
           const notchLower = Math.max(q1, med - notchSpan);
           const notchUpper = Math.min(q3, med + notchSpan);
           const yNL = y2px(notchLower);
           const yNU = y2px(notchUpper);
+          const notchWidth = boxW * 0.5;
+          const xNL = cx - notchWidth / 2;
+          const xNR = cx + notchWidth / 2;
           const d = [
             `M ${x0} ${yQ3}`,
             `L ${x1} ${yQ3}`,
             `L ${x1} ${yNU}`,
-            `L ${cx} ${yMed}`,
+            `L ${xNR} ${yNU}`,
+            `L ${xNR} ${yNL}`,
             `L ${x1} ${yNL}`,
             `L ${x1} ${yQ1}`,
             `L ${x0} ${yQ1}`,
             `L ${x0} ${yNL}`,
-            `L ${cx} ${yMed}`,
+            `L ${xNL} ${yNL}`,
+            `L ${xNL} ${yNU}`,
             `L ${x0} ${yNU}`,
             'Z'
           ].join(' ');
           add('path',{d, fill: fillColor, stroke: border, 'stroke-width': bw});
-          console.log('drawing notched box',{index:i,notchLower,notchUpper});
+          console.log('drawing notched box',{index:i,notchLower,notchUpper,notchWidth,xNL,xNR});
+          add('line', { x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: border, 'stroke-width': bw });
         }
-        add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: border, 'stroke-width': bw });
         add('line', { x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: border, 'stroke-width': bw });
         add('line', { x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: border, 'stroke-width': bw });
         if(showCaps){
