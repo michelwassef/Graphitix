@@ -1060,19 +1060,23 @@
     const originX=logX?1:0;
     const originY=logY?1:0;
     console.log('scatter origins', {originX, originY});
-    const hotData=scatterHot.getData();
-    console.log('scatter raw data rows', hotData.length);
-    const xLabelRaw=hotData[0]?.[0];
-    const yLabelRaw=hotData[0]?.[1];
+    const xCol=scatterHot.getDataAtCol(0);
+    const yCol=scatterHot.getDataAtCol(1);
+    console.log('scatter column lengths',{x:xCol.length,y:yCol.length});
+    const xLabelRaw=xCol[0];
+    const yLabelRaw=yCol[0];
     scatterXLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
     scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
+    const maxLen=Math.max(xCol.length,yCol.length);
     const points=[];
-    for(let r=1;r<hotData.length;r++){
-      const xv=parseFloat(hotData[r][0]);
-      const yv=parseFloat(hotData[r][1]);
+    console.time('scatterCollectPoints');
+    for(let r=1;r<maxLen;r++){
+      const xv=parseFloat(xCol[r]);
+      const yv=parseFloat(yCol[r]);
       if(!isNaN(xv)&&!isNaN(yv)) points.push({x:xv,y:yv});
     }
-    console.log('scatter points',points.length);
+    console.timeEnd('scatterCollectPoints');
+    console.log('scatter points collected',points.length);
     const plotEl=document.getElementById('scatterPlot');
     while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     document.getElementById('scatterStatsResults').innerHTML='';
@@ -2778,10 +2782,15 @@ KAT7`;
     boxColOrder.forEach(i => {
       const headerCell = hot.getDataAtCell(0, i);
       const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
-      const col = hot.getDataAtCol(i)
-        .slice(1)
-        .map(v => parseFloat(v))
-        .filter(v => !isNaN(v));
+      const colData = hot.getDataAtCol(i);
+      const col = [];
+      console.time(`boxColCollect_${i}`);
+      for (let r = 1; r < colData.length; r++) {
+        const v = parseFloat(colData[r]);
+        if (!isNaN(v)) col.push(v);
+      }
+      console.timeEnd(`boxColCollect_${i}`);
+      console.log('boxplot collected column', {index:i, values:col.length});
       if (col.length) {
         labelsUsed.push(label);
         traces.push({ name: label, rawY: col });
@@ -2975,10 +2984,22 @@ KAT7`;
       const iqr = q3 - q1;
       const lowerFence = q1 - 1.5 * iqr;
       const upperFence = q3 + 1.5 * iqr;
-      const nonOutliers = vals.filter(v => v >= lowerFence && v <= upperFence);
-      const outliers = vals.filter(v => v < lowerFence || v > upperFence);
-      const wMin = nonOutliers.length ? Math.min(...nonOutliers) : vals[0];
-      const wMax = nonOutliers.length ? Math.max(...nonOutliers) : vals[vals.length - 1];
+      const outliers = [];
+      let wMin = Infinity;
+      let wMax = -Infinity;
+      for(const v of vals){
+        if(v < lowerFence || v > upperFence){
+          outliers.push(v);
+        }else{
+          if(v < wMin) wMin = v;
+          if(v > wMax) wMax = v;
+        }
+      }
+      if(wMin === Infinity){
+        wMin = vals[0];
+        wMax = vals[vals.length - 1];
+      }
+      console.log('boxplot fences',{index:i,lowerFence,upperFence,outliers:outliers.length});
       const yQ1 = y2px(q1);
       const yMed = y2px(med);
       const yQ3 = y2px(q3);
