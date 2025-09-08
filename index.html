@@ -1030,15 +1030,16 @@
     const originX=logX?1:0;
     const originY=logY?1:0;
     console.log('scatter origins', {originX, originY});
-    const xLabelRaw=scatterHot.getDataAtCell(0,0);
-    const yLabelRaw=scatterHot.getDataAtCell(0,1);
+    const hotData=scatterHot.getData();
+    console.log('scatter raw data rows', hotData.length);
+    const xLabelRaw=hotData[0]?.[0];
+    const yLabelRaw=hotData[0]?.[1];
     scatterXLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
     scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
-    const nRows=scatterHot.countRows();
     const points=[];
-    for(let r=1;r<nRows;r++){
-      const xv=parseFloat(scatterHot.getDataAtCell(r,0));
-      const yv=parseFloat(scatterHot.getDataAtCell(r,1));
+    for(let r=1;r<hotData.length;r++){
+      const xv=parseFloat(hotData[r][0]);
+      const yv=parseFloat(hotData[r][1]);
       if(!isNaN(xv)&&!isNaN(yv)) points.push({x:xv,y:yv});
     }
     console.log('scatter points',points.length);
@@ -1057,10 +1058,16 @@
     svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
     svg.setAttribute('font-family','sans-serif');
     plotEl.appendChild(svg);
-    const xVals=points.map(p=>logX?Math.log10(p.x):p.x);
-    const yVals=points.map(p=>logY?Math.log10(p.y):p.y);
-    const xMax=Math.max(...xVals);
-    const yMax=Math.max(...yVals);
+    const xVals=[]; const yVals=[];
+    let xMax=-Infinity; let yMax=-Infinity;
+    for(const p of points){
+      const xv=logX?Math.log10(p.x):p.x;
+      const yv=logY?Math.log10(p.y):p.y;
+      xVals.push(xv); yVals.push(yv);
+      if(xv>xMax) xMax=xv;
+      if(yv>yMax) yMax=yv;
+    }
+    console.log('scatter computed ranges',{xMax,yMax});
     function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
     function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
     const xOriginT=logX?Math.log10(originX):originX;
@@ -1092,7 +1099,19 @@
     add('line',{x1:margin.left,y1:margin.top - tickLen,x2:margin.left,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':2});
     xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:margin.top+plotH+tickLen+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
     yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:margin.left-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
-    points.forEach(p=>{const xv=logX?Math.log10(p.x):p.x;const yv=logY?Math.log10(p.y):p.y;add('circle',{cx:x2px(xv),cy:y2px(yv),r:dotSize,fill:fill,stroke:border,'stroke-width':bw,'fill-opacity':0.7});});
+    console.time('scatterDrawPoints');
+    const circlePath=[];
+    for(const p of points){
+      const xv=logX?Math.log10(p.x):p.x;
+      const yv=logY?Math.log10(p.y):p.y;
+      const cx=x2px(xv);
+      const cy=y2px(yv);
+      circlePath.push(`M ${cx} ${cy} m -${dotSize} 0 a ${dotSize} ${dotSize} 0 1 0 ${dotSize*2} 0 a ${dotSize} ${dotSize} 0 1 0 -${dotSize*2} 0 z`);
+    }
+    if(circlePath.length){
+      add('path',{d:circlePath.join(' '),fill:fill,stroke:border,'stroke-width':bw,'fill-opacity':0.7});
+    }
+    console.timeEnd('scatterDrawPoints');
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditable(xText,txt=>{scatterXLabelText=txt;});
     const yX=margin.left-(maxYLabelWidth+fs*1.5);const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});yText.textContent=scatterYLabelText;makeEditable(yText,txt=>{scatterYLabelText=txt;});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=scatterTitleText;makeEditable(titleText,txt=>{scatterTitleText=txt;});
@@ -2764,9 +2783,14 @@ KAT7`;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('font-family','sans-serif');
     $box.appendChild(svg);
-    const allY = traces.flatMap(t => t.y);
-    let ymin = Math.min(...allY);
-    let ymax = Math.max(...allY);
+    let ymin=Infinity; let ymax=-Infinity;
+    traces.forEach(t=>{
+      t.y.forEach(v=>{
+        if(v<ymin) ymin=v;
+        if(v>ymax) ymax=v;
+      });
+    });
+    console.log('boxplot ymin/ymax', {ymin, ymax});
     if (graphType === 'bar') {
       ymin = logScale ? Math.log10(1) : 0;
     }
@@ -2984,12 +3008,18 @@ KAT7`;
       }
       if(pointMode!=='none'){
         if(pointMode==='outliers'){
+          console.time('boxplotOutliers');
+          const outPath=[];
           outliers.forEach(v=>{
             const y=y2px(v);
-            add('circle',{cx:cx, cy:y, r:3, fill:border, 'fill-opacity':0.6});
+            outPath.push(`M ${cx} ${y} m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 z`);
           });
+          if(outPath.length){add('path',{d:outPath.join(' '),fill:border,'fill-opacity':0.6});}
+          console.timeEnd('boxplotOutliers');
           console.log('drawing outliers',{index:i,count:outliers.length});
         }else{
+          console.time('boxplotPoints');
+          const ptPath=[];
           vals.forEach(v => {
             const y = y2px(v);
             let px;
@@ -2999,8 +3029,10 @@ KAT7`;
               px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
               console.log('side point', {px, y});
             }
-            add('circle', { cx: px, cy: y, r: 3, fill: border, 'fill-opacity': 0.6 });
+            ptPath.push(`M ${px} ${y} m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 z`);
           });
+          if(ptPath.length){add('path',{d:ptPath.join(' '),fill:border,'fill-opacity':0.6});}
+          console.timeEnd('boxplotPoints');
         }
       }
     });
