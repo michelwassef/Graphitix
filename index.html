@@ -1092,6 +1092,16 @@
     if(logY&&points.some(p=>p.y<=0)){plotEl.innerHTML='<i>Log scale requires positive Y values.</i>';return;}
     const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
     const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
+    plotEl.style.position='relative';
+    const canvas=document.createElement('canvas');
+    canvas.id='scatterCanvas';
+    canvas.width=W;
+    canvas.height=H;
+    canvas.style.position='absolute';
+    canvas.style.left='0';
+    canvas.style.top='0';
+    plotEl.appendChild(canvas);
+    const ctx=canvas.getContext('2d');
     const svg=document.createElementNS(NS,'svg');
     svg.setAttribute('id','scatterSvg');
     svg.setAttribute('width',String(W));
@@ -1123,8 +1133,8 @@
     const yScale=niceScale(yOriginT, Math.max(yMax,yOriginT),6); yScale.min=yOriginT;
     function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
     const measureCanvas=drawScatter._canvas||(drawScatter._canvas=document.createElement('canvas'));
-    const ctx=measureCanvas.getContext('2d');
-    function measureTextWidth(text,font){ctx.font=font;return ctx.measureText(text).width;}
+    const measureCtx=measureCanvas.getContext('2d');
+    function measureTextWidth(text,font){measureCtx.font=font;return measureCtx.measureText(text).width;}
     const tickFont=`${fs}px sans-serif`;
     const xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t));
     const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
@@ -1146,24 +1156,41 @@
     add('line',{x1:margin.left,y1:margin.top - tickLen,x2:margin.left,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':2});
     xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:margin.top+plotH+tickLen+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
     yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:margin.left-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
-    console.time(`scatterDrawPoints_${token}`);
-    const circlePath=[];
+    console.time(`scatterCanvasDraw_${token}`);
+    ctx.clearRect(0,0,W,H);
+    const cache=drawScatter._dotCache||(drawScatter._dotCache={});
+    const dotKey=`${fill}_${border}_${bw}_${dotSize}`;
+    let dotCanvas=cache[dotKey];
+    if(!dotCanvas){
+      dotCanvas=document.createElement('canvas');
+      const dcSize=dotSize*2 + bw*2 + 2;
+      dotCanvas.width=dotCanvas.height=dcSize;
+      const dctx=dotCanvas.getContext('2d');
+      dctx.beginPath();
+      dctx.arc(dcSize/2, dcSize/2, dotSize, 0, Math.PI*2);
+      dctx.fillStyle=fill;
+      dctx.fill();
+      if(bw>0){
+        dctx.lineWidth=bw;
+        dctx.strokeStyle=border;
+        dctx.stroke();
+      }
+      cache[dotKey]=dotCanvas;
+      console.log('scatter dot cache created',{dotKey,dcSize});
+    }
     let pointIndex=0;
     for(const p of points){
       const xv=logX?Math.log10(p.x):p.x;
       const yv=logY?Math.log10(p.y):p.y;
-      const cx=x2px(xv);
-      const cy=y2px(yv);
-      circlePath.push(`M ${cx} ${cy} m -${dotSize} 0 a ${dotSize} ${dotSize} 0 1 0 ${dotSize*2} 0 a ${dotSize} ${dotSize} 0 1 0 -${dotSize*2} 0 z`);
+      const cx=x2px(xv)-dotCanvas.width/2;
+      const cy=y2px(yv)-dotCanvas.height/2;
+      ctx.drawImage(dotCanvas,cx,cy);
       pointIndex++;
       if(pointIndex%10000===0){
-        console.log('scatter draw progress',{pointIndex,token});
+        console.log('scatter canvas draw progress',{pointIndex,token});
       }
     }
-    if(circlePath.length){
-      add('path',{d:circlePath.join(' '),fill:fill,stroke:border,'stroke-width':bw,'fill-opacity':0.7});
-    }
-    console.timeEnd(`scatterDrawPoints_${token}`);
+    console.timeEnd(`scatterCanvasDraw_${token}`);
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditable(xText,txt=>{scatterXLabelText=txt;});
     const yX=margin.left-(maxYLabelWidth+fs*1.5);const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});yText.textContent=scatterYLabelText;makeEditable(yText,txt=>{scatterYLabelText=txt;});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=scatterTitleText;makeEditable(titleText,txt=>{scatterTitleText=txt;});
@@ -1194,18 +1221,23 @@
   document.getElementById('drawScatter').addEventListener('click',drawScatter);
   document.getElementById('scatterPNG').addEventListener('click',async()=>{
     const svgEl=document.getElementById('scatterSvg');
-    if(!svgEl) return;
+    const canvasPts=document.getElementById('scatterCanvas');
+    if(!svgEl||!canvasPts) return;
+    console.log('scatterPNG export start');
+    const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
+    const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+    const outCanvas=document.createElement('canvas');
+    outCanvas.width=W;
+    outCanvas.height=H;
+    const ctx=outCanvas.getContext('2d');
+    ctx.drawImage(canvasPts,0,0);
     const xml=serializeCleanSVG(svgEl);
     const img=new Image();
     const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
     img.src=url;
-    await img.decode().catch(()=>{});
-    const canvas=document.createElement('canvas');
-    canvas.width=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
-    canvas.height=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
-    const ctx=canvas.getContext('2d');
+    await img.decode().catch(err=>{console.error('scatterPNG svg decode',err);});
     ctx.drawImage(img,0,0);
-    canvas.toBlob(b=>{
+    outCanvas.toBlob(b=>{
       const pngUrl=URL.createObjectURL(b);
       const a=document.createElement('a');
       a.href=pngUrl; a.download='scatter.png';
@@ -1215,8 +1247,14 @@
   });
   document.getElementById('scatterSVG').addEventListener('click',()=>{
     const svgEl=document.getElementById('scatterSvg');
-    if(!svgEl) return;
-    const xml=serializeCleanSVG(svgEl);
+    const canvasPts=document.getElementById('scatterCanvas');
+    if(!svgEl||!canvasPts) return;
+    console.log('scatterSVG export start');
+    const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
+    const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+    const ptsData=canvasPts.toDataURL('image/png');
+    const inner=svgEl.innerHTML;
+    const xml=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><image x="0" y="0" width="${W}" height="${H}" href="${ptsData}"/>${inner}</svg>`;
     const blob=new Blob([xml],{type:'image/svg+xml'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
@@ -2848,6 +2886,7 @@ KAT7`;
     while ($box.firstChild) $box.removeChild($box.firstChild);
     const W = Math.max(50, Math.floor($box.clientWidth || 50));
     const H = Math.max(40, Math.floor($box.clientHeight || 40));
+    $box.style.position='relative';
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('id', 'boxSvg');
     svg.setAttribute('width', String(W));
@@ -2855,6 +2894,17 @@ KAT7`;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('font-family','sans-serif');
     $box.appendChild(svg);
+    const canvas=document.createElement('canvas');
+    canvas.id='boxCanvas';
+    canvas.width=W;
+    canvas.height=H;
+    canvas.style.position='absolute';
+    canvas.style.left='0';
+    canvas.style.top='0';
+    canvas.style.pointerEvents='none';
+    $box.appendChild(canvas);
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,W,H);
     let ymin=Infinity; let ymax=-Infinity;
     for(let ti=0; ti<traces.length; ti++){
       const t=traces[ti];
@@ -3105,41 +3155,55 @@ KAT7`;
         add('line',{x1:cx-cap/2,y1:ySdBottom,x2:cx+cap/2,y2:ySdBottom,stroke:border,'stroke-width':bw});
       }
       if(pointMode!=='none'){
+        const cache=drawBoxplot._dotCache||(drawBoxplot._dotCache={});
+        const dotKey=`${border}`;
+        let dotCanvas=cache[dotKey];
+        if(!dotCanvas){
+          dotCanvas=document.createElement('canvas');
+          const dotSize=3;
+          const dcSize=dotSize*2;
+          dotCanvas.width=dotCanvas.height=dcSize;
+          const dctx=dotCanvas.getContext('2d');
+          dctx.beginPath();
+          dctx.arc(dotSize,dotSize,dotSize,0,Math.PI*2);
+          dctx.fillStyle=border;
+          dctx.fill();
+          cache[dotKey]=dotCanvas;
+          console.log('boxplot dot cache created',{dotKey,dcSize});
+        }
+        const dcOffset=dotCanvas.width/2;
         if(pointMode==='outliers'){
           console.time(`boxplotOutliers_${token}`);
-          const outPath=[];
           let outIdx=0;
           for(const v of outliers){
-            const y=y2px(v);
-            outPath.push(`M ${cx} ${y} m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 z`);
+            const y=y2px(v)-dcOffset;
+            const x=cx-dcOffset;
+            ctx.drawImage(dotCanvas,x,y);
             outIdx++;
             if(outIdx%10000===0){
               console.log('boxplot outlier progress',{index:i,outIdx,token});
             }
           }
-          if(outPath.length){add('path',{d:outPath.join(' '),fill:border,'fill-opacity':0.6});}
           console.timeEnd(`boxplotOutliers_${token}`);
           console.log('drawing outliers',{index:i,count:outliers.length});
         }else{
           console.time(`boxplotPoints_${token}`);
-          const ptPath=[];
           let ptIdx=0;
           for(const v of vals){
-            const y = y2px(v);
+            const y=y2px(v)-dcOffset;
             let px;
-            if (pointMode === 'overlay') {
+            if(pointMode==='overlay'){
               px = cx + (Math.random() - 0.5) * boxW * 0.6;
             } else {
               px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
-              console.log('side point', {px, y});
+              console.log('side point',{px,y});
             }
-            ptPath.push(`M ${px} ${y} m -3 0 a 3 3 0 1 0 6 0 a 3 3 0 1 0 -6 0 z`);
+            ctx.drawImage(dotCanvas,px-dcOffset,y);
             ptIdx++;
             if(ptIdx%10000===0){
               console.log('boxplot point progress',{index:i,ptIdx,token});
             }
           }
-          if(ptPath.length){add('path',{d:ptPath.join(' '),fill:border,'fill-opacity':0.6});}
           console.timeEnd(`boxplotPoints_${token}`);
         }
       }
@@ -3169,18 +3233,23 @@ KAT7`;
   $('#boxFontSize').addEventListener('input', drawBoxplot);
   $('#boxPNG').addEventListener('click', async () => {
     const svgEl = document.getElementById('boxSvg');
-    if (!svgEl) return;
+    const canvasPts=document.getElementById('boxCanvas');
+    if (!svgEl||!canvasPts) return;
+    console.log('boxPNG export start');
+    const W = svgEl.viewBox.baseVal.width || svgEl.clientWidth || 800;
+    const H = svgEl.viewBox.baseVal.height || svgEl.clientHeight || 400;
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = W;
+    outCanvas.height = H;
+    const ctx = outCanvas.getContext('2d');
+    ctx.drawImage(canvasPts,0,0);
     const xml = serializeCleanSVG(svgEl);
     const img = new Image();
     const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
     img.src = url;
-    await img.decode().catch(err => {});
-    const canvas = document.createElement('canvas');
-    canvas.width = svgEl.viewBox.baseVal.width || svgEl.clientWidth || 800;
-    canvas.height = svgEl.viewBox.baseVal.height || svgEl.clientHeight || 400;
-    const ctx = canvas.getContext('2d');
+    await img.decode().catch(err => {console.error('boxPNG svg decode',err);});
     ctx.drawImage(img, 0, 0);
-    canvas.toBlob(b => {
+    outCanvas.toBlob(b => {
       const pngUrl = URL.createObjectURL(b);
       const a = document.createElement('a');
       a.href = pngUrl; a.download = 'boxplot.png';
@@ -3190,8 +3259,14 @@ KAT7`;
   });
   $('#boxSVG').addEventListener('click', () => {
     const svgEl = document.getElementById('boxSvg');
-    if (!svgEl) return;
-    const xml = serializeCleanSVG(svgEl);
+    const canvasPts=document.getElementById('boxCanvas');
+    if (!svgEl||!canvasPts) return;
+    console.log('boxSVG export start');
+    const W = svgEl.viewBox.baseVal.width || svgEl.clientWidth || 800;
+    const H = svgEl.viewBox.baseVal.height || svgEl.clientHeight || 400;
+    const ptsData=canvasPts.toDataURL('image/png');
+    const inner=svgEl.innerHTML;
+    const xml = `<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><image x="0" y="0" width="${W}" height="${H}" href="${ptsData}"/>${inner}</svg>`;
     const blob = new Blob([xml], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
