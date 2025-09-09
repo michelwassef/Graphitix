@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>BioVenn-like Venn - HTML + JS only</title>
+<title>Venn Diagram Generator - HTML + JS only</title>
 <style>
   body{margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#ffffff;color:#222;line-height:1.4}
   header{padding:14px 16px;border-bottom:1px solid #ddd;background:#f7f7f7}
@@ -151,7 +151,7 @@
   <button id="tabScatter" class="btn">Scatter Plot</button>
 </div>
 <div id="vennPage">
-<header><h2 style="margin:0">Area proportional Venn - BioVenn like</h2><div style="color:#555;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
+<header><h2 style="margin:0">Area proportional Venn diagram</h2><div style="color:#555;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
 <div class="wrap">
   <div class="panel">
     <div class="row">
@@ -324,7 +324,7 @@
   <div id="tooltip"></div>
 </div>
 <div id="boxPage" style="display:none;">
-  <header><h2 style="margin:0">Box Plot</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a GraphPad-style box plot.</div></header>
+  <header><h2 style="margin:0">Box Plot</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a box plot.</div></header>
     <div class="wrap">
       <div class="panel" id="boxTablePanel">
         <div id="hotWrapper" style="width:100%;height:300px;overflow:auto"><div id="hot" style="width:100%;height:100%"></div></div>
@@ -358,14 +358,18 @@
               <legend>Colors</legend>
               <div class="color-pickers">
                 <label>Default Fill <input type="color" id="boxFill" value="#4472c4"></label>
-                <label>Border <input type="color" id="boxBorder" value="#000000"></label>
               </div>
               <div id="boxColorPerBox" class="color-pickers"></div>
             </fieldset>
             <fieldset>
               <legend>Border</legend>
-              <div class="control">
-                <label>Width</label><input type="number" id="boxBorderWidth" value="2" min="0" max="10" style="width:60px">
+              <div class="control" style="flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="width:auto">Thickness</label><input type="number" id="boxBorderWidth" value="2" min="0" max="10" style="width:60px">
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="width:auto">Color</label><input type="color" id="boxBorder" value="#000000">
+                </div>
               </div>
             </fieldset>
             <fieldset>
@@ -491,14 +495,19 @@
                 <label style="width:auto">Y max <input type="number" id="scatterYMax" style="width:80px"></label>
               </div>
               <div class="control" style="flex-wrap:wrap;gap:6px">
-                <label style="width:auto">Origin
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="width:auto">Origin</label>
                   <select id="scatterOriginMode">
                     <option value="lower" selected>Lower left</option>
                     <option value="custom">Custom</option>
                   </select>
-                </label>
-                <label style="width:auto">X <input type="number" id="scatterOriginX" style="width:80px"></label>
-                <label style="width:auto">Y <input type="number" id="scatterOriginY" style="width:80px"></label>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="width:auto">X</label><input type="number" id="scatterOriginX" style="width:80px">
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="width:auto">Y</label><input type="number" id="scatterOriginY" style="width:80px">
+                </div>
               </div>
             </fieldset>
             <fieldset>
@@ -518,6 +527,9 @@
                 <option value="pearson">Parametric (Pearson)</option>
                 <option value="spearman">Non-parametric (Spearman)</option>
               </select>
+            </div>
+            <div class="control">
+              <label style="width:auto"><input type="checkbox" id="scatterShowLine"> Trend line & stats on plot</label>
             </div>
             <div id="scatterStatsResults" style="margin-top:8px"></div>
           </fieldset>
@@ -590,6 +602,7 @@
   let statsCustomPairs=[];
   let boxColOrder=[];
   let boxColors=[];
+  let lastBoxDefaultFill='#4472c4';
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
 
@@ -757,7 +770,8 @@
   }
 
   const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode'), boxShowCaps=$('#boxShowCaps'), boxColorPerBox=$('#boxColorPerBox'), boxYMin=$('#boxYMin'), boxYMax=$('#boxYMax');
-  boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; });
+  lastBoxDefaultFill=boxFill.value;
+  boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; scheduleDrawBoxplot(); });
   boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', boxShowGrid.checked); scheduleDrawBoxplot(); });
   boxLogScale.addEventListener('change',()=>{ console.log('boxLogScale changed', boxLogScale.checked); scheduleDrawBoxplot(); });
   boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', boxGraphType.value); scheduleDrawBoxplot(); });
@@ -765,7 +779,15 @@
   boxShowCaps.addEventListener('change',()=>{ console.log('boxShowCaps changed', boxShowCaps.checked); scheduleDrawBoxplot(); });
   boxYMin.addEventListener('input',()=>{ console.log('boxYMin changed', boxYMin.value); scheduleDrawBoxplot(); });
   boxYMax.addEventListener('input',()=>{ console.log('boxYMax changed', boxYMax.value); scheduleDrawBoxplot(); });
-
+  boxFill.addEventListener('input',()=>{
+    console.log('boxFill changed',{newColor:boxFill.value,oldColor:lastBoxDefaultFill});
+    boxColors=boxColors.map(c=>c===lastBoxDefaultFill?boxFill.value:c);
+    lastBoxDefaultFill=boxFill.value;
+    scheduleDrawBoxplot();
+  });
+  boxBorder.addEventListener('input',()=>{ console.log('boxBorder changed', boxBorder.value); scheduleDrawBoxplot(); });
+  boxBorderWidth.addEventListener('input',()=>{ console.log('boxBorderWidth changed', boxBorderWidth.value); scheduleDrawBoxplot(); });
+  
   function updateBoxColorPickers(labels, defaultColor){
     boxColorPerBox.innerHTML='';
     labels.forEach((lab,i)=>{
@@ -1037,7 +1059,7 @@
     scheduleDrawScatter();
   }
 
-  const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize');
+  const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine');
   const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
   const scatterShowGrid=$('#scatterShowGrid'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
   const scatterXMin=$('#scatterXMin'), scatterXMax=$('#scatterXMax'), scatterYMin=$('#scatterYMin'), scatterYMax=$('#scatterYMax');
@@ -1048,7 +1070,7 @@
   scatterBorderWidth.addEventListener('input',()=>{console.log('scatterBorderWidth changed', scatterBorderWidth.value); scheduleDrawScatter();});
   scatterDotSize.addEventListener('input',()=>{console.log('scatterDotSize changed', scatterDotSize.value); scheduleDrawScatter();});
   scatterFontSize.addEventListener('input',()=>{scatterFontSizeVal.textContent=scatterFontSize.value; scheduleDrawScatter();});
-  [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode].forEach(el=>el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
+  [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode,scatterShowLine].forEach(el=>el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
   [scatterXMin,scatterXMax,scatterYMin,scatterYMax,scatterOriginX,scatterOriginY].forEach(el=>el.addEventListener('input',()=>{console.log('scatter axis input', el.id, el.value); scheduleDrawScatter();}));
 
   const scatterPlotDiv=document.getElementById('scatterPlot');
@@ -1163,6 +1185,8 @@
     const fs=Number(scatterFontSize.value);
     const showGrid=scatterShowGrid.checked;
     console.log('scatter showGrid', showGrid);
+    const showLine=scatterShowLine.checked;
+    console.log('scatter showLine', showLine);
     const logX=scatterLogX.checked;
     const logY=scatterLogY.checked;
     const dotSize=Number(scatterDotSize.value)||3;
@@ -1265,8 +1289,8 @@
     const xAxisY=y2px(originYT);
     const yAxisX=x2px(originXT);
     console.log('scatter axes',{tickLen,xAxisY,yAxisX});
-    add('line',{x1:margin.left - tickLen,y1:xAxisY,x2:margin.left+plotW + tickLen,y2:xAxisY,stroke:'#000','stroke-width':2});
-    add('line',{x1:yAxisX,y1:margin.top - tickLen,x2:yAxisX,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':2});
+    add('line',{x1:margin.left - tickLen,y1:xAxisY,x2:margin.left+plotW + tickLen,y2:xAxisY,stroke:'#000','stroke-width':1});
+    add('line',{x1:yAxisX,y1:margin.top - tickLen,x2:yAxisX,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':1});
     xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
     yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:yAxisX-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
     console.time(`scatterSvgDraw_${token}`);
@@ -1292,6 +1316,28 @@
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=scatterTitleText;makeEditable(titleText,txt=>{scatterTitleText=txt;});
     const stats=computeScatterStats(points,method);
     if(token!==scatterDrawToken){console.log('scatter draw cancelled before stats',{token});return;}
+    if(showLine && isFinite(stats.m) && isFinite(stats.b)){
+      console.log('scatter trend line', stats);
+      const x1Raw=logX?Math.pow(10,xScale.min):xScale.min;
+      const x2Raw=logX?Math.pow(10,xScale.max):xScale.max;
+      const y1Raw=stats.m*x1Raw+stats.b;
+      const y2Raw=stats.m*x2Raw+stats.b;
+      if(!logY || (y1Raw>0 && y2Raw>0)){
+        const x1T=logX?Math.log10(x1Raw):x1Raw;
+        const x2T=logX?Math.log10(x2Raw):x2Raw;
+        const y1T=logY?Math.log10(y1Raw):y1Raw;
+        const y2T=logY?Math.log10(y2Raw):y2Raw;
+        add('line',{x1:x2px(x1T),y1:y2px(y1T),x2:x2px(x2T),y2:y2px(y2T),stroke:'#d00','stroke-width':1});
+        const infoX=margin.left+plotW-4;
+        const infoY=stats.m>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
+        const info=add('text',{x:infoX,y:infoY,'text-anchor':'end','font-size':fs,fill:'#000'});
+        const eq=`y=${stats.m.toFixed(2)}x${stats.b>=0?'+':'-'}${Math.abs(stats.b).toFixed(2)}`;
+        const t1=document.createElementNS(NS,'tspan');t1.setAttribute('x',infoX);t1.setAttribute('dy',0);t1.textContent=eq;info.appendChild(t1);
+        const t2=document.createElementNS(NS,'tspan');t2.setAttribute('x',infoX);t2.setAttribute('dy',fs);t2.textContent=`r=${stats.r.toFixed(2)} R²=${stats.r2.toFixed(2)} p=${formatP(stats.p)}`;info.appendChild(t2);
+      }else{
+        console.log('scatter trend line skipped due to non-positive values',{y1Raw,y2Raw});
+      }
+    }
     const resDiv=document.getElementById('scatterStatsResults');
     resDiv.innerHTML=`<table><tr><th>r</th><td>${stats.r.toFixed(4)}</td></tr><tr><th>R²</th><td>${stats.r2.toFixed(4)}</td></tr><tr><th>P value</th><td>${formatP(stats.p)}</td></tr></table>`;
     console.log('scatter stats', stats);
@@ -1303,7 +1349,7 @@
     const x=points.map(p=>p.x);
     const y=points.map(p=>p.y);
     const n=points.length;
-    if(n<3) return {method, r:NaN, p:NaN, r2:NaN};
+    if(n<3) return {method, r:NaN, p:NaN, r2:NaN, m:NaN, b:NaN};
     const pearson=jStat.corrcoeff(x,y);
     let r,label;
     if(method==='pearson'){r=pearson; label='Pearson';}
@@ -1311,8 +1357,14 @@
     const t=r*Math.sqrt((n-2)/(1-r*r));
     const p=2*(1-jStat.studentt.cdf(Math.abs(t),n-2));
     const r2=pearson*pearson;
-    console.log('computeScatterStats result',{method:label,r,r2,p});
-    return {method:label, r, p, r2};
+    const xMean=jStat.mean(x);
+    const yMean=jStat.mean(y);
+    const num=x.reduce((s,xi,i)=>s+(xi-xMean)*(y[i]-yMean),0);
+    const den=x.reduce((s,xi)=>s+Math.pow(xi-xMean,2),0);
+    const m=num/den;
+    const b=yMean-m*xMean;
+    console.log('computeScatterStats result',{method:label,r,r2,p,m,b});
+    return {method:label, r, p, r2, m, b};
   }
 
   function saveScatterGraph(){
@@ -1336,7 +1388,8 @@
         yMax:scatterYMax.value,
         originMode:scatterOriginMode.value,
         originX:scatterOriginX.value,
-        originY:scatterOriginY.value
+        originY:scatterOriginY.value,
+        showLine:scatterShowLine.checked
       }
     };
     console.log('saveScatterGraph',payload);
@@ -1368,6 +1421,7 @@
         scatterOriginMode.value=c.originMode||scatterOriginMode.value;
         scatterOriginX.value=c.originX||'';
         scatterOriginY.value=c.originY||'';
+        scatterShowLine.checked=!!c.showLine;
         scheduleDrawScatter();
       }catch(err){console.error('loadScatterGraph error',err);}
     };
@@ -3225,7 +3279,7 @@ KAT7`;
       });
     }
     console.log('boxplot axes',{tickLen});
-    add('line', { x1: margin.left, y1: margin.top - tickLen, x2: margin.left, y2: margin.top + plotH + tickLen, stroke: '#000', 'stroke-width': 2 });
+    add('line', { x1: margin.left, y1: margin.top - tickLen, x2: margin.left, y2: margin.top + plotH + tickLen, stroke: '#000', 'stroke-width': 1 });
     yScale.ticks.forEach(t => {
       const y = y2px(t);
       add('line', { x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1 });
@@ -3233,7 +3287,7 @@ KAT7`;
       txt.textContent = formatTick(logScale?Math.pow(10,t):t);
     });
     const xAxisY = margin.top + plotH;
-    add('line', { x1: margin.left - tickLen, y1: xAxisY, x2: margin.left + plotW + tickLen, y2: xAxisY, stroke: '#000', 'stroke-width': 2 });
+    add('line', { x1: margin.left - tickLen, y1: xAxisY, x2: margin.left + plotW + tickLen, y2: xAxisY, stroke: '#000', 'stroke-width': 1 });
     const xLabelOffset = Math.max(14, fs) + tickLen;
     labelsUsed.forEach((lab, i) => {
       const x = xCenter(i);
@@ -3494,10 +3548,7 @@ KAT7`;
     reader.readAsText(file);
   }
   $('#drawBoxplot').addEventListener('click', drawBoxplot);
-  $('#boxFill').addEventListener('input', drawBoxplot);
-  $('#boxBorder').addEventListener('input', drawBoxplot);
-  $('#boxBorderWidth').addEventListener('input', drawBoxplot);
-  $('#boxFontSize').addEventListener('input', drawBoxplot);
+  // boxFill, boxBorder, boxBorderWidth, and boxFontSize listeners are handled above.
   $('#boxPNG').addEventListener('click', async () => {
     const svgEl = document.getElementById('boxSvg');
     if (!svgEl) return;
