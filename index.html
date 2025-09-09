@@ -609,6 +609,9 @@
   colorPickerOverlay.style.position='absolute';
   colorPickerOverlay.style.zIndex='1000';
   colorPickerOverlay.style.display='none';
+  colorPickerOverlay.style.opacity='0';
+  colorPickerOverlay.style.pointerEvents='none';
+  console.debug('Color picker overlay initialized');
   document.body.appendChild(colorPickerOverlay);
   colorPickerOverlay.addEventListener('input',e=>{
     if(colorPickerOverlay.targetEl){
@@ -616,7 +619,7 @@
       colorPickerOverlay.targetEl.dispatchEvent(new Event('input',{bubbles:true}));
     }
   });
-  colorPickerOverlay.addEventListener('blur',()=>{colorPickerOverlay.style.display='none';});
+  colorPickerOverlay.addEventListener('blur',()=>{colorPickerOverlay.style.display='none';console.debug('Color picker overlay hidden');});
   function attachColorPickerNear(el){
     console.log('attachColorPickerNear',el);
     el.addEventListener('pointerdown',e=>{
@@ -628,6 +631,7 @@
       colorPickerOverlay.value=el.value;
       colorPickerOverlay.targetEl=el;
       colorPickerOverlay.style.display='block';
+      console.debug('Color picker overlay positioned', colorPickerOverlay.style.left, colorPickerOverlay.style.top);
       colorPickerOverlay.focus();
       if(colorPickerOverlay.showPicker){colorPickerOverlay.showPicker();}
     });
