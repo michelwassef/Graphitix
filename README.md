@@ -14,6 +14,7 @@ Switch to the **Box Plot** tab to paste tabular data and generate customizable b
 * Optional log scale for the box plot Y-axis.
 * Statistical tests can now be run as paired or unpaired (default).
 * Custom pairwise comparisons are supported alongside all pairwise and reference-based modes.
+* Scatter and box plots render points in SVG with configurable axis ranges and origin controls.
 
 ## Overlap significance
 
