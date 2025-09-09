@@ -200,6 +200,9 @@
         <div class="row" style="justify-content:flex-end;margin-top:6px">
           <button class="btn" id="exportSVG">Export SVG</button>
           <button class="btn" id="exportPNG">Export PNG</button>
+          <button class="btn" id="saveVenn">Save Graph</button>
+          <button class="btn" id="loadVenn">Load Graph</button>
+          <input type="file" id="vennGraphFile" accept=".graph" style="display:none">
         </div>
       </div>
       <div class="config-options">
@@ -342,11 +345,14 @@
                           <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
                           <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
 			  <div id="boxPlot" style="width:100%; height:100%"></div>
-			  <div class="row" style="justify-content:flex-end;margin-top:6px">
-				<button class="btn" id="boxPNG">Download PNG</button>
-				<button class="btn" id="boxSVG">Download SVG</button>
-			  </div>
-			</div>
+                          <div class="row" style="justify-content:flex-end;margin-top:6px">
+                                <button class="btn" id="boxPNG">Download PNG</button>
+                                <button class="btn" id="boxSVG">Download SVG</button>
+                                <button class="btn" id="saveBox">Save Graph</button>
+                                <button class="btn" id="loadBox">Load Graph</button>
+                                <input type="file" id="boxGraphFile" accept=".graph" style="display:none">
+                          </div>
+                        </div>
           <div class="config-options">
             <fieldset>
               <legend>Colors</legend>
@@ -443,6 +449,9 @@
                           <div class="row" style="justify-content:flex-end;margin-top:6px">
                                 <button class="btn" id="scatterPNG">Download PNG</button>
                                 <button class="btn" id="scatterSVG">Download SVG</button>
+                                <button class="btn" id="saveScatter">Save Graph</button>
+                                <button class="btn" id="loadScatter">Load Graph</button>
+                                <input type="file" id="scatterGraphFile" accept=".graph" style="display:none">
                           </div>
                         </div>
           <div class="config-options">
@@ -1306,6 +1315,65 @@
     return {method:label, r, p, r2};
   }
 
+  function saveScatterGraph(){
+    const payload={
+      type:'scatter',
+      data:scatterHot.getData(),
+      config:{
+        title:scatterTitleText,
+        xLabel:scatterXLabelText,
+        yLabel:scatterYLabelText,
+        dotSize:scatterDotSize.value,
+        fill:scatterFill.value,
+        border:scatterBorder.value,
+        borderWidth:scatterBorderWidth.value,
+        showGrid:scatterShowGrid.checked,
+        logX:scatterLogX.checked,
+        logY:scatterLogY.checked,
+        xMin:scatterXMin.value,
+        xMax:scatterXMax.value,
+        yMin:scatterYMin.value,
+        yMax:scatterYMax.value,
+        originMode:scatterOriginMode.value,
+        originX:scatterOriginX.value,
+        originY:scatterOriginY.value
+      }
+    };
+    console.log('saveScatterGraph',payload);
+    downloadJSON(payload,'scatter.graph');
+  }
+  function loadScatterGraphFile(file){
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const obj=JSON.parse(e.target.result);
+        console.log('loadScatterGraph',obj);
+        if(obj.type!=='scatter') throw new Error('Invalid graph type');
+        scatterHot.loadData(obj.data||[]);
+        const c=obj.config||{};
+        scatterTitleText=c.title||scatterTitleText;
+        scatterXLabelText=c.xLabel||scatterXLabelText;
+        scatterYLabelText=c.yLabel||scatterYLabelText;
+        scatterDotSize.value=c.dotSize||scatterDotSize.value;
+        scatterFill.value=c.fill||scatterFill.value;
+        scatterBorder.value=c.border||scatterBorder.value;
+        scatterBorderWidth.value=c.borderWidth||scatterBorderWidth.value;
+        scatterShowGrid.checked=!!c.showGrid;
+        scatterLogX.checked=!!c.logX;
+        scatterLogY.checked=!!c.logY;
+        scatterXMin.value=c.xMin||'';
+        scatterXMax.value=c.xMax||'';
+        scatterYMin.value=c.yMin||'';
+        scatterYMax.value=c.yMax||'';
+        scatterOriginMode.value=c.originMode||scatterOriginMode.value;
+        scatterOriginX.value=c.originX||'';
+        scatterOriginY.value=c.originY||'';
+        scheduleDrawScatter();
+      }catch(err){console.error('loadScatterGraph error',err);}
+    };
+    reader.readAsText(file);
+  }
+
   document.getElementById('drawScatter').addEventListener('click',drawScatter);
   document.getElementById('scatterPNG').addEventListener('click',async()=>{
     const svgEl=document.getElementById('scatterSvg');
@@ -1342,6 +1410,12 @@
     a.href=url; a.download='scatter.svg';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),4000);
+  });
+  document.getElementById('saveScatter').addEventListener('click',saveScatterGraph);
+  document.getElementById('loadScatter').addEventListener('click',()=>{ document.getElementById('scatterGraphFile').click(); });
+  document.getElementById('scatterGraphFile').addEventListener('change',e=>{
+    const f=e.target.files[0];
+    if(f) loadScatterGraphFile(f);
   });
 
   Chart.defaults.locale='en-US';
@@ -1738,6 +1812,74 @@
     img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
   }
   function downloadURL(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
+  function downloadJSON(obj,name){
+    console.log('downloadJSON', name);
+    const blob=new Blob([JSON.stringify(obj)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    downloadURL(url,name);
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+  }
+  function saveVennGraph(){
+    const payload={
+      type:'venn',
+      data:{
+        labelA:inputs.labelA.value,
+        labelB:inputs.labelB.value,
+        labelC:inputs.labelC.value,
+        listA:inputs.A.value,
+        listB:inputs.B.value,
+        listC:inputs.C.value,
+        nA:inputs.counts.nA.value,
+        nB:inputs.counts.nB.value,
+        nC:inputs.counts.nC.value,
+        nAB:inputs.counts.nAB.value,
+        nAC:inputs.counts.nAC.value,
+        nBC:inputs.counts.nBC.value,
+        nABC:inputs.counts.nABC.value
+      },
+      style:{
+        colorA:inputs.colorA.value,
+        colorB:inputs.colorB.value,
+        colorC:inputs.colorC.value,
+        opacity:inputs.opacity.value,
+        borderColor:inputs.borderColor.value,
+        borderWidth:inputs.borderWidth.value,
+        fontsize:inputs.fontsize.value
+      }
+    };
+    console.log('saveVennGraph',payload);
+    downloadJSON(payload,'venn.graph');
+  }
+  function loadVennGraphFile(file){
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const obj=JSON.parse(e.target.result);
+        console.log('loadVennGraph',obj);
+        if(obj.type!=='venn') throw new Error('Invalid graph type');
+        const d=obj.data||{};
+        inputs.labelA.value=d.labelA||'';
+        inputs.labelB.value=d.labelB||'';
+        inputs.labelC.value=d.labelC||'';
+        inputs.A.value=d.listA||'';
+        inputs.B.value=d.listB||'';
+        inputs.C.value=d.listC||'';
+        const c=inputs.counts;
+        c.nA.value=d.nA||0; c.nB.value=d.nB||0; c.nC.value=d.nC||0;
+        c.nAB.value=d.nAB||0; c.nAC.value=d.nAC||0; c.nBC.value=d.nBC||0; c.nABC.value=d.nABC||0;
+        const s=obj.style||{};
+        inputs.colorA.value=s.colorA||inputs.colorA.value;
+        inputs.colorB.value=s.colorB||inputs.colorB.value;
+        inputs.colorC.value=s.colorC||inputs.colorC.value;
+        inputs.opacity.value=s.opacity||inputs.opacity.value; inputs.opacityVal.textContent=inputs.opacity.value;
+        inputs.borderColor.value=s.borderColor||inputs.borderColor.value;
+        inputs.borderWidth.value=s.borderWidth||inputs.borderWidth.value; inputs.borderWidthVal.textContent=inputs.borderWidth.value;
+        inputs.fontsize.value=s.fontsize||inputs.fontsize.value; inputs.fontsizeVal.textContent=inputs.fontsize.value;
+        refreshDiagram();
+      }catch(err){console.error('loadVennGraph error',err);}
+    };
+    reader.readAsText(file);
+  }
   function exportGoChart(format){
     if(!goChart) return;
     const canvas=document.getElementById('goChart');
@@ -2327,6 +2469,12 @@
   document.getElementById('useNumeric').addEventListener('click',drawFromNumeric);
   document.getElementById('exportSVG').addEventListener('click',exportSVG);
   document.getElementById('exportPNG').addEventListener('click',exportPNG);
+  document.getElementById('saveVenn').addEventListener('click',saveVennGraph);
+  document.getElementById('loadVenn').addEventListener('click',()=>{ document.getElementById('vennGraphFile').click(); });
+  document.getElementById('vennGraphFile').addEventListener('change',e=>{
+    const f=e.target.files[0];
+    if(f) loadVennGraphFile(f);
+  });
   document.getElementById('goChartPNG').addEventListener('click',()=>{ exportGoChart('png');});
   document.getElementById('goChartSVG').addEventListener('click',()=>{ exportGoChart('svg');});
   document.getElementById('stringPNG').addEventListener('click',()=>{ downloadStringPNG();});
@@ -3290,6 +3438,61 @@ KAT7`;
     const newY=Math.max(spacing,topMost-spacing);
     titleText.setAttribute('y',newY);
   }
+  function saveBoxGraph(){
+    const payload={
+      type:'box',
+      data:hot.getData(),
+      config:{
+        title:boxTitleText,
+        yLabel:boxYLabelText,
+        fill:boxFill.value,
+        border:boxBorder.value,
+        borderWidth:boxBorderWidth.value,
+        fontSize:boxFontSize.value,
+        showGrid:boxShowGrid.checked,
+        logScale:boxLogScale.checked,
+        graphType:boxGraphType.value,
+        pointMode:boxPointMode.value,
+        showCaps:boxShowCaps.checked,
+        colors:[...boxColors],
+        yMin:boxYMin.value,
+        yMax:boxYMax.value
+      }
+    };
+    console.log('saveBoxGraph',payload);
+    downloadJSON(payload,'box.graph');
+  }
+  function loadBoxGraphFile(file){
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const obj=JSON.parse(e.target.result);
+        console.log('loadBoxGraph',obj);
+        if(obj.type!=='box') throw new Error('Invalid graph type');
+        hot.loadData(obj.data||[]);
+        const c=obj.config||{};
+        boxTitleText=c.title||boxTitleText;
+        boxYLabelText=c.yLabel||boxYLabelText;
+        boxFill.value=c.fill||boxFill.value;
+        boxBorder.value=c.border||boxBorder.value;
+        boxBorderWidth.value=c.borderWidth||boxBorderWidth.value;
+        boxFontSize.value=c.fontSize||boxFontSize.value;
+        boxFontSizeVal.textContent=boxFontSize.value;
+        boxShowGrid.checked=!!c.showGrid;
+        boxLogScale.checked=!!c.logScale;
+        boxGraphType.value=c.graphType||boxGraphType.value;
+        boxPointMode.value=c.pointMode||boxPointMode.value;
+        boxShowCaps.checked=!!c.showCaps;
+        boxColors=c.colors||[];
+        boxYMin.value=c.yMin||'';
+        boxYMax.value=c.yMax||'';
+        const labels=hot.getDataAtRow(0);
+        updateBoxColorPickers(labels, boxFill.value);
+        scheduleDrawBoxplot();
+      }catch(err){console.error('loadBoxGraph error',err);}
+    };
+    reader.readAsText(file);
+  }
   $('#drawBoxplot').addEventListener('click', drawBoxplot);
   $('#boxFill').addEventListener('input', drawBoxplot);
   $('#boxBorder').addEventListener('input', drawBoxplot);
@@ -3330,6 +3533,12 @@ KAT7`;
     a.href = url; a.download = 'boxplot.svg';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
+  });
+  $('#saveBox').addEventListener('click', saveBoxGraph);
+  $('#loadBox').addEventListener('click', ()=>{ $('#boxGraphFile').click(); });
+  $('#boxGraphFile').addEventListener('change', e=>{
+    const f=e.target.files[0];
+    if(f) loadBoxGraphFile(f);
   });
   window.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
