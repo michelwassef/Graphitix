@@ -673,39 +673,57 @@
     }
   });
 
-  hotContainer.addEventListener('paste',e=>{
-    const text=e.clipboardData?.getData('text/plain');
-    if(!text) return;
-    const rowArr=text.split(/\r?\n/);
-    if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')) return;
+  hotContainer.addEventListener('paste',async e=>{
     e.preventDefault();
     e.stopPropagation();
+    let text=e.clipboardData?.getData('text/plain');
+    if(!text){
+      try{
+        text=await navigator.clipboard.readText();
+        console.log('boxplot clipboard fallback used');
+      }catch(err){
+        console.log('boxplot clipboard read failed',err);
+        return;
+      }
+    }
+    const rowArr=text.split(/\r?\n/);
+    if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')){
+      console.log('boxplot paste ignored: insufficient data');
+      return;
+    }
     const delim=text.includes('\t')?'\t':',';
     const rows=rowArr.map(r=>r.split(delim));
-    console.log('boxplot fast paste',{rows:rows.length,cols:rows[0]?.length});
+    const sel=hot.getSelectedLast();
+    const startRow=sel?sel[0]:0;
+    const startCol=sel?sel[1]:0;
+    console.log('boxplot fast paste',{rows:rows.length,cols:rows[0]?.length,startRow,startCol});
     console.time('boxplotPaste');
-    processImportedRows(rows);
+    processImportedRows(rows,startRow,startCol);
     console.timeEnd('boxplotPaste');
   },true);
 
-  function processImportedRows(rows){
+  function processImportedRows(rows,startRow=0,startCol=0){
     if(!rows || !rows.length) return;
     rows=rows.filter(r=>r && r.some(c=>c!==null && c!==undefined && String(c).trim()!==''));
     if(!rows.length) return;
     const colCount=Math.max(...rows.map(r=>r.length));
-    const targetCols=Math.max(DEFAULT_COLS,colCount);
-    rows=rows.map(r=>{const row=Array.from(r); while(row.length<targetCols) row.push(''); return row;});
-    let headerRow=new Array(targetCols).fill('');
-    const firstRow=rows[0]||[];
-    const hasHeader=firstRow.some(c=>String(c).trim() && isNaN(Number(c))) &&
-                    firstRow.every(c=>!String(c).trim() || isNaN(Number(c)));
-    if(hasHeader){ headerRow=firstRow.map(v=>String(v)); rows=rows.slice(1); }
-    const dataRows=[headerRow,...rows];
-    const targetRows=Math.max(DEFAULT_ROWS,dataRows.length);
-    while(dataRows.length<targetRows){ dataRows.push(new Array(targetCols).fill('')); }
+    const rowCount=rows.length;
+    const curRows=hot.countRows();
+    const curCols=hot.countCols();
+    const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
+    const targetCols=Math.max(DEFAULT_COLS,curCols,startCol+colCount);
+    const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
+    const existing=hot.getData();
+    for(let r=0;r<curRows;r++){
+      for(let c=0;c<curCols;c++) data[r][c]=existing[r][c];
+    }
+    for(let r=0;r<rowCount;r++){
+      const row=rows[r];
+      for(let c=0;c<row.length;c++) data[startRow+r][startCol+c]=row[c];
+    }
     selectedCols.clear();
-    hot.updateSettings({data:dataRows,minRows:targetRows,minCols:targetCols});
-    console.log('boxplot data imported', {rows:dataRows.length, cols:targetCols});
+    hot.updateSettings({data,minRows:targetRows,minCols:targetCols});
+    console.log('boxplot data imported', {rows:data.length, cols:targetCols});
     scheduleDrawBoxplot();
   }
 
@@ -935,29 +953,56 @@
     }
   });
 
-  scatterHotContainer.addEventListener('paste',e=>{
-    const text=e.clipboardData?.getData('text/plain');
-    if(!text) return;
-    const rowArr=text.split(/\r?\n/);
-    if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')) return;
+  scatterHotContainer.addEventListener('paste',async e=>{
     e.preventDefault();
     e.stopPropagation();
+    let text=e.clipboardData?.getData('text/plain');
+    if(!text){
+      try{
+        text=await navigator.clipboard.readText();
+        console.log('scatter clipboard fallback used');
+      }catch(err){
+        console.log('scatter clipboard read failed',err);
+        return;
+      }
+    }
+    const rowArr=text.split(/\r?\n/);
+    if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')){
+      console.log('scatter paste ignored: insufficient data');
+      return;
+    }
     const delim=text.includes('\t')?'\t':',';
     const rows=rowArr.map(r=>r.split(delim));
-    console.log('scatter fast paste',{rows:rows.length,cols:rows[0]?.length});
+    const sel=scatterHot.getSelectedLast();
+    const startRow=sel?sel[0]:0;
+    const startCol=sel?sel[1]:0;
+    console.log('scatter fast paste',{rows:rows.length,cols:rows[0]?.length,startRow,startCol});
     console.time('scatterPaste');
-    scatterProcessImportedRows(rows);
+    scatterProcessImportedRows(rows,startRow,startCol);
     console.timeEnd('scatterPaste');
   },true);
 
-  function scatterProcessImportedRows(rows){
+  function scatterProcessImportedRows(rows,startRow=0,startCol=0){
     if(!rows||!rows.length) return;
     rows=rows.filter(r=>r && r.some(c=>String(c).trim()!==''));
     if(!rows.length) return;
     const colCount=Math.max(2,...rows.map(r=>r.length));
-    rows=rows.map(r=>{const row=Array.from(r);while(row.length<colCount) row.push('');return row;});
-    scatterHot.updateSettings({data:rows,minRows:Math.max(DEFAULT_ROWS,rows.length),minCols:colCount});
-    console.log('scatter data imported',{rows:rows.length,cols:colCount});
+    const rowCount=rows.length;
+    const curRows=scatterHot.countRows();
+    const curCols=scatterHot.countCols();
+    const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
+    const targetCols=Math.max(curCols,startCol+colCount,2);
+    const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
+    const existing=scatterHot.getData();
+    for(let r=0;r<curRows;r++){
+      for(let c=0;c<curCols;c++) data[r][c]=existing[r][c];
+    }
+    for(let r=0;r<rowCount;r++){
+      const row=rows[r];
+      for(let c=0;c<row.length;c++) data[startRow+r][startCol+c]=row[c];
+    }
+    scatterHot.updateSettings({data,minRows:targetRows,minCols:targetCols});
+    console.log('scatter data imported',{rows:data.length,cols:targetCols});
     scheduleDrawScatter();
   }
 
