@@ -1347,6 +1347,25 @@
     if(isFinite(xMaxManual)) xMax=xMaxManual;
     if(isFinite(yMinManual)) yMin=yMinManual;
     if(isFinite(yMaxManual)) yMax=yMaxManual;
+    if(originMode==='custom'){
+      if(isFinite(originXInput)){
+        if(logX && originXInput<=0){
+          console.log('scatter custom origin ignored for X in log scale', originXInput);
+        }else{
+          if(originXInput<xMin) xMin=originXInput;
+          if(originXInput>xMax) xMax=originXInput;
+        }
+      }
+      if(isFinite(originYInput)){
+        if(logY && originYInput<=0){
+          console.log('scatter custom origin ignored for Y in log scale', originYInput);
+        }else{
+          if(originYInput<yMin) yMin=originYInput;
+          if(originYInput>yMax) yMax=originYInput;
+        }
+      }
+      console.log('scatter range adjusted for custom origin',{xMin,xMax,yMin,yMax});
+    }
     if(xMin===xMax) xMax=xMin+1;
     if(yMin===yMax) yMax=yMin+1;
     console.log('scatter final raw range',{xMin,xMax,yMin,yMax});
