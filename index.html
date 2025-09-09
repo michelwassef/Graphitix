@@ -673,6 +673,21 @@
     }
   });
 
+  hotContainer.addEventListener('paste',e=>{
+    const text=e.clipboardData?.getData('text/plain');
+    if(!text) return;
+    const rowArr=text.split(/\r?\n/);
+    if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const delim=text.includes('\t')?'\t':',';
+    const rows=rowArr.map(r=>r.split(delim));
+    console.log('boxplot fast paste',{rows:rows.length,cols:rows[0]?.length});
+    console.time('boxplotPaste');
+    processImportedRows(rows);
+    console.timeEnd('boxplotPaste');
+  },true);
+
   function processImportedRows(rows){
     if(!rows || !rows.length) return;
     rows=rows.filter(r=>r && r.some(c=>c!==null && c!==undefined && String(c).trim()!==''));
@@ -919,6 +934,21 @@
       alert('Unsupported file format: '+ext);
     }
   });
+
+  scatterHotContainer.addEventListener('paste',e=>{
+    const text=e.clipboardData?.getData('text/plain');
+    if(!text) return;
+    const rowArr=text.split(/\r?\n/);
+    if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const delim=text.includes('\t')?'\t':',';
+    const rows=rowArr.map(r=>r.split(delim));
+    console.log('scatter fast paste',{rows:rows.length,cols:rows[0]?.length});
+    console.time('scatterPaste');
+    scatterProcessImportedRows(rows);
+    console.timeEnd('scatterPaste');
+  },true);
 
   function scatterProcessImportedRows(rows){
     if(!rows||!rows.length) return;
