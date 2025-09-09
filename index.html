@@ -356,20 +356,20 @@
           <div class="config-options">
             <fieldset>
               <legend>Colors</legend>
-              <div class="color-pickers">
-                <label>Default Fill <input type="color" id="boxFill" value="#4472c4"></label>
+              <div class="control">
+                <label><input type="radio" name="boxColorMode" id="boxColorUnified" checked> Unified</label>
+                <label><input type="radio" name="boxColorMode" id="boxColorIndividual"> Individual</label>
+              </div>
+              <div id="boxUnifiedColors" class="control" style="flex-wrap:wrap">
+                <label style="width:auto">Fill</label><input type="color" id="boxFill" value="#4472c4">
+                <label style="width:auto">Border</label><input type="color" id="boxBorder" value="#000000">
               </div>
               <div id="boxColorPerBox" class="color-pickers"></div>
             </fieldset>
             <fieldset>
               <legend>Border</legend>
               <div class="control" style="flex-wrap:wrap">
-                <div style="display:flex;align-items:center;gap:6px">
-                  <label style="width:auto">Thickness</label><input type="number" id="boxBorderWidth" value="2" min="0" max="10" style="width:60px">
-                </div>
-                <div style="display:flex;align-items:center;gap:6px">
-                  <label style="width:auto">Color</label><input type="color" id="boxBorder" value="#000000">
-                </div>
+                <label style="width:auto">Thickness</label><input type="number" id="boxBorderWidth" value="2" min="0" max="10" style="width:60px">
               </div>
             </fieldset>
             <fieldset>
@@ -468,7 +468,14 @@
                 <div style="display:flex;align-items:center;gap:6px">
                   <label style="width:auto">Color</label><input type="color" id="scatterFill" value="#555555">
                 </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <label style="width:auto">Transparency</label><input type="range" id="scatterAlpha" min="0" max="1" step="0.05" value="0"><output id="scatterAlphaVal">0</output>
+                </div>
               </div>
+            </fieldset>
+            <fieldset>
+              <legend>Label Colors</legend>
+              <div id="scatterLabelColors" class="color-pickers"></div>
             </fieldset>
             <fieldset>
               <legend>Border</legend>
@@ -602,9 +609,27 @@
   let statsCustomPairs=[];
   let boxColOrder=[];
   let boxColors=[];
+  let boxBorderColors=[];
+  const DEFAULT_BOX_COLORS=['#8dd3c7','#ffffb3','#bebada','#fb8072','#80b1d3','#fdb462','#b3de69','#fccde5'];
   let lastBoxDefaultFill='#4472c4';
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
+
+  function shadeColor(color, percent){
+    const num=parseInt(color.slice(1),16);
+    const amt=Math.round(2.55*percent);
+    const R=(num>>16)+amt;
+    const G=(num>>8&0x00FF)+amt;
+    const B=(num&0x0000FF)+amt;
+    const newColor='#'+(
+      0x1000000+
+      (R<255?(R<0?0:R):255)*0x10000+
+      (G<255?(G<0?0:G):255)*0x100+
+      (B<255?(B<0?0:B):255)
+    ).toString(16).slice(1);
+    console.log('shadeColor',{color,percent,newColor});
+    return newColor;
+  }
 
   hotWrapper.style.overflow='auto';
   const hot=new Handsontable(hotContainer,{
@@ -615,6 +640,9 @@
     minCols:DEFAULT_COLS,
     contextMenu:true,
     manualColumnMove:true,
+    undo:true,
+    afterUndo:()=>{console.log('boxplot undo'); scheduleDrawBoxplot();},
+    afterRedo:()=>{console.log('boxplot redo'); scheduleDrawBoxplot();},
     licenseKey:'non-commercial-and-evaluation',
     cells(row,col){
       const props={};
@@ -769,8 +797,18 @@
     scheduleDrawBoxplot();
   }
 
-  const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode'), boxShowCaps=$('#boxShowCaps'), boxColorPerBox=$('#boxColorPerBox'), boxYMin=$('#boxYMin'), boxYMax=$('#boxYMax');
+  const boxColorUnified=$('#boxColorUnified'), boxColorIndividual=$('#boxColorIndividual'), boxUnifiedColors=$('#boxUnifiedColors'), boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode'), boxShowCaps=$('#boxShowCaps'), boxColorPerBox=$('#boxColorPerBox'), boxYMin=$('#boxYMin'), boxYMax=$('#boxYMax');
   lastBoxDefaultFill=boxFill.value;
+  function toggleBoxColorMode(){
+    const mode=boxColorUnified.checked?'unified':'individual';
+    boxUnifiedColors.style.display=mode==='unified'?'':'none';
+    if(mode==='unified'){ boxColorPerBox.innerHTML=''; }
+    console.log('box color mode toggled',mode);
+    scheduleDrawBoxplot();
+  }
+  boxColorUnified.addEventListener('change',toggleBoxColorMode);
+  boxColorIndividual.addEventListener('change',toggleBoxColorMode);
+  toggleBoxColorMode();
   boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; scheduleDrawBoxplot(); });
   boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', boxShowGrid.checked); scheduleDrawBoxplot(); });
   boxLogScale.addEventListener('change',()=>{ console.log('boxLogScale changed', boxLogScale.checked); scheduleDrawBoxplot(); });
@@ -788,26 +826,37 @@
   boxBorder.addEventListener('input',()=>{ console.log('boxBorder changed', boxBorder.value); scheduleDrawBoxplot(); });
   boxBorderWidth.addEventListener('input',()=>{ console.log('boxBorderWidth changed', boxBorderWidth.value); scheduleDrawBoxplot(); });
   
-  function updateBoxColorPickers(labels, defaultColor){
+  function updateBoxColorPickers(labels){
+    if(boxColorUnified.checked){ boxColorPerBox.innerHTML=''; return; }
     boxColorPerBox.innerHTML='';
     labels.forEach((lab,i)=>{
-      if(!boxColors[i]) boxColors[i]=defaultColor;
-      const input=document.createElement('input');
-      input.type='color';
-      input.value=boxColors[i];
-      input.id=`boxColor${i}`;
-      input.addEventListener('input',e=>{
+      if(!boxColors[i]) boxColors[i]=DEFAULT_BOX_COLORS[i%DEFAULT_BOX_COLORS.length];
+      if(!boxBorderColors[i]) boxBorderColors[i]=shadeColor(boxColors[i],-30);
+      const fillInput=document.createElement('input');
+      fillInput.type='color';
+      fillInput.value=boxColors[i];
+      fillInput.addEventListener('input',e=>{
         boxColors[i]=e.target.value;
-        console.log('color changed',{index:i,color:boxColors[i]});
+        console.log('box fill color changed',{index:i,color:boxColors[i]});
+        scheduleDrawBoxplot();
+      });
+      const borderInput=document.createElement('input');
+      borderInput.type='color';
+      borderInput.value=boxBorderColors[i];
+      borderInput.addEventListener('input',e=>{
+        boxBorderColors[i]=e.target.value;
+        console.log('box border color changed',{index:i,color:boxBorderColors[i]});
         scheduleDrawBoxplot();
       });
       const lbl=document.createElement('label');
       lbl.textContent=lab+' ';
-      lbl.appendChild(input);
+      lbl.appendChild(fillInput);
+      lbl.appendChild(borderInput);
       boxColorPerBox.appendChild(lbl);
     });
     boxColors.length=labels.length;
-    console.log('updateBoxColorPickers',boxColors);
+    boxBorderColors.length=labels.length;
+    console.log('updateBoxColorPickers',{boxColors,boxBorderColors});
   }
 
   const boxPlotDiv = document.getElementById('boxPlot');
@@ -929,12 +978,15 @@
 
   scatterHotWrapper.style.overflow='auto';
   const scatterHot=new Handsontable(scatterHotContainer,{
-    data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,2),
+    data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,3),
     rowHeaders:true,
     colHeaders:true,
     minRows:DEFAULT_ROWS,
-    minCols:2,
+    minCols:3,
     contextMenu:true,
+    undo:true,
+    afterUndo:()=>{console.log('scatter undo'); scheduleDrawScatter();},
+    afterRedo:()=>{console.log('scatter redo'); scheduleDrawScatter();},
     licenseKey:'non-commercial-and-evaluation',
     cells(row,col){
       const props={};
@@ -955,7 +1007,7 @@
     }
   });
 
-  const scatterExample=[['X','Y'],[1,2],[2,3],[3,3.5],[4,5],[5,5.5]];
+  const scatterExample=[['Label','X','Y'],['A',1,2],['B',2,3],['A',3,3.5],['B',4,5],['A',5,5.5]];
   document.getElementById('scatterLoadExample').addEventListener('click',()=>{
     scatterHot.loadData(scatterExample);
     console.log('scatter example loaded');
@@ -1039,12 +1091,12 @@
     if(!rows||!rows.length) return;
     rows=rows.filter(r=>r && r.some(c=>String(c).trim()!==''));
     if(!rows.length) return;
-    const colCount=Math.max(2,...rows.map(r=>r.length));
+    const colCount=Math.max(3,...rows.map(r=>r.length));
     const rowCount=rows.length;
     const curRows=scatterHot.countRows();
     const curCols=scatterHot.countCols();
     const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
-    const targetCols=Math.max(curCols,startCol+colCount,2);
+    const targetCols=Math.max(curCols,startCol+colCount,3);
     const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
     const existing=scatterHot.getData();
     for(let r=0;r<curRows;r++){
@@ -1059,19 +1111,47 @@
     scheduleDrawScatter();
   }
 
-  const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine');
+  const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterAlpha=$('#scatterAlpha');
+  const scatterAlphaVal=$('#scatterAlphaVal');
   const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
   const scatterShowGrid=$('#scatterShowGrid'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
   const scatterXMin=$('#scatterXMin'), scatterXMax=$('#scatterXMax'), scatterYMin=$('#scatterYMin'), scatterYMax=$('#scatterYMax');
   const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
   const scatterStatType=$('#scatterStatType');
+  const scatterLabelColorsDiv=$('#scatterLabelColors');
+  let scatterLabelColors={};
+  scatterAlphaVal.textContent=scatterAlpha.value;
   scatterFill.addEventListener('input',()=>{console.log('scatterFill changed', scatterFill.value); scheduleDrawScatter();});
   scatterBorder.addEventListener('input',()=>{console.log('scatterBorder changed', scatterBorder.value); scheduleDrawScatter();});
   scatterBorderWidth.addEventListener('input',()=>{console.log('scatterBorderWidth changed', scatterBorderWidth.value); scheduleDrawScatter();});
   scatterDotSize.addEventListener('input',()=>{console.log('scatterDotSize changed', scatterDotSize.value); scheduleDrawScatter();});
+  scatterAlpha.addEventListener('input',()=>{scatterAlphaVal.textContent=scatterAlpha.value; console.log('scatterAlpha changed',scatterAlpha.value); scheduleDrawScatter();});
   scatterFontSize.addEventListener('input',()=>{scatterFontSizeVal.textContent=scatterFontSize.value; scheduleDrawScatter();});
   [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode,scatterShowLine].forEach(el=>el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
   [scatterXMin,scatterXMax,scatterYMin,scatterYMax,scatterOriginX,scatterOriginY].forEach(el=>el.addEventListener('input',()=>{console.log('scatter axis input', el.id, el.value); scheduleDrawScatter();}));
+
+  function updateScatterLabelColorPickers(labels){
+    scatterLabelColorsDiv.innerHTML='';
+    labels.forEach((lab,i)=>{
+      if(!scatterLabelColors[lab]){
+        scatterLabelColors[lab]=DEFAULT_BOX_COLORS[i%DEFAULT_BOX_COLORS.length];
+        console.log('scatter default label color',{label:lab,color:scatterLabelColors[lab]});
+      }
+      const input=document.createElement('input');
+      input.type='color';
+      input.value=scatterLabelColors[lab];
+      input.addEventListener('input',e=>{
+        scatterLabelColors[lab]=e.target.value;
+        console.log('scatter label color changed',{label:lab,color:scatterLabelColors[lab]});
+        scheduleDrawScatter();
+      });
+      const lbl=document.createElement('label');
+      lbl.textContent=lab+' ';
+      lbl.appendChild(input);
+      scatterLabelColorsDiv.appendChild(lbl);
+    });
+    console.log('updateScatterLabelColorPickers',scatterLabelColors);
+  }
 
   const scatterPlotDiv=document.getElementById('scatterPlot');
   const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
@@ -1178,9 +1258,9 @@
     const token=++scatterDrawToken; // debug token for cancellation
     console.log('drawScatter called',{token});
     const fill=scatterFill.value;
+    const alpha=Number(scatterAlpha.value)||0;
     const borderWidth=Number(scatterBorderWidth.value);
     const borderColor=scatterBorder.value;
-    const border=borderWidth>0?borderColor:'none';
     const bw=borderWidth;
     const fs=Number(scatterFontSize.value);
     const showGrid=scatterShowGrid.checked;
@@ -1201,22 +1281,26 @@
     const originXInput=parseFloat(scatterOriginX.value);
     const originYInput=parseFloat(scatterOriginY.value);
     console.log('scatter origin inputs',{originMode,originXInput,originYInput});
-    const xCol=scatterHot.getDataAtCol(0);
-    const yCol=scatterHot.getDataAtCol(1);
-    console.log('scatter column lengths',{x:xCol.length,y:yCol.length});
+    const labelCol=scatterHot.getDataAtCol(0);
+    const xCol=scatterHot.getDataAtCol(1);
+    const yCol=scatterHot.getDataAtCol(2);
+    console.log('scatter column lengths',{label:labelCol.length,x:xCol.length,y:yCol.length});
     const xLabelRaw=xCol[0];
     const yLabelRaw=yCol[0];
     scatterXLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
     scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
-    const maxLen=Math.max(xCol.length,yCol.length);
+    const maxLen=Math.max(labelCol.length,xCol.length,yCol.length);
     const points=[];
+    const labelSet=new Set();
     let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
     console.time(`scatterCollectPoints_${token}`);
     for(let r=1;r<maxLen;r++){
       const xv=parseFloat(xCol[r]);
       const yv=parseFloat(yCol[r]);
+      const lab=labelCol[r]?String(labelCol[r]).trim():'';
       if(!isNaN(xv)&&!isNaN(yv)){
-        points.push({x:xv,y:yv});
+        points.push({x:xv,y:yv,label:lab});
+        if(lab) labelSet.add(lab);
         if(xv<xMinRaw) xMinRaw=xv;
         if(xv>xMaxRaw) xMaxRaw=xv;
         if(yv<yMinRaw) yMinRaw=yv;
@@ -1227,6 +1311,8 @@
       }
     }
     console.timeEnd(`scatterCollectPoints_${token}`);
+    const labelsUsed=Array.from(labelSet);
+    updateScatterLabelColorPickers(labelsUsed);
     console.log('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw});
     if(token!==scatterDrawToken){console.log('scatter draw cancelled after collect',{token});return;}
     const plotEl=document.getElementById('scatterPlot');
@@ -1303,8 +1389,10 @@
       c.setAttribute('cx',x2px(xv));
       c.setAttribute('cy',y2px(yv));
       c.setAttribute('r',dotSize);
-      c.setAttribute('fill',fill);
-      if(bw>0){c.setAttribute('stroke',border);c.setAttribute('stroke-width',bw);}
+      const color=scatterLabelColors[p.label]||fill;
+      c.setAttribute('fill',color);
+      c.setAttribute('fill-opacity',1-alpha);
+      if(bw>0){c.setAttribute('stroke',borderColor);c.setAttribute('stroke-width',bw);c.setAttribute('stroke-opacity',1-alpha);}
       frag.appendChild(c);
       pointIndex++;
       if(pointIndex%10000===0){console.log('scatter svg draw progress',{pointIndex,token});}
@@ -1379,6 +1467,8 @@
         fill:scatterFill.value,
         border:scatterBorder.value,
         borderWidth:scatterBorderWidth.value,
+        alpha:scatterAlpha.value,
+        labelColors:scatterLabelColors,
         showGrid:scatterShowGrid.checked,
         logX:scatterLogX.checked,
         logY:scatterLogY.checked,
@@ -1411,6 +1501,9 @@
         scatterFill.value=c.fill||scatterFill.value;
         scatterBorder.value=c.border||scatterBorder.value;
         scatterBorderWidth.value=c.borderWidth||scatterBorderWidth.value;
+        scatterAlpha.value=c.alpha||0;
+        scatterAlphaVal.textContent=scatterAlpha.value;
+        scatterLabelColors=c.labelColors||{};
         scatterShowGrid.checked=!!c.showGrid;
         scatterLogX.checked=!!c.logX;
         scatterLogY.checked=!!c.logY;
@@ -3105,10 +3198,11 @@ KAT7`;
   async function drawBoxplot(){
     const token=++boxplotDrawToken; // debug token for cancellation
     console.log('boxplot draw start',{token});
-    const defaultFill = $('#boxFill').value;
-    const border = $('#boxBorder').value;
-    const bw = Number($('#boxBorderWidth').value);
-    const fs = Number($('#boxFontSize').value);
+    const colorMode=boxColorUnified.checked?'unified':'individual';
+    const defaultFill=boxFill.value;
+    const defaultBorder=boxBorder.value;
+    const bw=Number(boxBorderWidth.value);
+    const fs=Number(boxFontSize.value);
     const showGrid = $('#boxShowGrid').checked;
     console.log('boxplot showGrid', showGrid);
     const logScale = $('#boxLogScale').checked;
@@ -3151,7 +3245,11 @@ KAT7`;
       document.getElementById('statsTable').innerHTML='';
       return;
     }
-    updateBoxColorPickers(labelsUsed, defaultFill);
+    if(boxColorIndividual.checked){
+      updateBoxColorPickers(labelsUsed);
+    }else{
+      boxColorPerBox.innerHTML='';
+    }
     renderStatsControls(traces);
     if(logScale){
       const hasNonPos=traces.some(t=>t.rawY.some(v=>v<=0));
@@ -3372,12 +3470,13 @@ KAT7`;
       const yQ3 = y2px(q3);
       const yWMin = y2px(wMin);
       const yWMax = y2px(wMax);
-      const fillColor = boxColors[i] || defaultFill;
+      const fillColor=colorMode==='individual'? (boxColors[i]||DEFAULT_BOX_COLORS[i%DEFAULT_BOX_COLORS.length]) : defaultFill;
+      const borderColor=colorMode==='individual'? (boxBorderColors[i]||shadeColor(fillColor,-30)) : defaultBorder;
       console.log('box stats',{index:i,q1,med,q3,wMin,wMax,outliers});
       if (graphType === 'box' || graphType === 'notched') {
         if(graphType === 'box'){
-          add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: border, 'stroke-width': bw });
-          add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: border, 'stroke-width': bw });
+          add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: borderColor, 'stroke-width': bw });
+          add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: borderColor, 'stroke-width': bw });
         } else {
           const notchSpan = 1.57 * iqr / Math.sqrt(vals.length);
           let notchLower = Math.max(q1, med - notchSpan);
@@ -3404,16 +3503,16 @@ KAT7`;
             `L ${x0} ${yNU}`,
             'Z'
           ].join(' ');
-          add('path',{d, fill: fillColor, stroke: border, 'stroke-width': bw});
+          add('path',{d, fill: fillColor, stroke: borderColor, 'stroke-width': bw});
           console.log('drawing notched box',{index:i,notchLower,notchUpper,notchWidth,xNL,xNR});
-          add('line', { x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: border, 'stroke-width': bw });
+          add('line', { x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: borderColor, 'stroke-width': bw });
         }
-        add('line', { x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: border, 'stroke-width': bw });
-        add('line', { x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: border, 'stroke-width': bw });
+        add('line', { x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: borderColor, 'stroke-width': bw });
+        add('line', { x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': bw });
         if(showCaps){
           const cap = Math.max(6, boxW * 0.4);
-          add('line', { x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: border, 'stroke-width': bw });
-          add('line', { x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: border, 'stroke-width': bw });
+          add('line', { x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: borderColor, 'stroke-width': bw });
+          add('line', { x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': bw });
         }
       } else {
         const mean = vals.reduce((a,b)=>a+b,0)/vals.length;
@@ -3423,13 +3522,13 @@ KAT7`;
         const yZero = y2px(0);
         const rectY = Math.min(yMean, yZero);
         const rectH = Math.abs(yZero - yMean);
-        add('rect', { x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fillColor, stroke: border, 'stroke-width': bw });
+        add('rect', { x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fillColor, stroke: borderColor, 'stroke-width': bw });
         const ySdTop = y2px(mean + sd);
         const ySdBottom = y2px(mean - sd);
-        add('line',{x1:cx,y1:ySdTop,x2:cx,y2:ySdBottom,stroke:border,'stroke-width':bw});
+        add('line',{x1:cx,y1:ySdTop,x2:cx,y2:ySdBottom,stroke:borderColor,'stroke-width':bw});
         const cap = Math.max(6, boxW * 0.4);
-        add('line',{x1:cx-cap/2,y1:ySdTop,x2:cx+cap/2,y2:ySdTop,stroke:border,'stroke-width':bw});
-        add('line',{x1:cx-cap/2,y1:ySdBottom,x2:cx+cap/2,y2:ySdBottom,stroke:border,'stroke-width':bw});
+        add('line',{x1:cx-cap/2,y1:ySdTop,x2:cx+cap/2,y2:ySdTop,stroke:borderColor,'stroke-width':bw});
+        add('line',{x1:cx-cap/2,y1:ySdBottom,x2:cx+cap/2,y2:ySdBottom,stroke:borderColor,'stroke-width':bw});
       }
       if(pointMode!=='none'){
         console.time(`boxplotPoints_${token}_${i}`);
@@ -3441,7 +3540,8 @@ KAT7`;
             c.setAttribute('cx',cx);
             c.setAttribute('cy',y2px(v));
             c.setAttribute('r',3);
-            c.setAttribute('fill',border);
+            c.setAttribute('fill',fillColor);
+            c.setAttribute('stroke',borderColor);
             frag.appendChild(c);
             ptIdx++;
             if(ptIdx%10000===0){
@@ -3462,7 +3562,9 @@ KAT7`;
             c.setAttribute('cx',px);
             c.setAttribute('cy',cy);
             c.setAttribute('r',3);
-            c.setAttribute('fill',border);
+            c.setAttribute('fill',fillColor);
+            c.setAttribute('stroke',borderColor);
+            if(pointMode==='overlay'){c.setAttribute('fill-opacity',0.6);}
             frag.appendChild(c);
             ptIdx++;
             if(ptIdx%10000===0){
@@ -3499,6 +3601,7 @@ KAT7`;
       config:{
         title:boxTitleText,
         yLabel:boxYLabelText,
+        colorMode:boxColorUnified.checked?'unified':'individual',
         fill:boxFill.value,
         border:boxBorder.value,
         borderWidth:boxBorderWidth.value,
@@ -3509,6 +3612,7 @@ KAT7`;
         pointMode:boxPointMode.value,
         showCaps:boxShowCaps.checked,
         colors:[...boxColors],
+        borderColors:[...boxBorderColors],
         yMin:boxYMin.value,
         yMax:boxYMax.value
       }
@@ -3538,10 +3642,21 @@ KAT7`;
         boxPointMode.value=c.pointMode||boxPointMode.value;
         boxShowCaps.checked=!!c.showCaps;
         boxColors=c.colors||[];
+        boxBorderColors=c.borderColors||[];
+        if(c.colorMode==='individual'){
+          boxColorIndividual.checked=true;
+        }else{
+          boxColorUnified.checked=true;
+        }
+        toggleBoxColorMode();
         boxYMin.value=c.yMin||'';
         boxYMax.value=c.yMax||'';
         const labels=hot.getDataAtRow(0);
-        updateBoxColorPickers(labels, boxFill.value);
+        if(boxColorIndividual.checked){
+          updateBoxColorPickers(labels);
+        }else{
+          boxColorPerBox.innerHTML='';
+        }
         scheduleDrawBoxplot();
       }catch(err){console.error('loadBoxGraph error',err);}
     };
