@@ -368,6 +368,10 @@
                 <label style="width:auto"><input type="checkbox" id="boxShowGrid"> Show horizontal grid</label>
                 <label style="width:auto"><input type="checkbox" id="boxLogScale"> Log scale (Y)</label>
               </div>
+              <div class="control" style="flex-wrap:wrap;gap:6px">
+                <label style="width:auto">Y min <input type="number" id="boxYMin" style="width:80px"></label>
+                <label style="width:auto">Y max <input type="number" id="boxYMax" style="width:80px"></label>
+              </div>
             </fieldset>
             <fieldset>
               <legend>Graph</legend>
@@ -470,6 +474,22 @@
                 <label style="width:auto"><input type="checkbox" id="scatterShowGrid"> Show grid</label>
                 <label style="width:auto"><input type="checkbox" id="scatterLogX"> Log scale (X)</label>
                 <label style="width:auto"><input type="checkbox" id="scatterLogY"> Log scale (Y)</label>
+              </div>
+              <div class="control" style="flex-wrap:wrap;gap:6px">
+                <label style="width:auto">X min <input type="number" id="scatterXMin" style="width:80px"></label>
+                <label style="width:auto">X max <input type="number" id="scatterXMax" style="width:80px"></label>
+                <label style="width:auto">Y min <input type="number" id="scatterYMin" style="width:80px"></label>
+                <label style="width:auto">Y max <input type="number" id="scatterYMax" style="width:80px"></label>
+              </div>
+              <div class="control" style="flex-wrap:wrap;gap:6px">
+                <label style="width:auto">Origin
+                  <select id="scatterOriginMode">
+                    <option value="lower" selected>Lower left</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </label>
+                <label style="width:auto">X <input type="number" id="scatterOriginX" style="width:80px"></label>
+                <label style="width:auto">Y <input type="number" id="scatterOriginY" style="width:80px"></label>
               </div>
             </fieldset>
             <fieldset>
@@ -727,13 +747,15 @@
     scheduleDrawBoxplot();
   }
 
-  const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode'), boxShowCaps=$('#boxShowCaps'), boxColorPerBox=$('#boxColorPerBox');
+  const boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode'), boxShowCaps=$('#boxShowCaps'), boxColorPerBox=$('#boxColorPerBox'), boxYMin=$('#boxYMin'), boxYMax=$('#boxYMax');
   boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; });
   boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', boxShowGrid.checked); scheduleDrawBoxplot(); });
   boxLogScale.addEventListener('change',()=>{ console.log('boxLogScale changed', boxLogScale.checked); scheduleDrawBoxplot(); });
   boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', boxGraphType.value); scheduleDrawBoxplot(); });
   boxPointMode.addEventListener('change',()=>{ console.log('boxPointMode changed', boxPointMode.value); scheduleDrawBoxplot(); });
   boxShowCaps.addEventListener('change',()=>{ console.log('boxShowCaps changed', boxShowCaps.checked); scheduleDrawBoxplot(); });
+  boxYMin.addEventListener('input',()=>{ console.log('boxYMin changed', boxYMin.value); scheduleDrawBoxplot(); });
+  boxYMax.addEventListener('input',()=>{ console.log('boxYMax changed', boxYMax.value); scheduleDrawBoxplot(); });
 
   function updateBoxColorPickers(labels, defaultColor){
     boxColorPerBox.innerHTML='';
@@ -1009,13 +1031,16 @@
   const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize');
   const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
   const scatterShowGrid=$('#scatterShowGrid'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
+  const scatterXMin=$('#scatterXMin'), scatterXMax=$('#scatterXMax'), scatterYMin=$('#scatterYMin'), scatterYMax=$('#scatterYMax');
+  const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
   const scatterStatType=$('#scatterStatType');
   scatterFill.addEventListener('input',()=>{console.log('scatterFill changed', scatterFill.value); scheduleDrawScatter();});
   scatterBorder.addEventListener('input',()=>{console.log('scatterBorder changed', scatterBorder.value); scheduleDrawScatter();});
   scatterBorderWidth.addEventListener('input',()=>{console.log('scatterBorderWidth changed', scatterBorderWidth.value); scheduleDrawScatter();});
   scatterDotSize.addEventListener('input',()=>{console.log('scatterDotSize changed', scatterDotSize.value); scheduleDrawScatter();});
   scatterFontSize.addEventListener('input',()=>{scatterFontSizeVal.textContent=scatterFontSize.value; scheduleDrawScatter();});
-  [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType].forEach(el=>el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
+  [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode].forEach(el=>el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
+  [scatterXMin,scatterXMax,scatterYMin,scatterYMax,scatterOriginX,scatterOriginY].forEach(el=>el.addEventListener('input',()=>{console.log('scatter axis input', el.id, el.value); scheduleDrawScatter();}));
 
   const scatterPlotDiv=document.getElementById('scatterPlot');
   const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
@@ -1124,7 +1149,6 @@
     const fill=scatterFill.value;
     const borderWidth=Number(scatterBorderWidth.value);
     const borderColor=scatterBorder.value;
-    console.log('drawScatter border', {borderWidth, borderColor});
     const border=borderWidth>0?borderColor:'none';
     const bw=borderWidth;
     const fs=Number(scatterFontSize.value);
@@ -1135,9 +1159,15 @@
     const dotSize=Number(scatterDotSize.value)||3;
     console.log('drawScatter dot size', dotSize);
     const method=scatterStatType.value;
-    const originX=logX?1:0;
-    const originY=logY?1:0;
-    console.log('scatter origins', {originX, originY});
+    const xMinManual=parseFloat(scatterXMin.value);
+    const xMaxManual=parseFloat(scatterXMax.value);
+    const yMinManual=parseFloat(scatterYMin.value);
+    const yMaxManual=parseFloat(scatterYMax.value);
+    console.log('scatter manual range',{xMinManual,xMaxManual,yMinManual,yMaxManual});
+    const originMode=scatterOriginMode.value;
+    const originXInput=parseFloat(scatterOriginX.value);
+    const originYInput=parseFloat(scatterOriginY.value);
+    console.log('scatter origin inputs',{originMode,originXInput,originYInput});
     const xCol=scatterHot.getDataAtCol(0);
     const yCol=scatterHot.getDataAtCol(1);
     console.log('scatter column lengths',{x:xCol.length,y:yCol.length});
@@ -1147,17 +1177,24 @@
     scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
     const maxLen=Math.max(xCol.length,yCol.length);
     const points=[];
+    let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
     console.time(`scatterCollectPoints_${token}`);
     for(let r=1;r<maxLen;r++){
       const xv=parseFloat(xCol[r]);
       const yv=parseFloat(yCol[r]);
-      if(!isNaN(xv)&&!isNaN(yv)) points.push({x:xv,y:yv});
+      if(!isNaN(xv)&&!isNaN(yv)){
+        points.push({x:xv,y:yv});
+        if(xv<xMinRaw) xMinRaw=xv;
+        if(xv>xMaxRaw) xMaxRaw=xv;
+        if(yv<yMinRaw) yMinRaw=yv;
+        if(yv>yMaxRaw) yMaxRaw=yv;
+      }
       if(r%10000===0){
         console.log('scatter collect progress',{row:r,token});
       }
     }
     console.timeEnd(`scatterCollectPoints_${token}`);
-    console.log('scatter points collected',points.length);
+    console.log('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw});
     if(token!==scatterDrawToken){console.log('scatter draw cancelled after collect',{token});return;}
     const plotEl=document.getElementById('scatterPlot');
     while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
@@ -1165,18 +1202,17 @@
     if(!points.length) return;
     if(logX&&points.some(p=>p.x<=0)){plotEl.innerHTML='<i>Log scale requires positive X values.</i>';return;}
     if(logY&&points.some(p=>p.y<=0)){plotEl.innerHTML='<i>Log scale requires positive Y values.</i>';return;}
+    let xMin=xMinRaw, xMax=xMaxRaw, yMin=yMinRaw, yMax=yMaxRaw;
+    if(isFinite(xMinManual)) xMin=xMinManual;
+    if(isFinite(xMaxManual)) xMax=xMaxManual;
+    if(isFinite(yMinManual)) yMin=yMinManual;
+    if(isFinite(yMaxManual)) yMax=yMaxManual;
+    if(xMin===xMax) xMax=xMin+1;
+    if(yMin===yMax) yMax=yMin+1;
+    console.log('scatter final raw range',{xMin,xMax,yMin,yMax});
     const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
     const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
     plotEl.style.position='relative';
-    const canvas=document.createElement('canvas');
-    canvas.id='scatterCanvas';
-    canvas.width=W;
-    canvas.height=H;
-    canvas.style.position='absolute';
-    canvas.style.left='0';
-    canvas.style.top='0';
-    plotEl.appendChild(canvas);
-    const ctx=canvas.getContext('2d');
     const svg=document.createElementNS(NS,'svg');
     svg.setAttribute('id','scatterSvg');
     svg.setAttribute('width',String(W));
@@ -1184,28 +1220,19 @@
     svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
     svg.setAttribute('font-family','sans-serif');
     plotEl.appendChild(svg);
-    const xVals=[]; const yVals=[];
-    let xMax=-Infinity; let yMax=-Infinity;
-    let rangeIndex=0;
-    for(const p of points){
-      const xv=logX?Math.log10(p.x):p.x;
-      const yv=logY?Math.log10(p.y):p.y;
-      xVals.push(xv); yVals.push(yv);
-      if(xv>xMax) xMax=xv;
-      if(yv>yMax) yMax=yv;
-      rangeIndex++;
-      if(rangeIndex%10000===0){
-        console.log('scatter range progress',{rangeIndex,token});
-      }
-    }
-    console.log('scatter computed ranges',{xMax,yMax});
-    if(token!==scatterDrawToken){console.log('scatter draw cancelled after range',{token});return;}
+    const xMinT=logX?Math.log10(xMin):xMin;
+    const xMaxT=logX?Math.log10(xMax):xMax;
+    const yMinT=logY?Math.log10(yMin):yMin;
+    const yMaxT=logY?Math.log10(yMax):yMax;
     function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
     function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
-    const xOriginT=logX?Math.log10(originX):originX;
-    const yOriginT=logY?Math.log10(originY):originY;
-    const xScale=niceScale(xOriginT, Math.max(xMax,xOriginT),6); xScale.min=xOriginT;
-    const yScale=niceScale(yOriginT, Math.max(yMax,yOriginT),6); yScale.min=yOriginT;
+    const xScale=niceScale(xMinT,xMaxT,6);const yScale=niceScale(yMinT,yMaxT,6);
+    if(isFinite(xMinManual)) xScale.min=xMinT;
+    if(isFinite(xMaxManual)) xScale.max=xMaxT;
+    if(isFinite(yMinManual)) yScale.min=yMinT;
+    if(isFinite(yMaxManual)) yScale.max=yMaxT;
+    if(isFinite(xMinManual)||isFinite(xMaxManual)){const ticks=[];for(let v=Math.ceil(xScale.min/xScale.step)*xScale.step;v<=xScale.max+1e-9;v+=xScale.step)ticks.push(v);xScale.ticks=ticks;}
+    if(isFinite(yMinManual)||isFinite(yMaxManual)){const ticks=[];for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step;v<=yScale.max+1e-9;v+=yScale.step)ticks.push(v);yScale.ticks=ticks;}
     function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
     const measureCanvas=drawScatter._canvas||(drawScatter._canvas=document.createElement('canvas'));
     const measureCtx=measureCanvas.getContext('2d');
@@ -1220,52 +1247,37 @@
     const plotH=Math.max(20,H-margin.top-margin.bottom);
     const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
     const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
-    function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v] of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
+    function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
     const tickLen=6;
-    if(showGrid){
-      xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});
-      yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});
-    }
-    console.log('scatter axes', {tickLen});
-    add('line',{x1:margin.left - tickLen,y1:margin.top+plotH,x2:margin.left+plotW + tickLen,y2:margin.top+plotH,stroke:'#000','stroke-width':2});
-    add('line',{x1:margin.left,y1:margin.top - tickLen,x2:margin.left,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':2});
-    xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:margin.top+plotH+tickLen+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
-    yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:margin.left-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
-    console.time(`scatterCanvasDraw_${token}`);
-    ctx.clearRect(0,0,W,H);
-    const cache=drawScatter._dotCache||(drawScatter._dotCache={});
-    const dotKey=`${fill}_${border}_${bw}_${dotSize}`;
-    let dotCanvas=cache[dotKey];
-    if(!dotCanvas){
-      dotCanvas=document.createElement('canvas');
-      const dcSize=dotSize*2 + bw*2 + 2;
-      dotCanvas.width=dotCanvas.height=dcSize;
-      const dctx=dotCanvas.getContext('2d');
-      dctx.beginPath();
-      dctx.arc(dcSize/2, dcSize/2, dotSize, 0, Math.PI*2);
-      dctx.fillStyle=fill;
-      dctx.fill();
-      if(bw>0){
-        dctx.lineWidth=bw;
-        dctx.strokeStyle=border;
-        dctx.stroke();
-      }
-      cache[dotKey]=dotCanvas;
-      console.log('scatter dot cache created',{dotKey,dcSize});
-    }
+    if(showGrid){xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});}
+    let originXT,originYT;
+    if(originMode==='custom'){originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);}else{originXT=xScale.min;originYT=yScale.min;}
+    console.log('scatter origin final',{originXT,originYT});
+    const xAxisY=y2px(originYT);
+    const yAxisX=x2px(originXT);
+    console.log('scatter axes',{tickLen,xAxisY,yAxisX});
+    add('line',{x1:margin.left - tickLen,y1:xAxisY,x2:margin.left+plotW + tickLen,y2:xAxisY,stroke:'#000','stroke-width':2});
+    add('line',{x1:yAxisX,y1:margin.top - tickLen,x2:yAxisX,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':2});
+    xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
+    yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:yAxisX-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+    console.time(`scatterSvgDraw_${token}`);
+    const frag=document.createDocumentFragment();
     let pointIndex=0;
     for(const p of points){
       const xv=logX?Math.log10(p.x):p.x;
       const yv=logY?Math.log10(p.y):p.y;
-      const cx=x2px(xv)-dotCanvas.width/2;
-      const cy=y2px(yv)-dotCanvas.height/2;
-      ctx.drawImage(dotCanvas,cx,cy);
+      const c=document.createElementNS(NS,'circle');
+      c.setAttribute('cx',x2px(xv));
+      c.setAttribute('cy',y2px(yv));
+      c.setAttribute('r',dotSize);
+      c.setAttribute('fill',fill);
+      if(bw>0){c.setAttribute('stroke',border);c.setAttribute('stroke-width',bw);}
+      frag.appendChild(c);
       pointIndex++;
-      if(pointIndex%10000===0){
-        console.log('scatter canvas draw progress',{pointIndex,token});
-      }
+      if(pointIndex%10000===0){console.log('scatter svg draw progress',{pointIndex,token});}
     }
-    console.timeEnd(`scatterCanvasDraw_${token}`);
+    add('g',{}).appendChild(frag);
+    console.timeEnd(`scatterSvgDraw_${token}`);
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditable(xText,txt=>{scatterXLabelText=txt;});
     const yX=margin.left-(maxYLabelWidth+fs*1.5);const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});yText.textContent=scatterYLabelText;makeEditable(yText,txt=>{scatterYLabelText=txt;});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=scatterTitleText;makeEditable(titleText,txt=>{scatterTitleText=txt;});
@@ -1275,6 +1287,7 @@
     resDiv.innerHTML=`<table><tr><th>r</th><td>${stats.r.toFixed(4)}</td></tr><tr><th>R²</th><td>${stats.r2.toFixed(4)}</td></tr><tr><th>P value</th><td>${formatP(stats.p)}</td></tr></table>`;
     console.log('scatter stats', stats);
   }
+
 
   function computeScatterStats(points,method){
     console.log('computeScatterStats',method,points.length);
@@ -1296,21 +1309,19 @@
   document.getElementById('drawScatter').addEventListener('click',drawScatter);
   document.getElementById('scatterPNG').addEventListener('click',async()=>{
     const svgEl=document.getElementById('scatterSvg');
-    const canvasPts=document.getElementById('scatterCanvas');
-    if(!svgEl||!canvasPts) return;
+    if(!svgEl) return;
     console.log('scatterPNG export start');
     const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
     const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
-    const outCanvas=document.createElement('canvas');
-    outCanvas.width=W;
-    outCanvas.height=H;
-    const ctx=outCanvas.getContext('2d');
-    ctx.drawImage(canvasPts,0,0);
     const xml=serializeCleanSVG(svgEl);
     const img=new Image();
     const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
     img.src=url;
     await img.decode().catch(err=>{console.error('scatterPNG svg decode',err);});
+    const outCanvas=document.createElement('canvas');
+    outCanvas.width=W;
+    outCanvas.height=H;
+    const ctx=outCanvas.getContext('2d');
     ctx.drawImage(img,0,0);
     outCanvas.toBlob(b=>{
       const pngUrl=URL.createObjectURL(b);
@@ -1322,14 +1333,9 @@
   });
   document.getElementById('scatterSVG').addEventListener('click',()=>{
     const svgEl=document.getElementById('scatterSvg');
-    const canvasPts=document.getElementById('scatterCanvas');
-    if(!svgEl||!canvasPts) return;
+    if(!svgEl) return;
     console.log('scatterSVG export start');
-    const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
-    const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
-    const ptsData=canvasPts.toDataURL('image/png');
-    const inner=svgEl.innerHTML;
-    const xml=`<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><image x="0" y="0" width="${W}" height="${H}" href="${ptsData}"/>${inner}</svg>`;
+    const xml=serializeCleanSVG(svgEl);
     const blob=new Blob([xml],{type:'image/svg+xml'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
@@ -2969,17 +2975,6 @@ KAT7`;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('font-family','sans-serif');
     $box.appendChild(svg);
-    const canvas=document.createElement('canvas');
-    canvas.id='boxCanvas';
-    canvas.width=W;
-    canvas.height=H;
-    canvas.style.position='absolute';
-    canvas.style.left='0';
-    canvas.style.top='0';
-    canvas.style.pointerEvents='none';
-    $box.appendChild(canvas);
-    const ctx=canvas.getContext('2d');
-    ctx.clearRect(0,0,W,H);
     let ymin=Infinity; let ymax=-Infinity;
     for(let ti=0; ti<traces.length; ti++){
       const t=traces[ti];
@@ -3003,6 +2998,11 @@ KAT7`;
     const padBottom = graphType === 'bar' ? 0 : range * 0.05;
     ymax += padTop;
     ymin -= padBottom;
+    const userYMin=parseFloat(boxYMin.value);
+    const userYMax=parseFloat(boxYMax.value);
+    if(isFinite(userYMin)) ymin=logScale?Math.log10(userYMin):userYMin;
+    if(isFinite(userYMax)) ymax=logScale?Math.log10(userYMax):userYMax;
+    console.log('boxplot axis override',{userYMin,userYMax,ymin,ymax});
     console.log('boxplot range',{ymin,ymax});
     function niceNum(range, round){
       const exp = Math.floor(Math.log10(range));
@@ -3230,57 +3230,46 @@ KAT7`;
         add('line',{x1:cx-cap/2,y1:ySdBottom,x2:cx+cap/2,y2:ySdBottom,stroke:border,'stroke-width':bw});
       }
       if(pointMode!=='none'){
-        const cache=drawBoxplot._dotCache||(drawBoxplot._dotCache={});
-        const dotKey=`${border}`;
-        let dotCanvas=cache[dotKey];
-        if(!dotCanvas){
-          dotCanvas=document.createElement('canvas');
-          const dotSize=3;
-          const dcSize=dotSize*2;
-          dotCanvas.width=dotCanvas.height=dcSize;
-          const dctx=dotCanvas.getContext('2d');
-          dctx.beginPath();
-          dctx.arc(dotSize,dotSize,dotSize,0,Math.PI*2);
-          dctx.fillStyle=border;
-          dctx.fill();
-          cache[dotKey]=dotCanvas;
-          console.log('boxplot dot cache created',{dotKey,dcSize});
-        }
-        const dcOffset=dotCanvas.width/2;
+        console.time(`boxplotPoints_${token}_${i}`);
+        const frag=document.createDocumentFragment();
+        let ptIdx=0;
         if(pointMode==='outliers'){
-          console.time(`boxplotOutliers_${token}`);
-          let outIdx=0;
           for(const v of outliers){
-            const y=y2px(v)-dcOffset;
-            const x=cx-dcOffset;
-            ctx.drawImage(dotCanvas,x,y);
-            outIdx++;
-            if(outIdx%10000===0){
-              console.log('boxplot outlier progress',{index:i,outIdx,token});
+            const c=document.createElementNS(NS,'circle');
+            c.setAttribute('cx',cx);
+            c.setAttribute('cy',y2px(v));
+            c.setAttribute('r',3);
+            c.setAttribute('fill',border);
+            frag.appendChild(c);
+            ptIdx++;
+            if(ptIdx%10000===0){
+              console.log('boxplot outlier progress',{index:i,ptIdx,token});
             }
           }
-          console.timeEnd(`boxplotOutliers_${token}`);
-          console.log('drawing outliers',{index:i,count:outliers.length});
         }else{
-          console.time(`boxplotPoints_${token}`);
-          let ptIdx=0;
           for(const v of vals){
-            const y=y2px(v)-dcOffset;
+            const cy=y2px(v);
             let px;
             if(pointMode==='overlay'){
               px = cx + (Math.random() - 0.5) * boxW * 0.6;
             } else {
               px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
-              console.log('side point',{px,y});
+              console.log('side point',{px,cy});
             }
-            ctx.drawImage(dotCanvas,px-dcOffset,y);
+            const c=document.createElementNS(NS,'circle');
+            c.setAttribute('cx',px);
+            c.setAttribute('cy',cy);
+            c.setAttribute('r',3);
+            c.setAttribute('fill',border);
+            frag.appendChild(c);
             ptIdx++;
             if(ptIdx%10000===0){
               console.log('boxplot point progress',{index:i,ptIdx,token});
             }
           }
-          console.timeEnd(`boxplotPoints_${token}`);
         }
+        add('g',{'data-trace':i}).appendChild(frag);
+        console.timeEnd(`boxplotPoints_${token}_${i}`);
       }
     }
     if(token!==boxplotDrawToken){console.log('boxplot draw cancelled before finalize',{token});return;}
@@ -3308,21 +3297,19 @@ KAT7`;
   $('#boxFontSize').addEventListener('input', drawBoxplot);
   $('#boxPNG').addEventListener('click', async () => {
     const svgEl = document.getElementById('boxSvg');
-    const canvasPts=document.getElementById('boxCanvas');
-    if (!svgEl||!canvasPts) return;
+    if (!svgEl) return;
     console.log('boxPNG export start');
     const W = svgEl.viewBox.baseVal.width || svgEl.clientWidth || 800;
     const H = svgEl.viewBox.baseVal.height || svgEl.clientHeight || 400;
-    const outCanvas = document.createElement('canvas');
-    outCanvas.width = W;
-    outCanvas.height = H;
-    const ctx = outCanvas.getContext('2d');
-    ctx.drawImage(canvasPts,0,0);
     const xml = serializeCleanSVG(svgEl);
     const img = new Image();
     const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
     img.src = url;
     await img.decode().catch(err => {console.error('boxPNG svg decode',err);});
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = W;
+    outCanvas.height = H;
+    const ctx = outCanvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
     outCanvas.toBlob(b => {
       const pngUrl = URL.createObjectURL(b);
@@ -3334,14 +3321,9 @@ KAT7`;
   });
   $('#boxSVG').addEventListener('click', () => {
     const svgEl = document.getElementById('boxSvg');
-    const canvasPts=document.getElementById('boxCanvas');
-    if (!svgEl||!canvasPts) return;
+    if (!svgEl) return;
     console.log('boxSVG export start');
-    const W = svgEl.viewBox.baseVal.width || svgEl.clientWidth || 800;
-    const H = svgEl.viewBox.baseVal.height || svgEl.clientHeight || 400;
-    const ptsData=canvasPts.toDataURL('image/png');
-    const inner=svgEl.innerHTML;
-    const xml = `<svg xmlns="${NS}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><image x="0" y="0" width="${W}" height="${H}" href="${ptsData}"/>${inner}</svg>`;
+    const xml = serializeCleanSVG(svgEl);
     const blob = new Blob([xml], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
