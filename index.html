@@ -11,8 +11,8 @@
   .panel{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px}
   label{font-size:16px;color:#333}
   textarea{width:100%;min-height:110px;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px;resize:vertical;box-sizing:border-box}
-  input[type=text],select{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px;box-sizing:border-box;margin:0}
-  input[type=number]{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:4px;box-sizing:border-box;margin:0}
+  input[type=text],select{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:0;padding:4px;box-sizing:border-box;margin:0}
+  input[type=number]{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:0;padding:4px;box-sizing:border-box;margin:0}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .btn{background:#fff;border:1px solid #ccc;color:#333;border-radius:6px;padding:8px 12px;cursor:pointer}
   .btn:hover{background:#f0f0f0}
@@ -21,10 +21,10 @@
   .svgbox{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px;margin:8px 0}
   #stage{width:100%;max-width:500px;height:340px;display:block}
   .color-picker{display:flex;align-items:center;gap:6px}
-  input[type=color]{-webkit-appearance:none;border:1px solid #666;border-radius:50%;padding:0;width:18px;height:18px;background:none;margin:0}
-  input[type=color]::-webkit-color-swatch-wrapper{padding:0;border:none;border-radius:50%}
-  input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
-  input[type=color]::-moz-color-swatch{border:none;border-radius:50%}
+  input[type=color]{-webkit-appearance:none;border:1px solid #666;border-radius:0;padding:0;width:20px;height:20px;background:none;margin:0}
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0;border:none;border-radius:0}
+  input[type=color]::-webkit-color-swatch{border:none;border-radius:0}
+  input[type=color]::-moz-color-swatch{border:none;border-radius:0}
   .diagram-area{display:flex;gap:12px;align-items:flex-start}
   .config-options{display:flex;flex-direction:column;gap:16px;min-width:140px}
   .config-options fieldset{border:none;padding:0;margin:0}
@@ -406,6 +406,13 @@
               <div class="control" style="flex-wrap:wrap">
                 <label style="width:auto"><input type="checkbox" id="boxShowCaps" checked> Show whisker caps</label>
               </div>
+              <div class="control" id="boxErrorModeCtl" style="flex-wrap:wrap;display:none">
+                <label style="width:auto">Error bars</label>
+                <select id="boxErrorMode">
+                  <option value="both">Bidirectional</option>
+                  <option value="upper">Upper only</option>
+                </select>
+              </div>
             </fieldset>
             <fieldset>
               <legend>Points</legend>
@@ -596,6 +603,36 @@
   const panelResizer=document.getElementById('boxPanelResizer');
   const boxSvgBox=graphPanel.querySelector('.svgbox');
   const configPanel=graphPanel.querySelector('.config-options');
+
+  const colorPickerOverlay=document.createElement('input');
+  colorPickerOverlay.type='color';
+  colorPickerOverlay.style.position='absolute';
+  colorPickerOverlay.style.zIndex='1000';
+  colorPickerOverlay.style.display='none';
+  document.body.appendChild(colorPickerOverlay);
+  colorPickerOverlay.addEventListener('input',e=>{
+    if(colorPickerOverlay.targetEl){
+      colorPickerOverlay.targetEl.value=colorPickerOverlay.value;
+      colorPickerOverlay.targetEl.dispatchEvent(new Event('input',{bubbles:true}));
+    }
+  });
+  colorPickerOverlay.addEventListener('blur',()=>{colorPickerOverlay.style.display='none';});
+  function attachColorPickerNear(el){
+    console.log('attachColorPickerNear',el);
+    el.addEventListener('pointerdown',e=>{
+      console.log('color input pointerdown',el);
+      e.preventDefault();
+      const rect=el.getBoundingClientRect();
+      colorPickerOverlay.style.left=`${rect.right+4}px`;
+      colorPickerOverlay.style.top=`${rect.top}px`;
+      colorPickerOverlay.value=el.value;
+      colorPickerOverlay.targetEl=el;
+      colorPickerOverlay.style.display='block';
+      colorPickerOverlay.focus();
+      if(colorPickerOverlay.showPicker){colorPickerOverlay.showPicker();}
+    });
+  }
+  document.querySelectorAll('input[type=color]').forEach(el=>{ if(el!==colorPickerOverlay) attachColorPickerNear(el); });
 
   function syncBoxWidths(){
     const tableWidth=tablePanel.getBoundingClientRect().width;
@@ -811,7 +848,7 @@
     scheduleDrawBoxplot();
   }
 
-  const boxColorUnified=$('#boxColorUnified'), boxColorIndividual=$('#boxColorIndividual'), boxUnifiedColors=$('#boxUnifiedColors'), boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode'), boxShowCaps=$('#boxShowCaps'), boxColorPerBox=$('#boxColorPerBox'), boxYMin=$('#boxYMin'), boxYMax=$('#boxYMax');
+  const boxColorUnified=$('#boxColorUnified'), boxColorIndividual=$('#boxColorIndividual'), boxUnifiedColors=$('#boxUnifiedColors'), boxFill=$('#boxFill'), boxBorder=$('#boxBorder'), boxBorderWidth=$('#boxBorderWidth'), boxFontSize=$('#boxFontSize'), boxFontSizeVal=$('#boxFontSizeVal'), boxShowGrid=$('#boxShowGrid'), boxLogScale=$('#boxLogScale'), boxGraphType=$('#boxGraphType'), boxPointMode=$('#boxPointMode'), boxShowCaps=$('#boxShowCaps'), boxErrorMode=$('#boxErrorMode'), boxErrorModeCtl=$('#boxErrorModeCtl'), boxColorPerBox=$('#boxColorPerBox'), boxYMin=$('#boxYMin'), boxYMax=$('#boxYMax');
   lastBoxDefaultFill=boxFill.value;
   function toggleBoxColorMode(){
     const mode=boxColorUnified.checked?'unified':'individual';
@@ -826,11 +863,13 @@
   boxFontSize.addEventListener('input',()=>{ boxFontSizeVal.textContent=boxFontSize.value; scheduleDrawBoxplot(); });
   boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', boxShowGrid.checked); scheduleDrawBoxplot(); });
   boxLogScale.addEventListener('change',()=>{ console.log('boxLogScale changed', boxLogScale.checked); scheduleDrawBoxplot(); });
-  boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', boxGraphType.value); scheduleDrawBoxplot(); });
+  boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', boxGraphType.value); boxErrorModeCtl.style.display=boxGraphType.value==='bar'?'':'none'; scheduleDrawBoxplot(); });
   boxPointMode.addEventListener('change',()=>{ console.log('boxPointMode changed', boxPointMode.value); scheduleDrawBoxplot(); });
   boxShowCaps.addEventListener('change',()=>{ console.log('boxShowCaps changed', boxShowCaps.checked); scheduleDrawBoxplot(); });
+  boxErrorMode.addEventListener('change',()=>{ console.log('boxErrorMode changed', boxErrorMode.value); scheduleDrawBoxplot(); });
   boxYMin.addEventListener('input',()=>{ console.log('boxYMin changed', boxYMin.value); scheduleDrawBoxplot(); });
   boxYMax.addEventListener('input',()=>{ console.log('boxYMax changed', boxYMax.value); scheduleDrawBoxplot(); });
+  boxErrorModeCtl.style.display=boxGraphType.value==='bar'?'':'none';
   boxFill.addEventListener('input',()=>{
     console.log('boxFill changed',{newColor:boxFill.value,oldColor:lastBoxDefaultFill});
     boxColors=boxColors.map(c=>c===lastBoxDefaultFill?boxFill.value:c);
@@ -849,6 +888,7 @@
       const fillInput=document.createElement('input');
       fillInput.type='color';
       fillInput.value=boxColors[i];
+      attachColorPickerNear(fillInput);
       fillInput.addEventListener('input',e=>{
         boxColors[i]=e.target.value;
         console.log('box fill color changed',{index:i,color:boxColors[i]});
@@ -857,6 +897,7 @@
       const borderInput=document.createElement('input');
       borderInput.type='color';
       borderInput.value=boxBorderColors[i];
+      attachColorPickerNear(borderInput);
       borderInput.addEventListener('input',e=>{
         boxBorderColors[i]=e.target.value;
         console.log('box border color changed',{index:i,color:boxBorderColors[i]});
@@ -1161,6 +1202,7 @@
       const input=document.createElement('input');
       input.type='color';
       input.value=scatterLabelColors[lab];
+      attachColorPickerNear(input);
       input.addEventListener('input',e=>{
         scatterLabelColors[lab]=e.target.value;
         console.log('scatter label color changed',{label:lab,color:scatterLabelColors[lab]});
@@ -1531,9 +1573,13 @@
     console.log('saveScatterFile',{payload,scatterFileHandle});
     if(scatterFileHandle&&scatterFileHandle.createWritable){
       try{
-        const w=await scatterFileHandle.createWritable();
-        await w.write(JSON.stringify(payload));
-        await w.close();
+        const perm=await verifyPermission(scatterFileHandle,true);
+        console.log('saveScatterFile permission',perm);
+        if(perm){
+          const w=await scatterFileHandle.createWritable();
+          await w.write(JSON.stringify(payload));
+          await w.close();
+        }
       }catch(err){console.error('saveScatterFile error',err);}
     }else if(window.showSaveFilePicker){
       console.log('saveScatterFile no handle - invoking saveAs');
@@ -2057,6 +2103,21 @@
     downloadURL(url,name);
     setTimeout(()=>URL.revokeObjectURL(url),5000);
   }
+  async function verifyPermission(handle,write){
+    try{
+      console.log('verifyPermission',{handle,write});
+      const opts=write?{mode:'readwrite'}:{};
+      const q=await handle.queryPermission(opts);
+      console.log('verifyPermission query',q);
+      if(q==='granted') return true;
+      const r=await handle.requestPermission(opts);
+      console.log('verifyPermission request',r);
+      return r==='granted';
+    }catch(err){
+      console.error('verifyPermission error',err);
+      return false;
+    }
+  }
   function getVennGraphPayload(){
     return {
       type:'venn',
@@ -2092,9 +2153,13 @@
     console.log('saveVennFile',{payload,vennFileHandle});
     if(vennFileHandle&&vennFileHandle.createWritable){
       try{
-        const w=await vennFileHandle.createWritable();
-        await w.write(JSON.stringify(payload));
-        await w.close();
+        const perm=await verifyPermission(vennFileHandle,true);
+        console.log('saveVennFile permission',perm);
+        if(perm){
+          const w=await vennFileHandle.createWritable();
+          await w.write(JSON.stringify(payload));
+          await w.close();
+        }
       }catch(err){console.error('saveVennFile error',err);}
     }else if(window.showSaveFilePicker){
       console.log('saveVennFile no handle - invoking saveAs');
@@ -3350,6 +3415,7 @@ KAT7`;
     const graphType = $('#boxGraphType').value;
     const pointMode = $('#boxPointMode').value;
     const showCaps = boxShowCaps.checked;
+    const errorMode = $('#boxErrorMode').value;
     const traces = [];
     const labelsUsed = [];
     const nCols = hot.countCols();
@@ -3430,8 +3496,20 @@ KAT7`;
     }
     if(token!==boxplotDrawToken){console.log('boxplot draw cancelled after range calc',{token});return;}
     console.log('boxplot ymin/ymax', {ymin, ymax});
-    if (graphType === 'bar') {
-      ymin = logScale ? Math.log10(1) : 0;
+    let barErrorMin=Infinity;
+    if(graphType==='bar'){
+      traces.forEach(t=>{
+        const mean=t.y.reduce((a,b)=>a+b,0)/t.y.length;
+        const sd=Math.sqrt(t.y.reduce((a,b)=>a+Math.pow(b-mean,2),0)/(t.y.length-1||1));
+        t.mean=mean; t.sd=sd;
+        if(errorMode==='both'){
+          const lower=mean-sd;
+          if(lower<barErrorMin) barErrorMin=lower;
+        }
+      });
+      if(errorMode==='both') ymin=Math.min(ymin,barErrorMin);
+      ymin=Math.min(ymin, logScale ? Math.log10(1) : 0);
+      console.log('boxplot barErrorMin',{barErrorMin});
     }
     if (ymin === ymax) { ymin -= 1; ymax += 1; }
     const range = ymax - ymin;
@@ -3525,7 +3603,7 @@ KAT7`;
       const txt = add('text', { x: margin.left - (tickLen+2), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: '#000' });
       txt.textContent = formatTick(logScale?Math.pow(10,t):t);
     });
-    const xAxisY = margin.top + plotH;
+    const xAxisY = graphType === 'bar' ? y2px(0) : margin.top + plotH;
     add('line', { x1: margin.left - tickLen, y1: xAxisY, x2: margin.left + plotW + tickLen, y2: xAxisY, stroke: '#000', 'stroke-width': 1 });
     const xLabelOffset = Math.max(14, fs) + tickLen;
     labelsUsed.forEach((lab, i) => {
@@ -3665,11 +3743,15 @@ KAT7`;
         const rectH = Math.abs(yZero - yMean);
         add('rect', { x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fillColor, stroke: borderColor, 'stroke-width': bw });
         const ySdTop = y2px(mean + sd);
-        const ySdBottom = y2px(mean - sd);
-        add('line',{x1:cx,y1:ySdTop,x2:cx,y2:ySdBottom,stroke:borderColor,'stroke-width':bw});
         const cap = Math.max(6, boxW * 0.4);
+        if(errorMode==='both'){
+          const ySdBottom = y2px(mean - sd);
+          add('line',{x1:cx,y1:ySdTop,x2:cx,y2:ySdBottom,stroke:borderColor,'stroke-width':bw});
+          add('line',{x1:cx-cap/2,y1:ySdBottom,x2:cx+cap/2,y2:ySdBottom,stroke:borderColor,'stroke-width':bw});
+        }else{
+          add('line',{x1:cx,y1:ySdTop,x2:cx,y2:yMean,stroke:borderColor,'stroke-width':bw});
+        }
         add('line',{x1:cx-cap/2,y1:ySdTop,x2:cx+cap/2,y2:ySdTop,stroke:borderColor,'stroke-width':bw});
-        add('line',{x1:cx-cap/2,y1:ySdBottom,x2:cx+cap/2,y2:ySdBottom,stroke:borderColor,'stroke-width':bw});
       }
       if(pointMode!=='none'){
         console.time(`boxplotPoints_${token}_${i}`);
@@ -3752,6 +3834,7 @@ KAT7`;
         graphType:boxGraphType.value,
         pointMode:boxPointMode.value,
         showCaps:boxShowCaps.checked,
+        errorMode:boxErrorMode.value,
         colors:[...boxColors],
         borderColors:[...boxBorderColors],
         yMin:boxYMin.value,
@@ -3765,9 +3848,13 @@ KAT7`;
     console.log('saveBoxFile',{payload,boxFileHandle});
     if(boxFileHandle&&boxFileHandle.createWritable){
       try{
-        const w=await boxFileHandle.createWritable();
-        await w.write(JSON.stringify(payload));
-        await w.close();
+        const perm=await verifyPermission(boxFileHandle,true);
+        console.log('saveBoxFile permission',perm);
+        if(perm){
+          const w=await boxFileHandle.createWritable();
+          await w.write(JSON.stringify(payload));
+          await w.close();
+        }
       }catch(err){console.error('saveBoxFile error',err);}
     }else if(window.showSaveFilePicker){
       console.log('saveBoxFile no handle - invoking saveAs');
@@ -3827,6 +3914,8 @@ KAT7`;
         boxGraphType.value=c.graphType||boxGraphType.value;
         boxPointMode.value=c.pointMode||boxPointMode.value;
         boxShowCaps.checked=!!c.showCaps;
+        boxErrorMode.value=c.errorMode||boxErrorMode.value;
+        boxErrorModeCtl.style.display=boxGraphType.value==='bar'?'':'none';
         boxColors=c.colors||[];
         boxBorderColors=c.borderColors||[];
         if(c.colorMode==='individual'){
