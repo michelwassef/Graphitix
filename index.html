@@ -11,7 +11,8 @@
   .panel{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px}
   label{font-size:16px;color:#333}
   textarea{width:100%;min-height:110px;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px;resize:vertical;box-sizing:border-box}
-  input[type=text],input[type=number],select{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px;box-sizing:border-box}
+  input[type=text],select{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px;box-sizing:border-box;margin:0}
+  input[type=number]{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:4px;box-sizing:border-box;margin:0}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .btn{background:#fff;border:1px solid #ccc;color:#333;border-radius:6px;padding:8px 12px;cursor:pointer}
   .btn:hover{background:#f0f0f0}
@@ -20,13 +21,17 @@
   .svgbox{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px;margin:8px 0}
   #stage{width:100%;max-width:500px;height:340px;display:block}
   .color-picker{display:flex;align-items:center;gap:6px}
+  input[type=color]{-webkit-appearance:none;border:1px solid #666;border-radius:50%;padding:0;width:18px;height:18px;background:none;margin:0}
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0;border:none;border-radius:50%}
+  input[type=color]::-webkit-color-swatch{border:none;border-radius:50%}
+  input[type=color]::-moz-color-swatch{border:none;border-radius:50%}
   .diagram-area{display:flex;gap:12px;align-items:flex-start}
-  .config-options{display:flex;flex-direction:column;gap:12px;min-width:140px}
+  .config-options{display:flex;flex-direction:column;gap:16px;min-width:140px}
   .config-options fieldset{border:none;padding:0;margin:0}
-  .config-options legend{font-size:14px;font-weight:600;margin-bottom:4px}
+  .config-options legend{font-size:14px;font-weight:600;margin-bottom:4px;padding:0;margin-left:0}
   .config-options .color-pickers{display:flex;flex-direction:column;gap:8px}
-  .config-options .color-pickers label{display:flex;align-items:center;gap:4px;font-size:14px}
-  .config-options .control{display:flex;align-items:center;gap:6px;font-size:14px}
+  .config-options .color-pickers label{display:flex;align-items:center;gap:4px;font-size:13px}
+  .config-options .control{display:flex;align-items:center;gap:6px;font-size:13px}
   .config-options .control label{width:90px}
   .config-options .control input[type=range]{flex:1}
   .config-options .control output{width:36px;text-align:right}
@@ -505,6 +510,8 @@
               <div class="control" style="flex-wrap:wrap;gap:6px">
                 <label style="width:auto">X min <input type="number" id="scatterXMin" style="width:80px"></label>
                 <label style="width:auto">X max <input type="number" id="scatterXMax" style="width:80px"></label>
+              </div>
+              <div class="control" style="flex-wrap:wrap;gap:6px">
                 <label style="width:auto">Y min <input type="number" id="scatterYMin" style="width:80px"></label>
                 <label style="width:auto">Y max <input type="number" id="scatterYMax" style="width:80px"></label>
               </div>
@@ -1385,9 +1392,11 @@
     if(showGrid){xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});}
     let originXT,originYT;
     if(originMode==='custom'){originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);}else{originXT=xScale.min;originYT=yScale.min;}
-    console.log('scatter origin final',{originXT,originYT});
-    const xAxisY=y2px(originYT);
-    const yAxisX=x2px(originXT);
+    const clampedXT=Math.min(Math.max(originXT,xScale.min),xScale.max);
+    const clampedYT=Math.min(Math.max(originYT,yScale.min),yScale.max);
+    console.log('scatter origin final',{originXT,originYT,clampedXT,clampedYT});
+    const xAxisY=y2px(clampedYT);
+    const yAxisX=x2px(clampedXT);
     console.log('scatter axes',{tickLen,xAxisY,yAxisX});
     add('line',{x1:margin.left - tickLen,y1:xAxisY,x2:margin.left+plotW + tickLen,y2:xAxisY,stroke:'#000','stroke-width':1});
     add('line',{x1:yAxisX,y1:margin.top - tickLen,x2:yAxisX,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':1});
@@ -1507,7 +1516,11 @@
         await w.write(JSON.stringify(payload));
         await w.close();
       }catch(err){console.error('saveScatterFile error',err);}
+    }else if(window.showSaveFilePicker){
+      console.log('saveScatterFile no handle - invoking saveAs');
+      await saveAsScatterFile();
     }else{
+      console.log('saveScatterFile fallback download');
       downloadJSON(payload,scatterFileName);
     }
   }
@@ -2064,7 +2077,11 @@
         await w.write(JSON.stringify(payload));
         await w.close();
       }catch(err){console.error('saveVennFile error',err);}
+    }else if(window.showSaveFilePicker){
+      console.log('saveVennFile no handle - invoking saveAs');
+      await saveAsVennFile();
     }else{
+      console.log('saveVennFile fallback download');
       downloadJSON(payload,vennFileName);
     }
   }
@@ -3733,7 +3750,11 @@ KAT7`;
         await w.write(JSON.stringify(payload));
         await w.close();
       }catch(err){console.error('saveBoxFile error',err);}
+    }else if(window.showSaveFilePicker){
+      console.log('saveBoxFile no handle - invoking saveAs');
+      await saveAsBoxFile();
     }else{
+      console.log('saveBoxFile fallback download');
       downloadJSON(payload,boxFileName);
     }
   }
