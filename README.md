@@ -1,6 +1,6 @@
 # Venn
 
-Client-side Venn diagram generator using only HTML and JavaScript. Also includes a GraphPad-style box plot tool.
+Client-side Venn diagram generator using only HTML and JavaScript. Also includes a box plot tool.
 
 ## Usage
 
@@ -15,6 +15,7 @@ Switch to the **Box Plot** tab to paste tabular data and generate customizable b
 * Statistical tests can now be run as paired or unpaired (default).
 * Custom pairwise comparisons are supported alongside all pairwise and reference-based modes.
 * Scatter and box plots render points in SVG with configurable axis ranges and origin controls.
+* Scatter plots can optionally display a trend line with equation and statistics.
 * Graph data and styling can be saved to `.graph` files and reloaded later.
 
 ## Overlap significance
