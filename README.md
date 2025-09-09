@@ -24,4 +24,4 @@ Enter the total number of genes from your analysis in the **Overlap significance
 
 ## Graph files
 
-Each tab provides **Save Graph** and **Load Graph** buttons. These use a `.graph` extension containing a JSON document with the table data and any customized styles (colors, line widths, etc.). JSON is human‑readable and native to the browser, making it a simple and portable format for sharing or reloading graphs.
+Each section provides **open file**, **save file**, and **save as** buttons. The **save file** option overwrites the currently opened graph. These use a `.graph` extension containing a JSON document with the table data and any customized styles (colors, line widths, etc.). JSON is human‑readable and native to the browser, making it a simple and portable format for sharing or reloading graphs.

@@ -152,6 +152,12 @@
 </div>
 <div id="vennPage">
 <header><h2 style="margin:0">Area proportional Venn diagram</h2><div style="color:#555;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
+<div class="row" style="margin:8px 0">
+  <button class="btn" id="openVenn">open file</button>
+  <button class="btn" id="saveVenn">save file</button>
+  <button class="btn" id="saveAsVenn">save as</button>
+  <input type="file" id="vennGraphFile" accept=".graph" style="display:none">
+</div>
 <div class="wrap">
   <div class="panel">
     <div class="row">
@@ -200,9 +206,6 @@
         <div class="row" style="justify-content:flex-end;margin-top:6px">
           <button class="btn" id="exportSVG">Export SVG</button>
           <button class="btn" id="exportPNG">Export PNG</button>
-          <button class="btn" id="saveVenn">Save Graph</button>
-          <button class="btn" id="loadVenn">Load Graph</button>
-          <input type="file" id="vennGraphFile" accept=".graph" style="display:none">
         </div>
       </div>
       <div class="config-options">
@@ -325,6 +328,12 @@
 </div>
 <div id="boxPage" style="display:none;">
   <header><h2 style="margin:0">Box Plot</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a box plot.</div></header>
+  <div class="row" style="margin:8px 0">
+    <button class="btn" id="openBox">open file</button>
+    <button class="btn" id="saveBox">save file</button>
+    <button class="btn" id="saveAsBox">save as</button>
+    <input type="file" id="boxGraphFile" accept=".graph" style="display:none">
+  </div>
     <div class="wrap">
       <div class="panel" id="boxTablePanel">
         <div id="hotWrapper" style="width:100%;height:300px;overflow:auto"><div id="hot" style="width:100%;height:100%"></div></div>
@@ -334,7 +343,6 @@
             <button class="btn" id="boxImport">Import File</button>
             <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none">
           </div>
-          <button class="btn" id="drawBoxplot">Draw</button>
         </div>
       </div>
       <div id="boxPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -348,17 +356,14 @@
                           <div class="row" style="justify-content:flex-end;margin-top:6px">
                                 <button class="btn" id="boxPNG">Download PNG</button>
                                 <button class="btn" id="boxSVG">Download SVG</button>
-                                <button class="btn" id="saveBox">Save Graph</button>
-                                <button class="btn" id="loadBox">Load Graph</button>
-                                <input type="file" id="boxGraphFile" accept=".graph" style="display:none">
                           </div>
                         </div>
           <div class="config-options">
             <fieldset>
               <legend>Colors</legend>
-              <div class="control">
-                <label><input type="radio" name="boxColorMode" id="boxColorUnified" checked> Unified</label>
-                <label><input type="radio" name="boxColorMode" id="boxColorIndividual"> Individual</label>
+              <div class="control" style="gap:8px">
+                <label style="width:auto;display:flex;align-items:center;gap:4px"><input type="radio" name="boxColorMode" id="boxColorUnified" checked> Unified</label>
+                <label style="width:auto;display:flex;align-items:center;gap:4px"><input type="radio" name="boxColorMode" id="boxColorIndividual"> Individual</label>
               </div>
               <div id="boxUnifiedColors" class="control" style="flex-wrap:wrap">
                 <label style="width:auto">Fill</label><input type="color" id="boxFill" value="#4472c4">
@@ -430,6 +435,12 @@
   </div>
 <div id="scatterPage" style="display:none;">
   <header><h2 style="margin:0">Scatter Plot</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a scatter plot.</div></header>
+  <div class="row" style="margin:8px 0">
+    <button class="btn" id="openScatter">open file</button>
+    <button class="btn" id="saveScatter">save file</button>
+    <button class="btn" id="saveAsScatter">save as</button>
+    <input type="file" id="scatterGraphFile" accept=".graph" style="display:none">
+  </div>
     <div class="wrap">
       <div class="panel" id="scatterTablePanel">
         <div id="scatterHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="scatterHot" style="width:100%;height:100%"></div></div>
@@ -439,7 +450,6 @@
             <button class="btn" id="scatterImport">Import File</button>
             <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none">
           </div>
-          <button class="btn" id="drawScatter">Draw</button>
         </div>
       </div>
       <div id="scatterPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -453,9 +463,6 @@
                           <div class="row" style="justify-content:flex-end;margin-top:6px">
                                 <button class="btn" id="scatterPNG">Download PNG</button>
                                 <button class="btn" id="scatterSVG">Download SVG</button>
-                                <button class="btn" id="saveScatter">Save Graph</button>
-                                <button class="btn" id="loadScatter">Load Graph</button>
-                                <input type="file" id="scatterGraphFile" accept=".graph" style="display:none">
                           </div>
                         </div>
           <div class="config-options">
@@ -466,14 +473,14 @@
                   <label style="width:auto">Size</label><input type="number" id="scatterDotSize" value="3" min="1" max="20" style="width:60px">
                 </div>
                 <div style="display:flex;align-items:center;gap:6px">
-                  <label style="width:auto">Color</label><input type="color" id="scatterFill" value="#555555">
+                  <label style="width:auto">Color</label><input type="color" id="scatterFill" value="#377eb8">
                 </div>
                 <div style="display:flex;align-items:center;gap:6px">
                   <label style="width:auto">Transparency</label><input type="range" id="scatterAlpha" min="0" max="1" step="0.05" value="0"><output id="scatterAlphaVal">0</output>
                 </div>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset id="scatterLabelColorsFieldset">
               <legend>Label Colors</legend>
               <div id="scatterLabelColors" class="color-pickers"></div>
             </fieldset>
@@ -575,7 +582,6 @@
   const tabVenn=$('#tabVenn');
   const tabBox=$('#tabBox');
   const tabScatter=$('#tabScatter');
-  const drawBoxplotBtn=$('#drawBoxplot');
   const hotContainer=document.getElementById('hot');
   const hotWrapper=document.getElementById('hotWrapper');
   const tablePanel=document.getElementById('boxTablePanel');
@@ -610,7 +616,8 @@
   let boxColOrder=[];
   let boxColors=[];
   let boxBorderColors=[];
-  const DEFAULT_BOX_COLORS=['#8dd3c7','#ffffb3','#bebada','#fb8072','#80b1d3','#fdb462','#b3de69','#fccde5'];
+  const DEFAULT_BOX_COLORS=['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'];
+  const DEFAULT_SCATTER_COLORS=['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
   let lastBoxDefaultFill='#4472c4';
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
@@ -1119,6 +1126,7 @@
   const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
   const scatterStatType=$('#scatterStatType');
   const scatterLabelColorsDiv=$('#scatterLabelColors');
+  const scatterLabelColorsFieldset=$('#scatterLabelColorsFieldset');
   let scatterLabelColors={};
   scatterAlphaVal.textContent=scatterAlpha.value;
   scatterFill.addEventListener('input',()=>{console.log('scatterFill changed', scatterFill.value); scheduleDrawScatter();});
@@ -1132,9 +1140,15 @@
 
   function updateScatterLabelColorPickers(labels){
     scatterLabelColorsDiv.innerHTML='';
+    if(labels.length===0){
+      scatterLabelColorsFieldset.style.display='none';
+      console.log('updateScatterLabelColorPickers hide');
+      return;
+    }
+    scatterLabelColorsFieldset.style.display='';
     labels.forEach((lab,i)=>{
       if(!scatterLabelColors[lab]){
-        scatterLabelColors[lab]=DEFAULT_BOX_COLORS[i%DEFAULT_BOX_COLORS.length];
+        scatterLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
         console.log('scatter default label color',{label:lab,color:scatterLabelColors[lab]});
       }
       const input=document.createElement('input');
@@ -1455,8 +1469,8 @@
     return {method:label, r, p, r2, m, b};
   }
 
-  function saveScatterGraph(){
-    const payload={
+  function getScatterGraphPayload(){
+    return {
       type:'scatter',
       data:scatterHot.getData(),
       config:{
@@ -1482,8 +1496,49 @@
         showLine:scatterShowLine.checked
       }
     };
-    console.log('saveScatterGraph',payload);
-    downloadJSON(payload,'scatter.graph');
+  }
+  let scatterFileHandle=null, scatterFileName='scatter.graph';
+  async function saveScatterFile(){
+    const payload=getScatterGraphPayload();
+    console.log('saveScatterFile',{payload,scatterFileHandle});
+    if(scatterFileHandle&&scatterFileHandle.createWritable){
+      try{
+        const w=await scatterFileHandle.createWritable();
+        await w.write(JSON.stringify(payload));
+        await w.close();
+      }catch(err){console.error('saveScatterFile error',err);}
+    }else{
+      downloadJSON(payload,scatterFileName);
+    }
+  }
+  async function saveAsScatterFile(){
+    const payload=getScatterGraphPayload();
+    console.log('saveAsScatterFile',payload);
+    if(window.showSaveFilePicker){
+      try{
+        scatterFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:scatterFileName});
+        const w=await scatterFileHandle.createWritable();
+        await w.write(JSON.stringify(payload));
+        await w.close();
+      }catch(err){console.error('saveAsScatterFile error',err);}
+    }else{
+      downloadJSON(payload,scatterFileName);
+    }
+  }
+  async function openScatterFile(){
+    console.log('openScatterFile start');
+    if(window.showOpenFilePicker){
+      try{
+        [scatterFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]});
+        const file=await scatterFileHandle.getFile();
+        scatterFileName=file.name;
+        loadScatterGraphFile(file);
+      }catch(err){console.error('openScatterFile error',err);}
+    }else{
+      const input=document.getElementById('scatterGraphFile');
+      input.value='';
+      input.click();
+    }
   }
   function loadScatterGraphFile(file){
     const reader=new FileReader();
@@ -1521,7 +1576,6 @@
     reader.readAsText(file);
   }
 
-  document.getElementById('drawScatter').addEventListener('click',drawScatter);
   document.getElementById('scatterPNG').addEventListener('click',async()=>{
     const svgEl=document.getElementById('scatterSvg');
     if(!svgEl) return;
@@ -1558,11 +1612,16 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),4000);
   });
-  document.getElementById('saveScatter').addEventListener('click',saveScatterGraph);
-  document.getElementById('loadScatter').addEventListener('click',()=>{ document.getElementById('scatterGraphFile').click(); });
+  document.getElementById('openScatter').addEventListener('click',openScatterFile);
+  document.getElementById('saveScatter').addEventListener('click',saveScatterFile);
+  document.getElementById('saveAsScatter').addEventListener('click',saveAsScatterFile);
   document.getElementById('scatterGraphFile').addEventListener('change',e=>{
     const f=e.target.files[0];
-    if(f) loadScatterGraphFile(f);
+    if(f){
+      scatterFileName=f.name;
+      scatterFileHandle=null;
+      loadScatterGraphFile(f);
+    }
   });
 
   Chart.defaults.locale='en-US';
@@ -1966,8 +2025,8 @@
     downloadURL(url,name);
     setTimeout(()=>URL.revokeObjectURL(url),5000);
   }
-  function saveVennGraph(){
-    const payload={
+  function getVennGraphPayload(){
+    return {
       type:'venn',
       data:{
         labelA:inputs.labelA.value,
@@ -1994,8 +2053,49 @@
         fontsize:inputs.fontsize.value
       }
     };
-    console.log('saveVennGraph',payload);
-    downloadJSON(payload,'venn.graph');
+  }
+  let vennFileHandle=null, vennFileName='venn.graph';
+  async function saveVennFile(){
+    const payload=getVennGraphPayload();
+    console.log('saveVennFile',{payload,vennFileHandle});
+    if(vennFileHandle&&vennFileHandle.createWritable){
+      try{
+        const w=await vennFileHandle.createWritable();
+        await w.write(JSON.stringify(payload));
+        await w.close();
+      }catch(err){console.error('saveVennFile error',err);}
+    }else{
+      downloadJSON(payload,vennFileName);
+    }
+  }
+  async function saveAsVennFile(){
+    const payload=getVennGraphPayload();
+    console.log('saveAsVennFile',payload);
+    if(window.showSaveFilePicker){
+      try{
+        vennFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:vennFileName});
+        const w=await vennFileHandle.createWritable();
+        await w.write(JSON.stringify(payload));
+        await w.close();
+      }catch(err){console.error('saveAsVennFile error',err);}
+    }else{
+      downloadJSON(payload,vennFileName);
+    }
+  }
+  async function openVennFile(){
+    console.log('openVennFile start');
+    if(window.showOpenFilePicker){
+      try{
+        [vennFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]});
+        const file=await vennFileHandle.getFile();
+        vennFileName=file.name;
+        loadVennGraphFile(file);
+      }catch(err){console.error('openVennFile error',err);}
+    }else{
+      const input=document.getElementById('vennGraphFile');
+      input.value='';
+      input.click();
+    }
   }
   function loadVennGraphFile(file){
     const reader=new FileReader();
@@ -2616,11 +2716,16 @@
   document.getElementById('useNumeric').addEventListener('click',drawFromNumeric);
   document.getElementById('exportSVG').addEventListener('click',exportSVG);
   document.getElementById('exportPNG').addEventListener('click',exportPNG);
-  document.getElementById('saveVenn').addEventListener('click',saveVennGraph);
-  document.getElementById('loadVenn').addEventListener('click',()=>{ document.getElementById('vennGraphFile').click(); });
+  document.getElementById('openVenn').addEventListener('click',openVennFile);
+  document.getElementById('saveVenn').addEventListener('click',saveVennFile);
+  document.getElementById('saveAsVenn').addEventListener('click',saveAsVennFile);
   document.getElementById('vennGraphFile').addEventListener('change',e=>{
     const f=e.target.files[0];
-    if(f) loadVennGraphFile(f);
+    if(f){
+      vennFileName=f.name;
+      vennFileHandle=null;
+      loadVennGraphFile(f);
+    }
   });
   document.getElementById('goChartPNG').addEventListener('click',()=>{ exportGoChart('png');});
   document.getElementById('goChartSVG').addEventListener('click',()=>{ exportGoChart('svg');});
@@ -3594,8 +3699,8 @@ KAT7`;
     const newY=Math.max(spacing,topMost-spacing);
     titleText.setAttribute('y',newY);
   }
-  function saveBoxGraph(){
-    const payload={
+  function getBoxGraphPayload(){
+    return {
       type:'box',
       data:hot.getData(),
       config:{
@@ -3617,8 +3722,49 @@ KAT7`;
         yMax:boxYMax.value
       }
     };
-    console.log('saveBoxGraph',payload);
-    downloadJSON(payload,'box.graph');
+  }
+  let boxFileHandle=null, boxFileName='box.graph';
+  async function saveBoxFile(){
+    const payload=getBoxGraphPayload();
+    console.log('saveBoxFile',{payload,boxFileHandle});
+    if(boxFileHandle&&boxFileHandle.createWritable){
+      try{
+        const w=await boxFileHandle.createWritable();
+        await w.write(JSON.stringify(payload));
+        await w.close();
+      }catch(err){console.error('saveBoxFile error',err);}
+    }else{
+      downloadJSON(payload,boxFileName);
+    }
+  }
+  async function saveAsBoxFile(){
+    const payload=getBoxGraphPayload();
+    console.log('saveAsBoxFile',payload);
+    if(window.showSaveFilePicker){
+      try{
+        boxFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:boxFileName});
+        const w=await boxFileHandle.createWritable();
+        await w.write(JSON.stringify(payload));
+        await w.close();
+      }catch(err){console.error('saveAsBoxFile error',err);}
+    }else{
+      downloadJSON(payload,boxFileName);
+    }
+  }
+  async function openBoxFile(){
+    console.log('openBoxFile start');
+    if(window.showOpenFilePicker){
+      try{
+        [boxFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]});
+        const file=await boxFileHandle.getFile();
+        boxFileName=file.name;
+        loadBoxGraphFile(file);
+      }catch(err){console.error('openBoxFile error',err);}
+    }else{
+      const input=document.getElementById('boxGraphFile');
+      input.value='';
+      input.click();
+    }
   }
   function loadBoxGraphFile(file){
     const reader=new FileReader();
@@ -3662,7 +3808,6 @@ KAT7`;
     };
     reader.readAsText(file);
   }
-  $('#drawBoxplot').addEventListener('click', drawBoxplot);
   // boxFill, boxBorder, boxBorderWidth, and boxFontSize listeners are handled above.
   $('#boxPNG').addEventListener('click', async () => {
     const svgEl = document.getElementById('boxSvg');
@@ -3700,11 +3845,16 @@ KAT7`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   });
-  $('#saveBox').addEventListener('click', saveBoxGraph);
-  $('#loadBox').addEventListener('click', ()=>{ $('#boxGraphFile').click(); });
+  $('#openBox').addEventListener('click', openBoxFile);
+  $('#saveBox').addEventListener('click', saveBoxFile);
+  $('#saveAsBox').addEventListener('click', saveAsBoxFile);
   $('#boxGraphFile').addEventListener('change', e=>{
     const f=e.target.files[0];
-    if(f) loadBoxGraphFile(f);
+    if(f){
+      boxFileName=f.name;
+      boxFileHandle=null;
+      loadBoxGraphFile(f);
+    }
   });
   window.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
