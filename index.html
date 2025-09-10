@@ -503,7 +503,7 @@
       </div>
       <div id="boxPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" style="align-items:center" id="boxGraphPanel">
-        <div class="diagram-area">
+      <div class="diagram-area">
                         <div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:100%; height:420px;">
                           <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
                           <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
@@ -817,6 +817,20 @@
             </fieldset>
           </div>
       </div>
+      <div id="lineStats" style="width:100%;margin-top:12px">
+        <fieldset>
+          <legend>Statistics</legend>
+          <div class="control">
+            <label>Method
+              <select id="lineStatType">
+                <option value="pearson">Parametric (Pearson)</option>
+                <option value="spearman">Non-parametric (Spearman)</option>
+              </select>
+            </label>
+          </div>
+          <div id="lineStatsResults" style="margin-top:8px"></div>
+        </fieldset>
+      </div>
     </div>
   </div>
 </div>
@@ -890,9 +904,15 @@
               <label>Size</label><input type="range" id="histFontSize" min="10" max="36" step="1" value="16"><output id="histFontSizeVal">16</output>
             </div>
           </fieldset>
-  </div>
-  </div>
-  </div>
+        </div>
+      </div>
+      <div id="histStats" style="width:100%;margin-top:12px">
+        <fieldset>
+          <legend>Statistics</legend>
+          <div id="histStatsResults"></div>
+        </fieldset>
+      </div>
+    </div>
   </div>
 </div>
 <div id="piePage" style="display:none;">
@@ -957,6 +977,12 @@
           </fieldset>
         </div>
       </div>
+      <div id="pieStats" style="width:100%;margin-top:12px">
+        <fieldset>
+          <legend>Statistics</legend>
+          <div id="pieStatsResults"></div>
+        </fieldset>
+      </div>
     </div>
   </div>
 </div>
@@ -997,6 +1023,10 @@
   const linePage=$('#linePage');
   const histPage=$('#histPage');
   const piePage=$('#piePage');
+  const lineStatType=$('#lineStatType');
+  const lineStatsResults=$('#lineStatsResults');
+  const histStatsResults=$('#histStatsResults');
+  const pieStatsResults=$('#pieStatsResults');
   const tabVenn=$('#tabVenn');
   const tabBox=$('#tabBox');
   const tabScatter=$('#tabScatter');
@@ -1987,6 +2017,44 @@
     console.log('computeScatterStats result',{method:label,r,r2,p,m,b});
     return {method:label, r, p, r2, m, b};
   }
+  function updateLineStats(series){
+    const method=lineStatType.value;
+    console.log('updateLineStats start',{seriesCount:series.length,method});
+    const rows=[];
+    series.forEach(s=>{
+      const pts=s.points.filter(p=>p);
+      if(pts.length>=3){
+        const stats=computeScatterStats(pts,method);
+        rows.push(`<tr><td>${s.name}</td><td>${stats.r.toFixed(4)}</td><td>${formatP(stats.p)}</td><td>${stats.m.toFixed(4)}</td></tr>`);
+      }
+    });
+    if(rows.length){
+      lineStatsResults.innerHTML='<table><tr><th>Series</th><th>r</th><th>p</th><th>Slope</th></tr>'+rows.join('')+'</table>';
+    }else{
+      lineStatsResults.textContent='Not enough data for statistics.';
+    }
+    console.log('updateLineStats complete',{rows:rows.length});
+  }
+  function updateHistStats(values){
+    console.log('updateHistStats start',values.length);
+    if(!values.length){histStatsResults.textContent='No data';return;}
+    const mean=jStat.mean(values);
+    const median=jStat.median(values);
+    const sd=jStat.stdev(values,true);
+    histStatsResults.innerHTML=`<table><tr><th>n</th><td>${values.length}</td></tr><tr><th>Mean</th><td>${mean.toFixed(4)}</td></tr><tr><th>Median</th><td>${median.toFixed(4)}</td></tr><tr><th>SD</th><td>${sd.toFixed(4)}</td></tr></table>`;
+    console.log('updateHistStats result',{mean,median,sd});
+  }
+  function updatePieStats(labels,values){
+    console.log('updatePieStats start',{labels:labels.length,values:values.length});
+    if(!values.length){pieStatsResults.textContent='No data';return;}
+    const total=values.reduce((s,v)=>s+v,0);
+    const expected=total/values.length;
+    const chi2=values.reduce((s,v)=>s+Math.pow(v-expected,2)/expected,0);
+    const df=values.length-1;
+    const p=1-jStat.chisquare.cdf(chi2,df);
+    pieStatsResults.innerHTML=`<table><tr><th>Chi²</th><td>${chi2.toFixed(4)}</td></tr><tr><th>df</th><td>${df}</td></tr><tr><th>p-value</th><td>${formatP(p)}</td></tr></table>`;
+    console.log('updatePieStats result',{chi2,df,p});
+  }
 
   function getScatterGraphPayload(){
     return {
@@ -2385,6 +2453,7 @@
   lineLogX.addEventListener('change',()=>{if(window.DEBUG_LINE) console.log('lineLogX changed',lineLogX.checked); scheduleDrawLine();});
   lineLogY.addEventListener('change',()=>{if(window.DEBUG_LINE) console.log('lineLogY changed',lineLogY.checked); scheduleDrawLine();});
   [lineXMin,lineXMax,lineYMin,lineYMax,lineOriginMode,lineOriginX,lineOriginY].forEach(el=>el.addEventListener('input',()=>{scheduleDrawLine();}));
+  lineStatType.addEventListener('change',()=>{console.log('lineStatType changed',lineStatType.value); scheduleDrawLine();});
   function updateLineLabelColorPickers(labels){
     lineLabelColorsDiv.innerHTML='';
     Object.keys(lineLabelColors).forEach(k=>{if(!labels.includes(k)) delete lineLabelColors[k];});
@@ -2768,6 +2837,7 @@
     yText.textContent=lineYLabelText; makeEditable(yText,txt=>{lineYLabelText=txt;});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});
     titleText.textContent=lineTitleText; makeEditable(titleText,txt=>{lineTitleText=txt;});
+    updateLineStats(series);
     if(window.DEBUG_LINE) console.log('line render complete');
   }
   document.getElementById('linePNG').addEventListener('click',async()=>{
@@ -2876,6 +2946,7 @@
     yText.textContent=histYLabelText;makeEditable(yText,txt=>{histYLabelText=txt;});
     if(window.DEBUG_HIST) console.log('hist yLabel',{yX,label:histYLabelText});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=histTitleText;makeEditable(titleText,txt=>{histTitleText=txt;});
+    updateHistStats(values);
     if(window.DEBUG_HIST) console.log('drawHistogram complete',{token});
   }
   document.getElementById('histPNG').addEventListener('click',async()=>{
@@ -3269,6 +3340,8 @@
         item.appendChild(t);
         legend.appendChild(item);
       });
+      const totals=segmentValues.map(row=>row.reduce((s,v)=>s+v,0));
+      updatePieStats(segmentLabels,totals);
       console.log('drawPie complete stacked',{token});
       return;
     }
@@ -3370,6 +3443,7 @@
       item.appendChild(t);
       legend.appendChild(item);
     });
+    updatePieStats(labels,values);
     console.log('drawPie complete',{token});
   }
   document.getElementById('piePNG').addEventListener('click',async()=>{
