@@ -1097,6 +1097,7 @@
   let selectedCols=new Set();
   let boxTitleText='Boxplot';
   let boxYLabelText='Value';
+  window.DEBUG_BOX=true;
   let statsTest='parametric';
   let statsMode='all';
   let statsRef=0;
@@ -1182,13 +1183,19 @@
 
   const loadExampleBtn=$('#boxLoadExample'), importBtn=$('#boxImport'), fileInput=$('#boxFile');
   const exampleData=[
-    ['Group 1','Group 2','Group 3'],
-    [5,7,6],
-    [6,5,7],
-    [7,8,9],
-    [4,3,5],
-    [6,7,8]
+    ['Control','Treatment A','Treatment B'],
+    [12,15,14],
+    [14,17,15],
+    [11,14,13],
+    [13,16,16],
+    [15,18,18],
+    [16,19,17],
+    [14,16,15],
+    [13,15,14],
+    [12,14,13],
+    [15,17,16]
   ];
+  if(window.DEBUG_BOX) console.log('boxplot example dataset', exampleData);
   loadExampleBtn.addEventListener('click',()=>{
     selectedCols.clear();
     hot.loadData(exampleData);
@@ -1508,7 +1515,19 @@
     }
   });
 
-  const scatterExample=[['Label','X','Y'],['A',1,2],['B',2,3],['A',3,3.5],['B',4,5],['A',5,5.5]];
+  window.DEBUG_SCATTER=true;
+  const scatterExample=[
+    ['Species','Weight','Height'],
+    ['Cat',4.5,23],
+    ['Dog',20,45],
+    ['Rabbit',2.5,35],
+    ['Cat',5,25],
+    ['Dog',22,50],
+    ['Rabbit',3,40],
+    ['Cat',4.8,24],
+    ['Dog',24,55]
+  ];
+  if(window.DEBUG_SCATTER) console.log('scatter example dataset', scatterExample);
   document.getElementById('scatterLoadExample').addEventListener('click',()=>{
     scatterHot.loadData(scatterExample);
     console.log('scatter example loaded');
@@ -1762,8 +1781,6 @@
   let scatterTitleText='Scatter plot';
   let scatterXLabelText='X';
   let scatterYLabelText='Y';
-  window.DEBUG_SCATTER=true;
-
   async function drawScatter(){
     const token=++scatterDrawToken; // debug token for cancellation
     console.log('drawScatter called',{token});
@@ -2269,14 +2286,23 @@
     afterRedo:()=>{if(window.DEBUG_LINE) console.log('line redo'); scheduleDrawLine();},
   });
   if(window.DEBUG_LINE) console.log('lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
+  window.DEBUG_LINE=true;
   const lineExample=[
-    ['X','Series1','Series2','Series3','Series4','Series5'],
-    [1,2,1,1.5,2,2.5],
-    [2,3,1.8,2.2,2.7,3.1],
-    [3,4,1.2,2,3.1,3.8],
-    [4,3,2.6,2.4,2.9,4.2],
-    [5,5,2.9,3.1,3.6,4]
+    ['Month','North','South','East','West','Central'],
+    [1,120,100,90,80,110],
+    [2,130,105,95,85,115],
+    [3,140,110,100,90,120],
+    [4,150,115,105,95,125],
+    [5,160,120,110,100,130],
+    [6,170,125,115,105,135],
+    [7,180,130,120,110,140],
+    [8,190,135,125,115,145],
+    [9,200,140,130,120,150],
+    [10,210,145,135,125,155],
+    [11,220,150,140,130,160],
+    [12,230,155,145,135,165]
   ];
+  if(window.DEBUG_LINE) console.log('line example dataset', lineExample);
   document.getElementById('lineLoadExample').addEventListener('click',()=>{lineHot.loadData(lineExample); if(window.DEBUG_LINE) console.log('line example loaded'); scheduleDrawLine();});
   document.getElementById('lineImport').addEventListener('click',()=>{document.getElementById('lineFile').click();});
   document.getElementById('lineFile').addEventListener('change',e=>{
@@ -2510,9 +2536,23 @@
     afterRedo:()=>{ console.log('hist redo'); scheduleDrawHist(); },
     licenseKey:'non-commercial-and-evaluation',
   });
+  window.DEBUG_HIST=true;
+  const histExample=[
+    ['Exam Score'],
+    [55],
+    [60],
+    [65],
+    [70],
+    [75],
+    [80],
+    [85],
+    [90],
+    [95],
+    [100]
+  ];
+  if(window.DEBUG_HIST) console.log('hist example dataset', histExample);
   document.getElementById('histLoadExample').addEventListener('click',()=>{
-    const ex=[['Value'],[1],[2],[2.5],[3],[4],[5]];
-    histHot.loadData(ex);
+    histHot.loadData(histExample);
     console.log('hist example loaded');
     scheduleDrawHist();
   });
@@ -2670,7 +2710,6 @@
   let histTitleText='Histogram';
   let histXLabelText='Value';
   let histYLabelText='Count';
-  window.DEBUG_HIST=true;
   const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal'), histYMin=$('#histYMin'), histYMax=$('#histYMax');
   histFontSizeVal.textContent=histFontSize.value;
   [histFill,histBorder,histBorderWidth,histBins,histShowGrid,histLogY,histYMin,histYMax].forEach(el=>el.addEventListener('input',()=>{scheduleDrawHist();}));
@@ -2678,7 +2717,6 @@
   let lineTitleText='Line graph';
   let lineXLabelText='X';
   let lineYLabelText='Y';
-  window.DEBUG_LINE=true;
   async function drawLine(){
     const token=++lineDrawToken; if(window.DEBUG_LINE) console.log('drawLine called',{token});
     const fill=lineFill.value; const alpha=Number(lineAlpha.value)||0; const borderWidth=Number(lineBorderWidth.value); const borderColor=lineBorder.value; const bw=borderWidth; const fs=Number(lineFontSize.value); const showGrid=lineShowGrid.checked; const logX=lineLogX.checked; const logY=lineLogY.checked; const dotSize=Number(lineDotSize.value)||0; const xMinManual=parseFloat(lineXMin.value); const xMaxManual=parseFloat(lineXMax.value); const yMinManual=parseFloat(lineYMin.value); const yMaxManual=parseFloat(lineYMax.value); const originMode=lineOriginMode.value; const originXInput=parseFloat(lineOriginX.value); const originYInput=parseFloat(lineOriginY.value);
@@ -3077,9 +3115,17 @@
     afterRedo:()=>{ console.log('pie redo'); scheduleDrawPie(); },
     licenseKey:'non-commercial-and-evaluation',
   });
+  window.DEBUG_PIE=true;
+  const pieExample=[
+    ['Quarter','Observed','Expected'],
+    ['Q1',120,100],
+    ['Q2',90,100],
+    ['Q3',60,80],
+    ['Q4',130,120]
+  ];
+  if(window.DEBUG_PIE) console.log('pie example dataset', pieExample);
   document.getElementById('pieLoadExample').addEventListener('click',()=>{
-    const ex=[['Label','Observed','Expected'],['A',30,40],['B',50,40],['C',20,20]];
-    pieHot.loadData(ex);
+    pieHot.loadData(pieExample);
     console.log('pie example loaded with expected values');
     scheduleDrawPie();
   });
