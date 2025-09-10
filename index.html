@@ -1912,7 +1912,8 @@
     const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
     const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont));
     const maxYLabelWidth=Math.max(...yLabelWidths,0);
-    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs)};
+    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs*2)};
+    console.log('scatter margin computed',margin);
     const plotW=Math.max(20,W-margin.left-margin.right);
     const plotH=Math.max(20,H-margin.top-margin.bottom);
     const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
@@ -1984,7 +1985,10 @@
       console.log('scatter legend placed outside',{labels:legendLabels,legendWidth});
     }
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditable(xText,txt=>{scatterXLabelText=txt;});
-    const yX=margin.left-(maxYLabelWidth+fs*1.5);const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});yText.textContent=scatterYLabelText;makeEditable(yText,txt=>{scatterYLabelText=txt;});
+    const yX=margin.left-(maxYLabelWidth+fs*0.5);
+    console.log('scatter y-axis position',yX);
+    const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});
+    yText.textContent=scatterYLabelText;makeEditable(yText,txt=>{scatterYLabelText=txt;});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=scatterTitleText;makeEditable(titleText,txt=>{scatterTitleText=txt;});
     const stats=computeScatterStats(points,method);
     if(token!==scatterDrawToken){console.log('scatter draw cancelled before stats',{token});return;}
@@ -2289,18 +2293,18 @@
   window.DEBUG_LINE=true;
   const lineExample=[
     ['Month','North','South','East','West','Central'],
-    [1,120,100,90,80,110],
-    [2,130,105,95,85,115],
-    [3,140,110,100,90,120],
-    [4,150,115,105,95,125],
-    [5,160,120,110,100,130],
-    [6,170,125,115,105,135],
-    [7,180,130,120,110,140],
-    [8,190,135,125,115,145],
-    [9,200,140,130,120,150],
-    [10,210,145,135,125,155],
-    [11,220,150,140,130,160],
-    [12,230,155,145,135,165]
+    [1,120,110,95,80,105],
+    [2,130,115,92,85,112],
+    [3,125,118,99,90,115],
+    [4,150,112,105,95,120],
+    [5,155,125,108,102,128],
+    [6,160,130,112,108,132],
+    [7,165,128,118,112,138],
+    [8,170,135,120,118,142],
+    [9,175,138,125,120,146],
+    [10,180,142,130,125,150],
+    [11,185,145,128,130,152],
+    [12,190,150,135,132,158]
   ];
   if(window.DEBUG_LINE) console.log('line example dataset', lineExample);
   document.getElementById('lineLoadExample').addEventListener('click',()=>{lineHot.loadData(lineExample); if(window.DEBUG_LINE) console.log('line example loaded'); scheduleDrawLine();});
@@ -2801,7 +2805,8 @@
     const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
     const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont));
     const maxYLabelWidth=Math.max(...yLabelWidths,0);
-    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs)};
+    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs*2)};
+    console.log('line margin computed',margin);
     const plotW=Math.max(20,W-margin.left-margin.right);
     const plotH=Math.max(20,H-margin.top-margin.bottom);
     const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
@@ -2877,7 +2882,8 @@
     }
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});
     xText.textContent=lineXLabelText; makeEditable(xText,txt=>{lineXLabelText=txt;});
-    const yX=margin.left-(maxYLabelWidth+fs*1.5);
+    const yX=margin.left-(maxYLabelWidth+fs*0.5);
+    console.log('line y-axis position',yX);
     const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});
     yText.textContent=lineYLabelText; makeEditable(yText,txt=>{lineYLabelText=txt;});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});
@@ -3244,7 +3250,11 @@
       pieExpectedColumn.appendChild(optExp);
     }
     if(!pieValueColumn.value && header.length>1) pieValueColumn.value='1';
-    if(!pieExpectedColumn.value && header.length>2) pieExpectedColumn.value='2';
+    if(!pieExpectedColumn.value){
+      const expIdx=header.findIndex((h,i)=>i>0 && String(h).trim().toLowerCase()==='expected');
+      if(expIdx>0) pieExpectedColumn.value=String(expIdx);
+      else if(header.length>2) pieExpectedColumn.value='2';
+    }
     console.log('updatePieColumns',{val:pieValueColumn.value,exp:pieExpectedColumn.value});
   }
   let pieTitleText='Proportion graph';
@@ -3406,11 +3416,14 @@
         item.appendChild(t);
         legend.appendChild(item);
       });
-        const totals=segmentValues.map(row=>row.reduce((s,v)=>s+v,0));
-        pieStatsResults.textContent='Statistics not available for stacked charts';
-        console.log('drawPie stacked stats skipped',{token,totals});
-        console.log('drawPie complete stacked',{token});
-        return;
+      const valCol=parseInt(pieValueColumn.value)-1;
+      const expCol=parseInt(pieExpectedColumn.value)-1;
+      const observed=segmentValues.map(row=>row[valCol]||0);
+      const expected=segmentValues.map(row=>row[expCol]||0);
+      console.log('drawPie stacked stats data',{observed,expected});
+      updatePieStats(segmentLabels,observed,expected);
+      console.log('drawPie complete stacked',{token});
+      return;
       }
 
     // pie or donut charts with dynamic layout for multiple columns
@@ -3458,24 +3471,27 @@
         gridContainer=chartsWrapper;
         console.log('drawPie layout two charts',{token,legendWidth});
       }else{
+        const legendWidth=120;
         plotEl.style.display='grid';
         plotEl.style.position='relative';
         plotEl.style.alignItems='center';
         plotEl.style.justifyItems='center';
         plotEl.style.gridTemplateColumns=`repeat(${cols}, 1fr)`;
         plotEl.style.gridAutoRows='auto';
-        plotEl.style.gap='20px';
-        cellWidth=plotWidth/cols;
+        plotEl.style.gap='10px';
+        plotEl.style.paddingRight=legendWidth+'px';
+        cellWidth=(plotWidth-legendWidth)/cols;
         cellHeight=plotHeight/rows;
         legend=document.createElement('div');
         legend.style.fontSize=fs+'px';
         legend.style.position='absolute';
         legend.style.top='0';
         legend.style.right='0';
+        legend.style.width=legendWidth+'px';
         legend.style.background='rgba(255,255,255,0.8)';
         legend.style.padding='4px';
         plotEl.appendChild(legend);
-        console.log('drawPie layout grid',{token,cols,rows});
+        console.log('drawPie layout grid',{token,cols,rows,legendWidth});
       }
       valueCols.forEach((col,i)=>{
         const labels=[]; const values=[];
@@ -3500,7 +3516,8 @@
         container.appendChild(titleDiv);
         makeEditable(titleDiv,txt=>{col.title=txt;});
         console.log('drawPie title added',{token,index:i,title:titleDiv.textContent});
-        const size=Math.min(cellWidth,cellHeight)-40;
+        const size=Math.min(cellWidth,cellHeight)-(chartCount===2?20:40);
+        console.log('drawPie chart size',{index:i,size});
         const svg=document.createElementNS(NS,'svg');
         if(i===0) svg.setAttribute('id','pieSvg');
         svg.setAttribute('width',String(size));
