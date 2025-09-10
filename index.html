@@ -808,7 +808,7 @@
   tableObserver.observe(tablePanel);
   syncBoxWidths();
 
-  const DEFAULT_ROWS=100, DEFAULT_COLS=10;
+  const DEFAULT_ROWS=100, DEFAULT_COLS=10, LINE_DEFAULT_COLS=6;
   let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
   const NS='http://www.w3.org/2000/svg';
   let selectedCols=new Set();
@@ -1877,12 +1877,28 @@
   const lineTableObserver=new ResizeObserver(()=>{syncLineWidths();});
   lineTableObserver.observe(lineTablePanel);
   lineHotWrapper.style.overflow='auto';
+  const lineData=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,LINE_DEFAULT_COLS);
+  lineData[0]=['X','Series1','Series2','Series3','Series4','Series5'];
   const lineHot=new Handsontable(lineHotContainer,{
-    data:[['X','Series1','Series2']],
+    data:lineData,
     rowHeaders:true,
     colHeaders:true,
+    minRows:DEFAULT_ROWS,
+    minCols:LINE_DEFAULT_COLS,
     stretchH:'all',
     contextMenu:true,
+    cells(row,col){
+      const props={};
+      if(row===0){
+        props.renderer=function(instance,td,r,c,prop,value){
+          Handsontable.renderers.TextRenderer.apply(this,arguments);
+          td.style.background='#e9ecef';
+          td.style.fontWeight='600';
+          td.title='Header (first row)';
+        };
+      }
+      return props;
+    },
     licenseKey:'non-commercial-and-evaluation',
     afterChange:(changes,source)=>{if(changes){if(window.DEBUG_LINE) console.log('line afterChange',{count:changes.length,source}); scheduleDrawLine();}},
     afterCreateRow:()=>{if(window.DEBUG_LINE) console.log('line row created'); scheduleDrawLine();},
@@ -1892,7 +1908,15 @@
     afterUndo:()=>{if(window.DEBUG_LINE) console.log('line undo'); scheduleDrawLine();},
     afterRedo:()=>{if(window.DEBUG_LINE) console.log('line redo'); scheduleDrawLine();},
   });
-  const lineExample=[['X','Series1','Series2'],[1,2,1],[2,3,1.5],[3,4,2],[4,5,2.5],[5,6,3]];
+  if(window.DEBUG_LINE) console.log('lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
+  const lineExample=[
+    ['X','Series1','Series2','Series3','Series4','Series5'],
+    [1,2,1,1.5,2,2.5],
+    [2,3,1.5,2,2.5,3],
+    [3,4,2,2.5,3,3.5],
+    [4,5,2.5,3,3.5,4],
+    [5,6,3,3.5,4,4.5]
+  ];
   document.getElementById('lineLoadExample').addEventListener('click',()=>{lineHot.loadData(lineExample); if(window.DEBUG_LINE) console.log('line example loaded'); scheduleDrawLine();});
   document.getElementById('lineImport').addEventListener('click',()=>{document.getElementById('lineFile').click();});
   document.getElementById('lineFile').addEventListener('change',e=>{
@@ -2040,7 +2064,8 @@
     const curRows=lineHot.countRows();
     const curCols=lineHot.countCols();
     const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
-    const targetCols=Math.max(curCols,startCol+colCount,2);
+    const targetCols=Math.max(curCols,startCol+colCount,LINE_DEFAULT_COLS);
+    if(window.DEBUG_LINE) console.log('lineProcessImportedRows targets',{targetRows,targetCols});
     const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
     const existing=lineHot.getData();
     for(let r=0;r<curRows;r++){
@@ -2098,7 +2123,7 @@
   async function drawLine(){
     const token=++lineDrawToken; if(window.DEBUG_LINE) console.log('drawLine called',{token});
     const fill=lineFill.value; const alpha=Number(lineAlpha.value)||0; const borderWidth=Number(lineBorderWidth.value); const borderColor=lineBorder.value; const bw=borderWidth; const fs=Number(lineFontSize.value); const showGrid=lineShowGrid.checked; const logX=lineLogX.checked; const logY=lineLogY.checked; const dotSize=Number(lineDotSize.value)||0; const xMinManual=parseFloat(lineXMin.value); const xMaxManual=parseFloat(lineXMax.value); const yMinManual=parseFloat(lineYMin.value); const yMaxManual=parseFloat(lineYMax.value); const originMode=lineOriginMode.value; const originXInput=parseFloat(lineOriginX.value); const originYInput=parseFloat(lineOriginY.value);
-    const data=lineHot.getData(); if(!data||!data.length) return; const header=data[0]||[]; let xIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='x'); if(xIndex<0) xIndex=0; const seriesCols=header.map((_,i)=>i).filter(i=>i!==xIndex);
+    const data=lineHot.getData(); if(!data||!data.length) return; const header=data[0]||[]; let xIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='x'); if(xIndex<0) xIndex=0; lineXLabelText=(header[xIndex]&&String(header[xIndex]).trim())||'X'; if(window.DEBUG_LINE) console.log('line xLabel',lineXLabelText); const seriesCols=header.map((_,i)=>i).filter(i=>i!==xIndex);
     const series=seriesCols.map((ci,i)=>({name:header[ci]||`Series ${i+1}`, points:[]}));
     let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
     for(let r=1;r<data.length;r++){
@@ -2200,30 +2225,63 @@
       let pathStr='';
       let started=false;
       const markerFrag=document.createDocumentFragment();
+      let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
       s.points.forEach(pt=>{
         if(pt){
           const xv=logX?Math.log10(pt.x):pt.x;
           const yv=logY?Math.log10(pt.y):pt.y;
           const px=x2px(xv);
           const py=y2px(yv);
+          if(px<minX) minX=px; if(px>maxX) maxX=px;
+          if(py<minY) minY=py; if(py>maxY) maxY=py;
           if(!started){pathStr+=`M${px} ${py}`; started=true;} else {pathStr+=`L${px} ${py}`;}
-          if(dotSize>0){const c=document.createElementNS(NS,'circle'); c.setAttribute('cx',px); c.setAttribute('cy',py); c.setAttribute('r',dotSize); c.setAttribute('fill',lineLabelColors[s.name]||fill); c.setAttribute('fill-opacity',1-alpha); if(bw>0){c.setAttribute('stroke',borderColor); c.setAttribute('stroke-width',bw);} markerFrag.appendChild(c);}
+          if(dotSize>0){const c=document.createElementNS(NS,'circle'); c.setAttribute('cx',px); c.setAttribute('cy',py); c.setAttribute('r',dotSize); c.setAttribute('fill',lineLabelColors[s.name]||fill); c.setAttribute('fill-opacity',1-alpha); markerFrag.appendChild(c);}
         }else{
           started=false;
         }
       });
+      s.bbox={minX:minX-dotSize,maxX:maxX+dotSize,minY:minY-dotSize,maxY:maxY+dotSize};
       const path=add('path',{d:pathStr,fill:'none',stroke:color,'stroke-width':bw,'stroke-opacity':1-alpha});
       const mGroup=add('g',{}); mGroup.appendChild(markerFrag);
       seriesElems.push({path,mGroup});
     });
-    const legend=add('g',{});
+    const textFont=`${fs}px sans-serif`;
+    const legendItemHeight=fs+4;
+    const textWidths=series.map(s=>measureTextWidth(s.name,textFont));
+    const legendWidth=Math.max(...textWidths,0)+fs+8;
+    const legendHeight=series.length*legendItemHeight;
+    const pad=4;
+    const corners=[
+      {x:margin.left+pad,y:margin.top+pad},
+      {x:margin.left+plotW-legendWidth-pad,y:margin.top+pad},
+      {x:margin.left+pad,y:margin.top+plotH-legendHeight-pad},
+      {x:margin.left+plotW-legendWidth-pad,y:margin.top+plotH-legendHeight-pad}
+    ];
+    let legendX=corners[0].x, legendY=corners[0].y;
+    for(const corner of corners){
+      legendX=corner.x; legendY=corner.y;
+      const overlap=series.some(s=>{
+        const b=s.bbox; if(!b) return false;
+        return !(b.maxX < legendX || b.minX > legendX+legendWidth || b.maxY < legendY || b.minY > legendY+legendHeight);
+      });
+      if(window.DEBUG_LINE) console.log('legend corner check',{legendX,legendY,overlap});
+      if(!overlap) break;
+    }
+    const legend=document.createElementNS(NS,'g');
+    legend.setAttribute('transform',`translate(${legendX},${legendY})`);
+    svg.appendChild(legend);
+    if(window.DEBUG_LINE) console.log('legend placed',{legendX,legendY});
     series.forEach((s,i)=>{
-      const g=add('g',{cursor:'pointer'});
-      const y=margin.top+i*(fs+4);
-      g.setAttribute('transform',`translate(${margin.left+plotW+10},${y})`);
-      const rect=add.call(g,'rect',{x:0,y:-fs+4,width:fs,height:fs,fill:colors[i]});
-      const text=add.call(g,'text',{x:fs+4,y:0,'font-size':fs,'alignment-baseline':'middle'});
+      const g=document.createElementNS(NS,'g');
+      g.setAttribute('cursor','pointer');
+      g.setAttribute('transform',`translate(0,${i*legendItemHeight})`);
+      const rect=document.createElementNS(NS,'rect');
+      rect.setAttribute('x',0); rect.setAttribute('y',-(fs-4));
+      rect.setAttribute('width',fs); rect.setAttribute('height',fs); rect.setAttribute('fill',colors[i]);
+      const text=document.createElementNS(NS,'text');
+      text.setAttribute('x',fs+4); text.setAttribute('y',0); text.setAttribute('font-size',fs); text.setAttribute('alignment-baseline','middle');
       text.textContent=s.name;
+      g.appendChild(rect); g.appendChild(text); legend.appendChild(g);
       g.addEventListener('click',()=>{
         const vis=seriesElems[i].path.style.display!=='none';
         seriesElems[i].path.style.display=vis?'none':'inline';
