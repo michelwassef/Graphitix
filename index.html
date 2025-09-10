@@ -2479,6 +2479,8 @@
   const lineLabelColorsDiv=$('#lineLabelColors');
   const lineLabelColorsFieldset=$('#lineLabelColorsFieldset');
   let lineLabelColors={};
+  let lineLegendItems=[];
+  let lineLegendWidth=0;
   lineAlphaVal.textContent=lineAlpha.value;
   lineFill.addEventListener('input',()=>{if(window.DEBUG_LINE) console.log('lineFill changed',lineFill.value); scheduleDrawLine();});
   lineBorder.addEventListener('input',()=>{if(window.DEBUG_LINE) console.log('lineBorder changed',lineBorder.value); scheduleDrawLine();});
@@ -2744,6 +2746,8 @@
     const labelsUsed=series.map(s=>s.name); updateLineLabelColorPickers(labelsUsed);
     const legendLabels=labelsUsed;
     const legendWidth=legendLabels.length?120:0;
+    lineLegendWidth=legendWidth;
+    lineLegendItems=[];
     console.log('line legend width',legendWidth,{labels:legendLabels});
     if(series.every(s=>s.points.every(p=>p==null))) return;
     if(logX && xMinRaw<=0){document.getElementById('linePlot').innerHTML='<i>Log scale requires positive X values.</i>'; return;}
@@ -2878,6 +2882,7 @@
         });
       });
       plotEl.appendChild(legendDiv);
+      lineLegendItems=series.map((s,i)=>({label:s.name,color:colors[i]}));
       if(window.DEBUG_LINE) console.log('legend placed outside',{labels:legendLabels,legendWidth});
     }
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});
@@ -2886,15 +2891,51 @@
     console.log('line y-axis position',yX);
     const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});
     yText.textContent=lineYLabelText; makeEditable(yText,txt=>{lineYLabelText=txt;});
-    const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});
-    titleText.textContent=lineTitleText; makeEditable(titleText,txt=>{lineTitleText=txt;});
-    updateLineStats(series);
-    if(window.DEBUG_LINE) console.log('line render complete');
+  const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});
+  titleText.textContent=lineTitleText; makeEditable(titleText,txt=>{lineTitleText=txt;});
+  updateLineStats(series);
+  if(window.DEBUG_LINE) console.log('line render complete');
+  }
+  function buildLineExportSvg(){
+    const svgEl=document.getElementById('lineSvg');
+    if(!svgEl) return null;
+    const fs=Number(lineFontSize.value)||16;
+    const baseW=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
+    const baseH=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+    const totalW=baseW+(lineLegendItems.length?lineLegendWidth:0);
+    const out=document.createElementNS(NS,'svg');
+    out.setAttribute('width',String(totalW));
+    out.setAttribute('height',String(baseH));
+    out.setAttribute('viewBox',`0 0 ${totalW} ${baseH}`);
+    out.setAttribute('font-family','sans-serif');
+    out.appendChild(svgEl.cloneNode(true));
+    if(lineLegendItems.length){
+      const g=document.createElementNS(NS,'g');
+      lineLegendItems.forEach((item,i)=>{
+        const y=20+i*(fs+4);
+        const sw=document.createElementNS(NS,'rect');
+        sw.setAttribute('x',baseW+8);
+        sw.setAttribute('y',y-fs+4);
+        sw.setAttribute('width',12);
+        sw.setAttribute('height',12);
+        sw.setAttribute('fill',item.color);
+        g.appendChild(sw);
+        const t=document.createElementNS(NS,'text');
+        t.setAttribute('x',baseW+28);
+        t.setAttribute('y',y);
+        t.setAttribute('font-size',fs);
+        t.textContent=item.label;
+        g.appendChild(t);
+      });
+      out.appendChild(g);
+    }
+    console.log('buildLineExportSvg',{legendCount:lineLegendItems.length,totalW});
+    return out;
   }
   document.getElementById('linePNG').addEventListener('click',async()=>{
-    const svgEl=document.getElementById('lineSvg');
+    const svgEl=buildLineExportSvg();
     if(!svgEl) return;
-    if(window.DEBUG_LINE) console.log('linePNG export start');
+    if(window.DEBUG_LINE) console.log('linePNG export start with legend');
     const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
     const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
     const xml=serializeCleanSVG(svgEl);
@@ -2915,9 +2956,9 @@
     },'image/png');
   });
   document.getElementById('lineSVG').addEventListener('click',()=>{
-    const svgEl=document.getElementById('lineSvg');
+    const svgEl=buildLineExportSvg();
     if(!svgEl) return;
-    if(window.DEBUG_LINE) console.log('lineSVG export start');
+    if(window.DEBUG_LINE) console.log('lineSVG export start with legend');
     const xml=serializeCleanSVG(svgEl);
     const blob=new Blob([xml],{type:'image/svg+xml'});
     const url=URL.createObjectURL(blob);
@@ -3199,10 +3240,10 @@
   const pieExpectedColumnLabel=pieExpectedColumn.parentElement;
   [pieShowPercents,pieStartAngle,pieFontSize].forEach(el=>el.addEventListener('input',()=>{console.log('pie config changed',el.id,el.value); pieFontSizeVal.textContent=pieFontSize.value; scheduleDrawPie();}));
   function updatePieValueColumnVisibility(){
-    const hide=pieChartType.value==='stacked';
-    pieValueColumnLabel.style.display=hide?'none':'';
-    pieExpectedColumnLabel.style.display=hide?'none':'';
-    console.log('updatePieValueColumnVisibility',{type:pieChartType.value,hidden:hide});
+    // Always show observed/expected selectors so statistics section remains consistent
+    pieValueColumnLabel.style.display='';
+    pieExpectedColumnLabel.style.display='';
+    console.log('updatePieValueColumnVisibility',{type:pieChartType.value});
   }
   pieChartType.addEventListener('change',()=>{
     console.log('pie chart type changed',pieChartType.value);
@@ -3214,6 +3255,8 @@
   pieExpectedColumn.addEventListener('change',()=>{console.log('pie expected column changed',pieExpectedColumn.value); scheduleDrawPie();});
   const pieColorPickers=document.getElementById('pieColorPickers');
   let pieColors={};
+  let pieLegendItems=[];
+  let pieLegendWidth=120;
   function updatePieColorPickers(labels){
     pieColorPickers.innerHTML='';
     labels.forEach((lab,i)=>{
@@ -3249,8 +3292,8 @@
       if(optExp.value===prevExp) optExp.selected=true;
       pieExpectedColumn.appendChild(optExp);
     }
-    if(!pieValueColumn.value && header.length>1) pieValueColumn.value='1';
-    if(!pieExpectedColumn.value){
+    if(!prevVal && header.length>1) pieValueColumn.value='1';
+    if(!prevExp){
       const expIdx=header.findIndex((h,i)=>i>0 && String(h).trim().toLowerCase()==='expected');
       if(expIdx>0) pieExpectedColumn.value=String(expIdx);
       else if(header.length>2) pieExpectedColumn.value='2';
@@ -3266,6 +3309,8 @@
     const fs=Number(pieFontSize.value)||16;
     const data=pieHot.getData();
     updatePieColumns(data[0]||[]);
+    pieLegendItems=[];
+    pieLegendWidth=120;
     const plotEl=piePlotDiv;
     while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
 
@@ -3416,6 +3461,8 @@
         item.appendChild(t);
         legend.appendChild(item);
       });
+      pieLegendItems=segmentLabels.map((lab,i)=>({label:lab,color:pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]}));
+      pieLegendWidth=legendWidth;
       const valCol=parseInt(pieValueColumn.value)-1;
       const expCol=parseInt(pieExpectedColumn.value)-1;
       const observed=segmentValues.map(row=>row[valCol]||0);
@@ -3449,6 +3496,7 @@
       let plotWidth=plotEl.clientWidth||400;
       let plotHeight=plotEl.clientHeight||400;
       let cellWidth,cellHeight;
+      let legendWidth=120;
       if(chartCount===2){
         plotEl.style.display='flex';
         plotEl.style.alignItems='center';
@@ -3463,33 +3511,28 @@
         legend=document.createElement('div');
         legend.style.fontSize=fs+'px';
         legend.style.marginLeft='20px';
-        legend.style.width='120px';
+        legend.style.width=legendWidth+'px';
         plotEl.appendChild(legend);
-        const legendWidth=120;
         cellWidth=(plotWidth-legendWidth)/2;
         cellHeight=plotHeight;
         gridContainer=chartsWrapper;
         console.log('drawPie layout two charts',{token,legendWidth});
       }else{
-        const legendWidth=120;
         plotEl.style.display='grid';
-        plotEl.style.position='relative';
         plotEl.style.alignItems='center';
         plotEl.style.justifyItems='center';
-        plotEl.style.gridTemplateColumns=`repeat(${cols}, 1fr)`;
+        plotEl.style.gridTemplateColumns=`repeat(${cols}, 1fr) ${legendWidth}px`;
         plotEl.style.gridAutoRows='auto';
         plotEl.style.gap='10px';
-        plotEl.style.paddingRight=legendWidth+'px';
         cellWidth=(plotWidth-legendWidth)/cols;
         cellHeight=plotHeight/rows;
         legend=document.createElement('div');
         legend.style.fontSize=fs+'px';
-        legend.style.position='absolute';
-        legend.style.top='0';
-        legend.style.right='0';
-        legend.style.width=legendWidth+'px';
+        legend.style.gridColumn=cols+1;
+        legend.style.gridRow=`1 / span ${rows}`;
         legend.style.background='rgba(255,255,255,0.8)';
         legend.style.padding='4px';
+        legend.style.alignSelf='start';
         plotEl.appendChild(legend);
         console.log('drawPie layout grid',{token,cols,rows,legendWidth});
       }
@@ -3588,6 +3631,8 @@
         item.appendChild(t);
         legend.appendChild(item);
       });
+      pieLegendItems=allLabels.map((lab,i)=>({label:lab,color:pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]}));
+      pieLegendWidth=legendWidth;
       console.log('drawPie legend built',{token,labelCount:allLabels.length});
       const valCol=parseInt(pieValueColumn.value)||valueCols[0].idx;
       const expCol=parseInt(pieExpectedColumn.value)|| (valueCols[1]?valueCols[1].idx:valueCols[0].idx);
@@ -3605,16 +3650,64 @@
       updatePieStats(statLabels,statValues,expected);
       console.log('drawPie complete',{token,charts:chartCount});
   }
+  function buildPieExportSvg(){
+    const plotEl=piePlotDiv;
+    const svgs=plotEl.querySelectorAll('svg');
+    if(!svgs.length) return null;
+    const fs=Number(pieFontSize.value)||16;
+    const W=plotEl.clientWidth||800;
+    const H=plotEl.clientHeight||400;
+    const out=document.createElementNS(NS,'svg');
+    out.setAttribute('width',String(W));
+    out.setAttribute('height',String(H));
+    out.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    out.setAttribute('font-family','sans-serif');
+    const plotRect=plotEl.getBoundingClientRect();
+    svgs.forEach(svg=>{
+      const rect=svg.getBoundingClientRect();
+      const g=document.createElementNS(NS,'g');
+      g.setAttribute('transform',`translate(${rect.left-plotRect.left},${rect.top-plotRect.top})`);
+      g.appendChild(svg.cloneNode(true));
+      out.appendChild(g);
+    });
+    if(pieLegendItems.length){
+      const g=document.createElementNS(NS,'g');
+      pieLegendItems.forEach((item,i)=>{
+        const y=20+i*(fs+4);
+        const sw=document.createElementNS(NS,'rect');
+        sw.setAttribute('x',W-pieLegendWidth+8);
+        sw.setAttribute('y',y-fs+4);
+        sw.setAttribute('width',12);
+        sw.setAttribute('height',12);
+        sw.setAttribute('fill',item.color);
+        g.appendChild(sw);
+        const t=document.createElementNS(NS,'text');
+        t.setAttribute('x',W-pieLegendWidth+28);
+        t.setAttribute('y',y);
+        t.setAttribute('font-size',fs);
+        t.textContent=item.label;
+        g.appendChild(t);
+      });
+      out.appendChild(g);
+    }
+    console.log('buildPieExportSvg',{svgCount:svgs.length,legendCount:pieLegendItems.length});
+    return out;
+  }
   document.getElementById('piePNG').addEventListener('click',async()=>{
-    const svgEl=document.getElementById('pieSvg'); if(!svgEl) return; console.log('piePNG export start');
-    const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800; const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+    const svgEl=buildPieExportSvg();
+    if(!svgEl) return;
+    console.log('piePNG export start');
+    const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
+    const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
     const xml=serializeCleanSVG(svgEl); const img=new Image(); const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
     img.src=url; await img.decode().catch(err=>{console.error('piePNG svg decode',err);});
     const outCanvas=document.createElement('canvas'); outCanvas.width=W; outCanvas.height=H; const ctx=outCanvas.getContext('2d'); ctx.drawImage(img,0,0);
     outCanvas.toBlob(b=>{const pngUrl=URL.createObjectURL(b); const a=document.createElement('a'); a.href=pngUrl; a.download='pie.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(pngUrl),4000);},'image/png');
   });
   document.getElementById('pieSVG').addEventListener('click',()=>{
-    const svgEl=document.getElementById('pieSvg'); if(!svgEl) return; console.log('pieSVG export start');
+    const svgEl=buildPieExportSvg();
+    if(!svgEl) return;
+    console.log('pieSVG export start');
     const xml=serializeCleanSVG(svgEl); const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='pie.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
   });
   function getPieGraphPayload(){return{type:'pie',data:pieHot.getData(),config:{title:pieTitleText,colors:pieColors,showPercents:pieShowPercents.checked,startAngle:pieStartAngle.value,fontSize:pieFontSize.value,chartType:pieChartType.value,valueColumn:pieValueColumn.value,expectedColumn:pieExpectedColumn.value}};}
