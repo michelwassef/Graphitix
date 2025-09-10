@@ -196,6 +196,55 @@
     border-radius: 2px;
   }
   @media (max-width:1000px){#linePage .wrap{grid-template-columns:1fr}}
+  #histPage .wrap{display:flex;align-items:stretch;gap:0}
+  #histPage #histTablePanel{flex:1 1 33%;min-width:150px}
+  #histPage #histGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+  #histPage .diagram-area .svgbox{flex:1}
+  #histPage .diagram-area .config-options{flex:1}
+  #histPage .panel{display:flex;flex-direction:column;min-width:0}
+  #histPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+  #histPage #histPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+  #histPage .svgbox{
+    position: relative;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 420px;
+    box-sizing: border-box;
+  }
+  #histPage .svgbox .resizer {
+    position: absolute;
+    z-index: 40;
+    background: rgba(0,0,0,0);
+    touch-action: none;
+  }
+  #histPage .svgbox .resizer-vertical {
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 100%;
+    cursor: ew-resize;
+  }
+  #histPage .svgbox .resizer-horizontal {
+    bottom: 0;
+    left: 0;
+    height: 12px;
+    width: 100%;
+    cursor: ns-resize;
+  }
+  #histPage .svgbox .resizer-corner {
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+    border-radius: 2px;
+  }
+  @media (max-width:1000px){#histPage .wrap{grid-template-columns:1fr}}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
 </head>
@@ -205,6 +254,7 @@
   <button id="tabBox" class="btn">Box Plot</button>
   <button id="tabScatter" class="btn">Scatter Plot</button>
   <button id="tabLine" class="btn">Line Graph</button>
+  <button id="tabHist" class="btn">Histogram</button>
 </div>
 <div id="vennPage">
 <header><h2 style="margin:0">Area proportional Venn diagram</h2><div style="color:#555;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
@@ -716,10 +766,85 @@
               </div>
             </fieldset>
           </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="histPage" style="display:none;">
+  <header><h2 style="margin:0">Histogram</h2><div style="color:#555;font-size:13px">Paste data into the table and draw a histogram.</div></header>
+  <div class="row" style="margin:8px 0">
+    <button class="btn" id="openHist">open file</button>
+    <button class="btn" id="saveHist">save file</button>
+    <button class="btn" id="saveAsHist">save as</button>
+    <input type="file" id="histGraphFile" accept=".graph" style="display:none">
+  </div>
+  <div class="wrap">
+    <div class="panel" id="histTablePanel">
+      <div id="histHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="histHot" style="width:100%;height:100%"></div></div>
+      <div class="row" style="margin-top:8px;justify-content:space-between">
+        <div class="row" style="gap:8px">
+          <button class="btn" id="histLoadExample">Load Example</button>
+          <button class="btn" id="histImport">Import File</button>
+          <input type="file" id="histFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none">
+        </div>
+      </div>
+    </div>
+    <div id="histPanelResizer" class="panel-resizer" aria-hidden="true"></div>
+    <div class="panel" style="align-items:center" id="histGraphPanel">
+      <div class="diagram-area">
+        <div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:100%; height:420px;">
+          <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+          <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+          <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+          <div id="histPlot" style="width:100%; height:100%"></div>
+          <div class="row" style="justify-content:flex-end;margin-top:6px">
+            <button class="btn" id="histPNG">Download PNG</button>
+            <button class="btn" id="histSVG">Download SVG</button>
+          </div>
+        </div>
+        <div class="config-options">
+          <fieldset>
+            <legend>Bars</legend>
+            <div class="control" style="flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:6px">
+                <label style="width:auto">Color</label><input type="color" id="histFill" value="#377eb8">
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <label style="width:auto">Border</label><input type="color" id="histBorder" value="#000000">
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <label style="width:auto">Thickness</label><input type="number" id="histBorderWidth" value="1" min="0" max="10" style="width:60px">
+              </div>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Bins</legend>
+            <div class="control">
+              <label>Count</label><input type="number" id="histBins" value="10" min="1" max="100" style="width:60px">
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Grid & Axis</legend>
+            <div class="control" style="flex-wrap:wrap">
+              <label style="width:auto"><input type="checkbox" id="histShowGrid"> Show grid</label>
+              <label style="width:auto"><input type="checkbox" id="histLogY"> Log scale (Y)</label>
+            </div>
+            <div class="control" style="flex-wrap:wrap;gap:6px">
+              <label style="width:auto">Y min <input type="number" id="histYMin" style="width:80px"></label>
+              <label style="width:auto">Y max <input type="number" id="histYMax" style="width:80px"></label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Font</legend>
+            <div class="control">
+              <label>Size</label><input type="range" id="histFontSize" min="10" max="36" step="1" value="16"><output id="histFontSizeVal">16</output>
+            </div>
+          </fieldset>
         </div>
       </div>
     </div>
   </div>
+</div>
 <script src="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jstat@1.9.5/dist/jstat.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -742,19 +867,23 @@
   const scheduleDrawBoxplot = debounceFrame(drawBoxplot);
   const scheduleDrawScatter = debounceFrame(drawScatter);
   const scheduleDrawLine = debounceFrame(drawLine);
+  const scheduleDrawHist = debounceFrame(drawHistogram);
   let boxplotDrawToken=0; // debug: track boxplot render cycles
   let scatterDrawToken=0; // debug: track scatter render cycles
   let lineDrawToken=0; // debug: track line render cycles
+  let histDrawToken=0; // debug: track histogram render cycles
   const $ = (s)=>document.querySelector(s);
   const stage = $('#stage');
   const vennPage=$('#vennPage');
   const boxPage=$('#boxPage');
   const scatterPage=$('#scatterPage');
   const linePage=$('#linePage');
+  const histPage=$('#histPage');
   const tabVenn=$('#tabVenn');
   const tabBox=$('#tabBox');
   const tabScatter=$('#tabScatter');
   const tabLine=$('#tabLine');
+  const tabHist=$('#tabHist');
   const hotContainer=document.getElementById('hot');
   const hotWrapper=document.getElementById('hotWrapper');
   const tablePanel=document.getElementById('boxTablePanel');
@@ -808,7 +937,7 @@
   tableObserver.observe(tablePanel);
   syncBoxWidths();
 
-  const DEFAULT_ROWS=100, DEFAULT_COLS=10, LINE_DEFAULT_COLS=6;
+  const DEFAULT_ROWS=100, DEFAULT_COLS=10, LINE_DEFAULT_COLS=6, HIST_DEFAULT_COLS=1;
   let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
   const NS='http://www.w3.org/2000/svg';
   let selectedCols=new Set();
@@ -2116,6 +2245,101 @@
     });
     lineLabelColorsFieldset.style.display=labels.length?'':'none';
   }
+  // Histogram setup
+  const histHotContainer=document.getElementById('histHot');
+  const histHotWrapper=document.getElementById('histHotWrapper');
+  histHotWrapper.style.overflow='auto';
+  const histHot=new Handsontable(histHotContainer,{
+    data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,HIST_DEFAULT_COLS),
+    rowHeaders:true,
+    colHeaders:true,
+    minRows:DEFAULT_ROWS,
+    minCols:HIST_DEFAULT_COLS,
+    contextMenu:true,
+    undo:true,
+    afterChange(changes,source){ if(changes){ console.log('hist afterChange',{count:changes.length,source}); scheduleDrawHist(); } },
+    afterUndo:()=>{ console.log('hist undo'); scheduleDrawHist(); },
+    afterRedo:()=>{ console.log('hist redo'); scheduleDrawHist(); },
+    licenseKey:'non-commercial-and-evaluation',
+  });
+  document.getElementById('histLoadExample').addEventListener('click',()=>{
+    const ex=[['Value'],[1],[2],[2.5],[3],[4],[5]];
+    histHot.loadData(ex);
+    console.log('hist example loaded');
+    scheduleDrawHist();
+  });
+  document.getElementById('histImport').addEventListener('click',()=>{const f=document.getElementById('histFile');f.value='';f.click();});
+  document.getElementById('histFile').addEventListener('change',e=>{
+    const file=e.target.files[0]; if(!file) return;
+    const ext=file.name.split('.').pop().toLowerCase();
+    const reader=new FileReader();
+    if(['csv','tsv','txt'].includes(ext)){
+      reader.onload=ev=>{const text=ev.target.result; const delim=ext==='csv'?',' : '\\t'; const rows=text.split(/\\r?\\n/).map(r=>r.split(delim)); histProcessImportedRows(rows);};
+      reader.readAsText(file);
+    }else if(['xls','xlsx','ods','odg'].includes(ext)){
+      reader.onload=async ev=>{
+        try{
+          if(!window.XLSX){
+            await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='libs/xlsx.full.min.js';s.onload=()=>resolve();s.onerror=err=>reject(new Error('Failed to load XLSX script'));document.head.appendChild(s);});
+          }
+          const data=new Uint8Array(ev.target.result);
+          const workbook=XLSX.read(data,{type:'array'});
+          const sheet=workbook.Sheets[workbook.SheetNames[0]];
+          let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+          histProcessImportedRows(rows);
+        }catch(err){alert('Failed to import spreadsheet: '+err.message);}
+      };
+      reader.readAsArrayBuffer(file);
+    }else{
+      alert('Unsupported file format: '+ext);
+    }
+  });
+  histHotContainer.addEventListener('paste',async e=>{
+    e.preventDefault(); e.stopPropagation();
+    let text=e.clipboardData?.getData('text/plain');
+    if(!text){
+      try{ text=await navigator.clipboard.readText(); console.log('hist clipboard fallback used'); }
+      catch(err){ console.log('hist clipboard read failed',err); return; }
+    }
+    const rowArr=text.split(/\\r?\\n/);
+    if(rowArr.length<2 && !text.includes('\\t') && !text.includes(',')){
+      console.log('hist paste ignored: insufficient data');
+      return;
+    }
+    const delim=text.includes('\\t')?'\\t':',';
+    const rows=rowArr.map(r=>r.split(delim));
+    const sel=histHot.getSelectedLast();
+    const startRow=sel?sel[0]:0;
+    const startCol=sel?sel[1]:0;
+    console.log('hist fast paste',{rows:rows.length,cols:rows[0]?.length,startRow,startCol});
+    histProcessImportedRows(rows,startRow,startCol);
+  },true);
+  function histProcessImportedRows(rows,startRow=0,startCol=0){
+    if(!rows||!rows.length) return;
+    rows=rows.filter(r=>r&&r.some(c=>String(c).trim()!==''));
+    if(!rows.length) return;
+    const colCount=Math.max(1,...rows.map(r=>r.length));
+    const rowCount=rows.length;
+    const curRows=histHot.countRows();
+    const curCols=histHot.countCols();
+    const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
+    const targetCols=Math.max(curCols,startCol+colCount,HIST_DEFAULT_COLS);
+    const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
+    const existing=histHot.getData();
+    for(let r=0;r<curRows;r++){ for(let c=0;c<curCols;c++) data[r][c]=existing[r][c]; }
+    for(let r=0;r<rowCount;r++){ const row=rows[r]; for(let c=0;c<row.length;c++) data[startRow+r][startCol+c]=row[c]; }
+    histHot.updateSettings({data,minRows:targetRows,minCols:targetCols});
+    console.log('hist data imported',{rows:data.length,cols:targetCols});
+    scheduleDrawHist();
+  }
+  let histTitleText='Histogram';
+  let histXLabelText='Value';
+  let histYLabelText='Count';
+  window.DEBUG_HIST=true;
+  const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal'), histYMin=$('#histYMin'), histYMax=$('#histYMax');
+  histFontSizeVal.textContent=histFontSize.value;
+  [histFill,histBorder,histBorderWidth,histBins,histShowGrid,histLogY,histYMin,histYMax].forEach(el=>el.addEventListener('input',()=>{scheduleDrawHist();}));
+  histFontSize.addEventListener('input',()=>{histFontSizeVal.textContent=histFontSize.value; scheduleDrawHist();});
   let lineTitleText='Line graph';
   let lineXLabelText='X';
   let lineYLabelText='Y';
@@ -2332,6 +2556,90 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),4000);
   });
+  async function drawHistogram(){
+    const token=++histDrawToken; if(window.DEBUG_HIST) console.log('drawHistogram called',{token});
+    const fill=histFill.value;
+    const borderColor=histBorder.value;
+    const borderWidth=Number(histBorderWidth.value)||0;
+    const bins=Math.max(1,Math.floor(Number(histBins.value)||10));
+    const showGrid=histShowGrid.checked;
+    const logY=histLogY.checked;
+    const fs=Number(histFontSize.value)||16;
+    const yMinManual=parseFloat(histYMin.value);
+    const yMaxManual=parseFloat(histYMax.value);
+    const data=histHot.getDataAtCol(0);
+    const labelRaw=data[0];
+    histXLabelText=(labelRaw&&String(labelRaw).trim())||'Value';
+    const values=[]; for(let i=1;i<data.length;i++){const v=parseFloat(data[i]);if(!isNaN(v)) values.push(v);}    
+    const plotEl=document.getElementById('histPlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+    if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; }
+    const xMin=Math.min(...values), xMax=Math.max(...values);
+    const binWidth=(xMax-xMin)/bins || 1;
+    const counts=new Array(bins).fill(0); values.forEach(v=>{let idx=Math.floor((v-xMin)/binWidth); if(idx<0) idx=0; if(idx>=bins) idx=bins-1; counts[idx]++;});
+    let yMin=0; let yMax=Math.max(...counts);
+    if(isFinite(yMinManual)) yMin=yMinManual;
+    if(isFinite(yMaxManual)) yMax=yMaxManual;
+    if(logY && yMin<=0) yMin=0.1;
+    if(yMax===yMin) yMax=yMin+1;
+    const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
+    const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
+    plotEl.style.position='relative';
+    const svg=document.createElementNS(NS,'svg');
+    svg.setAttribute('id','histSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family','sans-serif');
+    plotEl.appendChild(svg);
+    const xMinT=xMin, xMaxT=xMax;
+    const yMinT=logY?Math.log10(yMin):yMin, yMaxT=logY?Math.log10(yMax):yMax;
+    function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
+    function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
+    const xScale=niceScale(xMinT,xMaxT,6); const yScale=niceScale(yMinT,yMaxT,6);
+    if(isFinite(yMinManual)) yScale.min=yMinT;
+    if(isFinite(yMaxManual)) yScale.max=yMaxT;
+    if(isFinite(yMinManual)||isFinite(yMaxManual)){const ticks=[];for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step;v<=yScale.max+1e-9;v+=yScale.step)ticks.push(v);yScale.ticks=ticks;}
+    function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
+    const measureCanvas=drawHistogram._canvas||(drawHistogram._canvas=document.createElement('canvas')); const measureCtx=measureCanvas.getContext('2d'); function measureTextWidth(text,font){measureCtx.font=font;return measureCtx.measureText(text).width;}
+    const tickFont=`${fs}px sans-serif`;
+    const xTickLabels=xScale.ticks.map(t=>formatTick(t));
+    const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
+    const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont));
+    const maxYLabelWidth=Math.max(...yLabelWidths,0);
+    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs)};
+    const plotW=Math.max(20,W-margin.left-margin.right); const plotH=Math.max(20,H-margin.top-margin.bottom);
+    const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
+    const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
+    function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
+    const tickLen=6;
+    if(showGrid){yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});}
+    add('line',{x1:margin.left,y1:margin.top+plotH,x2:margin.left+plotW,y2:margin.top+plotH,stroke:'#000','stroke-width':1});
+    add('line',{x1:margin.left,y1:margin.top,x2:margin.left,y2:margin.top+plotH,stroke:'#000','stroke-width':1});
+    xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:margin.top+plotH+tickLen+fs,'font-size':fs,'text-anchor':'middle'});txt.textContent=formatTick(t);});
+    yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:margin.left-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+    const edges=Array.from({length:bins+1},(_,i)=>xMin+i*binWidth);
+    counts.forEach((c,i)=>{const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill}); if(borderWidth>0){rect.setAttribute('stroke',borderColor);rect.setAttribute('stroke-width',borderWidth);} });
+    const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=histXLabelText;makeEditable(xText,txt=>{histXLabelText=txt;});
+    const yX=margin.left-(maxYLabelWidth+fs*1.5);const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});yText.textContent=histYLabelText;makeEditable(yText,txt=>{histYLabelText=txt;});
+    const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=histTitleText;makeEditable(titleText,txt=>{histTitleText=txt;});
+    if(window.DEBUG_HIST) console.log('drawHistogram complete',{token});
+  }
+  document.getElementById('histPNG').addEventListener('click',async()=>{
+    const svgEl=document.getElementById('histSvg'); if(!svgEl) return; console.log('histPNG export start');
+    const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800; const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+    const xml=serializeCleanSVG(svgEl); const img=new Image(); const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml); img.src=url; await img.decode().catch(err=>{console.error('histPNG svg decode',err);}); const outCanvas=document.createElement('canvas'); outCanvas.width=W; outCanvas.height=H; const ctx=outCanvas.getContext('2d'); ctx.drawImage(img,0,0); outCanvas.toBlob(b=>{const pngUrl=URL.createObjectURL(b); const a=document.createElement('a'); a.href=pngUrl; a.download='histogram.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(pngUrl),4000);},'image/png');
+  });
+  document.getElementById('histSVG').addEventListener('click',()=>{
+    const svgEl=document.getElementById('histSvg'); if(!svgEl) return; console.log('histSVG export start');
+    const xml=serializeCleanSVG(svgEl); const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='histogram.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
+  });
+  function getHistGraphPayload(){return{type:'hist',data:histHot.getData(),config:{title:histTitleText,xLabel:histXLabelText,yLabel:histYLabelText,fill:histFill.value,border:histBorder.value,borderWidth:histBorderWidth.value,bins:histBins.value,showGrid:histShowGrid.checked,logY:histLogY.checked,fontSize:histFontSize.value,yMin:histYMin.value,yMax:histYMax.value}};}
+  let histFileHandle=null,histFileName='histogram.graph';
+  async function saveHistFile(){const payload=getHistGraphPayload(); console.log('saveHistFile',{payload,histFileHandle}); if(histFileHandle&&histFileHandle.createWritable){try{const perm=await verifyPermission(histFileHandle,true); console.log('saveHistFile permission',perm); if(perm){const w=await histFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}}catch(err){console.error('saveHistFile error',err);}}else if(window.showSaveFilePicker){console.log('saveHistFile no handle - invoking saveAs'); await saveAsHistFile();}else{console.log('saveHistFile fallback download'); downloadJSON(payload,histFileName);} }
+  async function saveAsHistFile(){const payload=getHistGraphPayload(); console.log('saveAsHistFile',payload); if(window.showSaveFilePicker){try{histFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:histFileName}); const w=await histFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}catch(err){console.error('saveAsHistFile error',err);}}else{downloadJSON(payload,'histogram.graph');}}
+  async function openHistFile(){console.log('openHistFile start'); if(window.showOpenFilePicker){try{[histFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await histFileHandle.getFile(); histFileName=file.name; loadHistGraphFile(file);}catch(err){console.error('openHistFile error',err);}}else{const input=document.getElementById('histGraphFile'); input.value=''; input.click();}}
+  function loadHistGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); console.log('loadHistGraph',obj); if(obj.type!=='hist') throw new Error('Invalid graph type'); histHot.loadData(obj.data||[]); const c=obj.config||{}; histTitleText=c.title||histTitleText; histXLabelText=c.xLabel||histXLabelText; histYLabelText=c.yLabel||histYLabelText; histFill.value=c.fill||histFill.value; histBorder.value=c.border||histBorder.value; histBorderWidth.value=c.borderWidth||histBorderWidth.value; histBins.value=c.bins||histBins.value; histShowGrid.checked=!!c.showGrid; histLogY.checked=!!c.logY; histFontSize.value=c.fontSize||histFontSize.value; histFontSizeVal.textContent=histFontSize.value; histYMin.value=c.yMin||''; histYMax.value=c.yMax||''; scheduleDrawHist();}catch(err){console.error('loadHistGraph error',err);}}; reader.readAsText(file);}
+  document.getElementById('openHist').addEventListener('click',openHistFile);
+  document.getElementById('saveHist').addEventListener('click',saveHistFile);
+  document.getElementById('saveAsHist').addEventListener('click',saveAsHistFile);
+  document.getElementById('histGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){histFileName=f.name; histFileHandle=null; loadHistGraphFile(f);}});
+  scheduleDrawHist();
   function getLineGraphPayload(){return{type:'line',data:lineHot.getData(),config:{title:lineTitleText,xLabel:lineXLabelText,yLabel:lineYLabelText,dotSize:lineDotSize.value,fill:lineFill.value,border:lineBorder.value,borderWidth:lineBorderWidth.value,alpha:lineAlpha.value,labelColors:lineLabelColors,showGrid:lineShowGrid.checked,logX:lineLogX.checked,logY:lineLogY.checked,xMin:lineXMin.value,xMax:lineXMax.value,yMin:lineYMin.value,yMax:lineYMax.value,originMode:lineOriginMode.value,originX:lineOriginX.value,originY:lineOriginY.value}};}
   let lineFileHandle=null,lineFileName='line.graph';
   async function saveLineFile(){const payload=getLineGraphPayload(); if(window.DEBUG_LINE) console.log('saveLineFile',{payload,lineFileHandle}); if(lineFileHandle&&lineFileHandle.createWritable){try{const perm=await verifyPermission(lineFileHandle,true); if(perm){const w=await lineFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}}catch(err){console.error('saveLineFile error',err);}}else if(window.showSaveFilePicker){await saveAsLineFile();}else{downloadJSON(payload,lineFileName);}}
@@ -3558,45 +3866,66 @@ KAT7`;
     boxPage.style.display='none';
     scatterPage.style.display='none';
     linePage.style.display='none';
+    histPage.style.display='none';
     tabVenn.classList.add('active');
     tabBox.classList.remove('active');
     tabScatter.classList.remove('active');
     tabLine.classList.remove('active');
+    tabHist.classList.remove('active');
   }
   function showBox(){
     vennPage.style.display='none';
     boxPage.style.display='block';
     scatterPage.style.display='none';
     linePage.style.display='none';
+    histPage.style.display='none';
     tabBox.classList.add('active');
     tabVenn.classList.remove('active');
     tabScatter.classList.remove('active');
     tabLine.classList.remove('active');
+    tabHist.classList.remove('active');
   }
   function showScatter(){
     vennPage.style.display='none';
     boxPage.style.display='none';
     scatterPage.style.display='block';
     linePage.style.display='none';
+    histPage.style.display='none';
     tabScatter.classList.add('active');
     tabVenn.classList.remove('active');
     tabBox.classList.remove('active');
     tabLine.classList.remove('active');
+    tabHist.classList.remove('active');
   }
   function showLine(){
     vennPage.style.display='none';
     boxPage.style.display='none';
     scatterPage.style.display='none';
     linePage.style.display='block';
+    histPage.style.display='none';
     tabLine.classList.add('active');
     tabVenn.classList.remove('active');
     tabBox.classList.remove('active');
     tabScatter.classList.remove('active');
+    tabHist.classList.remove('active');
+  }
+  function showHist(){
+    vennPage.style.display='none';
+    boxPage.style.display='none';
+    scatterPage.style.display='none';
+    linePage.style.display='none';
+    histPage.style.display='block';
+    tabHist.classList.add('active');
+    tabVenn.classList.remove('active');
+    tabBox.classList.remove('active');
+    tabScatter.classList.remove('active');
+    tabLine.classList.remove('active');
   }
   tabVenn.addEventListener('click',()=>{ showVenn();});
   tabBox.addEventListener('click',()=>{ showBox();});
   tabScatter.addEventListener('click',()=>{ showScatter();});
   tabLine.addEventListener('click',()=>{ showLine();});
+  tabHist.addEventListener('click',()=>{ showHist();});
   showVenn();
   function tTest(a,b){
     const meanA=jStat.mean(a), meanB=jStat.mean(b);
