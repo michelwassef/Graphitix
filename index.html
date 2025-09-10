@@ -2017,6 +2017,7 @@
     const resDiv=document.getElementById('scatterStatsResults');
     resDiv.innerHTML=`<table><tr><th>r</th><td>${stats.r.toFixed(4)}</td></tr><tr><th>R²</th><td>${stats.r2.toFixed(4)}</td></tr><tr><th>P value</th><td>${formatP(stats.p)}</td></tr></table>`;
     console.log('scatter stats', stats);
+    autoResizeSvg(svg);
     console.log('scatter render complete with enhanced styles');
   }
 
@@ -2894,6 +2895,7 @@
   const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});
   titleText.textContent=lineTitleText; makeEditable(titleText,txt=>{lineTitleText=txt;});
   updateLineStats(series);
+  autoResizeSvg(svg);
   if(window.DEBUG_LINE) console.log('line render complete');
   }
   function buildLineExportSvg(){
@@ -3039,6 +3041,7 @@
     if(window.DEBUG_HIST) console.log('hist yLabel',{yX,label:histYLabelText});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=histTitleText;makeEditable(titleText,txt=>{histTitleText=txt;});
     updateHistStats(values);
+    autoResizeSvg(svg);
     if(window.DEBUG_HIST) console.log('drawHistogram complete',{token});
   }
   document.getElementById('histPNG').addEventListener('click',async()=>{
@@ -3485,6 +3488,7 @@
       });
       pieLegendItems=segmentLabels.map((lab,i)=>({label:lab,color:pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]}));
       pieLegendWidth=legendWidth;
+      autoResizeSvg(svg);
       const valCol=parseInt(pieValueColumn.value)-1;
       const expCol=parseInt(pieExpectedColumn.value)-1;
       const observed=segmentValues.map(row=>row[valCol]||0);
@@ -3637,6 +3641,7 @@
         }
         texts.forEach(t=>svg.appendChild(t));
         container.appendChild(svg);
+        autoResizeSvg(svg);
         gridContainer.appendChild(container);
       });
       allLabels.forEach((lab,i)=>{
@@ -5529,6 +5534,20 @@ KAT7`;
       }
     });
   }
+  function autoResizeSvg(svg){
+    try{
+      const bbox=svg.getBBox();
+      const padding=10;
+      const minX=Math.min(0,bbox.x-padding);
+      const minY=Math.min(0,bbox.y-padding);
+      const viewW=Math.max(svg.viewBox.baseVal.width,bbox.x+bbox.width+padding-minX);
+      const viewH=Math.max(svg.viewBox.baseVal.height,bbox.y+bbox.height+padding-minY);
+      svg.setAttribute('viewBox',`${minX} ${minY} ${viewW} ${viewH}`);
+      svg.setAttribute('width',viewW);
+      svg.setAttribute('height',viewH);
+      console.log('autoResizeSvg applied',{bbox,minX,minY,viewW,viewH});
+    }catch(err){console.error('autoResizeSvg error',err);}
+  }
   function serializeCleanSVG(svgEl){
     const clone = svgEl.cloneNode(true);
     clone.querySelectorAll('[contenteditable],[contentEditable]').forEach(el=>{
@@ -5952,6 +5971,7 @@ KAT7`;
     const spacing=fs+4;
     const newY=Math.max(spacing,topMost-spacing);
     titleText.setAttribute('y',newY);
+    autoResizeSvg(svg);
     console.log('boxplot render complete with enhanced styles');
   }
   function getBoxGraphPayload(){
