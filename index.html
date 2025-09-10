@@ -916,7 +916,7 @@
   </div>
 </div>
 <div id="piePage" style="display:none;">
-  <header><h2 style="margin:0">Proportion Graph</h2><div style="color:#555;font-size:13px">Paste category and value data into the table and draw a proportion graph.</div></header>
+  <header><h2 style="margin:0">Proportion Graph</h2><div style="color:#555;font-size:13px">Paste category, observed, and expected data into the table and draw a proportion graph. The Chi² test uses the observed and expected columns.</div></header>
   <div class="row" style="margin:8px 0">
     <button class="btn" id="openPie">open file</button>
     <button class="btn" id="savePie">save file</button>
@@ -962,14 +962,17 @@
                   <option value="stacked">Stacked bar</option>
                 </select>
               </label>
-              <label style="width:auto">Value column
-                <select id="pieValueColumn"></select>
-              </label>
-              <label style="width:auto"><input type="checkbox" id="pieShowPercents"> Show percentages</label>
-              <label style="width:auto">Start angle <input type="number" id="pieStartAngle" value="0" style="width:60px"></label>
-            </div>
-          </fieldset>
-          <fieldset>
+                <label style="width:auto">Observed column
+                  <select id="pieValueColumn"></select>
+                </label>
+                <label style="width:auto">Expected column
+                  <select id="pieExpectedColumn"></select>
+                </label>
+                <label style="width:auto"><input type="checkbox" id="pieShowPercents"> Show percentages</label>
+                <label style="width:auto">Start angle <input type="number" id="pieStartAngle" value="0" style="width:60px"></label>
+              </div>
+            </fieldset>
+            <fieldset>
             <legend>Font</legend>
             <div class="control">
               <label>Size</label><input type="range" id="pieFontSize" min="10" max="36" step="1" value="16"><output id="pieFontSizeVal">16</output>
@@ -2044,13 +2047,15 @@
     histStatsResults.innerHTML=`<table><tr><th>n</th><td>${values.length}</td></tr><tr><th>Mean</th><td>${mean.toFixed(4)}</td></tr><tr><th>Median</th><td>${median.toFixed(4)}</td></tr><tr><th>SD</th><td>${sd.toFixed(4)}</td></tr></table>`;
     console.log('updateHistStats result',{mean,median,sd});
   }
-  function updatePieStats(labels,values){
-    console.log('updatePieStats start',{labels:labels.length,values:values.length});
-    if(!values.length){pieStatsResults.textContent='No data';return;}
-    const total=values.reduce((s,v)=>s+v,0);
-    const expected=total/values.length;
-    const chi2=values.reduce((s,v)=>s+Math.pow(v-expected,2)/expected,0);
-    const df=values.length-1;
+  function updatePieStats(labels,observed,expected){
+    console.log('updatePieStats start',{labels:labels.length,observed:observed.length,expected:expected.length});
+    if(!observed.length){pieStatsResults.textContent='No data';return;}
+    if(expected.length!==observed.length || expected.some(e=>isNaN(e))){
+      pieStatsResults.textContent='Expected values required';
+      return;
+    }
+    const chi2=observed.reduce((s,o,i)=>s+Math.pow(o-expected[i],2)/expected[i],0);
+    const df=observed.length-1;
     const p=1-jStat.chisquare.cdf(chi2,df);
     pieStatsResults.innerHTML=`<table><tr><th>Chi²</th><td>${chi2.toFixed(4)}</td></tr><tr><th>df</th><td>${df}</td></tr><tr><th>p-value</th><td>${formatP(p)}</td></tr></table>`;
     console.log('updatePieStats result',{chi2,df,p});
@@ -3071,9 +3076,9 @@
     licenseKey:'non-commercial-and-evaluation',
   });
   document.getElementById('pieLoadExample').addEventListener('click',()=>{
-    const ex=[['Label','Value'],['A',30],['B',50],['C',20]];
+    const ex=[['Label','Observed','Expected'],['A',30,40],['B',50,40],['C',20,20]];
     pieHot.loadData(ex);
-    console.log('pie example loaded');
+    console.log('pie example loaded with expected values');
     scheduleDrawPie();
   });
   document.getElementById('pieImport').addEventListener('click',()=>{const f=document.getElementById('pieFile');f.value='';f.click();});
@@ -3136,10 +3141,13 @@
   const pieChartType=document.getElementById('pieChartType');
   const pieValueColumn=document.getElementById('pieValueColumn');
   const pieValueColumnLabel=pieValueColumn.parentElement;
+  const pieExpectedColumn=document.getElementById('pieExpectedColumn');
+  const pieExpectedColumnLabel=pieExpectedColumn.parentElement;
   [pieShowPercents,pieStartAngle,pieFontSize].forEach(el=>el.addEventListener('input',()=>{console.log('pie config changed',el.id,el.value); pieFontSizeVal.textContent=pieFontSize.value; scheduleDrawPie();}));
   function updatePieValueColumnVisibility(){
     const hide=pieChartType.value==='stacked';
     pieValueColumnLabel.style.display=hide?'none':'';
+    pieExpectedColumnLabel.style.display=hide?'none':'';
     console.log('updatePieValueColumnVisibility',{type:pieChartType.value,hidden:hide});
   }
   pieChartType.addEventListener('change',()=>{
@@ -3149,6 +3157,7 @@
   });
   updatePieValueColumnVisibility();
   pieValueColumn.addEventListener('change',()=>{console.log('pie value column changed',pieValueColumn.value); scheduleDrawPie();});
+  pieExpectedColumn.addEventListener('change',()=>{console.log('pie expected column changed',pieExpectedColumn.value); scheduleDrawPie();});
   const pieColorPickers=document.getElementById('pieColorPickers');
   let pieColors={};
   function updatePieColorPickers(labels){
@@ -3167,19 +3176,28 @@
     });
     console.log('updatePieColorPickers',pieColors);
   }
-  function updatePieValueColumn(header){
-    const prev=pieValueColumn.value;
+  function updatePieColumns(header){
+    const prevVal=pieValueColumn.value;
+    const prevExp=pieExpectedColumn.value;
     pieValueColumn.innerHTML='';
-    console.log('updatePieValueColumn prev',prev);
+    pieExpectedColumn.innerHTML='';
+    console.log('updatePieColumns prev',{prevVal,prevExp});
     for(let c=1;c<header.length;c++){
-      const opt=document.createElement('option');
-      opt.value=String(c);
-      opt.textContent=header[c]||`Column ${c+1}`;
-      if(opt.value===prev) opt.selected=true;
-      pieValueColumn.appendChild(opt);
+      const txt=header[c]||`Column ${c+1}`;
+      const optVal=document.createElement('option');
+      optVal.value=String(c);
+      optVal.textContent=txt;
+      if(optVal.value===prevVal) optVal.selected=true;
+      pieValueColumn.appendChild(optVal);
+      const optExp=document.createElement('option');
+      optExp.value=String(c);
+      optExp.textContent=txt;
+      if(optExp.value===prevExp) optExp.selected=true;
+      pieExpectedColumn.appendChild(optExp);
     }
     if(!pieValueColumn.value && header.length>1) pieValueColumn.value='1';
-    console.log('updatePieValueColumn',{count:pieValueColumn.options.length,selected:pieValueColumn.value});
+    if(!pieExpectedColumn.value && header.length>2) pieExpectedColumn.value='2';
+    console.log('updatePieColumns',{val:pieValueColumn.value,exp:pieExpectedColumn.value});
   }
   let pieTitleText='Proportion graph';
   async function drawPie(){
@@ -3189,7 +3207,7 @@
     const startDeg=parseFloat(pieStartAngle.value)||0;
     const fs=Number(pieFontSize.value)||16;
     const data=pieHot.getData();
-    updatePieValueColumn(data[0]||[]);
+    updatePieColumns(data[0]||[]);
     const plotEl=piePlotDiv;
     while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
 
@@ -3340,23 +3358,31 @@
         item.appendChild(t);
         legend.appendChild(item);
       });
-      const totals=segmentValues.map(row=>row.reduce((s,v)=>s+v,0));
-      updatePieStats(segmentLabels,totals);
-      console.log('drawPie complete stacked',{token});
-      return;
-    }
+        const totals=segmentValues.map(row=>row.reduce((s,v)=>s+v,0));
+        pieStatsResults.textContent='Statistics not available for stacked charts';
+        console.log('drawPie stacked stats skipped',{token,totals});
+        console.log('drawPie complete stacked',{token});
+        return;
+      }
 
     // pie or donut chart with legend on right
-    const valCol=parseInt(pieValueColumn.value)||1;
-    const labels=[]; const values=[];
-    for(let r=1;r<data.length;r++){
-      const lab=data[r][0];
-      const val=parseFloat(data[r][valCol]);
-      if(lab && !isNaN(val)){labels.push(String(lab)); values.push(val);} }
-    console.log('drawPie parsed',{valCol,labelCount:labels.length});
-    if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; }
-    updatePieColorPickers(labels);
-    const total=values.reduce((s,v)=>s+v,0);
+      const valCol=parseInt(pieValueColumn.value)||1;
+      const expCol=parseInt(pieExpectedColumn.value)||2;
+      const labels=[]; const values=[]; const expected=[];
+      for(let r=1;r<data.length;r++){
+        const lab=data[r][0];
+        const val=parseFloat(data[r][valCol]);
+        const expVal=parseFloat(data[r][expCol]);
+        if(lab && !isNaN(val)){
+          labels.push(String(lab));
+          values.push(val);
+          expected.push(expVal);
+        }
+      }
+      console.log('drawPie parsed',{valCol,expCol,labelCount:labels.length});
+      if(!values.length){ plotEl.innerHTML='<i>No data</i>'; pieStatsResults.textContent='No data'; return; }
+      updatePieColorPickers(labels);
+      const total=values.reduce((s,v)=>s+v,0);
     const legendWidth=120;
     plotEl.style.display='flex';
     plotEl.style.alignItems='center';
@@ -3443,7 +3469,7 @@
       item.appendChild(t);
       legend.appendChild(item);
     });
-    updatePieStats(labels,values);
+    updatePieStats(labels,values,expected);
     console.log('drawPie complete',{token});
   }
   document.getElementById('piePNG').addEventListener('click',async()=>{
@@ -3458,12 +3484,12 @@
     const svgEl=document.getElementById('pieSvg'); if(!svgEl) return; console.log('pieSVG export start');
     const xml=serializeCleanSVG(svgEl); const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='pie.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
   });
-  function getPieGraphPayload(){return{type:'pie',data:pieHot.getData(),config:{title:pieTitleText,colors:pieColors,showPercents:pieShowPercents.checked,startAngle:pieStartAngle.value,fontSize:pieFontSize.value,chartType:pieChartType.value,valueColumn:pieValueColumn.value}};}
+  function getPieGraphPayload(){return{type:'pie',data:pieHot.getData(),config:{title:pieTitleText,colors:pieColors,showPercents:pieShowPercents.checked,startAngle:pieStartAngle.value,fontSize:pieFontSize.value,chartType:pieChartType.value,valueColumn:pieValueColumn.value,expectedColumn:pieExpectedColumn.value}};}
   let pieFileHandle=null,pieFileName='pie.graph';
   async function savePieFile(){const payload=getPieGraphPayload(); console.log('savePieFile',{payload,pieFileHandle}); if(pieFileHandle&&pieFileHandle.createWritable){try{const perm=await verifyPermission(pieFileHandle,true); if(perm){const w=await pieFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}}catch(err){console.error('savePieFile error',err);}}else if(window.showSaveFilePicker){await saveAsPieFile();}else{downloadJSON(payload,pieFileName);}}
   async function saveAsPieFile(){const payload=getPieGraphPayload(); console.log('saveAsPieFile',payload); if(window.showSaveFilePicker){try{pieFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:pieFileName}); const w=await pieFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}catch(err){console.error('saveAsPieFile error',err);}}else{downloadJSON(payload,pieFileName);}}
   async function openPieFile(){console.log('openPieFile start'); if(window.showOpenFilePicker){try{[pieFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await pieFileHandle.getFile(); pieFileName=file.name; loadPieGraphFile(file);}catch(err){console.error('openPieFile error',err);}}else{const input=document.getElementById('pieGraphFile'); input.value=''; input.click();}}
-  function loadPieGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); pieHot.loadData(obj.data||[]); const c=obj.config||{}; pieTitleText=c.title||pieTitleText; pieColors=c.colors||pieColors; pieShowPercents.checked=!!c.showPercents; pieStartAngle.value=c.startAngle||pieStartAngle.value; pieFontSize.value=c.fontSize||pieFontSize.value; pieChartType.value=c.chartType||pieChartType.value; pieFontSizeVal.textContent=pieFontSize.value; pieValueColumn.value=c.valueColumn||pieValueColumn.value; scheduleDrawPie();}catch(err){console.error('loadPieGraph error',err);}}; reader.readAsText(file);}
+  function loadPieGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); pieHot.loadData(obj.data||[]); const c=obj.config||{}; pieTitleText=c.title||pieTitleText; pieColors=c.colors||pieColors; pieShowPercents.checked=!!c.showPercents; pieStartAngle.value=c.startAngle||pieStartAngle.value; pieFontSize.value=c.fontSize||pieFontSize.value; pieChartType.value=c.chartType||pieChartType.value; pieFontSizeVal.textContent=pieFontSize.value; pieValueColumn.value=c.valueColumn||pieValueColumn.value; pieExpectedColumn.value=c.expectedColumn||pieExpectedColumn.value; scheduleDrawPie();}catch(err){console.error('loadPieGraph error',err);}}; reader.readAsText(file);}
   document.getElementById('openPie').addEventListener('click',openPieFile);
   document.getElementById('savePie').addEventListener('click',savePieFile);
   document.getElementById('saveAsPie').addEventListener('click',saveAsPieFile);
