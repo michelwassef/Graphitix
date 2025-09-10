@@ -2249,6 +2249,20 @@
   const histHotContainer=document.getElementById('histHot');
   const histHotWrapper=document.getElementById('histHotWrapper');
   histHotWrapper.style.overflow='auto';
+  const histTablePanel=document.getElementById('histTablePanel');
+  const histGraphPanel=document.getElementById('histGraphPanel');
+  const histPanelResizer=document.getElementById('histPanelResizer');
+  const histSvgBox=histGraphPanel?.querySelector('.svgbox');
+  function syncHistWidths(){
+    const tableWidth=histTablePanel.getBoundingClientRect().width;
+    if(histSvgBox) histSvgBox.style.width=tableWidth+'px';
+    if(window.DEBUG_HIST) console.log('syncHistWidths',{tableWidth});
+  }
+  const histTableObserver=new ResizeObserver(()=>{syncHistWidths();});
+  histTableObserver.observe(histTablePanel);
+  syncHistWidths();
+  const histPlotDiv=document.getElementById('histPlot');
+  const histContainer=histPlotDiv.closest('.svgbox')||histPlotDiv.parentElement;
   const histHot=new Handsontable(histHotContainer,{
     data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,HIST_DEFAULT_COLS),
     rowHeaders:true,
@@ -2332,6 +2346,93 @@
     console.log('hist data imported',{rows:data.length,cols:targetCols});
     scheduleDrawHist();
   }
+  (function initHistResizers(){
+    if(!histContainer) return;
+    console.log('init hist resizers');
+    const MIN_W=50, MIN_H=40;
+    function px(n){return Math.round(n)+'px';}
+    const vHandle=histContainer.querySelector('.resizer-vertical');
+    const hHandle=histContainer.querySelector('.resizer-horizontal');
+    const cHandle=histContainer.querySelector('.resizer-corner');
+    function attachDrag(handle,axis){
+      if(!handle) return;
+      let startX=0,startY=0,startW=0,startH=0,pointerId=null;
+      const onPointerDown=e=>{
+        e.preventDefault();
+        if(window.DEBUG_HIST) console.log('hist resize start',axis);
+        pointerId=e.pointerId;
+        try{handle.setPointerCapture(pointerId);}catch(_){ }
+        const rect=histContainer.getBoundingClientRect();
+        startW=Math.round(rect.width); startH=Math.round(rect.height);
+        startX=e.clientX; startY=e.clientY;
+        histContainer.style.boxSizing='border-box';
+        histContainer.style.width=px(startW);
+        histContainer.style.height=px(startH);
+        histContainer.style.flex='0 0 auto';
+        histContainer.style.maxWidth='none';
+        histContainer.style.maxHeight='none';
+        document.documentElement.style.userSelect='none';
+        document.documentElement.style.touchAction='none';
+        const onMove=ev=>{
+          ev.preventDefault();
+          const dx=ev.clientX-startX;
+          const dy=ev.clientY-startY;
+          if(axis==='x'||axis==='both'){
+            const newW=Math.max(MIN_W,Math.round(startW+dx));
+            histContainer.style.width=px(newW);
+          }
+          if(axis==='y'||axis==='both'){
+            const newH=Math.max(MIN_H,Math.round(startH+dy));
+            histContainer.style.height=px(newH);
+          }
+          scheduleDrawHist();
+        };
+        const onUp=ev=>{
+          try{handle.releasePointerCapture(pointerId);}catch(_){ }
+          document.removeEventListener('pointermove',onMove);
+          document.removeEventListener('pointerup',onUp);
+          document.documentElement.style.userSelect='';
+          document.documentElement.style.touchAction='';
+          if(window.DEBUG_HIST) console.log('hist drag end');
+          scheduleDrawHist();
+        };
+        document.addEventListener('pointermove',onMove);
+        document.addEventListener('pointerup',onUp);
+      };
+      handle.addEventListener('pointerdown',onPointerDown);
+      handle.addEventListener('dblclick',ev=>{ev.preventDefault(); histContainer.style.width='640px'; histContainer.style.height='420px'; histContainer.style.flex='0 0 auto'; if(window.DEBUG_HIST) console.log('hist size reset'); scheduleDrawHist();});
+    }
+    attachDrag(vHandle,'x');
+    attachDrag(hHandle,'y');
+    attachDrag(cHandle,'both');
+    const histResizeObserver=new ResizeObserver(()=>{if(window.DEBUG_HIST) console.log('hist resize observer triggered'); scheduleDrawHist();});
+    histResizeObserver.observe(histContainer);
+  })();
+
+  (function initHistPanelResizer(){
+    if(!histPanelResizer||!histTablePanel||!histGraphPanel) return;
+    histPanelResizer.addEventListener('pointerdown',e=>{
+      e.preventDefault();
+      const startX=e.clientX;
+      const startTable=histTablePanel.getBoundingClientRect().width;
+      const startGraph=histGraphPanel.getBoundingClientRect().width;
+      const total=startTable+startGraph;
+      function onMove(ev){
+        const dx=ev.clientX-startX;
+        let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+        let newGraph=total-newTable;
+        histTablePanel.style.flex=`0 0 ${newTable}px`;
+        histGraphPanel.style.flex=`0 0 ${newGraph}px`;
+        syncHistWidths();
+      }
+      function onUp(){
+        document.removeEventListener('pointermove',onMove);
+        document.removeEventListener('pointerup',onUp);
+      }
+      document.addEventListener('pointermove',onMove);
+      document.addEventListener('pointerup',onUp);
+    });
+  })();
   let histTitleText='Histogram';
   let histXLabelText='Value';
   let histYLabelText='Count';
@@ -2604,7 +2705,11 @@
     const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
     const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont));
     const maxYLabelWidth=Math.max(...yLabelWidths,0);
-    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs)};
+    const yTitleFont=`${fs+4}px sans-serif`;
+    const yTitleWidth=measureTextWidth(histYLabelText,yTitleFont);
+    if(window.DEBUG_HIST) console.log('hist yTitleWidth',{yTitleWidth});
+    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs,maxYLabelWidth+fs*1.5+yTitleWidth/2)};
+    if(window.DEBUG_HIST) console.log('hist margin',margin);
     const plotW=Math.max(20,W-margin.left-margin.right); const plotH=Math.max(20,H-margin.top-margin.bottom);
     const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
     const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
