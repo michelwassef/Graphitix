@@ -962,12 +962,6 @@
                   <option value="stacked">Stacked bar</option>
                 </select>
               </label>
-                <label style="width:auto">Observed column
-                  <select id="pieValueColumn"></select>
-                </label>
-                <label style="width:auto">Expected column
-                  <select id="pieExpectedColumn"></select>
-                </label>
                 <label style="width:auto"><input type="checkbox" id="pieShowPercents"> Show percentages</label>
                 <label style="width:auto">Start angle <input type="number" id="pieStartAngle" value="0" style="width:60px"></label>
               </div>
@@ -983,6 +977,14 @@
       <div id="pieStats" style="width:100%;margin-top:12px">
         <fieldset>
           <legend>Statistics</legend>
+          <div class="control" style="flex-wrap:wrap">
+            <label style="width:auto">Observed column
+              <select id="pieValueColumn"></select>
+            </label>
+            <label style="width:auto">Expected column
+              <select id="pieExpectedColumn"></select>
+            </label>
+          </div>
           <div id="pieStatsResults"></div>
         </fieldset>
       </div>
@@ -3382,16 +3384,53 @@
       let cols=Math.ceil(Math.sqrt(chartCount));
       let rows=Math.ceil(chartCount/cols);
       if(chartCount===3){cols=2;rows=2;}
-      plotEl.style.display='grid';
-      plotEl.style.alignItems='center';
-      plotEl.style.justifyItems='center';
-      plotEl.style.gridTemplateColumns=`repeat(${cols}, 1fr)`;
-      plotEl.style.gridAutoRows='auto';
-      plotEl.style.gap='20px';
-      const plotWidth=plotEl.clientWidth||400;
-      const plotHeight=plotEl.clientHeight||400;
-      const cellWidth=plotWidth/cols;
-      const cellHeight=plotHeight/rows;
+      plotEl.innerHTML='';
+      let legend=null;
+      let gridContainer=plotEl;
+      let plotWidth=plotEl.clientWidth||400;
+      let plotHeight=plotEl.clientHeight||400;
+      let cellWidth,cellHeight;
+      if(chartCount===2){
+        plotEl.style.display='flex';
+        plotEl.style.alignItems='center';
+        const chartsWrapper=document.createElement('div');
+        chartsWrapper.style.display='grid';
+        chartsWrapper.style.gridTemplateColumns='1fr 1fr';
+        chartsWrapper.style.gap='20px';
+        chartsWrapper.style.flex='1';
+        chartsWrapper.style.alignItems='center';
+        chartsWrapper.style.justifyItems='center';
+        plotEl.appendChild(chartsWrapper);
+        legend=document.createElement('div');
+        legend.style.fontSize=fs+'px';
+        legend.style.marginLeft='20px';
+        legend.style.width='120px';
+        plotEl.appendChild(legend);
+        const legendWidth=120;
+        cellWidth=(plotWidth-legendWidth)/2;
+        cellHeight=plotHeight;
+        gridContainer=chartsWrapper;
+        console.log('drawPie layout two charts',{token,legendWidth});
+      }else{
+        plotEl.style.display='grid';
+        plotEl.style.position='relative';
+        plotEl.style.alignItems='center';
+        plotEl.style.justifyItems='center';
+        plotEl.style.gridTemplateColumns=`repeat(${cols}, 1fr)`;
+        plotEl.style.gridAutoRows='auto';
+        plotEl.style.gap='20px';
+        cellWidth=plotWidth/cols;
+        cellHeight=plotHeight/rows;
+        legend=document.createElement('div');
+        legend.style.fontSize=fs+'px';
+        legend.style.position='absolute';
+        legend.style.top='0';
+        legend.style.right='0';
+        legend.style.background='rgba(255,255,255,0.8)';
+        legend.style.padding='4px';
+        plotEl.appendChild(legend);
+        console.log('drawPie layout grid',{token,cols,rows});
+      }
       valueCols.forEach((col,i)=>{
         const labels=[]; const values=[];
         for(let r=1;r<data.length;r++){
@@ -3408,6 +3447,13 @@
         container.style.flexDirection='column';
         container.style.alignItems='center';
         if(chartCount===3 && i===2) container.style.gridColumn='1 / span 2';
+        const titleDiv=document.createElement('div');
+        titleDiv.textContent=col.title||`Column ${col.idx+1}`;
+        titleDiv.style.fontSize=(fs+4)+'px';
+        titleDiv.style.marginBottom='4px';
+        container.appendChild(titleDiv);
+        makeEditable(titleDiv,txt=>{col.title=txt;});
+        console.log('drawPie title added',{token,index:i,title:titleDiv.textContent});
         const size=Math.min(cellWidth,cellHeight)-40;
         const svg=document.createElementNS(NS,'svg');
         if(i===0) svg.setAttribute('id','pieSvg');
@@ -3462,33 +3508,24 @@
           svg.appendChild(hole);
         }
         texts.forEach(t=>svg.appendChild(t));
-        const title=document.createElementNS(NS,'text');
-        title.setAttribute('x',cx);
-        title.setAttribute('y',fs);
-        title.setAttribute('text-anchor','middle');
-        title.setAttribute('font-size',fs+4);
-        title.textContent=col.title||`Column ${col.idx+1}`;
-        svg.appendChild(title);
         container.appendChild(svg);
-        const legend=document.createElement('div');
-        legend.style.fontSize=fs+'px';
-        labels.forEach((lab,j)=>{
-          const item=document.createElement('div');
-          const sw=document.createElement('span');
-          sw.style.display='inline-block';
-          sw.style.width='12px';
-          sw.style.height='12px';
-          sw.style.background=pieColors[lab]||DEFAULT_SCATTER_COLORS[j%DEFAULT_SCATTER_COLORS.length];
-          sw.style.marginRight='4px';
-          const t=document.createElement('span');
-          t.textContent=lab;
-          item.appendChild(sw);
-          item.appendChild(t);
-          legend.appendChild(item);
-        });
-        container.appendChild(legend);
-        plotEl.appendChild(container);
+        gridContainer.appendChild(container);
       });
+      allLabels.forEach((lab,i)=>{
+        const item=document.createElement('div');
+        const sw=document.createElement('span');
+        sw.style.display='inline-block';
+        sw.style.width='12px';
+        sw.style.height='12px';
+        sw.style.background=pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+        sw.style.marginRight='4px';
+        const t=document.createElement('span');
+        t.textContent=lab;
+        item.appendChild(sw);
+        item.appendChild(t);
+        legend.appendChild(item);
+      });
+      console.log('drawPie legend built',{token,labelCount:allLabels.length});
       const valCol=parseInt(pieValueColumn.value)||valueCols[0].idx;
       const expCol=parseInt(pieExpectedColumn.value)|| (valueCols[1]?valueCols[1].idx:valueCols[0].idx);
       const statLabels=[]; const statValues=[]; const expected=[];
