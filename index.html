@@ -935,6 +935,13 @@
           <fieldset>
             <legend>Options</legend>
             <div class="control" style="flex-wrap:wrap">
+              <label style="width:auto">Chart type
+                <select id="pieChartType">
+                  <option value="pie">Pie</option>
+                  <option value="donut">Donut</option>
+                  <option value="stacked">Stacked bar</option>
+                </select>
+              </label>
               <label style="width:auto"><input type="checkbox" id="pieShowPercents"> Show percentages</label>
               <label style="width:auto">Start angle <input type="number" id="pieStartAngle" value="0" style="width:60px"></label>
             </div>
@@ -2871,12 +2878,82 @@
     const tableWidth=pieTablePanel.getBoundingClientRect().width;
     if(pieSvgBox) pieSvgBox.style.width=tableWidth+'px';
     console.log('syncPieWidths',{tableWidth});
+    scheduleDrawPie();
   }
   const pieTableObserver=new ResizeObserver(()=>{syncPieWidths();});
   pieTableObserver.observe(pieTablePanel);
   syncPieWidths();
   const piePlotDiv=document.getElementById('piePlot');
   const pieContainer=piePlotDiv.closest('.svgbox')||piePlotDiv.parentElement;
+  (function initPieResizers(){
+    if(!pieContainer) return;
+    console.log('init pie resizers');
+    const MIN_W=50,MIN_H=40;
+    function px(n){return Math.round(n)+'px';}
+    const vHandle=pieContainer.querySelector('.resizer-vertical');
+    const hHandle=pieContainer.querySelector('.resizer-horizontal');
+    const cHandle=pieContainer.querySelector('.resizer-corner');
+    function attachDrag(handle,axis){
+      if(!handle) return;
+      let startX=0,startY=0,startW=0,startH=0,pointerId=null;
+      const onPointerDown=e=>{
+        e.preventDefault();
+        console.log('pie resize start',axis);
+        pointerId=e.pointerId;
+        try{handle.setPointerCapture(pointerId);}catch(_){ }
+        const rect=pieContainer.getBoundingClientRect();
+        startW=Math.round(rect.width); startH=Math.round(rect.height);
+        startX=e.clientX; startY=e.clientY;
+        pieContainer.style.boxSizing='border-box';
+        pieContainer.style.width=px(startW);
+        pieContainer.style.height=px(startH);
+        pieContainer.style.flex='0 0 auto';
+        pieContainer.style.maxWidth='none';
+        pieContainer.style.maxHeight='none';
+        document.documentElement.style.userSelect='none';
+        document.documentElement.style.touchAction='none';
+        const onMove=ev=>{
+          ev.preventDefault();
+          const dx=ev.clientX-startX;
+          const dy=ev.clientY-startY;
+          if(axis==='x'||axis==='both'){
+            const newW=Math.max(MIN_W,Math.round(startW+dx));
+            pieContainer.style.width=px(newW);
+          }
+          if(axis==='y'||axis==='both'){
+            const newH=Math.max(MIN_H,Math.round(startH+dy));
+            pieContainer.style.height=px(newH);
+          }
+          scheduleDrawPie();
+        };
+        const onUp=ev=>{
+          try{handle.releasePointerCapture(pointerId);}catch(_){ }
+          document.removeEventListener('pointermove',onMove);
+          document.removeEventListener('pointerup',onUp);
+          document.documentElement.style.userSelect='';
+          document.documentElement.style.touchAction='';
+          console.log('pie drag end');
+          scheduleDrawPie();
+        };
+        document.addEventListener('pointermove',onMove);
+        document.addEventListener('pointerup',onUp);
+      };
+      handle.addEventListener('pointerdown',onPointerDown);
+      handle.addEventListener('dblclick',ev=>{
+        ev.preventDefault();
+        pieContainer.style.width='640px';
+        pieContainer.style.height='420px';
+        pieContainer.style.flex='0 0 auto';
+        console.log('pie size reset');
+        scheduleDrawPie();
+      });
+    }
+    attachDrag(vHandle,'x');
+    attachDrag(hHandle,'y');
+    attachDrag(cHandle,'both');
+    const pieResizeObserver=new ResizeObserver(()=>{console.log('pie resize observer triggered'); scheduleDrawPie();});
+    pieResizeObserver.observe(pieContainer);
+  })();
   const pieHot=new Handsontable(pieHotContainer,{
     data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,PIE_DEFAULT_COLS),
     rowHeaders:true,
@@ -2953,7 +3030,9 @@
   const pieStartAngle=document.getElementById('pieStartAngle');
   const pieFontSize=document.getElementById('pieFontSize');
   const pieFontSizeVal=document.getElementById('pieFontSizeVal');
+  const pieChartType=document.getElementById('pieChartType');
   [pieShowPercents,pieStartAngle,pieFontSize].forEach(el=>el.addEventListener('input',()=>{console.log('pie config changed',el.id,el.value); pieFontSizeVal.textContent=pieFontSize.value; scheduleDrawPie();}));
+  pieChartType.addEventListener('change',()=>{console.log('pie chart type changed',pieChartType.value); scheduleDrawPie();});
   const pieColorPickers=document.getElementById('pieColorPickers');
   let pieColors={};
   function updatePieColorPickers(labels){
@@ -2974,7 +3053,8 @@
   }
   let pieTitleText='Pie chart';
   async function drawPie(){
-    const token=++pieDrawToken; console.log('drawPie start',{token});
+    const type=pieChartType.value;
+    const token=++pieDrawToken; console.log('drawPie start',{token,type});
     const showPerc=pieShowPercents.checked;
     const startDeg=parseFloat(pieStartAngle.value)||0;
     const fs=Number(pieFontSize.value)||16;
@@ -2984,13 +3064,13 @@
       const lab=data[r][0];
       const val=parseFloat(data[r][1]);
       if(lab && !isNaN(val)){labels.push(String(lab)); values.push(val);} }
-    const plotEl=document.getElementById('piePlot');
+    const plotEl=piePlotDiv;
     while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; }
     updatePieColorPickers(labels);
     const total=values.reduce((s,v)=>s+v,0);
-    const W=Math.max(50,Math.floor(pieContainer.clientWidth||50));
-    const H=Math.max(50,Math.floor(pieContainer.clientHeight||50));
+    const W=Math.max(50,Math.floor(piePlotDiv.clientWidth||50));
+    const H=Math.max(50,Math.floor(piePlotDiv.clientHeight||50));
     plotEl.style.position='relative';
     const svg=document.createElementNS(NS,'svg');
     svg.setAttribute('id','pieSvg');
@@ -2999,9 +3079,50 @@
     svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
     svg.setAttribute('font-family','sans-serif');
     plotEl.appendChild(svg);
+    if(type==='stacked'){
+      const margin=10;
+      const barH=Math.min(H*0.6,H-2*margin);
+      let x=margin;
+      const y=(H-barH)/2;
+      labels.forEach((lab,i)=>{
+        const val=values[i];
+        const frac=val/total;
+        const w=frac*(W-2*margin);
+        const color=pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+        const rect=document.createElementNS(NS,'rect');
+        rect.setAttribute('x',x);
+        rect.setAttribute('y',y);
+        rect.setAttribute('width',w);
+        rect.setAttribute('height',barH);
+        rect.setAttribute('fill',color);
+        svg.appendChild(rect);
+        if(showPerc){
+          const txt=document.createElementNS(NS,'text');
+          txt.setAttribute('x',x+w/2);
+          txt.setAttribute('y',y+barH/2);
+          txt.setAttribute('font-size',fs);
+          txt.setAttribute('text-anchor','middle');
+          txt.setAttribute('dominant-baseline','middle');
+          txt.textContent=`${(frac*100).toFixed(1)}%`;
+          svg.appendChild(txt);
+        }
+        x+=w;
+      });
+      const title=document.createElementNS(NS,'text');
+      title.setAttribute('x',W/2);
+      title.setAttribute('y',fs+4);
+      title.setAttribute('text-anchor','middle');
+      title.setAttribute('font-size',fs+4);
+      title.textContent=pieTitleText;
+      svg.appendChild(title);
+      makeEditable(title,txt=>{pieTitleText=txt;});
+      console.log('drawPie complete stacked',{token});
+      return;
+    }
     const cx=W/2, cy=H/2;
     const radius=Math.min(W,H)/2-10;
     let angle=startDeg*Math.PI/180;
+    const texts=[];
     labels.forEach((lab,i)=>{
       const val=values[i];
       const frac=val/total;
@@ -3030,10 +3151,19 @@
         txt.setAttribute('text-anchor','middle');
         txt.setAttribute('dominant-baseline','middle');
         txt.textContent=`${(frac*100).toFixed(1)}%`;
-        svg.appendChild(txt);
+        texts.push(txt);
       }
       angle+=slice;
     });
+    if(type==='donut'){
+      const hole=document.createElementNS(NS,'circle');
+      hole.setAttribute('cx',cx);
+      hole.setAttribute('cy',cy);
+      hole.setAttribute('r',radius*0.5);
+      hole.setAttribute('fill','#fff');
+      svg.appendChild(hole);
+    }
+    texts.forEach(t=>svg.appendChild(t));
     const title=document.createElementNS(NS,'text');
     title.setAttribute('x',cx);
     title.setAttribute('y',fs+4);
@@ -3056,12 +3186,12 @@
     const svgEl=document.getElementById('pieSvg'); if(!svgEl) return; console.log('pieSVG export start');
     const xml=serializeCleanSVG(svgEl); const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='pie.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
   });
-  function getPieGraphPayload(){return{type:'pie',data:pieHot.getData(),config:{title:pieTitleText,colors:pieColors,showPercents:pieShowPercents.checked,startAngle:pieStartAngle.value,fontSize:pieFontSize.value}};}
+  function getPieGraphPayload(){return{type:'pie',data:pieHot.getData(),config:{title:pieTitleText,colors:pieColors,showPercents:pieShowPercents.checked,startAngle:pieStartAngle.value,fontSize:pieFontSize.value,chartType:pieChartType.value}};}
   let pieFileHandle=null,pieFileName='pie.graph';
   async function savePieFile(){const payload=getPieGraphPayload(); console.log('savePieFile',{payload,pieFileHandle}); if(pieFileHandle&&pieFileHandle.createWritable){try{const perm=await verifyPermission(pieFileHandle,true); if(perm){const w=await pieFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}}catch(err){console.error('savePieFile error',err);}}else if(window.showSaveFilePicker){await saveAsPieFile();}else{downloadJSON(payload,pieFileName);}}
   async function saveAsPieFile(){const payload=getPieGraphPayload(); console.log('saveAsPieFile',payload); if(window.showSaveFilePicker){try{pieFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:pieFileName}); const w=await pieFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}catch(err){console.error('saveAsPieFile error',err);}}else{downloadJSON(payload,pieFileName);}}
   async function openPieFile(){console.log('openPieFile start'); if(window.showOpenFilePicker){try{[pieFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await pieFileHandle.getFile(); pieFileName=file.name; loadPieGraphFile(file);}catch(err){console.error('openPieFile error',err);}}else{const input=document.getElementById('pieGraphFile'); input.value=''; input.click();}}
-  function loadPieGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); pieHot.loadData(obj.data||[]); const c=obj.config||{}; pieTitleText=c.title||pieTitleText; pieColors=c.colors||pieColors; pieShowPercents.checked=!!c.showPercents; pieStartAngle.value=c.startAngle||pieStartAngle.value; pieFontSize.value=c.fontSize||pieFontSize.value; pieFontSizeVal.textContent=pieFontSize.value; scheduleDrawPie();}catch(err){console.error('loadPieGraph error',err);}}; reader.readAsText(file);}
+  function loadPieGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); pieHot.loadData(obj.data||[]); const c=obj.config||{}; pieTitleText=c.title||pieTitleText; pieColors=c.colors||pieColors; pieShowPercents.checked=!!c.showPercents; pieStartAngle.value=c.startAngle||pieStartAngle.value; pieFontSize.value=c.fontSize||pieFontSize.value; pieChartType.value=c.chartType||pieChartType.value; pieFontSizeVal.textContent=pieFontSize.value; scheduleDrawPie();}catch(err){console.error('loadPieGraph error',err);}}; reader.readAsText(file);}
   document.getElementById('openPie').addEventListener('click',openPieFile);
   document.getElementById('savePie').addEventListener('click',savePieFile);
   document.getElementById('saveAsPie').addEventListener('click',saveAsPieFile);
