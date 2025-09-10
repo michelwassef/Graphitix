@@ -3404,6 +3404,7 @@
       svg.appendChild(axis);
       const barGap=10;
       const barWidth=(chartWidth-(barHeaders.length+1)*barGap)/barHeaders.length;
+      const xLabels=[];
       barHeaders.forEach((bh,j)=>{
         let y=marginTop+chartHeight;
         const total=segmentValues.reduce((s,row)=>s+(row[j]||0),0);
@@ -3432,13 +3433,34 @@
           }
         });
         const lbl=document.createElementNS(NS,'text');
-        lbl.setAttribute('x',marginLeft+barGap+j*(barWidth+barGap)+barWidth/2);
-        lbl.setAttribute('y',marginTop+chartHeight+fs+4);
+        const lx=marginLeft+barGap+j*(barWidth+barGap)+barWidth/2;
+        const ly=marginTop+chartHeight+fs+4;
+        lbl.setAttribute('x',lx);
+        lbl.setAttribute('y',ly);
         lbl.setAttribute('text-anchor','middle');
         lbl.setAttribute('font-size',fs);
         lbl.textContent=bh;
         svg.appendChild(lbl);
+        xLabels.push(lbl);
       });
+      // Detect overlapping x-axis labels and tilt if needed
+      let needsTilt=false;
+      const boxes=xLabels.map(l=>l.getBBox());
+      for(let i=1;i<boxes.length;i++){
+        const prev=boxes[i-1];
+        const curr=boxes[i];
+        if(prev.x+prev.width>curr.x){needsTilt=true;break;}
+      }
+      if(needsTilt){
+        xLabels.forEach(l=>{
+          const x=l.getAttribute('x');
+          const y=l.getAttribute('y');
+          l.setAttribute('transform',`rotate(-45 ${x} ${y})`);
+          l.setAttribute('text-anchor','end');
+          l.setAttribute('dy','0.35em');
+        });
+      }
+      console.log('stacked x label tilt check',{needsTilt});
       const title=document.createElementNS(NS,'text');
       title.setAttribute('x',marginLeft+chartWidth/2);
       title.setAttribute('y',fs);
@@ -3665,9 +3687,27 @@
     const plotRect=plotEl.getBoundingClientRect();
     svgs.forEach(svg=>{
       const rect=svg.getBoundingClientRect();
+      const titleDiv=svg.previousElementSibling;
       const g=document.createElementNS(NS,'g');
-      g.setAttribute('transform',`translate(${rect.left-plotRect.left},${rect.top-plotRect.top})`);
-      g.appendChild(svg.cloneNode(true));
+      if(titleDiv && titleDiv.tagName==='DIV'){
+        const titleRect=titleDiv.getBoundingClientRect();
+        g.setAttribute('transform',`translate(${titleRect.left-plotRect.left},${titleRect.top-plotRect.top})`);
+        const titleText=document.createElementNS(NS,'text');
+        titleText.setAttribute('x',rect.width/2);
+        titleText.setAttribute('y',fs);
+        titleText.setAttribute('text-anchor','middle');
+        titleText.setAttribute('font-size',fs+4);
+        titleText.textContent=titleDiv.textContent||'';
+        g.appendChild(titleText);
+        const chartGroup=document.createElementNS(NS,'g');
+        chartGroup.setAttribute('transform',`translate(0,${titleRect.height})`);
+        chartGroup.appendChild(svg.cloneNode(true));
+        g.appendChild(chartGroup);
+        console.log('buildPieExportSvg added title',{text:titleText.textContent});
+      }else{
+        g.setAttribute('transform',`translate(${rect.left-plotRect.left},${rect.top-plotRect.top})`);
+        g.appendChild(svg.cloneNode(true));
+      }
       out.appendChild(g);
     });
     if(pieLegendItems.length){
