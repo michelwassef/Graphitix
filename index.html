@@ -304,7 +304,7 @@
   <button id="tabScatter" class="btn">Scatter Plot</button>
   <button id="tabLine" class="btn">Line Graph</button>
   <button id="tabHist" class="btn">Histogram</button>
-  <button id="tabPie" class="btn">Pie Chart</button>
+  <button id="tabPie" class="btn">Proportion Graph</button>
 </div>
 <div id="vennPage">
 <header><h2 style="margin:0">Area proportional Venn diagram</h2><div style="color:#555;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
@@ -896,7 +896,7 @@
   </div>
 </div>
 <div id="piePage" style="display:none;">
-  <header><h2 style="margin:0">Pie Chart</h2><div style="color:#555;font-size:13px">Paste category and value data into the table and draw a pie chart.</div></header>
+  <header><h2 style="margin:0">Proportion Graph</h2><div style="color:#555;font-size:13px">Paste category and value data into the table and draw a proportion graph.</div></header>
   <div class="row" style="margin:8px 0">
     <button class="btn" id="openPie">open file</button>
     <button class="btn" id="savePie">save file</button>
@@ -1053,7 +1053,7 @@
   tableObserver.observe(tablePanel);
   syncBoxWidths();
 
-  const DEFAULT_ROWS=100, DEFAULT_COLS=10, LINE_DEFAULT_COLS=6, HIST_DEFAULT_COLS=1, PIE_DEFAULT_COLS=2;
+  const DEFAULT_ROWS=100, DEFAULT_COLS=10, LINE_DEFAULT_COLS=6, HIST_DEFAULT_COLS=1, PIE_DEFAULT_COLS=6;
   let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
   const NS='http://www.w3.org/2000/svg';
   let selectedCols=new Set();
@@ -2866,7 +2866,7 @@
   document.getElementById('saveAsHist').addEventListener('click',saveAsHistFile);
   document.getElementById('histGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){histFileName=f.name; histFileHandle=null; loadHistGraphFile(f);}});
 
-  // Pie chart setup
+  // Proportion graph setup
   const pieHotContainer=document.getElementById('pieHot');
   const pieHotWrapper=document.getElementById('pieHotWrapper');
   pieHotWrapper.style.overflow='auto';
@@ -3051,7 +3051,7 @@
     });
     console.log('updatePieColorPickers',pieColors);
   }
-  let pieTitleText='Pie chart';
+  let pieTitleText='Proportion graph';
   async function drawPie(){
     const type=pieChartType.value;
     const token=++pieDrawToken; console.log('drawPie start',{token,type});
@@ -3059,68 +3059,178 @@
     const startDeg=parseFloat(pieStartAngle.value)||0;
     const fs=Number(pieFontSize.value)||16;
     const data=pieHot.getData();
-    const labels=[]; const values=[];
-    for(let r=1;r<data.length;r++){
-      const lab=data[r][0];
-      const val=parseFloat(data[r][1]);
-      if(lab && !isNaN(val)){labels.push(String(lab)); values.push(val);} }
     const plotEl=piePlotDiv;
     while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
-    if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; }
-    updatePieColorPickers(labels);
-    const total=values.reduce((s,v)=>s+v,0);
-    const W=Math.max(50,Math.floor(piePlotDiv.clientWidth||50));
-    const H=Math.max(50,Math.floor(piePlotDiv.clientHeight||50));
-    plotEl.style.position='relative';
-    const svg=document.createElementNS(NS,'svg');
-    svg.setAttribute('id','pieSvg');
-    svg.setAttribute('width',String(W));
-    svg.setAttribute('height',String(H));
-    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-    svg.setAttribute('font-family','sans-serif');
-    plotEl.appendChild(svg);
+
     if(type==='stacked'){
-      const margin=10;
-      const barH=Math.min(H*0.6,H-2*margin);
-      let x=margin;
-      const y=(H-barH)/2;
-      labels.forEach((lab,i)=>{
-        const val=values[i];
-        const frac=val/total;
-        const w=frac*(W-2*margin);
-        const color=pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
-        const rect=document.createElementNS(NS,'rect');
-        rect.setAttribute('x',x);
-        rect.setAttribute('y',y);
-        rect.setAttribute('width',w);
-        rect.setAttribute('height',barH);
-        rect.setAttribute('fill',color);
-        svg.appendChild(rect);
-        if(showPerc){
-          const txt=document.createElementNS(NS,'text');
-          txt.setAttribute('x',x+w/2);
-          txt.setAttribute('y',y+barH/2);
-          txt.setAttribute('font-size',fs);
-          txt.setAttribute('text-anchor','middle');
-          txt.setAttribute('dominant-baseline','middle');
-          txt.textContent=`${(frac*100).toFixed(1)}%`;
-          svg.appendChild(txt);
+      // parse data for multiple stacked bars
+      const header=data[0]||[];
+      const barHeaders=header.slice(1).filter(h=>h!==null&&h!=='');
+      const segmentLabels=[];
+      const segmentValues=[]; // values per segment per bar
+      for(let r=1;r<data.length;r++){
+        const row=data[r];
+        const seg=row[0];
+        if(seg){
+          const vals=[];
+          for(let c=1;c<=barHeaders.length;c++){
+            const v=parseFloat(row[c]);
+            vals.push(isNaN(v)?0:v);
+          }
+          segmentLabels.push(String(seg));
+          segmentValues.push(vals);
         }
-        x+=w;
+      }
+      if(!barHeaders.length||!segmentLabels.length){plotEl.innerHTML='<i>No data</i>';return;}
+      updatePieColorPickers(segmentLabels);
+      const legendWidth=120;
+      plotEl.style.display='flex';
+      plotEl.style.alignItems='flex-start';
+      const svgWidth=Math.max(50,Math.floor(plotEl.clientWidth||50)-legendWidth);
+      const svgHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
+      const svg=document.createElementNS(NS,'svg');
+      svg.setAttribute('id','pieSvg');
+      svg.setAttribute('width',String(svgWidth));
+      svg.setAttribute('height',String(svgHeight));
+      svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
+      svg.setAttribute('font-family','sans-serif');
+      plotEl.appendChild(svg);
+      const legend=document.createElement('div');
+      legend.style.width=legendWidth+'px';
+      legend.style.fontSize=fs+'px';
+      legend.style.marginLeft='8px';
+      plotEl.appendChild(legend);
+      console.log('stacked parsed',{barHeaders,segmentLabels});
+      const marginTop=fs+20;
+      const marginBottom=40;
+      const marginLeft=40;
+      const chartWidth=svgWidth-marginLeft-20;
+      const chartHeight=svgHeight-marginTop-marginBottom;
+      // axes
+      const axis=document.createElementNS(NS,'g');
+      const yAxis=document.createElementNS(NS,'line');
+      yAxis.setAttribute('x1',marginLeft);
+      yAxis.setAttribute('y1',marginTop);
+      yAxis.setAttribute('x2',marginLeft);
+      yAxis.setAttribute('y2',marginTop+chartHeight);
+      yAxis.setAttribute('stroke','#000');
+      axis.appendChild(yAxis);
+      const xAxis=document.createElementNS(NS,'line');
+      xAxis.setAttribute('x1',marginLeft);
+      xAxis.setAttribute('y1',marginTop+chartHeight);
+      xAxis.setAttribute('x2',marginLeft+chartWidth);
+      xAxis.setAttribute('y2',marginTop+chartHeight);
+      xAxis.setAttribute('stroke','#000');
+      axis.appendChild(xAxis);
+      for(let t=0;t<=100;t+=25){
+        const y=marginTop+chartHeight-(chartHeight*t/100);
+        const tick=document.createElementNS(NS,'line');
+        tick.setAttribute('x1',marginLeft-5);
+        tick.setAttribute('y1',y);
+        tick.setAttribute('x2',marginLeft);
+        tick.setAttribute('y2',y);
+        tick.setAttribute('stroke','#000');
+        axis.appendChild(tick);
+        const txt=document.createElementNS(NS,'text');
+        txt.setAttribute('x',marginLeft-8);
+        txt.setAttribute('y',y+4);
+        txt.setAttribute('text-anchor','end');
+        txt.setAttribute('font-size',fs*0.8);
+        txt.textContent=t+'%';
+        axis.appendChild(txt);
+      }
+      const yTitle=document.createElementNS(NS,'text');
+      yTitle.setAttribute('x',marginLeft-30);
+      yTitle.setAttribute('y',marginTop+chartHeight/2);
+      yTitle.setAttribute('text-anchor','middle');
+      yTitle.setAttribute('transform',`rotate(-90 ${marginLeft-30} ${marginTop+chartHeight/2})`);
+      yTitle.setAttribute('font-size',fs);
+      yTitle.textContent='Percentage';
+      axis.appendChild(yTitle);
+      svg.appendChild(axis);
+      const barGap=10;
+      const barWidth=(chartWidth-(barHeaders.length+1)*barGap)/barHeaders.length;
+      barHeaders.forEach((bh,j)=>{
+        let y=marginTop+chartHeight;
+        const total=segmentValues.reduce((s,row)=>s+(row[j]||0),0);
+        segmentLabels.forEach((lab,i)=>{
+          const val=segmentValues[i][j]||0;
+          const frac=total?val/total:0;
+          const h=chartHeight*frac;
+          y-=h;
+          const rect=document.createElementNS(NS,'rect');
+          rect.setAttribute('x',marginLeft+barGap+j*(barWidth+barGap));
+          rect.setAttribute('y',y);
+          rect.setAttribute('width',barWidth);
+          rect.setAttribute('height',h);
+          const color=pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+          rect.setAttribute('fill',color);
+          svg.appendChild(rect);
+        });
+        const lbl=document.createElementNS(NS,'text');
+        lbl.setAttribute('x',marginLeft+barGap+j*(barWidth+barGap)+barWidth/2);
+        lbl.setAttribute('y',marginTop+chartHeight+fs+4);
+        lbl.setAttribute('text-anchor','middle');
+        lbl.setAttribute('font-size',fs);
+        lbl.textContent=bh;
+        svg.appendChild(lbl);
       });
       const title=document.createElementNS(NS,'text');
-      title.setAttribute('x',W/2);
-      title.setAttribute('y',fs+4);
+      title.setAttribute('x',marginLeft+chartWidth/2);
+      title.setAttribute('y',fs);
       title.setAttribute('text-anchor','middle');
       title.setAttribute('font-size',fs+4);
       title.textContent=pieTitleText;
       svg.appendChild(title);
       makeEditable(title,txt=>{pieTitleText=txt;});
+      segmentLabels.forEach((lab,i)=>{
+        const item=document.createElement('div');
+        const sw=document.createElement('span');
+        sw.style.display='inline-block';
+        sw.style.width='12px';
+        sw.style.height='12px';
+        sw.style.background=pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+        sw.style.marginRight='4px';
+        const t=document.createElement('span');
+        t.textContent=lab;
+        item.appendChild(sw);
+        item.appendChild(t);
+        legend.appendChild(item);
+      });
       console.log('drawPie complete stacked',{token});
       return;
     }
-    const cx=W/2, cy=H/2;
-    const radius=Math.min(W,H)/2-10;
+
+    // pie or donut chart with legend on right
+    const labels=[]; const values=[];
+    for(let r=1;r<data.length;r++){
+      const lab=data[r][0];
+      const val=parseFloat(data[r][1]);
+      if(lab && !isNaN(val)){labels.push(String(lab)); values.push(val);} }
+    if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; }
+    updatePieColorPickers(labels);
+    const total=values.reduce((s,v)=>s+v,0);
+    const legendWidth=120;
+    plotEl.style.display='flex';
+    plotEl.style.alignItems='center';
+    const svgWidth=Math.max(50,Math.floor(plotEl.clientWidth||50)-legendWidth);
+    const svgHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
+    const svg=document.createElementNS(NS,'svg');
+    svg.setAttribute('id','pieSvg');
+    svg.setAttribute('width',String(svgWidth));
+    svg.setAttribute('height',String(svgHeight));
+    svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
+    svg.setAttribute('font-family','sans-serif');
+    plotEl.appendChild(svg);
+    const legend=document.createElement('div');
+    legend.style.width=legendWidth+'px';
+    legend.style.fontSize=fs+'px';
+    legend.style.marginLeft='8px';
+    plotEl.appendChild(legend);
+    const marginTop=fs+20;
+    const radius=Math.min(svgWidth-20, svgHeight-marginTop-20)/2;
+    const cx=radius+10;
+    const cy=marginTop+radius;
     let angle=startDeg*Math.PI/180;
     const texts=[];
     labels.forEach((lab,i)=>{
@@ -3166,12 +3276,26 @@
     texts.forEach(t=>svg.appendChild(t));
     const title=document.createElementNS(NS,'text');
     title.setAttribute('x',cx);
-    title.setAttribute('y',fs+4);
+    title.setAttribute('y',fs);
     title.setAttribute('text-anchor','middle');
     title.setAttribute('font-size',fs+4);
     title.textContent=pieTitleText;
     svg.appendChild(title);
     makeEditable(title,txt=>{pieTitleText=txt;});
+    labels.forEach((lab,i)=>{
+      const item=document.createElement('div');
+      const sw=document.createElement('span');
+      sw.style.display='inline-block';
+      sw.style.width='12px';
+      sw.style.height='12px';
+      sw.style.background=pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+      sw.style.marginRight='4px';
+      const t=document.createElement('span');
+      t.textContent=lab;
+      item.appendChild(sw);
+      item.appendChild(t);
+      legend.appendChild(item);
+    });
     console.log('drawPie complete',{token});
   }
   document.getElementById('piePNG').addEventListener('click',async()=>{
