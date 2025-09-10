@@ -942,6 +942,9 @@
                   <option value="stacked">Stacked bar</option>
                 </select>
               </label>
+              <label style="width:auto">Value column
+                <select id="pieValueColumn"></select>
+              </label>
               <label style="width:auto"><input type="checkbox" id="pieShowPercents"> Show percentages</label>
               <label style="width:auto">Start angle <input type="number" id="pieStartAngle" value="0" style="width:60px"></label>
             </div>
@@ -3031,8 +3034,10 @@
   const pieFontSize=document.getElementById('pieFontSize');
   const pieFontSizeVal=document.getElementById('pieFontSizeVal');
   const pieChartType=document.getElementById('pieChartType');
+  const pieValueColumn=document.getElementById('pieValueColumn');
   [pieShowPercents,pieStartAngle,pieFontSize].forEach(el=>el.addEventListener('input',()=>{console.log('pie config changed',el.id,el.value); pieFontSizeVal.textContent=pieFontSize.value; scheduleDrawPie();}));
   pieChartType.addEventListener('change',()=>{console.log('pie chart type changed',pieChartType.value); scheduleDrawPie();});
+  pieValueColumn.addEventListener('change',()=>{console.log('pie value column changed',pieValueColumn.value); scheduleDrawPie();});
   const pieColorPickers=document.getElementById('pieColorPickers');
   let pieColors={};
   function updatePieColorPickers(labels){
@@ -3051,6 +3056,19 @@
     });
     console.log('updatePieColorPickers',pieColors);
   }
+  function updatePieValueColumn(header){
+    pieValueColumn.innerHTML='';
+    const prev=pieValueColumn.value;
+    for(let c=1;c<header.length;c++){
+      const opt=document.createElement('option');
+      opt.value=String(c);
+      opt.textContent=header[c]||`Column ${c+1}`;
+      if(opt.value===prev) opt.selected=true;
+      pieValueColumn.appendChild(opt);
+    }
+    if(!pieValueColumn.value && header.length>1) pieValueColumn.value='1';
+    console.log('updatePieValueColumn',{count:pieValueColumn.options.length,selected:pieValueColumn.value});
+  }
   let pieTitleText='Proportion graph';
   async function drawPie(){
     const type=pieChartType.value;
@@ -3059,6 +3077,7 @@
     const startDeg=parseFloat(pieStartAngle.value)||0;
     const fs=Number(pieFontSize.value)||16;
     const data=pieHot.getData();
+    updatePieValueColumn(data[0]||[]);
     const plotEl=piePlotDiv;
     while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
 
@@ -3103,7 +3122,7 @@
       console.log('stacked parsed',{barHeaders,segmentLabels});
       const marginTop=fs+20;
       const marginBottom=40;
-      const marginLeft=40;
+      const marginLeft=fs*5;
       const chartWidth=svgWidth-marginLeft-20;
       const chartHeight=svgHeight-marginTop-marginBottom;
       // axes
@@ -3132,7 +3151,7 @@
         tick.setAttribute('stroke','#000');
         axis.appendChild(tick);
         const txt=document.createElementNS(NS,'text');
-        txt.setAttribute('x',marginLeft-8);
+        txt.setAttribute('x',marginLeft-10);
         txt.setAttribute('y',y+4);
         txt.setAttribute('text-anchor','end');
         txt.setAttribute('font-size',fs*0.8);
@@ -3140,13 +3159,15 @@
         axis.appendChild(txt);
       }
       const yTitle=document.createElementNS(NS,'text');
-      yTitle.setAttribute('x',marginLeft-30);
+      const yTitleX=fs*1.25;
+      yTitle.setAttribute('x',yTitleX);
       yTitle.setAttribute('y',marginTop+chartHeight/2);
       yTitle.setAttribute('text-anchor','middle');
-      yTitle.setAttribute('transform',`rotate(-90 ${marginLeft-30} ${marginTop+chartHeight/2})`);
+      yTitle.setAttribute('transform',`rotate(-90 ${yTitleX} ${marginTop+chartHeight/2})`);
       yTitle.setAttribute('font-size',fs);
       yTitle.textContent='Percentage';
       axis.appendChild(yTitle);
+      console.log('stacked axis layout',{marginLeft,yTitleX});
       svg.appendChild(axis);
       const barGap=10;
       const barWidth=(chartWidth-(barHeaders.length+1)*barGap)/barHeaders.length;
@@ -3202,11 +3223,13 @@
     }
 
     // pie or donut chart with legend on right
+    const valCol=parseInt(pieValueColumn.value)||1;
     const labels=[]; const values=[];
     for(let r=1;r<data.length;r++){
       const lab=data[r][0];
-      const val=parseFloat(data[r][1]);
+      const val=parseFloat(data[r][valCol]);
       if(lab && !isNaN(val)){labels.push(String(lab)); values.push(val);} }
+    console.log('drawPie parsed',{valCol,labelCount:labels.length});
     if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; }
     updatePieColorPickers(labels);
     const total=values.reduce((s,v)=>s+v,0);
@@ -3310,12 +3333,12 @@
     const svgEl=document.getElementById('pieSvg'); if(!svgEl) return; console.log('pieSVG export start');
     const xml=serializeCleanSVG(svgEl); const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='pie.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
   });
-  function getPieGraphPayload(){return{type:'pie',data:pieHot.getData(),config:{title:pieTitleText,colors:pieColors,showPercents:pieShowPercents.checked,startAngle:pieStartAngle.value,fontSize:pieFontSize.value,chartType:pieChartType.value}};}
+  function getPieGraphPayload(){return{type:'pie',data:pieHot.getData(),config:{title:pieTitleText,colors:pieColors,showPercents:pieShowPercents.checked,startAngle:pieStartAngle.value,fontSize:pieFontSize.value,chartType:pieChartType.value,valueColumn:pieValueColumn.value}};}
   let pieFileHandle=null,pieFileName='pie.graph';
   async function savePieFile(){const payload=getPieGraphPayload(); console.log('savePieFile',{payload,pieFileHandle}); if(pieFileHandle&&pieFileHandle.createWritable){try{const perm=await verifyPermission(pieFileHandle,true); if(perm){const w=await pieFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}}catch(err){console.error('savePieFile error',err);}}else if(window.showSaveFilePicker){await saveAsPieFile();}else{downloadJSON(payload,pieFileName);}}
   async function saveAsPieFile(){const payload=getPieGraphPayload(); console.log('saveAsPieFile',payload); if(window.showSaveFilePicker){try{pieFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:pieFileName}); const w=await pieFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}catch(err){console.error('saveAsPieFile error',err);}}else{downloadJSON(payload,pieFileName);}}
   async function openPieFile(){console.log('openPieFile start'); if(window.showOpenFilePicker){try{[pieFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await pieFileHandle.getFile(); pieFileName=file.name; loadPieGraphFile(file);}catch(err){console.error('openPieFile error',err);}}else{const input=document.getElementById('pieGraphFile'); input.value=''; input.click();}}
-  function loadPieGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); pieHot.loadData(obj.data||[]); const c=obj.config||{}; pieTitleText=c.title||pieTitleText; pieColors=c.colors||pieColors; pieShowPercents.checked=!!c.showPercents; pieStartAngle.value=c.startAngle||pieStartAngle.value; pieFontSize.value=c.fontSize||pieFontSize.value; pieChartType.value=c.chartType||pieChartType.value; pieFontSizeVal.textContent=pieFontSize.value; scheduleDrawPie();}catch(err){console.error('loadPieGraph error',err);}}; reader.readAsText(file);}
+  function loadPieGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); pieHot.loadData(obj.data||[]); const c=obj.config||{}; pieTitleText=c.title||pieTitleText; pieColors=c.colors||pieColors; pieShowPercents.checked=!!c.showPercents; pieStartAngle.value=c.startAngle||pieStartAngle.value; pieFontSize.value=c.fontSize||pieFontSize.value; pieChartType.value=c.chartType||pieChartType.value; pieFontSizeVal.textContent=pieFontSize.value; pieValueColumn.value=c.valueColumn||pieValueColumn.value; scheduleDrawPie();}catch(err){console.error('loadPieGraph error',err);}}; reader.readAsText(file);}
   document.getElementById('openPie').addEventListener('click',openPieFile);
   document.getElementById('savePie').addEventListener('click',savePieFile);
   document.getElementById('saveAsPie').addEventListener('click',saveAsPieFile);
