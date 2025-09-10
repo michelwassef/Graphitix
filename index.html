@@ -245,6 +245,55 @@
     border-radius: 2px;
   }
   @media (max-width:1000px){#histPage .wrap{grid-template-columns:1fr}}
+  #piePage .wrap{display:flex;align-items:stretch;gap:0}
+  #piePage #pieTablePanel{flex:1 1 33%;min-width:150px}
+  #piePage #pieGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+  #piePage .diagram-area .svgbox{flex:1}
+  #piePage .diagram-area .config-options{flex:1}
+  #piePage .panel{display:flex;flex-direction:column;min-width:0}
+  #piePage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+  #piePage #piePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+  #piePage .svgbox{
+    position: relative;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 420px;
+    box-sizing: border-box;
+  }
+  #piePage .svgbox .resizer {
+    position: absolute;
+    z-index: 40;
+    background: rgba(0,0,0,0);
+    touch-action: none;
+  }
+  #piePage .svgbox .resizer-vertical {
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 100%;
+    cursor: ew-resize;
+  }
+  #piePage .svgbox .resizer-horizontal {
+    bottom: 0;
+    left: 0;
+    height: 12px;
+    width: 100%;
+    cursor: ns-resize;
+  }
+  #piePage .svgbox .resizer-corner {
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+    border-radius: 2px;
+  }
+  @media (max-width:1000px){#piePage .wrap{grid-template-columns:1fr}}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
 </head>
@@ -255,6 +304,7 @@
   <button id="tabScatter" class="btn">Scatter Plot</button>
   <button id="tabLine" class="btn">Line Graph</button>
   <button id="tabHist" class="btn">Histogram</button>
+  <button id="tabPie" class="btn">Pie Chart</button>
 </div>
 <div id="vennPage">
 <header><h2 style="margin:0">Area proportional Venn diagram</h2><div style="color:#555;font-size:13px">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div></header>
@@ -840,6 +890,61 @@
               <label>Size</label><input type="range" id="histFontSize" min="10" max="36" step="1" value="16"><output id="histFontSizeVal">16</output>
             </div>
           </fieldset>
+  </div>
+  </div>
+  </div>
+  </div>
+</div>
+<div id="piePage" style="display:none;">
+  <header><h2 style="margin:0">Pie Chart</h2><div style="color:#555;font-size:13px">Paste category and value data into the table and draw a pie chart.</div></header>
+  <div class="row" style="margin:8px 0">
+    <button class="btn" id="openPie">open file</button>
+    <button class="btn" id="savePie">save file</button>
+    <button class="btn" id="saveAsPie">save as</button>
+    <input type="file" id="pieGraphFile" accept=".graph" style="display:none">
+  </div>
+  <div class="wrap">
+    <div class="panel" id="pieTablePanel">
+      <div id="pieHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="pieHot" style="width:100%;height:100%"></div></div>
+      <div class="row" style="margin-top:8px;justify-content:space-between">
+        <div class="row" style="gap:8px">
+          <button class="btn" id="pieLoadExample">Load Example</button>
+          <button class="btn" id="pieImport">Import File</button>
+          <input type="file" id="pieFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none">
+        </div>
+      </div>
+    </div>
+    <div id="piePanelResizer" class="panel-resizer" aria-hidden="true"></div>
+    <div class="panel" style="align-items:center" id="pieGraphPanel">
+      <div class="diagram-area">
+        <div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:100%; height:420px;">
+          <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+          <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+          <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+          <div id="piePlot" style="width:100%; height:100%"></div>
+          <div class="row" style="justify-content:flex-end;margin-top:6px">
+            <button class="btn" id="piePNG">Download PNG</button>
+            <button class="btn" id="pieSVG">Download SVG</button>
+          </div>
+        </div>
+        <div class="config-options">
+          <fieldset>
+            <legend>Slices</legend>
+            <div id="pieColorPickers" class="color-pickers"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Options</legend>
+            <div class="control" style="flex-wrap:wrap">
+              <label style="width:auto"><input type="checkbox" id="pieShowPercents"> Show percentages</label>
+              <label style="width:auto">Start angle <input type="number" id="pieStartAngle" value="0" style="width:60px"></label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Font</legend>
+            <div class="control">
+              <label>Size</label><input type="range" id="pieFontSize" min="10" max="36" step="1" value="16"><output id="pieFontSizeVal">16</output>
+            </div>
+          </fieldset>
         </div>
       </div>
     </div>
@@ -868,10 +973,12 @@
   const scheduleDrawScatter = debounceFrame(drawScatter);
   const scheduleDrawLine = debounceFrame(drawLine);
   const scheduleDrawHist = debounceFrame(drawHistogram);
+  const scheduleDrawPie = debounceFrame(drawPie);
   let boxplotDrawToken=0; // debug: track boxplot render cycles
   let scatterDrawToken=0; // debug: track scatter render cycles
   let lineDrawToken=0; // debug: track line render cycles
   let histDrawToken=0; // debug: track histogram render cycles
+  let pieDrawToken=0; // debug: track pie render cycles
   const $ = (s)=>document.querySelector(s);
   const stage = $('#stage');
   const vennPage=$('#vennPage');
@@ -879,11 +986,13 @@
   const scatterPage=$('#scatterPage');
   const linePage=$('#linePage');
   const histPage=$('#histPage');
+  const piePage=$('#piePage');
   const tabVenn=$('#tabVenn');
   const tabBox=$('#tabBox');
   const tabScatter=$('#tabScatter');
   const tabLine=$('#tabLine');
   const tabHist=$('#tabHist');
+  const tabPie=$('#tabPie');
   const hotContainer=document.getElementById('hot');
   const hotWrapper=document.getElementById('hotWrapper');
   const tablePanel=document.getElementById('boxTablePanel');
@@ -937,7 +1046,7 @@
   tableObserver.observe(tablePanel);
   syncBoxWidths();
 
-  const DEFAULT_ROWS=100, DEFAULT_COLS=10, LINE_DEFAULT_COLS=6, HIST_DEFAULT_COLS=1;
+  const DEFAULT_ROWS=100, DEFAULT_COLS=10, LINE_DEFAULT_COLS=6, HIST_DEFAULT_COLS=1, PIE_DEFAULT_COLS=2;
   let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
   const NS='http://www.w3.org/2000/svg';
   let selectedCols=new Set();
@@ -2749,6 +2858,215 @@
   document.getElementById('saveHist').addEventListener('click',saveHistFile);
   document.getElementById('saveAsHist').addEventListener('click',saveAsHistFile);
   document.getElementById('histGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){histFileName=f.name; histFileHandle=null; loadHistGraphFile(f);}});
+
+  // Pie chart setup
+  const pieHotContainer=document.getElementById('pieHot');
+  const pieHotWrapper=document.getElementById('pieHotWrapper');
+  pieHotWrapper.style.overflow='auto';
+  const pieTablePanel=document.getElementById('pieTablePanel');
+  const pieGraphPanel=document.getElementById('pieGraphPanel');
+  const piePanelResizer=document.getElementById('piePanelResizer');
+  const pieSvgBox=pieGraphPanel?.querySelector('.svgbox');
+  function syncPieWidths(){
+    const tableWidth=pieTablePanel.getBoundingClientRect().width;
+    if(pieSvgBox) pieSvgBox.style.width=tableWidth+'px';
+    console.log('syncPieWidths',{tableWidth});
+  }
+  const pieTableObserver=new ResizeObserver(()=>{syncPieWidths();});
+  pieTableObserver.observe(pieTablePanel);
+  syncPieWidths();
+  const piePlotDiv=document.getElementById('piePlot');
+  const pieContainer=piePlotDiv.closest('.svgbox')||piePlotDiv.parentElement;
+  const pieHot=new Handsontable(pieHotContainer,{
+    data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,PIE_DEFAULT_COLS),
+    rowHeaders:true,
+    colHeaders:true,
+    minRows:DEFAULT_ROWS,
+    minCols:PIE_DEFAULT_COLS,
+    contextMenu:true,
+    undo:true,
+    afterChange(changes,source){ if(changes){ console.log('pie afterChange',{count:changes.length,source}); scheduleDrawPie(); } },
+    afterUndo:()=>{ console.log('pie undo'); scheduleDrawPie(); },
+    afterRedo:()=>{ console.log('pie redo'); scheduleDrawPie(); },
+    licenseKey:'non-commercial-and-evaluation',
+  });
+  document.getElementById('pieLoadExample').addEventListener('click',()=>{
+    const ex=[['Label','Value'],['A',30],['B',50],['C',20]];
+    pieHot.loadData(ex);
+    console.log('pie example loaded');
+    scheduleDrawPie();
+  });
+  document.getElementById('pieImport').addEventListener('click',()=>{const f=document.getElementById('pieFile');f.value='';f.click();});
+  document.getElementById('pieFile').addEventListener('change',e=>{
+    const file=e.target.files[0]; if(!file) return;
+    const ext=file.name.split('.').pop().toLowerCase();
+    const reader=new FileReader();
+    if(['csv','tsv','txt'].includes(ext)){
+      reader.onload=ev=>{const text=ev.target.result; const delim=ext==='csv'?',' : '\t'; const rows=text.split(/\r?\n/).map(r=>r.split(delim)); pieProcessImportedRows(rows);};
+      reader.readAsText(file);
+    }else if(['xls','xlsx','ods','odg'].includes(ext)){
+      reader.onload=async ev=>{
+        try{
+          if(!window.XLSX){
+            await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='libs/xlsx.full.min.js';s.onload=()=>resolve();s.onerror=err=>reject(new Error('Failed to load XLSX script'));document.head.appendChild(s);});
+          }
+          const data=new Uint8Array(ev.target.result);
+          const workbook=XLSX.read(data,{type:'array'});
+          const sheet=workbook.Sheets[workbook.SheetNames[0]];
+          let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+          pieProcessImportedRows(rows);
+        }catch(err){alert('Failed to import spreadsheet: '+err.message);}
+      };
+      reader.readAsArrayBuffer(file);
+    }else{
+      alert('Unsupported file format: '+ext);
+    }
+  });
+  function pieProcessImportedRows(rows){
+    if(!rows.length) return;
+    pieHot.loadData(rows);
+    console.log('pie imported rows',rows.length);
+    scheduleDrawPie();
+  }
+  piePanelResizer.addEventListener('pointerdown',e=>{
+    e.preventDefault();
+    const startX=e.clientX;
+    const startTable=pieTablePanel.getBoundingClientRect().width;
+    const startGraph=pieGraphPanel.getBoundingClientRect().width;
+    const total=startTable+startGraph;
+    function onMove(ev){
+      const dx=ev.clientX-startX;
+      let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+      let newGraph=total-newTable;
+      pieTablePanel.style.flex=`0 0 ${newTable}px`;
+      pieGraphPanel.style.flex=`0 0 ${newGraph}px`;
+      syncPieWidths();
+    }
+    function onUp(){
+      document.removeEventListener('pointermove',onMove);
+      document.removeEventListener('pointerup',onUp);
+    }
+    document.addEventListener('pointermove',onMove);
+    document.addEventListener('pointerup',onUp);
+  });
+  const pieShowPercents=document.getElementById('pieShowPercents');
+  const pieStartAngle=document.getElementById('pieStartAngle');
+  const pieFontSize=document.getElementById('pieFontSize');
+  const pieFontSizeVal=document.getElementById('pieFontSizeVal');
+  [pieShowPercents,pieStartAngle,pieFontSize].forEach(el=>el.addEventListener('input',()=>{console.log('pie config changed',el.id,el.value); pieFontSizeVal.textContent=pieFontSize.value; scheduleDrawPie();}));
+  const pieColorPickers=document.getElementById('pieColorPickers');
+  let pieColors={};
+  function updatePieColorPickers(labels){
+    pieColorPickers.innerHTML='';
+    labels.forEach((lab,i)=>{
+      if(!pieColors[lab]) pieColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+      const input=document.createElement('input');
+      input.type='color';
+      input.value=pieColors[lab];
+      attachColorPickerNear(input);
+      input.addEventListener('input',e=>{pieColors[lab]=e.target.value; console.log('pie color changed',{lab,color:pieColors[lab]}); scheduleDrawPie();});
+      const lbl=document.createElement('label');
+      lbl.textContent=lab+' ';
+      lbl.appendChild(input);
+      pieColorPickers.appendChild(lbl);
+    });
+    console.log('updatePieColorPickers',pieColors);
+  }
+  let pieTitleText='Pie chart';
+  async function drawPie(){
+    const token=++pieDrawToken; console.log('drawPie start',{token});
+    const showPerc=pieShowPercents.checked;
+    const startDeg=parseFloat(pieStartAngle.value)||0;
+    const fs=Number(pieFontSize.value)||16;
+    const data=pieHot.getData();
+    const labels=[]; const values=[];
+    for(let r=1;r<data.length;r++){
+      const lab=data[r][0];
+      const val=parseFloat(data[r][1]);
+      if(lab && !isNaN(val)){labels.push(String(lab)); values.push(val);} }
+    const plotEl=document.getElementById('piePlot');
+    while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+    if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; }
+    updatePieColorPickers(labels);
+    const total=values.reduce((s,v)=>s+v,0);
+    const W=Math.max(50,Math.floor(pieContainer.clientWidth||50));
+    const H=Math.max(50,Math.floor(pieContainer.clientHeight||50));
+    plotEl.style.position='relative';
+    const svg=document.createElementNS(NS,'svg');
+    svg.setAttribute('id','pieSvg');
+    svg.setAttribute('width',String(W));
+    svg.setAttribute('height',String(H));
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    svg.setAttribute('font-family','sans-serif');
+    plotEl.appendChild(svg);
+    const cx=W/2, cy=H/2;
+    const radius=Math.min(W,H)/2-10;
+    let angle=startDeg*Math.PI/180;
+    labels.forEach((lab,i)=>{
+      const val=values[i];
+      const frac=val/total;
+      const slice=frac*Math.PI*2;
+      const x1=cx+radius*Math.cos(angle);
+      const y1=cy+radius*Math.sin(angle);
+      const x2=cx+radius*Math.cos(angle+slice);
+      const y2=cy+radius*Math.sin(angle+slice);
+      const large=slice>Math.PI?1:0;
+      const pathData=`M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} Z`;
+      const color=pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+      const p=document.createElementNS(NS,'path');
+      p.setAttribute('d',pathData);
+      p.setAttribute('fill',color);
+      p.setAttribute('stroke','#fff');
+      p.setAttribute('stroke-width','1');
+      svg.appendChild(p);
+      if(showPerc){
+        const mid=angle+slice/2;
+        const lx=cx+radius*0.7*Math.cos(mid);
+        const ly=cy+radius*0.7*Math.sin(mid);
+        const txt=document.createElementNS(NS,'text');
+        txt.setAttribute('x',lx);
+        txt.setAttribute('y',ly);
+        txt.setAttribute('font-size',fs);
+        txt.setAttribute('text-anchor','middle');
+        txt.setAttribute('dominant-baseline','middle');
+        txt.textContent=`${(frac*100).toFixed(1)}%`;
+        svg.appendChild(txt);
+      }
+      angle+=slice;
+    });
+    const title=document.createElementNS(NS,'text');
+    title.setAttribute('x',cx);
+    title.setAttribute('y',fs+4);
+    title.setAttribute('text-anchor','middle');
+    title.setAttribute('font-size',fs+4);
+    title.textContent=pieTitleText;
+    svg.appendChild(title);
+    makeEditable(title,txt=>{pieTitleText=txt;});
+    console.log('drawPie complete',{token});
+  }
+  document.getElementById('piePNG').addEventListener('click',async()=>{
+    const svgEl=document.getElementById('pieSvg'); if(!svgEl) return; console.log('piePNG export start');
+    const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800; const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+    const xml=serializeCleanSVG(svgEl); const img=new Image(); const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
+    img.src=url; await img.decode().catch(err=>{console.error('piePNG svg decode',err);});
+    const outCanvas=document.createElement('canvas'); outCanvas.width=W; outCanvas.height=H; const ctx=outCanvas.getContext('2d'); ctx.drawImage(img,0,0);
+    outCanvas.toBlob(b=>{const pngUrl=URL.createObjectURL(b); const a=document.createElement('a'); a.href=pngUrl; a.download='pie.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(pngUrl),4000);},'image/png');
+  });
+  document.getElementById('pieSVG').addEventListener('click',()=>{
+    const svgEl=document.getElementById('pieSvg'); if(!svgEl) return; console.log('pieSVG export start');
+    const xml=serializeCleanSVG(svgEl); const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='pie.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
+  });
+  function getPieGraphPayload(){return{type:'pie',data:pieHot.getData(),config:{title:pieTitleText,colors:pieColors,showPercents:pieShowPercents.checked,startAngle:pieStartAngle.value,fontSize:pieFontSize.value}};}
+  let pieFileHandle=null,pieFileName='pie.graph';
+  async function savePieFile(){const payload=getPieGraphPayload(); console.log('savePieFile',{payload,pieFileHandle}); if(pieFileHandle&&pieFileHandle.createWritable){try{const perm=await verifyPermission(pieFileHandle,true); if(perm){const w=await pieFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}}catch(err){console.error('savePieFile error',err);}}else if(window.showSaveFilePicker){await saveAsPieFile();}else{downloadJSON(payload,pieFileName);}}
+  async function saveAsPieFile(){const payload=getPieGraphPayload(); console.log('saveAsPieFile',payload); if(window.showSaveFilePicker){try{pieFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:pieFileName}); const w=await pieFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}catch(err){console.error('saveAsPieFile error',err);}}else{downloadJSON(payload,pieFileName);}}
+  async function openPieFile(){console.log('openPieFile start'); if(window.showOpenFilePicker){try{[pieFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await pieFileHandle.getFile(); pieFileName=file.name; loadPieGraphFile(file);}catch(err){console.error('openPieFile error',err);}}else{const input=document.getElementById('pieGraphFile'); input.value=''; input.click();}}
+  function loadPieGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); pieHot.loadData(obj.data||[]); const c=obj.config||{}; pieTitleText=c.title||pieTitleText; pieColors=c.colors||pieColors; pieShowPercents.checked=!!c.showPercents; pieStartAngle.value=c.startAngle||pieStartAngle.value; pieFontSize.value=c.fontSize||pieFontSize.value; pieFontSizeVal.textContent=pieFontSize.value; scheduleDrawPie();}catch(err){console.error('loadPieGraph error',err);}}; reader.readAsText(file);}
+  document.getElementById('openPie').addEventListener('click',openPieFile);
+  document.getElementById('savePie').addEventListener('click',savePieFile);
+  document.getElementById('saveAsPie').addEventListener('click',saveAsPieFile);
+  document.getElementById('pieGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){pieFileName=f.name; pieFileHandle=null; loadPieGraphFile(f);}});
+  scheduleDrawPie();
   scheduleDrawHist();
   function getLineGraphPayload(){return{type:'line',data:lineHot.getData(),config:{title:lineTitleText,xLabel:lineXLabelText,yLabel:lineYLabelText,dotSize:lineDotSize.value,fill:lineFill.value,border:lineBorder.value,borderWidth:lineBorderWidth.value,alpha:lineAlpha.value,labelColors:lineLabelColors,showGrid:lineShowGrid.checked,logX:lineLogX.checked,logY:lineLogY.checked,xMin:lineXMin.value,xMax:lineXMax.value,yMin:lineYMin.value,yMax:lineYMax.value,originMode:lineOriginMode.value,originX:lineOriginX.value,originY:lineOriginY.value}};}
   let lineFileHandle=null,lineFileName='line.graph';
@@ -3977,11 +4295,13 @@ KAT7`;
     scatterPage.style.display='none';
     linePage.style.display='none';
     histPage.style.display='none';
+    piePage.style.display='none';
     tabVenn.classList.add('active');
     tabBox.classList.remove('active');
     tabScatter.classList.remove('active');
     tabLine.classList.remove('active');
     tabHist.classList.remove('active');
+    tabPie.classList.remove('active');
   }
   function showBox(){
     vennPage.style.display='none';
@@ -3989,11 +4309,13 @@ KAT7`;
     scatterPage.style.display='none';
     linePage.style.display='none';
     histPage.style.display='none';
+    piePage.style.display='none';
     tabBox.classList.add('active');
     tabVenn.classList.remove('active');
     tabScatter.classList.remove('active');
     tabLine.classList.remove('active');
     tabHist.classList.remove('active');
+    tabPie.classList.remove('active');
   }
   function showScatter(){
     vennPage.style.display='none';
@@ -4001,11 +4323,13 @@ KAT7`;
     scatterPage.style.display='block';
     linePage.style.display='none';
     histPage.style.display='none';
+    piePage.style.display='none';
     tabScatter.classList.add('active');
     tabVenn.classList.remove('active');
     tabBox.classList.remove('active');
     tabLine.classList.remove('active');
     tabHist.classList.remove('active');
+    tabPie.classList.remove('active');
   }
   function showLine(){
     vennPage.style.display='none';
@@ -4013,11 +4337,13 @@ KAT7`;
     scatterPage.style.display='none';
     linePage.style.display='block';
     histPage.style.display='none';
+    piePage.style.display='none';
     tabLine.classList.add('active');
     tabVenn.classList.remove('active');
     tabBox.classList.remove('active');
     tabScatter.classList.remove('active');
     tabHist.classList.remove('active');
+    tabPie.classList.remove('active');
   }
   function showHist(){
     vennPage.style.display='none';
@@ -4025,17 +4351,34 @@ KAT7`;
     scatterPage.style.display='none';
     linePage.style.display='none';
     histPage.style.display='block';
+    piePage.style.display='none';
     tabHist.classList.add('active');
     tabVenn.classList.remove('active');
     tabBox.classList.remove('active');
     tabScatter.classList.remove('active');
     tabLine.classList.remove('active');
+    tabPie.classList.remove('active');
+  }
+  function showPie(){
+    vennPage.style.display='none';
+    boxPage.style.display='none';
+    scatterPage.style.display='none';
+    linePage.style.display='none';
+    histPage.style.display='none';
+    piePage.style.display='block';
+    tabPie.classList.add('active');
+    tabVenn.classList.remove('active');
+    tabBox.classList.remove('active');
+    tabScatter.classList.remove('active');
+    tabLine.classList.remove('active');
+    tabHist.classList.remove('active');
   }
   tabVenn.addEventListener('click',()=>{ showVenn();});
   tabBox.addEventListener('click',()=>{ showBox();});
   tabScatter.addEventListener('click',()=>{ showScatter();});
   tabLine.addEventListener('click',()=>{ showLine();});
   tabHist.addEventListener('click',()=>{ showHist();});
+  tabPie.addEventListener('click',()=>{ showPie();});
   showVenn();
   function tTest(a,b){
     const meanA=jStat.mean(a), meanB=jStat.mean(b);
