@@ -1906,61 +1906,26 @@
     console.timeEnd(`scatterSvgDraw_${token}`);
     const legendLabels=labelsUsed;
     if(legendLabels.length){
-      const textFont=`${fs}px sans-serif`;
-      const legendItemHeight=fs+4;
-      const textWidths=legendLabels.map(l=>measureTextWidth(l,textFont));
-      const legendWidth=Math.max(...textWidths,0)+fs+8;
-      const legendHeight=legendLabels.length*legendItemHeight;
-      const pad=4;
-      const corners=[
-        {x:margin.left+pad,y:margin.top+pad},
-        {x:margin.left+plotW-legendWidth-pad,y:margin.top+pad},
-        {x:margin.left+pad,y:margin.top+plotH-legendHeight-pad},
-        {x:margin.left+plotW-legendWidth-pad,y:margin.top+plotH-legendHeight-pad}
-      ];
-      const bboxes=Array.from(labelBBox.values());
-      let placedCorner=null;
-      for(const corner of corners){
-        const overlap=bboxes.some(b=>!(b.maxX<corner.x || b.minX>corner.x+legendWidth || b.maxY<corner.y || b.minY>corner.y+legendHeight));
-        console.log('scatter legend corner check',{corner,overlap});
-        if(!overlap){placedCorner=corner; break;}
-      }
-      if(placedCorner){
-        const legend=add('g',{transform:`translate(${placedCorner.x},${placedCorner.y})`});
-        legendLabels.forEach((lab,i)=>{
-          const g=document.createElementNS(NS,'g');
-          g.setAttribute('transform',`translate(0,${i*legendItemHeight})`);
-          const rect=document.createElementNS(NS,'rect');
-          rect.setAttribute('x',0); rect.setAttribute('y',-(fs-4));
-          rect.setAttribute('width',fs); rect.setAttribute('height',fs); rect.setAttribute('fill',scatterLabelColors[lab]||fill);
-          const text=document.createElementNS(NS,'text');
-          text.setAttribute('x',fs+4); text.setAttribute('y',0); text.setAttribute('font-size',fs); text.setAttribute('alignment-baseline','middle');
-          text.textContent=lab;
-          g.appendChild(rect); g.appendChild(text); legend.appendChild(g);
-        });
-        console.log('scatter legend placed',placedCorner);
-      }else{
-        plotEl.style.display='flex';
-        plotEl.style.alignItems='flex-start';
-        svg.style.flex='none';
-        const legendDiv=document.createElement('div');
-        legendDiv.style.fontSize=fs+'px';
-        legendDiv.style.marginLeft='8px';
-        legendLabels.forEach((lab,i)=>{
-          const item=document.createElement('div');
-          const sw=document.createElement('span');
-          sw.style.display='inline-block';
-          sw.style.width='12px';
-          sw.style.height='12px';
-          sw.style.background=scatterLabelColors[lab]||fill;
-          sw.style.marginRight='4px';
-          const t=document.createElement('span');
-          t.textContent=lab;
-          item.appendChild(sw); item.appendChild(t); legendDiv.appendChild(item);
-        });
-        plotEl.appendChild(legendDiv);
-        console.log('scatter legend placed outside');
-      }
+      plotEl.style.display='flex';
+      plotEl.style.alignItems='flex-start';
+      svg.style.flex='none';
+      const legendDiv=document.createElement('div');
+      legendDiv.style.fontSize=fs+'px';
+      legendDiv.style.marginLeft='8px';
+      legendLabels.forEach((lab,i)=>{
+        const item=document.createElement('div');
+        const sw=document.createElement('span');
+        sw.style.display='inline-block';
+        sw.style.width='12px';
+        sw.style.height='12px';
+        sw.style.background=scatterLabelColors[lab]||fill;
+        sw.style.marginRight='4px';
+        const t=document.createElement('span');
+        t.textContent=lab;
+        item.appendChild(sw); item.appendChild(t); legendDiv.appendChild(item);
+      });
+      plotEl.appendChild(legendDiv);
+      console.log('scatter legend placed outside',{labels:legendLabels});
     }
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditable(xText,txt=>{scatterXLabelText=txt;});
     const yX=margin.left-(maxYLabelWidth+fs*1.5);const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});yText.textContent=scatterYLabelText;makeEditable(yText,txt=>{scatterYLabelText=txt;});
@@ -2418,6 +2383,7 @@
   [lineXMin,lineXMax,lineYMin,lineYMax,lineOriginMode,lineOriginX,lineOriginY].forEach(el=>el.addEventListener('input',()=>{scheduleDrawLine();}));
   function updateLineLabelColorPickers(labels){
     lineLabelColorsDiv.innerHTML='';
+    Object.keys(lineLabelColors).forEach(k=>{if(!labels.includes(k)) delete lineLabelColors[k];});
     labels.forEach((lab,i)=>{
       if(!lineLabelColors[lab]) lineLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
       const input=document.createElement('input');
@@ -2431,6 +2397,7 @@
       lineLabelColorsDiv.appendChild(lbl);
     });
     lineLabelColorsFieldset.style.display=labels.length?'':'none';
+    if(window.DEBUG_LINE) console.log('updateLineLabelColorPickers',{labels,colors:lineLabelColors});
   }
   // Histogram setup
   const histHotContainer=document.getElementById('histHot');
@@ -2635,7 +2602,7 @@
   async function drawLine(){
     const token=++lineDrawToken; if(window.DEBUG_LINE) console.log('drawLine called',{token});
     const fill=lineFill.value; const alpha=Number(lineAlpha.value)||0; const borderWidth=Number(lineBorderWidth.value); const borderColor=lineBorder.value; const bw=borderWidth; const fs=Number(lineFontSize.value); const showGrid=lineShowGrid.checked; const logX=lineLogX.checked; const logY=lineLogY.checked; const dotSize=Number(lineDotSize.value)||0; const xMinManual=parseFloat(lineXMin.value); const xMaxManual=parseFloat(lineXMax.value); const yMinManual=parseFloat(lineYMin.value); const yMaxManual=parseFloat(lineYMax.value); const originMode=lineOriginMode.value; const originXInput=parseFloat(lineOriginX.value); const originYInput=parseFloat(lineOriginY.value);
-    const data=lineHot.getData(); if(!data||!data.length) return; const header=data[0]||[]; let xIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='x'); if(xIndex<0) xIndex=0; lineXLabelText=(header[xIndex]&&String(header[xIndex]).trim())||'X'; if(window.DEBUG_LINE) console.log('line xLabel',lineXLabelText); const seriesCols=header.map((_,i)=>i).filter(i=>i!==xIndex);
+    const data=lineHot.getData(); if(!data||!data.length) return; const header=data[0]||[]; let xIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='x'); if(xIndex<0) xIndex=0; lineXLabelText=(header[xIndex]&&String(header[xIndex]).trim())||'X'; if(window.DEBUG_LINE) console.log('line xLabel',lineXLabelText); const seriesCols=header.map((_,i)=>i).filter(i=>i!==xIndex && header[i]!=null && String(header[i]).trim()!==''); if(window.DEBUG_LINE) console.log('line seriesCols',seriesCols);
     const series=seriesCols.map((ci,i)=>({name:header[ci]||`Series ${i+1}`, points:[]}));
     let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
     for(let r=1;r<data.length;r++){
@@ -2758,50 +2725,7 @@
       const mGroup=add('g',{}); mGroup.appendChild(markerFrag);
       seriesElems.push({path,mGroup});
     });
-    const textFont=`${fs}px sans-serif`;
-    const legendItemHeight=fs+4;
-    const textWidths=series.map(s=>measureTextWidth(s.name,textFont));
-    const legendWidth=Math.max(...textWidths,0)+fs+8;
-    const legendHeight=series.length*legendItemHeight;
-    const pad=4;
-    const corners=[
-      {x:margin.left+pad,y:margin.top+pad},
-      {x:margin.left+plotW-legendWidth-pad,y:margin.top+pad},
-      {x:margin.left+pad,y:margin.top+plotH-legendHeight-pad},
-      {x:margin.left+plotW-legendWidth-pad,y:margin.top+plotH-legendHeight-pad}
-    ];
-    let placedCorner=null;
-    for(const corner of corners){
-      const overlap=series.some(s=>{
-        const b=s.bbox; if(!b) return false;
-        return !(b.maxX < corner.x || b.minX > corner.x+legendWidth || b.maxY < corner.y || b.minY > corner.y+legendHeight);
-      });
-      if(window.DEBUG_LINE) console.log('legend corner check',{legendX:corner.x,legendY:corner.y,overlap});
-      if(!overlap){placedCorner=corner; break;}
-    }
-    if(placedCorner){
-      const legend=document.createElementNS(NS,'g');
-      legend.setAttribute('transform',`translate(${placedCorner.x},${placedCorner.y})`);
-      svg.appendChild(legend);
-      if(window.DEBUG_LINE) console.log('legend placed',{legendX:placedCorner.x,legendY:placedCorner.y});
-      series.forEach((s,i)=>{
-        const g=document.createElementNS(NS,'g');
-        g.setAttribute('cursor','pointer');
-        g.setAttribute('transform',`translate(0,${i*legendItemHeight})`);
-        const rect=document.createElementNS(NS,'rect');
-        rect.setAttribute('x',0); rect.setAttribute('y',-(fs-4));
-        rect.setAttribute('width',fs); rect.setAttribute('height',fs); rect.setAttribute('fill',colors[i]);
-        const text=document.createElementNS(NS,'text');
-        text.setAttribute('x',fs+4); text.setAttribute('y',0); text.setAttribute('font-size',fs); text.setAttribute('alignment-baseline','middle');
-        text.textContent=s.name;
-        g.appendChild(rect); g.appendChild(text); legend.appendChild(g);
-        g.addEventListener('click',()=>{
-          const vis=seriesElems[i].path.style.display!=='none';
-          seriesElems[i].path.style.display=vis?'none':'inline';
-          seriesElems[i].mGroup.style.display=vis?'none':'inline';
-        });
-      });
-    }else{
+    if(series.length){
       plotEl.style.display='flex';
       plotEl.style.alignItems='flex-start';
       svg.style.flex='none';
@@ -2810,6 +2734,7 @@
       legendDiv.style.marginLeft='8px';
       series.forEach((s,i)=>{
         const item=document.createElement('div');
+        item.style.cursor='pointer';
         const sw=document.createElement('span');
         sw.style.display='inline-block';
         sw.style.width='12px';
@@ -2826,7 +2751,7 @@
         });
       });
       plotEl.appendChild(legendDiv);
-      if(window.DEBUG_LINE) console.log('legend placed outside');
+      if(window.DEBUG_LINE) console.log('legend placed outside',{labels:series.map(s=>s.name)});
     }
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});
     xText.textContent=lineXLabelText; makeEditable(xText,txt=>{lineXLabelText=txt;});
@@ -3295,6 +3220,16 @@
           const color=pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
           rect.setAttribute('fill',color);
           svg.appendChild(rect);
+          if(showPerc && frac>0){
+            const txt=document.createElementNS(NS,'text');
+            txt.setAttribute('x',marginLeft+barGap+j*(barWidth+barGap)+barWidth/2);
+            txt.setAttribute('y',y+h/2);
+            txt.setAttribute('text-anchor','middle');
+            txt.setAttribute('font-size',fs*0.8);
+            txt.textContent=(frac*100).toFixed(1)+'%';
+            svg.appendChild(txt);
+            console.log('stacked percent label',{bar:bh,label:lab,percent:frac*100});
+          }
         });
         const lbl=document.createElementNS(NS,'text');
         lbl.setAttribute('x',marginLeft+barGap+j*(barWidth+barGap)+barWidth/2);
