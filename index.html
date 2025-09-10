@@ -3365,112 +3365,145 @@
         return;
       }
 
-    // pie or donut chart with legend on right
-      const valCol=parseInt(pieValueColumn.value)||1;
-      const expCol=parseInt(pieExpectedColumn.value)||2;
-      const labels=[]; const values=[]; const expected=[];
+    // pie or donut charts with dynamic layout for multiple columns
+      const header=data[0]||[];
+      const valueCols=[];
+      for(let c=1;c<header.length;c++){
+        const h=header[c];
+        if(h!==null && h!=='') valueCols.push({idx:c,title:String(h)});
+      }
+      console.log('drawPie columns parsed',valueCols);
+      if(!valueCols.length){ plotEl.innerHTML='<i>No data</i>'; pieStatsResults.textContent='No data'; return; }
+      const labelSet=new Set();
+      for(let r=1;r<data.length;r++){ const lab=data[r][0]; if(lab) labelSet.add(String(lab)); }
+      const allLabels=[...labelSet];
+      updatePieColorPickers(allLabels);
+      const chartCount=valueCols.length;
+      let cols=Math.ceil(Math.sqrt(chartCount));
+      let rows=Math.ceil(chartCount/cols);
+      if(chartCount===3){cols=2;rows=2;}
+      plotEl.style.display='grid';
+      plotEl.style.alignItems='center';
+      plotEl.style.justifyItems='center';
+      plotEl.style.gridTemplateColumns=`repeat(${cols}, 1fr)`;
+      plotEl.style.gridAutoRows='auto';
+      plotEl.style.gap='20px';
+      const plotWidth=plotEl.clientWidth||400;
+      const plotHeight=plotEl.clientHeight||400;
+      const cellWidth=plotWidth/cols;
+      const cellHeight=plotHeight/rows;
+      valueCols.forEach((col,i)=>{
+        const labels=[]; const values=[];
+        for(let r=1;r<data.length;r++){
+          const lab=data[r][0];
+          const val=parseFloat(data[r][col.idx]);
+          if(lab && !isNaN(val)){
+            labels.push(String(lab));
+            values.push(val);
+          }
+        }
+        console.log('drawPie column data',{column:col.idx,title:col.title,labelCount:labels.length});
+        const container=document.createElement('div');
+        container.style.display='flex';
+        container.style.flexDirection='column';
+        container.style.alignItems='center';
+        if(chartCount===3 && i===2) container.style.gridColumn='1 / span 2';
+        const size=Math.min(cellWidth,cellHeight)-40;
+        const svg=document.createElementNS(NS,'svg');
+        if(i===0) svg.setAttribute('id','pieSvg');
+        svg.setAttribute('width',String(size));
+        svg.setAttribute('height',String(size));
+        svg.setAttribute('viewBox',`0 0 ${size} ${size}`);
+        svg.setAttribute('font-family','sans-serif');
+        const radius=(size-20)/2;
+        const cx=size/2;
+        const cy=size/2;
+        let angle=startDeg*Math.PI/180;
+        const texts=[];
+        const total=values.reduce((s,v)=>s+v,0);
+        labels.forEach((lab,j)=>{
+          const val=values[j];
+          const frac=total?val/total:0;
+          const slice=frac*Math.PI*2;
+          const x1=cx+radius*Math.cos(angle);
+          const y1=cy+radius*Math.sin(angle);
+          const x2=cx+radius*Math.cos(angle+slice);
+          const y2=cy+radius*Math.sin(angle+slice);
+          const large=slice>Math.PI?1:0;
+          const pathData=`M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} Z`;
+          const color=pieColors[lab]||DEFAULT_SCATTER_COLORS[j%DEFAULT_SCATTER_COLORS.length];
+          const p=document.createElementNS(NS,'path');
+          p.setAttribute('d',pathData);
+          p.setAttribute('fill',color);
+          p.setAttribute('stroke','#fff');
+          p.setAttribute('stroke-width','1');
+          svg.appendChild(p);
+          if(showPerc){
+            const mid=angle+slice/2;
+            const lx=cx+radius*0.7*Math.cos(mid);
+            const ly=cy+radius*0.7*Math.sin(mid);
+            const txt=document.createElementNS(NS,'text');
+            txt.setAttribute('x',lx);
+            txt.setAttribute('y',ly);
+            txt.setAttribute('font-size',fs);
+            txt.setAttribute('text-anchor','middle');
+            txt.setAttribute('dominant-baseline','middle');
+            txt.textContent=`${(frac*100).toFixed(1)}%`;
+            texts.push(txt);
+          }
+          angle+=slice;
+        });
+        if(type==='donut'){
+          const hole=document.createElementNS(NS,'circle');
+          hole.setAttribute('cx',cx);
+          hole.setAttribute('cy',cy);
+          hole.setAttribute('r',radius*0.5);
+          hole.setAttribute('fill','#fff');
+          svg.appendChild(hole);
+        }
+        texts.forEach(t=>svg.appendChild(t));
+        const title=document.createElementNS(NS,'text');
+        title.setAttribute('x',cx);
+        title.setAttribute('y',fs);
+        title.setAttribute('text-anchor','middle');
+        title.setAttribute('font-size',fs+4);
+        title.textContent=col.title||`Column ${col.idx+1}`;
+        svg.appendChild(title);
+        container.appendChild(svg);
+        const legend=document.createElement('div');
+        legend.style.fontSize=fs+'px';
+        labels.forEach((lab,j)=>{
+          const item=document.createElement('div');
+          const sw=document.createElement('span');
+          sw.style.display='inline-block';
+          sw.style.width='12px';
+          sw.style.height='12px';
+          sw.style.background=pieColors[lab]||DEFAULT_SCATTER_COLORS[j%DEFAULT_SCATTER_COLORS.length];
+          sw.style.marginRight='4px';
+          const t=document.createElement('span');
+          t.textContent=lab;
+          item.appendChild(sw);
+          item.appendChild(t);
+          legend.appendChild(item);
+        });
+        container.appendChild(legend);
+        plotEl.appendChild(container);
+      });
+      const valCol=parseInt(pieValueColumn.value)||valueCols[0].idx;
+      const expCol=parseInt(pieExpectedColumn.value)|| (valueCols[1]?valueCols[1].idx:valueCols[0].idx);
+      const statLabels=[]; const statValues=[]; const expected=[];
       for(let r=1;r<data.length;r++){
         const lab=data[r][0];
         const val=parseFloat(data[r][valCol]);
         const expVal=parseFloat(data[r][expCol]);
         if(lab && !isNaN(val)){
-          labels.push(String(lab));
-          values.push(val);
+          statLabels.push(String(lab));
+          statValues.push(val);
           expected.push(expVal);
         }
       }
-      console.log('drawPie parsed',{valCol,expCol,labelCount:labels.length});
-      if(!values.length){ plotEl.innerHTML='<i>No data</i>'; pieStatsResults.textContent='No data'; return; }
-      updatePieColorPickers(labels);
-      const total=values.reduce((s,v)=>s+v,0);
-    const legendWidth=120;
-    plotEl.style.display='flex';
-    plotEl.style.alignItems='center';
-    const svgWidth=Math.max(50,Math.floor(plotEl.clientWidth||50)-legendWidth);
-    const svgHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
-    const svg=document.createElementNS(NS,'svg');
-    svg.setAttribute('id','pieSvg');
-    svg.setAttribute('width',String(svgWidth));
-    svg.setAttribute('height',String(svgHeight));
-    svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
-    svg.setAttribute('font-family','sans-serif');
-    plotEl.appendChild(svg);
-    const legend=document.createElement('div');
-    legend.style.width=legendWidth+'px';
-    legend.style.fontSize=fs+'px';
-    legend.style.marginLeft='8px';
-    plotEl.appendChild(legend);
-    const marginTop=fs+20;
-    const radius=Math.min(svgWidth-20, svgHeight-marginTop-20)/2;
-    const cx=radius+10;
-    const cy=marginTop+radius;
-    let angle=startDeg*Math.PI/180;
-    const texts=[];
-    labels.forEach((lab,i)=>{
-      const val=values[i];
-      const frac=val/total;
-      const slice=frac*Math.PI*2;
-      const x1=cx+radius*Math.cos(angle);
-      const y1=cy+radius*Math.sin(angle);
-      const x2=cx+radius*Math.cos(angle+slice);
-      const y2=cy+radius*Math.sin(angle+slice);
-      const large=slice>Math.PI?1:0;
-      const pathData=`M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} Z`;
-      const color=pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
-      const p=document.createElementNS(NS,'path');
-      p.setAttribute('d',pathData);
-      p.setAttribute('fill',color);
-      p.setAttribute('stroke','#fff');
-      p.setAttribute('stroke-width','1');
-      svg.appendChild(p);
-      if(showPerc){
-        const mid=angle+slice/2;
-        const lx=cx+radius*0.7*Math.cos(mid);
-        const ly=cy+radius*0.7*Math.sin(mid);
-        const txt=document.createElementNS(NS,'text');
-        txt.setAttribute('x',lx);
-        txt.setAttribute('y',ly);
-        txt.setAttribute('font-size',fs);
-        txt.setAttribute('text-anchor','middle');
-        txt.setAttribute('dominant-baseline','middle');
-        txt.textContent=`${(frac*100).toFixed(1)}%`;
-        texts.push(txt);
-      }
-      angle+=slice;
-    });
-    if(type==='donut'){
-      const hole=document.createElementNS(NS,'circle');
-      hole.setAttribute('cx',cx);
-      hole.setAttribute('cy',cy);
-      hole.setAttribute('r',radius*0.5);
-      hole.setAttribute('fill','#fff');
-      svg.appendChild(hole);
-    }
-    texts.forEach(t=>svg.appendChild(t));
-    const title=document.createElementNS(NS,'text');
-    title.setAttribute('x',cx);
-    title.setAttribute('y',fs);
-    title.setAttribute('text-anchor','middle');
-    title.setAttribute('font-size',fs+4);
-    title.textContent=pieTitleText;
-    svg.appendChild(title);
-    makeEditable(title,txt=>{pieTitleText=txt;});
-    labels.forEach((lab,i)=>{
-      const item=document.createElement('div');
-      const sw=document.createElement('span');
-      sw.style.display='inline-block';
-      sw.style.width='12px';
-      sw.style.height='12px';
-      sw.style.background=pieColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
-      sw.style.marginRight='4px';
-      const t=document.createElement('span');
-      t.textContent=lab;
-      item.appendChild(sw);
-      item.appendChild(t);
-      legend.appendChild(item);
-    });
-    updatePieStats(labels,values,expected);
-    console.log('drawPie complete',{token});
+      updatePieStats(statLabels,statValues,expected);
+      console.log('drawPie complete',{token,charts:chartCount});
   }
   document.getElementById('piePNG').addEventListener('click',async()=>{
     const svgEl=document.getElementById('pieSvg'); if(!svgEl) return; console.log('piePNG export start');
