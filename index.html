@@ -5536,16 +5536,32 @@ KAT7`;
   }
   function autoResizeSvg(svg){
     try{
-      const bbox=svg.getBBox();
-      const padding=10;
-      const minX=Math.min(0,bbox.x-padding);
-      const minY=Math.min(0,bbox.y-padding);
-      const viewW=Math.max(svg.viewBox.baseVal.width,bbox.x+bbox.width+padding-minX);
-      const viewH=Math.max(svg.viewBox.baseVal.height,bbox.y+bbox.height+padding-minY);
-      svg.setAttribute('viewBox',`${minX} ${minY} ${viewW} ${viewH}`);
-      svg.setAttribute('width',viewW);
-      svg.setAttribute('height',viewH);
-      console.log('autoResizeSvg applied',{bbox,minX,minY,viewW,viewH});
+      const applyResize=()=>{
+        const bbox=svg.getBBox();
+        const padding=10;
+        const minX=Math.min(0,bbox.x-padding);
+        const minY=Math.min(0,bbox.y-padding);
+        const viewW=Math.max(svg.viewBox.baseVal.width,bbox.x+bbox.width+padding-minX);
+        const viewH=Math.max(svg.viewBox.baseVal.height,bbox.y+bbox.height+padding-minY);
+        svg.setAttribute('viewBox',`${minX} ${minY} ${viewW} ${viewH}`);
+        svg.setAttribute('width',viewW);
+        svg.setAttribute('height',viewH);
+        const parent=svg.parentElement;
+        if(parent){
+          parent.style.overflow='visible';
+          if(parent.clientWidth<viewW) parent.style.width=viewW+'px';
+          if(parent.clientHeight<viewH) parent.style.height=viewH+'px';
+        }
+        const box=svg.closest('.svgbox');
+        if(box){
+          box.style.overflow='visible';
+          if(box.clientWidth<viewW) box.style.width=viewW+'px';
+          if(box.clientHeight<viewH) box.style.height=viewH+'px';
+        }
+        console.log('autoResizeSvg applied',{bbox,minX,minY,viewW,viewH,parentW:parent?.style.width,parentH:parent?.style.height,boxW:box?.style.width,boxH:box?.style.height});
+      };
+      applyResize();
+      requestAnimationFrame(applyResize);
     }catch(err){console.error('autoResizeSvg error',err);}
   }
   function serializeCleanSVG(svgEl){
