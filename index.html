@@ -3524,12 +3524,13 @@
       let cellWidth,cellHeight;
       let legendWidth=120;
       if(chartCount===2){
+        const gap=20;
         plotEl.style.display='flex';
         plotEl.style.alignItems='center';
         const chartsWrapper=document.createElement('div');
         chartsWrapper.style.display='grid';
         chartsWrapper.style.gridTemplateColumns='1fr 1fr';
-        chartsWrapper.style.gap='20px';
+        chartsWrapper.style.gap=gap+'px';
         chartsWrapper.style.flex='1';
         chartsWrapper.style.alignItems='center';
         chartsWrapper.style.justifyItems='center';
@@ -3539,19 +3540,20 @@
         legend.style.marginLeft='20px';
         legend.style.width=legendWidth+'px';
         plotEl.appendChild(legend);
-        cellWidth=(plotWidth-legendWidth)/2;
+        cellWidth=(plotWidth-legendWidth-gap)/2;
         cellHeight=plotHeight;
         gridContainer=chartsWrapper;
-        console.log('drawPie layout two charts',{token,legendWidth});
+        console.log('drawPie layout two charts',{token,legendWidth,cellWidth,cellHeight});
       }else{
+        const gap=10;
         plotEl.style.display='grid';
         plotEl.style.alignItems='center';
         plotEl.style.justifyItems='center';
         plotEl.style.gridTemplateColumns=`repeat(${cols}, 1fr) ${legendWidth}px`;
         plotEl.style.gridAutoRows='auto';
-        plotEl.style.gap='10px';
-        cellWidth=(plotWidth-legendWidth)/cols;
-        cellHeight=plotHeight/rows;
+        plotEl.style.gap=gap+'px';
+        cellWidth=(plotWidth-legendWidth-gap*(cols-1))/cols;
+        cellHeight=(plotHeight-gap*(rows-1))/rows;
         legend=document.createElement('div');
         legend.style.fontSize=fs+'px';
         legend.style.gridColumn=cols+1;
@@ -3560,7 +3562,7 @@
         legend.style.padding='4px';
         legend.style.alignSelf='start';
         plotEl.appendChild(legend);
-        console.log('drawPie layout grid',{token,cols,rows,legendWidth});
+        console.log('drawPie layout grid',{token,cols,rows,legendWidth,cellWidth,cellHeight});
       }
       valueCols.forEach((col,i)=>{
         const labels=[]; const values=[];
@@ -3586,7 +3588,7 @@
         makeEditable(titleDiv,txt=>{col.title=txt;});
         console.log('drawPie title added',{token,index:i,title:titleDiv.textContent});
         const size=Math.min(cellWidth,cellHeight)-(chartCount===2?20:40);
-        console.log('drawPie chart size',{index:i,size});
+        console.log('drawPie chart size',{index:i,size,cellWidth,cellHeight});
         const svg=document.createElementNS(NS,'svg');
         if(i===0) svg.setAttribute('id','pieSvg');
         svg.setAttribute('width',String(size));
@@ -3641,7 +3643,8 @@
         }
         texts.forEach(t=>svg.appendChild(t));
         container.appendChild(svg);
-        autoResizeSvg(svg);
+        autoResizeSvg(svg,{fill:false});
+        console.log('drawPie autoResizeSvg called',{index:i});
         gridContainer.appendChild(container);
       });
       allLabels.forEach((lab,i)=>{
@@ -5534,8 +5537,9 @@ KAT7`;
       }
     });
   }
-  function autoResizeSvg(svg){
+  function autoResizeSvg(svg, opts={}){
     try{
+      const {fill=true}=opts;
       const applyResize=()=>{
         const bbox=svg.getBBox();
         const padding=10;
@@ -5544,13 +5548,15 @@ KAT7`;
         const viewW=bbox.x+bbox.width+padding-minX;
         const viewH=bbox.y+bbox.height+padding-minY;
         svg.setAttribute('viewBox',`${minX} ${minY} ${viewW} ${viewH}`);
-        svg.setAttribute('width','100%');
-        svg.setAttribute('height','100%');
+        if(fill){
+          svg.setAttribute('width','100%');
+          svg.setAttribute('height','100%');
+        }
         const parent=svg.parentElement;
         if(parent) parent.style.overflow='visible';
         const box=svg.closest('.svgbox');
         if(box) box.style.overflow='visible';
-        console.log('autoResizeSvg applied',{bbox,minX,minY,viewW,viewH,parentW:parent?.clientWidth,parentH:parent?.clientHeight});
+        console.log('autoResizeSvg applied',{bbox,minX,minY,viewW,viewH,fill,parentW:parent?.clientWidth,parentH:parent?.clientHeight});
       };
       applyResize();
       requestAnimationFrame(applyResize);
