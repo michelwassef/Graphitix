@@ -56,7 +56,7 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    width: 100%;
+    width: 420px;
     height: 420px;
     box-sizing: border-box;
   }
@@ -2003,7 +2003,7 @@
     if(xMin===xMax) xMax=xMin+1;
     if(yMin===yMax) yMax=yMin+1;
     console.log('scatter final raw range',{xMin,xMax,yMin,yMax});
-    const W=Math.max(50,Math.floor((plotEl.clientWidth||50)-legendWidth));
+    const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
     const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
     plotEl.style.position='relative';
     const svg=document.createElementNS(NS,'svg');
@@ -2035,7 +2035,7 @@
     const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
     const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont));
     const maxYLabelWidth=Math.max(...yLabelWidths,0);
-    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs*2)};
+    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20+legendWidth,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs*2)};
     console.log('scatter margin computed',margin);
     const plotW=Math.max(20,W-margin.left-margin.right);
     const plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -2085,27 +2085,27 @@
     add('g',{}).appendChild(frag);
     console.timeEnd(`scatterSvgDraw_${token}`);
     if(legendLabels.length){
-      plotEl.style.display='flex';
-      plotEl.style.alignItems='flex-start';
-      svg.style.flex='none';
-      const legendDiv=document.createElement('div');
-      legendDiv.style.fontSize=fs+'px';
-      legendDiv.style.marginLeft='8px';
-      legendDiv.style.width=legendWidth+'px';
+      const legendGroup=document.createElementNS(NS,'g');
+      const legendX=W-legendWidth+8;
+      const legendY=margin.top;
       legendLabels.forEach((lab,i)=>{
-        const item=document.createElement('div');
-        const sw=document.createElement('span');
-        sw.style.display='inline-block';
-        sw.style.width='12px';
-        sw.style.height='12px';
-        sw.style.background=scatterLabelColors[lab]||fill;
-        sw.style.marginRight='4px';
-        const t=document.createElement('span');
+        const y=legendY+i*(fs+4);
+        const sw=document.createElementNS(NS,'rect');
+        sw.setAttribute('x',legendX);
+        sw.setAttribute('y',y-fs+4);
+        sw.setAttribute('width',12);
+        sw.setAttribute('height',12);
+        sw.setAttribute('fill',scatterLabelColors[lab]||fill);
+        legendGroup.appendChild(sw);
+        const t=document.createElementNS(NS,'text');
+        t.setAttribute('x',legendX+16);
+        t.setAttribute('y',y);
+        t.setAttribute('font-size',fs);
         t.textContent=lab;
-        item.appendChild(sw); item.appendChild(t); legendDiv.appendChild(item);
+        legendGroup.appendChild(t);
       });
-      plotEl.appendChild(legendDiv);
-      console.log('scatter legend placed outside',{labels:legendLabels,legendWidth});
+      svg.appendChild(legendGroup);
+      console.log('scatter legend placed inside',{labels:legendLabels,legendWidth,legendX,legendY});
     }
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditable(xText,txt=>{scatterXLabelText=txt;});
     const yX=margin.left-(maxYLabelWidth+fs*0.5);
@@ -2920,7 +2920,7 @@
     const plotEl=document.getElementById('linePlot');
     plotEl.style.display='block';
     while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
-    const W=Math.max(50,Math.floor((plotEl.clientWidth||50)-legendWidth));
+    const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
     const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
     plotEl.style.position='relative';
     const svg=document.createElementNS(NS,'svg');
@@ -2953,7 +2953,7 @@
     const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
     const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont));
     const maxYLabelWidth=Math.max(...yLabelWidths,0);
-    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs*2)};
+    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20+legendWidth,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs*2)};
     console.log('line margin computed',margin);
     const plotW=Math.max(20,W-margin.left-margin.right);
     const plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -3000,34 +3000,36 @@
       seriesElems.push({path,mGroup});
     });
     if(legendLabels.length){
-      plotEl.style.display='flex';
-      plotEl.style.alignItems='flex-start';
-      svg.style.flex='none';
-      const legendDiv=document.createElement('div');
-      legendDiv.style.fontSize=fs+'px';
-      legendDiv.style.marginLeft='8px';
-      legendDiv.style.width=legendWidth+'px';
+      const legendGroup=document.createElementNS(NS,'g');
+      const legendX=W-legendWidth+8;
+      const legendY=margin.top;
       series.forEach((s,i)=>{
-        const item=document.createElement('div');
-        item.style.cursor='pointer';
-        const sw=document.createElement('span');
-        sw.style.display='inline-block';
-        sw.style.width='12px';
-        sw.style.height='12px';
-        sw.style.background=colors[i];
-        sw.style.marginRight='4px';
-        const t=document.createElement('span');
+        const itemG=document.createElementNS(NS,'g');
+        itemG.style.cursor='pointer';
+        const y=legendY+i*(fs+4);
+        const sw=document.createElementNS(NS,'rect');
+        sw.setAttribute('x',legendX);
+        sw.setAttribute('y',y-fs+4);
+        sw.setAttribute('width',12);
+        sw.setAttribute('height',12);
+        sw.setAttribute('fill',colors[i]);
+        itemG.appendChild(sw);
+        const t=document.createElementNS(NS,'text');
+        t.setAttribute('x',legendX+16);
+        t.setAttribute('y',y);
+        t.setAttribute('font-size',fs);
         t.textContent=s.name;
-        item.appendChild(sw); item.appendChild(t); legendDiv.appendChild(item);
-        item.addEventListener('click',()=>{
+        itemG.appendChild(t);
+        itemG.addEventListener('click',()=>{
           const vis=seriesElems[i].path.style.display!=='none';
           seriesElems[i].path.style.display=vis?'none':'inline';
           seriesElems[i].mGroup.style.display=vis?'none':'inline';
         });
+        legendGroup.appendChild(itemG);
       });
-      plotEl.appendChild(legendDiv);
+      svg.appendChild(legendGroup);
       lineLegendItems=series.map((s,i)=>({label:s.name,color:colors[i]}));
-      if(window.DEBUG_LINE) console.log('legend placed outside',{labels:legendLabels,legendWidth});
+      if(window.DEBUG_LINE) console.log('legend placed inside',{labels:legendLabels,legendWidth,legendX,legendY});
     }
     const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});
     xText.textContent=lineXLabelText; makeEditable(xText,txt=>{lineXLabelText=txt;});
@@ -3047,34 +3049,12 @@
     const fs=Number(lineFontSize.value)||16;
     const baseW=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
     const baseH=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
-    const totalW=baseW+(lineLegendItems.length?lineLegendWidth:0);
-    const out=document.createElementNS(NS,'svg');
-    out.setAttribute('width',String(totalW));
+    const out=svgEl.cloneNode(true);
+    out.setAttribute('width',String(baseW));
     out.setAttribute('height',String(baseH));
-    out.setAttribute('viewBox',`0 0 ${totalW} ${baseH}`);
+    out.setAttribute('viewBox',`0 0 ${baseW} ${baseH}`);
     out.setAttribute('font-family','sans-serif');
-    out.appendChild(svgEl.cloneNode(true));
-    if(lineLegendItems.length){
-      const g=document.createElementNS(NS,'g');
-      lineLegendItems.forEach((item,i)=>{
-        const y=20+i*(fs+4);
-        const sw=document.createElementNS(NS,'rect');
-        sw.setAttribute('x',baseW+8);
-        sw.setAttribute('y',y-fs+4);
-        sw.setAttribute('width',12);
-        sw.setAttribute('height',12);
-        sw.setAttribute('fill',item.color);
-        g.appendChild(sw);
-        const t=document.createElementNS(NS,'text');
-        t.setAttribute('x',baseW+28);
-        t.setAttribute('y',y);
-        t.setAttribute('font-size',fs);
-        t.textContent=item.label;
-        g.appendChild(t);
-      });
-      out.appendChild(g);
-    }
-    console.log('buildLineExportSvg',{legendCount:lineLegendItems.length,totalW});
+    console.log('buildLineExportSvg',{legendCount:lineLegendItems.length,baseW});
     return out;
   }
   document.getElementById('linePNG').addEventListener('click',async()=>{
