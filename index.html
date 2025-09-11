@@ -5541,24 +5541,16 @@ KAT7`;
         const padding=10;
         const minX=Math.min(0,bbox.x-padding);
         const minY=Math.min(0,bbox.y-padding);
-        const viewW=Math.max(svg.viewBox.baseVal.width,bbox.x+bbox.width+padding-minX);
-        const viewH=Math.max(svg.viewBox.baseVal.height,bbox.y+bbox.height+padding-minY);
+        const viewW=bbox.x+bbox.width+padding-minX;
+        const viewH=bbox.y+bbox.height+padding-minY;
         svg.setAttribute('viewBox',`${minX} ${minY} ${viewW} ${viewH}`);
-        svg.setAttribute('width',viewW);
-        svg.setAttribute('height',viewH);
+        svg.setAttribute('width','100%');
+        svg.setAttribute('height','100%');
         const parent=svg.parentElement;
-        if(parent){
-          parent.style.overflow='visible';
-          if(parent.clientWidth<viewW) parent.style.width=viewW+'px';
-          if(parent.clientHeight<viewH) parent.style.height=viewH+'px';
-        }
+        if(parent) parent.style.overflow='visible';
         const box=svg.closest('.svgbox');
-        if(box){
-          box.style.overflow='visible';
-          if(box.clientWidth<viewW) box.style.width=viewW+'px';
-          if(box.clientHeight<viewH) box.style.height=viewH+'px';
-        }
-        console.log('autoResizeSvg applied',{bbox,minX,minY,viewW,viewH,parentW:parent?.style.width,parentH:parent?.style.height,boxW:box?.style.width,boxH:box?.style.height});
+        if(box) box.style.overflow='visible';
+        console.log('autoResizeSvg applied',{bbox,minX,minY,viewW,viewH,parentW:parent?.clientWidth,parentH:parent?.clientHeight});
       };
       applyResize();
       requestAnimationFrame(applyResize);
