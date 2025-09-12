@@ -334,6 +334,13 @@
     border-radius: 2px;
   }
   @media (max-width:1000px){#piePage .wrap{grid-template-columns:1fr}}
+
+  /* --- Layout safety overrides: keep center bar on top and prevent overlap --- */
+  .panel { position: relative; overflow: hidden; }
+  .panel-resizer { flex: 0 0 8px; position: relative; z-index: 200; }
+  /* Create a stacking context so children cannot paint over siblings */
+  .wrap { position: relative; isolation: isolate; }
+
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css">
 </head>
@@ -1197,7 +1204,10 @@
 
   function syncBoxWidths(){
     const tableWidth=tablePanel.getBoundingClientRect().width;
-    boxSvgBox.style.width=tableWidth+'px';
+    const graphWidth=graphPanel.getBoundingClientRect().width;
+    const newW=Math.min(tableWidth, graphWidth);
+    boxSvgBox.style.width=newW+'px';
+    console.log('syncBoxWidths',{tableWidth,graphWidth:newW<graphWidth?graphWidth:graphWidth,newW});
   }
 
   const tableObserver=new ResizeObserver(entries=>{
@@ -1572,7 +1582,7 @@
       const total=startTable+startGraph;
       function onMove(ev){
         const dx=ev.clientX-startX;
-        let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+        let newTable=Math.max(150, Math.min(total-150, startTable+dx)); // clamp both sides to >=150px
         let newGraph=total-newTable;
         tablePanel.style.flex=`0 0 ${newTable}px`;
         graphPanel.style.flex=`0 0 ${newGraph}px`;
@@ -1597,7 +1607,10 @@
 
   function syncScatterWidths(){
     const tableWidth=scatterTablePanel.getBoundingClientRect().width;
-    if(scatterSvgBox) scatterSvgBox.style.width=tableWidth+'px';
+    const graphWidth=scatterGraphPanel.getBoundingClientRect().width;
+    const newW=Math.min(tableWidth, graphWidth);
+    if(scatterSvgBox) scatterSvgBox.style.width=newW+'px';
+    console.log('syncScatterWidths',{tableWidth,graphWidth,newW});
   }
   const scatterTableObserver=new ResizeObserver(()=>{syncScatterWidths();});
   scatterTableObserver.observe(scatterTablePanel);
@@ -1889,7 +1902,7 @@
       const total=startTable+startGraph;
       function onMove(ev){
         const dx=ev.clientX-startX;
-        let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+        let newTable=Math.max(150, Math.min(total-150, startTable+dx)); // clamp both sides to >=150px
         let newGraph=total-newTable;
         scatterTablePanel.style.flex=`0 0 ${newTable}px`;
         scatterGraphPanel.style.flex=`0 0 ${newGraph}px`;
@@ -2378,7 +2391,13 @@
   const lineGraphPanel=document.getElementById('lineGraphPanel');
   const linePanelResizer=document.getElementById('linePanelResizer');
   const lineSvgBox=lineGraphPanel?.querySelector('.svgbox');
-  function syncLineWidths(){const tableWidth=lineTablePanel.getBoundingClientRect().width;if(lineSvgBox) lineSvgBox.style.width=tableWidth+'px';}
+  function syncLineWidths(){
+  const tableWidth=lineTablePanel.getBoundingClientRect().width;
+  const graphWidth=lineGraphPanel.getBoundingClientRect().width;
+  const newW=Math.min(tableWidth, graphWidth);
+  if(lineSvgBox) lineSvgBox.style.width=newW+'px';
+  if(window.DEBUG_LINE) console.log('syncLineWidths',{tableWidth,graphWidth,newW});
+}
   const lineTableObserver=new ResizeObserver(()=>{syncLineWidths();});
   lineTableObserver.observe(lineTablePanel);
   lineHotWrapper.style.overflow='auto';
@@ -2558,7 +2577,7 @@
       const total=startTable+startGraph;
       function onMove(ev){
         const dx=ev.clientX-startX;
-        let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+        let newTable=Math.max(150, Math.min(total-150, startTable+dx)); // clamp both sides to >=150px
         let newGraph=total-newTable;
         lineTablePanel.style.flex=`0 0 ${newTable}px`;
         lineGraphPanel.style.flex=`0 0 ${newGraph}px`;
@@ -2649,8 +2668,10 @@
   const histSvgBox=histGraphPanel?.querySelector('.svgbox');
   function syncHistWidths(){
     const tableWidth=histTablePanel.getBoundingClientRect().width;
-    if(histSvgBox) histSvgBox.style.width=tableWidth+'px';
-    if(window.DEBUG_HIST) console.log('syncHistWidths',{tableWidth});
+    const graphWidth=histGraphPanel.getBoundingClientRect().width;
+    const newW=Math.min(tableWidth, graphWidth);
+    if(histSvgBox) histSvgBox.style.width=newW+'px';
+    if(window.DEBUG_HIST) console.log('syncHistWidths',{tableWidth,graphWidth,newW});
   }
   const histTableObserver=new ResizeObserver(()=>{syncHistWidths();});
   histTableObserver.observe(histTablePanel);
@@ -2843,7 +2864,7 @@
       const total=startTable+startGraph;
       function onMove(ev){
         const dx=ev.clientX-startX;
-        let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+        let newTable=Math.max(150, Math.min(total-150, startTable+dx)); // clamp both sides to >=150px
         let newGraph=total-newTable;
         histTablePanel.style.flex=`0 0 ${newTable}px`;
         histGraphPanel.style.flex=`0 0 ${newGraph}px`;
@@ -3197,8 +3218,10 @@
   const pieSvgBox=pieGraphPanel?.querySelector('.svgbox');
   function syncPieWidths(){
     const tableWidth=pieTablePanel.getBoundingClientRect().width;
-    if(pieSvgBox) pieSvgBox.style.width=tableWidth+'px';
-    console.log('syncPieWidths',{tableWidth});
+    const graphWidth=pieGraphPanel.getBoundingClientRect().width;
+    const newW=Math.min(tableWidth, graphWidth);
+    if(pieSvgBox) pieSvgBox.style.width=newW+'px';
+    console.log('syncPieWidths',{tableWidth,graphWidth,newW});
     scheduleDrawPie();
   }
   const pieTableObserver=new ResizeObserver(()=>{syncPieWidths();});
@@ -3358,7 +3381,7 @@
     const total=startTable+startGraph;
     function onMove(ev){
       const dx=ev.clientX-startX;
-      let newTable=Math.max(150,Math.min(total/2,startTable+dx));
+      let newTable=Math.max(150, Math.min(total-150, startTable+dx)); // clamp both sides to >=150px
       let newGraph=total-newTable;
       pieTablePanel.style.flex=`0 0 ${newTable}px`;
       pieGraphPanel.style.flex=`0 0 ${newGraph}px`;
