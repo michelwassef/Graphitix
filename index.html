@@ -972,6 +972,17 @@
             <div id="rocLabelColors" class="color-pickers"></div>
           </fieldset>
           <fieldset>
+            <legend>Options</legend>
+            <div class="control" style="flex-wrap:wrap">
+              <label style="width:auto">Graph type
+                <select id="rocGraphType">
+                  <option value="roc">ROC</option>
+                  <option value="pr">Precision-Recall</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+          <fieldset>
             <legend>Border</legend>
             <div class="control" style="flex-wrap:wrap">
               <div style="display:flex;align-items:center;gap:6px">
@@ -3038,10 +3049,12 @@
   const rocFontSize=$('#rocFontSize'), rocFontSizeVal=$('#rocFontSizeVal');
   const rocLabelColorsDiv=$('#rocLabelColors');
   const rocLabelColorsFieldset=$('#rocLabelColorsFieldset');
+  const rocGraphType=$('#rocGraphType');
   let rocLabelColors={};
   rocFontSize.addEventListener('input',()=>{rocFontSizeVal.textContent=rocFontSize.value; scheduleDrawRoc();});
   rocBorderWidth.addEventListener('input',()=>{if(window.DEBUG_ROC) console.log('rocBorderWidth changed',rocBorderWidth.value); scheduleDrawRoc();});
   rocShowGrid.addEventListener('change',()=>{if(window.DEBUG_ROC) console.log('rocShowGrid changed',rocShowGrid.checked); scheduleDrawRoc();});
+  rocGraphType.addEventListener('change',()=>{if(window.DEBUG_ROC) console.log('rocGraphType changed',rocGraphType.value); scheduleDrawRoc();});
   function updateRocLabelColorPickers(labels){
     rocLabelColorsDiv.innerHTML='';
     Object.keys(rocLabelColors).forEach(k=>{if(!labels.includes(k)) delete rocLabelColors[k];});
@@ -3062,6 +3075,8 @@
   }
   async function drawRoc(){
     const token=++rocDrawToken; if(window.DEBUG_ROC) console.log('drawRoc called',{token});
+    const graphType=rocGraphType.value;
+    if(window.DEBUG_ROC) console.log('drawRoc graphType',graphType);
     const bw=Number(rocBorderWidth.value)||2;
     const showGrid=rocShowGrid.checked;
     const fs=Number(rocFontSize.value)||16;
@@ -3070,6 +3085,9 @@
     let labelIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='label');
     if(labelIndex<0) labelIndex=0;
     const labels=data.slice(1).map(r=>parseFloat(r[labelIndex]));
+    const Ptotal=labels.filter(l=>!isNaN(l)&&l>0).length;
+    const Ntotal=labels.filter(l=>!isNaN(l)&&l<=0).length;
+    if(window.DEBUG_ROC) console.log('label counts',{Ptotal,Ntotal});
     const scoreCols=header.map((_,i)=>i).filter(i=>i!==labelIndex && header[i]!=null && String(header[i]).trim()!=='');
     const series=scoreCols.map((ci,i)=>({name:header[ci]||`Model ${i+1}`, scores:data.slice(1).map(r=>parseFloat(r[ci]))}));
     const legendLabels=series.map(s=>s.name);
@@ -3098,11 +3116,17 @@
     if(showGrid){ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});}
     add('line',{x1:margin.left,y1:margin.top+plotH,x2:margin.left+plotW,y2:margin.top+plotH,stroke:'#000','stroke-width':1});
     add('line',{x1:margin.left,y1:margin.top,x2:margin.left,y2:margin.top+plotH,stroke:'#000','stroke-width':1});
-    add('line',{x1:margin.left,y1:margin.top+plotH,x2:margin.left+plotW,y2:margin.top,stroke:'#888','stroke-dasharray':'4,4','stroke-width':1});
+    if(graphType==='roc'){
+      add('line',{x1:margin.left,y1:margin.top+plotH,x2:margin.left+plotW,y2:margin.top,stroke:'#888','stroke-dasharray':'4,4','stroke-width':1});
+    }else{
+      const base=Ptotal/Math.max(1,Ptotal+Ntotal);
+      add('line',{x1:margin.left,y1:y2px(base),x2:margin.left+plotW,y2:y2px(base),stroke:'#888','stroke-dasharray':'4,4','stroke-width':1});
+      if(window.DEBUG_ROC) console.log('pr baseline',base);
+    }
     ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+6,stroke:'#000','stroke-width':1});add('text',{x:x,y:margin.top+plotH+fs+6,'text-anchor':'middle','font-size':fs},t);});
     ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-6,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});add('text',{x:margin.left-8,y:y+fs/2,'text-anchor':'end','font-size':fs},t);});
-    add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+2},'False Positive Rate');
-    add('text',{x:14,y:margin.top+plotH/2,'text-anchor':'middle','font-size':fs+2,transform:`rotate(-90 14 ${margin.top+plotH/2})`},'True Positive Rate');
+    add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+2},graphType==='roc'?'False Positive Rate':'Recall');
+    add('text',{x:14,y:margin.top+plotH/2,'text-anchor':'middle','font-size':fs+2,transform:`rotate(-90 14 ${margin.top+plotH/2})`},graphType==='roc'?'True Positive Rate':'Precision');
     const rocStats=[];
     series.forEach((s,si)=>{
       const pairs=[];
@@ -3111,10 +3135,19 @@
       let tp=0, fp=0;
       const P=pairs.filter(p=>p.label===1).length;
       const N=pairs.length-P;
-      const pts=[{fpr:0,tpr:0}];
-      pairs.forEach(p=>{if(p.label===1) tp++; else fp++; pts.push({fpr:fp/Math.max(1,N), tpr:tp/Math.max(1,P)});});
-      pts.push({fpr:1,tpr:1});
-      let auc=0; for(let i=1;i<pts.length;i++){const x1=pts[i-1].fpr,y1=pts[i-1].tpr,x2=pts[i].fpr,y2=pts[i].tpr; auc+=(x2-x1)*(y1+y2)/2;}
+      let pts;
+      if(graphType==='roc'){
+        pts=[{fpr:0,tpr:0}];
+        pairs.forEach(p=>{if(p.label===1) tp++; else fp++; pts.push({fpr:fp/Math.max(1,N), tpr:tp/Math.max(1,P)});});
+        pts.push({fpr:1,tpr:1});
+      }else{
+        pts=[{recall:0,precision:1}];
+        pairs.forEach(p=>{if(p.label===1) tp++; else fp++; const rec=tp/Math.max(1,P); const prec=tp/Math.max(1,tp+fp); pts.push({recall:rec, precision:prec});});
+      }
+      let auc=0; for(let i=1;i<pts.length;i++){
+        if(graphType==='roc'){const x1=pts[i-1].fpr,y1=pts[i-1].tpr,x2=pts[i].fpr,y2=pts[i].tpr; auc+=(x2-x1)*(y1+y2)/2;}
+        else{const x1=pts[i-1].recall,y1=pts[i-1].precision,x2=pts[i].recall,y2=pts[i].precision; auc+=(x2-x1)*(y1+y2)/2;}
+      }
       const thr=0.5;
       let tp2=0, fp2=0, tn2=0, fn2=0;
       pairs.forEach(p=>{const pred=p.score>=thr?1:0; if(p.label===1&&pred===1) tp2++; else if(p.label===1&&pred===0) fn2++; else if(p.label===0&&pred===1) fp2++; else tn2++;});
@@ -3125,7 +3158,8 @@
       if(window.DEBUG_ROC) console.log('roc metrics computed',{name:s.name,auc,accuracy,precision,recall,f1});
       rocStats.push({name:s.name,auc,accuracy,precision,recall,f1});
       const color=rocLabelColors[s.name]||DEFAULT_SCATTER_COLORS[si%DEFAULT_SCATTER_COLORS.length];
-      let d=''; pts.forEach((p,i)=>{const x=x2px(p.fpr),y=y2px(p.tpr); d+=(i?'L':'M')+x+' '+y;});
+      let d=''; pts.forEach((p,i)=>{const x=x2px(graphType==='roc'?p.fpr:p.recall),y=y2px(graphType==='roc'?p.tpr:p.precision); d+=(i?'L':'M')+x+' '+y;});
+      if(window.DEBUG_ROC) console.log('roc points',{name:s.name,pts});
       add('path',{d,fill:'none',stroke:color,'stroke-width':bw});
     });
     const legendX=W-legendWidth+10;
@@ -3158,11 +3192,11 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),4000);
   });
-  function getRocGraphPayload(){return{type:'roc',data:rocHot.getData(),config:{borderWidth:rocBorderWidth.value,showGrid:rocShowGrid.checked,fontSize:rocFontSize.value,labelColors:rocLabelColors}};}
+  function getRocGraphPayload(){return{type:'roc',data:rocHot.getData(),config:{borderWidth:rocBorderWidth.value,showGrid:rocShowGrid.checked,fontSize:rocFontSize.value,labelColors:rocLabelColors,graphType:rocGraphType.value}};}
   let rocFileHandle=null, rocFileName='roc.graph';
   async function saveRocFile(){const payload=getRocGraphPayload(); if(rocFileHandle&&rocFileHandle.createWritable){try{const perm=await verifyPermission(rocFileHandle,true); if(perm){const w=await rocFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}}catch(err){console.error('saveRocFile error',err);}}else if(window.showSaveFilePicker){await saveAsRocFile();}else{downloadJSON(payload,rocFileName);}}
   async function saveAsRocFile(){const payload=getRocGraphPayload(); if(window.showSaveFilePicker){try{rocFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:rocFileName}); const w=await rocFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}catch(err){console.error('saveAsRocFile error',err);}}else{downloadJSON(payload,rocFileName);}}
-  function loadRocGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); if(window.DEBUG_ROC) console.log('loadRocGraph',obj); if(obj.type!=='roc') throw new Error('Invalid graph type'); rocHot.loadData(obj.data||[]); const c=obj.config||{}; rocBorderWidth.value=c.borderWidth||rocBorderWidth.value; rocShowGrid.checked=!!c.showGrid; rocFontSize.value=c.fontSize||rocFontSize.value; rocFontSizeVal.textContent=rocFontSize.value; rocLabelColors=c.labelColors||{}; scheduleDrawRoc();}catch(err){console.error('loadRocGraph error',err);}}; reader.readAsText(file);}
+  function loadRocGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); if(window.DEBUG_ROC) console.log('loadRocGraph',obj); if(obj.type!=='roc') throw new Error('Invalid graph type'); rocHot.loadData(obj.data||[]); const c=obj.config||{}; rocBorderWidth.value=c.borderWidth||rocBorderWidth.value; rocShowGrid.checked=!!c.showGrid; rocFontSize.value=c.fontSize||rocFontSize.value; rocFontSizeVal.textContent=rocFontSize.value; rocLabelColors=c.labelColors||{}; rocGraphType.value=c.graphType||rocGraphType.value; scheduleDrawRoc();}catch(err){console.error('loadRocGraph error',err);}}; reader.readAsText(file);}
   async function openRocFile(){ if(window.DEBUG_ROC) console.log('openRocFile start'); if(window.showOpenFilePicker){try{[rocFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await rocFileHandle.getFile(); rocFileName=file.name; loadRocGraphFile(file);}catch(err){console.error('openRocFile error',err);}}else{const input=document.getElementById('rocGraphFile'); input.value=''; input.click();}}
   document.getElementById('openRoc').addEventListener('click',openRocFile);
   document.getElementById('saveRoc').addEventListener('click',saveRocFile);
