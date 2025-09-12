@@ -399,7 +399,7 @@
   <button id="tabBox" class="btn">Box Plot</button>
   <button id="tabScatter" class="btn">Scatter Plot</button>
   <button id="tabLine" class="btn">Line Graph</button>
-  <button id="tabRoc" class="btn">ROC Curve</button>
+  <button id="tabRoc" class="btn">Classification Curves</button>
   <button id="tabHist" class="btn">Histogram</button>
   <button id="tabPie" class="btn">Proportion Graph</button>
 </div>
@@ -935,7 +935,7 @@
 </div>
 </div>
 <div id="rocPage" style="display:none;">
-  <header><h2 style="margin:0">ROC & PR Curves</h2><div style="color:#555;font-size:13px">Paste data into the table to plot Receiver Operating Characteristic (ROC) or Precision-Recall (PR) curves. The area under each curve is computed using the trapezoidal rule.</div></header>
+  <header><h2 style="margin:0">Classification Curves</h2><div style="color:#555;font-size:13px">Paste data into the table to plot Receiver Operating Characteristic (ROC) or Precision-Recall (PR) curves. The area under each curve is computed using the trapezoidal rule.</div></header>
   <div class="row" style="margin:8px 0">
     <button class="btn" id="openRoc">open file</button>
     <button class="btn" id="saveRoc">save file</button>
@@ -1005,13 +1005,13 @@
         </div>
       </div>
     </div>
-  </div>
-  <div id="rocStats" style="width:100%;margin-top:12px">
-    <fieldset>
-      <legend>Statistics</legend>
-      <div id="rocStatsControls" class="row" style="gap:8px;align-items:center"></div>
-      <div id="rocStatsResults" style="margin-top:8px"></div>
-    </fieldset>
+    <div id="rocStats" style="width:100%;margin-top:12px">
+      <fieldset>
+        <legend>Statistics</legend>
+        <div id="rocStatsControls" class="row" style="gap:8px;align-items:center"></div>
+        <div id="rocStatsResults" style="margin-top:8px"></div>
+      </fieldset>
+    </div>
   </div>
 </div>
 <div id="histPage" style="display:none;">
@@ -1215,9 +1215,10 @@
   const lineStatsResults=$('#lineStatsResults');
   const histStatsResults=$('#histStatsResults');
   const pieStatsResults=$('#pieStatsResults');
-  const rocStatsResults=$('#rocStatsResults');
-  const rocStatsControls=$('#rocStatsControls');
-  let rocDiffMethod='delong';
+const rocStatsResults=$('#rocStatsResults');
+const rocStatsControls=$('#rocStatsControls');
+let rocDiffMethod='delong';
+let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   const tabVenn=$('#tabVenn');
   const tabBox=$('#tabBox');
   const tabScatter=$('#tabScatter');
@@ -3070,6 +3071,15 @@
     opts.forEach(([v,t])=>{const o=document.createElement('option');o.value=v;o.textContent=t;if(v===rocDiffMethod) o.selected=true;sel.appendChild(o);});
     sel.addEventListener('change',()=>{rocDiffMethod=sel.value;if(window.DEBUG_ROC) console.log('rocDiffMethod changed',rocDiffMethod); scheduleDrawRoc();});
     rocStatsControls.appendChild(sel);
+    rocCompareLabel=document.createElement('label');
+    rocCompareLabel.textContent='Compare:';
+    rocStatsControls.appendChild(rocCompareLabel);
+    rocCompareSel=document.createElement('select');
+    rocCompareSel.addEventListener('change',()=>{if(window.DEBUG_ROC) console.log('rocCompareSel changed',rocCompareSel.value); scheduleDrawRoc();});
+    rocStatsControls.appendChild(rocCompareSel);
+    rocCompareResult=document.createElement('span');
+    rocCompareResult.style.marginLeft='4px';
+    rocStatsControls.appendChild(rocCompareResult);
     if(window.DEBUG_ROC) console.log('renderRocStatsControls',{graphType:rocGraphType.value,diffMethod:rocDiffMethod});
   }
   renderRocStatsControls();
@@ -3203,6 +3213,26 @@
     const legendLabels=series.map(s=>s.name);
     updateRocLabelColorPickers(legendLabels);
     const legendWidth=legendLabels.length?120:0;
+    if(rocCompareSel){
+      const prevVal=rocCompareSel.value;
+      rocCompareSel.innerHTML='';
+      const pairOpts=[];
+      for(let i=0;i<series.length;i++){
+        for(let j=i+1;j<series.length;j++){
+          const val=`${i},${j}`;
+          const opt=document.createElement('option');
+          opt.value=val; opt.textContent=`${series[i].name} vs ${series[j].name}`;
+          rocCompareSel.appendChild(opt); pairOpts.push(val);
+        }
+      }
+      if(prevVal && pairOpts.includes(prevVal)) rocCompareSel.value=prevVal;
+      else if(pairOpts.length) rocCompareSel.value=pairOpts[0];
+      const display=pairOpts.length?'':'none';
+      rocCompareSel.style.display=display;
+      if(rocCompareLabel) rocCompareLabel.style.display=display;
+      if(rocCompareResult) rocCompareResult.style.display=display;
+      if(window.DEBUG_ROC) console.log('roc pair options',{pairOpts});
+    }
     const plotEl=document.getElementById('rocPlot');
     plotEl.style.display='block';
     while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
@@ -3295,21 +3325,26 @@
     const legendX=W-legendWidth+10;
     legendLabels.forEach((lab,i)=>{const y=margin.top+10+i*(fs+6); const color=rocLabelColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]; add('rect',{x:legendX,y:y-10,width:12,height:12,fill:color}); add('text',{x:legendX+16,y:y,'font-size':fs},lab);});
     let html=rocStats.map(a=>`${a.name}: AUC = ${a.auc.toFixed(3)}, ${graphType==='pr'?`AP = ${a.avgPrecision.toFixed(3)}, `:''}p = ${formatP(a.pVal)}, Thr = ${Number.isFinite(a.thr)?a.thr.toFixed(3):'NA'}, Acc = ${(a.accuracy*100).toFixed(1)}%, Prec = ${(a.precision*100).toFixed(1)}%, Recall = ${(a.recall*100).toFixed(1)}%, F1 = ${(a.f1*100).toFixed(1)}%`).join('<br>');
-    if(series.length===2){
+    rocStatsResults.innerHTML=html;
+    if(series.length>=2 && rocCompareSel && rocCompareSel.value){
+      const [i,j]=rocCompareSel.value.split(',').map(Number);
       let diffRes;
       if(graphType==='roc' && rocDiffMethod==='delong'){
-        diffRes=delongCurveDiff(allPairs[0],allPairs[1]);
-        html+=`<br>${series[0].name} vs ${series[1].name}: ΔAUC = ${diffRes.diff.toFixed(3)}, p = ${formatP(diffRes.p)}, CI = [${diffRes.ci[0].toFixed(3)}, ${diffRes.ci[1].toFixed(3)}]`;
+        diffRes=delongCurveDiff(allPairs[i],allPairs[j]);
+        rocCompareResult.textContent=`ΔAUC = ${diffRes.diff.toFixed(3)}, p = ${formatP(diffRes.p)}, CI = [${diffRes.ci[0].toFixed(3)}, ${diffRes.ci[1].toFixed(3)}]`;
       }else if(rocDiffMethod==='bootstrap'){
-        diffRes=bootstrapCurveDiff(allPairs[0],allPairs[1],graphType);
-        html+=`<br>${series[0].name} vs ${series[1].name}: Δ = ${diffRes.diff.toFixed(3)}, p = ${formatP(diffRes.p)}, CI = [${diffRes.ci[0].toFixed(3)}, ${diffRes.ci[1].toFixed(3)}]`;
+        diffRes=bootstrapCurveDiff(allPairs[i],allPairs[j],graphType);
+        const metric=graphType==='roc'? 'ΔAUC':'ΔAP';
+        rocCompareResult.textContent=`${metric} = ${diffRes.diff.toFixed(3)}, p = ${formatP(diffRes.p)}, CI = [${diffRes.ci[0].toFixed(3)}, ${diffRes.ci[1].toFixed(3)}]`;
       }else if(rocDiffMethod==='permutation'){
-        diffRes=permutationCurveDiff(allPairs[0],allPairs[1],graphType);
-        html+=`<br>${series[0].name} vs ${series[1].name}: Δ = ${diffRes.diff.toFixed(3)}, p = ${formatP(diffRes.p)}`;
+        diffRes=permutationCurveDiff(allPairs[i],allPairs[j],graphType);
+        const metric=graphType==='roc'? 'ΔAUC':'ΔAP';
+        rocCompareResult.textContent=`${metric} = ${diffRes.diff.toFixed(3)}, p = ${formatP(diffRes.p)}`;
       }
-      if(window.DEBUG_ROC) console.log('roc pairwise diff',diffRes);
+      if(window.DEBUG_ROC) console.log('roc pairwise diff',{pair:[series[i].name,series[j].name],diffRes});
+    }else if(rocCompareResult){
+      rocCompareResult.textContent='';
     }
-    rocStatsResults.innerHTML=html;
   }
   document.getElementById('rocPNG').addEventListener('click',async()=>{
     const svgEl=document.getElementById('rocSvg');
