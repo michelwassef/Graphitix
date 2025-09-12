@@ -1009,6 +1009,7 @@
   <div id="rocStats" style="width:100%;margin-top:12px">
     <fieldset>
       <legend>Statistics</legend>
+      <div id="rocStatsControls" class="row" style="gap:8px;align-items:center"></div>
       <div id="rocStatsResults" style="margin-top:8px"></div>
     </fieldset>
   </div>
@@ -1215,6 +1216,8 @@
   const histStatsResults=$('#histStatsResults');
   const pieStatsResults=$('#pieStatsResults');
   const rocStatsResults=$('#rocStatsResults');
+  const rocStatsControls=$('#rocStatsControls');
+  let rocDiffMethod='delong';
   const tabVenn=$('#tabVenn');
   const tabBox=$('#tabBox');
   const tabScatter=$('#tabScatter');
@@ -3054,7 +3057,22 @@
   rocFontSize.addEventListener('input',()=>{rocFontSizeVal.textContent=rocFontSize.value; scheduleDrawRoc();});
   rocBorderWidth.addEventListener('input',()=>{if(window.DEBUG_ROC) console.log('rocBorderWidth changed',rocBorderWidth.value); scheduleDrawRoc();});
   rocShowGrid.addEventListener('change',()=>{if(window.DEBUG_ROC) console.log('rocShowGrid changed',rocShowGrid.checked); scheduleDrawRoc();});
-  rocGraphType.addEventListener('change',()=>{if(window.DEBUG_ROC) console.log('rocGraphType changed',rocGraphType.value); scheduleDrawRoc();});
+  rocGraphType.addEventListener('change',()=>{if(window.DEBUG_ROC) console.log('rocGraphType changed',rocGraphType.value); renderRocStatsControls(); scheduleDrawRoc();});
+  function renderRocStatsControls(){
+    if(!rocStatsControls) return;
+    rocStatsControls.innerHTML='';
+    const label=document.createElement('label');
+    label.textContent='Diff method:';
+    rocStatsControls.appendChild(label);
+    const sel=document.createElement('select');
+    const opts=rocGraphType.value==='roc'?[['delong','DeLong'],['bootstrap','Bootstrap']]:[['bootstrap','Bootstrap'],['permutation','Permutation']];
+    if(!opts.some(o=>o[0]===rocDiffMethod)) rocDiffMethod=opts[0][0];
+    opts.forEach(([v,t])=>{const o=document.createElement('option');o.value=v;o.textContent=t;if(v===rocDiffMethod) o.selected=true;sel.appendChild(o);});
+    sel.addEventListener('change',()=>{rocDiffMethod=sel.value;if(window.DEBUG_ROC) console.log('rocDiffMethod changed',rocDiffMethod); scheduleDrawRoc();});
+    rocStatsControls.appendChild(sel);
+    if(window.DEBUG_ROC) console.log('renderRocStatsControls',{graphType:rocGraphType.value,diffMethod:rocDiffMethod});
+  }
+  renderRocStatsControls();
   function updateRocLabelColorPickers(labels){
     rocLabelColorsDiv.innerHTML='';
     Object.keys(rocLabelColors).forEach(k=>{if(!labels.includes(k)) delete rocLabelColors[k];});
@@ -3104,17 +3122,66 @@
     return p;
   }
   function bootstrapCurveDiff(pairs1,pairs2,graphType,iters=200){
-    const n=pairs1.length; let count=0;
+    const n=pairs1.length; const diffs=[];
     const baseDiff=computeCurveMetric(pairs1,graphType)-computeCurveMetric(pairs2,graphType);
     for(let b=0;b<iters;b++){
       const s1=[],s2=[];
       for(let i=0;i<n;i++){const idx=Math.floor(Math.random()*n); s1.push(pairs1[idx]); s2.push(pairs2[idx]);}
+      diffs.push(computeCurveMetric(s1,graphType)-computeCurveMetric(s2,graphType));
+    }
+    const count=diffs.filter(d=>Math.abs(d)>=Math.abs(baseDiff)).length;
+    diffs.sort((a,b)=>a-b);
+    const lower=diffs[Math.floor(0.025*iters)] ?? diffs[0];
+    const upper=diffs[Math.floor(0.975*iters)] ?? diffs[diffs.length-1];
+    const p=(count+1)/(iters+1);
+    if(window.DEBUG_ROC) console.debug('bootstrapCurveDiff',{graphType,iters,p,ci:[lower,upper]});
+    return {p,ci:[lower,upper],diff:baseDiff};
+  }
+  function permutationCurveDiff(pairs1,pairs2,graphType,iters=200){
+    const n=pairs1.length;
+    const baseDiff=computeCurveMetric(pairs1,graphType)-computeCurveMetric(pairs2,graphType);
+    let count=0;
+    for(let b=0;b<iters;b++){
+      const s1=[],s2=[];
+      for(let i=0;i<n;i++){
+        if(Math.random()<0.5){s1.push(pairs1[i]); s2.push(pairs2[i]);}
+        else{s1.push({label:pairs1[i].label,score:pairs2[i].score}); s2.push({label:pairs2[i].label,score:pairs1[i].score});}
+      }
       const diff=computeCurveMetric(s1,graphType)-computeCurveMetric(s2,graphType);
       if(Math.abs(diff)>=Math.abs(baseDiff)) count++;
     }
     const p=(count+1)/(iters+1);
-    if(window.DEBUG_ROC) console.debug('bootstrapCurveDiff',{graphType,iters,p});
-    return p;
+    if(window.DEBUG_ROC) console.debug('permutationCurveDiff',{graphType,iters,p});
+    return {p,diff:baseDiff};
+  }
+  function delongCurveDiff(pairs1,pairs2){
+    const pos1=pairs1.filter(p=>p.label===1).map(p=>p.score);
+    const neg1=pairs1.filter(p=>p.label===0).map(p=>p.score);
+    const pos2=pairs2.filter(p=>p.label===1).map(p=>p.score);
+    const neg2=pairs2.filter(p=>p.label===0).map(p=>p.score);
+    const m=pos1.length, n=neg1.length;
+    function calcV(pos,neg){
+      const V10=[], V01=[];
+      for(const ps of pos){let lt=0,eq=0;for(const ns of neg){if(ps>ns) lt++; else if(ps===ns) eq++;}V10.push((lt+0.5*eq)/neg.length);}
+      for(const ns of neg){let gt=0,eq=0;for(const ps of pos){if(ps>ns) gt++; else if(ps===ns) eq++;}V01.push((gt+0.5*eq)/pos.length);}
+      const auc=V10.reduce((a,b)=>a+b,0)/pos.length;
+      return {V10,V01,auc};
+    }
+    const a1=calcV(pos1,neg1), a2=calcV(pos2,neg2);
+    function cov(a,b){const meanA=jStat.mean(a),meanB=jStat.mean(b);let s=0;for(let i=0;i<a.length;i++){s+=(a[i]-meanA)*(b[i]-meanB);}return s/(a.length-1);}
+    const s10=[[cov(a1.V10,a1.V10),cov(a1.V10,a2.V10)],[cov(a2.V10,a1.V10),cov(a2.V10,a2.V10)]];
+    const s01=[[cov(a1.V01,a1.V01),cov(a1.V01,a2.V01)],[cov(a2.V01,a1.V01),cov(a2.V01,a2.V01)]];
+    const var1=s10[0][0]/m + s01[0][0]/n;
+    const var2=s10[1][1]/m + s01[1][1]/n;
+    const covar=s10[0][1]/m + s01[0][1]/n;
+    const diff=a1.auc-a2.auc;
+    const varDiff=var1+var2-2*covar;
+    const sd=Math.sqrt(varDiff);
+    const z=diff/sd;
+    const p=2*(1-jStat.normal.cdf(Math.abs(z),0,1));
+    const ci=[diff-1.96*sd,diff+1.96*sd];
+    if(window.DEBUG_ROC) console.debug('delongCurveDiff',{diff,p,ci});
+    return {p,diff,ci};
   }
   async function drawRoc(){
     const token=++rocDrawToken; if(window.DEBUG_ROC) console.log('drawRoc called',{token});
@@ -3229,9 +3296,18 @@
     legendLabels.forEach((lab,i)=>{const y=margin.top+10+i*(fs+6); const color=rocLabelColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]; add('rect',{x:legendX,y:y-10,width:12,height:12,fill:color}); add('text',{x:legendX+16,y:y,'font-size':fs},lab);});
     let html=rocStats.map(a=>`${a.name}: AUC = ${a.auc.toFixed(3)}, ${graphType==='pr'?`AP = ${a.avgPrecision.toFixed(3)}, `:''}p = ${formatP(a.pVal)}, Thr = ${Number.isFinite(a.thr)?a.thr.toFixed(3):'NA'}, Acc = ${(a.accuracy*100).toFixed(1)}%, Prec = ${(a.precision*100).toFixed(1)}%, Recall = ${(a.recall*100).toFixed(1)}%, F1 = ${(a.f1*100).toFixed(1)}%`).join('<br>');
     if(series.length===2){
-      const diffP=bootstrapCurveDiff(allPairs[0],allPairs[1],graphType);
-      if(window.DEBUG_ROC) console.log('roc pairwise diff',{p:diffP});
-      html+=`<br>${series[0].name} vs ${series[1].name}: p = ${formatP(diffP)}`;
+      let diffRes;
+      if(graphType==='roc' && rocDiffMethod==='delong'){
+        diffRes=delongCurveDiff(allPairs[0],allPairs[1]);
+        html+=`<br>${series[0].name} vs ${series[1].name}: ΔAUC = ${diffRes.diff.toFixed(3)}, p = ${formatP(diffRes.p)}, CI = [${diffRes.ci[0].toFixed(3)}, ${diffRes.ci[1].toFixed(3)}]`;
+      }else if(rocDiffMethod==='bootstrap'){
+        diffRes=bootstrapCurveDiff(allPairs[0],allPairs[1],graphType);
+        html+=`<br>${series[0].name} vs ${series[1].name}: Δ = ${diffRes.diff.toFixed(3)}, p = ${formatP(diffRes.p)}, CI = [${diffRes.ci[0].toFixed(3)}, ${diffRes.ci[1].toFixed(3)}]`;
+      }else if(rocDiffMethod==='permutation'){
+        diffRes=permutationCurveDiff(allPairs[0],allPairs[1],graphType);
+        html+=`<br>${series[0].name} vs ${series[1].name}: Δ = ${diffRes.diff.toFixed(3)}, p = ${formatP(diffRes.p)}`;
+      }
+      if(window.DEBUG_ROC) console.log('roc pairwise diff',diffRes);
     }
     rocStatsResults.innerHTML=html;
   }
