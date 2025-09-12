@@ -93,7 +93,7 @@
   #boxPage #boxTablePanel{flex:1 1 33%;min-width:150px}
   #boxPage #boxGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
   #boxPage .diagram-area .svgbox{flex:1}
-  #boxPage .diagram-area .config-options{flex:1}
+  #boxPage .diagram-area .config-options{flex:0 0 auto}
   #boxPage .panel{display:flex;flex-direction:column;min-width:0}
   #boxPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
   #boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
@@ -142,7 +142,7 @@
   #scatterPage #scatterTablePanel{flex:1 1 33%;min-width:150px}
   #scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
   #scatterPage .diagram-area .svgbox{flex:1}
-  #scatterPage .diagram-area .config-options{flex:1}
+  #scatterPage .diagram-area .config-options{flex:0 0 auto}
   #scatterPage .panel{display:flex;flex-direction:column;min-width:0}
   #scatterPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
   #scatterPage #scatterPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
@@ -191,7 +191,7 @@
   #linePage #lineTablePanel{flex:1 1 33%;min-width:150px}
   #linePage #lineGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
   #linePage .diagram-area .svgbox{flex:1}
-  #linePage .diagram-area .config-options{flex:1}
+  #linePage .diagram-area .config-options{flex:0 0 auto}
   #linePage .panel{display:flex;flex-direction:column;min-width:0}
   #linePage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
   #linePage #linePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
@@ -240,7 +240,7 @@
   #histPage #histTablePanel{flex:1 1 33%;min-width:150px}
   #histPage #histGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
   #histPage .diagram-area .svgbox{flex:1}
-  #histPage .diagram-area .config-options{flex:1}
+  #histPage .diagram-area .config-options{flex:0 0 auto}
   #histPage .panel{display:flex;flex-direction:column;min-width:0}
   #histPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
   #histPage #histPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
@@ -289,7 +289,7 @@
   #piePage #pieTablePanel{flex:1 1 33%;min-width:150px}
   #piePage #pieGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
   #piePage .diagram-area .svgbox{flex:1}
-  #piePage .diagram-area .config-options{flex:1}
+  #piePage .diagram-area .config-options{flex:0 0 auto}
   #piePage .panel{display:flex;flex-direction:column;min-width:0}
   #piePage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
   #piePage #piePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
@@ -1094,7 +1094,7 @@
   const graphPanel=document.getElementById('boxGraphPanel');
   const panelResizer=document.getElementById('boxPanelResizer');
   const boxSvgBox=graphPanel.querySelector('.svgbox');
-  const configPanel=graphPanel.querySelector('.config-options');
+  const boxConfigPanel=graphPanel.querySelector('.config-options');
 
   const vennContainer = stage.closest('.svgbox') || stage.parentElement;
   (function initVennResizers(){
@@ -1201,13 +1201,17 @@
     });
   }
   document.querySelectorAll('input[type=color]').forEach(el=>{ if(el!==colorPickerOverlay) attachColorPickerNear(el); });
-
+  let boxMinSvgWidth=0;
   function syncBoxWidths(){
     const tableWidth=tablePanel.getBoundingClientRect().width;
     const graphWidth=graphPanel.getBoundingClientRect().width;
-    const newW=Math.min(tableWidth, graphWidth);
+    const configWidth=boxConfigPanel.getBoundingClientRect().width;
+    const gap=parseFloat(getComputedStyle(graphPanel.querySelector('.diagram-area')).gap||0);
+    const available=graphWidth-configWidth-gap;
+    const minW=boxMinSvgWidth||0;
+    const newW=Math.max(minW, Math.min(tableWidth, available));
     boxSvgBox.style.width=newW+'px';
-    console.log('syncBoxWidths',{tableWidth,graphWidth:newW<graphWidth?graphWidth:graphWidth,newW});
+    console.debug('syncBoxWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
   }
 
   const tableObserver=new ResizeObserver(entries=>{
@@ -1579,18 +1583,25 @@
       const startX=e.clientX;
       const startTable=tablePanel.getBoundingClientRect().width;
       const startGraph=graphPanel.getBoundingClientRect().width;
+      const configWidth=boxConfigPanel.getBoundingClientRect().width;
+      const gap=parseFloat(getComputedStyle(graphPanel.querySelector('.diagram-area')).gap||0);
+      boxMinSvgWidth=boxSvgBox.getBoundingClientRect().width*0.5;
+      const minGraph=configWidth+gap+boxMinSvgWidth;
       const total=startTable+startGraph;
+      console.debug('box resizer start',{startTable,startGraph,configWidth,gap,boxMinSvgWidth,minGraph,total});
       function onMove(ev){
         const dx=ev.clientX-startX;
-        let newTable=Math.max(150, Math.min(total-150, startTable+dx)); // clamp both sides to >=150px
+        let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx));
         let newGraph=total-newTable;
         tablePanel.style.flex=`0 0 ${newTable}px`;
         graphPanel.style.flex=`0 0 ${newGraph}px`;
         syncBoxWidths();
+        console.debug('box resizer move',{dx,newTable,newGraph});
       }
       function onUp(){
         document.removeEventListener('pointermove',onMove);
         document.removeEventListener('pointerup',onUp);
+        console.debug('box resizer end');
       }
       document.addEventListener('pointermove',onMove);
       document.addEventListener('pointerup',onUp);
@@ -1604,13 +1615,18 @@
   const scatterGraphPanel=document.getElementById('scatterGraphPanel');
   const scatterPanelResizer=document.getElementById('scatterPanelResizer');
   const scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
-
+  const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-options');
+  let scatterMinSvgWidth=0;
   function syncScatterWidths(){
     const tableWidth=scatterTablePanel.getBoundingClientRect().width;
     const graphWidth=scatterGraphPanel.getBoundingClientRect().width;
-    const newW=Math.min(tableWidth, graphWidth);
+    const configWidth=scatterConfigPanel.getBoundingClientRect().width;
+    const gap=parseFloat(getComputedStyle(scatterGraphPanel.querySelector('.diagram-area')).gap||0);
+    const available=graphWidth-configWidth-gap;
+    const minW=scatterMinSvgWidth||0;
+    const newW=Math.max(minW, Math.min(tableWidth, available));
     if(scatterSvgBox) scatterSvgBox.style.width=newW+'px';
-    console.log('syncScatterWidths',{tableWidth,graphWidth,newW});
+    console.debug('syncScatterWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
   }
   const scatterTableObserver=new ResizeObserver(()=>{syncScatterWidths();});
   scatterTableObserver.observe(scatterTablePanel);
@@ -1899,16 +1915,26 @@
       const startX=e.clientX;
       const startTable=scatterTablePanel.getBoundingClientRect().width;
       const startGraph=scatterGraphPanel.getBoundingClientRect().width;
+      const configWidth=scatterConfigPanel.getBoundingClientRect().width;
+      const gap=parseFloat(getComputedStyle(scatterGraphPanel.querySelector('.diagram-area')).gap||0);
+      scatterMinSvgWidth=scatterSvgBox.getBoundingClientRect().width*0.5;
+      const minGraph=configWidth+gap+scatterMinSvgWidth;
       const total=startTable+startGraph;
+      console.debug('scatter resizer start',{startTable,startGraph,configWidth,gap,scatterMinSvgWidth,minGraph,total});
       function onMove(ev){
         const dx=ev.clientX-startX;
-        let newTable=Math.max(150, Math.min(total-150, startTable+dx)); // clamp both sides to >=150px
+        let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx));
         let newGraph=total-newTable;
         scatterTablePanel.style.flex=`0 0 ${newTable}px`;
         scatterGraphPanel.style.flex=`0 0 ${newGraph}px`;
         syncScatterWidths();
+        console.debug('scatter resizer move',{dx,newTable,newGraph});
       }
-      function onUp(){document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onUp);}
+      function onUp(){
+        document.removeEventListener('pointermove',onMove);
+        document.removeEventListener('pointerup',onUp);
+        console.debug('scatter resizer end');
+      }
       document.addEventListener('pointermove',onMove);
       document.addEventListener('pointerup',onUp);
     });
@@ -2391,12 +2417,18 @@
   const lineGraphPanel=document.getElementById('lineGraphPanel');
   const linePanelResizer=document.getElementById('linePanelResizer');
   const lineSvgBox=lineGraphPanel?.querySelector('.svgbox');
+  const lineConfigPanel=lineGraphPanel?.querySelector('.config-options');
+  let lineMinSvgWidth=0;
   function syncLineWidths(){
   const tableWidth=lineTablePanel.getBoundingClientRect().width;
   const graphWidth=lineGraphPanel.getBoundingClientRect().width;
-  const newW=Math.min(tableWidth, graphWidth);
+  const configWidth=lineConfigPanel.getBoundingClientRect().width;
+  const gap=parseFloat(getComputedStyle(lineGraphPanel.querySelector('.diagram-area')).gap||0);
+  const available=graphWidth-configWidth-gap;
+  const minW=lineMinSvgWidth||0;
+  const newW=Math.max(minW, Math.min(tableWidth, available));
   if(lineSvgBox) lineSvgBox.style.width=newW+'px';
-  if(window.DEBUG_LINE) console.log('syncLineWidths',{tableWidth,graphWidth,newW});
+  if(window.DEBUG_LINE) console.log('syncLineWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
 }
   const lineTableObserver=new ResizeObserver(()=>{syncLineWidths();});
   lineTableObserver.observe(lineTablePanel);
@@ -2574,18 +2606,25 @@
       const startX=e.clientX;
       const startTable=lineTablePanel.getBoundingClientRect().width;
       const startGraph=lineGraphPanel.getBoundingClientRect().width;
+      const configWidth=lineConfigPanel.getBoundingClientRect().width;
+      const gap=parseFloat(getComputedStyle(lineGraphPanel.querySelector('.diagram-area')).gap||0);
+      lineMinSvgWidth=lineSvgBox.getBoundingClientRect().width*0.5;
+      const minGraph=configWidth+gap+lineMinSvgWidth;
       const total=startTable+startGraph;
+      if(window.DEBUG_LINE) console.debug('line resizer start',{startTable,startGraph,configWidth,gap,lineMinSvgWidth,minGraph,total});
       function onMove(ev){
         const dx=ev.clientX-startX;
-        let newTable=Math.max(150, Math.min(total-150, startTable+dx)); // clamp both sides to >=150px
+        let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx));
         let newGraph=total-newTable;
         lineTablePanel.style.flex=`0 0 ${newTable}px`;
         lineGraphPanel.style.flex=`0 0 ${newGraph}px`;
         syncLineWidths();
+        if(window.DEBUG_LINE) console.debug('line resizer move',{dx,newTable,newGraph});
       }
       function onUp(){
         document.removeEventListener('pointermove',onMove);
         document.removeEventListener('pointerup',onUp);
+        if(window.DEBUG_LINE) console.debug('line resizer end');
       }
       document.addEventListener('pointermove',onMove);
       document.addEventListener('pointerup',onUp);
@@ -2666,12 +2705,18 @@
   const histGraphPanel=document.getElementById('histGraphPanel');
   const histPanelResizer=document.getElementById('histPanelResizer');
   const histSvgBox=histGraphPanel?.querySelector('.svgbox');
+  const histConfigPanel=histGraphPanel?.querySelector('.config-options');
+  let histMinSvgWidth=0;
   function syncHistWidths(){
     const tableWidth=histTablePanel.getBoundingClientRect().width;
     const graphWidth=histGraphPanel.getBoundingClientRect().width;
-    const newW=Math.min(tableWidth, graphWidth);
+    const configWidth=histConfigPanel.getBoundingClientRect().width;
+    const gap=parseFloat(getComputedStyle(histGraphPanel.querySelector('.diagram-area')).gap||0);
+    const available=graphWidth-configWidth-gap;
+    const minW=histMinSvgWidth||0;
+    const newW=Math.max(minW, Math.min(tableWidth, available));
     if(histSvgBox) histSvgBox.style.width=newW+'px';
-    if(window.DEBUG_HIST) console.log('syncHistWidths',{tableWidth,graphWidth,newW});
+    if(window.DEBUG_HIST) console.log('syncHistWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
   }
   const histTableObserver=new ResizeObserver(()=>{syncHistWidths();});
   histTableObserver.observe(histTablePanel);
@@ -2861,18 +2906,25 @@
       const startX=e.clientX;
       const startTable=histTablePanel.getBoundingClientRect().width;
       const startGraph=histGraphPanel.getBoundingClientRect().width;
+      const configWidth=histConfigPanel.getBoundingClientRect().width;
+      const gap=parseFloat(getComputedStyle(histGraphPanel.querySelector('.diagram-area')).gap||0);
+      histMinSvgWidth=histSvgBox.getBoundingClientRect().width*0.5;
+      const minGraph=configWidth+gap+histMinSvgWidth;
       const total=startTable+startGraph;
+      if(window.DEBUG_HIST) console.debug('hist resizer start',{startTable,startGraph,configWidth,gap,histMinSvgWidth,minGraph,total});
       function onMove(ev){
         const dx=ev.clientX-startX;
-        let newTable=Math.max(150, Math.min(total-150, startTable+dx)); // clamp both sides to >=150px
+        let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx));
         let newGraph=total-newTable;
         histTablePanel.style.flex=`0 0 ${newTable}px`;
         histGraphPanel.style.flex=`0 0 ${newGraph}px`;
         syncHistWidths();
+        if(window.DEBUG_HIST) console.debug('hist resizer move',{dx,newTable,newGraph});
       }
       function onUp(){
         document.removeEventListener('pointermove',onMove);
         document.removeEventListener('pointerup',onUp);
+        if(window.DEBUG_HIST) console.debug('hist resizer end');
       }
       document.addEventListener('pointermove',onMove);
       document.addEventListener('pointerup',onUp);
@@ -3216,12 +3268,18 @@
   const pieGraphPanel=document.getElementById('pieGraphPanel');
   const piePanelResizer=document.getElementById('piePanelResizer');
   const pieSvgBox=pieGraphPanel?.querySelector('.svgbox');
+  const pieConfigPanel=pieGraphPanel?.querySelector('.config-options');
+  let pieMinSvgWidth=0;
   function syncPieWidths(){
     const tableWidth=pieTablePanel.getBoundingClientRect().width;
     const graphWidth=pieGraphPanel.getBoundingClientRect().width;
-    const newW=Math.min(tableWidth, graphWidth);
+    const configWidth=pieConfigPanel.getBoundingClientRect().width;
+    const gap=parseFloat(getComputedStyle(pieGraphPanel.querySelector('.diagram-area')).gap||0);
+    const available=graphWidth-configWidth-gap;
+    const minW=pieMinSvgWidth||0;
+    const newW=Math.max(minW, Math.min(tableWidth, available));
     if(pieSvgBox) pieSvgBox.style.width=newW+'px';
-    console.log('syncPieWidths',{tableWidth,graphWidth,newW});
+    console.debug('syncPieWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
     scheduleDrawPie();
   }
   const pieTableObserver=new ResizeObserver(()=>{syncPieWidths();});
@@ -3378,18 +3436,25 @@
     const startX=e.clientX;
     const startTable=pieTablePanel.getBoundingClientRect().width;
     const startGraph=pieGraphPanel.getBoundingClientRect().width;
+    const configWidth=pieConfigPanel.getBoundingClientRect().width;
+    const gap=parseFloat(getComputedStyle(pieGraphPanel.querySelector('.diagram-area')).gap||0);
+    pieMinSvgWidth=pieSvgBox.getBoundingClientRect().width*0.5;
+    const minGraph=configWidth+gap+pieMinSvgWidth;
     const total=startTable+startGraph;
+    console.debug('pie resizer start',{startTable,startGraph,configWidth,gap,pieMinSvgWidth,minGraph,total});
     function onMove(ev){
       const dx=ev.clientX-startX;
-      let newTable=Math.max(150, Math.min(total-150, startTable+dx)); // clamp both sides to >=150px
+      let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx));
       let newGraph=total-newTable;
       pieTablePanel.style.flex=`0 0 ${newTable}px`;
       pieGraphPanel.style.flex=`0 0 ${newGraph}px`;
       syncPieWidths();
+      console.debug('pie resizer move',{dx,newTable,newGraph});
     }
     function onUp(){
       document.removeEventListener('pointermove',onMove);
       document.removeEventListener('pointerup',onUp);
+      console.debug('pie resizer end');
     }
     document.addEventListener('pointermove',onMove);
     document.addEventListener('pointerup',onUp);
