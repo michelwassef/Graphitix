@@ -236,6 +236,54 @@
     border-radius: 2px;
   }
   @media (max-width:1000px){#linePage .wrap{grid-template-columns:1fr}}
+  #rocPage .wrap{display:flex;align-items:stretch;gap:0}
+  #rocPage #rocTablePanel{flex:1 1 33%;min-width:150px}
+  #rocPage #rocGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+  #rocPage .diagram-area .svgbox{flex:1}
+  #rocPage .diagram-area .config-options{flex:0 0 auto}
+  #rocPage .panel{display:flex;flex-direction:column;min-width:0}
+  #rocPage #rocPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+  #rocPage .svgbox{
+    position: relative;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 420px;
+    box-sizing: border-box;
+  }
+  #rocPage .svgbox .resizer {
+    position: absolute;
+    z-index: 40;
+    background: rgba(0,0,0,0);
+    touch-action: none;
+  }
+  #rocPage .svgbox .resizer-vertical {
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 100%;
+    cursor: ew-resize;
+  }
+  #rocPage .svgbox .resizer-horizontal {
+    bottom: 0;
+    left: 0;
+    height: 12px;
+    width: 100%;
+    cursor: ns-resize;
+  }
+  #rocPage .svgbox .resizer-corner {
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+    border-radius: 2px;
+  }
+  @media (max-width:1000px){#rocPage .wrap{grid-template-columns:1fr}}
   #histPage .wrap{display:flex;align-items:stretch;gap:0}
   #histPage #histTablePanel{flex:1 1 33%;min-width:150px}
   #histPage #histGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
@@ -350,6 +398,7 @@
   <button id="tabBox" class="btn">Box Plot</button>
   <button id="tabScatter" class="btn">Scatter Plot</button>
   <button id="tabLine" class="btn">Line Graph</button>
+  <button id="tabRoc" class="btn">ROC Curve</button>
   <button id="tabHist" class="btn">Histogram</button>
   <button id="tabPie" class="btn">Proportion Graph</button>
 </div>
@@ -881,6 +930,73 @@
           <div id="lineStatsResults" style="margin-top:8px"></div>
         </fieldset>
       </div>
+  </div>
+</div>
+</div>
+<div id="rocPage" style="display:none;">
+  <header><h2 style="margin:0">ROC Curve</h2><div style="color:#555;font-size:13px">Paste data into the table and draw ROC curves.</div></header>
+  <div class="row" style="margin:8px 0">
+    <button class="btn" id="openRoc">open file</button>
+    <button class="btn" id="saveRoc">save file</button>
+    <button class="btn" id="saveAsRoc">save as</button>
+    <input type="file" id="rocGraphFile" accept=".graph" style="display:none">
+  </div>
+  <div class="wrap">
+    <div class="panel" id="rocTablePanel">
+      <div id="rocHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="rocHot" style="width:100%;height:100%"></div></div>
+      <div class="row" style="margin-top:8px;justify-content:space-between">
+        <div class="row" style="gap:8px">
+          <button class="btn" id="rocLoadExample">Load Example</button>
+          <button class="btn" id="rocImport">Import File</button>
+          <input type="file" id="rocFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none">
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="align-items:center" id="rocGraphPanel">
+      <div class="diagram-area">
+        <div class="svgbox" style="flex:1; position:relative; min-width:0; min-height:0; width:100%; height:420px;">
+          <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+          <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+          <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+          <div id="rocPlot" style="width:100%; height:100%"></div>
+          <div class="row" style="justify-content:flex-end;margin-top:6px">
+            <button class="btn" id="rocPNG">Download PNG</button>
+            <button class="btn" id="rocSVG">Download SVG</button>
+          </div>
+        </div>
+        <div class="config-options">
+          <fieldset id="rocLabelColorsFieldset">
+            <legend>Series Colors</legend>
+            <div id="rocLabelColors" class="color-pickers"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Border</legend>
+            <div class="control" style="flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:6px">
+                <label style="width:auto">Thickness</label><input type="number" id="rocBorderWidth" value="2" min="0" max="10" style="width:60px">
+              </div>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Grid & Axis</legend>
+            <div class="control" style="flex-wrap:wrap">
+              <label style="width:auto"><input type="checkbox" id="rocShowGrid"> Show grid</label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Font</legend>
+            <div class="control">
+              <label>Size</label><input type="range" id="rocFontSize" min="10" max="36" step="1" value="16"><output id="rocFontSizeVal">16</output>
+            </div>
+          </fieldset>
+        </div>
+      </div>
+    </div>
+    <div id="rocStats" style="width:100%;margin-top:12px">
+      <fieldset>
+        <legend>Statistics</legend>
+        <div id="rocStatsResults" style="margin-top:8px"></div>
+      </fieldset>
     </div>
   </div>
 </div>
@@ -1065,27 +1181,32 @@
   const scheduleDrawLine = debounceFrame(drawLine);
   const scheduleDrawHist = debounceFrame(drawHistogram);
   const scheduleDrawPie = debounceFrame(drawPie);
+  const scheduleDrawRoc = debounceFrame(drawRoc);
   let boxplotDrawToken=0; // debug: track boxplot render cycles
   let scatterDrawToken=0; // debug: track scatter render cycles
   let lineDrawToken=0; // debug: track line render cycles
   let histDrawToken=0; // debug: track histogram render cycles
   let pieDrawToken=0; // debug: track pie render cycles
+  let rocDrawToken=0; // debug: track roc render cycles
   const $ = (s)=>document.querySelector(s);
   const stage = $('#stage');
   const vennPage=$('#vennPage');
   const boxPage=$('#boxPage');
   const scatterPage=$('#scatterPage');
   const linePage=$('#linePage');
+  const rocPage=$('#rocPage');
   const histPage=$('#histPage');
   const piePage=$('#piePage');
   const lineStatType=$('#lineStatType');
   const lineStatsResults=$('#lineStatsResults');
   const histStatsResults=$('#histStatsResults');
   const pieStatsResults=$('#pieStatsResults');
+  const rocStatsResults=$('#rocStatsResults');
   const tabVenn=$('#tabVenn');
   const tabBox=$('#tabBox');
   const tabScatter=$('#tabScatter');
   const tabLine=$('#tabLine');
+  const tabRoc=$('#tabRoc');
   const tabHist=$('#tabHist');
   const tabPie=$('#tabPie');
   const hotContainer=document.getElementById('hot');
@@ -1220,7 +1341,7 @@
   tableObserver.observe(tablePanel);
   syncBoxWidths();
 
-  const DEFAULT_ROWS=100, DEFAULT_COLS=10, LINE_DEFAULT_COLS=6, HIST_DEFAULT_COLS=1, PIE_DEFAULT_COLS=6;
+  const DEFAULT_ROWS=100, DEFAULT_COLS=10, LINE_DEFAULT_COLS=6, HIST_DEFAULT_COLS=1, PIE_DEFAULT_COLS=6, ROC_DEFAULT_COLS=3;
   let colHeaders=Array.from({length:DEFAULT_COLS},(_,i)=>String.fromCharCode(65+i));
   const NS='http://www.w3.org/2000/svg';
   let selectedCols=new Set();
@@ -2694,9 +2815,282 @@
       lbl.appendChild(input);
       lineLabelColorsDiv.appendChild(lbl);
     });
-    lineLabelColorsFieldset.style.display=labels.length?'':'none';
-    if(window.DEBUG_LINE) console.log('updateLineLabelColorPickers',{labels,colors:lineLabelColors});
+  lineLabelColorsFieldset.style.display=labels.length?'':'none';
+  if(window.DEBUG_LINE) console.log('updateLineLabelColorPickers',{labels,colors:lineLabelColors});
   }
+  // ROC curve setup
+  const rocHotContainer=document.getElementById('rocHot');
+  const rocHotWrapper=document.getElementById('rocHotWrapper');
+  rocHotWrapper.style.overflow='auto';
+  const rocData=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,ROC_DEFAULT_COLS);
+  const rocHot=new Handsontable(rocHotContainer,{
+    data:rocData,
+    rowHeaders(index){const label=index===0?'':index; if(window.DEBUG_ROC) console.debug('roc rowHeader',{index,label}); return label;},
+    colHeaders:true,
+    minRows:DEFAULT_ROWS,
+    minCols:ROC_DEFAULT_COLS,
+    stretchH:'all',
+    contextMenu:true,
+    cells(row,col){const props={}; if(row===0){props.renderer=function(instance,td,r,c,prop,value){Handsontable.renderers.TextRenderer.apply(this,arguments); td.style.background='#e9ecef'; td.style.fontWeight='600'; td.title='Header (first row)';};} return props;},
+    licenseKey:'non-commercial-and-evaluation',
+    afterChange:(changes,source)=>{if(changes){if(window.DEBUG_ROC) console.log('roc afterChange',{count:changes.length,source}); scheduleDrawRoc();}},
+    afterCreateRow:()=>{if(window.DEBUG_ROC) console.log('roc row created'); scheduleDrawRoc();},
+    afterCreateCol:()=>{if(window.DEBUG_ROC) console.log('roc col created'); scheduleDrawRoc();},
+    afterRemoveRow:()=>{if(window.DEBUG_ROC) console.log('roc row removed'); scheduleDrawRoc();},
+    afterRemoveCol:()=>{if(window.DEBUG_ROC) console.log('roc col removed'); scheduleDrawRoc();},
+    afterUndo:()=>{if(window.DEBUG_ROC) console.log('roc undo'); scheduleDrawRoc();},
+    afterRedo:()=>{if(window.DEBUG_ROC) console.log('roc redo'); scheduleDrawRoc();},
+  });
+  if(window.DEBUG_ROC) console.log('rocHot initialized',{rows:DEFAULT_ROWS,cols:ROC_DEFAULT_COLS});
+  window.DEBUG_ROC=true;
+  const rocExample=[
+    ['Label','Model1','Model2'],
+    [1,0.9,0.8],
+    [0,0.8,0.4],
+    [1,0.7,0.3],
+    [0,0.6,0.2],
+    [1,0.55,0.1],
+    [0,0.3,0.05]
+  ];
+  document.getElementById('rocLoadExample').addEventListener('click',()=>{rocHot.loadData(rocExample); if(window.DEBUG_ROC) console.log('roc example loaded'); scheduleDrawRoc();});
+  document.getElementById('rocImport').addEventListener('click',()=>{document.getElementById('rocFile').click();});
+  document.getElementById('rocFile').addEventListener('change',e=>{
+    const file=e.target.files[0]; if(!file) return;
+    if(window.DEBUG_ROC) console.log('roc file selected',file.name);
+    const name=file.name.toLowerCase();
+    if(name.endsWith('.csv')||name.endsWith('.tsv')||name.endsWith('.txt')){
+      const reader=new FileReader();
+      reader.onload=ev=>{const text=ev.target.result; const rows=text.split(/\r?\n/).map(r=>r.split(name.endsWith('.tsv')?'\t':',')); rocProcessImportedRows(rows);};
+      reader.readAsText(file);
+    }else{
+      const reader=new FileReader();
+      reader.onload=ev=>{try{const data=new Uint8Array(ev.target.result); const wb=XLSX.read(data,{type:'array'}); const sheet=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1}); rocProcessImportedRows(sheet);}catch(err){console.error('roc import error',err);}};
+      reader.readAsArrayBuffer(file);
+    }
+  });
+  rocHotContainer.addEventListener('paste',async e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    let text=e.clipboardData?.getData('text/plain');
+    if(!text){
+      try{ text=await navigator.clipboard.readText(); }
+      catch(err){ if(window.DEBUG_ROC) console.log('roc clipboard read failed',err); return; }
+    }
+    const rowArr=text.split(/\r?\n/);
+    if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')) return;
+    const delim=text.includes('\t')?'\t':',';
+    const rows=rowArr.map(r=>r.split(delim));
+    rocProcessImportedRows(rows);
+  });
+  const rocPlotDiv=document.getElementById('rocPlot');
+  const rocContainer=rocPlotDiv.closest('.svgbox')||rocPlotDiv.parentElement;
+  (function initRocResizers(){
+    if(!rocContainer) return;
+    const MIN_W=50, MIN_H=40;
+    function px(n){return Math.round(n)+'px';}
+    const vHandle=rocContainer.querySelector('.resizer-vertical');
+    const hHandle=rocContainer.querySelector('.resizer-horizontal');
+    const cHandle=rocContainer.querySelector('.resizer-corner');
+    function attachDrag(handle,axis){
+      if(!handle) return;
+      let startX=0,startY=0,startW=0,startH=0,pointerId=null;
+      const onPointerDown=e=>{
+        e.preventDefault();
+        pointerId=e.pointerId;
+        try{handle.setPointerCapture(pointerId);}catch(_){ }
+        const rect=rocContainer.getBoundingClientRect();
+        startW=Math.round(rect.width); startH=Math.round(rect.height);
+        startX=e.clientX; startY=e.clientY;
+        rocContainer.style.boxSizing='border-box';
+        rocContainer.style.width=px(startW);
+        rocContainer.style.height=px(startH);
+        rocContainer.style.flex='0 0 auto';
+        rocContainer.style.maxWidth='none';
+        rocContainer.style.maxHeight='none';
+        document.documentElement.style.userSelect='none';
+        document.documentElement.style.touchAction='none';
+        const onMove=ev=>{
+          ev.preventDefault();
+          const dx=ev.clientX-startX;
+          const dy=ev.clientY-startY;
+          if(axis==='x'||axis==='both'){
+            let newW=Math.max(MIN_W,Math.round(startW+dx));
+            rocContainer.style.width=px(newW);
+          }
+          if(axis==='y'||axis==='both'){
+            let newH=Math.max(MIN_H,Math.round(startH+dy));
+            rocContainer.style.height=px(newH);
+          }
+        };
+        const onUp=ev=>{
+          try{handle.releasePointerCapture(pointerId);}catch(_){ }
+          document.removeEventListener('pointermove',onMove);
+          document.removeEventListener('pointerup',onUp);
+          document.documentElement.style.userSelect='';
+          document.documentElement.style.touchAction='';
+          if(window.DEBUG_ROC) console.log('roc drag end');
+          scheduleDrawRoc();
+        };
+        document.addEventListener('pointermove',onMove);
+        document.addEventListener('pointerup',onUp);
+      };
+      handle.addEventListener('pointerdown',onPointerDown);
+      handle.addEventListener('dblclick',ev=>{ev.preventDefault(); rocContainer.style.width='640px'; rocContainer.style.height='420px'; rocContainer.style.flex='0 0 auto'; if(window.DEBUG_ROC) console.log('roc size reset'); scheduleDrawRoc();});
+    }
+    attachDrag(vHandle,'x');
+    attachDrag(hHandle,'y');
+    attachDrag(cHandle,'both');
+    const rocResizeObserver=new ResizeObserver(()=>{if(window.DEBUG_ROC) console.log('roc resize observer triggered'); scheduleDrawRoc();});
+    rocResizeObserver.observe(rocContainer);
+  })();
+  function rocProcessImportedRows(rows,startRow=0,startCol=0){
+    if(!rows||!rows.length) return;
+    rows=rows.filter(r=>r&&r.some(c=>String(c).trim()!==''));
+    if(!rows.length) return;
+    const colCount=Math.max(2,...rows.map(r=>r.length));
+    const rowCount=rows.length;
+    const curRows=rocHot.countRows();
+    const curCols=rocHot.countCols();
+    const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
+    const targetCols=Math.max(curCols,startCol+colCount,ROC_DEFAULT_COLS);
+    if(window.DEBUG_ROC) console.log('rocProcessImportedRows targets',{targetRows,targetCols});
+    const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
+    const existing=rocHot.getData();
+    for(let r=0;r<curRows;r++){
+      for(let c=0;c<curCols;c++) data[r][c]=existing[r][c];
+    }
+    for(let r=0;r<rowCount;r++){
+      for(let c=0;c<rows[r].length;c++) data[startRow+r][startCol+c]=rows[r][c];
+    }
+    rocHot.updateSettings({data,minRows:targetRows,minCols:targetCols});
+  }
+  const rocBorderWidth=$('#rocBorderWidth');
+  const rocShowGrid=$('#rocShowGrid');
+  const rocFontSize=$('#rocFontSize'), rocFontSizeVal=$('#rocFontSizeVal');
+  const rocLabelColorsDiv=$('#rocLabelColors');
+  const rocLabelColorsFieldset=$('#rocLabelColorsFieldset');
+  let rocLabelColors={};
+  rocFontSize.addEventListener('input',()=>{rocFontSizeVal.textContent=rocFontSize.value; scheduleDrawRoc();});
+  rocBorderWidth.addEventListener('input',()=>{if(window.DEBUG_ROC) console.log('rocBorderWidth changed',rocBorderWidth.value); scheduleDrawRoc();});
+  rocShowGrid.addEventListener('change',()=>{if(window.DEBUG_ROC) console.log('rocShowGrid changed',rocShowGrid.checked); scheduleDrawRoc();});
+  function updateRocLabelColorPickers(labels){
+    rocLabelColorsDiv.innerHTML='';
+    Object.keys(rocLabelColors).forEach(k=>{if(!labels.includes(k)) delete rocLabelColors[k];});
+    labels.forEach((lab,i)=>{
+      if(!rocLabelColors[lab]) rocLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+      const input=document.createElement('input');
+      input.type='color';
+      input.value=rocLabelColors[lab];
+      attachColorPickerNear(input);
+      input.addEventListener('input',e=>{rocLabelColors[lab]=e.target.value; scheduleDrawRoc();});
+      const lbl=document.createElement('label');
+      lbl.appendChild(input);
+      lbl.appendChild(document.createTextNode(lab));
+      rocLabelColorsDiv.appendChild(lbl);
+    });
+    rocLabelColorsFieldset.style.display=labels.length?'':'none';
+    if(window.DEBUG_ROC) console.log('updateRocLabelColorPickers',{labels,colors:rocLabelColors});
+  }
+  async function drawRoc(){
+    const token=++rocDrawToken; if(window.DEBUG_ROC) console.log('drawRoc called',{token});
+    const bw=Number(rocBorderWidth.value)||2;
+    const showGrid=rocShowGrid.checked;
+    const fs=Number(rocFontSize.value)||16;
+    const data=rocHot.getData(); if(!data||!data.length) return;
+    const header=data[0]||[];
+    let labelIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='label');
+    if(labelIndex<0) labelIndex=0;
+    const labels=data.slice(1).map(r=>parseFloat(r[labelIndex]));
+    const scoreCols=header.map((_,i)=>i).filter(i=>i!==labelIndex && header[i]!=null && String(header[i]).trim()!=='');
+    const series=scoreCols.map((ci,i)=>({name:header[ci]||`Model ${i+1}`, scores:data.slice(1).map(r=>parseFloat(r[ci]))}));
+    const legendLabels=series.map(s=>s.name);
+    updateRocLabelColorPickers(legendLabels);
+    const legendWidth=legendLabels.length?120:0;
+    const plotEl=document.getElementById('rocPlot');
+    plotEl.style.display='block';
+    while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+    const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
+    const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
+    plotEl.style.position='relative';
+    const svg=document.createElementNS(NS,'svg');
+    svg.setAttribute('id','rocSvg');
+    svg.setAttribute('width',String(W));
+    svg.setAttribute('height',String(H));
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    svg.setAttribute('font-family','sans-serif');
+    plotEl.appendChild(svg);
+    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20+legendWidth,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0))};
+    const plotW=Math.max(20,W-margin.left-margin.right);
+    const plotH=Math.max(20,H-margin.top-margin.bottom);
+    const x2px=v=>margin.left+plotW*v;
+    const y2px=v=>margin.top+plotH*(1-v);
+    function add(tag,attrs,txt){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));if(txt!=null)el.textContent=txt;svg.appendChild(el);return el;}
+    const ticks=[0,0.2,0.4,0.6,0.8,1];
+    if(showGrid){ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});}
+    add('line',{x1:margin.left,y1:margin.top+plotH,x2:margin.left+plotW,y2:margin.top+plotH,stroke:'#000','stroke-width':1});
+    add('line',{x1:margin.left,y1:margin.top,x2:margin.left,y2:margin.top+plotH,stroke:'#000','stroke-width':1});
+    add('line',{x1:margin.left,y1:margin.top+plotH,x2:margin.left+plotW,y2:margin.top,stroke:'#888','stroke-dasharray':'4,4','stroke-width':1});
+    ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+6,stroke:'#000','stroke-width':1});add('text',{x:x,y:margin.top+plotH+fs+6,'text-anchor':'middle','font-size':fs},t);});
+    ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-6,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});add('text',{x:margin.left-8,y:y+fs/2,'text-anchor':'end','font-size':fs},t);});
+    add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+2},'False Positive Rate');
+    add('text',{x:14,y:margin.top+plotH/2,'text-anchor':'middle','font-size':fs+2,transform:`rotate(-90 14 ${margin.top+plotH/2})`},'True Positive Rate');
+    const aucs=[];
+    series.forEach((s,si)=>{
+      const pairs=[];
+      for(let i=0;i<labels.length;i++){const lab=labels[i]; const score=s.scores[i]; if(!isNaN(lab)&&!isNaN(score)) pairs.push({label:lab>0?1:0,score});}
+      pairs.sort((a,b)=>b.score-a.score);
+      let tp=0, fp=0;
+      const P=pairs.filter(p=>p.label===1).length;
+      const N=pairs.length-P;
+      const pts=[{fpr:0,tpr:0}];
+      pairs.forEach(p=>{if(p.label===1) tp++; else fp++; pts.push({fpr:fp/Math.max(1,N), tpr:tp/Math.max(1,P)});});
+      pts.push({fpr:1,tpr:1});
+      let auc=0; for(let i=1;i<pts.length;i++){const x1=pts[i-1].fpr,y1=pts[i-1].tpr,x2=pts[i].fpr,y2=pts[i].tpr; auc+=(x2-x1)*(y1+y2)/2;}
+      aucs.push({name:s.name,auc});
+      const color=rocLabelColors[s.name]||DEFAULT_SCATTER_COLORS[si%DEFAULT_SCATTER_COLORS.length];
+      let d=''; pts.forEach((p,i)=>{const x=x2px(p.fpr),y=y2px(p.tpr); d+=(i?'L':'M')+x+' '+y;});
+      add('path',{d,fill:'none',stroke:color,'stroke-width':bw});
+    });
+    const legendX=W-legendWidth+10;
+    legendLabels.forEach((lab,i)=>{const y=margin.top+10+i*(fs+6); const color=rocLabelColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]; add('rect',{x:legendX,y:y-10,width:12,height:12,fill:color}); add('text',{x:legendX+16,y:y,'font-size':fs},lab);});
+    rocStatsResults.innerHTML=aucs.map(a=>`${a.name}: AUC = ${a.auc.toFixed(3)}`).join('<br>');
+  }
+  document.getElementById('rocPNG').addEventListener('click',async()=>{
+    const svgEl=document.getElementById('rocSvg');
+    if(!svgEl) return;
+    const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
+    const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+    const xml=serializeCleanSVG(svgEl);
+    const img=new Image();
+    img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
+    await img.decode().catch(err=>{console.error('rocPNG svg decode',err);});
+    const canvas=document.createElement('canvas');
+    canvas.width=W; canvas.height=H;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(img,0,0);
+    canvas.toBlob(b=>{const url=URL.createObjectURL(b); const a=document.createElement('a'); a.href=url; a.download='roc.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);},'image/png');
+  });
+  document.getElementById('rocSVG').addEventListener('click',()=>{
+    const svgEl=document.getElementById('rocSvg');
+    if(!svgEl) return;
+    const xml=serializeCleanSVG(svgEl);
+    const blob=new Blob([xml],{type:'image/svg+xml'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='roc.svg';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+  });
+  function getRocGraphPayload(){return{type:'roc',data:rocHot.getData(),config:{borderWidth:rocBorderWidth.value,showGrid:rocShowGrid.checked,fontSize:rocFontSize.value,labelColors:rocLabelColors}};}
+  let rocFileHandle=null, rocFileName='roc.graph';
+  async function saveRocFile(){const payload=getRocGraphPayload(); if(rocFileHandle&&rocFileHandle.createWritable){try{const perm=await verifyPermission(rocFileHandle,true); if(perm){const w=await rocFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}}catch(err){console.error('saveRocFile error',err);}}else if(window.showSaveFilePicker){await saveAsRocFile();}else{downloadJSON(payload,rocFileName);}}
+  async function saveAsRocFile(){const payload=getRocGraphPayload(); if(window.showSaveFilePicker){try{rocFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:rocFileName}); const w=await rocFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}catch(err){console.error('saveAsRocFile error',err);}}else{downloadJSON(payload,rocFileName);}}
+  function loadRocGraphFile(file){const reader=new FileReader(); reader.onload=e=>{try{const obj=JSON.parse(e.target.result); if(window.DEBUG_ROC) console.log('loadRocGraph',obj); if(obj.type!=='roc') throw new Error('Invalid graph type'); rocHot.loadData(obj.data||[]); const c=obj.config||{}; rocBorderWidth.value=c.borderWidth||rocBorderWidth.value; rocShowGrid.checked=!!c.showGrid; rocFontSize.value=c.fontSize||rocFontSize.value; rocFontSizeVal.textContent=rocFontSize.value; rocLabelColors=c.labelColors||{}; scheduleDrawRoc();}catch(err){console.error('loadRocGraph error',err);}}; reader.readAsText(file);}
+  async function openRocFile(){ if(window.DEBUG_ROC) console.log('openRocFile start'); if(window.showOpenFilePicker){try{[rocFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await rocFileHandle.getFile(); rocFileName=file.name; loadRocGraphFile(file);}catch(err){console.error('openRocFile error',err);}}else{const input=document.getElementById('rocGraphFile'); input.value=''; input.click();}}
+  document.getElementById('openRoc').addEventListener('click',openRocFile);
+  document.getElementById('saveRoc').addEventListener('click',saveRocFile);
+  document.getElementById('saveAsRoc').addEventListener('click',saveAsRocFile);
+  document.getElementById('rocGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){rocFileName=f.name; rocFileHandle=null; loadRocGraphFile(f);}});
   // Histogram setup
   const histHotContainer=document.getElementById('histHot');
   const histHotWrapper=document.getElementById('histHotWrapper');
@@ -5223,12 +5617,14 @@ KAT7`;
     boxPage.style.display='none';
     scatterPage.style.display='none';
     linePage.style.display='none';
+    rocPage.style.display='none';
     histPage.style.display='none';
     piePage.style.display='none';
     tabVenn.classList.add('active');
     tabBox.classList.remove('active');
     tabScatter.classList.remove('active');
     tabLine.classList.remove('active');
+    tabRoc.classList.remove('active');
     tabHist.classList.remove('active');
     tabPie.classList.remove('active');
   }
@@ -5237,12 +5633,14 @@ KAT7`;
     boxPage.style.display='block';
     scatterPage.style.display='none';
     linePage.style.display='none';
+    rocPage.style.display='none';
     histPage.style.display='none';
     piePage.style.display='none';
     tabBox.classList.add('active');
     tabVenn.classList.remove('active');
     tabScatter.classList.remove('active');
     tabLine.classList.remove('active');
+    tabRoc.classList.remove('active');
     tabHist.classList.remove('active');
     tabPie.classList.remove('active');
   }
@@ -5251,12 +5649,14 @@ KAT7`;
     boxPage.style.display='none';
     scatterPage.style.display='block';
     linePage.style.display='none';
+    rocPage.style.display='none';
     histPage.style.display='none';
     piePage.style.display='none';
     tabScatter.classList.add('active');
     tabVenn.classList.remove('active');
     tabBox.classList.remove('active');
     tabLine.classList.remove('active');
+    tabRoc.classList.remove('active');
     tabHist.classList.remove('active');
     tabPie.classList.remove('active');
   }
@@ -5265,12 +5665,30 @@ KAT7`;
     boxPage.style.display='none';
     scatterPage.style.display='none';
     linePage.style.display='block';
+    rocPage.style.display='none';
     histPage.style.display='none';
     piePage.style.display='none';
     tabLine.classList.add('active');
     tabVenn.classList.remove('active');
     tabBox.classList.remove('active');
     tabScatter.classList.remove('active');
+    tabRoc.classList.remove('active');
+    tabHist.classList.remove('active');
+    tabPie.classList.remove('active');
+  }
+  function showRoc(){
+    vennPage.style.display='none';
+    boxPage.style.display='none';
+    scatterPage.style.display='none';
+    linePage.style.display='none';
+    rocPage.style.display='block';
+    histPage.style.display='none';
+    piePage.style.display='none';
+    tabRoc.classList.add('active');
+    tabVenn.classList.remove('active');
+    tabBox.classList.remove('active');
+    tabScatter.classList.remove('active');
+    tabLine.classList.remove('active');
     tabHist.classList.remove('active');
     tabPie.classList.remove('active');
   }
@@ -5279,6 +5697,7 @@ KAT7`;
     boxPage.style.display='none';
     scatterPage.style.display='none';
     linePage.style.display='none';
+    rocPage.style.display='none';
     histPage.style.display='block';
     piePage.style.display='none';
     tabHist.classList.add('active');
@@ -5286,6 +5705,7 @@ KAT7`;
     tabBox.classList.remove('active');
     tabScatter.classList.remove('active');
     tabLine.classList.remove('active');
+    tabRoc.classList.remove('active');
     tabPie.classList.remove('active');
   }
   function showPie(){
@@ -5293,6 +5713,7 @@ KAT7`;
     boxPage.style.display='none';
     scatterPage.style.display='none';
     linePage.style.display='none';
+    rocPage.style.display='none';
     histPage.style.display='none';
     piePage.style.display='block';
     tabPie.classList.add('active');
@@ -5300,12 +5721,14 @@ KAT7`;
     tabBox.classList.remove('active');
     tabScatter.classList.remove('active');
     tabLine.classList.remove('active');
+    tabRoc.classList.remove('active');
     tabHist.classList.remove('active');
   }
   tabVenn.addEventListener('click',()=>{ showVenn();});
   tabBox.addEventListener('click',()=>{ showBox();});
   tabScatter.addEventListener('click',()=>{ showScatter();});
   tabLine.addEventListener('click',()=>{ showLine();});
+  tabRoc.addEventListener('click',()=>{ showRoc();});
   tabHist.addEventListener('click',()=>{ showHist();});
   tabPie.addEventListener('click',()=>{ showPie();});
   showVenn();
