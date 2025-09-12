@@ -1,13 +1,13 @@
 # Venn
 
-Client-side Venn diagram generator using only HTML and JavaScript. Also includes a box plot tool.
+Client-side Venn diagram generator using only HTML and JavaScript. Also includes box plot and ROC/PR curve tools.
 
 ## Usage
 
 Open `index.html` in a web browser. Paste newline-separated lists into the text areas and press **Draw** to render a
 Venn diagram. Numbers are automatically positioned in their respective regions.
 
-Switch to the **Box Plot** tab to paste tabular data and generate customizable box plots with downloadable PNG/SVG and basic t-test and Mann–Whitney U test results.
+Switch to the **Box Plot** tab to paste tabular data and generate customizable box plots with downloadable PNG/SVG and basic t-test and Mann–Whitney U test results. Switch to the **ROC & PR Curves** tab to input model scores and labels, plot ROC or precision-recall curves, and compute area under the curve and average precision.
 
 ### Recent updates
 
