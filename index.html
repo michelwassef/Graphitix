@@ -3144,10 +3144,19 @@
         pts=[{recall:0,precision:1}];
         pairs.forEach(p=>{if(p.label===1) tp++; else fp++; const rec=tp/Math.max(1,P); const prec=tp/Math.max(1,tp+fp); pts.push({recall:rec, precision:prec});});
       }
-      let auc=0; for(let i=1;i<pts.length;i++){
-        if(graphType==='roc'){const x1=pts[i-1].fpr,y1=pts[i-1].tpr,x2=pts[i].fpr,y2=pts[i].tpr; auc+=(x2-x1)*(y1+y2)/2;}
-        else{const x1=pts[i-1].recall,y1=pts[i-1].precision,x2=pts[i].recall,y2=pts[i].precision; auc+=(x2-x1)*(y1+y2)/2;}
+      let auc=0, ap=0;
+      for(let i=1;i<pts.length;i++){
+        if(graphType==='roc'){
+          const x1=pts[i-1].fpr,y1=pts[i-1].tpr,x2=pts[i].fpr,y2=pts[i].tpr;
+          auc+=(x2-x1)*(y1+y2)/2;
+        }else{
+          const x1=pts[i-1].recall,y1=pts[i-1].precision,x2=pts[i].recall,y2=pts[i].precision;
+          auc+=(x2-x1)*(y1+y2)/2;
+          ap+=(x2-x1)*y2;
+        }
       }
+      const avgPrecision=graphType==='pr'?ap:undefined;
+      if(window.DEBUG_ROC && graphType==='pr') console.log('average precision computed',{name:s.name,avgPrecision});
       const thr=0.5;
       let tp2=0, fp2=0, tn2=0, fn2=0;
       pairs.forEach(p=>{const pred=p.score>=thr?1:0; if(p.label===1&&pred===1) tp2++; else if(p.label===1&&pred===0) fn2++; else if(p.label===0&&pred===1) fp2++; else tn2++;});
@@ -3155,8 +3164,8 @@
       const precision=tp2/Math.max(1,tp2+fp2);
       const recall=tp2/Math.max(1,tp2+fn2);
       const f1=precision+recall>0?2*precision*recall/(precision+recall):0;
-      if(window.DEBUG_ROC) console.log('roc metrics computed',{name:s.name,auc,accuracy,precision,recall,f1});
-      rocStats.push({name:s.name,auc,accuracy,precision,recall,f1});
+      if(window.DEBUG_ROC) console.log('roc metrics computed',{name:s.name,auc,accuracy,precision,recall,f1,avgPrecision});
+      rocStats.push({name:s.name,auc,accuracy,precision,recall,f1,avgPrecision});
       const color=rocLabelColors[s.name]||DEFAULT_SCATTER_COLORS[si%DEFAULT_SCATTER_COLORS.length];
       let d=''; pts.forEach((p,i)=>{const x=x2px(graphType==='roc'?p.fpr:p.recall),y=y2px(graphType==='roc'?p.tpr:p.precision); d+=(i?'L':'M')+x+' '+y;});
       if(window.DEBUG_ROC) console.log('roc points',{name:s.name,pts});
@@ -3164,7 +3173,7 @@
     });
     const legendX=W-legendWidth+10;
     legendLabels.forEach((lab,i)=>{const y=margin.top+10+i*(fs+6); const color=rocLabelColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]; add('rect',{x:legendX,y:y-10,width:12,height:12,fill:color}); add('text',{x:legendX+16,y:y,'font-size':fs},lab);});
-    rocStatsResults.innerHTML=rocStats.map(a=>`${a.name}: AUC = ${a.auc.toFixed(3)}, Acc = ${(a.accuracy*100).toFixed(1)}%, Prec = ${(a.precision*100).toFixed(1)}%, Recall = ${(a.recall*100).toFixed(1)}%, F1 = ${(a.f1*100).toFixed(1)}%`).join('<br>');
+    rocStatsResults.innerHTML=rocStats.map(a=>`${a.name}: AUC = ${a.auc.toFixed(3)}, ${graphType==='pr'?`AP = ${a.avgPrecision.toFixed(3)}, `:''}Acc = ${(a.accuracy*100).toFixed(1)}%, Prec = ${(a.precision*100).toFixed(1)}%, Recall = ${(a.recall*100).toFixed(1)}%, F1 = ${(a.f1*100).toFixed(1)}%`).join('<br>');
   }
   document.getElementById('rocPNG').addEventListener('click',async()=>{
     const svgEl=document.getElementById('rocSvg');
