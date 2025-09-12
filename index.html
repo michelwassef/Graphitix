@@ -3073,6 +3073,49 @@
     rocLabelColorsFieldset.style.display=labels.length?'':'none';
     if(window.DEBUG_ROC) console.log('updateRocLabelColorPickers',{labels,colors:rocLabelColors});
   }
+  function computeCurveMetric(pairs,graphType){
+    const arr=pairs.slice().sort((a,b)=>b.score-a.score);
+    let tp=0,fp=0,auc=0,ap=0;
+    const P=arr.filter(p=>p.label===1).length;
+    const N=arr.length-P;
+    let prevRec=0,prevPrec=1,prevFpr=0,prevTpr=0;
+    for(const p of arr){
+      if(p.label===1) tp++; else fp++;
+      if(graphType==='roc'){
+        const fpr=fp/Math.max(1,N); const tpr=tp/Math.max(1,P);
+        auc+=(fpr-prevFpr)*(tpr+prevTpr)/2; prevFpr=fpr; prevTpr=tpr;
+      }else{
+        const rec=tp/Math.max(1,P); const prec=tp/Math.max(1,tp+fp);
+        auc+=(rec-prevRec)*(prec+prevPrec)/2; ap+=(rec-prevRec)*prec; prevRec=rec; prevPrec=prec;
+      }
+    }
+    if(graphType==='roc') return auc;
+    return ap;
+  }
+  function bootstrapCurveTest(pairs,baseline,graphType,iters=200){
+    let count=0; const n=pairs.length;
+    for(let b=0;b<iters;b++){
+      const sample=Array.from({length:n},()=>pairs[Math.floor(Math.random()*n)]);
+      const m=computeCurveMetric(sample,graphType);
+      if(m<=baseline) count++;
+    }
+    const p=(count+1)/(iters+1);
+    if(window.DEBUG_ROC) console.debug('bootstrapCurveTest',{baseline,graphType,iters,p});
+    return p;
+  }
+  function bootstrapCurveDiff(pairs1,pairs2,graphType,iters=200){
+    const n=pairs1.length; let count=0;
+    const baseDiff=computeCurveMetric(pairs1,graphType)-computeCurveMetric(pairs2,graphType);
+    for(let b=0;b<iters;b++){
+      const s1=[],s2=[];
+      for(let i=0;i<n;i++){const idx=Math.floor(Math.random()*n); s1.push(pairs1[idx]); s2.push(pairs2[idx]);}
+      const diff=computeCurveMetric(s1,graphType)-computeCurveMetric(s2,graphType);
+      if(Math.abs(diff)>=Math.abs(baseDiff)) count++;
+    }
+    const p=(count+1)/(iters+1);
+    if(window.DEBUG_ROC) console.debug('bootstrapCurveDiff',{graphType,iters,p});
+    return p;
+  }
   async function drawRoc(){
     const token=++rocDrawToken; if(window.DEBUG_ROC) console.log('drawRoc called',{token});
     const graphType=rocGraphType.value;
@@ -3127,7 +3170,7 @@
     ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left-6,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1});add('text',{x:margin.left-8,y:y+fs/2,'text-anchor':'end','font-size':fs},t);});
     add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+2},graphType==='roc'?'False Positive Rate':'Recall');
     add('text',{x:14,y:margin.top+plotH/2,'text-anchor':'middle','font-size':fs+2,transform:`rotate(-90 14 ${margin.top+plotH/2})`},graphType==='roc'?'True Positive Rate':'Precision');
-    const rocStats=[];
+    const rocStats=[]; const allPairs=[];
     series.forEach((s,si)=>{
       const pairs=[];
       for(let i=0;i<labels.length;i++){const lab=labels[i]; const score=s.scores[i]; if(!isNaN(lab)&&!isNaN(score)) pairs.push({label:lab>0?1:0,score});}
@@ -3172,7 +3215,11 @@
         if(f1>best.f1) best={thr,accuracy,precision,recall,f1};
       }
       if(window.DEBUG_ROC) console.log('roc metrics computed',{name:s.name,auc,avgPrecision,best});
-      rocStats.push({name:s.name,auc,thr:best.thr,accuracy:best.accuracy,precision:best.precision,recall:best.recall,f1:best.f1,avgPrecision});
+      const base=graphType==='roc'?0.5:Ptotal/Math.max(1,Ptotal+Ntotal);
+      const pVal=bootstrapCurveTest(pairs,base,graphType);
+      if(window.DEBUG_ROC) console.log('roc significance',{name:s.name,pVal});
+      rocStats.push({name:s.name,auc,thr:best.thr,accuracy:best.accuracy,precision:best.precision,recall:best.recall,f1:best.f1,avgPrecision,pVal});
+      allPairs.push(pairs);
       const color=rocLabelColors[s.name]||DEFAULT_SCATTER_COLORS[si%DEFAULT_SCATTER_COLORS.length];
       let d=''; pts.forEach((p,i)=>{const x=x2px(graphType==='roc'?p.fpr:p.recall),y=y2px(graphType==='roc'?p.tpr:p.precision); d+=(i?'L':'M')+x+' '+y;});
       if(window.DEBUG_ROC) console.log('roc points',{name:s.name,pts});
@@ -3180,7 +3227,13 @@
     });
     const legendX=W-legendWidth+10;
     legendLabels.forEach((lab,i)=>{const y=margin.top+10+i*(fs+6); const color=rocLabelColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]; add('rect',{x:legendX,y:y-10,width:12,height:12,fill:color}); add('text',{x:legendX+16,y:y,'font-size':fs},lab);});
-    rocStatsResults.innerHTML=rocStats.map(a=>`${a.name}: AUC = ${a.auc.toFixed(3)}, ${graphType==='pr'?`AP = ${a.avgPrecision.toFixed(3)}, `:''}Thr = ${Number.isFinite(a.thr)?a.thr.toFixed(3):'NA'}, Acc = ${(a.accuracy*100).toFixed(1)}%, Prec = ${(a.precision*100).toFixed(1)}%, Recall = ${(a.recall*100).toFixed(1)}%, F1 = ${(a.f1*100).toFixed(1)}%`).join('<br>');
+    let html=rocStats.map(a=>`${a.name}: AUC = ${a.auc.toFixed(3)}, ${graphType==='pr'?`AP = ${a.avgPrecision.toFixed(3)}, `:''}p = ${formatP(a.pVal)}, Thr = ${Number.isFinite(a.thr)?a.thr.toFixed(3):'NA'}, Acc = ${(a.accuracy*100).toFixed(1)}%, Prec = ${(a.precision*100).toFixed(1)}%, Recall = ${(a.recall*100).toFixed(1)}%, F1 = ${(a.f1*100).toFixed(1)}%`).join('<br>');
+    if(series.length===2){
+      const diffP=bootstrapCurveDiff(allPairs[0],allPairs[1],graphType);
+      if(window.DEBUG_ROC) console.log('roc pairwise diff',{p:diffP});
+      html+=`<br>${series[0].name} vs ${series[1].name}: p = ${formatP(diffP)}`;
+    }
+    rocStatsResults.innerHTML=html;
   }
   document.getElementById('rocPNG').addEventListener('click',async()=>{
     const svgEl=document.getElementById('rocSvg');
