@@ -1,0 +1,15 @@
+/* Minimal central stylesheet to be expanded. Move inline styles here for maintainability. */
+:root {
+    --bg-color: #fff;
+    --fg-color: #222;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg-color);
+    color: var(--fg-color);
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+}
+
+/* Add component-specific styles as separate files or sections below */
