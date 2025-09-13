@@ -17,7 +17,7 @@ Switch to the **Box Plot** tab to paste tabular data and generate customizable b
 * Scatter and box plots render points in SVG with configurable axis ranges and origin controls.
 * Scatter plots can optionally display a trend line with equation and statistics.
 * Graph data and styling can be saved to `.graph` files and reloaded later.
-* New PCA plot section computes principal components and renders PC1 vs PC2 scatter plots.
+* New dimensionality reduction section supports PCA or MDS and renders PC1 vs PC2 or MDS dimensions.
 
 ## Overlap significance
 
