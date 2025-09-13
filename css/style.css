@@ -13,3 +13,439 @@ html, body {
 }
 
 /* Add component-specific styles as separate files or sections below */
+/* Styles extracted from index.html */
+body{margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#ffffff;color:#222;line-height:1.4}
+header{padding:14px 16px;border-bottom:1px solid #ddd;background:#f7f7f7}
+.wrap{display:grid;grid-template-columns:360px 1fr;gap:12px;padding:12px}
+.panel{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,0.08)}
+label{font-size:16px;color:#333}
+textarea{width:100%;min-height:110px;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px;resize:vertical;box-sizing:border-box}
+input[type=text],select{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:0;padding:4px;box-sizing:border-box;margin:0}
+input[type=number]{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:0;padding:4px;box-sizing:border-box;margin:0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{background:#f5f5f5;border:1px solid #bbb;color:#222;border-radius:4px;padding:6px 12px;cursor:pointer;transition:background 0.2s}
+.btn:hover{background:#e0e0e0}
+.btn:focus{outline:2px solid #2b6cb0;outline-offset:2px}
+.btn.active{background:#d5d5d5}
+#goOptsBtn,#stringOptsBtn{font-size:12px;padding:4px 6px}
+.svgbox{background:#fafafa;border:1px solid #ddd;border-radius:8px;padding:8px;margin:8px 0;box-shadow:0 1px 4px rgba(0,0,0,0.08)}
+#stage{width:100%;height:100%;display:block}
+.color-picker{display:flex;align-items:center;gap:6px}
+input[type=color]{-webkit-appearance:none;border:1px solid #666;border-radius:0;padding:0;width:20px;height:20px;background:none;margin:0}
+input[type=color]::-webkit-color-swatch-wrapper{padding:0;border:none;border-radius:0}
+input[type=color]::-webkit-color-swatch{border:none;border-radius:0}
+input[type=color]::-moz-color-swatch{border:none;border-radius:0}
+.diagram-area{display:flex;gap:12px;align-items:flex-start}
+.config-options{display:flex;flex-direction:column;gap:16px;min-width:140px}
+.config-options fieldset{border:1px solid #ccc;padding:8px;margin:0;border-radius:6px;background:#fff}
+.config-options legend{font-size:14px;font-weight:600;margin-bottom:4px;padding:0 4px;margin-left:0}
+.config-options .color-pickers{display:flex;flex-direction:column;gap:8px}
+.config-options .color-pickers label{display:flex;align-items:center;gap:4px;font-size:13px}
+.config-options .control{display:flex;align-items:center;gap:6px;font-size:13px}
+.config-options .control label{width:90px}
+.config-options .control input[type=range]{flex:1}
+.config-options .control output{width:36px;text-align:right}
+details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
+@media (max-width:1000px){.wrap{grid-template-columns:1fr}#stage{height:280px}}
+#tooltip{position:absolute;background:#fff;border:1px solid #ccc;border-radius:4px;padding:8px;display:none;column-width:160px;column-gap:12px;z-index:1000;overflow:visible;}
+.analysis-controls{flex-wrap:nowrap}
+.analysis-controls label{display:flex;align-items:center;gap:4px}
+.analysis-controls select{width:auto}
+.gene-item{display:flex;align-items:center;gap:2px;margin-right:0;margin-bottom:4px;font-size:13px}
+.gene-link{cursor:pointer;margin-left:0;font-size:13px}
+.analysis-options{font-size:13px}
+.analysis-options label{font-size:13px}
+.analysis-options strong{font-size:13px}
+#analysisResults{font-size:13px}
+#analysisResults canvas{font-size:initial}
+#vennPage .svgbox{
+  position: relative;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 420px;
+  height: 420px;
+  box-sizing: border-box;
+}
+#vennPage .svgbox .resizer {
+  position: absolute;
+  z-index: 40;
+  background: rgba(0,0,0,0);
+  touch-action: none;
+}
+#vennPage .svgbox .resizer-vertical {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: ew-resize;
+}
+#vennPage .svgbox .resizer-horizontal {
+  bottom: 0;
+  left: 0;
+  height: 12px;
+  width: 100%;
+  cursor: ns-resize;
+}
+#vennPage .svgbox .resizer-corner {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+  border-radius: 2px;
+}
+#boxPage .wrap{display:flex;align-items:stretch;gap:0}
+#boxPage #boxTablePanel{flex:1 1 33%;min-width:150px}
+#boxPage #boxGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#boxPage .diagram-area .svgbox{flex:1}
+#boxPage .diagram-area .config-options{flex:0 0 auto}
+#boxPage .panel{display:flex;flex-direction:column;min-width:0}
+#boxPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+#boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+#boxPage .svgbox{
+  position: relative;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 420px;
+  box-sizing: border-box;
+}
+#boxPage .svgbox .resizer {
+  position: absolute;
+  z-index: 40;
+  background: rgba(0,0,0,0);
+  touch-action: none;
+}
+#boxPage .svgbox .resizer-vertical {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: ew-resize;
+}
+#boxPage .svgbox .resizer-horizontal {
+  bottom: 0;
+  left: 0;
+  height: 12px;
+  width: 100%;
+  cursor: ns-resize;
+}
+#boxPage .svgbox .resizer-corner {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+  border-radius: 2px;
+}
+@media (max-width:1000px){#boxPage .wrap{grid-template-columns:1fr}}
+#scatterPage .wrap{display:flex;align-items:stretch;gap:0}
+#scatterPage #scatterTablePanel{flex:1 1 33%;min-width:150px}
+#scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#scatterPage .diagram-area .svgbox{flex:1}
+#scatterPage .diagram-area .config-options{flex:0 0 auto}
+#scatterPage .panel{display:flex;flex-direction:column;min-width:0}
+#scatterPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+#scatterPage #scatterPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+#scatterPage .svgbox{
+  position: relative;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 420px;
+  box-sizing: border-box;
+}
+#scatterPage .svgbox .resizer {
+  position: absolute;
+  z-index: 40;
+  background: rgba(0,0,0,0);
+  touch-action: none;
+}
+#scatterPage .svgbox .resizer-vertical {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: ew-resize;
+}
+#scatterPage .svgbox .resizer-horizontal {
+  bottom: 0;
+  left: 0;
+  height: 12px;
+  width: 100%;
+  cursor: ns-resize;
+}
+#scatterPage .svgbox .resizer-corner {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+  border-radius: 2px;
+}
+@media (max-width:1000px){#scatterPage .wrap{grid-template-columns:1fr}}
+#pcaPage .wrap{display:flex;align-items:stretch;gap:0}
+#pcaPage #pcaTablePanel{flex:1 1 33%;min-width:150px}
+#pcaPage #pcaGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#pcaPage .diagram-area .svgbox{flex:1}
+#pcaPage .diagram-area .config-options{flex:0 0 auto}
+#pcaPage .panel{display:flex;flex-direction:column;min-width:0}
+#pcaPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+#pcaPage #pcaPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+#pcaPage .svgbox{
+  position: relative;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 420px;
+  box-sizing: border-box;
+}
+#pcaPage .svgbox .resizer {
+  position: absolute;
+  z-index: 40;
+  background: rgba(0,0,0,0);
+  touch-action: none;
+}
+#pcaPage .svgbox .resizer-vertical {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: ew-resize;
+}
+#pcaPage .svgbox .resizer-horizontal {
+  bottom: 0;
+  left: 0;
+  height: 12px;
+  width: 100%;
+  cursor: ns-resize;
+}
+#pcaPage .svgbox .resizer-corner {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+  border-radius: 2px;
+}
+@media (max-width:1000px){#pcaPage .wrap{grid-template-columns:1fr}}
+#linePage .wrap{display:flex;align-items:stretch;gap:0}
+#linePage #lineTablePanel{flex:1 1 33%;min-width:150px}
+#linePage #lineGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#linePage .diagram-area .svgbox{flex:1}
+#linePage .diagram-area .config-options{flex:0 0 auto}
+#linePage .panel{display:flex;flex-direction:column;min-width:0}
+#linePage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+#linePage #linePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+#linePage .svgbox{
+  position: relative;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 420px;
+  box-sizing: border-box;
+}
+#linePage .svgbox .resizer {
+  position: absolute;
+  z-index: 40;
+  background: rgba(0,0,0,0);
+  touch-action: none;
+}
+#linePage .svgbox .resizer-vertical {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: ew-resize;
+}
+#linePage .svgbox .resizer-horizontal {
+  bottom: 0;
+  left: 0;
+  height: 12px;
+  width: 100%;
+  cursor: ns-resize;
+}
+#linePage .svgbox .resizer-corner {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+  border-radius: 2px;
+}
+@media (max-width:1000px){#linePage .wrap{grid-template-columns:1fr}}
+#rocPage .wrap{display:flex;align-items:stretch;gap:0}
+#rocPage #rocTablePanel{flex:1 1 33%;min-width:150px}
+#rocPage #rocGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#rocPage .diagram-area .svgbox{flex:1}
+#rocPage .diagram-area .config-options{flex:0 0 auto}
+#rocPage .panel{display:flex;flex-direction:column;min-width:0}
+#rocPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+#rocPage #rocPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+#rocPage .svgbox{
+  position: relative;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 420px;
+  box-sizing: border-box;
+}
+#rocPage .svgbox .resizer {
+  position: absolute;
+  z-index: 40;
+  background: rgba(0,0,0,0);
+  touch-action: none;
+}
+#rocPage .svgbox .resizer-vertical {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: ew-resize;
+}
+#rocPage .svgbox .resizer-horizontal {
+  bottom: 0;
+  left: 0;
+  height: 12px;
+  width: 100%;
+  cursor: ns-resize;
+}
+#rocPage .svgbox .resizer-corner {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+  border-radius: 2px;
+}
+@media (max-width:1000px){#rocPage .wrap{grid-template-columns:1fr}}
+#histPage .wrap{display:flex;align-items:stretch;gap:0}
+#histPage #histTablePanel{flex:1 1 33%;min-width:150px}
+#histPage #histGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#histPage .diagram-area .svgbox{flex:1}
+#histPage .diagram-area .config-options{flex:0 0 auto}
+#histPage .panel{display:flex;flex-direction:column;min-width:0}
+#histPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+#histPage #histPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+#histPage .svgbox{
+  position: relative;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 420px;
+  box-sizing: border-box;
+}
+#histPage .svgbox .resizer {
+  position: absolute;
+  z-index: 40;
+  background: rgba(0,0,0,0);
+  touch-action: none;
+}
+#histPage .svgbox .resizer-vertical {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: ew-resize;
+}
+#histPage .svgbox .resizer-horizontal {
+  bottom: 0;
+  left: 0;
+  height: 12px;
+  width: 100%;
+  cursor: ns-resize;
+}
+#histPage .svgbox .resizer-corner {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+  border-radius: 2px;
+}
+@media (max-width:1000px){#histPage .wrap{grid-template-columns:1fr}}
+#piePage .wrap{display:flex;align-items:stretch;gap:0}
+#piePage #pieTablePanel{flex:1 1 33%;min-width:150px}
+#piePage #pieGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#piePage .diagram-area .svgbox{flex:1}
+#piePage .diagram-area .config-options{flex:0 0 auto}
+#piePage .panel{display:flex;flex-direction:column;min-width:0}
+#piePage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+#piePage #piePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
+#piePage .svgbox{
+  position: relative;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 420px;
+  box-sizing: border-box;
+}
+#piePage .svgbox .resizer {
+  position: absolute;
+  z-index: 40;
+  background: rgba(0,0,0,0);
+  touch-action: none;
+}
+#piePage .svgbox .resizer-vertical {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 100%;
+  cursor: ew-resize;
+}
+#piePage .svgbox .resizer-horizontal {
+  bottom: 0;
+  left: 0;
+  height: 12px;
+  width: 100%;
+  cursor: ns-resize;
+}
+#piePage .svgbox .resizer-corner {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
+  border-radius: 2px;
+}
+@media (max-width:1000px){#piePage .wrap{grid-template-columns:1fr}}
+
+/* --- Layout safety overrides: keep center bar on top and prevent overlap --- */
+.panel { position: relative; overflow: hidden; }
+.panel-resizer { flex: 0 0 8px; position: relative; z-index: 200; }
+/* Create a stacking context so children cannot paint over siblings */
+.wrap { position: relative; isolation: isolate; }
+
