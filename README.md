@@ -1,6 +1,6 @@
 # Venn
 
-Client-side Venn diagram generator using only HTML and JavaScript. Also includes box plot and ROC/PR curve tools.
+Client-side Venn diagram generator using only HTML and JavaScript. Also includes box plot, scatter plot, principal component analysis, line graph, histogram, pie chart, and ROC/PR curve tools.
 
 ## Usage
 
@@ -17,6 +17,7 @@ Switch to the **Box Plot** tab to paste tabular data and generate customizable b
 * Scatter and box plots render points in SVG with configurable axis ranges and origin controls.
 * Scatter plots can optionally display a trend line with equation and statistics.
 * Graph data and styling can be saved to `.graph` files and reloaded later.
+* New PCA plot section computes principal components and renders PC1 vs PC2 scatter plots.
 
 ## Overlap significance
 
