@@ -447,7 +447,7 @@
   <button id="tabVenn" class="btn">Venn</button>
   <button id="tabBox" class="btn">Box Plot</button>
   <button id="tabScatter" class="btn">Scatter Plot</button>
-  <button id="tabPca" class="btn">PCA Plot</button>
+  <button id="tabPca" class="btn">Dimensionality Reduction</button>
   <button id="tabLine" class="btn">Line Graph</button>
   <button id="tabRoc" class="btn">Classification Curves</button>
   <button id="tabHist" class="btn">Histogram</button>
@@ -867,7 +867,7 @@
   </div>
   </div>
 <div id="pcaPage" style="display:none;">
-  <header><h2 style="margin:0">Principal Component Analysis</h2><div style="color:#555;font-size:13px">Paste data into the table and compute principal components.</div></header>
+  <header><h2 style="margin:0">Dimensionality Reduction</h2><div style="color:#555;font-size:13px">Paste data into the table and compute PCA or MDS.</div></header>
   <div class="row" style="margin:8px 0">
     <button class="btn" id="openPca">open file</button>
     <button class="btn" id="savePca">save file</button>
@@ -899,6 +899,17 @@
           </div>
         </div>
         <div class="config-options">
+          <fieldset>
+            <legend>Method</legend>
+            <div class="control" style="flex-wrap:wrap">
+              <label style="width:auto">Algorithm
+                <select id="pcaMethod">
+                  <option value="pca">PCA</option>
+                  <option value="mds">MDS</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
           <fieldset>
             <legend>Dots</legend>
             <div class="control" style="flex-wrap:wrap">
@@ -2791,7 +2802,7 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
     console.log('pca data imported',{rows:data.length,cols:targetCols});
     scheduleDrawPca();
   }
-  const pcaFill=$('#pcaFill'), pcaBorder=$('#pcaBorder'), pcaBorderWidth=$('#pcaBorderWidth'), pcaDotSize=$('#pcaDotSize'), pcaAlpha=$('#pcaAlpha');
+  const pcaMethod=$('#pcaMethod'), pcaFill=$('#pcaFill'), pcaBorder=$('#pcaBorder'), pcaBorderWidth=$('#pcaBorderWidth'), pcaDotSize=$('#pcaDotSize'), pcaAlpha=$('#pcaAlpha');
   const pcaAlphaVal=$('#pcaAlphaVal');
   const pcaFontSize=$('#pcaFontSize'), pcaFontSizeVal=$('#pcaFontSizeVal');
   const pcaShowGrid=$('#pcaShowGrid');
@@ -2802,6 +2813,7 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   const pcaStatsResults=document.getElementById('pcaStatsResults');
   let pcaLabelColors={};
   pcaAlphaVal.textContent=pcaAlpha.value;
+  pcaMethod.addEventListener('change',()=>{console.log('pcaMethod changed',pcaMethod.value); scheduleDrawPca();});
   pcaFill.addEventListener('input',()=>{console.log('pcaFill changed',pcaFill.value); scheduleDrawPca();});
   pcaBorder.addEventListener('input',()=>{console.log('pcaBorder changed',pcaBorder.value); scheduleDrawPca();});
   pcaBorderWidth.addEventListener('input',()=>{console.log('pcaBorderWidth changed',pcaBorderWidth.value); scheduleDrawPca();});
@@ -2859,15 +2871,36 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
     });
   })();
   let pcaXLabelText='PC1'; let pcaYLabelText='PC2';
-  async function drawPca(){ const token=++pcaDrawToken; console.log('drawPca called',{token});
+async function drawPcaOld(){ const token=++pcaDrawToken; console.log('drawPca called',{token});
     const fill=pcaFill.value; const alpha=Number(pcaAlpha.value)||0; const borderWidth=Number(pcaBorderWidth.value); const borderColor=pcaBorder.value; const bw=borderWidth; const fs=Number(pcaFontSize.value); const showGrid=pcaShowGrid.checked; const dotSize=Number(pcaDotSize.value)||3; const xMinManual=parseFloat(pcaXMin.value); const xMaxManual=parseFloat(pcaXMax.value); const yMinManual=parseFloat(pcaYMin.value); const yMaxManual=parseFloat(pcaYMax.value); const scaleVars=pcaScale.checked; console.log('pca manual range',{xMinManual,xMaxManual,yMinManual,yMaxManual,scaleVars}); const data=pcaHot.getData(); const labels=[]; const matrix=[]; for(let r=1;r<data.length;r++){ const row=data[r]; if(!row) continue; const lab=row[0]?String(row[0]).trim():''; const vals=[]; for(let c=1;c<row.length;c++){ const v=parseFloat(row[c]); if(isNaN(v)){ vals.length=0; break;} vals.push(v); } if(vals.length){ labels.push(lab); matrix.push(vals);} } console.log('pca collected',{rows:matrix.length,cols:matrix[0]?.length}); if(matrix.length<2 || matrix[0].length<2){ pcaPlotDiv.innerHTML='<i>At least two samples and two variables required.</i>'; pcaStatsResults.textContent=''; return; } const nSamples=matrix.length; const nFeatures=matrix[0].length; for(let j=0;j<nFeatures;j++){ const col=matrix.map(r=>r[j]); const mean=jStat.mean(col); const sd=jStat.stdev(col,true); for(let i=0;i<nSamples;i++){ let val=matrix[i][j]-mean; if(scaleVars && sd>0) val/=sd; matrix[i][j]=val; } }
     if(!SVDJS||!SVDJS.SVD){console.error("SVDJS missing");pcaPlotDiv.innerHTML="<i>PCA library not loaded.</i>";return;} const svd=SVDJS.SVD(matrix); console.debug("pca svd result",svd); const scores=[]; for(let i=0;i<nSamples;i++){ scores[i]=[]; for(let k=0;k<svd.q.length;k++){ scores[i][k]=svd.u[i][k]*svd.q[k]; } } console.debug("pca scores",scores); const variances=svd.q.map(s=>s*s/(nSamples-1)); const totalVar=variances.reduce((a,b)=>a+b,0); const pc1Pct=variances[0]/totalVar*100; const pc2Pct=variances[1]/totalVar*100; pcaXLabelText=`PC1 (${pc1Pct.toFixed(1)}%)`; pcaYLabelText=`PC2 (${pc2Pct.toFixed(1)}%)`; const points=scores.map((s,i)=>({x:s[0],y:s[1],label:labels[i]})); const labelSet=new Set(labels.filter(l=>l)); updatePcaLabelColorPickers(Array.from(labelSet)); let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity; points.forEach(p=>{ if(p.x<xMinRaw) xMinRaw=p.x; if(p.x>xMaxRaw) xMaxRaw=p.x; if(p.y<yMinRaw) yMinRaw=p.y; if(p.y>yMaxRaw) yMaxRaw=p.y; }); const legendLabels=Array.from(labelSet); const legendWidth=legendLabels.length?120:0; if(token!==pcaDrawToken){console.log('pca draw cancelled after collect',{token});return;} const plotEl=document.getElementById('pcaPlot'); plotEl.style.display='block'; while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild); document.getElementById('pcaStatsResults').innerHTML=`PC1: ${pc1Pct.toFixed(1)}% variance<br>PC2: ${pc2Pct.toFixed(1)}% variance`; if(!points.length) return; let xMin=xMinRaw,xMax=xMaxRaw,yMin=yMinRaw,yMax=yMaxRaw; if(isFinite(xMinManual)) xMin=xMinManual; if(isFinite(xMaxManual)) xMax=xMaxManual; if(isFinite(yMinManual)) yMin=yMinManual; if(isFinite(yMaxManual)) yMax=yMaxManual; if(xMin===xMax) xMax=xMin+1; if(yMin===yMax) yMax=yMin+1; console.log('pca final raw range',{xMin,xMax,yMin,yMax}); const W=Math.max(50,Math.floor(plotEl.clientWidth||50)); const H=Math.max(40,Math.floor(plotEl.clientHeight||40)); plotEl.style.position='relative'; const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','pcaSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family','sans-serif'); plotEl.appendChild(svg); function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);} function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};} const xScale=niceScale(xMin,xMax,6); const yScale=niceScale(yMin,yMax,6); if(isFinite(xMinManual)) xScale.min=xMin; if(isFinite(xMaxManual)) xScale.max=xMax; if(isFinite(yMinManual)) yScale.min=yMin; if(isFinite(yMaxManual)) yScale.max=yMax; const margin={left:60,right:20+legendWidth,top:20,bottom:50}; const innerW=W-margin.left-margin.right; const innerH=H-margin.top-margin.bottom; const add=(tag,attrs,text)=>{const el=document.createElementNS(NS,tag); for(const k in attrs) el.setAttribute(k,String(attrs[k])); if(text) el.textContent=text; svg.appendChild(el); return el;}; add('rect',{x:0,y:0,width:W,height:H,fill:'#fff'}); if(showGrid){ xScale.ticks.forEach(t=>{const x=margin.left+(t-xScale.min)*(innerW)/(xScale.max-xScale.min); add('line',{x1:x,y1:margin.top,x2:x,y2:H-margin.bottom,stroke:'#eee'});}); yScale.ticks.forEach(t=>{const y=H-margin.bottom-(t-yScale.min)*innerH/(yScale.max-yScale.min); add('line',{x1:margin.left,y1:y,x2:W-margin.right,y2:y,stroke:'#eee'});}); } add('line',{x1:margin.left,y1:margin.top,x2:margin.left,y2:H-margin.bottom,stroke:'#000'}); add('line',{x1:margin.left,y1:H-margin.bottom,x2:W-margin.right,y2:H-margin.bottom,stroke:'#000'}); xScale.ticks.forEach(t=>{const x=margin.left+(t-xScale.min)*innerW/(xScale.max-xScale.min); add('line',{x1:x,y1:H-margin.bottom,x2:x,y2:H-margin.bottom+6,stroke:'#000'}); add('text',{x:x,y:H-margin.bottom+fs,'font-size':fs,'text-anchor':'middle'},String(t));}); yScale.ticks.forEach(t=>{const y=H-margin.bottom-(t-yScale.min)*innerH/(yScale.max-yScale.min); add('line',{x1:margin.left-6,y1:y,x2:margin.left,y2:y,stroke:'#000'}); add('text',{x:margin.left-8,y:y+fs/3,'font-size':fs,'text-anchor':'end'},String(t));}); add('text',{x:margin.left+innerW/2,y:H-10,'font-size':fs,'text-anchor':'middle'},pcaXLabelText); add('text',{x:20,y:margin.top+innerH/2,'font-size':fs,'text-anchor':'middle',transform:`rotate(-90 20 ${margin.top+innerH/2})`},pcaYLabelText); points.forEach(pt=>{ const cx=margin.left+(pt.x-xScale.min)*innerW/(xScale.max-xScale.min); const cy=H-margin.bottom-(pt.y-yScale.min)*innerH/(yScale.max-yScale.min); const col=pt.label? (pcaLabelColors[pt.label]||DEFAULT_SCATTER_COLORS[0]):pcaFill.value; add('circle',{cx,cy,r:dotSize,fill:col,stroke:alpha>0?borderColor:'none','stroke-width':bw,opacity:1-alpha});}); legendLabels.forEach((lab,i)=>{const y=margin.top+i*(fs+6); const color=pcaLabelColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]; add('rect',{x:W-legendWidth+10,y:y,width:12,height:12,fill:color}); add('text',{x:W-legendWidth+28,y:y+fs-3,'font-size':fs},lab);}); }
-  function getPcaGraphPayload(){ return { type:'pca', data:pcaHot.getData(), config:{ dotSize:pcaDotSize.value, fill:pcaFill.value, border:pcaBorder.value, borderWidth:pcaBorderWidth.value, alpha:pcaAlpha.value, labelColors:pcaLabelColors, showGrid:pcaShowGrid.checked, xMin:pcaXMin.value, xMax:pcaXMax.value, yMin:pcaYMin.value, yMax:pcaYMax.value, scale:pcaScale.checked, fontSize:pcaFontSize.value } }; }
+function getPcaGraphPayload(){
+  return {
+    type:'pca',
+    data:pcaHot.getData(),
+    config:{
+      method:pcaMethod.value,
+      dotSize:pcaDotSize.value,
+      fill:pcaFill.value,
+      border:pcaBorder.value,
+      borderWidth:pcaBorderWidth.value,
+      alpha:pcaAlpha.value,
+      labelColors:pcaLabelColors,
+      showGrid:pcaShowGrid.checked,
+      xMin:pcaXMin.value,
+      xMax:pcaXMax.value,
+      yMin:pcaYMin.value,
+      yMax:pcaYMax.value,
+      scale:pcaScale.checked,
+      fontSize:pcaFontSize.value
+    }
+  };
+}
   let pcaFileHandle=null, pcaFileName='pca.graph';
   async function savePcaFile(){ const payload=getPcaGraphPayload(); console.log('savePcaFile',{payload,pcaFileHandle}); if(pcaFileHandle&&pcaFileHandle.createWritable){ try{ const perm=await verifyPermission(pcaFileHandle,true); if(perm){ const w=await pcaFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); } }catch(err){console.error('savePcaFile error',err);} }else if(window.showSaveFilePicker){ console.log('savePcaFile no handle - invoking saveAs'); await saveAsPcaFile(); }else{ console.log('savePcaFile fallback download'); downloadJSON(payload,pcaFileName); } }
   async function saveAsPcaFile(){ const payload=getPcaGraphPayload(); console.log('saveAsPcaFile',payload); if(window.showSaveFilePicker){ try{ pcaFileHandle=await window.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:pcaFileName}); const w=await pcaFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); }catch(err){console.error('saveAsPcaFile error',err);} }else{ downloadJSON(payload,pcaFileName); } }
   async function openPcaFile(){ console.log('openPcaFile start'); if(window.showOpenFilePicker){ try{ [pcaFileHandle]=await window.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await pcaFileHandle.getFile(); pcaFileName=file.name; loadPcaGraphFile(file); }catch(err){console.error('openPcaFile error',err);} }else{ const input=document.getElementById('pcaGraphFile'); input.value=''; input.click(); } }
-  function loadPcaGraphFile(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadPcaGraph',obj); if(obj.type!=='pca') throw new Error('Invalid graph type'); pcaHot.loadData(obj.data||[]); const c=obj.config||{}; pcaDotSize.value=c.dotSize||pcaDotSize.value; pcaFill.value=c.fill||pcaFill.value; pcaBorder.value=c.border||pcaBorder.value; pcaBorderWidth.value=c.borderWidth||pcaBorderWidth.value; pcaAlpha.value=c.alpha||0; pcaAlphaVal.textContent=pcaAlpha.value; pcaLabelColors=c.labelColors||{}; pcaShowGrid.checked=!!c.showGrid; pcaXMin.value=c.xMin||''; pcaXMax.value=c.xMax||''; pcaYMin.value=c.yMin||''; pcaYMax.value=c.yMax||''; pcaScale.checked=!!c.scale; pcaFontSize.value=c.fontSize||pcaFontSize.value; pcaFontSizeVal.textContent=pcaFontSize.value; scheduleDrawPca(); }catch(err){console.error('loadPcaGraph error',err);} }; reader.readAsText(file); }
+  function loadPcaGraphFile(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadPcaGraph',obj); if(obj.type!=='pca') throw new Error('Invalid graph type'); pcaHot.loadData(obj.data||[]); const c=obj.config||{}; pcaDotSize.value=c.dotSize||pcaDotSize.value; pcaFill.value=c.fill||pcaFill.value; pcaBorder.value=c.border||pcaBorder.value; pcaBorderWidth.value=c.borderWidth||pcaBorderWidth.value; pcaMethod.value=c.method||'pca'; pcaAlpha.value=c.alpha||0; pcaAlphaVal.textContent=pcaAlpha.value; pcaLabelColors=c.labelColors||{}; pcaShowGrid.checked=!!c.showGrid; pcaXMin.value=c.xMin||''; pcaXMax.value=c.xMax||''; pcaYMin.value=c.yMin||''; pcaYMax.value=c.yMax||''; pcaScale.checked=!!c.scale; pcaFontSize.value=c.fontSize||pcaFontSize.value; pcaFontSizeVal.textContent=pcaFontSize.value; scheduleDrawPca(); }catch(err){console.error('loadPcaGraph error',err);} }; reader.readAsText(file); }
   document.getElementById('pcaPNG').addEventListener('click',async()=>{ const svgEl=document.getElementById('pcaSvg'); if(!svgEl) return; console.log('pcaPNG export start'); const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800; const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400; const xml=serializeCleanSVG(svgEl); const img=new Image(); const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml); img.src=url; await img.decode().catch(err=>{console.error('pcaPNG svg decode',err);}); const outCanvas=document.createElement('canvas'); outCanvas.width=W; outCanvas.height=H; const ctx=outCanvas.getContext('2d'); ctx.drawImage(img,0,0); outCanvas.toBlob(b=>{ const pngUrl=URL.createObjectURL(b); const a=document.createElement('a'); a.href=pngUrl; a.download='pca.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(pngUrl),4000); },'image/png'); });
   document.getElementById('pcaSVG').addEventListener('click',()=>{ const svgEl=document.getElementById('pcaSvg'); if(!svgEl) return; console.log('pcaSVG export start'); const xml=serializeCleanSVG(svgEl); const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='pca.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000); });
   document.getElementById('openPca').addEventListener('click',openPcaFile);
@@ -2894,6 +2927,72 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   const newW=Math.max(minW, Math.min(tableWidth, available));
   if(lineSvgBox) lineSvgBox.style.width=newW+'px';
   if(window.DEBUG_LINE) console.log('syncLineWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
+}
+
+async function drawPca(){
+  console.log('drawPca wrapper start',{method:pcaMethod.value});
+  if(pcaMethod.value==='pca'){
+    return drawPcaOld();
+  }
+  const token=++pcaDrawToken;
+  const fill=pcaFill.value; const alpha=Number(pcaAlpha.value)||0; const borderWidth=Number(pcaBorderWidth.value); const borderColor=pcaBorder.value; const bw=borderWidth; const fs=Number(pcaFontSize.value); const showGrid=pcaShowGrid.checked; const dotSize=Number(pcaDotSize.value)||3; const xMinManual=parseFloat(pcaXMin.value); const xMaxManual=parseFloat(pcaXMax.value); const yMinManual=parseFloat(pcaYMin.value); const yMaxManual=parseFloat(pcaYMax.value); const scaleVars=pcaScale.checked;
+  console.log('mds manual range',{xMinManual,xMaxManual,yMinManual,yMaxManual,scaleVars});
+  const data=pcaHot.getData(); const labels=[]; const matrix=[];
+  for(let r=1;r<data.length;r++){ const row=data[r]; if(!row) continue; const lab=row[0]?String(row[0]).trim():''; const vals=[]; for(let c=1;c<row.length;c++){ const v=parseFloat(row[c]); if(isNaN(v)){ vals.length=0; break;} vals.push(v);} if(vals.length){ labels.push(lab); matrix.push(vals);} }
+  console.log('mds collected',{rows:matrix.length,cols:matrix[0]?.length});
+  if(matrix.length<2 || matrix[0].length<2){ pcaPlotDiv.innerHTML='<i>At least two samples and two variables required.</i>'; pcaStatsResults.textContent=''; return; }
+  const nSamples=matrix.length; const nFeatures=matrix[0].length;
+  for(let j=0;j<nFeatures;j++){ const col=matrix.map(r=>r[j]); const mean=jStat.mean(col); const sd=jStat.stdev(col,true); for(let i=0;i<nSamples;i++){ let val=matrix[i][j]-mean; if(scaleVars && sd>0) val/=sd; matrix[i][j]=val; } }
+  if(!SVDJS||!SVDJS.SVD){console.error('SVDJS missing');pcaPlotDiv.innerHTML="<i>PCA library not loaded.</i>";return;}
+  const dist=Array.from({length:nSamples},()=>Array(nSamples).fill(0));
+  for(let i=0;i<nSamples;i++){
+    for(let j=i+1;j<nSamples;j++){
+      let sum=0; for(let k=0;k<nFeatures;k++){ const diff=matrix[i][k]-matrix[j][k]; sum+=diff*diff; }
+      const d=Math.sqrt(sum); dist[i][j]=dist[j][i]=d;
+    }
+  }
+  console.debug('mds distance',dist);
+  const D2=dist.map(r=>r.map(v=>v*v));
+  const rowMeans=D2.map(r=>r.reduce((a,b)=>a+b,0)/nSamples);
+  const colMeans=Array.from({length:nSamples},(_,j)=>D2.reduce((a,row)=>a+row[j],0)/nSamples);
+  const totalMean=rowMeans.reduce((a,b)=>a+b,0)/nSamples;
+  const B=Array.from({length:nSamples},()=>Array(nSamples).fill(0));
+  for(let i=0;i<nSamples;i++){
+    for(let j=0;j<nSamples;j++){
+      B[i][j]=-0.5*(D2[i][j]-rowMeans[i]-colMeans[j]+totalMean);
+    }
+  }
+  console.debug('mds B',B);
+  const svd=SVDJS.SVD(B); console.debug('mds svd',svd);
+  const eigenVals=svd.q.map(s=>s*s); const totalEig=eigenVals.reduce((a,b)=>a+b,0);
+  const pc1Pct=eigenVals[0]/totalEig*100; const pc2Pct=eigenVals[1]/totalEig*100;
+  pcaXLabelText=`Dim1 (${pc1Pct.toFixed(1)}%)`; pcaYLabelText=`Dim2 (${pc2Pct.toFixed(1)}%)`;
+  const points=Array.from({length:nSamples},(_,i)=>({x:svd.u[i][0]*svd.q[0],y:svd.u[i][1]*svd.q[1],label:labels[i]}));
+  const labelSet=new Set(labels.filter(l=>l)); updatePcaLabelColorPickers(Array.from(labelSet));
+  document.getElementById('pcaStatsResults').innerHTML=`Dim1: ${pc1Pct.toFixed(1)}% variance<br>Dim2: ${pc2Pct.toFixed(1)}% variance`;
+  let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity; points.forEach(p=>{ if(p.x<xMinRaw) xMinRaw=p.x; if(p.x>xMaxRaw) xMaxRaw=p.x; if(p.y<yMinRaw) yMinRaw=p.y; if(p.y>yMaxRaw) yMaxRaw=p.y; });
+  const legendLabels=Array.from(labelSet); const legendWidth=legendLabels.length?120:0;
+  if(token!==pcaDrawToken){console.log('mds draw cancelled',{token});return;}
+  const plotEl=document.getElementById('pcaPlot'); plotEl.style.display='block'; while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+  if(!points.length) return;
+  let xMin=xMinRaw,xMax=xMaxRaw,yMin=yMinRaw,yMax=yMaxRaw;
+  if(isFinite(xMinManual)) xMin=xMinManual; if(isFinite(xMaxManual)) xMax=xMaxManual; if(isFinite(yMinManual)) yMin=yMinManual; if(isFinite(yMaxManual)) yMax=yMaxManual; if(xMin===xMax) xMax=xMin+1; if(yMin===yMax) yMax=yMin+1;
+  console.log('mds final raw range',{xMin,xMax,yMin,yMax});
+  const W=Math.max(50,Math.floor(plotEl.clientWidth||50)); const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
+  plotEl.style.position='relative'; const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','pcaSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family','sans-serif'); plotEl.appendChild(svg);
+  function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
+  function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
+  const xScale=niceScale(xMin,xMax,6); const yScale=niceScale(yMin,yMax,6); if(isFinite(xMinManual)) xScale.min=xMin; if(isFinite(xMaxManual)) xScale.max=xMax; if(isFinite(yMinManual)) yScale.min=yMin; if(isFinite(yMaxManual)) yScale.max=yMax;
+  const margin={left:60,right:20+legendWidth,top:20,bottom:50}; const innerW=W-margin.left-margin.right; const innerH=H-margin.top-margin.bottom;
+  const add=(tag,attrs,text)=>{const el=document.createElementNS(NS,tag); for(const k in attrs) el.setAttribute(k,String(attrs[k])); if(text) el.textContent=text; svg.appendChild(el); return el;};
+  add('rect',{x:0,y:0,width:W,height:H,fill:'#fff'});
+  if(showGrid){ xScale.ticks.forEach(t=>{const x=margin.left+(t-xScale.min)*innerW/(xScale.max-xScale.min); add('line',{x1:x,y1:margin.top,x2:x,y2:H-margin.bottom,stroke:'#eee'});}); yScale.ticks.forEach(t=>{const y=H-margin.bottom-(t-yScale.min)*innerH/(yScale.max-yScale.min); add('line',{x1:margin.left,y1:y,x2:W-margin.right,y2:y,stroke:'#eee'});}); }
+  add('line',{x1:margin.left,y1:margin.top,x2:margin.left,y2:H-margin.bottom,stroke:'#000'}); add('line',{x1:margin.left,y1:H-margin.bottom,x2:W-margin.right,y2:H-margin.bottom,stroke:'#000'});
+  xScale.ticks.forEach(t=>{const x=margin.left+(t-xScale.min)*innerW/(xScale.max-xScale.min); add('line',{x1:x,y1:H-margin.bottom,x2:x,y2:H-margin.bottom+6,stroke:'#000'}); add('text',{x:x,y:H-margin.bottom+fs,'font-size':fs,'text-anchor':'middle'},String(t));});
+  yScale.ticks.forEach(t=>{const y=H-margin.bottom-(t-yScale.min)*innerH/(yScale.max-yScale.min); add('line',{x1:margin.left-6,y1:y,x2:margin.left,y2:y,stroke:'#000'}); add('text',{x:margin.left-8,y:y+fs/3,'font-size':fs,'text-anchor':'end'},String(t));});
+  add('text',{x:margin.left+innerW/2,y:H-10,'font-size':fs,'text-anchor':'middle'},pcaXLabelText); add('text',{x:20,y:margin.top+innerH/2,'font-size':fs,'text-anchor':'middle',transform:`rotate(-90 20 ${margin.top+innerH/2})`},pcaYLabelText);
+  points.forEach(pt=>{ const cx=margin.left+(pt.x-xScale.min)*innerW/(xScale.max-xScale.min); const cy=H-margin.bottom-(pt.y-yScale.min)*innerH/(yScale.max-yScale.min); const col=pt.label?(pcaLabelColors[pt.label]||DEFAULT_SCATTER_COLORS[0]):pcaFill.value; add('circle',{cx,cy,r:dotSize,fill:col,stroke:alpha>0?borderColor:'none','stroke-width':bw,opacity:1-alpha});});
+  legendLabels.forEach((lab,i)=>{const y=margin.top+i*(fs+6); const color=pcaLabelColors[lab]||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]; add('rect',{x:W-legendWidth+10,y:y,width:12,height:12,fill:color}); add('text',{x:W-legendWidth+28,y:y+fs-3,'font-size':fs},lab);});
 }
   const lineTableObserver=new ResizeObserver(()=>{syncLineWidths();});
   lineTableObserver.observe(lineTablePanel);
