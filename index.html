@@ -643,7 +643,7 @@
   </div>
     <div class="wrap">
       <div class="panel" id="boxTablePanel">
-        <div id="hotWrapper" style="width:100%;height:300px;overflow:auto"><div id="hot" style="width:100%;height:100%"></div></div>
+        <div id="hotWrapper" style="width:100%;height:100%;overflow:auto;flex:1 1 auto"><div id="hot" style="width:100%;height:100%"></div></div>
         <div class="row" style="margin-top:8px;justify-content:space-between">
           <div class="row" style="gap:8px">
             <button class="btn" id="boxLoadExample">Load Example</button>
@@ -757,7 +757,7 @@
   </div>
     <div class="wrap">
       <div class="panel" id="scatterTablePanel">
-        <div id="scatterHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="scatterHot" style="width:100%;height:100%"></div></div>
+      <div id="scatterHotWrapper" style="width:100%;height:100%;overflow:auto;flex:1 1 auto"><div id="scatterHot" style="width:100%;height:100%"></div></div>
         <div class="row" style="margin-top:8px;justify-content:space-between">
           <div class="row" style="gap:8px">
             <button class="btn" id="scatterLoadExample">Load Example</button>
@@ -877,7 +877,7 @@
   </div>
   <div class="wrap">
     <div class="panel" id="pcaTablePanel">
-      <div id="pcaHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="pcaHot" style="width:100%;height:100%"></div></div>
+      <div id="pcaHotWrapper" style="width:100%;height:100%;overflow:auto;flex:1 1 auto"><div id="pcaHot" style="width:100%;height:100%"></div></div>
       <div class="row" style="margin-top:8px;justify-content:space-between">
         <div class="row" style="gap:8px">
           <button class="btn" id="pcaLoadExample">Load Example</button>
@@ -987,7 +987,7 @@
   </div>
     <div class="wrap">
       <div class="panel" id="lineTablePanel">
-        <div id="lineHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="lineHot" style="width:100%;height:100%"></div></div>
+        <div id="lineHotWrapper" style="width:100%;height:100%;overflow:auto;flex:1 1 auto"><div id="lineHot" style="width:100%;height:100%"></div></div>
         <div class="row" style="margin-top:8px;justify-content:space-between">
           <div class="row" style="gap:8px">
             <button class="btn" id="lineLoadExample">Load Example</button>
@@ -1105,7 +1105,7 @@
   </div>
   <div class="wrap">
     <div class="panel" id="rocTablePanel">
-      <div id="rocHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="rocHot" style="width:100%;height:100%"></div></div>
+      <div id="rocHotWrapper" style="width:100%;height:100%;overflow:auto;flex:1 1 auto"><div id="rocHot" style="width:100%;height:100%"></div></div>
       <div class="row" style="margin-top:8px;justify-content:space-between">
         <div class="row" style="gap:8px">
           <button class="btn" id="rocLoadExample">Load Example</button>
@@ -1165,14 +1165,14 @@
           </fieldset>
         </div>
       </div>
+      <div id="rocStats" style="width:100%;margin-top:12px">
+        <fieldset>
+          <legend>Statistics</legend>
+          <div id="rocStatsControls" class="row" style="gap:8px;align-items:center"></div>
+          <div id="rocStatsResults" style="margin-top:8px"></div>
+        </fieldset>
+      </div>
     </div>
-  </div>
-  <div id="rocStats" style="width:100%;margin-top:12px">
-    <fieldset>
-      <legend>Statistics</legend>
-      <div id="rocStatsControls" class="row" style="gap:8px;align-items:center"></div>
-      <div id="rocStatsResults" style="margin-top:8px"></div>
-    </fieldset>
   </div>
   </div>
   <div id="histPage" style="display:none;">
@@ -1185,7 +1185,7 @@
   </div>
   <div class="wrap">
     <div class="panel" id="histTablePanel">
-      <div id="histHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="histHot" style="width:100%;height:100%"></div></div>
+      <div id="histHotWrapper" style="width:100%;height:100%;overflow:auto;flex:1 1 auto"><div id="histHot" style="width:100%;height:100%"></div></div>
       <div class="row" style="margin-top:8px;justify-content:space-between">
         <div class="row" style="gap:8px">
           <button class="btn" id="histLoadExample">Load Example</button>
@@ -1266,7 +1266,7 @@
   </div>
   <div class="wrap">
     <div class="panel" id="pieTablePanel">
-      <div id="pieHotWrapper" style="width:100%;height:300px;overflow:auto"><div id="pieHot" style="width:100%;height:100%"></div></div>
+      <div id="pieHotWrapper" style="width:100%;height:100%;overflow:auto;flex:1 1 auto"><div id="pieHot" style="width:100%;height:100%"></div></div>
       <div class="row" style="margin-top:8px;justify-content:space-between">
         <div class="row" style="gap:8px">
           <button class="btn" id="pieLoadExample">Load Example</button>
@@ -1563,6 +1563,10 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   }
 
   hotWrapper.style.overflow='auto';
+  hotWrapper.style.height='100%';
+  hotWrapper.style.flex='1 1 auto';
+  hotWrapper.style.minHeight='0';
+  console.debug('hotWrapper style updated', hotWrapper.style.cssText);
   const hot=new Handsontable(hotContainer,{
     data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,DEFAULT_COLS),
     rowHeaders(index){
@@ -1937,6 +1941,10 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   syncScatterWidths();
 
   scatterHotWrapper.style.overflow='auto';
+  scatterHotWrapper.style.height='100%';
+  scatterHotWrapper.style.flex='1 1 auto';
+  scatterHotWrapper.style.minHeight='0';
+  console.debug('scatterHotWrapper style updated', scatterHotWrapper.style.cssText);
   const scatterHot=new Handsontable(scatterHotContainer,{
     data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,3),
     rowHeaders(index){
@@ -2738,6 +2746,10 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   pcaTableObserver.observe(pcaTablePanel);
   syncPcaWidths();
   pcaHotWrapper.style.overflow='auto';
+  pcaHotWrapper.style.height='100%';
+  pcaHotWrapper.style.flex='1 1 auto';
+  pcaHotWrapper.style.minHeight='0';
+  console.debug('pcaHotWrapper style updated', pcaHotWrapper.style.cssText);
   const pcaData=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,PCA_DEFAULT_COLS);
   pcaData[0]=['Label','Var1','Var2','Var3','Var4'];
   const pcaHot=new Handsontable(pcaHotContainer,{
@@ -3001,6 +3013,10 @@ async function drawPca(){
   const lineTableObserver=new ResizeObserver(()=>{syncLineWidths();});
   lineTableObserver.observe(lineTablePanel);
   lineHotWrapper.style.overflow='auto';
+  lineHotWrapper.style.height='100%';
+  lineHotWrapper.style.flex='1 1 auto';
+  lineHotWrapper.style.minHeight='0';
+  console.debug('lineHotWrapper style updated', lineHotWrapper.style.cssText);
   const lineData=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,LINE_DEFAULT_COLS);
   lineData[0]=['X','Series1','Series2','Series3','Series4','Series5'];
   const lineHot=new Handsontable(lineHotContainer,{
@@ -3289,6 +3305,10 @@ async function drawPca(){
   const rocHotContainer=document.getElementById('rocHot');
   const rocHotWrapper=document.getElementById('rocHotWrapper');
   rocHotWrapper.style.overflow='auto';
+  rocHotWrapper.style.height='100%';
+  rocHotWrapper.style.flex='1 1 auto';
+  rocHotWrapper.style.minHeight='0';
+  console.debug('rocHotWrapper style updated', rocHotWrapper.style.cssText);
   const rocData=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,ROC_DEFAULT_COLS);
   const rocHot=new Handsontable(rocHotContainer,{
     data:rocData,
@@ -3816,6 +3836,10 @@ async function drawPca(){
   const histHotContainer=document.getElementById('histHot');
   const histHotWrapper=document.getElementById('histHotWrapper');
   histHotWrapper.style.overflow='auto';
+  histHotWrapper.style.height='100%';
+  histHotWrapper.style.flex='1 1 auto';
+  histHotWrapper.style.minHeight='0';
+  console.debug('histHotWrapper style updated', histHotWrapper.style.cssText);
   const histTablePanel=document.getElementById('histTablePanel');
   const histGraphPanel=document.getElementById('histGraphPanel');
   const histPanelResizer=document.getElementById('histPanelResizer');
@@ -4379,6 +4403,10 @@ async function drawPca(){
   const pieHotContainer=document.getElementById('pieHot');
   const pieHotWrapper=document.getElementById('pieHotWrapper');
   pieHotWrapper.style.overflow='auto';
+  pieHotWrapper.style.height='100%';
+  pieHotWrapper.style.flex='1 1 auto';
+  pieHotWrapper.style.minHeight='0';
+  console.debug('pieHotWrapper style updated', pieHotWrapper.style.cssText);
   const pieTablePanel=document.getElementById('pieTablePanel');
   const pieGraphPanel=document.getElementById('pieGraphPanel');
   const piePanelResizer=document.getElementById('piePanelResizer');
