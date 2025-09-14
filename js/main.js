@@ -1,15 +1,19 @@
 (function(){
   "use strict";
-  console.debug("main.js loaded");// debug
+  console.debug("Debug: main.js loaded");// Debug: entry
+  // Prefer shared debounce if available
   function debounceFrame(fn){
+    if (window.Shared && typeof window.Shared.debounceFrame === 'function') {
+      return window.Shared.debounceFrame(fn);
+    }
     let frame;
     return (...args)=>{
       if(frame) cancelAnimationFrame(frame);
-      console.log('debounceFrame scheduled', fn.name, args.length);
+      console.debug('Debug: debounceFrame scheduled (local)', fn && fn.name, args.length);
       frame=requestAnimationFrame(()=>{
-        console.log('debounceFrame executing', fn.name);
+        console.debug('Debug: debounceFrame executing (local)', fn && fn.name);
         frame=null;
-        fn(...args);
+        try { fn && fn(...args); } catch(err){ console.error('debounceFrame error', err); }
       });
     };
   }
@@ -64,108 +68,26 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   const vennContainer = stage.closest('.svgbox') || stage.parentElement;
   (function initVennResizers(){
     if(!vennContainer) return;
-    console.log('init venn resizers');
-    const MIN_W = 50;
-    const MIN_H = 40;
-    function px(n){ return Math.round(n) + 'px'; }
-    const vHandle = vennContainer.querySelector('.resizer-vertical');
-    const hHandle = vennContainer.querySelector('.resizer-horizontal');
-    const cHandle = vennContainer.querySelector('.resizer-corner');
-    function attachDrag(handle, axis){
-      if(!handle) return;
-      let startX=0, startY=0, startW=0, startH=0, pointerId=null;
-      const onPointerDown = (e) => {
-        e.preventDefault();
-        pointerId = e.pointerId;
-        try { handle.setPointerCapture(pointerId); } catch(_) {}
-        const rect = vennContainer.getBoundingClientRect();
-        startW = Math.round(rect.width);
-        startH = Math.round(rect.height);
-        startX = e.clientX;
-        startY = e.clientY;
-        vennContainer.style.boxSizing = 'border-box';
-        vennContainer.style.width = px(startW);
-        vennContainer.style.height = px(startH);
-        vennContainer.style.flex = '0 0 auto';
-        vennContainer.style.maxWidth = 'none';
-        vennContainer.style.maxHeight = 'none';
-        document.documentElement.style.userSelect = 'none';
-        document.documentElement.style.touchAction = 'none';
-        const onPointerMove = (ev) => {
-          ev.preventDefault();
-          const dx = ev.clientX - startX;
-          const dy = ev.clientY - startY;
-          if(axis === 'x' || axis === 'both'){
-            const newW = Math.max(MIN_W, Math.round(startW + dx));
-            vennContainer.style.width = px(newW);
-          }
-          if(axis === 'y' || axis === 'both'){
-            const newH = Math.max(MIN_H, Math.round(startH + dy));
-            vennContainer.style.height = px(newH);
-          }
-        };
-        const onPointerUp = (ev) => {
-          try { handle.releasePointerCapture(pointerId); } catch(_) {}
-          document.removeEventListener('pointermove', onPointerMove);
-          document.removeEventListener('pointerup', onPointerUp);
-          document.documentElement.style.userSelect = '';
-          document.documentElement.style.touchAction = '';
-          console.log('venn drag end');
-        };
-        document.addEventListener('pointermove', onPointerMove);
-        document.addEventListener('pointerup', onPointerUp);
-      };
-      handle.addEventListener('pointerdown', onPointerDown);
-      handle.addEventListener('dblclick', (ev) => {
-        ev.preventDefault();
-        vennContainer.style.width = '640px';
-        vennContainer.style.height = '420px';
-        vennContainer.style.flex = '0 0 auto';
-        console.log('venn size reset');
-      });
+    if (window.Shared && typeof window.Shared.attachResizableBox === 'function') {
+      window.Shared.attachResizableBox(vennContainer);
     }
-    attachDrag(vHandle, 'x');
-    attachDrag(hHandle, 'y');
-    attachDrag(cHandle, 'both');
-    const vennResizeObserver = new ResizeObserver(() => {
-      console.log('venn resize observer triggered');
-    });
-    vennResizeObserver.observe(vennContainer);
   })();
 
-  const colorPickerOverlay=document.createElement('input');
-  colorPickerOverlay.type='color';
-  colorPickerOverlay.style.position='absolute';
-  colorPickerOverlay.style.zIndex='1000';
-  colorPickerOverlay.style.display='none';
-  colorPickerOverlay.style.opacity='0';
-  colorPickerOverlay.style.pointerEvents='none';
-  console.debug('Color picker overlay initialized');
-  document.body.appendChild(colorPickerOverlay);
-  colorPickerOverlay.addEventListener('input',e=>{
-    if(colorPickerOverlay.targetEl){
-      colorPickerOverlay.targetEl.value=colorPickerOverlay.value;
-      colorPickerOverlay.targetEl.dispatchEvent(new Event('input',{bubbles:true}));
+  // Use shared color picker overlay if present
+  (function initColorOverlay(){
+    if (window.Shared && typeof window.Shared.initColorPickerOverlay === 'function') {
+      const overlay = window.Shared.initColorPickerOverlay();
+      document.querySelectorAll('input[type=color]').forEach(el=>{ if(el!==overlay) window.Shared.attachColorPickerNear(el); });
     }
-  });
-  colorPickerOverlay.addEventListener('blur',()=>{colorPickerOverlay.style.display='none';console.debug('Color picker overlay hidden');});
+  })();
+
+  // Back-compat shim: many sections call attachColorPickerNear directly.
+  // Delegate to Shared implementation to avoid breaking existing calls.
   function attachColorPickerNear(el){
-    console.log('attachColorPickerNear',el);
-    el.addEventListener('pointerdown',e=>{
-      console.log('color input pointerdown',el);
-      e.preventDefault();
-      const rect=el.getBoundingClientRect();
-      colorPickerOverlay.style.left=`${rect.right+4}px`;
-      colorPickerOverlay.style.top=`${rect.top}px`;
-      colorPickerOverlay.value=el.value;
-      colorPickerOverlay.targetEl=el;
-      colorPickerOverlay.style.display='block';
-      console.debug('Color picker overlay positioned', colorPickerOverlay.style.left, colorPickerOverlay.style.top);
-      colorPickerOverlay.focus();
-      if(colorPickerOverlay.showPicker){colorPickerOverlay.showPicker();}
-    });
+    if (window.Shared && typeof window.Shared.attachColorPickerNear === 'function') {
+      window.Shared.attachColorPickerNear(el);
+    }
   }
-  document.querySelectorAll('input[type=color]').forEach(el=>{ if(el!==colorPickerOverlay) attachColorPickerNear(el); });
   let boxMinSvgWidth=0;
   function syncBoxWidths(){
     const tableWidth=tablePanel.getBoundingClientRect().width;
@@ -176,7 +98,7 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
     const minW=boxMinSvgWidth||0;
     const newW=Math.max(minW, Math.min(tableWidth, available));
     boxSvgBox.style.width=newW+'px';
-    console.debug('syncBoxWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
+    console.debug('Debug: syncBoxWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
   }
 
   const tableObserver=new ResizeObserver(entries=>{
@@ -223,10 +145,7 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
     return newColor;
   }
 
-  hotWrapper.style.overflow='auto';
-  hotWrapper.style.height='100%';
-  hotWrapper.style.flex='1 1 auto';
-  hotWrapper.style.minHeight='0';
+  if(window.Shared && window.Shared.ensureHotWrapperStyles){ window.Shared.ensureHotWrapperStyles(hotWrapper); }
   console.debug('hotWrapper style updated', hotWrapper.style.cssText);
   const hot=new Handsontable(hotContainer,{
     data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,DEFAULT_COLS),
@@ -473,76 +392,9 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   const boxContainer = boxPlotDiv.closest('.svgbox') || boxPlotDiv.parentElement;
   (function initBoxResizers(){
     if(!boxContainer) return;
-    const MIN_W = 50;
-    const MIN_H = 40;
-    function px(n){ return Math.round(n) + 'px'; }
-    function getNumPx(v){ return v ? parseFloat(String(v).replace('px','')) : 0; }
-    const vHandle = boxContainer.querySelector('.resizer-vertical');
-    const hHandle = boxContainer.querySelector('.resizer-horizontal');
-    const cHandle = boxContainer.querySelector('.resizer-corner');
-    function attachDrag(handle, axis){
-      if(!handle) return;
-      let startX=0, startY=0, startW=0, startH=0, pointerId=null;
-      const onPointerDown = (e) => {
-        e.preventDefault();
-        pointerId = e.pointerId;
-        try { handle.setPointerCapture(pointerId); } catch(_) {}
-        const rect = boxContainer.getBoundingClientRect();
-        startW = Math.round(rect.width);
-        startH = Math.round(rect.height);
-        startX = e.clientX;
-        startY = e.clientY;
-        boxContainer.style.boxSizing = 'border-box';
-        boxContainer.style.width = px(startW);
-        boxContainer.style.height = px(startH);
-        boxContainer.style.flex = '0 0 auto';
-        boxContainer.style.maxWidth = 'none';
-        boxContainer.style.maxHeight = 'none';
-        document.documentElement.style.userSelect = 'none';
-        document.documentElement.style.touchAction = 'none';
-        const onPointerMove = (ev) => {
-          ev.preventDefault();
-          const dx = ev.clientX - startX;
-          const dy = ev.clientY - startY;
-          if(axis === 'x' || axis === 'both'){
-            let newW = Math.max(MIN_W, Math.round(startW + dx));
-            boxContainer.style.width = px(newW);
-          }
-          if(axis === 'y' || axis === 'both'){
-            let newH = Math.max(MIN_H, Math.round(startH + dy));
-            boxContainer.style.height = px(newH);
-          }
-        };
-        const onPointerUp = (ev) => {
-          try { handle.releasePointerCapture(pointerId); } catch(_) {}
-          document.removeEventListener('pointermove', onPointerMove);
-          document.removeEventListener('pointerup', onPointerUp);
-          document.documentElement.style.userSelect = '';
-          document.documentElement.style.touchAction = '';
-          console.log('boxplot drag end');
-          scheduleDrawBoxplot();
-        };
-        document.addEventListener('pointermove', onPointerMove);
-        document.addEventListener('pointerup', onPointerUp);
-      };
-      handle.addEventListener('pointerdown', onPointerDown);
-      handle.addEventListener('dblclick', (ev) => {
-        ev.preventDefault();
-        boxContainer.style.width = '640px';
-        boxContainer.style.height = '420px';
-        boxContainer.style.flex = '0 0 auto';
-        console.log('boxplot size reset');
-        scheduleDrawBoxplot();
-      });
+    if(window.Shared && window.Shared.attachResizableBox){
+      window.Shared.attachResizableBox(boxContainer, { onResize: () => scheduleDrawBoxplot() });
     }
-    attachDrag(vHandle, 'x');
-    attachDrag(hHandle, 'y');
-    attachDrag(cHandle, 'both');
-    const boxResizeObserver = new ResizeObserver(() => {
-      console.log('boxplot resize observer triggered');
-      scheduleDrawBoxplot();
-    });
-    boxResizeObserver.observe(boxContainer);
   })();
 
   (function initPanelResizer(){
@@ -601,10 +453,7 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   scatterTableObserver.observe(scatterTablePanel);
   syncScatterWidths();
 
-  scatterHotWrapper.style.overflow='auto';
-  scatterHotWrapper.style.height='100%';
-  scatterHotWrapper.style.flex='1 1 auto';
-  scatterHotWrapper.style.minHeight='0';
+  if(window.Shared && window.Shared.ensureHotWrapperStyles){ window.Shared.ensureHotWrapperStyles(scatterHotWrapper); }
   console.debug('scatterHotWrapper style updated', scatterHotWrapper.style.cssText);
   const scatterHot=new Handsontable(scatterHotContainer,{
     data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,3),
@@ -1406,10 +1255,7 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   const pcaTableObserver=new ResizeObserver(()=>{syncPcaWidths();});
   pcaTableObserver.observe(pcaTablePanel);
   syncPcaWidths();
-  pcaHotWrapper.style.overflow='auto';
-  pcaHotWrapper.style.height='100%';
-  pcaHotWrapper.style.flex='1 1 auto';
-  pcaHotWrapper.style.minHeight='0';
+  if(window.Shared && window.Shared.ensureHotWrapperStyles){ window.Shared.ensureHotWrapperStyles(pcaHotWrapper); }
   console.debug('pcaHotWrapper style updated', pcaHotWrapper.style.cssText);
   const pcaData=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,PCA_DEFAULT_COLS);
   pcaData[0]=['Label','Var1','Var2','Var3','Var4'];
@@ -1511,10 +1357,11 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   window.DEBUG_PCA=true;
   if(window.DEBUG_PCA) console.log('pcaPlot background set to transparent');
   const pcaContainer=pcaPlotDiv.closest('.svgbox')||pcaPlotDiv.parentElement;
-  (function initPcaResizers(){ if(!pcaContainer) return; console.log('init pca resizers'); const MIN_W=50; const MIN_H=40; function px(n){return Math.round(n)+'px';}
-    const vHandle=pcaContainer.querySelector('.resizer-vertical'); const hHandle=pcaContainer.querySelector('.resizer-horizontal'); const cHandle=pcaContainer.querySelector('.resizer-corner');
-    function attachDrag(handle,axis){ if(!handle) return; let startX=0,startY=0,startW=0,startH=0,pointerId=null; const onPointerDown=e=>{ e.preventDefault(); console.log('pca resize start',axis); pointerId=e.pointerId; try{handle.setPointerCapture(pointerId);}catch(_){ } const rect=pcaContainer.getBoundingClientRect(); startW=Math.round(rect.width); startH=Math.round(rect.height); startX=e.clientX; startY=e.clientY; pcaContainer.style.boxSizing='border-box'; pcaContainer.style.width=px(startW); pcaContainer.style.height=px(startH); pcaContainer.style.flex='0 0 auto'; pcaContainer.style.maxWidth='none'; pcaContainer.style.maxHeight='none'; document.documentElement.style.userSelect='none'; document.documentElement.style.touchAction='none'; const onPointerMove=ev=>{ ev.preventDefault(); const dx=ev.clientX-startX; const dy=ev.clientY-startY; if(axis==='x'||axis==='both'){ const newW=Math.max(MIN_W,Math.round(startW+dx)); pcaContainer.style.width=px(newW);} if(axis==='y'||axis==='both'){ const newH=Math.max(MIN_H,Math.round(startH+dy)); pcaContainer.style.height=px(newH);} scheduleDrawPca(); }; const onPointerUp=ev=>{ try{handle.releasePointerCapture(pointerId);}catch(_){ } document.removeEventListener('pointermove',onPointerMove); document.removeEventListener('pointerup',onPointerUp); document.documentElement.style.userSelect=''; document.documentElement.style.touchAction=''; console.log('pca drag end'); scheduleDrawPca(); }; document.addEventListener('pointermove',onPointerMove); document.addEventListener('pointerup',onPointerUp); }; handle.addEventListener('pointerdown',onPointerDown); handle.addEventListener('dblclick',ev=>{ ev.preventDefault(); pcaContainer.style.width='640px'; pcaContainer.style.height='420px'; pcaContainer.style.flex='0 0 auto'; console.log('pca size reset'); scheduleDrawPca(); }); }
-    attachDrag(vHandle,'x'); attachDrag(hHandle,'y'); attachDrag(cHandle,'both'); const pcaResizeObserver=new ResizeObserver(()=>{console.log('pca resize observer triggered'); scheduleDrawPca();}); pcaResizeObserver.observe(pcaContainer);
+  (function initPcaResizers(){
+    if(!pcaContainer) return;
+    if(window.Shared && window.Shared.attachResizableBox){
+      window.Shared.attachResizableBox(pcaContainer, { onResize: () => scheduleDrawPca() });
+    }
   })();
   (function initPcaPanelResizer(){
     if(!pcaPanelResizer||!pcaTablePanel||!pcaGraphPanel) return;
@@ -1673,10 +1520,7 @@ async function drawPca(){
 }
   const lineTableObserver=new ResizeObserver(()=>{syncLineWidths();});
   lineTableObserver.observe(lineTablePanel);
-  lineHotWrapper.style.overflow='auto';
-  lineHotWrapper.style.height='100%';
-  lineHotWrapper.style.flex='1 1 auto';
-  lineHotWrapper.style.minHeight='0';
+  if(window.Shared && window.Shared.ensureHotWrapperStyles){ window.Shared.ensureHotWrapperStyles(lineHotWrapper); }
   console.debug('lineHotWrapper style updated', lineHotWrapper.style.cssText);
   const lineData=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,LINE_DEFAULT_COLS);
   lineData[0]=['X','Series1','Series2','Series3','Series4','Series5'];
@@ -1786,62 +1630,9 @@ async function drawPca(){
   const lineContainer=linePlotDiv.closest('.svgbox')||linePlotDiv.parentElement;
   (function initLineResizers(){
     if(!lineContainer) return;
-    const MIN_W=50, MIN_H=40;
-    function px(n){return Math.round(n)+'px';}
-    const vHandle=lineContainer.querySelector('.resizer-vertical');
-    const hHandle=lineContainer.querySelector('.resizer-horizontal');
-    const cHandle=lineContainer.querySelector('.resizer-corner');
-    function attachDrag(handle,axis){
-      if(!handle) return;
-      let startX=0,startY=0,startW=0,startH=0,pointerId=null;
-      const onPointerDown=e=>{
-        e.preventDefault();
-        pointerId=e.pointerId;
-        try{handle.setPointerCapture(pointerId);}catch(_){ }
-        const rect=lineContainer.getBoundingClientRect();
-        startW=Math.round(rect.width); startH=Math.round(rect.height);
-        startX=e.clientX; startY=e.clientY;
-        lineContainer.style.boxSizing='border-box';
-        lineContainer.style.width=px(startW);
-        lineContainer.style.height=px(startH);
-        lineContainer.style.flex='0 0 auto';
-        lineContainer.style.maxWidth='none';
-        lineContainer.style.maxHeight='none';
-        document.documentElement.style.userSelect='none';
-        document.documentElement.style.touchAction='none';
-        const onMove=ev=>{
-          ev.preventDefault();
-          const dx=ev.clientX-startX;
-          const dy=ev.clientY-startY;
-          if(axis==='x'||axis==='both'){
-            let newW=Math.max(MIN_W,Math.round(startW+dx));
-            lineContainer.style.width=px(newW);
-          }
-          if(axis==='y'||axis==='both'){
-            let newH=Math.max(MIN_H,Math.round(startH+dy));
-            lineContainer.style.height=px(newH);
-          }
-        };
-        const onUp=ev=>{
-          try{handle.releasePointerCapture(pointerId);}catch(_){ }
-          document.removeEventListener('pointermove',onMove);
-          document.removeEventListener('pointerup',onUp);
-          document.documentElement.style.userSelect='';
-          document.documentElement.style.touchAction='';
-          if(window.DEBUG_LINE) console.log('line drag end');
-          scheduleDrawLine();
-        };
-        document.addEventListener('pointermove',onMove);
-        document.addEventListener('pointerup',onUp);
-      };
-      handle.addEventListener('pointerdown',onPointerDown);
-      handle.addEventListener('dblclick',ev=>{ev.preventDefault(); lineContainer.style.width='640px'; lineContainer.style.height='420px'; lineContainer.style.flex='0 0 auto'; if(window.DEBUG_LINE) console.log('line size reset'); scheduleDrawLine();});
+    if(window.Shared && window.Shared.attachResizableBox){
+      window.Shared.attachResizableBox(lineContainer, { onResize: () => scheduleDrawLine() });
     }
-    attachDrag(vHandle,'x');
-    attachDrag(hHandle,'y');
-    attachDrag(cHandle,'both');
-    const lineResizeObserver=new ResizeObserver(()=>{if(window.DEBUG_LINE) console.log('line resize observer triggered'); scheduleDrawLine();});
-    lineResizeObserver.observe(lineContainer);
   })();
 
   (function initLinePanelResizer(){
@@ -1965,10 +1756,7 @@ async function drawPca(){
   syncRocWidths();
   const rocHotContainer=document.getElementById('rocHot');
   const rocHotWrapper=document.getElementById('rocHotWrapper');
-  rocHotWrapper.style.overflow='auto';
-  rocHotWrapper.style.height='100%';
-  rocHotWrapper.style.flex='1 1 auto';
-  rocHotWrapper.style.minHeight='0';
+  if(window.Shared && window.Shared.ensureHotWrapperStyles){ window.Shared.ensureHotWrapperStyles(rocHotWrapper); }
   console.debug('rocHotWrapper style updated', rocHotWrapper.style.cssText);
   const rocData=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,ROC_DEFAULT_COLS);
   const rocHot=new Handsontable(rocHotContainer,{
@@ -2050,62 +1838,9 @@ async function drawPca(){
   const rocContainer=rocPlotDiv.closest('.svgbox')||rocPlotDiv.parentElement;
   (function initRocResizers(){
     if(!rocContainer) return;
-    const MIN_W=50, MIN_H=40;
-    function px(n){return Math.round(n)+'px';}
-    const vHandle=rocContainer.querySelector('.resizer-vertical');
-    const hHandle=rocContainer.querySelector('.resizer-horizontal');
-    const cHandle=rocContainer.querySelector('.resizer-corner');
-    function attachDrag(handle,axis){
-      if(!handle) return;
-      let startX=0,startY=0,startW=0,startH=0,pointerId=null;
-      const onPointerDown=e=>{
-        e.preventDefault();
-        pointerId=e.pointerId;
-        try{handle.setPointerCapture(pointerId);}catch(_){ }
-        const rect=rocContainer.getBoundingClientRect();
-        startW=Math.round(rect.width); startH=Math.round(rect.height);
-        startX=e.clientX; startY=e.clientY;
-        rocContainer.style.boxSizing='border-box';
-        rocContainer.style.width=px(startW);
-        rocContainer.style.height=px(startH);
-        rocContainer.style.flex='0 0 auto';
-        rocContainer.style.maxWidth='none';
-        rocContainer.style.maxHeight='none';
-        document.documentElement.style.userSelect='none';
-        document.documentElement.style.touchAction='none';
-        const onMove=ev=>{
-          ev.preventDefault();
-          const dx=ev.clientX-startX;
-          const dy=ev.clientY-startY;
-          if(axis==='x'||axis==='both'){
-            let newW=Math.max(MIN_W,Math.round(startW+dx));
-            rocContainer.style.width=px(newW);
-          }
-          if(axis==='y'||axis==='both'){
-            let newH=Math.max(MIN_H,Math.round(startH+dy));
-            rocContainer.style.height=px(newH);
-          }
-        };
-        const onUp=ev=>{
-          try{handle.releasePointerCapture(pointerId);}catch(_){ }
-          document.removeEventListener('pointermove',onMove);
-          document.removeEventListener('pointerup',onUp);
-          document.documentElement.style.userSelect='';
-          document.documentElement.style.touchAction='';
-          if(window.DEBUG_ROC) console.log('roc drag end');
-          scheduleDrawRoc();
-        };
-        document.addEventListener('pointermove',onMove);
-        document.addEventListener('pointerup',onUp);
-      };
-      handle.addEventListener('pointerdown',onPointerDown);
-      handle.addEventListener('dblclick',ev=>{ev.preventDefault(); rocContainer.style.width='640px'; rocContainer.style.height='420px'; rocContainer.style.flex='0 0 auto'; if(window.DEBUG_ROC) console.log('roc size reset'); scheduleDrawRoc();});
+    if(window.Shared && window.Shared.attachResizableBox){
+      window.Shared.attachResizableBox(rocContainer, { onResize: () => scheduleDrawRoc() });
     }
-    attachDrag(vHandle,'x');
-    attachDrag(hHandle,'y');
-    attachDrag(cHandle,'both');
-    const rocResizeObserver=new ResizeObserver(()=>{if(window.DEBUG_ROC) console.log('roc resize observer triggered'); scheduleDrawRoc();});
-    rocResizeObserver.observe(rocContainer);
   })();
   (function initRocPanelResizer(){
     if(!rocPanelResizer||!rocTablePanel||!rocGraphPanel) return;
@@ -2496,10 +2231,7 @@ async function drawPca(){
   // Histogram setup
   const histHotContainer=document.getElementById('histHot');
   const histHotWrapper=document.getElementById('histHotWrapper');
-  histHotWrapper.style.overflow='auto';
-  histHotWrapper.style.height='100%';
-  histHotWrapper.style.flex='1 1 auto';
-  histHotWrapper.style.minHeight='0';
+  if(window.Shared && window.Shared.ensureHotWrapperStyles){ window.Shared.ensureHotWrapperStyles(histHotWrapper); }
   console.debug('histHotWrapper style updated', histHotWrapper.style.cssText);
   const histTablePanel=document.getElementById('histTablePanel');
   const histGraphPanel=document.getElementById('histGraphPanel');
@@ -2638,65 +2370,19 @@ async function drawPca(){
   }
   (function initHistResizers(){
     if(!histContainer) return;
-    console.log('init hist resizers');
-    const MIN_W=50, MIN_H=40;
-    function px(n){return Math.round(n)+'px';}
-    const vHandle=histContainer.querySelector('.resizer-vertical');
-    const hHandle=histContainer.querySelector('.resizer-horizontal');
-    const cHandle=histContainer.querySelector('.resizer-corner');
-    function attachDrag(handle,axis){
-      if(!handle) return;
-      let startX=0,startY=0,startW=0,startH=0,pointerId=null;
-      const onPointerDown=e=>{
-        e.preventDefault();
-        if(window.DEBUG_HIST) console.log('hist resize start',axis);
-        pointerId=e.pointerId;
-        try{handle.setPointerCapture(pointerId);}catch(_){ }
-        const rect=histContainer.getBoundingClientRect();
-        startW=Math.round(rect.width); startH=Math.round(rect.height);
-        startX=e.clientX; startY=e.clientY;
-        histContainer.style.boxSizing='border-box';
-        histContainer.style.width=px(startW);
-        histContainer.style.height=px(startH);
-        histContainer.style.flex='0 0 auto';
-        histContainer.style.maxWidth='none';
-        histContainer.style.maxHeight='none';
-        document.documentElement.style.userSelect='none';
-        document.documentElement.style.touchAction='none';
-        const onMove=ev=>{
-          ev.preventDefault();
-          const dx=ev.clientX-startX;
-          const dy=ev.clientY-startY;
-          if(axis==='x'||axis==='both'){
-            const newW=Math.max(MIN_W,Math.round(startW+dx));
-            histContainer.style.width=px(newW);
-          }
-          if(axis==='y'||axis==='both'){
-            const newH=Math.max(MIN_H,Math.round(startH+dy));
-            histContainer.style.height=px(newH);
-          }
-          scheduleDrawHist();
-        };
-        const onUp=ev=>{
-          try{handle.releasePointerCapture(pointerId);}catch(_){ }
-          document.removeEventListener('pointermove',onMove);
-          document.removeEventListener('pointerup',onUp);
-          document.documentElement.style.userSelect='';
-          document.documentElement.style.touchAction='';
-          if(window.DEBUG_HIST) console.log('hist drag end');
-          scheduleDrawHist();
-        };
-        document.addEventListener('pointermove',onMove);
-        document.addEventListener('pointerup',onUp);
-      };
-      handle.addEventListener('pointerdown',onPointerDown);
-      handle.addEventListener('dblclick',ev=>{ev.preventDefault(); histContainer.style.width='640px'; histContainer.style.height='420px'; histContainer.style.flex='0 0 auto'; if(window.DEBUG_HIST) console.log('hist size reset'); scheduleDrawHist();});
+    if(window.Shared && window.Shared.attachResizableBox){
+      window.Shared.attachResizableBox(histContainer, { onResize: () => scheduleDrawHist() });
     }
-    attachDrag(vHandle,'x');
-    attachDrag(hHandle,'y');
-    attachDrag(cHandle,'both');
-    const histResizeObserver=new ResizeObserver(()=>{if(window.DEBUG_HIST) console.log('hist resize observer triggered'); scheduleDrawHist();});
-    histResizeObserver.observe(histContainer);
+  })();
+
+  // Scatter resizer on svgbox
+  (function initScatterResizers(){
+    const scatterPlotDiv = document.getElementById('scatterPlot');
+    const scatterContainer = scatterPlotDiv?.closest('.svgbox') || scatterPlotDiv?.parentElement;
+    if(!scatterContainer) return;
+    if(window.Shared && window.Shared.attachResizableBox){
+      window.Shared.attachResizableBox(scatterContainer, { onResize: () => scheduleDrawScatter() });
+    }
   })();
 
   (function initHistPanelResizer(){
@@ -3063,10 +2749,7 @@ async function drawPca(){
   // Proportion graph setup
   const pieHotContainer=document.getElementById('pieHot');
   const pieHotWrapper=document.getElementById('pieHotWrapper');
-  pieHotWrapper.style.overflow='auto';
-  pieHotWrapper.style.height='100%';
-  pieHotWrapper.style.flex='1 1 auto';
-  pieHotWrapper.style.minHeight='0';
+  if(window.Shared && window.Shared.ensureHotWrapperStyles){ window.Shared.ensureHotWrapperStyles(pieHotWrapper); }
   console.debug('pieHotWrapper style updated', pieHotWrapper.style.cssText);
   const pieTablePanel=document.getElementById('pieTablePanel');
   const pieGraphPanel=document.getElementById('pieGraphPanel');
@@ -3093,72 +2776,9 @@ async function drawPca(){
   const pieContainer=piePlotDiv.closest('.svgbox')||piePlotDiv.parentElement;
   (function initPieResizers(){
     if(!pieContainer) return;
-    console.log('init pie resizers');
-    const MIN_W=50,MIN_H=40;
-    function px(n){return Math.round(n)+'px';}
-    const vHandle=pieContainer.querySelector('.resizer-vertical');
-    const hHandle=pieContainer.querySelector('.resizer-horizontal');
-    const cHandle=pieContainer.querySelector('.resizer-corner');
-    function attachDrag(handle,axis){
-      if(!handle) return;
-      let startX=0,startY=0,startW=0,startH=0,pointerId=null;
-      const onPointerDown=e=>{
-        e.preventDefault();
-        console.log('pie resize start',axis);
-        pointerId=e.pointerId;
-        try{handle.setPointerCapture(pointerId);}catch(_){ }
-        const rect=pieContainer.getBoundingClientRect();
-        startW=Math.round(rect.width); startH=Math.round(rect.height);
-        startX=e.clientX; startY=e.clientY;
-        pieContainer.style.boxSizing='border-box';
-        pieContainer.style.width=px(startW);
-        pieContainer.style.height=px(startH);
-        pieContainer.style.flex='0 0 auto';
-        pieContainer.style.maxWidth='none';
-        pieContainer.style.maxHeight='none';
-        document.documentElement.style.userSelect='none';
-        document.documentElement.style.touchAction='none';
-        const onMove=ev=>{
-          ev.preventDefault();
-          const dx=ev.clientX-startX;
-          const dy=ev.clientY-startY;
-          if(axis==='x'||axis==='both'){
-            const newW=Math.max(MIN_W,Math.round(startW+dx));
-            pieContainer.style.width=px(newW);
-          }
-          if(axis==='y'||axis==='both'){
-            const newH=Math.max(MIN_H,Math.round(startH+dy));
-            pieContainer.style.height=px(newH);
-          }
-          scheduleDrawPie();
-        };
-        const onUp=ev=>{
-          try{handle.releasePointerCapture(pointerId);}catch(_){ }
-          document.removeEventListener('pointermove',onMove);
-          document.removeEventListener('pointerup',onUp);
-          document.documentElement.style.userSelect='';
-          document.documentElement.style.touchAction='';
-          console.log('pie drag end');
-          scheduleDrawPie();
-        };
-        document.addEventListener('pointermove',onMove);
-        document.addEventListener('pointerup',onUp);
-      };
-      handle.addEventListener('pointerdown',onPointerDown);
-      handle.addEventListener('dblclick',ev=>{
-        ev.preventDefault();
-        pieContainer.style.width='640px';
-        pieContainer.style.height='420px';
-        pieContainer.style.flex='0 0 auto';
-        console.log('pie size reset');
-        scheduleDrawPie();
-      });
+    if(window.Shared && window.Shared.attachResizableBox){
+      window.Shared.attachResizableBox(pieContainer, { onResize: () => scheduleDrawPie() });
     }
-    attachDrag(vHandle,'x');
-    attachDrag(hHandle,'y');
-    attachDrag(cHandle,'both');
-    const pieResizeObserver=new ResizeObserver(()=>{console.log('pie resize observer triggered'); scheduleDrawPie();});
-    pieResizeObserver.observe(pieContainer);
   })();
   const pieHot=new Handsontable(pieHotContainer,{
     data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,PIE_DEFAULT_COLS),
