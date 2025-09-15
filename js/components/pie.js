@@ -19,6 +19,21 @@
     colors: {}
   };
 
+  // Return a default color palette for slices
+  // Prefer globally defined palettes if available; fallback to local palette
+  function getDefaultPalette(){
+    try{
+      const palFromGlobal = (global && Array.isArray(global.DEFAULT_SCATTER_COLORS)) ? global.DEFAULT_SCATTER_COLORS : undefined;
+      // Some sections define DEFAULT_SCATTER_COLORS as a global lexical binding
+      // eslint-disable-next-line no-undef
+      const palFromLexical = (typeof DEFAULT_SCATTER_COLORS !== 'undefined' && Array.isArray(DEFAULT_SCATTER_COLORS)) ? DEFAULT_SCATTER_COLORS : undefined;
+      const palette = palFromGlobal || palFromLexical || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
+      return palette;
+    }catch(_e){
+      return ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
+    }
+  }
+
   function ensureWrapperStyles(){
     const wrapper = document.getElementById('pieHotWrapper');
     if(global.Shared && Shared.ensureHotWrapperStyles) Shared.ensureHotWrapperStyles(wrapper);
@@ -154,11 +169,33 @@
   function updatePieColorPickers(labels){
     const colorPickers=document.getElementById('pieColorPickers');
     colorPickers.innerHTML='';
+    const palette = getDefaultPalette();
+    console.debug('Debug: pie color palette in use', { palette }); // Debug: palette source and values
     labels.forEach((lab,i)=>{
-      if(!state.colors[lab]) state.colors[lab]= (global.DEFAULT_SCATTER_COLORS ? global.DEFAULT_SCATTER_COLORS[i%global.DEFAULT_SCATTER_COLORS.length] : '#377eb8');
+      if(!state.colors[lab]) state.colors[lab]= palette[i % palette.length];
       const input=document.createElement('input'); input.type='color'; input.value=state.colors[lab]; if(global.attachColorPickerNear) attachColorPickerNear(input); input.addEventListener('input',e=>{ state.colors[lab]=e.target.value; console.log('pie color changed',{lab,color:state.colors[lab]}); state.scheduleDraw(); }); const lbl=document.createElement('label'); lbl.textContent=lab+' '; lbl.appendChild(input); colorPickers.appendChild(lbl);
     });
-    console.log('updatePieColorPickers',state.colors);
+    console.log('updatePieColorPickers',state.colors); // Debug: resulting color map
+  }
+
+  // Compute and render Chi-square statistics for proportion graphs
+  function updatePieStats(labels, observed, expected){
+    try{
+      const out=document.getElementById('pieStatsResults');
+      if(!out){ console.warn('Debug: pieStatsResults element not found'); return; }
+      console.debug('Debug: updatePieStats start',{labelCount:labels.length,observedCount:observed.length,expectedCount:expected.length});
+      if(!observed || !observed.length){ out.textContent='No data'; return; }
+      if(!expected || expected.length!==observed.length || expected.some(e=>isNaN(e))){ out.textContent='Expected values required'; return; }
+      const chi2=observed.reduce((s,o,i)=>s+Math.pow(o-expected[i],2)/expected[i],0);
+      const df=Math.max(1, observed.length-1);
+      let p=NaN;
+      if(global.jStat && global.jStat.chisquare && typeof global.jStat.chisquare.cdf === 'function'){
+        p = 1-global.jStat.chisquare.cdf(chi2,df);
+      }
+      const formatP=(val)=>{ if(!isFinite(val)) return String(val); if(val<0.0001) return val.toExponential(2); return val.toFixed(4); };
+      out.innerHTML=`<table><tr><th>Chi²</th><td>${chi2.toFixed(4)}</td></tr><tr><th>df</th><td>${df}</td></tr><tr><th>p-value</th><td>${isFinite(p)?formatP(p):'N/A'}</td></tr></table>`;
+      console.debug('Debug: updatePieStats result',{chi2,df,p});
+    }catch(err){ console.error('updatePieStats error',err); }
   }
 
   function updatePieColumns(header){
@@ -189,20 +226,31 @@
       const axis=document.createElementNS(NS,'g'); const yAxis=document.createElementNS(NS,'line'); yAxis.setAttribute('x1',marginLeft); yAxis.setAttribute('y1',marginTop); yAxis.setAttribute('x2',marginLeft); yAxis.setAttribute('y2',marginTop+chartHeight); yAxis.setAttribute('stroke','#000'); axis.appendChild(yAxis); const xAxis=document.createElementNS(NS,'line'); xAxis.setAttribute('x1',marginLeft); xAxis.setAttribute('y1',marginTop+chartHeight); xAxis.setAttribute('x2',marginLeft+chartWidth); xAxis.setAttribute('y2',marginTop+chartHeight); xAxis.setAttribute('stroke','#000'); axis.appendChild(xAxis);
       for(let t=0;t<=100;t+=25){ const y=marginTop+chartHeight-(chartHeight*t/100); const tick=document.createElementNS(NS,'line'); tick.setAttribute('x1',marginLeft-5); tick.setAttribute('y1',y); tick.setAttribute('x2',marginLeft); tick.setAttribute('y2',y); tick.setAttribute('stroke','#000'); axis.appendChild(tick); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',marginLeft-10); txt.setAttribute('y',y+4); txt.setAttribute('text-anchor','end'); txt.setAttribute('font-size',fs*0.8); txt.textContent=t+'%'; axis.appendChild(txt);} const yTitle=document.createElementNS(NS,'text'); const yTitleX=fs*1.25; yTitle.setAttribute('x',yTitleX); yTitle.setAttribute('y',marginTop+chartHeight/2); yTitle.setAttribute('text-anchor','middle'); yTitle.setAttribute('transform',`rotate(-90 ${yTitleX} ${marginTop+chartHeight/2})`); yTitle.setAttribute('font-size',fs); yTitle.textContent='Percentage'; axis.appendChild(yTitle); svg.appendChild(axis);
       const barGap=10; const barWidth=(chartWidth-(barHeaders.length+1)*barGap)/barHeaders.length; const xLabels=[];
-      barHeaders.forEach((bh,j)=>{ let y=marginTop+chartHeight; const total=segmentValues.reduce((s,row)=>s+(row[j]||0),0); segmentLabels.forEach((lab,i)=>{ const val=segmentValues[i][j]||0; const frac=total?val/total:0; const h=chartHeight*frac; y-=h; const rect=document.createElementNS(NS,'rect'); rect.setAttribute('x',marginLeft+barGap+j*(barWidth+barGap)); rect.setAttribute('y',y); rect.setAttribute('width',barWidth); rect.setAttribute('height',h); rect.setAttribute('fill',state.colors[lab]||'#377eb8'); svg.appendChild(rect); if(showPerc && frac>0){ const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',marginLeft+barGap+j*(barWidth+barGap)+barWidth/2); txt.setAttribute('y',y+h/2); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size',fs*0.8); txt.textContent=(frac*100).toFixed(1)+'%'; svg.appendChild(txt);} }); const lbl=document.createElementNS(NS,'text'); const lx=marginLeft+barGap+j*(barWidth+barGap)+barWidth/2; const ly=marginTop+chartHeight+fs+4; lbl.setAttribute('x',lx); lbl.setAttribute('y',ly); lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('font-size',fs); lbl.textContent=bh; svg.appendChild(lbl); xLabels.push(lbl); });
+      const palette = getDefaultPalette();
+      barHeaders.forEach((bh,j)=>{ let y=marginTop+chartHeight; const total=segmentValues.reduce((s,row)=>s+(row[j]||0),0); segmentLabels.forEach((lab,i)=>{ const val=segmentValues[i][j]||0; const frac=total?val/total:0; const h=chartHeight*frac; y-=h; const rect=document.createElementNS(NS,'rect'); rect.setAttribute('x',marginLeft+barGap+j*(barWidth+barGap)); rect.setAttribute('y',y); rect.setAttribute('width',barWidth); rect.setAttribute('height',h); const fillColor = state.colors[lab] || palette[i % palette.length]; rect.setAttribute('fill', fillColor); svg.appendChild(rect); if(showPerc && frac>0){ const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',marginLeft+barGap+j*(barWidth+barGap)+barWidth/2); txt.setAttribute('y',y+h/2); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size',fs*0.8); txt.textContent=(frac*100).toFixed(1)+'%'; svg.appendChild(txt);} }); const lbl=document.createElementNS(NS,'text'); const lx=marginLeft+barGap+j*(barWidth+barGap)+barWidth/2; const ly=marginTop+chartHeight+fs+4; lbl.setAttribute('x',lx); lbl.setAttribute('y',ly); lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('font-size',fs); lbl.textContent=bh; svg.appendChild(lbl); xLabels.push(lbl); });
       // Title inline (editable)
       const title=document.createElementNS(NS,'text'); title.setAttribute('x',marginLeft+chartWidth/2); title.setAttribute('y',fs); title.setAttribute('text-anchor','middle'); title.setAttribute('font-size',fs+4); title.textContent=state.titleText; if(global.makeEditable) makeEditable(title,txt=>{state.titleText=txt;}); svg.appendChild(title);
       if(global.autoResizeSvg) global.autoResizeSvg(svg);
+      // Stats for stacked: use selected value/expected columns across segments
+      const vi=(parseInt($('#pieValueColumn').value||'1',10)-1);
+      const ei=(parseInt($('#pieExpectedColumn').value||'2',10)-1);
+      const observed=segmentValues.map(row=>{ const v=row[vi]; return (typeof v==='number' && isFinite(v))?v:parseFloat(v)||0; });
+      const expected=segmentValues.map(row=>{ const v=row[ei]; return (typeof v==='number' && isFinite(v))?v:parseFloat(v); });
+      console.debug('Debug: stacked pie stats data',{vi,ei,observed,expected});
+      updatePieStats(segmentLabels,observed,expected);
       return;
     }
 
     // Pie/Donut
-    const valueColumn=$('#pieValueColumn'); const expectedColumn=$('#pieExpectedColumn'); const header=data[0]||[]; const values=[]; const labels=[]; for(let r=1;r<data.length;r++){ const row=data[r]; if(row && row[0]!=null && row[0]!=='' ){ labels.push(String(row[0])); const vi=parseInt(valueColumn.value||'1',10); const v=parseFloat(row[vi]); values.push(isNaN(v)?0:v); }} if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; } updatePieColorPickers(labels);
+    const valueColumn=$('#pieValueColumn'); const expectedColumn=$('#pieExpectedColumn'); const header=data[0]||[]; const values=[]; const expected=[]; const labels=[]; for(let r=1;r<data.length;r++){ const row=data[r]; if(row && row[0]!=null && row[0]!=='' ){ labels.push(String(row[0])); const vi=parseInt(valueColumn.value||'1',10); const ei=parseInt(expectedColumn.value||'2',10); const v=parseFloat(row[vi]); const e=parseFloat(row[ei]); values.push(isNaN(v)?0:v); expected.push(e); }} if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; } updatePieColorPickers(labels);
     const size=Math.min(Math.max(50,Math.floor(plotEl.clientWidth||50)), Math.max(50,Math.floor(plotEl.clientHeight||50))); const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','pieSvg'); svg.setAttribute('width',String(size)); svg.setAttribute('height',String(size)); svg.setAttribute('viewBox',`0 0 ${size} ${size}`); svg.setAttribute('font-family','sans-serif'); plotEl.appendChild(svg);
     const cx=size/2, cy=size/2; const r=type==='donut' ? size*0.32 : size*0.40; const rInner=type==='donut' ? r*0.6 : 0; const sum=values.reduce((a,b)=>a+b,0) || 1; let startAngle=startDeg*Math.PI/180;
-    labels.forEach((lab,i)=>{ const v=values[i]; const frac=v/sum; const endAngle=startAngle+2*Math.PI*frac; const x1=cx + r*Math.cos(startAngle); const y1=cy + r*Math.sin(startAngle); const x2=cx + r*Math.cos(endAngle); const y2=cy + r*Math.sin(endAngle); const largeArc = (endAngle-startAngle) > Math.PI ? 1 : 0; const path=document.createElementNS(NS,'path'); if(rInner>0){ const x1i=cx + rInner*Math.cos(startAngle); const y1i=cy + rInner*Math.sin(startAngle); const x2i=cx + rInner*Math.cos(endAngle); const y2i=cy + rInner*Math.sin(endAngle); const d=`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${x2i} ${y2i} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x1i} ${y1i} Z`; path.setAttribute('d',d); } else { const d=`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`; path.setAttribute('d',d);} path.setAttribute('fill', state.colors[lab] || '#377eb8'); svg.appendChild(path); if(showPerc && frac>0){ const mid=(startAngle+endAngle)/2; const tx=cx + (rInner>0?(r+rInner)/2:r*0.65)*Math.cos(mid); const ty=cy + (rInner>0?(r+rInner)/2:r*0.65)*Math.sin(mid); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',tx); txt.setAttribute('y',ty); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size',fs*0.8); txt.textContent=(frac*100).toFixed(1)+'%'; svg.appendChild(txt);} startAngle=endAngle; });
+    const palette2 = getDefaultPalette();
+    labels.forEach((lab,i)=>{ const v=values[i]; const frac=v/sum; const endAngle=startAngle+2*Math.PI*frac; const x1=cx + r*Math.cos(startAngle); const y1=cy + r*Math.sin(startAngle); const x2=cx + r*Math.cos(endAngle); const y2=cy + r*Math.sin(endAngle); const largeArc = (endAngle-startAngle) > Math.PI ? 1 : 0; const path=document.createElementNS(NS,'path'); if(rInner>0){ const x1i=cx + rInner*Math.cos(startAngle); const y1i=cy + rInner*Math.sin(startAngle); const x2i=cx + rInner*Math.cos(endAngle); const y2i=cy + rInner*Math.sin(endAngle); const d=`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${x2i} ${y2i} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x1i} ${y1i} Z`; path.setAttribute('d',d); } else { const d=`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`; path.setAttribute('d',d);} const fillColor = state.colors[lab] || palette2[i % palette2.length]; path.setAttribute('fill', fillColor); svg.appendChild(path); if(showPerc && frac>0){ const mid=(startAngle+endAngle)/2; const tx=cx + (rInner>0?(r+rInner)/2:r*0.65)*Math.cos(mid); const ty=cy + (rInner>0?(r+rInner)/2:r*0.65)*Math.sin(mid); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',tx); txt.setAttribute('y',ty); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size',fs*0.8); txt.textContent=(frac*100).toFixed(1)+'%'; svg.appendChild(txt);} startAngle=endAngle; });
     const title=document.createElementNS(NS,'text'); title.setAttribute('x',cx); title.setAttribute('y',fs+2); title.setAttribute('text-anchor','middle'); title.setAttribute('font-size',fs+4); title.textContent=state.titleText; if(global.makeEditable) makeEditable(title,txt=>{state.titleText=txt;}); svg.appendChild(title);
     if(global.autoResizeSvg) global.autoResizeSvg(svg);
+    // Stats for single pie/donut
+    updatePieStats(labels, values, expected);
   }
 
   pie.draw = draw;

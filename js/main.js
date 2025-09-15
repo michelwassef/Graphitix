@@ -165,6 +165,9 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
       if (window.Components && window.Components.pie && typeof window.Components.pie.init === 'function') {
         window.Components.pie.init();
       }
+      if (window.Components && window.Components.venn && typeof window.Components.venn.init === 'function') {
+        window.Components.venn.init();
+      }
     }catch(err){ console.error('Components bootstrap error', err); }
   })();
   let boxMinSvgWidth=0;
@@ -4632,103 +4635,134 @@ async function drawPca(){
     populateRegion(regionSelect.value);
     console.log('drawFromNumeric complete with enhanced styles');
   }
-  document.getElementById('draw').addEventListener('click',drawFromLists);
-  document.getElementById('useNumeric').addEventListener('click',drawFromNumeric);
-  document.getElementById('exportSVG').addEventListener('click',exportSVG);
-  document.getElementById('exportPNG').addEventListener('click',exportPNG);
-  document.getElementById('openVenn').addEventListener('click',openVennFile);
-  document.getElementById('saveVenn').addEventListener('click',saveVennFile);
-  document.getElementById('saveAsVenn').addEventListener('click',saveAsVennFile);
-  document.getElementById('vennGraphFile').addEventListener('change',e=>{
-    const f=e.target.files[0];
-    if(f){
-      vennFileName=f.name;
-      vennFileHandle=null;
-      loadVennGraphFile(f);
-    }
-  });
-  document.getElementById('goChartPNG').addEventListener('click',()=>{ exportGoChart('png');});
-  document.getElementById('goChartSVG').addEventListener('click',()=>{ exportGoChart('svg');});
-  document.getElementById('stringPNG').addEventListener('click',()=>{ downloadStringPNG();});
-  document.getElementById('stringSVG').addEventListener('click',()=>{ downloadStringSVG();});
-  calcSignificanceBtn.addEventListener('click',calculateSignificance);
-  document.getElementById('sample').addEventListener('click',()=>{
-    inputs.labelA.value='Transcriptomic'; inputs.labelB.value='Proteomic'; inputs.labelC.value='Phospho';
-    inputs.A.value=`BRCA1
+  if (window.Components && window.Components.venn && window.Components.venn.__installed) {
+    console.debug('Debug: skipping legacy Venn event listeners in main.js');
+  } else {
+    document.getElementById('draw').addEventListener('click',drawFromLists);
+    document.getElementById('useNumeric').addEventListener('click',drawFromNumeric);
+    document.getElementById('exportSVG').addEventListener('click',exportSVG);
+    document.getElementById('exportPNG').addEventListener('click',exportPNG);
+    document.getElementById('openVenn').addEventListener('click',openVennFile);
+    document.getElementById('saveVenn').addEventListener('click',saveVennFile);
+    document.getElementById('saveAsVenn').addEventListener('click',saveAsVennFile);
+    document.getElementById('vennGraphFile').addEventListener('change',e=>{
+      const f=e.target.files[0];
+      if(f){
+        vennFileName=f.name;
+        vennFileHandle=null;
+        loadVennGraphFile(f);
+      }
+    });
+    document.getElementById('goChartPNG').addEventListener('click',()=>{ exportGoChart('png');});
+    document.getElementById('goChartSVG').addEventListener('click',()=>{ exportGoChart('svg');});
+    document.getElementById('stringPNG').addEventListener('click',()=>{ downloadStringPNG();});
+    document.getElementById('stringSVG').addEventListener('click',()=>{ downloadStringSVG();});
+    calcSignificanceBtn.addEventListener('click',calculateSignificance);
+    document.getElementById('sample').addEventListener('click',()=>{
+      inputs.labelA.value='Transcriptomic'; inputs.labelB.value='Proteomic'; inputs.labelC.value='Phospho';
+      inputs.A.value=`BRCA1
 ATM
 BAP1
 EZH2
 SUZ12
 RING1B`;
-    inputs.B.value=`BRCA1
+      inputs.B.value=`BRCA1
 BAP1
 RING1B
 CBX2
 HDAC1
 PAXIP1
 HUWE1`;
-    inputs.C.value=`BRCA1
+      inputs.C.value=`BRCA1
 PAXIP1
 CSNK2A1
 RING1B
 KAT7`;
-    drawFromLists();
-  });
-  document.getElementById('reset').addEventListener('click',()=>{
-    inputs.A.value=''; inputs.B.value=''; inputs.C.value='';
-    Object.values(inputs.counts).forEach(x=>x.value=0);
-    clearSVG(); lastRegions=null; lastDrawMode=null; lastCounts=null; regionList.textContent='';
-    Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{});
-    document.getElementById('countA').textContent='0';
-    document.getElementById('countB').textContent='0';
-    document.getElementById('countC').textContent='0';
-    document.getElementById('countAB').textContent='0';
-    document.getElementById('countAC').textContent='0';
-    document.getElementById('countBC').textContent='0';
-    document.getElementById('countABC').textContent='0';
-    updateCountLabels({A:'A',B:'B',C:'C'});
-    updateColorLabels({A:'A',B:'B',C:'C'});
-    updateRegionSelect({A:'A',B:'B',C:'C'});
-    clearAnalysis();
-    speciesSelect.value='';
-    setSpeciesIndicator(null);
-    totalGenesInput.value='';
-    significanceResults.innerHTML='';
-  });
-  goBtn.addEventListener('click',async()=>{
-    const regionGenes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
-    let organism=speciesSelect.value;
-    if(!organism){
-      const allGenes=getAllGenes();
-      const guess=allGenes.length?await guessSpecies(allGenes):null;
-      if(guess){
-        speciesSelect.value=organism=guess;
-        setSpeciesIndicator(true);
-      }else{
-        setSpeciesIndicator(false);
-        alert('Please select a species before running GO analysis.');
-        return;
+      drawFromLists();
+    });
+    document.getElementById('reset').addEventListener('click',()=>{
+      inputs.A.value=''; inputs.B.value=''; inputs.C.value='';
+      Object.values(inputs.counts).forEach(x=>x.value=0);
+      clearSVG(); lastRegions=null; lastDrawMode=null; lastCounts=null; regionList.textContent='';
+      Object.values({A:1,B:1,C:1,AB:1,AC:1,BC:1,ABC:1}).forEach((_,i)=>{});
+      document.getElementById('countA').textContent='0';
+      document.getElementById('countB').textContent='0';
+      document.getElementById('countC').textContent='0';
+      document.getElementById('countAB').textContent='0';
+      document.getElementById('countAC').textContent='0';
+      document.getElementById('countBC').textContent='0';
+      document.getElementById('countABC').textContent='0';
+      updateCountLabels({A:'A',B:'B',C:'C'});
+      updateColorLabels({A:'A',B:'B',C:'C'});
+      updateRegionSelect({A:'A',B:'B',C:'C'});
+      clearAnalysis();
+      speciesSelect.value='';
+      setSpeciesIndicator(null);
+      totalGenesInput.value='';
+      significanceResults.innerHTML='';
+    });
+    goBtn.addEventListener('click',async()=>{
+      const regionGenes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
+      let organism=speciesSelect.value;
+      if(!organism){
+        const allGenes=getAllGenes();
+        const guess=allGenes.length?await guessSpecies(allGenes):null;
+        if(guess){
+          speciesSelect.value=organism=guess;
+          setSpeciesIndicator(true);
+        }else{
+          setSpeciesIndicator(false);
+          alert('Please select a species before running GO analysis.');
+          return;
+        }
       }
-    }
-    runGOAnalysis(regionGenes, organism);
-  });
-  stringBtn.addEventListener('click',async()=>{
-    const regionGenes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
-    let organism=speciesSelect.value;
-    if(!organism){
-      const allGenes=getAllGenes();
-      const guess=allGenes.length?await guessSpecies(allGenes):null;
-      if(guess){
-        speciesSelect.value=organism=guess;
-        setSpeciesIndicator(true);
-      }else{
-        setSpeciesIndicator(false);
-        alert('Please select a species before running STRING analysis.');
-        return;
+      runGOAnalysis(regionGenes, organism);
+    });
+    stringBtn.addEventListener('click',async()=>{
+      const regionGenes=getRegionText(regionSelect.value).split(/\n/).map(g=>g.trim()).filter(x=>x);
+      let organism=speciesSelect.value;
+      if(!organism){
+        const allGenes=getAllGenes();
+        const guess=allGenes.length?await guessSpecies(allGenes):null;
+        if(guess){
+          speciesSelect.value=organism=guess;
+          setSpeciesIndicator(true);
+        }else{
+          setSpeciesIndicator(false);
+          alert('Please select a species before running STRING analysis.');
+          return;
+        }
       }
+      runStringAnalysis(regionGenes, organism);
+    });
+  }
+  // Expose Venn APIs to component namespace instead of global window
+  try {
+    if (window.Components && window.Components.venn) {
+      const V = window.Components.venn;
+      V.layoutFromCounts = layoutFromCounts;
+      V.fitAndDraw = fitAndDraw;
+      V.refreshCounts = refreshCounts;
+      V.updateCountLabels = updateCountLabels;
+      V.updateRegionSelect = updateRegionSelect;
+      V.updateColorLabels = updateColorLabels;
+      V.setSpeciesIndicator = setSpeciesIndicator;
+      V.recognizeSpeciesFromInput = recognizeSpeciesFromInput;
+      V.clearAnalysis = clearAnalysis;
+      V.serializeCleanSVG = serializeCleanSVG;
+      V.getRegionText = getRegionText;
+      V.getAllGenes = getAllGenes;
+      V.guessSpecies = guessSpecies;
+      V.runGOAnalysis = runGOAnalysis;
+      V.runStringAnalysis = runStringAnalysis;
+      V.exportGoChart = exportGoChart;
+      V.downloadStringPNG = downloadStringPNG;
+      V.downloadStringSVG = downloadStringSVG;
+      V.drawFromLists = drawFromLists;
+      V.drawFromNumeric = drawFromNumeric;
+      console.debug('Debug: Venn API exported to Components.venn');
     }
-    runStringAnalysis(regionGenes, organism);
-  });
+  } catch (e) { console.error('Venn API export error', e); }
   function showVenn(){
     vennPage.style.display='block';
     boxPage.style.display='none';
@@ -4746,7 +4780,11 @@ KAT7`;
     tabRoc.classList.remove('active');
     tabHist.classList.remove('active');
     tabPie.classList.remove('active');
-    try{ scheduleDrawLine(); }catch(e){ console.error('showLine schedule error', e); }
+    try{
+      if (window.Components && window.Components.venn && typeof window.Components.venn.ensure === 'function') {
+        window.Components.venn.ensure();
+      }
+    }catch(e){ console.error('showVenn ensure error', e); }
   }
   function showBox(){
     vennPage.style.display='none';

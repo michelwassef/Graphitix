@@ -216,6 +216,27 @@
     document.getElementById('histGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; hist.loadFromFile(f); }});
   }
 
+  // Compute and render histogram summary statistics
+  function updateHistStats(values){
+    try{
+      const out=document.getElementById('histStatsResults');
+      if(!out){ console.warn('Debug: histStatsResults element not found'); return; }
+      console.debug('Debug: updateHistStats start',{n:values?values.length:0});
+      if(!values || !values.length){ out.textContent='No data'; return; }
+      let mean=NaN, median=NaN, sd=NaN;
+      if(global.jStat){
+        mean = global.jStat.mean(values);
+        median = global.jStat.median(values);
+        sd = global.jStat.stdev ? global.jStat.stdev(values, true) : global.jStat.stdev ? global.jStat.stdev(values) : global.jStat.stdev(values, true);
+      }else{
+        // Fallback simple implementations
+        const n=values.length; const mu=values.reduce((s,v)=>s+v,0)/n; mean=mu; const sorted=[...values].sort((a,b)=>a-b); median=(n%2?sorted[(n-1)/2]:(sorted[n/2-1]+sorted[n/2])/2); const variance=values.reduce((s,v)=>s+Math.pow(v-mu,2),0)/(n-1); sd=Math.sqrt(variance);
+      }
+      out.innerHTML=`<table><tr><th>n</th><td>${values.length}</td></tr><tr><th>Mean</th><td>${mean.toFixed(4)}</td></tr><tr><th>Median</th><td>${median.toFixed(4)}</td></tr><tr><th>SD</th><td>${sd.toFixed(4)}</td></tr></table>`;
+      console.debug('Debug: updateHistStats result',{mean,median,sd});
+    }catch(err){ console.error('updateHistStats error',err); }
+  }
+
   function draw(){
     // Reuse existing global draw implementation if present? Implement local logic mirroring legacy drawHistogram
     const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histYMin=$('#histYMin'), histYMax=$('#histYMax');
@@ -224,7 +245,7 @@
     state.xLabelText=(labelRaw&&String(labelRaw).trim())||'Value';
     const values=[]; for(let i=1;i<data.length;i++){const v=parseFloat(data[i]); if(!isNaN(v)) values.push(v);}
     const plotEl=document.getElementById('histPlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
-    if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; }
+    if(!values.length){ plotEl.innerHTML='<i>No data</i>'; updateHistStats(values); return; }
     const xMin=Math.min(...values), xMax=Math.max(...values);
     function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
     function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
@@ -273,6 +294,8 @@
     const yText=add('text',{x:yX,y:margin.top+plotH/2,'dominant-baseline':'middle',transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4}); yText.textContent=state.yLabelText; if(global.makeEditable) makeEditable(yText,txt=>{state.yLabelText=txt;});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4}); titleText.textContent=state.titleText; if(global.makeEditable) makeEditable(titleText,txt=>{state.titleText=txt;});
     if(global.autoResizeSvg) global.autoResizeSvg(svg);
+    // Update stats panel
+    updateHistStats(values);
     console.debug('Debug: drawHistogram complete');
   }
 
