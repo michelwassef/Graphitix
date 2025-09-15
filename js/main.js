@@ -20,9 +20,76 @@
   const scheduleDrawBoxplot = debounceFrame(drawBoxplot);
   const scheduleDrawScatter = debounceFrame(drawScatter);
   const scheduleDrawPca = debounceFrame(drawPca);
-  const scheduleDrawLine = debounceFrame(drawLine);
-  const scheduleDrawHist = debounceFrame(drawHistogram);
-  const scheduleDrawPie = debounceFrame(drawPie);
+  const scheduleDrawLine = debounceFrame(() => { try { if (typeof drawLinePublic === 'function') drawLinePublic(); } catch (e) { console.error('scheduleDrawLine error', e); } });
+  // Define safe defaults for line labels early to avoid TDZ on first draws
+  var lineTitleText = typeof lineTitleText !== 'undefined' ? lineTitleText : 'Line graph';
+  var lineXLabelText = typeof lineXLabelText !== 'undefined' ? lineXLabelText : 'X';
+  var lineYLabelText = typeof lineYLabelText !== 'undefined' ? lineYLabelText : 'Y';
+  // Guard for resizer callbacks firing before line init
+  var __lineReady = typeof __lineReady !== 'undefined' ? __lineReady : false;
+  // Delegate to components if present
+  const scheduleDrawHist = debounceFrame(() => {
+    if (window.Components && window.Components.hist && typeof window.Components.hist.draw === 'function') {
+      window.Components.hist.draw();
+    }
+  });
+  const scheduleDrawPie = debounceFrame(() => {
+    if (window.Components && window.Components.pie && typeof window.Components.pie.draw === 'function') {
+      window.Components.pie.draw();
+    }
+  });
+  // Public line draw (out of legacy blocks) so scheduleDrawLine can always invoke it
+  async function drawLinePublic(){
+    try{
+      const token=++lineDrawToken; if(window.DEBUG_LINE) console.log('drawLine called',{token});
+      const fill=lineFill.value; const alpha=Number(lineAlpha.value)||0; const borderWidth=Number(lineBorderWidth.value); const borderColor=lineBorder.value; const bw=borderWidth; const fs=Number(lineFontSize.value); const showGrid=lineShowGrid.checked; const logX=lineLogX.checked; const logY=lineLogY.checked; const dotSize=Number(lineDotSize.value)||0; const xMinManual=parseFloat(lineXMin.value); const xMaxManual=parseFloat(lineXMax.value); const yMinManual=parseFloat(lineYMin.value); const yMaxManual=parseFloat(lineYMax.value); const originMode=lineOriginMode.value; const originXInput=parseFloat(lineOriginX.value); const originYInput=parseFloat(lineOriginY.value);
+      const data=lineHot.getData(); if(!data||!data.length) return; const header=data[0]||[]; let xIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='x'); if(xIndex<0) xIndex=0; lineXLabelText=(header[xIndex]&&String(header[xIndex]).trim())||'X'; if(window.DEBUG_LINE) console.log('line xLabel',lineXLabelText); const seriesCols=header.map((_,i)=>i).filter(i=>i!==xIndex && header[i]!=null && String(header[i]).trim()!==''); if(window.DEBUG_LINE) console.log('line seriesCols',seriesCols);
+      const series=seriesCols.map((ci,i)=>({name:header[ci]||`Series ${i+1}`, points:[]}));
+      let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
+      for(let r=1;r<data.length;r++){
+        const row=data[r]; const xv=parseFloat(row[xIndex]);
+        seriesCols.forEach((ci,si)=>{ const yv=parseFloat(row[ci]); if(!isNaN(xv)&&!isNaN(yv)){ series[si].points.push({x:xv,y:yv}); if(xv<xMinRaw)xMinRaw=xv; if(xv>xMaxRaw)xMaxRaw=xv; if(yv<yMinRaw)yMinRaw=yv; if(yv>yMaxRaw)yMaxRaw=yv; } else { series[si].points.push(null);} });
+      }
+      const labelsUsed=series.map(s=>s.name); updateLineLabelColorPickers(labelsUsed);
+      const legendLabels=labelsUsed; const legendWidth=legendLabels.length?120:0; lineLegendWidth=legendWidth; lineLegendItems=[]; console.log('line legend width',legendWidth,{labels:legendLabels});
+      if(series.every(s=>s.points.every(p=>p==null))) return;
+      if(logX && xMinRaw<=0){document.getElementById('linePlot').innerHTML='<i>Log scale requires positive X values.</i>'; return;}
+      if(logY && yMinRaw<=0){document.getElementById('linePlot').innerHTML='<i>Log scale requires positive Y values.</i>'; return;}
+      let xMin=xMinRaw,xMax=xMaxRaw,yMin=yMinRaw,yMax=yMaxRaw; if(isFinite(xMinManual)) xMin=xMinManual; if(isFinite(xMaxManual)) xMax=xMaxManual; if(isFinite(yMinManual)) yMin=yMinManual; if(isFinite(yMaxManual)) yMax=yMaxManual;
+      if(originMode==='custom'){
+        if(isFinite(originXInput)){ if(!(logX && originXInput<=0)){ if(originXInput<xMin) xMin=originXInput; if(originXInput>xMax) xMax=originXInput; } }
+        if(isFinite(originYInput)){ if(!(logY && originYInput<=0)){ if(originYInput<yMin) yMin=originYInput; if(originYInput>yMax) yMax=originYInput; } }
+      }
+      if(xMin===xMax) xMax=xMin+1; if(yMin===yMax) yMax=yMin+1;
+      const plotEl=document.getElementById('linePlot'); plotEl.style.display='block'; while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+      const W=Math.max(50,Math.floor(plotEl.clientWidth||50)); const H=Math.max(40,Math.floor(plotEl.clientHeight||40)); plotEl.style.position='relative';
+      const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','lineSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family','sans-serif'); plotEl.appendChild(svg);
+      const xMinT=logX?Math.log10(xMin):xMin; const xMaxT=logX?Math.log10(xMax):xMax; const yMinT=logY?Math.log10(yMin):yMin; const yMaxT=logY?Math.log10(yMax):yMax;
+      function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);} function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
+      const xScale=niceScale(xMinT,xMaxT,6); const yScale=niceScale(yMinT,yMaxT,6);
+      if(isFinite(xMinManual)) xScale.min=xMinT; if(isFinite(xMaxManual)) xScale.max=xMaxT; if(isFinite(yMinManual)) yScale.min=yMinT; if(isFinite(yMaxManual)) yScale.max=yMaxT;
+      if(isFinite(xMinManual)||isFinite(xMaxManual)){const ticks=[]; for(let v=Math.ceil(xScale.min/xScale.step)*xScale.step; v<=xScale.max+1e-9; v+=xScale.step) ticks.push(v); xScale.ticks=ticks;}
+      if(isFinite(yMinManual)||isFinite(yMaxManual)){const ticks=[]; for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step; v<=yScale.max+1e-9; v+=yScale.step) ticks.push(v); yScale.ticks=ticks;}
+      function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
+      const measureCanvas=drawLinePublic._canvas||(drawLinePublic._canvas=document.createElement('canvas')); const measureCtx=measureCanvas.getContext('2d'); function measureTextWidth(text,font){measureCtx.font=font;return measureCtx.measureText(text).width;}
+      const tickFont=`${fs}px sans-serif`; const xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t)); const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t)); const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont)); const maxYLabelWidth=Math.max(...yLabelWidths,0);
+      const margin={top:Math.max(32,Math.round(fs*2.2)),right:20+legendWidth,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs*2)}; console.log('line margin computed',margin);
+      const plotW=Math.max(20,W-margin.left-margin.right); const plotH=Math.max(20,H-margin.top-margin.bottom);
+      const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min); const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
+      function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
+      const tickLen=6; if(showGrid){xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});}
+      let originXT,originYT; if(originMode==='custom'){originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);}else{originXT=xScale.min;originYT=yScale.min;}
+      const clampedXT=Math.min(Math.max(originXT,xScale.min),xScale.max); const clampedYT=Math.min(Math.max(originYT,yScale.min),yScale.max); const xAxisY=y2px(clampedYT); const yAxisX=x2px(clampedXT);
+      add('line',{x1:margin.left - tickLen,y1:xAxisY,x2:margin.left+plotW + tickLen,y2:xAxisY,stroke:'#000','stroke-width':1}); add('line',{x1:yAxisX,y1:margin.top - tickLen,x2:yAxisX,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':1});
+      xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
+      yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:yAxisX-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+      const colors=series.map((s,i)=>lineLabelColors[s.name]||lineBorder.value||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]); const seriesElems=[];
+      series.forEach((s,i)=>{ const color=colors[i]; let pathStr=''; let started=false; const markerFrag=document.createDocumentFragment(); let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity; s.points.forEach(pt=>{ if(pt){ const xv=logX?Math.log10(pt.x):pt.x; const yv=logY?Math.log10(pt.y):pt.y; const px=x2px(xv); const py=y2px(yv); if(px<minX) minX=px; if(px>maxX) maxX=px; if(py<minY) minY=py; if(py>maxY) maxY=py; if(!started){pathStr+=`M${px} ${py}`; started=true;} else {pathStr+=`L${px} ${py}`;} if(dotSize>0){const c=document.createElementNS(NS,'circle'); c.setAttribute('cx',px); c.setAttribute('cy',py); c.setAttribute('r',dotSize); c.setAttribute('fill',lineLabelColors[s.name]||fill); c.setAttribute('fill-opacity',1-alpha); markerFrag.appendChild(c);} } else { started=false; } }); s.bbox={minX:minX-dotSize,maxX:maxX+dotSize,minY:minY-dotSize,maxY:maxY+dotSize}; const path=add('path',{d:pathStr,fill:'none',stroke:color,'stroke-width':bw,'stroke-opacity':1-alpha}); const mGroup=add('g',{}); mGroup.appendChild(markerFrag); seriesElems.push({path,mGroup}); });
+      if(legendLabels.length){ const legendGroup=document.createElementNS(NS,'g'); const legendX=W-legendWidth+8; const legendY=margin.top; series.forEach((s,i)=>{ const itemG=document.createElementNS(NS,'g'); itemG.style.cursor='pointer'; const y=legendY+i*(fs+4); const sw=document.createElementNS(NS,'rect'); sw.setAttribute('x',legendX); sw.setAttribute('y',y-fs+4); sw.setAttribute('width',12); sw.setAttribute('height',12); sw.setAttribute('fill',colors[i]); itemG.appendChild(sw); const t=document.createElementNS(NS,'text'); t.setAttribute('x',legendX+16); t.setAttribute('y',y); t.setAttribute('font-size',fs); t.textContent=s.name; itemG.appendChild(t); itemG.addEventListener('click',()=>{ const vis=seriesElems[i].path.style.display!=='none'; seriesElems[i].path.style.display=vis?'none':'inline'; seriesElems[i].mGroup.style.display=vis?'none':'inline'; }); legendGroup.appendChild(itemG); }); svg.appendChild(legendGroup); lineLegendItems=series.map((s,i)=>({label:s.name,color:colors[i]})); if(window.DEBUG_LINE) console.log('legend placed inside',{labels:legendLabels,legendWidth,legendX,legendY}); }
+      const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4}); xText.textContent=lineXLabelText; makeEditable(xText,txt=>{lineXLabelText=txt;}); const yX=margin.left-(maxYLabelWidth+fs*0.5); console.log('line y-axis position',yX); const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4}); yText.textContent=lineYLabelText; makeEditable(yText,txt=>{lineYLabelText=txt;});
+      const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4}); titleText.textContent=lineTitleText; makeEditable(titleText,txt=>{lineTitleText=txt;}); updateLineStats(series); if(window.autoResizeSvg) autoResizeSvg(svg); if(window.DEBUG_LINE) console.log('line render complete');
+    }catch(err){ console.error('drawLinePublic error', err); }
+  }
   const scheduleDrawRoc = debounceFrame(drawRoc);
   let boxplotDrawToken=0; // debug: track boxplot render cycles
   let scatterDrawToken=0; // debug: track scatter render cycles
@@ -88,6 +155,18 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
       window.Shared.attachColorPickerNear(el);
     }
   }
+
+  // Bootstrap extracted components if present
+  (function bootstrapComponents(){
+    try{
+      if (window.Components && window.Components.hist && typeof window.Components.hist.init === 'function') {
+        window.Components.hist.init();
+      }
+      if (window.Components && window.Components.pie && typeof window.Components.pie.init === 'function') {
+        window.Components.pie.init();
+      }
+    }catch(err){ console.error('Components bootstrap error', err); }
+  })();
   let boxMinSvgWidth=0;
   function syncBoxWidths(){
     const tableWidth=tablePanel.getBoundingClientRect().width;
@@ -1558,6 +1637,7 @@ async function drawPca(){
     afterRedo:()=>{if(window.DEBUG_LINE) console.log('line redo'); scheduleDrawLine();},
   });
   if(window.DEBUG_LINE) console.log('lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
+  __lineReady=true;
   window.DEBUG_LINE=true;
   const lineExample=[
     ['Month','North','South','East','West','Central'],
@@ -1628,10 +1708,11 @@ async function drawPca(){
 
   const linePlotDiv=document.getElementById('linePlot');
   const lineContainer=linePlotDiv.closest('.svgbox')||linePlotDiv.parentElement;
+  // __lineReady is declared near the top; do not redeclare here.
   (function initLineResizers(){
     if(!lineContainer) return;
     if(window.Shared && window.Shared.attachResizableBox){
-      window.Shared.attachResizableBox(lineContainer, { onResize: () => scheduleDrawLine() });
+      window.Shared.attachResizableBox(lineContainer, { onResize: () => { if(__lineReady) scheduleDrawLine(); } });
     }
   })();
 
@@ -2229,6 +2310,9 @@ async function drawPca(){
   document.getElementById('saveAsRoc').addEventListener('click',saveAsRocFile);
   document.getElementById('rocGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){rocFileName=f.name; rocFileHandle=null; loadRocGraphFile(f);}});
   // Histogram setup
+  if (window.Components && window.Components.hist && window.Components.hist.__installed) {
+    console.debug('Debug: skipping legacy histogram init in main.js');
+  } else {
   const histHotContainer=document.getElementById('histHot');
   const histHotWrapper=document.getElementById('histHotWrapper');
   if(window.Shared && window.Shared.ensureHotWrapperStyles){ window.Shared.ensureHotWrapperStyles(histHotWrapper); }
@@ -2279,7 +2363,6 @@ async function drawPca(){
       }
       return props;
     },
-    afterChange(changes,source){ if(changes){ console.log('hist afterChange',{count:changes.length,source}); scheduleDrawHist(); } },
     afterUndo:()=>{ console.log('hist undo'); scheduleDrawHist(); },
     afterRedo:()=>{ console.log('hist redo'); scheduleDrawHist(); },
     licenseKey:'non-commercial-and-evaluation',
@@ -2423,9 +2506,9 @@ async function drawPca(){
   histFontSizeVal.textContent=histFontSize.value;
   [histFill,histBorder,histBorderWidth,histBins,histShowGrid,histLogY,histYMin,histYMax].forEach(el=>el.addEventListener('input',()=>{scheduleDrawHist();}));
   histFontSize.addEventListener('input',()=>{histFontSizeVal.textContent=histFontSize.value; scheduleDrawHist();});
-  let lineTitleText='Line graph';
-  let lineXLabelText='X';
-  let lineYLabelText='Y';
+  lineTitleText = lineTitleText || 'Line graph';
+  lineXLabelText = lineXLabelText || 'X';
+  lineYLabelText = lineYLabelText || 'Y';
   async function drawLine(){
     const token=++lineDrawToken; if(window.DEBUG_LINE) console.log('drawLine called',{token});
     const fill=lineFill.value; const alpha=Number(lineAlpha.value)||0; const borderWidth=Number(lineBorderWidth.value); const borderColor=lineBorder.value; const bw=borderWidth; const fs=Number(lineFontSize.value); const showGrid=lineShowGrid.checked; const logX=lineLogX.checked; const logY=lineLogY.checked; const dotSize=Number(lineDotSize.value)||0; const xMinManual=parseFloat(lineXMin.value); const xMaxManual=parseFloat(lineXMax.value); const yMinManual=parseFloat(lineYMin.value); const yMaxManual=parseFloat(lineYMax.value); const originMode=lineOriginMode.value; const originXInput=parseFloat(lineOriginX.value); const originYInput=parseFloat(lineOriginY.value);
@@ -2746,7 +2829,11 @@ async function drawPca(){
   document.getElementById('saveAsHist').addEventListener('click',saveAsHistFile);
   document.getElementById('histGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){histFileName=f.name; histFileHandle=null; loadHistGraphFile(f);}});
 
+  }
   // Proportion graph setup
+  if (window.Components && window.Components.pie && window.Components.pie.__installed) {
+    console.debug('Debug: skipping legacy pie init in main.js');
+  } else {
   const pieHotContainer=document.getElementById('pieHot');
   const pieHotWrapper=document.getElementById('pieHotWrapper');
   if(window.Shared && window.Shared.ensureHotWrapperStyles){ window.Shared.ensureHotWrapperStyles(pieHotWrapper); }
@@ -3420,7 +3507,7 @@ async function drawPca(){
   document.getElementById('saveAsPie').addEventListener('click',saveAsPieFile);
   document.getElementById('pieGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){pieFileName=f.name; pieFileHandle=null; loadPieGraphFile(f);}});
   scheduleDrawPie();
-  scheduleDrawHist();
+  }
   function getLineGraphPayload(){return{type:'line',data:lineHot.getData(),config:{title:lineTitleText,xLabel:lineXLabelText,yLabel:lineYLabelText,dotSize:lineDotSize.value,fill:lineFill.value,border:lineBorder.value,borderWidth:lineBorderWidth.value,alpha:lineAlpha.value,labelColors:lineLabelColors,showGrid:lineShowGrid.checked,logX:lineLogX.checked,logY:lineLogY.checked,xMin:lineXMin.value,xMax:lineXMax.value,yMin:lineYMin.value,yMax:lineYMax.value,originMode:lineOriginMode.value,originX:lineOriginX.value,originY:lineOriginY.value}};}
   let lineFileHandle=null,lineFileName='line.graph';
   async function saveLineFile(){const payload=getLineGraphPayload(); if(window.DEBUG_LINE) console.log('saveLineFile',{payload,lineFileHandle}); if(lineFileHandle&&lineFileHandle.createWritable){try{const perm=await verifyPermission(lineFileHandle,true); if(perm){const w=await lineFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close();}}catch(err){console.error('saveLineFile error',err);}}else if(window.showSaveFilePicker){await saveAsLineFile();}else{downloadJSON(payload,lineFileName);}}
@@ -4659,6 +4746,7 @@ KAT7`;
     tabRoc.classList.remove('active');
     tabHist.classList.remove('active');
     tabPie.classList.remove('active');
+    try{ scheduleDrawLine(); }catch(e){ console.error('showLine schedule error', e); }
   }
   function showBox(){
     vennPage.style.display='none';
@@ -4677,6 +4765,12 @@ KAT7`;
     tabRoc.classList.remove('active');
     tabHist.classList.remove('active');
     tabPie.classList.remove('active');
+    try{
+      if (window.Components && window.Components.hist && typeof window.Components.hist.ensure === 'function') {
+        window.Components.hist.ensure();
+      }
+      scheduleDrawHist();
+    }catch(e){ console.error('showHist schedule error', e); }
   }
   function showScatter(){
     vennPage.style.display='none';
@@ -4785,6 +4879,12 @@ KAT7`;
     tabRoc.classList.remove('active');
     tabHist.classList.remove('active');
     tabPca.classList.remove('active');
+    try{
+      if (window.Components && window.Components.pie && typeof window.Components.pie.ensure === 'function') {
+        window.Components.pie.ensure();
+      }
+      scheduleDrawPie();
+    }catch(e){ console.error('showPie schedule error', e); }
   }
   tabVenn.addEventListener('click',()=>{ showVenn();});
   tabBox.addEventListener('click',()=>{ showBox();});

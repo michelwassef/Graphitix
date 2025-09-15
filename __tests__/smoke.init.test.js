@@ -16,6 +16,9 @@ describe('App initialization', () => {
       require('../js/shared/resizer.js');
       require('../js/shared/colorPicker.js');
       require('../js/shared/hot.js');
+      // Components
+      require('../js/components/hist.js');
+      require('../js/components/pie.js');
       // Load the application script (IIFE executes immediately)
       require('../js/main.js');
     }).not.toThrow();
