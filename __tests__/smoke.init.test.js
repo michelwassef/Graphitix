@@ -19,6 +19,9 @@ describe('App initialization', () => {
       // Components
       require('../js/components/hist.js');
       require('../js/components/pie.js');
+      require('../js/components/scatter.js');
+      require('../js/components/pca.js');
+      require('../js/components/line.js');
       // Load the application script (IIFE executes immediately)
       require('../js/main.js');
     }).not.toThrow();

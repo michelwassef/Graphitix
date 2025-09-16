@@ -1,0 +1,835 @@
+(function(global){
+  'use strict';
+  const Shared = global.Shared = global.Shared || {};
+  const Components = global.Components = global.Components || {};
+  const line = Components.line = Components.line || {};
+  line.__installed = true;
+  line.ready = false;
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const DEFAULT_ROWS = 100;
+  const LINE_DEFAULT_COLS = 6;
+  const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
+  global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+
+  let scheduleLineDraw = () => {};
+  let lineHot = null;
+  let lineTitleText = 'Line graph';
+  let lineXLabelText = 'X';
+  let lineYLabelText = 'Y';
+  let lineLabelColors = {};
+  let lineLegendItems = [];
+  let lineLegendWidth = 0;
+  let lineMinSvgWidth = 0;
+  let lineDrawToken = 0;
+  let lineFileHandle = null;
+  let lineFileName = 'line.graph';
+
+  const refs = {};
+
+  function createScheduler(callback){
+    if(Shared && typeof Shared.debounceFrame === 'function'){
+      return Shared.debounceFrame(()=>{
+        try{ callback(); } catch(err){ console.error('scheduleLineDraw error', err); }
+      });
+    }
+    let frame=null;
+    return ()=>{
+      if(frame) cancelAnimationFrame(frame);
+      frame=requestAnimationFrame(()=>{
+        frame=null;
+        try{ callback(); } catch(err){ console.error('scheduleLineDraw error', err); }
+      });
+    };
+  }
+
+  function ensurePermission(handle,write){
+    if (typeof global.verifyPermission === 'function') {
+      return global.verifyPermission(handle,write);
+    }
+    return (async()=>{
+      try{
+        const opts=write?{mode:'readwrite'}:{};
+        const q=await handle.queryPermission(opts);
+        if(q==='granted') return true;
+        const r=await handle.requestPermission(opts);
+        return r==='granted';
+      }catch(err){
+        console.error('line ensurePermission error',err);
+        return false;
+      }
+    })();
+  }
+
+  function formatP(p){
+    if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
+    if(!Number.isFinite(p)) return p>0?'Infinity':'-Infinity';
+    if(p === 0) return '0';
+    const formatted = p.toLocaleString('en-US',{maximumSignificantDigits:6});
+    console.debug('Debug: line.formatP',{input:p,formatted}); // Debug: trace formatting
+    return formatted;
+  }
+
+  function syncLineWidths(){
+    if(!refs.tablePanel || !refs.graphPanel || !refs.configPanel) return;
+    const tableWidth=refs.tablePanel.getBoundingClientRect().width;
+    const graphWidth=refs.graphPanel.getBoundingClientRect().width;
+    const configWidth=refs.configPanel.getBoundingClientRect().width;
+    const diagram=refs.graphPanel.querySelector('.diagram-area');
+    const gap=parseFloat(getComputedStyle(diagram).gap||0);
+    const available=graphWidth-configWidth-gap;
+    const minW=lineMinSvgWidth||0;
+    const newW=Math.max(minW, Math.min(tableWidth, available));
+    if(refs.svgBox) refs.svgBox.style.width=newW+'px';
+    console.debug('Debug: syncLineWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW}); // Debug: layout adjustments
+    if(typeof scheduleLineDraw === 'function'){
+      try{ scheduleLineDraw(); }catch(err){ console.error('line sync schedule error',err); }
+    }
+  }
+
+  function updateLineLabelColorPickers(labels){
+    if(!refs.labelColorsDiv || !refs.labelColorsFieldset) return;
+    refs.labelColorsDiv.innerHTML='';
+    Object.keys(lineLabelColors).forEach(k=>{ if(!labels.includes(k)) delete lineLabelColors[k]; });
+    labels.forEach((lab,i)=>{
+      if(!lineLabelColors[lab]) lineLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+      const input=document.createElement('input');
+      input.type='color';
+      input.value=lineLabelColors[lab];
+      if(typeof global.attachColorPickerNear === 'function') global.attachColorPickerNear(input);
+      input.addEventListener('input',e=>{
+        lineLabelColors[lab]=e.target.value;
+        console.debug('Debug: line label color change',{label:lab,color:e.target.value}); // Debug: label color edit
+        scheduleLineDraw();
+      });
+      const lbl=document.createElement('label');
+      lbl.textContent=lab+' ';
+      lbl.appendChild(input);
+      refs.labelColorsDiv.appendChild(lbl);
+    });
+    refs.labelColorsFieldset.style.display=labels.length?'':'none';
+    console.debug('Debug: updateLineLabelColorPickers',{labels,count:labels.length}); // Debug: label picker update
+  }
+
+  function computeLineStats(points,method,jStatLib){
+    const x=points.map(p=>p.x);
+    const y=points.map(p=>p.y);
+    const n=points.length;
+    if(n<3) return null;
+    const pearson=jStatLib.corrcoeff(x,y);
+    let r,label;
+    if(method==='pearson'){r=pearson; label='Pearson';}
+    else {r=jStatLib.spearmancoeff(x,y); label='Spearman';}
+    const t=r*Math.sqrt((n-2)/(1-r*r));
+    const p=2*(1-jStatLib.studentt.cdf(Math.abs(t),n-2));
+    const slope = (()=>{
+      const xMean=jStatLib.mean(x);
+      const yMean=jStatLib.mean(y);
+      const num=x.reduce((s,xi,i)=>s+(xi-xMean)*(y[i]-yMean),0);
+      const den=x.reduce((s,xi)=>s+Math.pow(xi-xMean,2),0);
+      return num/den;
+    })();
+    console.debug('Debug: computeLineStats',{method:label,r,p,slope}); // Debug: stats computation
+    return {method:label,r,p,slope};
+  }
+
+  function updateLineStats(series){
+    if(!refs.statType || !refs.statsResults) return;
+    const jStatLib = global.jStat;
+    if(!jStatLib){
+      refs.statsResults.textContent='Statistics unavailable (jStat missing).';
+      return;
+    }
+    const method=refs.statType.value||'pearson';
+    console.debug('Debug: updateLineStats',{seriesCount:series.length,method}); // Debug: stats update entry
+    const rows=[];
+    series.forEach(s=>{
+      const pts=s.points.filter(Boolean);
+      if(pts.length>=3){
+        const stats=computeLineStats(pts,method,jStatLib);
+        if(stats){
+          rows.push(`<tr><td>${s.name}</td><td>${stats.r.toFixed(4)}</td><td>${formatP(stats.p)}</td><td>${stats.slope.toFixed(4)}</td></tr>`);
+        }
+      }
+    });
+    if(rows.length){
+      refs.statsResults.innerHTML='<table><tr><th>Series</th><th>r</th><th>p</th><th>Slope</th></tr>'+rows.join('')+'</table>';
+    }else{
+      refs.statsResults.textContent='Not enough data for statistics.';
+    }
+    console.debug('Debug: updateLineStats complete',{rowCount:rows.length}); // Debug: stats update exit
+  }
+
+  function lineProcessImportedRows(rows,startRow=0,startCol=0){
+    if(!rows||!rows.length||!lineHot) return;
+    rows=rows.filter(r=>r&&r.some(c=>String(c).trim()!==''));
+    if(!rows.length) return;
+    const colCount=Math.max(2,...rows.map(r=>r.length));
+    const rowCount=rows.length;
+    const curRows=lineHot.countRows();
+    const curCols=lineHot.countCols();
+    const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
+    const targetCols=Math.max(curCols,startCol+colCount,LINE_DEFAULT_COLS);
+    console.debug('Debug: lineProcessImportedRows targets',{targetRows,targetCols}); // Debug: import sizing
+    const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
+    const existing=lineHot.getData();
+    for(let r=0;r<curRows;r++){
+      for(let c=0;c<curCols;c++) data[r][c]=existing[r][c];
+    }
+    for(let r=0;r<rowCount;r++){
+      const row=rows[r];
+      for(let c=0;c<row.length;c++) data[startRow+r][startCol+c]=row[c];
+    }
+    lineHot.updateSettings({data,minRows:targetRows,minCols:targetCols});
+    console.debug('Debug: lineProcessImportedRows applied',{rows:targetRows,cols:targetCols}); // Debug: import applied
+    scheduleLineDraw();
+  }
+
+  function getLineGraphPayload(){
+    if(!lineHot) return null;
+    return {
+      type:'line',
+      data:lineHot.getData(),
+      config:{
+        title:lineTitleText,
+        xLabel:lineXLabelText,
+        yLabel:lineYLabelText,
+        dotSize:refs.dotSize?.value,
+        fill:refs.fill?.value,
+        border:refs.border?.value,
+        borderWidth:refs.borderWidth?.value,
+        alpha:refs.alpha?.value,
+        labelColors:lineLabelColors,
+        showGrid:refs.showGrid?.checked,
+        logX:refs.logX?.checked,
+        logY:refs.logY?.checked,
+        xMin:refs.xMin?.value,
+        xMax:refs.xMax?.value,
+        yMin:refs.yMin?.value,
+        yMax:refs.yMax?.value,
+        originMode:refs.originMode?.value,
+        originX:refs.originX?.value,
+        originY:refs.originY?.value,
+        fontSize:refs.fontSize?.value
+      }
+    };
+  }
+
+  function loadLineGraphFile(file){
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const obj=JSON.parse(e.target.result);
+        console.debug('Debug: loadLineGraphFile payload',obj); // Debug: file load payload
+        if(obj.type!=='line') throw new Error('Invalid graph type');
+        if(lineHot && obj.data) lineHot.loadData(obj.data);
+        const c=obj.config||{};
+        lineTitleText=c.title||lineTitleText;
+        lineXLabelText=c.xLabel||lineXLabelText;
+        lineYLabelText=c.yLabel||lineYLabelText;
+        if(refs.dotSize && c.dotSize!=null) refs.dotSize.value=c.dotSize;
+        if(refs.fill && c.fill) refs.fill.value=c.fill;
+        if(refs.border && c.border) refs.border.value=c.border;
+        if(refs.borderWidth && c.borderWidth!=null) refs.borderWidth.value=c.borderWidth;
+        if(refs.alpha){ refs.alpha.value=c.alpha||0; refs.alphaVal.textContent=refs.alpha.value; }
+        lineLabelColors=c.labelColors||{};
+        if(refs.showGrid) refs.showGrid.checked=!!c.showGrid;
+        if(refs.logX) refs.logX.checked=!!c.logX;
+        if(refs.logY) refs.logY.checked=!!c.logY;
+        if(refs.xMin) refs.xMin.value=c.xMin||'';
+        if(refs.xMax) refs.xMax.value=c.xMax||'';
+        if(refs.yMin) refs.yMin.value=c.yMin||'';
+        if(refs.yMax) refs.yMax.value=c.yMax||'';
+        if(refs.originMode && c.originMode) refs.originMode.value=c.originMode;
+        if(refs.originX) refs.originX.value=c.originX||'';
+        if(refs.originY) refs.originY.value=c.originY||'';
+        if(refs.fontSize){ refs.fontSize.value=c.fontSize||refs.fontSize.value; refs.fontSizeVal.textContent=refs.fontSize.value; }
+        updateLineLabelColorPickers(Object.keys(lineLabelColors));
+        scheduleLineDraw();
+      }catch(err){ console.error('loadLineGraph error',err); }
+    };
+    reader.readAsText(file);
+  }
+
+  async function saveLineFile(){
+    const payload=getLineGraphPayload();
+    if(!payload) return;
+    console.debug('Debug: saveLineFile',{hasHandle:!!lineFileHandle}); // Debug: save request
+    if(lineFileHandle && lineFileHandle.createWritable){
+      try{
+        const perm=await ensurePermission(lineFileHandle,true);
+        if(perm){
+          const w=await lineFileHandle.createWritable();
+          await w.write(JSON.stringify(payload));
+          await w.close();
+        }
+      }catch(err){ console.error('saveLineFile error',err); }
+    }else if(global.showSaveFilePicker){
+      await saveAsLineFile();
+    }else if(typeof global.downloadJSON === 'function'){
+      global.downloadJSON(payload,lineFileName);
+    }
+  }
+
+  async function saveAsLineFile(){
+    const payload=getLineGraphPayload();
+    if(!payload) return;
+    console.debug('Debug: saveAsLineFile invoked'); // Debug: saveAs entry
+    if(global.showSaveFilePicker){
+      try{
+        lineFileHandle=await global.showSaveFilePicker({
+          types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],
+          suggestedName:lineFileName
+        });
+        const w=await lineFileHandle.createWritable();
+        await w.write(JSON.stringify(payload));
+        await w.close();
+      }catch(err){ console.error('saveAsLineFile error',err); }
+    }else if(typeof global.downloadJSON === 'function'){
+      global.downloadJSON(payload,lineFileName);
+    }
+  }
+
+  async function openLineFile(){
+    console.debug('Debug: openLineFile start'); // Debug: open entry
+    if(global.showOpenFilePicker){
+      try{
+        [lineFileHandle]=await global.showOpenFilePicker({
+          types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]
+        });
+        const file=await lineFileHandle.getFile();
+        lineFileName=file.name;
+        loadLineGraphFile(file);
+      }catch(err){ console.error('openLineFile error',err); }
+    }else{
+      if(refs.graphFileInput){
+        refs.graphFileInput.value='';
+        refs.graphFileInput.click();
+      }
+    }
+  }
+
+  function buildLineExportSvg(){
+    const svgEl=document.getElementById('lineSvg');
+    if(!svgEl) return null;
+    const clone=svgEl.cloneNode(true);
+    const baseW=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
+    const baseH=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+    clone.setAttribute('width',String(baseW));
+    clone.setAttribute('height',String(baseH));
+    clone.setAttribute('viewBox',`0 0 ${baseW} ${baseH}`);
+    clone.setAttribute('font-family','sans-serif');
+    console.debug('Debug: buildLineExportSvg',{legendCount:lineLegendItems.length}); // Debug: export clone info
+    return clone;
+  }
+
+  function drawLine(){
+    try{
+      const token=++lineDrawToken;
+      console.debug('Debug: drawLine start',{token}); // Debug: draw entry
+      if(!lineHot || !refs.plot) return;
+      const fill=refs.fill?.value;
+      const alpha=Number(refs.alpha?.value)||0;
+      const borderWidth=Number(refs.borderWidth?.value);
+      const borderColor=refs.border?.value;
+      const fs=Number(refs.fontSize?.value)||16;
+      const showGrid=!!refs.showGrid?.checked;
+      const logX=!!refs.logX?.checked;
+      const logY=!!refs.logY?.checked;
+      const dotSize=Number(refs.dotSize?.value)||0;
+      const xMinManual=parseFloat(refs.xMin?.value);
+      const xMaxManual=parseFloat(refs.xMax?.value);
+      const yMinManual=parseFloat(refs.yMin?.value);
+      const yMaxManual=parseFloat(refs.yMax?.value);
+      const originMode=refs.originMode?.value;
+      const originXInput=parseFloat(refs.originX?.value);
+      const originYInput=parseFloat(refs.originY?.value);
+      const data=lineHot.getData();
+      if(!data||!data.length) return;
+      const header=data[0]||[];
+      let xIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='x');
+      if(xIndex<0) xIndex=0;
+      lineXLabelText=(header[xIndex]&&String(header[xIndex]).trim())||'X';
+      const seriesCols=header.map((_,i)=>i).filter(i=>i!==xIndex && header[i]!=null && String(header[i]).trim()!=='');
+      const series=seriesCols.map((ci,i)=>({name:header[ci]||`Series ${i+1}`, points:[]}));
+      let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
+      for(let r=1;r<data.length;r++){
+        const row=data[r];
+        const xv=parseFloat(row[xIndex]);
+        seriesCols.forEach((ci,si)=>{
+          const yv=parseFloat(row[ci]);
+          if(!isNaN(xv)&&!isNaN(yv)){
+            series[si].points.push({x:xv,y:yv});
+            if(xv<xMinRaw) xMinRaw=xv;
+            if(xv>xMaxRaw) xMaxRaw=xv;
+            if(yv<yMinRaw) yMinRaw=yv;
+            if(yv>yMaxRaw) yMaxRaw=yv;
+          } else {
+            series[si].points.push(null);
+          }
+        });
+      }
+      const labelsUsed=series.map(s=>s.name);
+      updateLineLabelColorPickers(labelsUsed);
+      const legendLabels=labelsUsed;
+      const legendWidth=legendLabels.length?120:0;
+      lineLegendWidth=legendWidth;
+      lineLegendItems=[];
+      if(series.every(s=>s.points.every(p=>p==null))) return;
+      if(logX && xMinRaw<=0){ refs.plot.innerHTML='<i>Log scale requires positive X values.</i>'; return; }
+      if(logY && yMinRaw<=0){ refs.plot.innerHTML='<i>Log scale requires positive Y values.</i>'; return; }
+      let xMin=xMinRaw,xMax=xMaxRaw,yMin=yMinRaw,yMax=yMaxRaw;
+      if(isFinite(xMinManual)) xMin=xMinManual;
+      if(isFinite(xMaxManual)) xMax=xMaxManual;
+      if(isFinite(yMinManual)) yMin=yMinManual;
+      if(isFinite(yMaxManual)) yMax=yMaxManual;
+      if(originMode==='custom'){
+        if(isFinite(originXInput)){
+          if(!(logX && originXInput<=0)){
+            if(originXInput<xMin) xMin=originXInput;
+            if(originXInput>xMax) xMax=originXInput;
+          }
+        }
+        if(isFinite(originYInput)){
+          if(!(logY && originYInput<=0)){
+            if(originYInput<yMin) yMin=originYInput;
+            if(originYInput>yMax) yMax=originYInput;
+          }
+        }
+      }
+      if(xMin===xMax) xMax=xMin+1;
+      if(yMin===yMax) yMax=yMin+1;
+      const plotEl=refs.plot;
+      plotEl.style.display='block';
+      while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+      const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
+      const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
+      plotEl.style.position='relative';
+      const svg=document.createElementNS(NS,'svg');
+      svg.setAttribute('id','lineSvg');
+      svg.setAttribute('width',String(W));
+      svg.setAttribute('height',String(H));
+      svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+      svg.setAttribute('font-family','sans-serif');
+      plotEl.appendChild(svg);
+      const xMinT=logX?Math.log10(xMin):xMin;
+      const xMaxT=logX?Math.log10(xMax):xMax;
+      const yMinT=logY?Math.log10(yMin):yMin;
+      const yMaxT=logY?Math.log10(yMax):yMax;
+      function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
+      function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
+      const xScale=niceScale(xMinT,xMaxT,6);
+      const yScale=niceScale(yMinT,yMaxT,6);
+      if(isFinite(xMinManual)) xScale.min=xMinT;
+      if(isFinite(xMaxManual)) xScale.max=xMaxT;
+      if(isFinite(yMinManual)) yScale.min=yMinT;
+      if(isFinite(yMaxManual)) yScale.max=yMaxT;
+      if(isFinite(xMinManual)||isFinite(xMaxManual)){
+        const ticks=[];
+        for(let v=Math.ceil(xScale.min/xScale.step)*xScale.step; v<=xScale.max+1e-9; v+=xScale.step) ticks.push(v);
+        xScale.ticks=ticks;
+      }
+      if(isFinite(yMinManual)||isFinite(yMaxManual)){
+        const ticks=[];
+        for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step; v<=yScale.max+1e-9; v+=yScale.step) ticks.push(v);
+        yScale.ticks=ticks;
+      }
+      function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
+      const measureCanvas=drawLine._canvas||(drawLine._canvas=document.createElement('canvas'));
+      const measureCtx=measureCanvas.getContext('2d');
+      function measureTextWidth(text,font){measureCtx.font=font;return measureCtx.measureText(text).width;}
+      const tickFont=`${fs}px sans-serif`;
+      const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
+      const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont));
+      const maxYLabelWidth=Math.max(...yLabelWidths,0);
+      const margin={top:Math.max(32,Math.round(fs*2.2)),right:20+legendWidth,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs*2)};
+      const plotW=Math.max(20,W-margin.left-margin.right);
+      const plotH=Math.max(20,H-margin.top-margin.bottom);
+      const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
+      const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
+      function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
+      const tickLen=6;
+      if(showGrid){
+        xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});
+        yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});
+      }
+      let originXT,originYT;
+      if(originMode==='custom'){
+        originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);
+        originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);
+      }else{
+        originXT=xScale.min;
+        originYT=yScale.min;
+      }
+      const clampedXT=Math.min(Math.max(originXT,xScale.min),xScale.max);
+      const clampedYT=Math.min(Math.max(originYT,yScale.min),yScale.max);
+      const xAxisY=y2px(clampedYT);
+      const yAxisX=x2px(clampedXT);
+      add('line',{x1:margin.left - tickLen,y1:xAxisY,x2:margin.left+plotW + tickLen,y2:xAxisY,stroke:'#000','stroke-width':1});
+      add('line',{x1:yAxisX,y1:margin.top - tickLen,x2:yAxisX,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':1});
+      xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
+      yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:yAxisX-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+      const colors=series.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
+      const seriesElems=[];
+      series.forEach((s,i)=>{
+        const color=colors[i];
+        let pathStr='';
+        let started=false;
+        const markerFrag=document.createDocumentFragment();
+        s.points.forEach(pt=>{
+          if(pt){
+            const xv=logX?Math.log10(pt.x):pt.x;
+            const yv=logY?Math.log10(pt.y):pt.y;
+            const px=x2px(xv);
+            const py=y2px(yv);
+            if(!started){pathStr+=`M${px} ${py}`; started=true;} else {pathStr+=`L${px} ${py}`;}
+            if(dotSize>0){
+              const c=document.createElementNS(NS,'circle');
+              c.setAttribute('cx',px);
+              c.setAttribute('cy',py);
+              c.setAttribute('r',dotSize);
+              c.setAttribute('fill',lineLabelColors[s.name]||fill);
+              c.setAttribute('fill-opacity',1-alpha);
+              markerFrag.appendChild(c);
+            }
+          } else {
+            started=false;
+          }
+        });
+        const path=add('path',{d:pathStr,fill:'none',stroke:color,'stroke-width':borderWidth,'stroke-opacity':1-alpha});
+        const mGroup=add('g',{});
+        mGroup.appendChild(markerFrag);
+        seriesElems.push({path,mGroup});
+      });
+      if(legendLabels.length){
+        const legendGroup=document.createElementNS(NS,'g');
+        const legendX=W-legendWidth+8;
+        const legendY=margin.top;
+        series.forEach((s,i)=>{
+          const itemG=document.createElementNS(NS,'g');
+          itemG.style.cursor='pointer';
+          const y=legendY+i*(fs+4);
+          const sw=document.createElementNS(NS,'rect');
+          sw.setAttribute('x',legendX);
+          sw.setAttribute('y',y-fs+4);
+          sw.setAttribute('width',12);
+          sw.setAttribute('height',12);
+          sw.setAttribute('fill',colors[i]);
+          itemG.appendChild(sw);
+          const t=document.createElementNS(NS,'text');
+          t.setAttribute('x',legendX+16);
+          t.setAttribute('y',y);
+          t.setAttribute('font-size',fs);
+          t.textContent=s.name;
+          itemG.appendChild(t);
+          itemG.addEventListener('click',()=>{
+            const vis=seriesElems[i].path.style.display!=='none';
+            seriesElems[i].path.style.display=vis?'none':'inline';
+            seriesElems[i].mGroup.style.display=vis?'none':'inline';
+          });
+          legendGroup.appendChild(itemG);
+        });
+        svg.appendChild(legendGroup);
+        lineLegendItems=series.map((s,i)=>({label:s.name,color:colors[i]}));
+      }
+      const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});
+      const makeEditable = global.makeEditable || ((el,onChange)=>{
+        if(!el) return;
+        el.style.cursor='pointer';
+        el.addEventListener('dblclick',()=>{
+          const newTxt=(global.prompt||prompt)?.call(global,'Edit label',el.textContent);
+          if(newTxt!=null){
+            el.textContent=newTxt;
+            if(onChange) onChange(newTxt);
+          }
+        });
+      });
+      xText.textContent=lineXLabelText;
+      makeEditable(xText,txt=>{lineXLabelText=txt;});
+      const yX=margin.left-(maxYLabelWidth+fs*0.5);
+      const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});
+      yText.textContent=lineYLabelText;
+      makeEditable(yText,txt=>{lineYLabelText=txt;});
+      const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});
+      titleText.textContent=lineTitleText;
+      makeEditable(titleText,txt=>{lineTitleText=txt;});
+      updateLineStats(series);
+      if(global.autoResizeSvg) global.autoResizeSvg(svg);
+      console.debug('Debug: drawLine complete',{token}); // Debug: draw exit
+    }catch(err){ console.error('drawLine error',err); }
+  }
+
+  function setup(){
+    if(line.ready){ console.debug('Debug: Components.line.setup skipped'); return; }
+    console.debug('Debug: Components.line.setup start'); // Debug: setup entry
+    const document = global.document;
+    const Handsontable = global.Handsontable;
+    if(!document || !Handsontable){ console.error('Line component dependencies missing'); return; }
+    const $ = global.$ || (sel=>document.querySelector(sel));
+    refs.tablePanel=document.getElementById('lineTablePanel');
+    refs.graphPanel=document.getElementById('lineGraphPanel');
+    refs.panelResizer=document.getElementById('linePanelResizer');
+    refs.svgBox=refs.graphPanel?.querySelector('.svgbox');
+    refs.configPanel=refs.graphPanel?.querySelector('.config-options');
+    refs.hotContainer=document.getElementById('lineHot');
+    refs.hotWrapper=document.getElementById('lineHotWrapper');
+    refs.plot=document.getElementById('linePlot');
+    refs.statType=document.getElementById('lineStatType');
+    refs.statsResults=document.getElementById('lineStatsResults');
+    refs.fill=document.getElementById('lineFill');
+    refs.border=document.getElementById('lineBorder');
+    refs.borderWidth=document.getElementById('lineBorderWidth');
+    refs.dotSize=document.getElementById('lineDotSize');
+    refs.alpha=document.getElementById('lineAlpha');
+    refs.alphaVal=document.getElementById('lineAlphaVal');
+    refs.fontSize=document.getElementById('lineFontSize');
+    refs.fontSizeVal=document.getElementById('lineFontSizeVal');
+    refs.showGrid=document.getElementById('lineShowGrid');
+    refs.logX=document.getElementById('lineLogX');
+    refs.logY=document.getElementById('lineLogY');
+    refs.xMin=document.getElementById('lineXMin');
+    refs.xMax=document.getElementById('lineXMax');
+    refs.yMin=document.getElementById('lineYMin');
+    refs.yMax=document.getElementById('lineYMax');
+    refs.originMode=document.getElementById('lineOriginMode');
+    refs.originX=document.getElementById('lineOriginX');
+    refs.originY=document.getElementById('lineOriginY');
+    refs.labelColorsDiv=document.getElementById('lineLabelColors');
+    refs.labelColorsFieldset=document.getElementById('lineLabelColorsFieldset');
+    refs.loadExample=document.getElementById('lineLoadExample');
+    refs.importBtn=document.getElementById('lineImport');
+    refs.fileInput=document.getElementById('lineFile');
+    refs.pngBtn=document.getElementById('linePNG');
+    refs.svgBtn=document.getElementById('lineSVG');
+    refs.openBtn=document.getElementById('openLine');
+    refs.saveBtn=document.getElementById('saveLine');
+    refs.saveAsBtn=document.getElementById('saveAsLine');
+    refs.graphFileInput=document.getElementById('lineGraphFile');
+
+    global.lineStatType = refs.statType; // legacy compatibility
+    global.lineStatsResults = refs.statsResults; // legacy compatibility
+
+    if(refs.hotWrapper && Shared.ensureHotWrapperStyles){ Shared.ensureHotWrapperStyles(refs.hotWrapper); }
+    console.debug('Debug: lineHotWrapper style', refs.hotWrapper?.style?.cssText); // Debug: wrapper styles
+
+    const data=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,LINE_DEFAULT_COLS);
+    data[0]=['X','Series1','Series2','Series3','Series4','Series5'];
+    lineHot=new Handsontable(refs.hotContainer,{
+      data,
+      rowHeaders(index){ const label=index===0?'':index; console.debug('Debug: line rowHeader',{index,label}); return label; },
+      colHeaders:true,
+      minRows:DEFAULT_ROWS,
+      minCols:LINE_DEFAULT_COLS,
+      stretchH:'all',
+      contextMenu:true,
+      cells(row){ const props={}; if(row===0){ props.renderer=function(instance,td){ Handsontable.renderers.TextRenderer.apply(this,arguments); td.style.background='#e9ecef'; td.style.fontWeight='600'; td.title='Header (first row)'; }; } return props; },
+      licenseKey:'non-commercial-and-evaluation',
+      afterChange:(changes,source)=>{ if(changes && source!=='loadData'){ console.debug('Debug: line afterChange',{count:changes.length,source}); scheduleLineDraw(); } },
+      afterCreateRow:()=>{ console.debug('Debug: line row created'); scheduleLineDraw(); },
+      afterCreateCol:()=>{ console.debug('Debug: line col created'); scheduleLineDraw(); },
+      afterRemoveRow:()=>{ console.debug('Debug: line row removed'); scheduleLineDraw(); },
+      afterRemoveCol:()=>{ console.debug('Debug: line col removed'); scheduleLineDraw(); },
+      afterUndo:()=>{ console.debug('Debug: line undo'); scheduleLineDraw(); },
+      afterRedo:()=>{ console.debug('Debug: line redo'); scheduleLineDraw(); }
+    });
+    global.DEBUG_LINE=true;
+    console.debug('Debug: lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
+
+    const ResizeObserverCtor = global.ResizeObserver;
+    if(ResizeObserverCtor && refs.tablePanel){
+      const observer=new ResizeObserverCtor(()=>{ syncLineWidths(); });
+      observer.observe(refs.tablePanel);
+    }
+    syncLineWidths();
+
+    const lineExample=[
+      ['Month','North','South','East','West','Central'],
+      [1,120,110,95,80,105],
+      [2,130,115,92,85,112],
+      [3,125,118,99,90,115],
+      [4,150,112,105,95,120],
+      [5,155,125,108,102,128],
+      [6,160,130,112,108,132],
+      [7,165,128,118,112,138],
+      [8,170,135,120,118,142],
+      [9,175,138,125,120,146],
+      [10,180,142,130,125,150],
+      [11,185,145,128,130,152],
+      [12,190,150,135,132,158]
+    ];
+
+    refs.loadExample?.addEventListener('click',()=>{ lineHot.loadData(lineExample); console.debug('Debug: line example loaded'); scheduleLineDraw(); });
+    refs.importBtn?.addEventListener('click',()=>{ if(refs.fileInput){ refs.fileInput.value=''; refs.fileInput.click(); } });
+    refs.fileInput?.addEventListener('change',e=>{
+      const file=e.target.files[0];
+      if(!file) return;
+      const ext=file.name.split('.').pop().toLowerCase();
+      const reader=new FileReader();
+      if(['csv','tsv','txt'].includes(ext)){
+        reader.onload=ev=>{
+          const text=ev.target.result;
+          const delim=ext==='csv'?',':'\t';
+          const rows=text.split(/\r?\n/).map(r=>r.split(delim));
+          lineProcessImportedRows(rows);
+        };
+        reader.readAsText(file);
+      }else if(['xls','xlsx','ods','odg'].includes(ext)){
+        reader.onload=async ev=>{
+          try{
+            if(!global.XLSX){
+              await new Promise((resolve,reject)=>{
+                const s=document.createElement('script');
+                s.src='libs/xlsx.full.min.js';
+                s.onload=()=>resolve();
+                s.onerror=err=>reject(new Error('Failed to load XLSX script'));
+                document.head.appendChild(s);
+              });
+            }
+            const data=new Uint8Array(ev.target.result);
+            const workbook=XLSX.read(data,{type:'array'});
+            const sheet=XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]],{header:1});
+            lineProcessImportedRows(sheet);
+          }catch(err){ console.error('line import error',err); }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    });
+
+    refs.hotContainer?.addEventListener('paste',async e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      let text=e.clipboardData?.getData('text/plain');
+      if(!text){
+        try{ text=await global.navigator?.clipboard?.readText(); }
+        catch(err){ console.debug('Debug: line clipboard read failed',err); return; }
+      }
+      const rowArr=text.split(/\r?\n/);
+      if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')) return;
+      const delim=text.includes('\t')?'\t':',';
+      const rows=rowArr.map(r=>r.split(delim));
+      lineProcessImportedRows(rows);
+    });
+
+    if(refs.plot){
+      const container=refs.plot.closest('.svgbox')||refs.plot.parentElement;
+      if(container && Shared.attachResizableBox){
+        Shared.attachResizableBox(container,{ onResize: ()=>{ scheduleLineDraw(); } });
+      }
+    }
+
+    if(refs.panelResizer && refs.tablePanel && refs.graphPanel){
+      refs.panelResizer.addEventListener('pointerdown',e=>{
+        e.preventDefault();
+        const startX=e.clientX;
+        const startTable=refs.tablePanel.getBoundingClientRect().width;
+        const startGraph=refs.graphPanel.getBoundingClientRect().width;
+        const configWidth=refs.configPanel?.getBoundingClientRect().width||0;
+        const diagram=refs.graphPanel.querySelector('.diagram-area');
+        const gap=parseFloat(getComputedStyle(diagram).gap||0);
+        lineMinSvgWidth=refs.svgBox?.getBoundingClientRect().width*0.5||0;
+        const minGraph=configWidth+gap+lineMinSvgWidth;
+        const total=startTable+startGraph;
+        console.debug('Debug: line resizer start',{startTable,startGraph,configWidth,gap,lineMinSvgWidth,minGraph,total}); // Debug: resizer start
+        function onMove(ev){
+          const dx=ev.clientX-startX;
+          let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx));
+          let newGraph=total-newTable;
+          refs.tablePanel.style.flex=`0 0 ${newTable}px`;
+          refs.graphPanel.style.flex=`0 0 ${newGraph}px`;
+          syncLineWidths();
+          console.debug('Debug: line resizer move',{dx,newTable,newGraph}); // Debug: resizer move
+        }
+        function onUp(){
+          document.removeEventListener('pointermove',onMove);
+          document.removeEventListener('pointerup',onUp);
+          console.debug('Debug: line resizer end'); // Debug: resizer end
+        }
+        document.addEventListener('pointermove',onMove);
+        document.addEventListener('pointerup',onUp);
+      });
+    }
+
+    refs.fill?.addEventListener('input',()=>{ scheduleLineDraw(); });
+    refs.border?.addEventListener('input',()=>{ scheduleLineDraw(); });
+    refs.borderWidth?.addEventListener('input',()=>{ scheduleLineDraw(); });
+    refs.dotSize?.addEventListener('input',()=>{ scheduleLineDraw(); });
+    refs.alpha?.addEventListener('input',()=>{ if(refs.alphaVal) refs.alphaVal.textContent=refs.alpha.value; scheduleLineDraw(); });
+    refs.fontSize?.addEventListener('input',()=>{ if(refs.fontSizeVal) refs.fontSizeVal.textContent=refs.fontSize.value; scheduleLineDraw(); });
+    refs.showGrid?.addEventListener('change',()=>{ scheduleLineDraw(); });
+    refs.logX?.addEventListener('change',()=>{ scheduleLineDraw(); });
+    refs.logY?.addEventListener('change',()=>{ scheduleLineDraw(); });
+    [refs.xMin,refs.xMax,refs.yMin,refs.yMax,refs.originMode,refs.originX,refs.originY].forEach(el=>{
+      el?.addEventListener('input',()=>{ scheduleLineDraw(); });
+    });
+    refs.statType?.addEventListener('change',()=>{ scheduleLineDraw(); });
+
+    refs.pngBtn?.addEventListener('click',async()=>{
+      const svgEl=buildLineExportSvg();
+      if(!svgEl) return;
+      const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
+      const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+      const serializer = global.serializeCleanSVG || (el=>new XMLSerializer().serializeToString(el));
+      const xml=serializer(svgEl);
+      const img=new Image();
+      const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
+      img.src=url;
+      await img.decode().catch(err=>{ console.error('linePNG svg decode',err); });
+      const outCanvas=document.createElement('canvas');
+      outCanvas.width=W; outCanvas.height=H;
+      const ctx=outCanvas.getContext('2d');
+      ctx.drawImage(img,0,0);
+      outCanvas.toBlob(b=>{
+        const pngUrl=URL.createObjectURL(b);
+        const a=document.createElement('a');
+        a.href=pngUrl; a.download='line.png';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(pngUrl),4000);
+      },'image/png');
+    });
+
+    refs.svgBtn?.addEventListener('click',()=>{
+      const svgEl=buildLineExportSvg();
+      if(!svgEl) return;
+      const serializer = global.serializeCleanSVG || (el=>new XMLSerializer().serializeToString(el));
+      const xml=serializer(svgEl);
+      const blob=new Blob([xml],{type:'image/svg+xml'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url; a.download='line.svg';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),4000);
+    });
+
+    refs.openBtn?.addEventListener('click',openLineFile);
+    refs.saveBtn?.addEventListener('click',saveLineFile);
+    refs.saveAsBtn?.addEventListener('click',saveAsLineFile);
+    refs.graphFileInput?.addEventListener('change',e=>{
+      const f=e.target.files[0];
+      if(f){
+        lineFileName=f.name;
+        lineFileHandle=null;
+        loadLineGraphFile(f);
+      }
+    });
+
+    scheduleLineDraw = createScheduler(drawLine);
+    line.ready = true;
+    scheduleLineDraw();
+    console.debug('Debug: Components.line.setup complete'); // Debug: setup complete
+  }
+
+  function ensureReady(){ if(!line.ready) setup(); }
+
+  line.init = setup;
+  line.ensure = ensureReady;
+  line.draw = function draw(){ ensureReady(); scheduleLineDraw && scheduleLineDraw(); };
+  line.save = saveLineFile;
+  line.saveAs = saveAsLineFile;
+  line.open = openLineFile;
+  line.loadFromFile = loadLineGraphFile;
+  line.getPayload = getLineGraphPayload;
+  line.buildExportSvg = buildLineExportSvg;
+  line.getHot = () => lineHot;
+  line.updateStats = updateLineStats;
+
+})(window);
