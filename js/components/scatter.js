@@ -28,6 +28,14 @@
     };
   }
 
+  function formatP(p){
+    if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
+    if(!Number.isFinite(p)) return p > 0 ? 'Infinity' : '-Infinity';
+    if(p === 0) return '0';
+    const formatted = p.toLocaleString('en-US',{maximumSignificantDigits:6});
+    console.debug('Debug: formatP value', {input:p, formatted}); // Debug: remove when stable
+    return formatted;
+  }
   function setup(){
     if(scatter.ready){ console.debug('Debug: Components.scatter.setup skipped'); return; }
     console.debug('Debug: Components.scatter.setup start');
