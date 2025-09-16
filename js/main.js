@@ -17,9 +17,22 @@
       });
     };
   }
-  const scheduleDrawBoxplot = debounceFrame(drawBoxplot);
-  const scheduleDrawScatter = debounceFrame(drawScatter);
-  const scheduleDrawPca = debounceFrame(drawPca);
+  // Predeclare to avoid TDZ/ReferenceError if wrapped later or guarded
+  var drawScatter; // debug: predeclared for safe scheduling
+  var drawPca;     // debug: predeclared for safe scheduling
+  const scheduleDrawBoxplot = debounceFrame(() => {
+    if (window.Components && window.Components.box && typeof window.Components.box.draw === 'function') {
+      window.Components.box.draw();
+    }
+  });
+  const scheduleDrawScatter = debounceFrame(() => {
+    try { if (typeof drawScatter === 'function') drawScatter(); }
+    catch (e) { console.error('scheduleDrawScatter error', e); }
+  });
+  const scheduleDrawPca = debounceFrame(() => {
+    try { if (typeof drawPca === 'function') drawPca(); }
+    catch (e) { console.error('scheduleDrawPca error', e); }
+  });
   const scheduleDrawLine = debounceFrame(() => { try { if (typeof drawLinePublic === 'function') drawLinePublic(); } catch (e) { console.error('scheduleDrawLine error', e); } });
   // Define safe defaults for line labels early to avoid TDZ on first draws
   var lineTitleText = typeof lineTitleText !== 'undefined' ? lineTitleText : 'Line graph';
@@ -38,6 +51,16 @@
       window.Components.pie.draw();
     }
   });
+  // Shared default color palette used by Scatter/Line/PCA/ROC/Pie
+  // Ensure both a global property and a local binding exist before any draw calls
+  var DEFAULT_SCATTER_COLORS = window.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
+  window.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+  // Back-compat shim for color picker overlay used by components
+  function attachColorPickerNear(el){
+    if (window.Shared && typeof window.Shared.attachColorPickerNear === 'function') {
+      window.Shared.attachColorPickerNear(el);
+    }
+  }
   // Public line draw (out of legacy blocks) so scheduleDrawLine can always invoke it
   async function drawLinePublic(){
     try{
@@ -124,6 +147,11 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
   const tabRoc=$('#tabRoc');
   const tabHist=$('#tabHist');
   const tabPie=$('#tabPie');
+  // Shared defaults and SVG namespace used by multiple sections
+  const NS='http://www.w3.org/2000/svg';
+  const DEFAULT_ROWS=100, DEFAULT_COLS=10, LINE_DEFAULT_COLS=6, HIST_DEFAULT_COLS=1, PIE_DEFAULT_COLS=6, ROC_DEFAULT_COLS=3, PCA_DEFAULT_COLS=5;
+  // If componentized box is present, skip legacy box section
+  if (!(window.Components && window.Components.box && window.Components.box.__installed)) {
   const hotContainer=document.getElementById('hot');
   const hotWrapper=document.getElementById('hotWrapper');
   const tablePanel=document.getElementById('boxTablePanel');
@@ -164,6 +192,9 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
       }
       if (window.Components && window.Components.pie && typeof window.Components.pie.init === 'function') {
         window.Components.pie.init();
+      }
+      if (window.Components && window.Components.box && typeof window.Components.box.init === 'function') {
+        window.Components.box.init();
       }
       if (window.Components && window.Components.venn && typeof window.Components.venn.init === 'function') {
         window.Components.venn.init();
@@ -509,6 +540,19 @@ let rocCompareSel=null, rocCompareResult=null, rocCompareLabel=null;
       document.addEventListener('pointermove',onMove);
       document.addEventListener('pointerup',onUp);
     });
+  })();
+  } // close legacy box section guard before scatter
+
+  // If Box component is installed (legacy skipped), bootstrap components here
+  (function bootstrapComponentsOutside(){
+    try{
+      if (window.Components && window.Components.box && window.Components.box.__installed) {
+        if (window.Components.hist && typeof window.Components.hist.init === 'function') window.Components.hist.init();
+        if (window.Components.pie && typeof window.Components.pie.init === 'function') window.Components.pie.init();
+        if (typeof window.Components.box.init === 'function') window.Components.box.init();
+        if (window.Components.venn && typeof window.Components.venn.init === 'function') window.Components.venn.init();
+      }
+    }catch(err){ console.error('Components bootstrap (outside) error', err); }
   })();
 
   // Scatter plot setup
@@ -5421,6 +5465,8 @@ KAT7`;
     });
     return new XMLSerializer().serializeToString(clone);
   }
+  // Re-open legacy box guard for drawBoxplot onwards
+  if (!(window.Components && window.Components.box && window.Components.box.__installed)) {
   async function drawBoxplot(){
     const token=++boxplotDrawToken; // debug token for cancellation
     console.log('boxplot draw start',{token});
@@ -6026,6 +6072,7 @@ KAT7`;
       loadBoxGraphFile(f);
     }
   });
+  } // end legacy box guard
   window.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
