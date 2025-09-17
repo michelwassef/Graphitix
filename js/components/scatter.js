@@ -39,27 +39,37 @@
       return;
     }
     const ResizeObserverCtor = global.ResizeObserver;
-    const makeEditableLocal = global.makeEditable || ((el,onChange)=>{
-      if(!el) return;
-      el.style.cursor='pointer';
-      el.addEventListener('dblclick',()=>{
-        const promptFn = global.prompt || prompt;
-        const txt = promptFn ? promptFn('Edit text', el.textContent) : null;
-        if(txt!==null){
-          el.textContent = txt;
-          if(typeof onChange === 'function') onChange(txt);
-        }
-      });
-    });
-    const attachPicker = (el)=>{ if (typeof global.attachColorPickerNear === 'function') { global.attachColorPickerNear(el); } };
-    const serializeSvg = (svgEl)=>{
-      if (typeof global.serializeCleanSVG === 'function') return global.serializeCleanSVG(svgEl);
-      const clone = svgEl.cloneNode(true);
-      if(clone.querySelectorAll){
-        clone.querySelectorAll('[contenteditable],[contentEditable]').forEach(el=>{ el.removeAttribute('contenteditable'); el.removeAttribute('contentEditable'); });
+    const makeEditableLocal = (el,onChange,options) => {
+      const fn = Shared.makeEditable || global.makeEditable;
+      if (typeof fn === 'function') {
+        return fn(el,onChange,options);
       }
-      return new (global.XMLSerializer||XMLSerializer)().serializeToString(clone);
+      console.warn('scatter component makeEditable fallback missing');
+      return undefined;
     };
+    const autoResizeSvg = (svg, opts) => {
+      const fn = Shared.autoResizeSvg || global.autoResizeSvg;
+      if (typeof fn === 'function') {
+        return fn(svg, opts);
+      }
+      console.warn('scatter component autoResizeSvg fallback missing');
+      return undefined;
+    };
+    const attachPicker = (el)=>{ if (typeof global.attachColorPickerNear === 'function') { global.attachColorPickerNear(el); } };
+    const serializeSvg = (svgEl, options)=>{
+      const fn = Shared.serializeCleanSVG || global.serializeCleanSVG;
+      if (typeof fn === 'function') {
+        return fn(svgEl, options);
+      }
+      if (!svgEl) return '';
+      const serializer = new (global.XMLSerializer||XMLSerializer)();
+      return serializer.serializeToString(svgEl);
+    };
+    console.debug('Debug: scatter component DOM helpers resolved', {
+      hasSharedEditable: typeof Shared.makeEditable === 'function',
+      hasSharedResize: typeof Shared.autoResizeSvg === 'function',
+      hasSharedSerialize: typeof Shared.serializeCleanSVG === 'function'
+    }); // Debug: helper availability summary
     let scatterDrawToken=0;
       // Scatter plot setup
       const scatterHotContainer=document.getElementById('scatterHot');

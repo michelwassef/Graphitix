@@ -33,6 +33,37 @@
 
   const refs = {};
 
+  const makeEditableHelper = (el,onChange,options) => {
+    const fn = Shared.makeEditable || global.makeEditable;
+    if (typeof fn === 'function') {
+      return fn(el,onChange,options);
+    }
+    console.warn('line component makeEditable fallback missing');
+    return undefined;
+  };
+  const autoResizeSvgHelper = (svg, opts) => {
+    const fn = Shared.autoResizeSvg || global.autoResizeSvg;
+    if (typeof fn === 'function') {
+      return fn(svg, opts);
+    }
+    console.warn('line component autoResizeSvg fallback missing');
+    return undefined;
+  };
+  const serializeSvg = (svgEl, options) => {
+    const fn = Shared.serializeCleanSVG || global.serializeCleanSVG;
+    if (typeof fn === 'function') {
+      return fn(svgEl, options);
+    }
+    if (!svgEl) return '';
+    const serializer = new (global.XMLSerializer || XMLSerializer)();
+    return serializer.serializeToString(svgEl);
+  };
+  console.debug('Debug: line component DOM helpers resolved', {
+    hasSharedEditable: typeof Shared.makeEditable === 'function',
+    hasSharedResize: typeof Shared.autoResizeSvg === 'function',
+    hasSharedSerialize: typeof Shared.serializeCleanSVG === 'function'
+  }); // Debug: helper availability summary
+
   function formatP(p){
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
     if(!Number.isFinite(p)) return p>0?'Infinity':'-Infinity';
@@ -473,28 +504,17 @@
         lineLegendItems=series.map((s,i)=>({label:s.name,color:colors[i]}));
       }
       const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});
-      const makeEditable = global.makeEditable || ((el,onChange)=>{
-        if(!el) return;
-        el.style.cursor='pointer';
-        el.addEventListener('dblclick',()=>{
-          const newTxt=(global.prompt||prompt)?.call(global,'Edit label',el.textContent);
-          if(newTxt!=null){
-            el.textContent=newTxt;
-            if(onChange) onChange(newTxt);
-          }
-        });
-      });
       xText.textContent=lineXLabelText;
-      makeEditable(xText,txt=>{lineXLabelText=txt;});
+      makeEditableHelper(xText,txt=>{lineXLabelText=txt;});
       const yX=margin.left-(maxYLabelWidth+fs*0.5);
       const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});
       yText.textContent=lineYLabelText;
-      makeEditable(yText,txt=>{lineYLabelText=txt;});
+      makeEditableHelper(yText,txt=>{lineYLabelText=txt;});
       const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});
       titleText.textContent=lineTitleText;
-      makeEditable(titleText,txt=>{lineTitleText=txt;});
+      makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
       updateLineStats(series);
-      if(global.autoResizeSvg) global.autoResizeSvg(svg);
+      autoResizeSvgHelper(svg);
       console.debug('Debug: drawLine complete',{token}); // Debug: draw exit
     }catch(err){ console.error('drawLine error',err); }
   }
@@ -705,8 +725,7 @@
       if(!svgEl) return;
       const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
       const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
-      const serializer = global.serializeCleanSVG || (el=>new XMLSerializer().serializeToString(el));
-      const xml=serializer(svgEl);
+      const xml=serializeSvg(svgEl);
       const img=new Image();
       const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
       img.src=url;
@@ -727,8 +746,7 @@
     refs.svgBtn?.addEventListener('click',()=>{
       const svgEl=buildLineExportSvg();
       if(!svgEl) return;
-      const serializer = global.serializeCleanSVG || (el=>new XMLSerializer().serializeToString(el));
-      const xml=serializer(svgEl);
+      const xml=serializeSvg(svgEl);
       const blob=new Blob([xml],{type:'image/svg+xml'});
       const url=URL.createObjectURL(blob);
       const a=document.createElement('a');
