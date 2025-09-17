@@ -9,6 +9,9 @@
   if(!fileIO.saveGraphFile){
     console.debug('Debug: line component awaiting Shared.fileIO helpers');
   }
+  if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
+    console.debug('Debug: line component awaiting Shared.tableImport helpers'); // Debug: table import helper check
+  }
 
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 100;
@@ -118,31 +121,6 @@
       refs.statsResults.textContent='Not enough data for statistics.';
     }
     console.debug('Debug: updateLineStats complete',{rowCount:rows.length}); // Debug: stats update exit
-  }
-
-  function lineProcessImportedRows(rows,startRow=0,startCol=0){
-    if(!rows||!rows.length||!lineHot) return;
-    rows=rows.filter(r=>r&&r.some(c=>String(c).trim()!==''));
-    if(!rows.length) return;
-    const colCount=Math.max(2,...rows.map(r=>r.length));
-    const rowCount=rows.length;
-    const curRows=lineHot.countRows();
-    const curCols=lineHot.countCols();
-    const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
-    const targetCols=Math.max(curCols,startCol+colCount,LINE_DEFAULT_COLS);
-    console.debug('Debug: lineProcessImportedRows targets',{targetRows,targetCols}); // Debug: import sizing
-    const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
-    const existing=lineHot.getData();
-    for(let r=0;r<curRows;r++){
-      for(let c=0;c<curCols;c++) data[r][c]=existing[r][c];
-    }
-    for(let r=0;r<rowCount;r++){
-      const row=rows[r];
-      for(let c=0;c<row.length;c++) data[startRow+r][startCol+c]=row[c];
-    }
-    lineHot.updateSettings({data,minRows:targetRows,minCols:targetCols});
-    console.debug('Debug: lineProcessImportedRows applied',{rows:targetRows,cols:targetCols}); // Debug: import applied
-    scheduleLineDraw();
   }
 
   function getLineGraphPayload(){
@@ -622,54 +600,51 @@
 
     refs.loadExample?.addEventListener('click',()=>{ lineHot.loadData(lineExample); console.debug('Debug: line example loaded'); scheduleLineDraw(); });
     refs.importBtn?.addEventListener('click',()=>{ if(refs.fileInput){ refs.fileInput.value=''; refs.fileInput.click(); } });
-    refs.fileInput?.addEventListener('change',e=>{
-      const file=e.target.files[0];
-      if(!file) return;
-      const ext=file.name.split('.').pop().toLowerCase();
-      const reader=new FileReader();
-      if(['csv','tsv','txt'].includes(ext)){
-        reader.onload=ev=>{
-          const text=ev.target.result;
-          const delim=ext==='csv'?',':'\t';
-          const rows=text.split(/\r?\n/).map(r=>r.split(delim));
-          lineProcessImportedRows(rows);
-        };
-        reader.readAsText(file);
-      }else if(['xls','xlsx','ods','odg'].includes(ext)){
-        reader.onload=async ev=>{
-          try{
-            if(!global.XLSX){
-              await new Promise((resolve,reject)=>{
-                const s=document.createElement('script');
-                s.src='libs/xlsx.full.min.js';
-                s.onload=()=>resolve();
-                s.onerror=err=>reject(new Error('Failed to load XLSX script'));
-                document.head.appendChild(s);
-              });
-            }
-            const data=new Uint8Array(ev.target.result);
-            const workbook=XLSX.read(data,{type:'array'});
-            const sheet=XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]],{header:1});
-            lineProcessImportedRows(sheet);
-          }catch(err){ console.error('line import error',err); }
-        };
-        reader.readAsArrayBuffer(file);
+    refs.fileInput?.addEventListener('change',async e=>{
+      const tableImport = Shared.tableImport;
+      if(!tableImport || typeof tableImport.openFile !== 'function'){
+        console.warn('line import skipped: Shared.tableImport.openFile unavailable');
+        return;
+      }
+      const fileName = e.target.files?.[0]?.name || '';
+      console.debug('Debug: line import start',{fileName}); // Debug: import start trace
+      try{
+        const result = await tableImport.openFile(refs.fileInput,{
+          hot: lineHot,
+          minCols: LINE_DEFAULT_COLS,
+          minRows: DEFAULT_ROWS,
+          scheduleDraw: scheduleLineDraw,
+          debugLabel: 'line',
+          onProcessed: info => {
+            console.debug('Debug: line tableImport processed', info || {}); // Debug: processed callback
+          }
+        });
+        console.debug('Debug: line import finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: import finish trace
+      }catch(err){
+        console.error('line import failed',err);
       }
     });
 
     refs.hotContainer?.addEventListener('paste',async e=>{
-      e.preventDefault();
-      e.stopPropagation();
-      let text=e.clipboardData?.getData('text/plain');
-      if(!text){
-        try{ text=await global.navigator?.clipboard?.readText(); }
-        catch(err){ console.debug('Debug: line clipboard read failed',err); return; }
+      const tableImport = Shared.tableImport;
+      if(!tableImport || typeof tableImport.handlePaste !== 'function'){
+        console.warn('line paste skipped: Shared.tableImport.handlePaste unavailable');
+        return;
       }
-      const rowArr=text.split(/\r?\n/);
-      if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')) return;
-      const delim=text.includes('\t')?'\t':',';
-      const rows=rowArr.map(r=>r.split(delim));
-      lineProcessImportedRows(rows);
+      try{
+        const result = await tableImport.handlePaste(e,lineHot,{
+          minCols: LINE_DEFAULT_COLS,
+          minRows: DEFAULT_ROWS,
+          scheduleDraw: scheduleLineDraw,
+          debugLabel: 'line',
+          onProcessed: info => {
+            console.debug('Debug: line paste processed', info || {}); // Debug: paste processed callback
+          }
+        });
+        console.debug('Debug: line paste finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: paste finish trace
+      }catch(err){
+        console.error('line paste failed',err);
+      }
     });
 
     if(refs.plot){
