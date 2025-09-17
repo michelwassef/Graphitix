@@ -5,6 +5,7 @@
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
   const roc = Components.roc = Components.roc || {};
+  const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   roc.__installed = true;
   roc.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -633,18 +634,35 @@
     svg.setAttribute('width', String(width));
     svg.setAttribute('height', String(height));
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    svg.setAttribute('font-family', 'sans-serif');
+    svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
+    chartStyle.applySvgDefaults(svg);
     plotEl.appendChild(svg);
 
     const legendWidth = legendLabels.length ? 120 : 0;
-    const margin = {
-      top: Math.max(32, Math.round(fontSize * 2.2)),
-      right: 20 + legendWidth,
-      bottom: Math.max(32, Math.round(fontSize * 2.2)) + fontSize + 6,
-      left: Math.max(48, Math.round(fontSize * 3.0))
-    };
-    const plotWidth = Math.max(20, width - margin.left - margin.right);
-    const plotHeight = Math.max(20, height - margin.top - margin.bottom);
+    const ticks = [0, 0.2, 0.4, 0.6, 0.8, 1];
+    const formatTick = value => value.toLocaleString('en-US',{maximumFractionDigits:2, minimumFractionDigits:2});
+    const tickFont = chartStyle.makeFont(fontSize);
+    const yTickLabels = ticks.map(formatTick);
+    const xTickLabels = ticks.map(formatTick);
+    const yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
+    const maxYLabelWidth = Math.max(...yLabelWidths, 0);
+    const axisLabelFontSize = fontSize + 4;
+    const axisLabelFont = chartStyle.makeFont(axisLabelFontSize);
+    const xAxisLabel = graphType === 'roc' ? 'False Positive Rate' : 'Recall';
+    const yAxisLabel = graphType === 'roc' ? 'True Positive Rate' : 'Precision';
+    const yTitleWidth = chartStyle.measureText(yAxisLabel, axisLabelFont);
+    let margin = chartStyle.computeBaseMargins({fontSize, legendWidth, maxYLabelWidth, yTitleWidth});
+    let plotWidth = Math.max(20, width - margin.left - margin.right);
+    let plotHeight = Math.max(20, height - margin.top - margin.bottom);
+    const bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, plotWidth, baseBottom: margin.bottom});
+    margin.bottom = bottomLayout.bottom;
+    plotWidth = Math.max(20, width - margin.left - margin.right);
+    plotHeight = Math.max(20, height - margin.top - margin.bottom);
+    const square = chartStyle.ensureSquarePlot(width, height, margin);
+    margin = square.margin;
+    plotWidth = square.plotW;
+    plotHeight = square.plotH;
+    console.debug('Debug: roc layout',{margin,plotWidth,plotHeight,rotate:bottomLayout.shouldRotate});
 
     const xToPx = value => margin.left + plotWidth * value;
     const yToPx = value => margin.top + plotHeight * (1 - value);
@@ -663,7 +681,6 @@
 
     add('rect', {x: 0, y: 0, width, height, fill: '#fff'});
 
-    const ticks = [0, 0.2, 0.4, 0.6, 0.8, 1];
     if(showGrid){
       ticks.forEach(tick => {
         const x = xToPx(tick);
@@ -686,31 +703,39 @@
       console.debug('Debug: ROC PR baseline', {base});
     }
 
+    const xTickNodes = [];
     ticks.forEach(tick => {
       const x = xToPx(tick);
       add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + 6, stroke: '#000', 'stroke-width': 1});
-      add('text', {x, y: margin.top + plotHeight + fontSize + 6, 'text-anchor': 'middle', 'font-size': fontSize}, tick);
+      const txt = add('text', {x, y: margin.top + plotHeight + fontSize + 6, 'text-anchor': 'middle', 'font-size': fontSize, 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
+      xTickNodes.push(txt);
     });
+    chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
     ticks.forEach(tick => {
       const y = yToPx(tick);
       add('line', {x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1});
-      add('text', {x: margin.left - 8, y: y + fontSize / 2, 'text-anchor': 'end', 'font-size': fontSize}, tick);
+      add('text', {x: margin.left - 8, y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
     });
 
     add('text', {
       x: margin.left + plotWidth / 2,
-      y: height - 6,
+      y: margin.top + plotHeight + axisLabelFontSize + 8,
       'text-anchor': 'middle',
-      'font-size': fontSize + 2
-    }, graphType === 'roc' ? 'False Positive Rate' : 'Recall');
+      'font-size': axisLabelFontSize,
+      'font-weight': '600',
+      fill: chartStyle.TEXT_COLOR
+    }, xAxisLabel);
 
+    const yLabelX = margin.left - (maxYLabelWidth + fontSize * 1.6);
     add('text', {
-      x: 14,
+      x: yLabelX,
       y: margin.top + plotHeight / 2,
       'text-anchor': 'middle',
-      'font-size': fontSize + 2,
-      transform: `rotate(-90 14 ${margin.top + plotHeight / 2})`
-    }, graphType === 'roc' ? 'True Positive Rate' : 'Precision');
+      'font-size': axisLabelFontSize,
+      'font-weight': '600',
+      transform: `rotate(-90 ${yLabelX} ${margin.top + plotHeight / 2})`,
+      fill: chartStyle.TEXT_COLOR
+    }, yAxisLabel);
 
     const stats = [];
     const allPairs = [];
@@ -820,7 +845,7 @@
       const y = margin.top + 10 + index * (fontSize + 6);
       const color = state.labelColors[label] || DEFAULT_SCATTER_COLORS[index % DEFAULT_SCATTER_COLORS.length];
       add('rect', {x: legendX, y: y - 10, width: 12, height: 12, fill: color});
-      add('text', {x: legendX + 16, y, 'font-size': fontSize}, label);
+      add('text', {x: legendX + 16, y, 'font-size': fontSize, fill: chartStyle.TEXT_COLOR}, label);
     });
 
     if(refs.statsResults){

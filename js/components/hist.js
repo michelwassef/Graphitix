@@ -9,6 +9,7 @@
   const Components = global.Components = global.Components || {};
 
   const hist = Components.hist = Components.hist || {};
+  const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   hist.__installed = true; // signal to legacy code to skip
   hist.ready = false; // set true after successful init
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -291,7 +292,7 @@
     if(yMax===yMin) yMax=yMin+1;
     const W=Math.max(50,Math.floor(plotEl.clientWidth||50)); const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
     plotEl.style.position='relative';
-    const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','histSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family','sans-serif'); plotEl.appendChild(svg);
+    const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','histSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.applySvgDefaults(svg); plotEl.appendChild(svg);
     const yMinT=logY?Math.log10(yMin):yMin, yMaxT=logY?Math.log10(yMax):yMax;
     const yScale=niceScale(yMinT,yMaxT,6);
     if(isFinite(yMinManual)) yScale.min=yMinT; if(isFinite(yMaxManual)) yScale.max=yMaxT;
@@ -299,12 +300,21 @@
     function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
     const fs=Number(histFontSize.value)||16;
     const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
-    const measureCanvas=draw._canvas||(draw._canvas=document.createElement('canvas')); const ctx=measureCanvas.getContext('2d'); const tickFont=`${fs}px sans-serif`; function measureTextWidth(text,font){ctx.font=font; return ctx.measureText(text).width;}
-    const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont)); const maxYLabelWidth=Math.max(...yLabelWidths,0);
-    const yTitleFont=`${fs+4}px sans-serif`; const yTitleWidth=measureTextWidth(state.yLabelText,yTitleFont);
+    const xTickLabels=xScale.ticks.map(t=>formatTick(t));
+    const tickFont=chartStyle.makeFont(fs);
+    const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
+    const maxYLabelWidth=Math.max(...yLabelWidths,0);
+    const axisLabelFontSize=fs+4;
+    const titleFontSize=fs+6;
+    const axisLabelFont=chartStyle.makeFont(axisLabelFontSize);
+    const yTitleWidth=chartStyle.measureText(state.yLabelText,axisLabelFont);
     const showGrid=$('#histShowGrid').checked;
-    const margin={top:Math.max(32,Math.round(fs*2.2)),right:20,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs,maxYLabelWidth+fs*1.5+yTitleWidth/2)};
-    const plotW=Math.max(20,W-margin.left-margin.right); const plotH=Math.max(20,H-margin.top-margin.bottom);
+    let margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth,yTitleWidth});
+    let plotW=Math.max(20,W-margin.left-margin.right); let plotH=Math.max(20,H-margin.top-margin.bottom);
+    const bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom});
+    margin.bottom=bottomLayout.bottom;
+    plotW=Math.max(20,W-margin.left-margin.right); plotH=Math.max(20,H-margin.top-margin.bottom);
+    console.debug('Debug: hist layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
     const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
     const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
     function add(tag,attrs){const el=document.createElementNS(NS,tag); for(const[k,v] of Object.entries(attrs)) el.setAttribute(k,String(v)); svg.appendChild(el); return el;}
@@ -312,15 +322,17 @@
     if(showGrid){ yScale.ticks.forEach(t=>{ const y=y2px(t); add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1}); }); }
     add('line',{x1:margin.left,y1:margin.top+plotH,x2:margin.left+plotW,y2:margin.top+plotH,stroke:'#000','stroke-width':1});
     add('line',{x1:margin.left,y1:margin.top,x2:margin.left,y2:margin.top+plotH,stroke:'#000','stroke-width':1});
-    xScale.ticks.forEach(t=>{ const x=x2px(t); add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1}); const txt=add('text',{x,y:margin.top+plotH+tickLen+fs,'font-size':fs,'text-anchor':'middle'}); txt.textContent=formatTick(t);});
-    yScale.ticks.forEach(t=>{ const y=y2px(t); add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1}); const txt=add('text',{x:margin.left-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle'}); txt.textContent=formatTick(logY?Math.pow(10,t):t); });
+    const xTickNodes=[];
+    xScale.ticks.forEach(t=>{ const x=x2px(t); add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1}); const txt=add('text',{x,y:margin.top+plotH+tickLen+fs,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR}); txt.textContent=formatTick(t); xTickNodes.push(txt); });
+    chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+    yScale.ticks.forEach(t=>{ const y=y2px(t); add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1}); const txt=add('text',{x:margin.left-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR}); txt.textContent=formatTick(logY?Math.pow(10,t):t); });
     const edges=Array.from({length:bins+1},(_,i)=>xScale.min+i*binWidth);
     const fill=$('#histFill').value; const borderColor=$('#histBorder').value; const borderWidth=Number($('#histBorderWidth').value)||0;
     counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill}); if(borderWidth>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidth);} });
-    const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4}); xText.textContent=state.xLabelText; if(global.makeEditable) makeEditable(xText,txt=>{state.xLabelText=txt;});
-    const yX=margin.left-(maxYLabelWidth+fs*1.5);
-    const yText=add('text',{x:yX,y:margin.top+plotH/2,'dominant-baseline':'middle',transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4}); yText.textContent=state.yLabelText; if(global.makeEditable) makeEditable(yText,txt=>{state.yLabelText=txt;});
-    const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4}); titleText.textContent=state.titleText; if(global.makeEditable) makeEditable(titleText,txt=>{state.titleText=txt;});
+    const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':axisLabelFontSize,'font-weight':'600',fill:chartStyle.TEXT_COLOR}); xText.textContent=state.xLabelText; if(global.makeEditable) makeEditable(xText,txt=>{state.xLabelText=txt;});
+    const yX=margin.left-(maxYLabelWidth+fs*1.6);
+    const yText=add('text',{x:yX,y:margin.top+plotH/2,'dominant-baseline':'middle',transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':axisLabelFontSize,'font-weight':'600',fill:chartStyle.TEXT_COLOR}); yText.textContent=state.yLabelText; if(global.makeEditable) makeEditable(yText,txt=>{state.yLabelText=txt;});
+    const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':titleFontSize,'font-weight':'600',fill:chartStyle.TEXT_COLOR}); titleText.textContent=state.titleText; if(global.makeEditable) makeEditable(titleText,txt=>{state.titleText=txt;});
     if(global.autoResizeSvg) global.autoResizeSvg(svg);
     // Update stats panel
     updateHistStats(values);
