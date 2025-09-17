@@ -109,6 +109,7 @@
         exportGoChart: A.exportGoChart || global.exportGoChart,
         downloadStringPNG: A.downloadStringPNG || global.downloadStringPNG,
         downloadStringSVG: A.downloadStringSVG || global.downloadStringSVG,
+        calculateSignificance: A.calculateSignificance || global.calculateSignificance,
         drawFromLists: A.drawFromLists || global.drawFromLists,
         drawFromNumeric: A.drawFromNumeric || global.drawFromNumeric,
       };
@@ -151,7 +152,19 @@
     document.getElementById('goChartSVG').addEventListener('click',()=>{ try{ const api=resolveAPI(); if(api.exportGoChart) api.exportGoChart('svg'); }catch(err){ console.error('goChartSVG error',err); } });
     document.getElementById('stringPNG').addEventListener('click',()=>{ try{ const api=resolveAPI(); if(api.downloadStringPNG) api.downloadStringPNG(); }catch(err){ console.error('stringPNG error',err); } });
     document.getElementById('stringSVG').addEventListener('click',()=>{ try{ const api=resolveAPI(); if(api.downloadStringSVG) api.downloadStringSVG(); }catch(err){ console.error('stringSVG error',err); } });
-    const calcBtn=document.getElementById('calcSignificance'); if(calcBtn){ calcBtn.addEventListener('click',()=>{ try{ const api=resolveAPI(); if(api.calculateSignificance) api.calculateSignificance(); }catch(err){ console.error('calcSignificance error',err); } }); }
+    const calcBtn=document.getElementById('calcSignificance');
+    if(calcBtn){
+      calcBtn.addEventListener('click',()=>{
+        try{
+          const api=resolveAPI();
+          const hasSig=typeof api.calculateSignificance==='function';
+          console.debug('Debug: venn significance calculation requested', { hasSig }); // Debug: trace significance availability
+          if(hasSig) api.calculateSignificance();
+        }catch(err){
+          console.error('calcSignificance error',err);
+        }
+      });
+    }
 
     // Run analyses buttons
     const goBtn=document.getElementById('goBtn');
@@ -195,7 +208,26 @@
 
     // Sample + reset
     document.getElementById('sample').addEventListener('click',()=>{ inputs.labelA.value='Transcriptomic'; inputs.labelB.value='Proteomic'; inputs.labelC.value='Phospho'; inputs.A.value=`BRCA1\nATM\nBAP1\nEZH2\nSUZ12\nRING1B`; inputs.B.value=`BRCA1\nBAP1\nRING1B\nCBX2\nHDAC1\nPAXIP1\nHUWE1`; inputs.C.value=`BRCA1\nPAXIP1\nCSNK2A1\nRING1B\nKAT7`; refreshDiagram(); });
-    document.getElementById('reset').addEventListener('click',()=>{ inputs.A.value=''; inputs.B.value=''; inputs.C.value=''; Object.values(inputs.counts).forEach(x=>x.value=0); clearSVG(); state.lastRegions=null; state.lastDrawMode=null; state.lastCounts=null; const regionList=document.getElementById('regionList'); if(regionList) regionList.textContent=''; ['countA','countB','countC','countAB','countAC','countBC','countABC'].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent='0'; }); (fallback.updateCountLabels||global.updateCountLabels)?.({A:'A',B:'B',C:'C'}); (fallback.updateColorLabels||global.updateColorLabels)?.({A:'A',B:'B',C:'C'}); (fallback.updateRegionSelect||global.updateRegionSelect)?.({A:'A',B:'B',C:'C'}); (fallback.clearAnalysis||global.clearAnalysis)?.(); const speciesSelect=$('#speciesSelect'); if(speciesSelect) speciesSelect.value=''; (fallback.setSpeciesIndicator||global.setSpeciesIndicator)?.(null); const totalGenesInput=$('#totalGenes'); if(totalGenesInput) totalGenesInput.value=''; const sigRes=$('#significanceResults'); if(sigRes) sigRes.innerHTML=''; });
+    document.getElementById('reset').addEventListener('click',()=>{
+      console.debug('Debug: venn reset handler invoked'); // Debug: trace reset entry
+      inputs.A.value=''; inputs.B.value=''; inputs.C.value='';
+      Object.values(inputs.counts).forEach(x=>x.value=0);
+      clearSVG();
+      state.lastRegions=null; state.lastDrawMode=null; state.lastCounts=null;
+      const regionList=document.getElementById('regionList'); if(regionList) regionList.textContent='';
+      ['countA','countB','countC','countAB','countAC','countBC','countABC'].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent='0'; });
+      const api=resolveAPI();
+      const defaultLabels={A:'A',B:'B',C:'C'};
+      api.updateCountLabels?.(defaultLabels);
+      api.updateColorLabels?.(defaultLabels);
+      api.updateRegionSelect?.(defaultLabels);
+      api.clearAnalysis?.();
+      const speciesSelect=$('#speciesSelect'); if(speciesSelect) speciesSelect.value='';
+      api.setSpeciesIndicator?.(null);
+      const totalGenesInput=$('#totalGenes'); if(totalGenesInput) totalGenesInput.value='';
+      const sigRes=$('#significanceResults'); if(sigRes) sigRes.innerHTML='';
+      console.debug('Debug: venn reset handler completed', { defaultLabels }); // Debug: trace reset exit
+    });
 
     venn.ready = true;
   };
