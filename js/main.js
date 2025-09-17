@@ -2702,6 +2702,7 @@ KAT7`;
       V.exportGoChart = exportGoChart;
       V.downloadStringPNG = downloadStringPNG;
       V.downloadStringSVG = downloadStringSVG;
+      V.calculateSignificance = calculateSignificance;
       V.drawFromLists = drawFromLists;
       V.drawFromNumeric = drawFromNumeric;
       console.debug('Debug: Venn API exported to Components.venn');
