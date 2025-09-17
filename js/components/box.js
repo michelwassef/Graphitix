@@ -225,7 +225,135 @@
   function anova(groups){ const k=groups.length; const n=groups.reduce((s,g)=>s+g.length,0); const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n; let ssBetween=0, ssWithin=0; groups.forEach(g=>{ const m=mean(g); ssBetween+=g.length*Math.pow(m-grand,2); ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0); }); const dfBetween=k-1; const dfWithin=n-k; const msBetween=ssBetween/dfBetween; const msWithin=ssWithin/dfWithin; const F=msBetween/msWithin; const p=1-global.jStat.centralF.cdf(F,dfBetween,dfWithin); return {F,p}; }
   function kruskalWallis(groups){ const n=groups.reduce((s,g)=>s+g.length,0); const all=groups.flat(); const ranks=rankArray(all); let idx=0; const R=groups.map(g=>{ const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0); idx+=g.length; return r; }); const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1); const df=groups.length-1; const p=1-global.jStat.chisquare.cdf(H,df); return {H,p}; }
   function parsePairString(str,traces){ return str.split(/[\n,]+/).map(p=>p.trim()).filter(p=>p).map(p=>{ const [a,b]=p.split('-').map(s=>s.trim()); const ai=isNaN(parseInt(a))?traces.findIndex(t=>t.name===a):parseInt(a)-1; const bi=isNaN(parseInt(b))?traces.findIndex(t=>t.name===b):parseInt(b)-1; return (ai>=0&&bi>=0)?{ai,bi}:null; }).filter(Boolean); }
-  function renderStatsControls(traces){ const controls=document.getElementById('statsControls'); controls.innerHTML=''; if(state.selectedCols.size<2 && traces.length>=2){ state.selectedCols.clear(); state.selectedCols.add(0); state.selectedCols.add(1); } if(state.statsMode==='reference' && !state.selectedCols.has(state.statsRef)){ state.selectedCols.add(state.statsRef); } const optionWrap=document.createElement('div'); const testLabel=document.createElement('label'); testLabel.textContent='Test:'; const testSel=document.createElement('select'); ['parametric','nonparametric'].forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v==='parametric'?'Parametric':'Non-parametric'; if(state.statsTest===v) o.selected=true; testSel.appendChild(o); }); testSel.addEventListener('change',()=>{ state.statsTest=testSel.value; console.log('boxplot statsTest changed', state.statsTest); state.scheduleDraw(); }); optionWrap.appendChild(testLabel); optionWrap.appendChild(testSel); const pairedLabel=document.createElement('label'); pairedLabel.textContent='Pairing:'; const pairedSel=document.createElement('select'); [['unpaired','Unpaired'],['paired','Paired']].forEach(([v,t])=>{ const o=document.createElement('option'); o.value=v; o.textContent=t; if((state.statsPaired && v==='paired')||(!state.statsPaired&&v==='unpaired')) o.selected=true; pairedSel.appendChild(o); }); pairedSel.addEventListener('change',()=>{ state.statsPaired=pairedSel.value==='paired'; console.log('boxplot statsPaired changed', state.statsPaired); state.scheduleDraw(); }); optionWrap.appendChild(pairedLabel); optionWrap.appendChild(pairedSel); const modeLabel=document.createElement('label'); modeLabel.textContent='Comparison:'; const modeSel=document.createElement('select'); [['all','All pairwise'],['reference','Versus reference'],['custom','Custom pairs']].forEach(([v,t])=>{ const o=document.createElement('option'); o.value=v; o.textContent=t; if(state.statsMode===v) o.selected=true; modeSel.appendChild(o); }); modeSel.addEventListener('change',()=>{ state.statsMode=modeSel.value; console.log('boxplot statsMode changed', state.statsMode); renderStatsControls(traces); state.scheduleDraw(); }); optionWrap.appendChild(modeLabel); optionWrap.appendChild(modeSel); if(state.statsMode==='reference'){ const refLabel=document.createElement('label'); refLabel.textContent='Reference:'; const refSel=document.createElement('select'); traces.forEach((t,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=t.name; if(i===state.statsRef) o.selected=true; refSel.appendChild(o); }); refSel.addEventListener('change',()=>{ state.statsRef=+refSel.value; console.log('boxplot statsRef changed', state.statsRef); renderStatsControls(traces); state.scheduleDraw(); }); optionWrap.appendChild(refLabel); optionWrap.appendChild(refSel); } else if(state.statsMode==='custom'){ const pairLabel=document.createElement('label'); pairLabel.textContent='Pairs:'; const pairInput=document.createElement('input'); pairInput.type='text'; pairInput.value=state.statsPairsText; pairInput.placeholder='1-3,2-4'; pairInput.addEventListener('change',()=>{ state.statsPairsText=pairInput.value; state.statsCustomPairs=parsePairString(state.statsPairsText,traces); console.log('boxplot custom pairs changed', state.statsPairsText); state.scheduleDraw(); }); optionWrap.appendChild(pairLabel); optionWrap.appendChild(pairInput); state.statsCustomPairs=parsePairString(state.statsPairsText,traces); } controls.appendChild(optionWrap); traces.forEach((t,i)=>{ const id=`statCol${i}`; const chk=document.createElement('input'); chk.type='checkbox'; chk.id=id; chk.dataset.index=i; chk.checked=state.selectedCols.has(i); chk.addEventListener('change',()=>{ if(chk.checked) state.selectedCols.add(i); else state.selectedCols.delete(i); console.log('boxplot column toggle',{index:i,checked:chk.checked}); state.scheduleDraw(); }); const lab=document.createElement('label'); lab.setAttribute('for',id); lab.textContent=t.name; controls.appendChild(chk); controls.appendChild(lab); }); }
+function renderStatsControls(traces){
+  const controls=document.getElementById('statsControls');
+  controls.innerHTML='';
+
+  if(state.selectedCols.size<2 && traces.length>=2){
+    state.selectedCols.clear();
+    state.selectedCols.add(0);
+    state.selectedCols.add(1);
+  }
+  if(state.statsMode==='reference' && !state.selectedCols.has(state.statsRef)){
+    state.selectedCols.add(state.statsRef);
+  }
+
+  const optionWrap=document.createElement('div');
+
+  const testLabel=document.createElement('label');
+  testLabel.textContent='Test:';
+  const testSel=document.createElement('select');
+  ['parametric','nonparametric'].forEach(v=>{
+    const option=document.createElement('option');
+    option.value=v;
+    option.textContent=v==='parametric'?'Parametric':'Non-parametric';
+    if(state.statsTest===v) option.selected=true;
+    testSel.appendChild(option);
+  });
+  testSel.addEventListener('change',()=>{
+    state.statsTest=testSel.value;
+    console.log('boxplot statsTest changed', state.statsTest);
+    state.scheduleDraw();
+  });
+  optionWrap.appendChild(testLabel);
+  optionWrap.appendChild(testSel);
+
+  const pairedLabel=document.createElement('label');
+  pairedLabel.textContent='Pairing:';
+  const pairedSel=document.createElement('select');
+  [['unpaired','Unpaired'],['paired','Paired']].forEach(([value,text])=>{
+    const option=document.createElement('option');
+    option.value=value;
+    option.textContent=text;
+    if((state.statsPaired && value==='paired')||(!state.statsPaired && value==='unpaired')) option.selected=true;
+    pairedSel.appendChild(option);
+  });
+  pairedSel.addEventListener('change',()=>{
+    state.statsPaired=pairedSel.value==='paired';
+    console.log('boxplot statsPaired changed', state.statsPaired);
+    state.scheduleDraw();
+  });
+  optionWrap.appendChild(pairedLabel);
+  optionWrap.appendChild(pairedSel);
+
+  const modeLabel=document.createElement('label');
+  modeLabel.textContent='Comparison:';
+  const modeSel=document.createElement('select');
+  [['all','All pairwise'],['reference','Versus reference'],['custom','Custom pairs']].forEach(([value,text])=>{
+    const option=document.createElement('option');
+    option.value=value;
+    option.textContent=text;
+    if(state.statsMode===value) option.selected=true;
+    modeSel.appendChild(option);
+  });
+  modeSel.addEventListener('change',()=>{
+    state.statsMode=modeSel.value;
+    console.log('boxplot statsMode changed', state.statsMode);
+    renderStatsControls(traces);
+    state.scheduleDraw();
+  });
+  optionWrap.appendChild(modeLabel);
+  optionWrap.appendChild(modeSel);
+
+  if(state.statsMode==='reference'){
+    const refLabel=document.createElement('label');
+    refLabel.textContent='Reference:';
+    const refSel=document.createElement('select');
+    traces.forEach((trace,index)=>{
+      const option=document.createElement('option');
+      option.value=index;
+      option.textContent=trace.name;
+      if(index===state.statsRef) option.selected=true;
+      refSel.appendChild(option);
+    });
+    refSel.addEventListener('change',()=>{
+      state.statsRef=+refSel.value;
+      console.log('boxplot statsRef changed', state.statsRef);
+      renderStatsControls(traces);
+      state.scheduleDraw();
+    });
+    optionWrap.appendChild(refLabel);
+    optionWrap.appendChild(refSel);
+  }else if(state.statsMode==='custom'){
+    const pairLabel=document.createElement('label');
+    pairLabel.textContent='Pairs:';
+    const pairInput=document.createElement('input');
+    pairInput.type='text';
+    pairInput.value=state.statsPairsText;
+    pairInput.placeholder='1-3,2-4';
+    pairInput.addEventListener('change',()=>{
+      state.statsPairsText=pairInput.value;
+      state.statsCustomPairs=parsePairString(state.statsPairsText,traces);
+      console.log('boxplot custom pairs changed', state.statsPairsText);
+      state.scheduleDraw();
+    });
+    optionWrap.appendChild(pairLabel);
+    optionWrap.appendChild(pairInput);
+    state.statsCustomPairs=parsePairString(state.statsPairsText,traces);
+  }
+
+  controls.appendChild(optionWrap);
+
+  traces.forEach((trace,index)=>{
+    const id=`statCol${index}`;
+    const checkbox=document.createElement('input');
+    checkbox.type='checkbox';
+    checkbox.id=id;
+    checkbox.dataset.index=index;
+    checkbox.checked=state.selectedCols.has(index);
+    checkbox.addEventListener('change',()=>{
+      if(checkbox.checked) state.selectedCols.add(index);
+      else state.selectedCols.delete(index);
+      console.log('boxplot column toggle',{index,checked:checkbox.checked});
+      state.scheduleDraw();
+    });
+    const label=document.createElement('label');
+    label.setAttribute('for',id);
+    label.textContent=trace.name;
+    controls.appendChild(checkbox);
+    controls.appendChild(label);
+  });
+}
   function annotatePair(svg,x1,x2,y,p){ const path=document.createElementNS(NS,'path'); path.setAttribute('d',`M${x1},${y} L${x1},${y-10} L${x2},${y-10} L${x2},${y}`); path.setAttribute('stroke','#000'); path.setAttribute('fill','none'); svg.appendChild(path); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',(x1+x2)/2); txt.setAttribute('y',y-12); txt.setAttribute('text-anchor','middle'); txt.textContent=p2stars(p); svg.appendChild(txt); }
   function annotateOverall(svg,xCenters,y2px,maxVal,p,level=0){ const y=y2px(maxVal)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP; const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2); txt.setAttribute('y',y-12); txt.setAttribute('text-anchor','middle'); txt.textContent=p2stars(p); svg.appendChild(txt); }
   function renderStatsTable(traces){ const tableDiv=document.getElementById('statsTable'); if(!tableDiv) return; const rows=traces.map(t=>{ const arr=t.rawY; const n=arr.length; const mean=arr.reduce((s,v)=>s+v,0)/n; const med=arr.slice().sort((a,b)=>a-b)[Math.floor(n/2)] ?? NaN; const sd=global.jStat.stdev(arr,true); const min=Math.min(...arr); const q1=global.jStat.percentile(arr,0.25); const q3=global.jStat.percentile(arr,0.75); const max=Math.max(...arr); return {name:t.name,n,mean,med,sd,min,q1,q3,max}; }); let html='<table style="border-collapse:collapse">'; html+='<thead><tr>'+['Column','N','Mean','Median','SD','Min','Q1','Q3','Max'].map(h=>`<th style="border:1px solid #ccc;padding:4px">${h}</th>`).join('')+'</tr></thead>'; html+='<tbody>'+rows.map(r=>`<tr><td style=\"border:1px solid #ccc;padding:4px\">${r.name}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.n}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.mean.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.med.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.sd.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.min}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.q1.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.q3.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.max}</td></tr>`).join('')+'</tbody></table>'; tableDiv.innerHTML=html; }

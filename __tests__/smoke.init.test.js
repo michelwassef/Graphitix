@@ -22,6 +22,7 @@ describe('App initialization', () => {
       require('../js/components/scatter.js');
       require('../js/components/pca.js');
       require('../js/components/line.js');
+      require('../js/components/roc.js');
       // Load the application script (IIFE executes immediately)
       require('../js/main.js');
     }).not.toThrow();
