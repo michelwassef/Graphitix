@@ -68,21 +68,16 @@
   // PART: INIT_TABLE
   function initTableAndResizers(){
     let minSvgWidth=0;
-    function syncWidths(){
-      const tableWidth=els.tablePanel.getBoundingClientRect().width;
-      const graphWidth=els.graphPanel.getBoundingClientRect().width;
-      const configWidth=els.configPanel.getBoundingClientRect().width;
-      const gap=parseFloat(getComputedStyle(els.graphPanel.querySelector('.diagram-area')).gap||0);
-      const available=graphWidth-configWidth-gap;
-      const minW=minSvgWidth||0;
-      const newW=Math.max(minW, Math.min(tableWidth, available));
-      if(els.svgBox) els.svgBox.style.width=newW+'px';
-      console.debug('Debug: syncBoxWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
-      try{ state.scheduleDraw && state.scheduleDraw(); }catch(e){ console.error('box sync schedule error', e); }
-    }
-    const observer=new ResizeObserver(()=>{syncWidths();}); observer.observe(els.tablePanel); syncWidths();
+    const syncPanels = () => {
+      Shared.syncPanelWidths(els.tablePanel, els.graphPanel, els.configPanel, state.scheduleDraw, {
+        svgBox: els.svgBox,
+        minSvgWidth,
+        debugLabel: 'box'
+      });
+    };
+    const observer=new ResizeObserver(()=>{syncPanels();}); observer.observe(els.tablePanel); syncPanels();
     const container=els.plotDiv.closest('.svgbox')||els.plotDiv.parentElement;
-    if(global.Shared && Shared.attachResizableBox && container){ Shared.attachResizableBox(container, { onResize: () => { try{ state.scheduleDraw(); }catch(e){ console.error('box onResize schedule error', e); } } }); }
+    if(global.Shared && Shared.attachResizableBox && container){ Shared.attachResizableBox(container, { onResize: () => { syncPanels(); } }); }
     if(els.panelResizer && els.tablePanel && els.graphPanel){
       els.panelResizer.addEventListener('pointerdown',e=>{
         e.preventDefault();
@@ -95,7 +90,7 @@
         const minGraph=configWidth+gap+minSvgWidth;
         const total=startTable+startGraph;
         console.debug('Debug: box resizer start',{startTable,startGraph,configWidth,gap,minSvgWidth,minGraph,total});
-        function onMove(ev){ const dx=ev.clientX-startX; let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx)); let newGraph=total-newTable; els.tablePanel.style.flex=`0 0 ${newTable}px`; els.graphPanel.style.flex=`0 0 ${newGraph}px`; syncWidths(); console.debug('Debug: box resizer move',{dx,newTable,newGraph}); }
+        function onMove(ev){ const dx=ev.clientX-startX; let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx)); let newGraph=total-newTable; els.tablePanel.style.flex=`0 0 ${newTable}px`; els.graphPanel.style.flex=`0 0 ${newGraph}px`; syncPanels(); console.debug('Debug: box resizer move',{dx,newTable,newGraph}); }
         function onUp(){ document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp); console.debug('Debug: box resizer end'); }
         document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
       });

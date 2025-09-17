@@ -84,20 +84,17 @@
       const scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
       const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-options');
       let scatterMinSvgWidth=0;
-      function syncScatterWidths(){
-        const tableWidth=scatterTablePanel.getBoundingClientRect().width;
-        const graphWidth=scatterGraphPanel.getBoundingClientRect().width;
-        const configWidth=scatterConfigPanel.getBoundingClientRect().width;
-        const gap=parseFloat(getComputedStyle(scatterGraphPanel.querySelector('.diagram-area')).gap||0);
-        const available=graphWidth-configWidth-gap;
-        const minW=scatterMinSvgWidth||0;
-        const newW=Math.max(minW, Math.min(tableWidth, available));
-        if(scatterSvgBox) scatterSvgBox.style.width=newW+'px';
-        console.debug('syncScatterWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
-      }
-      const scatterTableObserver = ResizeObserverCtor ? new ResizeObserverCtor(()=>{syncScatterWidths();}) : null;
+      const syncScatterPanels=()=>{
+        Shared.syncPanelWidths(scatterTablePanel, scatterGraphPanel, scatterConfigPanel, null, {
+          svgBox: scatterSvgBox,
+          minSvgWidth: scatterMinSvgWidth,
+          debugLabel: 'scatter',
+          skipSchedule: true
+        });
+      };
+      const scatterTableObserver = ResizeObserverCtor ? new ResizeObserverCtor(()=>{syncScatterPanels();}) : null;
       if(scatterTableObserver) scatterTableObserver.observe(scatterTablePanel);
-      syncScatterWidths();
+      syncScatterPanels();
     
       if(global.Shared && global.Shared.ensureHotWrapperStyles){ global.Shared.ensureHotWrapperStyles(scatterHotWrapper); }
       console.debug('scatterHotWrapper style updated', scatterHotWrapper.style.cssText);
@@ -402,7 +399,7 @@
             let newGraph=total-newTable;
             scatterTablePanel.style.flex=`0 0 ${newTable}px`;
             scatterGraphPanel.style.flex=`0 0 ${newGraph}px`;
-            syncScatterWidths();
+            syncScatterPanels();
             console.debug('scatter resizer move',{dx,newTable,newGraph});
           }
           function onUp(){

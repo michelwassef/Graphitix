@@ -36,27 +36,22 @@
     const histSvgBox=histGraphPanel?.querySelector('.svgbox');
     const histConfigPanel=histGraphPanel?.querySelector('.config-options');
     let histMinSvgWidth=0;
-    function syncHistWidths(){
-      const tableWidth=histTablePanel.getBoundingClientRect().width;
-      const graphWidth=histGraphPanel.getBoundingClientRect().width;
-      const configWidth=histConfigPanel.getBoundingClientRect().width;
-      const gap=parseFloat(getComputedStyle(histGraphPanel.querySelector('.diagram-area')).gap||0);
-      const available=graphWidth-configWidth-gap;
-      const minW=histMinSvgWidth||0;
-      const newW=Math.max(minW, Math.min(tableWidth, available));
-      if(histSvgBox) histSvgBox.style.width=newW+'px';
-      console.debug('Debug: syncHistWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
-      if (typeof state.scheduleDraw === 'function') try{ state.scheduleDraw(); } catch(e){ console.error('hist sync schedule error', e); }
-    }
-    const observer=new ResizeObserver(()=>{syncHistWidths();});
+    const syncHistPanels = () => {
+      Shared.syncPanelWidths(histTablePanel, histGraphPanel, histConfigPanel, state.scheduleDraw, {
+        svgBox: histSvgBox,
+        minSvgWidth: histMinSvgWidth,
+        debugLabel: 'hist'
+      });
+    };
+    const observer=new ResizeObserver(()=>{syncHistPanels();});
     observer.observe(histTablePanel);
-    syncHistWidths();
+    syncHistPanels();
 
     // svgbox resizer
     const histPlotDiv=document.getElementById('histPlot');
     const histContainer=histPlotDiv.closest('.svgbox')||histPlotDiv.parentElement;
     if(global.Shared && Shared.attachResizableBox && histContainer){
-      Shared.attachResizableBox(histContainer, { onResize: () => { if (typeof state.scheduleDraw === 'function') try{ state.scheduleDraw(); }catch(e){ console.error('hist onResize schedule error', e); } } });
+      Shared.attachResizableBox(histContainer, { onResize: () => { syncHistPanels(); } });
     }
 
     // panel resizer
@@ -78,7 +73,7 @@
           let newGraph=total-newTable;
           histTablePanel.style.flex=`0 0 ${newTable}px`;
           histGraphPanel.style.flex=`0 0 ${newGraph}px`;
-          syncHistWidths();
+          syncHistPanels();
           console.debug('Debug: hist resizer move',{dx,newTable,newGraph});
         }
         function onUp(){

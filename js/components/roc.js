@@ -100,27 +100,11 @@
   }
 
   function syncTableAndGraphWidths(){
-    if(!refs.tablePanel || !refs.graphPanel || !refs.configPanel){
-      return;
-    }
-    const tableWidth = refs.tablePanel.getBoundingClientRect().width;
-    const graphWidth = refs.graphPanel.getBoundingClientRect().width;
-    const configWidth = refs.configPanel.getBoundingClientRect().width;
-    const gap = parseFloat(getComputedStyle(refs.graphPanel.querySelector('.diagram-area')).gap || 0);
-    const available = graphWidth - configWidth - gap;
-    const minW = state.minSvgWidth || 0;
-    const newW = Math.max(minW, Math.min(tableWidth, available));
-    if(refs.svgBox){
-      refs.svgBox.style.width = `${newW}px`;
-    }
-    console.debug('Debug: ROC width sync', {tableWidth, graphWidth, configWidth, gap, newW});
-    if(typeof state.scheduleDraw === 'function'){
-      try{
-        state.scheduleDraw();
-      }catch(err){
-        console.error('roc sync schedule error', err);
-      }
-    }
+    Shared.syncPanelWidths(refs.tablePanel, refs.graphPanel, refs.configPanel, state.scheduleDraw, {
+      svgBox: refs.svgBox,
+      minSvgWidth: state.minSvgWidth,
+      debugLabel: 'roc'
+    });
   }
 
   function initResizers(){
@@ -135,9 +119,7 @@
       Shared.attachResizableBox(container, {
         onResize: () => {
           console.debug('Debug: ROC box resized');
-          if(typeof state.scheduleDraw === 'function'){
-            state.scheduleDraw();
-          }
+          syncTableAndGraphWidths();
         }
       });
     }
