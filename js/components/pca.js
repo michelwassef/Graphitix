@@ -62,17 +62,14 @@
       const pcaSvgBox=pcaGraphPanel?.querySelector('.svgbox');
       const pcaConfigPanel=pcaGraphPanel?.querySelector('.config-options');
       let pcaMinSvgWidth=0;
-      function syncPcaWidths(){
-        const tableWidth=pcaTablePanel.getBoundingClientRect().width;
-        const graphWidth=pcaGraphPanel.getBoundingClientRect().width;
-        const configWidth=pcaConfigPanel.getBoundingClientRect().width;
-        const gap=parseFloat(getComputedStyle(pcaGraphPanel.querySelector('.diagram-area')).gap||0);
-        const available=graphWidth-configWidth-gap;
-        const minW=pcaMinSvgWidth||0;
-        const newW=Math.max(minW, Math.min(tableWidth, available));
-        if(pcaSvgBox) pcaSvgBox.style.width=newW+'px';
-        console.debug('syncPcaWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
-      }
+      const syncPcaWidths=()=>{
+        Shared.syncPanelWidths(pcaTablePanel, pcaGraphPanel, pcaConfigPanel, null, {
+          svgBox: pcaSvgBox,
+          minSvgWidth: pcaMinSvgWidth,
+          debugLabel: 'pca',
+          skipSchedule: true
+        });
+      };
       const pcaTableObserver = ResizeObserverCtor ? new ResizeObserverCtor(()=>{syncPcaWidths();}) : null;
       if(pcaTableObserver) pcaTableObserver.observe(pcaTablePanel);
       syncPcaWidths();
@@ -188,7 +185,7 @@
       (function initPcaResizers(){
         if(!pcaContainer) return;
         if(Shared && Shared.attachResizableBox){
-          Shared.attachResizableBox(pcaContainer, { onResize: () => scheduleDrawPca() });
+          Shared.attachResizableBox(pcaContainer, { onResize: () => { syncPcaWidths(); scheduleDrawPca(); } });
         }
       })();
       (function initPcaPanelResizer(){

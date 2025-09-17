@@ -50,23 +50,18 @@
     const svgBox=graphPanel?.querySelector('.svgbox');
     const configPanel=graphPanel?.querySelector('.config-options');
     let minSvgWidth=0;
-    function sync(){
-      const tableWidth=tablePanel.getBoundingClientRect().width;
-      const graphWidth=graphPanel.getBoundingClientRect().width;
-      const configWidth=configPanel.getBoundingClientRect().width;
-      const gap=parseFloat(getComputedStyle(graphPanel.querySelector('.diagram-area')).gap||0);
-      const available=graphWidth-configWidth-gap;
-      const minW=minSvgWidth||0;
-      const newW=Math.max(minW, Math.min(tableWidth, available));
-      if(svgBox) svgBox.style.width=newW+'px';
-      console.debug('Debug: syncPieWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW});
-      if (typeof state.scheduleDraw === 'function') try{ state.scheduleDraw(); } catch(e){ console.error('pie sync schedule error', e); }
-    }
-    const observer=new ResizeObserver(()=>sync()); observer.observe(tablePanel); sync();
+    const syncPiePanels = () => {
+      Shared.syncPanelWidths(tablePanel, graphPanel, configPanel, state.scheduleDraw, {
+        svgBox,
+        minSvgWidth,
+        debugLabel: 'pie'
+      });
+    };
+    const observer=new ResizeObserver(()=>syncPiePanels()); observer.observe(tablePanel); syncPiePanels();
 
     const plotDiv=document.getElementById('piePlot');
     const container=plotDiv.closest('.svgbox')||plotDiv.parentElement;
-    if(global.Shared && Shared.attachResizableBox && container){ Shared.attachResizableBox(container, { onResize: () => { if (typeof state.scheduleDraw === 'function') try{ state.scheduleDraw(); } catch(e){ console.error('pie onResize schedule error', e); } } }); }
+    if(global.Shared && Shared.attachResizableBox && container){ Shared.attachResizableBox(container, { onResize: () => { syncPiePanels(); } }); }
 
     if(panelResizer && tablePanel && graphPanel){
       panelResizer.addEventListener('pointerdown',e=>{
@@ -80,7 +75,7 @@
         const minGraph=configWidth+gap+minSvgWidth;
         const total=startTable+startGraph;
         console.debug('Debug: pie resizer start',{startTable,startGraph,configWidth,gap,minSvgWidth,minGraph,total});
-        function onMove(ev){ const dx=ev.clientX-startX; let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx)); let newGraph=total-newTable; tablePanel.style.flex=`0 0 ${newTable}px`; graphPanel.style.flex=`0 0 ${newGraph}px`; sync(); console.debug('Debug: pie resizer move',{dx,newTable,newGraph}); }
+        function onMove(ev){ const dx=ev.clientX-startX; let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx)); let newGraph=total-newTable; tablePanel.style.flex=`0 0 ${newTable}px`; graphPanel.style.flex=`0 0 ${newGraph}px`; syncPiePanels(); console.debug('Debug: pie resizer move',{dx,newTable,newGraph}); }
         function onUp(){ document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp); console.debug('Debug: pie resizer end'); }
         document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
       });

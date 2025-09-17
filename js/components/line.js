@@ -57,20 +57,11 @@
   }
 
   function syncLineWidths(){
-    if(!refs.tablePanel || !refs.graphPanel || !refs.configPanel) return;
-    const tableWidth=refs.tablePanel.getBoundingClientRect().width;
-    const graphWidth=refs.graphPanel.getBoundingClientRect().width;
-    const configWidth=refs.configPanel.getBoundingClientRect().width;
-    const diagram=refs.graphPanel.querySelector('.diagram-area');
-    const gap=parseFloat(getComputedStyle(diagram).gap||0);
-    const available=graphWidth-configWidth-gap;
-    const minW=lineMinSvgWidth||0;
-    const newW=Math.max(minW, Math.min(tableWidth, available));
-    if(refs.svgBox) refs.svgBox.style.width=newW+'px';
-    console.debug('Debug: syncLineWidths',{tableWidth,graphWidth,configWidth,gap,available,newW,minW}); // Debug: layout adjustments
-    if(typeof scheduleLineDraw === 'function'){
-      try{ scheduleLineDraw(); }catch(err){ console.error('line sync schedule error',err); }
-    }
+    Shared.syncPanelWidths(refs.tablePanel, refs.graphPanel, refs.configPanel, scheduleLineDraw, {
+      svgBox: refs.svgBox,
+      minSvgWidth: lineMinSvgWidth,
+      debugLabel: 'line'
+    });
   }
 
   function updateLineLabelColorPickers(labels){
@@ -701,7 +692,7 @@
     if(refs.plot){
       const container=refs.plot.closest('.svgbox')||refs.plot.parentElement;
       if(container && Shared.attachResizableBox){
-        Shared.attachResizableBox(container,{ onResize: ()=>{ scheduleLineDraw(); } });
+        Shared.attachResizableBox(container,{ onResize: ()=>{ syncLineWidths(); } });
       }
     }
 

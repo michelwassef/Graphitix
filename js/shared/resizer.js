@@ -91,4 +91,71 @@
       obs.observe(container);
     }
   };
+
+  Shared.syncPanelWidths = function syncPanelWidths(tablePanel, graphPanel, configPanel, scheduleDraw, opts={}){
+    const debugLabel = opts.debugLabel || 'panel';
+    if(!tablePanel || !graphPanel || !configPanel){
+      console.debug('Debug: Shared.syncPanelWidths skipped', {
+        label: debugLabel,
+        hasTable: !!tablePanel,
+        hasGraph: !!graphPanel,
+        hasConfig: !!configPanel
+      });
+      return null;
+    }
+    const svgBox = opts.svgBox || graphPanel.querySelector(opts.svgSelector || '.svgbox');
+    const diagramSelector = opts.diagramSelector || '.diagram-area';
+    const diagramArea = graphPanel.querySelector(diagramSelector);
+    let gap = 0;
+    if(diagramArea){
+      try{
+        const style = (global.getComputedStyle ? global.getComputedStyle(diagramArea) : null) || {};
+        gap = parseFloat(style.gap || 0) || 0;
+      }catch(err){
+        console.error('Shared.syncPanelWidths gap error', err);
+      }
+    }
+    const tableWidth = tablePanel.getBoundingClientRect().width;
+    const graphWidth = graphPanel.getBoundingClientRect().width;
+    const configWidth = configPanel.getBoundingClientRect().width;
+    const available = graphWidth - configWidth - gap;
+    const minSvgWidth = Number.isFinite(opts.minSvgWidth) ? Math.max(0, opts.minSvgWidth) : 0;
+    const appliedWidth = Math.max(minSvgWidth, Math.min(tableWidth, available));
+    if(svgBox && Number.isFinite(appliedWidth)){
+      svgBox.style.width = appliedWidth + 'px';
+    }
+    if(typeof opts.onWidthApplied === 'function'){
+      try{
+        opts.onWidthApplied(appliedWidth);
+      }catch(err){
+        console.error('Shared.syncPanelWidths onWidthApplied error', err);
+      }
+    }
+    if(!opts.skipSchedule && typeof scheduleDraw === 'function'){
+      try{
+        scheduleDraw();
+      }catch(err){
+        console.error(debugLabel + ' sync schedule error', err);
+      }
+    }
+    console.debug('Debug: Shared.syncPanelWidths applied', {
+      label: debugLabel,
+      tableWidth,
+      graphWidth,
+      configWidth,
+      gap,
+      available,
+      minSvgWidth,
+      appliedWidth
+    });
+    return {
+      tableWidth,
+      graphWidth,
+      configWidth,
+      gap,
+      available,
+      minSvgWidth,
+      appliedWidth
+    };
+  };
 })(window);
