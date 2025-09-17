@@ -142,38 +142,18 @@
 
   Chart.defaults.locale='en-US';
 
-  function downloadURL(url,name){
-    const a=document.createElement('a');
-    a.href=url;
-    a.download=name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+  const sharedNamespace = window.Shared = window.Shared || {};
+  const sharedFileIO = sharedNamespace.fileIO = sharedNamespace.fileIO || {};
+  if(sharedFileIO.downloadJSON && sharedFileIO.verifyPermission){
+    window.downloadJSON = sharedFileIO.downloadJSON;
+    window.verifyPermission = sharedFileIO.verifyPermission;
+    console.debug('Debug: main.js bound shared fileIO helpers', {
+      hasDownload: typeof window.downloadJSON === 'function',
+      hasVerify: typeof window.verifyPermission === 'function'
+    });
+  } else {
+    console.debug('Debug: Shared.fileIO helpers not yet registered');
   }
-
-  function downloadJSON(obj,name){
-    console.debug('Debug: downloadJSON invoked', { name });
-    const blob=new Blob([JSON.stringify(obj)],{type:'application/json'});
-    const url=URL.createObjectURL(blob);
-    downloadURL(url,name);
-    setTimeout(()=>URL.revokeObjectURL(url),5000);
-  }
-  window.downloadJSON = downloadJSON;
-
-  async function verifyPermission(handle,write){
-    try{
-      console.debug('Debug: verifyPermission start', { write });
-      const opts=write?{mode:'readwrite'}:{};
-      const q=await handle.queryPermission(opts);
-      if(q==='granted') return true;
-      const r=await handle.requestPermission(opts);
-      return r==='granted';
-    }catch(err){
-      console.error('verifyPermission error',err);
-      return false;
-    }
-  }
-  window.verifyPermission = verifyPermission;
 
   function showVenn(){
     vennPage.style.display='block';

@@ -5,6 +5,10 @@
   const pca = Components.pca = Components.pca || {};
   pca.__installed = true;
   pca.ready = false;
+  const fileIO = Shared.fileIO = Shared.fileIO || {};
+  if(!fileIO.saveGraphFile){
+    console.debug('Debug: pca component awaiting Shared.fileIO helpers');
+  }
 
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_ROWS=100;
@@ -46,33 +50,6 @@
         clone.querySelectorAll('[contenteditable],[contentEditable]').forEach(el=>{ el.removeAttribute('contenteditable'); el.removeAttribute('contentEditable'); });
       }
       return new (global.XMLSerializer||XMLSerializer)().serializeToString(clone);
-    };
-    const downloadJson = (payload,name)=>{
-      if (typeof global.downloadJSON === 'function') {
-        global.downloadJSON(payload,name);
-        return;
-      }
-      const blob=new (global.Blob||Blob)([JSON.stringify(payload)],{type:'application/json'});
-      const url=(global.URL||URL).createObjectURL(blob);
-      const a=document.createElement('a');
-      a.href=url; a.download=name;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=> (global.URL||URL).revokeObjectURL(url),5000);
-    };
-    const ensurePermission = async (handle,write)=>{
-      if (typeof global.verifyPermission === 'function') {
-        return global.verifyPermission(handle,write);
-      }
-      try{
-        const opts=write?{mode:'readwrite'}:{};
-        const q=await handle.queryPermission(opts);
-        if(q==='granted') return true;
-        const r=await handle.requestPermission(opts);
-        return r==='granted';
-      }catch(err){
-        console.error('pca ensurePermission error',err);
-        return false;
-      }
     };
     const clipboardAPI = global.navigator && global.navigator.clipboard;
     let pcaDrawToken=0;
@@ -596,9 +573,60 @@
       };
     }
       let pcaFileHandle=null, pcaFileName='pca.graph';
-      async function savePcaFile(){ const payload=getPcaGraphPayload(); console.log('savePcaFile',{payload,pcaFileHandle}); if(pcaFileHandle&&pcaFileHandle.createWritable){ try{ const perm=await ensurePermission(pcaFileHandle,true); if(perm){ const w=await pcaFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); } }catch(err){console.error('savePcaFile error',err);} }else if(global.showSaveFilePicker){ console.log('savePcaFile no handle - invoking saveAs'); await saveAsPcaFile(); }else{ console.log('savePcaFile fallback download'); downloadJson(payload,pcaFileName); } }
-      async function saveAsPcaFile(){ const payload=getPcaGraphPayload(); console.log('saveAsPcaFile',payload); if(global.showSaveFilePicker){ try{ pcaFileHandle=await global.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:pcaFileName}); const w=await pcaFileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); }catch(err){console.error('saveAsPcaFile error',err);} }else{ downloadJson(payload,pcaFileName); } }
-      async function openPcaFile(){ console.log('openPcaFile start'); if(global.showOpenFilePicker){ try{ [pcaFileHandle]=await global.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await pcaFileHandle.getFile(); pcaFileName=file.name; loadPcaGraphFile(file); }catch(err){console.error('openPcaFile error',err);} }else{ const input=document.getElementById('pcaGraphFile'); input.value=''; input.click(); } }
+      async function savePcaFile(){
+        console.debug('Debug: savePcaFile invoked', { hasHandle: !!pcaFileHandle });
+        if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
+          console.error('savePcaFile missing fileIO.saveGraphFile');
+          return;
+        }
+        const result = await fileIO.saveGraphFile({
+          context: 'pca',
+          fileHandle: pcaFileHandle,
+          getPayload: getPcaGraphPayload,
+          fileName: pcaFileName,
+          downloadFileName: pcaFileName,
+          setFileHandle: handle => { pcaFileHandle = handle; },
+          setFileName: name => { pcaFileName = name; }
+        });
+        console.debug('Debug: savePcaFile result', result);
+      }
+      async function saveAsPcaFile(){
+        console.debug('Debug: saveAsPcaFile invoked', { currentName: pcaFileName });
+        if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
+          console.error('saveAsPcaFile missing fileIO.saveGraphFileAs');
+          return;
+        }
+        const result = await fileIO.saveGraphFileAs({
+          context: 'pca',
+          getPayload: getPcaGraphPayload,
+          fileName: pcaFileName,
+          downloadFileName: pcaFileName,
+          setFileHandle: handle => { pcaFileHandle = handle; },
+          setFileName: name => { pcaFileName = name; }
+        });
+        console.debug('Debug: saveAsPcaFile result', result);
+      }
+      async function openPcaFile(){
+        console.debug('Debug: openPcaFile invoked');
+        if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
+          console.error('openPcaFile missing fileIO.openGraphFile');
+          return;
+        }
+        const result = await fileIO.openGraphFile({
+          context: 'pca',
+          setFileHandle: handle => { pcaFileHandle = handle; },
+          setFileName: name => { pcaFileName = name; },
+          loadFromFile: file => loadPcaGraphFile(file),
+          triggerInput: () => {
+            const input = document.getElementById('pcaGraphFile');
+            if(input){
+              input.value='';
+              input.click();
+            }
+          }
+        });
+        console.debug('Debug: openPcaFile result', result);
+      }
       function loadPcaGraphFile(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadPcaGraph',obj); if(obj.type!=='pca') throw new Error('Invalid graph type'); pcaHot.loadData(obj.data||[]); const c=obj.config||{}; pcaDotSize.value=c.dotSize||pcaDotSize.value; pcaFill.value=c.fill||pcaFill.value; pcaBorder.value=c.border||pcaBorder.value; pcaBorderWidth.value=c.borderWidth||pcaBorderWidth.value; pcaMethod.value=c.method||'pca'; pcaAlpha.value=c.alpha||0; pcaAlphaVal.textContent=pcaAlpha.value; pcaLabelColors=c.labelColors||{}; pcaShowGrid.checked=!!c.showGrid; pcaXMin.value=c.xMin||''; pcaXMax.value=c.xMax||''; pcaYMin.value=c.yMin||''; pcaYMax.value=c.yMax||''; pcaScale.checked=!!c.scale; pcaFontSize.value=c.fontSize||pcaFontSize.value; pcaFontSizeVal.textContent=pcaFontSize.value; scheduleDrawPca(); }catch(err){console.error('loadPcaGraph error',err);} }; reader.readAsText(file); }
       document.getElementById('pcaPNG').addEventListener('click',async()=>{ const svgEl=document.getElementById('pcaSvg'); if(!svgEl) return; console.log('pcaPNG export start'); const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800; const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400; const xml=serializeSvg(svgEl); const img=new Image(); const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml); img.src=url; await img.decode().catch(err=>{console.error('pcaPNG svg decode',err);}); const outCanvas=document.createElement('canvas'); outCanvas.width=W; outCanvas.height=H; const ctx=outCanvas.getContext('2d'); ctx.drawImage(img,0,0); outCanvas.toBlob(b=>{ const pngUrl=URL.createObjectURL(b); const a=document.createElement('a'); a.href=pngUrl; a.download='pca.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(pngUrl),4000); },'image/png'); });
       document.getElementById('pcaSVG').addEventListener('click',()=>{ const svgEl=document.getElementById('pcaSvg'); if(!svgEl) return; console.log('pcaSVG export start'); const xml=serializeSvg(svgEl); const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='pca.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000); });

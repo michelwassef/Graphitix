@@ -7,6 +7,10 @@
   const roc = Components.roc = Components.roc || {};
   roc.__installed = true;
   roc.ready = false;
+  const fileIO = Shared.fileIO = Shared.fileIO || {};
+  if(!fileIO.saveGraphFile){
+    console.debug('Debug: roc component awaiting Shared.fileIO helpers');
+  }
 
   const DEFAULT_ROWS = 100;
   const ROC_DEFAULT_COLS = 3;
@@ -957,43 +961,39 @@
 
   async function saveFile(){
     const payload = getPayload();
-    if(state.fileHandle && state.fileHandle.createWritable){
-      try{
-        const perm = typeof global.verifyPermission === 'function'
-          ? await global.verifyPermission(state.fileHandle, true)
-          : true;
-        if(perm){
-          const writable = await state.fileHandle.createWritable();
-          await writable.write(JSON.stringify(payload));
-          await writable.close();
-        }
-      }catch(err){
-        console.error('saveRocFile error', err);
-      }
-    }else if(global.showSaveFilePicker){
-      await saveFileAs();
-    }else if(typeof global.downloadJSON === 'function'){
-      global.downloadJSON(payload, state.fileName);
+    console.debug('Debug: saveRocFile invoked', { hasHandle: !!state.fileHandle });
+    if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
+      console.error('saveRocFile missing fileIO.saveGraphFile');
+      return;
     }
+    const result = await fileIO.saveGraphFile({
+      context: 'roc',
+      fileHandle: state.fileHandle,
+      payload,
+      fileName: state.fileName,
+      downloadFileName: state.fileName,
+      setFileHandle: handle => { state.fileHandle = handle; },
+      setFileName: name => { state.fileName = name; }
+    });
+    console.debug('Debug: saveRocFile result', result);
   }
 
   async function saveFileAs(){
     const payload = getPayload();
-    if(global.showSaveFilePicker){
-      try{
-        state.fileHandle = await global.showSaveFilePicker({
-          types: [{description: 'Graph Files', accept: {'application/json': ['.graph']}}],
-          suggestedName: state.fileName
-        });
-        const writable = await state.fileHandle.createWritable();
-        await writable.write(JSON.stringify(payload));
-        await writable.close();
-      }catch(err){
-        console.error('saveAsRocFile error', err);
-      }
-    }else if(typeof global.downloadJSON === 'function'){
-      global.downloadJSON(payload, state.fileName);
+    console.debug('Debug: saveAsRocFile invoked', { currentName: state.fileName });
+    if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
+      console.error('saveAsRocFile missing fileIO.saveGraphFileAs');
+      return;
     }
+    const result = await fileIO.saveGraphFileAs({
+      context: 'roc',
+      payload,
+      fileName: state.fileName,
+      downloadFileName: state.fileName,
+      setFileHandle: handle => { state.fileHandle = handle; },
+      setFileName: name => { state.fileName = name; }
+    });
+    console.debug('Debug: saveAsRocFile result', result);
   }
 
   function loadFromFile(file){
@@ -1022,21 +1022,24 @@
   }
 
   async function openFile(){
-    if(global.showOpenFilePicker){
-      try{
-        [state.fileHandle] = await global.showOpenFilePicker({
-          types: [{description: 'Graph Files', accept: {'application/json': ['.graph']}}]
-        });
-        const file = await state.fileHandle.getFile();
-        state.fileName = file.name;
-        loadFromFile(file);
-      }catch(err){
-        console.error('openRocFile error', err);
-      }
-    }else if(refs.graphFileInput){
-      refs.graphFileInput.value = '';
-      refs.graphFileInput.click();
+    console.debug('Debug: openRocFile invoked');
+    if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
+      console.error('openRocFile missing fileIO.openGraphFile');
+      return;
     }
+    const result = await fileIO.openGraphFile({
+      context: 'roc',
+      setFileHandle: handle => { state.fileHandle = handle; },
+      setFileName: name => { state.fileName = name; },
+      loadFromFile: file => loadFromFile(file),
+      triggerInput: () => {
+        if(refs.graphFileInput){
+          refs.graphFileInput.value = '';
+          refs.graphFileInput.click();
+        }
+      }
+    });
+    console.debug('Debug: openRocFile result', result);
   }
 
   function initExportsAndFiles(){

@@ -9,6 +9,10 @@
   const hist = Components.hist = Components.hist || {};
   hist.__installed = true; // signal to legacy code to skip
   hist.ready = false; // set true after successful init
+  const fileIO = Shared.fileIO = Shared.fileIO || {};
+  if(!fileIO.saveGraphFile){
+    console.debug('Debug: hist component awaiting Shared.fileIO helpers');
+  }
 
   let state = {
     hot: null,
@@ -188,22 +192,58 @@
       return {type:'hist', data: state.hot.getData(), config: c};
     }
     hist.save = async function(){
-      const payload=getPayload(); console.log('saveHistFile',{payload,handle:state.fileHandle});
-      if(state.fileHandle&&state.fileHandle.createWritable){
-        try{ const perm=await global.verifyPermission(state.fileHandle,true); console.log('saveHistFile permission',perm); if(perm){ const w=await state.fileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); } }
-        catch(err){console.error('saveHistFile error',err);}
-      }else if(global.showSaveFilePicker){ await hist.saveAs(); }
-      else{ if(global.downloadJSON) global.downloadJSON(payload,state.fileName); }
+      console.debug('Debug: hist.save invoked', { hasHandle: !!state.fileHandle });
+      if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
+        console.error('hist.save missing fileIO.saveGraphFile');
+        return;
+      }
+      const result = await fileIO.saveGraphFile({
+        context: 'hist',
+        fileHandle: state.fileHandle,
+        getPayload,
+        fileName: state.fileName,
+        downloadFileName: state.fileName,
+        setFileHandle: handle => { state.fileHandle = handle; },
+        setFileName: name => { state.fileName = name; }
+      });
+      console.debug('Debug: hist.save result', result);
     };
     hist.saveAs = async function(){
-      const payload=getPayload(); console.log('saveAsHistFile',payload);
-      if(global.showSaveFilePicker){ try{ state.fileHandle=await global.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:state.fileName}); const w=await state.fileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); }catch(err){console.error('saveAsHistFile error',err);} }
-      else { if(global.downloadJSON) global.downloadJSON(payload,'histogram.graph'); }
+      console.debug('Debug: hist.saveAs invoked', { currentName: state.fileName });
+      if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
+        console.error('hist.saveAs missing fileIO.saveGraphFileAs');
+        return;
+      }
+      const result = await fileIO.saveGraphFileAs({
+        context: 'hist',
+        getPayload,
+        fileName: state.fileName,
+        downloadFileName: state.fileName,
+        setFileHandle: handle => { state.fileHandle = handle; },
+        setFileName: name => { state.fileName = name; }
+      });
+      console.debug('Debug: hist.saveAs result', result);
     };
     hist.open = async function(){
-      console.log('openHistFile start');
-      if(global.showOpenFilePicker){ try{ [state.fileHandle]=await global.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await state.fileHandle.getFile(); state.fileName=file.name; hist.loadFromFile(file); }catch(err){console.error('openHistFile error',err);} }
-      else{ const input=document.getElementById('histGraphFile'); input.value=''; input.click(); }
+      console.debug('Debug: hist.open invoked');
+      if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
+        console.error('hist.open missing fileIO.openGraphFile');
+        return;
+      }
+      const result = await fileIO.openGraphFile({
+        context: 'hist',
+        setFileHandle: handle => { state.fileHandle = handle; },
+        setFileName: name => { state.fileName = name; },
+        loadFromFile: file => hist.loadFromFile(file),
+        triggerInput: () => {
+          const input = document.getElementById('histGraphFile');
+          if(input){
+            input.value='';
+            input.click();
+          }
+        }
+      });
+      console.debug('Debug: hist.open result', result);
     };
     hist.loadFromFile = function(file){
       const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadHistGraph',obj); if(obj.type!=='hist') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; state.xLabelText=c.xLabel||state.xLabelText; state.yLabelText=c.yLabel||state.yLabelText; $('#histFill').value=c.fill||$('#histFill').value; $('#histBorder').value=c.border||$('#histBorder').value; $('#histBorderWidth').value=c.borderWidth||$('#histBorderWidth').value; $('#histBins').value=c.bins||$('#histBins').value; $('#histShowGrid').checked=!!c.showGrid; $('#histLogY').checked=!!c.logY; $('#histFontSize').value=c.fontSize||$('#histFontSize').value; $('#histFontSizeVal').textContent=$('#histFontSize').value; $('#histYMin').value=c.yMin||''; $('#histYMax').value=c.yMax||''; state.scheduleDraw(); }catch(err){console.error('loadHistGraph error',err);} };

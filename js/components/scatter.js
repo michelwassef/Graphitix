@@ -5,6 +5,10 @@
   const scatter = Components.scatter = Components.scatter || {};
   scatter.__installed = true;
   scatter.ready = false;
+  const fileIO = Shared.fileIO = Shared.fileIO || {};
+  if(!fileIO.saveGraphFile){
+    console.debug('Debug: scatter component awaiting Shared.fileIO helpers');
+  }
 
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_ROWS=100;
@@ -68,33 +72,6 @@
         clone.querySelectorAll('[contenteditable],[contentEditable]').forEach(el=>{ el.removeAttribute('contenteditable'); el.removeAttribute('contentEditable'); });
       }
       return new (global.XMLSerializer||XMLSerializer)().serializeToString(clone);
-    };
-    const downloadJson = (payload,name)=>{
-      if (typeof global.downloadJSON === 'function') {
-        global.downloadJSON(payload,name);
-        return;
-      }
-      const blob = new (global.Blob||Blob)([JSON.stringify(payload)],{type:'application/json'});
-      const url = (global.URL||URL).createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = name;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=> (global.URL||URL).revokeObjectURL(url),5000);
-    };
-    const ensurePermission = async (handle,write)=>{
-      if (typeof global.verifyPermission === 'function') {
-        return global.verifyPermission(handle,write);
-      }
-      try{
-        const opts = write?{mode:'readwrite'}:{};
-        const q = await handle.queryPermission(opts);
-        if(q==='granted') return true;
-        const r = await handle.requestPermission(opts);
-        return r==='granted';
-      }catch(err){
-        console.error('scatter ensurePermission error',err);
-        return false;
-      }
     };
     const clipboardAPI = global.navigator && global.navigator.clipboard;
     let scatterDrawToken=0;
@@ -776,54 +753,58 @@
       }
       let scatterFileHandle=null, scatterFileName='scatter.graph';
       async function saveScatterFile(){
-        const payload=getScatterGraphPayload();
-        console.log('saveScatterFile',{payload,scatterFileHandle});
-        if(scatterFileHandle&&scatterFileHandle.createWritable){
-          try{
-            const perm=await ensurePermission(scatterFileHandle,true);
-            console.log('saveScatterFile permission',perm);
-            if(perm){
-              const w=await scatterFileHandle.createWritable();
-              await w.write(JSON.stringify(payload));
-              await w.close();
-            }
-          }catch(err){console.error('saveScatterFile error',err);}
-        }else if(global.showSaveFilePicker){
-          console.log('saveScatterFile no handle - invoking saveAs');
-          await saveAsScatterFile();
-        }else{
-          console.log('saveScatterFile fallback download');
-          downloadJson(payload,scatterFileName);
+        console.debug('Debug: saveScatterFile invoked', { hasHandle: !!scatterFileHandle });
+        if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
+          console.error('saveScatterFile missing fileIO.saveGraphFile');
+          return;
         }
+        const result = await fileIO.saveGraphFile({
+          context: 'scatter',
+          fileHandle: scatterFileHandle,
+          getPayload: getScatterGraphPayload,
+          fileName: scatterFileName,
+          downloadFileName: scatterFileName,
+          setFileHandle: handle => { scatterFileHandle = handle; },
+          setFileName: name => { scatterFileName = name; }
+        });
+        console.debug('Debug: saveScatterFile result', result);
       }
       async function saveAsScatterFile(){
-        const payload=getScatterGraphPayload();
-        console.log('saveAsScatterFile',payload);
-        if(global.showSaveFilePicker){
-          try{
-            scatterFileHandle=await global.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:scatterFileName});
-            const w=await scatterFileHandle.createWritable();
-            await w.write(JSON.stringify(payload));
-            await w.close();
-          }catch(err){console.error('saveAsScatterFile error',err);}
-        }else{
-          downloadJson(payload,scatterFileName);
+        console.debug('Debug: saveAsScatterFile invoked', { currentName: scatterFileName });
+        if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
+          console.error('saveAsScatterFile missing fileIO.saveGraphFileAs');
+          return;
         }
+        const result = await fileIO.saveGraphFileAs({
+          context: 'scatter',
+          getPayload: getScatterGraphPayload,
+          fileName: scatterFileName,
+          downloadFileName: scatterFileName,
+          setFileHandle: handle => { scatterFileHandle = handle; },
+          setFileName: name => { scatterFileName = name; }
+        });
+        console.debug('Debug: saveAsScatterFile result', result);
       }
       async function openScatterFile(){
-        console.log('openScatterFile start');
-        if(global.showOpenFilePicker){
-          try{
-            [scatterFileHandle]=await global.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]});
-            const file=await scatterFileHandle.getFile();
-            scatterFileName=file.name;
-            loadScatterGraphFile(file);
-          }catch(err){console.error('openScatterFile error',err);}
-        }else{
-          const input=document.getElementById('scatterGraphFile');
-          input.value='';
-          input.click();
+        console.debug('Debug: openScatterFile invoked');
+        if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
+          console.error('openScatterFile missing fileIO.openGraphFile');
+          return;
         }
+        const result = await fileIO.openGraphFile({
+          context: 'scatter',
+          setFileHandle: handle => { scatterFileHandle = handle; },
+          setFileName: name => { scatterFileName = name; },
+          loadFromFile: file => loadScatterGraphFile(file),
+          triggerInput: () => {
+            const input = document.getElementById('scatterGraphFile');
+            if(input){
+              input.value='';
+              input.click();
+            }
+          }
+        });
+        console.debug('Debug: openScatterFile result', result);
       }
       function loadScatterGraphFile(file){
         const reader=new FileReader();
