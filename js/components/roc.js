@@ -682,8 +682,6 @@
       return element;
     }
 
-    add('rect', {x: 0, y: 0, width, height, fill: '#fff'});
-
     if(showGrid){
       ticks.forEach(tick => {
         const x = xToPx(tick);
@@ -695,8 +693,17 @@
       });
     }
 
-    add('line', {x1: margin.left, y1: margin.top + plotHeight, x2: margin.left + plotWidth, y2: margin.top + plotHeight, stroke: '#000', 'stroke-width': 1});
-    add('line', {x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotHeight, stroke: '#000', 'stroke-width': 1});
+    const xTickPositions = ticks.map(tick => xToPx(tick));
+    const yTickPositions = ticks.map(tick => yToPx(tick));
+    let axisXStart = xTickPositions.length ? Math.min(...xTickPositions) : margin.left;
+    let axisXEnd = xTickPositions.length ? Math.max(...xTickPositions) : margin.left + plotWidth;
+    let axisYStart = yTickPositions.length ? Math.min(...yTickPositions) : margin.top;
+    let axisYEnd = yTickPositions.length ? Math.max(...yTickPositions) : margin.top + plotHeight;
+    if(axisXStart === axisXEnd){ axisXStart = margin.left; axisXEnd = margin.left + plotWidth; }
+    if(axisYStart === axisYEnd){ axisYStart = margin.top; axisYEnd = margin.top + plotHeight; }
+    console.debug('Debug: roc axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
+    add('line', {x1: axisXStart, y1: margin.top + plotHeight, x2: axisXEnd, y2: margin.top + plotHeight, stroke: '#000', 'stroke-width': 1, 'stroke-linecap': 'square'});
+    add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: '#000', 'stroke-width': 1, 'stroke-linecap': 'square'});
 
     if(graphType === 'roc'){
       add('line', {x1: margin.left, y1: margin.top + plotHeight, x2: margin.left + plotWidth, y2: margin.top, stroke: '#888', 'stroke-dasharray': '4,4', 'stroke-width': 1});
