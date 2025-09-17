@@ -16,22 +16,6 @@
 
   let scheduleDrawScatter=null;
 
-  function createScheduler(callback){
-    if(Shared && typeof Shared.debounceFrame === 'function'){
-      return Shared.debounceFrame(()=>{
-        try{ callback(); } catch(err){ console.error('scheduleDrawScatter error', err); }
-      });
-    }
-    let frame=null;
-    return ()=>{
-      if(frame) cancelAnimationFrame(frame);
-      frame=requestAnimationFrame(()=>{
-        frame=null;
-        try{ callback(); } catch(err){ console.error('scheduleDrawScatter error', err); }
-      });
-    };
-  }
-
   function formatP(p){
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
     if(!Number.isFinite(p)) return p > 0 ? 'Infinity' : '-Infinity';
@@ -654,7 +638,8 @@
         autoResizeSvg(svg);
         console.log('scatter render complete with enhanced styles');
       }
-      scheduleDrawScatter = createScheduler(drawScatter);
+      scheduleDrawScatter = Shared.debounceFrame(drawScatter);
+      console.debug('Debug: scatter scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     
     
       function computeScatterStats(points,method){

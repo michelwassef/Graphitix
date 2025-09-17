@@ -15,21 +15,6 @@
   const DEFAULT_COLS=5;
 
   let scheduleDrawPca = () => {};
-  function createScheduler(callback){
-    if(Shared && typeof Shared.debounceFrame === 'function'){
-      return Shared.debounceFrame(()=>{
-        try{ callback(); } catch(err){ console.error('scheduleDrawPca error', err); }
-      });
-    }
-    let frame=null;
-    return ()=>{
-      if(frame) cancelAnimationFrame(frame);
-      frame=requestAnimationFrame(()=>{
-        frame=null;
-        try{ callback(); } catch(err){ console.error('scheduleDrawPca error', err); }
-      });
-    };
-  }
 
   function setup(){
     if(pca.ready){ console.debug('Debug: Components.pca.setup skipped'); return; }
@@ -52,7 +37,6 @@
       return new (global.XMLSerializer||XMLSerializer)().serializeToString(clone);
     };
     const clipboardAPI = global.navigator && global.navigator.clipboard;
-    let pcaDrawToken=0;
       // PCA plot setup
       const pcaHotContainer=document.getElementById('pcaHot');
       const pcaHotWrapper=document.getElementById('pcaHotWrapper');
@@ -221,8 +205,8 @@
       })();
       let pcaXLabelText='PC1'; let pcaYLabelText='PC2';
     async function drawPca(){
-      const token = ++pcaDrawToken;
-      console.log('drawPca called', {token});
+      const debugStamp = Date.now();
+      console.log('drawPca called', {debugStamp}); // Debug: draw invocation marker
 
       const SVDLib = global.SVDJS;
       const jStatLib = global.jStat;
@@ -362,11 +346,6 @@
 
       const legendLabels = Array.from(labelSet);
       const legendWidth = legendLabels.length ? 120 : 0;
-
-      if (token !== pcaDrawToken) {
-        console.log('pca draw cancelled after collect', {token});
-        return;
-      }
 
       const plotEl = document.getElementById('pcaPlot');
       plotEl.style.display = 'block';
@@ -632,7 +611,8 @@
       document.getElementById('saveAsPca').addEventListener('click',saveAsPcaFile);
       document.getElementById('pcaGraphFile').addEventListener('change',e=>{ const f=e.target.files[0]; if(f){ pcaFileName=f.name; pcaFileHandle=null; loadPcaGraphFile(f); } });
     
-    scheduleDrawPca = createScheduler(drawPca);
+    scheduleDrawPca = Shared.debounceFrame(drawPca);
+    console.debug('Debug: pca scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     pca.save = savePcaFile;
     pca.saveAs = saveAsPcaFile;
     pca.open = openPcaFile;

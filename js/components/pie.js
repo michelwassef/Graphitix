@@ -322,7 +322,8 @@
     initTableAndResizers();
     initHot();
     initControls();
-    state.scheduleDraw = (Shared && Shared.debounceFrame) ? Shared.debounceFrame(draw) : draw;
+    state.scheduleDraw = Shared.debounceFrame(draw);
+    console.debug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     pie.ready = true;
   };
 

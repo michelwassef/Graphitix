@@ -25,27 +25,10 @@
   let lineLegendItems = [];
   let lineLegendWidth = 0;
   let lineMinSvgWidth = 0;
-  let lineDrawToken = 0;
   let lineFileHandle = null;
   let lineFileName = 'line.graph';
 
   const refs = {};
-
-  function createScheduler(callback){
-    if(Shared && typeof Shared.debounceFrame === 'function'){
-      return Shared.debounceFrame(()=>{
-        try{ callback(); } catch(err){ console.error('scheduleLineDraw error', err); }
-      });
-    }
-    let frame=null;
-    return ()=>{
-      if(frame) cancelAnimationFrame(frame);
-      frame=requestAnimationFrame(()=>{
-        frame=null;
-        try{ callback(); } catch(err){ console.error('scheduleLineDraw error', err); }
-      });
-    };
-  }
 
   function formatP(p){
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
@@ -304,8 +287,8 @@
 
   function drawLine(){
     try{
-      const token=++lineDrawToken;
-      console.debug('Debug: drawLine start',{token}); // Debug: draw entry
+      const debugStamp=Date.now();
+      console.debug('Debug: drawLine start',{debugStamp}); // Debug: draw entry
       if(!lineHot || !refs.plot) return;
       const fill=refs.fill?.value;
       const alpha=Number(refs.alpha?.value)||0;
@@ -791,7 +774,8 @@
       }
     });
 
-    scheduleLineDraw = createScheduler(drawLine);
+    scheduleLineDraw = Shared.debounceFrame(drawLine);
+    console.debug('Debug: line scheduleLineDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     line.ready = true;
     scheduleLineDraw();
     console.debug('Debug: Components.line.setup complete'); // Debug: setup complete

@@ -2,42 +2,28 @@
   "use strict";
   console.debug("Debug: main.js loaded");
 
-  // Shared debounce function with fallback
-  function debounceFrame(fn) {
-    if (window.Shared && typeof window.Shared.debounceFrame === 'function') {
-      return window.Shared.debounceFrame(fn);
-    }
-    let frame;
-    return (...args) => {
-      if (frame) cancelAnimationFrame(frame);
-      console.debug('Debug: debounceFrame scheduled (local)', fn && fn.name, args.length);
-      frame = requestAnimationFrame(() => {
-        console.debug('Debug: debounceFrame executing (local)', fn && fn.name);
-        frame = null;
-        try { fn && fn(...args); } catch(err) { console.error('debounceFrame error', err); }
-      });
-    };
-  }
+  const Shared = window.Shared = window.Shared || {};
 
-  // Debounced draw schedulers
-  const scheduleDrawBoxplot = debounceFrame(() => {
+  // Debounced draw schedulers (Shared.debounceFrame handles fallbacks internally)
+  const scheduleDrawBoxplot = Shared.debounceFrame(() => {
     if (window.Components?.box?.draw) window.Components.box.draw();
   });
-  const scheduleDrawScatter = debounceFrame(() => {
+  const scheduleDrawScatter = Shared.debounceFrame(() => {
     if (window.Components?.scatter?.draw) window.Components.scatter.draw();
   });
-  const scheduleDrawPca = debounceFrame(() => {
+  const scheduleDrawPca = Shared.debounceFrame(() => {
     if (window.Components?.pca?.draw) window.Components.pca.draw();
   });
-  const scheduleDrawLine = debounceFrame(() => {
+  const scheduleDrawLine = Shared.debounceFrame(() => {
     if (window.Components?.line?.draw) window.Components.line.draw();
   });
-  const scheduleDrawHist = debounceFrame(() => {
+  const scheduleDrawHist = Shared.debounceFrame(() => {
     if (window.Components?.hist?.draw) window.Components.hist.draw();
   });
-  const scheduleDrawPie = debounceFrame(() => {
+  const scheduleDrawPie = Shared.debounceFrame(() => {
     if (window.Components?.pie?.draw) window.Components.pie.draw();
   });
+  console.debug('Debug: main Shared.debounceFrame schedulers ready', { schedulers: ['boxplot','scatter','pca','line','hist','pie'] }); // Debug: scheduler wiring summary
 
   // Shared color palette
   const DEFAULT_SCATTER_COLORS = window.DEFAULT_SCATTER_COLORS || [
@@ -62,12 +48,6 @@
       console.debug('Debug: color overlay initialized', { overlay: !!overlay });
     }
   })();
-
-  // Debug tokens
-  let boxplotDrawToken = 0;
-  let pcaDrawToken = 0;
-  let histDrawToken = 0;
-  let pieDrawToken = 0;
 
   // Fallback for jQuery-like selector
   const fallbackDollar = (selector) => {
