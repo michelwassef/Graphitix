@@ -67,7 +67,16 @@
 
     const plotDiv=document.getElementById('piePlot');
     const container=plotDiv.closest('.svgbox')||plotDiv.parentElement;
-    if(global.Shared && Shared.attachResizableBox && container){ Shared.attachResizableBox(container, { onResize: () => { syncPiePanels(); } }); }
+    if(global.Shared && Shared.attachResizableBox && container){
+      Shared.attachResizableBox(container, {
+        defaultWidth: 640,
+        defaultHeight: 420,
+        onResize: phase => {
+          console.debug('Debug: pie svgbox resized', { phase }); // Debug: pie svgbox resize callback
+          syncPiePanels();
+        }
+      });
+    }
 
     if(panelResizer && tablePanel && graphPanel){
       panelResizer.addEventListener('pointerdown',e=>{

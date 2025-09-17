@@ -8,8 +8,44 @@
 
   Shared.attachResizableBox = function attachResizableBox(container, opts={}){
     if(!container) return;
-    const MIN_W = opts.minWidth || 50;
-    const MIN_H = opts.minHeight || 40;
+    const rect = container.getBoundingClientRect();
+    const data = container.dataset || {};
+    const parsedDefaultWidth = Number(opts.defaultWidth);
+    const parsedDefaultHeight = Number(opts.defaultHeight);
+    let defaultWidth = Number.isFinite(parsedDefaultWidth) && parsedDefaultWidth > 0
+      ? parsedDefaultWidth
+      : Number(data.resizerDefaultWidth);
+    if(!Number.isFinite(defaultWidth) || defaultWidth <= 0){
+      const rectWidth = Math.round(rect.width);
+      defaultWidth = rectWidth > 0 ? rectWidth : 640;
+    }
+    let defaultHeight = Number.isFinite(parsedDefaultHeight) && parsedDefaultHeight > 0
+      ? parsedDefaultHeight
+      : Number(data.resizerDefaultHeight);
+    if(!Number.isFinite(defaultHeight) || defaultHeight <= 0){
+      const rectHeight = Math.round(rect.height);
+      defaultHeight = rectHeight > 0 ? rectHeight : 420;
+    }
+    const minFromDefaultWidth = Math.max(1, Math.round(defaultWidth * 0.3));
+    const minFromDefaultHeight = Math.max(1, Math.round(defaultHeight * 0.3));
+    const parsedMinWidth = Number(opts.minWidth);
+    const parsedMinHeight = Number(opts.minHeight);
+    let MIN_W = Number.isFinite(parsedMinWidth) && parsedMinWidth > 0 ? parsedMinWidth : Number(data.resizerMinWidth);
+    if(!Number.isFinite(MIN_W) || MIN_W <= 0){
+      MIN_W = minFromDefaultWidth;
+    }
+    MIN_W = Math.max(MIN_W, minFromDefaultWidth);
+    let MIN_H = Number.isFinite(parsedMinHeight) && parsedMinHeight > 0 ? parsedMinHeight : Number(data.resizerMinHeight);
+    if(!Number.isFinite(MIN_H) || MIN_H <= 0){
+      MIN_H = minFromDefaultHeight;
+    }
+    MIN_H = Math.max(MIN_H, minFromDefaultHeight);
+    data.resizerDefaultWidth = String(defaultWidth);
+    data.resizerDefaultHeight = String(defaultHeight);
+    data.resizerMinWidth = String(MIN_W);
+    data.resizerMinHeight = String(MIN_H);
+    data.resizerResized = data.resizerResized || 'false';
+    console.debug('Debug: attachResizableBox defaults', { defaultWidth, defaultHeight, MIN_W, MIN_H }); // Debug: resizer defaults
     const vHandle = container.querySelector('.resizer-vertical');
     const hHandle = container.querySelector('.resizer-horizontal');
     const cHandle = container.querySelector('.resizer-corner');
@@ -33,6 +69,8 @@
         container.style.flex = '0 0 auto';
         container.style.maxWidth = 'none';
         container.style.maxHeight = 'none';
+        container.dataset.resizerResized = 'true';
+        console.debug('Debug: resizer drag start', { axis, startW, startH, MIN_W, MIN_H }); // Debug: resizer drag start
         document.documentElement.style.userSelect = 'none';
         document.documentElement.style.touchAction = 'none';
         const onPointerMove = (ev) => {
@@ -47,6 +85,9 @@
             const newH = Math.max(MIN_H, Math.round(startH + dy));
             container.style.height = px(newH);
           }
+          container.dataset.resizerWidth = container.style.width;
+          container.dataset.resizerHeight = container.style.height;
+          console.debug('Debug: resizer drag move', { axis, dx, dy, width: container.style.width, height: container.style.height }); // Debug: resizer drag move
           if (typeof opts.onResize === 'function') {
             try { opts.onResize('move'); } catch(e) { console.error('resizer onResize error', e); }
           }
@@ -68,10 +109,13 @@
       handle.addEventListener('pointerdown', onPointerDown);
       handle.addEventListener('dblclick', (ev) => {
         ev.preventDefault();
-        container.style.width = '640px';
-        container.style.height = '420px';
+        container.style.width = px(defaultWidth);
+        container.style.height = px(defaultHeight);
         container.style.flex = '0 0 auto';
-        console.debug('Debug: resizer size reset to 640x420'); // Debug: resizer reset
+        container.dataset.resizerResized = 'true';
+        container.dataset.resizerWidth = container.style.width;
+        container.dataset.resizerHeight = container.style.height;
+        console.debug('Debug: resizer size reset', { width: container.style.width, height: container.style.height }); // Debug: resizer reset
         if (typeof opts.onResize === 'function') {
           try { opts.onResize('reset'); } catch(e) { console.error('resizer onResize error', e); }
         }
@@ -115,15 +159,76 @@
         console.error('Shared.syncPanelWidths gap error', err);
       }
     }
+    const svgDataset = svgBox && svgBox.dataset ? svgBox.dataset : null;
+    const isManualResize = svgDataset ? svgDataset.resizerResized === 'true' : false;
+    const datasetMinWidth = svgDataset ? Number(svgDataset.resizerMinWidth) : NaN;
+    const datasetDefaultWidth = svgDataset ? Number(svgDataset.resizerDefaultWidth) : NaN;
+    const svgRect = svgBox ? svgBox.getBoundingClientRect() : null;
+    const svgCurrentWidth = svgRect ? svgRect.width : NaN;
     const tableWidth = tablePanel.getBoundingClientRect().width;
     const graphWidth = graphPanel.getBoundingClientRect().width;
     const configWidth = configPanel.getBoundingClientRect().width;
     const available = graphWidth - configWidth - gap;
-    const minSvgWidth = Number.isFinite(opts.minSvgWidth) ? Math.max(0, opts.minSvgWidth) : 0;
-    const appliedWidth = Math.max(minSvgWidth, Math.min(tableWidth, available));
-    if(svgBox && Number.isFinite(appliedWidth)){
-      svgBox.style.width = appliedWidth + 'px';
+    const maxAvailable = Number.isFinite(available) ? Math.max(0, available) : Infinity;
+    let minSvgWidth = Number.isFinite(opts.minSvgWidth) ? Math.max(0, opts.minSvgWidth) : 0;
+    if(Number.isFinite(datasetMinWidth) && datasetMinWidth > 0){
+      minSvgWidth = Math.max(minSvgWidth, datasetMinWidth);
     }
+    let baseWidth;
+    if(isManualResize && Number.isFinite(svgCurrentWidth) && svgCurrentWidth > 0){
+      baseWidth = svgCurrentWidth;
+    }else{
+      const fallbackWidth = Number.isFinite(tableWidth) && tableWidth > 0 ? tableWidth : svgCurrentWidth;
+      if(Number.isFinite(available)){
+        if(Number.isFinite(fallbackWidth) && fallbackWidth > 0){
+          baseWidth = Math.min(fallbackWidth, available);
+        }else{
+          baseWidth = available;
+        }
+      }else{
+        baseWidth = fallbackWidth;
+      }
+    }
+    if(!Number.isFinite(baseWidth) || baseWidth <= 0){
+      if(Number.isFinite(svgCurrentWidth) && svgCurrentWidth > 0){
+        baseWidth = svgCurrentWidth;
+      }else if(Number.isFinite(datasetDefaultWidth) && datasetDefaultWidth > 0){
+        baseWidth = datasetDefaultWidth;
+      }else if(Number.isFinite(minSvgWidth) && minSvgWidth > 0){
+        baseWidth = minSvgWidth;
+      }else if(Number.isFinite(maxAvailable) && maxAvailable > 0){
+        baseWidth = maxAvailable;
+      }else{
+        baseWidth = 0;
+      }
+    }
+    let appliedWidth = baseWidth;
+    if(Number.isFinite(maxAvailable)){
+      appliedWidth = Math.min(appliedWidth, maxAvailable);
+    }
+    const minTarget = Number.isFinite(minSvgWidth) && minSvgWidth > 0 ? minSvgWidth : 0;
+    if(Number.isFinite(maxAvailable) && maxAvailable >= 0 && maxAvailable < minTarget){
+      appliedWidth = maxAvailable;
+    }else if(appliedWidth < minTarget){
+      appliedWidth = minTarget;
+    }
+    if(svgBox && Number.isFinite(appliedWidth) && appliedWidth > 0){
+      svgBox.style.width = appliedWidth + 'px';
+      if(svgDataset){
+        svgDataset.resizerWidth = svgBox.style.width;
+      }
+    }
+    console.debug('Debug: Shared.syncPanelWidths manual state', {
+      label: debugLabel,
+      isManualResize,
+      datasetMinWidth,
+      datasetDefaultWidth,
+      svgCurrentWidth,
+      baseWidth,
+      appliedWidth,
+      maxAvailable,
+      minTarget
+    }); // Debug: resizer manual state
     if(typeof opts.onWidthApplied === 'function'){
       try{
         opts.onWidthApplied(appliedWidth);
@@ -146,7 +251,8 @@
       gap,
       available,
       minSvgWidth,
-      appliedWidth
+      appliedWidth,
+      isManualResize
     });
     return {
       tableWidth,
@@ -155,7 +261,8 @@
       gap,
       available,
       minSvgWidth,
-      appliedWidth
+      appliedWidth,
+      isManualResize
     };
   };
 })(window);

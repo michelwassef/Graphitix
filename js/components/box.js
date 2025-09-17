@@ -107,7 +107,16 @@
     };
     const observer=new ResizeObserver(()=>{syncPanels();}); observer.observe(els.tablePanel); syncPanels();
     const container=els.plotDiv.closest('.svgbox')||els.plotDiv.parentElement;
-    if(global.Shared && Shared.attachResizableBox && container){ Shared.attachResizableBox(container, { onResize: () => { syncPanels(); } }); }
+    if(global.Shared && Shared.attachResizableBox && container){
+      Shared.attachResizableBox(container, {
+        defaultWidth: 640,
+        defaultHeight: 420,
+        onResize: phase => {
+          console.debug('Debug: box svgbox resized', { phase }); // Debug: box svgbox resize callback
+          syncPanels();
+        }
+      });
+    }
     if(els.panelResizer && els.tablePanel && els.graphPanel){
       els.panelResizer.addEventListener('pointerdown',e=>{
         e.preventDefault();

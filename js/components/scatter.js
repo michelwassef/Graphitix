@@ -235,81 +235,19 @@
     
       const scatterPlotDiv=document.getElementById('scatterPlot');
       const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
-      (function initScatterResizers(){
-        if(!scatterContainer) return;
-        console.log('init scatter resizers');
-        const MIN_W=50;
-        const MIN_H=40;
-        function px(n){return Math.round(n)+'px';}
-        const vHandle=scatterContainer.querySelector('.resizer-vertical');
-        const hHandle=scatterContainer.querySelector('.resizer-horizontal');
-        const cHandle=scatterContainer.querySelector('.resizer-corner');
-        function attachDrag(handle,axis){
-          if(!handle) return;
-          let startX=0,startY=0,startW=0,startH=0,pointerId=null;
-          const onPointerDown=e=>{
-            e.preventDefault();
-            console.log('scatter resize start',axis);
-            pointerId=e.pointerId;
-            try{handle.setPointerCapture(pointerId);}catch(_){ }
-            const rect=scatterContainer.getBoundingClientRect();
-            startW=Math.round(rect.width);
-            startH=Math.round(rect.height);
-            startX=e.clientX;
-            startY=e.clientY;
-            scatterContainer.style.boxSizing='border-box';
-            scatterContainer.style.width=px(startW);
-            scatterContainer.style.height=px(startH);
-            scatterContainer.style.flex='0 0 auto';
-            scatterContainer.style.maxWidth='none';
-            scatterContainer.style.maxHeight='none';
-            document.documentElement.style.userSelect='none';
-            document.documentElement.style.touchAction='none';
-            const onPointerMove=ev=>{
-              ev.preventDefault();
-              const dx=ev.clientX-startX;
-              const dy=ev.clientY-startY;
-              if(axis==='x'||axis==='both'){
-                const newW=Math.max(MIN_W,Math.round(startW+dx));
-                scatterContainer.style.width=px(newW);
-              }
-              if(axis==='y'||axis==='both'){
-                const newH=Math.max(MIN_H,Math.round(startH+dy));
-                scatterContainer.style.height=px(newH);
-              }
-              scheduleDrawScatter();
-            };
-            const onPointerUp=ev=>{
-              try{handle.releasePointerCapture(pointerId);}catch(_){ }
-              document.removeEventListener('pointermove',onPointerMove);
-              document.removeEventListener('pointerup',onPointerUp);
-              document.documentElement.style.userSelect='';
-              document.documentElement.style.touchAction='';
-              console.log('scatter drag end');
-              scheduleDrawScatter();
-            };
-            document.addEventListener('pointermove',onPointerMove);
-            document.addEventListener('pointerup',onPointerUp);
-          };
-          handle.addEventListener('pointerdown',onPointerDown);
-          handle.addEventListener('dblclick',ev=>{
-            ev.preventDefault();
-            scatterContainer.style.width='640px';
-            scatterContainer.style.height='420px';
-            scatterContainer.style.flex='0 0 auto';
-            console.log('scatter size reset');
+      if(global.Shared && Shared.attachResizableBox && scatterContainer){
+        Shared.attachResizableBox(scatterContainer, {
+          defaultWidth: 640,
+          defaultHeight: 420,
+          onResize: phase => {
+            console.debug('Debug: scatter resizer callback', { phase }); // Debug: scatter resizer callback
             scheduleDrawScatter();
-          });
-        }
-        attachDrag(vHandle,'x');
-        attachDrag(hHandle,'y');
-        attachDrag(cHandle,'both');
-        if(ResizeObserverCtor){
-          const scatterResizeObserver=new ResizeObserverCtor(()=>{console.log('scatter resize observer triggered'); scheduleDrawScatter();});
-          scatterResizeObserver.observe(scatterContainer);
-        }
-      })();
-    
+          }
+        });
+      }else{
+        console.debug('Debug: scatter resizer attach skipped', { hasContainer: !!scatterContainer }); // Debug: scatter resizer skipped
+      }
+
       (function initScatterPanelResizer(){
         if(!scatterPanelResizer||!scatterTablePanel||!scatterGraphPanel) return;
         scatterPanelResizer.addEventListener('pointerdown',e=>{

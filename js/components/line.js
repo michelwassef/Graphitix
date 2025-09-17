@@ -670,7 +670,14 @@
     if(refs.plot){
       const container=refs.plot.closest('.svgbox')||refs.plot.parentElement;
       if(container && Shared.attachResizableBox){
-        Shared.attachResizableBox(container,{ onResize: ()=>{ syncLineWidths(); } });
+        Shared.attachResizableBox(container,{
+          defaultWidth: 640,
+          defaultHeight: 420,
+          onResize: phase => {
+            console.debug('Debug: line svgbox resized', { phase }); // Debug: line svgbox resize callback
+            syncLineWidths();
+          }
+        });
       }
     }
 

@@ -151,7 +151,15 @@
       (function initPcaResizers(){
         if(!pcaContainer) return;
         if(Shared && Shared.attachResizableBox){
-          Shared.attachResizableBox(pcaContainer, { onResize: () => { syncPcaWidths(); scheduleDrawPca(); } });
+          Shared.attachResizableBox(pcaContainer, {
+            defaultWidth: 640,
+            defaultHeight: 420,
+            onResize: phase => {
+              console.debug('Debug: pca svgbox resized', { phase }); // Debug: pca svgbox resize callback
+              syncPcaWidths();
+              scheduleDrawPca();
+            }
+          });
         }
       })();
       (function initPcaPanelResizer(){
