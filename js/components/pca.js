@@ -9,6 +9,9 @@
   if(!fileIO.saveGraphFile){
     console.debug('Debug: pca component awaiting Shared.fileIO helpers');
   }
+  if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
+    console.debug('Debug: pca component awaiting Shared.tableImport helpers');
+  }
 
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_ROWS=100;
@@ -36,7 +39,6 @@
       }
       return new (global.XMLSerializer||XMLSerializer)().serializeToString(clone);
     };
-    const clipboardAPI = global.navigator && global.navigator.clipboard;
       // PCA plot setup
       const pcaHotContainer=document.getElementById('pcaHot');
       const pcaHotWrapper=document.getElementById('pcaHotWrapper');
@@ -81,55 +83,35 @@
         console.log('pca example loaded');
         scheduleDrawPca();
       });
-      document.getElementById('pcaImport').addEventListener('click',()=>{const f=document.getElementById('pcaFile'); f.value=''; f.click();});
-      document.getElementById('pcaFile').addEventListener('change',e=>{
-        const file=e.target.files[0];
-        if(!file) return;
-        const ext=file.name.split('.').pop().toLowerCase();
-        const reader=new FileReader();
-        if(['csv','tsv','txt'].includes(ext)){
-          reader.onload=ev=>{const text=ev.target.result; const delim=ext==='csv'?',':'\t'; let rows=text.split(/\r?\n/).map(r=>r.split(delim)); pcaProcessImportedRows(rows);};
-          reader.readAsText(file);
-        }else if(['xls','xlsx','ods','odg'].includes(ext)){
-          reader.onload=async ev=>{try{ if(!global.XLSX){ await new Promise((res,rej)=>{const s=document.createElement('script'); s.src='libs/xlsx.full.min.js'; s.onload=()=>res(); s.onerror=err=>rej(new Error('Failed to load XLSX script')); document.head.appendChild(s);}); } const data=new Uint8Array(ev.target.result); const workbook=XLSX.read(data,{type:'array'}); const sheet=workbook.Sheets[workbook.SheetNames[0]]; let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''}); pcaProcessImportedRows(rows);}catch(err){alert('Failed to import spreadsheet: '+err.message);} };
-          reader.readAsArrayBuffer(file);
-        }else{ alert('Unsupported file format: '+ext); }
-      });
-      pcaHotContainer.addEventListener('paste',async e=>{
-        e.preventDefault(); e.stopPropagation();
-        let text=e.clipboardData?.getData('text/plain');
-        if(!text){
-          if(clipboardAPI && clipboardAPI.readText){
-            try{ text=await clipboardAPI.readText(); console.log('pca clipboard fallback used'); }catch(err){ console.log('pca clipboard read failed',err); return; }
-          }else{
-            console.log('pca clipboard read unavailable');
-            return;
-          }
+      const pcaImportBtn=document.getElementById('pcaImport');
+      const pcaFileInput=document.getElementById('pcaFile');
+      const tableImport = Shared.tableImport;
+      pcaImportBtn.addEventListener('click',()=>{pcaFileInput.value=''; pcaFileInput.click();});
+      pcaFileInput.addEventListener('change',()=>{
+        if(!tableImport || typeof tableImport.openFile !== 'function'){
+          console.warn('pca import skipped: Shared.tableImport.openFile unavailable');
+          return;
         }
-        const rowArr=text.split(/\r?\n/);
-        if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')){ console.log('pca paste ignored: insufficient data'); return; }
-        const delim=text.includes('\t')?'\t':','; const rows=rowArr.map(r=>r.split(delim));
-        const sel=pcaHot.getSelectedLast(); const startRow=sel?sel[0]:0; const startCol=sel?sel[1]:0;
-        console.log('pca fast paste',{rows:rows.length,cols:rows[0]?.length,startRow,startCol});
-        pcaProcessImportedRows(rows,startRow,startCol);
+        tableImport.openFile(pcaFileInput, {
+          hot: pcaHot,
+          minCols: DEFAULT_COLS,
+          minRows: DEFAULT_ROWS,
+          scheduleDraw: scheduleDrawPca,
+          debugLabel: 'pca',
+          onProcessed: info => console.log('pca data imported',{rows: info?.rows, cols: info?.cols})
+        });
       });
-      function pcaProcessImportedRows(rows,startRow=0,startCol=0){
-        if(!rows||!rows.length) return;
-        rows=rows.filter(r=>r && r.some(c=>String(c).trim()!==''));
-        if(!rows.length) return;
-        const colCount=Math.max(DEFAULT_COLS,...rows.map(r=>r.length));
-        const rowCount=rows.length;
-        const curRows=pcaHot.countRows();
-        const curCols=pcaHot.countCols();
-        const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
-        const targetCols=Math.max(curCols,startCol+colCount,DEFAULT_COLS);
-        const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
-        const existing=pcaHot.getData();
-        for(let r=0;r<curRows;r++){ for(let c=0;c<curCols;c++) data[r][c]=existing[r][c]; }
-        for(let r=0;r<rowCount;r++){ const row=rows[r]; for(let c=0;c<row.length;c++) data[startRow+r][startCol+c]=row[c]; }
-        pcaHot.updateSettings({data,minRows:targetRows,minCols:targetCols});
-        console.log('pca data imported',{rows:data.length,cols:targetCols});
-        scheduleDrawPca();
+      if(tableImport && typeof tableImport.handlePaste === 'function'){
+        pcaHotContainer.addEventListener('paste',async e=>{
+          await tableImport.handlePaste(e, pcaHot, {
+            minCols: DEFAULT_COLS,
+            minRows: DEFAULT_ROWS,
+            scheduleDraw: scheduleDrawPca,
+            debugLabel: 'pca',
+            onBeforeProcess: meta => console.log('pca fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
+            onProcessed: info => console.log('pca data imported',{rows: info?.rows, cols: info?.cols})
+          });
+        });
       }
       const pcaMethod=$('#pcaMethod'), pcaFill=$('#pcaFill'), pcaBorder=$('#pcaBorder'), pcaBorderWidth=$('#pcaBorderWidth'), pcaDotSize=$('#pcaDotSize'), pcaAlpha=$('#pcaAlpha');
       const pcaAlphaVal=$('#pcaAlphaVal');

@@ -3,6 +3,8 @@
 (function(global){
   'use strict';
   const NS='http://www.w3.org/2000/svg';
+  const HIST_DEFAULT_ROWS=100;
+  const HIST_DEFAULT_COLS=1;
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
 
@@ -12,6 +14,9 @@
   const fileIO = Shared.fileIO = Shared.fileIO || {};
   if(!fileIO.saveGraphFile){
     console.debug('Debug: hist component awaiting Shared.fileIO helpers');
+  }
+  if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
+    console.debug('Debug: hist component awaiting Shared.tableImport helpers');
   }
 
   let state = {
@@ -88,11 +93,9 @@
   }
 
   function initHot(){
-    const DEFAULT_ROWS=100;
-    const HIST_DEFAULT_COLS=1;
     const hotContainer=document.getElementById('histHot');
     state.hot=new global.Handsontable(hotContainer,{
-      data:global.Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,HIST_DEFAULT_COLS),
+      data:global.Handsontable.helper.createEmptySpreadsheetData(HIST_DEFAULT_ROWS,HIST_DEFAULT_COLS),
       rowHeaders(index){ return index===0?'':index; },
       colHeaders:true,
       stretchH:'all',
@@ -119,41 +122,24 @@
       console.log('hist example loaded');
       state.scheduleDraw();
     });
-    document.getElementById('histImport').addEventListener('click',()=>{const f=document.getElementById('histFile'); f.value=''; f.click();});
-    document.getElementById('histFile').addEventListener('change',e=>{
-      const file=e.target.files[0]; if(!file) return;
-      const ext=file.name.split('.').pop().toLowerCase();
-      const reader=new FileReader();
-      if(['csv','tsv','txt'].includes(ext)){
-        reader.onload=ev=>{const text=ev.target.result; const delim=ext==='csv'?',' : '\t'; const rows=text.split(/\r?\n/).map(r=>r.split(delim)); histProcessImportedRows(rows);} ;
-        reader.readAsText(file);
-      }else if(['xls','xlsx','ods','odg'].includes(ext)){
-        reader.onload=async ev=>{try{ if(!global.XLSX){ await new Promise((res,rej)=>{const s=document.createElement('script'); s.src='libs/xlsx.full.min.js'; s.onload=()=>res(); s.onerror=err=>rej(new Error('Failed to load XLSX script')); document.head.appendChild(s);}); } const data=new Uint8Array(ev.target.result); const workbook=global.XLSX.read(data,{type:'array'}); const sheet=workbook.Sheets[workbook.SheetNames[0]]; let rows=global.XLSX.utils.sheet_to_json(sheet,{header:1,defval:''}); histProcessImportedRows(rows);}catch(err){alert('Failed to import spreadsheet: '+err.message);} };
-        reader.readAsArrayBuffer(file);
-      }else{
-        alert('Unsupported file format: '+ext);
+    const histImportBtn=document.getElementById('histImport');
+    const histFileInput=document.getElementById('histFile');
+    const tableImport = Shared.tableImport;
+    histImportBtn.addEventListener('click',()=>{histFileInput.value=''; histFileInput.click();});
+    histFileInput.addEventListener('change',()=>{
+      if(!tableImport || typeof tableImport.openFile !== 'function'){
+        console.warn('hist import skipped: Shared.tableImport.openFile unavailable');
+        return;
       }
+      tableImport.openFile(histFileInput, {
+        hot: state.hot,
+        minCols: HIST_DEFAULT_COLS,
+        minRows: HIST_DEFAULT_ROWS,
+        scheduleDraw: state.scheduleDraw,
+        debugLabel: 'hist',
+        onProcessed: info => console.log('hist data imported',{rows: info?.rows, cols: info?.cols})
+      });
     });
-
-    function histProcessImportedRows(rows,startRow=0,startCol=0){
-      if(!rows||!rows.length) return;
-      rows=rows.filter(r=>r&&r.some(c=>String(c).trim()!==''));
-      if(!rows.length) return;
-      const colCount=Math.max(1,...rows.map(r=>r.length));
-      const rowCount=rows.length;
-      const curRows=state.hot.countRows();
-      const curCols=state.hot.countCols();
-      const DEFAULT_ROWS=100; const HIST_DEFAULT_COLS=1;
-      const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
-      const targetCols=Math.max(curCols,startCol+colCount,HIST_DEFAULT_COLS);
-      const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
-      const existing=state.hot.getData();
-      for(let r=0;r<curRows;r++){ for(let c=0;c<curCols;c++) data[r][c]=existing[r][c]; }
-      for(let r=0;r<rowCount;r++){ const row=rows[r]; for(let c=0;c<row.length;c++) data[startRow+r][startCol+c]=row[c]; }
-      state.hot.updateSettings({data,minRows:targetRows,minCols:targetCols});
-      console.log('hist data imported',{rows:data.length,cols:targetCols});
-      state.scheduleDraw();
-    }
 
     // Exports
     document.getElementById('histPNG').addEventListener('click', async () => {
