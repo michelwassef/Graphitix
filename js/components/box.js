@@ -28,9 +28,36 @@
     console.debug('Debug: shadeColor',{color,percent,newColor}); // Debug
     return newColor;
   }
-  function makeEditable(el,onChange){ el.style.cursor='pointer'; el.addEventListener('dblclick',()=>{ const txt=prompt('Edit text',el.textContent); if(txt!==null){ el.textContent=txt; onChange(txt); } }); }
-  function serializeCleanSVGLocal(svgEl){ const clone=svgEl.cloneNode(true); clone.querySelectorAll('[contenteditable],[contentEditable]').forEach(el=>{ el.removeAttribute('contenteditable'); el.removeAttribute('contentEditable'); }); return new XMLSerializer().serializeToString(clone); }
-  function autoResizeSvg(svg, opts={}){ try{ const {fill=true}=opts; const applyResize=()=>{ const bbox=svg.getBBox(); const padding=10; const minX=Math.min(0,bbox.x-padding); const minY=Math.min(0,bbox.y-padding); const viewW=bbox.x+bbox.width+padding-minX; const viewH=bbox.y+bbox.height+padding-minY; svg.setAttribute('viewBox',`${minX} ${minY} ${viewW} ${viewH}`); if(fill){ svg.setAttribute('width','100%'); svg.setAttribute('height','100%'); } const parent=svg.parentElement; if(parent) parent.style.overflow='visible'; const box=svg.closest('.svgbox'); if(box) box.style.overflow='visible'; console.debug('Debug: autoResizeSvg applied',{bbox,minX,minY,viewW,viewH}); }; applyResize(); requestAnimationFrame(applyResize); }catch(err){ console.error('autoResizeSvg error',err); } }
+  const makeEditable = (el,onChange,options) => {
+    const fn = Shared.makeEditable || global.makeEditable;
+    if (typeof fn === 'function') {
+      return fn(el,onChange,options);
+    }
+    console.warn('box component makeEditable fallback missing');
+    return undefined;
+  };
+  const serializeSvg = (svgEl, options) => {
+    const fn = Shared.serializeCleanSVG || global.serializeCleanSVG;
+    if (typeof fn === 'function') {
+      return fn(svgEl, options);
+    }
+    if (!svgEl) return '';
+    const serializer = new (global.XMLSerializer || XMLSerializer)();
+    return serializer.serializeToString(svgEl);
+  };
+  const autoResizeSvg = (svg, opts) => {
+    const fn = Shared.autoResizeSvg || global.autoResizeSvg;
+    if (typeof fn === 'function') {
+      return fn(svg, opts);
+    }
+    console.warn('box component autoResizeSvg fallback missing');
+    return undefined;
+  };
+  console.debug('Debug: box component DOM helpers resolved', {
+    hasSharedEditable: typeof Shared.makeEditable === 'function',
+    hasSharedResize: typeof Shared.autoResizeSvg === 'function',
+    hasSharedSerialize: typeof Shared.serializeCleanSVG === 'function'
+  }); // Debug: helper resolution summary
   function ensureWrapperStyles(){ const wrapper=global.document.getElementById('hotWrapper'); if(global.Shared && Shared.ensureHotWrapperStyles) Shared.ensureHotWrapperStyles(wrapper); }
 
   // Local state and element cache
@@ -202,14 +229,14 @@
     global.$('#boxPNG').addEventListener('click', async () => {
       const svgEl = global.document.getElementById('boxSvg'); if (!svgEl) return; console.log('boxPNG export start');
       const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800; const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
-      const xml=(global.serializeCleanSVG?global.serializeCleanSVG(svgEl):serializeCleanSVGLocal(svgEl));
+      const xml = serializeSvg(svgEl);
       const img=new Image(); const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml); img.src=url; await img.decode().catch(err=>{console.error('boxPNG svg decode',err);});
       const outCanvas=document.createElement('canvas'); outCanvas.width=W; outCanvas.height=H; const ctx=outCanvas.getContext('2d'); ctx.drawImage(img,0,0);
       outCanvas.toBlob(b=>{ const pngUrl=URL.createObjectURL(b); const a=document.createElement('a'); a.href=pngUrl; a.download='boxplot.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(pngUrl),4000); },'image/png');
     });
     global.$('#boxSVG').addEventListener('click', () => {
       const svgEl=global.document.getElementById('boxSvg'); if(!svgEl) return; console.log('boxSVG export start');
-      const xml=(global.serializeCleanSVG?global.serializeCleanSVG(svgEl):serializeCleanSVGLocal(svgEl));
+      const xml = serializeSvg(svgEl);
       const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob);
       const a=document.createElement('a'); a.href=url; a.download='boxplot.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
     });

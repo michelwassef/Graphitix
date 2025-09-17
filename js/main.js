@@ -141,55 +141,18 @@
   tabHist.addEventListener('click', showHist);
   tabPie.addEventListener('click', showPie);
 
-  // Utility functions
-  function makeEditable(el, onChange) {
-    el.style.cursor = 'pointer';
-    el.addEventListener('dblclick', () => {
-      const txt = prompt('Edit text', el.textContent);
-      if (txt !== null) {
-        el.textContent = txt;
-        onChange(txt);
-      }
-    });
+  if (typeof Shared.makeEditable === 'function') {
+    window.makeEditable = Shared.makeEditable;
+    console.debug('Debug: main linked Shared.makeEditable', { hasShared: true }); // Debug: shared makeEditable bridge
   }
-  window.makeEditable = makeEditable;
-
-  function autoResizeSvg(svg, opts = {}) {
-    try {
-      const { fill = true } = opts;
-      const applyResize = () => {
-        const bbox = svg.getBBox();
-        const padding = 10;
-        const minX = Math.min(0, bbox.x - padding);
-        const minY = Math.min(0, bbox.y - padding);
-        const viewW = bbox.x + bbox.width + padding - minX;
-        const viewH = bbox.y + bbox.height + padding - minY;
-        svg.setAttribute('viewBox', `${minX} ${minY} ${viewW} ${viewH}`);
-        if (fill) {
-          svg.setAttribute('width', '100%');
-          svg.setAttribute('height', '100%');
-        }
-        const parent = svg.parentElement;
-        if (parent) parent.style.overflow = 'visible';
-        const box = svg.closest('.svgbox');
-        if (box) box.style.overflow = 'visible';
-        console.log('autoResizeSvg applied', { bbox, minX, minY, viewW, viewH, fill, parentW: parent?.clientWidth, parentH: parent?.clientHeight });
-      };
-      applyResize();
-      requestAnimationFrame(applyResize);
-    } catch(err) { console.error('autoResizeSvg error', err); }
+  if (typeof Shared.autoResizeSvg === 'function') {
+    window.autoResizeSvg = Shared.autoResizeSvg;
+    console.debug('Debug: main linked Shared.autoResizeSvg', { hasShared: true }); // Debug: shared autoResize bridge
   }
-  window.autoResizeSvg = autoResizeSvg;
-
-  function serializeCleanSVG(svgEl) {
-    const clone = svgEl.cloneNode(true);
-    clone.querySelectorAll('[contenteditable],[contentEditable]').forEach(el => {
-      el.removeAttribute('contenteditable');
-      el.removeAttribute('contentEditable');
-    });
-    return new XMLSerializer().serializeToString(clone);
+  if (typeof Shared.serializeCleanSVG === 'function') {
+    window.serializeCleanSVG = Shared.serializeCleanSVG;
+    console.debug('Debug: main linked Shared.serializeCleanSVG', { hasShared: true }); // Debug: shared serialize bridge
   }
-  window.serializeCleanSVG = serializeCleanSVG;
 
   // Initialize
   showVenn();
