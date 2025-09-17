@@ -9,6 +9,9 @@
   if(!fileIO.saveGraphFile){
     console.debug('Debug: scatter component awaiting Shared.fileIO helpers');
   }
+  if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
+    console.debug('Debug: scatter component awaiting Shared.tableImport helpers');
+  }
 
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_ROWS=100;
@@ -57,7 +60,6 @@
       }
       return new (global.XMLSerializer||XMLSerializer)().serializeToString(clone);
     };
-    const clipboardAPI = global.navigator && global.navigator.clipboard;
     let scatterDrawToken=0;
       // Scatter plot setup
       const scatterHotContainer=document.getElementById('scatterHot');
@@ -134,107 +136,41 @@
         console.log('scatter example loaded');
         scheduleDrawScatter();
       });
-      document.getElementById('scatterImport').addEventListener('click',()=>{
-        const f=document.getElementById('scatterFile');
-        f.value='';
-        f.click();
-      });
-      document.getElementById('scatterFile').addEventListener('change',e=>{
-        const file=e.target.files[0];
-        if(!file) return;
-        const ext=file.name.split('.').pop().toLowerCase();
-        const reader=new FileReader();
-        if(['csv','tsv','txt'].includes(ext)){
-          reader.onload=ev=>{
-            const text=ev.target.result;
-            const delim=ext==='csv'?',':'\t';
-            let rows=text.split(/\r?\n/).map(r=>r.split(delim));
-            scatterProcessImportedRows(rows);
-          };
-          reader.readAsText(file);
-        }else if(['xls','xlsx','ods','odg'].includes(ext)){
-          reader.onload=async ev=>{
-            try{
-              if(!global.XLSX){
-                await new Promise((resolve,reject)=>{
-                  const s=document.createElement('script');
-                  s.src='libs/xlsx.full.min.js';
-                  s.onload=()=>resolve();
-                  s.onerror=err=>reject(new Error('Failed to load XLSX script'));
-                  document.head.appendChild(s);
-                });
-              }
-              const data=new Uint8Array(ev.target.result);
-              const workbook=XLSX.read(data,{type:'array'});
-              const sheet=workbook.Sheets[workbook.SheetNames[0]];
-              let rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
-              scatterProcessImportedRows(rows);
-            }catch(err){
-              alert('Failed to import spreadsheet: '+err.message);
-            }
-          };
-          reader.readAsArrayBuffer(file);
-        }else{
-          alert('Unsupported file format: '+ext);
-        }
-      });
-    
-      scatterHotContainer.addEventListener('paste',async e=>{
-        e.preventDefault();
-        e.stopPropagation();
-        let text=e.clipboardData?.getData('text/plain');
-        if(!text){
-          if(clipboardAPI && clipboardAPI.readText){
-            try{
-              text=await clipboardAPI.readText();
-              console.log('scatter clipboard fallback used');
-            }catch(err){
-              console.log('scatter clipboard read failed',err);
-              return;
-            }
-          }else{
-            console.log('scatter clipboard read unavailable');
-            return;
-          }
-        }
-        const rowArr=text.split(/\r?\n/);
-        if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')){
-          console.log('scatter paste ignored: insufficient data');
+      const scatterImportBtn=document.getElementById('scatterImport');
+      const scatterFileInput=document.getElementById('scatterFile');
+      const tableImport = Shared.tableImport;
+      scatterImportBtn.addEventListener('click',()=>{ scatterFileInput.value=''; scatterFileInput.click(); });
+      scatterFileInput.addEventListener('change',()=>{
+        if(!tableImport || typeof tableImport.openFile !== 'function'){
+          console.warn('scatter import skipped: Shared.tableImport.openFile unavailable');
           return;
         }
-        const delim=text.includes('\t')?'\t':',';
-        const rows=rowArr.map(r=>r.split(delim));
-        const sel=scatterHot.getSelectedLast();
-        const startRow=sel?sel[0]:0;
-        const startCol=sel?sel[1]:0;
-        console.log('scatter fast paste',{rows:rows.length,cols:rows[0]?.length,startRow,startCol});
-        console.time('scatterPaste');
-        scatterProcessImportedRows(rows,startRow,startCol);
-        console.timeEnd('scatterPaste');
-      },true);
-    
-      function scatterProcessImportedRows(rows,startRow=0,startCol=0){
-        if(!rows||!rows.length) return;
-        rows=rows.filter(r=>r && r.some(c=>String(c).trim()!==''));
-        if(!rows.length) return;
-        const colCount=Math.max(3,...rows.map(r=>r.length));
-        const rowCount=rows.length;
-        const curRows=scatterHot.countRows();
-        const curCols=scatterHot.countCols();
-        const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount);
-        const targetCols=Math.max(curCols,startCol+colCount,3);
-        const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill(''));
-        const existing=scatterHot.getData();
-        for(let r=0;r<curRows;r++){
-          for(let c=0;c<curCols;c++) data[r][c]=existing[r][c];
-        }
-        for(let r=0;r<rowCount;r++){
-          const row=rows[r];
-          for(let c=0;c<row.length;c++) data[startRow+r][startCol+c]=row[c];
-        }
-        scatterHot.updateSettings({data,minRows:targetRows,minCols:targetCols});
-        console.log('scatter data imported',{rows:data.length,cols:targetCols});
-        scheduleDrawScatter();
+        tableImport.openFile(scatterFileInput, {
+          hot: scatterHot,
+          minCols: 3,
+          minRows: DEFAULT_ROWS,
+          scheduleDraw: scheduleDrawScatter,
+          debugLabel: 'scatter',
+          onProcessed: info => console.log('scatter data imported',{rows: info?.rows, cols: info?.cols})
+        });
+      });
+
+      if(tableImport && typeof tableImport.handlePaste === 'function'){
+        scatterHotContainer.addEventListener('paste',async e=>{
+          console.time('scatterPaste');
+          try{
+            await tableImport.handlePaste(e, scatterHot, {
+              minCols: 3,
+              minRows: DEFAULT_ROWS,
+              scheduleDraw: scheduleDrawScatter,
+              debugLabel: 'scatter',
+              onBeforeProcess: meta => console.log('scatter fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
+              onProcessed: info => console.log('scatter data imported',{rows: info?.rows, cols: info?.cols})
+            });
+          }finally{
+            console.timeEnd('scatterPaste');
+          }
+        },true);
       }
     
       const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterAlpha=$('#scatterAlpha');

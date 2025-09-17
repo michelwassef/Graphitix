@@ -9,6 +9,9 @@
   if(!fileIO.saveGraphFile){
     console.debug('Debug: box component awaiting Shared.fileIO helpers');
   }
+  if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
+    console.debug('Debug: box component awaiting Shared.tableImport helpers');
+  }
 
   // PART: UTILS
   const NS='http://www.w3.org/2000/svg';
@@ -123,34 +126,38 @@
     if(global.DEBUG_BOX) console.log('boxplot example dataset', exampleData);
     loadExampleBtn.addEventListener('click',()=>{ state.selectedCols.clear(); state.hot.loadData(exampleData); console.log('boxplot example loaded'); state.scheduleDraw(); });
     importBtn.addEventListener('click',()=>{ fileInput.value=''; fileInput.click(); });
-    fileInput.addEventListener('change',e=>{
-      const file=e.target.files[0]; if(!file) return; const ext=file.name.split('.').pop().toLowerCase(); const reader=new FileReader();
-      if(['csv','tsv','txt'].includes(ext)){
-        reader.onload=ev=>{ const text=ev.target.result; const delim=ext==='csv'?',':'\t'; let rows=text.split(/\r?\n/).map(r=>r.split(delim)); processImportedRows(rows); }; reader.readAsText(file);
-      } else if(['xls','xlsx','ods','odg'].includes(ext)){
-        reader.onload=async ev=>{ try{ if(!global.XLSX){ await new Promise((resolve,reject)=>{ const s=document.createElement('script'); s.src='libs/xlsx.full.min.js'; s.onload=()=>resolve(); s.onerror=err=>reject(new Error('Failed to load XLSX script')); document.head.appendChild(s); }); } const data=new Uint8Array(ev.target.result); const workbook=global.XLSX.read(data,{type:'array'}); const sheet=workbook.Sheets[workbook.SheetNames[0]]; let rows=global.XLSX.utils.sheet_to_json(sheet,{header:1,defval:''}); processImportedRows(rows);}catch(err){ alert('Failed to import spreadsheet: '+err.message); } }; reader.readAsArrayBuffer(file);
-      } else { alert('Unsupported file format: '+ext); }
+    const tableImport = Shared.tableImport;
+    fileInput.addEventListener('change',()=>{
+      if(!tableImport || typeof tableImport.openFile !== 'function'){
+        console.warn('boxplot import skipped: Shared.tableImport.openFile unavailable');
+        return;
+      }
+      tableImport.openFile(fileInput, {
+        hot: state.hot,
+        minCols: DEFAULT_COLS,
+        minRows: DEFAULT_ROWS,
+        scheduleDraw: state.scheduleDraw,
+        debugLabel: 'box',
+        onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols})
+      });
     });
 
-    els.hotContainer.addEventListener('paste',async e=>{
-      e.preventDefault(); e.stopPropagation();
-      let text=e.clipboardData?.getData('text/plain');
-      if(!text){ try{ text=await navigator.clipboard.readText(); console.log('boxplot clipboard fallback used'); }catch(err){ console.log('boxplot clipboard read failed',err); return; } }
-      const rowArr=text.split(/\r?\n/);
-      if(rowArr.length<2 && !text.includes('\t') && !text.includes(',')) { console.log('boxplot paste ignored: insufficient data'); return; }
-      const delim=text.includes('\t')?'\t':','; const rows=rowArr.map(r=>r.split(delim)); const sel=state.hot.getSelectedLast(); const startRow=sel?sel[0]:0; const startCol=sel?sel[1]:0; console.log('boxplot fast paste',{rows:rows.length,cols:rows[0]?.length,startRow,startCol}); console.time('boxplotPaste'); processImportedRows(rows,startRow,startCol); console.timeEnd('boxplotPaste');
-    },true);
-
-    function processImportedRows(rows,startRow=0,startCol=0){
-      if(!rows||!rows.length) return; rows=rows.filter(r=>r&&r.some(c=>String(c).trim()!=='')); if(!rows.length) return;
-      const colCount=Math.max(DEFAULT_COLS,...rows.map(r=>r.length)); const rowCount=rows.length; const curRows=state.hot.countRows(); const curCols=state.hot.countCols();
-      const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount); const targetCols=Math.max(curCols,startCol+colCount,DEFAULT_COLS);
-      const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill('')); const existing=state.hot.getData();
-      for(let r=0;r<curRows;r++){ for(let c=0;c<curCols;c++) data[r][c]=existing[r][c]; }
-      for(let r=0;r<rowCount;r++){ const row=rows[r]; for(let c=0;c<row.length;c++) data[startRow+r][startCol+c]=row[c]; }
-      state.hot.updateSettings({data,minRows:targetRows,minCols:targetCols});
-      console.log('boxplot data imported', {rows:data.length, cols:targetCols});
-      state.scheduleDraw();
+    if(tableImport && typeof tableImport.handlePaste === 'function'){
+      els.hotContainer.addEventListener('paste',async e=>{
+        console.time('boxplotPaste');
+        try{
+          await tableImport.handlePaste(e, state.hot, {
+            minCols: DEFAULT_COLS,
+            minRows: DEFAULT_ROWS,
+            scheduleDraw: state.scheduleDraw,
+            debugLabel: 'box',
+            onBeforeProcess: meta => console.log('boxplot fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
+            onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols})
+          });
+        }finally{
+          console.timeEnd('boxplotPaste');
+        }
+      },true);
     }
   }
 
