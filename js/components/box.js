@@ -5,6 +5,10 @@
   const box = Components.box = Components.box || {};
   box.__installed = true;
   box.ready = false;
+  const fileIO = Shared.fileIO = Shared.fileIO || {};
+  if(!fileIO.saveGraphFile){
+    console.debug('Debug: box component awaiting Shared.fileIO helpers');
+  }
 
   // PART: UTILS
   const NS='http://www.w3.org/2000/svg';
@@ -556,9 +560,60 @@ function renderStatsControls(traces){
 
   // PART: SAVE_OPEN
   function getPayload(){ return { type:'box', data: state.hot.getData(), config: { title:state.titleText, yLabel:state.yLabelText, colorMode:els.boxColorUnified.checked?'unified':'individual', fill:els.boxFill.value, border:els.boxBorder.value, borderWidth:els.boxBorderWidth.value, fontSize:els.boxFontSize.value, showGrid:els.boxShowGrid.checked, logScale:els.boxLogScale.checked, graphType:els.boxGraphType.value, pointMode:els.boxPointMode.value, showCaps:els.boxShowCaps.checked, errorMode:els.boxErrorMode.value, colors:[...state.fillColors], borderColors:[...state.borderColors], yMin:els.boxYMin.value, yMax:els.boxYMax.value } }; }
-  box.save = async function(){ const payload=getPayload(); console.log('saveBoxFile',{payload,handle:state.fileHandle}); if(state.fileHandle&&state.fileHandle.createWritable){ try{ const perm=await (global.verifyPermission?global.verifyPermission(state.fileHandle,true):Promise.resolve(true)); if(perm){ const w=await state.fileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); } }catch(err){ console.error('saveBoxFile error',err); } } else if(global.showSaveFilePicker){ await box.saveAs(); } else { if(global.downloadJSON) global.downloadJSON(payload,state.fileName); } };
-  box.saveAs = async function(){ const payload=getPayload(); console.log('saveAsBoxFile',payload); if(global.showSaveFilePicker){ try{ state.fileHandle=await global.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:state.fileName}); const w=await state.fileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); }catch(err){ console.error('saveAsBoxFile error',err); } } else { if(global.downloadJSON) global.downloadJSON(payload,state.fileName); } };
-  box.open = async function(){ if(global.showOpenFilePicker){ try{ [state.fileHandle]=await global.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await state.fileHandle.getFile(); state.fileName=file.name; box.loadFromFile(file); }catch(err){ console.error('openBoxFile error',err); } } else { const input=global.document.getElementById('boxGraphFile'); input.value=''; input.click(); } };
+  box.save = async function(){
+    console.debug('Debug: box.save invoked', { hasHandle: !!state.fileHandle });
+    if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
+      console.error('box.save missing fileIO.saveGraphFile');
+      return;
+    }
+    const result = await fileIO.saveGraphFile({
+      context: 'box',
+      fileHandle: state.fileHandle,
+      getPayload,
+      fileName: state.fileName,
+      downloadFileName: state.fileName,
+      setFileHandle: handle => { state.fileHandle = handle; },
+      setFileName: name => { state.fileName = name; }
+    });
+    console.debug('Debug: box.save result', result);
+  };
+  box.saveAs = async function(){
+    console.debug('Debug: box.saveAs invoked', { currentName: state.fileName });
+    if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
+      console.error('box.saveAs missing fileIO.saveGraphFileAs');
+      return;
+    }
+    const result = await fileIO.saveGraphFileAs({
+      context: 'box',
+      getPayload,
+      fileName: state.fileName,
+      downloadFileName: state.fileName,
+      setFileHandle: handle => { state.fileHandle = handle; },
+      setFileName: name => { state.fileName = name; }
+    });
+    console.debug('Debug: box.saveAs result', result);
+  };
+  box.open = async function(){
+    console.debug('Debug: box.open invoked');
+    if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
+      console.error('box.open missing fileIO.openGraphFile');
+      return;
+    }
+    const result = await fileIO.openGraphFile({
+      context: 'box',
+      setFileHandle: handle => { state.fileHandle = handle; },
+      setFileName: name => { state.fileName = name; },
+      loadFromFile: file => box.loadFromFile(file),
+      triggerInput: () => {
+        const input = global.document.getElementById('boxGraphFile');
+        if(input){
+          input.value='';
+          input.click();
+        }
+      }
+    });
+    console.debug('Debug: box.open result', result);
+  };
   box.loadFromFile = function(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadBoxGraph',obj); if(obj.type!=='box') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; state.yLabelText=c.yLabel||state.yLabelText; els.boxFill.value=c.fill||els.boxFill.value; els.boxBorder.value=c.border||els.boxBorder.value; els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value; els.boxFontSize.value=c.fontSize||els.boxFontSize.value; els.boxFontSizeVal.textContent=els.boxFontSize.value; els.boxShowGrid.checked=!!c.showGrid; els.boxLogScale.checked=!!c.logScale; els.boxGraphType.value=c.graphType||els.boxGraphType.value; els.boxPointMode.value=c.pointMode||els.boxPointMode.value; els.boxShowCaps.checked=!!c.showCaps; els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value; els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none'; state.fillColors=c.colors||[]; state.borderColors=c.borderColors||[]; if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; } toggleColorMode(); els.boxYMin.value=c.yMin||''; els.boxYMax.value=c.yMax||''; const labels=state.hot.getDataAtRow(0) || []; if(els.boxColorIndividual.checked){ updateBoxColorPickers(labels); } else { els.boxColorPerBox.innerHTML=''; } state.scheduleDraw(); }catch(err){ console.error('loadBoxGraph error',err); } }; reader.readAsText(file); };
 
   box.init = function init(){

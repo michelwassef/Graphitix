@@ -8,6 +8,10 @@
   const pie = Components.pie = Components.pie || {};
   pie.__installed = true; // signal to legacy code to skip
   pie.ready = false;
+  const fileIO = Shared.fileIO = Shared.fileIO || {};
+  if(!fileIO.saveGraphFile){
+    console.debug('Debug: pie component awaiting Shared.fileIO helpers');
+  }
 
   let state = {
     hot: null,
@@ -156,9 +160,60 @@
         colors: state.colors
       };
     }
-    pie.save = async function(){ const payload=getPayload(); console.log('savePieFile',{payload,handle:state.fileHandle}); if(state.fileHandle&&state.fileHandle.createWritable){ try{ const perm=await global.verifyPermission(state.fileHandle,true); if(perm){ const w=await state.fileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); } }catch(err){console.error('savePieFile error',err);} } else if(global.showSaveFilePicker){ await pie.saveAs(); } else { if(global.downloadJSON) global.downloadJSON(payload,state.fileName); } };
-    pie.saveAs = async function(){ const payload=getPayload(); console.log('saveAsPieFile',payload); if(global.showSaveFilePicker){ try{ state.fileHandle=await global.showSaveFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],suggestedName:state.fileName}); const w=await state.fileHandle.createWritable(); await w.write(JSON.stringify(payload)); await w.close(); }catch(err){console.error('saveAsPieFile error',err);} } else { if(global.downloadJSON) global.downloadJSON(payload,state.fileName); } };
-    pie.open = async function(){ if(global.showOpenFilePicker){ try{ [state.fileHandle]=await global.showOpenFilePicker({types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]}); const file=await state.fileHandle.getFile(); state.fileName=file.name; pie.loadFromFile(file); }catch(err){console.error('openPieFile error',err);} } else { const input=document.getElementById('pieGraphFile'); input.value=''; input.click(); } };
+    pie.save = async function(){
+      console.debug('Debug: pie.save invoked', { hasHandle: !!state.fileHandle });
+      if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
+        console.error('pie.save missing fileIO.saveGraphFile');
+        return;
+      }
+      const result = await fileIO.saveGraphFile({
+        context: 'pie',
+        fileHandle: state.fileHandle,
+        getPayload,
+        fileName: state.fileName,
+        downloadFileName: state.fileName,
+        setFileHandle: handle => { state.fileHandle = handle; },
+        setFileName: name => { state.fileName = name; }
+      });
+      console.debug('Debug: pie.save result', result);
+    };
+    pie.saveAs = async function(){
+      console.debug('Debug: pie.saveAs invoked', { currentName: state.fileName });
+      if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
+        console.error('pie.saveAs missing fileIO.saveGraphFileAs');
+        return;
+      }
+      const result = await fileIO.saveGraphFileAs({
+        context: 'pie',
+        getPayload,
+        fileName: state.fileName,
+        downloadFileName: state.fileName,
+        setFileHandle: handle => { state.fileHandle = handle; },
+        setFileName: name => { state.fileName = name; }
+      });
+      console.debug('Debug: pie.saveAs result', result);
+    };
+    pie.open = async function(){
+      console.debug('Debug: pie.open invoked');
+      if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
+        console.error('pie.open missing fileIO.openGraphFile');
+        return;
+      }
+      const result = await fileIO.openGraphFile({
+        context: 'pie',
+        setFileHandle: handle => { state.fileHandle = handle; },
+        setFileName: name => { state.fileName = name; },
+        loadFromFile: file => pie.loadFromFile(file),
+        triggerInput: () => {
+          const input = document.getElementById('pieGraphFile');
+          if(input){
+            input.value='';
+            input.click();
+          }
+        }
+      });
+      console.debug('Debug: pie.open result', result);
+    };
     pie.loadFromFile = function(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; $('#pieChartType').value=c.chartType||$('#pieChartType').value; $('#pieShowPercents').checked=!!c.showPercents; $('#pieStartAngle').value=c.startAngle||$('#pieStartAngle').value; $('#pieFontSize').value=c.fontSize||$('#pieFontSize').value; $('#pieFontSizeVal').textContent=$('#pieFontSize').value; $('#pieValueColumn').value=c.valueColumn||$('#pieValueColumn').value; $('#pieExpectedColumn').value=c.expectedColumn||$('#pieExpectedColumn').value; state.colors=c.colors||state.colors; state.scheduleDraw(); }catch(err){console.error('loadPieGraph error',err);} }; reader.readAsText(file); };
     document.getElementById('openPie').addEventListener('click',pie.open);
     document.getElementById('savePie').addEventListener('click',pie.save);

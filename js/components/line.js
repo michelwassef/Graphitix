@@ -5,6 +5,10 @@
   const line = Components.line = Components.line || {};
   line.__installed = true;
   line.ready = false;
+  const fileIO = Shared.fileIO = Shared.fileIO || {};
+  if(!fileIO.saveGraphFile){
+    console.debug('Debug: line component awaiting Shared.fileIO helpers');
+  }
 
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 100;
@@ -41,24 +45,6 @@
         try{ callback(); } catch(err){ console.error('scheduleLineDraw error', err); }
       });
     };
-  }
-
-  function ensurePermission(handle,write){
-    if (typeof global.verifyPermission === 'function') {
-      return global.verifyPermission(handle,write);
-    }
-    return (async()=>{
-      try{
-        const opts=write?{mode:'readwrite'}:{};
-        const q=await handle.queryPermission(opts);
-        if(q==='granted') return true;
-        const r=await handle.requestPermission(opts);
-        return r==='granted';
-      }catch(err){
-        console.error('line ensurePermission error',err);
-        return false;
-      }
-    })();
   }
 
   function formatP(p){
@@ -255,58 +241,60 @@
     const payload=getLineGraphPayload();
     if(!payload) return;
     console.debug('Debug: saveLineFile',{hasHandle:!!lineFileHandle}); // Debug: save request
-    if(lineFileHandle && lineFileHandle.createWritable){
-      try{
-        const perm=await ensurePermission(lineFileHandle,true);
-        if(perm){
-          const w=await lineFileHandle.createWritable();
-          await w.write(JSON.stringify(payload));
-          await w.close();
-        }
-      }catch(err){ console.error('saveLineFile error',err); }
-    }else if(global.showSaveFilePicker){
-      await saveAsLineFile();
-    }else if(typeof global.downloadJSON === 'function'){
-      global.downloadJSON(payload,lineFileName);
+    if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
+      console.error('saveLineFile missing fileIO.saveGraphFile');
+      return;
     }
+    const result = await fileIO.saveGraphFile({
+      context: 'line',
+      fileHandle: lineFileHandle,
+      payload,
+      fileName: lineFileName,
+      downloadFileName: lineFileName,
+      setFileHandle: handle => { lineFileHandle = handle; },
+      setFileName: name => { lineFileName = name; }
+    });
+    console.debug('Debug: saveLineFile result', result);
   }
 
   async function saveAsLineFile(){
     const payload=getLineGraphPayload();
     if(!payload) return;
     console.debug('Debug: saveAsLineFile invoked'); // Debug: saveAs entry
-    if(global.showSaveFilePicker){
-      try{
-        lineFileHandle=await global.showSaveFilePicker({
-          types:[{description:'Graph Files',accept:{'application/json':['.graph']}}],
-          suggestedName:lineFileName
-        });
-        const w=await lineFileHandle.createWritable();
-        await w.write(JSON.stringify(payload));
-        await w.close();
-      }catch(err){ console.error('saveAsLineFile error',err); }
-    }else if(typeof global.downloadJSON === 'function'){
-      global.downloadJSON(payload,lineFileName);
+    if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
+      console.error('saveAsLineFile missing fileIO.saveGraphFileAs');
+      return;
     }
+    const result = await fileIO.saveGraphFileAs({
+      context: 'line',
+      payload,
+      fileName: lineFileName,
+      downloadFileName: lineFileName,
+      setFileHandle: handle => { lineFileHandle = handle; },
+      setFileName: name => { lineFileName = name; }
+    });
+    console.debug('Debug: saveAsLineFile result', result);
   }
 
   async function openLineFile(){
     console.debug('Debug: openLineFile start'); // Debug: open entry
-    if(global.showOpenFilePicker){
-      try{
-        [lineFileHandle]=await global.showOpenFilePicker({
-          types:[{description:'Graph Files',accept:{'application/json':['.graph']}}]
-        });
-        const file=await lineFileHandle.getFile();
-        lineFileName=file.name;
-        loadLineGraphFile(file);
-      }catch(err){ console.error('openLineFile error',err); }
-    }else{
-      if(refs.graphFileInput){
-        refs.graphFileInput.value='';
-        refs.graphFileInput.click();
-      }
+    if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
+      console.error('openLineFile missing fileIO.openGraphFile');
+      return;
     }
+    const result = await fileIO.openGraphFile({
+      context: 'line',
+      setFileHandle: handle => { lineFileHandle = handle; },
+      setFileName: name => { lineFileName = name; },
+      loadFromFile: file => loadLineGraphFile(file),
+      triggerInput: () => {
+        if(refs.graphFileInput){
+          refs.graphFileInput.value='';
+          refs.graphFileInput.click();
+        }
+      }
+    });
+    console.debug('Debug: openLineFile result', result);
   }
 
   function buildLineExportSvg(){
