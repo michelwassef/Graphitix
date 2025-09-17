@@ -1109,7 +1109,13 @@
     const stage = document.getElementById('stage');
     const vennContainer = stage?.closest('.svgbox') || stage?.parentElement;
     if (Shared.attachResizableBox && vennContainer) {
-      Shared.attachResizableBox(vennContainer);
+      Shared.attachResizableBox(vennContainer, {
+        defaultWidth: 640,
+        defaultHeight: 420,
+        onResize: phase => {
+          debugLog('resizer callback', { phase });
+        }
+      });
       debugLog('resizer attached', { hasContainer: true });
     }
   }

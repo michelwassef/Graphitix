@@ -56,7 +56,14 @@
     const histPlotDiv=document.getElementById('histPlot');
     const histContainer=histPlotDiv.closest('.svgbox')||histPlotDiv.parentElement;
     if(global.Shared && Shared.attachResizableBox && histContainer){
-      Shared.attachResizableBox(histContainer, { onResize: () => { syncHistPanels(); } });
+      Shared.attachResizableBox(histContainer, {
+        defaultWidth: 640,
+        defaultHeight: 420,
+        onResize: phase => {
+          console.debug('Debug: hist svgbox resized', { phase }); // Debug: hist svgbox resize callback
+          syncHistPanels();
+        }
+      });
     }
 
     // panel resizer

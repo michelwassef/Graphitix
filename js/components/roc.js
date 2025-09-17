@@ -95,8 +95,10 @@
     const container = refs.plotDiv?.closest('.svgbox') || refs.plotDiv?.parentElement;
     if(container && Shared && typeof Shared.attachResizableBox === 'function'){
       Shared.attachResizableBox(container, {
-        onResize: () => {
-          console.debug('Debug: ROC box resized');
+        defaultWidth: 640,
+        defaultHeight: 420,
+        onResize: phase => {
+          console.debug('Debug: ROC box resized', { phase }); // Debug: roc svgbox resize callback
           syncTableAndGraphWidths();
         }
       });
