@@ -3,6 +3,7 @@
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
   const pca = Components.pca = Components.pca || {};
+  const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   pca.__installed = true;
   pca.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -374,7 +375,8 @@
       svg.setAttribute('width', String(W));
       svg.setAttribute('height', String(H));
       svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-      svg.setAttribute('font-family', 'sans-serif');
+      svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
+      chartStyle.applySvgDefaults(svg);
       plotEl.appendChild(svg);
 
       function niceNum(range, round) {
@@ -415,9 +417,29 @@
       if (isFinite(yMinManual)) yScale.min = yMin;
       if (isFinite(yMaxManual)) yScale.max = yMax;
 
-      const margin = {left: 60, right: 20 + legendWidth, top: 20, bottom: 50};
-      const innerW = W - margin.left - margin.right;
-      const innerH = H - margin.top - margin.bottom;
+      const formatTick = value => value.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});
+      const tickFont = chartStyle.makeFont(fs);
+      const xTickLabels = xScale.ticks.map(t => formatTick(t));
+      const yTickLabels = yScale.ticks.map(t => formatTick(t));
+      const yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
+      const maxYLabelWidth = Math.max(...yLabelWidths, 0);
+      const axisLabelFontSize = fs + 4;
+      const axisLabelFont = chartStyle.makeFont(axisLabelFontSize);
+      const yTitleWidth = chartStyle.measureText(pcaYLabelText, axisLabelFont);
+      let margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth, maxYLabelWidth, yTitleWidth});
+      let plotW = Math.max(20, W - margin.left - margin.right);
+      let plotH = Math.max(20, H - margin.top - margin.bottom);
+      const bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize: fs, plotWidth: plotW, baseBottom: margin.bottom});
+      margin.bottom = bottomLayout.bottom;
+      plotW = Math.max(20, W - margin.left - margin.right);
+      plotH = Math.max(20, H - margin.top - margin.bottom);
+      const square = chartStyle.ensureSquarePlot(W, H, margin);
+      margin = square.margin;
+      plotW = square.plotW;
+      plotH = square.plotH;
+      console.debug('Debug: pca layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
+      const x2px = value => margin.left + ((value - xScale.min) * plotW) / (xScale.max - xScale.min);
+      const y2px = value => margin.top + plotH - ((value - yScale.min) * plotH) / (yScale.max - yScale.min);
 
       const add = (tag, attrs, text) => {
         const el = document.createElementNS(NS, tag);
@@ -435,58 +457,70 @@
 
       if (showGrid) {
         xScale.ticks.forEach((t) => {
-          const x = margin.left + ((t - xScale.min) * innerW) / (xScale.max - xScale.min);
-          add('line', {x1: x, y1: margin.top, x2: x, y2: H - margin.bottom, stroke: '#eee'});
+          const x = x2px(t);
+          add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotH, stroke: '#eee'});
         });
         yScale.ticks.forEach((t) => {
-          const y = H - margin.bottom - ((t - yScale.min) * innerH) / (yScale.max - yScale.min);
-          add('line', {x1: margin.left, y1: y, x2: W - margin.right, y2: y, stroke: '#eee'});
+          const y = y2px(t);
+          add('line', {x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#eee'});
         });
       }
 
-      add('line', {x1: margin.left, y1: margin.top, x2: margin.left, y2: H - margin.bottom, stroke: '#000'});
-      add('line', {x1: margin.left, y1: H - margin.bottom, x2: W - margin.right, y2: H - margin.bottom, stroke: '#000'});
+      add('line', {x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotH, stroke: '#000'});
+      add('line', {x1: margin.left, y1: margin.top + plotH, x2: margin.left + plotW, y2: margin.top + plotH, stroke: '#000'});
 
+      const xTickNodes = [];
       xScale.ticks.forEach((t) => {
-        const x = margin.left + ((t - xScale.min) * innerW) / (xScale.max - xScale.min);
-        add('line', {x1: x, y1: H - margin.bottom, x2: x, y2: H - margin.bottom + 6, stroke: '#000'});
-        add('text', {
+        const x = x2px(t);
+        add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + 6, stroke: '#000'});
+        const txt = add('text', {
           x,
-          y: H - margin.bottom + fs,
+          y: margin.top + plotH + fs,
           'font-size': fs,
           'text-anchor': 'middle',
-        }, String(t));
+          'dominant-baseline': 'hanging',
+          fill: chartStyle.TEXT_COLOR,
+        }, formatTick(t));
+        xTickNodes.push(txt);
       });
+      chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
 
       yScale.ticks.forEach((t) => {
-        const y = H - margin.bottom - ((t - yScale.min) * innerH) / (yScale.max - yScale.min);
+        const y = y2px(t);
         add('line', {x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000'});
         add('text', {
           x: margin.left - 8,
-          y: y + fs / 3,
+          y,
           'font-size': fs,
           'text-anchor': 'end',
-        }, String(t));
+          'dominant-baseline': 'middle',
+          fill: chartStyle.TEXT_COLOR,
+        }, formatTick(t));
       });
 
       add('text', {
-        x: margin.left + innerW / 2,
-        y: H - 10,
-        'font-size': fs,
+        x: margin.left + plotW / 2,
+        y: margin.top + plotH + axisLabelFontSize + 6,
+        'font-size': axisLabelFontSize,
+        'font-weight': '600',
         'text-anchor': 'middle',
+        fill: chartStyle.TEXT_COLOR,
       }, pcaXLabelText);
 
+      const yLabelX = margin.left - (maxYLabelWidth + fs * 1.6);
       add('text', {
-        x: 20,
-        y: margin.top + innerH / 2,
-        'font-size': fs,
+        x: yLabelX,
+        y: margin.top + plotH / 2,
+        'font-size': axisLabelFontSize,
+        'font-weight': '600',
         'text-anchor': 'middle',
-        transform: `rotate(-90 20 ${margin.top + innerH / 2})`,
+        transform: `rotate(-90 ${yLabelX} ${margin.top + plotH / 2})`,
+        fill: chartStyle.TEXT_COLOR,
       }, pcaYLabelText);
 
       points.forEach((pt) => {
-        const cx = margin.left + ((pt.x - xScale.min) * innerW) / (xScale.max - xScale.min);
-        const cy = H - margin.bottom - ((pt.y - yScale.min) * innerH) / (yScale.max - yScale.min);
+        const cx = x2px(pt.x);
+        const cy = y2px(pt.y);
         const color = pt.label ? (pcaLabelColors[pt.label] || DEFAULT_SCATTER_COLORS[0]) : fill;
         add('circle', {
           cx,
@@ -507,6 +541,7 @@
           x: W - legendWidth + 28,
           y: y + fs - 3,
           'font-size': fs,
+          fill: chartStyle.TEXT_COLOR,
         }, lab);
       });
 

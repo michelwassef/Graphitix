@@ -3,6 +3,7 @@
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
   const scatter = Components.scatter = Components.scatter || {};
+  const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   scatter.__installed = true;
   scatter.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -390,7 +391,8 @@
         svg.setAttribute('width',String(W));
         svg.setAttribute('height',String(H));
         svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
-        svg.setAttribute('font-family','sans-serif');
+        svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
+        chartStyle.applySvgDefaults(svg);
         plotEl.appendChild(svg);
         const xMinT=logX?Math.log10(xMin):xMin;
         const xMaxT=logX?Math.log10(xMax):xMax;
@@ -406,18 +408,27 @@
         if(isFinite(xMinManual)||isFinite(xMaxManual)){const ticks=[];for(let v=Math.ceil(xScale.min/xScale.step)*xScale.step;v<=xScale.max+1e-9;v+=xScale.step)ticks.push(v);xScale.ticks=ticks;}
         if(isFinite(yMinManual)||isFinite(yMaxManual)){const ticks=[];for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step;v<=yScale.max+1e-9;v+=yScale.step)ticks.push(v);yScale.ticks=ticks;}
         function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
-        const measureCanvas=drawScatter._canvas||(drawScatter._canvas=document.createElement('canvas'));
-        const measureCtx=measureCanvas.getContext('2d');
-        function measureTextWidth(text,font){measureCtx.font=font;return measureCtx.measureText(text).width;}
-        const tickFont=`${fs}px sans-serif`;
+        const tickFont=chartStyle.makeFont(fs);
         const xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t));
         const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
-        const yLabelWidths=yTickLabels.map(lbl=>measureTextWidth(lbl,tickFont));
+        const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
         const maxYLabelWidth=Math.max(...yLabelWidths,0);
-        const margin={top:Math.max(32,Math.round(fs*2.2)),right:20+legendWidth,bottom:Math.max(32,Math.round(fs*2.2))+fs+6,left:Math.max(48,Math.round(fs*3.0),maxYLabelWidth+fs*2)};
-        console.log('scatter margin computed',margin);
-        const plotW=Math.max(20,W-margin.left-margin.right);
-        const plotH=Math.max(20,H-margin.top-margin.bottom);
+        const axisLabelFontSize=fs+4;
+        const titleFontSize=fs+6;
+        const axisLabelFont=chartStyle.makeFont(axisLabelFontSize);
+        const yTitleWidth=chartStyle.measureText(scatterYLabelText,axisLabelFont);
+        let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth});
+        let plotW=Math.max(20,W-margin.left-margin.right);
+        let plotH=Math.max(20,H-margin.top-margin.bottom);
+        const bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom});
+        margin.bottom=bottomLayout.bottom;
+        plotW=Math.max(20,W-margin.left-margin.right);
+        plotH=Math.max(20,H-margin.top-margin.bottom);
+        const square=chartStyle.ensureSquarePlot(W,H,margin);
+        margin=square.margin;
+        plotW=square.plotW;
+        plotH=square.plotH;
+        console.debug('Debug: scatter layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
         const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
         const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
         function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
@@ -433,8 +444,10 @@
         console.log('scatter axes',{tickLen,xAxisY,yAxisX});
         add('line',{x1:margin.left - tickLen,y1:xAxisY,x2:margin.left+plotW + tickLen,y2:xAxisY,stroke:'#000','stroke-width':1});
         add('line',{x1:yAxisX,y1:margin.top - tickLen,x2:yAxisX,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':1});
-        xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+fs,'font-size':fs,'text-anchor':'middle',fill:'#000'});txt.textContent=formatTick(logX?Math.pow(10,t):t);});
-        yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:yAxisX-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:'#000'});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+        const xTickNodes=[];
+        xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+fs,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
+        chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+        yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:yAxisX-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
         console.time(`scatterSvgDraw_${token}`);
         const frag=document.createDocumentFragment();
         const labelBBox=new Map();
@@ -480,18 +493,24 @@
             t.setAttribute('x',legendX+16);
             t.setAttribute('y',y);
             t.setAttribute('font-size',fs);
+            t.setAttribute('fill',chartStyle.TEXT_COLOR);
             t.textContent=lab;
             legendGroup.appendChild(t);
           });
           svg.appendChild(legendGroup);
           console.log('scatter legend placed inside',{labels:legendLabels,legendWidth,legendX,legendY});
         }
-        const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':fs+4});xText.textContent=scatterXLabelText;makeEditableLocal(xText,txt=>{scatterXLabelText=txt;});
-        const yX=margin.left-(maxYLabelWidth+fs*0.5);
+        const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':axisLabelFontSize,'font-weight':'600',fill:chartStyle.TEXT_COLOR});
+        xText.textContent=scatterXLabelText;
+        makeEditableLocal(xText,txt=>{scatterXLabelText=txt;});
+        const yX=margin.left-(maxYLabelWidth+fs*1.6);
         console.log('scatter y-axis position',yX);
-        const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs+4});
-        yText.textContent=scatterYLabelText;makeEditableLocal(yText,txt=>{scatterYLabelText=txt;});
-        const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs+4});titleText.textContent=scatterTitleText;makeEditableLocal(titleText,txt=>{scatterTitleText=txt;});
+        const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':axisLabelFontSize,'font-weight':'600',fill:chartStyle.TEXT_COLOR});
+        yText.textContent=scatterYLabelText;
+        makeEditableLocal(yText,txt=>{scatterYLabelText=txt;});
+        const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':titleFontSize,'font-weight':'600',fill:chartStyle.TEXT_COLOR});
+        titleText.textContent=scatterTitleText;
+        makeEditableLocal(titleText,txt=>{scatterTitleText=txt;});
         const stats=computeScatterStats(points,method);
         if(token!==scatterDrawToken){console.log('scatter draw cancelled before stats',{token});return;}
         if(showLine && isFinite(stats.m) && isFinite(stats.b)){
