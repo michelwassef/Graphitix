@@ -11,6 +11,9 @@
   if(!fileIO.saveGraphFile){
     console.debug('Debug: roc component awaiting Shared.fileIO helpers');
   }
+  if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
+    console.debug('Debug: roc component awaiting Shared.tableImport helpers'); // Debug: table import helper check
+  }
 
   const DEFAULT_ROWS = 100;
   const ROC_DEFAULT_COLS = 3;
@@ -270,37 +273,6 @@
     console.debug('Debug: ROC color pickers refreshed', {labels});
   }
 
-  function processImportedRows(rows, startRow = 0, startCol = 0){
-    if(!state.hot || !rows || !rows.length){
-      return;
-    }
-    const filtered = rows.filter(r => r && r.some(cell => String(cell).trim() !== ''));
-    if(!filtered.length){
-      return;
-    }
-    const colCount = Math.max(2, ...filtered.map(r => r.length));
-    const rowCount = filtered.length;
-    const curRows = state.hot.countRows();
-    const curCols = state.hot.countCols();
-    const targetRows = Math.max(DEFAULT_ROWS, curRows, startRow + rowCount);
-    const targetCols = Math.max(curCols, startCol + colCount, ROC_DEFAULT_COLS);
-    console.debug('Debug: ROC import target size', {targetRows, targetCols});
-    const data = Array.from({length: targetRows}, () => Array(targetCols).fill(''));
-    const existing = state.hot.getData();
-    for(let r = 0; r < curRows; r += 1){
-      for(let c = 0; c < curCols; c += 1){
-        data[r][c] = existing[r][c];
-      }
-    }
-    for(let r = 0; r < rowCount; r += 1){
-      for(let c = 0; c < filtered[r].length; c += 1){
-        data[startRow + r][startCol + c] = filtered[r][c];
-      }
-    }
-    state.hot.updateSettings({data, minRows: targetRows, minCols: targetCols});
-    state.scheduleDraw?.();
-  }
-
   function initExampleAndImport(){
     const example = [
       ['Label','Model1','Model2','Model3'],
@@ -343,68 +315,50 @@
       }
     });
 
-    refs.fileInput?.addEventListener('change', event => {
-      const file = event.target.files?.[0];
-      if(!file){
+    refs.fileInput?.addEventListener('change', async () => {
+      const tableImport = Shared.tableImport;
+      if(!tableImport || typeof tableImport.openFile !== 'function'){
+        console.warn('roc import skipped: Shared.tableImport.openFile unavailable');
         return;
       }
-      const name = file.name.toLowerCase();
-      if(name.endsWith('.csv') || name.endsWith('.tsv') || name.endsWith('.txt')){
-        const reader = new FileReader();
-        reader.onload = e => {
-          const text = e.target.result;
-          const delimiter = name.endsWith('.tsv') ? '\t' : ',';
-          const rows = text.split(/\r?\n/).map(row => row.split(delimiter));
-          processImportedRows(rows);
-        };
-        reader.readAsText(file);
-      }else{
-        const reader = new FileReader();
-        reader.onload = e => {
-          try{
-            const data = new Uint8Array(e.target.result);
-            if(!global.XLSX){
-              throw new Error('XLSX library missing');
-            }
-            const workbook = global.XLSX.read(data, {type: 'array'});
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            const rows = global.XLSX.utils.sheet_to_json(sheet, {header: 1});
-            processImportedRows(rows);
-          }catch(err){
-            console.error('roc import error', err);
+      const fileName = refs.fileInput?.files?.[0]?.name || '';
+      console.debug('Debug: ROC import start', {fileName}); // Debug: import start trace
+      try{
+        const result = await tableImport.openFile(refs.fileInput, {
+          hot: state.hot,
+          minCols: ROC_DEFAULT_COLS,
+          minRows: DEFAULT_ROWS,
+          scheduleDraw: state.scheduleDraw,
+          debugLabel: 'roc',
+          onProcessed: info => {
+            console.debug('Debug: ROC tableImport processed', info || {}); // Debug: processed callback
           }
-        };
-        reader.readAsArrayBuffer(file);
+        });
+        console.debug('Debug: ROC import finished', {rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: import finish trace
+      }catch(err){
+        console.error('roc import failed', err);
       }
     });
 
     refs.hotContainer?.addEventListener('paste', async event => {
-      event.preventDefault();
-      event.stopPropagation();
-      let text = event.clipboardData?.getData('text/plain');
-      if(!text && navigator.clipboard){
-        try{
-          text = await navigator.clipboard.readText();
-          console.debug('Debug: ROC clipboard fallback used');
-        }catch(err){
-          console.warn('ROC clipboard read failed', err);
-          return;
-        }
-      }
-      if(!text){
+      const tableImport = Shared.tableImport;
+      if(!tableImport || typeof tableImport.handlePaste !== 'function'){
+        console.warn('roc paste skipped: Shared.tableImport.handlePaste unavailable');
         return;
       }
-      const rowsRaw = text.split(/\r?\n/);
-      if(rowsRaw.length < 2 && !text.includes('\t') && !text.includes(',')){
-        return;
-      }
-      const delimiter = text.includes('\t') ? '\t' : ',';
-      const rows = rowsRaw.map(row => row.split(delimiter));
-      if(state.hot){
-        const selection = state.hot.getSelectedLast();
-        const startRow = selection ? selection[0] : 0;
-        const startCol = selection ? selection[1] : 0;
-        processImportedRows(rows, startRow, startCol);
+      try{
+        const result = await tableImport.handlePaste(event, state.hot, {
+          minCols: ROC_DEFAULT_COLS,
+          minRows: DEFAULT_ROWS,
+          scheduleDraw: state.scheduleDraw,
+          debugLabel: 'roc',
+          onProcessed: info => {
+            console.debug('Debug: ROC paste processed', info || {}); // Debug: paste processed callback
+          }
+        });
+        console.debug('Debug: ROC paste finished', {rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: paste finish trace
+      }catch(err){
+        console.error('roc paste failed', err);
       }
     }, true);
   }

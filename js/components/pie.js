@@ -12,6 +12,12 @@
   if(!fileIO.saveGraphFile){
     console.debug('Debug: pie component awaiting Shared.fileIO helpers');
   }
+  if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
+    console.debug('Debug: pie component awaiting Shared.tableImport helpers'); // Debug: table import helper check
+  }
+
+  const PIE_DEFAULT_ROWS = 100;
+  const PIE_DEFAULT_COLS = 6;
 
   let state = {
     hot: null,
@@ -83,10 +89,9 @@
   }
 
   function initHot(){
-    const DEFAULT_ROWS=100; const PIE_DEFAULT_COLS=6;
     const container=document.getElementById('pieHot');
     state.hot=new global.Handsontable(container,{
-      data:global.Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,PIE_DEFAULT_COLS),
+      data:global.Handsontable.helper.createEmptySpreadsheetData(PIE_DEFAULT_ROWS,PIE_DEFAULT_COLS),
       rowHeaders(index){ return index===0?'':index; },
       colHeaders:true,
       stretchH:'all',
@@ -115,22 +120,33 @@
 
     const example=[ ['Quarter','Observed','Expected'], ['Q1',120,100], ['Q2',90,100], ['Q3',60,80], ['Q4',130,120] ];
     document.getElementById('pieLoadExample').addEventListener('click',()=>{ state.hot.loadData(example); console.log('pie example loaded with expected values'); state.scheduleDraw(); });
-    document.getElementById('pieImport').addEventListener('click',()=>{const f=document.getElementById('pieFile'); f.value=''; f.click();});
-    document.getElementById('pieFile').addEventListener('change',e=>{
-      const file=e.target.files[0]; if(!file) return; const ext=file.name.split('.').pop().toLowerCase(); const reader=new FileReader();
-      if(['csv','tsv','txt'].includes(ext)){
-        reader.onload=ev=>{const text=ev.target.result; const delim=ext==='csv'?',' : '\t'; const rows=text.split(/\r?\n/).map(r=>r.split(delim)); processImportedRows(rows);}; reader.readAsText(file);
-      }else if(['xls','xlsx','ods','odg'].includes(ext)){
-        reader.onload=async ev=>{ try{ if(!global.XLSX){ await new Promise((res,rej)=>{const s=document.createElement('script'); s.src='libs/xlsx.full.min.js'; s.onload=()=>res(); s.onerror=err=>rej(new Error('Failed to load XLSX script')); document.head.appendChild(s);}); } const data=new Uint8Array(ev.target.result); const workbook=global.XLSX.read(data,{type:'array'}); const sheet=workbook.Sheets[workbook.SheetNames[0]]; let rows=global.XLSX.utils.sheet_to_json(sheet,{header:1,defval:''}); processImportedRows(rows);}catch(err){alert('Failed to import spreadsheet: '+err.message);} }; reader.readAsArrayBuffer(file);
-      } else { alert('Unsupported file format: '+ext); }
+    const pieImportBtn=document.getElementById('pieImport');
+    const pieFileInput=document.getElementById('pieFile');
+    pieImportBtn.addEventListener('click',()=>{ pieFileInput.value=''; pieFileInput.click(); });
+    pieFileInput.addEventListener('change',async ()=>{
+      const tableImport = Shared.tableImport;
+      if(!tableImport || typeof tableImport.openFile !== 'function'){
+        console.warn('pie import skipped: Shared.tableImport.openFile unavailable');
+        return;
+      }
+      const fileName = pieFileInput.files?.[0]?.name || '';
+      console.debug('Debug: pie import start',{fileName}); // Debug: import start trace
+      try{
+        const result = await tableImport.openFile(pieFileInput,{
+          hot: state.hot,
+          minCols: PIE_DEFAULT_COLS,
+          minRows: PIE_DEFAULT_ROWS,
+          scheduleDraw: state.scheduleDraw,
+          debugLabel: 'pie',
+          onProcessed: info => {
+            console.debug('Debug: pie tableImport processed', info || {}); // Debug: processed callback
+          }
+        });
+        console.debug('Debug: pie import finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: import finish trace
+      }catch(err){
+        console.error('pie import failed',err);
+      }
     });
-
-    function processImportedRows(rows,startRow=0,startCol=0){
-      if(!rows||!rows.length) return; rows=rows.filter(r=>r&&r.some(c=>String(c).trim()!=='')); if(!rows.length) return;
-      const colCount=Math.max(1,...rows.map(r=>r.length)); const rowCount=rows.length; const curRows=state.hot.countRows(); const curCols=state.hot.countCols(); const DEFAULT_ROWS=100; const targetRows=Math.max(DEFAULT_ROWS,curRows,startRow+rowCount); const targetCols=Math.max(curCols,startCol+colCount);
-      const data=Array.from({length:targetRows},(_,r)=>Array(targetCols).fill('')); const existing=state.hot.getData(); for(let r=0;r<curRows;r++){ for(let c=0;c<curCols;c++) data[r][c]=existing[r][c]; } for(let r=0;r<rowCount;r++){ const row=rows[r]; for(let c=0;c<row.length;c++) data[startRow+r][startCol+c]=row[c]; }
-      state.hot.updateSettings({data,minRows:targetRows,minCols:targetCols}); console.log('pie data imported',{rows:data.length,cols:targetCols}); state.scheduleDraw();
-    }
 
     // Export buttons
     document.getElementById('piePNG').addEventListener('click',async()=>{
