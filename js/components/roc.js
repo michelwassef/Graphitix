@@ -568,7 +568,11 @@
     const graphType = refs.graphType?.value || 'roc';
     const bw = Number(refs.borderWidth?.value) || 2;
     const showGrid = !!refs.showGrid?.checked;
-    const fontSize = Number(refs.fontSize?.value) || 16;
+    const normalizedFont = chartStyle.normalizeFontSize(refs.fontSize?.value);
+    const fontSize = normalizedFont.px;
+    console.debug('Debug: roc font resolved',{input:refs.fontSize?.value,fontSizePt:normalizedFont.pt,fontSizePx:fontSize});
+    const axisMetrics = chartStyle.createAxisMetrics(fontSize);
+    console.debug('Debug: roc axis metrics',axisMetrics);
     const data = state.hot.getData();
     if(!data || !data.length){
       return;
@@ -646,15 +650,14 @@
     const xTickLabels = ticks.map(formatTick);
     const yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
     const maxYLabelWidth = Math.max(...yLabelWidths, 0);
-    const axisLabelFontSize = fontSize + 4;
-    const axisLabelFont = chartStyle.makeFont(axisLabelFontSize);
+    const axisLabelFont = chartStyle.makeFont(fontSize);
     const xAxisLabel = graphType === 'roc' ? 'False Positive Rate' : 'Recall';
     const yAxisLabel = graphType === 'roc' ? 'True Positive Rate' : 'Precision';
     const yTitleWidth = chartStyle.measureText(yAxisLabel, axisLabelFont);
-    let margin = chartStyle.computeBaseMargins({fontSize, legendWidth, maxYLabelWidth, yTitleWidth});
+    let margin = chartStyle.computeBaseMargins({fontSize, legendWidth, maxYLabelWidth, yTitleWidth, axisMetrics});
     let plotWidth = Math.max(20, width - margin.left - margin.right);
     let plotHeight = Math.max(20, height - margin.top - margin.bottom);
-    const bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, plotWidth, baseBottom: margin.bottom});
+    const bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, plotWidth, baseBottom: margin.bottom, axisMetrics});
     margin.bottom = bottomLayout.bottom;
     plotWidth = Math.max(20, width - margin.left - margin.right);
     plotHeight = Math.max(20, height - margin.top - margin.bottom);
@@ -704,35 +707,35 @@
     }
 
     const xTickNodes = [];
+    const tickLen = axisMetrics.tickLength;
+    const tickGap = axisMetrics.tickLabelGap;
     ticks.forEach(tick => {
       const x = xToPx(tick);
-      add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + 6, stroke: '#000', 'stroke-width': 1});
-      const txt = add('text', {x, y: margin.top + plotHeight + fontSize + 6, 'text-anchor': 'middle', 'font-size': fontSize, 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
+      add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + tickLen, stroke: '#000', 'stroke-width': 1});
+      const txt = add('text', {x, y: margin.top + plotHeight + tickLen + tickGap, 'text-anchor': 'middle', 'font-size': fontSize, 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
       xTickNodes.push(txt);
     });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
     ticks.forEach(tick => {
       const y = yToPx(tick);
-      add('line', {x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1});
-      add('text', {x: margin.left - 8, y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
+      add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1});
+      add('text', {x: margin.left - (tickLen + tickGap), y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
     });
 
     add('text', {
       x: margin.left + plotWidth / 2,
-      y: margin.top + plotHeight + axisLabelFontSize + 8,
+      y: margin.top + plotHeight + bottomLayout.titleOffset,
       'text-anchor': 'middle',
-      'font-size': axisLabelFontSize,
-      'font-weight': '600',
+      'font-size': fontSize,
       fill: chartStyle.TEXT_COLOR
     }, xAxisLabel);
 
-    const yLabelX = margin.left - (maxYLabelWidth + fontSize * 1.6);
+    const yLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fontSize * 0.5);
     add('text', {
       x: yLabelX,
       y: margin.top + plotHeight / 2,
       'text-anchor': 'middle',
-      'font-size': axisLabelFontSize,
-      'font-weight': '600',
+      'font-size': fontSize,
       transform: `rotate(-90 ${yLabelX} ${margin.top + plotHeight / 2})`,
       fill: chartStyle.TEXT_COLOR
     }, yAxisLabel);

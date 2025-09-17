@@ -304,7 +304,11 @@
       const alpha=Number(refs.alpha?.value)||0;
       const borderWidth=Number(refs.borderWidth?.value);
       const borderColor=refs.border?.value;
-      const fs=Number(refs.fontSize?.value)||16;
+      const normalizedFont=chartStyle.normalizeFontSize(refs.fontSize?.value);
+      const fs=normalizedFont.px;
+      console.debug('Debug: line font resolved',{input:refs.fontSize?.value,fontSizePt:normalizedFont.pt,fontSizePx:fs});
+      const axisMetrics=chartStyle.createAxisMetrics(fs);
+      console.debug('Debug: line axis metrics',axisMetrics);
       const showGrid=!!refs.showGrid?.checked;
       const logX=!!refs.logX?.checked;
       const logY=!!refs.logY?.checked;
@@ -413,14 +417,12 @@
       const xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t));
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       const maxYLabelWidth=Math.max(...yLabelWidths,0);
-      const axisLabelFontSize=fs+4;
-      const titleFontSize=fs+6;
-      const axisLabelFont=chartStyle.makeFont(axisLabelFontSize);
+      const axisLabelFont=chartStyle.makeFont(fs);
       const yTitleWidth=chartStyle.measureText(lineYLabelText,axisLabelFont);
-      let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth});
+      let margin=chartStyle.computeBaseMargins({fontSize:fs,legendWidth,maxYLabelWidth,yTitleWidth,axisMetrics});
       let plotW=Math.max(20,W-margin.left-margin.right);
       let plotH=Math.max(20,H-margin.top-margin.bottom);
-      const bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom});
+      const bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
       margin.bottom=bottomLayout.bottom;
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -428,7 +430,8 @@
       const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
       const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
       function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
-      const tickLen=6;
+      const tickLen=axisMetrics.tickLength;
+      const tickGap=axisMetrics.tickLabelGap;
       if(showGrid){
         xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});
         yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});
@@ -448,9 +451,9 @@
       add('line',{x1:margin.left - tickLen,y1:xAxisY,x2:margin.left+plotW + tickLen,y2:xAxisY,stroke:'#000','stroke-width':1});
       add('line',{x1:yAxisX,y1:margin.top - tickLen,x2:yAxisX,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':1});
       const xTickNodes=[];
-      xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+fs,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
+      xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
       chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
-      yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:yAxisX-(tickLen+2),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+      yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
       const colors=series.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
       const seriesElems=[];
       series.forEach((s,i)=>{
@@ -515,14 +518,15 @@
         svg.appendChild(legendGroup);
         lineLegendItems=series.map((s,i)=>({label:s.name,color:colors[i]}));
       }
-      const xText=add('text',{x:margin.left+plotW/2,y:H-6,'text-anchor':'middle','font-size':axisLabelFontSize,'font-weight':'600',fill:chartStyle.TEXT_COLOR});
+      const xAxisBase=margin.top+plotH;
+      const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       xText.textContent=lineXLabelText;
       makeEditableHelper(xText,txt=>{lineXLabelText=txt;});
-      const yX=margin.left-(maxYLabelWidth+fs*1.6);
-      const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':axisLabelFontSize,'font-weight':'600',fill:chartStyle.TEXT_COLOR});
+      const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+      const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       yText.textContent=lineYLabelText;
       makeEditableHelper(yText,txt=>{lineYLabelText=txt;});
-      const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':titleFontSize,'font-weight':'600',fill:chartStyle.TEXT_COLOR});
+      const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       titleText.textContent=lineTitleText;
       makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
       updateLineStats(series);
