@@ -218,7 +218,11 @@
       const borderWidth = Number(pcaBorderWidth.value);
       const borderColor = pcaBorder.value;
       const bw = borderWidth;
-      const fs = Number(pcaFontSize.value);
+      const normalizedFont = chartStyle.normalizeFontSize(pcaFontSize.value);
+      const fs = normalizedFont.px;
+      console.debug('Debug: pca font resolved',{input:pcaFontSize.value,fontSizePt:normalizedFont.pt,fontSizePx:fs});
+      const axisMetrics = chartStyle.createAxisMetrics(fs);
+      console.debug('Debug: pca axis metrics',axisMetrics);
       const showGrid = pcaShowGrid.checked;
       const dotSize = Number(pcaDotSize.value) || 3;
       const xMinManual = parseFloat(pcaXMin.value);
@@ -423,13 +427,12 @@
       const yTickLabels = yScale.ticks.map(t => formatTick(t));
       const yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
       const maxYLabelWidth = Math.max(...yLabelWidths, 0);
-      const axisLabelFontSize = fs + 4;
-      const axisLabelFont = chartStyle.makeFont(axisLabelFontSize);
+      const axisLabelFont = chartStyle.makeFont(fs);
       const yTitleWidth = chartStyle.measureText(pcaYLabelText, axisLabelFont);
-      let margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth, maxYLabelWidth, yTitleWidth});
+      let margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth, maxYLabelWidth, yTitleWidth, axisMetrics});
       let plotW = Math.max(20, W - margin.left - margin.right);
       let plotH = Math.max(20, H - margin.top - margin.bottom);
-      const bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize: fs, plotWidth: plotW, baseBottom: margin.bottom});
+      const bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize: fs, plotWidth: plotW, baseBottom: margin.bottom, axisMetrics});
       margin.bottom = bottomLayout.bottom;
       plotW = Math.max(20, W - margin.left - margin.right);
       plotH = Math.max(20, H - margin.top - margin.bottom);
@@ -470,12 +473,14 @@
       add('line', {x1: margin.left, y1: margin.top + plotH, x2: margin.left + plotW, y2: margin.top + plotH, stroke: '#000'});
 
       const xTickNodes = [];
+      const tickLen = axisMetrics.tickLength;
+      const tickGap = axisMetrics.tickLabelGap;
       xScale.ticks.forEach((t) => {
         const x = x2px(t);
-        add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + 6, stroke: '#000'});
+        add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + tickLen, stroke: '#000'});
         const txt = add('text', {
           x,
-          y: margin.top + plotH + fs,
+          y: margin.top + plotH + tickLen + tickGap,
           'font-size': fs,
           'text-anchor': 'middle',
           'dominant-baseline': 'hanging',
@@ -487,9 +492,9 @@
 
       yScale.ticks.forEach((t) => {
         const y = y2px(t);
-        add('line', {x1: margin.left - 6, y1: y, x2: margin.left, y2: y, stroke: '#000'});
+        add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000'});
         add('text', {
-          x: margin.left - 8,
+          x: margin.left - (tickLen + tickGap),
           y,
           'font-size': fs,
           'text-anchor': 'end',
@@ -500,19 +505,17 @@
 
       add('text', {
         x: margin.left + plotW / 2,
-        y: margin.top + plotH + axisLabelFontSize + 6,
-        'font-size': axisLabelFontSize,
-        'font-weight': '600',
+        y: margin.top + plotH + bottomLayout.titleOffset,
+        'font-size': fs,
         'text-anchor': 'middle',
         fill: chartStyle.TEXT_COLOR,
       }, pcaXLabelText);
 
-      const yLabelX = margin.left - (maxYLabelWidth + fs * 1.6);
+      const yLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
       add('text', {
         x: yLabelX,
         y: margin.top + plotH / 2,
-        'font-size': axisLabelFontSize,
-        'font-weight': '600',
+        'font-size': fs,
         'text-anchor': 'middle',
         transform: `rotate(-90 ${yLabelX} ${margin.top + plotH / 2})`,
         fill: chartStyle.TEXT_COLOR,
