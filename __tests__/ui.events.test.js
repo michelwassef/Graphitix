@@ -13,6 +13,7 @@ describe('UI events and example loaders', () => {
     require('../js/shared/colorPicker.js');
     require('../js/shared/hot.js');
     // Components
+    require('../js/components/box.js');
     require('../js/components/hist.js');
     require('../js/components/pie.js');
     require('../js/components/roc.js');
