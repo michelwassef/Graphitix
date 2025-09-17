@@ -448,8 +448,17 @@
       const clampedYT=Math.min(Math.max(originYT,yScale.min),yScale.max);
       const xAxisY=y2px(clampedYT);
       const yAxisX=x2px(clampedXT);
-      add('line',{x1:margin.left - tickLen,y1:xAxisY,x2:margin.left+plotW + tickLen,y2:xAxisY,stroke:'#000','stroke-width':1});
-      add('line',{x1:yAxisX,y1:margin.top - tickLen,x2:yAxisX,y2:margin.top+plotH + tickLen,stroke:'#000','stroke-width':1});
+      const xTickPositions=xScale.ticks.map(t=>x2px(t));
+      const yTickPositions=yScale.ticks.map(t=>y2px(t));
+      let axisXStart=xTickPositions.length?Math.min(...xTickPositions):margin.left;
+      let axisXEnd=xTickPositions.length?Math.max(...xTickPositions):margin.left+plotW;
+      let axisYStart=yTickPositions.length?Math.min(...yTickPositions):margin.top;
+      let axisYEnd=yTickPositions.length?Math.max(...yTickPositions):margin.top+plotH;
+      if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
+      if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
+      console.debug('Debug: line axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
+      add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:'#000','stroke-width':1,'stroke-linecap':'square'});
+      add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:'#000','stroke-width':1,'stroke-linecap':'square'});
       const xTickNodes=[];
       xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
       chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});

@@ -469,8 +469,17 @@
         });
       }
 
-      add('line', {x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotH, stroke: '#000'});
-      add('line', {x1: margin.left, y1: margin.top + plotH, x2: margin.left + plotW, y2: margin.top + plotH, stroke: '#000'});
+      const xTickPositions = xScale.ticks.map(t => x2px(t));
+      const yTickPositions = yScale.ticks.map(t => y2px(t));
+      let axisXStart = xTickPositions.length ? Math.min(...xTickPositions) : margin.left;
+      let axisXEnd = xTickPositions.length ? Math.max(...xTickPositions) : margin.left + plotW;
+      let axisYStart = yTickPositions.length ? Math.min(...yTickPositions) : margin.top;
+      let axisYEnd = yTickPositions.length ? Math.max(...yTickPositions) : margin.top + plotH;
+      if(axisXStart === axisXEnd){ axisXStart = margin.left; axisXEnd = margin.left + plotW; }
+      if(axisYStart === axisYEnd){ axisYStart = margin.top; axisYEnd = margin.top + plotH; }
+      console.debug('Debug: pca axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
+      add('line', {x1: axisXStart, y1: margin.top + plotH, x2: axisXEnd, y2: margin.top + plotH, stroke: '#000', 'stroke-width': 1, 'stroke-linecap': 'square'});
+      add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: '#000', 'stroke-width': 1, 'stroke-linecap': 'square'});
 
       const xTickNodes = [];
       const tickLen = axisMetrics.tickLength;

@@ -323,8 +323,17 @@
     const tickLen=axisMetrics.tickLength;
     const tickGap=axisMetrics.tickLabelGap;
     if(showGrid){ yScale.ticks.forEach(t=>{ const y=y2px(t); add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1}); }); }
-    add('line',{x1:margin.left,y1:margin.top+plotH,x2:margin.left+plotW,y2:margin.top+plotH,stroke:'#000','stroke-width':1});
-    add('line',{x1:margin.left,y1:margin.top,x2:margin.left,y2:margin.top+plotH,stroke:'#000','stroke-width':1});
+    const xTickPositions=xScale.ticks.map(t=>x2px(t));
+    const yTickPositions=yScale.ticks.map(t=>y2px(t));
+    let axisXStart=xTickPositions.length?Math.min(...xTickPositions):margin.left;
+    let axisXEnd=xTickPositions.length?Math.max(...xTickPositions):margin.left+plotW;
+    let axisYStart=yTickPositions.length?Math.min(...yTickPositions):margin.top;
+    let axisYEnd=yTickPositions.length?Math.max(...yTickPositions):margin.top+plotH;
+    if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
+    if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
+    console.debug('Debug: hist axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
+    add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:'#000','stroke-width':1,'stroke-linecap':'square'});
+    add('line',{x1:margin.left,y1:axisYStart,x2:margin.left,y2:axisYEnd,stroke:'#000','stroke-width':1,'stroke-linecap':'square'});
     const xTickNodes=[];
     xScale.ticks.forEach(t=>{ const x=x2px(t); add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1}); const txt=add('text',{x,y:margin.top+plotH+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR}); txt.textContent=formatTick(t); xTickNodes.push(txt); });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});

@@ -3,6 +3,7 @@
 
   const NS = 'http://www.w3.org/2000/svg';
   const Shared = global.Shared = global.Shared || {};
+  const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const Components = global.Components = global.Components || {};
   const venn = Components.venn = Components.venn || {};
   venn.__installed = true;
@@ -199,8 +200,34 @@
     for (const [k, v] of Object.entries(attrs)) {
       el.setAttribute(k, String(v));
     }
+    if (tag === 'text') {
+      const fontFamily = chartStyle.FONT_FAMILY || 'Arial, Helvetica, sans-serif';
+      if (fontFamily && !el.hasAttribute('font-family')) {
+        el.setAttribute('font-family', fontFamily);
+      }
+      if (!el.hasAttribute('fill')) {
+        const textColor = chartStyle.TEXT_COLOR || '#000000';
+        el.setAttribute('fill', textColor);
+      }
+    }
     if (parent) parent.appendChild(el);
     return el;
+  }
+
+  function resolveFontSettings(raw) {
+    let normalized;
+    if (typeof chartStyle.normalizeFontSize === 'function') {
+      normalized = chartStyle.normalizeFontSize(raw);
+    } else {
+      const basePt = chartStyle.BASE_FONT_SIZE_PT || 8;
+      const numeric = Number(raw);
+      const pt = Number.isFinite(numeric) ? numeric : basePt;
+      const factor = chartStyle.PT_TO_PX || (96 / 72);
+      const px = Number((pt * factor).toFixed(2));
+      normalized = { pt, px };
+    }
+    console.debug('Debug: venn resolveFontSettings', { raw, normalized });
+    return normalized;
   }
 
   function enableDrag(el) {
@@ -827,6 +854,11 @@
     clearSVG();
     const stage = state.stage;
     if (!stage) return;
+    const fontFamily = chartStyle.FONT_FAMILY || stage.getAttribute('font-family') || 'Arial, Helvetica, sans-serif';
+    const textColor = chartStyle.TEXT_COLOR || '#000000';
+    stage.setAttribute('font-family', fontFamily);
+    stage.setAttribute('color', textColor);
+    console.debug('Debug: venn stage font applied', { fontFamily, textColor });
     const tooltip = state.tooltip;
     const W = 500, H = 340, pad = 20, labelPad = style.fontsize * 2;
     const xs = [d.Ax - d.rA, d.Ax + d.rA, d.Bx - d.rB, d.Bx + d.rB];
@@ -845,7 +877,14 @@
       makeEl('circle', { cx: p.x, cy: p.y, r: c.r * scale, fill: c.color, 'fill-opacity': style.opacity, stroke: style.borderColor, 'stroke-width': style.borderWidth });
     }
     function addText(txt, x, y, regionCode) {
-      const t = makeEl('text', { x: x, y: y, 'font-size': style.fontsize, 'text-anchor': 'middle', fill: '#333' });
+      const t = makeEl('text', {
+        x,
+        y,
+        'font-size': style.fontsize,
+        'text-anchor': 'middle',
+        fill: textColor,
+        'font-family': fontFamily
+      });
       t.textContent = txt;
       if (regionCode && tooltip) {
         t.addEventListener('mouseenter', e => {
@@ -994,9 +1033,10 @@
     refreshCounts(counts);
     const pairs = { nAB: counts.AB + counts.ABC, nAC: counts.AC + counts.ABC, nBC: counts.BC + counts.ABC };
     const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
+    const fontSettings = resolveFontSettings(inputs.fontsize.value);
     const style = {
       colorA: inputs.colorA.value, colorB: inputs.colorB.value, colorC: inputs.colorC.value,
-      opacity: inputs.opacity.value, fontsize: inputs.fontsize.value,
+      opacity: inputs.opacity.value, fontsize: fontSettings.px, fontPt: fontSettings.pt,
       borderColor: inputs.borderColor.value, borderWidth: inputs.borderWidth.value
     };
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
@@ -1029,9 +1069,10 @@
     if (state.significanceResults) state.significanceResults.innerHTML = '';
     refreshCounts(counts);
     const L = layoutFromCounts(nA, nB, nC, nAB, nAC, nBC);
+    const fontSettings = resolveFontSettings(inputs.fontsize.value);
     const style = {
       colorA: inputs.colorA.value, colorB: inputs.colorB.value, colorC: inputs.colorC.value,
-      opacity: inputs.opacity.value, fontsize: inputs.fontsize.value,
+      opacity: inputs.opacity.value, fontsize: fontSettings.px, fontPt: fontSettings.pt,
       borderColor: inputs.borderColor.value, borderWidth: inputs.borderWidth.value
     };
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
@@ -1074,12 +1115,22 @@
         if (saved.colorB) inputs.colorB.value = saved.colorB;
         if (saved.colorC) inputs.colorC.value = saved.colorC;
         if (saved.opacity) inputs.opacity.value = saved.opacity;
-        if (saved.fontsize) inputs.fontsize.value = saved.fontsize;
+        if (saved.fontsize) {
+          const normalized = resolveFontSettings(saved.fontsize);
+          inputs.fontsize.value = normalized.pt;
+          inputs.fontsizeVal.textContent = normalized.pt;
+          console.debug('Debug: venn loadStylePrefs font applied', { saved: saved.fontsize, normalized });
+        }
         if (saved.borderColor) inputs.borderColor.value = saved.borderColor;
         if (saved.borderWidth) inputs.borderWidth.value = saved.borderWidth;
       }
+      if (!saved || !saved.fontsize) {
+        const normalized = resolveFontSettings(inputs.fontsize.value);
+        inputs.fontsize.value = normalized.pt;
+        inputs.fontsizeVal.textContent = normalized.pt;
+        console.debug('Debug: venn loadStylePrefs font default', { normalized });
+      }
       inputs.opacityVal.textContent = inputs.opacity.value;
-      inputs.fontsizeVal.textContent = inputs.fontsize.value;
       inputs.borderWidthVal.textContent = inputs.borderWidth.value;
     } catch (err) {
       console.warn('Debug: venn loadStylePrefs error', err);
@@ -1246,8 +1297,17 @@
         inputs.borderColor.value = s.borderColor || inputs.borderColor.value;
         inputs.borderWidth.value = s.borderWidth || inputs.borderWidth.value;
         inputs.borderWidthVal.textContent = inputs.borderWidth.value;
-        inputs.fontsize.value = s.fontsize || inputs.fontsize.value;
-        inputs.fontsizeVal.textContent = inputs.fontsize.value;
+        if (s.fontsize) {
+          const normalized = resolveFontSettings(s.fontsize);
+          inputs.fontsize.value = normalized.pt;
+          inputs.fontsizeVal.textContent = normalized.pt;
+          console.debug('Debug: venn loadFromFile font applied', { saved: s.fontsize, normalized });
+        } else {
+          const normalized = resolveFontSettings(inputs.fontsize.value);
+          inputs.fontsize.value = normalized.pt;
+          inputs.fontsizeVal.textContent = normalized.pt;
+          console.debug('Debug: venn loadFromFile font fallback', { normalized });
+        }
         refreshDiagram();
       } catch (err) { console.error('loadVennGraph error', err); }
     };
@@ -1374,7 +1434,15 @@
     [state.inputs.A, state.inputs.B, state.inputs.C].forEach(el => el && el.addEventListener('paste', handlePlainPaste));
     loadStylePrefs();
     state.inputs.opacity.addEventListener('input', () => { state.inputs.opacityVal.textContent = state.inputs.opacity.value; refreshDiagram(); saveStylePrefs(); });
-    state.inputs.fontsize.addEventListener('input', () => { state.inputs.fontsizeVal.textContent = state.inputs.fontsize.value; refreshDiagram(); saveStylePrefs(); });
+    state.inputs.fontsize.addEventListener('input', () => {
+      const raw = state.inputs.fontsize.value;
+      const normalized = resolveFontSettings(raw);
+      state.inputs.fontsize.value = normalized.pt;
+      state.inputs.fontsizeVal.textContent = normalized.pt;
+      console.debug('Debug: venn fontsize slider change', { raw, normalized });
+      refreshDiagram();
+      saveStylePrefs();
+    });
     ['colorA', 'colorB', 'colorC'].forEach(id => { state.inputs[id].addEventListener('input', () => { refreshDiagram(); saveStylePrefs(); }); });
     state.inputs.borderColor.addEventListener('input', () => { refreshDiagram(); saveStylePrefs(); });
     state.inputs.borderWidth.addEventListener('input', () => { state.inputs.borderWidthVal.textContent = state.inputs.borderWidth.value; refreshDiagram(); saveStylePrefs(); });
