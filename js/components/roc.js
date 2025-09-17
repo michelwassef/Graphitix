@@ -25,7 +25,6 @@
     compareSel: null,
     compareLabel: null,
     compareResult: null,
-    drawToken: 0,
     minSvgWidth: 0,
     tableObserver: null,
     fileHandle: null,
@@ -66,30 +65,6 @@
     refs.saveAsBtn = document.getElementById('saveAsRoc');
     refs.graphFileInput = document.getElementById('rocGraphFile');
     return !!(refs.tablePanel && refs.graphPanel && refs.hotContainer && refs.plotDiv);
-  }
-
-  function createScheduler(callback){
-    if(Shared && typeof Shared.debounceFrame === 'function'){
-      return Shared.debounceFrame(()=>{
-        try{
-          callback();
-        }catch(err){
-          console.error('roc schedule error', err);
-        }
-      });
-    }
-    let frame = null;
-    return function schedule(){
-      if(frame) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(()=>{
-        frame = null;
-        try{
-          callback();
-        }catch(err){
-          console.error('roc schedule error', err);
-        }
-      });
-    };
   }
 
   function ensureWrapperStyles(){
@@ -631,7 +606,8 @@
     if(!state.hot || !refs.plotDiv){
       return;
     }
-    const token = ++state.drawToken;
+    const debugStamp = Date.now();
+    console.debug('Debug: drawRoc start', {debugStamp}); // Debug: draw entry
     const graphType = refs.graphType?.value || 'roc';
     const bw = Number(refs.borderWidth?.value) || 2;
     const showGrid = !!refs.showGrid?.checked;
@@ -1119,7 +1095,8 @@
       console.warn('ROC component init skipped: required elements missing');
       return;
     }
-    state.scheduleDraw = createScheduler(drawRoc);
+    state.scheduleDraw = Shared.debounceFrame(drawRoc);
+    console.debug('Debug: roc scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     ensureWrapperStyles();
     initHot();
     initControls();

@@ -1296,7 +1296,8 @@
     if (venn.ready) { debugLog('init skipped'); return; }
     debugLog('init start');
     initResizers();
-    state.scheduleDraw = (Shared && Shared.debounceFrame) ? Shared.debounceFrame(refreshDiagram) : refreshDiagram;
+    state.scheduleDraw = Shared.debounceFrame(refreshDiagram);
+    console.debug('Debug: venn scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     try { Chart.defaults.locale = 'en-US'; } catch (e) { }
     const $ = global.$;
     state.stage = document.getElementById('stage');

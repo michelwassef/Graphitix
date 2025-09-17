@@ -621,7 +621,8 @@ function renderStatsControls(traces){
     if (typeof initTableAndResizers === 'function') initTableAndResizers();
     if (typeof initHot === 'function') initHot();
     if (typeof initUI === 'function') initUI();
-    state.scheduleDraw = (Shared && Shared.debounceFrame) ? Shared.debounceFrame(draw) : draw;
+    state.scheduleDraw = Shared.debounceFrame(draw);
+    console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     box.ready = true;
     try{ state.scheduleDraw(); } catch(e){ console.error('box init initial draw error', e); }
   };
