@@ -116,6 +116,42 @@
     [tabVenn, tabBox, tabScatter, tabPca, tabLine, tabRoc, tabHist, tabPie].forEach(t => t.classList.remove('active'));
     page.style.display = 'block';
     tab.classList.add('active');
+    if (window.Shared?.syncPanelWidths && page) {
+      const raf = window.requestAnimationFrame ? window.requestAnimationFrame.bind(window) : (cb) => setTimeout(cb, 16);
+      raf(() => {
+        try {
+          const resizer = page.querySelector('.panel-resizer');
+          if (!resizer) {
+            console.debug('Debug: showPage layout sync skipped (no resizer)', { pageId: page.id || null });
+            return;
+          }
+          const tablePanel = resizer.previousElementSibling && resizer.previousElementSibling.classList?.contains('panel')
+            ? resizer.previousElementSibling
+            : null;
+          const graphPanel = resizer.nextElementSibling && resizer.nextElementSibling.classList?.contains('panel')
+            ? resizer.nextElementSibling
+            : null;
+          const configPanel = graphPanel?.querySelector('.config-options') || null;
+          if (tablePanel && graphPanel && configPanel) {
+            window.Shared.syncPanelWidths(tablePanel, graphPanel, configPanel, null, {
+              debugLabel: `${page.id || 'page'}-show-sync`,
+              panelResizer: resizer,
+              skipSchedule: true
+            });
+            console.debug('Debug: showPage layout sync applied', { pageId: page.id || null });
+          } else {
+            console.debug('Debug: showPage layout sync skipped (panel refs missing)', {
+              pageId: page.id || null,
+              hasTable: !!tablePanel,
+              hasGraph: !!graphPanel,
+              hasConfig: !!configPanel
+            });
+          }
+        } catch (layoutErr) {
+          console.error('showPage manual syncPanelWidths error', layoutErr);
+        }
+      });
+    }
     try {
       if (ensureFn) ensureFn();
       if (drawFn) drawFn();
