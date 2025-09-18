@@ -51,7 +51,6 @@
     stringOptsBtn: null,
     stringOptions: null,
     analysisResults: null,
-    uniProtCache: {},
     lastGOResult: null,
     lastGOFormatted: [],
     lastGOOrganism: 'hsapiens',
@@ -518,18 +517,13 @@
     state.tooltip.style.top = top + 'px';
   }
 
-  async function fetchUniProtFunction(gene) {
-    const q = gene.toUpperCase();
-    if (state.uniProtCache[q]) return state.uniProtCache[q];
-    try {
-      const url = `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(q)}+AND+reviewed:true&fields=cc_function&format=json&size=1`;
-      const resp = await fetch(url);
-      if (!resp.ok) return null;
-      const data = await resp.json();
-      const value = data.results?.[0]?.comments?.find(c => c.commentType === 'FUNCTION')?.texts?.[0]?.value || null;
-      state.uniProtCache[q] = value;
-      return value;
-    } catch (err) { return null; }
+  async function fetchUniProtAnnotation(gene) {
+    const service = Shared.uniprot;
+    if (!service || typeof service.fetchFunctionAnnotation !== 'function') {
+      console.warn('venn: Shared.uniprot.fetchFunctionAnnotation unavailable');
+      return null;
+    }
+    return service.fetchFunctionAnnotation(gene, { fetch });
   }
 
   function logFact(n) {
@@ -638,7 +632,7 @@
     }
   }
 
-  function runGOAnalysis(genes, organism) {
+  async function runGOAnalysis(genes, organism) {
     const formatted = genes.map(g => g.trim().toUpperCase()).filter(x => x);
     if (!formatted.length) { if (state.goResults) state.goResults.innerHTML = '<i>No genes for analysis</i>'; return; }
     const org = organism || state.speciesSelect.value;
@@ -651,40 +645,49 @@
       if (state.goResults) state.goResults.innerHTML = '<div>Please select at least one GO category.</div>';
       return;
     }
+    const service = Shared.goAnalysis;
+    if (!service || typeof service.profile !== 'function') {
+      console.warn('venn: Shared.goAnalysis.profile unavailable');
+      if (state.goResults) state.goResults.innerHTML = '<div>GO analysis service unavailable.</div>';
+      return;
+    }
     state.lastGOFormatted = formatted;
     state.lastGOOrganism = org;
     state.lastGOResult = null;
     renderGOChart();
     if (state.goResults) state.goResults.innerHTML = '<i>Running GO analysis...</i>';
-    const body = { organism: org, query: formatted, sources: sources };
+    let background;
+    let domainScope;
     if (state.goUseAllBackground?.checked) {
       const bg = getAllGenes().map(g => g.trim().toUpperCase()).filter(x => x);
       if (bg.length) {
-        body.background = bg;
-        body.domain_scope = 'custom';
+        background = bg;
+        domainScope = 'custom';
       }
     }
-    fetch('https://biit.cs.ut.ee/gprofiler/api/gost/profile/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }).then(r => {
-      if (!r.ok) throw new Error('GO API HTTP ' + r.status);
-      return r.json();
-    }).then(d => {
-      state.lastGOResult = (d.result || []).filter(r => sources.includes(r.source));
+    try {
+      const response = await service.profile({
+        genes: formatted,
+        organism: org,
+        sources,
+        background,
+        domainScope,
+        fetch
+      });
+      state.lastGOResult = response.result || [];
       if (state.lastGOResult.length) {
         renderGOResults(5);
       } else if (state.goResults) {
         state.goResults.innerHTML = '<div>No GO results</div>';
       }
-    }).catch(err => {
+    } catch (err) {
+      console.error('runGOAnalysis error', err);
       if (state.goResults) state.goResults.innerHTML = '<div>Error fetching GO analysis</div>';
-    });
+    }
     debugLog('runGOAnalysis invoked', { organism: org, geneCount: formatted.length });
   }
 
-  function runStringAnalysis(genes, organism) {
+  async function runStringAnalysis(genes, organism) {
     const formatted = genes.map(g => g.trim().toUpperCase()).filter(x => x);
     if (!formatted.length) {
       if (state.stringNetwork) state.stringNetwork.innerHTML = '';
@@ -699,58 +702,75 @@
       if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
       return;
     }
+    const service = Shared.stringAnalysis;
+    if (!service || typeof service.fetchNetwork !== 'function' || typeof service.fetchEnrichment !== 'function') {
+      console.warn('venn: Shared.stringAnalysis helpers unavailable');
+      state.lastStringSVG = null;
+      if (state.stringNetwork) state.stringNetwork.innerHTML = '<div>STRING services unavailable.</div>';
+      if (state.stringResults) state.stringResults.innerHTML = '<div>STRING services unavailable.</div>';
+      if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
+      return;
+    }
     if (state.stringNetwork) state.stringNetwork.innerHTML = '<i>Loading STRING network...</i>';
     if (state.stringResults) state.stringResults.innerHTML = '<i>Running STRING enrichment...</i>';
     if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
-    const params = new URLSearchParams();
-    const joinedIds = formatted.join('\n');
-    params.set('identifiers', joinedIds);
-    const stringMap = { hsapiens: '9606', mmusculus: '10090', dmelanogaster: '7227', celegans: '6239' };
-    const stringSpecies = stringMap[org] || state.speciesSelect.selectedOptions[0]?.dataset.string || '9606';
-    params.set('species', stringSpecies);
     const networkType = document.querySelector('input[name="stringNetworkType"]:checked')?.value || 'functional';
     const edgeMeaning = document.querySelector('input[name="stringEdgeMeaning"]:checked')?.value || 'evidence';
     const sources = [...document.querySelectorAll('.stringSource:checked')].map(el => el.value);
-    params.set('network_type', networkType);
-    params.set('network_flavor', edgeMeaning);
-    if (sources.length) params.set('sources', sources.join('%0d'));
-    const networkUrl = 'https://string-db.org/api/svg/network?' + params.toString();
-    fetch(networkUrl)
-      .then(r => { if (!r.ok) throw new Error('STRING network HTTP ' + r.status); return r.text(); })
-      .then(svgText => {
-        state.lastStringSVG = svgText;
-        const wrapper = document.createElement('div');
-        wrapper.innerHTML = svgText;
-        const svgEl = wrapper.querySelector('svg');
-        if (state.stringNetwork) state.stringNetwork.innerHTML = '';
-        if (svgEl) {
-          svgEl.style.maxWidth = '150%';
-          state.stringNetwork?.appendChild(svgEl);
-          if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'flex';
-        } else if (state.stringNetwork) {
-          state.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
-        }
-      })
-      .catch(err => {
-        if (state.stringNetwork) state.stringNetwork.innerHTML = '<div>Error loading STRING network</div>';
-        if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
-      });
-    fetch('https://string-db.org/api/json/enrichment?' + params.toString())
-      .then(r => { if (!r.ok) throw new Error('STRING API HTTP ' + r.status); return r.json(); })
-      .then(d => {
-        if (Array.isArray(d)) {
-          const items = d.slice(0, 5).map(r => {
-            const desc = r.termDescription || r.description || 'unknown term';
-            return '<div>' + desc + ' (FDR=' + Number(r.fdr).toExponential(2) + ')</div>';
-          }).join('');
-          if (state.stringResults) state.stringResults.innerHTML = '<strong>STRING enrichment</strong>' + items;
-        } else if (state.stringResults) {
-          state.stringResults.innerHTML = '<div>No STRING results</div>';
-        }
-      }).catch(err => {
-        if (state.stringResults) state.stringResults.innerHTML = '<div>Error fetching STRING analysis</div>';
-      });
-    debugLog('runStringAnalysis invoked', { organism: org, geneCount: formatted.length });
+    const fallbackCode = state.speciesSelect?.selectedOptions[0]?.dataset.string;
+    const speciesCode = typeof service.resolveSpeciesCode === 'function'
+      ? service.resolveSpeciesCode(org, fallbackCode)
+      : (fallbackCode || { hsapiens: '9606', mmusculus: '10090', dmelanogaster: '7227', celegans: '6239' }[org] || '9606');
+    const requestOptions = {
+      genes: formatted,
+      species: speciesCode,
+      networkType,
+      edgeMeaning,
+      sources,
+      fetch
+    };
+    try {
+      const network = await service.fetchNetwork(requestOptions);
+      state.lastStringSVG = network.svg;
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = network.svg;
+      const svgEl = wrapper.querySelector('svg');
+      if (state.stringNetwork) state.stringNetwork.innerHTML = '';
+      if (svgEl) {
+        svgEl.style.maxWidth = '150%';
+        state.stringNetwork?.appendChild(svgEl);
+        if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'flex';
+      } else if (state.stringNetwork) {
+        state.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
+      }
+    } catch (err) {
+      console.error('runStringAnalysis network error', err);
+      state.lastStringSVG = null;
+      if (state.stringNetwork) state.stringNetwork.innerHTML = '<div>Error loading STRING network</div>';
+      if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
+    }
+    try {
+      const enrichment = await service.fetchEnrichment(requestOptions);
+      if (enrichment.items.length) {
+        const items = enrichment.items.slice(0, 5).map(r => {
+          const desc = r.termDescription || r.description || 'unknown term';
+          return '<div>' + desc + ' (FDR=' + Number(r.fdr).toExponential(2) + ')</div>';
+        }).join('');
+        if (state.stringResults) state.stringResults.innerHTML = '<strong>STRING enrichment</strong>' + items;
+      } else if (state.stringResults) {
+        state.stringResults.innerHTML = '<div>No STRING results</div>';
+      }
+    } catch (err) {
+      console.error('runStringAnalysis enrichment error', err);
+      if (state.stringResults) state.stringResults.innerHTML = '<div>Error fetching STRING analysis</div>';
+    }
+    debugLog('runStringAnalysis invoked', {
+      organism: org,
+      geneCount: formatted.length,
+      networkType,
+      edgeMeaning,
+      sourceCount: sources.length
+    });
   }
 
   function exportGoChart(format) {
@@ -1497,7 +1517,7 @@
         const link = e.target.closest('.gene-link');
         if (link && state.regionList.contains(link)) {
           const gene = link.dataset.gene;
-          const fn = await fetchUniProtFunction(gene);
+          const fn = await fetchUniProtAnnotation(gene);
           if (state.tooltip) {
             state.tooltip.innerHTML = fn ? `<strong>${gene}</strong><br>${fn}` : `<strong>${gene}</strong><br><i>Function not found</i>`;
             state.tooltip.style.fontSize = '12px';
