@@ -219,18 +219,37 @@
   }
 
   function resolveFontSettings(raw) {
+    const stageRect = state.stage?.getBoundingClientRect?.();
     let normalized;
-    if (typeof chartStyle.normalizeFontSize === 'function') {
-      normalized = chartStyle.normalizeFontSize(raw);
+    if (typeof chartStyle.resolveScaledFontSize === 'function') {
+      const scaled = chartStyle.resolveScaledFontSize({
+        rawSize: raw,
+        width: stageRect?.width,
+        height: stageRect?.height
+      });
+      normalized = {
+        pt: scaled.pt,
+        px: scaled.scaledPx,
+        basePx: scaled.px,
+        scale: scaled.scaleInfo?.scale || 1
+      };
+    } else if (typeof chartStyle.normalizeFontSize === 'function') {
+      const base = chartStyle.normalizeFontSize(raw);
+      normalized = { pt: base.pt, px: base.px, basePx: base.px, scale: 1 };
     } else {
       const basePt = chartStyle.BASE_FONT_SIZE_PT || 17;
       const numeric = Number(raw);
       const pt = Number.isFinite(numeric) ? numeric : basePt;
       const factor = chartStyle.PT_TO_PX || (96 / 72);
       const px = Number((pt * factor).toFixed(2));
-      normalized = { pt, px };
+      normalized = { pt, px, basePx: px, scale: 1 };
     }
-    console.debug('Debug: venn resolveFontSettings', { raw, normalized });
+    console.debug('Debug: venn resolveFontSettings', {
+      raw,
+      stageWidth: stageRect?.width,
+      stageHeight: stageRect?.height,
+      normalized
+    }); // Debug: font resolution trace
     return normalized;
   }
 
@@ -879,11 +898,20 @@
     clearSVG();
     const stage = state.stage;
     if (!stage) return;
+    if (typeof chartStyle.applySvgDefaults === 'function') {
+      chartStyle.applySvgDefaults(stage);
+    }
     const fontFamily = chartStyle.FONT_FAMILY || stage.getAttribute('font-family') || 'Arial, Helvetica, sans-serif';
     const textColor = chartStyle.TEXT_COLOR || '#000000';
     stage.setAttribute('font-family', fontFamily);
     stage.setAttribute('color', textColor);
-    console.debug('Debug: venn stage font applied', { fontFamily, textColor });
+    stage.setAttribute('font-size', String(style.fontsize));
+    console.debug('Debug: venn stage font applied', {
+      fontFamily,
+      textColor,
+      fontSizePx: style.fontsize,
+      fontSizePt: style.fontPt
+    }); // Debug: stage font sync
     const tooltip = state.tooltip;
     const W = 500, H = 340, pad = 20, labelPad = style.fontsize * 2;
     const xs = [d.Ax - d.rA, d.Ax + d.rA, d.Bx - d.rB, d.Bx + d.rB];
@@ -1944,4 +1972,3 @@
     if (!venn.ready) venn.init();
   };
 })(window);
-
