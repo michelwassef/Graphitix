@@ -223,7 +223,7 @@
     if (typeof chartStyle.normalizeFontSize === 'function') {
       normalized = chartStyle.normalizeFontSize(raw);
     } else {
-      const basePt = chartStyle.BASE_FONT_SIZE_PT || 8;
+      const basePt = chartStyle.BASE_FONT_SIZE_PT || 17;
       const numeric = Number(raw);
       const pt = Number.isFinite(numeric) ? numeric : basePt;
       const factor = chartStyle.PT_TO_PX || (96 / 72);
@@ -1944,3 +1944,4 @@
     if (!venn.ready) venn.init();
   };
 })(window);
+
