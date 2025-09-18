@@ -6,6 +6,20 @@
 
   const cache = new Map();
 
+  function buildReviewedSearchUrl(gene) {
+    const query = 'gene_exact:' + encodeURIComponent(gene) + '+AND+reviewed:true';
+    return 'https://www.uniprot.org/uniprotkb?query=' + query;
+  }
+
+  function buildEntryLookupUrl(gene, organismTaxId) {
+    const encodedGene = encodeURIComponent(gene);
+    let query = 'gene_exact:' + encodedGene + '+AND+reviewed:true';
+    if (organismTaxId) {
+      query += '+AND+organism_id:' + encodeURIComponent(organismTaxId);
+    }
+    return 'https://rest.uniprot.org/uniprotkb/search?query=' + query + '&fields=accession&format=json&size=1';
+  }
+
   function debug(step, data) {
     console.debug('Debug: uniprot ' + step, data || {});
   }
@@ -54,5 +68,38 @@
   uniprot.clearCache = function clearCache() {
     cache.clear();
     debug('clearCache invoked', { size: cache.size });
+  };
+
+  uniprot.resolveEntryUrl = async function resolveEntryUrl(options = {}) {
+    const gene = options.gene;
+    if (!gene) {
+      debug('resolveEntryUrl skip', { reason: 'missing gene' });
+      return { accession: null, entryUrl: null, fallbackUrl: null, queryUrl: null };
+    }
+    const geneValue = String(gene);
+    const normalizedGene = geneValue.toUpperCase();
+    const fallbackUrl = buildReviewedSearchUrl(geneValue);
+    const fetchImpl = options.fetch || global.fetch;
+    if (typeof fetchImpl !== 'function') {
+      debug('resolveEntryUrl missingFetch', { gene: normalizedGene });
+      return { accession: null, entryUrl: fallbackUrl, fallbackUrl, queryUrl: null };
+    }
+    const queryUrl = buildEntryLookupUrl(geneValue, options.organismTaxId);
+    try {
+      debug('resolveEntryUrl request', { gene: normalizedGene, organismTaxId: options.organismTaxId, queryUrl });
+      const resp = await fetchImpl(queryUrl);
+      if (!resp.ok) {
+        debug('resolveEntryUrl httpError', { gene: normalizedGene, status: resp.status });
+        return { accession: null, entryUrl: fallbackUrl, fallbackUrl, queryUrl };
+      }
+      const data = await resp.json();
+      const accession = data.results?.[0]?.primaryAccession || null;
+      const entryUrl = accession ? `https://www.uniprot.org/uniprotkb/${accession}/entry` : fallbackUrl;
+      debug('resolveEntryUrl success', { gene: normalizedGene, hasAccession: Boolean(accession) });
+      return { accession, entryUrl, fallbackUrl, queryUrl };
+    } catch (err) {
+      debug('resolveEntryUrl error', { gene: normalizedGene, message: err && err.message });
+      return { accession: null, entryUrl: fallbackUrl, fallbackUrl, queryUrl };
+    }
   };
 })(window);
