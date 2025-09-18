@@ -33,7 +33,7 @@
       <input type="file" id="vennGraphFile" accept=".graph" style="display:none;" />
     </div>
     <div class="wrap">
-      <div class="panel">
+      <div class="panel" id="vennInputPanel">
         <div class="row">
           <div style="flex:1 1 100%;">
             <label>Set A Label</label>
@@ -86,7 +86,8 @@
           </div>
         </details>
       </div>
-      <div class="panel">
+      <div id="vennPanelResizer" class="panel-resizer" aria-hidden="true"></div>
+      <div class="panel" id="vennGraphPanel">
         <div class="diagram-area">
           <div class="svgbox">
             <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>

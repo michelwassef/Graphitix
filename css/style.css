@@ -101,6 +101,13 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
   background: linear-gradient(135deg, rgba(0,0,0,0.06), rgba(0,0,0,0));
   border-radius: 2px;
 }
+#vennPage .wrap{display:flex;align-items:stretch;gap:0}
+#vennPage #vennInputPanel{flex:1 1 33%;min-width:150px;display:flex;flex-direction:column;min-height:0}
+#vennPage #vennGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#vennPage .diagram-area .svgbox{flex:0 0 auto}
+#vennPage .diagram-area .config-options{flex:0 0 auto}
+#vennPage .panel{display:flex;flex-direction:column;min-width:0}
+#vennPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
 #boxPage .wrap{display:flex;align-items:stretch;gap:0}
 #boxPage #boxTablePanel{flex:1 1 33%;min-width:150px}
 #boxPage #boxGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
