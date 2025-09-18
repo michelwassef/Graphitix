@@ -183,6 +183,30 @@
     const svgBox = opts.svgBox || graphPanel.querySelector(opts.svgSelector || '.svgbox');
     const diagramSelector = opts.diagramSelector || '.diagram-area';
     const diagramArea = graphPanel.querySelector(diagramSelector);
+    const docBody = global.document && global.document.body;
+    const isElementHidden = (el) => {
+      if (!el) return true;
+      if (typeof el.offsetParent === 'undefined') {
+        try {
+          const style = global.getComputedStyle ? global.getComputedStyle(el) : null;
+          return style ? style.display === 'none' : false;
+        } catch (err) {
+          console.error('Shared.syncPanelWidths hidden detection error', err);
+          return false;
+        }
+      }
+      return el.offsetParent === null && el !== docBody;
+    };
+    const tableHidden = isElementHidden(tablePanel);
+    const graphHidden = isElementHidden(graphPanel);
+    if (tableHidden || graphHidden) {
+      console.debug('Debug: Shared.syncPanelWidths skipped (hidden)', {
+        label: debugLabel,
+        tableHidden,
+        graphHidden
+      }); // Debug: skip adjustments for hidden panels
+      return null;
+    }
     let gap = 0;
     if(diagramArea){
       try{
@@ -205,6 +229,14 @@
     const resizerWidth = resizerEl ? resizerEl.getBoundingClientRect().width : 0;
     const available = graphWidth - configWidth - gap;
     const maxAvailable = Number.isFinite(available) ? Math.max(0, available) : Infinity;
+    if (!Number.isFinite(available) || maxAvailable <= 0) {
+      console.debug('Debug: Shared.syncPanelWidths skipped (no width available)', {
+        label: debugLabel,
+        available,
+        maxAvailable
+      }); // Debug: guard against zero-width calculations
+      return null;
+    }
     let minSvgWidth = Number.isFinite(opts.minSvgWidth) ? Math.max(0, opts.minSvgWidth) : 0;
     if(Number.isFinite(datasetMinWidth) && datasetMinWidth > 0){
       minSvgWidth = Math.max(minSvgWidth, datasetMinWidth);
