@@ -1555,17 +1555,21 @@
         if (link && state.regionList.contains(link)) {
           const gene = link.dataset.gene;
           const taxId = state.speciesSelect?.selectedOptions[0]?.dataset.string || '9606';
-          const apiUrl = `https://rest.uniprot.org/uniprotkb/search?query=gene_exact:${encodeURIComponent(gene)}+AND+organism_id:${taxId}+AND+reviewed:true&fields=accession&format=json&size=1`;
-          try {
-            const resp = await fetch(apiUrl);
-            const data = await resp.json();
-            const acc = data.results?.[0]?.primaryAccession;
-            const url = acc ? `https://www.uniprot.org/uniprotkb/${acc}/entry` : `https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
-            window.open(url, '_blank', 'noopener');
-          } catch (err) {
-            const url = `https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
-            window.open(url, '_blank', 'noopener');
+          const fallbackUrl = `https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
+          let targetUrl = fallbackUrl;
+          const service = Shared.uniprot;
+          if (service && typeof service.resolveEntryUrl === 'function') {
+            try {
+              const lookup = await service.resolveEntryUrl({ gene, organismTaxId: taxId, fetch });
+              if (lookup) {
+                targetUrl = lookup.entryUrl || lookup.fallbackUrl || fallbackUrl;
+                debugLog('geneLink navigate', { gene, taxId, accession: lookup.accession || null, targetUrl }); // Debug: gene link navigation result
+              }
+            } catch (err) {
+              debugLog('geneLink navigateError', { gene, message: err && err.message }); // Debug: gene link navigation error
+            }
           }
+          window.open(targetUrl, '_blank', 'noopener');
         }
       });
     }
