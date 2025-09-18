@@ -55,6 +55,11 @@
     lastGOFormatted: [],
     lastGOOrganism: 'hsapiens',
     stage: null,
+    syncPanels: null,
+    panelObserver: null,
+    panelResizer: null,
+    tablePanel: null,
+    graphPanel: null,
   };
 
   // --- Core Functions ---
@@ -1179,15 +1184,168 @@
   function initResizers() {
     const stage = document.getElementById('stage');
     const vennContainer = stage?.closest('.svgbox') || stage?.parentElement;
+    const tablePanel = document.getElementById('vennInputPanel');
+    const graphPanel = document.getElementById('vennGraphPanel');
+    const panelResizer = document.getElementById('vennPanelResizer');
+    const configPanel = graphPanel?.querySelector('.config-options');
+    const svgBox = graphPanel?.querySelector('.svgbox') || vennContainer;
+    const diagramArea = graphPanel?.querySelector('.diagram-area');
+    let vennMinSvgWidth = 0;
+    state.tablePanel = tablePanel;
+    state.graphPanel = graphPanel;
+    state.panelResizer = panelResizer;
+    console.debug('Debug: venn initResizers setup', {
+      hasStage: !!stage,
+      hasContainer: !!vennContainer,
+      hasTablePanel: !!tablePanel,
+      hasGraphPanel: !!graphPanel,
+      hasConfigPanel: !!configPanel,
+      hasPanelResizer: !!panelResizer
+    }); // Debug: venn initResizers setup summary
+
+    const syncPanels = (options = {}) => {
+      const skipSchedule = options.skipSchedule || typeof state.scheduleDraw !== 'function';
+      console.debug('Debug: venn syncPanels requested', {
+        skipSchedule,
+        minSvgWidth: vennMinSvgWidth,
+        hasTable: !!tablePanel,
+        hasGraph: !!graphPanel,
+        hasConfig: !!configPanel
+      }); // Debug: venn syncPanels invocation
+      if (!Shared || typeof Shared.syncPanelWidths !== 'function') {
+        console.debug('Debug: venn syncPanels helper missing', {
+          hasShared: !!Shared,
+          hasSync: Shared && typeof Shared.syncPanelWidths === 'function'
+        }); // Debug: venn syncPanels helper check
+        return null;
+      }
+      const result = Shared.syncPanelWidths(
+        tablePanel,
+        graphPanel,
+        configPanel,
+        state.scheduleDraw,
+        {
+          svgBox,
+          panelResizer,
+          minSvgWidth: vennMinSvgWidth,
+          debugLabel: 'venn',
+          skipSchedule
+        }
+      );
+      if (result) {
+        console.debug('Debug: venn syncPanels metrics', {
+          appliedWidth: result.appliedWidth,
+          tableWidth: result.tableWidth,
+          graphWidth: result.graphWidth
+        }); // Debug: venn syncPanels result summary
+      }
+      return result;
+    };
+
+    state.syncPanels = syncPanels;
+
     if (Shared.attachResizableBox && vennContainer) {
       Shared.attachResizableBox(vennContainer, {
         defaultWidth: 640,
         defaultHeight: 420,
         onResize: phase => {
           debugLog('resizer callback', { phase });
+          syncPanels({ skipSchedule: phase === 'observe' });
         }
       });
       debugLog('resizer attached', { hasContainer: true });
+    } else {
+      debugLog('resizer attach skipped', {
+        hasAttach: !!(Shared && Shared.attachResizableBox),
+        hasContainer: !!vennContainer
+      });
+    }
+
+    if (global.ResizeObserver && tablePanel) {
+      const observer = new ResizeObserver(entries => {
+        console.debug('Debug: venn table ResizeObserver triggered', {
+          entries: entries ? entries.length : 0
+        }); // Debug: venn table observer trigger
+        syncPanels({ skipSchedule: true });
+      });
+      observer.observe(tablePanel);
+      state.panelObserver = observer;
+    } else {
+      console.debug('Debug: venn table ResizeObserver unavailable', {
+        hasObserver: !!global.ResizeObserver,
+        hasTablePanel: !!tablePanel
+      }); // Debug: venn table observer skipped
+    }
+
+    syncPanels({ skipSchedule: true });
+
+    if (panelResizer && tablePanel && graphPanel) {
+      panelResizer.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        const startX = e.clientX;
+        const startTable = tablePanel.getBoundingClientRect().width;
+        const startGraph = graphPanel.getBoundingClientRect().width;
+        const configWidth = configPanel ? configPanel.getBoundingClientRect().width : 0;
+        let gap = 0;
+        if (diagramArea && global.getComputedStyle) {
+          try {
+            const style = global.getComputedStyle(diagramArea);
+            gap = parseFloat(style.gap || 0) || 0;
+          } catch (err) {
+            console.error('venn panel gap calculation error', err);
+          }
+        }
+        const svgWidth = svgBox?.getBoundingClientRect().width || 0;
+        vennMinSvgWidth = svgWidth * 0.5;
+        const minGraph = configWidth + gap + vennMinSvgWidth;
+        const total = startTable + startGraph;
+        console.debug('Debug: venn panel resizer start', {
+          startTable,
+          startGraph,
+          configWidth,
+          gap,
+          svgWidth,
+          vennMinSvgWidth,
+          minGraph,
+          total
+        }); // Debug: venn panel resizer start
+        function onMove(ev) {
+          const dx = ev.clientX - startX;
+          let newTable = Math.max(150, Math.min(total - minGraph, startTable + dx));
+          let newGraph = total - newTable;
+          if (!Number.isFinite(newTable)) newTable = startTable;
+          if (!Number.isFinite(newGraph)) newGraph = startGraph;
+          tablePanel.style.flex = `0 0 ${newTable}px`;
+          graphPanel.style.flex = `0 0 ${newGraph}px`;
+          syncPanels({ skipSchedule: false });
+          console.debug('Debug: venn panel resizer move', {
+            dx,
+            newTable,
+            newGraph
+          }); // Debug: venn panel resizer move
+        }
+        function onUp() {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          console.debug('Debug: venn panel resizer end'); // Debug: venn panel resizer end
+          syncPanels({ skipSchedule: false });
+        }
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+      });
+    } else {
+      console.debug('Debug: venn panel resizer binding skipped', {
+        hasPanelResizer: !!panelResizer,
+        hasTablePanel: !!tablePanel,
+        hasGraphPanel: !!graphPanel
+      }); // Debug: venn panel resizer binding skipped
+    }
+
+    if (global.addEventListener) {
+      global.addEventListener('resize', () => {
+        console.debug('Debug: venn window resize sync'); // Debug: venn window resize handler
+        syncPanels({ skipSchedule: true });
+      });
     }
   }
 
@@ -1384,6 +1542,10 @@
     initResizers();
     state.scheduleDraw = Shared.debounceFrame(refreshDiagram);
     console.debug('Debug: venn scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    if (typeof state.syncPanels === 'function') {
+      console.debug('Debug: venn post-scheduler syncPanels'); // Debug: sync panels after scheduler setup
+      state.syncPanels({ skipSchedule: true });
+    }
     try { Chart.defaults.locale = 'en-US'; } catch (e) { }
     const $ = global.$;
     state.stage = document.getElementById('stage');
