@@ -78,7 +78,8 @@
     Shared.syncPanelWidths(refs.tablePanel, refs.graphPanel, refs.configPanel, scheduleLineDraw, {
       svgBox: refs.svgBox,
       minSvgWidth: lineMinSvgWidth,
-      debugLabel: 'line'
+      debugLabel: 'line',
+      panelResizer: refs.panelResizer
     });
   }
 
@@ -304,9 +305,22 @@
       const alpha=Number(refs.alpha?.value)||0;
       const borderWidth=Number(refs.borderWidth?.value);
       const borderColor=refs.border?.value;
-      const normalizedFont=chartStyle.normalizeFontSize(refs.fontSize?.value);
-      const fs=normalizedFont.px;
-      console.debug('Debug: line font resolved',{input:refs.fontSize?.value,fontSizePt:normalizedFont.pt,fontSizePx:fs});
+      const containerRect=refs.svgBox?.getBoundingClientRect?.();
+      const fontInfo=chartStyle.resolveScaledFontSize({
+        rawSize: refs.fontSize?.value,
+        width: containerRect?.width,
+        height: containerRect?.height
+      });
+      const fs=fontInfo.scaledPx;
+      console.debug('Debug: line font scaling applied',{
+        input: refs.fontSize?.value,
+        fontSizePt: fontInfo.pt,
+        baseFontPx: fontInfo.px,
+        scaledFontPx: fs,
+        scale: fontInfo.scaleInfo?.scale,
+        containerWidth: containerRect?.width,
+        containerHeight: containerRect?.height
+      }); // Debug: line font scaling summary
       const axisMetrics=chartStyle.createAxisMetrics(fs);
       console.debug('Debug: line axis metrics',axisMetrics);
       const showGrid=!!refs.showGrid?.checked;
@@ -348,7 +362,9 @@
       const labelsUsed=series.map(s=>s.name);
       updateLineLabelColorPickers(labelsUsed);
       const legendLabels=labelsUsed;
-      const legendWidth=legendLabels.length?120:0;
+      const legendScale = fontInfo.scaleInfo?.scale || 1;
+      const legendWidth=legendLabels.length?Math.max(60, Math.round(120*legendScale)):0;
+      console.debug('Debug: line legend width scaling',{legendWidth,legendScale,legendCount:legendLabels.length});
       lineLegendWidth=legendWidth;
       lineLegendItems=[];
       if(series.every(s=>s.points.every(p=>p==null))) return;

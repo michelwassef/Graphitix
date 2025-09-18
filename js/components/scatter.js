@@ -86,7 +86,8 @@
           svgBox: scatterSvgBox,
           minSvgWidth: scatterMinSvgWidth,
           debugLabel: 'scatter',
-          skipSchedule: true
+          skipSchedule: true,
+          panelResizer: scatterPanelResizer
         });
       };
       const scatterTableObserver = ResizeObserverCtor ? new ResizeObserverCtor(()=>{syncScatterPanels();}) : null;
@@ -292,9 +293,22 @@
         const borderWidth=Number(scatterBorderWidth.value);
         const borderColor=scatterBorder.value;
         const bw=borderWidth;
-        const normalizedFont=chartStyle.normalizeFontSize(scatterFontSize.value);
-        const fs=normalizedFont.px;
-        console.debug('Debug: scatter font resolved',{input:scatterFontSize.value,fontSizePt:normalizedFont.pt,fontSizePx:fs});
+        const containerRect=scatterSvgBox?.getBoundingClientRect?.();
+        const fontInfo=chartStyle.resolveScaledFontSize({
+          rawSize: scatterFontSize.value,
+          width: containerRect?.width,
+          height: containerRect?.height
+        });
+        const fs=fontInfo.scaledPx;
+        console.debug('Debug: scatter font scaling applied',{
+          input: scatterFontSize.value,
+          fontSizePt: fontInfo.pt,
+          baseFontPx: fontInfo.px,
+          scaledFontPx: fs,
+          scale: fontInfo.scaleInfo?.scale,
+          containerWidth: containerRect?.width,
+          containerHeight: containerRect?.height
+        }); // Debug: scatter font scaling summary
         const axisMetrics=chartStyle.createAxisMetrics(fs);
         console.debug('Debug: scatter axis metrics',axisMetrics);
         const showGrid=scatterShowGrid.checked;
@@ -350,7 +364,9 @@
         console.log('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw});
         // determine legend requirements before sizing plot
         const legendLabels=labelsUsed;
-        const legendWidth=legendLabels.length?120:0;
+        const legendScale = fontInfo.scaleInfo?.scale || 1;
+        const legendWidth=legendLabels.length?Math.max(60, Math.round(120*legendScale)):0;
+        console.debug('Debug: scatter legend width scaling',{legendWidth,legendScale,legendCount:legendLabels.length});
         console.log('scatter legend width',legendWidth,{labels:legendLabels});
         if(token!==scatterDrawToken){console.log('scatter draw cancelled after collect',{token});return;}
         const plotEl=document.getElementById('scatterPlot');

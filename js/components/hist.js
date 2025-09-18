@@ -40,13 +40,16 @@
     const histGraphPanel=document.getElementById('histGraphPanel');
     const histPanelResizer=document.getElementById('histPanelResizer');
     const histSvgBox=histGraphPanel?.querySelector('.svgbox');
+    state.svgBox = histSvgBox;
+    console.debug('Debug: hist svgBox reference stored',{hasSvgBox:!!state.svgBox});
     const histConfigPanel=histGraphPanel?.querySelector('.config-options');
     let histMinSvgWidth=0;
     const syncHistPanels = () => {
       Shared.syncPanelWidths(histTablePanel, histGraphPanel, histConfigPanel, state.scheduleDraw, {
         svgBox: histSvgBox,
         minSvgWidth: histMinSvgWidth,
-        debugLabel: 'hist'
+        debugLabel: 'hist',
+        panelResizer: histPanelResizer
       });
     };
     const observer=new ResizeObserver(()=>{syncHistPanels();});
@@ -298,9 +301,22 @@
     if(isFinite(yMinManual)) yScale.min=yMinT; if(isFinite(yMaxManual)) yScale.max=yMaxT;
     if(isFinite(yMinManual)||isFinite(yMaxManual)){const ticks=[]; for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step; v<=yScale.max+1e-9; v+=yScale.step) ticks.push(v); yScale.ticks=ticks;}
     function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
-    const normalizedFont=chartStyle.normalizeFontSize(histFontSize.value);
-    const fs=normalizedFont.px;
-    console.debug('Debug: hist font resolved',{input:histFontSize.value,fontSizePt:normalizedFont.pt,fontSizePx:fs});
+    const containerRect=state.svgBox?.getBoundingClientRect?.();
+    const fontInfo=chartStyle.resolveScaledFontSize({
+      rawSize: histFontSize.value,
+      width: containerRect?.width,
+      height: containerRect?.height
+    });
+    const fs=fontInfo.scaledPx;
+    console.debug('Debug: hist font scaling applied',{
+      input:histFontSize.value,
+      fontSizePt:fontInfo.pt,
+      baseFontPx:fontInfo.px,
+      scaledFontPx:fs,
+      scale:fontInfo.scaleInfo?.scale,
+      containerWidth:containerRect?.width,
+      containerHeight:containerRect?.height
+    });
     const axisMetrics=chartStyle.createAxisMetrics(fs);
     console.debug('Debug: hist axis metrics',axisMetrics);
     const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));

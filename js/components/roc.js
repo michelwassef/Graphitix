@@ -82,7 +82,8 @@
     Shared.syncPanelWidths(refs.tablePanel, refs.graphPanel, refs.configPanel, state.scheduleDraw, {
       svgBox: refs.svgBox,
       minSvgWidth: state.minSvgWidth,
-      debugLabel: 'roc'
+      debugLabel: 'roc',
+      panelResizer: refs.panelResizer
     });
   }
 
@@ -568,11 +569,25 @@
     const graphType = refs.graphType?.value || 'roc';
     const bw = Number(refs.borderWidth?.value) || 2;
     const showGrid = !!refs.showGrid?.checked;
-    const normalizedFont = chartStyle.normalizeFontSize(refs.fontSize?.value);
-    const fontSize = normalizedFont.px;
-    console.debug('Debug: roc font resolved',{input:refs.fontSize?.value,fontSizePt:normalizedFont.pt,fontSizePx:fontSize});
+    const containerRect=refs.svgBox?.getBoundingClientRect?.();
+    const fontInfo=chartStyle.resolveScaledFontSize({
+      rawSize: refs.fontSize?.value,
+      width: containerRect?.width,
+      height: containerRect?.height
+    });
+    const fontSize=fontInfo.scaledPx;
+    console.debug('Debug: roc font scaling applied',{
+      input:refs.fontSize?.value,
+      fontSizePt:fontInfo.pt,
+      baseFontPx:fontInfo.px,
+      scaledFontPx:fontSize,
+      scale:fontInfo.scaleInfo?.scale,
+      containerWidth:containerRect?.width,
+      containerHeight:containerRect?.height
+    });
     const axisMetrics = chartStyle.createAxisMetrics(fontSize);
     console.debug('Debug: roc axis metrics',axisMetrics);
+    const fontScale=fontInfo.scaleInfo?.scale || 1;
     const data = state.hot.getData();
     if(!data || !data.length){
       return;
@@ -642,7 +657,12 @@
     chartStyle.applySvgDefaults(svg);
     plotEl.appendChild(svg);
 
-    const legendWidth = legendLabels.length ? 120 : 0;
+    const legendWidth = legendLabels.length ? Math.max(60, Math.round(120 * fontScale)) : 0;
+    console.debug('Debug: roc legend width scaling',{
+      legendWidth,
+      legendScale:fontScale,
+      legendCount:legendLabels.length
+    });
     const ticks = [0, 0.2, 0.4, 0.6, 0.8, 1];
     const formatTick = value => value.toLocaleString('en-US',{maximumFractionDigits:2, minimumFractionDigits:2});
     const tickFont = chartStyle.makeFont(fontSize);
@@ -850,12 +870,29 @@
       add('path', {d: path, fill: 'none', stroke: color, 'stroke-width': bw});
     });
 
-    const legendX = width - legendWidth + 10;
+    const legendMargin=Math.max(6,Math.round(8*fontScale));
+    const legendMarkerSize=Math.max(10,Math.round(12*fontScale));
+    const legendSpacing=Math.max(4,Math.round(fontSize*0.5));
+    const legendTextOffset=legendMarkerSize+Math.max(6,Math.round(8*fontScale));
+    const legendX = width - legendWidth + legendMargin;
+    console.debug('Debug: roc legend layout',{
+      legendX,
+      legendMargin,
+      legendMarkerSize,
+      legendSpacing,
+      legendTextOffset
+    });
     legendLabels.forEach((label, index) => {
-      const y = margin.top + 10 + index * (fontSize + 6);
+      const baseY = margin.top + legendMargin + index * (legendMarkerSize + legendSpacing);
       const color = state.labelColors[label] || DEFAULT_SCATTER_COLORS[index % DEFAULT_SCATTER_COLORS.length];
-      add('rect', {x: legendX, y: y - 10, width: 12, height: 12, fill: color});
-      add('text', {x: legendX + 16, y, 'font-size': fontSize, fill: chartStyle.TEXT_COLOR}, label);
+      add('rect', {x: legendX, y: baseY, width: legendMarkerSize, height: legendMarkerSize, fill: color});
+      add('text', {
+        x: legendX + legendTextOffset,
+        y: baseY + legendMarkerSize / 2,
+        'font-size': fontSize,
+        'dominant-baseline': 'middle',
+        fill: chartStyle.TEXT_COLOR
+      }, label);
     });
 
     if(refs.statsResults){

@@ -54,7 +54,8 @@
           svgBox: pcaSvgBox,
           minSvgWidth: pcaMinSvgWidth,
           debugLabel: 'pca',
-          skipSchedule: true
+          skipSchedule: true,
+          panelResizer: pcaPanelResizer
         });
       };
       const pcaTableObserver = ResizeObserverCtor ? new ResizeObserverCtor(()=>{syncPcaWidths();}) : null;
@@ -218,11 +219,25 @@
       const borderWidth = Number(pcaBorderWidth.value);
       const borderColor = pcaBorder.value;
       const bw = borderWidth;
-      const normalizedFont = chartStyle.normalizeFontSize(pcaFontSize.value);
-      const fs = normalizedFont.px;
-      console.debug('Debug: pca font resolved',{input:pcaFontSize.value,fontSizePt:normalizedFont.pt,fontSizePx:fs});
+      const containerRect=pcaSvgBox?.getBoundingClientRect?.();
+      const fontInfo=chartStyle.resolveScaledFontSize({
+        rawSize: pcaFontSize.value,
+        width: containerRect?.width,
+        height: containerRect?.height
+      });
+      const fs=fontInfo.scaledPx;
+      console.debug('Debug: pca font scaling applied',{
+        input:pcaFontSize.value,
+        fontSizePt:fontInfo.pt,
+        baseFontPx:fontInfo.px,
+        scaledFontPx:fs,
+        scale:fontInfo.scaleInfo?.scale,
+        containerWidth:containerRect?.width,
+        containerHeight:containerRect?.height
+      });
       const axisMetrics = chartStyle.createAxisMetrics(fs);
       console.debug('Debug: pca axis metrics',axisMetrics);
+      const fontScale=fontInfo.scaleInfo?.scale || 1;
       const showGrid = pcaShowGrid.checked;
       const dotSize = Number(pcaDotSize.value) || 3;
       const xMinManual = parseFloat(pcaXMin.value);
@@ -340,7 +355,12 @@
       });
 
       const legendLabels = Array.from(labelSet);
-      const legendWidth = legendLabels.length ? 120 : 0;
+      const legendWidth = legendLabels.length ? Math.max(60, Math.round(120 * fontScale)) : 0;
+      console.debug('Debug: pca legend width scaling',{
+        legendWidth,
+        legendScale:fontScale,
+        legendCount:legendLabels.length
+      });
 
       const plotEl = document.getElementById('pcaPlot');
       plotEl.style.display = 'block';
@@ -545,14 +565,25 @@
         });
       });
 
+      const legendX=W-legendWidth+Math.max(6,Math.round(8*fontScale));
+      const legendSpacing=Math.max(4,Math.round(fs*0.5));
+      const legendMarkerSize=Math.max(10,Math.round(12*fontScale));
+      const legendTextOffset=legendMarkerSize+Math.max(6,Math.round(8*fontScale));
+      console.debug('Debug: pca legend layout',{
+        legendX,
+        legendSpacing,
+        legendMarkerSize,
+        legendTextOffset
+      });
       legendLabels.forEach((lab, i) => {
-        const y = margin.top + i * (fs + 6);
+        const itemY = margin.top + i * (legendMarkerSize + legendSpacing);
         const color = pcaLabelColors[lab] || DEFAULT_SCATTER_COLORS[i % DEFAULT_SCATTER_COLORS.length];
-        add('rect', {x: W - legendWidth + 10, y, width: 12, height: 12, fill: color});
+        add('rect', {x: legendX, y: itemY, width: legendMarkerSize, height: legendMarkerSize, fill: color});
         add('text', {
-          x: W - legendWidth + 28,
-          y: y + fs - 3,
+          x: legendX + legendTextOffset,
+          y: itemY + legendMarkerSize / 2,
           'font-size': fs,
+          'dominant-baseline': 'middle',
           fill: chartStyle.TEXT_COLOR,
         }, lab);
       });

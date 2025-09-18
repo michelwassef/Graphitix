@@ -55,13 +55,16 @@
     const graphPanel=document.getElementById('pieGraphPanel');
     const panelResizer=document.getElementById('piePanelResizer');
     const svgBox=graphPanel?.querySelector('.svgbox');
+    state.svgBox = svgBox;
+    console.debug('Debug: pie svgBox reference stored',{hasSvgBox:!!state.svgBox});
     const configPanel=graphPanel?.querySelector('.config-options');
     let minSvgWidth=0;
     const syncPiePanels = () => {
       Shared.syncPanelWidths(tablePanel, graphPanel, configPanel, state.scheduleDraw, {
         svgBox,
         minSvgWidth,
-        debugLabel: 'pie'
+        debugLabel: 'pie',
+        panelResizer
       });
     };
     const observer=new ResizeObserver(()=>syncPiePanels()); observer.observe(tablePanel); syncPiePanels();
@@ -286,8 +289,37 @@
 
   function draw(){
     const plotEl=document.getElementById('piePlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
-    const type=$('#pieChartType').value; const normalizedFont=chartStyle.normalizeFontSize($('#pieFontSize').value); const fs=normalizedFont.px; console.debug('Debug: pie font resolved',{input:$('#pieFontSize').value,fontSizePt:normalizedFont.pt,fontSizePx:fs}); const axisMetrics=chartStyle.createAxisMetrics(fs); console.debug('Debug: pie axis metrics',axisMetrics); const showPerc=$('#pieShowPercents').checked; const startDeg=parseFloat($('#pieStartAngle').value)||0;
-    const data=state.hot.getData(); updatePieColumns(data[0]||[]); state.legendWidth=120;
+    const type=$('#pieChartType').value;
+    const containerRect=state.svgBox?.getBoundingClientRect?.();
+    const fontInfo=chartStyle.resolveScaledFontSize({
+      rawSize: $('#pieFontSize').value,
+      width: containerRect?.width,
+      height: containerRect?.height
+    });
+    const fs=fontInfo.scaledPx;
+    console.debug('Debug: pie font scaling applied',{
+      input:$('#pieFontSize').value,
+      fontSizePt:fontInfo.pt,
+      baseFontPx:fontInfo.px,
+      scaledFontPx:fs,
+      scale:fontInfo.scaleInfo?.scale,
+      containerWidth:containerRect?.width,
+      containerHeight:containerRect?.height
+    });
+    const axisMetrics=chartStyle.createAxisMetrics(fs);
+    console.debug('Debug: pie axis metrics',axisMetrics);
+    const fontScale=fontInfo.scaleInfo?.scale || 1;
+    state.legendWidth=Math.max(60,Math.round(120*fontScale));
+    const legendMargin=Math.max(6,Math.round(8*fontScale));
+    console.debug('Debug: pie legend width scaling',{
+      legendWidth:state.legendWidth,
+      legendScale:fontScale,
+      legendMargin
+    });
+    const showPerc=$('#pieShowPercents').checked;
+    const startDeg=parseFloat($('#pieStartAngle').value)||0;
+    const data=state.hot.getData();
+    updatePieColumns(data[0]||[]);
 
     if(type==='stacked'){
       const header=data[0]||[]; const barHeaders=header.slice(1).filter(h=>h!==null&&h!==''); const segmentLabels=[]; const segmentValues=[];
@@ -295,9 +327,16 @@
       if(!barHeaders.length||!segmentLabels.length){plotEl.innerHTML='<i>No data</i>';return;}
       updatePieColorPickers(segmentLabels);
       plotEl.style.display='flex'; plotEl.style.alignItems='flex-start';
-      const svgWidth=Math.max(50,Math.floor(plotEl.clientWidth||50)-state.legendWidth); const svgHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
+      const svgWidth=Math.max(50,Math.floor(plotEl.clientWidth||50)-state.legendWidth);
+      const svgHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
       const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','pieSvg'); svg.setAttribute('width',String(svgWidth)); svg.setAttribute('height',String(svgHeight)); svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.applySvgDefaults(svg); plotEl.appendChild(svg);
-      const legend=document.createElement('div'); legend.style.width=state.legendWidth+'px'; legend.style.fontSize=fs+'px'; legend.style.marginLeft='8px'; plotEl.appendChild(legend);
+      const legend=document.createElement('div');
+      legend.style.width=state.legendWidth+'px';
+      legend.style.fontSize=fs+'px';
+      legend.style.marginLeft=legendMargin+'px';
+      legend.style.display='flex';
+      legend.style.flexDirection='column';
+      plotEl.appendChild(legend);
       const yTickLabels=['0%','25%','50%','75%','100%'];
       const tickFont=chartStyle.makeFont(fs);
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
@@ -318,15 +357,41 @@
       const yAxis=document.createElementNS(NS,'line'); yAxis.setAttribute('x1',margin.left); yAxis.setAttribute('y1',margin.top); yAxis.setAttribute('x2',margin.left); yAxis.setAttribute('y2',margin.top+chartHeight); yAxis.setAttribute('stroke','#000'); axis.appendChild(yAxis);
       const xAxis=document.createElementNS(NS,'line'); xAxis.setAttribute('x1',margin.left); xAxis.setAttribute('y1',margin.top+chartHeight); xAxis.setAttribute('x2',margin.left+chartWidth); xAxis.setAttribute('y2',margin.top+chartHeight); xAxis.setAttribute('stroke','#000'); axis.appendChild(xAxis);
       for(let t=0;t<=100;t+=25){ const y=margin.top+chartHeight-(chartHeight*t/100); const tick=document.createElementNS(NS,'line'); tick.setAttribute('x1',margin.left-tickLen); tick.setAttribute('y1',y); tick.setAttribute('x2',margin.left); tick.setAttribute('y2',y); tick.setAttribute('stroke','#000'); axis.appendChild(tick); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',margin.left-(tickLen+tickGap)); txt.setAttribute('y',y); txt.setAttribute('text-anchor','end'); txt.setAttribute('dominant-baseline','middle'); txt.setAttribute('font-size',fs); txt.textContent=t+'%'; axis.appendChild(txt);} const yTitleX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5); const yTitle=document.createElementNS(NS,'text'); yTitle.setAttribute('x',yTitleX); yTitle.setAttribute('y',margin.top+chartHeight/2); yTitle.setAttribute('text-anchor','middle'); yTitle.setAttribute('transform',`rotate(-90 ${yTitleX} ${margin.top+chartHeight/2})`); yTitle.setAttribute('font-size',fs); yTitle.textContent=yTitleText; axis.appendChild(yTitle); svg.appendChild(axis);
-      const barGap=10;
+      const barGapBase=10;
+      const barGap=Math.max(6,Math.round(barGapBase*fontScale));
       const availableWidth=Math.max(0,chartWidth-(barHeaders.length+1)*barGap);
       const barWidth=barHeaders.length?Math.max(0,availableWidth/barHeaders.length):0;
       const xLabels=[];
       // Debug: stacked bar chart layout metrics
-      console.debug('Debug: stacked bar layout metrics',{svgWidth,svgHeight,chartWidth,chartHeight,barCount:barHeaders.length,barWidth});
+      console.debug('Debug: stacked bar layout metrics',{svgWidth,svgHeight,chartWidth,chartHeight,barCount:barHeaders.length,barWidth,barGap,fontScale});
       const palette = getDefaultPalette();
       barHeaders.forEach((bh,j)=>{ let y=margin.top+chartHeight; const total=segmentValues.reduce((s,row)=>s+(row[j]||0),0); segmentLabels.forEach((lab,i)=>{ const val=segmentValues[i][j]||0; const frac=total?val/total:0; const h=chartHeight*frac; y-=h; const rect=document.createElementNS(NS,'rect'); rect.setAttribute('x',margin.left+barGap+j*(barWidth+barGap)); rect.setAttribute('y',y); rect.setAttribute('width',barWidth); rect.setAttribute('height',h); const fillColor = state.colors[lab] || palette[i % palette.length]; rect.setAttribute('fill', fillColor); svg.appendChild(rect); if(showPerc && frac>0){ const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',margin.left+barGap+j*(barWidth+barGap)+barWidth/2); txt.setAttribute('y',y+h/2); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size',fs); txt.textContent=(frac*100).toFixed(1)+'%'; svg.appendChild(txt);} }); const lbl=document.createElementNS(NS,'text'); const lx=margin.left+barGap+j*(barWidth+barGap)+barWidth/2; const ly=margin.top+chartHeight+tickLen+tickGap; lbl.setAttribute('x',lx); lbl.setAttribute('y',ly); lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('font-size',fs); lbl.setAttribute('dominant-baseline','hanging'); lbl.textContent=bh; svg.appendChild(lbl); xLabels.push(lbl); });
       chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+      const legendGap=Math.max(4,Math.round(6*fontScale));
+      const legendMarkerSize=Math.max(10,Math.round(12*fontScale));
+      legend.style.gap=legendGap+'px';
+      segmentLabels.forEach((lab,i)=>{
+        const item=document.createElement('div');
+        item.style.display='flex';
+        item.style.alignItems='center';
+        item.style.gap=legendGap+'px';
+        const swatch=document.createElement('span');
+        swatch.style.display='inline-block';
+        swatch.style.width=legendMarkerSize+'px';
+        swatch.style.height=legendMarkerSize+'px';
+        swatch.style.borderRadius='2px';
+        swatch.style.background=state.colors[lab] || palette[i % palette.length];
+        const labelSpan=document.createElement('span');
+        labelSpan.textContent=lab;
+        item.appendChild(swatch);
+        item.appendChild(labelSpan);
+        legend.appendChild(item);
+      });
+      console.debug('Debug: pie legend items rendered',{
+        legendItemCount:segmentLabels.length,
+        legendMarkerSize,
+        legendGap
+      });
       // Title inline (editable)
       const title=document.createElementNS(NS,'text'); title.setAttribute('x',margin.left+chartWidth/2); title.setAttribute('y',margin.top/2); title.setAttribute('text-anchor','middle'); title.setAttribute('font-size',fs); title.textContent=state.titleText; if(global.makeEditable) makeEditable(title,txt=>{state.titleText=txt;}); svg.appendChild(title);
       if(global.autoResizeSvg) global.autoResizeSvg(svg);

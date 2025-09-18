@@ -8,12 +8,20 @@
   const PT_TO_PX = 96 / 72;
   const BASE_FONT_SIZE_PT = 8;
   const BASE_FONT_SIZE_PX = Number((BASE_FONT_SIZE_PT * PT_TO_PX).toFixed(2));
+  const DEFAULT_WIDTH = 640;
+  const DEFAULT_HEIGHT = 420;
+  const RESIZE_MIN_SCALE = 0.3;
+  const RESIZE_MAX_SCALE = 3;
 
   chartStyle.FONT_FAMILY = FONT_FAMILY;
   chartStyle.TEXT_COLOR = TEXT_COLOR;
   chartStyle.PT_TO_PX = PT_TO_PX;
   chartStyle.BASE_FONT_SIZE_PT = BASE_FONT_SIZE_PT;
   chartStyle.BASE_FONT_SIZE_PX = BASE_FONT_SIZE_PX;
+  chartStyle.DEFAULT_WIDTH = DEFAULT_WIDTH;
+  chartStyle.DEFAULT_HEIGHT = DEFAULT_HEIGHT;
+  chartStyle.RESIZE_MIN_SCALE = RESIZE_MIN_SCALE;
+  chartStyle.RESIZE_MAX_SCALE = RESIZE_MAX_SCALE;
 
   chartStyle.ptToPx = function ptToPx(pt){
     const numeric = Number(pt);
@@ -47,6 +55,44 @@
     const font = `${size}px ${FONT_FAMILY}`;
     console.debug('Debug: chartStyle.makeFont', {size, font}); // Debug: font computation trace
     return font;
+  };
+
+  chartStyle.computeResizeScale = function computeResizeScale(options){
+    const defaultWidth = Number(options?.defaultWidth) || DEFAULT_WIDTH;
+    const defaultHeight = Number(options?.defaultHeight) || DEFAULT_HEIGHT;
+    const rawWidth = Number(options?.width);
+    const rawHeight = Number(options?.height);
+    const safeWidth = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : defaultWidth;
+    const safeHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : defaultHeight;
+    const scaleW = safeWidth / (defaultWidth || 1);
+    const scaleH = safeHeight / (defaultHeight || 1);
+    const unclamped = Math.min(scaleW, scaleH);
+    const scale = Math.min(RESIZE_MAX_SCALE, Math.max(RESIZE_MIN_SCALE, unclamped));
+    const payload = { width: safeWidth, height: safeHeight, defaultWidth, defaultHeight, scaleW, scaleH, unclamped, scale };
+    console.debug('Debug: chartStyle.computeResizeScale', payload); // Debug: resize scaling payload
+    return payload;
+  };
+
+  chartStyle.resolveScaledFontSize = function resolveScaledFontSize(options){
+    const normalized = chartStyle.normalizeFontSize(options?.rawSize);
+    const scaleInfo = chartStyle.computeResizeScale({
+      width: options?.width,
+      height: options?.height,
+      defaultWidth: options?.defaultWidth,
+      defaultHeight: options?.defaultHeight
+    });
+    const scaledPx = Math.max(4, normalized.px * scaleInfo.scale);
+    const result = { ...normalized, scaledPx, scaleInfo };
+    console.debug('Debug: chartStyle.resolveScaledFontSize', {
+      raw: options?.rawSize,
+      normalizedPt: normalized.pt,
+      basePx: normalized.px,
+      scaledPx,
+      scale: scaleInfo.scale,
+      width: scaleInfo.width,
+      height: scaleInfo.height
+    }); // Debug: scaled font resolution
+    return result;
   };
 
   chartStyle.measureText = function measureText(text, font){

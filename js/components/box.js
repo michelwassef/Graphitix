@@ -103,7 +103,8 @@
       Shared.syncPanelWidths(els.tablePanel, els.graphPanel, els.configPanel, state.scheduleDraw, {
         svgBox: els.svgBox,
         minSvgWidth,
-        debugLabel: 'box'
+        debugLabel: 'box',
+        panelResizer: els.panelResizer
       });
     };
     const observer=new ResizeObserver(()=>{syncPanels();}); observer.observe(els.tablePanel); syncPanels();
@@ -508,8 +509,23 @@ function renderStatsControls(traces){
   function draw(){
     const token=++state.drawToken; console.log('boxplot draw start',{token});
     const colorMode=els.boxColorUnified.checked?'unified':'individual';
-    const defaultFill=els.boxFill.value; const defaultBorder=els.boxBorder.value; const bw=Number(els.boxBorderWidth.value); const normalizedFont=chartStyle.normalizeFontSize(els.boxFontSize.value); const fs=normalizedFont.px;
-    console.debug('Debug: box font resolved',{input:els.boxFontSize.value,fontSizePt:normalizedFont.pt,fontSizePx:fs});
+    const defaultFill=els.boxFill.value; const defaultBorder=els.boxBorder.value; const bw=Number(els.boxBorderWidth.value);
+    const containerRect=els.svgBox?.getBoundingClientRect?.();
+    const fontInfo=chartStyle.resolveScaledFontSize({
+      rawSize: els.boxFontSize.value,
+      width: containerRect?.width,
+      height: containerRect?.height
+    });
+    const fs=fontInfo.scaledPx;
+    console.debug('Debug: box font scaling applied',{
+      input:els.boxFontSize.value,
+      fontSizePt:fontInfo.pt,
+      baseFontPx:fontInfo.px,
+      scaledFontPx:fs,
+      scale:fontInfo.scaleInfo?.scale,
+      containerWidth:containerRect?.width,
+      containerHeight:containerRect?.height
+    });
     const axisMetrics=chartStyle.createAxisMetrics(fs);
     console.debug('Debug: box axis metrics',axisMetrics);
     const showGrid = els.boxShowGrid.checked; const logScale = els.boxLogScale.checked; const graphType = els.boxGraphType.value; const pointMode = els.boxPointMode.value; const showCaps = els.boxShowCaps.checked; const errorMode = els.boxErrorMode.value;
