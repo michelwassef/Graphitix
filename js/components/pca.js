@@ -478,7 +478,6 @@
         return el;
       };
 
-      add('rect', {x: 0, y: 0, width: W, height: H, fill: '#fff'});
 
       if (showGrid) {
         xScale.ticks.forEach((t) => {

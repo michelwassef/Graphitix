@@ -820,7 +820,7 @@
         const barHeight = chartHeight / labels.length;
         const maxVal = Math.max(...values);
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
-        svg += `<rect width="${width}" height="${height}" fill="white"/>`;
+        svg += `<rect width="${width}" height="${height}" fill="none"/>`;
         for (let i = 0; i < labels.length; i++) {
           const y = padding.top + i * barHeight;
           const barWidth = (values[i] / maxVal) * chartWidth;
@@ -1974,3 +1974,4 @@
     if (!venn.ready) venn.init();
   };
 })(window);
+
