@@ -590,8 +590,9 @@ function renderStatsControls(traces){
     if(xTickPositions.length===1){const halfBand=Math.max(6,bandW*0.5);axisXStart=xTickPositions[0]-halfBand;axisXEnd=xTickPositions[0]+halfBand;}
     if(axisXStart===axisXEnd){axisXStart=yAxisX;axisXEnd=yAxisX+plotW;}
     axisXStart=Math.min(axisXStart,yAxisX);
-    axisXEnd=Math.max(axisXEnd,yAxisX);
-    console.debug('Debug: box x-axis span',{axisXStart,axisXEnd,yAxisX});
+    const frameXMax = yAxisX + plotW;
+    axisXEnd=Math.max(axisXEnd, frameXMax);
+    console.debug('Debug: box x-axis span',{axisXStart,axisXEnd,yAxisX,frameXMax});
     add('line', { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square' });
     if(showFrame){
       console.debug('Debug: box frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
