@@ -153,18 +153,17 @@
       });
     });
 
-    // Exports
-    document.getElementById('histPNG').addEventListener('click', async () => {
-      const svgEl = document.getElementById('histSvg'); if(!svgEl) return; console.log('histPNG export start');
-      const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800; const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
-      const xml=global.serializeCleanSVG?global.serializeCleanSVG(svgEl):new XMLSerializer().serializeToString(svgEl);
-      const img=new Image(); const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml); img.src=url; await img.decode().catch(err=>{console.error('histPNG svg decode',err);}); const outCanvas=document.createElement('canvas'); outCanvas.width=W; outCanvas.height=H; const ctx=outCanvas.getContext('2d'); ctx.drawImage(img,0,0); outCanvas.toBlob(b=>{const pngUrl=URL.createObjectURL(b); const a=document.createElement('a'); a.href=pngUrl; a.download='histogram.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(pngUrl),4000);},'image/png');
-    });
-    document.getElementById('histSVG').addEventListener('click', () => {
-      const svgEl=document.getElementById('histSvg'); if(!svgEl) return; console.log('histSVG export start');
-      const xml=global.serializeCleanSVG?global.serializeCleanSVG(svgEl):new XMLSerializer().serializeToString(svgEl);
-      const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='histogram.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
-    });
+    if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
+      Shared.exporter.mountSvgControls({
+        container: '#histExportControls',
+        svgSelector: '#histSvg',
+        fileName: 'histogram',
+        contextLabel: 'hist-export'
+      });
+      console.debug('Debug: hist export controls mounted', { hasExporter: true }); // Debug: hist export mount
+    } else {
+      console.debug('Debug: hist export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: hist export fallback
+    }
 
     // File Save/Open
     function getPayload(){

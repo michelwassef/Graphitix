@@ -84,7 +84,11 @@
     els.boxBorderWidth=global.$('#boxBorderWidth');
     els.boxFontSize=global.$('#boxFontSize');
     els.boxFontSizeVal=global.$('#boxFontSizeVal');
-    chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value) });
+    if (typeof chartStyle.renderFontSizeLabel === 'function') {
+      chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value) });
+    } else {
+      console.debug('Debug: box renderFontSizeLabel missing helper'); // Debug: chartStyle guard
+    }
     els.boxShowGrid=global.$('#boxShowGrid');
     els.boxShowFrame=global.$('#boxShowFrame');
     els.boxLogScale=global.$('#boxLogScale');
@@ -239,21 +243,17 @@
     els.boxFill.addEventListener('input',()=>{ console.log('boxFill changed',{newColor:els.boxFill.value,oldColor:state.lastDefaultFill}); state.fillColors=state.fillColors.map(c=>c===state.lastDefaultFill?els.boxFill.value:c); state.lastDefaultFill=els.boxFill.value; state.scheduleDraw(); });
     els.boxBorder.addEventListener('input',()=>{ console.log('boxBorder changed', els.boxBorder.value); state.scheduleDraw(); });
     els.boxBorderWidth.addEventListener('input',()=>{ console.log('boxBorderWidth changed', els.boxBorderWidth.value); state.scheduleDraw(); });
-    // Export buttons
-    global.$('#boxPNG').addEventListener('click', async () => {
-      const svgEl = global.document.getElementById('boxSvg'); if (!svgEl) return; console.log('boxPNG export start');
-      const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800; const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
-      const xml = serializeSvg(svgEl);
-      const img=new Image(); const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml); img.src=url; await img.decode().catch(err=>{console.error('boxPNG svg decode',err);});
-      const outCanvas=document.createElement('canvas'); outCanvas.width=W; outCanvas.height=H; const ctx=outCanvas.getContext('2d'); ctx.drawImage(img,0,0);
-      outCanvas.toBlob(b=>{ const pngUrl=URL.createObjectURL(b); const a=document.createElement('a'); a.href=pngUrl; a.download='boxplot.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(pngUrl),4000); },'image/png');
-    });
-    global.$('#boxSVG').addEventListener('click', () => {
-      const svgEl=global.document.getElementById('boxSvg'); if(!svgEl) return; console.log('boxSVG export start');
-      const xml = serializeSvg(svgEl);
-      const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob);
-      const a=document.createElement('a'); a.href=url; a.download='boxplot.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
-    });
+    if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
+      Shared.exporter.mountSvgControls({
+        container: '#boxExportControls',
+        svgSelector: '#boxSvg',
+        fileName: 'boxplot',
+        contextLabel: 'box-export'
+      });
+      console.debug('Debug: box export controls mounted', { hasExporter: true }); // Debug: box export mount
+    } else {
+      console.debug('Debug: box export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: box export fallback
+    }
     global.$('#openBox').addEventListener('click', box.open);
     global.$('#saveBox').addEventListener('click', box.save);
     global.$('#saveAsBox').addEventListener('click', box.saveAs);

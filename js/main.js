@@ -3,6 +3,16 @@
   console.debug("Debug: main.js loaded");
 
   const Shared = window.Shared = window.Shared || {};
+  const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  if (typeof chartStyle.renderFontSizeLabel !== 'function') {
+    chartStyle.renderFontSizeLabel = function fallbackFontLabel(options) {
+      const labelValue = options?.fontInfo?.pt ?? options?.pt ?? '';
+      if (options?.element) {
+        options.element.textContent = labelValue;
+      }
+      console.debug('Debug: chartStyle.renderFontSizeLabel fallback used', { hasElement: !!options?.element });
+    };
+  }
 
   // Debounced draw schedulers (Shared.debounceFrame handles fallbacks internally)
   const scheduleDrawBoxplot = Shared.debounceFrame(() => {

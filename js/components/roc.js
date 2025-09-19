@@ -63,8 +63,6 @@
     refs.loadExampleBtn = document.getElementById('rocLoadExample');
     refs.importBtn = document.getElementById('rocImport');
     refs.fileInput = document.getElementById('rocFile');
-    refs.pngBtn = document.getElementById('rocPNG');
-    refs.svgBtn = document.getElementById('rocSVG');
     refs.openBtn = document.getElementById('openRoc');
     refs.saveBtn = document.getElementById('saveRoc');
     refs.saveAsBtn = document.getElementById('saveAsRoc');
@@ -1042,61 +1040,17 @@
   }
 
   function initExportsAndFiles(){
-    refs.pngBtn?.addEventListener('click', async () => {
-      const svgEl = document.getElementById('rocSvg');
-      if(!svgEl){
-        return;
-      }
-      const w = svgEl.viewBox.baseVal.width || svgEl.clientWidth || 800;
-      const h = svgEl.viewBox.baseVal.height || svgEl.clientHeight || 400;
-      const xml = typeof global.serializeCleanSVG === 'function'
-        ? global.serializeCleanSVG(svgEl)
-        : new XMLSerializer().serializeToString(svgEl);
-      const img = new Image();
-      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
-      try{
-        await img.decode();
-      }catch(err){
-        console.error('rocPNG svg decode', err);
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      canvas.toBlob(blob => {
-        if(!blob){
-          return;
-        }
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'roc.png';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 4000);
-      }, 'image/png');
-    });
-
-    refs.svgBtn?.addEventListener('click', () => {
-      const svgEl = document.getElementById('rocSvg');
-      if(!svgEl){
-        return;
-      }
-      const xml = typeof global.serializeCleanSVG === 'function'
-        ? global.serializeCleanSVG(svgEl)
-        : new XMLSerializer().serializeToString(svgEl);
-      const blob = new Blob([xml], {type: 'image/svg+xml'});
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'roc.svg';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
-    });
+    if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
+      Shared.exporter.mountSvgControls({
+        container: '#rocExportControls',
+        svgSelector: '#rocSvg',
+        fileName: 'roc',
+        contextLabel: 'roc-export'
+      });
+      console.debug('Debug: roc export controls mounted', { hasExporter: true }); // Debug: roc export mount
+    } else {
+      console.debug('Debug: roc export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: roc export fallback
+    }
 
     refs.saveBtn?.addEventListener('click', () => { void saveFile(); });
     refs.saveAsBtn?.addEventListener('click', () => { void saveFileAs(); });
