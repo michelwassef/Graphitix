@@ -550,6 +550,13 @@ function renderStatsControls(traces){
     console.log('boxplot ymin/ymax',{ymin,ymax});
     let barErrorMin=Infinity; if(graphType==='bar'){ traces.forEach(t=>{ const mean=t.y.reduce((a,b)=>a+b,0)/t.y.length; const sd=Math.sqrt(t.y.reduce((a,b)=>a+Math.pow(b-mean,2),0)/(t.y.length-1||1)); barErrorMin=Math.min(barErrorMin, mean - sd); }); if(isFinite(barErrorMin)) ymin=Math.min(ymin, barErrorMin); }
     const userYMin=parseFloat(els.boxYMin.value); const userYMax=parseFloat(els.boxYMax.value); if(isFinite(userYMin)) ymin=logScale?Math.log10(userYMin):userYMin; if(isFinite(userYMax)) ymax=logScale?Math.log10(userYMax):userYMax; console.log('boxplot axis override',{userYMin,userYMax,ymin,ymax}); console.log('boxplot range',{ymin,ymax});
+    if(graphType==='bar' && !logScale){
+      const beforeYMin=ymin;
+      const beforeYMax=ymax;
+      ymin=Math.min(ymin,0);
+      ymax=Math.max(ymax,0);
+      console.debug('Debug: box bar axis zero clamp',{beforeYMin,beforeYMax,ymin,ymax}); // Debug: bar axis zero enforcement
+    }
     function niceNum(range,round){ const exp=Math.floor(Math.log10(range)); const f=range/Math.pow(10,exp); let nf; if(round){ if(f<1.5) nf=1; else if(f<3) nf=2; else if(f<7) nf=5; else nf=10; } else { if(f<=1) nf=1; else if(f<=2) nf=2; else if(f<=5) nf=5; else nf=10; } return nf*Math.pow(10,exp); }
     function niceScale(min,max,maxTicks){ const range=niceNum(max-min,false); const step=niceNum(range/(maxTicks-1),true); const graphMin=Math.floor(min/step)*step; const graphMax=Math.ceil(max/step)*step; const ticks=[]; for(let v=graphMin; v<=graphMax+1e-9; v+=step) ticks.push(v); return {min:graphMin,max:graphMax,ticks,step}; }
     const yScale=niceScale(ymin,ymax,6);
