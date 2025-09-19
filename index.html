@@ -30,6 +30,7 @@
       <button class="btn" id="openVenn">Open File</button>
       <button class="btn" id="saveVenn">Save File</button>
       <button class="btn" id="saveAsVenn">Save As</button>
+      <button class="btn" id="sample">Example</button>
       <input type="file" id="vennGraphFile" accept=".graph" style="display:none;" />
     </div>
     <div class="wrap">
@@ -69,7 +70,6 @@
             </select>
           </label>
           <button class="btn" id="draw">Draw Venn</button>
-          <button class="btn" id="sample">Example</button>
           <button class="btn" id="reset">Reset</button>
         </div>
         <details style="margin-top:8px;">
@@ -254,19 +254,15 @@
       <button class="btn" id="openBox">Open File</button>
       <button class="btn" id="saveBox">Save File</button>
       <button class="btn" id="saveAsBox">Save As</button>
+      <button class="btn" id="boxLoadExample">Load Example</button>
+      <button class="btn" id="boxImport">Import File</button>
       <input type="file" id="boxGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
     </div>
     <div class="wrap">
       <div class="panel" id="boxTablePanel">
         <div id="hotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
           <div id="hot" style="width:100%; height:100%;"></div>
-        </div>
-        <div class="row" style="margin-top:8px; justify-content:space-between;">
-          <div class="row" style="gap:8px;">
-            <button class="btn" id="boxLoadExample">Load Example</button>
-            <button class="btn" id="boxImport">Import File</button>
-            <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
-          </div>
         </div>
       </div>
       <div id="boxPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -390,19 +386,15 @@
       <button class="btn" id="openScatter">Open File</button>
       <button class="btn" id="saveScatter">Save File</button>
       <button class="btn" id="saveAsScatter">Save As</button>
+      <button class="btn" id="scatterLoadExample">Load Example</button>
+      <button class="btn" id="scatterImport">Import File</button>
       <input type="file" id="scatterGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
     </div>
     <div class="wrap">
       <div class="panel" id="scatterTablePanel">
         <div id="scatterHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
           <div id="scatterHot" style="width:100%; height:100%;"></div>
-        </div>
-        <div class="row" style="margin-top:8px; justify-content:space-between;">
-          <div class="row" style="gap:8px;">
-            <button class="btn" id="scatterLoadExample">Load Example</button>
-            <button class="btn" id="scatterImport">Import File</button>
-            <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
-          </div>
         </div>
       </div>
       <div id="scatterPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -535,19 +527,15 @@
       <button class="btn" id="openPca">Open File</button>
       <button class="btn" id="savePca">Save File</button>
       <button class="btn" id="saveAsPca">Save As</button>
+      <button class="btn" id="pcaLoadExample">Load Example</button>
+      <button class="btn" id="pcaImport">Import File</button>
       <input type="file" id="pcaGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="pcaFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
     </div>
     <div class="wrap">
       <div class="panel" id="pcaTablePanel">
         <div id="pcaHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
           <div id="pcaHot" style="width:100%; height:100%;"></div>
-        </div>
-        <div class="row" style="margin-top:8px; justify-content:space-between;">
-          <div class="row" style="gap:8px;">
-            <button class="btn" id="pcaLoadExample">Load Example</button>
-            <button class="btn" id="pcaImport">Import File</button>
-            <input type="file" id="pcaFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
-          </div>
         </div>
       </div>
       <div id="pcaPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -665,19 +653,15 @@
       <button class="btn" id="openLine">Open File</button>
       <button class="btn" id="saveLine">Save File</button>
       <button class="btn" id="saveAsLine">Save As</button>
+      <button class="btn" id="lineLoadExample">Load Example</button>
+      <button class="btn" id="lineImport">Import File</button>
       <input type="file" id="lineGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="lineFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
     </div>
     <div class="wrap">
       <div class="panel" id="lineTablePanel">
         <div id="lineHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
           <div id="lineHot" style="width:100%; height:100%;"></div>
-        </div>
-        <div class="row" style="margin-top:8px; justify-content:space-between;">
-          <div class="row" style="gap:8px;">
-            <button class="btn" id="lineLoadExample">Load Example</button>
-            <button class="btn" id="lineImport">Import File</button>
-            <input type="file" id="lineFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
-          </div>
         </div>
       </div>
       <div id="linePanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -807,19 +791,15 @@
       <button class="btn" id="openRoc">Open File</button>
       <button class="btn" id="saveRoc">Save File</button>
       <button class="btn" id="saveAsRoc">Save As</button>
+      <button class="btn" id="rocLoadExample">Load Example</button>
+      <button class="btn" id="rocImport">Import File</button>
       <input type="file" id="rocGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="rocFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
     </div>
     <div class="wrap">
       <div class="panel" id="rocTablePanel">
         <div id="rocHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
           <div id="rocHot" style="width:100%; height:100%;"></div>
-        </div>
-        <div class="row" style="margin-top:8px; justify-content:space-between;">
-          <div class="row" style="gap:8px;">
-            <button class="btn" id="rocLoadExample">Load Example</button>
-            <button class="btn" id="rocImport">Import File</button>
-            <input type="file" id="rocFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
-          </div>
         </div>
       </div>
       <div id="rocPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -900,19 +880,15 @@
       <button class="btn" id="openHist">Open File</button>
       <button class="btn" id="saveHist">Save File</button>
       <button class="btn" id="saveAsHist">Save As</button>
+      <button class="btn" id="histLoadExample">Load Example</button>
+      <button class="btn" id="histImport">Import File</button>
       <input type="file" id="histGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="histFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
     </div>
     <div class="wrap">
       <div class="panel" id="histTablePanel">
         <div id="histHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
           <div id="histHot" style="width:100%; height:100%;"></div>
-        </div>
-        <div class="row" style="margin-top:8px; justify-content:space-between;">
-          <div class="row" style="gap:8px;">
-            <button class="btn" id="histLoadExample">Load Example</button>
-            <button class="btn" id="histImport">Import File</button>
-            <input type="file" id="histFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
-          </div>
         </div>
       </div>
       <div id="histPanelResizer" class="panel-resizer" aria-hidden="true"></div>
@@ -998,19 +974,15 @@
       <button class="btn" id="openPie">Open File</button>
       <button class="btn" id="savePie">Save File</button>
       <button class="btn" id="saveAsPie">Save As</button>
+      <button class="btn" id="pieLoadExample">Load Example</button>
+      <button class="btn" id="pieImport">Import File</button>
       <input type="file" id="pieGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="pieFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
     </div>
     <div class="wrap">
       <div class="panel" id="pieTablePanel">
         <div id="pieHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
           <div id="pieHot" style="width:100%; height:100%;"></div>
-        </div>
-        <div class="row" style="margin-top:8px; justify-content:space-between;">
-          <div class="row" style="gap:8px;">
-            <button class="btn" id="pieLoadExample">Load Example</button>
-            <button class="btn" id="pieImport">Import File</button>
-            <input type="file" id="pieFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
-          </div>
         </div>
       </div>
       <div id="piePanelResizer" class="panel-resizer" aria-hidden="true"></div>
