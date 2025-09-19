@@ -293,8 +293,9 @@
     clone.setAttribute('width',String(baseW));
     clone.setAttribute('height',String(baseH));
     clone.setAttribute('viewBox',`0 0 ${baseW} ${baseH}`);
-    clone.setAttribute('font-family','sans-serif');
-    console.debug('Debug: buildLineExportSvg',{legendCount:lineLegendItems.length}); // Debug: export clone info
+    const exportFont = chartStyle.FONT_FAMILY || 'Arial, Helvetica, sans-serif';
+    clone.setAttribute('font-family', exportFont);
+    console.debug('Debug: buildLineExportSvg',{legendCount:lineLegendItems.length, exportFont}); // Debug: export clone info
     return clone;
   }
 
