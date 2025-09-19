@@ -163,13 +163,17 @@
     });
 
     // Export buttons
-    document.getElementById('piePNG').addEventListener('click',async()=>{
-      const svgEl=document.getElementById('pieSvg'); if(!svgEl) return; console.log('piePNG export start');
-      const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800; const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400; const xml=(global.serializeCleanSVG?global.serializeCleanSVG(svgEl):new XMLSerializer().serializeToString(svgEl)); const img=new Image(); const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml); img.src=url; await img.decode().catch(err=>{console.error('piePNG svg decode',err);}); const outCanvas=document.createElement('canvas'); outCanvas.width=W; outCanvas.height=H; const ctx=outCanvas.getContext('2d'); ctx.drawImage(img,0,0); outCanvas.toBlob(b=>{ const pngUrl=URL.createObjectURL(b); const a=document.createElement('a'); a.href=pngUrl; a.download='pie.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(pngUrl),4000); },'image/png');
-    });
-    document.getElementById('pieSVG').addEventListener('click',()=>{
-      const svgEl=document.getElementById('pieSvg'); if(!svgEl) return; console.log('pieSVG export start'); const xml=(global.serializeCleanSVG?global.serializeCleanSVG(svgEl):new XMLSerializer().serializeToString(svgEl)); const blob=new Blob([xml],{type:'image/svg+xml'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='pie.svg'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),4000);
-    });
+    if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
+      Shared.exporter.mountSvgControls({
+        container: '#pieExportControls',
+        svgSelector: '#pieSvg',
+        fileName: 'pie',
+        contextLabel: 'pie-export'
+      });
+      console.debug('Debug: pie export controls mounted', { hasExporter: true }); // Debug: pie export mount
+    } else {
+      console.debug('Debug: pie export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: pie export fallback
+    }
 
     // Save/Open
     function getPayload(){ return { type:'pie', data: state.hot.getData(), config: collectConfig() }; }

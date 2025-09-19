@@ -797,101 +797,109 @@
     });
   }
 
-  function exportGoChart(format) {
-    if (!state.goChart) return;
-    const canvas = document.getElementById('goChart');
-    if (!canvas) return;
-    let url;
-    if (format === 'png') {
-      url = canvas.toDataURL('image/png');
-    } else if (format === 'svg') {
-      try {
-        const { labels } = state.goChart.data;
-        const values = state.goChart.data.datasets[0].data;
-        const color = state.goChart.data.datasets[0].backgroundColor;
-        const width = canvas.width, height = canvas.height;
-        const measureCtx = document.createElement('canvas').getContext('2d');
-        measureCtx.font = '12px sans-serif';
-        const labelWidths = labels.map(l => measureCtx.measureText(l).width);
-        const maxLabelWidth = Math.ceil(Math.max(...labelWidths));
-        const padding = { left: maxLabelWidth + 12, right: 20, top: 10, bottom: 30 };
-        const chartWidth = width - padding.left - padding.right;
-        const chartHeight = height - padding.top - padding.bottom;
-        const barHeight = chartHeight / labels.length;
-        const maxVal = Math.max(...values);
-        let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
-        svg += `<rect width="${width}" height="${height}" fill="none"/>`;
-        for (let i = 0; i < labels.length; i++) {
-          const y = padding.top + i * barHeight;
-          const barWidth = (values[i] / maxVal) * chartWidth;
-          svg += `<text x="4" y="${y + barHeight / 2}" dominant-baseline="middle" font-size="12">${labels[i]}</text>`;
-          svg += `<rect x="${padding.left}" y="${y + barHeight * 0.1}" width="${barWidth}" height="${barHeight * 0.8}" fill="${color}"/>`;
-          svg += `<text x="${padding.left + barWidth + 4}" y="${y + barHeight / 2}" dominant-baseline="middle" font-size="12">${values[i].toFixed(2)}</text>`;
-        }
-        const axisY = padding.top + chartHeight;
-        svg += `<line x1="${padding.left}" y1="${axisY}" x2="${width - padding.right}" y2="${axisY}" stroke="black"/>`;
-        svg += `<line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${axisY}" stroke="black"/>`;
-        const ticks = 5;
-        for (let t = 0; t <= ticks; t++) {
-          const v = (maxVal / ticks) * t;
-          const x = padding.left + (v / maxVal) * chartWidth;
-          svg += `<line x1="${x}" y1="${axisY}" x2="${x}" y2="${axisY + 5}" stroke="black"/>`;
-          svg += `<text x="${x}" y="${axisY + 15}" font-size="12" text-anchor="middle">${v.toFixed(2)}</text>`;
-        }
-        svg += `<text x="${padding.left + chartWidth / 2}" y="${height - 5}" font-size="12" text-anchor="middle">-log10(p)</text>`;
-        svg += '</svg>';
-        const blob = new Blob([svg], { type: 'image/svg+xml' });
-        url = URL.createObjectURL(blob);
-      } catch (err) {
-        return;
-      }
+  function buildGoChartSvgString() {
+    if (!state.goChart) {
+      debugLog('buildGoChartSvgString skipped', { reason: 'no chart' });
+      return '';
     }
-    if (!url) return;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'go_chart.' + format;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    if (format === 'svg') { setTimeout(() => URL.revokeObjectURL(url), 5000); }
+    const canvas = document.getElementById('goChart');
+    if (!canvas) {
+      debugLog('buildGoChartSvgString skipped', { reason: 'no canvas' });
+      return '';
+    }
+    try {
+      const { labels } = state.goChart.data;
+      const values = state.goChart.data.datasets[0].data;
+      const color = state.goChart.data.datasets[0].backgroundColor;
+      const width = canvas.width;
+      const height = canvas.height;
+      const measureCtx = document.createElement('canvas').getContext('2d');
+      measureCtx.font = '12px sans-serif';
+      const labelWidths = labels.map(l => measureCtx.measureText(l).width);
+      const maxLabelWidth = Math.ceil(Math.max(...labelWidths));
+      const padding = { left: maxLabelWidth + 12, right: 20, top: 10, bottom: 30 };
+      const chartWidth = width - padding.left - padding.right;
+      const chartHeight = height - padding.top - padding.bottom;
+      const barHeight = chartHeight / labels.length;
+      const maxVal = Math.max(...values);
+      let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
+      svg += `<rect width="${width}" height="${height}" fill="none"/>`;
+      for (let i = 0; i < labels.length; i++) {
+        const y = padding.top + i * barHeight;
+        const barWidth = (values[i] / maxVal) * chartWidth;
+        svg += `<text x="4" y="${y + barHeight / 2}" dominant-baseline="middle" font-size="12">${labels[i]}</text>`;
+        svg += `<rect x="${padding.left}" y="${y + barHeight * 0.1}" width="${barWidth}" height="${barHeight * 0.8}" fill="${color}"/>`;
+        svg += `<text x="${padding.left + barWidth + 4}" y="${y + barHeight / 2}" dominant-baseline="middle" font-size="12">${values[i].toFixed(2)}</text>`;
+      }
+      const axisY = padding.top + chartHeight;
+      svg += `<line x1="${padding.left}" y1="${axisY}" x2="${width - padding.right}" y2="${axisY}" stroke="black"/>`;
+      svg += `<line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${axisY}" stroke="black"/>`;
+      const ticks = 5;
+      for (let t = 0; t <= ticks; t++) {
+        const v = (maxVal / ticks) * t;
+        const x = padding.left + (v / maxVal) * chartWidth;
+        svg += `<line x1="${x}" y1="${axisY}" x2="${x}" y2="${axisY + 5}" stroke="black"/>`;
+        svg += `<text x="${x}" y="${axisY + 15}" font-size="12" text-anchor="middle">${v.toFixed(2)}</text>`;
+      }
+      svg += `<text x="${padding.left + chartWidth / 2}" y="${height - 5}" font-size="12" text-anchor="middle">-log10(p)</text>`;
+      svg += '</svg>';
+      debugLog('buildGoChartSvgString complete', { width, height, barCount: labels.length });
+      return svg;
+    } catch (err) {
+      console.error('buildGoChartSvgString error', err);
+      return '';
+    }
+  }
+
+  async function exportGoChart(format) {
+    if (!state.goChart) return;
+    const exporter = Shared.exporter;
+    if (!exporter) {
+      console.warn('exportGoChart missing exporter');
+      return;
+    }
+    if (format === 'png') {
+      const canvas = document.getElementById('goChart');
+      if (!canvas) return;
+      const blob = await new Promise(resolve => {
+        canvas.toBlob(resolve, 'image/png');
+      });
+      if (!blob) return;
+      exporter.downloadBlob(blob, 'go_chart.png', 'go-chart');
+    } else if (format === 'svg') {
+      const svg = buildGoChartSvgString();
+      if (!svg) return;
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      exporter.downloadBlob(blob, 'go_chart.svg', 'go-chart');
+    }
     debugLog('exportGoChart', { format });
   }
 
   async function downloadStringPNG() {
     if (!state.lastStringSVG) return;
-    const svgBlob = new Blob([state.lastStringSVG], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(svgBlob);
-    const img = new Image();
-    img.src = url;
-    await img.decode().catch(err => { });
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width; canvas.height = img.height;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-    URL.revokeObjectURL(url);
-    canvas.toBlob(b => {
-      const pngUrl = URL.createObjectURL(b);
-      const a = document.createElement('a');
-      a.href = pngUrl;
-      a.download = 'string_network.png';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(pngUrl), 5000);
-    }, 'image/png');
+    const exporter = Shared.exporter;
+    if (!exporter || typeof exporter.svgStringToPngBlob !== 'function') {
+      console.warn('downloadStringPNG missing exporter helpers');
+      return;
+    }
+    try {
+      const blob = await exporter.svgStringToPngBlob(state.lastStringSVG, { contextLabel: 'string-export' });
+      if (!blob) return;
+      exporter.downloadBlob(blob, 'string_network.png', 'string-export');
+    } catch (err) {
+      console.error('downloadStringPNG error', err);
+    }
   }
 
   function downloadStringSVG() {
     if (!state.lastStringSVG) return;
+    const exporter = Shared.exporter;
+    if (!exporter) {
+      console.warn('downloadStringSVG missing exporter helpers');
+      return;
+    }
     const blob = new Blob([state.lastStringSVG], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'string_network.svg';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    exporter.downloadBlob(blob, 'string_network.svg', 'string-export');
   }
 
   function fitAndDraw(d, style, labels, counts) {
@@ -1522,50 +1530,6 @@
     reader.readAsText(file);
   };
 
-  function exportSVG() {
-    const stage = state.stage;
-    if (!stage) return;
-    const serializer = global.serializeCleanSVG ? global.serializeCleanSVG(stage) : new XMLSerializer().serializeToString(stage);
-    const blob = new Blob([serializer], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'venn.svg';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-    debugLog('exportSVG triggered');
-  }
-
-  async function exportPNG() {
-    const stage = state.stage;
-    if (!stage) return;
-    const serializer = global.serializeCleanSVG ? global.serializeCleanSVG(stage) : new XMLSerializer().serializeToString(stage);
-    const img = new Image();
-    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(serializer);
-    img.src = url;
-    await img.decode().catch(err => console.error('vennPNG decode error', err));
-    const canvas = document.createElement('canvas');
-    const viewBox = stage.viewBox.baseVal;
-    canvas.width = viewBox.width || stage.clientWidth || 800;
-    canvas.height = viewBox.height || stage.clientHeight || 400;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-    canvas.toBlob(b => {
-      if (!b) return;
-      const pngUrl = URL.createObjectURL(b);
-      const a = document.createElement('a');
-      a.href = pngUrl;
-      a.download = 'venn.png';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(pngUrl), 5000);
-    }, 'image/png');
-    debugLog('exportPNG triggered');
-  }
-
   venn.init = function init() {
     if (venn.ready) { debugLog('init skipped'); return; }
     debugLog('init start');
@@ -1638,6 +1602,41 @@
     state.goUseAllBackground = $('#goUseAllBackground');
     state.stringOptsBtn = $('#stringOptsBtn');
     state.stringOptions = $('#stringOptions');
+    const exporter = Shared.exporter;
+    if (exporter && typeof exporter.mountSvgControls === 'function') {
+      exporter.mountSvgControls({
+        container: '#vennExportControls',
+        svgSelector: '#stage',
+        fileName: 'venn',
+        contextLabel: 'venn-export'
+      });
+      console.debug('Debug: venn export controls mounted', { hasExporter: true }); // Debug: venn export mount
+    } else {
+      console.debug('Debug: venn export controls unavailable', { hasExporter: !!exporter }); // Debug: venn export fallback
+    }
+    if (exporter && typeof exporter.mountCanvasControls === 'function') {
+      exporter.mountCanvasControls({
+        container: '#goChartExport',
+        canvasSelector: '#goChart',
+        fileName: 'go_chart',
+        contextLabel: 'go-chart',
+        getSvgString: () => buildGoChartSvgString()
+      });
+      console.debug('Debug: go chart export controls mounted', { hasExporter: true }); // Debug: go chart export mount
+    } else {
+      console.debug('Debug: go chart export controls unavailable', { hasExporter: !!exporter }); // Debug: go chart export fallback
+    }
+    if (exporter && typeof exporter.mountSvgStringControls === 'function') {
+      exporter.mountSvgStringControls({
+        container: '#stringNetworkExport',
+        getSvgString: () => state.lastStringSVG || '',
+        fileName: 'string_network',
+        contextLabel: 'string-export'
+      });
+      console.debug('Debug: string export controls mounted', { hasExporter: true }); // Debug: string export mount
+    } else {
+      console.debug('Debug: string export controls unavailable', { hasExporter: !!exporter }); // Debug: string export fallback
+    }
     const handlePlainPaste = e => {
       e.preventDefault();
       const text = (e.clipboardData || global.clipboardData).getData('text/plain').replace(/\r/g, '').replace(/\u00A0/g, ' ');
@@ -1868,18 +1867,6 @@
     const useNumericBtn = document.getElementById('useNumeric');
     if (drawBtn) drawBtn.addEventListener('click', () => { state.lastDrawMode = 'lists'; drawFromLists(); });
     if (useNumericBtn) useNumericBtn.addEventListener('click', () => { state.lastDrawMode = 'numeric'; drawFromNumeric(); });
-    const exportSvgBtn = document.getElementById('exportSVG');
-    const exportPngBtn = document.getElementById('exportPNG');
-    if (exportSvgBtn) exportSvgBtn.addEventListener('click', exportSVG);
-    if (exportPngBtn) exportPngBtn.addEventListener('click', () => { exportPNG().catch(err => console.error('venn exportPNG error', err)); });
-    const goChartPng = document.getElementById('goChartPNG');
-    const goChartSvg = document.getElementById('goChartSVG');
-    if (goChartPng) goChartPng.addEventListener('click', () => { exportGoChart('png'); });
-    if (goChartSvg) goChartSvg.addEventListener('click', () => { exportGoChart('svg'); });
-    const stringPng = document.getElementById('stringPNG');
-    const stringSvg = document.getElementById('stringSVG');
-    if (stringPng) stringPng.addEventListener('click', () => { downloadStringPNG().catch(err => console.error('stringPNG error', err)); });
-    if (stringSvg) stringSvg.addEventListener('click', downloadStringSVG);
     const openBtn = document.getElementById('openVenn');
     const saveBtn = document.getElementById('saveVenn');
     const saveAsBtn = document.getElementById('saveAsVenn');

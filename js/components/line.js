@@ -614,8 +614,6 @@
     refs.loadExample=document.getElementById('lineLoadExample');
     refs.importBtn=document.getElementById('lineImport');
     refs.fileInput=document.getElementById('lineFile');
-    refs.pngBtn=document.getElementById('linePNG');
-    refs.svgBtn=document.getElementById('lineSVG');
     refs.openBtn=document.getElementById('openLine');
     refs.saveBtn=document.getElementById('saveLine');
     refs.saveAsBtn=document.getElementById('saveAsLine');
@@ -783,40 +781,17 @@
     });
     refs.statType?.addEventListener('change',()=>{ scheduleLineDraw(); });
 
-    refs.pngBtn?.addEventListener('click',async()=>{
-      const svgEl=buildLineExportSvg();
-      if(!svgEl) return;
-      const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
-      const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
-      const xml=serializeSvg(svgEl);
-      const img=new Image();
-      const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
-      img.src=url;
-      await img.decode().catch(err=>{ console.error('linePNG svg decode',err); });
-      const outCanvas=document.createElement('canvas');
-      outCanvas.width=W; outCanvas.height=H;
-      const ctx=outCanvas.getContext('2d');
-      ctx.drawImage(img,0,0);
-      outCanvas.toBlob(b=>{
-        const pngUrl=URL.createObjectURL(b);
-        const a=document.createElement('a');
-        a.href=pngUrl; a.download='line.png';
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(()=>URL.revokeObjectURL(pngUrl),4000);
-      },'image/png');
-    });
-
-    refs.svgBtn?.addEventListener('click',()=>{
-      const svgEl=buildLineExportSvg();
-      if(!svgEl) return;
-      const xml=serializeSvg(svgEl);
-      const blob=new Blob([xml],{type:'image/svg+xml'});
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');
-      a.href=url; a.download='line.svg';
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=>URL.revokeObjectURL(url),4000);
-    });
+    if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
+      Shared.exporter.mountSvgControls({
+        container: '#lineExportControls',
+        getSvg: () => buildLineExportSvg(),
+        fileName: 'line',
+        contextLabel: 'line-export'
+      });
+      console.debug('Debug: line export controls mounted', { hasExporter: true }); // Debug: line export mount
+    } else {
+      console.debug('Debug: line export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: line export fallback
+    }
 
     refs.openBtn?.addEventListener('click',openLineFile);
     refs.saveBtn?.addEventListener('click',saveLineFile);

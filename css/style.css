@@ -33,6 +33,15 @@ input[type=number]{width:100%;background:#fff;border:1px solid #ccc;color:#000;b
 .btn:hover{background:#e0e0e0}
 .btn:focus{outline:2px solid #2b6cb0;outline-offset:2px}
 .btn.active{background:#d5d5d5}
+.export-control-host{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.export-dropdown{position:relative}
+.export-dropdown .export-trigger{display:flex;align-items:center;gap:4px}
+.export-dropdown .export-menu{position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 8px 16px rgba(0,0,0,0.15);padding:4px 0;min-width:140px;z-index:200;display:flex;flex-direction:column}
+.export-dropdown .export-menu[hidden]{display:none}
+.export-dropdown .export-option{background:none;border:none;width:100%;text-align:left;border-radius:0;padding:6px 12px;font-size:14px;cursor:pointer}
+.export-dropdown .export-option.btn{border:0;box-shadow:none}
+.export-dropdown .export-option:hover{background:#f0f0f0}
+.export-dropdown.is-open .export-trigger{background:#e0e0e0}
 #goOptsBtn,#stringOptsBtn{font-size:12px;padding:4px 6px}
 .svgbox{background:#ffffff;border:1px solid #ddd;border-radius:8px;padding:8px;margin:8px 0;box-shadow:0 1px 4px rgba(0,0,0,0.08);position:relative;display:flex;flex-direction:column;min-width:var(--graph-min-width,192px);min-height:var(--graph-min-height,126px);width:min(100%,var(--graph-default-width,640px));height:var(--graph-default-height,420px);max-width:var(--graph-max-width,1920px);max-height:var(--graph-max-height,1260px);box-sizing:border-box;overflow:visible;flex:0 0 auto}
 #stage{width:100%;height:100%;display:block}

@@ -94,10 +94,7 @@
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <svg id="stage" viewBox="0 0 500 340" xmlns="http://www.w3.org/2000/svg" aria-label="Venn diagram"></svg>
-            <div class="row" style="justify-content:flex-end; margin-top:6px;">
-              <button class="btn" id="exportSVG">Export SVG</button>
-              <button class="btn" id="exportPNG">Export PNG</button>
-            </div>
+            <div class="row" id="vennExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -217,17 +214,11 @@
         <div id="analysisResults" style="background:#ffffff; border:1px solid #ddd; border-radius:8px; padding:8px; max-height:400px; overflow:auto; margin-top:6px;">
           <div id="goResults"></div>
           <canvas id="goChart" style="display:none; width:100%; height:300px; margin-top:8px;"></canvas>
-          <div class="row" id="goChartExport" style="display:none; justify-content:flex-end; margin-top:6px;">
-            <button class="btn" id="goChartPNG">Download PNG</button>
-            <button class="btn" id="goChartSVG">Download SVG</button>
-          </div>
+          <div class="row" id="goChartExport" style="display:none; justify-content:flex-end; margin-top:6px;"></div>
           <div id="stringSection" style="display:flex; flex-direction:column; gap:8px; margin-top:8px; align-items:flex-start;">
             <div id="stringResults"></div>
             <div id="stringNetwork"></div>
-            <div class="row" id="stringNetworkExport" style="display:none; justify-content:flex-end; margin-top:6px; width:100%;">
-              <button class="btn" id="stringPNG">Download PNG</button>
-              <button class="btn" id="stringSVG">Download SVG</button>
-            </div>
+            <div class="row" id="stringNetworkExport" style="display:none; justify-content:flex-end; margin-top:6px; width:100%;"></div>
           </div>
         </div>
         <div class="row" style="margin-top:6px; font-size:13px; color:#333;">
@@ -273,10 +264,7 @@
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <div id="boxPlot" style="width:100%; height:100%;"></div>
-            <div class="row" style="justify-content:flex-end; margin-top:6px;">
-              <button class="btn" id="boxPNG">Download PNG</button>
-              <button class="btn" id="boxSVG">Download SVG</button>
-            </div>
+            <div class="row" id="boxExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -404,10 +392,7 @@
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <div id="scatterPlot" style="width:100%; height:100%;"></div>
-            <div class="row" style="justify-content:flex-end; margin-top:6px;">
-              <button class="btn" id="scatterPNG">Download PNG</button>
-              <button class="btn" id="scatterSVG">Download SVG</button>
-            </div>
+            <div class="row" id="scatterExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -544,10 +529,7 @@
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <div id="pcaPlot" style="width:100%; height:100%;"></div>
-            <div class="row" style="justify-content:flex-end; margin-top:6px;">
-              <button class="btn" id="pcaPNG">Download PNG</button>
-              <button class="btn" id="pcaSVG">Download SVG</button>
-            </div>
+            <div class="row" id="pcaExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -669,10 +651,7 @@
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <div id="linePlot" style="width:100%; height:100%;"></div>
-            <div class="row" style="justify-content:flex-end; margin-top:6px;">
-              <button class="btn" id="linePNG">Download PNG</button>
-              <button class="btn" id="lineSVG">Download SVG</button>
-            </div>
+            <div class="row" id="lineExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -806,10 +785,7 @@
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <div id="rocPlot" style="width:100%; height:100%;"></div>
-            <div class="row" style="justify-content:flex-end; margin-top:6px;">
-              <button class="btn" id="rocPNG">Download PNG</button>
-              <button class="btn" id="rocSVG">Download SVG</button>
-            </div>
+            <div class="row" id="rocExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
           </div>
           <div class="config-options">
             <fieldset id="rocLabelColorsFieldset">
@@ -894,10 +870,7 @@
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <div id="histPlot" style="width:100%; height:100%;"></div>
-            <div class="row" style="justify-content:flex-end; margin-top:6px;">
-              <button class="btn" id="histPNG">Download PNG</button>
-              <button class="btn" id="histSVG">Download SVG</button>
-            </div>
+            <div class="row" id="histExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -987,10 +960,7 @@
             <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
             <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
             <div id="piePlot" style="width:100%; height:100%;"></div>
-            <div class="row" style="justify-content:flex-end; margin-top:6px;">
-              <button class="btn" id="piePNG">Download PNG</button>
-              <button class="btn" id="pieSVG">Download SVG</button>
-            </div>
+            <div class="row" id="pieExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -1056,6 +1026,7 @@
   <script src="js/shared/debounce.js"></script>
   <script src="js/shared/resizer.js"></script>
   <script src="js/shared/dom.js"></script>
+  <script src="js/shared/exporter.js"></script>
   <script src="js/shared/chartStyle.js"></script>
   <script src="js/shared/colorPicker.js"></script>
   <script src="js/shared/hot.js"></script>

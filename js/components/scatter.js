@@ -770,42 +770,17 @@
         reader.readAsText(file);
       }
     
-      document.getElementById('scatterPNG').addEventListener('click',async()=>{
-        const svgEl=document.getElementById('scatterSvg');
-        if(!svgEl) return;
-        console.log('scatterPNG export start');
-        const W=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
-        const H=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
-        const xml=serializeSvg(svgEl);
-        const img=new Image();
-        const url='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
-        img.src=url;
-        await img.decode().catch(err=>{console.error('scatterPNG svg decode',err);});
-        const outCanvas=document.createElement('canvas');
-        outCanvas.width=W;
-        outCanvas.height=H;
-        const ctx=outCanvas.getContext('2d');
-        ctx.drawImage(img,0,0);
-        outCanvas.toBlob(b=>{
-          const pngUrl=URL.createObjectURL(b);
-          const a=document.createElement('a');
-          a.href=pngUrl; a.download='scatter.png';
-          document.body.appendChild(a); a.click(); a.remove();
-          setTimeout(()=>URL.revokeObjectURL(pngUrl),4000);
-        },'image/png');
-      });
-      document.getElementById('scatterSVG').addEventListener('click',()=>{
-        const svgEl=document.getElementById('scatterSvg');
-        if(!svgEl) return;
-        console.log('scatterSVG export start');
-        const xml=serializeSvg(svgEl);
-        const blob=new Blob([xml],{type:'image/svg+xml'});
-        const url=URL.createObjectURL(blob);
-        const a=document.createElement('a');
-        a.href=url; a.download='scatter.svg';
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(()=>URL.revokeObjectURL(url),4000);
-      });
+      if(Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function'){
+        Shared.exporter.mountSvgControls({
+          container: '#scatterExportControls',
+          svgSelector: '#scatterSvg',
+          fileName: 'scatter',
+          contextLabel: 'scatter-export'
+        });
+        console.debug('Debug: scatter export controls mounted', { hasExporter: true }); // Debug: scatter export mount
+      }else{
+        console.debug('Debug: scatter export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: scatter export fallback
+      }
       document.getElementById('openScatter').addEventListener('click',openScatterFile);
       document.getElementById('saveScatter').addEventListener('click',saveScatterFile);
       document.getElementById('saveAsScatter').addEventListener('click',saveAsScatterFile);
