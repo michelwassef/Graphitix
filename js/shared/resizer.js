@@ -217,6 +217,7 @@
       }
     }
     const svgDataset = svgBox && svgBox.dataset ? svgBox.dataset : null;
+    const storedTableWidth = svgDataset ? Number(svgDataset.resizerTableWidth) : NaN;
     const isManualResize = svgDataset ? svgDataset.resizerResized === 'true' : false;
     const datasetMinWidth = svgDataset ? Number(svgDataset.resizerMinWidth) : NaN;
     const datasetDefaultWidth = svgDataset ? Number(svgDataset.resizerDefaultWidth) : NaN;
@@ -253,15 +254,29 @@
     }
     const resizerEl = opts.panelResizer || (graphPanel.parentElement ? Array.from(graphPanel.parentElement.children).find(el => el.classList && el.classList.contains('panel-resizer')) : null);
     const resizerWidth = resizerEl ? resizerEl.getBoundingClientRect().width : 0;
-    const availableRaw = Number.isFinite(graphContentWidth) ? graphContentWidth - configWidth - gap : NaN;
-    const maxAvailable = Number.isFinite(availableRaw) ? Math.max(0, availableRaw) : Infinity;
-    if (!Number.isFinite(availableRaw) || maxAvailable <= 0) {
+    let availableRaw = Number.isFinite(graphContentWidth) ? graphContentWidth - configWidth - gap : NaN;
+    const manualWidth = isManualResize && Number.isFinite(svgCurrentWidth) ? svgCurrentWidth : NaN;
+    if(isManualResize && Number.isFinite(manualWidth)){
+      if(!Number.isFinite(availableRaw) || manualWidth > availableRaw){
+        availableRaw = manualWidth;
+      }
+    }
+    let maxAvailable = Number.isFinite(availableRaw) ? Math.max(0, availableRaw) : NaN;
+    if(isManualResize && Number.isFinite(manualWidth)){
+      maxAvailable = Math.max(manualWidth, maxAvailable || 0);
+    }
+    if((!Number.isFinite(availableRaw) || maxAvailable <= 0) && !(isManualResize && Number.isFinite(manualWidth) && manualWidth > 0)){
       console.debug('Debug: Shared.syncPanelWidths skipped (no width available)', {
         label: debugLabel,
         available: availableRaw,
-        maxAvailable
+        maxAvailable,
+        manualWidth
       }); // Debug: guard against zero-width calculations
       return null;
+    }
+    if(isManualResize && Number.isFinite(manualWidth) && manualWidth > 0){
+      availableRaw = Math.max(manualWidth, availableRaw || 0);
+      maxAvailable = Math.max(manualWidth, maxAvailable || 0);
     }
     let minSvgWidth = Number.isFinite(opts.minSvgWidth) ? Math.max(0, opts.minSvgWidth) : 0;
     if(Number.isFinite(datasetMinWidth) && datasetMinWidth > 0){
@@ -312,6 +327,61 @@
         svgDataset.resizerWidth = svgBox.style.width;
       }
     }
+    if(isManualResize){
+      const safeAppliedWidth = Number.isFinite(appliedWidth) && appliedWidth > 0 ? appliedWidth : manualWidth;
+      const liveTableWidth = Number.isFinite(tableWidth) && tableWidth > 0 ? tableWidth : (tablePanel.getBoundingClientRect().width || 0);
+      const lockedTableWidth = Number.isFinite(storedTableWidth) && storedTableWidth > 0 ? storedTableWidth : liveTableWidth;
+      const finalTableWidth = Math.max(0, Math.round(lockedTableWidth));
+      if(svgDataset && (!Number.isFinite(storedTableWidth) || storedTableWidth <= 0) && finalTableWidth > 0){
+        svgDataset.resizerTableWidth = String(finalTableWidth);
+      }
+      if(tablePanel && finalTableWidth > 0){
+        tablePanel.style.flex = '0 0 ' + finalTableWidth + 'px';
+        tablePanel.style.minWidth = finalTableWidth + 'px';
+        tablePanel.style.maxWidth = finalTableWidth + 'px';
+      }
+      if(graphPanel){
+        graphPanel.style.flex = '1 1 auto';
+        graphPanel.style.maxWidth = '';
+        graphPanel.style.minWidth = '0';
+        graphPanel.style.width = '';
+      }
+      if(configPanel){
+        configPanel.style.flex = '0 0 auto';
+      }
+      const wrap = graphPanel?.parentElement || null;
+      if(wrap && wrap.style){
+        wrap.style.minWidth = '';
+      }
+      const latestGraphWidth = graphPanel?.getBoundingClientRect()?.width || graphWidth;
+      console.debug('Debug: Shared.syncPanelWidths manual lock', {
+        label: debugLabel,
+        appliedWidth: safeAppliedWidth,
+        tableWidth: finalTableWidth,
+        configWidth,
+        gap,
+        graphWidth: latestGraphWidth
+      });
+      if(typeof opts.onWidthApplied === 'function'){
+        try{ opts.onWidthApplied(safeAppliedWidth); }catch(err){ console.error('Shared.syncPanelWidths onWidthApplied error', err); }
+      }
+      if(!opts.skipSchedule && typeof scheduleDraw === 'function'){
+        try{ scheduleDraw(); }catch(err){ console.error(debugLabel + ' sync schedule error', err); }
+      }
+      return {
+        tableWidth: finalTableWidth,
+        graphWidth: latestGraphWidth,
+        configWidth,
+        gap,
+        available: availableRaw,
+        minSvgWidth,
+        appliedWidth: safeAppliedWidth,
+        graphInset,
+        graphContentWidth,
+        isManualResize,
+        manualWidth: safeAppliedWidth
+      };
+    }
     const targetGraphWidth = Number.isFinite(appliedWidth) && Number.isFinite(configWidth)
       ? appliedWidth + configWidth + gap
       : null;
@@ -319,9 +389,12 @@
       graphPanel.style.flex = '0 0 auto';
       graphPanel.style.maxWidth = 'none';
       graphPanel.style.minWidth = targetGraphWidth + 'px';
-      const contentDiff = Number.isFinite(graphContentWidth)
+      let contentDiff = Number.isFinite(graphContentWidth)
         ? Math.abs(graphContentWidth - targetGraphWidth)
         : Infinity;
+      if(isManualResize){
+        contentDiff = Infinity;
+      }
       if(!Number.isFinite(graphContentWidth) || contentDiff > 1){
         graphPanel.style.width = targetGraphWidth + 'px';
         console.debug('Debug: Shared.syncPanelWidths graph width applied', {
@@ -360,6 +433,7 @@
       graphInset,
       graphContentWidth,
       available: availableRaw,
+      manualWidth,
       minTarget
     }); // Debug: resizer manual state
     if(typeof opts.onWidthApplied === 'function'){
@@ -387,7 +461,8 @@
       appliedWidth,
       graphInset,
       graphContentWidth,
-      isManualResize
+      isManualResize,
+      manualWidth
     });
     return {
       tableWidth,
@@ -403,3 +478,6 @@
     };
   };
 })(window);
+
+
+
