@@ -27,6 +27,202 @@
     return Number.isFinite(num) ? num : null;
   };
 
+  const DEFAULT_FONT_STACK = 'Arial, Helvetica, sans-serif';
+  const NUMERIC_VALUE_RE = /^[+-]?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?$/i;
+
+  const getDefaultFontFamily = () => {
+    const sharedFont = Shared?.chartStyle?.FONT_FAMILY;
+    const chosen = typeof sharedFont === 'string' && sharedFont.trim() ? sharedFont.trim() : DEFAULT_FONT_STACK;
+    console.debug('Debug: exporter.resolveFontFamily', { chosen, sharedFont }); // Debug: font family resolution trace
+    return chosen;
+  };
+
+  const normalizeFontString = value => {
+    return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+  };
+
+  const ensurePxValue = value => {
+    if (value === undefined || value === null) return null;
+    let trimmed = String(value).trim();
+    if (!trimmed) return null;
+    const lower = trimmed.toLowerCase();
+    let important = '';
+    if (lower.endsWith('!important')) {
+      important = ' !important';
+      trimmed = trimmed.slice(0, lower.lastIndexOf('!important')).trim();
+    }
+    if (/px$/i.test(trimmed)) {
+      return `${trimmed}${important}`;
+    }
+    if (NUMERIC_VALUE_RE.test(trimmed)) {
+      if (trimmed === '0' || trimmed === '+0' || trimmed === '-0') {
+        return `0px${important}`;
+      }
+      return `${trimmed}px${important}`;
+    }
+    return null;
+  };
+
+  function applyNumericAttrWithPx(node, attr, counters, counterKey) {
+    if (!node?.getAttribute || !node?.setAttribute) return false;
+    const raw = node.getAttribute(attr);
+    if (raw === null || raw === undefined) return false;
+    const normalized = ensurePxValue(raw);
+    if (!normalized || normalized === raw) return false;
+    node.setAttribute(attr, normalized);
+    if (counters && counterKey) {
+      counters[counterKey] = (counters[counterKey] || 0) + 1;
+    }
+    return true;
+  }
+
+  function normalizeStyleProperty(node, propertyName, transform) {
+    if (!node?.getAttribute || !node?.setAttribute) {
+      return { changed: false, found: false };
+    }
+    const styleAttr = node.getAttribute('style');
+    if (!styleAttr) return { changed: false, found: false };
+    const parts = styleAttr.split(';');
+    if (!parts.length) return { changed: false, found: false };
+    const lowerProp = String(propertyName || '').toLowerCase();
+    let changed = false;
+    let found = false;
+    const nextParts = [];
+    parts.forEach(part => {
+      const trimmed = part.trim();
+      if (!trimmed) return;
+      const colonIndex = trimmed.indexOf(':');
+      if (colonIndex === -1) {
+        nextParts.push(trimmed);
+        return;
+      }
+      const key = trimmed.slice(0, colonIndex).trim();
+      let value = trimmed.slice(colonIndex + 1).trim();
+      if (key.toLowerCase() === lowerProp) {
+        found = true;
+        const nextValue = transform(value);
+        if (nextValue && nextValue !== value) {
+          value = nextValue;
+          changed = true;
+        }
+      }
+      nextParts.push(`${key}: ${value}`);
+    });
+    if (changed) {
+      node.setAttribute('style', nextParts.join('; '));
+    }
+    return { changed, found };
+  }
+
+  function applyFontFamilyAttr(node, fontFamily, counters, counterKey) {
+    if (!node?.setAttribute || !fontFamily) return false;
+    const current = node.getAttribute('font-family');
+    if (normalizeFontString(current) === normalizeFontString(fontFamily)) {
+      return false;
+    }
+    node.setAttribute('font-family', fontFamily);
+    if (counters && counterKey) {
+      counters[counterKey] = (counters[counterKey] || 0) + 1;
+    }
+    return true;
+  }
+
+  function prepareSvgForExport(svgNode, contextLabel) {
+    if (!svgNode) {
+      logDebug('prepareSvgForExport skipped', { contextLabel, reason: 'no svg node' });
+      return null;
+    }
+    const counters = {
+      rootFontApplied: false,
+      rootStyleFontApplied: 0,
+      textFontApplied: 0,
+      fontAttrApplied: 0,
+      styleFontFamilyNormalized: 0,
+      fontSizeAttrNormalized: 0,
+      fontSizeStyleNormalized: 0,
+      strokeWidthAttrNormalized: 0,
+      strokeWidthStyleNormalized: 0,
+      widthAttrNormalized: 0,
+      heightAttrNormalized: 0,
+      namespaceAdded: 0
+    };
+    try {
+      const defaultFont = getDefaultFontFamily();
+      if (defaultFont && svgNode.setAttribute) {
+        if (applyFontFamilyAttr(svgNode, defaultFont)) {
+          counters.rootFontApplied = true;
+        }
+        const rootStyle = normalizeStyleProperty(svgNode, 'font-family', () => defaultFont);
+        if (rootStyle.changed) {
+          counters.rootStyleFontApplied += 1;
+        }
+      }
+      if (svgNode.setAttribute) {
+        if (!svgNode.getAttribute('xmlns')) {
+          svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+          counters.namespaceAdded += 1;
+        }
+        if (!svgNode.getAttribute('xmlns:xlink')) {
+          svgNode.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+          counters.namespaceAdded += 1;
+        }
+      }
+      applyNumericAttrWithPx(svgNode, 'width', counters, 'widthAttrNormalized');
+      applyNumericAttrWithPx(svgNode, 'height', counters, 'heightAttrNormalized');
+
+      const textNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('text, tspan, textPath') : [];
+      textNodes.forEach(node => {
+        applyFontFamilyAttr(node, defaultFont, counters, 'textFontApplied');
+      });
+
+      const fontAttrNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('[font-family]') : [];
+      fontAttrNodes.forEach(node => {
+        if (node === svgNode) return;
+        applyFontFamilyAttr(node, defaultFont, counters, 'fontAttrApplied');
+      });
+
+      const styleNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('[style]') : [];
+      styleNodes.forEach(node => {
+        const styleFont = normalizeStyleProperty(node, 'font-family', () => defaultFont);
+        if (styleFont.changed) {
+          counters.styleFontFamilyNormalized += 1;
+        }
+        const styleSize = normalizeStyleProperty(node, 'font-size', value => ensurePxValue(value) || value);
+        if (styleSize.changed) {
+          counters.fontSizeStyleNormalized += 1;
+        }
+        const styleStroke = normalizeStyleProperty(node, 'stroke-width', value => ensurePxValue(value) || value);
+        if (styleStroke.changed) {
+          counters.strokeWidthStyleNormalized += 1;
+        }
+      });
+
+      const fontSizeAttrNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('[font-size]') : [];
+      fontSizeAttrNodes.forEach(node => {
+        applyNumericAttrWithPx(node, 'font-size', counters, 'fontSizeAttrNormalized');
+      });
+
+      const strokeAttrNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('[stroke-width]') : [];
+      strokeAttrNodes.forEach(node => {
+        applyNumericAttrWithPx(node, 'stroke-width', counters, 'strokeWidthAttrNormalized');
+      });
+
+      logDebug('prepareSvgForExport applied', {
+        contextLabel,
+        defaultFont,
+        textNodeCount: textNodes.length,
+        fontAttrNodeCount: fontAttrNodes.length,
+        styleNodeCount: styleNodes.length,
+        strokeAttrNodeCount: strokeAttrNodes.length,
+        fontSizeAttrNodeCount: fontSizeAttrNodes.length,
+        counters
+      });
+    } catch (err) {
+      console.error('exporter prepareSvgForExport error', err);
+    }
+    return counters;
+  }
+
   function resolveElement(ref) {
     if (!ref || !doc) return null;
     if (typeof ref === 'string') {
@@ -96,8 +292,27 @@
     }
     try {
       const serialize = getSerializeFn();
-      const xml = serialize(svgEl);
-      logDebug('svgToXml complete', { contextLabel, length: xml?.length || 0 });
+      const canUseOptions = serialize === Shared.serializeCleanSVG || serialize === global.serializeCleanSVG;
+      let xml = '';
+      let prepStats = null;
+      const runPrepare = node => {
+        try {
+          prepStats = prepareSvgForExport(node, contextLabel) || null;
+        } catch (prepErr) {
+          console.error('exporter svgToXml prepare error', prepErr);
+        }
+      };
+      if (canUseOptions) {
+        xml = serialize(svgEl, { beforeSanitize: runPrepare });
+      } else {
+        const clone = typeof svgEl.cloneNode === 'function' ? svgEl.cloneNode(true) : svgEl;
+        if (clone === svgEl) {
+          logDebug('svgToXml using original element clone fallback', { contextLabel });
+        }
+        runPrepare(clone);
+        xml = serialize(clone);
+      }
+      logDebug('svgToXml complete', { contextLabel, length: xml?.length || 0, prepareStats: prepStats });
       return xml;
     } catch (err) {
       console.error('exporter svgToXml error', err);
