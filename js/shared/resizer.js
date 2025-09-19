@@ -331,36 +331,41 @@
       const safeAppliedWidth = Number.isFinite(appliedWidth) && appliedWidth > 0 ? appliedWidth : manualWidth;
       const liveTableWidth = Number.isFinite(tableWidth) && tableWidth > 0 ? tableWidth : (tablePanel.getBoundingClientRect().width || 0);
       const lockedTableWidth = Number.isFinite(storedTableWidth) && storedTableWidth > 0 ? storedTableWidth : liveTableWidth;
-      const finalTableWidth = Math.max(0, Math.round(lockedTableWidth));
-      if(svgDataset && (!Number.isFinite(storedTableWidth) || storedTableWidth <= 0) && finalTableWidth > 0){
+      const finalTableWidth = Math.max(150, Math.round(lockedTableWidth));
+      if(svgDataset && finalTableWidth > 0){
         svgDataset.resizerTableWidth = String(finalTableWidth);
       }
       if(tablePanel && finalTableWidth > 0){
         tablePanel.style.flex = '0 0 ' + finalTableWidth + 'px';
+        tablePanel.style.width = finalTableWidth + 'px';
         tablePanel.style.minWidth = finalTableWidth + 'px';
         tablePanel.style.maxWidth = finalTableWidth + 'px';
       }
-      if(graphPanel){
-        graphPanel.style.flex = '1 1 auto';
-        graphPanel.style.maxWidth = '';
-        graphPanel.style.minWidth = '0';
-        graphPanel.style.width = '';
+      const targetGraphWidth = Number.isFinite(configWidth) ? safeAppliedWidth + configWidth + gap : safeAppliedWidth;
+      const finalGraphWidth = Math.max(0, Math.round(targetGraphWidth));
+      if(graphPanel && finalGraphWidth > 0){
+        graphPanel.style.flex = '0 0 auto';
+        graphPanel.style.maxWidth = 'none';
+        graphPanel.style.minWidth = finalGraphWidth + 'px';
+        graphPanel.style.width = finalGraphWidth + 'px';
       }
       if(configPanel){
         configPanel.style.flex = '0 0 auto';
       }
       const wrap = graphPanel?.parentElement || null;
       if(wrap && wrap.style){
-        wrap.style.minWidth = '';
+        const resizerSpace = Number.isFinite(resizerWidth) ? resizerWidth : 0;
+        const wrapMin = Math.max(0, finalTableWidth + finalGraphWidth + graphInset + resizerSpace);
+        wrap.style.minWidth = wrapMin ? wrapMin + 'px' : '';
       }
-      const latestGraphWidth = graphPanel?.getBoundingClientRect()?.width || graphWidth;
+      const latestGraphWidth = graphPanel?.getBoundingClientRect()?.width || finalGraphWidth;
       console.debug('Debug: Shared.syncPanelWidths manual lock', {
         label: debugLabel,
         appliedWidth: safeAppliedWidth,
         tableWidth: finalTableWidth,
+        graphWidth: latestGraphWidth,
         configWidth,
-        gap,
-        graphWidth: latestGraphWidth
+        gap
       });
       if(typeof opts.onWidthApplied === 'function'){
         try{ opts.onWidthApplied(safeAppliedWidth); }catch(err){ console.error('Shared.syncPanelWidths onWidthApplied error', err); }
