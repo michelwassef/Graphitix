@@ -126,8 +126,8 @@
     const pieChartType=$('#pieChartType');
     const valueColumn=$('#pieValueColumn');
     const expectedColumn=$('#pieExpectedColumn');
-    pieFontSizeVal.textContent=pieFontSize.value;
-    ;[pieShowPercents,pieStartAngle,pieFontSize,pieChartType].forEach(el=>el.addEventListener('input',()=>{ console.log('pie config changed',el.id,el.value); if(el===pieFontSize) pieFontSizeVal.textContent=pieFontSize.value; state.scheduleDraw(); }));
+    chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value) });
+    ;[pieShowPercents,pieStartAngle,pieFontSize,pieChartType].forEach(el=>el.addEventListener('input',()=>{ console.log('pie config changed',el.id,el.value); if(el===pieFontSize) chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value) }); state.scheduleDraw(); }));
     valueColumn.addEventListener('change',()=>{console.log('pie value column changed',valueColumn.value); state.scheduleDraw();});
     expectedColumn.addEventListener('change',()=>{console.log('pie expected column changed',expectedColumn.value); state.scheduleDraw();});
 
@@ -238,7 +238,7 @@
       });
       console.debug('Debug: pie.open result', result);
     };
-    pie.loadFromFile = function(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; $('#pieChartType').value=c.chartType||$('#pieChartType').value; $('#pieShowPercents').checked=!!c.showPercents; $('#pieStartAngle').value=c.startAngle||$('#pieStartAngle').value; $('#pieFontSize').value=c.fontSize||$('#pieFontSize').value; $('#pieFontSizeVal').textContent=$('#pieFontSize').value; $('#pieValueColumn').value=c.valueColumn||$('#pieValueColumn').value; $('#pieExpectedColumn').value=c.expectedColumn||$('#pieExpectedColumn').value; state.colors=c.colors||state.colors; state.scheduleDraw(); }catch(err){console.error('loadPieGraph error',err);} }; reader.readAsText(file); };
+    pie.loadFromFile = function(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; $('#pieChartType').value=c.chartType||$('#pieChartType').value; $('#pieShowPercents').checked=!!c.showPercents; $('#pieStartAngle').value=c.startAngle||$('#pieStartAngle').value; $('#pieFontSize').value=c.fontSize||$('#pieFontSize').value; chartStyle.renderFontSizeLabel({ element: $('#pieFontSizeVal'), pt: Number($('#pieFontSize').value) }); $('#pieValueColumn').value=c.valueColumn||$('#pieValueColumn').value; $('#pieExpectedColumn').value=c.expectedColumn||$('#pieExpectedColumn').value; state.colors=c.colors||state.colors; state.scheduleDraw(); }catch(err){console.error('loadPieGraph error',err);} }; reader.readAsText(file); };
     document.getElementById('openPie').addEventListener('click',pie.open);
     document.getElementById('savePie').addEventListener('click',pie.save);
     document.getElementById('saveAsPie').addEventListener('click',pie.saveAs);
@@ -297,6 +297,7 @@
       height: containerRect?.height
     });
     const fs=fontInfo.scaledPx;
+    chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, fontInfo });
     console.debug('Debug: pie font scaling applied',{
       input:$('#pieFontSize').value,
       fontSizePt:fontInfo.pt,

@@ -257,5 +257,30 @@
     console.debug('Debug: chartStyle.applySvgDefaults', {hasSvg: !!svg}); // Debug: svg defaults applied
   };
 
+  chartStyle.renderFontSizeLabel = function renderFontSizeLabel(options){
+    const opts = options || {};
+    const el = opts.element;
+    if(!el){
+      console.debug('Debug: chartStyle.renderFontSizeLabel skipped', { reason: 'missing element', options: opts }); // Debug: font label skip
+      return '';
+    }
+    const info = opts.fontInfo || {};
+    const ptRaw = Number.isFinite(info.pt) ? info.pt : Number(opts.pt);
+    const pxSource = Number.isFinite(info.scaledPx) ? info.scaledPx : Number(opts.scaledPx);
+    const roundedPt = Number.isFinite(ptRaw) ? Math.round(ptRaw * 10) / 10 : null;
+    const roundedPx = Number.isFinite(pxSource) ? Math.round(pxSource) : null;
+    let label = '';
+    if(roundedPt !== null && roundedPx !== null){
+      label = roundedPt + ' pt (' + roundedPx + 'px)';
+    } else if(roundedPt !== null){
+      label = roundedPt + ' pt';
+    } else if(roundedPx !== null){
+      label = roundedPx + 'px';
+    }
+    el.textContent = label;
+    console.debug('Debug: chartStyle.renderFontSizeLabel applied', { pt: roundedPt, px: roundedPx, label }); // Debug: font label render
+    return label;
+  };
+
 })(window);
 

@@ -1092,6 +1092,7 @@
       opacity: inputs.opacity.value, fontsize: fontSettings.px, fontPt: fontSettings.pt,
       borderColor: inputs.borderColor.value, borderWidth: inputs.borderWidth.value
     };
+    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo: { pt: fontSettings.pt, scaledPx: fontSettings.px } });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     updateCountLabels(labels);
     updateRegionSelect(labels);
@@ -1128,6 +1129,7 @@
       opacity: inputs.opacity.value, fontsize: fontSettings.px, fontPt: fontSettings.pt,
       borderColor: inputs.borderColor.value, borderWidth: inputs.borderWidth.value
     };
+    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo: { pt: fontSettings.pt, scaledPx: fontSettings.px } });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     updateCountLabels(labels);
     updateRegionSelect(labels);
@@ -1171,7 +1173,7 @@
         if (saved.fontsize) {
           const normalized = resolveFontSettings(saved.fontsize);
           inputs.fontsize.value = normalized.pt;
-          inputs.fontsizeVal.textContent = normalized.pt;
+          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: normalized.pt });
           console.debug('Debug: venn loadStylePrefs font applied', { saved: saved.fontsize, normalized });
         }
         if (saved.borderColor) inputs.borderColor.value = saved.borderColor;
@@ -1180,7 +1182,7 @@
       if (!saved || !saved.fontsize) {
         const normalized = resolveFontSettings(inputs.fontsize.value);
         inputs.fontsize.value = normalized.pt;
-        inputs.fontsizeVal.textContent = normalized.pt;
+        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: normalized.pt });
         console.debug('Debug: venn loadStylePrefs font default', { normalized });
       }
       inputs.opacityVal.textContent = inputs.opacity.value;
@@ -1506,12 +1508,12 @@
         if (s.fontsize) {
           const normalized = resolveFontSettings(s.fontsize);
           inputs.fontsize.value = normalized.pt;
-          inputs.fontsizeVal.textContent = normalized.pt;
+          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: normalized.pt });
           console.debug('Debug: venn loadFromFile font applied', { saved: s.fontsize, normalized });
         } else {
           const normalized = resolveFontSettings(inputs.fontsize.value);
           inputs.fontsize.value = normalized.pt;
-          inputs.fontsizeVal.textContent = normalized.pt;
+          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: normalized.pt });
           console.debug('Debug: venn loadFromFile font fallback', { normalized });
         }
         refreshDiagram();
@@ -1648,7 +1650,7 @@
       const raw = state.inputs.fontsize.value;
       const normalized = resolveFontSettings(raw);
       state.inputs.fontsize.value = normalized.pt;
-      state.inputs.fontsizeVal.textContent = normalized.pt;
+      chartStyle.renderFontSizeLabel({ element: state.inputs.fontsizeVal, pt: normalized.pt });
       console.debug('Debug: venn fontsize slider change', { raw, normalized });
       refreshDiagram();
       saveStylePrefs();

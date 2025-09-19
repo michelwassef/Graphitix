@@ -214,7 +214,7 @@
         if(refs.originMode && c.originMode) refs.originMode.value=c.originMode;
         if(refs.originX) refs.originX.value=c.originX||'';
         if(refs.originY) refs.originY.value=c.originY||'';
-        if(refs.fontSize){ refs.fontSize.value=c.fontSize||refs.fontSize.value; refs.fontSizeVal.textContent=refs.fontSize.value; }
+        if(refs.fontSize){ refs.fontSize.value=c.fontSize||refs.fontSize.value; chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) }); }
         updateLineLabelColorPickers(Object.keys(lineLabelColors));
         scheduleLineDraw();
       }catch(err){ console.error('loadLineGraph error',err); }
@@ -312,6 +312,7 @@
         height: containerRect?.height
       });
       const fs=fontInfo.scaledPx;
+      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo });
       console.debug('Debug: line font scaling applied',{
         input: refs.fontSize?.value,
         fontSizePt: fontInfo.pt,
@@ -585,6 +586,7 @@
     refs.alphaVal=document.getElementById('lineAlphaVal');
     refs.fontSize=document.getElementById('lineFontSize');
     refs.fontSizeVal=document.getElementById('lineFontSizeVal');
+    if(refs.fontSize && refs.fontSizeVal){ chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) }); }
     refs.showGrid=document.getElementById('lineShowGrid');
     refs.logX=document.getElementById('lineLogX');
     refs.logY=document.getElementById('lineLogY');
@@ -759,7 +761,7 @@
     refs.borderWidth?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.dotSize?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.alpha?.addEventListener('input',()=>{ if(refs.alphaVal) refs.alphaVal.textContent=refs.alpha.value; scheduleLineDraw(); });
-    refs.fontSize?.addEventListener('input',()=>{ if(refs.fontSizeVal) refs.fontSizeVal.textContent=refs.fontSize.value; scheduleLineDraw(); });
+    refs.fontSize?.addEventListener('input',()=>{ if(refs.fontSizeVal) chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) }); scheduleLineDraw(); });
     refs.showGrid?.addEventListener('change',()=>{ scheduleLineDraw(); });
     refs.logX?.addEventListener('change',()=>{ scheduleLineDraw(); });
     refs.logY?.addEventListener('change',()=>{ scheduleLineDraw(); });

@@ -187,7 +187,7 @@
 
   function updateFontSizeLabel(){
     if(refs.fontSizeVal && refs.fontSize){
-      refs.fontSizeVal.textContent = refs.fontSize.value;
+      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) });
     }
   }
 
@@ -576,6 +576,7 @@
       height: containerRect?.height
     });
     const fontSize=fontInfo.scaledPx;
+    if(refs.fontSizeVal){ chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo }); }
     console.debug('Debug: roc font scaling applied',{
       input:refs.fontSize?.value,
       fontSizePt:fontInfo.pt,
