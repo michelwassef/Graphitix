@@ -189,7 +189,7 @@
       const scatterAlphaVal=$('#scatterAlphaVal');
       const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
       chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value) });
-      const scatterShowGrid=$('#scatterShowGrid'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
+      const scatterShowGrid=$('#scatterShowGrid'), scatterShowFrame=$('#scatterShowFrame'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
       const scatterXMin=$('#scatterXMin'), scatterXMax=$('#scatterXMax'), scatterYMin=$('#scatterYMin'), scatterYMax=$('#scatterYMax');
       const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
       const scatterStatType=$('#scatterStatType');
@@ -204,6 +204,7 @@
       scatterAlpha.addEventListener('input',()=>{scatterAlphaVal.textContent=scatterAlpha.value; console.log('scatterAlpha changed',scatterAlpha.value); scheduleDrawScatter();});
       scatterFontSize.addEventListener('input',()=>{chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value) }); scheduleDrawScatter();});
       [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode,scatterShowLine].forEach(el=>el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
+      scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleDrawScatter();});
       [scatterXMin,scatterXMax,scatterYMin,scatterYMax,scatterOriginX,scatterOriginY].forEach(el=>el.addEventListener('input',()=>{console.log('scatter axis input', el.id, el.value); scheduleDrawScatter();}));
     
       function updateScatterLabelColorPickers(labels){
@@ -315,6 +316,8 @@
         console.debug('Debug: scatter axis metrics',axisMetrics);
         const showGrid=scatterShowGrid.checked;
         console.log('scatter showGrid', showGrid);
+        const showFrame=scatterShowFrame.checked;
+        console.debug('Debug: scatter showFrame state',{showFrame});
         const showLine=scatterShowLine.checked;
         console.log('scatter showLine', showLine);
         const logX=scatterLogX.checked;
@@ -472,8 +475,15 @@
         if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
         if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
         console.debug('Debug: scatter axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
-        add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:'#000','stroke-width':1,'stroke-linecap':'square'});
-        add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:'#000','stroke-width':1,'stroke-linecap':'square'});
+        const axisStroke = '#000';
+        const axisStrokeWidth = 1;
+        add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square'});
+        add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square'});
+        if(showFrame){
+          console.debug('Debug: scatter frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
+          chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
+        }
+        // Frame closes scatter plot using axis styling continuity
         const xTickNodes=[];
         xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
         chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
@@ -654,6 +664,7 @@
             alpha:scatterAlpha.value,
             labelColors:scatterLabelColors,
             showGrid:scatterShowGrid.checked,
+            showFrame:scatterShowFrame.checked,
             logX:scatterLogX.checked,
             logY:scatterLogY.checked,
             xMin:scatterXMin.value,
@@ -742,6 +753,7 @@
             scatterAlphaVal.textContent=scatterAlpha.value;
             scatterLabelColors=c.labelColors||{};
             scatterShowGrid.checked=!!c.showGrid;
+            scatterShowFrame.checked=!!c.showFrame;
             scatterLogX.checked=!!c.logX;
             scatterLogY.checked=!!c.logY;
             scatterXMin.value=c.xMin||'';

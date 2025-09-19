@@ -128,6 +128,7 @@
     const expectedColumn=$('#pieExpectedColumn');
     chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value) });
     ;[pieShowPercents,pieStartAngle,pieFontSize,pieChartType].forEach(el=>el.addEventListener('input',()=>{ console.log('pie config changed',el.id,el.value); if(el===pieFontSize) chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value) }); state.scheduleDraw(); }));
+    pieShowFrame.addEventListener('change',()=>{console.debug('Debug: pie showFrame change',{checked:pieShowFrame.checked}); state.scheduleDraw();});
     valueColumn.addEventListener('change',()=>{console.log('pie value column changed',valueColumn.value); state.scheduleDraw();});
     expectedColumn.addEventListener('change',()=>{console.log('pie expected column changed',expectedColumn.value); state.scheduleDraw();});
 
@@ -177,6 +178,7 @@
         title: state.titleText,
         chartType: $('#pieChartType').value,
         showPercents: $('#pieShowPercents').checked,
+        showFrame: $('#pieShowFrame').checked,
         startAngle: $('#pieStartAngle').value,
         fontSize: $('#pieFontSize').value,
         valueColumn: $('#pieValueColumn').value,
@@ -238,7 +240,7 @@
       });
       console.debug('Debug: pie.open result', result);
     };
-    pie.loadFromFile = function(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; $('#pieChartType').value=c.chartType||$('#pieChartType').value; $('#pieShowPercents').checked=!!c.showPercents; $('#pieStartAngle').value=c.startAngle||$('#pieStartAngle').value; $('#pieFontSize').value=c.fontSize||$('#pieFontSize').value; chartStyle.renderFontSizeLabel({ element: $('#pieFontSizeVal'), pt: Number($('#pieFontSize').value) }); $('#pieValueColumn').value=c.valueColumn||$('#pieValueColumn').value; $('#pieExpectedColumn').value=c.expectedColumn||$('#pieExpectedColumn').value; state.colors=c.colors||state.colors; state.scheduleDraw(); }catch(err){console.error('loadPieGraph error',err);} }; reader.readAsText(file); };
+    pie.loadFromFile = function(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; $('#pieChartType').value=c.chartType||$('#pieChartType').value; $('#pieShowPercents').checked=!!c.showPercents; $('#pieShowFrame').checked=!!c.showFrame; $('#pieStartAngle').value=c.startAngle||$('#pieStartAngle').value; $('#pieFontSize').value=c.fontSize||$('#pieFontSize').value; chartStyle.renderFontSizeLabel({ element: $('#pieFontSizeVal'), pt: Number($('#pieFontSize').value) }); $('#pieValueColumn').value=c.valueColumn||$('#pieValueColumn').value; $('#pieExpectedColumn').value=c.expectedColumn||$('#pieExpectedColumn').value; state.colors=c.colors||state.colors; state.scheduleDraw(); }catch(err){console.error('loadPieGraph error',err);} }; reader.readAsText(file); };
     document.getElementById('openPie').addEventListener('click',pie.open);
     document.getElementById('savePie').addEventListener('click',pie.save);
     document.getElementById('saveAsPie').addEventListener('click',pie.saveAs);
@@ -318,6 +320,8 @@
       legendMargin
     });
     const showPerc=$('#pieShowPercents').checked;
+    const showFrame=$('#pieShowFrame').checked;
+    console.debug('Debug: pie showFrame state',{showFrame, chartType:type});
     const startDeg=parseFloat($('#pieStartAngle').value)||0;
     const data=state.hot.getData();
     updatePieColumns(data[0]||[]);
@@ -358,6 +362,13 @@
       const yAxis=document.createElementNS(NS,'line'); yAxis.setAttribute('x1',margin.left); yAxis.setAttribute('y1',margin.top); yAxis.setAttribute('x2',margin.left); yAxis.setAttribute('y2',margin.top+chartHeight); yAxis.setAttribute('stroke','#000'); axis.appendChild(yAxis);
       const xAxis=document.createElementNS(NS,'line'); xAxis.setAttribute('x1',margin.left); xAxis.setAttribute('y1',margin.top+chartHeight); xAxis.setAttribute('x2',margin.left+chartWidth); xAxis.setAttribute('y2',margin.top+chartHeight); xAxis.setAttribute('stroke','#000'); axis.appendChild(xAxis);
       for(let t=0;t<=100;t+=25){ const y=margin.top+chartHeight-(chartHeight*t/100); const tick=document.createElementNS(NS,'line'); tick.setAttribute('x1',margin.left-tickLen); tick.setAttribute('y1',y); tick.setAttribute('x2',margin.left); tick.setAttribute('y2',y); tick.setAttribute('stroke','#000'); axis.appendChild(tick); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',margin.left-(tickLen+tickGap)); txt.setAttribute('y',y); txt.setAttribute('text-anchor','end'); txt.setAttribute('dominant-baseline','middle'); txt.setAttribute('font-size',fs); txt.textContent=t+'%'; axis.appendChild(txt);} const yTitleX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5); const yTitle=document.createElementNS(NS,'text'); yTitle.setAttribute('x',yTitleX); yTitle.setAttribute('y',margin.top+chartHeight/2); yTitle.setAttribute('text-anchor','middle'); yTitle.setAttribute('transform',`rotate(-90 ${yTitleX} ${margin.top+chartHeight/2})`); yTitle.setAttribute('font-size',fs); yTitle.textContent=yTitleText; axis.appendChild(yTitle); svg.appendChild(axis);
+      const axisStroke = '#000';
+      const axisStrokeWidth = 1;
+      if(showFrame){
+        console.debug('Debug: pie frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
+        chartStyle.drawPlotFrame({ svg, margin, plotW: chartWidth, plotH: chartHeight, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'], group: axis });
+      }
+      // Frame closes stacked bar plot area using axis styling continuity
       const barGapBase=10;
       const barGap=Math.max(6,Math.round(barGapBase*fontScale));
       const availableWidth=Math.max(0,chartWidth-(barHeaders.length+1)*barGap);
@@ -413,6 +424,12 @@
     const palette2 = getDefaultPalette();
     labels.forEach((lab,i)=>{ const v=values[i]; const frac=v/sum; const endAngle=startAngle+2*Math.PI*frac; const x1=cx + r*Math.cos(startAngle); const y1=cy + r*Math.sin(startAngle); const x2=cx + r*Math.cos(endAngle); const y2=cy + r*Math.sin(endAngle); const largeArc = (endAngle-startAngle) > Math.PI ? 1 : 0; const path=document.createElementNS(NS,'path'); if(rInner>0){ const x1i=cx + rInner*Math.cos(startAngle); const y1i=cy + rInner*Math.sin(startAngle); const x2i=cx + rInner*Math.cos(endAngle); const y2i=cy + rInner*Math.sin(endAngle); const d=`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${x2i} ${y2i} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x1i} ${y1i} Z`; path.setAttribute('d',d); } else { const d=`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`; path.setAttribute('d',d);} const fillColor = state.colors[lab] || palette2[i % palette2.length]; path.setAttribute('fill', fillColor); svg.appendChild(path); if(showPerc && frac>0){ const mid=(startAngle+endAngle)/2; const tx=cx + (rInner>0?(r+rInner)/2:r*0.65)*Math.cos(mid); const ty=cy + (rInner>0?(r+rInner)/2:r*0.65)*Math.sin(mid); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',tx); txt.setAttribute('y',ty); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size',fs); txt.textContent=(frac*100).toFixed(1)+'%'; svg.appendChild(txt);} startAngle=endAngle; });
     const title=document.createElementNS(NS,'text'); title.setAttribute('x',cx); title.setAttribute('y',fs); title.setAttribute('text-anchor','middle'); title.setAttribute('font-size',fs); title.textContent=state.titleText; if(global.makeEditable) makeEditable(title,txt=>{state.titleText=txt;}); svg.appendChild(title);
+    const frameStroke = '#000';
+    const frameStrokeWidth = 1;
+    if(showFrame){
+      console.debug('Debug: pie circular frame request',{stroke:frameStroke, frameStrokeWidth, size, showFrame}); // Debug: frame styling inputs
+      chartStyle.drawPlotFrame({ svg, margin: { top: 0, right: 0, bottom: 0, left: 0 }, plotW: size, plotH: size, stroke: frameStroke, strokeWidth: frameStrokeWidth, sides: ['top','right','bottom','left'] });
+    }
     if(global.autoResizeSvg) global.autoResizeSvg(svg);
     // Stats for single pie/donut
     updatePieStats(labels, values, expected);

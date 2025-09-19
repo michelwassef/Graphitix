@@ -172,6 +172,7 @@
         alpha:refs.alpha?.value,
         labelColors:lineLabelColors,
         showGrid:refs.showGrid?.checked,
+        showFrame:refs.showFrame?.checked,
         logX:refs.logX?.checked,
         logY:refs.logY?.checked,
         xMin:refs.xMin?.value,
@@ -205,6 +206,7 @@
         if(refs.alpha){ refs.alpha.value=c.alpha||0; refs.alphaVal.textContent=refs.alpha.value; }
         lineLabelColors=c.labelColors||{};
         if(refs.showGrid) refs.showGrid.checked=!!c.showGrid;
+        if(refs.showFrame) refs.showFrame.checked=!!c.showFrame;
         if(refs.logX) refs.logX.checked=!!c.logX;
         if(refs.logY) refs.logY.checked=!!c.logY;
         if(refs.xMin) refs.xMin.value=c.xMin||'';
@@ -325,6 +327,8 @@
       const axisMetrics=chartStyle.createAxisMetrics(fs);
       console.debug('Debug: line axis metrics',axisMetrics);
       const showGrid=!!refs.showGrid?.checked;
+      const showFrame=!!refs.showFrame?.checked;
+      console.debug('Debug: line showFrame state',{showFrame});
       const logX=!!refs.logX?.checked;
       const logY=!!refs.logY?.checked;
       const dotSize=Number(refs.dotSize?.value)||0;
@@ -474,8 +478,15 @@
       if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
       if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
       console.debug('Debug: line axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
-      add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:'#000','stroke-width':1,'stroke-linecap':'square'});
-      add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:'#000','stroke-width':1,'stroke-linecap':'square'});
+      const axisStroke = '#000';
+      const axisStrokeWidth = 1;
+      add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square'});
+      add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square'});
+      if(showFrame){
+        console.debug('Debug: line frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
+        chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
+      }
+      // Frame closes plot area using existing axis styling for continuity
       const xTickNodes=[];
       xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
       chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
@@ -557,7 +568,7 @@
       makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
       updateLineStats(series);
       autoResizeSvgHelper(svg);
-      console.debug('Debug: drawLine complete',{token}); // Debug: draw exit
+      console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
     }catch(err){ console.error('drawLine error',err); }
   }
 
@@ -588,6 +599,7 @@
     refs.fontSizeVal=document.getElementById('lineFontSizeVal');
     if(refs.fontSize && refs.fontSizeVal){ chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) }); }
     refs.showGrid=document.getElementById('lineShowGrid');
+    refs.showFrame=document.getElementById('lineShowFrame');
     refs.logX=document.getElementById('lineLogX');
     refs.logY=document.getElementById('lineLogY');
     refs.xMin=document.getElementById('lineXMin');
@@ -762,7 +774,8 @@
     refs.dotSize?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.alpha?.addEventListener('input',()=>{ if(refs.alphaVal) refs.alphaVal.textContent=refs.alpha.value; scheduleLineDraw(); });
     refs.fontSize?.addEventListener('input',()=>{ if(refs.fontSizeVal) chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) }); scheduleLineDraw(); });
-    refs.showGrid?.addEventListener('change',()=>{ scheduleLineDraw(); });
+    refs.showGrid?.addEventListener('change',()=>{ console.debug('Debug: line showGrid change',{checked:refs.showGrid.checked}); scheduleLineDraw(); });
+    refs.showFrame?.addEventListener('change',()=>{ console.debug('Debug: line showFrame change',{checked:refs.showFrame.checked}); scheduleLineDraw(); });
     refs.logX?.addEventListener('change',()=>{ scheduleLineDraw(); });
     refs.logY?.addEventListener('change',()=>{ scheduleLineDraw(); });
     [refs.xMin,refs.xMax,refs.yMin,refs.yMax,refs.originMode,refs.originX,refs.originY].forEach(el=>{

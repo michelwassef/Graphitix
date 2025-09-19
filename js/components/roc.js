@@ -54,6 +54,7 @@
     refs.statsControls = document.getElementById('rocStatsControls');
     refs.borderWidth = document.getElementById('rocBorderWidth');
     refs.showGrid = document.getElementById('rocShowGrid');
+    refs.showFrame = document.getElementById('rocShowFrame');
     refs.fontSize = document.getElementById('rocFontSize');
     refs.fontSizeVal = document.getElementById('rocFontSizeVal');
     refs.graphType = document.getElementById('rocGraphType');
@@ -569,6 +570,8 @@
     const graphType = refs.graphType?.value || 'roc';
     const bw = Number(refs.borderWidth?.value) || 2;
     const showGrid = !!refs.showGrid?.checked;
+    const showFrame = !!refs.showFrame?.checked;
+    console.debug('Debug: roc showFrame state',{showFrame});
     const containerRect=refs.svgBox?.getBoundingClientRect?.();
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: refs.fontSize?.value,
@@ -723,8 +726,15 @@
     if(axisXStart === axisXEnd){ axisXStart = margin.left; axisXEnd = margin.left + plotWidth; }
     if(axisYStart === axisYEnd){ axisYStart = margin.top; axisYEnd = margin.top + plotHeight; }
     console.debug('Debug: roc axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
-    add('line', {x1: axisXStart, y1: margin.top + plotHeight, x2: axisXEnd, y2: margin.top + plotHeight, stroke: '#000', 'stroke-width': 1, 'stroke-linecap': 'square'});
-    add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: '#000', 'stroke-width': 1, 'stroke-linecap': 'square'});
+    const axisStroke = '#000';
+    const axisStrokeWidth = 1;
+    add('line', {x1: axisXStart, y1: margin.top + plotHeight, x2: axisXEnd, y2: margin.top + plotHeight, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square'});
+    add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square'});
+    if(showFrame){
+      console.debug('Debug: roc frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
+      chartStyle.drawPlotFrame({ svg, margin, plotW: plotWidth, plotH: plotHeight, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
+    }
+    // Frame closes ROC/PR plot area using axis styling continuity
 
     if(graphType === 'roc'){
       add('line', {x1: margin.left, y1: margin.top + plotHeight, x2: margin.left + plotWidth, y2: margin.top, stroke: '#888', 'stroke-dasharray': '4,4', 'stroke-width': 1});
@@ -939,6 +949,7 @@
       config: {
         borderWidth: refs.borderWidth?.value,
         showGrid: !!refs.showGrid?.checked,
+        showFrame: !!refs.showFrame?.checked,
         fontSize: refs.fontSize?.value,
         labelColors: state.labelColors,
         graphType: refs.graphType?.value
@@ -995,6 +1006,7 @@
         const config = obj.config || {};
         if(refs.borderWidth) refs.borderWidth.value = config.borderWidth || refs.borderWidth.value;
         if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
+        if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
         if(refs.fontSize) refs.fontSize.value = config.fontSize || refs.fontSize.value;
         updateFontSizeLabel();
         state.labelColors = config.labelColors || {};
@@ -1109,6 +1121,7 @@
     }
     refs.borderWidth?.addEventListener('input', () => state.scheduleDraw?.());
     refs.showGrid?.addEventListener('change', () => state.scheduleDraw?.());
+    refs.showFrame?.addEventListener('change', () => { console.debug('Debug: roc showFrame change',{checked:refs.showFrame.checked}); state.scheduleDraw?.(); });
     refs.graphType?.addEventListener('change', () => {
       renderStatsControls();
       state.scheduleDraw?.();

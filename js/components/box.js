@@ -86,6 +86,7 @@
     els.boxFontSizeVal=global.$('#boxFontSizeVal');
     chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value) });
     els.boxShowGrid=global.$('#boxShowGrid');
+    els.boxShowFrame=global.$('#boxShowFrame');
     els.boxLogScale=global.$('#boxLogScale');
     els.boxGraphType=global.$('#boxGraphType');
     els.boxPointMode=global.$('#boxPointMode');
@@ -226,6 +227,7 @@
     toggleColorMode();
     els.boxFontSize.addEventListener('input',()=>{ chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value) }); state.scheduleDraw(); });
     els.boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', els.boxShowGrid.checked); state.scheduleDraw(); });
+    els.boxShowFrame?.addEventListener('change',()=>{ console.debug('Debug: box showFrame change',{checked:els.boxShowFrame.checked}); state.scheduleDraw(); });
     els.boxLogScale.addEventListener('change',()=>{ console.log('boxLogScale changed', els.boxLogScale.checked); state.scheduleDraw(); });
     els.boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', els.boxGraphType.value); els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none'; state.scheduleDraw(); });
     els.boxPointMode.addEventListener('change',()=>{ console.log('boxPointMode changed', els.boxPointMode.value); state.scheduleDraw(); });
@@ -530,7 +532,9 @@ function renderStatsControls(traces){
     });
     const axisMetrics=chartStyle.createAxisMetrics(fs);
     console.debug('Debug: box axis metrics',axisMetrics);
-    const showGrid = els.boxShowGrid.checked; const logScale = els.boxLogScale.checked; const graphType = els.boxGraphType.value; const pointMode = els.boxPointMode.value; const showCaps = els.boxShowCaps.checked; const errorMode = els.boxErrorMode.value;
+    const showGrid = els.boxShowGrid.checked; const showFrame = !!els.boxShowFrame?.checked;
+    console.debug('Debug: box showFrame state',{showFrame});
+    const logScale = els.boxLogScale.checked; const graphType = els.boxGraphType.value; const pointMode = els.boxPointMode.value; const showCaps = els.boxShowCaps.checked; const errorMode = els.boxErrorMode.value;
     const traces=[]; const labelsUsed=[]; const nCols=state.hot.countCols(); if(state.colOrder.length!==nCols) state.colOrder=Array.from({length:nCols},(_,i)=>i);
     for(let orderIdx=0; orderIdx<state.colOrder.length; orderIdx++){
       const i=state.colOrder[orderIdx]; const headerCell = state.hot.getDataAtCell(0, i); const label=(headerCell && String(headerCell).trim()) || `Col ${i+1}`; const colData=state.hot.getDataAtCol(i); const col=[]; console.time(`boxColCollect_${i}_${token}`);
@@ -576,7 +580,9 @@ function renderStatsControls(traces){
     axisYStart=Math.min(axisYStart,xAxisY);
     axisYEnd=Math.max(axisYEnd,xAxisY);
     console.debug('Debug: box axis join span',{axisYStart,axisYEnd,xAxisY,yAxisX}); // Debug: axis join calculations
-    add('line',{ x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:'#000','stroke-width':1,'stroke-linecap':'square' });
+    const axisStroke = '#000';
+    const axisStrokeWidth = 1;
+    add('line',{ x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square' });
     yScale.ticks.forEach(t => { const y=y2px(t); add('line',{ x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1 }); const txt=add('text',{ x:yAxisX - (tickLen+tickGap), y, 'font-size':fs, 'text-anchor':'end', 'dominant-baseline':'middle', fill:chartStyle.TEXT_COLOR }); txt.textContent=formatTick(logScale?Math.pow(10,t):t); });
     const xTickPositions=labelsUsed.map((_,i)=>xCenter(i));
     let axisXStart=xTickPositions.length?Math.min(...xTickPositions):yAxisX;
@@ -586,7 +592,25 @@ function renderStatsControls(traces){
     axisXStart=Math.min(axisXStart,yAxisX);
     axisXEnd=Math.max(axisXEnd,yAxisX);
     console.debug('Debug: box x-axis span',{axisXStart,axisXEnd,yAxisX});
-    add('line', { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: '#000', 'stroke-width': 1, 'stroke-linecap': 'square' }); const xLabelOffset=tickLen+tickGap; const xLabels=[]; labelsUsed.forEach((lab,i)=>{ const x=xCenter(i); add('line', { x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1 }); const labelText=lab||`Col ${i+1}`; const t=add('text',{ x, y:xAxisY + xLabelOffset, 'font-size':fs, 'text-anchor':'middle','dominant-baseline':'hanging', fill:chartStyle.TEXT_COLOR }); t.textContent=labelText; t.style.cursor='ew-resize'; enableLabelDrag(t,i); xLabels.push(t); }); chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+    add('line', { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square' });
+    if(showFrame){
+      console.debug('Debug: box frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
+      chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
+    }
+    // Frame closes box/bar plot area using axis styling continuity
+    const xLabelOffset=tickLen+tickGap;
+    const xLabels=[];
+    labelsUsed.forEach((lab,i)=>{
+      const x=xCenter(i);
+      add('line', { x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1 });
+      const labelText=lab||`Col ${i+1}`;
+      const t=add('text',{ x, y:xAxisY + xLabelOffset, 'font-size':fs, 'text-anchor':'middle','dominant-baseline':'hanging', fill:chartStyle.TEXT_COLOR });
+      t.textContent=labelText;
+      t.style.cursor='ew-resize';
+      enableLabelDrag(t,i);
+      xLabels.push(t);
+    });
+    chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
     function enableLabelDrag(t, idx){ t.addEventListener('mousedown', e => { e.preventDefault(); const svgRect=svg.getBoundingClientRect(); const onMove=ev=>{ const svgX=ev.clientX - svgRect.left; t.setAttribute('x', svgX); }; const onUp=ev=>{ document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); const svgX=ev.clientX - svgRect.left; let targetIdx=Math.floor((svgX - margin.left)/bandW); targetIdx=Math.max(0,Math.min(labelsUsed.length-1,targetIdx)); if(targetIdx!==idx){ const moved=state.colOrder.splice(idx,1)[0]; state.colOrder.splice(targetIdx,0,moved); } console.log('boxplot label drag end',{from:idx,to:targetIdx}); state.scheduleDraw(); }; document.addEventListener('mousemove',onMove); document.addEventListener('mouseup',onUp); }); }
     const yX = margin.left - (maxTickWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5); const yText = add('text', { x: yX, y: margin.top + plotH / 2, transform: `rotate(-90 ${yX} ${margin.top + plotH / 2})`, 'text-anchor': 'middle', 'font-size': fs, fill:chartStyle.TEXT_COLOR }); yText.textContent = state.yLabelText; makeEditable(yText,txt=>{state.yLabelText=txt;});
     for(let i=0;i<traces.length;i++){
@@ -637,7 +661,7 @@ function renderStatsControls(traces){
   }
 
   // PART: SAVE_OPEN
-  function getPayload(){ return { type:'box', data: state.hot.getData(), config: { title:state.titleText, yLabel:state.yLabelText, colorMode:els.boxColorUnified.checked?'unified':'individual', fill:els.boxFill.value, border:els.boxBorder.value, borderWidth:els.boxBorderWidth.value, fontSize:els.boxFontSize.value, showGrid:els.boxShowGrid.checked, logScale:els.boxLogScale.checked, graphType:els.boxGraphType.value, pointMode:els.boxPointMode.value, showCaps:els.boxShowCaps.checked, errorMode:els.boxErrorMode.value, colors:[...state.fillColors], borderColors:[...state.borderColors], yMin:els.boxYMin.value, yMax:els.boxYMax.value } }; }
+  function getPayload(){ return { type:'box', data: state.hot.getData(), config: { title:state.titleText, yLabel:state.yLabelText, colorMode:els.boxColorUnified.checked?'unified':'individual', fill:els.boxFill.value, border:els.boxBorder.value, borderWidth:els.boxBorderWidth.value, fontSize:els.boxFontSize.value, showGrid:els.boxShowGrid.checked, showFrame:!!els.boxShowFrame?.checked, logScale:els.boxLogScale.checked, graphType:els.boxGraphType.value, pointMode:els.boxPointMode.value, showCaps:els.boxShowCaps.checked, errorMode:els.boxErrorMode.value, colors:[...state.fillColors], borderColors:[...state.borderColors], yMin:els.boxYMin.value, yMax:els.boxYMax.value } }; }
   box.save = async function(){
     console.debug('Debug: box.save invoked', { hasHandle: !!state.fileHandle });
     if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
@@ -692,7 +716,7 @@ function renderStatsControls(traces){
     });
     console.debug('Debug: box.open result', result);
   };
-  box.loadFromFile = function(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadBoxGraph',obj); if(obj.type!=='box') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; state.yLabelText=c.yLabel||state.yLabelText; els.boxFill.value=c.fill||els.boxFill.value; els.boxBorder.value=c.border||els.boxBorder.value; els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value; els.boxFontSize.value=c.fontSize||els.boxFontSize.value; chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value) }); els.boxShowGrid.checked=!!c.showGrid; els.boxLogScale.checked=!!c.logScale; els.boxGraphType.value=c.graphType||els.boxGraphType.value; els.boxPointMode.value=c.pointMode||els.boxPointMode.value; els.boxShowCaps.checked=!!c.showCaps; els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value; els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none'; state.fillColors=c.colors||[]; state.borderColors=c.borderColors||[]; if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; } toggleColorMode(); els.boxYMin.value=c.yMin||''; els.boxYMax.value=c.yMax||''; const labels=state.hot.getDataAtRow(0) || []; if(els.boxColorIndividual.checked){ updateBoxColorPickers(labels); } else { els.boxColorPerBox.innerHTML=''; } state.scheduleDraw(); }catch(err){ console.error('loadBoxGraph error',err); } }; reader.readAsText(file); };
+  box.loadFromFile = function(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadBoxGraph',obj); if(obj.type!=='box') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; state.yLabelText=c.yLabel||state.yLabelText; els.boxFill.value=c.fill||els.boxFill.value; els.boxBorder.value=c.border||els.boxBorder.value; els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value; els.boxFontSize.value=c.fontSize||els.boxFontSize.value; chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value) }); els.boxShowGrid.checked=!!c.showGrid; if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame; els.boxLogScale.checked=!!c.logScale; els.boxGraphType.value=c.graphType||els.boxGraphType.value; els.boxPointMode.value=c.pointMode||els.boxPointMode.value; els.boxShowCaps.checked=!!c.showCaps; els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value; els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none'; state.fillColors=c.colors||[]; state.borderColors=c.borderColors||[]; if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; } toggleColorMode(); els.boxYMin.value=c.yMin||''; els.boxYMax.value=c.yMax||''; const labels=state.hot.getDataAtRow(0) || []; if(els.boxColorIndividual.checked){ updateBoxColorPickers(labels); } else { els.boxColorPerBox.innerHTML=''; } state.scheduleDraw(); }catch(err){ console.error('loadBoxGraph error',err); } }; reader.readAsText(file); };
 
   box.init = function init(){
     if (box.ready) { console.debug('Debug: Components.box.init skipped'); return; }

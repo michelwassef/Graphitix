@@ -2,6 +2,7 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const NS = 'http://www.w3.org/2000/svg';
   const FONT_FAMILY = 'Arial, Helvetica, sans-serif';
   const TEXT_COLOR = '#000000';
   const BASE_BOTTOM_FACTOR = 2.4;
@@ -282,5 +283,48 @@
     return label;
   };
 
+  chartStyle.drawPlotFrame = function drawPlotFrame(options){
+    const opts = options || {};
+    const svg = opts.svg;
+    const margin = opts.margin;
+    const plotW = Number(opts.plotW);
+    const plotH = Number(opts.plotH);
+    const doc = svg && (svg.ownerDocument || global.document);
+    const stroke = opts.stroke || "#000";
+    const strokeWidthRaw = Number(opts.strokeWidth);
+    const strokeWidth = Number.isFinite(strokeWidthRaw) ? strokeWidthRaw : 1;
+    let sides = Array.isArray(opts.sides) ? opts.sides.slice() : (opts.sides === "all" ? ["top","right","bottom","left"] : []);
+    if(!sides.length){ sides = ["top","right"]; }
+    if(!svg || !margin || !Number.isFinite(plotW) || !Number.isFinite(plotH) || plotW <= 0 || plotH <= 0 || !doc){
+      console.debug("Debug: chartStyle.drawPlotFrame skipped", { hasSvg: !!svg, hasMargin: !!margin, plotW, plotH, sides }); // Debug: frame skip reasoning
+      return [];
+    }
+    const group = opts.group && typeof opts.group.appendChild === 'function' ? opts.group : svg;
+    const coords = {
+      top: { x1: margin.left, y1: margin.top, x2: margin.left + plotW, y2: margin.top },
+      right: { x1: margin.left + plotW, y1: margin.top, x2: margin.left + plotW, y2: margin.top + plotH },
+      bottom: { x1: margin.left, y1: margin.top + plotH, x2: margin.left + plotW, y2: margin.top + plotH },
+      left: { x1: margin.left, y1: margin.top, x2: margin.left, y2: margin.top + plotH }
+    };
+    const drawn = [];
+    sides.forEach(side => {
+      const pos = coords[side];
+      if(!pos) return;
+      const line = doc && doc.createElementNS ? doc.createElementNS(NS, 'line') : null;
+      if(!line) return;
+      line.setAttribute('x1', pos.x1);
+      line.setAttribute('y1', pos.y1);
+      line.setAttribute('x2', pos.x2);
+      line.setAttribute('y2', pos.y2);
+      line.setAttribute('stroke', stroke);
+      line.setAttribute('stroke-width', strokeWidth);
+      line.setAttribute('stroke-linecap', 'square');
+      group.appendChild(line);
+      drawn.push(side);
+    });
+    console.debug("Debug: chartStyle.drawPlotFrame applied", { sides: drawn, stroke, strokeWidth, plotW, plotH }); // Debug: frame draw summary
+    return drawn;
+  };
 })(window);
+
 

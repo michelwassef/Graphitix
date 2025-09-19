@@ -121,9 +121,10 @@
   }
 
   function initControls(){
-    const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal'), histYMin=$('#histYMin'), histYMax=$('#histYMax');
+    const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal'), histYMin=$('#histYMin'), histYMax=$('#histYMax');
     chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value) });
     [histFill,histBorder,histBorderWidth,histBins,histShowGrid,histLogY,histYMin,histYMax].forEach(el=>el.addEventListener('input',()=>state.scheduleDraw()));
+    histShowFrame?.addEventListener('change',()=>{ console.debug('Debug: hist showFrame change',{checked:histShowFrame.checked}); state.scheduleDraw(); });
     histFontSize.addEventListener('input',()=>{chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value) }); state.scheduleDraw();});
 
     // Example + Import
@@ -176,6 +177,7 @@
         borderWidth:$('#histBorderWidth').value,
         bins:$('#histBins').value,
         showGrid:$('#histShowGrid').checked,
+        showFrame:$('#histShowFrame').checked,
         logY:$('#histLogY').checked,
         fontSize:$('#histFontSize').value,
         yMin:$('#histYMin').value,
@@ -271,7 +273,7 @@
 
   function draw(){
     // Reuse existing global draw implementation if present? Implement local logic mirroring legacy drawHistogram
-    const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histYMin=$('#histYMin'), histYMax=$('#histYMax');
+    const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histYMin=$('#histYMin'), histYMax=$('#histYMax');
     const data=state.hot.getDataAtCol(0);
     const labelRaw=data[0];
     state.xLabelText=(labelRaw&&String(labelRaw).trim())||'Value';
@@ -328,8 +330,11 @@
     const axisLabelFont=chartStyle.makeFont(fs);
     const yTitleWidth=chartStyle.measureText(state.yLabelText,axisLabelFont);
     const showGrid=$('#histShowGrid').checked;
+    const showFrame=$('#histShowFrame').checked;
+    console.debug('Debug: hist showFrame state',{showFrame});
     let margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth,yTitleWidth,axisMetrics});
-    let plotW=Math.max(20,W-margin.left-margin.right); let plotH=Math.max(20,H-margin.top-margin.bottom);
+    let plotW=Math.max(20,W-margin.left-margin.right);
+    let plotH=Math.max(20,H-margin.top-margin.bottom);
     const bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
     margin.bottom=bottomLayout.bottom;
     plotW=Math.max(20,W-margin.left-margin.right); plotH=Math.max(20,H-margin.top-margin.bottom);
@@ -349,8 +354,15 @@
     if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
     if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
     console.debug('Debug: hist axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
-    add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:'#000','stroke-width':1,'stroke-linecap':'square'});
-    add('line',{x1:margin.left,y1:axisYStart,x2:margin.left,y2:axisYEnd,stroke:'#000','stroke-width':1,'stroke-linecap':'square'});
+    const axisStroke = '#000';
+    const axisStrokeWidth = 1;
+    add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square'});
+    add('line',{x1:margin.left,y1:axisYStart,x2:margin.left,y2:axisYEnd,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square'});
+    if(showFrame){
+      console.debug('Debug: hist frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
+      chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
+    }
+    // Frame closes histogram plot area using axis styling continuity
     const xTickNodes=[];
     xScale.ticks.forEach(t=>{ const x=x2px(t); add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1}); const txt=add('text',{x,y:margin.top+plotH+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR}); txt.textContent=formatTick(t); xTickNodes.push(txt); });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
