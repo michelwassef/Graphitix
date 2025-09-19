@@ -557,23 +557,29 @@ function renderStatsControls(traces){
     const tickFont=chartStyle.makeFont(fs); const tickLabels=yScale.ticks.map(t=>formatTick(logScale?Math.pow(10,t):t)); const tickWidths=tickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont)); const maxTickWidth=Math.max(...tickWidths,0); const tickLen=axisMetrics.tickLength; const tickGap=axisMetrics.tickLabelGap; const yLabelGap=maxTickWidth+tickLen+tickGap; const axisLabelFont=chartStyle.makeFont(fs); const yTitleWidth=chartStyle.measureText(state.yLabelText,axisLabelFont); const maxLevelEstimate=state.selectedCols.size>1?state.selectedCols.size:0; const topExtra=maxLevelEstimate?(ANN_BASE_OFFSET+maxLevelEstimate*ANN_LEVEL_GAP):0; let margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth:maxTickWidth,yTitleWidth,axisMetrics}); margin.top+=topExtra; margin.left=Math.max(margin.left,yLabelGap+fs*0.5);
     let plotW=Math.max(20, W - margin.left - margin.right); let plotH=Math.max(20, H - margin.top - margin.bottom); const labelTexts=labelsUsed.map((lab,i)=>lab||`Col ${i+1}`); const bottomLayout=chartStyle.computeBottomLayout({labels:labelTexts,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics}); margin.bottom=bottomLayout.bottom; plotW=Math.max(20, W - margin.left - margin.right); plotH=Math.max(20, H - margin.top - margin.bottom); console.debug('Debug: box layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); let bandW=plotW/labelsUsed.length;
     const y2px=v => margin.top + plotH * (1 - (v - yScale.min) / (yScale.max - yScale.min)); const boxW=Math.max(6, Math.min(60, bandW * 0.6)); const xCenter=i => margin.left + (i + 0.5) * bandW;
+    const yAxisX = margin.left;
+    const xAxisY = graphType === 'bar' ? y2px(0) : margin.top + plotH;
     function percentile(sorted, p){ if(!sorted.length) return NaN; const pos=(sorted.length-1)*p; const base=Math.floor(pos); const rest=pos-base; return (sorted[base+1]!==undefined)? sorted[base] + rest * (sorted[base+1]-sorted[base]) : sorted[base]; }
     function add(tag,attrs){ const el=document.createElementNS(NS,tag); for (const [k,v] of Object.entries(attrs)) el.setAttribute(k,String(v)); svg.appendChild(el); return el; }
-    if (showGrid) { yScale.ticks.forEach(t => { const y=y2px(t); add('line',{ x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1 }); }); }
+    if (showGrid) { yScale.ticks.forEach(t => { const y=y2px(t); add('line',{ x1:yAxisX,y1:y,x2:yAxisX+plotW,y2:y,stroke:'#ddd','stroke-width':1 }); }); }
     const yTickPositions=yScale.ticks.map(t=>y2px(t));
     let axisYStart=yTickPositions.length?Math.min(...yTickPositions):margin.top;
     let axisYEnd=yTickPositions.length?Math.max(...yTickPositions):margin.top+plotH;
     if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
-    console.debug('Debug: box y-axis span',{axisYStart,axisYEnd});
-    add('line',{ x1:margin.left,y1:axisYStart,x2:margin.left,y2:axisYEnd,stroke:'#000','stroke-width':1,'stroke-linecap':'square' });
-    yScale.ticks.forEach(t => { const y=y2px(t); add('line',{ x1:margin.left - tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1 }); const txt=add('text',{ x:margin.left - (tickLen+tickGap), y, 'font-size':fs, 'text-anchor':'end', 'dominant-baseline':'middle', fill:chartStyle.TEXT_COLOR }); txt.textContent=formatTick(logScale?Math.pow(10,t):t); });
+    axisYStart=Math.min(axisYStart,xAxisY);
+    axisYEnd=Math.max(axisYEnd,xAxisY);
+    console.debug('Debug: box axis join span',{axisYStart,axisYEnd,xAxisY,yAxisX}); // Debug: axis join calculations
+    add('line',{ x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:'#000','stroke-width':1,'stroke-linecap':'square' });
+    yScale.ticks.forEach(t => { const y=y2px(t); add('line',{ x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1 }); const txt=add('text',{ x:yAxisX - (tickLen+tickGap), y, 'font-size':fs, 'text-anchor':'end', 'dominant-baseline':'middle', fill:chartStyle.TEXT_COLOR }); txt.textContent=formatTick(logScale?Math.pow(10,t):t); });
     const xTickPositions=labelsUsed.map((_,i)=>xCenter(i));
-    let axisXStart=xTickPositions.length?Math.min(...xTickPositions):margin.left;
-    let axisXEnd=xTickPositions.length?Math.max(...xTickPositions):margin.left+plotW;
+    let axisXStart=xTickPositions.length?Math.min(...xTickPositions):yAxisX;
+    let axisXEnd=xTickPositions.length?Math.max(...xTickPositions):yAxisX+plotW;
     if(xTickPositions.length===1){const halfBand=Math.max(6,bandW*0.5);axisXStart=xTickPositions[0]-halfBand;axisXEnd=xTickPositions[0]+halfBand;}
-    if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
-    console.debug('Debug: box x-axis span',{axisXStart,axisXEnd});
-    const xAxisY = graphType === 'bar' ? y2px(0) : margin.top + plotH; add('line', { x1: axisXStart, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: '#000', 'stroke-width': 1, 'stroke-linecap': 'square' }); const xLabelOffset=tickLen+tickGap; const xLabels=[]; labelsUsed.forEach((lab,i)=>{ const x=xCenter(i); add('line', { x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1 }); const labelText=lab||`Col ${i+1}`; const t=add('text',{ x, y:xAxisY + xLabelOffset, 'font-size':fs, 'text-anchor':'middle','dominant-baseline':'hanging', fill:chartStyle.TEXT_COLOR }); t.textContent=labelText; t.style.cursor='ew-resize'; enableLabelDrag(t,i); xLabels.push(t); }); chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+    if(axisXStart===axisXEnd){axisXStart=yAxisX;axisXEnd=yAxisX+plotW;}
+    axisXStart=Math.min(axisXStart,yAxisX);
+    axisXEnd=Math.max(axisXEnd,yAxisX);
+    console.debug('Debug: box x-axis span',{axisXStart,axisXEnd,yAxisX});
+    add('line', { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: '#000', 'stroke-width': 1, 'stroke-linecap': 'square' }); const xLabelOffset=tickLen+tickGap; const xLabels=[]; labelsUsed.forEach((lab,i)=>{ const x=xCenter(i); add('line', { x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1 }); const labelText=lab||`Col ${i+1}`; const t=add('text',{ x, y:xAxisY + xLabelOffset, 'font-size':fs, 'text-anchor':'middle','dominant-baseline':'hanging', fill:chartStyle.TEXT_COLOR }); t.textContent=labelText; t.style.cursor='ew-resize'; enableLabelDrag(t,i); xLabels.push(t); }); chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
     function enableLabelDrag(t, idx){ t.addEventListener('mousedown', e => { e.preventDefault(); const svgRect=svg.getBoundingClientRect(); const onMove=ev=>{ const svgX=ev.clientX - svgRect.left; t.setAttribute('x', svgX); }; const onUp=ev=>{ document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); const svgX=ev.clientX - svgRect.left; let targetIdx=Math.floor((svgX - margin.left)/bandW); targetIdx=Math.max(0,Math.min(labelsUsed.length-1,targetIdx)); if(targetIdx!==idx){ const moved=state.colOrder.splice(idx,1)[0]; state.colOrder.splice(targetIdx,0,moved); } console.log('boxplot label drag end',{from:idx,to:targetIdx}); state.scheduleDraw(); }; document.addEventListener('mousemove',onMove); document.addEventListener('mouseup',onUp); }); }
     const yX = margin.left - (maxTickWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5); const yText = add('text', { x: yX, y: margin.top + plotH / 2, transform: `rotate(-90 ${yX} ${margin.top + plotH / 2})`, 'text-anchor': 'middle', 'font-size': fs, fill:chartStyle.TEXT_COLOR }); yText.textContent = state.yLabelText; makeEditable(yText,txt=>{state.yLabelText=txt;});
     for(let i=0;i<traces.length;i++){
