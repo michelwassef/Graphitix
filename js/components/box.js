@@ -146,25 +146,43 @@
 
   // PART: INIT_HOT
   function initHot(){
-    state.hot=new global.Handsontable(els.hotContainer,{
-      data:global.Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,DEFAULT_COLS),
-      rowHeaders(index){ const label=index===0?'':index; console.debug('Debug: box rowHeader',{index,label}); return label; },
-      colHeaders:true,
-      minRows:DEFAULT_ROWS,
-      minCols:DEFAULT_COLS,
-      contextMenu:true,
-      manualColumnMove:true,
-      undo:true,
-      afterUndo:()=>{console.log('boxplot undo'); state.scheduleDraw();},
-      afterRedo:()=>{console.log('boxplot redo'); state.scheduleDraw();},
-      licenseKey:'non-commercial-and-evaluation',
-      cells(row,col){ const props={}; if(row===0){ props.renderer=function(instance,td,r,c,prop,value,cellProperties){ global.Handsontable.renderers.TextRenderer.apply(this,arguments); td.style.background='#e9ecef'; td.style.fontWeight='600'; td.title='Header (first row)'; }; } return props; },
-      afterCreateCol(){ state.selectedCols.clear(); state.scheduleDraw(); },
-      afterRemoveCol(){ state.selectedCols.clear(); state.scheduleDraw(); },
-      afterChange(changes, source){ if(!changes||source==='loadData') return; console.log('boxplot afterChange',{count:changes.length,source}); state.scheduleDraw(); },
-      afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged){ if(orderChanged){ console.log('boxplot afterColumnMove'); state.scheduleDraw(); } }
+    console.debug('Debug: box initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
+    if(typeof Shared.hot?.createStandardTable !== 'function'){
+      console.error('box initHot missing Shared.hot.createStandardTable');
+      return;
+    }
+    const data = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
+    state.hot = Shared.hot.createStandardTable(els.hotContainer, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, state.scheduleDraw, {
+      debugLabel: 'box',
+      data,
+      hotOptions: {
+        manualColumnMove: true,
+        afterChange(changes, source){
+          if(!changes || source === 'loadData') return;
+          console.log('boxplot afterChange', { count: changes.length, source });
+        },
+        afterCreateCol(){
+          state.selectedCols.clear();
+          console.debug('Debug: box afterCreateCol cleared selection');
+        },
+        afterRemoveCol(){
+          state.selectedCols.clear();
+          console.debug('Debug: box afterRemoveCol cleared selection');
+        },
+        afterUndo(){
+          console.log('boxplot undo');
+        },
+        afterRedo(){
+          console.log('boxplot redo');
+        },
+        afterColumnMove(_moved, _finalIndex, _dropIndex, _possible, orderChanged){
+          if(orderChanged){
+            console.log('boxplot afterColumnMove');
+          }
+        }
+      }
     });
-
+  
     const loadExampleBtn=global.$('#boxLoadExample'), importBtn=global.$('#boxImport'), fileInput=global.$('#boxFile');
     const exampleData=[['Control','Treatment A','Treatment B'],[12,15,14],[14,17,15],[11,14,13],[13,16,16],[15,18,18],[16,19,17],[14,16,15],[13,15,14],[12,14,13],[15,17,16]];
     if(global.DEBUG_BOX) console.log('boxplot example dataset', exampleData);

@@ -142,45 +142,42 @@
       console.warn('ROC hot container or Handsontable missing');
       return;
     }
-    state.hot = new global.Handsontable(refs.hotContainer, {
-      data: global.Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS, ROC_DEFAULT_COLS),
-      rowHeaders(index){
-        const label = index === 0 ? '' : index;
-        if(global.DEBUG_ROC){
-          console.debug('Debug: ROC row header', {index, label});
+    console.debug('Debug: ROC initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
+    if(typeof Shared.hot?.createStandardTable !== 'function'){
+      console.error('roc initHot missing Shared.hot.createStandardTable');
+      return;
+    }
+    const data = Shared.createEmptyData(DEFAULT_ROWS, ROC_DEFAULT_COLS);
+    state.hot = Shared.hot.createStandardTable(refs.hotContainer, { rows: DEFAULT_ROWS, cols: ROC_DEFAULT_COLS }, state.scheduleDraw, {
+      debugLabel: 'roc',
+      data,
+      scheduleOnLoadData: true,
+      hotOptions: {
+        stretchH: 'all',
+        afterChange(changes, source){
+          if(changes){
+            console.debug('Debug: ROC table change', { count: changes.length, source });
+          }
+        },
+        afterCreateRow(){
+          console.debug('Debug: ROC row created');
+        },
+        afterCreateCol(){
+          console.debug('Debug: ROC col created');
+        },
+        afterRemoveRow(){
+          console.debug('Debug: ROC row removed');
+        },
+        afterRemoveCol(){
+          console.debug('Debug: ROC col removed');
+        },
+        afterUndo(){
+          console.debug('Debug: ROC undo');
+        },
+        afterRedo(){
+          console.debug('Debug: ROC redo');
         }
-        return label;
-      },
-      colHeaders: true,
-      minRows: DEFAULT_ROWS,
-      minCols: ROC_DEFAULT_COLS,
-      stretchH: 'all',
-      contextMenu: true,
-      cells(row, col){
-        const props = {};
-        if(row === 0){
-          props.renderer = function(instance, td){
-            global.Handsontable.renderers.TextRenderer.apply(this, arguments);
-            td.style.background = '#e9ecef';
-            td.style.fontWeight = '600';
-            td.title = 'Header (first row)';
-          };
-        }
-        return props;
-      },
-      licenseKey: 'non-commercial-and-evaluation',
-      afterChange(changes, source){
-        if(changes){
-          console.debug('Debug: ROC table change', {count: changes.length, source});
-          state.scheduleDraw?.();
-        }
-      },
-      afterCreateRow(){ state.scheduleDraw?.(); },
-      afterCreateCol(){ state.scheduleDraw?.(); },
-      afterRemoveRow(){ state.scheduleDraw?.(); },
-      afterRemoveCol(){ state.scheduleDraw?.(); },
-      afterUndo(){ state.scheduleDraw?.(); },
-      afterRedo(){ state.scheduleDraw?.(); }
+      }
     });
   }
 

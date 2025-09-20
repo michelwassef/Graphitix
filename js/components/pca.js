@@ -63,21 +63,34 @@
       syncPcaWidths();
       if(Shared && Shared.ensureHotWrapperStyles){ Shared.ensureHotWrapperStyles(pcaHotWrapper); }
       console.debug('pcaHotWrapper style updated', pcaHotWrapper.style.cssText);
-      const pcaData=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,DEFAULT_COLS);
-      pcaData[0]=['Label','Var1','Var2','Var3','Var4'];
-      const pcaHot=new Handsontable(pcaHotContainer,{
-        data:pcaData,
-        rowHeaders(index){const label=index===0?'':index; console.debug('pca rowHeader',{index,label}); return label;},
-        colHeaders:true,
-        minRows:DEFAULT_ROWS,
-        minCols:DEFAULT_COLS,
-        contextMenu:true,
-        undo:true,
-        afterChange:(changes,source)=>{if(changes){console.log('pca afterChange',{count:changes.length,source}); scheduleDrawPca();}},
-        afterUndo:()=>{console.log('pca undo'); scheduleDrawPca();},
-        afterRedo:()=>{console.log('pca redo'); scheduleDrawPca();},
-        licenseKey:'non-commercial-and-evaluation',
-        cells(row,col){const props={}; if(row===0) props.className='htCenter'; return props;}
+      console.debug('Debug: pca initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
+      if(typeof Shared.hot?.createStandardTable !== 'function'){
+        console.error('pca initHot missing Shared.hot.createStandardTable');
+        return;
+      }
+      const pcaData=Shared.createEmptyData(DEFAULT_ROWS,DEFAULT_COLS);
+      if(pcaData.length){
+        pcaData[0]=['Label','Var1','Var2','Var3','Var4'];
+      }
+      const pcaHot=Shared.hot.createStandardTable(pcaHotContainer,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPca,{
+        debugLabel: 'pca',
+        data: pcaData,
+        firstRowClassName: 'htCenter',
+        scheduleOnLoadData: true,
+        hotOptions: {
+          contextMenu: true,
+          afterChange(changes,source){
+            if(changes){
+              console.log('pca afterChange',{count:changes.length,source});
+            }
+          },
+          afterUndo(){
+            console.log('pca undo');
+          },
+          afterRedo(){
+            console.log('pca redo');
+          }
+        }
       });
       document.getElementById('pcaLoadExample').addEventListener('click',()=>{
         const pcaExample=[['Label','Var1','Var2','Var3','Var4'],['A',1,2,3,4],['A',2,1,3,2],['B',5,4,3,2],['B',4,5,6,5]];

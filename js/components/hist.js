@@ -105,18 +105,32 @@
 
   function initHot(){
     const hotContainer=document.getElementById('histHot');
-    state.hot=new global.Handsontable(hotContainer,{
-      data:global.Handsontable.helper.createEmptySpreadsheetData(HIST_DEFAULT_ROWS,HIST_DEFAULT_COLS),
-      rowHeaders(index){ return index===0?'':index; },
-      colHeaders:true,
-      stretchH:'all',
-      minSpareRows:10,
-      contextMenu:true,
-      cells(row,col){ const props={}; if(row===0) props.className='htCenter'; return props; },
-      afterChange(changes,source){ if(changes){ console.log('hist afterChange',{count:changes.length,source}); state.scheduleDraw(); }},
-      afterUndo:()=>{ console.log('hist undo'); state.scheduleDraw(); },
-      afterRedo:()=>{ console.log('hist redo'); state.scheduleDraw(); },
-      licenseKey:'non-commercial-and-evaluation'
+    console.debug('Debug: hist initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
+    if(typeof Shared.hot?.createStandardTable !== 'function'){
+      console.error('hist initHot missing Shared.hot.createStandardTable');
+      return;
+    }
+    const data = Shared.createEmptyData(HIST_DEFAULT_ROWS, HIST_DEFAULT_COLS);
+    state.hot = Shared.hot.createStandardTable(hotContainer, { rows: HIST_DEFAULT_ROWS, cols: HIST_DEFAULT_COLS }, state.scheduleDraw, {
+      debugLabel: 'hist',
+      data,
+      firstRowClassName: 'htCenter',
+      scheduleOnLoadData: true,
+      hotOptions: {
+        stretchH: 'all',
+        minSpareRows: 10,
+        afterChange(changes, source){
+          if(changes){
+            console.log('hist afterChange', { count: changes.length, source });
+          }
+        },
+        afterUndo(){
+          console.log('hist undo');
+        },
+        afterRedo(){
+          console.log('hist redo');
+        }
+      }
     });
   }
 

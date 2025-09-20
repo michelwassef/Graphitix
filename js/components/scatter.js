@@ -96,37 +96,26 @@
     
       if(global.Shared && global.Shared.ensureHotWrapperStyles){ global.Shared.ensureHotWrapperStyles(scatterHotWrapper); }
       console.debug('scatterHotWrapper style updated', scatterHotWrapper.style.cssText);
-      const scatterHot=new Handsontable(scatterHotContainer,{
-        data:Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,3),
-        rowHeaders(index){
-          const label = index === 0 ? '' : index;
-          console.debug('scatter rowHeader', {index, label});
-          return label;
-        },
-        colHeaders:true,
-        minRows:DEFAULT_ROWS,
-        minCols:3,
-        contextMenu:true,
-        undo:true,
-        afterUndo:()=>{console.log('scatter undo'); scheduleDrawScatter();},
-        afterRedo:()=>{console.log('scatter redo'); scheduleDrawScatter();},
-        licenseKey:'non-commercial-and-evaluation',
-        cells(row,col){
-          const props={};
-          if(row===0){
-            props.renderer=function(instance,td,r,c,prop,value,cellProperties){
-              Handsontable.renderers.TextRenderer.apply(this,arguments);
-              td.style.background='#e9ecef';
-              td.style.fontWeight='600';
-              td.title='Header (first row)';
-            };
+      console.debug('Debug: scatter initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
+      if(typeof Shared.hot?.createStandardTable !== 'function'){
+        console.error('scatter initHot missing Shared.hot.createStandardTable');
+        return;
+      }
+      const data = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
+      const scatterHot=Shared.hot.createStandardTable(scatterHotContainer,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatter,{
+        debugLabel: 'scatter',
+        data,
+        hotOptions: {
+          afterChange(changes,source){
+            if(!changes||source==='loadData') return;
+            console.log('scatter afterChange', {count:changes.length, source});
+          },
+          afterUndo(){
+            console.log('scatter undo');
+          },
+          afterRedo(){
+            console.log('scatter redo');
           }
-          return props;
-        },
-        afterChange(changes,source){
-          if(!changes||source==='loadData') return;
-          console.log('scatter afterChange', {count:changes.length, source});
-          scheduleDrawScatter();
         }
       });
     
