@@ -103,18 +103,32 @@
 
   function initHot(){
     const container=document.getElementById('pieHot');
-    state.hot=new global.Handsontable(container,{
-      data:global.Handsontable.helper.createEmptySpreadsheetData(PIE_DEFAULT_ROWS,PIE_DEFAULT_COLS),
-      rowHeaders(index){ return index===0?'':index; },
-      colHeaders:true,
-      stretchH:'all',
-      minSpareRows:10,
-      contextMenu:true,
-      cells(row,col){ const props={}; if(row===0) props.className='htCenter'; return props; },
-      afterChange(changes,source){ if(changes){ console.log('pie afterChange',{count:changes.length,source}); state.scheduleDraw(); }},
-      afterUndo:()=>{ console.log('pie undo'); state.scheduleDraw(); },
-      afterRedo:()=>{ console.log('pie redo'); state.scheduleDraw(); },
-      licenseKey:'non-commercial-and-evaluation'
+    console.debug('Debug: pie initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
+    if(typeof Shared.hot?.createStandardTable !== 'function'){
+      console.error('pie initHot missing Shared.hot.createStandardTable');
+      return;
+    }
+    const data = Shared.createEmptyData(PIE_DEFAULT_ROWS, PIE_DEFAULT_COLS);
+    state.hot = Shared.hot.createStandardTable(container, { rows: PIE_DEFAULT_ROWS, cols: PIE_DEFAULT_COLS }, state.scheduleDraw, {
+      debugLabel: 'pie',
+      data,
+      firstRowClassName: 'htCenter',
+      scheduleOnLoadData: true,
+      hotOptions: {
+        stretchH: 'all',
+        minSpareRows: 10,
+        afterChange(changes, source){
+          if(changes){
+            console.log('pie afterChange', { count: changes.length, source });
+          }
+        },
+        afterUndo(){
+          console.log('pie undo');
+        },
+        afterRedo(){
+          console.log('pie redo');
+        }
+      }
     });
   }
 

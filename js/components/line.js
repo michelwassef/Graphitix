@@ -629,25 +629,44 @@
     if(refs.hotWrapper && Shared.ensureHotWrapperStyles){ Shared.ensureHotWrapperStyles(refs.hotWrapper); }
     console.debug('Debug: lineHotWrapper style', refs.hotWrapper?.style?.cssText); // Debug: wrapper styles
 
-    const data=Handsontable.helper.createEmptySpreadsheetData(DEFAULT_ROWS,LINE_DEFAULT_COLS);
-    data[0]=['X','Series1','Series2','Series3','Series4','Series5'];
-    lineHot=new Handsontable(refs.hotContainer,{
+    console.debug('Debug: line initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
+    if(typeof Shared.hot?.createStandardTable !== 'function'){
+      console.error('line initHot missing Shared.hot.createStandardTable');
+      return;
+    }
+    const data = Shared.createEmptyData(DEFAULT_ROWS, LINE_DEFAULT_COLS);
+    if(data.length){
+      data[0] = ['X','Series1','Series2','Series3','Series4','Series5'];
+    }
+    lineHot = Shared.hot.createStandardTable(refs.hotContainer, { rows: DEFAULT_ROWS, cols: LINE_DEFAULT_COLS }, scheduleLineDraw, {
+      debugLabel: 'line',
       data,
-      rowHeaders(index){ const label=index===0?'':index; console.debug('Debug: line rowHeader',{index,label}); return label; },
-      colHeaders:true,
-      minRows:DEFAULT_ROWS,
-      minCols:LINE_DEFAULT_COLS,
-      stretchH:'all',
-      contextMenu:true,
-      cells(row){ const props={}; if(row===0){ props.renderer=function(instance,td){ Handsontable.renderers.TextRenderer.apply(this,arguments); td.style.background='#e9ecef'; td.style.fontWeight='600'; td.title='Header (first row)'; }; } return props; },
-      licenseKey:'non-commercial-and-evaluation',
-      afterChange:(changes,source)=>{ if(changes && source!=='loadData'){ console.debug('Debug: line afterChange',{count:changes.length,source}); scheduleLineDraw(); } },
-      afterCreateRow:()=>{ console.debug('Debug: line row created'); scheduleLineDraw(); },
-      afterCreateCol:()=>{ console.debug('Debug: line col created'); scheduleLineDraw(); },
-      afterRemoveRow:()=>{ console.debug('Debug: line row removed'); scheduleLineDraw(); },
-      afterRemoveCol:()=>{ console.debug('Debug: line col removed'); scheduleLineDraw(); },
-      afterUndo:()=>{ console.debug('Debug: line undo'); scheduleLineDraw(); },
-      afterRedo:()=>{ console.debug('Debug: line redo'); scheduleLineDraw(); }
+      hotOptions: {
+        stretchH: 'all',
+        afterChange(changes, source){
+          if(changes && source !== 'loadData'){
+            console.debug('Debug: line afterChange', { count: changes.length, source });
+          }
+        },
+        afterCreateRow(){
+          console.debug('Debug: line row created');
+        },
+        afterCreateCol(){
+          console.debug('Debug: line col created');
+        },
+        afterRemoveRow(){
+          console.debug('Debug: line row removed');
+        },
+        afterRemoveCol(){
+          console.debug('Debug: line col removed');
+        },
+        afterUndo(){
+          console.debug('Debug: line undo');
+        },
+        afterRedo(){
+          console.debug('Debug: line redo');
+        }
+      }
     });
     global.DEBUG_LINE=true;
     console.debug('Debug: lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
