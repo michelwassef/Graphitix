@@ -457,7 +457,9 @@
         function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
         const tickLen=axisMetrics.tickLength;
         const tickGap=axisMetrics.tickLabelGap;
-        if(showGrid){xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});}
+        if(showGrid){xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1,'vector-effect':'non-scaling-stroke'});});yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1,'vector-effect':'non-scaling-stroke'});});
+          console.debug('Debug: scatter grid vector effect applied',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,vectorEffect:'non-scaling-stroke'}); // Debug: scatter grid stroke scaling guard
+        }
         let originXT,originYT;
         if(originMode==='custom'){originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);}else{originXT=xScale.min;originYT=yScale.min;}
         const clampedXT=Math.min(Math.max(originXT,xScale.min),xScale.max);
@@ -477,17 +479,19 @@
         console.debug('Debug: scatter axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
         const axisStroke = '#000';
         const axisStrokeWidth = 1;
-        add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square'});
-        add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square'});
+        add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square','vector-effect':'non-scaling-stroke'});
+        add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square','vector-effect':'non-scaling-stroke'});
+        console.debug('Debug: scatter axis vector effect enforced',{axisStrokeWidth,vectorEffect:'non-scaling-stroke'}); // Debug: scatter axis stroke scaling guard
         if(showFrame){
           console.debug('Debug: scatter frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
           chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
         }
         // Frame closes scatter plot using axis styling continuity
         const xTickNodes=[];
-        xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
+        xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1,'vector-effect':'non-scaling-stroke'});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
         chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
-        yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+        yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1,'vector-effect':'non-scaling-stroke'});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+        console.debug('Debug: scatter tick vector effect enforced',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,vectorEffect:'non-scaling-stroke'}); // Debug: scatter tick stroke scaling guard
         console.time(`scatterSvgDraw_${token}`);
         const frag=document.createDocumentFragment();
         const labelBBox=new Map();
@@ -565,7 +569,8 @@
             const x2T=logX?Math.log10(x2Raw):x2Raw;
             const y1T=logY?Math.log10(y1Raw):y1Raw;
             const y2T=logY?Math.log10(y2Raw):y2Raw;
-            add('line',{x1:x2px(x1T),y1:y2px(y1T),x2:x2px(x2T),y2:y2px(y2T),stroke:'#d00','stroke-width':1});
+            add('line',{x1:x2px(x1T),y1:y2px(y1T),x2:x2px(x2T),y2:y2px(y2T),stroke:'#d00','stroke-width':1,'vector-effect':'non-scaling-stroke'});
+            console.debug('Debug: scatter trend vector effect enforced',{vectorEffect:'non-scaling-stroke'}); // Debug: scatter trend stroke scaling guard
             const infoX=margin.left+plotW-4;
             const infoY=stats.m>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
             const info=add('text',{x:infoX,y:infoY,'text-anchor':'end','font-size':fs,fill:'#000'});

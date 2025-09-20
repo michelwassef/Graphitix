@@ -486,12 +486,13 @@
       if (showGrid) {
         xScale.ticks.forEach((t) => {
           const x = x2px(t);
-          add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotH, stroke: '#eee'});
+          add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotH, stroke: '#eee', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke'});
         });
         yScale.ticks.forEach((t) => {
           const y = y2px(t);
-          add('line', {x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#eee'});
+          add('line', {x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#eee', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke'});
         });
+        console.debug('Debug: pca grid vector effect applied',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,vectorEffect:'non-scaling-stroke'}); // Debug: pca grid stroke scaling guard
       }
 
       const xTickPositions = xScale.ticks.map(t => x2px(t));
@@ -505,8 +506,9 @@
       console.debug('Debug: pca axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
       const axisStroke = '#000';
       const axisStrokeWidth = 1;
-      add('line', {x1: axisXStart, y1: margin.top + plotH, x2: axisXEnd, y2: margin.top + plotH, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square'});
-      add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square'});
+      add('line', {x1: axisXStart, y1: margin.top + plotH, x2: axisXEnd, y2: margin.top + plotH, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square', 'vector-effect': 'non-scaling-stroke'});
+      add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square', 'vector-effect': 'non-scaling-stroke'});
+      console.debug('Debug: pca axis vector effect enforced',{axisStrokeWidth,vectorEffect:'non-scaling-stroke'}); // Debug: pca axis stroke scaling guard
       if(showFrame){
         console.debug('Debug: pca frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
         chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
@@ -518,7 +520,7 @@
       const tickGap = axisMetrics.tickLabelGap;
       xScale.ticks.forEach((t) => {
         const x = x2px(t);
-        add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + tickLen, stroke: '#000'});
+        add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + tickLen, stroke: '#000', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke'});
         const txt = add('text', {
           x,
           y: margin.top + plotH + tickLen + tickGap,
@@ -533,7 +535,7 @@
 
       yScale.ticks.forEach((t) => {
         const y = y2px(t);
-        add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000'});
+        add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke'});
         add('text', {
           x: margin.left - (tickLen + tickGap),
           y,
@@ -543,6 +545,7 @@
           fill: chartStyle.TEXT_COLOR,
         }, formatTick(t));
       });
+      console.debug('Debug: pca tick vector effect enforced',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,vectorEffect:'non-scaling-stroke'}); // Debug: pca tick stroke scaling guard
 
       add('text', {
         x: margin.left + plotW / 2,
