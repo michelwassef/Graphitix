@@ -357,7 +357,13 @@
     function add(tag,attrs){const el=document.createElementNS(NS,tag); for(const[k,v] of Object.entries(attrs)) el.setAttribute(k,String(v)); svg.appendChild(el); return el;}
     const tickLen=axisMetrics.tickLength;
     const tickGap=axisMetrics.tickLabelGap;
-    if(showGrid){ yScale.ticks.forEach(t=>{ const y=y2px(t); add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1,'vector-effect':'non-scaling-stroke'}); }); console.debug('Debug: hist grid vector effect applied',{horizontal:yScale.ticks.length,vectorEffect:'non-scaling-stroke'}); }
+    if(showGrid){
+      yScale.ticks.forEach(t=>{
+        const y=y2px(t);
+        add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd'});
+      });
+      console.debug('Debug: hist grid uses default stroke scaling',{horizontal:yScale.ticks.length});
+    }
     const xTickPositions=xScale.ticks.map(t=>x2px(t));
     const yTickPositions=yScale.ticks.map(t=>y2px(t));
     let axisXStart=xTickPositions.length?Math.min(...xTickPositions):margin.left;
@@ -368,20 +374,30 @@
     if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
     console.debug('Debug: hist axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
     const axisStroke = '#000';
-    const axisStrokeWidth = 1;
-    add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square','vector-effect':'non-scaling-stroke'});
-    add('line',{x1:margin.left,y1:axisYStart,x2:margin.left,y2:axisYEnd,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square','vector-effect':'non-scaling-stroke'});
-    console.debug('Debug: hist axis vector effect enforced',{axisStrokeWidth,vectorEffect:'non-scaling-stroke'}); // Debug: hist axis stroke scaling guard
+    add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:axisStroke,'stroke-linecap':'square'});
+    add('line',{x1:margin.left,y1:axisYStart,x2:margin.left,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square'});
+    console.debug('Debug: hist axes rely on default stroke width',{axisStroke});
     if(showFrame){
-      console.debug('Debug: hist frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
-      chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
+      console.debug('Debug: hist frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
+      chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
     }
     // Frame closes histogram plot area using axis styling continuity
     const xTickNodes=[];
-    xScale.ticks.forEach(t=>{ const x=x2px(t); add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':1,'vector-effect':'non-scaling-stroke'}); const txt=add('text',{x,y:margin.top+plotH+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR}); txt.textContent=formatTick(t); xTickNodes.push(txt); });
+    xScale.ticks.forEach(t=>{
+      const x=x2px(t);
+      add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000'});
+      const txt=add('text',{x,y:margin.top+plotH+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});
+      txt.textContent=formatTick(t);
+      xTickNodes.push(txt);
+    });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
-    yScale.ticks.forEach(t=>{ const y=y2px(t); add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':1,'vector-effect':'non-scaling-stroke'}); const txt=add('text',{x:margin.left-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR}); txt.textContent=formatTick(logY?Math.pow(10,t):t); });
-    console.debug('Debug: hist tick vector effect enforced',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,vectorEffect:'non-scaling-stroke'}); // Debug: hist tick stroke scaling guard
+    yScale.ticks.forEach(t=>{
+      const y=y2px(t);
+      add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000'});
+      const txt=add('text',{x:margin.left-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
+      txt.textContent=formatTick(logY?Math.pow(10,t):t);
+    });
+    console.debug('Debug: hist ticks rely on default stroke width',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length});
     const edges=Array.from({length:bins+1},(_,i)=>xScale.min+i*binWidth);
     const fill=$('#histFill').value; const borderColor=$('#histBorder').value; const borderWidth=Number($('#histBorderWidth').value)||0;
     counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill}); if(borderWidth>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidth);} });
