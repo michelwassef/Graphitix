@@ -319,10 +319,11 @@
       line.setAttribute('stroke', stroke);
       line.setAttribute('stroke-width', strokeWidth);
       line.setAttribute('stroke-linecap', 'square');
+      line.setAttribute('vector-effect', 'non-scaling-stroke');
       group.appendChild(line);
       drawn.push(side);
     });
-    console.debug("Debug: chartStyle.drawPlotFrame applied", { sides: drawn, stroke, strokeWidth, plotW, plotH }); // Debug: frame draw summary
+    console.debug("Debug: chartStyle.drawPlotFrame applied", { sides: drawn, stroke, strokeWidth, plotW, plotH, vectorEffect: 'non-scaling-stroke' }); // Debug: frame draw summary with stroke scaling guard
     return drawn;
   };
 })(window);

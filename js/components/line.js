@@ -455,8 +455,9 @@
       const tickLen=axisMetrics.tickLength;
       const tickGap=axisMetrics.tickLabelGap;
       if(showGrid){
-        xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1});});
-        yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1});});
+        xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':1,'vector-effect':'non-scaling-stroke'});});
+        yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':1,'vector-effect':'non-scaling-stroke'});});
+        console.debug('Debug: line grid vector effect applied',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,vectorEffect:'non-scaling-stroke'}); // Debug: grid stroke scaling guard
       }
       let originXT,originYT;
       if(originMode==='custom'){
@@ -481,17 +482,19 @@
       console.debug('Debug: line axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
       const axisStroke = '#000';
       const axisStrokeWidth = 1;
-      add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square'});
-      add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square'});
+      add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square','vector-effect':'non-scaling-stroke'});
+      add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-width':axisStrokeWidth,'stroke-linecap':'square','vector-effect':'non-scaling-stroke'});
+      console.debug('Debug: line axis vector effect enforced',{axisStrokeWidth,vectorEffect:'non-scaling-stroke'}); // Debug: axis stroke scaling guard
       if(showFrame){
         console.debug('Debug: line frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
         chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
       }
       // Frame closes plot area using existing axis styling for continuity
       const xTickNodes=[];
-      xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
+      xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':1,'vector-effect':'non-scaling-stroke'});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
       chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
-      yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+      yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':1,'vector-effect':'non-scaling-stroke'});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+      console.debug('Debug: line tick vector effect enforced',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,vectorEffect:'non-scaling-stroke'}); // Debug: tick stroke scaling guard
       const colors=series.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
       const seriesElems=[];
       series.forEach((s,i)=>{
