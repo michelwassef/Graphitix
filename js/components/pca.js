@@ -169,6 +169,16 @@
       (function initPcaResizers(){
         if(!pcaContainer) return;
         if(Shared && Shared.attachResizableBox){
+          const dataset = pcaContainer.dataset;
+          if(dataset){
+            const initialLock = dataset.resizerAspectLocked;
+            if(initialLock === undefined || initialLock === ''){
+              dataset.resizerAspectLocked = 'true';
+              console.debug('Debug: pca resizer default lock applied', { initialLock }); // Debug: default aspect lock assignment
+            }else{
+              console.debug('Debug: pca resizer lock preserved', { initialLock }); // Debug: existing aspect lock respected
+            }
+          }
           Shared.attachResizableBox(pcaContainer, {
             defaultWidth: 640,
             defaultHeight: 420,
@@ -475,11 +485,24 @@
       margin.bottom = bottomLayout.bottom;
       plotW = Math.max(20, W - margin.left - margin.right);
       plotH = Math.max(20, H - margin.top - margin.bottom);
-      const square = chartStyle.ensureSquarePlot(W, H, margin);
-      margin = square.margin;
-      plotW = square.plotW;
-      plotH = square.plotH;
-      console.debug('Debug: pca layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
+      const aspectData = pcaSvgBox?.dataset;
+      const shouldLockAspect = aspectData?.resizerAspectLocked === 'true';
+      console.debug('Debug: pca aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: pca aspect toggle decision
+      if(shouldLockAspect){
+        const square = chartStyle.ensureSquarePlot(W, H, margin);
+        margin = square.margin;
+        plotW = square.plotW;
+        plotH = square.plotH;
+        if(aspectData){
+          const derivedRatio = plotH > 0 ? plotW / plotH : NaN;
+          if(Number.isFinite(derivedRatio)){
+            aspectData.resizerAspectRatio = String(derivedRatio);
+          }
+        }
+        console.debug('Debug: pca layout (locked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca square enforcement branch
+      }else{
+        console.debug('Debug: pca layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca free resize branch
+      }
       const x2px = value => margin.left + ((value - xScale.min) * plotW) / (xScale.max - xScale.min);
       const y2px = value => margin.top + plotH - ((value - yScale.min) * plotH) / (yScale.max - yScale.min);
 

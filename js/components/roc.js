@@ -95,6 +95,16 @@
 
     const container = refs.plotDiv?.closest('.svgbox') || refs.plotDiv?.parentElement;
     if(container && Shared && typeof Shared.attachResizableBox === 'function'){
+      const dataset = container.dataset;
+      if(dataset){
+        const initialLock = dataset.resizerAspectLocked;
+        if(initialLock === undefined || initialLock === ''){
+          dataset.resizerAspectLocked = 'true';
+          console.debug('Debug: ROC resizer default lock applied', { initialLock }); // Debug: default aspect lock assignment
+        }else{
+          console.debug('Debug: ROC resizer lock preserved', { initialLock }); // Debug: existing aspect lock respected
+        }
+      }
       Shared.attachResizableBox(container, {
         defaultWidth: 640,
         defaultHeight: 420,
@@ -680,11 +690,24 @@
     margin.bottom = bottomLayout.bottom;
     plotWidth = Math.max(20, width - margin.left - margin.right);
     plotHeight = Math.max(20, height - margin.top - margin.bottom);
-    const square = chartStyle.ensureSquarePlot(width, height, margin);
-    margin = square.margin;
-    plotWidth = square.plotW;
-    plotHeight = square.plotH;
-    console.debug('Debug: roc layout',{margin,plotWidth,plotHeight,rotate:bottomLayout.shouldRotate});
+    const aspectData = refs.svgBox?.dataset;
+    const shouldLockAspect = aspectData?.resizerAspectLocked === 'true';
+    console.debug('Debug: roc aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: roc aspect toggle decision
+    if(shouldLockAspect){
+      const square = chartStyle.ensureSquarePlot(width, height, margin);
+      margin = square.margin;
+      plotWidth = square.plotW;
+      plotHeight = square.plotH;
+      if(aspectData){
+        const derivedRatio = plotHeight > 0 ? plotWidth / plotHeight : NaN;
+        if(Number.isFinite(derivedRatio)){
+          aspectData.resizerAspectRatio = String(derivedRatio);
+        }
+      }
+      console.debug('Debug: roc layout (locked)',{margin,plotWidth,plotHeight,rotate:bottomLayout.shouldRotate}); // Debug: roc square enforcement branch
+    }else{
+      console.debug('Debug: roc layout (unlocked)',{margin,plotWidth,plotHeight,rotate:bottomLayout.shouldRotate}); // Debug: roc free resize branch
+    }
 
     const xToPx = value => margin.left + plotWidth * value;
     const yToPx = value => margin.top + plotHeight * (1 - value);
