@@ -704,13 +704,13 @@
     if(showGrid){
       ticks.forEach(tick => {
         const x = xToPx(tick);
-        add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotHeight, stroke: '#ddd', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke'});
+        add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotHeight, stroke: '#ddd'});
       });
       ticks.forEach(tick => {
         const y = yToPx(tick);
-        add('line', {x1: margin.left, y1: y, x2: margin.left + plotWidth, y2: y, stroke: '#ddd', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke'});
+        add('line', {x1: margin.left, y1: y, x2: margin.left + plotWidth, y2: y, stroke: '#ddd'});
       });
-      console.debug('Debug: roc grid vector effect applied',{tickCount:ticks.length,vectorEffect:'non-scaling-stroke'}); // Debug: roc grid stroke scaling guard
+      console.debug('Debug: roc grid uses default stroke scaling',{tickCount:ticks.length});
     }
 
     const xTickPositions = ticks.map(tick => xToPx(tick));
@@ -723,23 +723,22 @@
     if(axisYStart === axisYEnd){ axisYStart = margin.top; axisYEnd = margin.top + plotHeight; }
     console.debug('Debug: roc axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
     const axisStroke = '#000';
-    const axisStrokeWidth = 1;
-    add('line', {x1: axisXStart, y1: margin.top + plotHeight, x2: axisXEnd, y2: margin.top + plotHeight, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square', 'vector-effect': 'non-scaling-stroke'});
-    add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square', 'vector-effect': 'non-scaling-stroke'});
-    console.debug('Debug: roc axis vector effect enforced',{axisStrokeWidth,vectorEffect:'non-scaling-stroke'}); // Debug: roc axis stroke scaling guard
+    add('line', {x1: axisXStart, y1: margin.top + plotHeight, x2: axisXEnd, y2: margin.top + plotHeight, stroke: axisStroke, 'stroke-linecap': 'square'});
+    add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square'});
+    console.debug('Debug: roc axes rely on default stroke width',{axisStroke});
     if(showFrame){
-      console.debug('Debug: roc frame request',{stroke:axisStroke, axisStrokeWidth, showFrame}); // Debug: frame styling inputs
-      chartStyle.drawPlotFrame({ svg, margin, plotW: plotWidth, plotH: plotHeight, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
+      console.debug('Debug: roc frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
+      chartStyle.drawPlotFrame({ svg, margin, plotW: plotWidth, plotH: plotHeight, stroke: axisStroke, sides: ['top','right'] });
     }
     // Frame closes ROC/PR plot area using axis styling continuity
 
     if(graphType === 'roc'){
-      add('line', {x1: margin.left, y1: margin.top + plotHeight, x2: margin.left + plotWidth, y2: margin.top, stroke: '#888', 'stroke-dasharray': '4,4', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke'});
-      console.debug('Debug: roc baseline vector effect enforced',{mode:'roc',vectorEffect:'non-scaling-stroke'}); // Debug: roc baseline stroke scaling guard
+      add('line', {x1: margin.left, y1: margin.top + plotHeight, x2: margin.left + plotWidth, y2: margin.top, stroke: '#888', 'stroke-dasharray': '4,4'});
+      console.debug('Debug: roc baseline uses default stroke scaling',{mode:'roc'});
     }else{
       const base = positives / Math.max(1, positives + negatives);
-      add('line', {x1: margin.left, y1: yToPx(base), x2: margin.left + plotWidth, y2: yToPx(base), stroke: '#888', 'stroke-dasharray': '4,4', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke'});
-      console.debug('Debug: ROC PR baseline', {base,vectorEffect:'non-scaling-stroke'});
+      add('line', {x1: margin.left, y1: yToPx(base), x2: margin.left + plotWidth, y2: yToPx(base), stroke: '#888', 'stroke-dasharray': '4,4'});
+      console.debug('Debug: ROC PR baseline',{base});
     }
 
     const xTickNodes = [];
@@ -747,17 +746,17 @@
     const tickGap = axisMetrics.tickLabelGap;
     ticks.forEach(tick => {
       const x = xToPx(tick);
-      add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + tickLen, stroke: '#000', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke'});
+      add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + tickLen, stroke: '#000'});
       const txt = add('text', {x, y: margin.top + plotHeight + tickLen + tickGap, 'text-anchor': 'middle', 'font-size': fontSize, 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
       xTickNodes.push(txt);
     });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
     ticks.forEach(tick => {
       const y = yToPx(tick);
-      add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke'});
+      add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000'});
       add('text', {x: margin.left - (tickLen + tickGap), y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
     });
-    console.debug('Debug: roc tick vector effect enforced',{tickCount:ticks.length,vectorEffect:'non-scaling-stroke'}); // Debug: roc tick stroke scaling guard
+    console.debug('Debug: roc ticks rely on default stroke width',{tickCount:ticks.length});
 
     add('text', {
       x: margin.left + plotWidth / 2,

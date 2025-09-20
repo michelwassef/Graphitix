@@ -291,8 +291,6 @@
     const plotH = Number(opts.plotH);
     const doc = svg && (svg.ownerDocument || global.document);
     const stroke = opts.stroke || "#000";
-    const strokeWidthRaw = Number(opts.strokeWidth);
-    const strokeWidth = Number.isFinite(strokeWidthRaw) ? strokeWidthRaw : 1;
     let sides = Array.isArray(opts.sides) ? opts.sides.slice() : (opts.sides === "all" ? ["top","right","bottom","left"] : []);
     if(!sides.length){ sides = ["top","right"]; }
     if(!svg || !margin || !Number.isFinite(plotW) || !Number.isFinite(plotH) || plotW <= 0 || plotH <= 0 || !doc){
@@ -317,13 +315,11 @@
       line.setAttribute('x2', pos.x2);
       line.setAttribute('y2', pos.y2);
       line.setAttribute('stroke', stroke);
-      line.setAttribute('stroke-width', strokeWidth);
       line.setAttribute('stroke-linecap', 'square');
-      line.setAttribute('vector-effect', 'non-scaling-stroke');
       group.appendChild(line);
       drawn.push(side);
     });
-    console.debug("Debug: chartStyle.drawPlotFrame applied", { sides: drawn, stroke, strokeWidth, plotW, plotH, vectorEffect: 'non-scaling-stroke' }); // Debug: frame draw summary with stroke scaling guard
+    console.debug("Debug: chartStyle.drawPlotFrame applied", { sides: drawn, stroke, plotW, plotH, strokeWidthAttribute: 'default-scaling' }); // Debug: frame draw summary with default stroke scaling
     return drawn;
   };
 })(window);
