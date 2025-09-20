@@ -436,11 +436,24 @@
         margin.bottom=bottomLayout.bottom;
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);
-        const square=chartStyle.ensureSquarePlot(W,H,margin);
-        margin=square.margin;
-        plotW=square.plotW;
-        plotH=square.plotH;
-        console.debug('Debug: scatter layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
+        const aspectData=scatterSvgBox?.dataset;
+        const shouldLockAspect=aspectData?.resizerAspectLocked==='true';
+        console.debug('Debug: scatter aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: scatter aspect toggle decision
+        if(shouldLockAspect){
+          const square=chartStyle.ensureSquarePlot(W,H,margin);
+          margin=square.margin;
+          plotW=square.plotW;
+          plotH=square.plotH;
+          if(aspectData){
+            const derivedRatio=plotH>0?plotW/plotH:NaN;
+            if(Number.isFinite(derivedRatio)){
+              aspectData.resizerAspectRatio=String(derivedRatio);
+            }
+          }
+          console.debug('Debug: scatter layout (locked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter square enforcement branch
+        }else{
+          console.debug('Debug: scatter layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter free resize branch
+        }
         const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
         const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
         function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
