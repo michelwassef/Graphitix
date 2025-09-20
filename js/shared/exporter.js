@@ -63,6 +63,36 @@
     return null;
   };
 
+  const ensureUnitlessNumber = value => {
+    if (value === undefined || value === null) return null;
+    let trimmed = String(value).trim();
+    if (!trimmed) return null;
+    let lower = trimmed.toLowerCase();
+    if (lower.endsWith('!important')) {
+      lower = lower.replace(/!important$/, '').trim();
+      trimmed = trimmed.slice(0, trimmed.toLowerCase().lastIndexOf('!important')).trim();
+    }
+    let normalizedSource = trimmed;
+    if (lower.endsWith('px')) {
+      normalizedSource = trimmed.slice(0, lower.lastIndexOf('px')).trim();
+    }
+    if (!normalizedSource) {
+      return null;
+    }
+    if (!NUMERIC_VALUE_RE.test(normalizedSource)) {
+      return null;
+    }
+    const num = Number.parseFloat(normalizedSource);
+    if (!Number.isFinite(num)) {
+      return null;
+    }
+    const normalized = num === 0 ? '0' : String(num);
+    if (normalized !== trimmed) {
+      console.debug('Debug: exporter ensureUnitlessNumber', { original: value, normalized }); // Debug: unitless stroke normalization trace
+    }
+    return normalized;
+  };
+
   function applyNumericAttrWithPx(node, attr, counters, counterKey) {
     if (!node?.getAttribute || !node?.setAttribute) return false;
     const raw = node.getAttribute(attr);
@@ -73,6 +103,20 @@
     if (counters && counterKey) {
       counters[counterKey] = (counters[counterKey] || 0) + 1;
     }
+    return true;
+  }
+
+  function applyNumericAttrUnitless(node, attr, counters, counterKey) {
+    if (!node?.getAttribute || !node?.setAttribute) return false;
+    const raw = node.getAttribute(attr);
+    if (raw === null || raw === undefined) return false;
+    const normalized = ensureUnitlessNumber(raw);
+    if (!normalized || normalized === raw) return false;
+    node.setAttribute(attr, normalized);
+    if (counters && counterKey) {
+      counters[counterKey] = (counters[counterKey] || 0) + 1;
+    }
+    console.debug('Debug: exporter unitless attr applied', { attr, original: raw, normalized }); // Debug: attr unitless conversion trace
     return true;
   }
 
@@ -191,7 +235,13 @@
         if (styleSize.changed) {
           counters.fontSizeStyleNormalized += 1;
         }
-        const styleStroke = normalizeStyleProperty(node, 'stroke-width', value => ensurePxValue(value) || value);
+        const styleStroke = normalizeStyleProperty(node, 'stroke-width', value => {
+          const normalized = ensureUnitlessNumber(value);
+          if (normalized && normalized !== value) {
+            console.debug('Debug: exporter style stroke normalized', { original: value, normalized }); // Debug: style stroke normalization trace
+          }
+          return normalized || value;
+        });
         if (styleStroke.changed) {
           counters.strokeWidthStyleNormalized += 1;
         }
@@ -204,7 +254,7 @@
 
       const strokeAttrNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('[stroke-width]') : [];
       strokeAttrNodes.forEach(node => {
-        applyNumericAttrWithPx(node, 'stroke-width', counters, 'strokeWidthAttrNormalized');
+        applyNumericAttrUnitless(node, 'stroke-width', counters, 'strokeWidthAttrNormalized');
       });
 
       logDebug('prepareSvgForExport applied', {
