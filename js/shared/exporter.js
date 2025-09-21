@@ -29,6 +29,7 @@
 
   const DEFAULT_FONT_STACK = 'Arial, Helvetica, sans-serif';
   const NUMERIC_VALUE_RE = /^[+-]?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?$/i;
+  const SVG_MIME_TYPE = 'image/svg+xml';
 
   const getDefaultFontFamily = () => {
     const sharedFont = Shared?.chartStyle?.FONT_FAMILY;
@@ -370,6 +371,85 @@
     }
   }
 
+  function ensureSvgFileName(name) {
+    const base = typeof name === 'string' ? name.trim() : '';
+    if (!base) {
+      console.debug('Debug: exporter ensureSvgFileName fallback', { provided: name }); // Debug: filename fallback trace
+      return 'chart.svg';
+    }
+    const lower = base.toLowerCase();
+    if (lower.endsWith('.svg')) {
+      return base;
+    }
+    return `${base}.svg`;
+  }
+
+  function escapeHtmlAttr(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function buildSvgExportPayload(xml, options = {}) {
+    if (!xml) {
+      logDebug('buildSvgExportPayload skipped', { contextLabel: options.contextLabel, reason: 'no xml' });
+      return null;
+    }
+    const { fileName = 'chart.svg', contextLabel = 'svg-export', includeHtmlPreview = true } = options;
+    const safeName = ensureSvgFileName(fileName);
+    const mime = `${SVG_MIME_TYPE};charset=utf-8`;
+    const FileCtor = global.File || (typeof File !== 'undefined' ? File : null);
+    const BlobCtor = global.Blob || (typeof Blob !== 'undefined' ? Blob : null);
+    let svgBlob = null;
+    if (FileCtor) {
+      try {
+        svgBlob = new FileCtor([xml], safeName, { type: mime });
+        console.debug('Debug: exporter buildSvgExportPayload file created', { contextLabel, name: safeName, size: svgBlob.size }); // Debug: svg file payload trace
+      } catch (err) {
+        console.debug('Debug: exporter buildSvgExportPayload file fallback', { contextLabel, error: err?.message }); // Debug: svg file fallback trace
+      }
+    }
+    if (!svgBlob && BlobCtor) {
+      svgBlob = new BlobCtor([xml], { type: mime });
+      console.debug('Debug: exporter buildSvgExportPayload blob created', { contextLabel, size: svgBlob?.size || 0 }); // Debug: svg blob payload trace
+    }
+    if (!svgBlob) {
+      warn('buildSvgExportPayload blob unavailable', { contextLabel });
+      return null;
+    }
+    const clipboardMap = { [SVG_MIME_TYPE]: svgBlob };
+    if (BlobCtor) {
+      try {
+        clipboardMap['text/plain'] = new BlobCtor([xml], { type: 'text/plain' });
+      } catch (err) {
+        warn('buildSvgExportPayload text blob error', { contextLabel, error: err?.message });
+      }
+    } else {
+      warn('buildSvgExportPayload text blob skipped', { contextLabel });
+    }
+    if (includeHtmlPreview && BlobCtor) {
+      try {
+        const encoded = encodeURIComponent(xml);
+        const alt = escapeHtmlAttr(safeName);
+        const html = `<img src="data:${SVG_MIME_TYPE};charset=utf-8,${encoded}" alt="${alt}">`;
+        clipboardMap['text/html'] = new BlobCtor([html], { type: 'text/html' });
+      } catch (err) {
+        warn('buildSvgExportPayload html blob error', { contextLabel, error: err?.message });
+      }
+    }
+    logDebug('buildSvgExportPayload ready', {
+      contextLabel,
+      fileName: safeName,
+      includeHtmlPreview,
+      xmlLength: xml.length,
+      mapTypes: Object.keys(clipboardMap)
+    });
+    return { fileName: safeName, svgBlob, clipboardMap };
+  }
+
   async function svgStringToPngBlob(xml, options = {}) {
     const { width, height, fallbackWidth = 800, fallbackHeight = 400, contextLabel } = options;
     if (!xml) {
@@ -625,17 +705,22 @@
       } else if (format === 'svg') {
         const xml = svgToXml(svgEl, `${contextLabel}-svg`);
         if (!xml) return;
-        const blob = new Blob([xml], { type: 'image/svg+xml' });
+        const payload = buildSvgExportPayload(xml, {
+          fileName: `${fileName}.svg`,
+          contextLabel: `${contextLabel}-svg`,
+          includeHtmlPreview: true
+        });
+        if (!payload) return;
+        console.debug('Debug: exporter svg action payload ready', {
+          contextLabel: `${contextLabel}-svg`,
+          mode,
+          name: payload.fileName,
+          clipboardTypes: Object.keys(payload.clipboardMap || {})
+        }); // Debug: svg action payload trace
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.svg`, `${contextLabel}-svg`);
+          downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-svg`);
         } else {
-          const map = { 'image/svg+xml': blob };
-          try {
-            map['text/plain'] = new Blob([xml], { type: 'text/plain' });
-          } catch (err) {
-            warn('svgActions text blob error', { contextLabel, error: err?.message });
-          }
-          await copyBlobMap(map, `${contextLabel}-svg`);
+          await copyBlobMap(payload.clipboardMap, `${contextLabel}-svg`);
         }
       }
     }
@@ -711,13 +796,22 @@
       } else if (format === 'svg') {
         const xml = await resolveSvgString();
         if (!xml) return;
-        const blob = new Blob([xml], { type: 'image/svg+xml' });
+        const payload = buildSvgExportPayload(xml, {
+          fileName: `${fileName}.svg`,
+          contextLabel: `${contextLabel}-svg`,
+          includeHtmlPreview: true
+        });
+        if (!payload) return;
+        console.debug('Debug: exporter canvas svg payload ready', {
+          contextLabel: `${contextLabel}-svg`,
+          mode,
+          name: payload.fileName,
+          clipboardTypes: Object.keys(payload.clipboardMap || {})
+        }); // Debug: canvas svg payload trace
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.svg`, `${contextLabel}-svg`);
+          downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-svg`);
         } else {
-          const map = { 'image/svg+xml': blob };
-          map['text/plain'] = new Blob([xml], { type: 'text/plain' });
-          await copyBlobMap(map, `${contextLabel}-svg`);
+          await copyBlobMap(payload.clipboardMap, `${contextLabel}-svg`);
         }
       }
     }
@@ -784,15 +878,22 @@
       } else if (format === 'svg') {
         const xml = await resolveSvgString();
         if (!xml) return;
-        const blob = new Blob([xml], { type: 'image/svg+xml' });
+        const payload = buildSvgExportPayload(xml, {
+          fileName: `${fileName}.svg`,
+          contextLabel: `${contextLabel}-svg`,
+          includeHtmlPreview: true
+        });
+        if (!payload) return;
+        console.debug('Debug: exporter svgString svg payload ready', {
+          contextLabel: `${contextLabel}-svg`,
+          mode,
+          name: payload.fileName,
+          clipboardTypes: Object.keys(payload.clipboardMap || {})
+        }); // Debug: svg string payload trace
         if (mode === 'download') {
-          downloadBlob(blob, `${fileName}.svg`, `${contextLabel}-svg`);
+          downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-svg`);
         } else {
-          const map = {
-            'image/svg+xml': blob,
-            'text/plain': new Blob([xml], { type: 'text/plain' })
-          };
-          await copyBlobMap(map, `${contextLabel}-svg`);
+          await copyBlobMap(payload.clipboardMap, `${contextLabel}-svg`);
         }
       }
     }
