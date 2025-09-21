@@ -13,6 +13,27 @@
   const DEFAULT_HEIGHT = 420;
   const RESIZE_MIN_SCALE = 0.3;
   const RESIZE_MAX_SCALE = 3;
+  let textSizeLocked = false;
+
+  function clampScale(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return 1;
+    }
+    return Math.min(RESIZE_MAX_SCALE, Math.max(RESIZE_MIN_SCALE, numeric));
+  }
+
+  function resolveStyleScale(scaleInfo){
+    if(scaleInfo && typeof scaleInfo === 'object'){
+      if(Number.isFinite(scaleInfo.styleScale)){
+        return scaleInfo.styleScale;
+      }
+      if(Number.isFinite(scaleInfo.scale)){
+        return scaleInfo.scale;
+      }
+    }
+    return 1;
+  }
 
   chartStyle.FONT_FAMILY = FONT_FAMILY;
   chartStyle.TEXT_COLOR = TEXT_COLOR;
@@ -65,35 +86,143 @@
     const rawHeight = Number(options?.height);
     const safeWidth = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : defaultWidth;
     const safeHeight = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : defaultHeight;
-    const scaleW = safeWidth / (defaultWidth || 1);
-    const scaleH = safeHeight / (defaultHeight || 1);
-    const unclamped = Math.min(scaleW, scaleH);
-    const scale = Math.min(RESIZE_MAX_SCALE, Math.max(RESIZE_MIN_SCALE, unclamped));
-    const payload = { width: safeWidth, height: safeHeight, defaultWidth, defaultHeight, scaleW, scaleH, unclamped, scale };
+    const scaleX = safeWidth / (defaultWidth || 1);
+    const scaleY = safeHeight / (defaultHeight || 1);
+    const styleUnclamped = Math.sqrt(Math.max(scaleX * scaleY, 0));
+    const styleScale = clampScale(styleUnclamped);
+    const radiusScale = Math.sqrt(styleScale);
+    const payload = {
+      width: safeWidth,
+      height: safeHeight,
+      defaultWidth,
+      defaultHeight,
+      scaleX,
+      scaleY,
+      scaleW: scaleX,
+      scaleH: scaleY,
+      styleUnclamped,
+      styleScale,
+      radiusScale,
+      strokeScale: radiusScale,
+      legacyMinScale: Math.min(scaleX, scaleY),
+      scale: styleScale
+    };
     console.debug('Debug: chartStyle.computeResizeScale', payload); // Debug: resize scaling payload
     return payload;
   };
 
   chartStyle.resolveScaledFontSize = function resolveScaledFontSize(options){
     const normalized = chartStyle.normalizeFontSize(options?.rawSize);
-    const scaleInfo = chartStyle.computeResizeScale({
+    const resizeInfo = chartStyle.computeResizeScale({
       width: options?.width,
       height: options?.height,
       defaultWidth: options?.defaultWidth,
       defaultHeight: options?.defaultHeight
     });
-    const scaledPx = Math.max(4, normalized.px * scaleInfo.scale);
-    const result = { ...normalized, scaledPx, scaleInfo };
+    const lockOverride = typeof options?.lockScale === 'boolean' ? !!options.lockScale : textSizeLocked;
+    const textScale = lockOverride ? 1 : resizeInfo.styleScale;
+    const scaledPx = Math.max(4, normalized.px * textScale);
+    const scaleInfo = { ...resizeInfo, textScale, textLocked: lockOverride };
+    const result = { ...normalized, scaledPx, scaleInfo, textLocked: lockOverride };
     console.debug('Debug: chartStyle.resolveScaledFontSize', {
       raw: options?.rawSize,
       normalizedPt: normalized.pt,
       basePx: normalized.px,
       scaledPx,
-      scale: scaleInfo.scale,
-      width: scaleInfo.width,
-      height: scaleInfo.height
+      styleScale: resizeInfo.styleScale,
+      textScale,
+      locked: lockOverride,
+      width: resizeInfo.width,
+      height: resizeInfo.height
     }); // Debug: scaled font resolution
     return result;
+  };
+
+  chartStyle.setTextSizeLock = function setTextSizeLock(locked){
+    textSizeLocked = !!locked;
+    console.debug('Debug: chartStyle.setTextSizeLock', { locked: textSizeLocked }); // Debug: text lock toggle trace
+    return textSizeLocked;
+  };
+
+  chartStyle.isTextSizeLocked = function isTextSizeLocked(){
+    console.debug('Debug: chartStyle.isTextSizeLocked query', { locked: textSizeLocked }); // Debug: text lock query trace
+    return textSizeLocked;
+  };
+
+  chartStyle.scaleLength = function scaleLength(base, scaleInfo, options){
+    const opts = options || {};
+    const numeric = Number(base);
+    if(!Number.isFinite(numeric)){
+      console.debug('Debug: chartStyle.scaleLength fallback', { base, context: opts.context || 'length' });
+      return 0;
+    }
+    const styleScale = clampScale(resolveStyleScale(scaleInfo));
+    const gentle = Math.sqrt(styleScale);
+    const scaled = numeric * gentle;
+    const min = Number.isFinite(opts.min) ? opts.min : 0;
+    const max = Number.isFinite(opts.max) ? opts.max : Infinity;
+    const clamped = Math.min(max, Math.max(min, scaled));
+    console.debug('Debug: chartStyle.scaleLength', {
+      base: numeric,
+      styleScale,
+      gentle,
+      result: clamped,
+      context: opts.context || 'length'
+    }); // Debug: length scaling trace
+    return clamped;
+  };
+
+  chartStyle.scaleRadius = function scaleRadius(base, scaleInfo, options){
+    const opts = options || {};
+    return chartStyle.scaleLength(base, scaleInfo, { ...opts, context: opts.context || 'radius' });
+  };
+
+  chartStyle.scaleStrokeWidth = function scaleStrokeWidth(base, scaleInfo, options){
+    const opts = options || {};
+    const min = Number.isFinite(opts.min) ? opts.min : 0;
+    const max = Number.isFinite(opts.max) ? opts.max : Infinity;
+    const result = chartStyle.scaleLength(base, scaleInfo, { ...opts, min, max, context: opts.context || 'stroke' });
+    console.debug('Debug: chartStyle.scaleStrokeWidth applied', {
+      base,
+      min,
+      max,
+      result,
+      context: opts.context || 'stroke'
+    }); // Debug: stroke scaling trace
+    return result;
+  };
+
+  chartStyle.estimateTickCount = function estimateTickCount(spanPx, options){
+    const px = Number(spanPx);
+    const fallback = Number.isFinite(options?.fallback) ? options.fallback : 6;
+    if(!Number.isFinite(px) || px <= 0){
+      const fallbackCount = Math.max(2, fallback);
+      console.debug('Debug: chartStyle.estimateTickCount fallback', {
+        spanPx: spanPx,
+        fallback: fallbackCount,
+        reason: 'invalid span',
+        axis: options?.axis || 'generic'
+      });
+      return fallbackCount;
+    }
+    const baseSpacing = Number.isFinite(options?.baseSpacing) ? options.baseSpacing : 80;
+    const minTicks = Number.isFinite(options?.min) ? options.min : 3;
+    const maxTicks = Number.isFinite(options?.max) ? options.max : 12;
+    const rawEstimate = px / Math.max(baseSpacing, 1);
+    const rounded = Math.round(rawEstimate);
+    const clamped = Math.min(maxTicks, Math.max(minTicks, rounded));
+    const final = Math.max(2, Number.isFinite(clamped) ? clamped : fallback);
+    console.debug('Debug: chartStyle.estimateTickCount', {
+      spanPx: px,
+      baseSpacing,
+      rawEstimate,
+      rounded,
+      minTicks,
+      maxTicks,
+      final,
+      axis: options?.axis || 'generic'
+    }); // Debug: tick estimation trace
+    return final;
   };
 
   chartStyle.measureText = function measureText(text, font){

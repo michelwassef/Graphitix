@@ -573,7 +573,7 @@
     const debugStamp = Date.now();
     console.debug('Debug: drawRoc start', {debugStamp}); // Debug: draw entry
     const graphType = refs.graphType?.value || 'roc';
-    const bw = Number(refs.borderWidth?.value) || 2;
+    const borderWidthRaw = Number(refs.borderWidth?.value) || 2;
     const showGrid = !!refs.showGrid?.checked;
     const showFrame = !!refs.showFrame?.checked;
     console.debug('Debug: roc showFrame state',{showFrame});
@@ -584,19 +584,28 @@
       height: containerRect?.height
     });
     const fontSize=fontInfo.scaledPx;
+    const styleScaleInfo=fontInfo.scaleInfo;
+    const axisStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'roc-axis', min: 0.5 });
+    const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'roc-curve', min: 0 });
+    console.debug('Debug: roc style scaling applied',{
+      borderWidthRaw,
+      borderWidthPx,
+      axisStrokeWidth,
+      styleScale: styleScaleInfo?.styleScale
+    }); // Debug: ROC style scaling summary
     if(refs.fontSizeVal){ chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo }); }
     console.debug('Debug: roc font scaling applied',{
       input:refs.fontSize?.value,
       fontSizePt:fontInfo.pt,
       baseFontPx:fontInfo.px,
       scaledFontPx:fontSize,
-      scale:fontInfo.scaleInfo?.scale,
+      scale:styleScaleInfo?.styleScale || styleScaleInfo?.scale,
       containerWidth:containerRect?.width,
       containerHeight:containerRect?.height
     });
     const axisMetrics = chartStyle.createAxisMetrics(fontSize);
     console.debug('Debug: roc axis metrics',axisMetrics);
-    const fontScale=fontInfo.scaleInfo?.scale || 1;
+    const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
     const data = state.hot.getData();
     if(!data || !data.length){
       return;
@@ -672,24 +681,58 @@
       legendScale:fontScale,
       legendCount:legendLabels.length
     });
-    const ticks = [0, 0.2, 0.4, 0.6, 0.8, 1];
+    const buildTicks = (count) => {
+      const steps = Math.max(count - 1, 1);
+      const list = Array.from({ length: steps + 1 }, (_, idx) => {
+        if(steps === 0) return 0;
+        const value = idx / steps;
+        return Number(value.toFixed(4));
+      });
+      if(list[list.length - 1] !== 1){
+        list[list.length - 1] = 1;
+      }
+      return list;
+    };
+    let tickCount = chartStyle.estimateTickCount(Math.min(width, height), { axis: graphType, fallback: 6, min: 3, max: 11 });
     const formatTick = value => value.toLocaleString('en-US',{maximumFractionDigits:2, minimumFractionDigits:2});
     const tickFont = chartStyle.makeFont(fontSize);
-    const yTickLabels = ticks.map(formatTick);
-    const xTickLabels = ticks.map(formatTick);
-    const yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
-    const maxYLabelWidth = Math.max(...yLabelWidths, 0);
     const axisLabelFont = chartStyle.makeFont(fontSize);
     const xAxisLabel = graphType === 'roc' ? 'False Positive Rate' : 'Recall';
     const yAxisLabel = graphType === 'roc' ? 'True Positive Rate' : 'Precision';
     const yTitleWidth = chartStyle.measureText(yAxisLabel, axisLabelFont);
+    let ticks = buildTicks(tickCount);
+    let yTickLabels = ticks.map(formatTick);
+    let xTickLabels = ticks.map(formatTick);
+    let yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
+    let maxYLabelWidth = Math.max(...yLabelWidths, 0);
     let margin = chartStyle.computeBaseMargins({fontSize, legendWidth, maxYLabelWidth, yTitleWidth, axisMetrics});
     let plotWidth = Math.max(20, width - margin.left - margin.right);
     let plotHeight = Math.max(20, height - margin.top - margin.bottom);
-    const bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, plotWidth, baseBottom: margin.bottom, axisMetrics});
+    let bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, plotWidth, baseBottom: margin.bottom, axisMetrics});
     margin.bottom = bottomLayout.bottom;
     plotWidth = Math.max(20, width - margin.left - margin.right);
     plotHeight = Math.max(20, height - margin.top - margin.bottom);
+    for(let pass=0; pass<2; pass++){
+      const refinedCount = chartStyle.estimateTickCount(Math.min(plotWidth, plotHeight), { axis: graphType, fallback: tickCount, min: 3, max: 11 });
+      console.debug('Debug: roc tick target evaluation',{pass,tickCount,refinedCount,plotWidth,plotHeight});
+      if(refinedCount === tickCount){
+        break;
+      }
+      tickCount = refinedCount;
+      ticks = buildTicks(tickCount);
+      yTickLabels = ticks.map(formatTick);
+      xTickLabels = ticks.map(formatTick);
+      yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
+      maxYLabelWidth = Math.max(...yLabelWidths, 0);
+      margin = chartStyle.computeBaseMargins({fontSize, legendWidth, maxYLabelWidth, yTitleWidth, axisMetrics});
+      plotWidth = Math.max(20, width - margin.left - margin.right);
+      plotHeight = Math.max(20, height - margin.top - margin.bottom);
+      bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize, plotWidth, baseBottom: margin.bottom, axisMetrics});
+      margin.bottom = bottomLayout.bottom;
+      plotWidth = Math.max(20, width - margin.left - margin.right);
+      plotHeight = Math.max(20, height - margin.top - margin.bottom);
+    }
+    console.debug('Debug: roc tick targets',{tickCount, tickSteps: Math.max(tickCount - 1, 1), ticks}); // Debug: ROC tick density summary
     const aspectData = refs.svgBox?.dataset;
     const shouldLockAspect = aspectData?.resizerAspectLocked === 'true';
     console.debug('Debug: roc aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: roc aspect toggle decision
@@ -727,13 +770,13 @@
     if(showGrid){
       ticks.forEach(tick => {
         const x = xToPx(tick);
-        add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotHeight, stroke: '#ddd'});
+        add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotHeight, stroke: '#ddd', 'stroke-width': axisStrokeWidth});
       });
       ticks.forEach(tick => {
         const y = yToPx(tick);
-        add('line', {x1: margin.left, y1: y, x2: margin.left + plotWidth, y2: y, stroke: '#ddd'});
+        add('line', {x1: margin.left, y1: y, x2: margin.left + plotWidth, y2: y, stroke: '#ddd', 'stroke-width': axisStrokeWidth});
       });
-      console.debug('Debug: roc grid uses default stroke scaling',{tickCount:ticks.length});
+      console.debug('Debug: roc grid stroke scaled',{tickCount:ticks.length,axisStrokeWidth});
     }
 
     const xTickPositions = ticks.map(tick => xToPx(tick));
@@ -746,9 +789,9 @@
     if(axisYStart === axisYEnd){ axisYStart = margin.top; axisYEnd = margin.top + plotHeight; }
     console.debug('Debug: roc axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
     const axisStroke = '#000';
-    add('line', {x1: axisXStart, y1: margin.top + plotHeight, x2: axisXEnd, y2: margin.top + plotHeight, stroke: axisStroke, 'stroke-linecap': 'square'});
-    add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square'});
-    console.debug('Debug: roc axes rely on default stroke width',{axisStroke});
+    add('line', {x1: axisXStart, y1: margin.top + plotHeight, x2: axisXEnd, y2: margin.top + plotHeight, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
+    add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
+    console.debug('Debug: roc axes stroke scaled',{axisStrokeWidth});
     if(showFrame){
       console.debug('Debug: roc frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
       chartStyle.drawPlotFrame({ svg, margin, plotW: plotWidth, plotH: plotHeight, stroke: axisStroke, sides: ['top','right'] });
@@ -769,17 +812,17 @@
     const tickGap = axisMetrics.tickLabelGap;
     ticks.forEach(tick => {
       const x = xToPx(tick);
-      add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + tickLen, stroke: '#000'});
+      add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + tickLen, stroke: '#000', 'stroke-width': axisStrokeWidth});
       const txt = add('text', {x, y: margin.top + plotHeight + tickLen + tickGap, 'text-anchor': 'middle', 'font-size': fontSize, 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
       xTickNodes.push(txt);
     });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
     ticks.forEach(tick => {
       const y = yToPx(tick);
-      add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000'});
+      add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': axisStrokeWidth});
       add('text', {x: margin.left - (tickLen + tickGap), y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
     });
-    console.debug('Debug: roc ticks rely on default stroke width',{tickCount:ticks.length});
+    console.debug('Debug: roc ticks stroke scaled',{tickCount:ticks.length,axisStrokeWidth});
 
     add('text', {
       x: margin.left + plotWidth / 2,
@@ -899,7 +942,7 @@
         const y = yToPx(point.y);
         path += `${idx ? 'L' : 'M'}${x} ${y}`;
       });
-      add('path', {d: path, fill: 'none', stroke: color, 'stroke-width': bw});
+      add('path', {d: path, fill: 'none', stroke: color, 'stroke-width': borderWidthPx});
     });
 
     const legendMargin=Math.max(6,Math.round(8*fontScale));

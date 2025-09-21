@@ -419,8 +419,47 @@ function renderStatsControls(traces){
     controls.appendChild(label);
   });
 }
-  function annotatePair(svg,x1,x2,y,p){ const path=document.createElementNS(NS,'path'); path.setAttribute('d',`M${x1},${y} L${x1},${y-10} L${x2},${y-10} L${x2},${y}`); path.setAttribute('stroke','#000'); path.setAttribute('fill','none'); svg.appendChild(path); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',(x1+x2)/2); txt.setAttribute('y',y-12); txt.setAttribute('text-anchor','middle'); txt.textContent=p2stars(p); svg.appendChild(txt); }
-  function annotateOverall(svg,xCenters,y2px,maxVal,p,level=0){ const y=y2px(maxVal)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP; const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2); txt.setAttribute('y',y-12); txt.setAttribute('text-anchor','middle'); txt.textContent=p2stars(p); svg.appendChild(txt); }
+  function annotatePair(svg,x1,x2,y,p,styleOptions){
+    const opts=styleOptions||{};
+    const strokeWidth=typeof opts.strokeWidth==='number'
+      ? opts.strokeWidth
+      : chartStyle.scaleStrokeWidth(1, opts.styleScaleInfo, { context: 'box-annotation', min: 0.5 });
+    const path=document.createElementNS(NS,'path');
+    path.setAttribute('d',`M${x1},${y} L${x1},${y-10} L${x2},${y-10} L${x2},${y}`);
+    path.setAttribute('stroke','#000');
+    if(Number.isFinite(strokeWidth)){
+      path.setAttribute('stroke-width',strokeWidth);
+    }
+    path.setAttribute('fill','none');
+    svg.appendChild(path);
+    const txt=document.createElementNS(NS,'text');
+    txt.setAttribute('x',(x1+x2)/2);
+    txt.setAttribute('y',y-12);
+    txt.setAttribute('text-anchor','middle');
+    if(Number.isFinite(opts.fontSize)){
+      txt.setAttribute('font-size',opts.fontSize);
+    }
+    txt.textContent=p2stars(p);
+    svg.appendChild(txt);
+    console.debug('Debug: box annotatePair scaling',{strokeWidth,fontSize:opts.fontSize});
+  }
+  function annotateOverall(svg,xCenters,y2px,maxVal,p,level=0,styleOptions){
+    const opts=styleOptions||{};
+    const baseOffset=Number.isFinite(opts.baseOffset)?opts.baseOffset:ANN_BASE_OFFSET;
+    const levelGap=Number.isFinite(opts.levelGap)?opts.levelGap:ANN_LEVEL_GAP;
+    const fontSize=opts.fontSize;
+    const y=y2px(maxVal)-baseOffset-level*levelGap;
+    const txt=document.createElementNS(NS,'text');
+    txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2);
+    txt.setAttribute('y',y-12);
+    txt.setAttribute('text-anchor','middle');
+    if(Number.isFinite(fontSize)){
+      txt.setAttribute('font-size',fontSize);
+    }
+    txt.textContent=p2stars(p);
+    svg.appendChild(txt);
+    console.debug('Debug: box annotateOverall scaling',{baseOffset,levelGap,fontSize});
+  }
   function renderStatsTable(traces){ const tableDiv=document.getElementById('statsTable'); if(!tableDiv) return; const rows=traces.map(t=>{ const arr=t.rawY; const n=arr.length; const mean=arr.reduce((s,v)=>s+v,0)/n; const med=arr.slice().sort((a,b)=>a-b)[Math.floor(n/2)] ?? NaN; const sd=global.jStat.stdev(arr,true); const min=Math.min(...arr); const q1=global.jStat.percentile(arr,0.25); const q3=global.jStat.percentile(arr,0.75); const max=Math.max(...arr); return {name:t.name,n,mean,med,sd,min,q1,q3,max}; }); let html='<table style="border-collapse:collapse">'; html+='<thead><tr>'+['Column','N','Mean','Median','SD','Min','Q1','Q3','Max'].map(h=>`<th style="border:1px solid #ccc;padding:4px">${h}</th>`).join('')+'</tr></thead>'; html+='<tbody>'+rows.map(r=>`<tr><td style=\"border:1px solid #ccc;padding:4px\">${r.name}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.n}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.mean.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.med.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.sd.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.min}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.q1.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.q3.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.max}</td></tr>`).join('')+'</tbody></table>'; tableDiv.innerHTML=html; }
 
   // Compute and render statistics and p-value annotations
@@ -428,6 +467,10 @@ function renderStatsControls(traces){
     const statsDiv=document.getElementById('statsResults');
     if(!statsDiv){ console.warn('Debug: statsResults element not found'); return; }
     statsDiv.innerHTML='';
+    const annotationOpts=helpers?.annotationStyle||{};
+    const baseOffset=Number.isFinite(annotationOpts.baseOffset)?annotationOpts.baseOffset:ANN_BASE_OFFSET;
+    const levelGap=Number.isFinite(annotationOpts.levelGap)?annotationOpts.levelGap:ANN_LEVEL_GAP;
+    console.debug('Debug: box annotation offsets',{baseOffset,levelGap});
     // Custom pairs mode
     if(state.statsMode==='custom'){
       if(!state.statsCustomPairs.length){ statsDiv.textContent='Specify pairs for comparison.'; return; }
@@ -452,8 +495,8 @@ function renderStatsControls(traces){
         const placed=[];
         pairs.forEach(pr=>{
           let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
-          const y=helpers.y2px(pr.rangeMax)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP;
-          annotatePair(svg,helpers.xCenter(pr.ai),helpers.xCenter(pr.bi),y,pr.p);
+          const y=helpers.y2px(pr.rangeMax)-baseOffset-level*levelGap;
+          annotatePair(svg,helpers.xCenter(pr.ai),helpers.xCenter(pr.bi),y,pr.p,helpers.annotationStyle);
           pr.level=level; placed.push(pr);
         });
       }
@@ -476,7 +519,7 @@ function renderStatsControls(traces){
       const statName=res.t!==undefined?'t':res.U!==undefined?'U':res.W!==undefined?'W':'stat';
       const rows=[ ['Comparison', `${labels[0]} vs ${labels[1]}`], ['Test', param?(state.statsPaired?'Paired t-test':'t-test'):(state.statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U')], [statName, res[statName].toFixed(4)] ]; if(res.df!==undefined) rows.push(['df', res.df.toFixed(4)]); rows.push(['P value', formatP(res.p)]);
       statsDiv.innerHTML='<table>'+rows.map(r=>`<tr><th>${r[0]}</th><td>${r[1]}</td></tr>`).join('')+'</table>';
-      const from=Math.min(indices[0],indices[1]); const to=Math.max(indices[0],indices[1]); let rangeMax=-Infinity; for(let k=from;k<=to;k++) rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); const y=helpers.y2px(rangeMax)-ANN_BASE_OFFSET; annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),y,res.p); return;
+      const from=Math.min(indices[0],indices[1]); const to=Math.max(indices[0],indices[1]); let rangeMax=-Infinity; for(let k=from;k<=to;k++) rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); const y=helpers.y2px(rangeMax)-baseOffset; annotatePair(svg,helpers.xCenter(indices[0]),helpers.xCenter(indices[1]),y,res.p,helpers.annotationStyle); return;
     }
     // Multi-group
     let overall=null; if(!state.statsPaired){ overall=overallTest(groups); }
@@ -517,12 +560,12 @@ function renderStatsControls(traces){
       statsDiv.innerHTML=html;
       pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
       const placed=[];
-      pairs.forEach(pr=>{ let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++; const y=helpers.y2px(pr.rangeMax)-ANN_BASE_OFFSET-level*ANN_LEVEL_GAP; annotatePair(svg,helpers.xCenter(pr.ai),helpers.xCenter(pr.bi),y,pr.p); pr.level=level; placed.push(pr); });
+      pairs.forEach(pr=>{ let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++; const y=helpers.y2px(pr.rangeMax)-baseOffset-level*levelGap; annotatePair(svg,helpers.xCenter(pr.ai),helpers.xCenter(pr.bi),y,pr.p,helpers.annotationStyle); pr.level=level; placed.push(pr); });
       const maxLevel=Math.max(...pairs.map(pr=>pr.level));
       void maxLevel;
     } else {
       // No pairwise; show overall only if available
-      if(!state.statsPaired && indices.length>2 && overall){ annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p,0); }
+      if(!state.statsPaired && indices.length>2 && overall){ annotateOverall(svg,xs,helpers.y2px,maxVal,overall.p,0,helpers.annotationStyle); }
     }
   }
 
@@ -530,7 +573,9 @@ function renderStatsControls(traces){
   function draw(){
     const token=++state.drawToken; console.log('boxplot draw start',{token});
     const colorMode=els.boxColorUnified.checked?'unified':'individual';
-    const defaultFill=els.boxFill.value; const defaultBorder=els.boxBorder.value; const bw=Number(els.boxBorderWidth.value);
+    const defaultFill=els.boxFill.value;
+    const defaultBorder=els.boxBorder.value;
+    const borderWidthRaw=Number(els.boxBorderWidth.value);
     const containerRect=els.svgBox?.getBoundingClientRect?.();
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: els.boxFontSize.value,
@@ -538,6 +583,14 @@ function renderStatsControls(traces){
       height: containerRect?.height
     });
     const fs=fontInfo.scaledPx;
+    const styleScaleInfo=fontInfo.scaleInfo;
+    const axisStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-axis', min: 0.5 });
+    const gridStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-grid', min: 0.25 });
+    const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'box-border', min: 0 });
+    const pointRadius=chartStyle.scaleRadius(3, styleScaleInfo, { context: 'box-point', min: 0.75 });
+    const annotationStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-annotation', min: 0.5 });
+    const annotationBaseOffset=chartStyle.scaleLength(ANN_BASE_OFFSET, styleScaleInfo, { context: 'box-annotation-offset', min: 10 });
+    const annotationLevelGap=chartStyle.scaleLength(ANN_LEVEL_GAP, styleScaleInfo, { context: 'box-annotation-gap', min: 8 });
     chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, fontInfo });
     console.debug('Debug: box font scaling applied',{
       input:els.boxFontSize.value,
@@ -547,6 +600,17 @@ function renderStatsControls(traces){
       scale:fontInfo.scaleInfo?.scale,
       containerWidth:containerRect?.width,
       containerHeight:containerRect?.height
+    });
+    console.debug('Debug: box style scaling applied',{
+      borderWidthRaw,
+      borderWidthPx,
+      axisStrokeWidth,
+      gridStrokeWidth,
+      pointRadius,
+      annotationStrokeWidth,
+      annotationBaseOffset,
+      annotationLevelGap,
+      styleScale:styleScaleInfo?.styleScale
     });
     const axisMetrics=chartStyle.createAxisMetrics(fs);
     console.debug('Debug: box axis metrics',axisMetrics);
@@ -580,19 +644,63 @@ function renderStatsControls(traces){
       console.debug('Debug: box bar axis zero clamp',{beforeYMin,beforeYMax,ymin,ymax}); // Debug: bar axis zero enforcement
     }
     function niceNum(range,round){ const exp=Math.floor(Math.log10(range)); const f=range/Math.pow(10,exp); let nf; if(round){ if(f<1.5) nf=1; else if(f<3) nf=2; else if(f<7) nf=5; else nf=10; } else { if(f<=1) nf=1; else if(f<=2) nf=2; else if(f<=5) nf=5; else nf=10; } return nf*Math.pow(10,exp); }
-    function niceScale(min,max,maxTicks){ const range=niceNum(max-min,false); const step=niceNum(range/(maxTicks-1),true); const graphMin=Math.floor(min/step)*step; const graphMax=Math.ceil(max/step)*step; const ticks=[]; for(let v=graphMin; v<=graphMax+1e-9; v+=step) ticks.push(v); return {min:graphMin,max:graphMax,ticks,step}; }
-    const yScale=niceScale(ymin,ymax,6);
+    function niceScale(min,max,maxTicks){ const range=niceNum(max-min,false); const step=niceNum(range/(Math.max(maxTicks-1,1)),true); const graphMin=Math.floor(min/step)*step; const graphMax=Math.ceil(max/step)*step; const ticks=[]; for(let v=graphMin; v<=graphMax+1e-9; v+=step) ticks.push(v); return {min:graphMin,max:graphMax,ticks,step}; }
+    let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
+    const tickFont=chartStyle.makeFont(fs);
+    const axisLabelFont=chartStyle.makeFont(fs);
+    const yTitleWidthBase=chartStyle.measureText(state.yLabelText,axisLabelFont);
+    const tickLen=axisMetrics.tickLength;
+    const tickGap=axisMetrics.tickLabelGap;
+    const maxLevelEstimate=state.selectedCols.size>1?state.selectedCols.size:0;
+    const topExtra=maxLevelEstimate?(annotationBaseOffset+maxLevelEstimate*annotationLevelGap):0;
+    const labelTexts=labelsUsed.map((lab,i)=>lab||`Col ${i+1}`);
+    let margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics});
+    margin.top+=topExtra;
+    margin.left=Math.max(margin.left,fs*0.5);
+    let plotW=Math.max(20, W - margin.left - margin.right);
+    let plotH=Math.max(20, H - margin.top - margin.bottom);
+    let bottomLayout=chartStyle.computeBottomLayout({labels:labelTexts,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+    margin.bottom=bottomLayout.bottom;
+    plotW=Math.max(20, W - margin.left - margin.right);
+    plotH=Math.max(20, H - margin.top - margin.bottom);
     function formatTick(v){ return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false}); }
-    const tickFont=chartStyle.makeFont(fs); const tickLabels=yScale.ticks.map(t=>formatTick(logScale?Math.pow(10,t):t)); const tickWidths=tickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont)); const maxTickWidth=Math.max(...tickWidths,0); const tickLen=axisMetrics.tickLength; const tickGap=axisMetrics.tickLabelGap; const yLabelGap=maxTickWidth+tickLen+tickGap; const axisLabelFont=chartStyle.makeFont(fs); const yTitleWidth=chartStyle.measureText(state.yLabelText,axisLabelFont); const maxLevelEstimate=state.selectedCols.size>1?state.selectedCols.size:0; const topExtra=maxLevelEstimate?(ANN_BASE_OFFSET+maxLevelEstimate*ANN_LEVEL_GAP):0; let margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth:maxTickWidth,yTitleWidth,axisMetrics}); margin.top+=topExtra; margin.left=Math.max(margin.left,yLabelGap+fs*0.5);
-    let plotW=Math.max(20, W - margin.left - margin.right); let plotH=Math.max(20, H - margin.top - margin.bottom); const labelTexts=labelsUsed.map((lab,i)=>lab||`Col ${i+1}`); const bottomLayout=chartStyle.computeBottomLayout({labels:labelTexts,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics}); margin.bottom=bottomLayout.bottom; plotW=Math.max(20, W - margin.left - margin.right); plotH=Math.max(20, H - margin.top - margin.bottom); console.debug('Debug: box layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); let bandW=plotW/labelsUsed.length;
+    let yScale=niceScale(ymin,ymax,yTickTarget);
+    let tickLabels=yScale.ticks.map(t=>formatTick(logScale?Math.pow(10,t):t));
+    let tickWidths=tickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
+    let maxTickWidth=Math.max(...tickWidths,0);
+    let yLabelGap=maxTickWidth+tickLen+tickGap;
+    for(let pass=0;pass<2;pass++){
+      yScale=niceScale(ymin,ymax,yTickTarget);
+      tickLabels=yScale.ticks.map(t=>formatTick(logScale?Math.pow(10,t):t));
+      tickWidths=tickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
+      maxTickWidth=Math.max(...tickWidths,0);
+      yLabelGap=maxTickWidth+tickLen+tickGap;
+      margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth:maxTickWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
+      margin.top+=topExtra;
+      margin.left=Math.max(margin.left,yLabelGap+fs*0.5);
+      plotW=Math.max(20, W - margin.left - margin.right);
+      plotH=Math.max(20, H - margin.top - margin.bottom);
+      bottomLayout=chartStyle.computeBottomLayout({labels:labelTexts,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+      margin.bottom=bottomLayout.bottom;
+      plotW=Math.max(20, W - margin.left - margin.right);
+      plotH=Math.max(20, H - margin.top - margin.bottom);
+      const refinedTickTarget=chartStyle.estimateTickCount(plotH,{axis:'y',fallback:yTickTarget});
+      console.debug('Debug: box tick target evaluation',{pass,plotH,yTickTarget,refinedTickTarget});
+      if(refinedTickTarget===yTickTarget){
+        break;
+      }
+      yTickTarget=refinedTickTarget;
+    }
+    console.debug('Debug: box layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,yTickTarget});
+    let bandW=plotW/labelsUsed.length;
     const y2px=v => margin.top + plotH * (1 - (v - yScale.min) / (yScale.max - yScale.min)); const boxW=Math.max(6, Math.min(60, bandW * 0.6)); const xCenter=i => margin.left + (i + 0.5) * bandW;
     const yAxisX = margin.left;
     const xAxisY = graphType === 'bar' ? y2px(0) : margin.top + plotH;
     function percentile(sorted, p){ if(!sorted.length) return NaN; const pos=(sorted.length-1)*p; const base=Math.floor(pos); const rest=pos-base; return (sorted[base+1]!==undefined)? sorted[base] + rest * (sorted[base+1]-sorted[base]) : sorted[base]; }
     function add(tag,attrs){ const el=document.createElementNS(NS,tag); for (const [k,v] of Object.entries(attrs)) el.setAttribute(k,String(v)); svg.appendChild(el); return el; }
     if (showGrid) {
-      yScale.ticks.forEach(t => { const y=y2px(t); add('line',{ x1:yAxisX,y1:y,x2:yAxisX+plotW,y2:y,stroke:'#ddd' }); });
-      console.debug('Debug: box grid uses default stroke scaling',{horizontal:yScale.ticks.length});
+      yScale.ticks.forEach(t => { const y=y2px(t); add('line',{ x1:yAxisX,y1:y,x2:yAxisX+plotW,y2:y,stroke:'#ddd','stroke-width':gridStrokeWidth }); });
+      console.debug('Debug: box grid stroke scaled',{horizontal:yScale.ticks.length,gridStrokeWidth});
     }
     const yTickPositions=yScale.ticks.map(t=>y2px(t));
     let axisYStart=yTickPositions.length?Math.min(...yTickPositions):margin.top;
@@ -602,8 +710,8 @@ function renderStatsControls(traces){
     axisYEnd=Math.max(axisYEnd,xAxisY);
     console.debug('Debug: box axis join span',{axisYStart,axisYEnd,xAxisY,yAxisX}); // Debug: axis join calculations
     const axisStroke = '#000';
-    add('line',{ x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square' });
-    yScale.ticks.forEach(t => { const y=y2px(t); add('line',{ x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000' }); const txt=add('text',{ x:yAxisX - (tickLen+tickGap), y, 'font-size':fs, 'text-anchor':'end', 'dominant-baseline':'middle', fill:chartStyle.TEXT_COLOR }); txt.textContent=formatTick(logScale?Math.pow(10,t):t); });
+    add('line',{ x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth });
+    yScale.ticks.forEach(t => { const y=y2px(t); add('line',{ x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':axisStrokeWidth }); const txt=add('text',{ x:yAxisX - (tickLen+tickGap), y, 'font-size':fs, 'text-anchor':'end', 'dominant-baseline':'middle', fill:chartStyle.TEXT_COLOR }); txt.textContent=formatTick(logScale?Math.pow(10,t):t); });
     const xTickPositions=labelsUsed.map((_,i)=>xCenter(i));
     let axisXStart=xTickPositions.length?Math.min(...xTickPositions):yAxisX;
     let axisXEnd=xTickPositions.length?Math.max(...xTickPositions):yAxisX+plotW;
@@ -613,18 +721,29 @@ function renderStatsControls(traces){
     const frameXMax = yAxisX + plotW;
     axisXEnd=Math.max(axisXEnd, frameXMax);
     console.debug('Debug: box x-axis span',{axisXStart,axisXEnd,yAxisX,frameXMax});
-    add('line', { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square' });
-    console.debug('Debug: box axes rely on default stroke width',{axisStroke});
+    add('line', { x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+    console.debug('Debug: box axes stroke scaled',{axisStrokeWidth});
     if(showFrame){
       console.debug('Debug: box frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
-      chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
+      const doc=svg.ownerDocument||global.document;
+      const frameGroup=doc?.createElementNS ? doc.createElementNS(NS,'g') : null;
+      if(frameGroup){
+        frameGroup.setAttribute('stroke-width',axisStrokeWidth);
+        frameGroup.setAttribute('fill','none');
+        svg.appendChild(frameGroup);
+        chartStyle.drawPlotFrame({ svg, group: frameGroup, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
+        console.debug('Debug: box frame stroke scaled',{axisStrokeWidth});
+      }else{
+        chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
+        console.debug('Debug: box frame group fallback used');
+      }
     }
     // Frame closes box/bar plot area using axis styling continuity
     const xLabelOffset=tickLen+tickGap;
     const xLabels=[];
     labelsUsed.forEach((lab,i)=>{
       const x=xCenter(i);
-      add('line', { x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000' });
+      add('line', { x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':axisStrokeWidth });
       const labelText=lab||`Col ${i+1}`;
       const t=add('text',{ x, y:xAxisY + xLabelOffset, 'font-size':fs, 'text-anchor':'middle','dominant-baseline':'hanging', fill:chartStyle.TEXT_COLOR });
       t.textContent=labelText;
@@ -632,7 +751,7 @@ function renderStatsControls(traces){
       enableLabelDrag(t,i);
       xLabels.push(t);
     });
-    console.debug('Debug: box ticks rely on default stroke width',{yTickCount:yScale.ticks.length,xTickCount:labelsUsed.length});
+    console.debug('Debug: box ticks stroke scaled',{yTickCount:yScale.ticks.length,xTickCount:labelsUsed.length,axisStrokeWidth});
     chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
     function enableLabelDrag(t, idx){ t.addEventListener('mousedown', e => { e.preventDefault(); const svgRect=svg.getBoundingClientRect(); const onMove=ev=>{ const svgX=ev.clientX - svgRect.left; t.setAttribute('x', svgX); }; const onUp=ev=>{ document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp); const svgX=ev.clientX - svgRect.left; let targetIdx=Math.floor((svgX - margin.left)/bandW); targetIdx=Math.max(0,Math.min(labelsUsed.length-1,targetIdx)); if(targetIdx!==idx){ const moved=state.colOrder.splice(idx,1)[0]; state.colOrder.splice(targetIdx,0,moved); } console.log('boxplot label drag end',{from:idx,to:targetIdx}); state.scheduleDraw(); }; document.addEventListener('mousemove',onMove); document.addEventListener('mouseup',onUp); }); }
     const yX = margin.left - (maxTickWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5); const yText = add('text', { x: yX, y: margin.top + plotH / 2, transform: `rotate(-90 ${yX} ${margin.top + plotH / 2})`, 'text-anchor': 'middle', 'font-size': fs, fill:chartStyle.TEXT_COLOR }); yText.textContent = state.yLabelText; makeEditable(yText,txt=>{state.yLabelText=txt;});
@@ -646,30 +765,30 @@ function renderStatsControls(traces){
       const borderColor=colorMode==='individual'? (state.borderColors[i]||shadeColor(fillColor,-30)) : defaultBorder;
       if (graphType === 'box' || graphType === 'notched') {
         if(graphType === 'box'){
-          add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: borderColor, 'stroke-width': bw });
-          add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: borderColor, 'stroke-width': bw });
+          add('rect', { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+          add('line', { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
         } else {
           const notchSpan = 1.57 * (iqr) / Math.sqrt(vals.length);
           let notchLower = Math.max(q1, med - notchSpan);
           let notchUpper = Math.min(q3, med + notchSpan);
           if (notchLower > notchUpper) { const mid=(notchLower+notchUpper)/2; notchLower=notchUpper=mid; }
-          const yNL=y2px(notchLower), yNU=y2px(notchUpper); const notchWidth=boxW*0.4; const xNL=cx - notchWidth/2; const xNR=cx + notchWidth/2; const d=[`M ${x0} ${yQ3}`,`L ${x1} ${yQ3}`,`L ${x1} ${yNU}`,`L ${xNR} ${yMed}`,`L ${x1} ${yNL}`,`L ${x1} ${yQ1}`,`L ${x0} ${yQ1}`,`L ${x0} ${yNL}`,`L ${xNL} ${yMed}`,`L ${x0} ${yNU}`,'Z'].join(' '); add('path',{d, fill: fillColor, stroke: borderColor, 'stroke-width': bw}); add('line', { x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: borderColor, 'stroke-width': bw });
+          const yNL=y2px(notchLower), yNU=y2px(notchUpper); const notchWidth=boxW*0.4; const xNL=cx - notchWidth/2; const xNR=cx + notchWidth/2; const d=[`M ${x0} ${yQ3}`,`L ${x1} ${yQ3}`,`L ${x1} ${yNU}`,`L ${xNR} ${yMed}`,`L ${x1} ${yNL}`,`L ${x1} ${yQ1}`,`L ${x0} ${yQ1}`,`L ${x0} ${yNL}`,`L ${xNL} ${yMed}`,`L ${x0} ${yNU}`,'Z'].join(' '); add('path',{d, fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx}); add('line', { x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
         }
-        add('line', { x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: borderColor, 'stroke-width': bw });
-        add('line', { x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': bw });
-        if(showCaps){ const cap=Math.max(6, boxW*0.4); add('line',{x1:cx-cap/2,y1:yWMax,x2:cx+cap/2,y2:yWMax,stroke:borderColor,'stroke-width':bw}); add('line',{x1:cx-cap/2,y1:yWMin,x2:cx+cap/2,y2:yWMin,stroke:borderColor,'stroke-width':bw}); }
+        add('line', { x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: borderColor, 'stroke-width': borderWidthPx });
+        add('line', { x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': borderWidthPx });
+        if(showCaps){ const cap=Math.max(6, boxW*0.4); add('line',{x1:cx-cap/2,y1:yWMax,x2:cx+cap/2,y2:yWMax,stroke:borderColor,'stroke-width':borderWidthPx}); add('line',{x1:cx-cap/2,y1:yWMin,x2:cx+cap/2,y2:yWMin,stroke:borderColor,'stroke-width':borderWidthPx}); }
       }
       if (graphType === 'bar'){
-        const mean=t.y.reduce((a,b)=>a+b,0)/t.y.length; const sd=Math.sqrt(t.y.reduce((a,b)=>a+Math.pow(b-mean,2),0)/(t.y.length-1||1)); const yMean=y2px(mean); const yZero=y2px(0); const rectY=Math.min(yMean,yZero); const rectH=Math.abs(yZero-yMean); add('rect',{ x:x0, y:rectY, width:boxW, height:Math.max(1,rectH), fill:fillColor, stroke:borderColor, 'stroke-width':bw }); const ySdTop=y2px(mean+sd); const cap=Math.max(6, boxW*0.4); if(errorMode==='both'){ const ySdBottom=y2px(mean-sd); add('line',{x1:cx,y1:ySdTop,x2:cx,y2:ySdBottom,stroke:borderColor,'stroke-width':bw}); add('line',{x1:cx-cap/2,y1:ySdBottom,x2:cx+cap/2,y2:ySdBottom,stroke:borderColor,'stroke-width':bw}); } else { add('line',{x1:cx,y1:ySdTop,x2:cx,y2:yMean,stroke:borderColor,'stroke-width':bw}); } add('line',{x1:cx-cap/2,y1:ySdTop,x2:cx+cap/2,y2:ySdTop,stroke:borderColor,'stroke-width':bw});
+        const mean=t.y.reduce((a,b)=>a+b,0)/t.y.length; const sd=Math.sqrt(t.y.reduce((a,b)=>a+Math.pow(b-mean,2),0)/(t.y.length-1||1)); const yMean=y2px(mean); const yZero=y2px(0); const rectY=Math.min(yMean,yZero); const rectH=Math.abs(yZero-yMean); add('rect',{ x:x0, y:rectY, width:boxW, height:Math.max(1,rectH), fill:fillColor, stroke:borderColor, 'stroke-width':borderWidthPx }); const ySdTop=y2px(mean+sd); const cap=Math.max(6, boxW*0.4); if(errorMode==='both'){ const ySdBottom=y2px(mean-sd); add('line',{x1:cx,y1:ySdTop,x2:cx,y2:ySdBottom,stroke:borderColor,'stroke-width':borderWidthPx}); add('line',{x1:cx-cap/2,y1:ySdBottom,x2:cx+cap/2,y2:ySdBottom,stroke:borderColor,'stroke-width':borderWidthPx}); } else { add('line',{x1:cx,y1:ySdTop,x2:cx,y2:yMean,stroke:borderColor,'stroke-width':borderWidthPx}); } add('line',{x1:cx-cap/2,y1:ySdTop,x2:cx+cap/2,y2:ySdTop,stroke:borderColor,'stroke-width':borderWidthPx});
       }
       if(pointMode!=='none'){
         console.time(`boxplotPoints_${token}_${i}`);
         const frag=document.createDocumentFragment(); let ptIdx=0;
         if(pointMode==='outliers'){
-          for(const v of outliers){ const c=document.createElementNS(NS,'circle'); c.setAttribute('cx',cx); c.setAttribute('cy',y2px(v)); c.setAttribute('r',3); c.setAttribute('fill',fillColor); c.setAttribute('stroke',borderColor); frag.appendChild(c); ptIdx++; if(ptIdx%10000===0){ console.log('boxplot outlier progress',{index:i,ptIdx,token}); } }
+          for(const v of outliers){ const c=document.createElementNS(NS,'circle'); c.setAttribute('cx',cx); c.setAttribute('cy',y2px(v)); c.setAttribute('r',pointRadius); c.setAttribute('fill',fillColor); c.setAttribute('stroke',borderColor); frag.appendChild(c); ptIdx++; if(ptIdx%10000===0){ console.log('boxplot outlier progress',{index:i,ptIdx,token}); } }
         } else {
           for(const v of vals){ const cy=y2px(v); let px; if(pointMode==='overlay'){ px=cx + (Math.random()-0.5)*boxW*0.6; } else { px=x0 - boxW*0.3 + (Math.random()-0.5)*boxW*0.2; }
-            const c=document.createElementNS(NS,'circle'); c.setAttribute('cx',px); c.setAttribute('cy',cy); c.setAttribute('r',3); c.setAttribute('fill',fillColor); c.setAttribute('stroke',borderColor); if(pointMode==='overlay'){ c.setAttribute('fill-opacity',0.6); } frag.appendChild(c); ptIdx++; if(ptIdx%10000===0){ console.log('boxplot point progress',{index:i,ptIdx,token}); }
+            const c=document.createElementNS(NS,'circle'); c.setAttribute('cx',px); c.setAttribute('cy',cy); c.setAttribute('r',pointRadius); c.setAttribute('fill',fillColor); c.setAttribute('stroke',borderColor); if(pointMode==='overlay'){ c.setAttribute('fill-opacity',0.6); } frag.appendChild(c); ptIdx++; if(ptIdx%10000===0){ console.log('boxplot point progress',{index:i,ptIdx,token}); }
           }
         }
         add('g',{'data-trace':i}).appendChild(frag); console.timeEnd(`boxplotPoints_${token}_${i}`);
@@ -677,7 +796,10 @@ function renderStatsControls(traces){
     }
     if(token!==state.drawToken){ console.log('boxplot draw cancelled before finalize',{token}); return; }
     const titleText = add('text', { x: margin.left + plotW / 2, y: margin.top / 2, 'text-anchor': 'middle', 'font-size': fs, fill:chartStyle.TEXT_COLOR }); titleText.textContent = state.titleText; makeEditable(titleText,txt=>{state.titleText=txt;});
-    const helpers={xCenter,y2px}; computeStats(traces,svg,helpers); renderStatsTable(traces);
+    const helpers={xCenter,y2px,annotationStyle:{ styleScaleInfo, fontSize: fs, strokeWidth: annotationStrokeWidth, baseOffset: annotationBaseOffset, levelGap: annotationLevelGap }};
+    console.debug('Debug: box annotation style forwarded',helpers.annotationStyle);
+    computeStats(traces,svg,helpers);
+    renderStatsTable(traces);
     const otherBoxes=Array.from(svg.children).filter(el=>el!==titleText && el.getBBox).map(el=>el.getBBox()); const topMost=Math.min(...otherBoxes.map(b=>b.y)); const spacing=fs+4; const newY=Math.max(spacing,topMost-spacing); titleText.setAttribute('y',newY);
     autoResizeSvg(svg);
     console.log('boxplot render complete');

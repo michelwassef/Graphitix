@@ -231,7 +231,8 @@
         pt: scaled.pt,
         px: scaled.scaledPx,
         basePx: scaled.px,
-        scale: scaled.scaleInfo?.scale || 1
+        scale: scaled.scaleInfo?.styleScale || scaled.scaleInfo?.scale || 1,
+        scaleInfo: scaled.scaleInfo
       };
     } else if (typeof chartStyle.normalizeFontSize === 'function') {
       const base = chartStyle.normalizeFontSize(raw);
@@ -1095,11 +1096,14 @@
     const pairs = { nAB: counts.AB + counts.ABC, nAC: counts.AC + counts.ABC, nBC: counts.BC + counts.ABC };
     const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
     const fontSettings = resolveFontSettings(inputs.fontsize.value);
+    const borderWidthRaw = Number(inputs.borderWidth.value);
+    const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, fontSettings.scaleInfo, { context: 'venn-border', min: 0 });
     const style = {
       colorA: inputs.colorA.value, colorB: inputs.colorB.value, colorC: inputs.colorC.value,
       opacity: inputs.opacity.value, fontsize: fontSettings.px, fontPt: fontSettings.pt,
-      borderColor: inputs.borderColor.value, borderWidth: inputs.borderWidth.value
+      borderColor: inputs.borderColor.value, borderWidth: borderWidthPx, borderWidthRaw
     };
+    console.debug('Debug: venn style scaling applied',{ borderWidthRaw, borderWidthPx, fontScale: fontSettings.scale });
     chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo: { pt: fontSettings.pt, scaledPx: fontSettings.px } });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     updateCountLabels(labels);
@@ -1132,11 +1136,14 @@
     refreshCounts(counts);
     const L = layoutFromCounts(nA, nB, nC, nAB, nAC, nBC);
     const fontSettings = resolveFontSettings(inputs.fontsize.value);
+    const borderWidthRaw = Number(inputs.borderWidth.value);
+    const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, fontSettings.scaleInfo, { context: 'venn-border', min: 0 });
     const style = {
       colorA: inputs.colorA.value, colorB: inputs.colorB.value, colorC: inputs.colorC.value,
       opacity: inputs.opacity.value, fontsize: fontSettings.px, fontPt: fontSettings.pt,
-      borderColor: inputs.borderColor.value, borderWidth: inputs.borderWidth.value
+      borderColor: inputs.borderColor.value, borderWidth: borderWidthPx, borderWidthRaw
     };
+    console.debug('Debug: venn style scaling applied',{ borderWidthRaw, borderWidthPx, fontScale: fontSettings.scale });
     chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo: { pt: fontSettings.pt, scaledPx: fontSettings.px } });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     updateCountLabels(labels);
