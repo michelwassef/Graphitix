@@ -580,7 +580,8 @@ function renderStatsControls(traces){
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: els.boxFontSize.value,
       width: containerRect?.width,
-      height: containerRect?.height
+      height: containerRect?.height,
+      svgBox: els.svgBox
     });
     const fs=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
@@ -882,3 +883,4 @@ function renderStatsControls(traces){
   box.draw = function(){ try{ if (typeof draw === 'function') draw(); } catch(e){ console.error('box.draw error', e); } };
   box.ensure = function(){ if(!box.ready) box.init(); };
 })(window);
+

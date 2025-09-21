@@ -287,7 +287,8 @@
         const fontInfo=chartStyle.resolveScaledFontSize({
           rawSize: scatterFontSize.value,
           width: containerRect?.width,
-          height: containerRect?.height
+          height: containerRect?.height,
+          svgBox: scatterSvgBox
         });
         const fs=fontInfo.scaledPx;
         const styleScaleInfo=fontInfo.scaleInfo;
@@ -873,3 +874,4 @@
   scatter.draw = function draw(){ ensureReady(); scheduleDrawScatter && scheduleDrawScatter(); };
 
 })(window);
+

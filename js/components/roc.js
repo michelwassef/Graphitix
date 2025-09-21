@@ -581,7 +581,8 @@
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: refs.fontSize?.value,
       width: containerRect?.width,
-      height: containerRect?.height
+      height: containerRect?.height,
+      svgBox: refs.svgBox
     });
     const fontSize=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
@@ -1179,3 +1180,5 @@
   roc.open = openFile;
   roc.loadFromFile = loadFromFile;
 })(window);
+
+

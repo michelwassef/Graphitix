@@ -46,7 +46,7 @@
     let histMinSvgWidth=0;
     const syncHistPanels = () => {
       Shared.syncPanelWidths(histTablePanel, histGraphPanel, histConfigPanel, state.scheduleDraw, {
-        svgBox: histSvgBox,
+        svgBox: state.svgBox,
         minSvgWidth: histMinSvgWidth,
         debugLabel: 'hist',
         panelResizer: histPanelResizer
@@ -308,7 +308,8 @@
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: histFontSize.value,
       width: containerRect?.width,
-      height: containerRect?.height
+      height: containerRect?.height,
+      svgBox: state.svgBox
     });
     const fs=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
@@ -480,3 +481,5 @@
   hist.ensure = function ensure(){ if (!hist.ready) hist.init(); };
 
 })(window);
+
+

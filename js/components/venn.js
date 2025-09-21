@@ -219,13 +219,16 @@
   }
 
   function resolveFontSettings(raw) {
-    const stageRect = state.stage?.getBoundingClientRect?.();
+    const stageEl = state.stage;
+    const stageRect = stageEl?.getBoundingClientRect?.();
+    const svgBox = stageEl?.closest?.('.svgbox') || state.graphPanel?.querySelector?.('.svgbox') || null;
     let normalized;
     if (typeof chartStyle.resolveScaledFontSize === 'function') {
       const scaled = chartStyle.resolveScaledFontSize({
         rawSize: raw,
         width: stageRect?.width,
-        height: stageRect?.height
+        height: stageRect?.height,
+        svgBox
       });
       normalized = {
         pt: scaled.pt,
@@ -238,7 +241,7 @@
       const base = chartStyle.normalizeFontSize(raw);
       normalized = { pt: base.pt, px: base.px, basePx: base.px, scale: 1 };
     } else {
-      const basePt = chartStyle.BASE_FONT_SIZE_PT || 17;
+      const basePt = chartStyle.BASE_FONT_SIZE_PT || 13;
       const numeric = Number(raw);
       const pt = Number.isFinite(numeric) ? numeric : basePt;
       const factor = chartStyle.PT_TO_PX || (96 / 72);
@@ -249,6 +252,7 @@
       raw,
       stageWidth: stageRect?.width,
       stageHeight: stageRect?.height,
+      svgBoxFound: !!svgBox,
       normalized
     }); // Debug: font resolution trace
     return normalized;
@@ -1174,34 +1178,57 @@
   }
 
   const STYLE_KEY = 'vennStylePrefs';
+  const STYLE_VERSION = 2;
+  const LEGACY_DEFAULT_FONT_PT = 17;
 
   function loadStylePrefs() {
     const inputs = state.inputs;
     if (!inputs) return;
     try {
-      const saved = JSON.parse(localStorage.getItem(STYLE_KEY));
+      const raw = localStorage.getItem(STYLE_KEY);
+      const saved = raw ? JSON.parse(raw) : null;
+      const savedVersion = saved && Number.isFinite(Number(saved.version)) ? Number(saved.version) : 1;
+      let migrated = false;
+      let savedFontValue = saved && typeof saved.fontsize !== 'undefined' ? saved.fontsize : null;
+      if (saved && savedVersion < STYLE_VERSION) {
+        const numeric = Number(savedFontValue);
+        const basePt = chartStyle.BASE_FONT_SIZE_PT || Number(inputs.fontsize.value) || 13;
+        if (!Number.isFinite(numeric) || Math.round(numeric) === Math.round(LEGACY_DEFAULT_FONT_PT)) {
+          savedFontValue = basePt;
+          migrated = true;
+          console.debug('Debug: venn loadStylePrefs font migrated', {
+            savedFont: saved.fontsize,
+            basePt,
+            savedVersion,
+            targetVersion: STYLE_VERSION
+          }); // Debug: reset legacy default font to new baseline
+        }
+      }
       if (saved) {
         if (saved.colorA) inputs.colorA.value = saved.colorA;
         if (saved.colorB) inputs.colorB.value = saved.colorB;
         if (saved.colorC) inputs.colorC.value = saved.colorC;
         if (saved.opacity) inputs.opacity.value = saved.opacity;
-        if (saved.fontsize) {
-          const normalized = resolveFontSettings(saved.fontsize);
-          inputs.fontsize.value = normalized.pt;
-          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: normalized.pt });
-          console.debug('Debug: venn loadStylePrefs font applied', { saved: saved.fontsize, normalized });
-        }
         if (saved.borderColor) inputs.borderColor.value = saved.borderColor;
         if (saved.borderWidth) inputs.borderWidth.value = saved.borderWidth;
+        if (savedFontValue !== null && typeof savedFontValue !== 'undefined') {
+          const normalized = resolveFontSettings(savedFontValue);
+          inputs.fontsize.value = normalized.pt;
+          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo: { pt: normalized.pt, scaledPx: normalized.px } });
+          console.debug('Debug: venn loadStylePrefs font applied', { saved: savedFontValue, normalized, savedVersion });
+        }
       }
-      if (!saved || !saved.fontsize) {
+      if (!saved || typeof savedFontValue === 'undefined' || savedFontValue === null) {
         const normalized = resolveFontSettings(inputs.fontsize.value);
         inputs.fontsize.value = normalized.pt;
-        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: normalized.pt });
+        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo: { pt: normalized.pt, scaledPx: normalized.px } });
         console.debug('Debug: venn loadStylePrefs font default', { normalized });
       }
       inputs.opacityVal.textContent = inputs.opacity.value;
       inputs.borderWidthVal.textContent = inputs.borderWidth.value;
+      if (saved && (migrated || savedVersion < STYLE_VERSION)) {
+        saveStylePrefs();
+      }
     } catch (err) {
       console.warn('Debug: venn loadStylePrefs error', err);
     }
@@ -1211,6 +1238,7 @@
     const inputs = state.inputs;
     if (!inputs) return;
     const prefs = {
+      version: STYLE_VERSION,
       colorA: inputs.colorA.value,
       colorB: inputs.colorB.value,
       colorC: inputs.colorC.value,
@@ -1968,4 +1996,5 @@
     if (!venn.ready) venn.init();
   };
 })(window);
+
 

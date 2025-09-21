@@ -314,7 +314,8 @@
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: $('#pieFontSize').value,
       width: containerRect?.width,
-      height: containerRect?.height
+      height: containerRect?.height,
+      svgBox: state.svgBox
     });
     const fs=fontInfo.scaledPx;
     chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, fontInfo });
@@ -470,3 +471,5 @@
   pie.ensure = function ensure(){ if (!pie.ready) pie.init(); };
 
 })(window);
+
+

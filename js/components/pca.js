@@ -248,7 +248,8 @@
       const fontInfo=chartStyle.resolveScaledFontSize({
         rawSize: pcaFontSize.value,
         width: containerRect?.width,
-        height: containerRect?.height
+        height: containerRect?.height,
+        svgBox: pcaSvgBox
       });
       const fs=fontInfo.scaledPx;
       const styleScaleInfo=fontInfo.scaleInfo;
@@ -799,3 +800,4 @@
   pca.draw = function draw(){ ensureReady(); scheduleDrawPca && scheduleDrawPca(); };
 
 })(window);
+

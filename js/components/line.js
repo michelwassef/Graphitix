@@ -312,7 +312,8 @@
       const fontInfo=chartStyle.resolveScaledFontSize({
         rawSize: refs.fontSize?.value,
         width: containerRect?.width,
-        height: containerRect?.height
+        height: containerRect?.height,
+        svgBox: refs.svgBox
       });
       const fs=fontInfo.scaledPx;
       const styleScaleInfo=fontInfo.scaleInfo;
@@ -895,3 +896,4 @@
   line.updateStats = updateLineStats;
 
 })(window);
+

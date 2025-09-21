@@ -7,7 +7,7 @@
   const TEXT_COLOR = '#000000';
   const BASE_BOTTOM_FACTOR = 2.4;
   const PT_TO_PX = 96 / 72;
-  const BASE_FONT_SIZE_PT = 17;
+  const BASE_FONT_SIZE_PT = 13;
   const BASE_FONT_SIZE_PX = Number((BASE_FONT_SIZE_PT * PT_TO_PX).toFixed(2));
   const DEFAULT_WIDTH = 640;
   const DEFAULT_HEIGHT = 420;
@@ -119,10 +119,24 @@
       defaultWidth: options?.defaultWidth,
       defaultHeight: options?.defaultHeight
     });
-    const lockOverride = typeof options?.lockScale === 'boolean' ? !!options.lockScale : textSizeLocked;
+    const svgBox = options?.svgBox || null;
+    const dataset = svgBox && svgBox.dataset ? svgBox.dataset : null;
+    const isManualResize = dataset ? dataset.resizerResized === 'true' : null;
+    const lockForUnresized = options?.lockScaleWhenUnresized !== false;
+    const autoLock = !isManualResize && !!dataset && lockForUnresized;
+    let lockOverride;
+    if(typeof options?.lockScale === 'boolean'){
+      lockOverride = !!options.lockScale;
+    }else if(autoLock){
+      lockOverride = true;
+    }else if(typeof options?.lockScaleDefault === 'boolean'){
+      lockOverride = !!options.lockScaleDefault;
+    }else{
+      lockOverride = textSizeLocked;
+    }
     const textScale = lockOverride ? 1 : resizeInfo.styleScale;
     const scaledPx = Math.max(4, normalized.px * textScale);
-    const scaleInfo = { ...resizeInfo, textScale, textLocked: lockOverride };
+    const scaleInfo = { ...resizeInfo, textScale, textLocked: lockOverride, manualResize: !!isManualResize };
     const result = { ...normalized, scaledPx, scaleInfo, textLocked: lockOverride };
     console.debug('Debug: chartStyle.resolveScaledFontSize', {
       raw: options?.rawSize,
@@ -132,6 +146,7 @@
       styleScale: resizeInfo.styleScale,
       textScale,
       locked: lockOverride,
+      manualResize: isManualResize,
       width: resizeInfo.width,
       height: resizeInfo.height
     }); // Debug: scaled font resolution
@@ -452,5 +467,6 @@
     return drawn;
   };
 })(window);
+
 
 

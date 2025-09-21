@@ -613,7 +613,16 @@
       baseWidth = svgCurrentWidth;
     }else{
       const fallbackWidth = Number.isFinite(tableWidth) && tableWidth > 0 ? tableWidth : svgCurrentWidth;
-      if(Number.isFinite(availableRaw)){
+      if(Number.isFinite(maxAvailable) && maxAvailable > 0){
+        baseWidth = maxAvailable;
+        console.debug('Debug: Shared.syncPanelWidths baseWidth auto-fill', {
+          label: debugLabel,
+          baseWidth,
+          maxAvailable,
+          availableRaw,
+          fallbackWidth
+        }); // Debug: initial auto width uses full graph space
+      }else if(Number.isFinite(availableRaw)){
         if(Number.isFinite(fallbackWidth) && fallbackWidth > 0){
           baseWidth = Math.min(fallbackWidth, availableRaw);
         }else{
@@ -895,6 +904,7 @@
     };
   };
 })(window);
+
 
 
 
