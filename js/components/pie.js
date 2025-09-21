@@ -19,6 +19,26 @@
 
   const PIE_DEFAULT_ROWS = 100;
   const PIE_DEFAULT_COLS = 6;
+  const PIE_RESIZER_WIDTH_SCALE = 3;
+  const PIE_RESIZER_HEIGHT_SCALE = 1;
+  const PIE_RESIZER_DEBUG_LABEL = 'pie-resizer';
+
+  function resolveResizerDefaults(){
+    const baseWidth = Number(chartStyle?.DEFAULT_WIDTH) || 640;
+    const baseHeight = Number(chartStyle?.DEFAULT_HEIGHT) || 420;
+    const defaultWidth = Math.round(baseWidth * PIE_RESIZER_WIDTH_SCALE);
+    const defaultHeight = Math.round(baseHeight * PIE_RESIZER_HEIGHT_SCALE);
+    const payload = {
+      baseWidth,
+      baseHeight,
+      defaultWidth,
+      defaultHeight,
+      widthScale: PIE_RESIZER_WIDTH_SCALE,
+      heightScale: PIE_RESIZER_HEIGHT_SCALE
+    };
+    console.debug('Debug: pie resolved resizer defaults', payload); // Debug: scaled resizer defaults
+    return payload;
+  }
 
   let state = {
     hot: null,
@@ -71,15 +91,29 @@
 
     const plotDiv=document.getElementById('piePlot');
     const container=plotDiv.closest('.svgbox')||plotDiv.parentElement;
+    const resizerDefaults = resolveResizerDefaults();
     if(global.Shared && Shared.attachResizableBox && container){
+      console.debug('Debug: pie invoking attachResizableBox', {
+        label: PIE_RESIZER_DEBUG_LABEL,
+        containerId: container?.id || 'piePlotContainer',
+        defaults: resizerDefaults,
+        hasAttach: !!Shared.attachResizableBox
+      }); // Debug: attachResizableBox payload trace
       Shared.attachResizableBox(container, {
-        defaultWidth: 640,
-        defaultHeight: 420,
+        defaultWidth: resizerDefaults.defaultWidth,
+        defaultHeight: resizerDefaults.defaultHeight,
         onResize: phase => {
           console.debug('Debug: pie svgbox resized', { phase }); // Debug: pie svgbox resize callback
           syncPiePanels();
         }
       });
+    }else{
+      console.debug('Debug: pie attachResizableBox unavailable', {
+        label: PIE_RESIZER_DEBUG_LABEL,
+        hasShared: !!global.Shared,
+        hasAttach: !!Shared.attachResizableBox,
+        containerExists: !!container
+      }); // Debug: attachResizableBox guard branch
     }
 
     if(panelResizer && tablePanel && graphPanel){

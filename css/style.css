@@ -397,21 +397,29 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
   border-radius: 2px;
 }
 @media (max-width:1000px){#histPage .wrap{grid-template-columns:1fr}}
+#piePage{
+  --pie-graph-default-width: calc(var(--graph-default-width, 640px) * 2);
+  --pie-graph-default-height: var(--graph-default-height, 420px);
+  --pie-graph-min-width: calc(var(--pie-graph-default-width) * 0.3);
+  --pie-graph-min-height: calc(var(--pie-graph-default-height) * 0.3);
+  --pie-graph-max-width: calc(var(--pie-graph-default-width) * 3);
+  --pie-graph-max-height: calc(var(--pie-graph-default-height) * 3);
+}
 #piePage .wrap{display:flex;align-items:stretch;gap:0}
 #piePage #pieTablePanel{flex:1 1 33%;min-width:150px}
 #piePage #pieGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
-#piePage .diagram-area .svgbox{flex:0 0 auto}
-#piePage .diagram-area .config-options{flex:0 0 auto}
+#piePage .diagram-area .svgbox{flex:1 1 auto;min-width:0}
+#piePage .diagram-area .config-options{flex:0 1 280px;min-width:220px}
 #piePage .panel{display:flex;flex-direction:column;min-width:0}
 #piePage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
 #piePage #piePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 #piePage .svgbox{
-  min-width: var(--graph-min-width, 192px);
-  min-height: var(--graph-min-height, 126px);
-  width: min(100%, var(--graph-default-width, 640px));
-  height: var(--graph-default-height, 420px);
-  max-width: var(--graph-max-width, 1920px);
-  max-height: var(--graph-max-height, 1260px);
+  min-width: var(--pie-graph-min-width, var(--graph-min-width, 192px));
+  min-height: var(--pie-graph-min-height, var(--graph-min-height, 126px));
+  width: min(100%, var(--pie-graph-default-width, var(--graph-default-width, 640px)));
+  height: var(--pie-graph-default-height, var(--graph-default-height, 420px));
+  max-width: var(--pie-graph-max-width, var(--graph-max-width, 1920px));
+  max-height: var(--pie-graph-max-height, var(--graph-max-height, 1260px));
 }
 #piePage .svgbox .resizer {
   position: absolute;
