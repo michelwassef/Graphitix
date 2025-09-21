@@ -335,6 +335,49 @@
     const serializer = Serializer ? new Serializer() : null;
     return svgEl => serializer ? serializer.serializeToString(svgEl) : '';
   }
+  
+  // Groups all drawable children into a single <g> so paste into Inkscape keeps them together.
+  // Keeps <defs>, <title>, <desc> at the top level, and wraps everything else.
+  // Adds a neutral transform and non-scaling-stroke at the group level for extra stability.
+  function groupNodeForPaste(svgEl, opts = {}) {
+    if (!svgEl || typeof svgEl.querySelectorAll !== 'function') return { grouped: false, moved: 0 };
+    // Opt-out flag if you ever want to disable this quickly.
+    const enabled = opts.enabled ?? (Shared?.exporter?.GROUP_FOR_PASTE ?? true);
+    if (!enabled) return { grouped: false, moved: 0 };
+
+    // If already has a single top-level <g> that holds all drawable nodes, skip.
+    const topGroups = Array.from(svgEl.children).filter(n => n.tagName && n.tagName.toLowerCase() === 'g');
+    const nonMeta = Array.from(svgEl.children).filter(n => !/^(defs|title|desc)$/i.test(n.tagName || ''));
+    if (topGroups.length === 1 && topGroups[0] === nonMeta[0]) {
+      logDebug('groupNodeForPaste skipped existing top-level group', { moved: 0 });
+      return { grouped: false, moved: 0 };
+    }
+
+    const g = svgEl.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('id', 'export-group');
+    // Belt and suspenders for Inkscape paste behavior
+    g.setAttribute('vector-effect', 'non-scaling-stroke');
+    g.setAttribute('shape-rendering', 'geometricPrecision');
+    g.setAttribute('transform', 'matrix(1 0 0 1 0 0)');
+
+    let moved = 0;
+    // Move every child except defs/title/desc into the group, preserving order
+    const toMove = Array.from(svgEl.childNodes).filter(n => {
+      const t = (n.tagName || '').toLowerCase();
+      return !(t === 'defs' || t === 'title' || t === 'desc');
+    });
+    toMove.forEach(n => {
+      g.appendChild(n); // this removes from svgEl
+      moved += 1;
+    });
+
+    // Insert group at end so defs stay first
+    svgEl.appendChild(g);
+
+    logDebug('groupNodeForPaste complete', { moved, hasDefs: !!svgEl.querySelector('defs') });
+    return { grouped: true, moved };
+  }
+
 
   function svgToXml(svgEl, contextLabel) {
     if (!svgEl) {
@@ -346,16 +389,24 @@
       const canUseOptions = serialize === Shared.serializeCleanSVG || serialize === global.serializeCleanSVG;
       let xml = '';
       let prepStats = null;
+
       const runPrepare = node => {
         try {
+          // Your existing normalization
           prepStats = prepareSvgForExport(node, contextLabel) || null;
+          // NEW — group all drawable children so paste into Inkscape keeps consistent stroke widths
+          const grp = groupNodeForPaste(node, { enabled: Shared?.exporter?.GROUP_FOR_PASTE ?? true });
+          logDebug('svgToXml group-for-paste', { contextLabel, grouped: grp.grouped, moved: grp.moved });
         } catch (prepErr) {
           console.error('exporter svgToXml prepare error', prepErr);
         }
       };
+
       if (canUseOptions) {
+        // If your serializer supports hooks, do the grouping on the live node it serializes
         xml = serialize(svgEl, { beforeSanitize: runPrepare });
       } else {
+        // Fallback — clone then prepare and group the clone
         const clone = typeof svgEl.cloneNode === 'function' ? svgEl.cloneNode(true) : svgEl;
         if (clone === svgEl) {
           logDebug('svgToXml using original element clone fallback', { contextLabel });
