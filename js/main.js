@@ -85,6 +85,38 @@
   const histStatsResults = $('#histStatsResults');
   const pieStatsResults = $('#pieStatsResults');
 
+  const textLockToggle = document.getElementById('lockFontScale');
+  if (textLockToggle && typeof chartStyle.setTextSizeLock === 'function') {
+    chartStyle.setTextSizeLock(textLockToggle.checked);
+    console.debug('Debug: main text size lock initialized', { checked: textLockToggle.checked }); // Debug: initial text lock state
+    textLockToggle.addEventListener('change', () => {
+      const locked = !!textLockToggle.checked;
+      chartStyle.setTextSizeLock(locked);
+      console.debug('Debug: main text size lock toggled', { locked }); // Debug: lock toggle handler
+      try { scheduleDrawBoxplot(); } catch (err) { console.error('main text lock box redraw error', err); }
+      try { scheduleDrawScatter(); } catch (err) { console.error('main text lock scatter redraw error', err); }
+      try { scheduleDrawPca(); } catch (err) { console.error('main text lock pca redraw error', err); }
+      try { scheduleDrawLine(); } catch (err) { console.error('main text lock line redraw error', err); }
+      try { scheduleDrawHist(); } catch (err) { console.error('main text lock hist redraw error', err); }
+      try { scheduleDrawPie(); } catch (err) { console.error('main text lock pie redraw error', err); }
+      try {
+        if (window.Components?.venn?.draw) {
+          window.Components.venn.draw();
+        }
+      } catch (err) { console.error('main text lock venn redraw error', err); }
+      try {
+        if (window.Components?.roc?.draw) {
+          window.Components.roc.draw();
+        }
+      } catch (err) { console.error('main text lock roc redraw error', err); }
+    });
+  } else {
+    console.debug('Debug: main text size lock setup skipped', {
+      hasToggle: !!textLockToggle,
+      hasSetter: typeof chartStyle.setTextSizeLock === 'function'
+    }); // Debug: lock setup skip trace
+  }
+
   // Tab elements
   const tabVenn = $('#tabVenn');
   const tabBox = $('#tabBox');

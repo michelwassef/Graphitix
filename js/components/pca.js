@@ -242,9 +242,8 @@
 
       const fill = pcaFill.value;
       const alpha = Number(pcaAlpha.value) || 0;
-      const borderWidth = Number(pcaBorderWidth.value);
+      const borderWidthRaw = Number(pcaBorderWidth.value);
       const borderColor = pcaBorder.value;
-      const bw = borderWidth;
       const containerRect=pcaSvgBox?.getBoundingClientRect?.();
       const fontInfo=chartStyle.resolveScaledFontSize({
         rawSize: pcaFontSize.value,
@@ -252,23 +251,36 @@
         height: containerRect?.height
       });
       const fs=fontInfo.scaledPx;
+      const styleScaleInfo=fontInfo.scaleInfo;
+      const axisStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'pca-axis', min: 0.5 });
+      const dotSizeRaw = Number(pcaDotSize.value) || 3;
+      const dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'pca-point', min: 0 });
+      const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'pca-border', min: 0 });
+      console.debug('Debug: pca style scaling applied',{
+        dotSizeRaw,
+        dotSizePx,
+        borderWidthRaw,
+        borderWidthPx,
+        axisStrokeWidth,
+        styleScale: styleScaleInfo?.styleScale
+      }); // Debug: pca style scaling summary
       chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, fontInfo });
       console.debug('Debug: pca font scaling applied',{
         input:pcaFontSize.value,
         fontSizePt:fontInfo.pt,
         baseFontPx:fontInfo.px,
         scaledFontPx:fs,
-        scale:fontInfo.scaleInfo?.scale,
+        scale:styleScaleInfo?.styleScale || styleScaleInfo?.scale,
         containerWidth:containerRect?.width,
         containerHeight:containerRect?.height
       });
       const axisMetrics = chartStyle.createAxisMetrics(fs);
       console.debug('Debug: pca axis metrics',axisMetrics);
-      const fontScale=fontInfo.scaleInfo?.scale || 1;
+      const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
       const showGrid = pcaShowGrid.checked;
       const showFrame = pcaShowFrame.checked;
       console.debug('Debug: pca showFrame state',{showFrame});
-      const dotSize = Number(pcaDotSize.value) || 3;
+      const dotSize = dotSizeRaw; // retain original reference for downstream logs
       const xMinManual = parseFloat(pcaXMin.value);
       const xMaxManual = parseFloat(pcaXMax.value);
       const yMinManual = parseFloat(pcaYMin.value);
@@ -452,7 +464,7 @@
 
       function niceScale(min, max, maxTicks) {
         const range = niceNum(max - min, false);
-        const step = niceNum(range / (maxTicks - 1), true);
+        const step = niceNum(range / (Math.max(maxTicks - 1, 1)), true);
         const graphMin = Math.floor(min / step) * step;
         const graphMax = Math.ceil(max / step) * step;
         const ticks = [];
@@ -462,29 +474,60 @@
         return {min: graphMin, max: graphMax, ticks, step};
       }
 
-      const xScale = niceScale(xMin, xMax, 6);
-      const yScale = niceScale(yMin, yMax, 6);
-
-      if (isFinite(xMinManual)) xScale.min = xMin;
-      if (isFinite(xMaxManual)) xScale.max = xMax;
-      if (isFinite(yMinManual)) yScale.min = yMin;
-      if (isFinite(yMaxManual)) yScale.max = yMax;
-
+      let xTickTarget = chartStyle.estimateTickCount(W, { axis: 'x', fallback: 6 });
+      let yTickTarget = chartStyle.estimateTickCount(H, { axis: 'y', fallback: 6 });
+      console.debug('Debug: pca initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
       const formatTick = value => value.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});
       const tickFont = chartStyle.makeFont(fs);
-      const xTickLabels = xScale.ticks.map(t => formatTick(t));
-      const yTickLabels = yScale.ticks.map(t => formatTick(t));
-      const yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
-      const maxYLabelWidth = Math.max(...yLabelWidths, 0);
       const axisLabelFont = chartStyle.makeFont(fs);
-      const yTitleWidth = chartStyle.measureText(pcaYLabelText, axisLabelFont);
-      let margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth, maxYLabelWidth, yTitleWidth, axisMetrics});
+      const yTitleWidthBase = chartStyle.measureText(pcaYLabelText, axisLabelFont);
+      const tickLen = axisMetrics.tickLength;
+      const tickGap = axisMetrics.tickLabelGap;
+      let margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth, maxYLabelWidth: 0, yTitleWidth: yTitleWidthBase, axisMetrics});
+      margin.left = Math.max(margin.left, fs * 0.5);
       let plotW = Math.max(20, W - margin.left - margin.right);
       let plotH = Math.max(20, H - margin.top - margin.bottom);
-      const bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize: fs, plotWidth: plotW, baseBottom: margin.bottom, axisMetrics});
+      let bottomLayout = chartStyle.computeBottomLayout({labels: [], fontSize: fs, plotWidth: plotW, baseBottom: margin.bottom, axisMetrics});
       margin.bottom = bottomLayout.bottom;
       plotW = Math.max(20, W - margin.left - margin.right);
       plotH = Math.max(20, H - margin.top - margin.bottom);
+      let xScale = niceScale(xMin, xMax, xTickTarget);
+      let yScale = niceScale(yMin, yMax, yTickTarget);
+      let xTickLabels = xScale.ticks.map(t => formatTick(t));
+      let yTickLabels = yScale.ticks.map(t => formatTick(t));
+      let maxYLabelWidth = 0;
+      let maxXLabelWidth = 0;
+      for(let pass=0;pass<2;pass++){
+        xScale = niceScale(xMin, xMax, xTickTarget);
+        yScale = niceScale(yMin, yMax, yTickTarget);
+        if (isFinite(xMinManual)) xScale.min = xMin;
+        if (isFinite(xMaxManual)) xScale.max = xMax;
+        if (isFinite(yMinManual)) yScale.min = yMin;
+        if (isFinite(yMaxManual)) yScale.max = yMax;
+        xTickLabels = xScale.ticks.map(t => formatTick(t));
+        yTickLabels = yScale.ticks.map(t => formatTick(t));
+        const yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
+        maxYLabelWidth = Math.max(...yLabelWidths, 0);
+        const xLabelWidths = xTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
+        maxXLabelWidth = Math.max(...xLabelWidths, 0);
+        margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth, maxYLabelWidth, yTitleWidth: yTitleWidthBase, axisMetrics});
+        margin.left = Math.max(margin.left, maxYLabelWidth + tickLen + tickGap + fs * 0.5);
+        plotW = Math.max(20, W - margin.left - margin.right);
+        plotH = Math.max(20, H - margin.top - margin.bottom);
+        bottomLayout = chartStyle.computeBottomLayout({labels: xTickLabels, fontSize: fs, plotWidth: plotW, baseBottom: margin.bottom, axisMetrics});
+        margin.bottom = bottomLayout.bottom;
+        plotW = Math.max(20, W - margin.left - margin.right);
+        plotH = Math.max(20, H - margin.top - margin.bottom);
+        const refinedX = chartStyle.estimateTickCount(plotW, { axis: 'x', fallback: xTickTarget });
+        const refinedY = chartStyle.estimateTickCount(plotH, { axis: 'y', fallback: yTickTarget });
+        console.debug('Debug: pca tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxXLabelWidth,maxYLabelWidth});
+        if(refinedX === xTickTarget && refinedY === yTickTarget){
+          break;
+        }
+        xTickTarget = refinedX;
+        yTickTarget = refinedY;
+      }
+      console.debug('Debug: pca tick targets finalized',{xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth});
       const aspectData = pcaSvgBox?.dataset;
       const shouldLockAspect = aspectData?.resizerAspectLocked === 'true';
       console.debug('Debug: pca aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: pca aspect toggle decision
@@ -522,13 +565,13 @@
       if (showGrid) {
         xScale.ticks.forEach((t) => {
           const x = x2px(t);
-          add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotH, stroke: '#eee'});
+          add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotH, stroke: '#eee', 'stroke-width': axisStrokeWidth});
         });
         yScale.ticks.forEach((t) => {
           const y = y2px(t);
-          add('line', {x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#eee'});
+          add('line', {x1: margin.left, y1: y, x2: margin.left + plotW, y2: y, stroke: '#eee', 'stroke-width': axisStrokeWidth});
         });
-        console.debug('Debug: pca grid uses default stroke scaling',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length});
+        console.debug('Debug: pca grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,axisStrokeWidth});
       }
 
       const xTickPositions = xScale.ticks.map(t => x2px(t));
@@ -541,9 +584,9 @@
       if(axisYStart === axisYEnd){ axisYStart = margin.top; axisYEnd = margin.top + plotH; }
       console.debug('Debug: pca axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
       const axisStroke = '#000';
-      add('line', {x1: axisXStart, y1: margin.top + plotH, x2: axisXEnd, y2: margin.top + plotH, stroke: axisStroke, 'stroke-linecap': 'square'});
-      add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square'});
-      console.debug('Debug: pca axes rely on default stroke width',{axisStroke});
+      add('line', {x1: axisXStart, y1: margin.top + plotH, x2: axisXEnd, y2: margin.top + plotH, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
+      add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
+      console.debug('Debug: pca axes stroke scaled',{axisStrokeWidth});
       if(showFrame){
         console.debug('Debug: pca frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
         chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
@@ -551,11 +594,9 @@
       // Frame closes PCA plot area using axis styling continuity
 
       const xTickNodes = [];
-      const tickLen = axisMetrics.tickLength;
-      const tickGap = axisMetrics.tickLabelGap;
       xScale.ticks.forEach((t) => {
         const x = x2px(t);
-        add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + tickLen, stroke: '#000'});
+        add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + tickLen, stroke: '#000', 'stroke-width': axisStrokeWidth});
         const txt = add('text', {
           x,
           y: margin.top + plotH + tickLen + tickGap,
@@ -570,7 +611,7 @@
 
       yScale.ticks.forEach((t) => {
         const y = y2px(t);
-        add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000'});
+        add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': axisStrokeWidth});
         add('text', {
           x: margin.left - (tickLen + tickGap),
           y,
@@ -580,7 +621,7 @@
           fill: chartStyle.TEXT_COLOR,
         }, formatTick(t));
       });
-        console.debug('Debug: pca ticks rely on default stroke width',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length});
+      console.debug('Debug: pca ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
 
       add('text', {
         x: margin.left + plotW / 2,
@@ -607,10 +648,10 @@
         add('circle', {
           cx,
           cy,
-          r: dotSize,
+          r: dotSizePx,
           fill: color,
-          stroke: alpha > 0 ? borderColor : 'none',
-          'stroke-width': bw,
+          stroke: alpha > 0 && borderWidthPx > 0 ? borderColor : 'none',
+          'stroke-width': borderWidthPx,
           opacity: 1 - alpha,
         });
       });

@@ -294,27 +294,15 @@
     const plotEl=document.getElementById('histPlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     if(!values.length){ plotEl.innerHTML='<i>No data</i>'; updateHistStats(values); return; }
     const xMin=Math.min(...values), xMax=Math.max(...values);
+    const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
+    const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
     function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
-    function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(maxTicks-1),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
-    const xScale=niceScale(xMin,xMax,6);
+    function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(Math.max(maxTicks-1,1)),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
     const bins=Math.max(1,Math.floor(Number(histBins.value)||10));
-    const binWidth=(xScale.max-xScale.min)/bins || 1;
-    const counts=new Array(bins).fill(0);
-    values.forEach(v=>{let idx=Math.floor((v-xScale.min)/binWidth); if(idx<0)idx=0; if(idx>=bins)idx=bins-1; counts[idx]++;});
     const yMinManual=parseFloat(histYMin.value), yMaxManual=parseFloat(histYMax.value);
     const logY=histLogY.checked;
-    let yMin=0; let yMax=Math.max(...counts);
-    if(isFinite(yMinManual)) yMin=yMinManual;
-    if(isFinite(yMaxManual)) yMax=yMaxManual;
-    if(logY && yMin<=0) yMin=0.1;
-    if(yMax===yMin) yMax=yMin+1;
-    const W=Math.max(50,Math.floor(plotEl.clientWidth||50)); const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
     plotEl.style.position='relative';
     const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','histSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.applySvgDefaults(svg); plotEl.appendChild(svg);
-    const yMinT=logY?Math.log10(yMin):yMin, yMaxT=logY?Math.log10(yMax):yMax;
-    const yScale=niceScale(yMinT,yMaxT,6);
-    if(isFinite(yMinManual)) yScale.min=yMinT; if(isFinite(yMaxManual)) yScale.max=yMaxT;
-    if(isFinite(yMinManual)||isFinite(yMaxManual)){const ticks=[]; for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step; v<=yScale.max+1e-9; v+=yScale.step) ticks.push(v); yScale.ticks=ticks;}
     function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
     const containerRect=state.svgBox?.getBoundingClientRect?.();
     const fontInfo=chartStyle.resolveScaledFontSize({
@@ -323,47 +311,108 @@
       height: containerRect?.height
     });
     const fs=fontInfo.scaledPx;
+    const styleScaleInfo=fontInfo.scaleInfo;
+    const axisStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'hist-axis', min: 0.5 });
+    const borderWidthRaw=Number(histBorderWidth.value)||0;
+    const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'hist-border', min: 0 });
+    console.debug('Debug: hist style scaling applied',{
+      borderWidthRaw,
+      borderWidthPx,
+      axisStrokeWidth,
+      styleScale: styleScaleInfo?.styleScale
+    }); // Debug: histogram style scaling summary
     chartStyle.renderFontSizeLabel({ element: histFontSizeVal, fontInfo });
     console.debug('Debug: hist font scaling applied',{
       input:histFontSize.value,
       fontSizePt:fontInfo.pt,
       baseFontPx:fontInfo.px,
       scaledFontPx:fs,
-      scale:fontInfo.scaleInfo?.scale,
+      scale:styleScaleInfo?.styleScale || styleScaleInfo?.scale,
       containerWidth:containerRect?.width,
       containerHeight:containerRect?.height
     });
     const axisMetrics=chartStyle.createAxisMetrics(fs);
     console.debug('Debug: hist axis metrics',axisMetrics);
-    const yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
-    const xTickLabels=xScale.ticks.map(t=>formatTick(t));
+    let xTickTarget=chartStyle.estimateTickCount(W,{axis:'x',fallback:6});
+    let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
+    console.debug('Debug: hist initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
     const tickFont=chartStyle.makeFont(fs);
-    const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
-    const maxYLabelWidth=Math.max(...yLabelWidths,0);
     const axisLabelFont=chartStyle.makeFont(fs);
-    const yTitleWidth=chartStyle.measureText(state.yLabelText,axisLabelFont);
+    const yTitleWidthBase=chartStyle.measureText(state.yLabelText,axisLabelFont);
+    const tickLen=axisMetrics.tickLength;
+    const tickGap=axisMetrics.tickLabelGap;
+    let margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth:0,yTitleWidth:yTitleWidthBase,axisMetrics});
+    let plotW=Math.max(20,W-margin.left-margin.right);
+    let plotH=Math.max(20,H-margin.top-margin.bottom);
+    let bottomLayout=chartStyle.computeBottomLayout({labels:[],fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+    margin.bottom=bottomLayout.bottom;
+    plotW=Math.max(20,W-margin.left-margin.right);
+    plotH=Math.max(20,H-margin.top-margin.bottom);
+    let xScale=niceScale(xMin,xMax,xTickTarget);
+    let yScale=niceScale(0,1,yTickTarget);
+    let xTickLabels=[];
+    let yTickLabels=[];
+    let counts=[];
+    let binWidth=0;
+    let yMin=0;
+    let yMax=0;
+    let yMinT=0;
+    let yMaxT=0;
+    for(let pass=0;pass<2;pass++){
+      xScale=niceScale(xMin,xMax,xTickTarget);
+      binWidth=(xScale.max-xScale.min)/bins || 1;
+      counts=new Array(bins).fill(0);
+      values.forEach(v=>{let idx=Math.floor((v-xScale.min)/binWidth); if(idx<0)idx=0; if(idx>=bins)idx=bins-1; counts[idx]++;});
+      yMin=0;
+      yMax=Math.max(...counts);
+      if(isFinite(yMinManual)) yMin=yMinManual;
+      if(isFinite(yMaxManual)) yMax=yMaxManual;
+      if(logY && yMin<=0) yMin=0.1;
+      if(yMax===yMin) yMax=yMin+1;
+      yMinT=logY?Math.log10(yMin):yMin;
+      yMaxT=logY?Math.log10(yMax):yMax;
+      yScale=niceScale(yMinT,yMaxT,yTickTarget);
+      if(isFinite(yMinManual)) yScale.min=yMinT;
+      if(isFinite(yMaxManual)) yScale.max=yMaxT;
+      if(isFinite(yMinManual)||isFinite(yMaxManual)){
+        const manualTicks=[];
+        for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step; v<=yScale.max+1e-9; v+=yScale.step) manualTicks.push(v);
+        yScale.ticks=manualTicks;
+      }
+      xTickLabels=xScale.ticks.map(t=>formatTick(t));
+      yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
+      const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
+      const maxYLabelWidth=Math.max(...yLabelWidths,0);
+      margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
+      plotW=Math.max(20,W-margin.left-margin.right);
+      plotH=Math.max(20,H-margin.top-margin.bottom);
+      bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
+      margin.bottom=bottomLayout.bottom;
+      plotW=Math.max(20,W-margin.left-margin.right);
+      plotH=Math.max(20,H-margin.top-margin.bottom);
+      const refinedX=chartStyle.estimateTickCount(plotW,{axis:'x',fallback:xTickTarget});
+      const refinedY=chartStyle.estimateTickCount(plotH,{axis:'y',fallback:yTickTarget});
+      console.debug('Debug: hist tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxYLabelWidth,bins,binWidth});
+      if(refinedX===xTickTarget && refinedY===yTickTarget){
+        break;
+      }
+      xTickTarget=refinedX;
+      yTickTarget=refinedY;
+    }
+    console.debug('Debug: hist layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,binWidth});
     const showGrid=$('#histShowGrid').checked;
     const showFrame=$('#histShowFrame').checked;
     console.debug('Debug: hist showFrame state',{showFrame});
-    let margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth,yTitleWidth,axisMetrics});
-    let plotW=Math.max(20,W-margin.left-margin.right);
-    let plotH=Math.max(20,H-margin.top-margin.bottom);
-    const bottomLayout=chartStyle.computeBottomLayout({labels:xTickLabels,fontSize:fs,plotWidth:plotW,baseBottom:margin.bottom,axisMetrics});
-    margin.bottom=bottomLayout.bottom;
-    plotW=Math.max(20,W-margin.left-margin.right); plotH=Math.max(20,H-margin.top-margin.bottom);
-    console.debug('Debug: hist layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
     const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
     const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
     function add(tag,attrs){const el=document.createElementNS(NS,tag); for(const[k,v] of Object.entries(attrs)) el.setAttribute(k,String(v)); svg.appendChild(el); return el;}
-    const tickLen=axisMetrics.tickLength;
-    const tickGap=axisMetrics.tickLabelGap;
-    if(showGrid){
-      yScale.ticks.forEach(t=>{
-        const y=y2px(t);
-        add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd'});
-      });
-      console.debug('Debug: hist grid uses default stroke scaling',{horizontal:yScale.ticks.length});
-    }
+      if(showGrid){
+        yScale.ticks.forEach(t=>{
+          const y=y2px(t);
+          add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});
+        });
+        console.debug('Debug: hist grid stroke scaled',{horizontal:yScale.ticks.length,axisStrokeWidth});
+      }
     const xTickPositions=xScale.ticks.map(t=>x2px(t));
     const yTickPositions=yScale.ticks.map(t=>y2px(t));
     let axisXStart=xTickPositions.length?Math.min(...xTickPositions):margin.left;
@@ -373,34 +422,34 @@
     if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
     if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
     console.debug('Debug: hist axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
-    const axisStroke = '#000';
-    add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:axisStroke,'stroke-linecap':'square'});
-    add('line',{x1:margin.left,y1:axisYStart,x2:margin.left,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square'});
-    console.debug('Debug: hist axes rely on default stroke width',{axisStroke});
+      const axisStroke = '#000';
+      add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+      add('line',{x1:margin.left,y1:axisYStart,x2:margin.left,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+      console.debug('Debug: hist axes stroke scaled',{axisStrokeWidth});
     if(showFrame){
       console.debug('Debug: hist frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
       chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
     }
     // Frame closes histogram plot area using axis styling continuity
     const xTickNodes=[];
-    xScale.ticks.forEach(t=>{
-      const x=x2px(t);
-      add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000'});
-      const txt=add('text',{x,y:margin.top+plotH+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});
-      txt.textContent=formatTick(t);
-      xTickNodes.push(txt);
-    });
+      xScale.ticks.forEach(t=>{
+        const x=x2px(t);
+        add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':axisStrokeWidth});
+        const txt=add('text',{x,y:margin.top+plotH+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});
+        txt.textContent=formatTick(t);
+        xTickNodes.push(txt);
+      });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
-    yScale.ticks.forEach(t=>{
-      const y=y2px(t);
-      add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000'});
-      const txt=add('text',{x:margin.left-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
-      txt.textContent=formatTick(logY?Math.pow(10,t):t);
-    });
-    console.debug('Debug: hist ticks rely on default stroke width',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length});
+      yScale.ticks.forEach(t=>{
+        const y=y2px(t);
+        add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':axisStrokeWidth});
+        const txt=add('text',{x:margin.left-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
+        txt.textContent=formatTick(logY?Math.pow(10,t):t);
+      });
+    console.debug('Debug: hist ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
     const edges=Array.from({length:bins+1},(_,i)=>xScale.min+i*binWidth);
-    const fill=$('#histFill').value; const borderColor=$('#histBorder').value; const borderWidth=Number($('#histBorderWidth').value)||0;
-    counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill}); if(borderWidth>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidth);} });
+    const fill=histFill.value; const borderColor=histBorder.value;
+    counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill}); if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);} });
     const xAxisBase=margin.top+plotH;
     const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); xText.textContent=state.xLabelText; if(global.makeEditable) makeEditable(xText,txt=>{state.xLabelText=txt;});
     const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);

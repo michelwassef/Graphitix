@@ -329,7 +329,8 @@
     });
     const axisMetrics=chartStyle.createAxisMetrics(fs);
     console.debug('Debug: pie axis metrics',axisMetrics);
-    const fontScale=fontInfo.scaleInfo?.scale || 1;
+    const styleScaleInfo=fontInfo.scaleInfo;
+    const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
     state.legendWidth=Math.max(60,Math.round(120*fontScale));
     const legendMargin=Math.max(6,Math.round(8*fontScale));
     console.debug('Debug: pie legend width scaling',{
