@@ -342,7 +342,14 @@
     const doc = global.document;
     let aspectCheckbox = null;
     if(doc){
-      let aspectControl = container.querySelector('.resizer-aspect-control');
+      let controlTray = container.querySelector('.resizer-control-tray');
+      if(!controlTray){
+        controlTray = doc.createElement('div');
+        controlTray.className = 'resizer-control-tray';
+        container.appendChild(controlTray);
+        console.debug('Debug: resizer control tray created', { container: containerLabel }); // Debug: tray creation trace
+      }
+      let aspectControl = controlTray.querySelector('.resizer-aspect-control');
       if(!aspectControl){
         aspectControl = doc.createElement('label');
         aspectControl.className = 'resizer-aspect-control';
@@ -356,10 +363,13 @@
         textSpan.textContent = 'Lock ratio';
         aspectControl.appendChild(checkbox);
         aspectControl.appendChild(textSpan);
-        container.appendChild(aspectControl);
+        controlTray.appendChild(aspectControl);
         console.debug('Debug: resizer aspect control created', { container: containerLabel }); // Debug: control creation
         aspectCheckbox = checkbox;
       }else{
+        if(aspectControl.parentNode !== controlTray){
+          controlTray.appendChild(aspectControl);
+        }
         aspectCheckbox = aspectControl.querySelector('input[type="checkbox"]');
       }
       if(aspectCheckbox){
@@ -390,6 +400,57 @@
         };
         aspectCheckbox.addEventListener('change', onAspectChange);
         aspectCheckbox.__resizerAspectHandler = onAspectChange;
+      }
+
+      let textLockControl = controlTray.querySelector('.resizer-textlock-control');
+      let textLockCheckbox = textLockControl ? textLockControl.querySelector('input[type="checkbox"]') : null;
+      if(!textLockControl){
+        textLockControl = doc.createElement('label');
+        textLockControl.className = 'resizer-textlock-control';
+        textLockControl.title = 'Lock text size while resizing';
+        const fontCheckbox = doc.createElement('input');
+        fontCheckbox.type = 'checkbox';
+        fontCheckbox.className = 'resizer-textlock-checkbox';
+        fontCheckbox.setAttribute('aria-label', 'Lock text size while resizing');
+        const textSpan = doc.createElement('span');
+        textSpan.className = 'resizer-textlock-text';
+        textSpan.textContent = 'Lock text size';
+        textLockControl.appendChild(fontCheckbox);
+        textLockControl.appendChild(textSpan);
+        controlTray.appendChild(textLockControl);
+        textLockCheckbox = fontCheckbox;
+        console.debug('Debug: resizer text lock control created', { container: containerLabel }); // Debug: text lock control creation
+      }else{
+        if(textLockControl.parentNode !== controlTray){
+          controlTray.appendChild(textLockControl);
+        }
+        textLockCheckbox = textLockControl.querySelector('input[type="checkbox"]');
+      }
+      if(textLockCheckbox){
+        if(typeof chartStyle.registerTextSizeLockControl === 'function'){
+          chartStyle.registerTextSizeLockControl(textLockCheckbox, { origin: `${containerLabel}-resizer` });
+          console.debug('Debug: resizer text lock registered', { container: containerLabel }); // Debug: text lock registration
+        }else{
+          if(typeof chartStyle.isTextSizeLocked === 'function'){
+            try {
+              textLockCheckbox.checked = !!chartStyle.isTextSizeLocked();
+            } catch(stateErr){
+              console.error('resizer text lock state sync error', stateErr);
+            }
+          }
+          if(textLockCheckbox.__resizerTextLockHandler){
+            textLockCheckbox.removeEventListener('change', textLockCheckbox.__resizerTextLockHandler);
+          }
+          const onTextLockChange = () => {
+            const locked = !!textLockCheckbox.checked;
+            console.debug('Debug: resizer text lock fallback change', { container: containerLabel, locked }); // Debug: fallback handler
+            if(typeof chartStyle.setTextSizeLock === 'function'){
+              chartStyle.setTextSizeLock(locked, { origin: `${containerLabel}-fallback` });
+            }
+          };
+          textLockCheckbox.addEventListener('change', onTextLockChange);
+          textLockCheckbox.__resizerTextLockHandler = onTextLockChange;
+        }
       }
     }
 

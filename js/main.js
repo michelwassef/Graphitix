@@ -85,14 +85,9 @@
   const histStatsResults = $('#histStatsResults');
   const pieStatsResults = $('#pieStatsResults');
 
-  const textLockToggle = document.getElementById('lockFontScale');
-  if (textLockToggle && typeof chartStyle.setTextSizeLock === 'function') {
-    chartStyle.setTextSizeLock(textLockToggle.checked);
-    console.debug('Debug: main text size lock initialized', { checked: textLockToggle.checked }); // Debug: initial text lock state
-    textLockToggle.addEventListener('change', () => {
-      const locked = !!textLockToggle.checked;
-      chartStyle.setTextSizeLock(locked);
-      console.debug('Debug: main text size lock toggled', { locked }); // Debug: lock toggle handler
+  if (typeof chartStyle.onTextSizeLockChange === 'function') {
+    chartStyle.onTextSizeLockChange((locked, origin) => {
+      console.debug('Debug: main text size lock broadcast', { locked, origin }); // Debug: lock change listener entry
       try { scheduleDrawBoxplot(); } catch (err) { console.error('main text lock box redraw error', err); }
       try { scheduleDrawScatter(); } catch (err) { console.error('main text lock scatter redraw error', err); }
       try { scheduleDrawPca(); } catch (err) { console.error('main text lock pca redraw error', err); }
@@ -109,10 +104,10 @@
           window.Components.roc.draw();
         }
       } catch (err) { console.error('main text lock roc redraw error', err); }
-    });
+    }, { origin: 'main-text-lock-listener' });
   } else {
     console.debug('Debug: main text size lock setup skipped', {
-      hasToggle: !!textLockToggle,
+      hasOnChange: typeof chartStyle.onTextSizeLockChange === 'function',
       hasSetter: typeof chartStyle.setTextSizeLock === 'function'
     }); // Debug: lock setup skip trace
   }

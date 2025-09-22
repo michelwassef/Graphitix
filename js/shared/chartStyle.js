@@ -42,6 +42,49 @@
   const DEFAULT_ASPECT_RATIO = 1;
   const DEFAULT_ASPECT_LOCKED = true;
   let textSizeLocked = false;
+  const textLockInputs = new Set();
+  const textLockListeners = new Set();
+
+  function syncTextLockInputs(origin){
+    const stale = [];
+    textLockInputs.forEach(input => {
+      if(!input || typeof input !== 'object' || typeof input.addEventListener !== 'function'){
+        stale.push(input);
+        return;
+      }
+      if('checked' in input && input.checked !== textSizeLocked){
+        try {
+          input.checked = textSizeLocked;
+        } catch(syncErr){
+          console.error('chartStyle.syncTextLockInputs assignment error', syncErr);
+        }
+      }
+    });
+    if(stale.length){
+      stale.forEach(item => textLockInputs.delete(item));
+    }
+    console.debug('Debug: chartStyle.syncTextLockInputs', {
+      origin: origin || 'unknown',
+      locked: textSizeLocked,
+      controlCount: textLockInputs.size,
+      staleCount: stale.length
+    }); // Debug: text lock control sync trace
+  }
+
+  function emitTextLockChange(origin){
+    console.debug('Debug: chartStyle.emitTextLockChange start', {
+      origin: origin || 'unknown',
+      locked: textSizeLocked,
+      listenerCount: textLockListeners.size
+    }); // Debug: text lock listener broadcast start
+    textLockListeners.forEach(listener => {
+      try {
+        listener(textSizeLocked, origin || 'unknown');
+      } catch(err){
+        console.error('chartStyle text lock listener error', err);
+      }
+    });
+  }
 
   function clampScale(value){
     const numeric = Number(value);
@@ -255,15 +298,102 @@
     return result;
   };
 
-  chartStyle.setTextSizeLock = function setTextSizeLock(locked){
-    textSizeLocked = !!locked;
-    console.debug('Debug: chartStyle.setTextSizeLock', { locked: textSizeLocked }); // Debug: text lock toggle trace
+  chartStyle.setTextSizeLock = function setTextSizeLock(locked, options){
+    const nextValue = !!locked;
+    const opts = options || {};
+    const origin = opts.origin || 'setTextSizeLock';
+    const force = opts.force === true;
+    if(textSizeLocked === nextValue && !force){
+      console.debug('Debug: chartStyle.setTextSizeLock noop', { locked: textSizeLocked, origin }); // Debug: no change branch
+      return textSizeLocked;
+    }
+    textSizeLocked = nextValue;
+    console.debug('Debug: chartStyle.setTextSizeLock', { locked: textSizeLocked, origin, force }); // Debug: text lock toggle trace
+    syncTextLockInputs(origin);
+    emitTextLockChange(origin);
     return textSizeLocked;
   };
 
   chartStyle.isTextSizeLocked = function isTextSizeLocked(){
     console.debug('Debug: chartStyle.isTextSizeLocked query', { locked: textSizeLocked }); // Debug: text lock query trace
     return textSizeLocked;
+  };
+
+  chartStyle.registerTextSizeLockControl = function registerTextSizeLockControl(input, options){
+    const el = input;
+    const opts = options || {};
+    const origin = opts.origin || el?.id || 'text-lock-control';
+    if(!el || typeof el.addEventListener !== 'function'){
+      console.debug('Debug: chartStyle.registerTextSizeLockControl skipped', { origin, reason: 'invalid element' }); // Debug: invalid control
+      return function noopUnregister(){
+        console.debug('Debug: chartStyle.unregisterTextSizeLockControl noop', { origin });
+      };
+    }
+    if(el.__chartStyleTextLockHandler){
+      el.removeEventListener('change', el.__chartStyleTextLockHandler);
+      delete el.__chartStyleTextLockHandler;
+      console.debug('Debug: chartStyle.registerTextSizeLockControl removed existing handler', { origin });
+    }
+    if('checked' in el){
+      try {
+        el.checked = textSizeLocked;
+      } catch(assignErr){
+        console.error('chartStyle.registerTextSizeLockControl assign error', assignErr);
+      }
+    }
+    const handler = () => {
+      const desired = !!el.checked;
+      console.debug('Debug: chartStyle.textLockControl change', { origin, desired }); // Debug: control change event
+      chartStyle.setTextSizeLock(desired, { origin: `control-${origin}` });
+    };
+    el.addEventListener('change', handler);
+    el.__chartStyleTextLockHandler = handler;
+    textLockInputs.add(el);
+    console.debug('Debug: chartStyle.registerTextSizeLockControl', {
+      origin,
+      locked: textSizeLocked,
+      controlCount: textLockInputs.size
+    }); // Debug: control registration summary
+    const cleanup = () => {
+      if(el.__chartStyleTextLockHandler){
+        el.removeEventListener('change', el.__chartStyleTextLockHandler);
+        delete el.__chartStyleTextLockHandler;
+      }
+      textLockInputs.delete(el);
+      console.debug('Debug: chartStyle.unregisterTextSizeLockControl', { origin, remaining: textLockInputs.size }); // Debug: control cleanup
+    };
+    if(opts.signal && typeof opts.signal.addEventListener === 'function'){
+      opts.signal.addEventListener('abort', cleanup, { once: true });
+    }
+    return cleanup;
+  };
+
+  chartStyle.onTextSizeLockChange = function onTextSizeLockChange(callback, options){
+    if(typeof callback !== 'function'){
+      console.debug('Debug: chartStyle.onTextSizeLockChange skipped', { reason: 'invalid callback' }); // Debug: invalid listener guard
+      return function noopRemove(){
+        console.debug('Debug: chartStyle.onTextSizeLockChange noop remove');
+      };
+    }
+    const opts = options || {};
+    const origin = opts.origin || callback.name || 'anonymous';
+    textLockListeners.add(callback);
+    console.debug('Debug: chartStyle.onTextSizeLockChange registered', { origin, listenerCount: textLockListeners.size }); // Debug: listener registration
+    if(opts.immediate){
+      try {
+        callback(textSizeLocked, 'immediate');
+      } catch(err){
+        console.error('chartStyle text lock immediate callback error', err);
+      }
+    }
+    const cleanup = () => {
+      textLockListeners.delete(callback);
+      console.debug('Debug: chartStyle.onTextSizeLockChange removed', { origin, remaining: textLockListeners.size }); // Debug: listener cleanup
+    };
+    if(opts.signal && typeof opts.signal.addEventListener === 'function'){
+      opts.signal.addEventListener('abort', cleanup, { once: true });
+    }
+    return cleanup;
   };
 
   chartStyle.scaleLength = function scaleLength(base, scaleInfo, options){
