@@ -116,9 +116,36 @@
     const observer=new ResizeObserver(()=>{syncPanels();}); observer.observe(els.tablePanel); syncPanels();
     const container=els.plotDiv.closest('.svgbox')||els.plotDiv.parentElement;
     if(global.Shared && Shared.attachResizableBox && container){
+      const graphSizing = chartStyle.getSquareGraphSizing
+        ? chartStyle.getSquareGraphSizing({ context: 'box' })
+        : (function fallbackSizing(){
+            const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
+            const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
+            const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
+            const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
+            const fallback = {
+              width: baseWidth,
+              height: baseHeight,
+              minWidth: Math.max(1, Math.round(baseWidth * minScale)),
+              minHeight: Math.max(1, Math.round(baseHeight * minScale)),
+              maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
+              maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
+              aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
+              aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
+            };
+            console.debug('Debug: box fallback square sizing',{ context: 'box', fallback }); // Debug: fallback sizing payload
+            return fallback;
+          })();
+      console.debug('Debug: box resizer sizing config', { graphSizing }); // Debug: box sizing helper output
       Shared.attachResizableBox(container, {
-        defaultWidth: 640,
-        defaultHeight: 420,
+        defaultWidth: graphSizing.width,
+        defaultHeight: graphSizing.height,
+        minWidth: graphSizing.minWidth,
+        minHeight: graphSizing.minHeight,
+        maxWidth: graphSizing.maxWidth,
+        maxHeight: graphSizing.maxHeight,
+        aspectLocked: graphSizing.aspectLocked !== false,
+        aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
         onResize: phase => {
           console.debug('Debug: box svgbox resized', { phase }); // Debug: box svgbox resize callback
           syncPanels();

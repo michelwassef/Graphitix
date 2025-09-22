@@ -1318,9 +1318,36 @@
     state.syncPanels = syncPanels;
 
     if (Shared.attachResizableBox && vennContainer) {
+      const graphSizing = chartStyle.getSquareGraphSizing
+        ? chartStyle.getSquareGraphSizing({ context: 'venn' })
+        : (function fallbackSizing(){
+            const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
+            const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
+            const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
+            const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
+            const fallback = {
+              width: baseWidth,
+              height: baseHeight,
+              minWidth: Math.max(1, Math.round(baseWidth * minScale)),
+              minHeight: Math.max(1, Math.round(baseHeight * minScale)),
+              maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
+              maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
+              aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
+              aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
+            };
+            debugLog('fallback square sizing applied', { context: 'venn', fallback });
+            return fallback;
+          })();
+      debugLog('resizer defaults applied', { graphSizing });
       Shared.attachResizableBox(vennContainer, {
-        defaultWidth: 640,
-        defaultHeight: 420,
+        defaultWidth: graphSizing.width,
+        defaultHeight: graphSizing.height,
+        minWidth: graphSizing.minWidth,
+        minHeight: graphSizing.minHeight,
+        maxWidth: graphSizing.maxWidth,
+        maxHeight: graphSizing.maxHeight,
+        aspectLocked: graphSizing.aspectLocked !== false,
+        aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
         onResize: phase => {
           debugLog('resizer callback', { phase });
           syncPanels({ skipSchedule: phase === 'observe' });
