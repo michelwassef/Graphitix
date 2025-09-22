@@ -60,7 +60,23 @@
     panelResizer: null,
     tablePanel: null,
     graphPanel: null,
+    svgBox: null,
   };
+
+  const DEFAULT_STAGE_WIDTH = 500;
+  const DEFAULT_STAGE_HEIGHT = 340;
+  const DEFAULT_STAGE_RATIO = DEFAULT_STAGE_WIDTH / DEFAULT_STAGE_HEIGHT;
+
+  function parsePositiveFloat(value) {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) && value > 0 ? value : NaN;
+    }
+    if (typeof value === 'string') {
+      const numeric = Number.parseFloat(value);
+      return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
+    }
+    return NaN;
+  }
 
   // --- Core Functions ---
 
@@ -218,44 +234,102 @@
     return el;
   }
 
-  function resolveFontSettings(raw) {
+  function resolveFontInfo(rawSize) {
     const stageEl = state.stage;
-    const stageRect = stageEl?.getBoundingClientRect?.();
-    const svgBox = stageEl?.closest?.('.svgbox') || state.graphPanel?.querySelector?.('.svgbox') || null;
-    let normalized;
+    const fallbackSvgBox = stageEl?.closest?.('.svgbox') || state.graphPanel?.querySelector?.('.svgbox') || null;
+    const svgBox = state.svgBox || fallbackSvgBox || null;
+    if (!state.svgBox && svgBox) {
+      state.svgBox = svgBox;
+      console.debug('Debug: venn resolveFontInfo captured svgBox', { hasSvgBox: true });
+    }
+    const rect = svgBox?.getBoundingClientRect?.();
+    const dataset = svgBox?.dataset || {};
+    const parsedDefaultWidth = parsePositiveFloat(chartStyle.DEFAULT_WIDTH);
+    const parsedDefaultHeight = parsePositiveFloat(chartStyle.DEFAULT_HEIGHT);
+    const defaultWidth = parsePositiveFloat(dataset.resizerDefaultWidth)
+      || (Number.isFinite(parsedDefaultWidth) ? parsedDefaultWidth : DEFAULT_STAGE_WIDTH);
+    const defaultHeight = parsePositiveFloat(dataset.resizerDefaultHeight)
+      || (Number.isFinite(parsedDefaultHeight) ? parsedDefaultHeight : DEFAULT_STAGE_HEIGHT);
+    const width = parsePositiveFloat(rect?.width);
+    const height = parsePositiveFloat(rect?.height);
+    const storedWidth = parsePositiveFloat(dataset.resizerWidth);
+    const storedHeight = parsePositiveFloat(dataset.resizerHeight);
+    const effectiveWidth = Number.isFinite(width) ? width : storedWidth;
+    const effectiveHeight = Number.isFinite(height) ? height : storedHeight;
     if (typeof chartStyle.resolveScaledFontSize === 'function') {
-      const scaled = chartStyle.resolveScaledFontSize({
-        rawSize: raw,
-        width: stageRect?.width,
-        height: stageRect?.height,
+      const info = chartStyle.resolveScaledFontSize({
+        rawSize,
+        width: effectiveWidth,
+        height: effectiveHeight,
+        defaultWidth,
+        defaultHeight,
         svgBox
       });
-      normalized = {
-        pt: scaled.pt,
-        px: scaled.scaledPx,
-        basePx: scaled.px,
-        scale: scaled.scaleInfo?.styleScale || scaled.scaleInfo?.scale || 1,
-        scaleInfo: scaled.scaleInfo
-      };
-    } else if (typeof chartStyle.normalizeFontSize === 'function') {
-      const base = chartStyle.normalizeFontSize(raw);
-      normalized = { pt: base.pt, px: base.px, basePx: base.px, scale: 1 };
+      console.debug('Debug: venn resolveFontInfo scaled', {
+        raw: rawSize,
+        width: effectiveWidth,
+        height: effectiveHeight,
+        storedWidth,
+        storedHeight,
+        defaultWidth,
+        defaultHeight,
+        hasSvgBox: !!svgBox,
+        styleScale: info?.scaleInfo?.styleScale,
+        textLocked: info?.scaleInfo?.textLocked
+      });
+      return info;
+    }
+    let normalized = null;
+    if (typeof chartStyle.normalizeFontSize === 'function') {
+      normalized = chartStyle.normalizeFontSize(rawSize);
     } else {
       const basePt = chartStyle.BASE_FONT_SIZE_PT || 13;
-      const numeric = Number(raw);
+      const numeric = Number(rawSize);
       const pt = Number.isFinite(numeric) ? numeric : basePt;
       const factor = chartStyle.PT_TO_PX || (96 / 72);
       const px = Number((pt * factor).toFixed(2));
-      normalized = { pt, px, basePx: px, scale: 1 };
+      normalized = { pt, px };
     }
-    console.debug('Debug: venn resolveFontSettings', {
-      raw,
-      stageWidth: stageRect?.width,
-      stageHeight: stageRect?.height,
-      svgBoxFound: !!svgBox,
-      normalized
-    }); // Debug: font resolution trace
-    return normalized;
+    const fallbackPx = Number.isFinite(normalized?.px) ? normalized.px : Number(normalized?.scaledPx);
+    const safePx = Number.isFinite(fallbackPx) ? fallbackPx : 12;
+    const safePt = Number.isFinite(normalized?.pt) ? normalized.pt : 12;
+    const safeWidth = Number.isFinite(effectiveWidth) ? effectiveWidth : defaultWidth;
+    const safeHeight = Number.isFinite(effectiveHeight) ? effectiveHeight : defaultHeight;
+    const scaleX = Number.isFinite(defaultWidth) && defaultWidth > 0 ? safeWidth / defaultWidth : 1;
+    const scaleY = Number.isFinite(defaultHeight) && defaultHeight > 0 ? safeHeight / defaultHeight : 1;
+    const fallbackScaleInfo = {
+      width: safeWidth,
+      height: safeHeight,
+      defaultWidth,
+      defaultHeight,
+      scaleX,
+      scaleY,
+      scaleW: scaleX,
+      scaleH: scaleY,
+      styleUnclamped: Math.sqrt(Math.max(scaleX * scaleY, 0)),
+      styleScale: 1,
+      scale: 1,
+      radiusScale: 1,
+      strokeScale: 1,
+      legacyMinScale: Math.min(scaleX, scaleY),
+      textScale: 1,
+      textLocked: false
+    };
+    const info = {
+      pt: safePt,
+      px: normalized?.px ?? safePx,
+      scaledPx: safePx,
+      scaleInfo: fallbackScaleInfo
+    };
+    console.debug('Debug: venn resolveFontInfo fallback', {
+      raw: rawSize,
+      width: effectiveWidth,
+      height: effectiveHeight,
+      storedWidth,
+      storedHeight,
+      info
+    });
+    return info;
   }
 
   function enableDrag(el) {
@@ -914,19 +988,74 @@
     if (typeof chartStyle.applySvgDefaults === 'function') {
       chartStyle.applySvgDefaults(stage);
     }
+    const svgBox = state.svgBox || stage.closest?.('.svgbox') || state.graphPanel?.querySelector?.('.svgbox') || null;
+    if (!state.svgBox && svgBox) {
+      state.svgBox = svgBox;
+      console.debug('Debug: venn fitAndDraw captured svgBox', { hasSvgBox: true });
+    }
+    const svgBoxRect = svgBox?.getBoundingClientRect?.();
+    const dataset = svgBox?.dataset || {};
+    const scaleInfo = style.scaleInfo || {};
+    let stageWidth = parsePositiveFloat(scaleInfo.width);
+    let stageHeight = parsePositiveFloat(scaleInfo.height);
+    if (!Number.isFinite(stageWidth)) stageWidth = parsePositiveFloat(svgBoxRect?.width);
+    if (!Number.isFinite(stageHeight)) stageHeight = parsePositiveFloat(svgBoxRect?.height);
+    if (!Number.isFinite(stageWidth)) stageWidth = parsePositiveFloat(dataset.resizerWidth);
+    if (!Number.isFinite(stageHeight)) stageHeight = parsePositiveFloat(dataset.resizerHeight);
+    const defaultWidth = parsePositiveFloat(dataset.resizerDefaultWidth)
+      || parsePositiveFloat(chartStyle.DEFAULT_WIDTH)
+      || DEFAULT_STAGE_WIDTH;
+    const defaultHeight = parsePositiveFloat(dataset.resizerDefaultHeight)
+      || parsePositiveFloat(chartStyle.DEFAULT_HEIGHT)
+      || DEFAULT_STAGE_HEIGHT;
+    const aspectRatio = parsePositiveFloat(dataset.resizerAspectRatio)
+      || (defaultWidth / (defaultHeight || defaultWidth))
+      || DEFAULT_STAGE_RATIO;
+    if (!Number.isFinite(stageWidth) || stageWidth <= 0) {
+      stageWidth = defaultWidth;
+    }
+    if ((!Number.isFinite(stageHeight) || stageHeight <= 0) && Number.isFinite(stageWidth) && Number.isFinite(aspectRatio) && aspectRatio > 0) {
+      stageHeight = stageWidth / aspectRatio;
+    }
+    if (!Number.isFinite(stageHeight) || stageHeight <= 0) {
+      stageHeight = defaultHeight;
+    }
+    if (!Number.isFinite(stageWidth) || stageWidth <= 0) {
+      stageWidth = DEFAULT_STAGE_WIDTH;
+    }
+    if (!Number.isFinite(stageHeight) || stageHeight <= 0) {
+      stageHeight = DEFAULT_STAGE_HEIGHT;
+    }
+    stage.setAttribute('viewBox', `0 0 ${stageWidth} ${stageHeight}`);
+    stage.setAttribute('width', String(stageWidth));
+    stage.setAttribute('height', String(stageHeight));
+    console.debug('Debug: venn stage sizing resolved', {
+      stageWidth,
+      stageHeight,
+      scaleWidth: scaleInfo.width,
+      scaleHeight: scaleInfo.height,
+      svgBoxWidth: svgBoxRect?.width,
+      svgBoxHeight: svgBoxRect?.height,
+      defaultWidth,
+      defaultHeight,
+      aspectRatio
+    });
     const fontFamily = chartStyle.FONT_FAMILY || stage.getAttribute('font-family') || 'Arial, Helvetica, sans-serif';
     const textColor = chartStyle.TEXT_COLOR || '#000000';
     stage.setAttribute('font-family', fontFamily);
     stage.setAttribute('color', textColor);
-    stage.setAttribute('font-size', String(style.fontsize));
+    stage.setAttribute('font-size', String(style.fontSizePx));
     console.debug('Debug: venn stage font applied', {
       fontFamily,
       textColor,
-      fontSizePx: style.fontsize,
+      fontSizePx: style.fontSizePx,
       fontSizePt: style.fontPt
     }); // Debug: stage font sync
     const tooltip = state.tooltip;
-    const W = 500, H = 340, pad = 20, labelPad = style.fontsize * 2;
+    const W = stageWidth;
+    const H = stageHeight;
+    const pad = 20;
+    const labelPad = style.fontSizePx * 2;
     const xs = [d.Ax - d.rA, d.Ax + d.rA, d.Bx - d.rB, d.Bx + d.rB];
     const ys = [d.Ay - d.rA, d.Ay + d.rA, d.By - d.rB, d.By + d.rB];
     if (counts.nC > 0) { xs.push(d.Cx - d.rC, d.Cx + d.rC); ys.push(d.Cy - d.rC, d.Cy + d.rC); }
@@ -946,7 +1075,7 @@
       const t = makeEl('text', {
         x,
         y,
-        'font-size': style.fontsize,
+        'font-size': style.fontSizePx,
         'text-anchor': 'middle',
         fill: textColor,
         'font-family': fontFamily
@@ -1006,19 +1135,19 @@
       const center = toPx(circle.x, circle.y);
       const others = circles.filter(c => c.id !== circle.id);
       const isTop = others.every(o => circle.y <= o.y);
-      const margin = style.fontsize * 0.6;
+      const margin = style.fontSizePx * 0.6;
       let y = center.y + (isTop ? -(circle.r * scale + margin) : (circle.r * scale + margin));
       const t = addText(label + ' (' + count + ')', center.x, y);
       let box = t.getBBox();
       for (const b of labelBoxes) {
         while (!(box.x + box.width < b.x || b.x + b.width < box.x || box.y + box.height < b.y || b.y + b.height < box.y)) {
-          y += isTop ? -style.fontsize : style.fontsize;
+          y += isTop ? -style.fontSizePx : style.fontSizePx;
           t.setAttribute('y', y);
           box = t.getBBox();
         }
       }
-      const minYBound = style.fontsize;
-      const maxYBound = H - style.fontsize;
+      const minYBound = style.fontSizePx;
+      const maxYBound = H - style.fontSizePx;
       if (box.y < minYBound) {
         y += minYBound - box.y;
         t.setAttribute('y', y);
@@ -1099,16 +1228,26 @@
     refreshCounts(counts);
     const pairs = { nAB: counts.AB + counts.ABC, nAC: counts.AC + counts.ABC, nBC: counts.BC + counts.ABC };
     const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
-    const fontSettings = resolveFontSettings(inputs.fontsize.value);
+    const fontInfo = resolveFontInfo(inputs.fontsize.value);
     const borderWidthRaw = Number(inputs.borderWidth.value);
-    const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, fontSettings.scaleInfo, { context: 'venn-border', min: 0 });
+    const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, fontInfo.scaleInfo, { context: 'venn-border', min: 0 });
+    const resolvedFontPx = Number.isFinite(fontInfo?.scaledPx) ? fontInfo.scaledPx : Number(fontInfo?.px);
+    const fontSizePx = Number.isFinite(resolvedFontPx) ? resolvedFontPx : 12;
     const style = {
       colorA: inputs.colorA.value, colorB: inputs.colorB.value, colorC: inputs.colorC.value,
-      opacity: inputs.opacity.value, fontsize: fontSettings.px, fontPt: fontSettings.pt,
-      borderColor: inputs.borderColor.value, borderWidth: borderWidthPx, borderWidthRaw
+      opacity: inputs.opacity.value, fontSizePx, fontPt: Number.isFinite(fontInfo?.pt) ? fontInfo.pt : Number(inputs.fontsize.value) || 12,
+      borderColor: inputs.borderColor.value, borderWidth: borderWidthPx, borderWidthRaw,
+      scaleInfo: fontInfo.scaleInfo,
+      fontInfo
     };
-    console.debug('Debug: venn style scaling applied',{ borderWidthRaw, borderWidthPx, fontScale: fontSettings.scale });
-    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo: { pt: fontSettings.pt, scaledPx: fontSettings.px } });
+    console.debug('Debug: venn style scaling applied',{
+      borderWidthRaw,
+      borderWidthPx,
+      fontScale: fontInfo?.scaleInfo?.styleScale,
+      fontSizePx,
+      textLocked: fontInfo?.scaleInfo?.textLocked
+    });
+    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     updateCountLabels(labels);
     updateRegionSelect(labels);
@@ -1139,16 +1278,26 @@
     if (state.significanceResults) state.significanceResults.innerHTML = '';
     refreshCounts(counts);
     const L = layoutFromCounts(nA, nB, nC, nAB, nAC, nBC);
-    const fontSettings = resolveFontSettings(inputs.fontsize.value);
+    const fontInfo = resolveFontInfo(inputs.fontsize.value);
     const borderWidthRaw = Number(inputs.borderWidth.value);
-    const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, fontSettings.scaleInfo, { context: 'venn-border', min: 0 });
+    const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, fontInfo.scaleInfo, { context: 'venn-border', min: 0 });
+    const resolvedFontPx = Number.isFinite(fontInfo?.scaledPx) ? fontInfo.scaledPx : Number(fontInfo?.px);
+    const fontSizePx = Number.isFinite(resolvedFontPx) ? resolvedFontPx : 12;
     const style = {
       colorA: inputs.colorA.value, colorB: inputs.colorB.value, colorC: inputs.colorC.value,
-      opacity: inputs.opacity.value, fontsize: fontSettings.px, fontPt: fontSettings.pt,
-      borderColor: inputs.borderColor.value, borderWidth: borderWidthPx, borderWidthRaw
+      opacity: inputs.opacity.value, fontSizePx, fontPt: Number.isFinite(fontInfo?.pt) ? fontInfo.pt : Number(inputs.fontsize.value) || 12,
+      borderColor: inputs.borderColor.value, borderWidth: borderWidthPx, borderWidthRaw,
+      scaleInfo: fontInfo.scaleInfo,
+      fontInfo
     };
-    console.debug('Debug: venn style scaling applied',{ borderWidthRaw, borderWidthPx, fontScale: fontSettings.scale });
-    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo: { pt: fontSettings.pt, scaledPx: fontSettings.px } });
+    console.debug('Debug: venn style scaling applied',{
+      borderWidthRaw,
+      borderWidthPx,
+      fontScale: fontInfo?.scaleInfo?.styleScale,
+      fontSizePx,
+      textLocked: fontInfo?.scaleInfo?.textLocked
+    });
+    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     updateCountLabels(labels);
     updateRegionSelect(labels);
@@ -1212,17 +1361,17 @@
         if (saved.borderColor) inputs.borderColor.value = saved.borderColor;
         if (saved.borderWidth) inputs.borderWidth.value = saved.borderWidth;
         if (savedFontValue !== null && typeof savedFontValue !== 'undefined') {
-          const normalized = resolveFontSettings(savedFontValue);
-          inputs.fontsize.value = normalized.pt;
-          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo: { pt: normalized.pt, scaledPx: normalized.px } });
-          console.debug('Debug: venn loadStylePrefs font applied', { saved: savedFontValue, normalized, savedVersion });
+          const fontInfo = resolveFontInfo(savedFontValue);
+          inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
+          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
+          console.debug('Debug: venn loadStylePrefs font applied', { saved: savedFontValue, fontInfo, savedVersion });
         }
       }
       if (!saved || typeof savedFontValue === 'undefined' || savedFontValue === null) {
-        const normalized = resolveFontSettings(inputs.fontsize.value);
-        inputs.fontsize.value = normalized.pt;
-        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo: { pt: normalized.pt, scaledPx: normalized.px } });
-        console.debug('Debug: venn loadStylePrefs font default', { normalized });
+        const fontInfo = resolveFontInfo(inputs.fontsize.value);
+        inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
+        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
+        console.debug('Debug: venn loadStylePrefs font default', { fontInfo });
       }
       inputs.opacityVal.textContent = inputs.opacity.value;
       inputs.borderWidthVal.textContent = inputs.borderWidth.value;
@@ -1267,6 +1416,12 @@
     state.tablePanel = tablePanel;
     state.graphPanel = graphPanel;
     state.panelResizer = panelResizer;
+    if (vennContainer) {
+      state.svgBox = vennContainer;
+      console.debug('Debug: venn initResizers stored svgBox', { hasSvgBox: true });
+    } else {
+      console.debug('Debug: venn initResizers missing svgBox container');
+    }
     console.debug('Debug: venn initResizers setup', {
       hasStage: !!stage,
       hasContainer: !!vennContainer,
@@ -1576,15 +1731,15 @@
         inputs.borderWidth.value = s.borderWidth || inputs.borderWidth.value;
         inputs.borderWidthVal.textContent = inputs.borderWidth.value;
         if (s.fontsize) {
-          const normalized = resolveFontSettings(s.fontsize);
-          inputs.fontsize.value = normalized.pt;
-          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: normalized.pt });
-          console.debug('Debug: venn loadFromFile font applied', { saved: s.fontsize, normalized });
+          const fontInfo = resolveFontInfo(s.fontsize);
+          inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
+          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
+          console.debug('Debug: venn loadFromFile font applied', { saved: s.fontsize, fontInfo });
         } else {
-          const normalized = resolveFontSettings(inputs.fontsize.value);
-          inputs.fontsize.value = normalized.pt;
-          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, pt: normalized.pt });
-          console.debug('Debug: venn loadFromFile font fallback', { normalized });
+          const fontInfo = resolveFontInfo(inputs.fontsize.value);
+          inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
+          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
+          console.debug('Debug: venn loadFromFile font fallback', { fontInfo });
         }
         refreshDiagram();
       } catch (err) { console.error('loadVennGraph error', err); }
@@ -1709,10 +1864,10 @@
     state.inputs.opacity.addEventListener('input', () => { state.inputs.opacityVal.textContent = state.inputs.opacity.value; refreshDiagram(); saveStylePrefs(); });
     state.inputs.fontsize.addEventListener('input', () => {
       const raw = state.inputs.fontsize.value;
-      const normalized = resolveFontSettings(raw);
-      state.inputs.fontsize.value = normalized.pt;
-      chartStyle.renderFontSizeLabel({ element: state.inputs.fontsizeVal, pt: normalized.pt });
-      console.debug('Debug: venn fontsize slider change', { raw, normalized });
+      const fontInfo = resolveFontInfo(raw);
+      state.inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : state.inputs.fontsize.value;
+      chartStyle.renderFontSizeLabel({ element: state.inputs.fontsizeVal, fontInfo });
+      console.debug('Debug: venn fontsize slider change', { raw, fontInfo });
       refreshDiagram();
       saveStylePrefs();
     });
