@@ -86,24 +86,59 @@
   const pieStatsResults = $('#pieStatsResults');
 
   if (typeof chartStyle.onTextSizeLockChange === 'function') {
-    chartStyle.onTextSizeLockChange((locked, origin) => {
-      console.debug('Debug: main text size lock broadcast', { locked, origin }); // Debug: lock change listener entry
-      try { scheduleDrawBoxplot(); } catch (err) { console.error('main text lock box redraw error', err); }
-      try { scheduleDrawScatter(); } catch (err) { console.error('main text lock scatter redraw error', err); }
-      try { scheduleDrawPca(); } catch (err) { console.error('main text lock pca redraw error', err); }
-      try { scheduleDrawLine(); } catch (err) { console.error('main text lock line redraw error', err); }
-      try { scheduleDrawHist(); } catch (err) { console.error('main text lock hist redraw error', err); }
-      try { scheduleDrawPie(); } catch (err) { console.error('main text lock pie redraw error', err); }
-      try {
-        if (window.Components?.venn?.draw) {
-          window.Components.venn.draw();
+    chartStyle.onTextSizeLockChange((locked, origin, details) => {
+      const scopeId = details?.scopeId || null;
+      const normalizedScope = scopeId && scopeId.endsWith('-scope') ? scopeId.replace(/-scope$/, '') : scopeId;
+      console.debug('Debug: main text size lock broadcast', {
+        locked,
+        origin,
+        scope: normalizedScope || 'global'
+      }); // Debug: lock change listener entry
+      const scopeHandlers = {
+        vennGraphPanel: () => {
+          try {
+            if (window.Components?.venn?.draw) {
+              window.Components.venn.draw();
+            }
+          } catch (err) { console.error('main text lock venn redraw error', err); }
+        },
+        boxGraphPanel: () => {
+          try { scheduleDrawBoxplot(); } catch (err) { console.error('main text lock box redraw error', err); }
+        },
+        scatterGraphPanel: () => {
+          try { scheduleDrawScatter(); } catch (err) { console.error('main text lock scatter redraw error', err); }
+        },
+        pcaGraphPanel: () => {
+          try { scheduleDrawPca(); } catch (err) { console.error('main text lock pca redraw error', err); }
+        },
+        lineGraphPanel: () => {
+          try { scheduleDrawLine(); } catch (err) { console.error('main text lock line redraw error', err); }
+        },
+        histGraphPanel: () => {
+          try { scheduleDrawHist(); } catch (err) { console.error('main text lock hist redraw error', err); }
+        },
+        pieGraphPanel: () => {
+          try { scheduleDrawPie(); } catch (err) { console.error('main text lock pie redraw error', err); }
+        },
+        rocGraphPanel: () => {
+          try {
+            if (window.Components?.roc?.draw) {
+              window.Components.roc.draw();
+            }
+          } catch (err) { console.error('main text lock roc redraw error', err); }
         }
-      } catch (err) { console.error('main text lock venn redraw error', err); }
-      try {
-        if (window.Components?.roc?.draw) {
-          window.Components.roc.draw();
-        }
-      } catch (err) { console.error('main text lock roc redraw error', err); }
+      };
+      if (normalizedScope && scopeHandlers[normalizedScope]) {
+        scopeHandlers[normalizedScope]();
+      } else {
+        Object.keys(scopeHandlers).forEach(key => {
+          try {
+            scopeHandlers[key]();
+          } catch (err) {
+            console.error('main text lock handler error', err);
+          }
+        });
+      }
     }, { origin: 'main-text-lock-listener' });
   } else {
     console.debug('Debug: main text size lock setup skipped', {
