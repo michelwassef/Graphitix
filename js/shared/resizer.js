@@ -21,6 +21,26 @@
     return Number.isFinite(num) && num > 0 ? num : NaN;
   }
 
+  function resolveSquareSize(label){
+    const style = Shared.chartStyle || {};
+    const widthCandidate = Number(style.DEFAULT_WIDTH);
+    if(Number.isFinite(widthCandidate) && widthCandidate > 0){
+      console.debug('Debug: resizer resolveSquareSize using chartStyle', { label, widthCandidate }); // Debug: use chartStyle width
+      return widthCandidate;
+    }
+    const doc = global.document || null;
+    const winWidth = Number(global.innerWidth) || 0;
+    const docWidth = doc?.documentElement?.clientWidth || 0;
+    const bodyWidth = doc?.body?.clientWidth || 0;
+    let reference = Math.max(winWidth, docWidth, bodyWidth);
+    if(!Number.isFinite(reference) || reference <= 0){
+      reference = 960;
+    }
+    const normalized = Math.max(320, Math.round(reference / 3));
+    console.debug('Debug: resizer resolveSquareSize fallback', { label, reference, normalized }); // Debug: fallback width calc
+    return normalized;
+  }
+
   function enforceAspectRatio(opts){
     const {
       width,
@@ -134,8 +154,12 @@
     const chartStyle = Shared.chartStyle || {};
     const resizeMinScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
     const resizeMaxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-    const defaultWidthFallback = Number(chartStyle.DEFAULT_WIDTH) || 640;
-    const defaultHeightFallback = Number(chartStyle.DEFAULT_HEIGHT) || 420;
+    const fallbackLabel = opts.debugLabel || container?.id || container?.className || 'resizer';
+    const squareFallback = resolveSquareSize(fallbackLabel);
+    const defaultWidthRaw = Number(chartStyle.DEFAULT_WIDTH);
+    const defaultHeightRaw = Number(chartStyle.DEFAULT_HEIGHT);
+    const defaultWidthFallback = Number.isFinite(defaultWidthRaw) && defaultWidthRaw > 0 ? defaultWidthRaw : squareFallback;
+    const defaultHeightFallback = Number.isFinite(defaultHeightRaw) && defaultHeightRaw > 0 ? defaultHeightRaw : defaultWidthFallback;
     const parsedDefaultWidth = Number(opts.defaultWidth);
     const parsedDefaultHeight = Number(opts.defaultHeight);
     let defaultWidth = Number.isFinite(parsedDefaultWidth) && parsedDefaultWidth > 0
@@ -190,6 +214,7 @@
     data.resizerMaxHeight = String(MAX_H);
     data.resizerResized = data.resizerResized || 'false';
 
+    const containerLabel = container.id || container.className || 'svgbox';
     const ratioFromDefaults = (Number.isFinite(defaultWidth) && defaultWidth > 0 && Number.isFinite(defaultHeight) && defaultHeight > 0)
       ? (defaultWidth / defaultHeight)
       : NaN;
@@ -199,6 +224,11 @@
       ? (rectWidthVal / rectHeightVal)
       : NaN;
     let aspectRatio = parsePositive(data.resizerAspectRatio);
+    const overrideAspectRatio = parsePositive(opts.aspectRatio);
+    if(Number.isFinite(overrideAspectRatio) && overrideAspectRatio > 0){
+      aspectRatio = overrideAspectRatio;
+      console.debug('Debug: resizer aspect ratio override', { container: containerLabel, overrideAspectRatio }); // Debug: aspect ratio override applied
+    }
     if(!Number.isFinite(aspectRatio)){
       aspectRatio = Number.isFinite(ratioFromRect) ? ratioFromRect : ratioFromDefaults;
     }
@@ -206,12 +236,14 @@
       aspectRatio = Number.isFinite(ratioFromDefaults) ? ratioFromDefaults : 1;
     }
     let aspectLocked = data.resizerAspectLocked === 'true';
+    if(typeof opts.aspectLocked === 'boolean'){
+      aspectLocked = opts.aspectLocked;
+      console.debug('Debug: resizer aspect lock override', { container: containerLabel, aspectLocked }); // Debug: aspect lock override applied
+    }
     if(aspectLocked && (!Number.isFinite(aspectRatio) || aspectRatio <= 0)){
       aspectLocked = false;
     }
     data.resizerAspectLocked = aspectLocked ? 'true' : 'false';
-    const containerLabel = container.id || container.className || 'svgbox';
-
     function setAspectRatio(nextRatio){
       if(!Number.isFinite(nextRatio) || nextRatio <= 0) return;
       aspectRatio = nextRatio;

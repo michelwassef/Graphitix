@@ -9,10 +9,38 @@
   const PT_TO_PX = 96 / 72;
   const BASE_FONT_SIZE_PT = 13;
   const BASE_FONT_SIZE_PX = Number((BASE_FONT_SIZE_PT * PT_TO_PX).toFixed(2));
-  const DEFAULT_WIDTH = 640;
-  const DEFAULT_HEIGHT = 420;
+  const MIN_DEFAULT_SIZE = 320;
+  const FALLBACK_VIEWPORT_WIDTH = 960;
+
+  function computeDefaultGraphSize(reason){
+    const doc = global.document || null;
+    const winWidth = Number(global.innerWidth) || 0;
+    const docElWidth = doc?.documentElement?.clientWidth || 0;
+    const bodyWidth = doc?.body?.clientWidth || 0;
+    let reference = Math.max(winWidth, docElWidth, bodyWidth);
+    if(!Number.isFinite(reference) || reference <= 0){
+      reference = FALLBACK_VIEWPORT_WIDTH;
+    }
+    const normalized = Math.max(MIN_DEFAULT_SIZE, Math.round(reference / 3));
+    const payload = {
+      reason: reason || 'initial',
+      winWidth,
+      docElWidth,
+      bodyWidth,
+      reference,
+      normalized
+    };
+    console.debug('Debug: chartStyle.computeDefaultGraphSize', payload); // Debug: default graph dimension computation
+    return { width: normalized, height: normalized };
+  }
+
+  const initialGraphSize = computeDefaultGraphSize('initial');
+  let DEFAULT_WIDTH = initialGraphSize.width;
+  let DEFAULT_HEIGHT = initialGraphSize.height;
   const RESIZE_MIN_SCALE = 0.3;
   const RESIZE_MAX_SCALE = 3;
+  const DEFAULT_ASPECT_RATIO = 1;
+  const DEFAULT_ASPECT_LOCKED = true;
   let textSizeLocked = false;
 
   function clampScale(value){
@@ -44,6 +72,80 @@
   chartStyle.DEFAULT_HEIGHT = DEFAULT_HEIGHT;
   chartStyle.RESIZE_MIN_SCALE = RESIZE_MIN_SCALE;
   chartStyle.RESIZE_MAX_SCALE = RESIZE_MAX_SCALE;
+  chartStyle.DEFAULT_ASPECT_RATIO = DEFAULT_ASPECT_RATIO;
+  chartStyle.DEFAULT_ASPECT_LOCKED = DEFAULT_ASPECT_LOCKED;
+
+  function refreshDefaultGraphSize(context){
+    const updated = computeDefaultGraphSize(context || 'refresh');
+    DEFAULT_WIDTH = updated.width;
+    DEFAULT_HEIGHT = updated.height;
+    chartStyle.DEFAULT_WIDTH = DEFAULT_WIDTH;
+    chartStyle.DEFAULT_HEIGHT = DEFAULT_HEIGHT;
+    console.debug('Debug: chartStyle.refreshDefaultGraphSize', { context, updated }); // Debug: default size refresh
+    return updated;
+  }
+
+  chartStyle.getDefaultGraphSize = function getDefaultGraphSize(options){
+    const context = options?.context || 'cached';
+    const refresh = options?.refresh === true;
+    if(refresh){
+      const refreshed = refreshDefaultGraphSize(context);
+      console.debug('Debug: chartStyle.getDefaultGraphSize refresh result', { context, refreshed }); // Debug: refresh branch trace
+      return { width: refreshed.width, height: refreshed.height };
+    }
+    const current = { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+    console.debug('Debug: chartStyle.getDefaultGraphSize cached result', { context, current }); // Debug: cached branch trace
+    return current;
+  };
+
+  chartStyle.getSquareGraphSizing = function getSquareGraphSizing(options){
+    const context = options?.context || 'default';
+    const refresh = options?.refresh === true;
+    const baseSize = chartStyle.getDefaultGraphSize({ context, refresh });
+    let width = Number(baseSize?.width);
+    let height = Number(baseSize?.height);
+    if(!Number.isFinite(width) || width <= 0){
+      width = DEFAULT_WIDTH;
+    }
+    if(!Number.isFinite(height) || height <= 0){
+      height = DEFAULT_HEIGHT;
+    }
+    if(!Number.isFinite(width) || width <= 0){
+      const fallback = computeDefaultGraphSize(`fallback-${context}`);
+      width = fallback.width;
+      height = fallback.height;
+    }
+    if(!Number.isFinite(height) || height <= 0){
+      height = width;
+    }
+    const rawMinScale = Number(options?.minScale);
+    const rawMaxScale = Number(options?.maxScale);
+    const minScale = clampScale(Number.isFinite(rawMinScale) ? rawMinScale : RESIZE_MIN_SCALE);
+    const maxScale = clampScale(Number.isFinite(rawMaxScale) ? rawMaxScale : RESIZE_MAX_SCALE);
+    const effectiveMaxScale = Math.max(maxScale, minScale);
+    const minWidth = Math.max(1, Math.round(width * minScale));
+    const minHeight = Math.max(1, Math.round(height * minScale));
+    const maxWidth = Math.max(width, Math.round(width * effectiveMaxScale));
+    const maxHeight = Math.max(height, Math.round(height * effectiveMaxScale));
+    const sizing = {
+      width,
+      height,
+      minWidth,
+      minHeight,
+      maxWidth,
+      maxHeight,
+      aspectRatio: DEFAULT_ASPECT_RATIO,
+      aspectLocked: DEFAULT_ASPECT_LOCKED
+    };
+    console.debug('Debug: chartStyle.getSquareGraphSizing', {
+      context,
+      refresh,
+      minScale,
+      maxScale: effectiveMaxScale,
+      sizing
+    }); // Debug: square sizing helper
+    return sizing;
+  };
 
   chartStyle.ptToPx = function ptToPx(pt){
     const numeric = Number(pt);

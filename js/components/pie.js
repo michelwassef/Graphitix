@@ -19,38 +19,7 @@
 
   const PIE_DEFAULT_ROWS = 100;
   const PIE_DEFAULT_COLS = 6;
-  const PIE_RESIZER_WIDTH_SCALE = 3;
-  const PIE_RESIZER_HEIGHT_SCALE = 1;
   const PIE_RESIZER_DEBUG_LABEL = 'pie-resizer';
-
-  function resolveResizerDefaults(){
-    const baseWidth = Number(chartStyle?.DEFAULT_WIDTH) || 640;
-    const baseHeight = Number(chartStyle?.DEFAULT_HEIGHT) || 420;
-    const defaultWidth = Math.round(baseWidth * PIE_RESIZER_WIDTH_SCALE);
-    const defaultHeight = Math.round(baseHeight * PIE_RESIZER_HEIGHT_SCALE);
-    const minScale = Number(chartStyle?.RESIZE_MIN_SCALE) || 0.3;
-    const maxScale = Number(chartStyle?.RESIZE_MAX_SCALE) || 3;
-    const minWidth = Math.max(1, Math.round(baseWidth * minScale));
-    const maxWidth = Math.max(defaultWidth, Math.round(defaultWidth * maxScale));
-    const minHeight = Math.max(1, Math.round(baseHeight * minScale));
-    const maxHeight = Math.max(defaultHeight, Math.round(defaultHeight * maxScale));
-    const payload = {
-      baseWidth,
-      baseHeight,
-      defaultWidth,
-      defaultHeight,
-      minWidth,
-      maxWidth,
-      minHeight,
-      maxHeight,
-      widthScale: PIE_RESIZER_WIDTH_SCALE,
-      heightScale: PIE_RESIZER_HEIGHT_SCALE,
-      minScale,
-      maxScale
-    };
-    console.debug('Debug: pie resolved resizer defaults', payload); // Debug: scaled resizer defaults
-    return payload;
-  }
 
   let state = {
     hot: null,
@@ -103,25 +72,46 @@
 
     const plotDiv=document.getElementById('piePlot');
     const container=plotDiv.closest('.svgbox')||plotDiv.parentElement;
-    const resizerDefaults = resolveResizerDefaults();
     if(global.Shared && Shared.attachResizableBox && container){
+      const graphSizing = chartStyle.getSquareGraphSizing
+        ? chartStyle.getSquareGraphSizing({ context: 'pie' })
+        : (function fallbackSizing(){
+            const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
+            const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
+            const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
+            const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
+            const fallback = {
+              width: baseWidth,
+              height: baseHeight,
+              minWidth: Math.max(1, Math.round(baseWidth * minScale)),
+              minHeight: Math.max(1, Math.round(baseHeight * minScale)),
+              maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
+              maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
+              aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
+              aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
+            };
+            console.debug('Debug: pie fallback square sizing', { label: PIE_RESIZER_DEBUG_LABEL, fallback }); // Debug: fallback sizing payload
+            return fallback;
+          })();
       console.debug('Debug: pie invoking attachResizableBox', {
         label: PIE_RESIZER_DEBUG_LABEL,
         containerId: container?.id || 'piePlotContainer',
-        defaults: resizerDefaults,
+        sizing: graphSizing,
         hasAttach: !!Shared.attachResizableBox
       }); // Debug: attachResizableBox payload trace
-      console.debug('Debug: pie resizer bounds before attach', { // Debug: pie resizer options trace
+      console.debug('Debug: pie resizer sizing config', {
         label: PIE_RESIZER_DEBUG_LABEL,
-        defaults: resizerDefaults
-      });
+        sizing: graphSizing
+      }); // Debug: pie resizer options trace
       Shared.attachResizableBox(container, {
-        defaultWidth: resizerDefaults.defaultWidth,
-        defaultHeight: resizerDefaults.defaultHeight,
-        minWidth: resizerDefaults.minWidth,
-        maxWidth: resizerDefaults.maxWidth,
-        minHeight: resizerDefaults.minHeight,
-        maxHeight: resizerDefaults.maxHeight,
+        defaultWidth: graphSizing.width,
+        defaultHeight: graphSizing.height,
+        minWidth: graphSizing.minWidth,
+        maxWidth: graphSizing.maxWidth,
+        minHeight: graphSizing.minHeight,
+        maxHeight: graphSizing.maxHeight,
+        aspectLocked: graphSizing.aspectLocked !== false,
+        aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
         onResize: phase => {
           console.debug('Debug: pie svgbox resized', { phase }); // Debug: pie svgbox resize callback
           syncPiePanels();

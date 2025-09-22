@@ -229,9 +229,36 @@
       const scatterPlotDiv=document.getElementById('scatterPlot');
       const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
       if(global.Shared && Shared.attachResizableBox && scatterContainer){
+        const graphSizing = chartStyle.getSquareGraphSizing
+          ? chartStyle.getSquareGraphSizing({ context: 'scatter' })
+          : (function fallbackSizing(){
+              const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
+              const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
+              const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
+              const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
+              const fallback = {
+                width: baseWidth,
+                height: baseHeight,
+                minWidth: Math.max(1, Math.round(baseWidth * minScale)),
+                minHeight: Math.max(1, Math.round(baseHeight * minScale)),
+                maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
+                maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
+                aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
+                aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
+              };
+              console.debug('Debug: scatter fallback square sizing',{ context: 'scatter', fallback }); // Debug: fallback sizing payload
+              return fallback;
+            })();
+        console.debug('Debug: scatter resizer sizing config', { graphSizing }); // Debug: scatter sizing helper output
         Shared.attachResizableBox(scatterContainer, {
-          defaultWidth: 640,
-          defaultHeight: 420,
+          defaultWidth: graphSizing.width,
+          defaultHeight: graphSizing.height,
+          minWidth: graphSizing.minWidth,
+          minHeight: graphSizing.minHeight,
+          maxWidth: graphSizing.maxWidth,
+          maxHeight: graphSizing.maxHeight,
+          aspectLocked: graphSizing.aspectLocked !== false,
+          aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
           onResize: phase => {
             console.debug('Debug: scatter resizer callback', { phase }); // Debug: scatter resizer callback
             scheduleDrawScatter();
