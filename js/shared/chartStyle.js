@@ -41,20 +41,94 @@
   const RESIZE_MAX_SCALE = 3;
   const DEFAULT_ASPECT_RATIO = 1;
   const DEFAULT_ASPECT_LOCKED = true;
+  const GLOBAL_TEXT_SCOPE = '__chartstyle_global__';
   let textSizeLocked = false;
-  const textLockInputs = new Set();
-  const textLockListeners = new Set();
+  const textLockState = new Map();
+  const textLockInputs = new Map();
+  const textLockListeners = new Map();
 
-  function syncTextLockInputs(origin){
+  function normalizeScopeId(raw){
+    if(typeof raw === 'string'){
+      const trimmed = raw.trim();
+      if(trimmed){
+        return trimmed;
+      }
+    }
+    return null;
+  }
+
+  function resolveScopeKey(options){
+    if(typeof options === 'string'){
+      return normalizeScopeId(options);
+    }
+    const opts = options || {};
+    const directScope = normalizeScopeId(opts.scopeId || opts.scope);
+    if(directScope){
+      return directScope;
+    }
+    const svgBox = opts.svgBox || opts.container || opts.element || null;
+    if(svgBox && svgBox.dataset){
+      const datasetScope = normalizeScopeId(svgBox.dataset.resizerTextLockScope || svgBox.dataset.textLockScope);
+      if(datasetScope){
+        return datasetScope;
+      }
+    }
+    const input = opts.input || opts.control || null;
+    if(input && input.dataset){
+      const inputScope = normalizeScopeId(input.dataset.textLockScope);
+      if(inputScope){
+        return inputScope;
+      }
+    }
+    if(svgBox && svgBox.id){
+      return normalizeScopeId(svgBox.id);
+    }
+    if(typeof opts.origin === 'string'){
+      return normalizeScopeId(opts.origin);
+    }
+    return null;
+  }
+
+  function getScopedLock(scopeId){
+    if(scopeId && textLockState.has(scopeId)){
+      return !!textLockState.get(scopeId);
+    }
+    return !!textSizeLocked;
+  }
+
+  function setScopedLock(scopeId, value){
+    const normalized = !!value;
+    if(scopeId){
+      textLockState.set(scopeId, normalized);
+    }else{
+      textSizeLocked = normalized;
+    }
+    return normalized;
+  }
+
+  function snapshotLockSummary(){
+    const summary = { global: !!textSizeLocked, scoped: {} };
+    textLockState.forEach((val, key) => {
+      summary.scoped[key] = !!val;
+    });
+    return summary;
+  }
+
+  function syncTextLockInputs(origin, scopeFilter){
     const stale = [];
-    textLockInputs.forEach(input => {
+    textLockInputs.forEach((scopeId, input) => {
       if(!input || typeof input !== 'object' || typeof input.addEventListener !== 'function'){
         stale.push(input);
         return;
       }
-      if('checked' in input && input.checked !== textSizeLocked){
+      const effectiveScope = scopeId || GLOBAL_TEXT_SCOPE;
+      if(scopeFilter && effectiveScope !== scopeFilter){
+        return;
+      }
+      const scopedLock = getScopedLock(scopeId);
+      if('checked' in input && input.checked !== scopedLock){
         try {
-          input.checked = textSizeLocked;
+          input.checked = scopedLock;
         } catch(syncErr){
           console.error('chartStyle.syncTextLockInputs assignment error', syncErr);
         }
@@ -65,21 +139,35 @@
     }
     console.debug('Debug: chartStyle.syncTextLockInputs', {
       origin: origin || 'unknown',
-      locked: textSizeLocked,
+      scope: scopeFilter || 'all',
       controlCount: textLockInputs.size,
-      staleCount: stale.length
+      staleCount: stale.length,
+      stateSummary: snapshotLockSummary()
     }); // Debug: text lock control sync trace
   }
 
-  function emitTextLockChange(origin){
+  function emitTextLockChange(origin, scopeId, lockedValue){
+    const effectiveScope = scopeId || GLOBAL_TEXT_SCOPE;
     console.debug('Debug: chartStyle.emitTextLockChange start', {
       origin: origin || 'unknown',
-      locked: textSizeLocked,
+      locked: lockedValue,
+      scope: effectiveScope,
       listenerCount: textLockListeners.size
     }); // Debug: text lock listener broadcast start
-    textLockListeners.forEach(listener => {
+    textLockListeners.forEach((info, listener) => {
+      if(!info || typeof listener !== 'function'){
+        return;
+      }
+      if(info.scope && info.scope !== effectiveScope){
+        console.debug('Debug: chartStyle.emitTextLockChange skip listener', {
+          listenerScope: info.scope,
+          eventScope: effectiveScope,
+          listenerOrigin: info.origin || listener.name || 'anonymous'
+        }); // Debug: listener scope filter
+        return;
+      }
       try {
-        listener(textSizeLocked, origin || 'unknown');
+        listener(lockedValue, origin || 'unknown', { scopeId: scopeId || null, locked: lockedValue });
       } catch(err){
         console.error('chartStyle text lock listener error', err);
       }
@@ -266,6 +354,7 @@
     });
     const svgBox = options?.svgBox || null;
     const dataset = svgBox && svgBox.dataset ? svgBox.dataset : null;
+    const scopeId = resolveScopeKey({ scopeId: options?.scopeId, svgBox });
     const isManualResize = dataset ? dataset.resizerResized === 'true' : null;
     const lockForUnresized = options?.lockScaleWhenUnresized !== false;
     const autoLock = !isManualResize && !!dataset && lockForUnresized;
@@ -276,13 +365,17 @@
       lockOverride = true;
     }else if(typeof options?.lockScaleDefault === 'boolean'){
       lockOverride = !!options.lockScaleDefault;
+    }else if(dataset && typeof dataset.resizerTextLock === 'string'){
+      lockOverride = dataset.resizerTextLock === 'true';
+    }else if(scopeId){
+      lockOverride = getScopedLock(scopeId);
     }else{
       lockOverride = textSizeLocked;
     }
     const textScale = lockOverride ? 1 : resizeInfo.styleScale;
     const scaledPx = Math.max(4, normalized.px * textScale);
-    const scaleInfo = { ...resizeInfo, textScale, textLocked: lockOverride, manualResize: !!isManualResize };
-    const result = { ...normalized, scaledPx, scaleInfo, textLocked: lockOverride };
+    const scaleInfo = { ...resizeInfo, textScale, textLocked: lockOverride, manualResize: !!isManualResize, scopeId };
+    const result = { ...normalized, scaledPx, scaleInfo, textLocked: lockOverride, scopeId };
     console.debug('Debug: chartStyle.resolveScaledFontSize', {
       raw: options?.rawSize,
       normalizedPt: normalized.pt,
@@ -293,7 +386,8 @@
       locked: lockOverride,
       manualResize: isManualResize,
       width: resizeInfo.width,
-      height: resizeInfo.height
+      height: resizeInfo.height,
+      scope: scopeId || 'global'
     }); // Debug: scaled font resolution
     return result;
   };
@@ -302,21 +396,42 @@
     const nextValue = !!locked;
     const opts = options || {};
     const origin = opts.origin || 'setTextSizeLock';
+    const svgBox = opts.svgBox || null;
+    const scopeId = resolveScopeKey({ ...opts, svgBox });
+    const effectiveScope = scopeId || GLOBAL_TEXT_SCOPE;
     const force = opts.force === true;
-    if(textSizeLocked === nextValue && !force){
-      console.debug('Debug: chartStyle.setTextSizeLock noop', { locked: textSizeLocked, origin }); // Debug: no change branch
-      return textSizeLocked;
+    const previous = getScopedLock(scopeId);
+    if(previous === nextValue && !force){
+      console.debug('Debug: chartStyle.setTextSizeLock noop', { locked: previous, origin, scope: effectiveScope }); // Debug: no change branch
+      return previous;
     }
-    textSizeLocked = nextValue;
-    console.debug('Debug: chartStyle.setTextSizeLock', { locked: textSizeLocked, origin, force }); // Debug: text lock toggle trace
-    syncTextLockInputs(origin);
-    emitTextLockChange(origin);
-    return textSizeLocked;
+    setScopedLock(scopeId, nextValue);
+    if(svgBox && svgBox.dataset){
+      if(scopeId){
+        svgBox.dataset.resizerTextLockScope = scopeId;
+      }
+      svgBox.dataset.resizerTextLock = nextValue ? 'true' : 'false';
+    }
+    console.debug('Debug: chartStyle.setTextSizeLock', {
+      locked: nextValue,
+      origin,
+      force,
+      scope: effectiveScope,
+      stateSummary: snapshotLockSummary()
+    }); // Debug: text lock toggle trace
+    syncTextLockInputs(origin, effectiveScope);
+    emitTextLockChange(origin, scopeId, nextValue);
+    return nextValue;
   };
 
-  chartStyle.isTextSizeLocked = function isTextSizeLocked(){
-    console.debug('Debug: chartStyle.isTextSizeLocked query', { locked: textSizeLocked }); // Debug: text lock query trace
-    return textSizeLocked;
+  chartStyle.isTextSizeLocked = function isTextSizeLocked(scopeOptions){
+    const scopeId = resolveScopeKey(scopeOptions);
+    const result = getScopedLock(scopeId);
+    console.debug('Debug: chartStyle.isTextSizeLocked query', {
+      locked: result,
+      scope: scopeId || 'global'
+    }); // Debug: text lock query trace
+    return result;
   };
 
   chartStyle.registerTextSizeLockControl = function registerTextSizeLockControl(input, options){
@@ -329,6 +444,20 @@
         console.debug('Debug: chartStyle.unregisterTextSizeLockControl noop', { origin });
       };
     }
+    const scopeId = resolveScopeKey({ ...opts, input: el });
+    const effectiveScope = scopeId || GLOBAL_TEXT_SCOPE;
+    const svgBox = opts.svgBox || null;
+    if(svgBox && svgBox.dataset){
+      if(scopeId){
+        svgBox.dataset.resizerTextLockScope = scopeId;
+      }
+      if(typeof svgBox.dataset.resizerTextLock !== 'string'){
+        svgBox.dataset.resizerTextLock = getScopedLock(scopeId) ? 'true' : 'false';
+      }
+    }
+    if(el.dataset){
+      el.dataset.textLockScope = scopeId || '';
+    }
     if(el.__chartStyleTextLockHandler){
       el.removeEventListener('change', el.__chartStyleTextLockHandler);
       delete el.__chartStyleTextLockHandler;
@@ -336,23 +465,27 @@
     }
     if('checked' in el){
       try {
-        el.checked = textSizeLocked;
+        el.checked = getScopedLock(scopeId);
       } catch(assignErr){
         console.error('chartStyle.registerTextSizeLockControl assign error', assignErr);
       }
     }
     const handler = () => {
       const desired = !!el.checked;
-      console.debug('Debug: chartStyle.textLockControl change', { origin, desired }); // Debug: control change event
-      chartStyle.setTextSizeLock(desired, { origin: `control-${origin}` });
+      if(svgBox && svgBox.dataset){
+        svgBox.dataset.resizerTextLock = desired ? 'true' : 'false';
+      }
+      console.debug('Debug: chartStyle.textLockControl change', { origin, desired, scope: effectiveScope }); // Debug: control change event
+      chartStyle.setTextSizeLock(desired, { origin: `control-${origin}`, scopeId, svgBox });
     };
     el.addEventListener('change', handler);
     el.__chartStyleTextLockHandler = handler;
-    textLockInputs.add(el);
+    textLockInputs.set(el, scopeId);
     console.debug('Debug: chartStyle.registerTextSizeLockControl', {
       origin,
-      locked: textSizeLocked,
-      controlCount: textLockInputs.size
+      locked: getScopedLock(scopeId),
+      controlCount: textLockInputs.size,
+      scope: effectiveScope
     }); // Debug: control registration summary
     const cleanup = () => {
       if(el.__chartStyleTextLockHandler){
@@ -360,7 +493,11 @@
         delete el.__chartStyleTextLockHandler;
       }
       textLockInputs.delete(el);
-      console.debug('Debug: chartStyle.unregisterTextSizeLockControl', { origin, remaining: textLockInputs.size }); // Debug: control cleanup
+      console.debug('Debug: chartStyle.unregisterTextSizeLockControl', {
+        origin,
+        remaining: textLockInputs.size,
+        scope: effectiveScope
+      }); // Debug: control cleanup
     };
     if(opts.signal && typeof opts.signal.addEventListener === 'function'){
       opts.signal.addEventListener('abort', cleanup, { once: true });
@@ -377,18 +514,29 @@
     }
     const opts = options || {};
     const origin = opts.origin || callback.name || 'anonymous';
-    textLockListeners.add(callback);
-    console.debug('Debug: chartStyle.onTextSizeLockChange registered', { origin, listenerCount: textLockListeners.size }); // Debug: listener registration
+    const scopeId = resolveScopeKey(opts);
+    const effectiveScope = scopeId || null;
+    textLockListeners.set(callback, { origin, scope: effectiveScope ? effectiveScope : null });
+    console.debug('Debug: chartStyle.onTextSizeLockChange registered', {
+      origin,
+      listenerCount: textLockListeners.size,
+      scope: effectiveScope || 'all'
+    }); // Debug: listener registration
     if(opts.immediate){
       try {
-        callback(textSizeLocked, 'immediate');
+        const initial = getScopedLock(scopeId);
+        callback(initial, 'immediate', { scopeId: scopeId || null, locked: initial });
       } catch(err){
         console.error('chartStyle text lock immediate callback error', err);
       }
     }
     const cleanup = () => {
       textLockListeners.delete(callback);
-      console.debug('Debug: chartStyle.onTextSizeLockChange removed', { origin, remaining: textLockListeners.size }); // Debug: listener cleanup
+      console.debug('Debug: chartStyle.onTextSizeLockChange removed', {
+        origin,
+        remaining: textLockListeners.size,
+        scope: effectiveScope || 'all'
+      }); // Debug: listener cleanup
     };
     if(opts.signal && typeof opts.signal.addEventListener === 'function'){
       opts.signal.addEventListener('abort', cleanup, { once: true });

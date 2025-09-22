@@ -3,6 +3,7 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  let resizerScopeCounter = 0;
 
   function clampDimension(value, min, max){
     if(!Number.isFinite(value)) return NaN;
@@ -214,7 +215,38 @@
     data.resizerMaxHeight = String(MAX_H);
     data.resizerResized = data.resizerResized || 'false';
 
-    const containerLabel = container.id || container.className || 'svgbox';
+    const labelFromOpts = typeof opts.debugLabel === 'string' ? opts.debugLabel : null;
+    const closestPanel = typeof container.closest === 'function' ? container.closest('.panel') : null;
+    const panelId = closestPanel && closestPanel.id ? closestPanel.id : null;
+    const containerLabel = labelFromOpts || container.id || panelId || container.className || 'svgbox';
+    const existingScope = data.resizerTextLockScope || null;
+    const optionScope = typeof opts.scopeId === 'string' && opts.scopeId.trim() ? opts.scopeId.trim()
+      : (typeof opts.textLockScope === 'string' && opts.textLockScope.trim() ? opts.textLockScope.trim() : null);
+    let textLockScope = existingScope || optionScope || panelId || container.id || (labelFromOpts ? `${labelFromOpts}-scope` : null);
+    if(!textLockScope){
+      resizerScopeCounter += 1;
+      textLockScope = `svgbox-scope-${resizerScopeCounter}`;
+    }
+    data.resizerTextLockScope = textLockScope;
+    if(typeof data.resizerTextLock !== 'string'){
+      let initialLock = false;
+      if(chartStyle && typeof chartStyle.isTextSizeLocked === 'function'){
+        try {
+          initialLock = !!chartStyle.isTextSizeLocked({ scopeId: textLockScope, svgBox: container });
+        } catch(scopeErr){
+          console.error('resizer text lock initial state error', scopeErr);
+        }
+      }
+      data.resizerTextLock = initialLock ? 'true' : 'false';
+    }
+    console.debug('Debug: resizer text lock scope resolved', {
+      container: containerLabel,
+      scope: textLockScope,
+      existingScope,
+      fromOption: optionScope,
+      fromPanel: panelId,
+      labelFromOpts
+    }); // Debug: resizer scope trace
     const ratioFromDefaults = (Number.isFinite(defaultWidth) && defaultWidth > 0 && Number.isFinite(defaultHeight) && defaultHeight > 0)
       ? (defaultWidth / defaultHeight)
       : NaN;
@@ -427,13 +459,20 @@
         textLockCheckbox = textLockControl.querySelector('input[type="checkbox"]');
       }
       if(textLockCheckbox){
+        if(textLockCheckbox.dataset){
+          textLockCheckbox.dataset.textLockScope = textLockScope;
+        }
         if(typeof chartStyle.registerTextSizeLockControl === 'function'){
-          chartStyle.registerTextSizeLockControl(textLockCheckbox, { origin: `${containerLabel}-resizer` });
-          console.debug('Debug: resizer text lock registered', { container: containerLabel }); // Debug: text lock registration
+          chartStyle.registerTextSizeLockControl(textLockCheckbox, {
+            origin: `${containerLabel}-resizer`,
+            scopeId: textLockScope,
+            svgBox: container
+          });
+          console.debug('Debug: resizer text lock registered', { container: containerLabel, scope: textLockScope }); // Debug: text lock registration
         }else{
           if(typeof chartStyle.isTextSizeLocked === 'function'){
             try {
-              textLockCheckbox.checked = !!chartStyle.isTextSizeLocked();
+              textLockCheckbox.checked = !!chartStyle.isTextSizeLocked({ scopeId: textLockScope, svgBox: container });
             } catch(stateErr){
               console.error('resizer text lock state sync error', stateErr);
             }
@@ -443,13 +482,28 @@
           }
           const onTextLockChange = () => {
             const locked = !!textLockCheckbox.checked;
-            console.debug('Debug: resizer text lock fallback change', { container: containerLabel, locked }); // Debug: fallback handler
+            container.dataset.resizerTextLock = locked ? 'true' : 'false';
+            console.debug('Debug: resizer text lock fallback change', { container: containerLabel, locked, scope: textLockScope }); // Debug: fallback handler
             if(typeof chartStyle.setTextSizeLock === 'function'){
-              chartStyle.setTextSizeLock(locked, { origin: `${containerLabel}-fallback` });
+              chartStyle.setTextSizeLock(locked, { origin: `${containerLabel}-fallback`, scopeId: textLockScope, svgBox: container });
             }
           };
           textLockCheckbox.addEventListener('change', onTextLockChange);
           textLockCheckbox.__resizerTextLockHandler = onTextLockChange;
+          if(typeof chartStyle.onTextSizeLockChange === 'function'){
+            chartStyle.onTextSizeLockChange((lockedValue, eventOrigin) => {
+              if(eventOrigin === `${containerLabel}-fallback`) return;
+              const scoped = !!lockedValue;
+              textLockCheckbox.checked = scoped;
+              container.dataset.resizerTextLock = scoped ? 'true' : 'false';
+              console.debug('Debug: resizer text lock fallback sync', {
+                container: containerLabel,
+                origin: eventOrigin,
+                scope: textLockScope,
+                locked: scoped
+              }); // Debug: fallback sync listener
+            }, { origin: `${containerLabel}-fallback-listener`, scopeId: textLockScope });
+          }
         }
       }
     }
