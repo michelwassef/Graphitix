@@ -400,7 +400,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #piePage{
   --pie-graph-default-width: calc(var(--graph-default-width, 640px) * 2);
   --pie-graph-default-height: var(--graph-default-height, 420px);
-  --pie-graph-min-width: calc(var(--pie-graph-default-width) * 0.3);
+  --pie-graph-min-width: calc(var(--graph-default-width, 640px) * 0.3);
   --pie-graph-min-height: calc(var(--pie-graph-default-height) * 0.3);
   --pie-graph-max-width: calc(var(--pie-graph-default-width) * 3);
   --pie-graph-max-height: calc(var(--pie-graph-default-height) * 3);

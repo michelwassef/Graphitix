@@ -28,13 +28,25 @@
     const baseHeight = Number(chartStyle?.DEFAULT_HEIGHT) || 420;
     const defaultWidth = Math.round(baseWidth * PIE_RESIZER_WIDTH_SCALE);
     const defaultHeight = Math.round(baseHeight * PIE_RESIZER_HEIGHT_SCALE);
+    const minScale = Number(chartStyle?.RESIZE_MIN_SCALE) || 0.3;
+    const maxScale = Number(chartStyle?.RESIZE_MAX_SCALE) || 3;
+    const minWidth = Math.max(1, Math.round(baseWidth * minScale));
+    const maxWidth = Math.max(defaultWidth, Math.round(defaultWidth * maxScale));
+    const minHeight = Math.max(1, Math.round(baseHeight * minScale));
+    const maxHeight = Math.max(defaultHeight, Math.round(defaultHeight * maxScale));
     const payload = {
       baseWidth,
       baseHeight,
       defaultWidth,
       defaultHeight,
+      minWidth,
+      maxWidth,
+      minHeight,
+      maxHeight,
       widthScale: PIE_RESIZER_WIDTH_SCALE,
-      heightScale: PIE_RESIZER_HEIGHT_SCALE
+      heightScale: PIE_RESIZER_HEIGHT_SCALE,
+      minScale,
+      maxScale
     };
     console.debug('Debug: pie resolved resizer defaults', payload); // Debug: scaled resizer defaults
     return payload;
@@ -99,9 +111,17 @@
         defaults: resizerDefaults,
         hasAttach: !!Shared.attachResizableBox
       }); // Debug: attachResizableBox payload trace
+      console.debug('Debug: pie resizer bounds before attach', { // Debug: pie resizer options trace
+        label: PIE_RESIZER_DEBUG_LABEL,
+        defaults: resizerDefaults
+      });
       Shared.attachResizableBox(container, {
         defaultWidth: resizerDefaults.defaultWidth,
         defaultHeight: resizerDefaults.defaultHeight,
+        minWidth: resizerDefaults.minWidth,
+        maxWidth: resizerDefaults.maxWidth,
+        minHeight: resizerDefaults.minHeight,
+        maxHeight: resizerDefaults.maxHeight,
         onResize: phase => {
           console.debug('Debug: pie svgbox resized', { phase }); // Debug: pie svgbox resize callback
           syncPiePanels();
