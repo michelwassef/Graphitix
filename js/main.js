@@ -33,7 +33,10 @@
   const scheduleDrawPie = Shared.debounceFrame(() => {
     if (window.Components?.pie?.draw) window.Components.pie.draw();
   });
-  console.debug('Debug: main Shared.debounceFrame schedulers ready', { schedulers: ['boxplot','scatter','pca','line','hist','pie'] }); // Debug: scheduler wiring summary
+  const scheduleDrawSurvival = Shared.debounceFrame(() => {
+    if (window.Components?.survival?.draw) window.Components.survival.draw();
+  });
+  console.debug('Debug: main Shared.debounceFrame schedulers ready', { schedulers: ['boxplot','scatter','pca','line','hist','pie','survival'] }); // Debug: scheduler wiring summary
 
   // Shared color palette
   const DEFAULT_SCATTER_COLORS = window.DEFAULT_SCATTER_COLORS || [
@@ -80,6 +83,7 @@
   const pcaPage = $('#pcaPage');
   const linePage = $('#linePage');
   const rocPage = $('#rocPage');
+  const survivalPage = $('#survivalPage');
   const histPage = $('#histPage');
   const piePage = $('#piePage');
   const histStatsResults = $('#histStatsResults');
@@ -120,6 +124,9 @@
         pieGraphPanel: () => {
           try { scheduleDrawPie(); } catch (err) { console.error('main text lock pie redraw error', err); }
         },
+        survivalGraphPanel: () => {
+          try { scheduleDrawSurvival(); } catch (err) { console.error('main text lock survival redraw error', err); }
+        },
         rocGraphPanel: () => {
           try {
             if (window.Components?.roc?.draw) {
@@ -154,6 +161,7 @@
   const tabPca = $('#tabPca');
   const tabLine = $('#tabLine');
   const tabRoc = $('#tabRoc');
+  const tabSurvival = $('#tabSurvival');
   const tabHist = $('#tabHist');
   const tabPie = $('#tabPie');
 
@@ -178,14 +186,15 @@
       if (comps.pie?.init) comps.pie.init();
       if (comps.line?.init) comps.line.init();
       if (comps.roc?.init) comps.roc.init();
+      if (comps.survival?.init) comps.survival.init();
       if (comps.venn?.init) comps.venn.init();
     } catch(err) { console.error('Components bootstrap (outside) error', err); }
   })();
 
   // Tab show functions
   function showPage(page, tab, ensureFn, drawFn) {
-    [vennPage, boxPage, scatterPage, pcaPage, linePage, rocPage, histPage, piePage].forEach(p => p.style.display = 'none');
-    [tabVenn, tabBox, tabScatter, tabPca, tabLine, tabRoc, tabHist, tabPie].forEach(t => t.classList.remove('active'));
+    [vennPage, boxPage, scatterPage, pcaPage, linePage, rocPage, survivalPage, histPage, piePage].forEach(p => p.style.display = 'none');
+    [tabVenn, tabBox, tabScatter, tabPca, tabLine, tabRoc, tabSurvival, tabHist, tabPie].forEach(t => t.classList.remove('active'));
     page.style.display = 'block';
     tab.classList.add('active');
     if (window.Shared?.syncPanelWidths && page) {
@@ -236,6 +245,7 @@
   function showPca() { showPage(pcaPage, tabPca, () => window.Components?.pca?.ensure(), scheduleDrawPca); }
   function showLine() { showPage(linePage, tabLine, () => window.Components?.line?.ensure(), scheduleDrawLine); }
   function showRoc() { showPage(rocPage, tabRoc); }
+  function showSurvival() { showPage(survivalPage, tabSurvival, () => window.Components?.survival?.ensure(), scheduleDrawSurvival); }
   function showHist() { showPage(histPage, tabHist, () => window.Components?.hist?.ensure(), scheduleDrawHist); }
   function showPie() { showPage(piePage, tabPie, () => window.Components?.pie?.ensure(), scheduleDrawPie); }
 
@@ -246,6 +256,7 @@
   tabPca.addEventListener('click', showPca);
   tabLine.addEventListener('click', showLine);
   tabRoc.addEventListener('click', showRoc);
+  tabSurvival.addEventListener('click', showSurvival);
   tabHist.addEventListener('click', showHist);
   tabPie.addEventListener('click', showPie);
 

@@ -24,6 +24,7 @@ describe('App initialization', () => {
       require('../js/components/pca.js');
       require('../js/components/line.js');
       require('../js/components/roc.js');
+      require('../js/components/survival.js');
       // Load the application script (IIFE executes immediately)
       require('../js/main.js');
     }).not.toThrow();
@@ -41,7 +42,7 @@ describe('App initialization', () => {
       .map(c => c.containerId);
 
     // Expect core grids to be initialized (if present in DOM)
-    const expected = ['hot', 'scatterHot', 'pcaHot', 'lineHot', 'rocHot', 'histHot', 'pieHot'];
+    const expected = ['hot', 'scatterHot', 'pcaHot', 'lineHot', 'rocHot', 'survivalHot', 'histHot', 'pieHot'];
     for (const id of expected) {
       const node = document.getElementById(id);
       if (node) {

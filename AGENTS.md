@@ -17,11 +17,13 @@ Any new dashboard sections must adhere to the following layout style for consist
 
 ### Separator
 - Use a slidable divider between the left and right panels.
+- Add matching layout rules in `css/style.css` for the new section's `#<Name>Page` selectors (e.g., panel flex sizing and `.panel-resizer` styling) so the table and divider render correctly.
 
 ## Code Guidelines
 - Include debugging code (e.g., `console.debug` or `console.log`) whenever new functionality is implemented to trace key inputs and state.
 - Clearly comment any debug output to facilitate removal later.
 - Follow the existing pattern of exposing features through the `window.Shared` and `window.Components` namespaces so legacy inline code continues to work.
+- When creating Handsontable grids through `Shared.hot.createStandardTable`, keep the first (grey) row as headers by default. If a dataset has a fixed schema (such as survival analysis), set `firstRowIsHeader: false` and provide explicit `colHeaders` so the first row behaves like normal input cells.
 
 ## Testing
 - After making changes, run `npm test` (if available) and ensure the command completes.

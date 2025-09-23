@@ -17,6 +17,7 @@ describe('UI events and example loaders', () => {
     require('../js/components/hist.js');
     require('../js/components/pie.js');
     require('../js/components/roc.js');
+    require('../js/components/survival.js');
     require('../js/main.js');
   });
 
@@ -59,6 +60,16 @@ describe('UI events and example loaders', () => {
     expect(loads.length).toBeGreaterThan(0);
     const firstRow = loads[loads.length - 1].firstRow;
     expect(firstRow).toEqual(expect.arrayContaining(['Label', 'Model1', 'Model2']));
+  });
+
+  test('Survival: Load Example populates data', () => {
+    const btn = document.getElementById('survivalLoadExample');
+    expect(btn).toBeTruthy();
+    btn.click();
+    const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'survivalHot');
+    expect(loads.length).toBeGreaterThan(0);
+    const firstRow = loads[loads.length - 1].firstRow;
+    expect(firstRow).toEqual(['Control', 1.2, 1]);
   });
 
   test('Color picker overlay opens on color input pointerdown', () => {
