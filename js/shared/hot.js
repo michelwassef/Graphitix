@@ -42,6 +42,7 @@
     const colCount = Math.max(0, Number(dimensions?.cols ?? 0));
     const scheduleFn = typeof scheduleDraw === 'function' ? scheduleDraw : null;
     const scheduleOnLoadData = overrides?.scheduleOnLoadData ?? false;
+    const treatFirstRowAsHeader = overrides?.firstRowIsHeader !== false;
     const firstRowClassName = overrides?.firstRowClassName || '';
     const firstRowRenderer = overrides?.firstRowRenderer;
     const applyCellMeta = overrides?.applyCellMeta;
@@ -71,8 +72,10 @@
       scheduleFn();
     };
 
+    console.debug('Debug: Shared.hot firstRowMode', { debugLabel, firstRowIsHeader: treatFirstRowAsHeader }); // Debug: header mode flag
+
     const rowHeaders = function(index){
-      const defaultLabel = index === 0 ? '' : index;
+      const defaultLabel = treatFirstRowAsHeader ? (index === 0 ? '' : index) : (index + 1);
       const value = typeof userRowHeaders === 'function' ? userRowHeaders.call(this, index) : defaultLabel;
       console.debug('Debug: Shared.hot rowHeader', { debugLabel, index, label: value });
       return value;
@@ -80,7 +83,8 @@
 
     const cells = function(row, col){
       const props = typeof userCells === 'function' ? (userCells.call(this, row, col) || {}) : {};
-      if(row === 0){
+      const isHeaderRow = treatFirstRowAsHeader && row === 0;
+      if(isHeaderRow){
         const previousRenderer = props.renderer;
         props.renderer = function(){
           if(typeof previousRenderer === 'function'){
@@ -101,6 +105,16 @@
         if(firstRowClassName){
           props.className = props.className ? `${props.className} ${firstRowClassName}` : firstRowClassName;
         }
+      }else if(row === 0 && typeof firstRowRenderer === 'function'){
+        const previousRenderer = props.renderer;
+        props.renderer = function(){
+          if(typeof previousRenderer === 'function'){
+            previousRenderer.apply(this, arguments);
+          }else if(Handsontable?.renderers?.TextRenderer){
+            Handsontable.renderers.TextRenderer.apply(this, arguments);
+          }
+          firstRowRenderer.apply(this, arguments);
+        };
       }
       if(typeof applyCellMeta === 'function'){
         try{

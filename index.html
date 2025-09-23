@@ -16,6 +16,7 @@
     <button id="tabPca" class="btn">Dimensionality Reduction</button>
     <button id="tabLine" class="btn">Line Graph</button>
     <button id="tabRoc" class="btn">Classification Curves</button>
+    <button id="tabSurvival" class="btn">Survival Curves</button>
     <button id="tabHist" class="btn">Histogram</button>
     <button id="tabPie" class="btn">Proportion Graph</button>
   </div>
@@ -830,11 +831,98 @@
             </fieldset>
           </div>
         </div>
-        <div id="rocStats" style="width:100%; margin-top:12px;">
+      <div id="rocStats" style="width:100%; margin-top:12px;">
+        <fieldset>
+          <legend>Statistics</legend>
+          <div id="rocStatsControls" class="row" style="gap:8px; align-items:center;"></div>
+          <div id="rocStatsResults" style="margin-top:8px;"></div>
+        </fieldset>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- Survival Section -->
+  <div id="survivalPage" style="display:none;">
+    <header>
+      <h2 style="margin:0;">Survival Analysis</h2>
+      <div style="color:#555; font-size:13px;">Paste time-to-event data to draw Kaplan–Meier survival curves.</div>
+    </header>
+    <div class="row" style="margin:8px 0;">
+      <button class="btn" id="openSurvival">Open File</button>
+      <button class="btn" id="survivalImport">Import File</button>
+      <button class="btn" id="saveSurvival">Save File</button>
+      <button class="btn" id="saveAsSurvival">Save As</button>
+      <button class="btn" id="survivalLoadExample">Load Example</button>
+      <input type="file" id="survivalGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="survivalFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    </div>
+    <div class="wrap">
+      <div class="panel" id="survivalTablePanel">
+        <div id="survivalHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
+          <div id="survivalHot" style="width:100%; height:100%;"></div>
+        </div>
+      </div>
+      <div id="survivalPanelResizer" class="panel-resizer" aria-hidden="true"></div>
+      <div class="panel" style="align-items:center;" id="survivalGraphPanel">
+        <div class="diagram-area">
+          <div class="svgbox">
+            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+            <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
+            <div id="survivalPlot" style="width:100%; height:100%;"></div>
+            <div class="row" id="survivalExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          </div>
+          <div class="config-options">
+            <fieldset id="survivalLabelColorsFieldset">
+              <legend>Group Colors</legend>
+              <div id="survivalLabelColors" class="color-pickers"></div>
+            </fieldset>
+            <fieldset>
+              <legend>Curve Options</legend>
+              <div class="control" style="flex-wrap:wrap;">
+                <label style="width:auto;"><input type="checkbox" id="survivalShowCI" checked /> Show 95% Confidence Interval</label>
+                <label style="width:auto;"><input type="checkbox" id="survivalShowCensor" checked /> Show Censor Marks</label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Grid &amp; Axis</legend>
+              <div class="control" style="flex-wrap:wrap;">
+                <label style="width:auto;"><input type="checkbox" id="survivalShowGrid" /> Show Grid</label>
+                <label style="width:auto;"><input type="checkbox" id="survivalShowFrame" /> Show Frame</label>
+              </div>
+              <div class="control" style="flex-wrap:wrap; gap:6px;">
+                <label style="width:auto;">Time Max <input type="number" id="survivalTimeMax" step="0.1" style="width:80px;" /></label>
+                <label style="width:auto;">Y Min <input type="number" id="survivalYMin" min="0" max="1" step="0.05" style="width:80px;" /></label>
+                <label style="width:auto;">Y Max <input type="number" id="survivalYMax" min="0" max="1" step="0.05" style="width:80px;" /></label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Labels</legend>
+              <div class="control" style="flex-direction:column; gap:6px; align-items:flex-start;">
+                <label style="width:100%;">Time Axis
+                  <input type="text" id="survivalXLabel" value="Time" />
+                </label>
+                <label style="width:100%;">Survival Axis
+                  <input type="text" id="survivalYLabel" value="Survival Probability" />
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Font</legend>
+              <div class="control">
+                <label>Size</label>
+                <input type="range" id="survivalFontSize" min="6" max="24" step="1" value="13" />
+                <output id="survivalFontSizeVal">13</output>
+              </div>
+            </fieldset>
+          </div>
+        </div>
+        <div id="survivalStats" style="width:100%; margin-top:12px;">
           <fieldset>
             <legend>Statistics</legend>
-            <div id="rocStatsControls" class="row" style="gap:8px; align-items:center;"></div>
-            <div id="rocStatsResults" style="margin-top:8px;"></div>
+            <div id="survivalStatsSummary" style="margin-bottom:8px;"></div>
+            <div id="survivalStatsLogRank"></div>
           </fieldset>
         </div>
       </div>
@@ -1035,6 +1123,7 @@
   <script src="js/shared/goAnalysis.js"></script>
   <script src="js/shared/stringAnalysis.js"></script>
   <script src="js/components/roc.js"></script>
+  <script src="js/components/survival.js"></script>
   <script src="js/components/hist.js"></script>
   <script src="js/components/pie.js"></script>
   <script src="js/components/scatter.js"></script>
