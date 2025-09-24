@@ -191,6 +191,7 @@
 
   function initControls(){
     refs.method = $('heatmapMethod');
+    refs.cluster = $('heatmapCluster');
     refs.absValues = $('heatmapAbsValues');
     refs.maskLower = $('heatmapMaskLower');
     refs.showValues = $('heatmapShowValues');
@@ -211,6 +212,10 @@
     const schedule = () => state.scheduleDraw();
     refs.method?.addEventListener('change', () => {
       console.debug('Debug: heatmap method changed', { value: refs.method.value });
+      schedule();
+    });
+    refs.cluster?.addEventListener('change', () => {
+      console.debug('Debug: heatmap cluster mode changed', { value: refs.cluster.value });
       schedule();
     });
     [refs.absValues, refs.maskLower, refs.showValues].forEach(el => {
@@ -250,14 +255,11 @@
     });
 
     const example = [
-      ['Sample', 'GeneA', 'GeneB', 'GeneC', 'GeneD'],
-      ['S1', 5.1, 3.5, 1.4, 0.2],
-      ['S2', 4.9, 3.0, 1.4, 0.2],
-      ['S3', 4.7, 3.2, 1.3, 0.2],
-      ['S4', 4.6, 3.1, 1.5, 0.2],
-      ['S5', 5.0, 3.6, 1.4, 0.2],
-      ['S6', 5.4, 3.9, 1.7, 0.4],
-      ['S7', 4.6, 3.4, 1.4, 0.3]
+      ['Gene', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7'],
+      ['GeneA', 5.1, 4.9, 4.7, 4.6, 5.0, 5.4, 4.6],
+      ['GeneB', 3.5, 3.0, 3.2, 3.1, 3.6, 3.9, 3.4],
+      ['GeneC', 1.4, 1.4, 1.3, 1.5, 1.4, 1.7, 1.4],
+      ['GeneD', 0.2, 0.2, 0.2, 0.2, 0.2, 0.4, 0.3]
     ];
     $('heatmapLoadExample')?.addEventListener('click', () => {
       if(!state.hot){
@@ -395,6 +397,152 @@
     return computePearson(xs, ys);
   }
 
+  function alignColumnValues(columnA, columnB){
+    if(!columnA || !columnB) return { xs: [], ys: [] };
+    const mapB = new Map(columnB.values.map(entry => [entry.rowIndex, entry.value]));
+    const xs = [];
+    const ys = [];
+    for(const entry of columnA.values){
+      if(mapB.has(entry.rowIndex)){
+        xs.push(entry.value);
+        ys.push(mapB.get(entry.rowIndex));
+      }
+    }
+    return { xs, ys };
+  }
+
+  function calculateColumnCorrelation(columnA, columnB, method){
+    const { xs, ys } = alignColumnValues(columnA, columnB);
+    const count = xs.length;
+    if(count < 2){
+      return { corr: NaN, count };
+    }
+    const corr = computeCorrelation(xs, ys, method);
+    if(!Number.isFinite(corr)){
+      return { corr: NaN, count };
+    }
+    const normalized = Math.max(-1, Math.min(1, corr));
+    return { corr: normalized, count };
+  }
+
+  function buildDistanceMatrix(columns, method){
+    const n = columns.length;
+    const distances = Array.from({ length: n }, () => Array(n).fill(0));
+    for(let i = 0; i < n; i += 1){
+      for(let j = i + 1; j < n; j += 1){
+        const { corr } = calculateColumnCorrelation(columns[i], columns[j], method);
+        const distance = Number.isFinite(corr) ? 1 - corr : 1;
+        distances[i][j] = distance;
+        distances[j][i] = distance;
+      }
+    }
+    console.debug('Debug: heatmap distance matrix prepared', { method, distances });
+    return distances;
+  }
+
+  function averageLinkageDistance(clusterA, clusterB, baseDistances){
+    let sum = 0;
+    let count = 0;
+    for(const idxA of clusterA.indices){
+      for(const idxB of clusterB.indices){
+        if(idxA === idxB) continue;
+        const dist = baseDistances[idxA]?.[idxB];
+        if(Number.isFinite(dist)){
+          sum += dist;
+          count += 1;
+        }
+      }
+    }
+    if(count === 0){
+      return 1;
+    }
+    return sum / count;
+  }
+
+  function hierarchicalClusterOrder(baseDistances){
+    const n = baseDistances.length;
+    if(n <= 1){
+      return n === 1 ? [0] : [];
+    }
+    let clusters = Array.from({ length: n }, (_, index) => ({
+      id: index,
+      indices: [index],
+      size: 1,
+      left: null,
+      right: null,
+      distance: 0
+    }));
+    const mergeSteps = [];
+    while(clusters.length > 1){
+      let bestI = 0;
+      let bestJ = 1;
+      let bestDistance = Infinity;
+      for(let i = 0; i < clusters.length; i += 1){
+        for(let j = i + 1; j < clusters.length; j += 1){
+          const dist = averageLinkageDistance(clusters[i], clusters[j], baseDistances);
+          if(dist < bestDistance){
+            bestDistance = dist;
+            bestI = i;
+            bestJ = j;
+          }
+        }
+      }
+      const clusterA = clusters[bestI];
+      const clusterB = clusters[bestJ];
+      const merged = {
+        id: `merge-${mergeSteps.length}`,
+        indices: clusterA.indices.concat(clusterB.indices),
+        size: clusterA.size + clusterB.size,
+        left: clusterA,
+        right: clusterB,
+        distance: bestDistance
+      };
+      mergeSteps.push({
+        left: clusterA.indices.slice(),
+        right: clusterB.indices.slice(),
+        distance: bestDistance
+      });
+      clusters.splice(bestJ, 1);
+      clusters.splice(bestI, 1);
+      clusters.push(merged);
+    }
+    const root = clusters[0];
+    const flatten = node => {
+      if(!node.left || !node.right){
+        return node.indices.slice();
+      }
+      const leftOrder = flatten(node.left);
+      const rightOrder = flatten(node.right);
+      const leftMin = Math.min(...leftOrder);
+      const rightMin = Math.min(...rightOrder);
+      return leftMin <= rightMin ? leftOrder.concat(rightOrder) : rightOrder.concat(leftOrder);
+    };
+    const order = flatten(root);
+    console.debug('Debug: heatmap hierarchical clustering merges', { steps: mergeSteps, order });
+    return order;
+  }
+
+  function clusterColumns(columns, method){
+    if(!Array.isArray(columns) || columns.length === 0){
+      return [];
+    }
+    if(columns.length === 1){
+      return [0];
+    }
+    const baseDistances = buildDistanceMatrix(columns, method);
+    const order = hierarchicalClusterOrder(baseDistances);
+    if(!Array.isArray(order) || order.length !== columns.length){
+      console.debug('Debug: heatmap clustering order fallback', {
+        requestedColumns: columns.length,
+        receivedLength: order?.length,
+        method
+      });
+      return columns.map((_, index) => index);
+    }
+    console.debug('Debug: heatmap clustering order computed', { method, order });
+    return order;
+  }
+
   function hexToRgb(hex){
     const normalized = hex?.toString?.().replace('#', '');
     if(!normalized || normalized.length < 6) return { r: 200, g: 200, b: 200 };
@@ -473,6 +621,10 @@
       `<div>Pairs evaluated: <strong>${stats.pairCount}</strong></div>`,
       `<div>Method: <strong>${methodLabel}</strong>${stats.useAbs ? ' (absolute values shown)' : ''}</div>`
     ];
+    if(stats.clusterMode && stats.clusterMode !== 'none' && stats.clusterMethod){
+      const clusterMethodLabel = stats.clusterMethod === 'spearman' ? 'Spearman (rank)' : 'Pearson (linear)';
+      pieces.push(`<div>Clustering: <strong>Hierarchical (${clusterMethodLabel})</strong></div>`);
+    }
     if(stats.strongest){
       pieces.push(`<div>Strongest |r|: <strong>${stats.strongest.labels.join(' vs ')}</strong> = ${stats.strongest.value.toFixed(stats.decimals)} (n=${stats.strongest.count})</div>`);
     }
@@ -573,7 +725,10 @@
         mostNegative: null,
         method,
         useAbs,
-        decimals
+        decimals,
+        clusterMode: 'none',
+        clusterMethod: null,
+        clusterOrder: []
       };
 
       for(let i = 0; i < columns.length; i += 1){
@@ -583,40 +738,27 @@
             matrix[i][j] = { raw: 1, value: 1, count: columns[i].values.length };
             continue;
           }
-          const mapB = new Map(columns[j].values.map(entry => [entry.rowIndex, entry.value]));
-          const xs = [];
-          const ys = [];
-          for(const entry of columns[i].values){
-            if(mapB.has(entry.rowIndex)){
-              xs.push(entry.value);
-              ys.push(mapB.get(entry.rowIndex));
-            }
-          }
-          if(xs.length < 2){
-            matrix[i][j] = { raw: NaN, value: NaN, count: xs.length };
-            continue;
-          }
-          const corr = computeCorrelation(xs, ys, method);
-          const normalized = Number.isFinite(corr) ? Math.max(-1, Math.min(1, corr)) : NaN;
-          const display = Number.isFinite(normalized) ? (useAbs ? Math.abs(normalized) : normalized) : NaN;
-          matrix[i][j] = { raw: normalized, value: display, count: xs.length };
-          if(Number.isFinite(normalized)){
-            const absCorr = Math.abs(normalized);
+          const pair = calculateColumnCorrelation(columns[i], columns[j], method);
+          const raw = Number.isFinite(pair.corr) ? pair.corr : NaN;
+          const display = Number.isFinite(raw) ? (useAbs ? Math.abs(raw) : raw) : NaN;
+          matrix[i][j] = { raw, value: display, count: pair.count };
+          if(Number.isFinite(raw)){
+            const absCorr = Math.abs(raw);
             if(i < j){
               stats.pairCount += 1;
               if(!stats.strongest || absCorr > stats.strongest.abs){
                 stats.strongest = {
                   labels: [columns[i].label, columns[j].label],
-                  value: useAbs ? display : normalized,
+                  value: useAbs ? display : raw,
                   abs: absCorr,
-                  count: xs.length
+                  count: pair.count
                 };
               }
-              if(!stats.mostNegative || normalized < stats.mostNegative.value){
+              if(!stats.mostNegative || raw < stats.mostNegative.value){
                 stats.mostNegative = {
                   labels: [columns[i].label, columns[j].label],
-                  value: normalized,
-                  count: xs.length
+                  value: raw,
+                  count: pair.count
                 };
               }
             }
@@ -624,11 +766,34 @@
         }
       }
 
+      const clusterMode = refs.cluster?.value || 'none';
+      const identityOrder = columns.map((_, index) => index);
+      let order = identityOrder;
+      let clusterMethod = null;
+      let clusteringApplied = false;
+      if(clusterMode && clusterMode !== 'none' && columns.length > 1){
+        clusterMethod = clusterMode === 'method' ? method : clusterMode;
+        const computedOrder = clusterColumns(columns, clusterMethod);
+        if(Array.isArray(computedOrder) && computedOrder.length === columns.length){
+          order = computedOrder;
+          clusteringApplied = true;
+          console.debug('Debug: heatmap clustering applied', { clusterMode, clusterMethod, order });
+        }else{
+          console.debug('Debug: heatmap clustering skipped due to invalid order', { clusterMode, clusterMethod, computedOrder });
+        }
+      }
+      stats.clusterMode = clusteringApplied ? (clusterMode || 'none') : 'none';
+      stats.clusterMethod = clusteringApplied ? clusterMethod : null;
+      stats.clusterOrder = order.slice();
+
+      const orderedColumns = order.map(index => columns[index]);
+      const orderedMatrix = order.map(i => order.map(j => matrix[i][j]));
+
       while(state.svg.firstChild){
         state.svg.removeChild(state.svg.firstChild);
       }
 
-      const labelStrings = columns.map(col => col.label);
+      const labelStrings = orderedColumns.map(col => col.label);
       let marginLeft = 140;
       let marginTop = 140;
       let topPaddingInfo = null;
@@ -675,7 +840,7 @@
       });
       const marginRight = 60;
       const marginBottom = 60;
-      const totalSize = columns.length * cellSize;
+      const totalSize = orderedColumns.length * cellSize;
       const width = marginLeft + totalSize + marginRight;
       const height = marginTop + totalSize + marginBottom;
       state.svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -708,18 +873,18 @@
       const g = doc.createElementNS(NS, 'g');
       state.svg.appendChild(g);
 
-      for(let i = 0; i < columns.length; i += 1){
+      for(let i = 0; i < orderedColumns.length; i += 1){
         const rowLabel = doc.createElementNS(NS, 'text');
         rowLabel.setAttribute('x', String(marginLeft - 12));
         rowLabel.setAttribute('y', String(marginTop + i * cellSize + cellSize / 2));
         rowLabel.setAttribute('text-anchor', 'end');
         rowLabel.setAttribute('dominant-baseline', 'middle');
         rowLabel.setAttribute('font-size', String(renderFontSizePx));
-        rowLabel.textContent = columns[i].label;
+        rowLabel.textContent = orderedColumns[i].label;
         g.appendChild(rowLabel);
       }
 
-      for(let j = 0; j < columns.length; j += 1){
+      for(let j = 0; j < orderedColumns.length; j += 1){
         const colLabel = doc.createElementNS(NS, 'text');
         const labelX = marginLeft + j * cellSize + cellSize / 2;
         const labelY = marginTop - columnLabelOffset;
@@ -733,16 +898,16 @@
         }else{
           colLabel.setAttribute('text-anchor', 'middle');
         }
-        colLabel.textContent = columns[j].label;
+        colLabel.textContent = orderedColumns[j].label;
         g.appendChild(colLabel);
       }
 
-      for(let i = 0; i < columns.length; i += 1){
-        for(let j = 0; j < columns.length; j += 1){
+      for(let i = 0; i < orderedColumns.length; i += 1){
+        for(let j = 0; j < orderedColumns.length; j += 1){
           if(maskLower && j < i){
             continue;
           }
-          const entry = matrix[i][j];
+          const entry = orderedMatrix[i][j];
           const x = marginLeft + j * cellSize;
           const y = marginTop + i * cellSize;
           const rect = doc.createElementNS(NS, 'rect');
@@ -755,7 +920,7 @@
           const fill = colorForValue(entry, palette, useAbs);
           rect.setAttribute('fill', fill);
           const title = doc.createElementNS(NS, 'title');
-          title.textContent = `${columns[i].label} vs ${columns[j].label}: ${Number.isFinite(entry.value) ? entry.value.toFixed(decimals) : 'n/a'} (n=${entry.count})`;
+          title.textContent = `${orderedColumns[i].label} vs ${orderedColumns[j].label}: ${Number.isFinite(entry.value) ? entry.value.toFixed(decimals) : 'n/a'} (n=${entry.count})`;
           rect.appendChild(title);
           g.appendChild(rect);
 
@@ -780,11 +945,13 @@
       }
       syncPanels();
       console.debug('Debug: heatmap draw complete', {
-        columns: columns.length,
+        columns: orderedColumns.length,
         method,
         useAbs,
         maskLower,
-        showValues
+        showValues,
+        clusterMode: stats.clusterMode,
+        clusterMethod: stats.clusterMethod
       });
     }catch(err){
       console.error('heatmap draw error', err);
@@ -794,6 +961,7 @@
   function getConfig(){
     return {
       method: refs.method?.value || 'pearson',
+      cluster: refs.cluster?.value || 'none',
       abs: !!refs.absValues?.checked,
       maskLower: !!refs.maskLower?.checked,
       showValues: !!refs.showValues?.checked,
@@ -810,6 +978,7 @@
   function applyConfig(config){
     if(!config) return;
     if(refs.method) refs.method.value = config.method || 'pearson';
+    if(refs.cluster) refs.cluster.value = config.cluster || 'none';
     if(refs.absValues) refs.absValues.checked = !!config.abs;
     if(refs.maskLower) refs.maskLower.checked = !!config.maskLower;
     if(refs.showValues) refs.showValues.checked = config.showValues !== false;

@@ -60,7 +60,7 @@ describe('UI events and example loaders', () => {
     const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'heatmapHot');
     expect(loads.length).toBeGreaterThan(0);
     const firstRow = loads[loads.length - 1].firstRow;
-    expect(firstRow).toEqual(expect.arrayContaining(['Sample', 'GeneA', 'GeneB']));
+    expect(firstRow).toEqual(expect.arrayContaining(['Gene', 'S1', 'S2']));
   });
 
   test('ROC: Load Example populates data', () => {
