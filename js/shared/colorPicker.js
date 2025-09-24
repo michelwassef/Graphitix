@@ -29,6 +29,13 @@
 
   Shared.attachColorPickerNear = function attachColorPickerNear(el){
     if(!overlay) Shared.initColorPickerOverlay();
+    if(Shared.chartStyle?.normalizeColorInput){
+      try {
+        Shared.chartStyle.normalizeColorInput(el, { reason: 'colorPicker.attach' });
+      } catch(normalizeErr){
+        console.error('colorPicker normalizeColorInput error', normalizeErr);
+      }
+    }
     el.addEventListener('pointerdown',e=>{
       console.debug('Debug: color input pointerdown'); // Debug: color input open
       e.preventDefault();

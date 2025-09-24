@@ -15,6 +15,7 @@
     <button id="tabScatter" class="btn">Scatter Plot</button>
     <button id="tabPca" class="btn">Dimensionality Reduction</button>
     <button id="tabLine" class="btn">Line Graph</button>
+    <button id="tabHeatmap" class="btn">Correlation Heatmap</button>
     <button id="tabRoc" class="btn">Classification Curves</button>
     <button id="tabSurvival" class="btn">Survival Curves</button>
     <button id="tabHist" class="btn">Histogram</button>
@@ -757,6 +758,108 @@
     </div>
   </div>
 
+  <!-- Correlation Heatmap Section -->
+  <div id="heatmapPage" style="display:none;">
+    <header>
+      <h2 style="margin:0;">Correlation Heatmap</h2>
+      <div style="color:#555; font-size:13px;">Paste a numeric table to visualize pairwise correlations as a heatmap.</div>
+    </header>
+    <div class="row" style="margin:8px 0;">
+      <button class="btn" id="openHeatmap">Open File</button>
+      <button class="btn" id="heatmapImport">Import File</button>
+      <button class="btn" id="saveHeatmap">Save File</button>
+      <button class="btn" id="saveAsHeatmap">Save As</button>
+      <button class="btn" id="heatmapLoadExample">Load Example</button>
+      <input type="file" id="heatmapGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="heatmapFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    </div>
+    <div class="wrap">
+      <div class="panel" id="heatmapTablePanel">
+        <div id="heatmapHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
+          <div id="heatmapHot" style="width:100%; height:100%;"></div>
+        </div>
+      </div>
+      <div id="heatmapPanelResizer" class="panel-resizer" aria-hidden="true"></div>
+      <div class="panel" id="heatmapGraphPanel">
+        <div class="diagram-area">
+          <div class="svgbox">
+            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+            <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
+            <svg id="heatmapSvg" viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Correlation heatmap"></svg>
+            <div class="row" id="heatmapExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          </div>
+          <div class="config-options">
+            <fieldset>
+              <legend>Correlation</legend>
+              <div class="control" style="flex-direction:column; align-items:flex-start; gap:6px;">
+                <label style="width:100%;">Method
+                  <select id="heatmapMethod">
+                    <option value="pearson" selected>Pearson</option>
+                    <option value="spearman">Spearman</option>
+                  </select>
+                </label>
+                <label style="width:auto; display:flex; align-items:center; gap:6px;">
+                  <input type="checkbox" id="heatmapAbsValues" /> Use absolute values
+                </label>
+                <label style="width:auto; display:flex; align-items:center; gap:6px;">
+                  <input type="checkbox" id="heatmapMaskLower" /> Hide lower triangle
+                </label>
+                <label style="width:auto; display:flex; align-items:center; gap:6px;">
+                  <input type="checkbox" id="heatmapShowValues" checked /> Show correlation values
+                </label>
+                <label style="width:100%;">Decimals
+                  <input type="number" id="heatmapDecimals" value="2" min="0" max="6" style="width:80px;" />
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Colors</legend>
+              <div class="control" style="flex-direction:column; align-items:flex-start; gap:6px;">
+                <label class="color-picker" style="font-size:13px;">
+                  <span style="min-width:80px;">Negative</span>
+                  <input type="color" id="heatmapColorNegative" value="#313695" />
+                </label>
+                <label class="color-picker" style="font-size:13px;">
+                  <span style="min-width:80px;">Neutral</span>
+                  <input type="color" id="heatmapColorZero" value="#f7f7f7" />
+                </label>
+                <label class="color-picker" style="font-size:13px;">
+                  <span style="min-width:80px;">Positive</span>
+                  <input type="color" id="heatmapColorPositive" value="#a50026" />
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Layout</legend>
+              <div class="control" style="flex-direction:column; align-items:flex-start; gap:6px;">
+                <label style="width:100%; display:flex; align-items:center; gap:6px;">
+                  <span style="min-width:80px;">Cell Size</span>
+                  <input type="range" id="heatmapCellSize" min="30" max="120" step="5" value="60" />
+                  <output id="heatmapCellSizeVal">60</output>
+                </label>
+                <label style="width:100%;">Label Rotation
+                  <input type="number" id="heatmapLabelAngle" value="45" min="0" max="90" style="width:80px;" />
+                </label>
+                <label style="width:100%; display:flex; align-items:center; gap:6px;">
+                  <span style="min-width:80px;">Font Size</span>
+                  <input type="range" id="heatmapFontSize" min="8" max="24" step="1" value="12" />
+                  <output id="heatmapFontSizeVal">12</output>
+                </label>
+              </div>
+            </fieldset>
+          </div>
+        </div>
+        <div id="heatmapStats" style="width:100%; margin-top:12px;">
+          <fieldset>
+            <legend>Statistics</legend>
+            <div id="heatmapStatsContent" style="font-size:13px;"></div>
+          </fieldset>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ROC Section -->
   <div id="rocPage" style="display:none;">
     <header>
@@ -1122,6 +1225,7 @@
   <script src="js/shared/uniprot.js"></script>
   <script src="js/shared/goAnalysis.js"></script>
   <script src="js/shared/stringAnalysis.js"></script>
+  <script src="js/components/heatmap.js"></script>
   <script src="js/components/roc.js"></script>
   <script src="js/components/survival.js"></script>
   <script src="js/components/hist.js"></script>
