@@ -346,7 +346,8 @@
     renameFocusId: null,
     pendingClosePrompt: null,
     sessionFileHandle: null,
-    sessionFileName: ''
+    sessionFileName: '',
+    sessionDirty: false
   };
 
   let unsavedPromptBusy = false;
@@ -359,6 +360,56 @@
       console.error('clonePayload error', err);
       return null;
     }
+  }
+
+  function serializePayloadSignature(value) {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch (err) {
+      console.error('serializePayloadSignature error', err);
+      return `error:${Date.now()}`;
+    }
+  }
+
+  function assignTabPayload(tab, payload, meta = {}) {
+    if (!tab) {
+      console.debug('Debug: assignTabPayload skipped', { reason: 'no-tab', meta }); // Debug: payload assignment guard
+      return false;
+    }
+    const previousSignature = tab.payloadSignature || null;
+    const nextSignature = serializePayloadSignature(payload);
+    tab.payload = payload || null;
+    tab.payloadSignature = nextSignature;
+    const changed = previousSignature !== nextSignature;
+    console.debug('Debug: assignTabPayload applied', {
+      tabId: tab.id,
+      reason: meta.reason || 'unspecified',
+      changed,
+      hasPayload: !!payload
+    }); // Debug: payload assignment trace
+    return changed;
+  }
+
+  function markSessionDirty(reason, details) {
+    const wasDirty = workspaceState.sessionDirty;
+    workspaceState.sessionDirty = true;
+    console.debug('Debug: session dirty flag updated', {
+      reason: reason || 'unspecified',
+      wasDirty,
+      details: details || null
+    }); // Debug: dirty flag trace
+  }
+
+  function clearSessionDirty(reason) {
+    const wasDirty = workspaceState.sessionDirty;
+    workspaceState.sessionDirty = false;
+    console.debug('Debug: session dirty flag cleared', {
+      reason: reason || 'unspecified',
+      wasDirty
+    }); // Debug: dirty flag reset trace
   }
 
   function hasMeaningfulCellValue(value) {
@@ -412,6 +463,10 @@
     }
     console.debug('Debug: tab data inspection complete', { tabId, rowsChecked: rowCount, colsChecked: colCount, found: false });
     return false;
+  }
+
+  function graphTabsHaveData() {
+    return workspaceState.tabs.some(tab => !tab.isWelcome && tab.type && tabHasTableData(tab));
   }
 
   function hideWorkspaceElement(config) {
@@ -469,19 +524,30 @@
 
   function persistActiveTabState(tab = getActiveTab()) {
     if (!tab || !tab.type) {
-      return;
+      return false;
     }
     const config = WORKSPACES[tab.type];
     if (!config || typeof config.getPayload !== 'function') {
       console.debug('Debug: persistActiveTabState skipped', { tabId: tab?.id, type: tab?.type });
-      return;
+      return false;
     }
     try {
       const payload = config.getPayload();
-      tab.payload = clonePayload(payload);
-      console.debug('Debug: workspace state persisted', { tabId: tab.id, type: tab.type, hasPayload: !!tab.payload });
+      const payloadClone = clonePayload(payload);
+      const changed = assignTabPayload(tab, payloadClone, { reason: 'persist-active' });
+      if (changed) {
+        markSessionDirty('tab-state-updated', { tabId: tab.id, type: tab.type });
+      }
+      console.debug('Debug: workspace state persisted', {
+        tabId: tab.id,
+        type: tab.type,
+        hasPayload: !!tab.payload,
+        changed
+      }); // Debug: persist state result
+      return changed;
     } catch (err) {
       console.error('persistActiveTabState error', { tabId: tab.id, type: tab.type, err });
+      return false;
     }
   }
 
@@ -606,6 +672,9 @@
         fileTypes: SESSION_FILE_TYPES
       });
       console.debug('Debug: session save result', { status: result?.status, via: result?.via });
+      if (result && (result.status === 'saved' || result.status === 'downloaded')) {
+        clearSessionDirty('session-save-success');
+      }
     } catch (err) {
       console.error('handleSessionSaveClick error', err);
     }
@@ -684,6 +753,7 @@
     } else {
       showGraphSelection({ reason: 'session-empty' });
     }
+    clearSessionDirty(meta.reason || 'session-load');
     console.debug('Debug: session applied', {
       requestedIndex,
       resolvedIndex: targetTab ? graphTabs.indexOf(targetTab) : -1,
@@ -756,6 +826,27 @@
     });
   }
 
+  function shouldWarnBeforeUnload() {
+    let persistedActive = false;
+    try {
+      const active = getActiveTab();
+      if (active && !active.isWelcome) {
+        persistedActive = persistActiveTabState(active) || persistedActive;
+      }
+    } catch (err) {
+      console.error('beforeunload persist error', err);
+    }
+    const hasData = graphTabsHaveData();
+    const shouldWarn = workspaceState.sessionDirty && hasData;
+    console.debug('Debug: beforeunload evaluation', {
+      shouldWarn,
+      dirty: workspaceState.sessionDirty,
+      hasData,
+      persistedActive
+    }); // Debug: beforeunload state snapshot
+    return shouldWarn;
+  }
+
   function createTab(options = {}) {
     const index = workspaceState.tabs.length + 1;
     const id = `workspace-${workspaceState.nextId++}`;
@@ -764,6 +855,9 @@
       title: options.title || `Workspace ${index}`,
       type: options.type || null,
       payload: options.payload || null,
+      payloadSignature: options.payloadSignature !== undefined
+        ? options.payloadSignature
+        : serializePayloadSignature(options.payload || null),
       duplicateSource: options.duplicateSource || null,
       isWelcome: !!options.isWelcome,
       allowClose: options.allowClose !== false,
@@ -958,6 +1052,7 @@
       console.debug('Debug: commitTabRename skipped', { tabId, reason: 'missing-tab' });
       return;
     }
+    const previousTitle = tab.title;
     const trimmed = (newTitle || '').trim();
     if (trimmed) {
       tab.title = trimmed;
@@ -969,6 +1064,9 @@
     tab.isRenaming = false;
     workspaceState.renameFocusId = null;
     renderTabs();
+    if (tab.title !== previousTitle) {
+      markSessionDirty('tab-renamed', { tabId, previousTitle, nextTitle: tab.title });
+    }
     console.debug('Debug: tab rename committed', { tabId, title: tab.title, trigger: meta.reason || 'unknown' });
   }
 
@@ -1197,6 +1295,9 @@
       console.debug('Debug: workspace tab closed (inactive)', { tabId, remaining: workspaceState.tabs.length, reason });
     }
     console.debug('Debug: workspace tab closed', { tabId, wasActive, remainingTabs: workspaceState.tabs.length, reason });
+    if (!meta.skipDirty) {
+      markSessionDirty('tab-removed', { tabId, reason });
+    }
   }
 
   function closeTab(tabId, options = {}) {
@@ -1283,20 +1384,23 @@
         hasSource: !!sourceTab
       });
       if (tab) {
-        tab.payload = null;
+        assignTabPayload(tab, null, { reason: 'duplicate-bypass-clear' });
       }
       hideDuplicatePrompt();
       showWorkspaceForTab(tab);
+      markSessionDirty('duplicate-bypass', { tabId: tab?.id || null, type });
       return;
     }
     if (!dom.duplicatePrompt || !dom.duplicateEmpty) {
       console.debug('Debug: duplicate prompt unavailable, applying fallback', { type, canDuplicate });
       if (canDuplicate && sourceTab?.payload) {
-        tab.payload = clonePayload(sourceTab.payload);
+        const clonedPayload = clonePayload(sourceTab.payload);
+        assignTabPayload(tab, clonedPayload, { reason: 'duplicate-fallback-clone' });
       } else {
-        tab.payload = null;
+        assignTabPayload(tab, null, { reason: 'duplicate-fallback-empty' });
       }
       showWorkspaceForTab(tab);
+      markSessionDirty('duplicate-fallback', { tabId: tab?.id || null, type, reused: !!(canDuplicate && sourceTab?.payload) });
       return;
     }
     const info = GRAPH_TYPES.find(item => item.type === type);
@@ -1313,15 +1417,18 @@
       dom.duplicateReuse.onclick = () => {
         hideDuplicatePrompt();
         if (canDuplicate && sourceTab?.payload) {
-          tab.payload = clonePayload(sourceTab.payload);
+          const clonedPayload = clonePayload(sourceTab.payload);
+          assignTabPayload(tab, clonedPayload, { reason: 'duplicate-reuse' });
         }
         showWorkspaceForTab(tab);
+        markSessionDirty('duplicate-reuse', { tabId: tab?.id || null, sourceId: sourceTab?.id || null });
       };
     }
     dom.duplicateEmpty.onclick = () => {
       hideDuplicatePrompt();
-      tab.payload = null;
+      assignTabPayload(tab, null, { reason: 'duplicate-empty' });
       showWorkspaceForTab(tab);
+      markSessionDirty('duplicate-empty', { tabId: tab?.id || null });
     };
     if (dom.duplicateCancel) {
       dom.duplicateCancel.onclick = () => {
@@ -1344,6 +1451,8 @@
       console.warn('handleGraphSelection with no active tab', { type });
       return;
     }
+    let previousType = tab.type || null;
+    let previousTitle = tab.title || '';
     if (tab.isWelcome) {
       const candidateSource = workspaceState.pendingDuplicateSource
         || determineDuplicateSourceCandidate(workspaceState.lastActiveGraphId);
@@ -1358,14 +1467,26 @@
         type,
         candidateSource
       });
+      markSessionDirty('tab-created', { tabId: newTab.id, reason: 'welcome-selection' });
+      previousType = null;
+      previousTitle = tab.title || '';
     }
+    const priorType = previousType;
+    const priorTitle = previousTitle;
     tab.type = type;
     const info = GRAPH_TYPES.find(item => item.type === type);
     const config = WORKSPACES[type];
-    tab.title = info?.label || config?.tabLabel || tab.title;
+    const resolvedTitle = info?.label || config?.tabLabel || tab.title;
+    tab.title = resolvedTitle;
     tab.isRenaming = false;
     renderTabs();
     console.debug('Debug: graph assigned to tab', { tabId: tab.id, type });
+    if (priorType !== type) {
+      markSessionDirty('graph-type-changed', { tabId: tab.id, previousType: priorType, nextType: type });
+    }
+    if (tab.title !== priorTitle) {
+      markSessionDirty('tab-title-updated', { tabId: tab.id, previousTitle: priorTitle, nextTitle: tab.title });
+    }
     const sourceId = tab.duplicateSource || workspaceState.pendingDuplicateSource;
     workspaceState.pendingDuplicateSource = null;
     tab.duplicateSource = null;
@@ -1383,7 +1504,10 @@
         hasPayload: !!sourceTab.payload
       });
     }
-    tab.payload = null;
+    const payloadCleared = assignTabPayload(tab, null, { reason: 'graph-selection-reset' });
+    if (payloadCleared) {
+      markSessionDirty('graph-payload-reset', { tabId: tab.id, previousType: priorType, nextType: type });
+    }
     showWorkspaceForTab(tab);
   }
 
@@ -1398,6 +1522,7 @@
     workspaceState.activeTabId = newTab.id;
     workspaceState.pendingDuplicateSource = candidateSource;
     renderTabs();
+    markSessionDirty('tab-created', { tabId: newTab.id, reason: 'add-tab-click' });
     showGraphSelection({ reason: 'new-tab' });
     console.debug('Debug: add tab invoked', { newTabId: newTab.id, duplicateSource: candidateSource });
   }
@@ -1468,6 +1593,18 @@
 
   bootstrapComponents();
   initializeWorkspace();
+
+  window.addEventListener('beforeunload', event => {
+    if (shouldWarnBeforeUnload()) {
+      const message = 'You have unsaved workspace changes. Save your session before leaving?';
+      event.preventDefault();
+      event.returnValue = message;
+      console.debug('Debug: beforeunload prompt engaged', { message }); // Debug: beforeunload trigger trace
+      return message;
+    }
+    console.debug('Debug: beforeunload bypassed', { dirty: workspaceState.sessionDirty }); // Debug: beforeunload bypass trace
+    return undefined;
+  });
 
   window.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
