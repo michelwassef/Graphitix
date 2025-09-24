@@ -149,103 +149,133 @@ html, body {
 
 .workspace-tabs-dock {
     position: fixed;
-    left: 24px;
-    bottom: 24px;
+    left: 0;
+    bottom: 0;
     display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-    background: rgba(255, 255, 255, 0.95);
-    padding: 10px 14px;
-    border-radius: 999px;
-    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    align-items: stretch;
+    gap: 0;
+    background: #f8fafc;
+    border-top: 1px solid #cbd5f5;
+    border-right: 1px solid #cbd5f5;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 0 12px 0 0;
+    box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.08);
+    padding: 0;
+    max-width: min(100%, 960px);
+    overflow: hidden;
     z-index: 4000;
+    flex-wrap: nowrap;
 }
 
 .workspace-tabs-list {
     display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    align-items: center;
+    align-items: stretch;
+    gap: 0;
+    flex: 1 1 auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+}
+
+.workspace-tabs-list::-webkit-scrollbar {
+    height: 6px;
+}
+
+.workspace-tabs-list::-webkit-scrollbar-thumb {
+    background: #cbd5f5;
+    border-radius: 999px;
 }
 
 .workspace-tab {
     position: relative;
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 6px;
-    background: rgba(255, 255, 255, 0.85);
-    border: 1px solid rgba(148, 163, 184, 0.5);
-    color: #1f2937;
-    border-radius: 999px;
-    padding: 6px 32px 6px 16px;
-    font-size: 14px;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    border-right: 1px solid #cbd5f5;
+    border-top: 3px solid transparent;
+    color: #475569;
+    padding: 10px 36px 10px 18px;
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border 0.2s ease;
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    flex: 0 0 auto;
     min-width: 0;
-    line-height: 1;
+    line-height: 1.4;
+    min-height: 44px;
+    white-space: nowrap;
+    scroll-snap-align: start;
+}
+
+.workspace-tab:first-child {
+    border-left: none;
 }
 
 .workspace-tab.is-welcome {
-    padding-right: 16px;
+    padding-right: 18px;
 }
 
 .workspace-tab.is-active {
-    background: linear-gradient(135deg, #4f46e5, #6366f1);
-    color: #ffffff;
-    border-color: transparent;
-    box-shadow: 0 16px 30px rgba(99, 102, 241, 0.35);
+    background: #ffffff;
+    color: #1e293b;
+    border-top-color: #6366f1;
+    box-shadow: inset 0 -1px 0 rgba(99, 102, 241, 0.2);
 }
 
+.workspace-tab:hover,
 .workspace-tab:focus {
-    outline: 2px solid #6366f1;
-    outline-offset: 2px;
+    background: rgba(255, 255, 255, 0.6);
+    color: #1f2937;
 }
 
 .workspace-tab__label {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     pointer-events: auto;
     user-select: none;
     white-space: nowrap;
 }
 
+.workspace-tab:focus-visible {
+    outline: 2px solid #6366f1;
+    outline-offset: -2px;
+}
+
+
 .workspace-tab__close {
     position: absolute;
-    right: 6px;
+    right: 8px;
     top: 50%;
     transform: translateY(-50%);
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 50%;
-    font-size: 12px;
+    border-radius: 6px;
+    font-size: 13px;
     line-height: 1;
     cursor: pointer;
     color: inherit;
     background: transparent;
     user-select: none;
-    transition: background 0.2s ease, color 0.2s ease;
+    opacity: 0.7;
+    transition: background 0.2s ease, opacity 0.2s ease;
 }
 
 .workspace-tab__close:hover,
 .workspace-tab__close:focus {
-    background: rgba(148, 163, 184, 0.2);
+    background: rgba(99, 102, 241, 0.12);
+    opacity: 1;
 }
 
-.workspace-tab.is-active .workspace-tab__close:hover,
-.workspace-tab.is-active .workspace-tab__close:focus {
-    background: rgba(255, 255, 255, 0.2);
-}
-
-.workspace-tab__close:focus {
+.workspace-tab__close:focus-visible {
     outline: 2px solid rgba(99, 102, 241, 0.6);
-    outline-offset: 2px;
+    outline-offset: 1px;
 }
 
 .workspace-tab.is-renaming .workspace-tab__close,
@@ -255,22 +285,29 @@ html, body {
 
 .workspace-tab__rename {
     position: absolute;
-    left: 12px;
-    right: 12px;
+    left: 14px;
+    right: 14px;
     top: 50%;
     transform: translateY(-50%);
-    height: 26px;
-    border-radius: 8px;
-    border: 1px solid rgba(148, 163, 184, 0.6);
-    padding: 0 8px;
-    font-size: 14px;
-    background: rgba(255, 255, 255, 0.95);
-    color: #1f2937;
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid #94a3b8;
+    padding: 0 12px;
+    font-size: 13px;
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}
+
+.workspace-tab__rename:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.24);
 }
 
 .workspace-tab.is-active .workspace-tab__rename {
-    border-color: rgba(255, 255, 255, 0.9);
-    background: rgba(255, 255, 255, 0.95);
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
     color: #111827;
 }
 
@@ -283,9 +320,28 @@ html, body {
     align-items: center;
     justify-content: center;
     font-weight: 600;
-    width: 36px;
-    height: 36px;
+    width: 48px;
+    min-width: 48px;
     padding: 0;
+    border: none;
+    border-left: 1px solid #cbd5f5;
+    border-top: 3px solid transparent;
+    background: rgba(226, 232, 240, 0.9);
+    color: #475569;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+    align-self: stretch;
+}
+
+.workspace-add-tab:hover,
+.workspace-add-tab:focus {
+    background: #cbd5f5;
+    color: #1f2937;
+}
+
+.workspace-add-tab:focus-visible {
+    outline: 2px solid #6366f1;
+    outline-offset: -2px;
 }
 
 .workspace-modal {
@@ -345,39 +401,48 @@ html, body {
 
 .workspace-tabs-actions {
     display: flex;
-    gap: 6px;
     align-items: center;
-    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 12px;
+    border-left: 1px solid #cbd5f5;
+    background: rgba(248, 250, 252, 0.9);
+    white-space: nowrap;
+    align-self: stretch;
 }
 
 .workspace-action-btn {
-    border: 1px solid rgba(99, 102, 241, 0.4);
-    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid #cbd5f5;
+    background: #ffffff;
     color: #1f2937;
-    border-radius: 999px;
-    padding: 6px 14px;
+    border-radius: 6px;
+    padding: 8px 14px;
     font-size: 13px;
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease, border 0.2s ease, box-shadow 0.2s ease;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .workspace-action-btn:hover,
 .workspace-action-btn:focus {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(14, 165, 233, 0.12));
-    border-color: rgba(99, 102, 241, 0.6);
-    box-shadow: 0 12px 24px rgba(99, 102, 241, 0.25);
+    background: #eef2ff;
+    border-color: #6366f1;
+    color: #1e293b;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
     outline: none;
 }
 
 .workspace-action-btn:focus-visible {
-    outline: 2px solid rgba(99, 102, 241, 0.8);
+    outline: 2px solid #6366f1;
     outline-offset: 2px;
+    box-shadow: none;
 }
 
 .workspace-action-btn:active {
-    background: rgba(99, 102, 241, 0.18);
-    border-color: rgba(99, 102, 241, 0.7);
+    background: #e0e7ff;
+    border-color: #4f46e5;
 }
 
 @media (max-width: 900px) {
@@ -385,15 +450,21 @@ html, body {
         padding: 32px;
     }
     .workspace-tabs-dock {
-        left: 12px;
-        right: 12px;
-        bottom: 16px;
-        justify-content: center;
-        flex-wrap: wrap;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        max-width: 100%;
+        border-radius: 0;
+    }
+    .workspace-tabs-list {
+        padding-inline: 8px;
+    }
+    .workspace-tabs-actions {
+        padding: 8px;
+        justify-content: flex-end;
     }
     .workspace-add-tab {
-        width: 32px;
-        height: 32px;
+        min-width: 44px;
     }
 }
 

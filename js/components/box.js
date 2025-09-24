@@ -1527,6 +1527,10 @@ function renderStatsControls(traces){
   }
   // PART: SAVE_OPEN
   function getPayload(){
+    const selectedColumns = Array.from(state.selectedCols || [])
+      .map(idx => Number(idx))
+      .filter(idx => Number.isInteger(idx));
+    selectedColumns.sort((a,b)=>a-b);
     const payload = {
       type:'box',
       data: state.hot.getData(),
@@ -1549,13 +1553,24 @@ function renderStatsControls(traces){
         borderColors:[...state.borderColors],
         yMin:els.boxYMin.value,
         yMax:els.boxYMax.value,
-        flipAxes: state.flipAxes
+        flipAxes: state.flipAxes,
+        stats: {
+          test: state.statsTest,
+          paired: state.statsPaired,
+          mode: state.statsMode,
+          referenceIndex: state.statsRef,
+          pairsText: state.statsPairsText,
+          selectedColumns
+        }
       }
     };
     console.debug('Debug: box.getPayload captured state', {
       rows: payload.data?.length || 0,
       cols: payload.data?.[0]?.length || 0,
-      colorMode: payload.config.colorMode
+      colorMode: payload.config.colorMode,
+      statsTest: payload.config.stats?.test,
+      statsMode: payload.config.stats?.mode,
+      statsSelection: payload.config.stats?.selectedColumns?.length || 0
     });
     return payload;
   }
@@ -1651,6 +1666,44 @@ function renderStatsControls(traces){
         state.flipAxes=!!c.flipAxes;
         if(els.boxFlipAxes){ els.boxFlipAxes.checked=state.flipAxes; }
         const labels=state.hot.getDataAtRow(0) || [];
+        const labelCount=labels.length;
+        const statsConfig=c.stats||{};
+        state.statsTest=statsConfig.test==='nonparametric'?'nonparametric':'parametric';
+        state.statsPaired=!!statsConfig.paired;
+        const allowedModes=new Set(['all','reference','custom']);
+        state.statsMode=allowedModes.has(statsConfig.mode)?statsConfig.mode:'all';
+        const candidateRef=Number(statsConfig.referenceIndex);
+        const maxIndex=labelCount>0?labelCount-1:-1;
+        if(Number.isInteger(candidateRef) && candidateRef>=0 && (maxIndex>=0?candidateRef<=maxIndex:true)){
+          state.statsRef=candidateRef;
+        }else if(maxIndex>=0 && state.statsRef>maxIndex){
+          state.statsRef=maxIndex;
+        }else if(!Number.isInteger(state.statsRef) || state.statsRef<0){
+          state.statsRef=0;
+        }
+        if(typeof statsConfig.pairsText==='string'){
+          state.statsPairsText=statsConfig.pairsText;
+        }else if(typeof state.statsPairsText!=='string'){
+          state.statsPairsText='';
+        }
+        const selectedFromFile=Array.isArray(statsConfig.selectedColumns)
+          ? statsConfig.selectedColumns
+              .map(idx=>Number(idx))
+              .filter(idx=>Number.isInteger(idx) && idx>=0 && (maxIndex>=0?idx<=maxIndex:true))
+          : [];
+        state.selectedCols=new Set(selectedFromFile);
+        if(state.statsMode==='reference' && !state.selectedCols.has(state.statsRef)){
+          state.selectedCols.add(state.statsRef);
+        }
+        state.statsCustomPairs=[];
+        console.debug('Debug: box stats config restored', {
+          statsTest: state.statsTest,
+          statsMode: state.statsMode,
+          statsPaired: state.statsPaired,
+          statsRef: state.statsRef,
+          selectedCount: state.selectedCols.size,
+          hasPairsText: !!state.statsPairsText
+        });
         if(els.boxColorIndividual.checked){ updateBoxColorPickers(labels); } else { els.boxColorPerBox.innerHTML=''; }
         state.scheduleDraw();
       }catch(err){
