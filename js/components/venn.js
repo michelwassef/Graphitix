@@ -1659,8 +1659,11 @@
 
   function getVennGraphPayload() {
     const inputs = state.inputs;
-    if (!inputs) return null;
-    return {
+    if (!inputs) {
+      console.debug('Debug: venn.getPayload skipped - missing inputs reference');
+      return null;
+    }
+    const payload = {
       type: 'venn',
       data: {
         labelA: inputs.labelA.value,
@@ -1687,7 +1690,15 @@
         fontsize: inputs.fontsize.value
       }
     };
+    console.debug('Debug: venn.getPayload captured state', {
+      labelA: payload.data.labelA,
+      labelB: payload.data.labelB,
+      labelC: payload.data.labelC,
+      opacity: payload.style.opacity
+    });
+    return payload;
   }
+  venn.getPayload = getVennGraphPayload;
 
   venn.save = async function () {
     const payload = getVennGraphPayload();

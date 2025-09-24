@@ -234,8 +234,15 @@
         yMin:$('#histYMin').value,
         yMax:$('#histYMax').value
       };
-      return {type:'hist', data: state.hot.getData(), config: c};
+      const payload = {type:'hist', data: state.hot.getData(), config: c};
+      console.debug('Debug: hist.getPayload captured state', {
+        rows: payload.data?.length || 0,
+        bins: c.bins,
+        hasLogY: c.logY
+      });
+      return payload;
     }
+    hist.getPayload = getPayload;
     hist.save = async function(){
       console.debug('Debug: hist.save invoked', { hasHandle: !!state.fileHandle });
       if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){

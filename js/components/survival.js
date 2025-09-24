@@ -1013,9 +1013,10 @@
 
   function getGraphPayload(){
     if(!state.hot){
+      console.debug('Debug: survival.getPayload skipped - no table instance');
       return null;
     }
-    return {
+    const payload = {
       type: 'survival',
       data: state.hot.getData(),
       config: {
@@ -1032,7 +1033,14 @@
         yLabel: refs.yLabel?.value || ''
       }
     };
+    console.debug('Debug: survival.getPayload captured state', {
+      rows: payload.data?.length || 0,
+      cols: payload.data?.[0]?.length || 0,
+      showCI: payload.config.showCI
+    });
+    return payload;
   }
+  survival.getPayload = getGraphPayload;
 
   function applyConfig(config){
     if(!config){
@@ -1081,6 +1089,7 @@
     };
     reader.readAsText(file);
   }
+  survival.loadFromFile = loadFromFile;
 
   async function saveFile(){
     const payload = getGraphPayload();
