@@ -944,8 +944,11 @@
       }
 
       const labelStrings = orderedColumns.map(col => col.label);
-      let marginLeft = 140;
-      let marginTop = 140;
+      const baseMarginLeft = 140;
+      const baseMarginTop = 140;
+      let marginLeft = baseMarginLeft;
+      let marginTop = baseMarginTop;
+      let labelClearance = 0;
       let topPaddingInfo = null;
       if(typeof chartStyle.ensureLabelPadding === 'function'){
         const leftSafe = chartStyle.ensureLabelPadding(marginLeft, {
@@ -969,42 +972,63 @@
         });
         marginTop = topSafe.margin;
         topPaddingInfo = topSafe.info;
+        labelClearance = Math.max(labelClearance, Math.ceil(topSafe.required || 0));
         console.debug('Debug: heatmap margin safeguard applied', {
           marginLeft,
           marginTop,
           rowRequired: leftSafe.required,
           columnRequired: topSafe.required,
-          fontSizePx
+          fontSizePx,
+          labelClearance
         });
       }
-      let columnLabelOffset = Math.max(12, Math.round(fontSizePx * 0.25));
+      const baseTopSpacing = Math.max(fontSizePx, 16);
+      const minBaselineGap = Math.max(3, Math.round(fontSizePx * 0.25));
+      const baselineAllowance = Math.max(2, Math.round(fontSizePx * 0.15));
+      let columnLabelOffset = minBaselineGap + baselineAllowance;
       if(topPaddingInfo){
+        const shearComponent = Math.abs(topPaddingInfo.cos || 0) * fontSizePx;
         const downward = Math.abs(topPaddingInfo.sin || 0) * (topPaddingInfo.maxLabelWidth || 0);
-        const baseDescender = Math.max(fontSizePx * 0.35, 8);
-        const verticalComponent = Math.abs(topPaddingInfo.cos || 0) * fontSizePx;
-        columnLabelOffset = Math.max(columnLabelOffset, Math.ceil(downward + baseDescender + verticalComponent));
-        console.debug('Debug: heatmap vertical label padding components', {
+        const shearAllowance = Math.ceil(shearComponent * 0.2);
+        const tunedOffset = Math.max(columnLabelOffset, minBaselineGap + baselineAllowance + shearAllowance);
+        columnLabelOffset = tunedOffset;
+        console.debug('Debug: heatmap vertical label clearance tuned', {
+          minBaselineGap,
+          baselineAllowance,
+          shearComponent,
+          shearAllowance,
           downward,
-          baseDescender,
-          verticalComponent,
+          columnLabelOffset
+        });
+      }else{
+        console.debug('Debug: heatmap vertical label clearance default', {
+          minBaselineGap,
+          baselineAllowance,
           columnLabelOffset
         });
       }
+      const columnLabelClearance = columnLabelOffset + baseTopSpacing;
+      labelClearance = Math.max(labelClearance, columnLabelClearance);
       console.debug('Debug: heatmap column label offset computed', {
         columnLabelOffset,
         labelAngle,
-        fontSizePx
+        fontSizePx,
+        baseTopSpacing,
+        columnLabelClearance,
+        labelClearance
       });
-      const enforcedTopMargin = columnLabelOffset + Math.max(fontSizePx, 16);
-      if(marginTop < enforcedTopMargin){
+      if(marginTop < columnLabelClearance){
         console.debug('Debug: heatmap top margin increased for labels', {
           previousMarginTop: marginTop,
-          enforcedTopMargin,
+          columnLabelClearance,
           columnLabelOffset,
-          fontSizePx
+          fontSizePx,
+          labelClearance
         });
-        marginTop = enforcedTopMargin;
+        marginTop = columnLabelClearance;
       }
+      const baseColumnLabelOffset = columnLabelOffset;
+      const baseLabelClearance = labelClearance;
       const marginBottom = 60;
       let marginRight = 60;
       let dendrogramPadding = 0;
@@ -1020,7 +1044,7 @@
       }
       const totalSize = orderedColumns.length * cellSize;
       const width = marginLeft + totalSize + marginRight;
-      const height = marginTop + totalSize + marginBottom;
+      let height = marginTop + totalSize + marginBottom;
       const dendrogramStartX = shouldRenderDendrogram ? marginLeft + totalSize + dendrogramPadding : marginLeft + totalSize;
       if(shouldRenderDendrogram){
         console.debug('Debug: heatmap dendrogram coordinates prepared', {
@@ -1030,7 +1054,7 @@
       }
       state.svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
 
-      const viewScaleInfo = chartStyle.computeViewBoxScale ? chartStyle.computeViewBoxScale({
+      let viewScaleInfo = chartStyle.computeViewBoxScale ? chartStyle.computeViewBoxScale({
         svgBox: state.svgBox,
         svg: state.svg,
         viewBoxWidth: width,
@@ -1046,12 +1070,82 @@
       }else if(viewScaleInfo && Number.isFinite(viewScaleInfo.scale) && viewScaleInfo.scale > 0){
         renderFontSizePx = fontSizePx / viewScaleInfo.scale;
       }
+      const safeBaseFontPx = fontSizePx > 0 ? fontSizePx : (renderFontSizePx > 0 ? renderFontSizePx : 1);
+      const computeScaledLabelSpacing = scaleValue => {
+        const safeScale = Number.isFinite(scaleValue) && scaleValue > 0 ? scaleValue : 1;
+        const scaledOffset = Math.max(Math.ceil(baseColumnLabelOffset * safeScale), Math.ceil(baseColumnLabelOffset));
+        const scaledTopSpacing = Math.max(Math.ceil(baseTopSpacing * safeScale), Math.ceil(baseTopSpacing));
+        const scaledClearance = Math.max(Math.ceil(baseLabelClearance * safeScale), scaledOffset + scaledTopSpacing);
+        return { scale: safeScale, offset: scaledOffset, clearance: scaledClearance, topSpacing: scaledTopSpacing };
+      };
+      let fontScale = safeBaseFontPx > 0 ? renderFontSizePx / safeBaseFontPx : 1;
+      let scaledSpacing = computeScaledLabelSpacing(fontScale);
+      if(scaledSpacing.scale !== 1){
+        console.debug('Debug: heatmap label clearance scaled', {
+          fontScale: scaledSpacing.scale,
+          scaledOffset: scaledSpacing.offset,
+          scaledClearance: scaledSpacing.clearance,
+          scaledTopSpacing: scaledSpacing.topSpacing
+        });
+      }
+      if(marginTop < scaledSpacing.clearance){
+        console.debug('Debug: heatmap margin scaled for labels', {
+          previousMarginTop: marginTop,
+          scaledClearance: scaledSpacing.clearance
+        });
+        marginTop = scaledSpacing.clearance;
+        const previousHeight = height;
+        height = marginTop + totalSize + marginBottom;
+        if(height !== previousHeight){
+          state.svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+          if(chartStyle.computeViewBoxScale){
+            viewScaleInfo = chartStyle.computeViewBoxScale({
+              svgBox: state.svgBox,
+              svg: state.svg,
+              viewBoxWidth: width,
+              viewBoxHeight: height,
+              debugLabel: 'heatmap'
+            });
+          }
+          if(chartStyle.adjustFontSizeForViewBox){
+            const adjusted = chartStyle.adjustFontSizeForViewBox(fontInfo || { scaledPx: fontSizePx }, viewScaleInfo, { min: 4, debugLabel: 'heatmap' });
+            if(adjusted && Number.isFinite(adjusted.fontSizePx)){
+              renderFontSizePx = adjusted.fontSizePx;
+            }
+          }else if(viewScaleInfo && Number.isFinite(viewScaleInfo.scale) && viewScaleInfo.scale > 0){
+            renderFontSizePx = fontSizePx / viewScaleInfo.scale;
+          }
+          fontScale = safeBaseFontPx > 0 ? renderFontSizePx / safeBaseFontPx : 1;
+          scaledSpacing = computeScaledLabelSpacing(fontScale);
+          console.debug('Debug: heatmap label clearance recomputed', {
+            fontScale: scaledSpacing.scale,
+            scaledOffset: scaledSpacing.offset,
+            scaledClearance: scaledSpacing.clearance,
+            scaledTopSpacing: scaledSpacing.topSpacing
+          });
+          if(marginTop < scaledSpacing.clearance){
+            marginTop = scaledSpacing.clearance;
+            height = marginTop + totalSize + marginBottom;
+            state.svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+            console.debug('Debug: heatmap margin secondary scaling applied', {
+              marginTop,
+              height
+            });
+          }
+        }
+      }
+      columnLabelOffset = scaledSpacing.offset;
+      labelClearance = scaledSpacing.clearance;
       console.debug('Debug: heatmap render font size resolved', {
         requested: requestedFontSize,
         scaledPx: fontSizePx,
         renderFontSizePx,
         viewScale: viewScaleInfo?.scale,
-        locked: fontInfo?.textLocked
+        locked: fontInfo?.textLocked,
+        fontScale: scaledSpacing.scale,
+        marginTop,
+        columnLabelOffset,
+        labelClearance
       });
 
       const doc = global.document;
@@ -1090,10 +1184,23 @@
         colLabel.setAttribute('x', String(labelX));
         colLabel.setAttribute('y', String(labelY));
         colLabel.setAttribute('font-size', String(renderFontSizePx));
-        colLabel.setAttribute('dominant-baseline', 'alphabetic');
+        if(labelAngle > 0){
+          colLabel.setAttribute('dominant-baseline', 'text-after-edge');
+          colLabel.setAttribute('alignment-baseline', 'after-edge');
+        }else{
+          colLabel.setAttribute('dominant-baseline', 'alphabetic');
+        }
         if(labelAngle > 0){
           colLabel.setAttribute('transform', `rotate(${-labelAngle} ${labelX} ${labelY})`);
-          colLabel.setAttribute('text-anchor', 'end');
+          colLabel.setAttribute('text-anchor', 'start');
+          console.debug('Debug: heatmap vertical column label anchor set', {
+            columnIndex: j,
+            label: orderedColumns[j].label,
+            anchor: 'start',
+            labelX,
+            labelY,
+            columnLabelOffset
+          });
         }else{
           colLabel.setAttribute('text-anchor', 'middle');
         }
