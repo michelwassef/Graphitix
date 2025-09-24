@@ -131,7 +131,13 @@
     duplicateMessage: document.getElementById('duplicatePromptMessage'),
     duplicateReuse: document.getElementById('duplicateReuse'),
     duplicateEmpty: document.getElementById('duplicateEmpty'),
-    duplicateCancel: document.getElementById('duplicateCancel')
+    duplicateCancel: document.getElementById('duplicateCancel'),
+    unsavedPrompt: document.getElementById('unsavedPrompt'),
+    unsavedTitle: document.getElementById('unsavedPromptTitle'),
+    unsavedMessage: document.getElementById('unsavedPromptMessage'),
+    unsavedSave: document.getElementById('unsavedPromptSave'),
+    unsavedDiscard: document.getElementById('unsavedPromptDiscard'),
+    unsavedCancel: document.getElementById('unsavedPromptCancel')
   };
 
   if (typeof chartStyle.onTextSizeLockChange === 'function') {
@@ -338,9 +344,12 @@
     pendingDuplicateSource: null,
     lastActiveGraphId: null,
     renameFocusId: null,
+    pendingClosePrompt: null,
     sessionFileHandle: null,
     sessionFileName: ''
   };
+
+  let unsavedPromptBusy = false;
 
   function clonePayload(payload) {
     if (!payload) return null;
@@ -350,6 +359,59 @@
       console.error('clonePayload error', err);
       return null;
     }
+  }
+
+  function hasMeaningfulCellValue(value) {
+    if (value === null || value === undefined) {
+      return false;
+    }
+    if (typeof value === 'number') {
+      return !Number.isNaN(value);
+    }
+    if (typeof value === 'string') {
+      return value.trim().length > 0;
+    }
+    if (typeof value === 'boolean') {
+      return true;
+    }
+    if (Array.isArray(value)) {
+      return value.some(item => hasMeaningfulCellValue(item));
+    }
+    if (typeof value === 'object') {
+      return Object.keys(value).length > 0;
+    }
+    return true;
+  }
+
+  function tabHasTableData(tab) {
+    const tabId = tab?.id || null;
+    if (!tab || !tab.payload) {
+      console.debug('Debug: tab data inspection skipped', { tabId, reason: 'no-tab-or-payload' });
+      return false;
+    }
+    const matrix = tab.payload.data;
+    if (!Array.isArray(matrix)) {
+      console.debug('Debug: tab data inspection skipped', { tabId, reason: 'no-data-matrix' });
+      return false;
+    }
+    let rowCount = 0;
+    let colCount = 0;
+    for (let r = 0; r < matrix.length; r++) {
+      const row = matrix[r];
+      if (!Array.isArray(row)) {
+        continue;
+      }
+      rowCount += 1;
+      colCount = Math.max(colCount, row.length);
+      for (let c = 0; c < row.length; c++) {
+        if (hasMeaningfulCellValue(row[c])) {
+          console.debug('Debug: tab data detected', { tabId, rowIndex: r, colIndex: c });
+          return true;
+        }
+      }
+    }
+    console.debug('Debug: tab data inspection complete', { tabId, rowsChecked: rowCount, colsChecked: colCount, found: false });
+    return false;
   }
 
   function hideWorkspaceElement(config) {
@@ -578,6 +640,7 @@
     workspaceState.pendingDuplicateSource = null;
     workspaceState.lastActiveGraphId = null;
     workspaceState.renameFocusId = null;
+    workspaceState.pendingClosePrompt = null;
     workspaceState.nextId = 1;
     if (Object.prototype.hasOwnProperty.call(meta, 'fileHandle')) {
       workspaceState.sessionFileHandle = meta.fileHandle;
@@ -774,24 +837,65 @@
         renameInput.type = 'text';
         renameInput.className = 'workspace-tab__rename';
         renameInput.value = displayTitle;
-        let renameCommitted = false;
-        const commitAndFlag = (value, reason) => {
-          if (renameCommitted) return;
-          renameCommitted = true;
+        renameInput.setAttribute('aria-label', 'Rename workspace tab');
+        let renameHandled = false;
+        const commitRename = (value, reason) => {
+          if (renameHandled) return;
+          renameHandled = true;
+          console.debug('Debug: tab rename commit requested', { tabId: tab.id, reason, nextTitle: value });
           commitTabRename(tab.id, value, { reason });
         };
+        const cancelRename = reason => {
+          if (renameHandled) return;
+          renameHandled = true;
+          console.debug('Debug: tab rename cancel requested', { tabId: tab.id, reason });
+          cancelTabRename(tab.id, reason);
+        };
         renameInput.addEventListener('keydown', event => {
-          if (event.key === 'Enter') {
+          const key = event.key;
+          if (key === 'Enter') {
             event.preventDefault();
-            commitAndFlag(renameInput.value, 'enter');
-          } else if (event.key === 'Escape') {
+            event.stopPropagation();
+            commitRename(renameInput.value, 'enter');
+          } else if (key === 'Escape') {
             event.preventDefault();
-            renameCommitted = true;
-            cancelTabRename(tab.id, 'escape');
+            event.stopPropagation();
+            cancelRename('escape');
+          } else {
+            if (key === ' ' || key === 'Spacebar' || key === 'Space') {
+              event.preventDefault();
+              event.stopPropagation();
+              const selectionStart = typeof renameInput.selectionStart === 'number'
+                ? renameInput.selectionStart
+                : renameInput.value.length;
+              const selectionEnd = typeof renameInput.selectionEnd === 'number'
+                ? renameInput.selectionEnd
+                : selectionStart;
+              const before = renameInput.value.slice(0, selectionStart);
+              const after = renameInput.value.slice(selectionEnd);
+              renameInput.value = `${before} ${after}`;
+              const nextCaret = selectionStart + 1;
+              if (typeof renameInput.setSelectionRange === 'function') {
+                renameInput.setSelectionRange(nextCaret, nextCaret);
+              }
+              console.debug('Debug: tab rename space inserted', { tabId: tab.id, caret: nextCaret });
+            } else {
+              event.stopPropagation();
+            }
+          }
+        });
+        renameInput.addEventListener('keyup', event => {
+          if (event.key === ' ' || event.key === 'Spacebar' || event.key === 'Space') {
+            event.stopPropagation();
+          }
+        });
+        renameInput.addEventListener('keypress', event => {
+          if (event.key === ' ' || event.key === 'Spacebar' || event.key === 'Space') {
+            event.stopPropagation();
           }
         });
         renameInput.addEventListener('blur', () => {
-          commitAndFlag(renameInput.value, 'blur');
+          cancelRename('blur');
         });
         renameInput.addEventListener('click', event => event.stopPropagation());
         btn.appendChild(renameInput);
@@ -809,7 +913,7 @@
           closeTab(tab.id);
         });
         closeEl.addEventListener('keydown', event => {
-          if (event.key === 'Enter' || event.key === ' ') {
+          if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar' || event.key === 'Space') {
             event.preventDefault();
             closeTab(tab.id);
           }
@@ -880,7 +984,222 @@
     console.debug('Debug: tab rename cancelled', { tabId, reason });
   }
 
-  function closeTab(tabId) {
+  function setUnsavedPromptBusy(isBusy) {
+    unsavedPromptBusy = !!isBusy;
+    const targets = [dom.unsavedSave, dom.unsavedDiscard, dom.unsavedCancel];
+    targets.forEach(btn => {
+      if (btn) {
+        btn.disabled = !!isBusy;
+      }
+    });
+    if (dom.unsavedPrompt) {
+      dom.unsavedPrompt.classList.toggle('is-busy', !!isBusy);
+    }
+    console.debug('Debug: unsaved prompt busy state', { busy: unsavedPromptBusy });
+  }
+
+  function showUnsavedPrompt(tab, meta = {}) {
+    if (!tab) {
+      console.debug('Debug: showUnsavedPrompt skipped', { reason: 'missing-tab' });
+      return;
+    }
+    const tabId = tab.id;
+    const previousActiveId = meta.previousActiveId !== undefined
+      ? meta.previousActiveId
+      : (!meta.wasActive && workspaceState.activeTabId && workspaceState.activeTabId !== tabId
+        ? workspaceState.activeTabId
+        : null);
+    const promptState = {
+      tabId,
+      wasActive: !!meta.wasActive,
+      previousActiveId,
+      reason: meta.reason || 'close-request',
+      timestamp: Date.now()
+    };
+    workspaceState.pendingClosePrompt = promptState;
+    const tabName = tab.title || 'this workspace';
+    if (!dom.unsavedPrompt || !dom.unsavedSave || !dom.unsavedDiscard || !dom.unsavedCancel) {
+      const confirmMessage = `Close ${tabName} without saving data?`;
+      const proceed = window.confirm ? window.confirm(confirmMessage) : true;
+      console.debug('Debug: unsaved prompt fallback confirm', { tabId, proceed });
+      if (proceed) {
+        closeTab(tabId, { force: true, skipPrompt: true, skipPersist: true, reason: 'fallback-confirm' });
+      } else {
+        workspaceState.pendingClosePrompt = null;
+      }
+      return;
+    }
+    if (dom.unsavedTitle) {
+      dom.unsavedTitle.textContent = `Save changes to ${tabName}?`;
+    }
+    if (dom.unsavedMessage) {
+      dom.unsavedMessage.textContent = 'This tab has unsaved data. Save to keep your work, close without saving to discard it, or cancel to return to the workspace.';
+    }
+    dom.unsavedPrompt.dataset.tabId = tabId;
+    dom.unsavedPrompt.removeAttribute('hidden');
+    dom.unsavedPrompt.focus?.();
+    console.debug('Debug: unsaved prompt displayed', promptState);
+  }
+
+  function hideUnsavedPrompt() {
+    if (!dom.unsavedPrompt) {
+      return;
+    }
+    dom.unsavedPrompt.setAttribute('hidden', 'hidden');
+    delete dom.unsavedPrompt.dataset.tabId;
+    console.debug('Debug: unsaved prompt hidden');
+  }
+
+  async function handleUnsavedSave() {
+    if (unsavedPromptBusy) {
+      console.debug('Debug: handleUnsavedSave skipped', { reason: 'busy' });
+      return;
+    }
+    const pending = workspaceState.pendingClosePrompt;
+    if (!pending) {
+      console.debug('Debug: handleUnsavedSave skipped', { reason: 'no-pending' });
+      hideUnsavedPrompt();
+      return;
+    }
+    const tab = getTabById(pending.tabId);
+    if (!tab) {
+      console.debug('Debug: handleUnsavedSave missing tab', { tabId: pending.tabId });
+      workspaceState.pendingClosePrompt = null;
+      hideUnsavedPrompt();
+      return;
+    }
+    setUnsavedPromptBusy(true);
+    hideUnsavedPrompt();
+    const restoreTarget = pending.previousActiveId && pending.previousActiveId !== tab.id
+      ? pending.previousActiveId
+      : null;
+    try {
+      if (workspaceState.activeTabId !== tab.id) {
+        const currentActive = getActiveTab();
+        if (currentActive && currentActive.id !== tab.id) {
+          persistActiveTabState(currentActive);
+        }
+        console.debug('Debug: unsaved prompt activating tab', { tabId: tab.id, previousActiveId: currentActive?.id || null });
+        activateTab(tab.id, { reason: 'unsaved-save' });
+      }
+      const component = window.Components?.[tab.type];
+      if (component && typeof component.save === 'function') {
+        console.debug('Debug: unsaved prompt invoking save', { tabId: tab.id, type: tab.type });
+        await component.save();
+      } else if (component && typeof component.saveAs === 'function') {
+        console.debug('Debug: unsaved prompt invoking saveAs fallback', { tabId: tab.id, type: tab.type });
+        await component.saveAs();
+      } else {
+        console.warn('Unsaved prompt save unavailable', { tabId: tab.id, type: tab.type });
+        workspaceState.pendingClosePrompt = pending;
+        showUnsavedPrompt(tab, { wasActive: true, reason: 'no-save-handler', previousActiveId: pending.previousActiveId });
+        return;
+      }
+      persistActiveTabState(tab);
+      workspaceState.pendingClosePrompt = null;
+      console.debug('Debug: unsaved prompt save complete', { tabId: tab.id });
+      closeTab(tab.id, { force: true, skipPrompt: true, skipPersist: true, reason: 'unsaved-save' });
+      if (restoreTarget && getTabById(restoreTarget)) {
+        activateTab(restoreTarget, { reason: 'restore-after-unsaved-save', skipPersist: true });
+      }
+    } catch (err) {
+      console.error('unsaved prompt save error', { tabId: tab.id, err });
+      workspaceState.pendingClosePrompt = pending;
+      showUnsavedPrompt(tab, { wasActive: true, reason: 'save-error', previousActiveId: pending.previousActiveId });
+    } finally {
+      setUnsavedPromptBusy(false);
+    }
+  }
+
+  function handleUnsavedDiscard() {
+    if (unsavedPromptBusy) {
+      console.debug('Debug: handleUnsavedDiscard skipped', { reason: 'busy' });
+      return;
+    }
+    const pending = workspaceState.pendingClosePrompt;
+    if (!pending) {
+      hideUnsavedPrompt();
+      return;
+    }
+    workspaceState.pendingClosePrompt = null;
+    hideUnsavedPrompt();
+    console.debug('Debug: unsaved prompt discard confirmed', { tabId: pending.tabId });
+    closeTab(pending.tabId, { force: true, skipPrompt: true, skipPersist: true, reason: 'unsaved-discard' });
+  }
+
+  function handleUnsavedCancel() {
+    if (unsavedPromptBusy) {
+      console.debug('Debug: handleUnsavedCancel skipped', { reason: 'busy' });
+      return;
+    }
+    const pending = workspaceState.pendingClosePrompt;
+    workspaceState.pendingClosePrompt = null;
+    hideUnsavedPrompt();
+    if (pending) {
+      console.debug('Debug: unsaved prompt cancelled', { tabId: pending.tabId });
+      if (pending.previousActiveId && pending.previousActiveId !== workspaceState.activeTabId && getTabById(pending.previousActiveId)) {
+        activateTab(pending.previousActiveId, { reason: 'unsaved-cancel-restore', skipPersist: true });
+      }
+    }
+  }
+
+  function bindUnsavedPromptHandlers() {
+    if (dom.unsavedSave) {
+      dom.unsavedSave.addEventListener('click', () => { void handleUnsavedSave(); });
+    }
+    if (dom.unsavedDiscard) {
+      dom.unsavedDiscard.addEventListener('click', handleUnsavedDiscard);
+    }
+    if (dom.unsavedCancel) {
+      dom.unsavedCancel.addEventListener('click', handleUnsavedCancel);
+    }
+    console.debug('Debug: unsaved prompt handlers bound', {
+      hasSave: !!dom.unsavedSave,
+      hasDiscard: !!dom.unsavedDiscard,
+      hasCancel: !!dom.unsavedCancel
+    });
+  }
+
+  function performTabRemoval(tab, meta = {}) {
+    if (!tab) {
+      return;
+    }
+    const tabId = tab.id;
+    const wasActive = !!meta.wasActive;
+    const reason = meta.reason || 'close-tab';
+    const index = workspaceState.tabs.indexOf(tab);
+    if (index < 0) {
+      console.warn('performTabRemoval missing index', { tabId, reason });
+      return;
+    }
+    workspaceState.tabs.splice(index, 1);
+    if (workspaceState.pendingDuplicateSource === tabId) {
+      workspaceState.pendingDuplicateSource = null;
+    }
+    if (workspaceState.lastActiveGraphId === tabId) {
+      const fallbackGraph = [...workspaceState.tabs].reverse().find(item => item.type && !item.isWelcome) || null;
+      workspaceState.lastActiveGraphId = fallbackGraph ? fallbackGraph.id : null;
+    }
+    if (wasActive) {
+      const fallback = workspaceState.tabs[index - 1]
+        || workspaceState.tabs[index]
+        || workspaceState.tabs[workspaceState.tabs.length - 1]
+        || null;
+      if (fallback) {
+        activateTab(fallback.id, { skipPersist: true, reason });
+      } else {
+        workspaceState.activeTabId = null;
+        renderTabs();
+        showGraphSelection({ reason: 'tab-closed-none' });
+      }
+    } else {
+      renderTabs();
+      console.debug('Debug: workspace tab closed (inactive)', { tabId, remaining: workspaceState.tabs.length, reason });
+    }
+    console.debug('Debug: workspace tab closed', { tabId, wasActive, remainingTabs: workspaceState.tabs.length, reason });
+  }
+
+  function closeTab(tabId, options = {}) {
     const tab = getTabById(tabId);
     if (!tab) {
       console.debug('Debug: closeTab skipped', { tabId, reason: 'missing-tab' });
@@ -892,32 +1211,29 @@
     }
     hideDuplicatePrompt();
     const wasActive = workspaceState.activeTabId === tabId;
-    if (wasActive) {
+    const force = options.force === true;
+    const skipPrompt = options.skipPrompt === true;
+    const skipPersist = options.skipPersist === true;
+    const reason = options.reason || 'close-tab';
+    let persistedActive = false;
+    if (wasActive && !skipPersist) {
+      persistActiveTabState(tab);
+      persistedActive = true;
+    }
+    if (!force && !skipPrompt) {
+      const hasData = tabHasTableData(tab);
+      console.debug('Debug: closeTab unsaved data check', { tabId, hasData, wasActive, reason });
+      if (hasData) {
+        showUnsavedPrompt(tab, { wasActive, reason });
+        return;
+      }
+    }
+    if (force && wasActive && !skipPersist && !persistedActive) {
       persistActiveTabState(tab);
     }
-    const index = workspaceState.tabs.indexOf(tab);
-    workspaceState.tabs.splice(index, 1);
-    if (workspaceState.pendingDuplicateSource === tabId) {
-      workspaceState.pendingDuplicateSource = null;
-    }
-    if (workspaceState.lastActiveGraphId === tabId) {
-      const fallbackGraph = [...workspaceState.tabs].reverse().find(item => item.type && !item.isWelcome) || null;
-      workspaceState.lastActiveGraphId = fallbackGraph ? fallbackGraph.id : null;
-    }
-    if (wasActive) {
-      const fallback = workspaceState.tabs[index - 1] || workspaceState.tabs[index] || workspaceState.tabs[workspaceState.tabs.length - 1] || null;
-      if (fallback) {
-        activateTab(fallback.id, { skipPersist: true, reason: 'close-tab' });
-      } else {
-        workspaceState.activeTabId = null;
-        renderTabs();
-        showGraphSelection({ reason: 'tab-closed-none' });
-      }
-    } else {
-      renderTabs();
-      console.debug('Debug: workspace tab closed (inactive)', { tabId, remaining: workspaceState.tabs.length });
-    }
-    console.debug('Debug: workspace tab closed', { tabId, wasActive, remainingTabs: workspaceState.tabs.length });
+    workspaceState.pendingClosePrompt = null;
+    hideUnsavedPrompt();
+    performTabRemoval(tab, { wasActive, reason });
   }
 
   function activateTab(tabId, options = {}) {
@@ -1146,6 +1462,7 @@
     if (dom.sessionFileInput) {
       dom.sessionFileInput.addEventListener('change', handleSessionInputChange);
     }
+    bindUnsavedPromptHandlers();
     console.debug('Debug: workspace UI initialized', { welcomeTabId: welcomeTab.id });
   }
 
