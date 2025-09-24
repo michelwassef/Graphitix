@@ -870,8 +870,10 @@
                   <input type="range" id="heatmapCellSize" min="30" max="120" step="5" value="60" />
                   <output id="heatmapCellSizeVal">60</output>
                 </label>
-                <label style="width:100%;">Label Rotation
-                  <input type="number" id="heatmapLabelAngle" value="45" min="0" max="90" style="width:80px;" />
+                <label style="width:100%; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                  <span style="min-width:80px;">Label Orientation</span>
+                  <input type="number" id="heatmapLabelAngle" value="90" min="90" max="90" style="width:80px;" disabled />
+                  <span style="font-size:11px; color:#666;">Vertical</span>
                 </label>
                 <label style="width:100%; display:flex; align-items:center; gap:6px;">
                   <span style="min-width:80px;">Font Size</span>
