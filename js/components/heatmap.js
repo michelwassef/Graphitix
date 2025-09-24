@@ -19,6 +19,7 @@
   const DEFAULT_ROWS = 100;
   const DEFAULT_COLS = 6;
   const NS = 'http://www.w3.org/2000/svg';
+  const COLUMN_LABEL_VERTICAL_ANGLE = 90;
 
   const state = {
     hot: null,
@@ -205,6 +206,14 @@
     refs.labelAngle = $('heatmapLabelAngle');
     refs.fontSize = $('heatmapFontSize');
     refs.fontSizeVal = $('heatmapFontSizeVal');
+    if(refs.labelAngle){
+      refs.labelAngle.value = String(COLUMN_LABEL_VERTICAL_ANGLE);
+      refs.labelAngle.setAttribute('disabled', 'disabled');
+      refs.labelAngle.setAttribute('title', 'Column labels render vertically to avoid overlap.');
+      console.debug('Debug: heatmap label angle control locked vertical', {
+        enforced: COLUMN_LABEL_VERTICAL_ANGLE
+      });
+    }
     state.statsEl = $('heatmapStatsContent');
 
     refs.cellSizeVal.textContent = refs.cellSize.value;
@@ -246,7 +255,20 @@
       schedule();
     });
     refs.labelAngle?.addEventListener('input', () => {
-      console.debug('Debug: heatmap label angle changed', { value: refs.labelAngle.value });
+      const attempted = Number(refs.labelAngle?.value);
+      if(refs.labelAngle){
+        if(attempted !== COLUMN_LABEL_VERTICAL_ANGLE){
+          console.debug('Debug: heatmap label angle input overridden', {
+            attempted,
+            enforced: COLUMN_LABEL_VERTICAL_ANGLE
+          });
+        }else{
+          console.debug('Debug: heatmap label angle input confirmed vertical', {
+            enforced: COLUMN_LABEL_VERTICAL_ANGLE
+          });
+        }
+        refs.labelAngle.value = String(COLUMN_LABEL_VERTICAL_ANGLE);
+      }
       schedule();
     });
     refs.fontSize?.addEventListener('input', () => {
@@ -771,7 +793,15 @@
       const decimals = clampDecimals(refs.decimals?.value);
       const cellSize = Math.max(12, Number(refs.cellSize?.value) || 60);
       const requestedFontSize = Math.max(8, Number(refs.fontSize?.value) || 12);
-      const labelAngle = Math.min(90, Math.max(0, Number(refs.labelAngle?.value) || 0));
+      const requestedLabelAngleRaw = Number(refs.labelAngle?.value);
+      const labelAngle = COLUMN_LABEL_VERTICAL_ANGLE;
+      if(refs.labelAngle && requestedLabelAngleRaw !== labelAngle){
+        refs.labelAngle.value = String(labelAngle);
+      }
+      console.debug('Debug: heatmap column label angle enforced', {
+        requested: Number.isFinite(requestedLabelAngleRaw) ? requestedLabelAngleRaw : null,
+        applied: labelAngle
+      });
       const svgBox = state.svgBox || state.svg.closest('.svgbox');
       if(svgBox && !state.svgBox){
         state.svgBox = svgBox;
@@ -951,13 +981,30 @@
       if(topPaddingInfo){
         const downward = Math.abs(topPaddingInfo.sin || 0) * (topPaddingInfo.maxLabelWidth || 0);
         const baseDescender = Math.max(fontSizePx * 0.35, 8);
-        columnLabelOffset = Math.max(columnLabelOffset, Math.ceil(downward + baseDescender));
+        const verticalComponent = Math.abs(topPaddingInfo.cos || 0) * fontSizePx;
+        columnLabelOffset = Math.max(columnLabelOffset, Math.ceil(downward + baseDescender + verticalComponent));
+        console.debug('Debug: heatmap vertical label padding components', {
+          downward,
+          baseDescender,
+          verticalComponent,
+          columnLabelOffset
+        });
       }
       console.debug('Debug: heatmap column label offset computed', {
         columnLabelOffset,
         labelAngle,
         fontSizePx
       });
+      const enforcedTopMargin = columnLabelOffset + Math.max(fontSizePx, 16);
+      if(marginTop < enforcedTopMargin){
+        console.debug('Debug: heatmap top margin increased for labels', {
+          previousMarginTop: marginTop,
+          enforcedTopMargin,
+          columnLabelOffset,
+          fontSizePx
+        });
+        marginTop = enforcedTopMargin;
+      }
       const marginBottom = 60;
       let marginRight = 60;
       let dendrogramPadding = 0;
@@ -1124,7 +1171,7 @@
       colorZero: refs.colorZero?.value || '#f7f7f7',
       colorPositive: refs.colorPositive?.value || '#a50026',
       cellSize: Number(refs.cellSize?.value) || 60,
-      labelAngle: Number(refs.labelAngle?.value) || 0,
+      labelAngle: COLUMN_LABEL_VERTICAL_ANGLE,
       fontSize: Number(refs.fontSize?.value) || 12
     };
   }
@@ -1145,7 +1192,14 @@
       refs.cellSize.value = String(config.cellSize || 60);
       refs.cellSizeVal.textContent = refs.cellSize.value;
     }
-    if(refs.labelAngle) refs.labelAngle.value = String(config.labelAngle || 0);
+    if(refs.labelAngle){
+      const incomingAngle = Number(config.labelAngle);
+      refs.labelAngle.value = String(COLUMN_LABEL_VERTICAL_ANGLE);
+      console.debug('Debug: heatmap label angle config override', {
+        incoming: Number.isFinite(incomingAngle) ? incomingAngle : null,
+        enforced: COLUMN_LABEL_VERTICAL_ANGLE
+      });
+    }
     if(refs.fontSize){
       refs.fontSize.value = String(config.fontSize || 12);
       chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) });
