@@ -503,7 +503,7 @@
     if (labelABC) labelABC.textContent = labels.A + '∩' + labels.B + '∩' + labels.C;
   }
 
-  function updateRegionSelect(labels) {
+  function updateRegionSelect(labels, countsOverride) {
     if (!state.regionSelect) return;
     const map = {
       A: labels.A + ' only',
@@ -514,7 +514,53 @@
       BC: labels.B + '∩' + labels.C + ' only',
       ABC: labels.A + '∩' + labels.B + '∩' + labels.C
     };
-    [...state.regionSelect.options].forEach(o => { if (map[o.value]) o.textContent = map[o.value]; });
+    const counts = countsOverride || state.lastCounts;
+    const requiredSets = {
+      A: ['A'],
+      B: ['B'],
+      C: ['C'],
+      AB: ['A', 'B'],
+      AC: ['A', 'C'],
+      BC: ['B', 'C'],
+      ABC: ['A', 'B', 'C']
+    };
+    const options = [...state.regionSelect.options];
+    const presence = counts ? {
+      A: Number(counts.nA || 0) > 0,
+      B: Number(counts.nB || 0) > 0,
+      C: Number(counts.nC || 0) > 0
+    } : { A: true, B: true, C: true };
+    const previousValue = state.regionSelect.value;
+    let previousValueVisible = false;
+    let firstVisibleValue = null;
+    options.forEach(option => {
+      if (map[option.value]) option.textContent = map[option.value];
+      const needed = requiredSets[option.value] || [];
+      const shouldShow = needed.every(setKey => presence[setKey]);
+      option.hidden = !shouldShow;
+      option.disabled = !shouldShow;
+      if (shouldShow && !firstVisibleValue) firstVisibleValue = option.value;
+      if (shouldShow && option.value === previousValue) previousValueVisible = true;
+    });
+    if (counts) {
+      if (!firstVisibleValue) {
+        state.regionSelect.value = '';
+        if (state.regionList) state.regionList.textContent = '(empty)';
+        if (state.copyRegionBtn) state.copyRegionBtn.style.display = 'none';
+        console.debug('Debug: venn regionSelect empty after update', { counts }); // Debug: region select no visible options
+      } else if (!previousValueVisible) {
+        state.regionSelect.value = firstVisibleValue;
+        console.debug('Debug: venn regionSelect fallback applied', { previousValue, next: firstVisibleValue }); // Debug: region select fallback selection
+        if (state.lastRegions) {
+          populateRegion(firstVisibleValue);
+        }
+      }
+    }
+    console.debug('Debug: venn regionSelect visibility updated', {
+      countsAvailable: !!counts,
+      presence,
+      selected: state.regionSelect.value
+    }); // Debug: region select visibility state snapshot
   }
 
   function updateColorLabels(labels) {
@@ -1250,7 +1296,7 @@
     chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     updateCountLabels(labels);
-    updateRegionSelect(labels);
+    updateRegionSelect(labels, counts);
     updateColorLabels(labels);
     fitAndDraw(L, style, labels, counts);
     if (state.regionSelect) populateRegion(state.regionSelect.value);
@@ -1300,7 +1346,7 @@
     chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     updateCountLabels(labels);
-    updateRegionSelect(labels);
+    updateRegionSelect(labels, counts);
     updateColorLabels(labels);
     fitAndDraw(L, style, labels, counts);
     if (state.regionSelect) populateRegion(state.regionSelect.value);
@@ -1878,14 +1924,14 @@
       state.inputs[id].addEventListener('input', () => {
         const labels = { A: state.inputs.labelA.value || 'A', B: state.inputs.labelB.value || 'B', C: state.inputs.labelC.value || 'C' };
         updateColorLabels(labels);
-        updateRegionSelect(labels);
+        updateRegionSelect(labels, state.lastCounts);
         updateCountLabels(labels);
       });
     });
     {
       const labels = { A: state.inputs.labelA.value || 'A', B: state.inputs.labelB.value || 'B', C: state.inputs.labelC.value || 'C' };
       updateColorLabels(labels);
-      updateRegionSelect(labels);
+      updateRegionSelect(labels, state.lastCounts);
       updateCountLabels(labels);
     }
     if (state.regionSelect) {
@@ -2127,7 +2173,7 @@
         const defaultLabels = { A: 'A', B: 'B', C: 'C' };
         updateCountLabels(defaultLabels);
         updateColorLabels(defaultLabels);
-        updateRegionSelect(defaultLabels);
+        updateRegionSelect(defaultLabels, null);
         clearAnalysis();
         if (state.speciesSelect) state.speciesSelect.value = '';
         setSpeciesIndicator(null);
