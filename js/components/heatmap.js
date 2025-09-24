@@ -1325,15 +1325,20 @@
   }
 
   function getPayload(){
-    if(!state.hot){
-      return { type: 'heatmap', data: [], config: getConfig() };
-    }
-    return {
+    const payload = {
       type: 'heatmap',
-      data: state.hot.getData(),
+      data: state.hot ? state.hot.getData() : [],
       config: getConfig()
     };
+    console.debug('Debug: heatmap.getPayload captured state', {
+      hasHot: !!state.hot,
+      rows: payload.data?.length || 0,
+      cols: payload.data?.[0]?.length || 0,
+      method: payload.config?.method
+    });
+    return payload;
   }
+  heatmap.getPayload = getPayload;
 
   heatmap.save = async function saveHeatmap(){
     console.debug('Debug: heatmap.save invoked', { hasHandle: !!state.fileHandle });

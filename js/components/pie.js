@@ -245,7 +245,16 @@
     }
 
     // Save/Open
-    function getPayload(){ return { type:'pie', data: state.hot.getData(), config: collectConfig() }; }
+    function getPayload(){
+      const payload = { type:'pie', data: state.hot.getData(), config: collectConfig() };
+      console.debug('Debug: pie.getPayload captured state', {
+        rows: payload.data?.length || 0,
+        cols: payload.data?.[0]?.length || 0,
+        chartType: payload.config?.chartType
+      });
+      return payload;
+    }
+    pie.getPayload = getPayload;
     function collectConfig(){
       return {
         title: state.titleText,

@@ -1030,7 +1030,7 @@
   }
 
   function getPayload(){
-    return {
+    const payload = {
       type: 'roc',
       data: state.hot?.getData() || [],
       config: {
@@ -1042,7 +1042,14 @@
         graphType: refs.graphType?.value
       }
     };
+    console.debug('Debug: roc.getPayload captured state', {
+      rows: payload.data?.length || 0,
+      cols: payload.data?.[0]?.length || 0,
+      graphType: payload.config?.graphType
+    });
+    return payload;
   }
+  roc.getPayload = getPayload;
 
   async function saveFile(){
     const payload = getPayload();

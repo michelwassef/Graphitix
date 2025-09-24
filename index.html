@@ -3,27 +3,29 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Venn Diagram Generator - HTML + JS only</title>
+  <title>Graph &amp; Statistics Workbench</title>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@13.0.0/dist/handsontable.full.min.css" />
 </head>
 <body>
-  <!-- Tabs -->
-  <div id="tabs" style="padding:8px; border-bottom:1px solid #ddd; display:flex; gap:8px;">
-    <button id="tabVenn" class="btn">Venn</button>
-    <button id="tabBox" class="btn">Box Plot</button>
-    <button id="tabScatter" class="btn">Scatter Plot</button>
-    <button id="tabPca" class="btn">Dimensionality Reduction</button>
-    <button id="tabLine" class="btn">Line Graph</button>
-    <button id="tabHeatmap" class="btn">Correlation Heatmap</button>
-    <button id="tabRoc" class="btn">Classification Curves</button>
-    <button id="tabSurvival" class="btn">Survival Curves</button>
-    <button id="tabHist" class="btn">Histogram</button>
-    <button id="tabPie" class="btn">Proportion Graph</button>
-  </div>
-
+  <div id="appShell">
+    <header id="appHeader" class="app-header">
+      <div class="app-header__content">
+        <h1 class="app-header__title">Graph &amp; Statistics Workbench</h1>
+        <p class="app-header__subtitle">Choose the type of graph you would like to build.</p>
+      </div>
+    </header>
+    <main id="workspaceMain">
+      <section id="welcomeScreen" class="welcome-screen" aria-label="Visualization selection">
+        <div class="welcome-panel">
+          <h2 class="welcome-panel__title">What would you like to visualize?</h2>
+          <p class="welcome-panel__body">Pick a visualization below to open its workspace. You can add more tabs later and reuse the data you have already prepared.</p>
+          <div id="graphSelectionGrid" class="selection-grid" role="list"></div>
+        </div>
+      </section>
+      <section id="workspacePages" class="workspace-pages">
   <!-- Venn Diagram Section -->
-  <div id="vennPage">
+  <div id="vennPage" class="workspace-page" hidden>
     <header>
       <h2 style="margin:0;">Area proportional Venn diagram</h2>
       <div style="color:#555; font-size:13px;">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div>
@@ -238,7 +240,7 @@
   </div>
 
   <!-- Box Plot Section -->
-  <div id="boxPage" style="display:none;">
+  <div id="boxPage" class="workspace-page" hidden>
     <header>
       <h2 style="margin:0;">Box Plot</h2>
       <div style="color:#555; font-size:13px;">Paste data into the table and draw a box plot.</div>
@@ -367,7 +369,7 @@
   </div>
 
   <!-- Scatter Plot Section -->
-  <div id="scatterPage" style="display:none;">
+  <div id="scatterPage" class="workspace-page" hidden>
     <header>
       <h2 style="margin:0;">Scatter Plot</h2>
       <div style="color:#555; font-size:13px;">Paste data into the table and draw a scatter plot.</div>
@@ -524,7 +526,7 @@
   </div>
 
   <!-- PCA Section -->
-  <div id="pcaPage" style="display:none;">
+  <div id="pcaPage" class="workspace-page" hidden>
     <header>
       <h2 style="margin:0;">Dimensionality Reduction</h2>
       <div style="color:#555; font-size:13px;">Paste data into the table and compute PCA or MDS.</div>
@@ -646,7 +648,7 @@
   </div>
 
   <!-- Line Graph Section -->
-  <div id="linePage" style="display:none;">
+  <div id="linePage" class="workspace-page" hidden>
     <header>
       <h2 style="margin:0;">Line Graph</h2>
       <div style="color:#555; font-size:13px;">Paste data into the table and draw a line graph.</div>
@@ -780,7 +782,7 @@
   </div>
 
   <!-- Correlation Heatmap Section -->
-  <div id="heatmapPage" style="display:none;">
+  <div id="heatmapPage" class="workspace-page" hidden>
     <header>
       <h2 style="margin:0;">Correlation Heatmap</h2>
       <div style="color:#555; font-size:13px;">Paste a numeric table to visualize pairwise correlations as a heatmap.</div>
@@ -895,7 +897,7 @@
   </div>
 
   <!-- ROC Section -->
-  <div id="rocPage" style="display:none;">
+  <div id="rocPage" class="workspace-page" hidden>
     <header>
       <h2 style="margin:0;">Classification Curves</h2>
       <div style="color:#555; font-size:13px;">Paste data into the table to plot Receiver Operating Characteristic (ROC) or Precision-Recall (PR) curves. The area under each curve is computed using the trapezoidal rule.</div>
@@ -980,7 +982,7 @@
   </div>
 
   <!-- Survival Section -->
-  <div id="survivalPage" style="display:none;">
+  <div id="survivalPage" class="workspace-page" hidden>
     <header>
       <h2 style="margin:0;">Survival Analysis</h2>
       <div style="color:#555; font-size:13px;">Paste time-to-event data to draw Kaplan–Meier survival curves.</div>
@@ -1067,7 +1069,7 @@
   </div>
 
   <!-- Histogram Section -->
-  <div id="histPage" style="display:none;">
+  <div id="histPage" class="workspace-page" hidden>
     <header>
       <h2 style="margin:0;">Histogram</h2>
       <div style="color:#555; font-size:13px;">Paste data into the table and draw a histogram.</div>
@@ -1157,7 +1159,7 @@
   </div>
 
   <!-- Proportion Graph Section -->
-  <div id="piePage" style="display:none;">
+  <div id="piePage" class="workspace-page" hidden>
     <header>
       <h2 style="margin:0;">Proportion Graph</h2>
       <div style="color:#555; font-size:13px;">Paste category, observed, and expected data into the table and draw a proportion graph. The Chi² test uses the observed and expected columns.</div>
@@ -1235,6 +1237,29 @@
             </div>
             <div id="pieStatsResults"></div>
           </fieldset>
+        </div>
+      </div>
+    </div>
+  </div>
+      </section>
+    </main>
+    <div id="workspaceTabsDock" class="workspace-tabs-dock" role="presentation">
+      <div id="workspaceTabsList" class="workspace-tabs-list" role="tablist" aria-label="Workspace tabs"></div>
+      <button id="addWorkspaceTab" type="button" class="workspace-tab workspace-add-tab" aria-label="Add workspace tab">+</button>
+      <div class="workspace-tabs-actions" role="group" aria-label="Session actions">
+        <button id="saveWorkspaceSession" type="button" class="workspace-action-btn" aria-label="Save current session">Save Session</button>
+        <button id="loadWorkspaceSession" type="button" class="workspace-action-btn" aria-label="Load a saved session">Load Session</button>
+      </div>
+      <input id="workspaceSessionInput" type="file" accept=".session,.json" style="display:none;" />
+    </div>
+    <div id="duplicatePrompt" class="workspace-modal" hidden role="dialog" aria-modal="true" aria-labelledby="duplicatePromptTitle">
+      <div class="workspace-modal__panel">
+        <h3 id="duplicatePromptTitle" class="workspace-modal__title">Reuse data from the previous tab?</h3>
+        <p id="duplicatePromptMessage" class="workspace-modal__message"></p>
+        <div class="workspace-modal__actions">
+          <button id="duplicateReuse" type="button" class="btn">Reuse Data</button>
+          <button id="duplicateEmpty" type="button" class="btn">Start Empty</button>
+          <button id="duplicateCancel" type="button" class="btn btn-secondary">Cancel</button>
         </div>
       </div>
     </div>

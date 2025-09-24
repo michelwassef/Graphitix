@@ -1526,7 +1526,40 @@ function renderStatsControls(traces){
     console.log('boxplot render complete');
   }
   // PART: SAVE_OPEN
-  function getPayload(){ return { type:'box', data: state.hot.getData(), config: { title:state.titleText, yLabel:state.yLabelText, colorMode:els.boxColorUnified.checked?'unified':'individual', fill:els.boxFill.value, border:els.boxBorder.value, borderWidth:els.boxBorderWidth.value, fontSize:els.boxFontSize.value, showGrid:els.boxShowGrid.checked, showFrame:!!els.boxShowFrame?.checked, logScale:els.boxLogScale.checked, graphType:els.boxGraphType.value, pointMode:els.boxPointMode.value, showCaps:els.boxShowCaps.checked, errorMode:els.boxErrorMode.value, colors:[...state.fillColors], borderColors:[...state.borderColors], yMin:els.boxYMin.value, yMax:els.boxYMax.value, flipAxes: state.flipAxes } }; }
+  function getPayload(){
+    const payload = {
+      type:'box',
+      data: state.hot.getData(),
+      config: {
+        title:state.titleText,
+        yLabel:state.yLabelText,
+        colorMode:els.boxColorUnified.checked?'unified':'individual',
+        fill:els.boxFill.value,
+        border:els.boxBorder.value,
+        borderWidth:els.boxBorderWidth.value,
+        fontSize:els.boxFontSize.value,
+        showGrid:els.boxShowGrid.checked,
+        showFrame:!!els.boxShowFrame?.checked,
+        logScale:els.boxLogScale.checked,
+        graphType:els.boxGraphType.value,
+        pointMode:els.boxPointMode.value,
+        showCaps:els.boxShowCaps.checked,
+        errorMode:els.boxErrorMode.value,
+        colors:[...state.fillColors],
+        borderColors:[...state.borderColors],
+        yMin:els.boxYMin.value,
+        yMax:els.boxYMax.value,
+        flipAxes: state.flipAxes
+      }
+    };
+    console.debug('Debug: box.getPayload captured state', {
+      rows: payload.data?.length || 0,
+      cols: payload.data?.[0]?.length || 0,
+      colorMode: payload.config.colorMode
+    });
+    return payload;
+  }
+  box.getPayload = getPayload;
   box.save = async function(){
     console.debug('Debug: box.save invoked', { hasHandle: !!state.fileHandle });
     if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
