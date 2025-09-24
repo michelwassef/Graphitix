@@ -163,10 +163,21 @@
 
   function initControls(){
     const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histFontSizeVal=$('#histFontSizeVal'), histYMin=$('#histYMin'), histYMax=$('#histYMax');
-    chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value) });
+    if(histFontSize?.dataset){
+      histFontSize.dataset.fontBasePt = String(histFontSize.value);
+      console.debug('Debug: hist font size base initialized',{ value: histFontSize.value }); // Debug: initial base size
+    }
+    chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value), input: histFontSize, manual: true });
     [histFill,histBorder,histBorderWidth,histBins,histShowGrid,histLogY,histYMin,histYMax].forEach(el=>el.addEventListener('input',()=>state.scheduleDraw()));
     histShowFrame?.addEventListener('change',()=>{ console.debug('Debug: hist showFrame change',{checked:histShowFrame.checked}); state.scheduleDraw(); });
-    histFontSize.addEventListener('input',()=>{chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value) }); state.scheduleDraw();});
+    histFontSize.addEventListener('input',()=>{
+      if(histFontSize.dataset){
+        histFontSize.dataset.fontBasePt = String(histFontSize.value);
+        console.debug('Debug: hist font size input manual set',{ value: histFontSize.value }); // Debug: manual slider update
+      }
+      chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontSize.value), input: histFontSize, manual: true });
+      state.scheduleDraw();
+    });
 
     // Example + Import
     const example=[['Exam Score'],[55],[60],[65],[70],[75],[80],[85],[90],[95],[100]];
@@ -280,7 +291,37 @@
       console.debug('Debug: hist.open result', result);
     };
     hist.loadFromFile = function(file){
-      const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadHistGraph',obj); if(obj.type!=='hist') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; state.xLabelText=c.xLabel||state.xLabelText; state.yLabelText=c.yLabel||state.yLabelText; $('#histFill').value=c.fill||$('#histFill').value; $('#histBorder').value=c.border||$('#histBorder').value; $('#histBorderWidth').value=c.borderWidth||$('#histBorderWidth').value; $('#histBins').value=c.bins||$('#histBins').value; $('#histShowGrid').checked=!!c.showGrid; $('#histLogY').checked=!!c.logY; $('#histFontSize').value=c.fontSize||$('#histFontSize').value; chartStyle.renderFontSizeLabel({ element: $('#histFontSizeVal'), pt: Number($('#histFontSize').value) }); $('#histYMin').value=c.yMin||''; $('#histYMax').value=c.yMax||''; state.scheduleDraw(); }catch(err){console.error('loadHistGraph error',err);} };
+      const reader=new FileReader();
+      reader.onload=e=>{
+        try{
+          const obj=JSON.parse(e.target.result);
+          console.log('loadHistGraph',obj);
+          if(obj.type!=='hist') throw new Error('Invalid graph type');
+          state.hot.loadData(obj.data||[]);
+          const c=obj.config||{};
+          state.titleText=c.title||state.titleText;
+          state.xLabelText=c.xLabel||state.xLabelText;
+          state.yLabelText=c.yLabel||state.yLabelText;
+          $('#histFill').value=c.fill||$('#histFill').value;
+          $('#histBorder').value=c.border||$('#histBorder').value;
+          $('#histBorderWidth').value=c.borderWidth||$('#histBorderWidth').value;
+          $('#histBins').value=c.bins||$('#histBins').value;
+          $('#histShowGrid').checked=!!c.showGrid;
+          $('#histLogY').checked=!!c.logY;
+          const histFontInput=$('#histFontSize');
+          histFontInput.value=c.fontSize||histFontInput.value;
+          if(histFontInput.dataset){
+            histFontInput.dataset.fontBasePt = String(histFontInput.value);
+            console.debug('Debug: hist font size base restored',{ value: histFontInput.value }); // Debug: restore base from file
+          }
+          chartStyle.renderFontSizeLabel({ element: $('#histFontSizeVal'), pt: Number(histFontInput.value), input: histFontInput, manual: true });
+          $('#histYMin').value=c.yMin||'';
+          $('#histYMax').value=c.yMax||'';
+          state.scheduleDraw();
+        }catch(err){
+          console.error('loadHistGraph error',err);
+        }
+      };
       reader.readAsText(file);
     };
     // Wire buttons
@@ -336,7 +377,8 @@
       rawSize: histFontSize.value,
       width: containerRect?.width,
       height: containerRect?.height,
-      svgBox: state.svgBox
+      svgBox: state.svgBox,
+      input: histFontSize
     });
     const fs=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
@@ -349,7 +391,7 @@
       axisStrokeWidth,
       styleScale: styleScaleInfo?.styleScale
     }); // Debug: histogram style scaling summary
-    chartStyle.renderFontSizeLabel({ element: histFontSizeVal, fontInfo });
+    chartStyle.renderFontSizeLabel({ element: histFontSizeVal, fontInfo, input: histFontSize });
     console.debug('Debug: hist font scaling applied',{
       input:histFontSize.value,
       fontSizePt:fontInfo.pt,

@@ -210,7 +210,11 @@
 
   function updateFontSizeLabel(){
     if(refs.fontSizeVal && refs.fontSize){
-      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) });
+      if(refs.fontSize.dataset){
+        refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+        console.debug('Debug: roc font size base synced',{ value: refs.fontSize.value }); // Debug: base sync update
+      }
+      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
     }
   }
 
@@ -599,7 +603,8 @@
       rawSize: refs.fontSize?.value,
       width: containerRect?.width,
       height: containerRect?.height,
-      svgBox: refs.svgBox
+      svgBox: refs.svgBox,
+      input: refs.fontSize
     });
     const fontSize=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
@@ -611,7 +616,7 @@
       axisStrokeWidth,
       styleScale: styleScaleInfo?.styleScale
     }); // Debug: ROC style scaling summary
-    if(refs.fontSizeVal){ chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo }); }
+    if(refs.fontSizeVal){ chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize }); }
     console.debug('Debug: roc font scaling applied',{
       input:refs.fontSize?.value,
       fontSizePt:fontInfo.pt,

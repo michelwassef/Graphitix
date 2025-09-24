@@ -663,9 +663,10 @@
       rawSize: refs.fontSize?.value,
       width: containerRect?.width,
       height: containerRect?.height,
-      svgBox: refs.svgBox
+      svgBox: refs.svgBox,
+      input: refs.fontSize
     }) : { scaledPx: Number(refs.fontSize?.value) || 13, pt: Number(refs.fontSize?.value) || 13, scaleInfo: { styleScale: 1 } };
-    chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, fontInfo });
+    chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize });
     const fs = fontInfo.scaledPx || 13;
     const styleScaleInfo = fontInfo.scaleInfo || { styleScale: 1 };
     const axisStrokeWidth = chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'survival-axis', min: 0.5 }) : 1;
@@ -1046,6 +1047,13 @@
     if(refs.yMin) refs.yMin.value = config.yMin || '';
     if(refs.yMax) refs.yMax.value = config.yMax || '';
     if(refs.fontSize) refs.fontSize.value = config.fontSize || '13';
+    if(refs.fontSize && refs.fontSize.dataset){
+      refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+      logDebug('font size base restored', { value: refs.fontSize.value });
+    }
+    if(refs.fontSizeVal){
+      chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value), input: refs.fontSize, manual: true });
+    }
     if(refs.xLabel) refs.xLabel.value = config.xLabel || 'Time';
     if(refs.yLabel) refs.yLabel.value = config.yLabel || 'Survival Probability';
     logDebug('config applied', config);
@@ -1158,11 +1166,19 @@
       });
     });
     refs.fontSize?.addEventListener('input', () => {
-      chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) });
+      if(refs.fontSize?.dataset){
+        refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+        logDebug('font size base updated', { value: refs.fontSize.value });
+      }
+      chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
       logDebug('font size input', { value: refs.fontSize.value });
       schedule();
     });
-    chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value) });
+    if(refs.fontSize?.dataset){
+      refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+      logDebug('font size base initialized', { value: refs.fontSize.value });
+    }
+    chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value), input: refs.fontSize, manual: true });
   }
 
   function initExampleAndImport(){

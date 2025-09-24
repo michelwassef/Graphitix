@@ -131,7 +131,11 @@
       const pcaMethod=$('#pcaMethod'), pcaFill=$('#pcaFill'), pcaBorder=$('#pcaBorder'), pcaBorderWidth=$('#pcaBorderWidth'), pcaDotSize=$('#pcaDotSize'), pcaAlpha=$('#pcaAlpha');
       const pcaAlphaVal=$('#pcaAlphaVal');
       const pcaFontSize=$('#pcaFontSize'), pcaFontSizeVal=$('#pcaFontSizeVal');
-      chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value) });
+      if(pcaFontSize?.dataset){
+        pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
+        console.debug('Debug: pca font size base initialized',{ value: pcaFontSize.value }); // Debug: initial base size
+      }
+      chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
       const pcaShowGrid=$('#pcaShowGrid');
       const pcaXMin=$('#pcaXMin'), pcaXMax=$('#pcaXMax'), pcaYMin=$('#pcaYMin'), pcaYMax=$('#pcaYMax');
       const pcaShowFrame=$('#pcaShowFrame');
@@ -147,7 +151,14 @@
       pcaBorderWidth.addEventListener('input',()=>{console.log('pcaBorderWidth changed',pcaBorderWidth.value); scheduleDrawPca();});
       pcaDotSize.addEventListener('input',()=>{console.log('pcaDotSize changed',pcaDotSize.value); scheduleDrawPca();});
       pcaAlpha.addEventListener('input',()=>{pcaAlphaVal.textContent=pcaAlpha.value; console.log('pcaAlpha changed',pcaAlpha.value); scheduleDrawPca();});
-      pcaFontSize.addEventListener('input',()=>{chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value) }); scheduleDrawPca();});
+      pcaFontSize.addEventListener('input',()=>{
+        if(pcaFontSize.dataset){
+          pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
+          console.debug('Debug: pca font size input manual set',{ value: pcaFontSize.value }); // Debug: manual slider update
+        }
+        chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
+        scheduleDrawPca();
+      });
       [pcaShowGrid,pcaScale].forEach(el=>el.addEventListener('change',()=>{console.log('pca config changed',el.id); scheduleDrawPca();}));
       pcaShowFrame.addEventListener('change',()=>{console.debug('Debug: pca showFrame change',{checked:pcaShowFrame.checked}); scheduleDrawPca();});
       [pcaXMin,pcaXMax,pcaYMin,pcaYMax].forEach(el=>el.addEventListener('input',()=>{console.log('pca axis input',el.id,el.value); scheduleDrawPca();}));
@@ -266,7 +277,8 @@
         rawSize: pcaFontSize.value,
         width: containerRect?.width,
         height: containerRect?.height,
-        svgBox: pcaSvgBox
+        svgBox: pcaSvgBox,
+        input: pcaFontSize
       });
       const fs=fontInfo.scaledPx;
       const styleScaleInfo=fontInfo.scaleInfo;
@@ -282,7 +294,7 @@
         axisStrokeWidth,
         styleScale: styleScaleInfo?.styleScale
       }); // Debug: pca style scaling summary
-      chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, fontInfo });
+      chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, fontInfo, input: pcaFontSize });
       console.debug('Debug: pca font scaling applied',{
         input:pcaFontSize.value,
         fontSizePt:fontInfo.pt,
@@ -781,7 +793,43 @@
         });
         console.debug('Debug: openPcaFile result', result);
       }
-      function loadPcaGraphFile(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadPcaGraph',obj); if(obj.type!=='pca') throw new Error('Invalid graph type'); pcaHot.loadData(obj.data||[]); const c=obj.config||{}; pcaDotSize.value=c.dotSize||pcaDotSize.value; pcaFill.value=c.fill||pcaFill.value; pcaBorder.value=c.border||pcaBorder.value; pcaBorderWidth.value=c.borderWidth||pcaBorderWidth.value; pcaMethod.value=c.method||'pca'; pcaAlpha.value=c.alpha||0; pcaAlphaVal.textContent=pcaAlpha.value; pcaLabelColors=c.labelColors||{}; pcaShowGrid.checked=!!c.showGrid; pcaShowFrame.checked=!!c.showFrame; pcaXMin.value=c.xMin||''; pcaXMax.value=c.xMax||''; pcaYMin.value=c.yMin||''; pcaYMax.value=c.yMax||''; pcaScale.checked=!!c.scale; pcaFontSize.value=c.fontSize||pcaFontSize.value; chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value) }); scheduleDrawPca(); }catch(err){console.error('loadPcaGraph error',err);} }; reader.readAsText(file); }
+      function loadPcaGraphFile(file){
+        const reader=new FileReader();
+        reader.onload=e=>{
+          try{
+            const obj=JSON.parse(e.target.result);
+            console.log('loadPcaGraph',obj);
+            if(obj.type!=='pca') throw new Error('Invalid graph type');
+            pcaHot.loadData(obj.data||[]);
+            const c=obj.config||{};
+            pcaDotSize.value=c.dotSize||pcaDotSize.value;
+            pcaFill.value=c.fill||pcaFill.value;
+            pcaBorder.value=c.border||pcaBorder.value;
+            pcaBorderWidth.value=c.borderWidth||pcaBorderWidth.value;
+            pcaMethod.value=c.method||'pca';
+            pcaAlpha.value=c.alpha||0;
+            pcaAlphaVal.textContent=pcaAlpha.value;
+            pcaLabelColors=c.labelColors||{};
+            pcaShowGrid.checked=!!c.showGrid;
+            pcaShowFrame.checked=!!c.showFrame;
+            pcaXMin.value=c.xMin||'';
+            pcaXMax.value=c.xMax||'';
+            pcaYMin.value=c.yMin||'';
+            pcaYMax.value=c.yMax||'';
+            pcaScale.checked=!!c.scale;
+            pcaFontSize.value=c.fontSize||pcaFontSize.value;
+            if(pcaFontSize.dataset){
+              pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
+              console.debug('Debug: pca font size base restored',{ value: pcaFontSize.value }); // Debug: restore base from file
+            }
+            chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
+            scheduleDrawPca();
+          }catch(err){
+            console.error('loadPcaGraph error',err);
+          }
+        };
+        reader.readAsText(file);
+      }
       if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
         Shared.exporter.mountSvgControls({
           container: '#pcaExportControls',

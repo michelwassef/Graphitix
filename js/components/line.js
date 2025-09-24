@@ -216,7 +216,14 @@
         if(refs.originMode && c.originMode) refs.originMode.value=c.originMode;
         if(refs.originX) refs.originX.value=c.originX||'';
         if(refs.originY) refs.originY.value=c.originY||'';
-        if(refs.fontSize){ refs.fontSize.value=c.fontSize||refs.fontSize.value; chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) }); }
+        if(refs.fontSize){
+          refs.fontSize.value=c.fontSize||refs.fontSize.value;
+          if(refs.fontSize.dataset){
+            refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+            console.debug('Debug: line font size base restored',{ value: refs.fontSize.value }); // Debug: restore base size
+          }
+          chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
+        }
         updateLineLabelColorPickers(Object.keys(lineLabelColors));
         scheduleLineDraw();
       }catch(err){ console.error('loadLineGraph error',err); }
@@ -313,7 +320,8 @@
         rawSize: refs.fontSize?.value,
         width: containerRect?.width,
         height: containerRect?.height,
-        svgBox: refs.svgBox
+        svgBox: refs.svgBox,
+        input: refs.fontSize
       });
       const fs=fontInfo.scaledPx;
       const styleScaleInfo=fontInfo.scaleInfo;
@@ -329,7 +337,7 @@
         axisStrokeWidth,
         styleScale: styleScaleInfo?.styleScale
       }); // Debug: line style scaling summary
-      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo });
+      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize });
       console.debug('Debug: line font scaling applied',{
         input: refs.fontSize?.value,
         fontSizePt: fontInfo.pt,
@@ -647,7 +655,13 @@
     refs.alphaVal=document.getElementById('lineAlphaVal');
     refs.fontSize=document.getElementById('lineFontSize');
     refs.fontSizeVal=document.getElementById('lineFontSizeVal');
-    if(refs.fontSize && refs.fontSizeVal){ chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) }); }
+    if(refs.fontSize && refs.fontSizeVal){
+      if(refs.fontSize.dataset){
+        refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+        console.debug('Debug: line font size base initialized',{ value: refs.fontSize.value }); // Debug: initial base size
+      }
+      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
+    }
     refs.showGrid=document.getElementById('lineShowGrid');
     refs.showFrame=document.getElementById('lineShowFrame');
     refs.logX=document.getElementById('lineLogX');
@@ -867,7 +881,16 @@
     refs.borderWidth?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.dotSize?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.alpha?.addEventListener('input',()=>{ if(refs.alphaVal) refs.alphaVal.textContent=refs.alpha.value; scheduleLineDraw(); });
-    refs.fontSize?.addEventListener('input',()=>{ if(refs.fontSizeVal) chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) }); scheduleLineDraw(); });
+    refs.fontSize?.addEventListener('input',()=>{
+      if(refs.fontSize?.dataset){
+        refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+        console.debug('Debug: line font size input manual set',{ value: refs.fontSize.value }); // Debug: manual slider update
+      }
+      if(refs.fontSizeVal){
+        chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
+      }
+      scheduleLineDraw();
+    });
     refs.showGrid?.addEventListener('change',()=>{ console.debug('Debug: line showGrid change',{checked:refs.showGrid.checked}); scheduleLineDraw(); });
     refs.showFrame?.addEventListener('change',()=>{ console.debug('Debug: line showFrame change',{checked:refs.showFrame.checked}); scheduleLineDraw(); });
     refs.logX?.addEventListener('change',()=>{ scheduleLineDraw(); });

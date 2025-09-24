@@ -85,7 +85,11 @@
     els.boxFontSize=global.$('#boxFontSize');
     els.boxFontSizeVal=global.$('#boxFontSizeVal');
     if (typeof chartStyle.renderFontSizeLabel === 'function') {
-      chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value) });
+      if(els.boxFontSize?.dataset){
+        els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
+        console.debug('Debug: box font size base initialized',{ value: els.boxFontSize.value }); // Debug: initial base size
+      }
+      chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
     } else {
       console.debug('Debug: box renderFontSizeLabel missing helper'); // Debug: chartStyle guard
     }
@@ -304,7 +308,14 @@
     els.boxColorUnified.addEventListener('change',toggleColorMode);
     els.boxColorIndividual.addEventListener('change',toggleColorMode);
     toggleColorMode();
-    els.boxFontSize.addEventListener('input',()=>{ chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value) }); state.scheduleDraw(); });
+    els.boxFontSize.addEventListener('input',()=>{
+      if(els.boxFontSize.dataset){
+        els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
+        console.debug('Debug: box font size input manual set',{ value: els.boxFontSize.value }); // Debug: manual slider update
+      }
+      chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
+      state.scheduleDraw();
+    });
     els.boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', els.boxShowGrid.checked); state.scheduleDraw(); });
     els.boxShowFrame?.addEventListener('change',()=>{ console.debug('Debug: box showFrame change',{checked:els.boxShowFrame.checked}); state.scheduleDraw(); });
     els.boxLogScale.addEventListener('change',()=>{ console.log('boxLogScale changed', els.boxLogScale.checked); state.scheduleDraw(); });
@@ -698,7 +709,8 @@ function renderStatsControls(traces){
       rawSize: els.boxFontSize.value,
       width: containerRect?.width,
       height: containerRect?.height,
-      svgBox: els.svgBox
+      svgBox: els.svgBox,
+      input: els.boxFontSize
     });
     const fs = fontInfo.scaledPx;
     const styleScaleInfo = fontInfo.scaleInfo;
@@ -710,7 +722,7 @@ function renderStatsControls(traces){
     const annotationBaseOffset = chartStyle.scaleLength(ANN_BASE_OFFSET, styleScaleInfo, { context: 'box-annotation-offset', min: 10 });
     const annotationLevelGap = chartStyle.scaleLength(ANN_LEVEL_GAP, styleScaleInfo, { context: 'box-annotation-gap', min: 8 });
     const annotationBracketSize = chartStyle.scaleLength(12, styleScaleInfo, { context: 'box-annotation-bracket', min: 8 });
-    chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, fontInfo });
+    chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, fontInfo, input: els.boxFontSize });
     console.debug('Debug: box font scaling applied',{
       input: els.boxFontSize.value,
       fontSizePt: fontInfo.pt,
@@ -1569,7 +1581,51 @@ function renderStatsControls(traces){
     });
     console.debug('Debug: box.open result', result);
   };
-  box.loadFromFile = function(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadBoxGraph',obj); if(obj.type!=='box') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; state.yLabelText=c.yLabel||state.yLabelText; els.boxFill.value=c.fill||els.boxFill.value; els.boxBorder.value=c.border||els.boxBorder.value; els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value; els.boxFontSize.value=c.fontSize||els.boxFontSize.value; chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value) }); els.boxShowGrid.checked=!!c.showGrid; if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame; els.boxLogScale.checked=!!c.logScale; els.boxGraphType.value=c.graphType||els.boxGraphType.value; els.boxPointMode.value=c.pointMode||els.boxPointMode.value; els.boxShowCaps.checked=!!c.showCaps; els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value; els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none'; state.fillColors=c.colors||[]; state.borderColors=c.borderColors||[]; if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; } toggleColorMode(); els.boxYMin.value=c.yMin||''; els.boxYMax.value=c.yMax||''; state.flipAxes=!!c.flipAxes; if(els.boxFlipAxes){ els.boxFlipAxes.checked=state.flipAxes; } const labels=state.hot.getDataAtRow(0) || []; if(els.boxColorIndividual.checked){ updateBoxColorPickers(labels); } else { els.boxColorPerBox.innerHTML=''; } state.scheduleDraw(); }catch(err){ console.error('loadBoxGraph error',err); } }; reader.readAsText(file); };
+  box.loadFromFile = function(file){
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const obj=JSON.parse(e.target.result);
+        console.log('loadBoxGraph',obj);
+        if(obj.type!=='box') throw new Error('Invalid graph type');
+        state.hot.loadData(obj.data||[]);
+        const c=obj.config||{};
+        state.titleText=c.title||state.titleText;
+        state.yLabelText=c.yLabel||state.yLabelText;
+        els.boxFill.value=c.fill||els.boxFill.value;
+        els.boxBorder.value=c.border||els.boxBorder.value;
+        els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value;
+        els.boxFontSize.value=c.fontSize||els.boxFontSize.value;
+        if(els.boxFontSize.dataset){
+          els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
+          console.debug('Debug: box font size base restored',{ value: els.boxFontSize.value }); // Debug: restore base from file
+        }
+        chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
+        els.boxShowGrid.checked=!!c.showGrid;
+        if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
+        els.boxLogScale.checked=!!c.logScale;
+        els.boxGraphType.value=c.graphType||els.boxGraphType.value;
+        els.boxPointMode.value=c.pointMode||els.boxPointMode.value;
+        els.boxShowCaps.checked=!!c.showCaps;
+        els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value;
+        els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none';
+        state.fillColors=c.colors||[];
+        state.borderColors=c.borderColors||[];
+        if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; }
+        toggleColorMode();
+        els.boxYMin.value=c.yMin||'';
+        els.boxYMax.value=c.yMax||'';
+        state.flipAxes=!!c.flipAxes;
+        if(els.boxFlipAxes){ els.boxFlipAxes.checked=state.flipAxes; }
+        const labels=state.hot.getDataAtRow(0) || [];
+        if(els.boxColorIndividual.checked){ updateBoxColorPickers(labels); } else { els.boxColorPerBox.innerHTML=''; }
+        state.scheduleDraw();
+      }catch(err){
+        console.error('loadBoxGraph error',err);
+      }
+    };
+    reader.readAsText(file);
+  };
 
   box.init = function init(){
     if (box.ready) { console.debug('Debug: Components.box.init skipped'); return; }

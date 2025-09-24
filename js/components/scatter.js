@@ -219,7 +219,11 @@
       const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterAlpha=$('#scatterAlpha');
       const scatterAlphaVal=$('#scatterAlphaVal');
       const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
-      chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value) });
+      if(scatterFontSize?.dataset){
+        scatterFontSize.dataset.fontBasePt = String(scatterFontSize.value);
+        console.debug('Debug: scatter font size base initialized',{ value: scatterFontSize.value }); // Debug: initial base
+      }
+      chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
       const scatterShowGrid=$('#scatterShowGrid'), scatterShowFrame=$('#scatterShowFrame'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
       const scatterXMin=$('#scatterXMin'), scatterXMax=$('#scatterXMax'), scatterYMin=$('#scatterYMin'), scatterYMax=$('#scatterYMax');
       const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
@@ -290,7 +294,14 @@
       scatterBorderWidth.addEventListener('input',()=>{console.log('scatterBorderWidth changed', scatterBorderWidth.value); scheduleDrawScatter();});
       scatterDotSize.addEventListener('input',()=>{console.log('scatterDotSize changed', scatterDotSize.value); scheduleDrawScatter();});
       scatterAlpha.addEventListener('input',()=>{scatterAlphaVal.textContent=scatterAlpha.value; console.log('scatterAlpha changed',scatterAlpha.value); scheduleDrawScatter();});
-      scatterFontSize.addEventListener('input',()=>{chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value) }); scheduleDrawScatter();});
+      scatterFontSize.addEventListener('input',()=>{
+        if(scatterFontSize.dataset){
+          scatterFontSize.dataset.fontBasePt = String(scatterFontSize.value);
+          console.debug('Debug: scatter font size input manual set',{ value: scatterFontSize.value }); // Debug: manual slider update
+        }
+        chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
+        scheduleDrawScatter();
+      });
       [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode,scatterShowLine].forEach(el=>el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
       scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleDrawScatter();});
       [scatterXMin,scatterXMax,scatterYMin,scatterYMax,scatterOriginX,scatterOriginY].forEach(el=>el.addEventListener('input',()=>{console.log('scatter axis input', el.id, el.value); scheduleDrawScatter();}));
@@ -421,7 +432,8 @@
           rawSize: scatterFontSize.value,
           width: containerRect?.width,
           height: containerRect?.height,
-          svgBox: scatterSvgBox
+          svgBox: scatterSvgBox,
+          input: scatterFontSize
         });
         const fs=fontInfo.scaledPx;
         const styleScaleInfo=fontInfo.scaleInfo;
@@ -437,7 +449,7 @@
           axisStrokeWidth,
           styleScale: styleScaleInfo?.styleScale
         }); // Debug: scatter style scaling summary
-        chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, fontInfo });
+        chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, fontInfo, input: scatterFontSize });
         console.debug('Debug: scatter font scaling applied',{
           input: scatterFontSize.value,
           fontSizePt: fontInfo.pt,
