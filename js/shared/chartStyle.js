@@ -11,6 +11,52 @@
   const BASE_FONT_SIZE_PX = Number((BASE_FONT_SIZE_PT * PT_TO_PX).toFixed(2));
   const MIN_DEFAULT_SIZE = 320;
   const FALLBACK_VIEWPORT_WIDTH = 960;
+  const COLOR_SWATCH_SIZE = 20;
+
+  function normalizeSwatchSize(candidate){
+    const parsed = Number(candidate);
+    if(Number.isFinite(parsed) && parsed > 2){
+      return Math.round(parsed);
+    }
+    return COLOR_SWATCH_SIZE;
+  }
+
+  function normalizeColorInput(input, options){
+    if(!input || typeof input !== 'object'){ return null; }
+    const el = input;
+    const opts = options || {};
+    const requestedSize = normalizeSwatchSize(opts.size);
+    const px = `${requestedSize}px`;
+    const dataset = el.dataset || null;
+    const payload = {
+      id: el.id || null,
+      className: typeof el.className === 'string' ? el.className : undefined,
+      size: requestedSize,
+      reason: opts.reason || 'normalize',
+      alreadyNormalized: dataset?.colorSwatchNormalized === '1'
+    };
+    try {
+      el.style.width = px;
+      el.style.height = px;
+      el.style.minWidth = px;
+      el.style.minHeight = px;
+      el.style.flex = `0 0 ${px}`;
+      el.style.boxSizing = el.style.boxSizing || 'border-box';
+      if(dataset){
+        dataset.colorSwatchSize = String(requestedSize);
+        dataset.colorSwatchNormalized = '1';
+      }
+      if(!payload.alreadyNormalized){
+        console.debug('Debug: chartStyle.normalizeColorInput applied', payload); // Debug: color swatch normalization
+      }
+      return requestedSize;
+    }catch(err){
+      console.error('chartStyle.normalizeColorInput error', err);
+      return null;
+    }
+  }
+  chartStyle.normalizeColorInput = normalizeColorInput;
+  chartStyle.COLOR_SWATCH_SIZE = COLOR_SWATCH_SIZE;
 
   function computeDefaultGraphSize(reason){
     const doc = global.document || null;
@@ -392,6 +438,122 @@
     return result;
   };
 
+  chartStyle.computeFontInfoForSvg = function computeFontInfoForSvg(options){
+    const opts = options || {};
+    const svgBox = opts.svgBox || null;
+    let rect = null;
+    if(svgBox && typeof svgBox.getBoundingClientRect === 'function'){
+      rect = svgBox.getBoundingClientRect();
+    }
+    const width = Number.isFinite(opts.width) ? opts.width : rect?.width;
+    const height = Number.isFinite(opts.height) ? opts.height : rect?.height;
+    const scopeId = opts.scopeId || null;
+    const fontInfo = chartStyle.resolveScaledFontSize({
+      rawSize: opts.rawSize,
+      width,
+      height,
+      defaultWidth: opts.defaultWidth,
+      defaultHeight: opts.defaultHeight,
+      svgBox,
+      scopeId,
+      lockScale: opts.lockScale,
+      lockScaleDefault: opts.lockScaleDefault,
+      lockScaleWhenUnresized: opts.lockScaleWhenUnresized
+    });
+    console.debug('Debug: chartStyle.computeFontInfoForSvg', {
+      debugLabel: opts.debugLabel || 'chartStyle.computeFontInfoForSvg',
+      rawSize: opts.rawSize,
+      width,
+      height,
+      scope: fontInfo.scopeId || scopeId || 'global',
+      locked: fontInfo.textLocked,
+      scaledPx: fontInfo.scaledPx
+    }); // Debug: svg font helper summary
+    return fontInfo;
+  };
+
+  chartStyle.computeViewBoxScale = function computeViewBoxScale(options){
+    const opts = options || {};
+    const svg = opts.svg || null;
+    const svgBox = opts.svgBox || (svg && typeof svg.closest === 'function' ? svg.closest('.svgbox') : null);
+    const rawViewWidth = Number(opts.viewBoxWidth);
+    const rawViewHeight = Number(opts.viewBoxHeight);
+    let displayWidth = Number.isFinite(opts.displayWidth) ? opts.displayWidth : NaN;
+    let displayHeight = Number.isFinite(opts.displayHeight) ? opts.displayHeight : NaN;
+    if((!Number.isFinite(displayWidth) || !Number.isFinite(displayHeight)) && svgBox && typeof svgBox.getBoundingClientRect === 'function'){
+      try{
+        const rect = svgBox.getBoundingClientRect();
+        if(!Number.isFinite(displayWidth)) displayWidth = rect?.width;
+        if(!Number.isFinite(displayHeight)) displayHeight = rect?.height;
+      }catch(rectErr){
+        console.error('chartStyle.computeViewBoxScale rect error', rectErr);
+      }
+    }
+    if((!Number.isFinite(displayWidth) || !Number.isFinite(displayHeight)) && svg && typeof svg.getBoundingClientRect === 'function'){
+      try{
+        const rect = svg.getBoundingClientRect();
+        if(!Number.isFinite(displayWidth)) displayWidth = rect?.width;
+        if(!Number.isFinite(displayHeight)) displayHeight = rect?.height;
+      }catch(svgErr){
+        console.error('chartStyle.computeViewBoxScale svg rect error', svgErr);
+      }
+    }
+    if(!Number.isFinite(displayWidth) && svg && svg.viewBox && svg.viewBox.baseVal){
+      const base = svg.viewBox.baseVal;
+      if(Number.isFinite(base?.width)) displayWidth = base.width;
+      if(Number.isFinite(base?.height)) displayHeight = base.height;
+    }
+    const safeViewWidth = Number.isFinite(rawViewWidth) && rawViewWidth > 0 ? rawViewWidth : (Number.isFinite(displayWidth) && displayWidth > 0 ? displayWidth : 1);
+    const safeViewHeight = Number.isFinite(rawViewHeight) && rawViewHeight > 0 ? rawViewHeight : (Number.isFinite(displayHeight) && displayHeight > 0 ? displayHeight : safeViewWidth);
+    const safeDisplayWidth = Number.isFinite(displayWidth) && displayWidth > 0 ? displayWidth : safeViewWidth;
+    const safeDisplayHeight = Number.isFinite(displayHeight) && displayHeight > 0 ? displayHeight : safeViewHeight;
+    const scaleX = safeViewWidth > 0 ? safeDisplayWidth / safeViewWidth : 1;
+    const scaleY = safeViewHeight > 0 ? safeDisplayHeight / safeViewHeight : 1;
+    let scale = Math.sqrt(Math.max(scaleX * scaleY, 0));
+    if(!Number.isFinite(scale) || scale <= 0){
+      scale = 1;
+    }
+    const payload = {
+      scaleX,
+      scaleY,
+      scale,
+      displayWidth: safeDisplayWidth,
+      displayHeight: safeDisplayHeight,
+      viewBoxWidth: safeViewWidth,
+      viewBoxHeight: safeViewHeight,
+      debugLabel: opts.debugLabel || 'chartStyle.computeViewBoxScale'
+    };
+    console.debug('Debug: chartStyle.computeViewBoxScale', payload); // Debug: viewBox scale computation
+    return payload;
+  };
+
+  chartStyle.adjustFontSizeForViewBox = function adjustFontSizeForViewBox(fontInfo, viewScale, options){
+    const info = fontInfo || {};
+    const opts = options || {};
+    const base = Number.isFinite(info.scaledPx) ? info.scaledPx : Number.isFinite(opts.basePx) ? opts.basePx : Number(info);
+    const scale = Number.isFinite(viewScale?.scale) && viewScale.scale > 0 ? viewScale.scale : 1;
+    const inverse = scale > 0 ? 1 / scale : 1;
+    const min = Number.isFinite(opts.min) ? opts.min : 0;
+    let adjusted = Number.isFinite(base) ? base * inverse : base;
+    if(Number.isFinite(adjusted) && adjusted < min){
+      adjusted = min;
+    }
+    console.debug('Debug: chartStyle.adjustFontSizeForViewBox', {
+      debugLabel: opts.debugLabel || 'chartStyle.adjustFontSizeForViewBox',
+      base,
+      scale,
+      inverse,
+      adjusted,
+      min
+    }); // Debug: font adjustment for viewBox
+    return {
+      fontSizePx: Number.isFinite(adjusted) ? adjusted : base,
+      basePx: base,
+      scaleApplied: scale,
+      inverseScale: inverse
+    };
+  };
+
   chartStyle.setTextSizeLock = function setTextSizeLock(locked, options){
     const nextValue = !!locked;
     const opts = options || {};
@@ -720,6 +882,70 @@
     }
     console.debug('Debug: chartStyle.applyLabelOrientation result', {count: list.length, rotated: rotate, angle}); // Debug: label orientation summary
     return rotate;
+  };
+
+  chartStyle.computeLabelPadding = function computeLabelPadding(options){
+    const opts = options || {};
+    const labels = Array.isArray(opts.labels) ? opts.labels.map(label => label == null ? '' : String(label)) : [];
+    const angleDeg = Math.abs(Number(opts.angle) || 0);
+    const rad = angleDeg * (Math.PI / 180);
+    const sin = Math.sin(rad);
+    const cos = Math.cos(rad);
+    const units = typeof opts.units === 'string' ? opts.units.toLowerCase() : 'pt';
+    let fontPx;
+    let fontPt;
+    const rawSize = Number(opts.fontSize);
+    if(units === 'px'){
+      fontPx = Number.isFinite(rawSize) && rawSize > 0 ? rawSize : BASE_FONT_SIZE_PX;
+      fontPt = fontPx / PT_TO_PX;
+    }else{
+      const normalized = chartStyle.normalizeFontSize(rawSize);
+      fontPt = normalized.pt;
+      fontPx = normalized.px;
+    }
+    const basePadding = Number.isFinite(opts.basePadding) ? opts.basePadding : Math.max(fontPx * 0.4, 8);
+    const fontForMeasure = chartStyle.makeFont(Math.max(4, Math.round(fontPx)));
+    let maxLabelWidth = 0;
+    labels.forEach(label => {
+      const width = chartStyle.measureText(label, fontForMeasure);
+      if(Number.isFinite(width) && width > maxLabelWidth){
+        maxLabelWidth = width;
+      }
+    });
+    const verticalSpan = angleDeg === 0 ? fontPx : Math.abs(sin) * maxLabelWidth + Math.abs(cos) * fontPx;
+    const horizontalSpan = angleDeg === 0 ? maxLabelWidth : Math.abs(cos) * maxLabelWidth + Math.abs(sin) * fontPx;
+    const vertical = Math.ceil(verticalSpan + basePadding);
+    const horizontal = Math.ceil(horizontalSpan + basePadding);
+    const summary = {
+      debugLabel: opts.debugLabel || 'chartStyle.computeLabelPadding',
+      labelCount: labels.length,
+      angle: angleDeg,
+      basePadding,
+      maxLabelWidth,
+      fontPx,
+      fontPt,
+      vertical,
+      horizontal
+    };
+    console.debug('Debug: chartStyle.computeLabelPadding', summary); // Debug: label padding computation
+    return { ...summary, sin, cos };
+  };
+
+  chartStyle.ensureLabelPadding = function ensureLabelPadding(currentMargin, options){
+    const info = chartStyle.computeLabelPadding(options);
+    const directionRaw = options?.direction || 'vertical';
+    const direction = typeof directionRaw === 'string' ? directionRaw.toLowerCase() : 'vertical';
+    const applied = Number.isFinite(currentMargin) ? currentMargin : 0;
+    const required = direction === 'horizontal' ? info.horizontal : info.vertical;
+    const margin = Math.max(applied, required);
+    console.debug('Debug: chartStyle.ensureLabelPadding', {
+      debugLabel: options?.debugLabel || 'chartStyle.ensureLabelPadding',
+      direction,
+      applied,
+      required,
+      margin
+    }); // Debug: label padding safeguard summary
+    return { margin, required, applied, info };
   };
 
   chartStyle.computeBaseMargins = function computeBaseMargins(options){

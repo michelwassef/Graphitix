@@ -27,6 +27,9 @@
   const scheduleDrawLine = Shared.debounceFrame(() => {
     if (window.Components?.line?.draw) window.Components.line.draw();
   });
+  const scheduleDrawHeatmap = Shared.debounceFrame(() => {
+    if (window.Components?.heatmap?.draw) window.Components.heatmap.draw();
+  });
   const scheduleDrawHist = Shared.debounceFrame(() => {
     if (window.Components?.hist?.draw) window.Components.hist.draw();
   });
@@ -36,7 +39,7 @@
   const scheduleDrawSurvival = Shared.debounceFrame(() => {
     if (window.Components?.survival?.draw) window.Components.survival.draw();
   });
-  console.debug('Debug: main Shared.debounceFrame schedulers ready', { schedulers: ['boxplot','scatter','pca','line','hist','pie','survival'] }); // Debug: scheduler wiring summary
+  console.debug('Debug: main Shared.debounceFrame schedulers ready', { schedulers: ['boxplot','scatter','pca','line','heatmap','hist','pie','survival'] }); // Debug: scheduler wiring summary
 
   // Shared color palette
   const DEFAULT_SCATTER_COLORS = window.DEFAULT_SCATTER_COLORS || [
@@ -82,6 +85,7 @@
   const scatterPage = $('#scatterPage');
   const pcaPage = $('#pcaPage');
   const linePage = $('#linePage');
+  const heatmapPage = $('#heatmapPage');
   const rocPage = $('#rocPage');
   const survivalPage = $('#survivalPage');
   const histPage = $('#histPage');
@@ -117,6 +121,9 @@
         },
         lineGraphPanel: () => {
           try { scheduleDrawLine(); } catch (err) { console.error('main text lock line redraw error', err); }
+        },
+        heatmapGraphPanel: () => {
+          try { scheduleDrawHeatmap(); } catch (err) { console.error('main text lock heatmap redraw error', err); }
         },
         histGraphPanel: () => {
           try { scheduleDrawHist(); } catch (err) { console.error('main text lock hist redraw error', err); }
@@ -160,6 +167,7 @@
   const tabScatter = $('#tabScatter');
   const tabPca = $('#tabPca');
   const tabLine = $('#tabLine');
+  const tabHeatmap = $('#tabHeatmap');
   const tabRoc = $('#tabRoc');
   const tabSurvival = $('#tabSurvival');
   const tabHist = $('#tabHist');
@@ -185,6 +193,7 @@
       if (comps.hist?.init) comps.hist.init();
       if (comps.pie?.init) comps.pie.init();
       if (comps.line?.init) comps.line.init();
+      if (comps.heatmap?.init) comps.heatmap.init();
       if (comps.roc?.init) comps.roc.init();
       if (comps.survival?.init) comps.survival.init();
       if (comps.venn?.init) comps.venn.init();
@@ -193,8 +202,8 @@
 
   // Tab show functions
   function showPage(page, tab, ensureFn, drawFn) {
-    [vennPage, boxPage, scatterPage, pcaPage, linePage, rocPage, survivalPage, histPage, piePage].forEach(p => p.style.display = 'none');
-    [tabVenn, tabBox, tabScatter, tabPca, tabLine, tabRoc, tabSurvival, tabHist, tabPie].forEach(t => t.classList.remove('active'));
+    [vennPage, boxPage, scatterPage, pcaPage, linePage, heatmapPage, rocPage, survivalPage, histPage, piePage].forEach(p => p.style.display = 'none');
+    [tabVenn, tabBox, tabScatter, tabPca, tabLine, tabHeatmap, tabRoc, tabSurvival, tabHist, tabPie].forEach(t => t.classList.remove('active'));
     page.style.display = 'block';
     tab.classList.add('active');
     if (window.Shared?.syncPanelWidths && page) {
@@ -244,6 +253,7 @@
   function showScatter() { showPage(scatterPage, tabScatter, () => window.Components?.scatter?.ensure(), scheduleDrawScatter); }
   function showPca() { showPage(pcaPage, tabPca, () => window.Components?.pca?.ensure(), scheduleDrawPca); }
   function showLine() { showPage(linePage, tabLine, () => window.Components?.line?.ensure(), scheduleDrawLine); }
+  function showHeatmap() { showPage(heatmapPage, tabHeatmap, () => window.Components?.heatmap?.ensure(), scheduleDrawHeatmap); }
   function showRoc() { showPage(rocPage, tabRoc); }
   function showSurvival() { showPage(survivalPage, tabSurvival, () => window.Components?.survival?.ensure(), scheduleDrawSurvival); }
   function showHist() { showPage(histPage, tabHist, () => window.Components?.hist?.ensure(), scheduleDrawHist); }
@@ -255,6 +265,7 @@
   tabScatter.addEventListener('click', showScatter);
   tabPca.addEventListener('click', showPca);
   tabLine.addEventListener('click', showLine);
+  tabHeatmap.addEventListener('click', showHeatmap);
   tabRoc.addEventListener('click', showRoc);
   tabSurvival.addEventListener('click', showSurvival);
   tabHist.addEventListener('click', showHist);

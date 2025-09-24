@@ -20,6 +20,7 @@ describe('App initialization', () => {
       require('../js/components/box.js');
       require('../js/components/hist.js');
       require('../js/components/pie.js');
+      require('../js/components/heatmap.js');
       require('../js/components/scatter.js');
       require('../js/components/pca.js');
       require('../js/components/line.js');
@@ -42,7 +43,7 @@ describe('App initialization', () => {
       .map(c => c.containerId);
 
     // Expect core grids to be initialized (if present in DOM)
-    const expected = ['hot', 'scatterHot', 'pcaHot', 'lineHot', 'rocHot', 'survivalHot', 'histHot', 'pieHot'];
+    const expected = ['hot', 'scatterHot', 'pcaHot', 'lineHot', 'heatmapHot', 'rocHot', 'survivalHot', 'histHot', 'pieHot'];
     for (const id of expected) {
       const node = document.getElementById(id);
       if (node) {
