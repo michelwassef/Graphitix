@@ -208,7 +208,11 @@
     state.statsEl = $('heatmapStatsContent');
 
     refs.cellSizeVal.textContent = refs.cellSize.value;
-    chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) });
+    if(refs.fontSize?.dataset){
+      refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+      console.debug('Debug: heatmap font size base initialized',{ value: refs.fontSize.value }); // Debug: initial base size
+    }
+    chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
 
     const schedule = () => state.scheduleDraw();
     refs.method?.addEventListener('change', () => {
@@ -250,7 +254,11 @@
       schedule();
     });
     refs.fontSize?.addEventListener('input', () => {
-      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) });
+      if(refs.fontSize.dataset){
+        refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+        console.debug('Debug: heatmap font size input manual set',{ value: refs.fontSize.value }); // Debug: manual slider update
+      }
+      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
       console.debug('Debug: heatmap font size changed', { value: refs.fontSize.value });
       schedule();
     });
@@ -782,7 +790,8 @@
         fontInfo = chartStyle.computeFontInfoForSvg({
           svgBox,
           rawSize: requestedFontSize,
-          debugLabel: 'heatmap-font-info'
+          debugLabel: 'heatmap-font-info',
+          input: refs.fontSize
         });
         if(Number.isFinite(fontInfo?.scaledPx)){
           fontSizePx = fontInfo.scaledPx;
@@ -793,7 +802,8 @@
           rawSize: requestedFontSize,
           width: rect?.width,
           height: rect?.height,
-          svgBox
+          svgBox,
+          input: refs.fontSize
         });
         if(Number.isFinite(fontInfo?.scaledPx)){
           fontSizePx = fontInfo.scaledPx;
@@ -804,7 +814,8 @@
           element: refs.fontSizeVal,
           fontInfo,
           pt: fontInfo?.pt ?? requestedFontSize,
-          scaledPx: fontSizePx
+          scaledPx: fontSizePx,
+          input: refs.fontSize
         });
       }
       const palette = {

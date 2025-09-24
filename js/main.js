@@ -6,11 +6,35 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   if (typeof chartStyle.renderFontSizeLabel !== 'function') {
     chartStyle.renderFontSizeLabel = function fallbackFontLabel(options) {
-      const labelValue = options?.fontInfo?.pt ?? options?.pt ?? '';
-      if (options?.element) {
-        options.element.textContent = labelValue;
+      const opts = options || {};
+      const info = opts.fontInfo || {};
+      const displayPt = Number.isFinite(info.displayPt) ? info.displayPt
+        : Number.isFinite(info.scaledPt) ? info.scaledPt
+        : Number.isFinite(info.pt) ? info.pt
+        : Number(opts.pt);
+      const pxValue = Number.isFinite(info.scaledPx) ? info.scaledPx
+        : (Number.isFinite(displayPt) ? displayPt * (96 / 72) : Number(opts.scaledPx));
+      const roundedPt = Number.isFinite(displayPt) ? Math.round(displayPt * 10) / 10 : displayPt;
+      const roundedPx = Number.isFinite(pxValue) ? Math.round(pxValue) : pxValue;
+      if (opts.element) {
+        const label = (Number.isFinite(roundedPt) && Number.isFinite(roundedPx))
+          ? `${roundedPt} pt (${roundedPx}px)`
+          : (Number.isFinite(roundedPt) ? `${roundedPt} pt` : (Number.isFinite(roundedPx) ? `${roundedPx}px` : ''));
+        opts.element.textContent = label;
       }
-      console.debug('Debug: chartStyle.renderFontSizeLabel fallback used', { hasElement: !!options?.element });
+      if (opts.input && Number.isFinite(displayPt)) {
+        try {
+          opts.input.value = String(displayPt);
+        } catch (assignErr) {
+          console.error('chartStyle.renderFontSizeLabel fallback input sync error', assignErr);
+        }
+      }
+      console.debug('Debug: chartStyle.renderFontSizeLabel fallback used', {
+        hasElement: !!opts.element,
+        hasInput: !!opts.input,
+        displayPt: displayPt,
+        scaledPx: pxValue
+      });
     };
   }
 

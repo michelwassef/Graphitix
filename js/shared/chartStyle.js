@@ -331,6 +331,13 @@
     return px;
   };
 
+  chartStyle.pxToPt = function pxToPt(px){
+    const numeric = Number(px);
+    const pt = Number.isFinite(numeric) ? numeric / PT_TO_PX : BASE_FONT_SIZE_PT;
+    console.debug('Debug: chartStyle.pxToPt',{input:px, numeric, pt}); // Debug: px to pt conversion trace
+    return pt;
+  };
+
   chartStyle.normalizeFontSize = function normalizeFontSize(raw){
     const numeric = Number(raw);
     const pt = Number.isFinite(numeric) ? numeric : BASE_FONT_SIZE_PT;
@@ -391,26 +398,51 @@
   };
 
   chartStyle.resolveScaledFontSize = function resolveScaledFontSize(options){
-    const normalized = chartStyle.normalizeFontSize(options?.rawSize);
-    const resizeInfo = chartStyle.computeResizeScale({
-      width: options?.width,
-      height: options?.height,
-      defaultWidth: options?.defaultWidth,
-      defaultHeight: options?.defaultHeight
-    });
-    const svgBox = options?.svgBox || null;
+    const opts = options || {};
+    const inputEl = opts.input || opts.control || null;
+    const svgBox = opts.svgBox || null;
     const dataset = svgBox && svgBox.dataset ? svgBox.dataset : null;
-    const scopeId = resolveScopeKey({ scopeId: options?.scopeId, svgBox });
+    const rawSizeNumeric = Number(opts.rawSize);
+    let basePt = Number(opts.basePt);
+    if(!Number.isFinite(basePt)){
+      if(inputEl && inputEl.dataset){
+        const storedBase = Number(inputEl.dataset.fontBasePt);
+        if(Number.isFinite(storedBase)){
+          basePt = storedBase;
+        }
+      }
+    }
+    if(!Number.isFinite(basePt)){
+      basePt = Number.isFinite(rawSizeNumeric) ? rawSizeNumeric : undefined;
+    }
+    const normalized = chartStyle.normalizeFontSize(basePt);
+    if(inputEl && inputEl.dataset){
+      const datasetBase = Number(inputEl.dataset.fontBasePt);
+      if(!Number.isFinite(datasetBase)){
+        inputEl.dataset.fontBasePt = String(normalized.pt);
+        console.debug('Debug: chartStyle.resolveScaledFontSize init control base', {
+          inputId: inputEl.id || null,
+          basePt: normalized.pt
+        }); // Debug: base initialization for control
+      }
+    }
+    const resizeInfo = chartStyle.computeResizeScale({
+      width: opts.width,
+      height: opts.height,
+      defaultWidth: opts.defaultWidth,
+      defaultHeight: opts.defaultHeight
+    });
+    const scopeId = resolveScopeKey({ scopeId: opts.scopeId, svgBox, input: inputEl });
     const isManualResize = dataset ? dataset.resizerResized === 'true' : null;
-    const lockForUnresized = options?.lockScaleWhenUnresized !== false;
+    const lockForUnresized = opts.lockScaleWhenUnresized !== false;
     const autoLock = !isManualResize && !!dataset && lockForUnresized;
     let lockOverride;
-    if(typeof options?.lockScale === 'boolean'){
-      lockOverride = !!options.lockScale;
+    if(typeof opts.lockScale === 'boolean'){
+      lockOverride = !!opts.lockScale;
     }else if(autoLock){
       lockOverride = true;
-    }else if(typeof options?.lockScaleDefault === 'boolean'){
-      lockOverride = !!options.lockScaleDefault;
+    }else if(typeof opts.lockScaleDefault === 'boolean'){
+      lockOverride = !!opts.lockScaleDefault;
     }else if(dataset && typeof dataset.resizerTextLock === 'string'){
       lockOverride = dataset.resizerTextLock === 'true';
     }else if(scopeId){
@@ -420,13 +452,32 @@
     }
     const textScale = lockOverride ? 1 : resizeInfo.styleScale;
     const scaledPx = Math.max(4, normalized.px * textScale);
+    const scaledPt = chartStyle.pxToPt(scaledPx);
+    if(inputEl && inputEl.dataset){
+      inputEl.dataset.fontDisplayPt = String(scaledPt);
+      console.debug('Debug: chartStyle.resolveScaledFontSize display stored', {
+        inputId: inputEl.id || null,
+        scaledPt,
+        textLocked: lockOverride
+      }); // Debug: display pt tracking
+    }
     const scaleInfo = { ...resizeInfo, textScale, textLocked: lockOverride, manualResize: !!isManualResize, scopeId };
-    const result = { ...normalized, scaledPx, scaleInfo, textLocked: lockOverride, scopeId };
+    const result = {
+      ...normalized,
+      scaledPx,
+      scaledPt,
+      displayPt: scaledPt,
+      basePt: normalized.pt,
+      scaleInfo,
+      textLocked: lockOverride,
+      scopeId
+    };
     console.debug('Debug: chartStyle.resolveScaledFontSize', {
-      raw: options?.rawSize,
+      raw: opts.rawSize,
       normalizedPt: normalized.pt,
       basePx: normalized.px,
       scaledPx,
+      scaledPt,
       styleScale: resizeInfo.styleScale,
       textScale,
       locked: lockOverride,
@@ -458,7 +509,8 @@
       scopeId,
       lockScale: opts.lockScale,
       lockScaleDefault: opts.lockScaleDefault,
-      lockScaleWhenUnresized: opts.lockScaleWhenUnresized
+      lockScaleWhenUnresized: opts.lockScaleWhenUnresized,
+      input: opts.input
     });
     console.debug('Debug: chartStyle.computeFontInfoForSvg', {
       debugLabel: opts.debugLabel || 'chartStyle.computeFontInfoForSvg',
@@ -1016,9 +1068,71 @@
       return '';
     }
     const info = opts.fontInfo || {};
-    const ptRaw = Number.isFinite(info.pt) ? info.pt : Number(opts.pt);
-    const pxSource = Number.isFinite(info.scaledPx) ? info.scaledPx : Number(opts.scaledPx);
-    const roundedPt = Number.isFinite(ptRaw) ? Math.round(ptRaw * 10) / 10 : null;
+    const inputEl = opts.input || opts.control || null;
+    const manualUpdate = opts.manual === true;
+    const dataset = inputEl && inputEl.dataset ? inputEl.dataset : null;
+    let basePt = Number.isFinite(info.basePt) ? info.basePt : Number(opts.basePt);
+    if(!Number.isFinite(basePt)){
+      basePt = Number.isFinite(info.pt) ? info.pt : Number(opts.pt);
+    }
+    let displayPt = Number.isFinite(info.displayPt) ? info.displayPt : Number(opts.displayPt);
+    if(!Number.isFinite(displayPt)){
+      displayPt = Number.isFinite(info.scaledPt) ? info.scaledPt : Number(opts.pt);
+    }
+    let pxSource = Number.isFinite(info.scaledPx) ? info.scaledPx : Number(opts.scaledPx);
+    if(!Number.isFinite(pxSource)){
+      if(Number.isFinite(displayPt)){
+        pxSource = chartStyle.ptToPx(displayPt);
+      }else if(Number.isFinite(basePt)){
+        pxSource = chartStyle.ptToPx(basePt);
+      }
+    }
+    if(dataset){
+      if(manualUpdate){
+        if(Number.isFinite(displayPt)){
+          dataset.fontBasePt = String(displayPt);
+          dataset.fontDisplayPt = String(displayPt);
+        }else if(Number.isFinite(basePt)){
+          dataset.fontBasePt = String(basePt);
+          dataset.fontDisplayPt = String(basePt);
+        }
+        console.debug('Debug: chartStyle.renderFontSizeLabel manual control sync', {
+          inputId: inputEl?.id || null,
+          basePt: Number(dataset.fontBasePt),
+          displayPt: Number(dataset.fontDisplayPt)
+        }); // Debug: manual slider sync
+      }else{
+        if(Number.isFinite(basePt) && !Number.isFinite(Number(dataset.fontBasePt))){
+          dataset.fontBasePt = String(basePt);
+          console.debug('Debug: chartStyle.renderFontSizeLabel base cached', {
+            inputId: inputEl?.id || null,
+            basePt
+          }); // Debug: cache base for control
+        }
+        if(Number.isFinite(displayPt)){
+          dataset.fontDisplayPt = String(displayPt);
+          if(inputEl){
+            const min = Number(inputEl.min);
+            const max = Number(inputEl.max);
+            let clamped = displayPt;
+            if(Number.isFinite(min)) clamped = Math.max(min, clamped);
+            if(Number.isFinite(max)) clamped = Math.min(max, clamped);
+            if(String(inputEl.value) !== String(clamped)){
+              inputEl.value = String(clamped);
+            }
+            console.debug('Debug: chartStyle.renderFontSizeLabel control sync', {
+              inputId: inputEl.id || null,
+              displayPt,
+              clamped,
+              min,
+              max
+            }); // Debug: auto slider sync
+          }
+        }
+      }
+    }
+    const effectivePt = Number.isFinite(displayPt) ? displayPt : basePt;
+    const roundedPt = Number.isFinite(effectivePt) ? Math.round(effectivePt * 10) / 10 : null;
     const roundedPx = Number.isFinite(pxSource) ? Math.round(pxSource) : null;
     let label = '';
     if(roundedPt !== null && roundedPx !== null){
@@ -1029,7 +1143,13 @@
       label = roundedPx + 'px';
     }
     el.textContent = label;
-    console.debug('Debug: chartStyle.renderFontSizeLabel applied', { pt: roundedPt, px: roundedPx, label }); // Debug: font label render
+    console.debug('Debug: chartStyle.renderFontSizeLabel applied', {
+      pt: roundedPt,
+      px: roundedPx,
+      label,
+      inputId: inputEl?.id || null,
+      manualUpdate
+    }); // Debug: font label render
     return label;
   };
 

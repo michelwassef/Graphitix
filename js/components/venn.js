@@ -242,6 +242,12 @@
       state.svgBox = svgBox;
       console.debug('Debug: venn resolveFontInfo captured svgBox', { hasSvgBox: true });
     }
+    const inputs = ensureInputs?.() || state.inputs || {};
+    const fontInput = inputs.fontsize || state.inputs?.fontsize || document.getElementById('fontsize');
+    if(fontInput && fontInput.dataset && typeof fontInput.dataset.fontBasePt === 'undefined'){
+      fontInput.dataset.fontBasePt = String(fontInput.value || rawSize || '');
+      console.debug('Debug: venn font size base ensured', { value: fontInput.value }); // Debug: ensure base dataset
+    }
     const rect = svgBox?.getBoundingClientRect?.();
     const dataset = svgBox?.dataset || {};
     const parsedDefaultWidth = parsePositiveFloat(chartStyle.DEFAULT_WIDTH);
@@ -263,7 +269,8 @@
         height: effectiveHeight,
         defaultWidth,
         defaultHeight,
-        svgBox
+        svgBox,
+        input: fontInput
       });
       console.debug('Debug: venn resolveFontInfo scaled', {
         raw: rawSize,
@@ -1293,7 +1300,7 @@
       fontSizePx,
       textLocked: fontInfo?.scaleInfo?.textLocked
     });
-    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
+    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     updateCountLabels(labels);
     updateRegionSelect(labels, counts);
@@ -1343,7 +1350,7 @@
       fontSizePx,
       textLocked: fontInfo?.scaleInfo?.textLocked
     });
-    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
+    chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     updateCountLabels(labels);
     updateRegionSelect(labels, counts);
@@ -1409,14 +1416,14 @@
         if (savedFontValue !== null && typeof savedFontValue !== 'undefined') {
           const fontInfo = resolveFontInfo(savedFontValue);
           inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
-          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
+          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
           console.debug('Debug: venn loadStylePrefs font applied', { saved: savedFontValue, fontInfo, savedVersion });
         }
       }
       if (!saved || typeof savedFontValue === 'undefined' || savedFontValue === null) {
         const fontInfo = resolveFontInfo(inputs.fontsize.value);
         inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
-        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
+        chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
         console.debug('Debug: venn loadStylePrefs font default', { fontInfo });
       }
       inputs.opacityVal.textContent = inputs.opacity.value;
@@ -1779,12 +1786,12 @@
         if (s.fontsize) {
           const fontInfo = resolveFontInfo(s.fontsize);
           inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
-          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
+          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
           console.debug('Debug: venn loadFromFile font applied', { saved: s.fontsize, fontInfo });
         } else {
           const fontInfo = resolveFontInfo(inputs.fontsize.value);
           inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
-          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo });
+          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
           console.debug('Debug: venn loadFromFile font fallback', { fontInfo });
         }
         refreshDiagram();
@@ -1910,9 +1917,13 @@
     state.inputs.opacity.addEventListener('input', () => { state.inputs.opacityVal.textContent = state.inputs.opacity.value; refreshDiagram(); saveStylePrefs(); });
     state.inputs.fontsize.addEventListener('input', () => {
       const raw = state.inputs.fontsize.value;
+      if(state.inputs.fontsize.dataset){
+        state.inputs.fontsize.dataset.fontBasePt = String(raw);
+        console.debug('Debug: venn font size base updated', { raw }); // Debug: manual slider update
+      }
       const fontInfo = resolveFontInfo(raw);
       state.inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : state.inputs.fontsize.value;
-      chartStyle.renderFontSizeLabel({ element: state.inputs.fontsizeVal, fontInfo });
+      chartStyle.renderFontSizeLabel({ element: state.inputs.fontsizeVal, fontInfo, input: state.inputs.fontsize });
       console.debug('Debug: venn fontsize slider change', { raw, fontInfo });
       refreshDiagram();
       saveStylePrefs();

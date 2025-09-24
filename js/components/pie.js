@@ -184,8 +184,19 @@
     const pieChartType=$('#pieChartType');
     const valueColumn=$('#pieValueColumn');
     const expectedColumn=$('#pieExpectedColumn');
-    chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value) });
-    ;[pieShowPercents,pieStartAngle,pieFontSize,pieChartType].forEach(el=>el.addEventListener('input',()=>{ console.log('pie config changed',el.id,el.value); if(el===pieFontSize) chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value) }); state.scheduleDraw(); }));
+    if(pieFontSize?.dataset){
+      pieFontSize.dataset.fontBasePt = String(pieFontSize.value);
+      console.debug('Debug: pie font size base initialized',{ value: pieFontSize.value }); // Debug: initial base size
+    }
+    chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value), input: pieFontSize, manual: true });
+    ;[pieShowPercents,pieStartAngle,pieFontSize,pieChartType].forEach(el=>el.addEventListener('input',()=>{ console.log('pie config changed',el.id,el.value); if(el===pieFontSize){
+        if(pieFontSize.dataset){
+          pieFontSize.dataset.fontBasePt = String(pieFontSize.value);
+          console.debug('Debug: pie font size input manual set',{ value: pieFontSize.value }); // Debug: manual slider update
+        }
+        chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value), input: pieFontSize, manual: true });
+      }
+      state.scheduleDraw(); }));
     pieShowFrame.addEventListener('change',()=>{console.debug('Debug: pie showFrame change',{checked:pieShowFrame.checked}); state.scheduleDraw();});
     valueColumn.addEventListener('change',()=>{console.log('pie value column changed',valueColumn.value); state.scheduleDraw();});
     expectedColumn.addEventListener('change',()=>{console.log('pie expected column changed',expectedColumn.value); state.scheduleDraw();});
@@ -302,7 +313,37 @@
       });
       console.debug('Debug: pie.open result', result);
     };
-    pie.loadFromFile = function(file){ const reader=new FileReader(); reader.onload=e=>{ try{ const obj=JSON.parse(e.target.result); console.log('loadPieGraph',obj); if(obj.type!=='pie') throw new Error('Invalid graph type'); state.hot.loadData(obj.data||[]); const c=obj.config||{}; state.titleText=c.title||state.titleText; $('#pieChartType').value=c.chartType||$('#pieChartType').value; $('#pieShowPercents').checked=!!c.showPercents; $('#pieShowFrame').checked=!!c.showFrame; $('#pieStartAngle').value=c.startAngle||$('#pieStartAngle').value; $('#pieFontSize').value=c.fontSize||$('#pieFontSize').value; chartStyle.renderFontSizeLabel({ element: $('#pieFontSizeVal'), pt: Number($('#pieFontSize').value) }); $('#pieValueColumn').value=c.valueColumn||$('#pieValueColumn').value; $('#pieExpectedColumn').value=c.expectedColumn||$('#pieExpectedColumn').value; state.colors=c.colors||state.colors; state.scheduleDraw(); }catch(err){console.error('loadPieGraph error',err);} }; reader.readAsText(file); };
+    pie.loadFromFile = function(file){
+      const reader=new FileReader();
+      reader.onload=e=>{
+        try{
+          const obj=JSON.parse(e.target.result);
+          console.log('loadPieGraph',obj);
+          if(obj.type!=='pie') throw new Error('Invalid graph type');
+          state.hot.loadData(obj.data||[]);
+          const c=obj.config||{};
+          state.titleText=c.title||state.titleText;
+          $('#pieChartType').value=c.chartType||$('#pieChartType').value;
+          $('#pieShowPercents').checked=!!c.showPercents;
+          $('#pieShowFrame').checked=!!c.showFrame;
+          $('#pieStartAngle').value=c.startAngle||$('#pieStartAngle').value;
+          const pieFontInput=$('#pieFontSize');
+          pieFontInput.value=c.fontSize||pieFontInput.value;
+          if(pieFontInput.dataset){
+            pieFontInput.dataset.fontBasePt = String(pieFontInput.value);
+            console.debug('Debug: pie font size base restored',{ value: pieFontInput.value }); // Debug: restore base from file
+          }
+          chartStyle.renderFontSizeLabel({ element: $('#pieFontSizeVal'), pt: Number(pieFontInput.value), input: pieFontInput, manual: true });
+          $('#pieValueColumn').value=c.valueColumn||$('#pieValueColumn').value;
+          $('#pieExpectedColumn').value=c.expectedColumn||$('#pieExpectedColumn').value;
+          state.colors=c.colors||state.colors;
+          state.scheduleDraw();
+        }catch(err){
+          console.error('loadPieGraph error',err);
+        }
+      };
+      reader.readAsText(file);
+    };
     document.getElementById('openPie').addEventListener('click',pie.open);
     document.getElementById('savePie').addEventListener('click',pie.save);
     document.getElementById('saveAsPie').addEventListener('click',pie.saveAs);
@@ -355,14 +396,16 @@
     const plotEl=document.getElementById('piePlot'); while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
     const type=$('#pieChartType').value;
     const containerRect=state.svgBox?.getBoundingClientRect?.();
+    const pieFontInput=$('#pieFontSize');
     const fontInfo=chartStyle.resolveScaledFontSize({
-      rawSize: $('#pieFontSize').value,
+      rawSize: pieFontInput.value,
       width: containerRect?.width,
       height: containerRect?.height,
-      svgBox: state.svgBox
+      svgBox: state.svgBox,
+      input: pieFontInput
     });
     const fs=fontInfo.scaledPx;
-    chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, fontInfo });
+    chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, fontInfo, input: pieFontInput });
     console.debug('Debug: pie font scaling applied',{
       input:$('#pieFontSize').value,
       fontSizePt:fontInfo.pt,
