@@ -415,7 +415,7 @@
     if(!Number.isFinite(basePt)){
       basePt = Number.isFinite(rawSizeNumeric) ? rawSizeNumeric : undefined;
     }
-    const normalized = chartStyle.normalizeFontSize(basePt);
+    let normalized = chartStyle.normalizeFontSize(basePt);
     if(inputEl && inputEl.dataset){
       const datasetBase = Number(inputEl.dataset.fontBasePt);
       if(!Number.isFinite(datasetBase)){
@@ -424,6 +424,15 @@
           inputId: inputEl.id || null,
           basePt: normalized.pt
         }); // Debug: base initialization for control
+      }
+    }
+    let lastDisplayPt = Number.isFinite(Number(inputEl?.dataset?.fontDisplayPt))
+      ? Number(inputEl.dataset.fontDisplayPt)
+      : NaN;
+    if(!Number.isFinite(lastDisplayPt) && dataset){
+      const datasetDisplay = Number(dataset.fontDisplayPt);
+      if(Number.isFinite(datasetDisplay)){
+        lastDisplayPt = datasetDisplay;
       }
     }
     const resizeInfo = chartStyle.computeResizeScale({
@@ -450,6 +459,33 @@
     }else{
       lockOverride = textSizeLocked;
     }
+    if(lockOverride){
+      const manualResizeActive = dataset ? dataset.resizerResized === 'true' : false;
+      const resizeScale = Number.isFinite(resizeInfo?.styleScale) ? resizeInfo.styleScale : 1;
+      if(manualResizeActive){
+        const fallbackDisplayPt = chartStyle.pxToPt(normalized.px * resizeScale);
+        const displayCandidate = Number.isFinite(lastDisplayPt) ? lastDisplayPt : fallbackDisplayPt;
+        if(Number.isFinite(displayCandidate) && Math.abs(displayCandidate - normalized.pt) > 0.01){
+          const normalizedDisplay = chartStyle.normalizeFontSize(displayCandidate);
+          normalized = normalizedDisplay;
+          basePt = normalizedDisplay.pt;
+          if(inputEl && inputEl.dataset){
+            inputEl.dataset.fontBasePt = String(normalizedDisplay.pt);
+            inputEl.dataset.fontDisplayPt = String(normalizedDisplay.pt);
+          }
+          if(dataset){
+            dataset.fontBasePt = String(normalizedDisplay.pt);
+            dataset.fontDisplayPt = String(normalizedDisplay.pt);
+          }
+          console.debug('Debug: chartStyle.resolveScaledFontSize lock base updated', {
+            scope: scopeId || 'global',
+            manualResize: manualResizeActive,
+            displayCandidate,
+            normalizedPt: normalizedDisplay.pt
+          }); // Debug: lock base sync after manual resize
+        }
+      }
+    }
     const textScale = lockOverride ? 1 : resizeInfo.styleScale;
     const scaledPx = Math.max(4, normalized.px * textScale);
     const scaledPt = chartStyle.pxToPt(scaledPx);
@@ -460,6 +496,14 @@
         scaledPt,
         textLocked: lockOverride
       }); // Debug: display pt tracking
+    }
+    if(dataset){
+      dataset.fontDisplayPt = String(scaledPt);
+      console.debug('Debug: chartStyle.resolveScaledFontSize dataset display stored', {
+        scope: scopeId || 'global',
+        scaledPt,
+        textLocked: lockOverride
+      }); // Debug: dataset display tracking
     }
     const scaleInfo = { ...resizeInfo, textScale, textLocked: lockOverride, manualResize: !!isManualResize, scopeId };
     const result = {
