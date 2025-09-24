@@ -192,6 +192,7 @@
   function initControls(){
     refs.method = $('heatmapMethod');
     refs.cluster = $('heatmapCluster');
+    refs.showDendrogram = $('heatmapShowDendrogram');
     refs.absValues = $('heatmapAbsValues');
     refs.maskLower = $('heatmapMaskLower');
     refs.showValues = $('heatmapShowValues');
@@ -218,7 +219,7 @@
       console.debug('Debug: heatmap cluster mode changed', { value: refs.cluster.value });
       schedule();
     });
-    [refs.absValues, refs.maskLower, refs.showValues].forEach(el => {
+    [refs.showDendrogram, refs.absValues, refs.maskLower, refs.showValues].forEach(el => {
       el?.addEventListener('change', () => {
         console.debug('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
         schedule();
@@ -255,11 +256,12 @@
     });
 
     const example = [
-      ['Gene', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7'],
-      ['GeneA', 5.1, 4.9, 4.7, 4.6, 5.0, 5.4, 4.6],
-      ['GeneB', 3.5, 3.0, 3.2, 3.1, 3.6, 3.9, 3.4],
-      ['GeneC', 1.4, 1.4, 1.3, 1.5, 1.4, 1.7, 1.4],
-      ['GeneD', 0.2, 0.2, 0.2, 0.2, 0.2, 0.4, 0.3]
+      ['Gene', 'Baseline_A', 'Baseline_B', 'Treatment_A', 'Treatment_B', 'Stress_A', 'Stress_B', 'Recovery'],
+      ['GeneA', 2.1, 2.4, 6.8, 7.1, 9.5, 9.1, 3.2],
+      ['GeneB', 5.5, 5.8, 2.2, 2.0, 3.1, 3.5, 6.7],
+      ['GeneC', 1.2, 1.0, 7.9, 7.5, 2.6, 2.1, 4.3],
+      ['GeneD', 3.8, 3.5, 1.6, 1.8, 8.4, 8.7, 2.4],
+      ['GeneE', 4.5, 4.2, 3.1, 3.4, 6.9, 7.2, 5.1]
     ];
     $('heatmapLoadExample')?.addEventListener('click', () => {
       if(!state.hot){
@@ -459,12 +461,13 @@
     return sum / count;
   }
 
-  function hierarchicalClusterOrder(baseDistances){
-    const n = baseDistances.length;
-    if(n <= 1){
-      return n === 1 ? [0] : [];
+  function performHierarchicalClustering(baseDistances){
+    const n = Array.isArray(baseDistances) ? baseDistances.length : 0;
+    if(n <= 0){
+      console.debug('Debug: heatmap hierarchical clustering skipped - empty distance matrix');
+      return { order: [], tree: null, steps: [], maxDistance: 0 };
     }
-    let clusters = Array.from({ length: n }, (_, index) => ({
+    const clusters = Array.from({ length: n }, (_, index) => ({
       id: index,
       indices: [index],
       size: 1,
@@ -472,14 +475,20 @@
       right: null,
       distance: 0
     }));
+    if(n === 1){
+      console.debug('Debug: heatmap hierarchical clustering trivial - single column');
+      return { order: [0], tree: clusters[0], steps: [], maxDistance: 0 };
+    }
+    const working = clusters.slice();
     const mergeSteps = [];
-    while(clusters.length > 1){
+    let maxDistance = 0;
+    while(working.length > 1){
       let bestI = 0;
       let bestJ = 1;
       let bestDistance = Infinity;
-      for(let i = 0; i < clusters.length; i += 1){
-        for(let j = i + 1; j < clusters.length; j += 1){
-          const dist = averageLinkageDistance(clusters[i], clusters[j], baseDistances);
+      for(let i = 0; i < working.length; i += 1){
+        for(let j = i + 1; j < working.length; j += 1){
+          const dist = averageLinkageDistance(working[i], working[j], baseDistances);
           if(dist < bestDistance){
             bestDistance = dist;
             bestI = i;
@@ -487,26 +496,28 @@
           }
         }
       }
-      const clusterA = clusters[bestI];
-      const clusterB = clusters[bestJ];
+      const safeDistance = Number.isFinite(bestDistance) ? bestDistance : 0;
+      const clusterA = working[bestI];
+      const clusterB = working[bestJ];
       const merged = {
         id: `merge-${mergeSteps.length}`,
         indices: clusterA.indices.concat(clusterB.indices),
         size: clusterA.size + clusterB.size,
         left: clusterA,
         right: clusterB,
-        distance: bestDistance
+        distance: safeDistance
       };
       mergeSteps.push({
         left: clusterA.indices.slice(),
         right: clusterB.indices.slice(),
-        distance: bestDistance
+        distance: safeDistance
       });
-      clusters.splice(bestJ, 1);
-      clusters.splice(bestI, 1);
-      clusters.push(merged);
+      maxDistance = Math.max(maxDistance, safeDistance);
+      working.splice(bestJ, 1);
+      working.splice(bestI, 1);
+      working.push(merged);
     }
-    const root = clusters[0];
+    const root = working[0];
     const flatten = node => {
       if(!node.left || !node.right){
         return node.indices.slice();
@@ -518,29 +529,108 @@
       return leftMin <= rightMin ? leftOrder.concat(rightOrder) : rightOrder.concat(leftOrder);
     };
     const order = flatten(root);
-    console.debug('Debug: heatmap hierarchical clustering merges', { steps: mergeSteps, order });
-    return order;
+    console.debug('Debug: heatmap hierarchical clustering merges', { steps: mergeSteps, order, maxDistance });
+    return { order, tree: root, steps: mergeSteps, maxDistance };
   }
 
   function clusterColumns(columns, method){
     if(!Array.isArray(columns) || columns.length === 0){
-      return [];
-    }
-    if(columns.length === 1){
-      return [0];
+      return { order: [], tree: null, steps: [], maxDistance: 0, baseDistances: [] };
     }
     const baseDistances = buildDistanceMatrix(columns, method);
-    const order = hierarchicalClusterOrder(baseDistances);
-    if(!Array.isArray(order) || order.length !== columns.length){
+    const clustering = performHierarchicalClustering(baseDistances);
+    if(!Array.isArray(clustering.order) || clustering.order.length !== columns.length){
       console.debug('Debug: heatmap clustering order fallback', {
         requestedColumns: columns.length,
-        receivedLength: order?.length,
+        receivedLength: clustering?.order?.length,
         method
       });
-      return columns.map((_, index) => index);
+      return {
+        order: columns.map((_, index) => index),
+        tree: null,
+        steps: clustering.steps || [],
+        maxDistance: clustering.maxDistance || 0,
+        baseDistances
+      };
     }
-    console.debug('Debug: heatmap clustering order computed', { method, order });
-    return order;
+    console.debug('Debug: heatmap clustering order computed', {
+      method,
+      order: clustering.order,
+      maxDistance: clustering.maxDistance
+    });
+    return Object.assign({ baseDistances }, clustering);
+  }
+
+  function renderDendrogram({
+    doc,
+    parent,
+    tree,
+    order,
+    startX,
+    width,
+    marginTop,
+    cellSize,
+    maxDistance
+  }){
+    const hasBasics = doc && parent && tree && Array.isArray(order) && order.length > 0;
+    if(!hasBasics || !Number.isFinite(startX) || !Number.isFinite(width) || width <= 0){
+      console.debug('Debug: heatmap renderDendrogram skipped', {
+        hasBasics,
+        startX,
+        width
+      });
+      return null;
+    }
+    const orderIndex = new Map();
+    order.forEach((colIndex, position) => {
+      orderIndex.set(colIndex, position);
+    });
+    const safeMaxDistance = maxDistance > 0 ? maxDistance : 1;
+    const group = doc.createElementNS(NS, 'g');
+    group.setAttribute('class', 'heatmap-dendrogram');
+    group.setAttribute('fill', 'none');
+    group.setAttribute('stroke', '#555');
+    group.setAttribute('stroke-width', '1');
+    group.setAttribute('stroke-linecap', 'square');
+    parent.appendChild(group);
+
+    const visit = node => {
+      if(!node){
+        return { x: startX, y: marginTop };
+      }
+      if(!node.left || !node.right){
+        const rawIndex = Array.isArray(node.indices) ? node.indices[0] : null;
+        const orderPos = orderIndex.has(rawIndex) ? orderIndex.get(rawIndex) : 0;
+        if(!orderIndex.has(rawIndex)){
+          console.debug('Debug: heatmap dendrogram leaf missing order mapping', { rawIndex });
+        }
+        const y = marginTop + orderPos * cellSize + cellSize / 2;
+        return { x: startX, y };
+      }
+      const leftPos = visit(node.left);
+      const rightPos = visit(node.right);
+      const distance = Math.max(0, Number(node.distance) || 0);
+      const nodeX = startX + (distance / safeMaxDistance) * width;
+      const nodeY = (leftPos.y + rightPos.y) / 2;
+      const path = doc.createElementNS(NS, 'path');
+      path.setAttribute('d', [
+        `M ${leftPos.x} ${leftPos.y} H ${nodeX}`,
+        `M ${rightPos.x} ${rightPos.y} H ${nodeX}`,
+        `M ${nodeX} ${leftPos.y} V ${rightPos.y}`
+      ].join(' '));
+      group.appendChild(path);
+      return { x: nodeX, y: nodeY };
+    };
+
+    const rootPos = visit(tree);
+    console.debug('Debug: heatmap renderDendrogram complete', {
+      startX,
+      width,
+      maxDistance,
+      rootX: rootPos?.x,
+      leafCount: order.length
+    });
+    return group;
   }
 
   function hexToRgb(hex){
@@ -642,6 +732,9 @@
       }
       const data = typeof state.hot.getData === 'function' ? state.hot.getData() : [];
       if(!Array.isArray(data) || !data.length){
+        if(refs.showDendrogram){
+          refs.showDendrogram.disabled = true;
+        }
         renderEmpty('Add numeric data to draw the heatmap');
         updateStats(null);
         return;
@@ -663,6 +756,9 @@
 
       console.debug('Debug: heatmap column summary', { totalColumns: header.length, usable: columns.length });
       if(columns.length < 2){
+        if(refs.showDendrogram){
+          refs.showDendrogram.disabled = true;
+        }
         renderEmpty('Enter at least two numeric columns with multiple values.');
         updateStats(null);
         return;
@@ -771,20 +867,44 @@
       let order = identityOrder;
       let clusterMethod = null;
       let clusteringApplied = false;
+      let clusteringDetails = null;
       if(clusterMode && clusterMode !== 'none' && columns.length > 1){
         clusterMethod = clusterMode === 'method' ? method : clusterMode;
-        const computedOrder = clusterColumns(columns, clusterMethod);
-        if(Array.isArray(computedOrder) && computedOrder.length === columns.length){
-          order = computedOrder;
+        const computed = clusterColumns(columns, clusterMethod);
+        if(computed && Array.isArray(computed.order) && computed.order.length === columns.length){
+          order = computed.order;
           clusteringApplied = true;
-          console.debug('Debug: heatmap clustering applied', { clusterMode, clusterMethod, order });
+          clusteringDetails = computed;
+          console.debug('Debug: heatmap clustering applied', {
+            clusterMode,
+            clusterMethod,
+            order,
+            maxDistance: computed.maxDistance
+          });
         }else{
-          console.debug('Debug: heatmap clustering skipped due to invalid order', { clusterMode, clusterMethod, computedOrder });
+          console.debug('Debug: heatmap clustering skipped due to invalid order', {
+            clusterMode,
+            clusterMethod,
+            computed
+          });
         }
+      }
+      if(refs.showDendrogram){
+        refs.showDendrogram.disabled = !clusteringApplied;
+      }
+      const dendrogramRequested = clusteringApplied && (refs.showDendrogram ? refs.showDendrogram.checked !== false : false);
+      const shouldRenderDendrogram = dendrogramRequested && clusteringDetails?.tree;
+      if(refs.showDendrogram){
+        console.debug('Debug: heatmap dendrogram availability', {
+          enabled: !refs.showDendrogram.disabled,
+          requested: !!dendrogramRequested,
+          willRender: !!shouldRenderDendrogram
+        });
       }
       stats.clusterMode = clusteringApplied ? (clusterMode || 'none') : 'none';
       stats.clusterMethod = clusteringApplied ? clusterMethod : null;
       stats.clusterOrder = order.slice();
+      stats.showDendrogram = !!shouldRenderDendrogram;
 
       const orderedColumns = order.map(index => columns[index]);
       const orderedMatrix = order.map(i => order.map(j => matrix[i][j]));
@@ -838,11 +958,29 @@
         labelAngle,
         fontSizePx
       });
-      const marginRight = 60;
       const marginBottom = 60;
+      let marginRight = 60;
+      let dendrogramPadding = 0;
+      let dendrogramWidth = 0;
+      if(shouldRenderDendrogram){
+        dendrogramPadding = Math.min(24, Math.max(6, Math.round(cellSize * 0.2)));
+        dendrogramWidth = Math.min(200, Math.max(60, Math.round(cellSize * 1.5)));
+        marginRight += dendrogramPadding + dendrogramWidth;
+        console.debug('Debug: heatmap dendrogram layout prepared', {
+          dendrogramPadding,
+          dendrogramWidth
+        });
+      }
       const totalSize = orderedColumns.length * cellSize;
       const width = marginLeft + totalSize + marginRight;
       const height = marginTop + totalSize + marginBottom;
+      const dendrogramStartX = shouldRenderDendrogram ? marginLeft + totalSize + dendrogramPadding : marginLeft + totalSize;
+      if(shouldRenderDendrogram){
+        console.debug('Debug: heatmap dendrogram coordinates prepared', {
+          dendrogramStartX,
+          heatmapRight: marginLeft + totalSize
+        });
+      }
       state.svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
 
       const viewScaleInfo = chartStyle.computeViewBoxScale ? chartStyle.computeViewBoxScale({
@@ -872,6 +1010,20 @@
       const doc = global.document;
       const g = doc.createElementNS(NS, 'g');
       state.svg.appendChild(g);
+
+      if(shouldRenderDendrogram && clusteringDetails?.tree){
+        renderDendrogram({
+          doc,
+          parent: g,
+          tree: clusteringDetails.tree,
+          order,
+          startX: dendrogramStartX,
+          width: dendrogramWidth,
+          marginTop,
+          cellSize,
+          maxDistance: clusteringDetails.maxDistance
+        });
+      }
 
       for(let i = 0; i < orderedColumns.length; i += 1){
         const rowLabel = doc.createElementNS(NS, 'text');
@@ -951,7 +1103,8 @@
         maskLower,
         showValues,
         clusterMode: stats.clusterMode,
-        clusterMethod: stats.clusterMethod
+        clusterMethod: stats.clusterMethod,
+        showDendrogram: shouldRenderDendrogram
       });
     }catch(err){
       console.error('heatmap draw error', err);
@@ -962,6 +1115,7 @@
     return {
       method: refs.method?.value || 'pearson',
       cluster: refs.cluster?.value || 'none',
+      showDendrogram: refs.showDendrogram ? !!refs.showDendrogram.checked : false,
       abs: !!refs.absValues?.checked,
       maskLower: !!refs.maskLower?.checked,
       showValues: !!refs.showValues?.checked,
@@ -979,6 +1133,7 @@
     if(!config) return;
     if(refs.method) refs.method.value = config.method || 'pearson';
     if(refs.cluster) refs.cluster.value = config.cluster || 'none';
+    if(refs.showDendrogram) refs.showDendrogram.checked = config.showDendrogram !== false;
     if(refs.absValues) refs.absValues.checked = !!config.abs;
     if(refs.maskLower) refs.maskLower.checked = !!config.maskLower;
     if(refs.showValues) refs.showValues.checked = config.showValues !== false;
