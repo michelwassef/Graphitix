@@ -240,6 +240,28 @@ html, body {
     white-space: nowrap;
 }
 
+.workspace-tab__preview-tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    padding: 8px;
+    border-radius: 8px;
+    z-index: 1200;
+    max-width: 244px;
+    max-height: 240px;
+    overflow: hidden;
+    display: none;
+    opacity: 0;
+}
+
+.workspace-tab__preview-tooltip svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
 .workspace-tab:focus-visible {
     outline: 2px solid #6366f1;
     outline-offset: -2px;
