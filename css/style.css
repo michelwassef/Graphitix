@@ -54,7 +54,7 @@ html, body {
 }
 
 .workspace-pages {
-    padding: 24px;
+    padding: 24px 0;
 }
 
 .workspace-page[hidden] {
