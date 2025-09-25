@@ -319,7 +319,21 @@
     els.boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', els.boxShowGrid.checked); state.scheduleDraw(); });
     els.boxShowFrame?.addEventListener('change',()=>{ console.debug('Debug: box showFrame change',{checked:els.boxShowFrame.checked}); state.scheduleDraw(); });
     els.boxLogScale.addEventListener('change',()=>{ console.log('boxLogScale changed', els.boxLogScale.checked); state.scheduleDraw(); });
-    els.boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', els.boxGraphType.value); els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none'; state.scheduleDraw(); });
+    const updateGraphTypeControls = () => {
+      const graphTypeValue = els.boxGraphType.value;
+      const showErrorControls = graphTypeValue === 'bar';
+      if(els.boxErrorModeCtl){
+        els.boxErrorModeCtl.style.display = showErrorControls ? '' : 'none';
+      }
+      const showCapsLabel = els.boxShowCaps?.closest('label');
+      if(showCapsLabel){
+        const capsVisible = graphTypeValue === 'box' || graphTypeValue === 'notched';
+        showCapsLabel.style.display = capsVisible ? '' : 'none';
+        console.debug('Debug: box showCaps visibility updated',{ graphTypeValue, capsVisible });
+      }
+      console.debug('Debug: box graph type controls',{ graphTypeValue, showErrorControls });
+    };
+    els.boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', els.boxGraphType.value); updateGraphTypeControls(); state.scheduleDraw(); });
     els.boxPointMode.addEventListener('change',()=>{ console.log('boxPointMode changed', els.boxPointMode.value); state.scheduleDraw(); });
     els.boxShowCaps.addEventListener('change',()=>{ console.log('boxShowCaps changed', els.boxShowCaps.checked); state.scheduleDraw(); });
     els.boxErrorMode.addEventListener('change',()=>{ console.log('boxErrorMode changed', els.boxErrorMode.value); state.scheduleDraw(); });
@@ -333,7 +347,7 @@
         state.scheduleDraw();
       });
     }
-    els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none';
+    updateGraphTypeControls();
     els.boxFill.addEventListener('input',()=>{ console.log('boxFill changed',{newColor:els.boxFill.value,oldColor:state.lastDefaultFill}); state.fillColors=state.fillColors.map(c=>c===state.lastDefaultFill?els.boxFill.value:c); state.lastDefaultFill=els.boxFill.value; state.scheduleDraw(); });
     els.boxBorder.addEventListener('input',()=>{ console.log('boxBorder changed', els.boxBorder.value); state.scheduleDraw(); });
     els.boxBorderWidth.addEventListener('input',()=>{ console.log('boxBorderWidth changed', els.boxBorderWidth.value); state.scheduleDraw(); });
@@ -918,6 +932,55 @@ function renderStatsControls(traces){
       return (sorted[base + 1] !== undefined) ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base];
     }
     const axisStroke = '#000';
+    function estimateBandwidth(sorted){
+      if(!sorted.length) return 1;
+      const n = sorted.length;
+      const meanVal = sorted.reduce((acc, v) => acc + v, 0) / n;
+      const variance = sorted.reduce((acc, v) => acc + Math.pow(v - meanVal, 2), 0) / (n - 1 || 1);
+      const sigma = Math.sqrt(variance) || 0;
+      const iqrVal = percentile(sorted, 0.75) - percentile(sorted, 0.25);
+      const scale = Math.min(sigma, iqrVal / 1.349 || Infinity) || sigma || Math.abs(sorted[0]) || 1;
+      const bandwidth = 0.9 * scale * Math.pow(n, -0.2);
+      const fallback = (sorted[n - 1] - sorted[0]) / (Math.sqrt(n) || 1) || 1;
+      const resolved = Number.isFinite(bandwidth) && bandwidth > 0 ? bandwidth : fallback;
+      console.debug('Debug: box violin bandwidth',{ n, sigma, iqr: iqrVal, scale, bandwidth, fallback, resolved });
+      return resolved;
+    }
+    function computeDensity(sorted, minVal, maxVal, sampleCount){
+      const count = sampleCount || 64;
+      if(!sorted.length){
+        return { positions: [], densities: [], bandwidth: 1 };
+      }
+      let domainMin = Math.min(minVal, sorted[0]);
+      let domainMax = Math.max(maxVal, sorted[sorted.length - 1]);
+      if(!isFinite(domainMin) || !isFinite(domainMax)){
+        domainMin = sorted[0];
+        domainMax = sorted[sorted.length - 1];
+      }
+      if(domainMax === domainMin){
+        domainMin -= 0.5;
+        domainMax += 0.5;
+      }
+      const bandwidth = estimateBandwidth(sorted);
+      const positions = [];
+      const densities = [];
+      const step = (domainMax - domainMin) / Math.max(count - 1, 1);
+      const denom = sorted.length * bandwidth * Math.sqrt(2 * Math.PI);
+      for(let idx = 0; idx < count; idx++){
+        const x = domainMin + step * idx;
+        let sum = 0;
+        for(let j = 0; j < sorted.length; j++){
+          const u = (x - sorted[j]) / bandwidth;
+          sum += Math.exp(-0.5 * u * u);
+        }
+        const density = denom ? sum / denom : 0;
+        positions.push(x);
+        densities.push(density);
+      }
+      const peak = densities.length ? densities.reduce((max, d) => (d > max ? d : max), 0) : 0;
+      console.debug('Debug: box violin density',{ bandwidth, domainMin, domainMax, sampleCount: count, peak });
+      return { positions, densities, bandwidth };
+    }
     const annotationStyle = {
       styleScaleInfo,
       fontSize: fs,
@@ -1125,6 +1188,8 @@ function renderStatsControls(traces){
         const yWMax = y2px(wMax);
         const fillColor = colorMode === 'individual' ? (state.fillColors[i] || DEFAULT_BOX_COLORS[i % DEFAULT_BOX_COLORS.length]) : defaultFill;
         const borderColor = colorMode === 'individual' ? (state.borderColors[i] || shadeColor(fillColor, -30)) : defaultBorder;
+        const mean = t.y.reduce((acc, v) => acc + v, 0) / t.y.length;
+        const yMean = y2px(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           if(graphTypeRaw === 'box'){
             add('rect',{ x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
@@ -1165,11 +1230,8 @@ function renderStatsControls(traces){
             add('line',{ x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: borderColor, 'stroke-width': borderWidthPx });
             add('line',{ x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': borderWidthPx });
           }
-        }
-        if(graphTypeRaw === 'bar'){
-          const mean = t.y.reduce((a, b) => a + b, 0) / t.y.length;
+        }else if(graphTypeRaw === 'bar'){
           const sd = Math.sqrt(t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (t.y.length - 1 || 1));
-          const yMean = y2px(mean);
           const yZero = y2px(0);
           const rectY = Math.min(yMean, yZero);
           const rectH = Math.abs(yZero - yMean);
@@ -1184,8 +1246,59 @@ function renderStatsControls(traces){
             add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: yMean, stroke: borderColor, 'stroke-width': borderWidthPx });
           }
           add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': borderWidthPx });
+        }else if(graphTypeRaw === 'violin'){
+          const densityInfo = computeDensity(vals, yScale.min, yScale.max, 80);
+          const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
+          const halfWidth = Math.max(6, Math.min(80, bandW * 0.45));
+          const pathParts = [];
+          for(let idx = 0; idx < densityInfo.positions.length; idx++){
+            const pos = densityInfo.positions[idx];
+            const density = peak ? densityInfo.densities[idx] / peak : 0;
+            const y = y2px(pos);
+            const offset = density * halfWidth;
+            const xLeft = cx - offset;
+            pathParts.push(`${idx === 0 ? 'M' : 'L'} ${xLeft} ${y}`);
+          }
+          for(let idx = densityInfo.positions.length - 1; idx >= 0; idx--){
+            const pos = densityInfo.positions[idx];
+            const density = peak ? densityInfo.densities[idx] / peak : 0;
+            const y = y2px(pos);
+            const offset = density * halfWidth;
+            const xRight = cx + offset;
+            pathParts.push(`L ${xRight} ${y}`);
+          }
+          pathParts.push('Z');
+          add('path',{ d: pathParts.join(' '), fill: fillColor, 'fill-opacity': 0.7, stroke: borderColor, 'stroke-width': borderWidthPx });
+          add('line',{ x1: cx - halfWidth, y1: yMed, x2: cx + halfWidth, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
+          console.debug('Debug: box violin vertical render',{ index: i, points: vals.length, peak, halfWidth });
+        }else if(graphTypeRaw === 'strip'){
+          const jitterWidth = Math.max(6, Math.min(bandW * 0.8, 80));
+          const frag = document.createDocumentFragment();
+          let ptIdx = 0;
+          for(const v of vals){
+            const cyPoint = y2px(v);
+            const jitter = (Math.random() - 0.5) * jitterWidth;
+            const circle = document.createElementNS(NS, 'circle');
+            circle.setAttribute('cx', cx + jitter);
+            circle.setAttribute('cy', cyPoint);
+            circle.setAttribute('r', pointRadius);
+            circle.setAttribute('fill', fillColor);
+            circle.setAttribute('stroke', borderColor);
+            circle.setAttribute('fill-opacity', 0.7);
+            frag.appendChild(circle);
+            ptIdx++;
+            if(ptIdx % 1000 === 0){
+              console.debug('Debug: box strip jitter progress',{ index: i, ptIdx, jitterWidth });
+            }
+          }
+          const stripGroup = add('g',{ 'data-trace': i, 'data-strip': 'true' });
+          stripGroup.appendChild(frag);
+          const indicatorHalf = jitterWidth / 2;
+          add('line',{ x1: cx - indicatorHalf, y1: yMean, x2: cx + indicatorHalf, y2: yMean, stroke: borderColor, 'stroke-width': borderWidthPx });
+          add('circle',{ cx, cy: yMean, r: pointRadius * 1.4, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
+          console.debug('Debug: box strip vertical render',{ index: i, mean, jitterWidth, pointCount: vals.length });
         }
-        if(pointMode !== 'none'){
+        if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
           const frag = document.createDocumentFragment();
           let ptIdx = 0;
@@ -1365,6 +1478,8 @@ function renderStatsControls(traces){
         const xWMax = valueToX(wMax);
         const fillColor = colorMode === 'individual' ? (state.fillColors[i] || DEFAULT_BOX_COLORS[i % DEFAULT_BOX_COLORS.length]) : defaultFill;
         const borderColor = colorMode === 'individual' ? (state.borderColors[i] || shadeColor(fillColor, -30)) : defaultBorder;
+        const mean = t.y.reduce((acc, v) => acc + v, 0) / t.y.length;
+        const xMean = valueToX(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           const left = Math.min(xQ1, xQ3);
           const right = Math.max(xQ1, xQ3);
@@ -1417,9 +1532,7 @@ function renderStatsControls(traces){
             add('line',{ x1: xWMax, y1: cy - cap / 2, x2: xWMax, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
           }
         }else if(graphTypeRaw === 'bar'){
-          const mean = t.y.reduce((a, b) => a + b, 0) / t.y.length;
           const sd = Math.sqrt(t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (t.y.length - 1 || 1));
-          const xMean = valueToX(mean);
           const xZero = valueToX(0);
           const rectX = Math.min(xMean, xZero);
           const rectW = Math.max(1, Math.abs(xZero - xMean));
@@ -1434,8 +1547,59 @@ function renderStatsControls(traces){
             add('line',{ x1: xMean, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
           }
           add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+        }else if(graphTypeRaw === 'violin'){
+          const densityInfo = computeDensity(vals, yScale.min, yScale.max, 80);
+          const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
+          const halfHeight = Math.max(6, Math.min(80, bandH * 0.45));
+          const pathParts = [];
+          for(let idx = 0; idx < densityInfo.positions.length; idx++){
+            const pos = densityInfo.positions[idx];
+            const density = peak ? densityInfo.densities[idx] / peak : 0;
+            const x = valueToX(pos);
+            const offset = density * halfHeight;
+            const yTop = cy - offset;
+            pathParts.push(`${idx === 0 ? 'M' : 'L'} ${x} ${yTop}`);
+          }
+          for(let idx = densityInfo.positions.length - 1; idx >= 0; idx--){
+            const pos = densityInfo.positions[idx];
+            const density = peak ? densityInfo.densities[idx] / peak : 0;
+            const x = valueToX(pos);
+            const offset = density * halfHeight;
+            const yBottom = cy + offset;
+            pathParts.push(`L ${x} ${yBottom}`);
+          }
+          pathParts.push('Z');
+          add('path',{ d: pathParts.join(' '), fill: fillColor, 'fill-opacity': 0.7, stroke: borderColor, 'stroke-width': borderWidthPx });
+          add('line',{ x1: xMed, y1: cy - halfHeight, x2: xMed, y2: cy + halfHeight, stroke: borderColor, 'stroke-width': borderWidthPx });
+          console.debug('Debug: box violin horizontal render',{ index: i, points: vals.length, peak, halfHeight });
+        }else if(graphTypeRaw === 'strip'){
+          const jitterHeight = Math.max(6, Math.min(bandH * 0.8, 80));
+          const frag = document.createDocumentFragment();
+          let ptIdx = 0;
+          for(const v of vals){
+            const px = valueToX(v);
+            const jitter = (Math.random() - 0.5) * jitterHeight;
+            const circle = document.createElementNS(NS, 'circle');
+            circle.setAttribute('cx', px);
+            circle.setAttribute('cy', cy + jitter);
+            circle.setAttribute('r', pointRadius);
+            circle.setAttribute('fill', fillColor);
+            circle.setAttribute('stroke', borderColor);
+            circle.setAttribute('fill-opacity', 0.7);
+            frag.appendChild(circle);
+            ptIdx++;
+            if(ptIdx % 1000 === 0){
+              console.debug('Debug: box strip jitter horizontal',{ index: i, ptIdx, jitterHeight });
+            }
+          }
+          const stripGroup = add('g',{ 'data-trace': i, 'data-strip': 'true' });
+          stripGroup.appendChild(frag);
+          const indicatorHalf = jitterHeight / 2;
+          add('line',{ x1: xMean, y1: cy - indicatorHalf, x2: xMean, y2: cy + indicatorHalf, stroke: borderColor, 'stroke-width': borderWidthPx });
+          add('circle',{ cx: xMean, cy: cy, r: pointRadius * 1.4, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
+          console.debug('Debug: box strip horizontal render',{ index: i, mean, jitterHeight, pointCount: vals.length });
         }
-        if(pointMode !== 'none'){
+        if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
           const frag = document.createDocumentFragment();
           let ptIdx = 0;
