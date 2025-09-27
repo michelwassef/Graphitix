@@ -403,7 +403,7 @@
       });
 
       const labels = [];
-      const matrix = [];
+      const matrixRaw = [];
 
       for (let r = 1; r < data.length; r++) {
         const row = data[r];
@@ -432,19 +432,19 @@
 
         if (rowValid && vals.length) {
           labels.push(lab);
-          matrix.push(vals);
+          matrixRaw.push(vals);
         }
       }
 
       console.log('pca collected', {
-        rows: matrix.length,
-        cols: matrix[0]?.length,
+        rows: matrixRaw.length,
+        cols: matrixRaw[0]?.length,
       });
 
-      if (matrix.length && matrix[0]?.length !== numericColIndices.length) {
+      if (matrixRaw.length && matrixRaw[0]?.length !== numericColIndices.length) {
         console.debug('Debug: pca matrix width mismatch', {
           expected: numericColIndices.length,
-          actual: matrix[0]?.length,
+          actual: matrixRaw[0]?.length,
         });
       }
 
@@ -456,12 +456,14 @@
         return;
       }
 
-      if (matrix.length < 2 || matrix[0].length < 2) {
+      if (matrixRaw.length < 2 || matrixRaw[0].length < 2) {
         pcaPlotDiv.innerHTML = '<i>At least two samples and two variables required.</i>';
         pcaStatsResults.textContent = '';
         return;
       }
 
+      const matrix = matrixRaw.map(row => row.slice());
+      const method = (pcaMethod.value || 'pca').toLowerCase();
       const nSamples = matrix.length;
       const nFeatures = matrix[0].length;
 
@@ -485,32 +487,146 @@
         return;
       }
 
-      const svd = SVDLib.SVD(matrix);
-      console.debug('pca svd result', svd);
-
-      const scores = [];
-      for (let i = 0; i < nSamples; i++) {
-        scores[i] = [];
-        for (let k = 0; k < svd.q.length; k++) {
-          scores[i][k] = svd.u[i][k] * svd.q[k];
-        }
-      }
-      console.debug('pca scores', scores);
-
-      const variances = svd.q.map((s) => (s * s) / (nSamples - 1));
-      const totalVar = variances.reduce((a, b) => a + b, 0);
-      const pc1Pct = (variances[0] / totalVar) * 100;
-      const pc2Pct = (variances[1] / totalVar) * 100;
-
-      pcaXLabelText = `PC1 (${pc1Pct.toFixed(1)}%)`;
-      pcaYLabelText = `PC2 (${pc2Pct.toFixed(1)}%)`;
-
-      const points = scores.map((s, i) => ({
-        x: s[0],
-        y: s[1],
-        label: labels[i],
-      }));
+      let points = [];
+      let statsHtml = '';
       const labelSet = new Set(labels.filter((l) => l));
+
+      if (method === 'mds') {
+        console.debug('Debug: mds branch entered', { method }); // Debug: MDS execution path
+        const distanceMatrix = [];
+        const squaredDistances = [];
+        for (let i = 0; i < nSamples; i++) {
+          distanceMatrix[i] = [];
+          squaredDistances[i] = [];
+          for (let j = 0; j < nSamples; j++) {
+            let sumSq = 0;
+            for (let k = 0; k < nFeatures; k++) {
+              const diff = matrix[i][k] - matrix[j][k];
+              sumSq += diff * diff;
+            }
+            const dist = Math.sqrt(sumSq);
+            distanceMatrix[i][j] = dist;
+            squaredDistances[i][j] = sumSq;
+          }
+        }
+
+        let totalMean = 0;
+        const rowMeans = new Array(nSamples).fill(0);
+        const colMeans = new Array(nSamples).fill(0);
+        for (let i = 0; i < nSamples; i++) {
+          let rowSum = 0;
+          for (let j = 0; j < nSamples; j++) {
+            rowSum += squaredDistances[i][j];
+            colMeans[j] += squaredDistances[i][j];
+          }
+          rowMeans[i] = rowSum / nSamples;
+          totalMean += rowSum;
+        }
+        totalMean /= (nSamples * nSamples);
+        for (let j = 0; j < nSamples; j++) {
+          colMeans[j] /= nSamples;
+        }
+
+        const B = [];
+        for (let i = 0; i < nSamples; i++) {
+          B[i] = [];
+          for (let j = 0; j < nSamples; j++) {
+            B[i][j] = -0.5 * (squaredDistances[i][j] - rowMeans[i] - colMeans[j] + totalMean);
+          }
+        }
+        console.debug('Debug: mds double centered matrix ready', { size: B.length });
+
+        const mdsSvd = SVDLib.SVD(B);
+        console.debug('Debug: mds svd result', mdsSvd);
+
+        const eigenValues = mdsSvd.q.map((val) => val);
+        const positiveEigen = eigenValues
+          .map((val, idx) => ({ val, idx }))
+          .filter(({ val }) => val > 1e-9);
+        const dimsToUse = Math.min(2, positiveEigen.length);
+        console.debug('Debug: mds eigen summary', { eigenValues, dimsToUse });
+
+        if (dimsToUse === 0) {
+          pcaPlotDiv.innerHTML = '<i>MDS could not find positive eigenvalues.</i>';
+          if (pcaStatsResults) {
+            pcaStatsResults.textContent = '';
+          }
+          return;
+        }
+
+        const coords = [];
+        for (let i = 0; i < nSamples; i++) {
+          const coordRow = new Array(dimsToUse).fill(0);
+          for (let dim = 0; dim < dimsToUse; dim++) {
+            const eigenIdx = positiveEigen[dim].idx;
+            const scale = Math.sqrt(Math.max(positiveEigen[dim].val, 0));
+            coordRow[dim] = mdsSvd.u[i][eigenIdx] * scale;
+          }
+          coords.push(coordRow);
+        }
+
+        points = coords.map((row, idx) => ({
+          x: row[0] || 0,
+          y: dimsToUse > 1 ? row[1] : 0,
+          label: labels[idx],
+        }));
+
+        const totalPositive = positiveEigen.reduce((sum, { val }) => sum + val, 0);
+        const dim1Pct = (positiveEigen[0].val / totalPositive) * 100;
+        const dim2Pct = dimsToUse > 1 ? (positiveEigen[1].val / totalPositive) * 100 : 0;
+        pcaXLabelText = `MDS1 (${dim1Pct.toFixed(1)}%)`;
+        pcaYLabelText = dimsToUse > 1 ? `MDS2 (${dim2Pct.toFixed(1)}%)` : 'MDS2';
+
+        let stressNumerator = 0;
+        let stressDenominator = 0;
+        for (let i = 0; i < nSamples; i++) {
+          for (let j = i + 1; j < nSamples; j++) {
+            const fittedDx = (points[i].x - points[j].x);
+            const fittedDy = (points[i].y - points[j].y);
+            const fittedDist = Math.sqrt(fittedDx * fittedDx + fittedDy * fittedDy);
+            const originalDist = distanceMatrix[i][j];
+            const diff = originalDist - fittedDist;
+            stressNumerator += diff * diff;
+            stressDenominator += originalDist * originalDist;
+          }
+        }
+        const stress = stressDenominator > 0 ? Math.sqrt(stressNumerator / stressDenominator) : 0;
+        statsHtml = `Dim1: ${dim1Pct.toFixed(1)}% inertia`;
+        if (dimsToUse > 1) {
+          statsHtml += `<br>Dim2: ${dim2Pct.toFixed(1)}% inertia`;
+        }
+        statsHtml += `<br>Stress-1: ${stress.toFixed(3)}`;
+        console.debug('Debug: mds stress computed', { stress, dimsToUse });
+      } else {
+        const svd = SVDLib.SVD(matrix);
+        console.debug('pca svd result', svd);
+
+        const scores = [];
+        for (let i = 0; i < nSamples; i++) {
+          scores[i] = [];
+          for (let k = 0; k < svd.q.length; k++) {
+            scores[i][k] = svd.u[i][k] * svd.q[k];
+          }
+        }
+        console.debug('pca scores', scores);
+
+        const variances = svd.q.map((s) => (s * s) / (nSamples - 1));
+        const totalVar = variances.reduce((a, b) => a + b, 0);
+        const pc1Pct = (variances[0] / totalVar) * 100;
+        const pc2Pct = (variances[1] / totalVar) * 100;
+
+        pcaXLabelText = `PC1 (${pc1Pct.toFixed(1)}%)`;
+        pcaYLabelText = `PC2 (${pc2Pct.toFixed(1)}%)`;
+
+        points = scores.map((s, i) => ({
+          x: s[0],
+          y: s[1],
+          label: labels[i],
+        }));
+        statsHtml = `PC1: ${pc1Pct.toFixed(1)}% variance`;
+        statsHtml += `<br>PC2: ${pc2Pct.toFixed(1)}% variance`;
+      }
+
       updatePcaLabelColorPickers(Array.from(labelSet));
 
       let xMinRaw = Infinity;
@@ -539,8 +655,7 @@
         plotEl.removeChild(plotEl.firstChild);
       }
 
-      document.getElementById('pcaStatsResults').innerHTML =
-        `PC1: ${pc1Pct.toFixed(1)}% variance<br>PC2: ${pc2Pct.toFixed(1)}% variance`;
+      document.getElementById('pcaStatsResults').innerHTML = statsHtml;
 
       if (!points.length) {
         return;
