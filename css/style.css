@@ -169,6 +169,7 @@ html, body {
 }
 
 .workspace-tabs-list {
+    position: relative;
     display: flex;
     align-items: stretch;
     gap: 0;
@@ -208,6 +209,45 @@ html, body {
     min-height: 44px;
     white-space: nowrap;
     scroll-snap-align: start;
+}
+
+.workspace-tab.is-dragging {
+    opacity: 0.7;
+    cursor: grabbing;
+}
+
+.workspace-tab.is-drag-over-before::before,
+.workspace-tab.is-drag-over-after::after {
+    content: "";
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    border-radius: 999px;
+    background: #6366f1;
+}
+
+.workspace-tab.is-drag-over-before::before {
+    left: -1px;
+}
+
+.workspace-tab.is-drag-over-after::after {
+    right: -1px;
+}
+
+.workspace-tabs-list.is-drag-active {
+    cursor: grabbing;
+}
+
+.workspace-tabs-list.is-drag-over-end::after {
+    content: "";
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    right: 4px;
+    width: 3px;
+    border-radius: 999px;
+    background: #6366f1;
 }
 
 .workspace-tab:first-child {
