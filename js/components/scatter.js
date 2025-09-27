@@ -643,14 +643,23 @@
         const labelsUsed=Array.from(labelSet);
         updateScatterLabelColorPickers(labelsUsed);
         console.log('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
-        // determine legend requirements before sizing plot
-        const legendLabels=scatterCurrentGraphType==='scatter'?labelsUsed:[];
-        const legendScale = styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
+        const legendEntries=[];
         const significanceLegendNeeded=scatterCurrentGraphType!=='scatter';
-        const legendEntryCount=legendLabels.length||(significanceLegendNeeded?2:0);
-        const legendWidth=legendEntryCount?Math.max(60, Math.round(120*legendScale)):0;
-        console.debug('Debug: scatter legend width scaling',{legendWidth,legendScale,legendCount:legendEntryCount,graphType:scatterCurrentGraphType});
-        console.log('scatter legend width',legendWidth,{labels:legendLabels,graphType:scatterCurrentGraphType});
+        if(scatterCurrentGraphType==='scatter'){
+          labelsUsed.forEach(labelName=>{
+            legendEntries.push({label:labelName,fill:scatterLabelColors[labelName]||fill});
+          });
+        }else if(significanceLegendNeeded){
+          legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
+          legendEntries.push({label:'Not significant',fill});
+        }
+        const legendRenderer=chartStyle.createLegendRenderer({
+          entries:legendEntries,
+          fontSize:fs
+        });
+        const legendGapPx=legendRenderer.entries.length?Math.max(12,Math.round(fs*0.5)):0;
+        const legendWidth=legendRenderer.entries.length?legendRenderer.width+legendGapPx:0;
+        console.debug('Debug: scatter legend metrics',{legendWidth,legendGapPx,entryCount:legendRenderer.entries.length,graphType:scatterCurrentGraphType});
         if(token!==scatterDrawToken){console.log('scatter draw cancelled after collect',{token});return;}
         const plotEl=document.getElementById('scatterPlot');
         plotEl.style.display='block';
@@ -878,56 +887,11 @@
           console.debug('Debug: scatter annotations rendered',{count:labelAnnotations.length,graphType:scatterCurrentGraphType});
         }
         console.timeEnd(`scatterSvgDraw_${token}`);
-        if(legendLabels.length){
-          const legendGroup=document.createElementNS(NS,'g');
-          const legendX=W-legendWidth+8;
-          const legendY=margin.top;
-          legendLabels.forEach((lab,i)=>{
-            const y=legendY+i*(fs+4);
-            const sw=document.createElementNS(NS,'rect');
-            sw.setAttribute('x',legendX);
-            sw.setAttribute('y',y-fs+4);
-            sw.setAttribute('width',12);
-            sw.setAttribute('height',12);
-            sw.setAttribute('fill',scatterLabelColors[lab]||fill);
-            legendGroup.appendChild(sw);
-            const t=document.createElementNS(NS,'text');
-            t.setAttribute('x',legendX+16);
-            t.setAttribute('y',y);
-            t.setAttribute('font-size',fs);
-            t.setAttribute('fill',chartStyle.TEXT_COLOR);
-            t.textContent=lab;
-            legendGroup.appendChild(t);
-          });
-          svg.appendChild(legendGroup);
-          console.log('scatter legend placed inside',{labels:legendLabels,legendWidth,legendX,legendY});
-        }else if(significanceLegendNeeded){
-          const legendGroup=document.createElementNS(NS,'g');
-          const legendX=W-legendWidth+8;
-          const legendY=margin.top;
-          const entries=[
-            {label:'Significant',color:SIGNIFICANT_COLOR},
-            {label:'Not significant',color:fill}
-          ];
-          entries.forEach((entry,i)=>{
-            const y=legendY+i*(fs+4);
-            const sw=document.createElementNS(NS,'rect');
-            sw.setAttribute('x',legendX);
-            sw.setAttribute('y',y-fs+4);
-            sw.setAttribute('width',12);
-            sw.setAttribute('height',12);
-            sw.setAttribute('fill',entry.color);
-            legendGroup.appendChild(sw);
-            const t=document.createElementNS(NS,'text');
-            t.setAttribute('x',legendX+16);
-            t.setAttribute('y',y);
-            t.setAttribute('font-size',fs);
-            t.setAttribute('fill',chartStyle.TEXT_COLOR);
-            t.textContent=entry.label;
-            legendGroup.appendChild(t);
-          });
-          svg.appendChild(legendGroup);
-          console.debug('Debug: scatter significance legend rendered',{legendWidth});
+        if(legendRenderer.entries.length){
+          const plotRight=margin.left+plotW;
+          const legendX=plotRight+legendGapPx;
+          legendRenderer.draw(svg,{x:legendX,y:margin.top});
+          console.debug('Debug: scatter legend rendered shared helper',{legendX,legendGapPx,entryCount:legendRenderer.entries.length});
         }
         const xAxisBase=margin.top+plotH;
         const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
