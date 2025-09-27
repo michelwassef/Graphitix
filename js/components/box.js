@@ -1032,6 +1032,10 @@ function renderStatsControls(traces){
       els.boxLogScaleLabel.textContent = isFlipped ? 'Log Scale (Values)' : 'Log Scale (Y)';
     }
     console.debug('Debug: box draw orientation',{ isFlipped });
+    let legendRenderer = chartStyle.createLegendRenderer({ entries: [], fontSize: fs, strokeWidth: borderWidthPx });
+    let legendGapPx = 0;
+    let legendWidthForMargin = 0;
+    console.debug('Debug: box legend initial state',{ legendWidthForMargin, legendGapPx, entryCount: legendRenderer.entries.length });
     const traces = [];
     const traceLabels = [];
     let axisLabels = [];
@@ -1184,6 +1188,22 @@ function renderStatsControls(traces){
       global.document.getElementById('statsTable').innerHTML='';
       return;
     }
+    const colorPrimeSample = [];
+    traces.forEach((trace, index) => {
+      const colorInfo = resolveTraceColor(trace, index);
+      trace.fillColor = colorInfo.fillColor;
+      trace.borderColor = colorInfo.borderColor;
+      if(colorPrimeSample.length < 5){
+        colorPrimeSample.push({
+          index,
+          name: trace.name,
+          fill: colorInfo.fillColor,
+          border: colorInfo.borderColor,
+          group: trace.groupName || null
+        });
+      }
+    });
+    console.debug('Debug: box trace colors primed',{ traceCount: traces.length, sample: colorPrimeSample });
     const colorPickerLabels = isGroupedMode ? groupedGroups : traceLabels;
     console.debug('Debug: box color picker labels resolved',{ isGroupedMode, labelCount: colorPickerLabels.length, labels: colorPickerLabels });
     if(els.boxColorIndividual.checked){
@@ -1283,6 +1303,27 @@ function renderStatsControls(traces){
       return { min: graphMin, max: graphMax, ticks, step };
     }
     const labelTexts = axisLabels.map((lab, i) => lab || `Category ${i + 1}`);
+    if(isGroupedMode && groupColorAssignments.size){
+      const legendEntries = Array.from(groupColorAssignments.entries()).map(([name, colors]) => ({
+        label: name,
+        fill: colors.fill,
+        stroke: colors.border,
+        strokeWidth: borderWidthPx
+      }));
+      legendRenderer = chartStyle.createLegendRenderer({
+        entries: legendEntries,
+        fontSize: fs,
+        strokeWidth: borderWidthPx
+      });
+      legendGapPx = legendRenderer.entries.length ? Math.max(12, Math.round(fs * 0.5)) : 0;
+      legendWidthForMargin = legendRenderer.entries.length ? legendRenderer.width + legendGapPx : 0;
+      console.debug('Debug: box legend metrics',{ legendWidthForMargin, legendGapPx, entryCount: legendRenderer.entries.length });
+    }else{
+      legendRenderer = chartStyle.createLegendRenderer({ entries: [], fontSize: fs, strokeWidth: borderWidthPx });
+      legendGapPx = 0;
+      legendWidthForMargin = 0;
+      console.debug('Debug: box legend disabled',{ grouped: isGroupedMode, groupCount: groupColorAssignments.size });
+    }
     function formatTick(v){
       return v.toLocaleString('en-US',{ maximumFractionDigits: 2, useGrouping: false });
     }
@@ -1362,63 +1403,6 @@ function renderStatsControls(traces){
     };
     const maxLevelEstimate = state.selectedCols.size > 1 ? state.selectedCols.size : 0;
 
-    function drawLegend(entries, layout){
-      if(!entries || !entries.length){
-        console.debug('Debug: legend skipped',{ hasEntries: !!entries });
-        return;
-      }
-      const font = chartStyle.makeFont(fs);
-      const padding = Math.max(6, fs * 0.4);
-      const swatchSize = Math.max(10, fs * 0.8);
-      let maxTextWidth = 0;
-      entries.forEach(entry => {
-        const width = chartStyle.measureText(entry.name, font);
-        if(width > maxTextWidth) maxTextWidth = width;
-      });
-      const innerGap = Math.max(6, fs * 0.3);
-      const legendWidth = padding * 2 + swatchSize + innerGap + maxTextWidth;
-      const rowHeight = swatchSize + padding;
-      const legendHeight = padding + entries.length * rowHeight;
-      const plotRight = layout.margin.left + layout.plotW;
-      const legendX = plotRight - legendWidth - padding;
-      const legendY = layout.margin.top + padding;
-      const legendGroup = document.createElementNS(NS, 'g');
-      legendGroup.setAttribute('transform', `translate(${legendX},${legendY})`);
-      svg.appendChild(legendGroup);
-      const legendRect = document.createElementNS(NS, 'rect');
-      legendRect.setAttribute('x', '0');
-      legendRect.setAttribute('y', '0');
-      legendRect.setAttribute('width', legendWidth);
-      legendRect.setAttribute('height', legendHeight);
-      legendRect.setAttribute('fill', '#fff');
-      legendRect.setAttribute('stroke', '#333');
-      legendRect.setAttribute('stroke-width', axisStrokeWidth);
-      legendRect.setAttribute('rx', '4');
-      legendRect.setAttribute('ry', '4');
-      legendGroup.appendChild(legendRect);
-      entries.forEach((entry, idx) => {
-        const rowY = padding + idx * rowHeight;
-        const swatch = document.createElementNS(NS, 'rect');
-        swatch.setAttribute('x', padding);
-        swatch.setAttribute('y', rowY);
-        swatch.setAttribute('width', swatchSize);
-        swatch.setAttribute('height', swatchSize);
-        swatch.setAttribute('fill', entry.fill);
-        swatch.setAttribute('stroke', entry.border);
-        swatch.setAttribute('stroke-width', borderWidthPx);
-        legendGroup.appendChild(swatch);
-        const text = document.createElementNS(NS, 'text');
-        text.setAttribute('x', padding + swatchSize + innerGap);
-        text.setAttribute('y', rowY + swatchSize / 2);
-        text.setAttribute('font-size', fs);
-        text.setAttribute('dominant-baseline', 'middle');
-        text.setAttribute('fill', chartStyle.TEXT_COLOR);
-        text.textContent = entry.name;
-        legendGroup.appendChild(text);
-      });
-      console.debug('Debug: legend rendered',{ count: entries.length, legendWidth, legendHeight });
-    }
-
     function renderVertical(){
       const tickFont = chartStyle.makeFont(fs);
       const axisLabelFont = chartStyle.makeFont(fs);
@@ -1426,7 +1410,7 @@ function renderStatsControls(traces){
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
       const topExtra = maxLevelEstimate ? (annotationBaseOffset + maxLevelEstimate * annotationLevelGap) : 0;
-      let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: 0, yTitleWidth: yTitleWidthBase, axisMetrics });
+      let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: 0, yTitleWidth: yTitleWidthBase, axisMetrics, legendWidth: legendWidthForMargin });
       marginLocal.top += topExtra;
       marginLocal.left = Math.max(marginLocal.left, fs * 0.5);
       let plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
@@ -1447,7 +1431,7 @@ function renderStatsControls(traces){
         tickWidths = tickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
         maxTickWidth = Math.max(...tickWidths, 0);
         yLabelGap = maxTickWidth + tickLen + tickGap;
-        marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxTickWidth, yTitleWidth: yTitleWidthBase, axisMetrics });
+        marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxTickWidth, yTitleWidth: yTitleWidthBase, axisMetrics, legendWidth: legendWidthForMargin });
         marginLocal.top += topExtra;
         marginLocal.left = Math.max(marginLocal.left, yLabelGap + fs * 0.5);
         plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
@@ -1639,9 +1623,8 @@ function renderStatsControls(traces){
         const yQ3 = y2px(q3);
         const yWMin = y2px(wMin);
         const yWMax = y2px(wMax);
-        const colorInfo = resolveTraceColor(t, i);
-        const fillColor = colorInfo.fillColor;
-        const borderColor = colorInfo.borderColor;
+        const fillColor = t.fillColor || resolveTraceColor(t, i).fillColor;
+        const borderColor = t.borderColor || resolveTraceColor(t, i).borderColor;
         const mean = t.y.reduce((acc, v) => acc + v, 0) / t.y.length;
         const yMean = y2px(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
@@ -1825,7 +1808,7 @@ function renderStatsControls(traces){
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
       const rightExtra = maxLevelEstimate ? (annotationBaseOffset + maxLevelEstimate * annotationLevelGap) : 0;
-      let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxCategoryWidth, yTitleWidth: 0, axisMetrics });
+      let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxCategoryWidth, yTitleWidth: 0, axisMetrics, legendWidth: legendWidthForMargin });
       marginLocal.top = Math.max(marginLocal.top, fs * 2);
       marginLocal.left = Math.max(marginLocal.left, maxCategoryWidth + tickLen + tickGap + fs * 0.5);
       marginLocal.right = Math.max(marginLocal.right, rightExtra + fs);
@@ -1963,9 +1946,8 @@ function renderStatsControls(traces){
         const xQ3 = valueToX(q3);
         const xWMin = valueToX(wMin);
         const xWMax = valueToX(wMax);
-        const colorInfo = resolveTraceColor(t, i);
-        const fillColor = colorInfo.fillColor;
-        const borderColor = colorInfo.borderColor;
+        const fillColor = t.fillColor || resolveTraceColor(t, i).fillColor;
+        const borderColor = t.borderColor || resolveTraceColor(t, i).borderColor;
         const mean = t.y.reduce((acc, v) => acc + v, 0) / t.y.length;
         const xMean = valueToX(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
@@ -2164,13 +2146,11 @@ function renderStatsControls(traces){
     const titleText = add('text',{ x: orientationResult.titleX, y: orientationResult.titleY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
     titleText.textContent = state.titleText;
     makeEditable(titleText, txt => { state.titleText = txt; });
-    if(isGroupedMode && groupColorAssignments.size){
-      const legendEntries = Array.from(groupColorAssignments.entries()).map(([name, colors]) => ({
-        name,
-        fill: colors.fill,
-        border: colors.border
-      }));
-      drawLegend(legendEntries, orientationResult);
+    if(legendRenderer.entries.length){
+      const plotRight = orientationResult.margin.left + orientationResult.plotW;
+      const legendX = plotRight + legendGapPx;
+      legendRenderer.draw(svg, { x: legendX, y: orientationResult.margin.top });
+      console.debug('Debug: box legend rendered shared helper',{ legendX, legendGapPx, entryCount: legendRenderer.entries.length });
     }
     const helpers = {
       xCenter: orientationResult.categoryCenter,

@@ -1197,6 +1197,108 @@
     return label;
   };
 
+  chartStyle.createLegendRenderer = function createLegendRenderer(options){
+    const opts = options || {};
+    const rawEntries = Array.isArray(opts.entries) ? opts.entries : [];
+    const defaultFill = typeof opts.defaultFill === 'string' ? opts.defaultFill : chartStyle.TEXT_COLOR;
+    const defaultStroke = typeof opts.defaultStroke === 'string' ? opts.defaultStroke : 'none';
+    const defaultStrokeWidth = Number.isFinite(opts.strokeWidth) ? Number(opts.strokeWidth) : 0;
+    const normalizedEntries = [];
+    rawEntries.forEach((entry, index) => {
+      if(!entry){ return; }
+      const labelRaw = entry.label ?? entry.name ?? entry.title ?? '';
+      const label = labelRaw == null ? '' : String(labelRaw);
+      const fill = typeof entry.fill === 'string' ? entry.fill : (typeof entry.color === 'string' ? entry.color : defaultFill);
+      const stroke = typeof entry.stroke === 'string' ? entry.stroke : (typeof entry.border === 'string' ? entry.border : defaultStroke);
+      const strokeWidth = Number.isFinite(entry.strokeWidth) ? Number(entry.strokeWidth) : defaultStrokeWidth;
+      normalizedEntries.push({ label, fill, stroke, strokeWidth, sourceIndex: index });
+    });
+    const fontSize = Math.max(4, Number(opts.fontSize) || 12);
+    const rowGap = Number.isFinite(opts.rowGap) ? Number(opts.rowGap) : Math.max(4, Math.round(fontSize * 0.3));
+    const swatchSize = Number.isFinite(opts.swatchSize) ? Number(opts.swatchSize) : Math.max(12, Math.round(fontSize * 0.8));
+    const swatchGap = Number.isFinite(opts.swatchGap) ? Number(opts.swatchGap) : Math.max(8, Math.round(fontSize * 0.4));
+    const minWidth = Number.isFinite(opts.minWidth) ? Number(opts.minWidth) : Math.max(60, Math.round(fontSize * 5.5));
+    const fontForMeasure = chartStyle.makeFont(fontSize);
+    let maxLabelWidth = 0;
+    normalizedEntries.forEach(entry => {
+      const width = chartStyle.measureText(entry.label, fontForMeasure);
+      if(Number.isFinite(width) && width > maxLabelWidth){
+        maxLabelWidth = width;
+      }
+    });
+    const width = normalizedEntries.length ? Math.max(minWidth, swatchSize + swatchGap + maxLabelWidth) : 0;
+    const rowHeight = fontSize + rowGap;
+    const baselineOffset = Number.isFinite(opts.baselineOffset) ? Number(opts.baselineOffset) : 0;
+    const height = normalizedEntries.length ? baselineOffset + (normalizedEntries.length - 1) * rowHeight + fontSize : 0;
+    const debugSummary = {
+      entryCount: normalizedEntries.length,
+      fontSize,
+      rowGap,
+      swatchSize,
+      swatchGap,
+      minWidth,
+      width,
+      height
+    };
+    console.debug('Debug: chartStyle.createLegendRenderer metrics', debugSummary);
+    const renderer = {
+      entries: normalizedEntries,
+      width,
+      height,
+      fontSize,
+      rowGap,
+      rowHeight,
+      swatchSize,
+      swatchGap,
+      baselineOffset,
+      draw(svg, position){
+        if(!svg || typeof svg.appendChild !== 'function'){
+          console.warn('chartStyle.createLegendRenderer.draw skipped: invalid svg target');
+          return null;
+        }
+        if(!normalizedEntries.length){
+          console.debug('Debug: chartStyle.createLegendRenderer.draw skipped',{ reason: 'no entries' });
+          return null;
+        }
+        const doc = svg.ownerDocument || global.document;
+        const group = doc.createElementNS(NS, 'g');
+        const posX = Number.isFinite(position?.x) ? Number(position.x) : 0;
+        const posY = Number.isFinite(position?.y) ? Number(position.y) : 0;
+        group.setAttribute('transform', `translate(${posX},${posY})`);
+        normalizedEntries.forEach((entry, idx) => {
+          const baselineY = idx * rowHeight + baselineOffset;
+          const swatch = doc.createElementNS(NS, 'rect');
+          swatch.setAttribute('x', 0);
+          swatch.setAttribute('y', baselineY - fontSize + rowGap);
+          swatch.setAttribute('width', swatchSize);
+          swatch.setAttribute('height', swatchSize);
+          swatch.setAttribute('fill', entry.fill);
+          const effectiveStrokeWidth = entry.strokeWidth > 0 ? entry.strokeWidth : 0;
+          if(effectiveStrokeWidth > 0){
+            swatch.setAttribute('stroke', entry.stroke || entry.fill);
+            swatch.setAttribute('stroke-width', effectiveStrokeWidth);
+          }else if(entry.stroke){
+            swatch.setAttribute('stroke', entry.stroke);
+            swatch.setAttribute('stroke-width', 0);
+          }
+          group.appendChild(swatch);
+          const text = doc.createElementNS(NS, 'text');
+          text.setAttribute('x', swatchSize + swatchGap);
+          text.setAttribute('y', baselineY);
+          text.setAttribute('font-size', fontSize);
+          text.setAttribute('fill', chartStyle.TEXT_COLOR);
+          text.setAttribute('dominant-baseline', 'alphabetic');
+          text.textContent = entry.label;
+          group.appendChild(text);
+        });
+        svg.appendChild(group);
+        console.debug('Debug: chartStyle.createLegendRenderer.draw applied',{ entryCount: normalizedEntries.length, x: posX, y: posY });
+        return group;
+      }
+    };
+    return renderer;
+  };
+
   chartStyle.drawPlotFrame = function drawPlotFrame(options){
     const opts = options || {};
     const svg = opts.svg;
