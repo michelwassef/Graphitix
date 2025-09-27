@@ -190,7 +190,21 @@
       return;
     }
     const data = Shared.createEmptyData(PIE_DEFAULT_ROWS, PIE_DEFAULT_COLS);
-    state.hot = Shared.hot.createStandardTable(container, { rows: PIE_DEFAULT_ROWS, cols: PIE_DEFAULT_COLS }, state.scheduleDraw, {
+    let pieScheduleProxyCount = 0;
+    const schedulePieDrawProxy = () => {
+      pieScheduleProxyCount += 1;
+      if(pieScheduleProxyCount <= 5){
+        console.debug('Debug: pie scheduleDraw proxy invoked', { count: pieScheduleProxyCount }); // Debug: table change trigger
+        if(pieScheduleProxyCount === 5){
+          console.debug('Debug: pie scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
+        }
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+    };
+
+    state.hot = Shared.hot.createStandardTable(container, { rows: PIE_DEFAULT_ROWS, cols: PIE_DEFAULT_COLS }, schedulePieDrawProxy, {
       debugLabel: 'pie',
       data,
       firstRowClassName: 'htCenter',

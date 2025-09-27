@@ -419,7 +419,21 @@
       return;
     }
     const data = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
-    state.hot = Shared.hot.createStandardTable(els.hotContainer, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, state.scheduleDraw, {
+    let boxScheduleProxyCount = 0;
+    const scheduleBoxDrawProxy = () => {
+      boxScheduleProxyCount += 1;
+      if(boxScheduleProxyCount <= 5){
+        console.debug('Debug: box scheduleDraw proxy invoked', { count: boxScheduleProxyCount }); // Debug: table change trigger
+        if(boxScheduleProxyCount === 5){
+          console.debug('Debug: box scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
+        }
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+    };
+
+    state.hot = Shared.hot.createStandardTable(els.hotContainer, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
       debugLabel: 'box',
       data,
       hotOptions: {

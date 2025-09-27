@@ -111,7 +111,19 @@
         return;
       }
       const data = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
-      const scatterHot=Shared.hot.createStandardTable(scatterHotContainer,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatter,{
+      let scatterScheduleProxyCount = 0;
+      const scheduleDrawScatterProxy = () => {
+        scatterScheduleProxyCount += 1;
+        if(scatterScheduleProxyCount <= 5){
+          console.debug('Debug: scatter scheduleDraw proxy invoked', { count: scatterScheduleProxyCount }); // Debug: table change trigger
+          if(scatterScheduleProxyCount === 5){
+            console.debug('Debug: scatter scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
+          }
+        }
+        scheduleDrawScatter();
+      };
+
+      const scatterHot=Shared.hot.createStandardTable(scatterHotContainer,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatterProxy,{
         debugLabel: 'scatter',
         data,
         hotOptions: {
