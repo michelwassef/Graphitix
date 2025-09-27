@@ -72,7 +72,19 @@
       if(pcaData.length){
         pcaData[0]=['Label','Var1','Var2','Var3','Var4'];
       }
-      const pcaHot=Shared.hot.createStandardTable(pcaHotContainer,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPca,{
+      let pcaScheduleProxyCount = 0;
+      const scheduleDrawPcaProxy = () => {
+        pcaScheduleProxyCount += 1;
+        if(pcaScheduleProxyCount <= 5){
+          console.debug('Debug: pca scheduleDraw proxy invoked', { count: pcaScheduleProxyCount }); // Debug: table change trigger
+          if(pcaScheduleProxyCount === 5){
+            console.debug('Debug: pca scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
+          }
+        }
+        scheduleDrawPca();
+      };
+
+      const pcaHot=Shared.hot.createStandardTable(pcaHotContainer,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPcaProxy,{
         debugLabel: 'pca',
         data: pcaData,
         firstRowClassName: 'htCenter',

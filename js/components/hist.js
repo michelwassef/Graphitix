@@ -167,7 +167,21 @@
       return;
     }
     const data = Shared.createEmptyData(HIST_DEFAULT_ROWS, HIST_DEFAULT_COLS);
-    state.hot = Shared.hot.createStandardTable(hotContainer, { rows: HIST_DEFAULT_ROWS, cols: HIST_DEFAULT_COLS }, state.scheduleDraw, {
+    let histScheduleProxyCount = 0;
+    const scheduleHistDrawProxy = () => {
+      histScheduleProxyCount += 1;
+      if(histScheduleProxyCount <= 5){
+        console.debug('Debug: hist scheduleDraw proxy invoked', { count: histScheduleProxyCount }); // Debug: table change trigger
+        if(histScheduleProxyCount === 5){
+          console.debug('Debug: hist scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
+        }
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+    };
+
+    state.hot = Shared.hot.createStandardTable(hotContainer, { rows: HIST_DEFAULT_ROWS, cols: HIST_DEFAULT_COLS }, scheduleHistDrawProxy, {
       debugLabel: 'hist',
       data,
       firstRowClassName: 'htCenter',

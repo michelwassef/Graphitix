@@ -698,7 +698,19 @@
     if(data.length){
       data[0] = ['X','Series1','Series2','Series3','Series4','Series5'];
     }
-    lineHot = Shared.hot.createStandardTable(refs.hotContainer, { rows: DEFAULT_ROWS, cols: LINE_DEFAULT_COLS }, scheduleLineDraw, {
+    let lineScheduleProxyCount = 0;
+    const scheduleLineDrawProxy = () => {
+      lineScheduleProxyCount += 1;
+      if(lineScheduleProxyCount <= 5){
+        console.debug('Debug: line scheduleLineDraw proxy invoked', { count: lineScheduleProxyCount }); // Debug: table change trigger
+        if(lineScheduleProxyCount === 5){
+          console.debug('Debug: line scheduleLineDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
+        }
+      }
+      scheduleLineDraw();
+    };
+
+    lineHot = Shared.hot.createStandardTable(refs.hotContainer, { rows: DEFAULT_ROWS, cols: LINE_DEFAULT_COLS }, scheduleLineDrawProxy, {
       debugLabel: 'line',
       data,
       hotOptions: {

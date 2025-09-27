@@ -204,7 +204,21 @@
       return;
     }
     const data = Shared.createEmptyData(DEFAULT_ROWS, ROC_DEFAULT_COLS);
-    state.hot = Shared.hot.createStandardTable(refs.hotContainer, { rows: DEFAULT_ROWS, cols: ROC_DEFAULT_COLS }, state.scheduleDraw, {
+    let rocScheduleProxyCount = 0;
+    const scheduleRocDrawProxy = () => {
+      rocScheduleProxyCount += 1;
+      if(rocScheduleProxyCount <= 5){
+        console.debug('Debug: roc scheduleDraw proxy invoked', { count: rocScheduleProxyCount }); // Debug: table change trigger
+        if(rocScheduleProxyCount === 5){
+          console.debug('Debug: roc scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
+        }
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+    };
+
+    state.hot = Shared.hot.createStandardTable(refs.hotContainer, { rows: DEFAULT_ROWS, cols: ROC_DEFAULT_COLS }, scheduleRocDrawProxy, {
       debugLabel: 'roc',
       data,
       scheduleOnLoadData: true,
