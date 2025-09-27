@@ -1607,6 +1607,29 @@
         vennMinSvgWidth = svgWidth * 0.5;
         const minGraph = configWidth + gap + vennMinSvgWidth;
         const total = startTable + startGraph;
+        const tableDataset = tablePanel.dataset || {};
+        let defaultTableWidth = Number.parseFloat(tableDataset.panelDefaultWidth);
+        if (!Number.isFinite(defaultTableWidth) || defaultTableWidth <= 0) {
+          defaultTableWidth = startTable;
+          tableDataset.panelDefaultWidth = String(defaultTableWidth);
+          console.debug('Debug: venn panel default width stored', { defaultTableWidth }); // Debug: capture default position
+        } else {
+          console.debug('Debug: venn panel default width reused', { defaultTableWidth }); // Debug: reuse stored default
+        }
+        let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
+        if (!Number.isFinite(storedMinWidth) || storedMinWidth <= 0) {
+          storedMinWidth = Math.max(150, defaultTableWidth);
+          tableDataset.panelMinWidth = String(storedMinWidth);
+          console.debug('Debug: venn panel min width stored', { storedMinWidth, defaultTableWidth }); // Debug: store min width baseline
+        }
+        if (tablePanel?.style) {
+          const existingMin = Number.parseFloat(tablePanel.style.minWidth) || 0;
+          const enforcedMin = Math.max(existingMin, storedMinWidth);
+          if (enforcedMin !== existingMin) {
+            tablePanel.style.minWidth = `${enforcedMin}px`;
+            console.debug('Debug: venn panel min style enforced', { enforcedMin, existingMin }); // Debug: enforce min style
+          }
+        }
         console.debug('Debug: venn panel resizer start', {
           startTable,
           startGraph,
@@ -1615,21 +1638,32 @@
           svgWidth,
           vennMinSvgWidth,
           minGraph,
-          total
+          total,
+          defaultTableWidth,
+          storedMinWidth
         }); // Debug: venn panel resizer start
         function onMove(ev) {
           const dx = ev.clientX - startX;
-          let newTable = Math.max(150, Math.min(total - minGraph, startTable + dx));
+          const proposedTable = startTable + dx;
+          const clampedBase = Math.min(total - minGraph, proposedTable);
+          const minTableWidth = Math.max(150, defaultTableWidth, storedMinWidth);
+          let newTable = Math.max(minTableWidth, clampedBase);
           let newGraph = total - newTable;
           if (!Number.isFinite(newTable)) newTable = startTable;
           if (!Number.isFinite(newGraph)) newGraph = startGraph;
           tablePanel.style.flex = `0 0 ${newTable}px`;
+          tablePanel.style.flexBasis = `${newTable}px`;
+          tablePanel.style.width = `${newTable}px`;
+          tablePanel.style.minWidth = `${minTableWidth}px`;
           graphPanel.style.flex = `0 0 ${newGraph}px`;
           syncPanels({ skipSchedule: false });
           console.debug('Debug: venn panel resizer move', {
             dx,
+            proposedTable,
             newTable,
-            newGraph
+            newGraph,
+            defaultTableWidth,
+            minTableWidth
           }); // Debug: venn panel resizer move
         }
         function onUp() {

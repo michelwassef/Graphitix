@@ -230,15 +230,44 @@
           pcaMinSvgWidth=pcaSvgBox.getBoundingClientRect().width*0.5;
           const minGraph=configWidth+gap+pcaMinSvgWidth;
           const total=startTable+startGraph;
-          console.debug('pca resizer start',{startTable,startGraph,configWidth,gap,pcaMinSvgWidth,minGraph,total});
+          const tableDataset=pcaTablePanel.dataset||{};
+          let defaultTableWidth=Number.parseFloat(tableDataset.panelDefaultWidth);
+          if(!Number.isFinite(defaultTableWidth) || defaultTableWidth<=0){
+            defaultTableWidth=startTable;
+            tableDataset.panelDefaultWidth=String(defaultTableWidth);
+            console.debug('Debug: pca resizer default width stored',{defaultTableWidth}); // Debug: capture default position
+          }else{
+            console.debug('Debug: pca resizer default width reused',{defaultTableWidth}); // Debug: reuse stored default
+          }
+          let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
+          if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
+            storedMinWidth = Math.max(150, defaultTableWidth);
+            tableDataset.panelMinWidth = String(storedMinWidth);
+            console.debug('Debug: pca resizer min width stored',{ storedMinWidth, defaultTableWidth }); // Debug: persist min width baseline
+          }
+          if(pcaTablePanel?.style){
+            const existingMin = Number.parseFloat(pcaTablePanel.style.minWidth) || 0;
+            const enforcedMin = Math.max(existingMin, storedMinWidth);
+            if(enforcedMin !== existingMin){
+              pcaTablePanel.style.minWidth = `${enforcedMin}px`;
+              console.debug('Debug: pca resizer min style enforced',{ enforcedMin, existingMin }); // Debug: align style min width
+            }
+          }
+          console.debug('pca resizer start',{startTable,startGraph,configWidth,gap,pcaMinSvgWidth,minGraph,total,defaultTableWidth,storedMinWidth});
           function onMove(ev){
             const dx=ev.clientX-startX;
-            let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx));
+            const proposedTable=startTable+dx;
+            const clampedBase=Math.min(total-minGraph, proposedTable);
+            const minTableWidth=Math.max(150, defaultTableWidth, storedMinWidth);
+            let newTable=Math.max(minTableWidth, clampedBase);
             let newGraph=total-newTable;
             pcaTablePanel.style.flex=`0 0 ${newTable}px`;
+            pcaTablePanel.style.flexBasis=`${newTable}px`;
+            pcaTablePanel.style.width=`${newTable}px`;
+            pcaTablePanel.style.minWidth=`${minTableWidth}px`;
             pcaGraphPanel.style.flex=`0 0 ${newGraph}px`;
             syncPcaWidths();
-            console.debug('pca resizer move',{dx,newTable,newGraph});
+            console.debug('pca resizer move',{dx,proposedTable,newTable,newGraph,defaultTableWidth,minTableWidth});
           }
           function onUp(){
             document.removeEventListener('pointermove',onMove);

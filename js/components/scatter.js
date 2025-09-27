@@ -397,15 +397,44 @@
           scatterMinSvgWidth=scatterSvgBox.getBoundingClientRect().width*0.5;
           const minGraph=configWidth+gap+scatterMinSvgWidth;
           const total=startTable+startGraph;
-          console.debug('scatter resizer start',{startTable,startGraph,configWidth,gap,scatterMinSvgWidth,minGraph,total});
+          const tableDataset=scatterTablePanel.dataset||{};
+          let defaultTableWidth=Number.parseFloat(tableDataset.panelDefaultWidth);
+          if(!Number.isFinite(defaultTableWidth) || defaultTableWidth<=0){
+            defaultTableWidth=startTable;
+            tableDataset.panelDefaultWidth=String(defaultTableWidth);
+            console.debug('Debug: scatter resizer default width stored',{defaultTableWidth}); // Debug: capture default position
+          }else{
+            console.debug('Debug: scatter resizer default width reused',{defaultTableWidth}); // Debug: reuse stored default
+          }
+          let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
+          if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
+            storedMinWidth = Math.max(150, defaultTableWidth);
+            tableDataset.panelMinWidth = String(storedMinWidth);
+            console.debug('Debug: scatter resizer min width stored',{ storedMinWidth, defaultTableWidth }); // Debug: persist min width baseline
+          }
+          if(scatterTablePanel?.style){
+            const existingMin = Number.parseFloat(scatterTablePanel.style.minWidth) || 0;
+            const enforcedMin = Math.max(existingMin, storedMinWidth);
+            if(enforcedMin !== existingMin){
+              scatterTablePanel.style.minWidth = `${enforcedMin}px`;
+              console.debug('Debug: scatter resizer min style enforced',{ enforcedMin, existingMin }); // Debug: align style min width
+            }
+          }
+          console.debug('scatter resizer start',{startTable,startGraph,configWidth,gap,scatterMinSvgWidth,minGraph,total,defaultTableWidth,storedMinWidth});
           function onMove(ev){
             const dx=ev.clientX-startX;
-            let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx));
+            const proposedTable=startTable+dx;
+            const clampedBase=Math.min(total-minGraph, proposedTable);
+            const minTableWidth=Math.max(150, defaultTableWidth, storedMinWidth);
+            const newTable=Math.max(minTableWidth, clampedBase);
             let newGraph=total-newTable;
             scatterTablePanel.style.flex=`0 0 ${newTable}px`;
+            scatterTablePanel.style.flexBasis=`${newTable}px`;
+            scatterTablePanel.style.width=`${newTable}px`;
+            scatterTablePanel.style.minWidth=`${minTableWidth}px`;
             scatterGraphPanel.style.flex=`0 0 ${newGraph}px`;
             syncScatterPanels();
-            console.debug('scatter resizer move',{dx,newTable,newGraph});
+            console.debug('scatter resizer move',{dx,proposedTable,newTable,newGraph,defaultTableWidth,minTableWidth});
           }
           function onUp(){
             document.removeEventListener('pointermove',onMove);
