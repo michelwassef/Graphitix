@@ -258,6 +258,26 @@
       return shouldGrow;
     };
 
+    const resolveRowInsertAction = (totalRows)=>{
+      if(totalRows <= 0){
+        console.debug('Debug: autoGrow resolveRowInsertAction selecting insert_row_above for empty table', { debugLabel, totalRows });
+        return { action: 'insert_row_above', index: 0 };
+      }
+      const index = Math.max(totalRows - 1, 0);
+      console.debug('Debug: autoGrow resolveRowInsertAction selecting insert_row_below', { debugLabel, totalRows, index });
+      return { action: 'insert_row_below', index };
+    };
+
+    const resolveColInsertAction = (totalCols)=>{
+      if(totalCols <= 0){
+        console.debug('Debug: autoGrow resolveColInsertAction selecting insert_col_start for empty table', { debugLabel, totalCols });
+        return { action: 'insert_col_start', index: 0 };
+      }
+      const index = Math.max(totalCols - 1, 0);
+      console.debug('Debug: autoGrow resolveColInsertAction selecting insert_col_end', { debugLabel, totalCols, index });
+      return { action: 'insert_col_end', index };
+    };
+
     const triggerRowInsert = (reason)=>{
       const localInstance = instance;
       if(!localInstance){
@@ -274,7 +294,9 @@
         return;
       }
       console.debug('Debug: autoGrow triggerRowInsert executing', { debugLabel, amount, reason, totalRows });
-      localInstance.alter('insert_row', totalRows, amount, 'autoGrow');
+      const { action, index } = resolveRowInsertAction(totalRows);
+      console.debug('Debug: autoGrow triggerRowInsert action resolved', { debugLabel, action, index, amount, reason });
+      localInstance.alter(action, index, amount, 'autoGrow');
       triggerSchedule('autoGrowRows', { amount, reason, totalRows });
     };
 
@@ -294,7 +316,9 @@
         return;
       }
       console.debug('Debug: autoGrow triggerColInsert executing', { debugLabel, amount, reason, totalCols });
-      localInstance.alter('insert_col', totalCols, amount, 'autoGrow');
+      const { action, index } = resolveColInsertAction(totalCols);
+      console.debug('Debug: autoGrow triggerColInsert action resolved', { debugLabel, action, index, amount, reason });
+      localInstance.alter(action, index, amount, 'autoGrow');
       triggerSchedule('autoGrowCols', { amount, reason, totalCols });
     };
 
