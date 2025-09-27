@@ -143,15 +143,44 @@
         state.minSvgWidth = (refs.svgBox?.getBoundingClientRect().width || 0) * 0.5;
         const minGraph = configWidth + gap + state.minSvgWidth;
         const total = startTable + startGraph;
-        console.debug('Debug: ROC panel drag start', {startTable, startGraph, configWidth, gap, minSvgWidth: state.minSvgWidth});
+        const tableDataset = refs.tablePanel.dataset || {};
+        let defaultTableWidth = Number.parseFloat(tableDataset.panelDefaultWidth);
+        if(!Number.isFinite(defaultTableWidth) || defaultTableWidth <= 0){
+          defaultTableWidth = startTable;
+          tableDataset.panelDefaultWidth = String(defaultTableWidth);
+          console.debug('Debug: ROC resizer default width stored', { defaultTableWidth }); // Debug: capture default position
+        }else{
+          console.debug('Debug: ROC resizer default width reused', { defaultTableWidth }); // Debug: reuse stored default
+        }
+        let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
+        if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
+          storedMinWidth = Math.max(150, defaultTableWidth);
+          tableDataset.panelMinWidth = String(storedMinWidth);
+          console.debug('Debug: ROC resizer min width stored', { storedMinWidth, defaultTableWidth }); // Debug: persist min width baseline
+        }
+        if(refs.tablePanel?.style){
+          const existingMin = Number.parseFloat(refs.tablePanel.style.minWidth) || 0;
+          const enforcedMin = Math.max(existingMin, storedMinWidth);
+          if(enforcedMin !== existingMin){
+            refs.tablePanel.style.minWidth = `${enforcedMin}px`;
+            console.debug('Debug: ROC resizer min style enforced', { enforcedMin, existingMin }); // Debug: align style min width
+          }
+        }
+        console.debug('Debug: ROC panel drag start', {startTable, startGraph, configWidth, gap, minSvgWidth: state.minSvgWidth, defaultTableWidth, storedMinWidth});
         function onMove(ev){
           const dx = ev.clientX - startX;
-          const newTable = Math.max(150, Math.min(total - minGraph, startTable + dx));
+          const proposedTable = startTable + dx;
+          const clampedBase = Math.min(total - minGraph, proposedTable);
+          const minTableWidth = Math.max(150, defaultTableWidth, storedMinWidth);
+          const newTable = Math.max(minTableWidth, clampedBase);
           const newGraph = total - newTable;
           refs.tablePanel.style.flex = `0 0 ${newTable}px`;
+          refs.tablePanel.style.flexBasis = `${newTable}px`;
+          refs.tablePanel.style.width = `${newTable}px`;
+          refs.tablePanel.style.minWidth = `${minTableWidth}px`;
           refs.graphPanel.style.flex = `0 0 ${newGraph}px`;
           syncTableAndGraphWidths();
-          console.debug('Debug: ROC panel drag move', {dx, newTable, newGraph});
+          console.debug('Debug: ROC panel drag move', {dx, proposedTable, newTable, newGraph, defaultTableWidth, minTableWidth});
         }
         function onUp(){
           document.removeEventListener('pointermove', onMove);

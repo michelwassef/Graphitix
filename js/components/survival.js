@@ -164,15 +164,44 @@
         state.minSvgWidth = Math.max(state.minSvgWidth, svgWidth * 0.5);
         const minGraph = configWidth + gap + state.minSvgWidth;
         const total = startTable + startGraph;
-        logDebug('panel drag start', { startTable, startGraph, minGraph, total });
+        const tableDataset = refs.tablePanel.dataset || {};
+        let defaultTableWidth = Number.parseFloat(tableDataset.panelDefaultWidth);
+        if(!Number.isFinite(defaultTableWidth) || defaultTableWidth <= 0){
+          defaultTableWidth = startTable;
+          tableDataset.panelDefaultWidth = String(defaultTableWidth);
+          logDebug('panel default width stored', { defaultTableWidth });
+        }else{
+          logDebug('panel default width reused', { defaultTableWidth });
+        }
+        let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
+        if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
+          storedMinWidth = Math.max(150, defaultTableWidth);
+          tableDataset.panelMinWidth = String(storedMinWidth);
+          logDebug('panel min width stored', { storedMinWidth, defaultTableWidth });
+        }
+        if(refs.tablePanel?.style){
+          const existingMin = Number.parseFloat(refs.tablePanel.style.minWidth) || 0;
+          const enforcedMin = Math.max(existingMin, storedMinWidth);
+          if(enforcedMin !== existingMin){
+            refs.tablePanel.style.minWidth = `${enforcedMin}px`;
+            logDebug('panel min style enforced', { enforcedMin, existingMin });
+          }
+        }
+        logDebug('panel drag start', { startTable, startGraph, minGraph, total, defaultTableWidth, storedMinWidth });
         function onMove(ev){
           const dx = ev.clientX - startX;
-          const newTable = Math.max(150, Math.min(total - minGraph, startTable + dx));
+          const proposedTable = startTable + dx;
+          const clampedBase = Math.min(total - minGraph, proposedTable);
+          const minTableWidth = Math.max(150, defaultTableWidth, storedMinWidth);
+          const newTable = Math.max(minTableWidth, clampedBase);
           const newGraph = total - newTable;
           refs.tablePanel.style.flex = `0 0 ${newTable}px`;
+          refs.tablePanel.style.flexBasis = `${newTable}px`;
+          refs.tablePanel.style.width = `${newTable}px`;
+          refs.tablePanel.style.minWidth = `${minTableWidth}px`;
           refs.graphPanel.style.flex = `0 0 ${newGraph}px`;
           syncPanelWidths();
-          logDebug('panel drag move', { dx, newTable, newGraph });
+          logDebug('panel drag move', { dx, proposedTable, newTable, newGraph, defaultTableWidth, minTableWidth });
         }
         function onUp(){
           document.removeEventListener('pointermove', onMove);

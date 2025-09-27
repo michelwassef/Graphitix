@@ -137,8 +137,45 @@
         minSvgWidth=(svgBox?.getBoundingClientRect().width||0)*0.5;
         const minGraph=configWidth+gap+minSvgWidth;
         const total=startTable+startGraph;
-        console.debug('Debug: pie resizer start',{startTable,startGraph,configWidth,gap,minSvgWidth,minGraph,total});
-        function onMove(ev){ const dx=ev.clientX-startX; let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx)); let newGraph=total-newTable; tablePanel.style.flex=`0 0 ${newTable}px`; graphPanel.style.flex=`0 0 ${newGraph}px`; syncPiePanels(); console.debug('Debug: pie resizer move',{dx,newTable,newGraph}); }
+        const tableDataset=tablePanel.dataset||{};
+        let defaultTableWidth=Number.parseFloat(tableDataset.panelDefaultWidth);
+        if(!Number.isFinite(defaultTableWidth) || defaultTableWidth<=0){
+          defaultTableWidth=startTable;
+          tableDataset.panelDefaultWidth=String(defaultTableWidth);
+          console.debug('Debug: pie resizer default width stored',{defaultTableWidth}); // Debug: capture default position
+        }else{
+          console.debug('Debug: pie resizer default width reused',{defaultTableWidth}); // Debug: reuse stored default
+        }
+        let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
+        if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
+          storedMinWidth = Math.max(150, defaultTableWidth);
+          tableDataset.panelMinWidth = String(storedMinWidth);
+          console.debug('Debug: pie resizer min width stored',{ storedMinWidth, defaultTableWidth }); // Debug: persist min width baseline
+        }
+        if(tablePanel?.style){
+          const existingMin = Number.parseFloat(tablePanel.style.minWidth) || 0;
+          const enforcedMin = Math.max(existingMin, storedMinWidth);
+          if(enforcedMin !== existingMin){
+            tablePanel.style.minWidth = `${enforcedMin}px`;
+            console.debug('Debug: pie resizer min style enforced',{ enforcedMin, existingMin }); // Debug: align style min width
+          }
+        }
+        console.debug('Debug: pie resizer start',{startTable,startGraph,configWidth,gap,minSvgWidth,minGraph,total,defaultTableWidth,storedMinWidth});
+        function onMove(ev){
+          const dx=ev.clientX-startX;
+          const proposedTable=startTable+dx;
+          const clampedBase=Math.min(total-minGraph, proposedTable);
+          const minTableWidth=Math.max(150, defaultTableWidth, storedMinWidth);
+          const newTable=Math.max(minTableWidth, clampedBase);
+          let newGraph=total-newTable;
+          tablePanel.style.flex=`0 0 ${newTable}px`;
+          tablePanel.style.flexBasis=`${newTable}px`;
+          tablePanel.style.width=`${newTable}px`;
+          tablePanel.style.minWidth=`${minTableWidth}px`;
+          graphPanel.style.flex=`0 0 ${newGraph}px`;
+          syncPiePanels();
+          console.debug('Debug: pie resizer move',{dx,proposedTable,newTable,newGraph,defaultTableWidth,minTableWidth});
+        }
         function onUp(){ document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp); console.debug('Debug: pie resizer end'); }
         document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
       });

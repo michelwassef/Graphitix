@@ -856,15 +856,44 @@
         lineMinSvgWidth=refs.svgBox?.getBoundingClientRect().width*0.5||0;
         const minGraph=configWidth+gap+lineMinSvgWidth;
         const total=startTable+startGraph;
-        console.debug('Debug: line resizer start',{startTable,startGraph,configWidth,gap,lineMinSvgWidth,minGraph,total}); // Debug: resizer start
+        const tableDataset=refs.tablePanel.dataset||{};
+        let defaultTableWidth=Number.parseFloat(tableDataset.panelDefaultWidth);
+        if(!Number.isFinite(defaultTableWidth) || defaultTableWidth<=0){
+          defaultTableWidth=startTable;
+          tableDataset.panelDefaultWidth=String(defaultTableWidth);
+          console.debug('Debug: line resizer default width stored',{defaultTableWidth}); // Debug: capture default position
+        }else{
+          console.debug('Debug: line resizer default width reused',{defaultTableWidth}); // Debug: reuse stored default
+        }
+        let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
+        if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
+          storedMinWidth = Math.max(150, defaultTableWidth);
+          tableDataset.panelMinWidth = String(storedMinWidth);
+          console.debug('Debug: line resizer min width stored',{ storedMinWidth, defaultTableWidth }); // Debug: persist min width baseline
+        }
+        if(refs.tablePanel?.style){
+          const existingMin = Number.parseFloat(refs.tablePanel.style.minWidth) || 0;
+          const enforcedMin = Math.max(existingMin, storedMinWidth);
+          if(enforcedMin !== existingMin){
+            refs.tablePanel.style.minWidth = `${enforcedMin}px`;
+            console.debug('Debug: line resizer min style enforced',{ enforcedMin, existingMin }); // Debug: align style min width
+          }
+        }
+        console.debug('Debug: line resizer start',{startTable,startGraph,configWidth,gap,lineMinSvgWidth,minGraph,total,defaultTableWidth,storedMinWidth}); // Debug: resizer start
         function onMove(ev){
           const dx=ev.clientX-startX;
-          let newTable=Math.max(150, Math.min(total-minGraph, startTable+dx));
+          const proposedTable=startTable+dx;
+          const clampedBase=Math.min(total-minGraph, proposedTable);
+          const minTableWidth=Math.max(150, defaultTableWidth, storedMinWidth);
+          const newTable=Math.max(minTableWidth, clampedBase);
           let newGraph=total-newTable;
           refs.tablePanel.style.flex=`0 0 ${newTable}px`;
+          refs.tablePanel.style.flexBasis=`${newTable}px`;
+          refs.tablePanel.style.width=`${newTable}px`;
+          refs.tablePanel.style.minWidth=`${minTableWidth}px`;
           refs.graphPanel.style.flex=`0 0 ${newGraph}px`;
           syncLineWidths();
-          console.debug('Debug: line resizer move',{dx,newTable,newGraph}); // Debug: resizer move
+          console.debug('Debug: line resizer move',{dx,proposedTable,newTable,newGraph,defaultTableWidth,minTableWidth}); // Debug: resizer move
         }
         function onUp(){
           document.removeEventListener('pointermove',onMove);
