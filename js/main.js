@@ -2171,7 +2171,35 @@
 
   function createSelectionCards() {
     if (!dom.selectionGrid) return;
-    dom.selectionGrid.innerHTML = '';
+    const existingCards = dom.selectionGrid.querySelectorAll('[data-graph-type]');
+    if (existingCards.length) {
+      const infoByType = new Map(GRAPH_TYPES.map(info => [info.type, info]));
+      existingCards.forEach(card => {
+        const { graphType } = card.dataset;
+        const info = infoByType.get(graphType);
+        if (!info) {
+          console.debug('Debug: removing orphaned welcome card', { graphType });
+          card.remove();
+          return;
+        }
+        const hint = card.querySelector('.graph-card__hint');
+        const title = card.querySelector('.graph-card__title');
+        const description = card.querySelector('.graph-card__description');
+        if (hint) hint.textContent = info.hint || 'Workspace';
+        if (title) title.textContent = info.label;
+        if (description) description.textContent = info.description;
+        if (!card.dataset.boundClick) {
+          card.addEventListener('click', () => {
+            console.debug('Debug: graph card selected', { type: info.type });
+            handleGraphSelection(info.type);
+          });
+          card.dataset.boundClick = 'true';
+        }
+      });
+      console.debug('Debug: selection cards hydrated', { count: existingCards.length });
+      return;
+    }
+    const fragment = document.createDocumentFragment();
     GRAPH_TYPES.forEach(info => {
       const card = document.createElement('button');
       card.type = 'button';
@@ -2183,12 +2211,16 @@
         <h3 class="graph-card__title">${info.label}</h3>
         <p class="graph-card__description">${info.description}</p>
       `;
+      card.dataset.boundClick = 'true';
       card.addEventListener('click', () => {
         console.debug('Debug: graph card selected', { type: info.type });
         handleGraphSelection(info.type);
       });
-      dom.selectionGrid.appendChild(card);
+      fragment.appendChild(card);
     });
+    dom.selectionGrid.innerHTML = '';
+    dom.selectionGrid.appendChild(fragment);
+    console.debug('Debug: selection cards generated', { count: GRAPH_TYPES.length });
   }
 
   function bootstrapComponents() {
