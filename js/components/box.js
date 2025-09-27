@@ -62,7 +62,7 @@
   function ensureWrapperStyles(){ const wrapper=global.document.getElementById('hotWrapper'); if(global.Shared && Shared.ensureHotWrapperStyles) Shared.ensureHotWrapperStyles(wrapper); }
 
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] } };
   const els = {};
 
   // PART: CACHE_ELS
@@ -75,6 +75,12 @@
     els.hotContainer = global.document.getElementById('hot');
     els.hotWrapper = global.document.getElementById('hotWrapper');
     els.plotDiv = global.document.getElementById('boxPlot');
+    els.tableFormat = global.document.getElementById('boxTableFormat');
+    els.groupedControls = global.document.getElementById('boxGroupedControls');
+    els.groupedReplicates = global.document.getElementById('boxGroupedReplicates');
+    els.groupedList = global.document.getElementById('boxGroupedList');
+    els.groupedAdd = global.document.getElementById('boxGroupedAdd');
+    els.groupedRemove = global.document.getElementById('boxGroupedRemove');
     // Controls
     els.boxColorUnified=global.$('#boxColorUnified');
     els.boxColorIndividual=global.$('#boxColorIndividual');
@@ -205,6 +211,169 @@
     }
   }
 
+  function ensureGroupedDefaults(){
+    if(!state.grouped || typeof state.grouped !== 'object'){
+      state.grouped = { replicatesPerGroup: 3, groups: ['Control', 'Treated'] };
+    }
+    const rawReplicates = Number(state.grouped.replicatesPerGroup);
+    if(!Number.isFinite(rawReplicates) || rawReplicates < 1){
+      state.grouped.replicatesPerGroup = 1;
+    }else{
+      state.grouped.replicatesPerGroup = Math.max(1, Math.round(rawReplicates));
+    }
+    if(!Array.isArray(state.grouped.groups) || !state.grouped.groups.length){
+      state.grouped.groups = ['Group 1', 'Group 2'];
+    }
+    state.grouped.groups = state.grouped.groups.map((name, idx)=>{
+      const trimmed = typeof name === 'string' ? name.trim() : '';
+      return trimmed || `Group ${idx + 1}`;
+    });
+    console.debug('Debug: ensureGroupedDefaults',{ replicates: state.grouped.replicatesPerGroup, groups: [...state.grouped.groups] });
+  }
+
+  function buildGroupedNestedHeaders(){
+    ensureGroupedDefaults();
+    const headers = state.grouped.groups.map((name, idx)=>({ label: name || `Group ${idx + 1}`, colspan: state.grouped.replicatesPerGroup }));
+    console.debug('Debug: buildGroupedNestedHeaders',{ headers });
+    return [headers];
+  }
+
+  function updateGroupedHeaders(){
+    if(state.tableFormat !== 'grouped' || !state.hot){
+      console.debug('Debug: updateGroupedHeaders skipped',{ tableFormat: state.tableFormat, hasHot: !!state.hot });
+      return;
+    }
+    const nested = buildGroupedNestedHeaders();
+    state.hot.updateSettings({ nestedHeaders: nested });
+    console.debug('Debug: updateGroupedHeaders applied',{ nested });
+  }
+
+  function renderGroupedList(){
+    if(!els.groupedList){
+      console.debug('Debug: renderGroupedList skipped no container');
+      return;
+    }
+    ensureGroupedDefaults();
+    els.groupedList.innerHTML='';
+    state.grouped.groups.forEach((name, idx)=>{
+      const row = global.document.createElement('div');
+      row.className = 'grouped-row';
+      const label = global.document.createElement('label');
+      label.textContent = `Group ${idx + 1}`;
+      const input = global.document.createElement('input');
+      input.type = 'text';
+      input.value = name;
+      input.addEventListener('input', e=>{
+        state.grouped.groups[idx] = e.target.value;
+        console.debug('Debug: grouped name updated',{ index: idx, value: state.grouped.groups[idx] });
+        updateGroupedHeaders();
+        state.scheduleDraw();
+      });
+      const removeBtn = global.document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'grouped-remove';
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click',()=>{
+        if(state.grouped.groups.length <= 1){
+          console.debug('Debug: grouped remove prevented minimum',{ length: state.grouped.groups.length });
+          return;
+        }
+        const removed = state.grouped.groups.splice(idx,1);
+        console.debug('Debug: grouped remove',{ index: idx, removed });
+        renderGroupedList();
+        applyTableFormatToHot();
+        state.scheduleDraw();
+      });
+      row.appendChild(label);
+      row.appendChild(input);
+      row.appendChild(removeBtn);
+      els.groupedList.appendChild(row);
+    });
+    if(els.groupedReplicates){
+      els.groupedReplicates.value = String(state.grouped.replicatesPerGroup);
+    }
+  }
+
+  function adjustColumnsForGrouped(){
+    if(!state.hot){
+      console.debug('Debug: adjustColumnsForGrouped skipped no hot');
+      return;
+    }
+    ensureGroupedDefaults();
+    const groupsCount = state.grouped.groups.length;
+    const replicates = Math.max(1, state.grouped.replicatesPerGroup);
+    const targetCols = Math.max(0, groupsCount * replicates);
+    const currentCols = state.hot.countCols();
+    if(targetCols > currentCols){
+      state.hot.alter('insert_col', currentCols, targetCols - currentCols);
+    }else if(targetCols < currentCols){
+      state.hot.alter('remove_col', targetCols, currentCols - targetCols);
+    }
+    state.colOrder = Array.from({ length: state.hot.countCols() }, (_, i)=>i);
+    console.debug('Debug: adjustColumnsForGrouped',{ groupsCount, replicates, targetCols, currentCols });
+  }
+
+  function applyTableFormatToHot(){
+    if(!state.hot){
+      console.debug('Debug: applyTableFormatToHot skipped no hot');
+      return;
+    }
+    if(state.tableFormat === 'grouped'){
+      ensureGroupedDefaults();
+      adjustColumnsForGrouped();
+      const nested = buildGroupedNestedHeaders();
+      state.hot.updateSettings({ nestedHeaders: nested });
+      console.debug('Debug: applyTableFormatToHot grouped',{ nested });
+    }else{
+      state.hot.updateSettings({ nestedHeaders: false });
+      console.debug('Debug: applyTableFormatToHot single');
+    }
+  }
+
+  function updateTableFormatUI(){
+    if(els.tableFormat){
+      els.tableFormat.value = state.tableFormat;
+    }
+    if(els.groupedControls){
+      els.groupedControls.style.display = state.tableFormat === 'grouped' ? '' : 'none';
+    }
+    if(state.tableFormat === 'grouped'){
+      renderGroupedList();
+      updateGroupedHeaders();
+    }
+    console.debug('Debug: updateTableFormatUI',{ tableFormat: state.tableFormat });
+  }
+
+  function setTableFormat(mode, options){
+    const opts = options || {};
+    const normalized = mode === 'grouped' ? 'grouped' : 'single';
+    if(state.tableFormat === normalized){
+      console.debug('Debug: setTableFormat no change',{ mode: normalized });
+      if(!opts.skipUI){
+        updateTableFormatUI();
+      }
+      applyTableFormatToHot();
+      if(!opts.skipDraw){
+        state.scheduleDraw();
+      }
+      return;
+    }
+    state.tableFormat = normalized;
+    console.debug('Debug: setTableFormat',{ mode: normalized });
+    if(normalized === 'grouped' && els.boxColorUnified?.checked && !opts.skipColorSwitch){
+      els.boxColorIndividual.checked = true;
+      toggleColorMode();
+      console.debug('Debug: auto color mode switch for grouped');
+    }
+    if(!opts.skipUI){
+      updateTableFormatUI();
+    }
+    applyTableFormatToHot();
+    if(!opts.skipDraw){
+      state.scheduleDraw();
+    }
+  }
+
   // PART: INIT_HOT
   function initHot(){
     console.debug('Debug: box initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
@@ -245,9 +414,25 @@
     });
   
     const loadExampleBtn=global.$('#boxLoadExample'), importBtn=global.$('#boxImport'), fileInput=global.$('#boxFile');
-    const exampleData=[['Control','Treatment A','Treatment B'],[12,15,14],[14,17,15],[11,14,13],[13,16,16],[15,18,18],[16,19,17],[14,16,15],[13,15,14],[12,14,13],[15,17,16]];
-    if(global.DEBUG_BOX) console.log('boxplot example dataset', exampleData);
-    loadExampleBtn.addEventListener('click',()=>{ state.selectedCols.clear(); state.hot.loadData(exampleData); console.log('boxplot example loaded'); state.scheduleDraw(); });
+    const exampleSingle=[['Control','Treatment A','Treatment B'],[12,15,14],[14,17,15],[11,14,13],[13,16,16],[15,18,18],[16,19,17],[14,16,15],[13,15,14],[12,14,13],[15,17,16]];
+    const exampleGrouped=[['Wild type','Knock-out A','Knock-out B','Wild type','Knock-out A','Knock-out B'],[23,24,21,67,29,65],[21,23,25,79,31,69],[19,25,27,98,32,71],[22,26,24,88,30,67]];
+    console.debug('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
+    loadExampleBtn.addEventListener('click',()=>{
+      state.selectedCols.clear();
+      if(state.tableFormat === 'grouped'){
+        state.grouped.replicatesPerGroup = 3;
+        state.grouped.groups = ['Control','Treated'];
+        renderGroupedList();
+        updateTableFormatUI();
+        applyTableFormatToHot();
+        state.hot.loadData(exampleGrouped);
+        console.log('boxplot grouped example loaded');
+      }else{
+        state.hot.loadData(exampleSingle);
+        console.log('boxplot example loaded');
+      }
+      state.scheduleDraw();
+    });
     importBtn.addEventListener('click',()=>{ fileInput.value=''; fileInput.click(); });
     const tableImport = Shared.tableImport;
     fileInput.addEventListener('change',()=>{
@@ -282,6 +467,8 @@
         }
       },true);
     }
+    applyTableFormatToHot();
+    updateTableFormatUI();
   }
 
   // PART: UI
@@ -292,19 +479,82 @@
     console.log('box color mode toggled',mode);
     state.scheduleDraw();
   }
-  function updateBoxColorPickers(labels){
+  function updateBoxColorPickers(labels, options){
+    const opts = options || {};
+    const grouped = !!opts.grouped;
     if(els.boxColorUnified.checked){ els.boxColorPerBox.innerHTML=''; return; }
     els.boxColorPerBox.innerHTML='';
     labels.forEach((lab,i)=>{
-      if(!state.fillColors[i]) state.fillColors[i]=DEFAULT_BOX_COLORS[i%DEFAULT_BOX_COLORS.length];
-      if(!state.borderColors[i]) state.borderColors[i]=shadeColor(state.fillColors[i],-30);
-      const fillInput=document.createElement('input'); fillInput.type='color'; fillInput.value=state.fillColors[i]; if(global.attachColorPickerNear) global.attachColorPickerNear(fillInput); fillInput.addEventListener('input',e=>{ state.fillColors[i]=e.target.value; console.log('box fill color changed',{index:i,color:state.fillColors[i]}); state.scheduleDraw(); });
-      const borderInput=document.createElement('input'); borderInput.type='color'; borderInput.value=state.borderColors[i]; if(global.attachColorPickerNear) global.attachColorPickerNear(borderInput); borderInput.addEventListener('input',e=>{ state.borderColors[i]=e.target.value; console.log('box border color changed',{index:i,color:state.borderColors[i]}); state.scheduleDraw(); });
+      const colorIndex=i;
+      if(!state.fillColors[colorIndex]) state.fillColors[colorIndex]=DEFAULT_BOX_COLORS[colorIndex%DEFAULT_BOX_COLORS.length];
+      if(!state.borderColors[colorIndex]) state.borderColors[colorIndex]=shadeColor(state.fillColors[colorIndex],-30);
+      const fillInput=document.createElement('input');
+      fillInput.type='color';
+      fillInput.value=state.fillColors[colorIndex];
+      if(global.attachColorPickerNear) global.attachColorPickerNear(fillInput);
+      fillInput.addEventListener('input',e=>{
+        state.fillColors[colorIndex]=e.target.value;
+        console.log('box fill color changed',{index:colorIndex,color:state.fillColors[colorIndex],grouped});
+        state.scheduleDraw();
+      });
+      const borderInput=document.createElement('input');
+      borderInput.type='color';
+      borderInput.value=state.borderColors[colorIndex];
+      if(global.attachColorPickerNear) global.attachColorPickerNear(borderInput);
+      borderInput.addEventListener('input',e=>{
+        state.borderColors[colorIndex]=e.target.value;
+        console.log('box border color changed',{index:colorIndex,color:state.borderColors[colorIndex],grouped});
+        state.scheduleDraw();
+      });
       const lbl=document.createElement('label'); lbl.textContent=lab+' '; lbl.appendChild(fillInput); lbl.appendChild(borderInput); els.boxColorPerBox.appendChild(lbl);
     });
-    state.fillColors.length=labels.length; state.borderColors.length=labels.length; console.log('updateBoxColorPickers',{fillColors:state.fillColors,borderColors:state.borderColors});
+    state.fillColors.length=labels.length;
+    state.borderColors.length=labels.length;
+    console.debug('Debug: updateBoxColorPickers applied',{ labelsCount: labels.length, grouped, fillColors: [...state.fillColors], borderColors: [...state.borderColors] });
   }
   function initUI(){
+    if(els.tableFormat){
+      els.tableFormat.addEventListener('change', e=>{
+        console.debug('Debug: tableFormat select change',{ value: e.target.value });
+        setTableFormat(e.target.value);
+      });
+    }
+    if(els.groupedReplicates){
+      els.groupedReplicates.addEventListener('change', e=>{
+        const raw = Number(e.target.value);
+        const resolved = Number.isFinite(raw) && raw >= 1 ? Math.round(raw) : state.grouped.replicatesPerGroup;
+        state.grouped.replicatesPerGroup = resolved;
+        console.debug('Debug: grouped replicates change',{ raw, resolved });
+        renderGroupedList();
+        applyTableFormatToHot();
+        state.scheduleDraw();
+      });
+    }
+    if(els.groupedAdd){
+      els.groupedAdd.addEventListener('click',()=>{
+        ensureGroupedDefaults();
+        const nextLabel = `Group ${state.grouped.groups.length + 1}`;
+        state.grouped.groups.push(nextLabel);
+        console.debug('Debug: grouped add button',{ nextLabel, groups: [...state.grouped.groups] });
+        renderGroupedList();
+        applyTableFormatToHot();
+        state.scheduleDraw();
+      });
+    }
+    if(els.groupedRemove){
+      els.groupedRemove.addEventListener('click',()=>{
+        ensureGroupedDefaults();
+        if(state.grouped.groups.length <= 1){
+          console.debug('Debug: grouped remove button blocked',{ length: state.grouped.groups.length });
+          return;
+        }
+        const removed = state.grouped.groups.pop();
+        console.debug('Debug: grouped remove button',{ removed, groups: [...state.grouped.groups] });
+        renderGroupedList();
+        applyTableFormatToHot();
+        state.scheduleDraw();
+      });
+    }
     els.boxColorUnified.addEventListener('change',toggleColorMode);
     els.boxColorIndividual.addEventListener('change',toggleColorMode);
     toggleColorMode();
@@ -444,6 +694,14 @@ function renderStatsControls(traces){
   modeSel.addEventListener('change',()=>{
     state.statsMode=modeSel.value;
     console.log('boxplot statsMode changed', state.statsMode);
+    if(state.selectedCols && state.selectedCols.size){
+      const beforeSize = state.selectedCols.size;
+      const filteredSelection = [...state.selectedCols].filter(idx => idx < traces.length);
+      if(filteredSelection.length !== beforeSize){
+        state.selectedCols = new Set(filteredSelection);
+        console.debug('Debug: selectedCols pruned',{ before: beforeSize, after: filteredSelection.length });
+      }
+    }
     renderStatsControls(traces);
     state.scheduleDraw();
   });
@@ -775,34 +1033,144 @@ function renderStatsControls(traces){
     }
     console.debug('Debug: box draw orientation',{ isFlipped });
     const traces = [];
-    const labelsUsed = [];
-    const nCols = state.hot.countCols();
-    if(state.colOrder.length !== nCols){
-      state.colOrder = Array.from({ length: nCols }, (_, i) => i);
-    }
-    for(let orderIdx = 0; orderIdx < state.colOrder.length; orderIdx++){
-      const i = state.colOrder[orderIdx];
-      const headerCell = state.hot.getDataAtCell(0, i);
-      const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
-      const colData = state.hot.getDataAtCol(i);
-      const col = [];
-      console.time(`boxColCollect_${i}_${token}`);
-      for(let r = 1; r < colData.length; r++){
-        const v = parseFloat(colData[r]);
-        if(!isNaN(v)) col.push(v);
-        if(r % 10000 === 0){
-          console.log('boxplot collect progress',{ col: i, row: r, token });
+    const traceLabels = [];
+    let axisLabels = [];
+    const groupColorAssignments = new Map();
+    const resolveTraceColor = (trace, index) => {
+      const rawColorIndex = isGroupedMode && Number.isInteger(trace?.groupIndex) ? trace.groupIndex : index;
+      const colorIndex = Number.isInteger(rawColorIndex) && rawColorIndex >= 0 ? rawColorIndex : 0;
+      console.debug('Debug: box resolveTraceColor',{ traceIndex: index, colorIndex, rawColorIndex, groupName: trace?.groupName, grouped: isGroupedMode });
+      if(colorMode === 'individual'){
+        let fillColor = state.fillColors[colorIndex];
+        if(!fillColor){
+          if(isGroupedMode && trace?.groupName && groupColorAssignments.has(trace.groupName)){
+            fillColor = groupColorAssignments.get(trace.groupName).fill;
+          }else{
+            fillColor = DEFAULT_BOX_COLORS[colorIndex % DEFAULT_BOX_COLORS.length];
+          }
+          state.fillColors[colorIndex] = fillColor;
+        }
+        let borderColor = state.borderColors[colorIndex];
+        if(!borderColor){
+          if(isGroupedMode && trace?.groupName && groupColorAssignments.has(trace.groupName)){
+            borderColor = groupColorAssignments.get(trace.groupName).border;
+          }else{
+            borderColor = shadeColor(fillColor, -30);
+          }
+          state.borderColors[colorIndex] = borderColor;
+        }
+        if(isGroupedMode && trace?.groupName){
+          groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
+        }
+        return { fillColor, borderColor };
+      }
+      const fillColor = defaultFill;
+      const borderColor = defaultBorder;
+      if(isGroupedMode && trace?.groupName){
+        if(!groupColorAssignments.has(trace.groupName)){
+          groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
         }
       }
-      console.timeEnd(`boxColCollect_${i}_${token}`);
-      console.log('boxplot collected column',{ index: i, values: col.length });
-      if(token !== state.drawToken){
-        console.log('boxplot draw cancelled after collect',{ token });
-        return;
+      return { fillColor, borderColor };
+    };
+    const isGroupedMode = state.tableFormat === 'grouped';
+    if(isGroupedMode){
+      ensureGroupedDefaults();
+    }
+    const groupedGroups = isGroupedMode ? state.grouped.groups.map((name, idx)=>{ const trimmed = typeof name === 'string' ? name.trim() : ''; return trimmed || `Group ${idx + 1}`; }) : [];
+    const groupedReplicates = isGroupedMode ? Math.max(1, state.grouped.replicatesPerGroup) : 1;
+    const nCols = state.hot.countCols();
+    if(!isGroupedMode){
+      if(state.colOrder.length !== nCols){
+        state.colOrder = Array.from({ length: nCols }, (_, i) => i);
       }
-      if(col.length){
-        labelsUsed.push(label);
-        traces.push({ name: label, rawY: col });
+      for(let orderIdx = 0; orderIdx < state.colOrder.length; orderIdx++){
+        const i = state.colOrder[orderIdx];
+        const headerCell = state.hot.getDataAtCell(0, i);
+        const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
+        const colData = state.hot.getDataAtCol(i);
+        const col = [];
+        console.time(`boxColCollect_${i}_${token}`);
+        for(let r = 1; r < colData.length; r++){
+          const v = parseFloat(colData[r]);
+          if(!isNaN(v)) col.push(v);
+          if(r % 10000 === 0){
+            console.log('boxplot collect progress',{ col: i, row: r, token });
+          }
+        }
+        console.timeEnd(`boxColCollect_${i}_${token}`);
+        console.log('boxplot collected column',{ index: i, values: col.length });
+        if(token !== state.drawToken){
+          console.log('boxplot draw cancelled after collect',{ token });
+          return;
+        }
+        if(col.length){
+          traceLabels.push(label);
+          traces.push({ name: label, rawY: col });
+        }
+      }
+      axisLabels = traceLabels.slice();
+    }else{
+      state.colOrder = Array.from({ length: nCols }, (_, i) => i);
+      for(let repIdx = 0; repIdx < groupedReplicates; repIdx++){
+        const pendingTraces = [];
+        let categoryName = '';
+        for(let gIdx = 0; gIdx < groupedGroups.length; gIdx++){
+          const groupName = groupedGroups[gIdx];
+          const colIndex = gIdx * groupedReplicates + repIdx;
+          if(colIndex >= nCols){
+            console.debug('Debug: grouped column missing',{ colIndex, gIdx, repIdx, nCols });
+            continue;
+          }
+          const headerCell = state.hot.getDataAtCell(0, colIndex);
+          const headerText = headerCell && String(headerCell).trim();
+          if(headerText && !categoryName){
+            categoryName = headerText;
+          }
+          const colData = state.hot.getDataAtCol(colIndex);
+          const values = [];
+          console.time(`boxColCollect_${colIndex}_${token}`);
+          for(let r = 1; r < colData.length; r++){
+            const v = parseFloat(colData[r]);
+            if(!isNaN(v)) values.push(v);
+            if(r % 10000 === 0){
+              console.log('boxplot collect progress',{ col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
+            }
+          }
+          console.timeEnd(`boxColCollect_${colIndex}_${token}`);
+          console.log('boxplot collected column',{ index: colIndex, values: values.length, groupIndex: gIdx, replicate: repIdx });
+          if(token !== state.drawToken){
+            console.log('boxplot draw cancelled after grouped collect',{ token });
+            return;
+          }
+          if(values.length){
+            pendingTraces.push({ groupName, groupIndex: gIdx, rawY: values, columnIndex: colIndex });
+          }
+        }
+        if(!pendingTraces.length){
+          console.debug('Debug: grouped replicate without data',{ replicateIndex: repIdx });
+          continue;
+        }
+        const finalCategoryName = categoryName || `Category ${axisLabels.length + 1}`;
+        const categoryIndex = axisLabels.length;
+        axisLabels.push(finalCategoryName);
+        pendingTraces.forEach(traceInfo => {
+          const label = `${traceInfo.groupName} – ${finalCategoryName}`;
+          const trace = {
+            name: label,
+            rawY: traceInfo.rawY,
+            groupName: traceInfo.groupName,
+            groupIndex: traceInfo.groupIndex,
+            categoryName: finalCategoryName,
+            categoryIndex,
+            columnIndex: traceInfo.columnIndex
+          };
+          traces.push(trace);
+          traceLabels.push(label);
+        });
+      }
+      if(!axisLabels.length && traceLabels.length){
+        axisLabels = traceLabels.slice();
       }
     }
     if(token !== state.drawToken){
@@ -816,8 +1184,10 @@ function renderStatsControls(traces){
       global.document.getElementById('statsTable').innerHTML='';
       return;
     }
+    const colorPickerLabels = isGroupedMode ? groupedGroups : traceLabels;
+    console.debug('Debug: box color picker labels resolved',{ isGroupedMode, labelCount: colorPickerLabels.length, labels: colorPickerLabels });
     if(els.boxColorIndividual.checked){
-      updateBoxColorPickers(labelsUsed);
+      updateBoxColorPickers(colorPickerLabels, { grouped: isGroupedMode });
     }else{
       els.boxColorPerBox.innerHTML='';
     }
@@ -912,7 +1282,7 @@ function renderStatsControls(traces){
       for(let v = graphMin; v <= graphMax + 1e-9; v += step) ticks.push(v);
       return { min: graphMin, max: graphMax, ticks, step };
     }
-    const labelTexts = labelsUsed.map((lab, i) => lab || `Col ${i + 1}`);
+    const labelTexts = axisLabels.map((lab, i) => lab || `Category ${i + 1}`);
     function formatTick(v){
       return v.toLocaleString('en-US',{ maximumFractionDigits: 2, useGrouping: false });
     }
@@ -992,6 +1362,63 @@ function renderStatsControls(traces){
     };
     const maxLevelEstimate = state.selectedCols.size > 1 ? state.selectedCols.size : 0;
 
+    function drawLegend(entries, layout){
+      if(!entries || !entries.length){
+        console.debug('Debug: legend skipped',{ hasEntries: !!entries });
+        return;
+      }
+      const font = chartStyle.makeFont(fs);
+      const padding = Math.max(6, fs * 0.4);
+      const swatchSize = Math.max(10, fs * 0.8);
+      let maxTextWidth = 0;
+      entries.forEach(entry => {
+        const width = chartStyle.measureText(entry.name, font);
+        if(width > maxTextWidth) maxTextWidth = width;
+      });
+      const innerGap = Math.max(6, fs * 0.3);
+      const legendWidth = padding * 2 + swatchSize + innerGap + maxTextWidth;
+      const rowHeight = swatchSize + padding;
+      const legendHeight = padding + entries.length * rowHeight;
+      const plotRight = layout.margin.left + layout.plotW;
+      const legendX = plotRight - legendWidth - padding;
+      const legendY = layout.margin.top + padding;
+      const legendGroup = document.createElementNS(NS, 'g');
+      legendGroup.setAttribute('transform', `translate(${legendX},${legendY})`);
+      svg.appendChild(legendGroup);
+      const legendRect = document.createElementNS(NS, 'rect');
+      legendRect.setAttribute('x', '0');
+      legendRect.setAttribute('y', '0');
+      legendRect.setAttribute('width', legendWidth);
+      legendRect.setAttribute('height', legendHeight);
+      legendRect.setAttribute('fill', '#fff');
+      legendRect.setAttribute('stroke', '#333');
+      legendRect.setAttribute('stroke-width', axisStrokeWidth);
+      legendRect.setAttribute('rx', '4');
+      legendRect.setAttribute('ry', '4');
+      legendGroup.appendChild(legendRect);
+      entries.forEach((entry, idx) => {
+        const rowY = padding + idx * rowHeight;
+        const swatch = document.createElementNS(NS, 'rect');
+        swatch.setAttribute('x', padding);
+        swatch.setAttribute('y', rowY);
+        swatch.setAttribute('width', swatchSize);
+        swatch.setAttribute('height', swatchSize);
+        swatch.setAttribute('fill', entry.fill);
+        swatch.setAttribute('stroke', entry.border);
+        swatch.setAttribute('stroke-width', borderWidthPx);
+        legendGroup.appendChild(swatch);
+        const text = document.createElementNS(NS, 'text');
+        text.setAttribute('x', padding + swatchSize + innerGap);
+        text.setAttribute('y', rowY + swatchSize / 2);
+        text.setAttribute('font-size', fs);
+        text.setAttribute('dominant-baseline', 'middle');
+        text.setAttribute('fill', chartStyle.TEXT_COLOR);
+        text.textContent = entry.name;
+        legendGroup.appendChild(text);
+      });
+      console.debug('Debug: legend rendered',{ count: entries.length, legendWidth, legendHeight });
+    }
+
     function renderVertical(){
       const tickFont = chartStyle.makeFont(fs);
       const axisLabelFont = chartStyle.makeFont(fs);
@@ -1037,11 +1464,28 @@ function renderStatsControls(traces){
         yTickTarget = refinedTickTarget;
       }
       console.debug('Debug: box layout',{ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, rotate: bottomLayout.shouldRotate, yTickTarget });
-      const bandW = plotWLocal / labelsUsed.length;
+      const axisCount = Math.max(axisLabels.length, 1);
+      const bandW = plotWLocal / axisCount;
+      const groupCountLocal = isGroupedMode ? Math.max(1, groupedGroups.length) : 1;
+      const clusterGap = isGroupedMode ? Math.min(bandW * 0.25, 16) : 0;
+      let perGroupBand = isGroupedMode ? (bandW - clusterGap) / groupCountLocal : bandW;
+      if(!Number.isFinite(perGroupBand) || perGroupBand <= 0){
+        perGroupBand = bandW / Math.max(groupCountLocal, 1);
+      }
+      const groupOffset = isGroupedMode ? (bandW - perGroupBand * groupCountLocal) / 2 : 0;
       const valueRange = yScale.max - yScale.min || 1;
       const y2px = v => marginLocal.top + plotHLocal * (1 - (v - yScale.min) / valueRange);
-      const boxW = Math.max(6, Math.min(60, bandW * 0.6));
-      const xCenter = i => marginLocal.left + (i + 0.5) * bandW;
+      const boxWidthForTrace = () => Math.max(6, Math.min(60, perGroupBand * 0.6));
+      const localBandWidthForTrace = () => (isGroupedMode ? perGroupBand : bandW);
+      const xCenter = (trace, traceIndex) => {
+        if(isGroupedMode){
+          const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
+          const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
+          const left = marginLocal.left + categoryIdx * bandW + groupOffset;
+          return left + (groupIdx + 0.5) * perGroupBand;
+        }
+        return marginLocal.left + (traceIndex + 0.5) * bandW;
+      };
       const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
       if(showGrid){
@@ -1068,7 +1512,7 @@ function renderStatsControls(traces){
         const txt = add('text',{ x: yAxisX - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
       });
-      const xTickPositions = labelsUsed.map((_, i) => xCenter(i));
+      const xTickPositions = axisLabels.map((_, i) => marginLocal.left + (i + 0.5) * bandW);
       let axisXStart = xTickPositions.length ? Math.min(...xTickPositions) : yAxisX;
       let axisXEnd = xTickPositions.length ? Math.max(...xTickPositions) : yAxisX + plotWLocal;
       if(xTickPositions.length === 1){
@@ -1103,19 +1547,26 @@ function renderStatsControls(traces){
       }
       const xLabelOffset = tickLen + tickGap;
       const xLabels = [];
-      labelsUsed.forEach((lab, i) => {
-        const x = xCenter(i);
+      axisLabels.forEach((lab, i) => {
+        const x = marginLocal.left + (i + 0.5) * bandW;
         add('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
-        const labelText = lab || `Col ${i + 1}`;
+        const labelText = lab || `Category ${i + 1}`;
         const t = add('text',{ x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
         t.textContent = labelText;
-        t.style.cursor = 'ew-resize';
-        enableLabelDrag(t, i);
+        if(isGroupedMode){
+          t.style.cursor = 'default';
+        }else{
+          t.style.cursor = 'ew-resize';
+          enableLabelDrag(t, i);
+        }
         xLabels.push(t);
       });
-      console.debug('Debug: box ticks stroke scaled',{ yTickCount: yScale.ticks.length, xTickCount: labelsUsed.length, axisStrokeWidth });
+      console.debug('Debug: box ticks stroke scaled',{ yTickCount: yScale.ticks.length, xTickCount: axisLabels.length, axisStrokeWidth });
       chartStyle.applyLabelOrientation(xLabels,{ angle: -45, anchor: 'end', dy: '0.35em', force: bottomLayout.shouldRotate });
       function enableLabelDrag(t, idx){
+        if(isGroupedMode){
+          return;
+        }
         t.addEventListener('mousedown', e => {
           e.preventDefault();
           const svgRect = svg.getBoundingClientRect();
@@ -1128,7 +1579,7 @@ function renderStatsControls(traces){
             document.removeEventListener('mouseup', onUp);
             const svgX = ev.clientX - svgRect.left;
             let targetIdx = Math.floor((svgX - marginLocal.left) / bandW);
-            targetIdx = Math.max(0, Math.min(labelsUsed.length - 1, targetIdx));
+            targetIdx = Math.max(0, Math.min(axisLabels.length - 1, targetIdx));
             if(targetIdx !== idx){
               const moved = state.colOrder.splice(idx, 1)[0];
               state.colOrder.splice(targetIdx, 0, moved);
@@ -1152,7 +1603,9 @@ function renderStatsControls(traces){
         const t = traces[i];
         const vals = [...t.y].sort((a, b) => a - b);
         if(!vals.length) continue;
-        const cx = xCenter(i);
+        const cx = xCenter(t, i);
+        const localBand = localBandWidthForTrace();
+        const boxW = Math.max(6, Math.min(60, localBand * 0.6));
         const x0 = cx - boxW / 2;
         const x1 = cx + boxW / 2;
         const q1 = percentile(vals, 0.25);
@@ -1186,8 +1639,9 @@ function renderStatsControls(traces){
         const yQ3 = y2px(q3);
         const yWMin = y2px(wMin);
         const yWMax = y2px(wMax);
-        const fillColor = colorMode === 'individual' ? (state.fillColors[i] || DEFAULT_BOX_COLORS[i % DEFAULT_BOX_COLORS.length]) : defaultFill;
-        const borderColor = colorMode === 'individual' ? (state.borderColors[i] || shadeColor(fillColor, -30)) : defaultBorder;
+        const colorInfo = resolveTraceColor(t, i);
+        const fillColor = colorInfo.fillColor;
+        const borderColor = colorInfo.borderColor;
         const mean = t.y.reduce((acc, v) => acc + v, 0) / t.y.length;
         const yMean = y2px(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
@@ -1249,7 +1703,7 @@ function renderStatsControls(traces){
         }else if(graphTypeRaw === 'violin'){
           const densityInfo = computeDensity(vals, yScale.min, yScale.max, 80);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
-          const halfWidth = Math.max(6, Math.min(80, bandW * 0.45));
+          const halfWidth = Math.max(6, Math.min(80, localBand * 0.45));
           const pathParts = [];
           for(let idx = 0; idx < densityInfo.positions.length; idx++){
             const pos = densityInfo.positions[idx];
@@ -1272,7 +1726,7 @@ function renderStatsControls(traces){
           add('line',{ x1: cx - halfWidth, y1: yMed, x2: cx + halfWidth, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
           console.debug('Debug: box violin vertical render',{ index: i, points: vals.length, peak, halfWidth });
         }else if(graphTypeRaw === 'strip'){
-          const jitterWidth = Math.max(6, Math.min(bandW * 0.8, 80));
+          const jitterWidth = Math.max(6, Math.min(localBand * 0.8, 80));
           const frag = document.createDocumentFragment();
           let ptIdx = 0;
           for(const v of vals){
@@ -1345,11 +1799,18 @@ function renderStatsControls(traces){
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
       }
+      const traceCenter = idx => {
+        const trace = traces[idx];
+        if(trace){
+          return xCenter(trace, idx);
+        }
+        return marginLocal.left + (idx + 0.5) * bandW;
+      };
       return {
         margin: marginLocal,
         plotW: plotWLocal,
         plotH: plotHLocal,
-        categoryCenter: xCenter,
+        categoryCenter: traceCenter,
         valueToCoord: y2px,
         titleX: marginLocal.left + plotWLocal / 2,
         titleY: marginLocal.top / 2
@@ -1374,9 +1835,26 @@ function renderStatsControls(traces){
       const yScale = niceScale(ymin, ymax, chartStyle.estimateTickCount(Math.max(plotWLocal, 40), { axis: 'x', fallback: 6 }));
       const valueRange = yScale.max - yScale.min || 1;
       const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
-      const bandH = plotHLocal / labelsUsed.length;
-      const boxH = Math.max(6, Math.min(60, bandH * 0.6));
-      const categoryCenter = i => marginLocal.top + (i + 0.5) * bandH;
+      const axisCount = Math.max(axisLabels.length, 1);
+      const bandH = plotHLocal / axisCount;
+      const groupCountLocal = isGroupedMode ? Math.max(1, groupedGroups.length) : 1;
+      const clusterGap = isGroupedMode ? Math.min(bandH * 0.25, 16) : 0;
+      let perGroupBand = isGroupedMode ? (bandH - clusterGap) / groupCountLocal : bandH;
+      if(!Number.isFinite(perGroupBand) || perGroupBand <= 0){
+        perGroupBand = bandH / Math.max(groupCountLocal, 1);
+      }
+      const groupOffset = isGroupedMode ? (bandH - perGroupBand * groupCountLocal) / 2 : 0;
+      const boxHeightForTrace = () => Math.max(6, Math.min(60, perGroupBand * 0.6));
+      const localBandHeightForTrace = () => (isGroupedMode ? perGroupBand : bandH);
+      const categoryCenter = (trace, traceIndex) => {
+        if(isGroupedMode){
+          const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
+          const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
+          const top = marginLocal.top + categoryIdx * bandH + groupOffset;
+          return top + (groupIdx + 0.5) * perGroupBand;
+        }
+        return marginLocal.top + (traceIndex + 0.5) * bandH;
+      };
       if(showGrid){
         yScale.ticks.forEach(t => {
           const x = valueToX(t);
@@ -1387,14 +1865,18 @@ function renderStatsControls(traces){
       const yAxisLeft = marginLocal.left;
       const xAxisBottom = marginLocal.top + plotHLocal;
       add('line',{ x1: yAxisLeft, y1: marginLocal.top, x2: yAxisLeft, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
-      labelsUsed.forEach((lab, i) => {
-        const y = categoryCenter(i);
+      axisLabels.forEach((lab, i) => {
+        const y = marginLocal.top + (i + 0.5) * bandH;
         add('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - tickLen, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
-        const labelText = lab || `Col ${i + 1}`;
+        const labelText = lab || `Category ${i + 1}`;
         const t = add('text',{ x: yAxisLeft - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
         t.textContent = labelText;
-        t.style.cursor = 'ns-resize';
-        enableVerticalLabelDrag(t, i);
+        if(isGroupedMode){
+          t.style.cursor = 'default';
+        }else{
+          t.style.cursor = 'ns-resize';
+          enableVerticalLabelDrag(t, i);
+        }
       });
       yScale.ticks.forEach(t => {
         const x = valueToX(t);
@@ -1410,6 +1892,9 @@ function renderStatsControls(traces){
       xLabel.textContent = state.yLabelText;
       makeEditable(xLabel, txt => { state.yLabelText = txt; });
       function enableVerticalLabelDrag(t, idx){
+        if(isGroupedMode){
+          return;
+        }
         t.addEventListener('mousedown', e => {
           e.preventDefault();
           const svgRect = svg.getBoundingClientRect();
@@ -1422,7 +1907,7 @@ function renderStatsControls(traces){
             document.removeEventListener('mouseup', onUp);
             const svgY = ev.clientY - svgRect.top;
             let targetIdx = Math.floor((svgY - marginLocal.top) / bandH);
-            targetIdx = Math.max(0, Math.min(labelsUsed.length - 1, targetIdx));
+            targetIdx = Math.max(0, Math.min(axisLabels.length - 1, targetIdx));
             if(targetIdx !== idx){
               const moved = state.colOrder.splice(idx, 1)[0];
               state.colOrder.splice(targetIdx, 0, moved);
@@ -1442,7 +1927,9 @@ function renderStatsControls(traces){
         const t = traces[i];
         const vals = [...t.y].sort((a, b) => a - b);
         if(!vals.length) continue;
-        const cy = categoryCenter(i);
+        const cy = categoryCenter(t, i);
+        const localBand = localBandHeightForTrace();
+        const boxH = Math.max(6, Math.min(60, localBand * 0.6));
         const y0 = cy - boxH / 2;
         const y1 = cy + boxH / 2;
         const q1 = percentile(vals, 0.25);
@@ -1476,8 +1963,9 @@ function renderStatsControls(traces){
         const xQ3 = valueToX(q3);
         const xWMin = valueToX(wMin);
         const xWMax = valueToX(wMax);
-        const fillColor = colorMode === 'individual' ? (state.fillColors[i] || DEFAULT_BOX_COLORS[i % DEFAULT_BOX_COLORS.length]) : defaultFill;
-        const borderColor = colorMode === 'individual' ? (state.borderColors[i] || shadeColor(fillColor, -30)) : defaultBorder;
+        const colorInfo = resolveTraceColor(t, i);
+        const fillColor = colorInfo.fillColor;
+        const borderColor = colorInfo.borderColor;
         const mean = t.y.reduce((acc, v) => acc + v, 0) / t.y.length;
         const xMean = valueToX(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
@@ -1550,7 +2038,7 @@ function renderStatsControls(traces){
         }else if(graphTypeRaw === 'violin'){
           const densityInfo = computeDensity(vals, yScale.min, yScale.max, 80);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
-          const halfHeight = Math.max(6, Math.min(80, bandH * 0.45));
+          const halfHeight = Math.max(6, Math.min(80, localBand * 0.45));
           const pathParts = [];
           for(let idx = 0; idx < densityInfo.positions.length; idx++){
             const pos = densityInfo.positions[idx];
@@ -1573,7 +2061,7 @@ function renderStatsControls(traces){
           add('line',{ x1: xMed, y1: cy - halfHeight, x2: xMed, y2: cy + halfHeight, stroke: borderColor, 'stroke-width': borderWidthPx });
           console.debug('Debug: box violin horizontal render',{ index: i, points: vals.length, peak, halfHeight });
         }else if(graphTypeRaw === 'strip'){
-          const jitterHeight = Math.max(6, Math.min(bandH * 0.8, 80));
+          const jitterHeight = Math.max(6, Math.min(localBand * 0.8, 80));
           const frag = document.createDocumentFragment();
           let ptIdx = 0;
           for(const v of vals){
@@ -1646,11 +2134,18 @@ function renderStatsControls(traces){
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
       }
+      const traceCenter = idx => {
+        const trace = traces[idx];
+        if(trace){
+          return categoryCenter(trace, idx);
+        }
+        return marginLocal.top + (idx + 0.5) * bandH;
+      };
       return {
         margin: marginLocal,
         plotW: plotWLocal,
         plotH: plotHLocal,
-        categoryCenter,
+        categoryCenter: traceCenter,
         valueToCoord: valueToX,
         titleX: marginLocal.left + plotWLocal / 2,
         titleY: marginLocal.top / 2
@@ -1669,6 +2164,14 @@ function renderStatsControls(traces){
     const titleText = add('text',{ x: orientationResult.titleX, y: orientationResult.titleY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
     titleText.textContent = state.titleText;
     makeEditable(titleText, txt => { state.titleText = txt; });
+    if(isGroupedMode && groupColorAssignments.size){
+      const legendEntries = Array.from(groupColorAssignments.entries()).map(([name, colors]) => ({
+        name,
+        fill: colors.fill,
+        border: colors.border
+      }));
+      drawLegend(legendEntries, orientationResult);
+    }
     const helpers = {
       xCenter: orientationResult.categoryCenter,
       categoryCenter: orientationResult.categoryCenter,
@@ -1718,6 +2221,11 @@ function renderStatsControls(traces){
         yMin:els.boxYMin.value,
         yMax:els.boxYMax.value,
         flipAxes: state.flipAxes,
+        tableFormat: state.tableFormat,
+        grouped: {
+          replicatesPerGroup: state.grouped?.replicatesPerGroup,
+          groups: Array.isArray(state.grouped?.groups) ? [...state.grouped.groups] : []
+        },
         stats: {
           test: state.statsTest,
           paired: state.statsPaired,
@@ -1825,6 +2333,21 @@ function renderStatsControls(traces){
         state.borderColors=c.borderColors||[];
         if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; }
         toggleColorMode();
+        const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
+        if(c.grouped && typeof c.grouped === 'object'){
+          const groupCfg = c.grouped;
+          const repValue = Number(groupCfg.replicatesPerGroup);
+          if(Number.isFinite(repValue) && repValue >= 1){
+            state.grouped.replicatesPerGroup = Math.round(repValue);
+          }
+          if(Array.isArray(groupCfg.groups) && groupCfg.groups.length){
+            state.grouped.groups = groupCfg.groups.map((name, idx)=>{
+              const trimmed = typeof name === 'string' ? name.trim() : '';
+              return trimmed || `Group ${idx + 1}`;
+            });
+          }
+        }
+        setTableFormat(restoredFormat, { skipColorSwitch: true, skipDraw: true });
         els.boxYMin.value=c.yMin||'';
         els.boxYMax.value=c.yMax||'';
         state.flipAxes=!!c.flipAxes;
@@ -1868,7 +2391,11 @@ function renderStatsControls(traces){
           selectedCount: state.selectedCols.size,
           hasPairsText: !!state.statsPairsText
         });
-        if(els.boxColorIndividual.checked){ updateBoxColorPickers(labels); } else { els.boxColorPerBox.innerHTML=''; }
+        const colorPickerRestoreLabels = state.tableFormat === 'grouped'
+          ? (ensureGroupedDefaults(), state.grouped.groups.map((name, idx)=>{ const trimmed = typeof name === 'string' ? name.trim() : ''; return trimmed || `Group ${idx + 1}`; }))
+          : labels;
+        console.debug('Debug: box restore color labels',{ tableFormat: state.tableFormat, labelCount: colorPickerRestoreLabels.length });
+        if(els.boxColorIndividual.checked){ updateBoxColorPickers(colorPickerRestoreLabels, { grouped: state.tableFormat === 'grouped' }); } else { els.boxColorPerBox.innerHTML=''; }
         state.scheduleDraw();
       }catch(err){
         console.error('loadBoxGraph error',err);
