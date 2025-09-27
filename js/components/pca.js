@@ -367,6 +367,41 @@
       });
 
       const data = pcaHot.getData();
+      const headerRow = Array.isArray(data[0]) ? data[0] : [];
+      const candidateColCount = headerRow.length;
+      const numericColIndices = [];
+      for (let c = 1; c < candidateColCount; c++) {
+        const headerRaw = headerRow[c];
+        const headerText = typeof headerRaw === 'string' ? headerRaw.trim() : '';
+        let hasNumericData = headerText.length > 0;
+        if (!hasNumericData) {
+          for (let r = 1; r < data.length; r++) {
+            const cell = data[r] ? data[r][c] : undefined;
+            if (cell === null || typeof cell === 'undefined') {
+              continue;
+            }
+            if (typeof cell === 'string' && cell.trim() === '') {
+              continue;
+            }
+            const cellVal = parseFloat(cell);
+            if (!Number.isNaN(cellVal)) {
+              hasNumericData = true;
+              break;
+            }
+            // non-numeric value encountered, treat column as unsuitable
+            hasNumericData = false;
+            break;
+          }
+        }
+        if (hasNumericData) {
+          numericColIndices.push(c);
+        }
+      }
+      console.debug('Debug: pca numeric column scan', {
+        candidateColCount,
+        numericColIndices,
+      });
+
       const labels = [];
       const matrix = [];
 
@@ -376,17 +411,26 @@
 
         const lab = row[0] ? String(row[0]).trim() : '';
         const vals = [];
+        let rowValid = true;
 
-        for (let c = 1; c < row.length; c++) {
-          const v = parseFloat(row[c]);
-          if (isNaN(v)) {
-            vals.length = 0;
+        for (let i = 0; i < numericColIndices.length; i++) {
+          const colIndex = numericColIndices[i];
+          const cell = row[colIndex];
+          if (cell === null || typeof cell === 'undefined' || (typeof cell === 'string' && cell.trim() === '')) {
+            rowValid = false;
+            console.debug('Debug: pca row skipped due to blank cell', { rowIndex: r, colIndex });
+            break;
+          }
+          const v = parseFloat(cell);
+          if (Number.isNaN(v)) {
+            rowValid = false;
+            console.debug('Debug: pca row skipped due to NaN', { rowIndex: r, colIndex, cell });
             break;
           }
           vals.push(v);
         }
 
-        if (vals.length) {
+        if (rowValid && vals.length) {
           labels.push(lab);
           matrix.push(vals);
         }
@@ -396,6 +440,21 @@
         rows: matrix.length,
         cols: matrix[0]?.length,
       });
+
+      if (matrix.length && matrix[0]?.length !== numericColIndices.length) {
+        console.debug('Debug: pca matrix width mismatch', {
+          expected: numericColIndices.length,
+          actual: matrix[0]?.length,
+        });
+      }
+
+      if (numericColIndices.length < 2) {
+        pcaPlotDiv.innerHTML = '<i>At least two numeric variable columns required.</i>';
+        if (pcaStatsResults) {
+          pcaStatsResults.textContent = '';
+        }
+        return;
+      }
 
       if (matrix.length < 2 || matrix[0].length < 2) {
         pcaPlotDiv.innerHTML = '<i>At least two samples and two variables required.</i>';
