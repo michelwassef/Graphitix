@@ -47,7 +47,7 @@
     const firstRowRenderer = overrides?.firstRowRenderer;
     const applyCellMeta = overrides?.applyCellMeta;
     const hotOptions = overrides?.hotOptions || {};
-    const {
+    const { 
       rowHeaders: userRowHeaders,
       cells: userCells,
       afterChange: userAfterChange,
@@ -58,6 +58,9 @@
       afterUndo: userAfterUndo,
       afterRedo: userAfterRedo,
       afterColumnMove: userAfterColumnMove,
+      afterSelectionEnd: userAfterSelectionEnd,
+      afterScrollVertically: userAfterScrollVertically,
+      afterScrollHorizontally: userAfterScrollHorizontally,
       ...otherHotOptions
     } = hotOptions;
 
@@ -142,6 +145,236 @@
       return baseFn;
     };
 
+    const autoGrowthDefaults = {
+      enabled: true,
+      rowThresholdPx: 200,
+      colThresholdPx: 200,
+      rowBatchSize: 20,
+      colBatchSize: 5,
+      rowCap: Math.max(rowCount, 1000),
+      colCap: Math.max(colCount, 100),
+      selectionThreshold: 2
+    };
+    const autoGrowthConfig = Object.assign({}, autoGrowthDefaults, overrides?.autoGrowth || {});
+    autoGrowthConfig.rowBatchSize = Math.max(1, autoGrowthConfig.rowBatchSize | 0);
+    autoGrowthConfig.colBatchSize = Math.max(1, autoGrowthConfig.colBatchSize | 0);
+    autoGrowthConfig.rowCap = Math.max(rowCount, autoGrowthConfig.rowCap | 0 || rowCount);
+    autoGrowthConfig.colCap = Math.max(colCount, autoGrowthConfig.colCap | 0 || colCount);
+    autoGrowthConfig.selectionThreshold = Math.max(0, autoGrowthConfig.selectionThreshold | 0);
+    console.debug('Debug: Shared.hot autoGrowth config prepared', { debugLabel, autoGrowthConfig }); // Debug: auto growth config
+
+    const raf = global.requestAnimationFrame || function(cb){ return setTimeout(cb, 16); };
+
+    let instance = null;
+    const autoGrowthState = {
+      scrollAttached: false,
+      pendingRowHandle: null,
+      pendingColHandle: null
+    };
+
+    const resolveHolder = ()=>{
+      const localInstance = instance;
+      const holder = localInstance?.view?.wt?.wtTable?.holder || container?.querySelector?.('.wtHolder') || null;
+      if(!holder){
+        console.debug('Debug: autoGrow resolveHolder missing holder', { debugLabel });
+      }
+      return holder;
+    };
+
+    const evaluateSelectionTail = ()=>{
+      const localInstance = instance;
+      if(!localInstance || typeof localInstance.getSelectedRangeLast !== 'function'){
+        return null;
+      }
+      const range = localInstance.getSelectedRangeLast();
+      if(!range){
+        return null;
+      }
+      const tail = {
+        row: Math.max(range.to?.row ?? -1, range.from?.row ?? -1),
+        col: Math.max(range.to?.col ?? -1, range.from?.col ?? -1)
+      };
+      console.debug('Debug: autoGrow evaluateSelectionTail', { debugLabel, tail });
+      return tail;
+    };
+
+    const shouldGrowRows = ()=>{
+      if(!autoGrowthConfig.enabled){
+        return false;
+      }
+      const localInstance = instance;
+      if(!localInstance){
+        return false;
+      }
+      const totalRows = localInstance.countRows();
+      if(totalRows >= autoGrowthConfig.rowCap){
+        console.debug('Debug: autoGrow rows capped', { debugLabel, totalRows, rowCap: autoGrowthConfig.rowCap });
+        return false;
+      }
+      let nearByScroll = false;
+      const holder = resolveHolder();
+      if(holder){
+        const distance = holder.scrollHeight - holder.clientHeight - holder.scrollTop;
+        nearByScroll = distance <= autoGrowthConfig.rowThresholdPx;
+        console.debug('Debug: autoGrow row distance', { debugLabel, distance, threshold: autoGrowthConfig.rowThresholdPx, nearByScroll });
+      }
+      let nearBySelection = false;
+      const tail = evaluateSelectionTail();
+      if(tail && tail.row >= 0){
+        nearBySelection = (totalRows - 1 - tail.row) <= autoGrowthConfig.selectionThreshold;
+      }
+      const shouldGrow = nearByScroll || nearBySelection;
+      console.debug('Debug: autoGrow shouldGrowRows evaluation', { debugLabel, shouldGrow, nearByScroll, nearBySelection, totalRows });
+      return shouldGrow;
+    };
+
+    const shouldGrowCols = ()=>{
+      if(!autoGrowthConfig.enabled){
+        return false;
+      }
+      const localInstance = instance;
+      if(!localInstance){
+        return false;
+      }
+      const totalCols = localInstance.countCols();
+      if(totalCols >= autoGrowthConfig.colCap){
+        console.debug('Debug: autoGrow cols capped', { debugLabel, totalCols, colCap: autoGrowthConfig.colCap });
+        return false;
+      }
+      let nearByScroll = false;
+      const holder = resolveHolder();
+      if(holder){
+        const distance = holder.scrollWidth - holder.clientWidth - holder.scrollLeft;
+        nearByScroll = distance <= autoGrowthConfig.colThresholdPx;
+        console.debug('Debug: autoGrow col distance', { debugLabel, distance, threshold: autoGrowthConfig.colThresholdPx, nearByScroll });
+      }
+      let nearBySelection = false;
+      const tail = evaluateSelectionTail();
+      if(tail && tail.col >= 0){
+        nearBySelection = (totalCols - 1 - tail.col) <= autoGrowthConfig.selectionThreshold;
+      }
+      const shouldGrow = nearByScroll || nearBySelection;
+      console.debug('Debug: autoGrow shouldGrowCols evaluation', { debugLabel, shouldGrow, nearByScroll, nearBySelection, totalCols });
+      return shouldGrow;
+    };
+
+    const triggerRowInsert = (reason)=>{
+      const localInstance = instance;
+      if(!localInstance){
+        return;
+      }
+      const totalRows = localInstance.countRows();
+      const remaining = autoGrowthConfig.rowCap - totalRows;
+      if(remaining <= 0){
+        console.debug('Debug: autoGrow triggerRowInsert skipped - no remaining capacity', { debugLabel, totalRows, rowCap: autoGrowthConfig.rowCap, reason });
+        return;
+      }
+      const amount = Math.min(autoGrowthConfig.rowBatchSize, remaining);
+      if(amount <= 0){
+        return;
+      }
+      console.debug('Debug: autoGrow triggerRowInsert executing', { debugLabel, amount, reason, totalRows });
+      localInstance.alter('insert_row', totalRows, amount, 'autoGrow');
+      triggerSchedule('autoGrowRows', { amount, reason, totalRows });
+    };
+
+    const triggerColInsert = (reason)=>{
+      const localInstance = instance;
+      if(!localInstance){
+        return;
+      }
+      const totalCols = localInstance.countCols();
+      const remaining = autoGrowthConfig.colCap - totalCols;
+      if(remaining <= 0){
+        console.debug('Debug: autoGrow triggerColInsert skipped - no remaining capacity', { debugLabel, totalCols, colCap: autoGrowthConfig.colCap, reason });
+        return;
+      }
+      const amount = Math.min(autoGrowthConfig.colBatchSize, remaining);
+      if(amount <= 0){
+        return;
+      }
+      console.debug('Debug: autoGrow triggerColInsert executing', { debugLabel, amount, reason, totalCols });
+      localInstance.alter('insert_col', totalCols, amount, 'autoGrow');
+      triggerSchedule('autoGrowCols', { amount, reason, totalCols });
+    };
+
+    const scheduleRowGrowth = (reason)=>{
+      if(!autoGrowthConfig.enabled){
+        return;
+      }
+      if(autoGrowthState.pendingRowHandle){
+        console.debug('Debug: autoGrow scheduleRowGrowth skipped - already pending', { debugLabel, reason });
+        return;
+      }
+      autoGrowthState.pendingRowHandle = raf(()=>{
+        autoGrowthState.pendingRowHandle = null;
+        if(shouldGrowRows()){
+          triggerRowInsert(reason);
+        }else{
+          console.debug('Debug: autoGrow scheduleRowGrowth check resolved no-op', { debugLabel, reason });
+        }
+      });
+      console.debug('Debug: autoGrow scheduleRowGrowth queued', { debugLabel, reason });
+    };
+
+    const scheduleColGrowth = (reason)=>{
+      if(!autoGrowthConfig.enabled){
+        return;
+      }
+      if(autoGrowthState.pendingColHandle){
+        console.debug('Debug: autoGrow scheduleColGrowth skipped - already pending', { debugLabel, reason });
+        return;
+      }
+      autoGrowthState.pendingColHandle = raf(()=>{
+        autoGrowthState.pendingColHandle = null;
+        if(shouldGrowCols()){
+          triggerColInsert(reason);
+        }else{
+          console.debug('Debug: autoGrow scheduleColGrowth check resolved no-op', { debugLabel, reason });
+        }
+      });
+      console.debug('Debug: autoGrow scheduleColGrowth queued', { debugLabel, reason });
+    };
+
+    const attachScrollHandler = ()=>{
+      if(autoGrowthState.scrollAttached){
+        return;
+      }
+      const holder = resolveHolder();
+      if(holder){
+        const onScroll = ()=>{
+          scheduleRowGrowth('scroll');
+          scheduleColGrowth('scroll');
+        };
+        holder.addEventListener('scroll', onScroll, { passive: true });
+        autoGrowthState.scrollAttached = true;
+        autoGrowthState.holderScrollHandler = onScroll;
+        console.debug('Debug: autoGrow scroll handler attached', { debugLabel });
+      }
+    };
+
+    const afterSelectionEndBase = function(){
+      if(autoGrowthConfig.enabled){
+        console.debug('Debug: autoGrow afterSelectionEndBase invoked', { debugLabel, args: Array.from(arguments) });
+        scheduleRowGrowth('selection');
+        scheduleColGrowth('selection');
+      }
+    };
+
+    const afterScrollVerticallyBase = function(){
+      if(autoGrowthConfig.enabled){
+        console.debug('Debug: autoGrow afterScrollVerticallyBase invoked', { debugLabel, args: Array.from(arguments) });
+        scheduleRowGrowth('afterScrollVertically');
+      }
+    };
+
+    const afterScrollHorizontallyBase = function(){
+      if(autoGrowthConfig.enabled){
+        console.debug('Debug: autoGrow afterScrollHorizontallyBase invoked', { debugLabel, args: Array.from(arguments) });
+        scheduleColGrowth('afterScrollHorizontally');
+      }
+    };
+
     const afterChangeBase = function(changes, source){
       if(!changes){
         return;
@@ -184,11 +417,17 @@
       afterRemoveCol: wrapHook('afterRemoveCol', userAfterRemoveCol, afterRemoveColBase),
       afterUndo: wrapHook('afterUndo', userAfterUndo, afterUndoBase),
       afterRedo: wrapHook('afterRedo', userAfterRedo, afterRedoBase),
-      afterColumnMove: wrapHook('afterColumnMove', userAfterColumnMove, afterColumnMoveBase)
+      afterColumnMove: wrapHook('afterColumnMove', userAfterColumnMove, afterColumnMoveBase),
+      afterSelectionEnd: wrapHook('afterSelectionEnd', userAfterSelectionEnd, afterSelectionEndBase),
+      afterScrollVertically: wrapHook('afterScrollVertically', userAfterScrollVertically, afterScrollVerticallyBase),
+      afterScrollHorizontally: wrapHook('afterScrollHorizontally', userAfterScrollHorizontally, afterScrollHorizontallyBase)
     });
 
     console.debug('Debug: createStandardTable options prepared', { debugLabel, rowCount, colCount });
-    const instance = new Handsontable(container, options);
+    instance = new Handsontable(container, options);
+    attachScrollHandler();
+    scheduleRowGrowth('init');
+    scheduleColGrowth('init');
     console.debug('Debug: createStandardTable created', { debugLabel });
     if(typeof overrides?.onCreate === 'function'){
       try{
