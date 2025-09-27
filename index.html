@@ -20,7 +20,58 @@
         <div class="welcome-panel">
           <h2 class="welcome-panel__title">What would you like to visualize?</h2>
           <p class="welcome-panel__body">Pick a visualization below to open its workspace. You can add more tabs later and reuse the data you have already prepared.</p>
-          <div id="graphSelectionGrid" class="selection-grid" role="list"></div>
+          <div id="graphSelectionGrid" class="selection-grid" role="list">
+            <button type="button" class="graph-card" data-graph-type="venn" role="listitem">
+              <span class="graph-card__hint">Lists &amp; overlap</span>
+              <h3 class="graph-card__title">Venn Diagram</h3>
+              <p class="graph-card__description">Visualize overlaps between up to three sets with region statistics.</p>
+            </button>
+            <button type="button" class="graph-card" data-graph-type="box" role="listitem">
+              <span class="graph-card__hint">Group comparisons</span>
+              <h3 class="graph-card__title">Box Plot</h3>
+              <p class="graph-card__description">Compare distributions across groups with rich styling and statistical tests.</p>
+            </button>
+            <button type="button" class="graph-card" data-graph-type="scatter" role="listitem">
+              <span class="graph-card__hint">Correlation</span>
+              <h3 class="graph-card__title">Scatter Plot</h3>
+              <p class="graph-card__description">Explore relationships between variables and configure regression overlays.</p>
+            </button>
+            <button type="button" class="graph-card" data-graph-type="pca" role="listitem">
+              <span class="graph-card__hint">PCA / MDS</span>
+              <h3 class="graph-card__title">Dimensionality Reduction</h3>
+              <p class="graph-card__description">Run PCA or MDS on wide tables and inspect eigenvalue summaries.</p>
+            </button>
+            <button type="button" class="graph-card" data-graph-type="line" role="listitem">
+              <span class="graph-card__hint">Trends</span>
+              <h3 class="graph-card__title">Line Graph</h3>
+              <p class="graph-card__description">Plot series data with per-line styling, axes controls, and correlation metrics.</p>
+            </button>
+            <button type="button" class="graph-card" data-graph-type="heatmap" role="listitem">
+              <span class="graph-card__hint">Matrix view</span>
+              <h3 class="graph-card__title">Correlation Heatmap</h3>
+              <p class="graph-card__description">Cluster correlation matrices and tune color ramps, labels, and dendrograms.</p>
+            </button>
+            <button type="button" class="graph-card" data-graph-type="roc" role="listitem">
+              <span class="graph-card__hint">ROC / PR</span>
+              <h3 class="graph-card__title">Classification Curves</h3>
+              <p class="graph-card__description">Compare ROC or precision-recall curves with statistical comparisons.</p>
+            </button>
+            <button type="button" class="graph-card" data-graph-type="survival" role="listitem">
+              <span class="graph-card__hint">Kaplan–Meier</span>
+              <h3 class="graph-card__title">Survival Curves</h3>
+              <p class="graph-card__description">Build Kaplan–Meier curves with confidence intervals and censor controls.</p>
+            </button>
+            <button type="button" class="graph-card" data-graph-type="hist" role="listitem">
+              <span class="graph-card__hint">Distribution</span>
+              <h3 class="graph-card__title">Histogram</h3>
+              <p class="graph-card__description">Summarize univariate distributions with customizable binning and stats.</p>
+            </button>
+            <button type="button" class="graph-card" data-graph-type="pie" role="listitem">
+              <span class="graph-card__hint">Categories</span>
+              <h3 class="graph-card__title">Proportion Graph</h3>
+              <p class="graph-card__description">Visualize category proportions and run Chi² goodness-of-fit tests.</p>
+            </button>
+          </div>
         </div>
       </section>
       <section id="workspacePages" class="workspace-pages">
