@@ -428,7 +428,7 @@
     }); // Debug: dirty flag reset trace
   }
 
-  function hasMeaningfulCellValue(value) {
+  function hasMeaningfulCellValue(value, seen = new Set()) {
     if (value === null || value === undefined) {
       return false;
     }
@@ -442,10 +442,24 @@
       return true;
     }
     if (Array.isArray(value)) {
-      return value.some(item => hasMeaningfulCellValue(item));
+      if (seen.has(value)) {
+        console.debug('Debug: hasMeaningfulCellValue detected circular array reference');
+        return false;
+      }
+      seen.add(value);
+      return value.some(item => hasMeaningfulCellValue(item, seen));
     }
     if (typeof value === 'object') {
-      return Object.keys(value).length > 0;
+      if (seen.has(value)) {
+        console.debug('Debug: hasMeaningfulCellValue detected circular object reference');
+        return false;
+      }
+      seen.add(value);
+      const keys = Object.keys(value);
+      if (!keys.length) {
+        return false;
+      }
+      return keys.some(key => hasMeaningfulCellValue(value[key], seen));
     }
     return true;
   }
@@ -457,27 +471,39 @@
       return false;
     }
     const matrix = tab.payload.data;
-    if (!Array.isArray(matrix)) {
-      console.debug('Debug: tab data inspection skipped', { tabId, reason: 'no-data-matrix' });
+    if (Array.isArray(matrix)) {
+      let rowCount = 0;
+      let colCount = 0;
+      for (let r = 0; r < matrix.length; r++) {
+        const row = matrix[r];
+        if (!Array.isArray(row)) {
+          continue;
+        }
+        rowCount += 1;
+        colCount = Math.max(colCount, row.length);
+        for (let c = 0; c < row.length; c++) {
+          if (hasMeaningfulCellValue(row[c])) {
+            console.debug('Debug: tab data detected', { tabId, rowIndex: r, colIndex: c });
+            return true;
+          }
+        }
+      }
+      console.debug('Debug: tab data inspection complete', { tabId, rowsChecked: rowCount, colsChecked: colCount, found: false });
       return false;
     }
-    let rowCount = 0;
-    let colCount = 0;
-    for (let r = 0; r < matrix.length; r++) {
-      const row = matrix[r];
-      if (!Array.isArray(row)) {
-        continue;
-      }
-      rowCount += 1;
-      colCount = Math.max(colCount, row.length);
-      for (let c = 0; c < row.length; c++) {
-        if (hasMeaningfulCellValue(row[c])) {
-          console.debug('Debug: tab data detected', { tabId, rowIndex: r, colIndex: c });
+    if (matrix && typeof matrix === 'object') {
+      const keys = Object.keys(matrix);
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        if (hasMeaningfulCellValue(matrix[key])) {
+          console.debug('Debug: tab object data detected', { tabId, key });
           return true;
         }
       }
+      console.debug('Debug: tab object data inspection complete', { tabId, keysChecked: keys.length });
+      return false;
     }
-    console.debug('Debug: tab data inspection complete', { tabId, rowsChecked: rowCount, colsChecked: colCount, found: false });
+    console.debug('Debug: tab data inspection skipped', { tabId, reason: 'unrecognized-data-structure', type: typeof matrix });
     return false;
   }
 
