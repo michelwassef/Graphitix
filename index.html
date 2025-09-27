@@ -256,6 +256,24 @@
     </div>
     <div class="wrap">
       <div class="panel" id="boxTablePanel">
+        <div class="table-format-controls">
+          <label for="boxTableFormat" style="margin:0;">Table format</label>
+          <select id="boxTableFormat">
+            <option value="single" selected>Single replicates</option>
+            <option value="grouped">Grouped replicates</option>
+          </select>
+        </div>
+        <div id="boxGroupedControls" class="grouped-controls" style="display:none;">
+          <div class="grouped-config-row">
+            <label for="boxGroupedReplicates">Conditions per group</label>
+            <input type="number" id="boxGroupedReplicates" min="1" max="50" step="1" value="3" />
+          </div>
+          <div id="boxGroupedList" class="grouped-list"></div>
+          <div class="grouped-actions">
+            <button type="button" class="btn" id="boxGroupedAdd">Add group</button>
+            <button type="button" class="btn" id="boxGroupedRemove">Remove group</button>
+          </div>
+        </div>
         <div id="hotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
           <div id="hot" style="width:100%; height:100%;"></div>
         </div>
