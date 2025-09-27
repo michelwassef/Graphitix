@@ -16,7 +16,7 @@
 
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_ROWS=100;
-  const DEFAULT_COLS=5;
+  const DEFAULT_COLS=9;
 
   let scheduleDrawPca = () => {};
 
@@ -70,7 +70,8 @@
       }
       const pcaData=Shared.createEmptyData(DEFAULT_ROWS,DEFAULT_COLS);
       if(pcaData.length){
-        pcaData[0]=['Label','Var1','Var2','Var3','Var4'];
+        pcaData[0]=['Variable','A','B','C','D','E','F','G','H'];
+        console.debug('Debug: pca default header initialized for label columns', { header: pcaData[0] });
       }
       let pcaScheduleProxyCount = 0;
       const scheduleDrawPcaProxy = () => {
@@ -105,9 +106,16 @@
         }
       });
       document.getElementById('pcaLoadExample').addEventListener('click',()=>{
-        const pcaExample=[['Label','Var1','Var2','Var3','Var4'],['A',1,2,3,4],['A',2,1,3,2],['B',5,4,3,2],['B',4,5,6,5]];
+        const pcaExample=[
+          ['Variable','A','B','C','D','E','F','G','H'],
+          ['Var1',1,2,3,2,10,20,30,20],
+          ['Var2',2,3,2,3,20,10,20,30],
+          ['Var3',3,4,1,4,30,30,10,40],
+          ['Var4',4,2,4,1,40,20,40,10]
+        ];
         pcaHot.loadData(pcaExample);
         console.log('pca example loaded');
+        console.debug('Debug: pca example dataset applied (transposed labels)', { rows: pcaExample.length, cols: pcaExample[0]?.length });
         scheduleDrawPca();
       });
       const pcaImportBtn=document.getElementById('pcaImport');
@@ -462,7 +470,38 @@
         return;
       }
 
-      const matrix = matrixRaw.map(row => row.slice());
+      let matrix = matrixRaw.map(row => row.slice());
+      if (matrix.length && matrix[0]) {
+        if (matrix.length < matrix[0].length) {
+          const columnLabels = numericColIndices.map((colIndex, idx) => {
+            const headerVal = headerRow[colIndex];
+            const headerText = headerVal == null ? '' : String(headerVal).trim();
+            return headerText || `Sample ${idx + 1}`;
+          });
+          if (matrix[0].length === columnLabels.length) {
+            const transposed = matrix[0].map((_, colIdx) => matrix.map((row) => row[colIdx]));
+            console.debug('Debug: pca auto transpose applied for column headers as labels', {
+              originalSamples: matrix.length,
+              originalFeatures: matrix[0].length,
+              columnLabels,
+            });
+            matrix = transposed;
+            labels.length = 0;
+            for (let i = 0; i < columnLabels.length; i++) {
+              labels.push(columnLabels[i]);
+            }
+            console.debug('Debug: pca matrix dimensions after transpose', {
+              newSamples: matrix.length,
+              newFeatures: matrix[0]?.length,
+            });
+          } else {
+            console.debug('Debug: pca transpose skipped due to mismatch', {
+              matrixCols: matrix[0]?.length,
+              columnLabelCount: columnLabels.length,
+            });
+          }
+        }
+      }
       const method = (pcaMethod.value || 'pca').toLowerCase();
       const nSamples = matrix.length;
       const nFeatures = matrix[0].length;
