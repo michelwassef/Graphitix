@@ -1379,6 +1379,19 @@
     }
   }
 
+  function requestScheduledDraw(reason, modeOverride) {
+    if (modeOverride) {
+      state.lastDrawMode = modeOverride;
+    }
+    if (typeof state.scheduleDraw === 'function') {
+      console.debug('Debug: venn auto-redraw scheduled', { reason, mode: state.lastDrawMode }); // Debug: automatic redraw trigger
+      state.scheduleDraw();
+    } else {
+      console.debug('Debug: venn auto-redraw fallback', { reason, mode: state.lastDrawMode }); // Debug: fallback without scheduler
+      refreshDiagram();
+    }
+  }
+
   const STYLE_KEY = 'vennStylePrefs';
   const STYLE_VERSION = 2;
   const LEGACY_DEFAULT_FONT_PT = 17;
@@ -1982,8 +1995,15 @@
         updateColorLabels(labels);
         updateRegionSelect(labels, state.lastCounts);
         updateCountLabels(labels);
+        requestScheduledDraw(`label-input-${id}`);
       });
     });
+    if (state.inputs.caseSensitive) {
+      state.inputs.caseSensitive.addEventListener('change', () => { requestScheduledDraw('case-sensitive-toggle', 'lists'); });
+    }
+    if (state.inputs.delimiter) {
+      state.inputs.delimiter.addEventListener('change', () => { requestScheduledDraw('delimiter-change', 'lists'); });
+    }
     {
       const labels = { A: state.inputs.labelA.value || 'A', B: state.inputs.labelB.value || 'B', C: state.inputs.labelC.value || 'C' };
       updateColorLabels(labels);
@@ -2020,7 +2040,15 @@
       state.inputs[k].addEventListener('input', () => {
         if (state.speciesSelect) { state.speciesSelect.value = ''; }
         setSpeciesIndicator(null);
+        requestScheduledDraw(`list-input-${k}`, 'lists');
       });
+    });
+    Object.entries(state.inputs.counts).forEach(([key, el]) => {
+      if (el) {
+        el.addEventListener('input', () => {
+          requestScheduledDraw(`numeric-input-${key}`, 'numeric');
+        });
+      }
     });
     if (state.regionList) {
       state.regionList.addEventListener('mouseover', async e => {
