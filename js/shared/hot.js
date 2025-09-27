@@ -4,6 +4,7 @@
   'use strict';
   const Shared = global.Shared = global.Shared || {};
   const hotNS = Shared.hot = Shared.hot || {};
+  const MIN_INPUT_COLS = 12;
 
   function ensureHotWrapperStyles(wrapper){
     if(!wrapper){
@@ -18,11 +19,14 @@
   }
 
   function createEmptyData(rows, cols){
+    const targetRows = Math.max(0, rows | 0);
+    const enforcedCols = Math.max(MIN_INPUT_COLS, cols | 0);
+    console.debug('Debug: createEmptyData enforcing minimum columns', { requestedRows: rows, requestedCols: cols, targetRows, enforcedCols }); // Debug: verify min column enforcement
     if(global.Handsontable && global.Handsontable.helper && global.Handsontable.helper.createEmptySpreadsheetData){
-      return global.Handsontable.helper.createEmptySpreadsheetData(rows, cols);
+      return global.Handsontable.helper.createEmptySpreadsheetData(targetRows, enforcedCols);
     }
     // Fallback if Handsontable is not present yet (tests)
-    return Array.from({length: rows}, () => Array.from({length: cols}, () => ''));
+    return Array.from({length: targetRows}, () => Array.from({length: enforcedCols}, () => ''));
   }
 
   function createStandardTable(container, dimensions, scheduleDraw, overrides){
@@ -39,7 +43,8 @@
     }
 
     const rowCount = Math.max(0, Number(dimensions?.rows ?? 0));
-    const colCount = Math.max(0, Number(dimensions?.cols ?? 0));
+    const requestedColCount = Math.max(0, Number(dimensions?.cols ?? 0));
+    let colCount = Math.max(MIN_INPUT_COLS, requestedColCount);
     const scheduleFn = typeof scheduleDraw === 'function' ? scheduleDraw : null;
     const scheduleOnLoadData = overrides?.scheduleOnLoadData ?? false;
     const treatFirstRowAsHeader = overrides?.firstRowIsHeader !== false;
@@ -64,7 +69,47 @@
       ...otherHotOptions
     } = hotOptions;
 
-    const baseData = overrides?.data || createEmptyData(rowCount, colCount);
+    const padRowToLength = (row, targetCols)=>{
+      const safeRow = Array.isArray(row) ? row.slice() : [];
+      if(safeRow.length < targetCols){
+        safeRow.length = targetCols;
+      }
+      for(let i = 0; i < safeRow.length; i++){
+        if(typeof safeRow[i] === 'undefined'){
+          safeRow[i] = '';
+        }
+      }
+      return safeRow;
+    };
+
+    const normalizeDataMatrix = (matrix, targetRows, targetCols)=>{
+      const source = Array.isArray(matrix) ? matrix.slice() : [];
+      let maxCols = targetCols;
+      for(let r = 0; r < source.length; r++){
+        const row = Array.isArray(source[r]) ? source[r] : [];
+        maxCols = Math.max(maxCols, row.length);
+      }
+      maxCols = Math.max(maxCols, MIN_INPUT_COLS);
+      const normalized = [];
+      const totalRows = Math.max(targetRows, source.length);
+      for(let r = 0; r < totalRows; r++){
+        const row = r < source.length ? source[r] : [];
+        normalized.push(padRowToLength(row, maxCols));
+      }
+      console.debug('Debug: normalizeDataMatrix enforced dimensions', { debugLabel, requestedRows: targetRows, requestedCols: targetCols, normalizedRows: normalized.length, normalizedCols: maxCols }); // Debug: matrix normalization summary
+      return { data: normalized, colCount: maxCols };
+    };
+
+    const baseMatrix = overrides?.data;
+    let baseData;
+    if(baseMatrix){
+      const normalized = normalizeDataMatrix(baseMatrix, rowCount, colCount);
+      baseData = normalized.data;
+      colCount = normalized.colCount;
+    }else{
+      baseData = createEmptyData(rowCount, colCount);
+    }
+    console.debug('Debug: createStandardTable column enforcement', { debugLabel, requestedColCount, effectiveColCount: colCount }); // Debug: column enforcement trace
 
     const triggerSchedule = (reason, payload)=>{
       if(!scheduleFn){
