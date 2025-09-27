@@ -347,7 +347,11 @@
     pendingClosePrompt: null,
     sessionFileHandle: null,
     sessionFileName: '',
-    sessionDirty: false
+    sessionDirty: false,
+    draggingTabId: null,
+    dragStartIndex: null,
+    dragOverTabId: null,
+    dragInsertBefore: true
   };
 
   const TAB_PREVIEW_TARGET_WIDTH = 220;
@@ -1226,6 +1230,270 @@
     return null;
   }
 
+  function applyTabDragClasses() {
+    if (!dom.tabsList) {
+      return;
+    }
+    const draggingId = workspaceState.draggingTabId;
+    const overId = workspaceState.dragOverTabId;
+    const insertBefore = workspaceState.dragInsertBefore;
+    dom.tabsList.querySelectorAll('.workspace-tab').forEach(btn => {
+      const tabId = btn.dataset.tabId;
+      btn.classList.toggle('is-dragging', tabId === draggingId);
+      btn.classList.toggle('is-drag-over-before', tabId === overId && insertBefore);
+      btn.classList.toggle('is-drag-over-after', tabId === overId && !insertBefore);
+    });
+    dom.tabsList.classList.toggle('is-drag-active', !!draggingId);
+    dom.tabsList.classList.toggle('is-drag-over-end', !!draggingId && !overId);
+  }
+
+  function updateTabDragHover(targetTabId, insertBefore, meta = {}) {
+    if (workspaceState.dragOverTabId === targetTabId && workspaceState.dragInsertBefore === insertBefore) {
+      return;
+    }
+    workspaceState.dragOverTabId = targetTabId;
+    workspaceState.dragInsertBefore = insertBefore;
+    applyTabDragClasses();
+    console.debug('Debug: workspace tab drag hover updated', {
+      targetTabId: targetTabId || null,
+      insertBefore,
+      reason: meta.reason || 'unspecified'
+    }); // Debug: drag hover trace
+  }
+
+  function resetTabDragState(reason) {
+    const hadDrag = !!(workspaceState.draggingTabId || workspaceState.dragOverTabId);
+    const snapshot = hadDrag ? {
+      draggingTabId: workspaceState.draggingTabId,
+      dragOverTabId: workspaceState.dragOverTabId,
+      dragInsertBefore: workspaceState.dragInsertBefore,
+      dragStartIndex: workspaceState.dragStartIndex
+    } : null;
+    workspaceState.draggingTabId = null;
+    workspaceState.dragStartIndex = null;
+    workspaceState.dragOverTabId = null;
+    workspaceState.dragInsertBefore = true;
+    applyTabDragClasses();
+    if (hadDrag) {
+      console.debug('Debug: workspace tab drag state reset', {
+        ...(snapshot || {}),
+        reason: reason || 'unspecified'
+      }); // Debug: drag reset trace
+    }
+  }
+
+  function moveWorkspaceTab(tabId, targetIndex) {
+    const tabs = workspaceState.tabs;
+    const fromIndex = tabs.findIndex(item => item.id === tabId);
+    if (fromIndex === -1) {
+      console.debug('Debug: moveWorkspaceTab skipped', { tabId, targetIndex, reason: 'missing-source' }); // Debug: drag move guard
+      return { moved: false, fromIndex: -1, toIndex: -1 };
+    }
+    let desiredIndex = Number.isFinite(targetIndex) ? targetIndex : tabs.length;
+    desiredIndex = Math.max(0, Math.min(desiredIndex, tabs.length));
+    const [movedTab] = tabs.splice(fromIndex, 1);
+    let finalIndex = desiredIndex;
+    if (finalIndex > fromIndex) {
+      finalIndex -= 1;
+    }
+    tabs.splice(finalIndex, 0, movedTab);
+    const moved = fromIndex !== finalIndex;
+    console.debug('Debug: moveWorkspaceTab executed', {
+      tabId,
+      fromIndex,
+      requestedIndex: targetIndex,
+      finalIndex,
+      moved
+    }); // Debug: drag move trace
+    return { moved, fromIndex, toIndex: finalIndex };
+  }
+
+  function handleTabDragStart(event, tab) {
+    if (!tab || tab.isRenaming) {
+      if (!tab) {
+        console.debug('Debug: tab drag start skipped', { reason: 'missing-tab' }); // Debug: drag start guard
+      }
+      if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+      }
+      return;
+    }
+    const startIndex = workspaceState.tabs.indexOf(tab);
+    workspaceState.draggingTabId = tab.id;
+    workspaceState.dragStartIndex = startIndex;
+    workspaceState.dragOverTabId = null;
+    workspaceState.dragInsertBefore = true;
+    if (event?.dataTransfer) {
+      try {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', tab.id);
+      } catch (transferErr) {
+        console.debug('Debug: tab drag dataTransfer setData failed', { error: transferErr?.message || transferErr }); // Debug: drag dataTransfer guard
+      }
+    }
+    applyTabDragClasses();
+    console.debug('Debug: workspace tab drag started', {
+      tabId: tab.id,
+      startIndex
+    }); // Debug: drag start trace
+  }
+
+  function handleTabDragEnd(event, tab) {
+    if (event?.dataTransfer) {
+      try {
+        event.dataTransfer.dropEffect = 'none';
+      } catch (transferErr) {
+        console.debug('Debug: tab drag end dropEffect clear failed', { error: transferErr?.message || transferErr }); // Debug: drag end dataTransfer guard
+      }
+    }
+    resetTabDragState('dragend');
+    if (tab) {
+      console.debug('Debug: workspace tab drag ended', { tabId: tab.id }); // Debug: drag end trace
+    }
+  }
+
+  function handleTabDragOver(event, tab) {
+    if (!workspaceState.draggingTabId) {
+      return;
+    }
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    if (!tab) {
+      return;
+    }
+    const rect = event?.currentTarget?.getBoundingClientRect?.();
+    let insertBefore = true;
+    if (rect && typeof rect.width === 'number') {
+      const midpoint = rect.left + (rect.width / 2);
+      const clientX = typeof event?.clientX === 'number' ? event.clientX : midpoint;
+      insertBefore = clientX <= midpoint;
+    }
+    updateTabDragHover(tab.id, insertBefore, { reason: 'dragover' });
+  }
+
+  function handleTabDragLeave(event, tab) {
+    if (!workspaceState.draggingTabId || !tab) {
+      return;
+    }
+    const related = event?.relatedTarget || null;
+    const currentTarget = event?.currentTarget || null;
+    if (currentTarget && related && currentTarget.contains(related)) {
+      return;
+    }
+    if (workspaceState.dragOverTabId === tab.id) {
+      updateTabDragHover(null, false, { reason: 'dragleave' });
+    }
+  }
+
+  function handleTabDrop(event, tab) {
+    if (!workspaceState.draggingTabId || !tab) {
+      return;
+    }
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    if (event && typeof event.stopPropagation === 'function') {
+      event.stopPropagation();
+    }
+    const rect = event?.currentTarget?.getBoundingClientRect?.();
+    let insertBefore = true;
+    if (rect && typeof rect.width === 'number') {
+      const midpoint = rect.left + (rect.width / 2);
+      const clientX = typeof event?.clientX === 'number' ? event.clientX : midpoint;
+      insertBefore = clientX <= midpoint;
+    }
+    const targetIndex = workspaceState.tabs.findIndex(item => item.id === tab.id);
+    const desiredIndex = insertBefore ? targetIndex : targetIndex + 1;
+    const moveResult = moveWorkspaceTab(workspaceState.draggingTabId, desiredIndex);
+    const dropReason = insertBefore ? 'drop-before' : 'drop-after';
+    resetTabDragState(dropReason);
+    renderTabs();
+    if (moveResult.moved) {
+      const order = workspaceState.tabs.map(item => item.id);
+      markSessionDirty('tabs-reordered', {
+        reason: dropReason,
+        fromIndex: moveResult.fromIndex,
+        toIndex: moveResult.toIndex,
+        order
+      });
+      console.debug('Debug: workspace tabs reordered', {
+        reason: dropReason,
+        fromIndex: moveResult.fromIndex,
+        toIndex: moveResult.toIndex,
+        order
+      }); // Debug: drag drop reorder trace
+    } else {
+      console.debug('Debug: workspace tab drop without movement', {
+        reason: dropReason,
+        fromIndex: moveResult.fromIndex,
+        targetIndex
+      }); // Debug: drag drop no-op trace
+    }
+  }
+
+  function handleTabListDragOver(event) {
+    if (!workspaceState.draggingTabId || !dom.tabsList) {
+      return;
+    }
+    if (event?.currentTarget !== dom.tabsList || event.target !== dom.tabsList) {
+      return;
+    }
+    if (typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    updateTabDragHover(null, false, { reason: 'list-dragover' });
+  }
+
+  function handleTabListDrop(event) {
+    if (!workspaceState.draggingTabId || !dom.tabsList) {
+      return;
+    }
+    if (event?.currentTarget !== dom.tabsList || event.target !== dom.tabsList) {
+      return;
+    }
+    if (typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    const moveResult = moveWorkspaceTab(workspaceState.draggingTabId, workspaceState.tabs.length);
+    resetTabDragState('drop-end');
+    renderTabs();
+    if (moveResult.moved) {
+      const order = workspaceState.tabs.map(item => item.id);
+      markSessionDirty('tabs-reordered', {
+        reason: 'drop-end',
+        fromIndex: moveResult.fromIndex,
+        toIndex: moveResult.toIndex,
+        order
+      });
+      console.debug('Debug: workspace tabs reordered to end', {
+        reason: 'drop-end',
+        fromIndex: moveResult.fromIndex,
+        toIndex: moveResult.toIndex,
+        order
+      }); // Debug: drag drop end trace
+    } else {
+      console.debug('Debug: workspace tab drop end without movement', {
+        reason: 'drop-end',
+        fromIndex: moveResult.fromIndex
+      }); // Debug: drag drop end no-op trace
+    }
+  }
+
+  function handleTabListDragLeave(event) {
+    if (!workspaceState.draggingTabId || !dom.tabsList) {
+      return;
+    }
+    if (event?.currentTarget !== dom.tabsList) {
+      return;
+    }
+    const related = event?.relatedTarget || null;
+    if (related && dom.tabsList.contains(related)) {
+      return;
+    }
+    updateTabDragHover(null, false, { reason: 'list-dragleave' });
+  }
+
   function renderTabs() {
     if (!dom.tabsList) return;
     hideTabPreviewTooltip('render');
@@ -1238,6 +1506,7 @@
         + (tab.isWelcome ? ' is-welcome' : '')
         + (tab.isRenaming ? ' is-renaming' : '');
       btn.dataset.tabId = tab.id;
+      btn.dataset.tabIndex = String(index);
       if (tab.previewMarkup) {
         btn.dataset.hasPreview = 'true';
       } else {
@@ -1245,11 +1514,17 @@
       }
       btn.setAttribute('role', 'tab');
       btn.setAttribute('aria-selected', tab.id === workspaceState.activeTabId ? 'true' : 'false');
+      btn.draggable = !tab.isRenaming;
       const displayTitle = tab.title || `Workspace ${index + 1}`;
       btn.addEventListener('click', () => {
         console.debug('Debug: workspace tab selected', { tabId: tab.id });
         activateTab(tab.id);
       });
+      btn.addEventListener('dragstart', event => handleTabDragStart(event, tab));
+      btn.addEventListener('dragend', event => handleTabDragEnd(event, tab));
+      btn.addEventListener('dragover', event => handleTabDragOver(event, tab));
+      btn.addEventListener('dragleave', event => handleTabDragLeave(event, tab));
+      btn.addEventListener('drop', event => handleTabDrop(event, tab));
       btn.addEventListener('mouseenter', event => handleTabPreviewEnter(event, tab));
       btn.addEventListener('mouseleave', () => handleTabPreviewLeave('leave'));
       btn.addEventListener('blur', () => handleTabPreviewLeave('blur'));
@@ -1368,6 +1643,7 @@
         });
       }
     });
+    applyTabDragClasses();
   }
 
   function beginRenameTab(tabId) {
@@ -1915,6 +2191,11 @@
     workspaceState.activeTabId = welcomeTab.id;
     renderTabs();
     showGraphSelection({ reason: 'initial' });
+    if (dom.tabsList) {
+      dom.tabsList.addEventListener('dragover', handleTabListDragOver);
+      dom.tabsList.addEventListener('drop', handleTabListDrop);
+      dom.tabsList.addEventListener('dragleave', handleTabListDragLeave);
+    }
     if (dom.addTabBtn) {
       dom.addTabBtn.addEventListener('click', handleAddTabClick);
     }
