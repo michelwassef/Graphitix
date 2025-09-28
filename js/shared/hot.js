@@ -226,7 +226,7 @@
       return holder;
     };
 
-    const evaluateSelectionTail = ()=>{
+    const evaluateSelectionState = ()=>{
       const localInstance = instance;
       if(!localInstance || typeof localInstance.getSelectedRangeLast !== 'function'){
         return null;
@@ -235,12 +235,22 @@
       if(!range){
         return null;
       }
-      const tail = {
-        row: Math.max(range.to?.row ?? -1, range.from?.row ?? -1),
-        col: Math.max(range.to?.col ?? -1, range.from?.col ?? -1)
+      const totalRows = typeof localInstance.countRows === 'function' ? localInstance.countRows() : 0;
+      const totalCols = typeof localInstance.countCols === 'function' ? localInstance.countCols() : 0;
+      const headRow = Math.min(range.from?.row ?? Number.POSITIVE_INFINITY, range.to?.row ?? Number.POSITIVE_INFINITY);
+      const headCol = Math.min(range.from?.col ?? Number.POSITIVE_INFINITY, range.to?.col ?? Number.POSITIVE_INFINITY);
+      const tailRow = Math.max(range.from?.row ?? -1, range.to?.row ?? -1);
+      const tailCol = Math.max(range.from?.col ?? -1, range.to?.col ?? -1);
+      const coversAllRows = totalRows > 0 && headRow <= 0 && tailRow >= (totalRows - 1);
+      const coversAllCols = totalCols > 0 && headCol <= 0 && tailCol >= (totalCols - 1);
+      const selectionState = {
+        tailRow,
+        tailCol,
+        coversAllRows,
+        coversAllCols
       };
-      console.debug('Debug: autoGrow evaluateSelectionTail', { debugLabel, tail });
-      return tail;
+      console.debug('Debug: autoGrow evaluateSelectionState', { debugLabel, selectionState, totalRows, totalCols }); // Debug: selection state trace
+      return selectionState;
     };
 
     const shouldGrowRows = ()=>{
@@ -264,9 +274,15 @@
         console.debug('Debug: autoGrow row distance', { debugLabel, distance, threshold: autoGrowthConfig.rowThresholdPx, nearByScroll });
       }
       let nearBySelection = false;
-      const tail = evaluateSelectionTail();
-      if(tail && tail.row >= 0){
-        nearBySelection = (totalRows - 1 - tail.row) <= autoGrowthConfig.selectionThreshold;
+      const selection = evaluateSelectionState();
+      if(selection){
+        if(selection.coversAllRows){
+          console.debug('Debug: autoGrow shouldGrowRows skipped full-table selection', { debugLabel, selection }); // Debug: prevent Ctrl+A growth for rows
+          return false;
+        }
+        if(selection.tailRow >= 0){
+          nearBySelection = (totalRows - 1 - selection.tailRow) <= autoGrowthConfig.selectionThreshold;
+        }
       }
       const shouldGrow = nearByScroll || nearBySelection;
       console.debug('Debug: autoGrow shouldGrowRows evaluation', { debugLabel, shouldGrow, nearByScroll, nearBySelection, totalRows });
@@ -294,9 +310,15 @@
         console.debug('Debug: autoGrow col distance', { debugLabel, distance, threshold: autoGrowthConfig.colThresholdPx, nearByScroll });
       }
       let nearBySelection = false;
-      const tail = evaluateSelectionTail();
-      if(tail && tail.col >= 0){
-        nearBySelection = (totalCols - 1 - tail.col) <= autoGrowthConfig.selectionThreshold;
+      const selection = evaluateSelectionState();
+      if(selection){
+        if(selection.coversAllCols){
+          console.debug('Debug: autoGrow shouldGrowCols skipped full-table selection', { debugLabel, selection }); // Debug: prevent Ctrl+A growth for columns
+          return false;
+        }
+        if(selection.tailCol >= 0){
+          nearBySelection = (totalCols - 1 - selection.tailCol) <= autoGrowthConfig.selectionThreshold;
+        }
       }
       const shouldGrow = nearByScroll || nearBySelection;
       console.debug('Debug: autoGrow shouldGrowCols evaluation', { debugLabel, shouldGrow, nearByScroll, nearBySelection, totalCols });
