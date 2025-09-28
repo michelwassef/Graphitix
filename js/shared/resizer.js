@@ -22,6 +22,8 @@
     return Number.isFinite(num) && num > 0 ? num : NaN;
   }
 
+  const undoManager = Shared.undoManager;
+
   function resolveSquareSize(label){
     const style = Shared.chartStyle || {};
     const widthCandidate = Number(style.DEFAULT_WIDTH);
@@ -529,9 +531,121 @@
     container.style.maxWidth = px(MAX_W);
     container.style.maxHeight = px(MAX_H);
 
+    const hasUndo = undoManager && typeof undoManager.record === 'function';
+
+    const parseStylePx = (value) => {
+      if(typeof value !== 'string') return NaN;
+      const num = Number.parseFloat(value);
+      return Number.isFinite(num) ? num : NaN;
+    };
+
+    const makeResizeSnapshot = (tag) => {
+      const liveRect = container.getBoundingClientRect();
+      const rectWidth = parsePositive(liveRect.width);
+      const rectHeight = parsePositive(liveRect.height);
+      const snapshot = {
+        tag,
+        width: Number.isFinite(rectWidth) ? Math.round(rectWidth) : parseStylePx(container.style.width),
+        height: Number.isFinite(rectHeight) ? Math.round(rectHeight) : parseStylePx(container.style.height),
+        styleWidth: container.style.width,
+        styleHeight: container.style.height,
+        minWidthStyle: container.style.minWidth,
+        minHeightStyle: container.style.minHeight,
+        maxWidthStyle: container.style.maxWidth,
+        maxHeightStyle: container.style.maxHeight,
+        flexStyle: container.style.flex
+      };
+      console.debug('Debug: resizer snapshot captured', {
+        container: containerLabel,
+        tag,
+        width: snapshot.width,
+        height: snapshot.height
+      });
+      return snapshot;
+    };
+
+    const notifyUndoableResize = (mode, before, after, trigger) => {
+      if(!hasUndo) return;
+      if(!before || !after) return;
+      const widthChanged = (() => {
+        if(Number.isFinite(before.width) && Number.isFinite(after.width)){
+          return Math.round(before.width) !== Math.round(after.width);
+        }
+        if(before.styleWidth && after.styleWidth){
+          return before.styleWidth !== after.styleWidth;
+        }
+        return false;
+      })();
+      const heightChanged = (() => {
+        if(Number.isFinite(before.height) && Number.isFinite(after.height)){
+          return Math.round(before.height) !== Math.round(after.height);
+        }
+        if(before.styleHeight && after.styleHeight){
+          return before.styleHeight !== after.styleHeight;
+        }
+        return false;
+      })();
+      if(!widthChanged && !heightChanged) return;
+      undoManager.record({
+        label: `resize:${containerLabel}:${mode}`,
+        scope: containerLabel,
+        undo: () => {
+          console.debug('Debug: resizer undo snapshot apply', { container: containerLabel, mode, trigger });
+          applySnapshot(before, 'undo');
+          if(typeof opts.onResize === 'function'){
+            try { opts.onResize('undo'); } catch(err){ console.error('resizer onResize undo error', err); }
+          }
+        },
+        redo: () => {
+          console.debug('Debug: resizer redo snapshot apply', { container: containerLabel, mode, trigger });
+          applySnapshot(after, 'redo');
+          if(typeof opts.onResize === 'function'){
+            try { opts.onResize('redo'); } catch(err){ console.error('resizer onResize redo error', err); }
+          }
+        }
+      });
+    };
+
+    function applySnapshot(snapshot, reason){
+      if(!snapshot) return;
+      const widthTarget = Number.isFinite(snapshot.width) ? snapshot.width : parseStylePx(snapshot.styleWidth);
+      const heightTarget = Number.isFinite(snapshot.height) ? snapshot.height : parseStylePx(snapshot.styleHeight);
+      const applied = applyResize({
+        axis: 'both',
+        width: widthTarget,
+        height: heightTarget,
+        fallbackWidth: Number.isFinite(widthTarget) ? widthTarget : defaultWidth,
+        fallbackHeight: Number.isFinite(heightTarget) ? heightTarget : defaultHeight,
+        reason: reason || 'snapshot'
+      });
+      if(typeof snapshot.flexStyle === 'string' && snapshot.flexStyle.length){
+        container.style.flex = snapshot.flexStyle;
+      }
+      if(typeof snapshot.maxWidthStyle === 'string' && snapshot.maxWidthStyle.length){
+        container.style.maxWidth = snapshot.maxWidthStyle;
+      }
+      if(typeof snapshot.maxHeightStyle === 'string' && snapshot.maxHeightStyle.length){
+        container.style.maxHeight = snapshot.maxHeightStyle;
+      }
+      if(typeof snapshot.minWidthStyle === 'string' && snapshot.minWidthStyle.length){
+        container.style.minWidth = snapshot.minWidthStyle;
+      }
+      if(typeof snapshot.minHeightStyle === 'string' && snapshot.minHeightStyle.length){
+        container.style.minHeight = snapshot.minHeightStyle;
+      }
+      container.dataset.resizerResized = 'true';
+      console.debug('Debug: resizer applySnapshot complete', {
+        container: containerLabel,
+        reason,
+        widthApplied: applied.width,
+        heightApplied: applied.height
+      });
+    }
+
     function attachDrag(handle, axis){
       if(!handle) return;
       let startX=0, startY=0, startW=0, startH=0, pointerId=null;
+      let startSnapshot = null;
       const onPointerDown = (e) => {
         e.preventDefault();
         pointerId = e.pointerId;
@@ -541,6 +655,7 @@
         startH = Math.min(MAX_H, Math.max(MIN_H, Math.round(rect.height)));
         startX = e.clientX;
         startY = e.clientY;
+        startSnapshot = makeResizeSnapshot('pointer-start');
         container.style.boxSizing = 'border-box';
         container.style.width = px(startW);
         container.style.height = px(startH);
@@ -587,6 +702,11 @@
           document.documentElement.style.userSelect = '';
           document.documentElement.style.touchAction = '';
           console.debug('Debug: resizer drag end'); // Debug: resizer drag end
+          if(startSnapshot){
+            const endSnapshot = makeResizeSnapshot('pointer-end');
+            notifyUndoableResize(`drag-${axis}`, startSnapshot, endSnapshot, 'pointer');
+            startSnapshot = null;
+          }
           if (typeof opts.onResize === 'function') {
             try { opts.onResize('end'); } catch(e) { console.error('resizer onResize error', e); }
           }
@@ -597,6 +717,7 @@
       handle.addEventListener('pointerdown', onPointerDown);
       handle.addEventListener('dblclick', (ev) => {
         ev.preventDefault();
+        const beforeReset = makeResizeSnapshot('dblclick-before');
         container.style.flex = '0 0 auto';
         container.dataset.resizerResized = 'true';
         const applied = applyResize({
@@ -614,6 +735,8 @@
         if(aspectLocked){
           readRectRatio();
         }
+        const afterReset = makeResizeSnapshot('dblclick-after');
+        notifyUndoableResize('reset', beforeReset, afterReset, 'dblclick');
         console.debug('Debug: resizer size reset', { width: container.style.width, height: container.style.height, applied }); // Debug: resizer reset
         if (typeof opts.onResize === 'function') {
           try { opts.onResize('reset'); } catch(e) { console.error('resizer onResize error', e); }
