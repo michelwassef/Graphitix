@@ -4,6 +4,7 @@
   const Components = global.Components = global.Components || {};
   const line = Components.line = Components.line || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const fontControls = Shared.fontControls = Shared.fontControls || {};
   line.__installed = true;
   line.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -64,6 +65,22 @@
     hasSharedResize: typeof Shared.autoResizeSvg === 'function',
     hasSharedSerialize: typeof Shared.serializeCleanSVG === 'function'
   }); // Debug: helper availability summary
+
+  const markFontEditable = (node, role, key) => {
+    if (!node) { return; }
+    const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
+    if (fontControls && typeof fontControls.markText === 'function') {
+      fontControls.markText(node, { scopeId: 'line', role, key });
+    } else if (node.dataset) {
+      node.dataset.fontEditable = '1';
+      node.dataset.fontScope = 'line';
+      if (role) node.dataset.fontRole = role;
+      if (key || role) node.dataset.fontKey = key || role;
+    }
+    if (!role || role.indexOf('Tick') === -1) {
+      console.debug('Debug: line markFontEditable', payload); // Debug: font target tagging summary
+    }
+  };
 
   function formatP(p){
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
@@ -432,6 +449,12 @@
       svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
       chartStyle.applySvgDefaults(svg);
       plotEl.appendChild(svg);
+      if(fontControls && typeof fontControls.enableForSvg === 'function'){
+        fontControls.enableForSvg(svg,{ scopeId: 'line' });
+        console.debug('Debug: line fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
+      } else {
+        console.debug('Debug: line fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
+      }
       const xMinT=logX?Math.log10(xMin):xMin;
       const xMaxT=logX?Math.log10(xMax):xMax;
       const yMinT=logY?Math.log10(yMin):yMin;
@@ -545,9 +568,12 @@
       }
       // Frame closes plot area using existing axis styling for continuity
       const xTickNodes=[];
-      xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':axisStrokeWidth});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);xTickNodes.push(txt);});
+      let xTickFontCount=0;
+      xScale.ticks.forEach((t,i)=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':axisStrokeWidth});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);markFontEditable(txt,'xTick');xTickFontCount+=1;xTickNodes.push(txt);});
       chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
-      yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);});
+      let yTickFontCount=0;
+      yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});
+      console.debug('Debug: line font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
       console.debug('Debug: line ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
       const colors=series.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
       const seriesElems=[];
@@ -602,6 +628,7 @@
           t.setAttribute('font-size',fs);
           t.setAttribute('fill',chartStyle.TEXT_COLOR);
           t.textContent=s.name;
+          markFontEditable(t,'legend',`legend-${i}`);
           itemG.appendChild(t);
           itemG.addEventListener('click',()=>{
             const vis=seriesElems[i].path.style.display!=='none';
@@ -616,13 +643,16 @@
       const xAxisBase=margin.top+plotH;
       const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       xText.textContent=lineXLabelText;
+      markFontEditable(xText,'xTitle','xTitle');
       makeEditableHelper(xText,txt=>{lineXLabelText=txt;});
       const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
       const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       yText.textContent=lineYLabelText;
+      markFontEditable(yText,'yTitle','yTitle');
       makeEditableHelper(yText,txt=>{lineYLabelText=txt;});
       const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       titleText.textContent=lineTitleText;
+      markFontEditable(titleText,'graphTitle','graphTitle');
       makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
       updateLineStats(series);
       autoResizeSvgHelper(svg);

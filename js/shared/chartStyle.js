@@ -1100,6 +1100,15 @@
     if(svg){
       svg.setAttribute('font-family', FONT_FAMILY);
       svg.setAttribute('color', TEXT_COLOR);
+      const fontControls = (global.Shared && global.Shared.fontControls) || {};
+      if(fontControls && typeof fontControls.enableForSvg === 'function'){
+        try {
+          fontControls.enableForSvg(svg,{ scopeId: svg.id || svg.dataset?.fontScope || svg.closest?.('.svgbox')?.id || null });
+          console.debug('Debug: chartStyle.applySvgDefaults fontControls attached',{ scope: svg.id || svg.dataset?.fontScope || null }); // Debug: font panel auto-binding
+        } catch(fontErr){
+          console.error('chartStyle.applySvgDefaults fontControls error', fontErr);
+        }
+      }
     }
     console.debug('Debug: chartStyle.applySvgDefaults', {hasSvg: !!svg}); // Debug: svg defaults applied
   };

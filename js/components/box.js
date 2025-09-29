@@ -4,6 +4,7 @@
   const Components = global.Components = global.Components || {};
   const box = Components.box = Components.box || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const fontControls = Shared.fontControls = Shared.fontControls || {};
   box.__installed = true;
   box.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -59,6 +60,21 @@
     hasSharedResize: typeof Shared.autoResizeSvg === 'function',
     hasSharedSerialize: typeof Shared.serializeCleanSVG === 'function'
   }); // Debug: helper resolution summary
+  const markFontEditable = (node, role, key) => {
+    if (!node) { return; }
+    const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
+    if (fontControls && typeof fontControls.markText === 'function') {
+      fontControls.markText(node, { scopeId: 'box', role, key });
+    } else if (node.dataset) {
+      node.dataset.fontEditable = '1';
+      node.dataset.fontScope = 'box';
+      if (role) node.dataset.fontRole = role;
+      if (key || role) node.dataset.fontKey = key || role;
+    }
+    if (!role || role.indexOf('Tick') === -1) {
+      console.debug('Debug: box markFontEditable', payload); // Debug: font target tagging summary
+    }
+  };
   function ensureWrapperStyles(){ const wrapper=global.document.getElementById('hotWrapper'); if(global.Shared && Shared.ensureHotWrapperStyles) Shared.ensureHotWrapperStyles(wrapper); }
 
   // Local state and element cache
@@ -1287,6 +1303,12 @@ function renderStatsControls(traces){
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
     chartStyle.applySvgDefaults(svg);
     els.plotDiv.appendChild(svg);
+    if(fontControls && typeof fontControls.enableForSvg === 'function'){
+      fontControls.enableForSvg(svg,{ scopeId: 'box' });
+      console.debug('Debug: box fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
+    } else {
+      console.debug('Debug: box fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
+    }
     let ymin = Infinity;
     let ymax = -Infinity;
     for(let ti = 0; ti < traces.length; ti++){
@@ -1541,11 +1563,14 @@ function renderStatsControls(traces){
       axisYEnd = Math.max(axisYEnd, xAxisY);
       console.debug('Debug: box axis join span',{ axisYStart, axisYEnd, xAxisY, yAxisX });
       add('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
-      yScale.ticks.forEach(t => {
+      let yTickFontCount = 0;
+      yScale.ticks.forEach((t, i) => {
         const y = y2px(t);
         add('line',{ x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const txt = add('text',{ x: yAxisX - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
+        markFontEditable(txt,'yTick');
+        yTickFontCount += 1;
       });
       const xTickPositions = axisLabels.map((_, i) => marginLocal.left + (i + 0.5) * bandW);
       let axisXStart = xTickPositions.length ? Math.min(...xTickPositions) : yAxisX;
@@ -1582,12 +1607,15 @@ function renderStatsControls(traces){
       }
       const xLabelOffset = tickLen + tickGap;
       const xLabels = [];
+      let xTickFontCount = 0;
       axisLabels.forEach((lab, i) => {
         const x = marginLocal.left + (i + 0.5) * bandW;
         add('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
         const t = add('text',{ x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
         t.textContent = labelText;
+        markFontEditable(t,'xTick');
+        xTickFontCount += 1;
         if(isGroupedMode){
           t.style.cursor = 'default';
         }else{
@@ -1596,6 +1624,7 @@ function renderStatsControls(traces){
         }
         xLabels.push(t);
       });
+      console.debug('Debug: box font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
       console.debug('Debug: box ticks stroke scaled',{ yTickCount: yScale.ticks.length, xTickCount: axisLabels.length, axisStrokeWidth });
       chartStyle.applyLabelOrientation(xLabels,{ angle: -45, anchor: 'end', dy: '0.35em', force: bottomLayout.shouldRotate });
       function enableLabelDrag(t, idx){
@@ -1629,6 +1658,7 @@ function renderStatsControls(traces){
       const yX = marginLocal.left - (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
       const yText = add('text',{ x: yX, y: marginLocal.top + plotHLocal / 2, transform: `rotate(-90 ${yX} ${marginLocal.top + plotHLocal / 2})`, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
       yText.textContent = state.yLabelText;
+      markFontEditable(yText,'yTitle','yTitle');
       makeEditable(yText, txt => { state.yLabelText = txt; });
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
@@ -2196,6 +2226,7 @@ function renderStatsControls(traces){
     }
     const titleText = add('text',{ x: orientationResult.titleX, y: orientationResult.titleY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
     titleText.textContent = state.titleText;
+    markFontEditable(titleText,'graphTitle','graphTitle');
     makeEditable(titleText, txt => { state.titleText = txt; });
     if(legendRenderer.entries.length){
       const plotRight = orientationResult.margin.left + orientationResult.plotW;

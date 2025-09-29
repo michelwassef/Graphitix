@@ -4,6 +4,7 @@
   const Components = global.Components = global.Components || {};
   const pca = Components.pca = Components.pca || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const fontControls = Shared.fontControls = Shared.fontControls || {};
   pca.__installed = true;
   pca.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -105,6 +106,21 @@
           }
         }
       });
+      const markFontEditable = (node, role, key) => {
+        if (!node) { return; }
+        const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
+        if (fontControls && typeof fontControls.markText === 'function') {
+          fontControls.markText(node, { scopeId: 'pca', role, key });
+        } else if (node.dataset) {
+          node.dataset.fontEditable = '1';
+          node.dataset.fontScope = 'pca';
+          if (role) node.dataset.fontRole = role;
+          if (key || role) node.dataset.fontKey = key || role;
+        }
+        if (!role || role.indexOf('Tick') === -1) {
+          console.debug('Debug: pca markFontEditable', payload); // Debug: font target tagging summary
+        }
+      };
       document.getElementById('pcaLoadExample').addEventListener('click',()=>{
         const pcaExample=[
           ['Variable','A','B','C','D','E','F','G','H'],
@@ -727,6 +743,12 @@
       svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
       chartStyle.applySvgDefaults(svg);
       plotEl.appendChild(svg);
+      if(fontControls && typeof fontControls.enableForSvg === 'function'){
+        fontControls.enableForSvg(svg,{ scopeId: 'pca' });
+        console.debug('Debug: pca fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
+      } else {
+        console.debug('Debug: pca fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
+      }
 
       function niceNum(range, round) {
         const exp = Math.floor(Math.log10(range));
@@ -878,7 +900,8 @@
       // Frame closes PCA plot area using axis styling continuity
 
       const xTickNodes = [];
-      xScale.ticks.forEach((t) => {
+      let xTickFontCount = 0;
+      xScale.ticks.forEach((t, i) => {
         const x = x2px(t);
         add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + tickLen, stroke: '#000', 'stroke-width': axisStrokeWidth});
         const txt = add('text', {
@@ -889,14 +912,17 @@
           'dominant-baseline': 'hanging',
           fill: chartStyle.TEXT_COLOR,
         }, formatTick(t));
+        markFontEditable(txt,'xTick');
+        xTickFontCount += 1;
         xTickNodes.push(txt);
       });
       chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
 
-      yScale.ticks.forEach((t) => {
+      let yTickFontCount = 0;
+      yScale.ticks.forEach((t, i) => {
         const y = y2px(t);
         add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': axisStrokeWidth});
-        add('text', {
+        const txt = add('text', {
           x: margin.left - (tickLen + tickGap),
           y,
           'font-size': fs,
@@ -904,19 +930,23 @@
           'dominant-baseline': 'middle',
           fill: chartStyle.TEXT_COLOR,
         }, formatTick(t));
+        markFontEditable(txt,'yTick');
+        yTickFontCount += 1;
       });
       console.debug('Debug: pca ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
+      console.debug('Debug: pca font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
 
-      add('text', {
+      const xAxisText = add('text', {
         x: margin.left + plotW / 2,
         y: margin.top + plotH + bottomLayout.titleOffset,
         'font-size': fs,
         'text-anchor': 'middle',
         fill: chartStyle.TEXT_COLOR,
       }, pcaXLabelText);
+      markFontEditable(xAxisText,'xTitle','xTitle');
 
       const yLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
-      add('text', {
+      const yAxisText = add('text', {
         x: yLabelX,
         y: margin.top + plotH / 2,
         'font-size': fs,
@@ -924,6 +954,7 @@
         transform: `rotate(-90 ${yLabelX} ${margin.top + plotH / 2})`,
         fill: chartStyle.TEXT_COLOR,
       }, pcaYLabelText);
+      markFontEditable(yAxisText,'yTitle','yTitle');
 
       points.forEach((pt) => {
         const cx = x2px(pt.x);
@@ -954,13 +985,14 @@
         const itemY = margin.top + i * (legendMarkerSize + legendSpacing);
         const color = pcaLabelColors[lab] || DEFAULT_SCATTER_COLORS[i % DEFAULT_SCATTER_COLORS.length];
         add('rect', {x: legendX, y: itemY, width: legendMarkerSize, height: legendMarkerSize, fill: color});
-        add('text', {
+        const legendText = add('text', {
           x: legendX + legendTextOffset,
           y: itemY + legendMarkerSize / 2,
           'font-size': fs,
           'dominant-baseline': 'middle',
           fill: chartStyle.TEXT_COLOR,
         }, lab);
+        markFontEditable(legendText,'legend',`legend-${i}`);
       });
 
       console.debug('pca render complete', {

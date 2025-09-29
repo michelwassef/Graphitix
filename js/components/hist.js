@@ -10,6 +10,7 @@
 
   const hist = Components.hist = Components.hist || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const fontControls = Shared.fontControls = Shared.fontControls || {};
   hist.__installed = true; // signal to legacy code to skip
   hist.ready = false; // set true after successful init
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -34,6 +35,22 @@
     const wrapper = document.getElementById('histHotWrapper');
     if(global.Shared && Shared.ensureHotWrapperStyles) Shared.ensureHotWrapperStyles(wrapper);
   }
+
+  const markFontEditable = (node, role, key) => {
+    if (!node) { return; }
+    const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
+    if (fontControls && typeof fontControls.markText === 'function') {
+      fontControls.markText(node, { scopeId: 'hist', role, key });
+    } else if (node.dataset) {
+      node.dataset.fontEditable = '1';
+      node.dataset.fontScope = 'hist';
+      if (role) node.dataset.fontRole = role;
+      if (key || role) node.dataset.fontKey = key || role;
+    }
+    if (!role || role.indexOf('Tick') === -1) {
+      console.debug('Debug: hist markFontEditable', payload); // Debug: font target tagging summary
+    }
+  };
 
   function initTableAndResizers(){
     const histTablePanel=document.getElementById('histTablePanel');
@@ -421,6 +438,12 @@
     const logY=histLogY.checked;
     plotEl.style.position='relative';
     const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','histSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.applySvgDefaults(svg); plotEl.appendChild(svg);
+    if(fontControls && typeof fontControls.enableForSvg === 'function'){
+      fontControls.enableForSvg(svg,{ scopeId: 'hist' });
+      console.debug('Debug: hist fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
+    } else {
+      console.debug('Debug: hist fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
+    }
     function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
     const containerRect=state.svgBox?.getBoundingClientRect?.();
     const fontInfo=chartStyle.resolveScaledFontSize({
@@ -552,29 +575,36 @@
     }
     // Frame closes histogram plot area using axis styling continuity
     const xTickNodes=[];
-      xScale.ticks.forEach(t=>{
+      let xTickFontCount=0;
+      xScale.ticks.forEach((t,i)=>{
         const x=x2px(t);
         add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':axisStrokeWidth});
         const txt=add('text',{x,y:margin.top+plotH+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});
         txt.textContent=formatTick(t);
+        markFontEditable(txt,'xTick');
+        xTickFontCount+=1;
         xTickNodes.push(txt);
       });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
-      yScale.ticks.forEach(t=>{
+      let yTickFontCount=0;
+      yScale.ticks.forEach((t,i)=>{
         const y=y2px(t);
         add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':axisStrokeWidth});
         const txt=add('text',{x:margin.left-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
         txt.textContent=formatTick(logY?Math.pow(10,t):t);
+        markFontEditable(txt,'yTick');
+        yTickFontCount+=1;
       });
+    console.debug('Debug: hist font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
     console.debug('Debug: hist ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
     const edges=Array.from({length:bins+1},(_,i)=>xScale.min+i*binWidth);
     const fill=histFill.value; const borderColor=histBorder.value;
     counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill}); if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);} });
     const xAxisBase=margin.top+plotH;
-    const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); xText.textContent=state.xLabelText; if(global.makeEditable) makeEditable(xText,txt=>{state.xLabelText=txt;});
+    const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); xText.textContent=state.xLabelText; markFontEditable(xText,'xTitle','xTitle'); if(global.makeEditable) makeEditable(xText,txt=>{state.xLabelText=txt;});
     const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
-    const yText=add('text',{x:yX,y:margin.top+plotH/2,'dominant-baseline':'middle',transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); yText.textContent=state.yLabelText; if(global.makeEditable) makeEditable(yText,txt=>{state.yLabelText=txt;});
-    const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); titleText.textContent=state.titleText; if(global.makeEditable) makeEditable(titleText,txt=>{state.titleText=txt;});
+    const yText=add('text',{x:yX,y:margin.top+plotH/2,'dominant-baseline':'middle',transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); yText.textContent=state.yLabelText; markFontEditable(yText,'yTitle','yTitle'); if(global.makeEditable) makeEditable(yText,txt=>{state.yLabelText=txt;});
+    const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); titleText.textContent=state.titleText; markFontEditable(titleText,'graphTitle','graphTitle'); if(global.makeEditable) makeEditable(titleText,txt=>{state.titleText=txt;});
     if(global.autoResizeSvg) global.autoResizeSvg(svg);
     // Update stats panel
     updateHistStats(values);
