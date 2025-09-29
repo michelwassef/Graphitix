@@ -6,6 +6,7 @@
   const Components = global.Components = global.Components || {};
   const roc = Components.roc = Components.roc || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const fontControls = Shared.fontControls = Shared.fontControls || {};
   roc.__installed = true;
   roc.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -36,6 +37,26 @@
   };
 
   const refs = {};
+
+  const markFontEditable = (node, role, key) => {
+    if(!node){ return; }
+    const payload = {
+      role: role || null,
+      key: key || role || null,
+      text: node?.textContent || null
+    };
+    if(fontControls && typeof fontControls.markText === 'function'){
+      fontControls.markText(node, { scopeId: 'roc', role, key });
+    }else if(node.dataset){
+      node.dataset.fontEditable = '1';
+      node.dataset.fontScope = 'roc';
+      if(role){ node.dataset.fontRole = role; }
+      if(key || role){ node.dataset.fontKey = key || role; }
+    }
+    if(!role || role.indexOf('Tick') === -1){
+      console.debug('Debug: roc markFontEditable', payload); // Debug: font target tagging summary
+    }
+  };
 
   function $(selector){
     return document.querySelector(selector);
@@ -738,6 +759,8 @@
     svg.setAttribute('height', String(height));
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
+    svg.dataset.fontScope = 'roc';
+    console.debug('Debug: roc svg dataset scope assigned', { scope: svg.dataset.fontScope }); // Debug: svg font scope tagging
     chartStyle.applySvgDefaults(svg);
     plotEl.appendChild(svg);
 
@@ -821,7 +844,7 @@
     const xToPx = value => margin.left + plotWidth * value;
     const yToPx = value => margin.top + plotHeight * (1 - value);
 
-    function add(tag, attrs, text){
+    function add(tag, attrs, text, options){
       const element = document.createElementNS(NS, tag);
       Object.entries(attrs).forEach(([key, val]) => {
         element.setAttribute(key, String(val));
@@ -830,6 +853,13 @@
         element.textContent = text;
       }
       svg.appendChild(element);
+      if(tag === 'text' && element){
+        const role = options?.role || null;
+        const key = options?.key || role || null;
+        if(role || key){
+          markFontEditable(element, role, key);
+        }
+      }
       return element;
     }
 
@@ -876,17 +906,17 @@
     const xTickNodes = [];
     const tickLen = axisMetrics.tickLength;
     const tickGap = axisMetrics.tickLabelGap;
-    ticks.forEach(tick => {
+    ticks.forEach((tick, index) => {
       const x = xToPx(tick);
       add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + tickLen, stroke: '#000', 'stroke-width': axisStrokeWidth});
-      const txt = add('text', {x, y: margin.top + plotHeight + tickLen + tickGap, 'text-anchor': 'middle', 'font-size': fontSize, 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
+      const txt = add('text', {x, y: margin.top + plotHeight + tickLen + tickGap, 'text-anchor': 'middle', 'font-size': fontSize, 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR}, formatTick(tick), { role: 'xTick' });
       xTickNodes.push(txt);
     });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
-    ticks.forEach(tick => {
+    ticks.forEach((tick, index) => {
       const y = yToPx(tick);
       add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': axisStrokeWidth});
-      add('text', {x: margin.left - (tickLen + tickGap), y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTick(tick));
+      add('text', {x: margin.left - (tickLen + tickGap), y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTick(tick), { role: 'yTick' });
     });
     console.debug('Debug: roc ticks stroke scaled',{tickCount:ticks.length,axisStrokeWidth});
 
@@ -896,7 +926,7 @@
       'text-anchor': 'middle',
       'font-size': fontSize,
       fill: chartStyle.TEXT_COLOR
-    }, xAxisLabel);
+    }, xAxisLabel, { role: 'xTitle', key: 'xTitle' });
 
     const yLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fontSize * 0.5);
     add('text', {
@@ -906,7 +936,7 @@
       'font-size': fontSize,
       transform: `rotate(-90 ${yLabelX} ${margin.top + plotHeight / 2})`,
       fill: chartStyle.TEXT_COLOR
-    }, yAxisLabel);
+    }, yAxisLabel, { role: 'yTitle', key: 'yTitle' });
 
     const stats = [];
     const allPairs = [];
@@ -1033,7 +1063,7 @@
         'font-size': fontSize,
         'dominant-baseline': 'middle',
         fill: chartStyle.TEXT_COLOR
-      }, label);
+      }, label, { role: 'legend', key: `legend-${index}` });
     });
 
     if(refs.statsResults){
