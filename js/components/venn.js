@@ -725,9 +725,33 @@
       const pABC = hypergeomPval(total, state.lastCounts.AB + state.lastCounts.ABC, state.lastCounts.nC, state.lastCounts.ABC);
       res.push({ name: `${labels.A}∩${labels.B}∩${labels.C}`, p: pABC });
     }
-    state.significanceResults.innerHTML = '<table><tr><th>Overlap</th><th>p-value</th><th>Significant</th></tr>' +
-      res.map(r => `<tr><td>${r.name}</td><td>${r.p.toExponential(2)}</td><td>${r.p < 0.05 ? 'yes' : 'no'}</td></tr>`).join('') +
-      '</table>';
+    const hasRenderer = Shared.statsTable && typeof Shared.statsTable.render === 'function';
+    const rows = res.map(r => ({
+      overlap: r.name,
+      pvalue: r.p.toExponential(2),
+      significant: r.p < 0.05 ? 'yes' : 'no'
+    }));
+    if (hasRenderer) {
+      Shared.statsTable.render({
+        target: state.significanceResults,
+        columns: [
+          { key: 'overlap', label: 'Overlap', align: 'left' },
+          { key: 'pvalue', label: 'p-value', align: 'right' },
+          { key: 'significant', label: 'Significant', align: 'center' }
+        ],
+        rows,
+        caption: 'Overlap enrichment significance',
+        footnotes: ['Significance threshold: p < 0.05.'],
+        options: {
+          fileName: 'venn-significance',
+          contextLabel: 'venn-significance'
+        }
+      });
+    } else {
+      state.significanceResults.innerHTML = '<table><tr><th>Overlap</th><th>p-value</th><th>Significant</th></tr>' +
+        rows.map(r => `<tr><td>${r.overlap}</td><td>${r.pvalue}</td><td>${r.significant}</td></tr>`).join('') +
+        '</table>';
+    }
     debugLog('calculateSignificance complete', { total, overlaps: res.length });
   }
 

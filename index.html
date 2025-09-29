@@ -733,6 +733,20 @@
       <input type="file" id="lineGraphFile" accept=".graph" style="display:none;" />
       <input type="file" id="lineFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
     </div>
+    <div class="row" style="margin:8px 0; gap:8px; align-items:center; flex-wrap:wrap;">
+      <label for="lineReplicates" style="display:flex; align-items:center; gap:6px; font-size:13px;">
+        Y replicates
+        <input type="number" id="lineReplicates" min="1" max="10" step="1" value="1" style="width:72px;" />
+      </label>
+      <label for="lineExampleSelect" style="display:flex; align-items:center; gap:6px; font-size:13px;">
+        Example data
+        <select id="lineExampleSelect" style="min-width:220px;">
+          <option value="standard">Standard (single replicate)</option>
+          <option value="replicates2">Two replicates (Control vs Treated)</option>
+          <option value="replicates3">Three replicates (Dose response)</option>
+        </select>
+      </label>
+    </div>
     <div class="wrap">
       <div class="panel" id="lineTablePanel">
         <div id="lineHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
@@ -1361,6 +1375,7 @@
   <script src="js/shared/dom.js"></script>
   <script src="js/shared/exporter.js"></script>
   <script src="js/shared/chartStyle.js"></script>
+  <script src="js/shared/stats-table.js"></script>
   <script src="js/shared/colorPicker.js"></script>
   <script src="js/shared/fontControls.js"></script>
   <script src="js/shared/hot.js"></script>

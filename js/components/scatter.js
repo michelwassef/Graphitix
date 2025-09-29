@@ -76,6 +76,46 @@
       const serializer = new (global.XMLSerializer||XMLSerializer)();
       return serializer.serializeToString(svgEl);
     };
+    const renderStatsCard=(target,model)=>{
+      if(!target) return;
+      const hasRenderer=Shared.statsTable && typeof Shared.statsTable.render==='function';
+      if(hasRenderer){
+        Shared.statsTable.render({ target, ...model });
+        console.debug('Debug: scatter renderStatsCard shared',{ caption:model.caption || null, rows:model.rows?.length || 0 });
+        return;
+      }
+      target.innerHTML='';
+      if(model.caption){
+        const lead=document.createElement('div');
+        lead.className='stats-table-lead';
+        lead.textContent=model.caption;
+        target.appendChild(lead);
+      }
+      const table=document.createElement('table');
+      const thead=document.createElement('thead');
+      const headRow=document.createElement('tr');
+      (model.columns||[]).forEach(col=>{
+        const th=document.createElement('th');
+        th.textContent=col.label;
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody=document.createElement('tbody');
+      (model.rows||[]).forEach(row=>{
+        const tr=document.createElement('tr');
+        (model.columns||[]).forEach(col=>{
+          const td=document.createElement('td');
+          const value=row?.[col.key];
+          td.textContent=value ?? '';
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      target.appendChild(table);
+      console.debug('Debug: scatter renderStatsCard fallback',{ caption:model.caption || null, rows:model.rows?.length || 0 });
+    };
     console.debug('Debug: scatter component DOM helpers resolved', {
       hasSharedEditable: typeof Shared.makeEditable === 'function',
       hasSharedResize: typeof Shared.autoResizeSvg === 'function',
@@ -973,7 +1013,22 @@
             }
           }
           const resDiv=document.getElementById('scatterStatsResults');
-          resDiv.innerHTML=`<table><tr><th>r</th><td>${stats.r.toFixed(4)}</td></tr><tr><th>R²</th><td>${stats.r2.toFixed(4)}</td></tr><tr><th>P value</th><td>${formatP(stats.p)}</td></tr></table>`;
+          renderStatsCard(resDiv,{
+            caption:`${stats.method} correlation`,
+            columns:[
+              {key:'metric',label:'Metric',align:'left'},
+              {key:'value',label:'Value',align:'right'}
+            ],
+            rows:[
+              {metric:'r',value:stats.r.toFixed(4)},
+              {metric:'R²',value:stats.r2.toFixed(4)},
+              {metric:'P value',value:formatP(stats.p)}
+            ],
+            options:{
+              fileName:'scatter-correlation',
+              contextLabel:'scatter-correlation'
+            }
+          });
           console.log('scatter stats', stats);
         }else{
           const resDiv=document.getElementById('scatterStatsResults');
@@ -987,7 +1042,30 @@
           if(maMissingPCount>0){
             summaryRows+=`<tr><th>Missing p-values</th><td>${maMissingPCount}</td></tr>`;
           }
-          resDiv.innerHTML=`<table>${summaryRows}</table>`;
+          renderStatsCard(resDiv,{
+            caption: scatterCurrentGraphType==='ma' ? 'Differential expression summary' : 'Significance summary',
+            columns:[
+              {key:'metric',label:'Metric',align:'left'},
+              {key:'value',label:'Value',align:'right'}
+            ],
+            rows:(()=>{
+              const rows=[
+                { metric:'Total points', value:String(points.length) },
+                { metric:'Significant', value:String(significantCount) },
+                { metric:'Not significant', value:String(nonSigCount) },
+                { metric:'|log₂FC| ≥', value:log2fcThreshold.toFixed(2) },
+                { metric:`${negLabel} ≥`, value:negLogPThreshold.toFixed(2) }
+              ];
+              if(maMissingPCount>0){
+                rows.push({ metric:'Missing p-values', value:String(maMissingPCount) });
+              }
+              return rows;
+            })(),
+            options:{
+              fileName:'scatter-threshold-summary',
+              contextLabel:'scatter-threshold'
+            }
+          });
           console.debug('Debug: scatter significance summary',{graphType:scatterCurrentGraphType,significantCount,nonSigCount,log2fcThreshold,negLogPThreshold,missingP:maMissingPCount});
         }
         autoResizeSvg(svg);
@@ -1022,20 +1100,40 @@
       function updateLineStats(series){
         const method=lineStatType.value;
         console.log('updateLineStats start',{seriesCount:series.length,method});
-        const rows=[];
+        const tableRows=[];
+        let methodLabel='';
         series.forEach(s=>{
           const pts=s.points.filter(p=>p);
           if(pts.length>=3){
             const stats=computeScatterStats(pts,method);
-            rows.push(`<tr><td>${s.name}</td><td>${stats.r.toFixed(4)}</td><td>${formatP(stats.p)}</td><td>${stats.m.toFixed(4)}</td></tr>`);
+            methodLabel=stats.method;
+            tableRows.push({
+              series:s.name,
+              r:stats.r.toFixed(4),
+              p:formatP(stats.p),
+              slope:stats.m.toFixed(4)
+            });
           }
         });
-        if(rows.length){
-          lineStatsResults.innerHTML='<table><tr><th>Series</th><th>r</th><th>p</th><th>Slope</th></tr>'+rows.join('')+'</table>';
+        if(tableRows.length){
+          renderStatsCard(lineStatsResults,{
+            caption:methodLabel?`${methodLabel} correlation summary`:'Correlation summary',
+            columns:[
+              {key:'series',label:'Series',align:'left'},
+              {key:'r',label:'r',align:'right'},
+              {key:'p',label:'p',align:'right'},
+              {key:'slope',label:'Slope',align:'right'}
+            ],
+            rows:tableRows,
+            options:{
+              fileName:'scatter-series-correlation',
+              contextLabel:'scatter-series-corr'
+            }
+          });
         }else{
           lineStatsResults.textContent='Not enough data for statistics.';
         }
-        console.log('updateLineStats complete',{rows:rows.length});
+        console.log('updateLineStats complete',{rows:tableRows.length});
       }
       function updateHistStats(values){
         console.log('updateHistStats start',values.length);
@@ -1043,7 +1141,23 @@
         const mean=jStat.mean(values);
         const median=jStat.median(values);
         const sd=jStat.stdev(values,true);
-        histStatsResults.innerHTML=`<table><tr><th>n</th><td>${values.length}</td></tr><tr><th>Mean</th><td>${mean.toFixed(4)}</td></tr><tr><th>Median</th><td>${median.toFixed(4)}</td></tr><tr><th>SD</th><td>${sd.toFixed(4)}</td></tr></table>`;
+        renderStatsCard(histStatsResults,{
+          caption:'Distribution summary',
+          columns:[
+            {key:'metric',label:'Metric',align:'left'},
+            {key:'value',label:'Value',align:'right'}
+          ],
+          rows:[
+            {metric:'n',value:String(values.length)},
+            {metric:'Mean',value:mean.toFixed(4)},
+            {metric:'Median',value:median.toFixed(4)},
+            {metric:'SD',value:sd.toFixed(4)}
+          ],
+          options:{
+            fileName:'histogram-summary',
+            contextLabel:'hist-summary'
+          }
+        });
         console.log('updateHistStats result',{mean,median,sd});
       }
       function updatePieStats(labels,observed,expected){
@@ -1056,7 +1170,22 @@
         const chi2=observed.reduce((s,o,i)=>s+Math.pow(o-expected[i],2)/expected[i],0);
         const df=observed.length-1;
         const p=1-jStat.chisquare.cdf(chi2,df);
-        pieStatsResults.innerHTML=`<table><tr><th>Chi²</th><td>${chi2.toFixed(4)}</td></tr><tr><th>df</th><td>${df}</td></tr><tr><th>p-value</th><td>${formatP(p)}</td></tr></table>`;
+        renderStatsCard(pieStatsResults,{
+          caption:'Goodness-of-fit test',
+          columns:[
+            {key:'metric',label:'Metric',align:'left'},
+            {key:'value',label:'Value',align:'right'}
+          ],
+          rows:[
+            {metric:'Chi²',value:chi2.toFixed(4)},
+            {metric:'df',value:String(df)},
+            {metric:'p-value',value:isFinite(p)?formatP(p):'N/A'}
+          ],
+          options:{
+            fileName:'pie-chi-square',
+            contextLabel:'pie-chi-square'
+          }
+        });
         console.log('updatePieStats result',{chi2,df,p});
       }
     

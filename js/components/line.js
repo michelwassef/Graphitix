@@ -18,6 +18,9 @@
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 100;
   const LINE_DEFAULT_COLS = 6;
+  const LINE_DEFAULT_SERIES_COUNT = 5;
+  const LINE_MIN_REPLICATES = 1;
+  const LINE_MAX_REPLICATES = 10;
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
@@ -32,8 +35,14 @@
   let lineMinSvgWidth = 0;
   let lineFileHandle = null;
   let lineFileName = 'line.graph';
+  let lineReplicates = LINE_MIN_REPLICATES;
 
   const refs = {};
+  console.debug('Debug: line replicates initialized', {
+    lineReplicates,
+    min: LINE_MIN_REPLICATES,
+    max: LINE_MAX_REPLICATES
+  });
 
   const makeEditableHelper = (el,onChange,options) => {
     const fn = Shared.makeEditable || global.makeEditable;
@@ -89,6 +98,193 @@
     const formatted = p.toLocaleString('en-US',{maximumSignificantDigits:6});
     console.debug('Debug: line.formatP',{input:p,formatted}); // Debug: trace formatting
     return formatted;
+  }
+
+  function clampLineReplicateCount(raw){
+    const numeric = Number(raw);
+    const resolved = Number.isFinite(numeric) ? Math.round(numeric) : LINE_MIN_REPLICATES;
+    const bounded = Math.min(LINE_MAX_REPLICATES, Math.max(LINE_MIN_REPLICATES, resolved));
+    console.debug('Debug: clampLineReplicateCount',{ raw, numeric, resolved, bounded });
+    return bounded;
+  }
+
+  function inferSeriesBaseName(label, fallback){
+    if(label == null) return fallback;
+    const raw = String(label).trim();
+    if(!raw) return fallback;
+    const cleaned = raw
+      .replace(/\s*\(?(?:rep(?:licate)?|r)\s*#?\d+\)?$/i,'')
+      .replace(/\s*[:\-]\s*(?:rep(?:licate)?|r)\s*#?\d+$/i,'')
+      .replace(/\s*(?:rep(?:licate)?|r)\s*#?\d+$/i,'')
+      .replace(/\s*[:\-]\s*y\d+$/i,'')
+      .replace(/\s*y\d+$/i,'')
+      .trim();
+    const result = cleaned || fallback;
+    console.debug('Debug: inferSeriesBaseName',{ label: raw, result, fallback });
+    return result;
+  }
+
+  function padRowToLength(row, targetLength){
+    const safeTarget = Math.max(0, targetLength | 0);
+    const source = Array.isArray(row) ? row.slice() : [];
+    while(source.length < safeTarget){
+      source.push('');
+    }
+    if(source.length > safeTarget){
+      source.length = safeTarget;
+    }
+    return source;
+  }
+
+  function computeUsedSeriesColumns(matrix){
+    const data = Array.isArray(matrix) ? matrix : [];
+    if(!data.length) return 0;
+    const header = Array.isArray(data[0]) ? data[0] : [];
+    let lastUsed = 0;
+    for(let c=1;c<header.length;c++){
+      const headerCell = header[c];
+      if(headerCell != null && String(headerCell).trim() !== ''){
+        lastUsed = c;
+        continue;
+      }
+      for(let r=1;r<data.length;r++){
+        const cell = data[r]?.[c];
+        if(cell != null && String(cell).trim() !== ''){
+          lastUsed = c;
+          break;
+        }
+      }
+    }
+    console.debug('Debug: computeUsedSeriesColumns',{ lastUsed, headerLength: header.length, rowCount: data.length });
+    return lastUsed;
+  }
+
+  function buildLineReplicateMatrix(matrix, sourceReplicates, targetReplicates, options){
+    const sourceCount = clampLineReplicateCount(sourceReplicates);
+    const targetCount = clampLineReplicateCount(targetReplicates);
+    const safeMatrix = Array.isArray(matrix) ? matrix.map(row=>Array.isArray(row)?row.slice():[]) : [];
+    const usedSeriesCols = computeUsedSeriesColumns(safeMatrix);
+    const minSeriesCount = Math.max(1, options?.minSeriesCount ?? LINE_DEFAULT_SERIES_COUNT);
+    const inferredSeriesCount = Math.max(minSeriesCount, Math.ceil(usedSeriesCols / Math.max(sourceCount, 1)));
+    const seriesCount = Math.max(1, inferredSeriesCount);
+    const targetCols = 1 + seriesCount * targetCount;
+    const totalRows = Math.max(safeMatrix.length, DEFAULT_ROWS);
+    const headerRow = padRowToLength(safeMatrix[0] || [], Math.max(targetCols, 1));
+    const baseNames = [];
+    for(let s=0;s<seriesCount;s++){
+      const fallback = `Series ${s+1}`;
+      let baseName = fallback;
+      for(let rep=0;rep<sourceCount;rep++){
+        const idx = 1 + s*sourceCount + rep;
+        if(idx < headerRow.length){
+          const candidate = headerRow[idx];
+          if(candidate != null && String(candidate).trim() !== ''){
+            baseName = inferSeriesBaseName(candidate, fallback);
+            break;
+          }
+        }
+      }
+      baseNames.push(baseName);
+    }
+    const newHeader = new Array(targetCols).fill('');
+    newHeader[0] = headerRow[0] && String(headerRow[0]).trim() ? headerRow[0] : 'X';
+    for(let s=0;s<seriesCount;s++){
+      for(let rep=0;rep<targetCount;rep++){
+        const newIdx = 1 + s*targetCount + rep;
+        if(newIdx >= targetCols) continue;
+        let label = '';
+        if(rep < sourceCount){
+          const oldIdx = 1 + s*sourceCount + rep;
+          if(oldIdx < headerRow.length){
+            label = headerRow[oldIdx];
+          }
+        }
+        if(rep === 0){
+          label = baseNames[s];
+        }
+        if(!label || !String(label).trim()){
+          label = targetCount > 1 ? `${baseNames[s]} Rep ${rep+1}` : baseNames[s];
+        }
+        newHeader[newIdx] = label;
+      }
+    }
+    const newData = new Array(totalRows);
+    newData[0] = padRowToLength(newHeader, targetCols);
+    for(let r=1;r<totalRows;r++){
+      const srcRow = padRowToLength(safeMatrix[r] || [], Math.max(1 + seriesCount * sourceCount, 1));
+      const newRow = new Array(targetCols).fill('');
+      newRow[0] = srcRow[0] ?? '';
+      for(let s=0;s<seriesCount;s++){
+        for(let rep=0;rep<targetCount;rep++){
+          const newIdx = 1 + s*targetCount + rep;
+          if(newIdx >= targetCols) continue;
+          let value = '';
+          if(rep < sourceCount){
+            const oldIdx = 1 + s*sourceCount + rep;
+            if(oldIdx < srcRow.length){
+              value = srcRow[oldIdx];
+            }
+          }
+          newRow[newIdx] = value ?? '';
+        }
+      }
+      newData[r] = padRowToLength(newRow, targetCols);
+    }
+    console.debug('Debug: buildLineReplicateMatrix',{ sourceCount, targetCount, seriesCount, targetCols, totalRows, minSeriesCount });
+    return { data: newData, seriesCount, baseNames: baseNames.slice(), targetCols };
+  }
+
+  function updateLineNestedHeaders(structure){
+    if(!lineHot) return;
+    const replicates = Math.max(LINE_MIN_REPLICATES, lineReplicates);
+    if(replicates <= 1){
+      lineHot.updateSettings({ nestedHeaders: false });
+      console.debug('Debug: updateLineNestedHeaders disabled',{ replicates });
+      return;
+    }
+    let baseNames = Array.isArray(structure?.baseNames) ? structure.baseNames.slice() : [];
+    let seriesCount = structure?.seriesCount;
+    let headerRow = structure?.data ? structure.data[0] : null;
+    if(!seriesCount || !baseNames.length){
+      const data = lineHot.getData();
+      headerRow = Array.isArray(data?.[0]) ? data[0] : [];
+      seriesCount = Math.max(0, Math.floor(((headerRow?.length || 1) - 1) / replicates));
+      baseNames = [];
+      for(let s=0;s<seriesCount;s++){
+        const fallback = `Series ${s+1}`;
+        const idx = 1 + s*replicates;
+        const label = headerRow?.[idx];
+        baseNames.push(inferSeriesBaseName(label, fallback));
+      }
+    }
+    const nestedRow = [];
+    nestedRow.push({ label: headerRow?.[0] || 'X', colspan: 1 });
+    for(let s=0;s<seriesCount;s++){
+      nestedRow.push({ label: baseNames[s] || `Series ${s+1}`, colspan: replicates });
+    }
+    lineHot.updateSettings({ nestedHeaders: [nestedRow] });
+    console.debug('Debug: updateLineNestedHeaders applied',{ replicates, seriesCount, baseNames });
+  }
+
+  function applyLineReplicateChange(newCount, options){
+    const normalized = clampLineReplicateCount(newCount);
+    const sourceReplicates = clampLineReplicateCount(options?.sourceReplicates ?? lineReplicates);
+    const overrideData = options?.dataOverride;
+    const matrix = Array.isArray(overrideData) ? overrideData : (lineHot ? lineHot.getData() : []);
+    const structure = buildLineReplicateMatrix(matrix, sourceReplicates, normalized, { minSeriesCount: options?.minSeriesCount });
+    lineReplicates = normalized;
+    if(refs.replicatesInput){
+      refs.replicatesInput.value = String(lineReplicates);
+    }
+    if(lineHot){
+      lineHot.loadData(structure.data);
+      updateLineNestedHeaders(structure);
+    }
+    console.debug('Debug: applyLineReplicateChange',{ requested:newCount, normalized, sourceReplicates, seriesCount: structure.seriesCount, targetCols: structure.targetCols });
+    if(!options?.skipDraw){
+      scheduleLineDraw();
+    }
+    return structure;
   }
 
   function syncLineWidths(){
@@ -155,22 +351,58 @@
     }
     const method=refs.statType.value||'pearson';
     console.debug('Debug: updateLineStats',{seriesCount:series.length,method}); // Debug: stats update entry
-    const rows=[];
+    const tableRows=[];
+    let methodLabel='';
     series.forEach(s=>{
       const pts=s.points.filter(Boolean);
       if(pts.length>=3){
         const stats=computeLineStats(pts,method,jStatLib);
         if(stats){
-          rows.push(`<tr><td>${s.name}</td><td>${stats.r.toFixed(4)}</td><td>${formatP(stats.p)}</td><td>${stats.slope.toFixed(4)}</td></tr>`);
+          methodLabel=stats.method;
+          tableRows.push({
+            series:s.name,
+            r:stats.r.toFixed(4),
+            p:formatP(stats.p),
+            slope:stats.slope.toFixed(4)
+          });
         }
       }
     });
-    if(rows.length){
-      refs.statsResults.innerHTML='<table><tr><th>Series</th><th>r</th><th>p</th><th>Slope</th></tr>'+rows.join('')+'</table>';
+    if(tableRows.length){
+      refs.statsResults.innerHTML='';
+      if(methodLabel){
+        const lead=document.createElement('div');
+        lead.className='stats-table-lead';
+        lead.textContent=`${methodLabel} correlation coefficients`;
+        refs.statsResults.appendChild(lead);
+      }
+      if(Shared.statsTable && typeof Shared.statsTable.render==='function'){
+        Shared.statsTable.render({
+          target: refs.statsResults,
+          columns:[
+            {key:'series',label:'Series',align:'left'},
+            {key:'r',label:'r',align:'right'},
+            {key:'p',label:'p',align:'right'},
+            {key:'slope',label:'Slope',align:'right'}
+          ],
+          rows:tableRows,
+          caption: methodLabel ? `${methodLabel} correlation summary` : 'Correlation summary',
+          options:{
+            fileName:'line-statistics',
+            contextLabel:'line-stats'
+          },
+          append:true
+        });
+      }else{
+        const table=document.createElement('table');
+        table.innerHTML='<tr><th>Series</th><th>r</th><th>p</th><th>Slope</th></tr>'+tableRows.map(row=>`<tr><td>${row.series}</td><td>${row.r}</td><td>${row.p}</td><td>${row.slope}</td></tr>`).join('');
+        refs.statsResults.appendChild(table);
+        console.debug('Debug: updateLineStats fallback table rendered',{rowCount:tableRows.length});
+      }
     }else{
       refs.statsResults.textContent='Not enough data for statistics.';
     }
-    console.debug('Debug: updateLineStats complete',{rowCount:rows.length}); // Debug: stats update exit
+    console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,methodLabel}); // Debug: stats update exit
   }
 
   function getLineGraphPayload(){
@@ -182,6 +414,7 @@
         title:lineTitleText,
         xLabel:lineXLabelText,
         yLabel:lineYLabelText,
+        replicates: lineReplicates,
         dotSize:refs.dotSize?.value,
         fill:refs.fill?.value,
         border:refs.border?.value,
@@ -211,8 +444,18 @@
         const obj=JSON.parse(e.target.result);
         console.debug('Debug: loadLineGraphFile payload',obj); // Debug: file load payload
         if(obj.type!=='line') throw new Error('Invalid graph type');
-        if(lineHot && obj.data) lineHot.loadData(obj.data);
         const c=obj.config||{};
+        const storedReplicates = clampLineReplicateCount(c.replicates ?? lineReplicates);
+        const matrixData = Array.isArray(obj.data) ? obj.data : null;
+        const inferredSeries = matrixData && Array.isArray(matrixData[0]) ? Math.max(1, Math.ceil(((matrixData[0].length || 1) - 1) / Math.max(storedReplicates, 1))) : undefined;
+        if(lineHot && matrixData){
+          applyLineReplicateChange(storedReplicates, { dataOverride: matrixData, sourceReplicates: storedReplicates, skipDraw: true, minSeriesCount: inferredSeries });
+        }else{
+          lineReplicates = storedReplicates;
+          if(refs.replicatesInput){
+            refs.replicatesInput.value = String(lineReplicates);
+          }
+        }
         lineTitleText=c.title||lineTitleText;
         lineXLabelText=c.xLabel||lineXLabelText;
         lineYLabelText=c.yLabel||lineYLabelText;
@@ -379,29 +622,56 @@
       const originXInput=parseFloat(refs.originX?.value);
       const originYInput=parseFloat(refs.originY?.value);
       const data=lineHot.getData();
-      if(!data||!data.length) return;
-      const header=data[0]||[];
+      if(!Array.isArray(data) || !data.length) return;
+      const header=Array.isArray(data[0])?data[0]:[];
       let xIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='x');
       if(xIndex<0) xIndex=0;
       lineXLabelText=(header[xIndex]&&String(header[xIndex]).trim())||'X';
-      const seriesCols=header.map((_,i)=>i).filter(i=>i!==xIndex && header[i]!=null && String(header[i]).trim()!=='');
-      const series=seriesCols.map((ci,i)=>({name:header[ci]||`Series ${i+1}`, points:[]}));
+      const replicates=Math.max(LINE_MIN_REPLICATES,lineReplicates);
+      const totalSeries=Math.max(0,Math.floor((header.length-1)/replicates));
+      const series=[];
+      for(let s=0;s<totalSeries;s++){
+        const baseIdx=1+s*replicates;
+        const fallback=`Series ${s+1}`;
+        const label=baseIdx<header.length?header[baseIdx]:fallback;
+        const baseName=inferSeriesBaseName(label,fallback);
+        series.push({name:baseName,points:[]});
+      }
       let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
       for(let r=1;r<data.length;r++){
-        const row=data[r];
+        const row=Array.isArray(data[r])?data[r]:[];
         const xv=parseFloat(row[xIndex]);
-        seriesCols.forEach((ci,si)=>{
-          const yv=parseFloat(row[ci]);
-          if(!isNaN(xv)&&!isNaN(yv)){
-            series[si].points.push({x:xv,y:yv});
+        const hasX=Number.isFinite(xv);
+        for(let s=0;s<series.length;s++){
+          const repValues=[];
+          for(let rep=0;rep<replicates;rep++){
+            const colIndex=1+s*replicates+rep;
+            if(colIndex>=row.length) continue;
+            const yv=parseFloat(row[colIndex]);
+            if(Number.isFinite(yv)){
+              repValues.push(yv);
+            }
+          }
+          if(hasX && repValues.length){
+            const mean=repValues.reduce((sum,val)=>sum+val,0)/repValues.length;
+            let variance=0;
+            if(repValues.length>1){
+              variance=repValues.reduce((sum,val)=>{const diff=val-mean;return sum+diff*diff;},0)/(repValues.length-1);
+            }
+            const stdev=repValues.length>1?Math.sqrt(variance):0;
+            const minVal=Math.min(...repValues);
+            const maxVal=Math.max(...repValues);
+            const lower=repValues.length>1?mean-stdev:minVal;
+            const upper=repValues.length>1?mean+stdev:maxVal;
+            series[s].points.push({x:xv,y:mean,replicates:repValues.slice(),stdev,lower,upper});
             if(xv<xMinRaw) xMinRaw=xv;
             if(xv>xMaxRaw) xMaxRaw=xv;
-            if(yv<yMinRaw) yMinRaw=yv;
-            if(yv>yMaxRaw) yMaxRaw=yv;
-          } else {
-            series[si].points.push(null);
+            if(lower<yMinRaw) yMinRaw=lower;
+            if(upper>yMaxRaw) yMaxRaw=upper;
+          }else{
+            series[s].points.push(null);
           }
-        });
+        }
       }
       const labelsUsed=series.map(s=>s.name);
       updateLineLabelColorPickers(labelsUsed);
@@ -576,12 +846,23 @@
       console.debug('Debug: line font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
       console.debug('Debug: line ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
       const colors=series.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
+      const showErrorBars=replicates>1;
+      const errorStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'line-errorbar', min: 0.5 });
+      const errorCapHalf=Math.max(4, dotSizePx*1.2);
       const seriesElems=[];
       series.forEach((s,i)=>{
         const color=colors[i];
         let pathStr='';
         let started=false;
         const markerFrag=document.createDocumentFragment();
+        const errorGroup=showErrorBars?document.createElementNS(NS,'g'):null;
+        if(errorGroup){
+          errorGroup.setAttribute('fill','none');
+          errorGroup.setAttribute('stroke',color);
+          errorGroup.setAttribute('stroke-width',errorStrokeWidth);
+          errorGroup.setAttribute('stroke-linecap','square');
+          errorGroup.setAttribute('stroke-opacity',1-alpha);
+        }
         s.points.forEach(pt=>{
           if(pt){
             const xv=logX?Math.log10(pt.x):pt.x;
@@ -589,6 +870,32 @@
             const px=x2px(xv);
             const py=y2px(yv);
             if(!started){pathStr+=`M${px} ${py}`; started=true;} else {pathStr+=`L${px} ${py}`;}
+            if(showErrorBars && errorGroup && Number.isFinite(pt.lower) && Number.isFinite(pt.upper) && pt.upper>=pt.lower){
+              const lowerVal=logY?(pt.lower>0?Math.log10(pt.lower):null):pt.lower;
+              const upperVal=logY?(pt.upper>0?Math.log10(pt.upper):null):pt.upper;
+              if(lowerVal!=null && upperVal!=null && Number.isFinite(lowerVal) && Number.isFinite(upperVal)){
+                const lowerPx=y2px(lowerVal);
+                const upperPx=y2px(upperVal);
+                const vertical=document.createElementNS(NS,'line');
+                vertical.setAttribute('x1',px);
+                vertical.setAttribute('y1',upperPx);
+                vertical.setAttribute('x2',px);
+                vertical.setAttribute('y2',lowerPx);
+                errorGroup.appendChild(vertical);
+                const topCap=document.createElementNS(NS,'line');
+                topCap.setAttribute('x1',px-errorCapHalf);
+                topCap.setAttribute('y1',upperPx);
+                topCap.setAttribute('x2',px+errorCapHalf);
+                topCap.setAttribute('y2',upperPx);
+                errorGroup.appendChild(topCap);
+                const bottomCap=document.createElementNS(NS,'line');
+                bottomCap.setAttribute('x1',px-errorCapHalf);
+                bottomCap.setAttribute('y1',lowerPx);
+                bottomCap.setAttribute('x2',px+errorCapHalf);
+                bottomCap.setAttribute('y2',lowerPx);
+                errorGroup.appendChild(bottomCap);
+              }
+            }
             if(dotSizeRaw>0){
               const c=document.createElementNS(NS,'circle');
               c.setAttribute('cx',px);
@@ -602,11 +909,17 @@
             started=false;
           }
         });
+        let attachedErrorGroup=null;
+        if(errorGroup && errorGroup.childNodes.length){
+          svg.appendChild(errorGroup);
+          attachedErrorGroup=errorGroup;
+        }
         const path=add('path',{d:pathStr,fill:'none',stroke:color,'stroke-width':borderWidthPx,'stroke-opacity':1-alpha});
         const mGroup=add('g',{});
         mGroup.appendChild(markerFrag);
-        seriesElems.push({path,mGroup});
+        seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup});
       });
+      console.debug('Debug: line series rendered',{ showErrorBars, seriesCount: series.length });
       if(legendLabels.length){
         const legendGroup=document.createElementNS(NS,'g');
         const legendX=W-legendWidth+8;
@@ -634,6 +947,10 @@
             const vis=seriesElems[i].path.style.display!=='none';
             seriesElems[i].path.style.display=vis?'none':'inline';
             seriesElems[i].mGroup.style.display=vis?'none':'inline';
+            const errGroup=seriesElems[i].errorGroup;
+            if(errGroup){
+              errGroup.style.display=vis?'none':'inline';
+            }
           });
           legendGroup.appendChild(itemG);
         });
@@ -677,6 +994,8 @@
     refs.plot=document.getElementById('linePlot');
     refs.statType=document.getElementById('lineStatType');
     refs.statsResults=document.getElementById('lineStatsResults');
+    refs.replicatesInput=document.getElementById('lineReplicates');
+    refs.exampleSelect=document.getElementById('lineExampleSelect');
     refs.fill=document.getElementById('lineFill');
     refs.border=document.getElementById('lineBorder');
     refs.borderWidth=document.getElementById('lineBorderWidth');
@@ -691,6 +1010,23 @@
         console.debug('Debug: line font size base initialized',{ value: refs.fontSize.value }); // Debug: initial base size
       }
       chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
+    }
+    if(refs.replicatesInput){
+      refs.replicatesInput.value = String(lineReplicates);
+      refs.replicatesInput.addEventListener('change',e=>{
+        const resolved = clampLineReplicateCount(e.target.value);
+        console.debug('Debug: line replicates input change',{ raw: e.target.value, resolved });
+        if(resolved !== lineReplicates){
+          applyLineReplicateChange(resolved);
+        }else{
+          refs.replicatesInput.value = String(lineReplicates);
+        }
+      });
+    }
+    if(refs.exampleSelect){
+      refs.exampleSelect.addEventListener('change',e=>{
+        console.debug('Debug: line example select change',{ value: e.target.value });
+      });
     }
     refs.showGrid=document.getElementById('lineShowGrid');
     refs.showFrame=document.getElementById('lineShowFrame');
@@ -779,24 +1115,63 @@
       observer.observe(refs.tablePanel);
     }
     syncLineWidths();
+    applyLineReplicateChange(lineReplicates, { sourceReplicates: lineReplicates, skipDraw: true });
 
-    const lineExample=[
-      ['Month','North','South','East','West','Central'],
-      [1,120,110,95,80,105],
-      [2,130,115,92,85,112],
-      [3,125,118,99,90,115],
-      [4,150,112,105,95,120],
-      [5,155,125,108,102,128],
-      [6,160,130,112,108,132],
-      [7,165,128,118,112,138],
-      [8,170,135,120,118,142],
-      [9,175,138,125,120,146],
-      [10,180,142,130,125,150],
-      [11,185,145,128,130,152],
-      [12,190,150,135,132,158]
-    ];
+    const lineExamples={
+      standard:{
+        replicates:1,
+        seriesCount:5,
+        data:[
+          ['Month','North','South','East','West','Central'],
+          [1,120,110,95,80,105],
+          [2,130,115,92,85,112],
+          [3,125,118,99,90,115],
+          [4,150,112,105,95,120],
+          [5,155,125,108,102,128],
+          [6,160,130,112,108,132],
+          [7,165,128,118,112,138],
+          [8,170,135,120,118,142],
+          [9,175,138,125,120,146],
+          [10,180,142,130,125,150],
+          [11,185,145,128,130,152],
+          [12,190,150,135,132,158]
+        ]
+      },
+      replicates2:{
+        replicates:2,
+        seriesCount:2,
+        data:[
+          ['Hours','Control Rep 1','Control Rep 2','Treated Rep 1','Treated Rep 2'],
+          [0,40,42,45,44],
+          [12,52,54,60,59],
+          [24,65,63,72,74],
+          [36,75,78,85,87],
+          [48,82,84,94,95],
+          [60,90,92,103,104],
+          [72,96,98,110,112]
+        ]
+      },
+      replicates3:{
+        replicates:3,
+        seriesCount:2,
+        data:[
+          ['Hours','Control Rep 1','Control Rep 2','Control Rep 3','Treated Rep 1','Treated Rep 2','Treated Rep 3'],
+          [0,45,43,47,50,48,49],
+          [24,58,60,57,68,70,69],
+          [48,72,71,74,80,82,81],
+          [72,88,86,87,95,97,96],
+          [96,105,104,106,112,113,111]
+        ]
+      }
+    };
 
-    refs.loadExample?.addEventListener('click',()=>{ lineHot.loadData(lineExample); console.debug('Debug: line example loaded'); scheduleLineDraw(); });
+    refs.loadExample?.addEventListener('click',()=>{
+      const key=refs.exampleSelect?.value||'standard';
+      const example=lineExamples[key]||lineExamples.standard;
+      applyLineReplicateChange(example.replicates,{ dataOverride: example.data, sourceReplicates: example.replicates, skipDraw: true, minSeriesCount: example.seriesCount });
+      console.debug('Debug: line example loaded',{ key, replicates: example.replicates });
+      scheduleLineDraw();
+    });
     refs.importBtn?.addEventListener('click',()=>{ if(refs.fileInput){ refs.fileInput.value=''; refs.fileInput.click(); } });
     refs.fileInput?.addEventListener('change',async e=>{
       const tableImport = Shared.tableImport;
