@@ -891,13 +891,140 @@ function renderStatsControls(traces){
     svg.appendChild(txt);
     console.debug('Debug: box annotateOverall scaling',{baseOffset,levelGap,fontSize,orientation});
   }
-  function renderStatsTable(traces){ const tableDiv=document.getElementById('statsTable'); if(!tableDiv) return; const rows=traces.map(t=>{ const arr=t.rawY; const n=arr.length; const mean=arr.reduce((s,v)=>s+v,0)/n; const med=arr.slice().sort((a,b)=>a-b)[Math.floor(n/2)] ?? NaN; const sd=global.jStat.stdev(arr,true); const min=Math.min(...arr); const q1=global.jStat.percentile(arr,0.25); const q3=global.jStat.percentile(arr,0.75); const max=Math.max(...arr); return {name:t.name,n,mean,med,sd,min,q1,q3,max}; }); let html='<table style="border-collapse:collapse">'; html+='<thead><tr>'+['Column','N','Mean','Median','SD','Min','Q1','Q3','Max'].map(h=>`<th style="border:1px solid #ccc;padding:4px">${h}</th>`).join('')+'</tr></thead>'; html+='<tbody>'+rows.map(r=>`<tr><td style=\"border:1px solid #ccc;padding:4px\">${r.name}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.n}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.mean.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.med.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.sd.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.min}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.q1.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.q3.toFixed(2)}</td><td style=\"border:1px solid #ccc;padding:4px\">${r.max}</td></tr>`).join('')+'</tbody></table>'; tableDiv.innerHTML=html; }
+  function renderStatsTable(traces){
+    const tableDiv=document.getElementById('statsTable');
+    if(!tableDiv) return;
+    const jStatLib=global.jStat;
+    if(!jStatLib){
+      tableDiv.textContent='Statistics unavailable (jStat missing).';
+      return;
+    }
+    const tableRows=traces.map(t=>{
+      const arr=t.rawY.filter(v=>Number.isFinite(v));
+      const n=arr.length;
+      if(!n){
+        return {
+          name:t.name,
+          n:'0',
+          mean:'—',
+          median:'—',
+          sd:'—',
+          min:'—',
+          q1:'—',
+          q3:'—',
+          max:'—'
+        };
+      }
+      const sorted=arr.slice().sort((a,b)=>a-b);
+      const mean=arr.reduce((s,v)=>s+v,0)/n;
+      const med=sorted[Math.floor((n-1)/2)];
+      const sd=jStatLib.stdev(arr,true);
+      const min=sorted[0];
+      const q1=jStatLib.percentile(arr,0.25);
+      const q3=jStatLib.percentile(arr,0.75);
+      const max=sorted[sorted.length-1];
+      return {
+        name:t.name,
+        n:String(n),
+        mean:mean.toFixed(2),
+        median:med.toFixed(2),
+        sd:sd.toFixed(2),
+        min:min.toFixed(2),
+        q1:q1.toFixed(2),
+        q3:q3.toFixed(2),
+        max:max.toFixed(2)
+      };
+    });
+    if(Shared.statsTable && typeof Shared.statsTable.render==='function'){
+      Shared.statsTable.render({
+        target:tableDiv,
+        columns:[
+          {key:'name',label:'Column',align:'left'},
+          {key:'n',label:'N',align:'right'},
+          {key:'mean',label:'Mean',align:'right'},
+          {key:'median',label:'Median',align:'right'},
+          {key:'sd',label:'SD',align:'right'},
+          {key:'min',label:'Min',align:'right'},
+          {key:'q1',label:'Q1',align:'right'},
+          {key:'q3',label:'Q3',align:'right'},
+          {key:'max',label:'Max',align:'right'}
+        ],
+        rows:tableRows,
+        caption:'Descriptive statistics',
+        options:{
+          fileName:'box-summary-statistics',
+          contextLabel:'box-summary'
+        }
+      });
+      console.debug('Debug: box renderStatsTable using Shared.statsTable',{rowCount:tableRows.length});
+    }else{
+      const header=['Column','N','Mean','Median','SD','Min','Q1','Q3','Max'];
+      let html='<table><thead><tr>'+header.map(h=>`<th>${h}</th>`).join('')+'</tr></thead>';
+      html+='<tbody>'+tableRows.map(r=>`<tr><td>${r.name}</td><td>${r.n}</td><td>${r.mean}</td><td>${r.median}</td><td>${r.sd}</td><td>${r.min}</td><td>${r.q1}</td><td>${r.q3}</td><td>${r.max}</td></tr>`).join('')+'</tbody></table>';
+      tableDiv.innerHTML=html;
+      console.debug('Debug: box renderStatsTable fallback',{rowCount:tableRows.length});
+    }
+  }
 
   // Compute and render statistics and p-value annotations
   function computeStats(traces,svg,helpers){
     const statsDiv=document.getElementById('statsResults');
     if(!statsDiv){ console.warn('Debug: statsResults element not found'); return; }
     statsDiv.innerHTML='';
+    const hasStatsTable=Shared.statsTable && typeof Shared.statsTable.render==='function';
+    const renderTableModel=(model,append=false)=>{
+      if(hasStatsTable){
+        Shared.statsTable.render({ target: statsDiv, append, ...model });
+        console.debug('Debug: box stats render via Shared.statsTable',{
+          caption:model.caption || null,
+          rowCount:model.rows?.length || 0,
+          append
+        });
+        return;
+      }
+      if(!append){
+        statsDiv.innerHTML='';
+      }
+      if(model.caption){
+        const captionEl=document.createElement('div');
+        captionEl.className='stats-table-lead';
+        captionEl.textContent=model.caption;
+        statsDiv.appendChild(captionEl);
+      }
+      const table=document.createElement('table');
+      const thead=document.createElement('thead');
+      const headRow=document.createElement('tr');
+      (model.columns||[]).forEach(col=>{
+        const th=document.createElement('th');
+        th.textContent=col.label;
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody=document.createElement('tbody');
+      (model.rows||[]).forEach(row=>{
+        const tr=document.createElement('tr');
+        (model.columns||[]).forEach(col=>{
+          const td=document.createElement('td');
+          const value=Array.isArray(row)?row[col.index]:(row?.[col.key]);
+          td.textContent=value ?? '';
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      statsDiv.appendChild(table);
+      if(Array.isArray(model.footnotes) && model.footnotes.length){
+        const list=document.createElement('div');
+        model.footnotes.forEach(note=>{
+          const item=document.createElement('div');
+          item.textContent=note;
+          list.appendChild(item);
+        });
+        statsDiv.appendChild(list);
+      }
+      console.debug('Debug: box stats render fallback',{ caption:model.caption || null, rowCount:model.rows?.length || 0, append });
+    };
     const annotationOpts=helpers?.annotationStyle||{};
     const orientation=annotationOpts.orientation==='horizontal'?'horizontal':'vertical';
     const categoryCenter=typeof helpers?.categoryCenter==='function'
@@ -924,10 +1051,27 @@ function renderStatsControls(traces){
         pairs.push({...pr,p:r.p,rangeMax,labelA:traces[pr.ai].name,labelB:traces[pr.bi].name,stat:statVal,statName,df:r.df});
       });
       const m=pairs.length; pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
-      let html='<table><tr><th>Comparison</th><th>Statistic</th><th>df</th><th>P (adj)</th></tr>';
-      pairs.forEach(pr=>{html+=`<tr><td>${pr.labelA} vs ${pr.labelB}</td><td>${pr.statName}=${pr.stat.toFixed(4)}</td><td>${pr.df??''}</td><td>${formatP(pr.adjP)}</td></tr>`;});
-      html+='</table>';
-      statsDiv.innerHTML=html;
+      const tableRows=pairs.map(pr=>({
+        comparison:`${pr.labelA} vs ${pr.labelB}`,
+        statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
+        df:pr.df!=null?pr.df:'—',
+        padj:formatP(pr.adjP)
+      }));
+      renderTableModel({
+        caption:'Custom pairwise comparisons',
+        columns:[
+          {key:'comparison',label:'Comparison',align:'left',index:0},
+          {key:'statistic',label:'Statistic',align:'left',index:1},
+          {key:'df',label:'df',align:'right',index:2},
+          {key:'padj',label:'P (adj)',align:'right',index:3}
+        ],
+        rows:tableRows,
+        footnotes:m?[`P-values adjusted using Bonferroni (m=${m}).`] : [],
+        options:{
+          fileName:'box-custom-comparisons',
+          contextLabel:'box-custom'
+        }
+      });
       if(pairs.length){
         pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
         const placed=[];
@@ -958,8 +1102,25 @@ function renderStatsControls(traces){
     if(indices.length===2){
       const res=pairTest(groups[0],groups[1]);
       const statName=res.t!==undefined?'t':res.U!==undefined?'U':res.W!==undefined?'W':'stat';
-      const rows=[ ['Comparison', `${labels[0]} vs ${labels[1]}`], ['Test', param?(state.statsPaired?'Paired t-test':'t-test'):(state.statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U')], [statName, res[statName].toFixed(4)] ]; if(res.df!==undefined) rows.push(['df', res.df.toFixed(4)]); rows.push(['P value', formatP(res.p)]);
-      statsDiv.innerHTML='<table>'+rows.map(r=>`<tr><th>${r[0]}</th><td>${r[1]}</td></tr>`).join('')+'</table>';
+      const summaryRows=[
+        { metric:'Comparison', value:`${labels[0]} vs ${labels[1]}` },
+        { metric:'Test', value:param?(state.statsPaired?'Paired t-test':'t-test'):(state.statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U') },
+        { metric:statName, value:res[statName].toFixed(4) }
+      ];
+      if(res.df!==undefined){ summaryRows.push({ metric:'df', value:res.df.toFixed(4) }); }
+      summaryRows.push({ metric:'P value', value:formatP(res.p) });
+      renderTableModel({
+        caption:'Pairwise test summary',
+        columns:[
+          {key:'metric',label:'Metric',align:'left',index:0},
+          {key:'value',label:'Value',align:'left',index:1}
+        ],
+        rows:summaryRows,
+        options:{
+          fileName:'box-pairwise-summary',
+          contextLabel:'box-pairwise'
+        }
+      });
       const from=Math.min(indices[0],indices[1]); const to=Math.max(indices[0],indices[1]); let rangeMax=-Infinity; for(let k=from;k<=to;k++) rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); const baseCoord=valueToCoord(rangeMax); const annotationCoord=orientation==='horizontal'?baseCoord+baseOffset:baseCoord-baseOffset; annotatePair(svg,categoryCenter(indices[0]),categoryCenter(indices[1]),annotationCoord,res.p,helpers.annotationStyle); return;
     }
     // Multi-group
@@ -967,6 +1128,7 @@ function renderStatsControls(traces){
     const maxVal=Math.max(...indices.map(i=>Math.max(...traces[i].y)));
     const xs=indices.map(i=>categoryCenter(i));
     let pairs=[];
+    let referenceLabel=null;
     if(state.statsMode==='all'){
       for(let i=0;i<indices.length;i++){
         for(let j=i+1;j<indices.length;j++){
@@ -975,30 +1137,80 @@ function renderStatsControls(traces){
           const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
           const statVal=r[statName];
           let rangeMax=-Infinity; for(let k=Math.min(aIdx,bIdx);k<=Math.max(aIdx,bIdx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
-          pairs.push({a:i,b:j,ai:aIdx,bi:bIdx,p:r.p,rangeMax,stat:statVal,statName,df:r.df});
+          pairs.push({a:i,b:j,ai:aIdx,bi:bIdx,p:r.p,rangeMax,stat:statVal,statName,df:r.df,labelA:labels[i],labelB:labels[j]});
         }
       }
       const m=pairs.length; pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
     } else if(state.statsMode==='reference'){
-      const refIdx=indices.indexOf(state.statsRef); if(refIdx===-1){ statsDiv.innerHTML+='<div>Select reference column among the chosen groups.</div>'; return; }
+      const refIdx=indices.indexOf(state.statsRef); if(refIdx===-1){ statsDiv.textContent='Select reference column among the chosen groups.'; return; }
       const refData=groups[refIdx];
+      referenceLabel=labels[refIdx];
       indices.forEach((idx,i)=>{
         if(i===refIdx) return;
         const r=pairTest(refData,traces[idx].rawY);
         const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
         const statVal=r[statName];
         let rangeMax=-Infinity; for(let k=Math.min(state.statsRef,idx);k<=Math.max(state.statsRef,idx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
-        pairs.push({a:refIdx,b:i,ai:state.statsRef,bi:idx,p:r.p,rangeMax,label:labels[i],stat:statVal,statName,df:r.df});
+        pairs.push({a:refIdx,b:i,ai:state.statsRef,bi:idx,p:r.p,rangeMax,labelA:labels[refIdx],labelB:labels[i],stat:statVal,statName,df:r.df});
       });
       const m=pairs.length; pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
     }
     if(pairs.length){
-      let html='';
-      if(!state.statsPaired){ const overallStatName=param?'F':'H'; html+=`<table><tr><th>Overall test</th><td>${param?'ANOVA':'Kruskal-Wallis'}</td></tr><tr><th>${overallStatName}</th><td>${overall[overallStatName].toFixed(4)}</td></tr>`; if(param) html+=`<tr><th>df</th><td>${groups.length-1},${groups.reduce((s,g)=>s+g.length,0)-groups.length}</td></tr>`; else html+=`<tr><th>df</th><td>${groups.length-1}</td></tr>`; html+=`<tr><th>P value</th><td>${formatP(overall.p)}</td></tr></table>`; }
-      html+='<table><tr><th>Comparison</th><th>Statistic</th><th>df</th><th>P (adj)</th></tr>';
-      pairs.forEach(pr=>{html+=`<tr><td>${labels[pr.a]} vs ${labels[pr.b]}</td><td>${pr.statName}=${pr.stat.toFixed(4)}</td><td>${pr.df??''}</td><td>${formatP(pr.adjP)}</td></tr>`;});
-      html+='</table>';
-      statsDiv.innerHTML=html;
+      const footnotes=[];
+      let appendForPairs=false;
+      if(!state.statsPaired && overall){
+        const overallStatName=param?'F':'H';
+        const overallRows=[
+          { metric:'Overall test', value:param?'ANOVA':'Kruskal-Wallis' },
+          { metric:overallStatName, value:overall[overallStatName].toFixed(4) }
+        ];
+        if(param){
+          overallRows.push({ metric:'df', value:`${groups.length-1},${groups.reduce((s,g)=>s+g.length,0)-groups.length}` });
+        }else{
+          overallRows.push({ metric:'df', value:String(groups.length-1) });
+        }
+        overallRows.push({ metric:'P value', value:formatP(overall.p) });
+        renderTableModel({
+          caption:'Overall test summary',
+          columns:[
+            {key:'metric',label:'Metric',align:'left',index:0},
+            {key:'value',label:'Value',align:'left',index:1}
+          ],
+          rows:overallRows,
+          options:{
+            fileName:'box-overall-test',
+            contextLabel:'box-overall'
+          }
+        });
+        appendForPairs=true;
+      }
+      const pairRows=pairs.map(pr=>({
+        comparison:`${pr.labelA ?? labels[pr.a]} vs ${pr.labelB ?? labels[pr.b]}`,
+        statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
+        df:pr.df!=null?pr.df:'—',
+        padj:formatP(pr.adjP)
+      }));
+      if(referenceLabel){
+        footnotes.push(`Reference group: ${referenceLabel}`);
+      }
+      if(pairs.length>1){
+        footnotes.push(`P-values adjusted using Bonferroni (m=${pairs.length}).`);
+      }
+      renderTableModel({
+        caption: state.statsMode==='reference' ? 'Comparisons vs reference' : 'Pairwise comparisons',
+        columns:[
+          {key:'comparison',label:'Comparison',align:'left',index:0},
+          {key:'statistic',label:'Statistic',align:'left',index:1},
+          {key:'df',label:'df',align:'right',index:2},
+          {key:'padj',label:'P (adj)',align:'right',index:3}
+        ],
+        rows:pairRows,
+        footnotes,
+        options:{
+          fileName:'box-pairwise-comparisons',
+          contextLabel:'box-pairs'
+        }
+      },appendForPairs);
       pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
       const placed=[];
       pairs.forEach(pr=>{

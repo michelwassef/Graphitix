@@ -437,7 +437,29 @@
         p = 1-global.jStat.chisquare.cdf(chi2,df);
       }
       const formatP=(val)=>{ if(!isFinite(val)) return String(val); if(val<0.0001) return val.toExponential(2); return val.toFixed(4); };
-      out.innerHTML=`<table><tr><th>Chi²</th><td>${chi2.toFixed(4)}</td></tr><tr><th>df</th><td>${df}</td></tr><tr><th>p-value</th><td>${isFinite(p)?formatP(p):'N/A'}</td></tr></table>`;
+      const hasRenderer=Shared.statsTable && typeof Shared.statsTable.render==='function';
+      const rows=[
+        {metric:'Chi²',value:chi2.toFixed(4)},
+        {metric:'df',value:String(df)},
+        {metric:'p-value',value:isFinite(p)?formatP(p):'N/A'}
+      ];
+      if(hasRenderer){
+        Shared.statsTable.render({
+          target:out,
+          columns:[
+            {key:'metric',label:'Metric',align:'left'},
+            {key:'value',label:'Value',align:'right'}
+          ],
+          rows,
+          caption:'Goodness-of-fit test',
+          options:{
+            fileName:'pie-chi-square',
+            contextLabel:'pie-chi-square'
+          }
+        });
+      }else{
+        out.innerHTML=`<table><tr><th>Chi²</th><td>${chi2.toFixed(4)}</td></tr><tr><th>df</th><td>${df}</td></tr><tr><th>p-value</th><td>${isFinite(p)?formatP(p):'N/A'}</td></tr></table>`;
+      }
       console.debug('Debug: updatePieStats result',{chi2,df,p});
     }catch(err){ console.error('updatePieStats error',err); }
   }

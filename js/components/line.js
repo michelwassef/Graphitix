@@ -334,22 +334,58 @@
     }
     const method=refs.statType.value||'pearson';
     console.debug('Debug: updateLineStats',{seriesCount:series.length,method}); // Debug: stats update entry
-    const rows=[];
+    const tableRows=[];
+    let methodLabel='';
     series.forEach(s=>{
       const pts=s.points.filter(Boolean);
       if(pts.length>=3){
         const stats=computeLineStats(pts,method,jStatLib);
         if(stats){
-          rows.push(`<tr><td>${s.name}</td><td>${stats.r.toFixed(4)}</td><td>${formatP(stats.p)}</td><td>${stats.slope.toFixed(4)}</td></tr>`);
+          methodLabel=stats.method;
+          tableRows.push({
+            series:s.name,
+            r:stats.r.toFixed(4),
+            p:formatP(stats.p),
+            slope:stats.slope.toFixed(4)
+          });
         }
       }
     });
-    if(rows.length){
-      refs.statsResults.innerHTML='<table><tr><th>Series</th><th>r</th><th>p</th><th>Slope</th></tr>'+rows.join('')+'</table>';
+    if(tableRows.length){
+      refs.statsResults.innerHTML='';
+      if(methodLabel){
+        const lead=document.createElement('div');
+        lead.className='stats-table-lead';
+        lead.textContent=`${methodLabel} correlation coefficients`;
+        refs.statsResults.appendChild(lead);
+      }
+      if(Shared.statsTable && typeof Shared.statsTable.render==='function'){
+        Shared.statsTable.render({
+          target: refs.statsResults,
+          columns:[
+            {key:'series',label:'Series',align:'left'},
+            {key:'r',label:'r',align:'right'},
+            {key:'p',label:'p',align:'right'},
+            {key:'slope',label:'Slope',align:'right'}
+          ],
+          rows:tableRows,
+          caption: methodLabel ? `${methodLabel} correlation summary` : 'Correlation summary',
+          options:{
+            fileName:'line-statistics',
+            contextLabel:'line-stats'
+          },
+          append:true
+        });
+      }else{
+        const table=document.createElement('table');
+        table.innerHTML='<tr><th>Series</th><th>r</th><th>p</th><th>Slope</th></tr>'+tableRows.map(row=>`<tr><td>${row.series}</td><td>${row.r}</td><td>${row.p}</td><td>${row.slope}</td></tr>`).join('');
+        refs.statsResults.appendChild(table);
+        console.debug('Debug: updateLineStats fallback table rendered',{rowCount:tableRows.length});
+      }
     }else{
       refs.statsResults.textContent='Not enough data for statistics.';
     }
-    console.debug('Debug: updateLineStats complete',{rowCount:rows.length}); // Debug: stats update exit
+    console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,methodLabel}); // Debug: stats update exit
   }
 
   function getLineGraphPayload(){

@@ -397,7 +397,29 @@
         // Fallback simple implementations
         const n=values.length; const mu=values.reduce((s,v)=>s+v,0)/n; mean=mu; const sorted=[...values].sort((a,b)=>a-b); median=(n%2?sorted[(n-1)/2]:(sorted[n/2-1]+sorted[n/2])/2); const variance=values.reduce((s,v)=>s+Math.pow(v-mu,2),0)/(n-1); sd=Math.sqrt(variance);
       }
-      out.innerHTML=`<table><tr><th>n</th><td>${values.length}</td></tr><tr><th>Mean</th><td>${mean.toFixed(4)}</td></tr><tr><th>Median</th><td>${median.toFixed(4)}</td></tr><tr><th>SD</th><td>${sd.toFixed(4)}</td></tr></table>`;
+      const hasRenderer=Shared.statsTable && typeof Shared.statsTable.render==='function';
+      if(hasRenderer){
+        Shared.statsTable.render({
+          target:out,
+          columns:[
+            {key:'metric',label:'Metric',align:'left'},
+            {key:'value',label:'Value',align:'right'}
+          ],
+          rows:[
+            {metric:'n',value:String(values.length)},
+            {metric:'Mean',value:mean.toFixed(4)},
+            {metric:'Median',value:median.toFixed(4)},
+            {metric:'SD',value:sd.toFixed(4)}
+          ],
+          caption:'Distribution summary',
+          options:{
+            fileName:'histogram-summary',
+            contextLabel:'hist-summary'
+          }
+        });
+      }else{
+        out.innerHTML=`<table><tr><th>n</th><td>${values.length}</td></tr><tr><th>Mean</th><td>${mean.toFixed(4)}</td></tr><tr><th>Median</th><td>${median.toFixed(4)}</td></tr><tr><th>SD</th><td>${sd.toFixed(4)}</td></tr></table>`;
+      }
       console.debug('Debug: updateHistStats result',{mean,median,sd});
     }catch(err){ console.error('updateHistStats error',err); }
   }
