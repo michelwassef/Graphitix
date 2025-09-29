@@ -87,6 +87,8 @@
   const svgScopeMap = new WeakMap();
   const supportsWeakRef = typeof global.WeakRef === 'function';
   const nodeGroupStore = new Map();
+  const toolbarHostMap = new Map();
+  let activeHost = null;
 
   let panelEl = null;
   let fontInput = null;
@@ -111,6 +113,43 @@
     } catch(err) {
       // Logging failures should never break execution.
     }
+  }
+
+  function resolveToolbarHost(scopeId){
+    if(!global.document){ return null; }
+    const doc = global.document;
+    const key = scopeId || '__global__';
+    if(toolbarHostMap.has(key)){
+      return toolbarHostMap.get(key);
+    }
+    const buttonId = scopeId ? `${scopeId}LoadExample` : null;
+    const button = buttonId ? doc.getElementById(buttonId) : null;
+    if(!button){
+      logDebug('resolveToolbarHost missing button', { scopeId: key, buttonId });
+      return null;
+    }
+    const host = doc.createElement('div');
+    host.className = 'font-toolbar-host';
+    host.dataset.fontToolbarScope = key;
+    host.style.display = 'none';
+    button.insertAdjacentElement('afterend', host);
+    toolbarHostMap.set(key, host);
+    logDebug('toolbar host created', { scopeId: key, buttonId });
+    return host;
+  }
+
+  function showToolbarHost(host){
+    if(!host){ return; }
+    host.style.display = 'flex';
+    host.classList.add('font-toolbar-host--visible');
+    logDebug('toolbar host shown', { scopeId: host.dataset?.fontToolbarScope || null });
+  }
+
+  function hideToolbarHost(host){
+    if(!host){ return; }
+    host.classList.remove('font-toolbar-host--visible');
+    host.style.display = 'none';
+    logDebug('toolbar host hidden', { scopeId: host.dataset?.fontToolbarScope || null });
   }
 
   function toggleCustomFontInput(show){
@@ -480,9 +519,15 @@
     const doc = global.document;
     panelEl = doc.createElement('div');
     panelEl.className = 'font-controls-panel';
-    panelEl.setAttribute('role', 'dialog');
+    panelEl.setAttribute('role', 'toolbar');
     panelEl.setAttribute('aria-label', 'Font controls');
     panelEl.style.display = 'none';
+    panelEl.dataset.open = '0';
+    panelEl.setAttribute('aria-hidden', 'true');
+    panelEl.hidden = true;
+    if(panelEl.dataset.scope){
+      delete panelEl.dataset.scope;
+    }
 
     const header = doc.createElement('div');
     header.className = 'font-controls-panel__header';
@@ -496,7 +541,7 @@
 
     const title = doc.createElement('div');
     title.className = 'font-controls-panel__title';
-    title.textContent = 'Font Controls';
+    title.textContent = 'Contextual font tools';
 
     targetLabelEl = doc.createElement('div');
     targetLabelEl.className = 'font-controls-panel__context';
@@ -523,7 +568,7 @@
     previewSection.className = 'font-controls-panel__preview';
     const previewLabel = doc.createElement('span');
     previewLabel.className = 'font-controls-panel__preview-label';
-    previewLabel.textContent = 'Live preview';
+    previewLabel.textContent = 'Preview';
     previewTextEl = doc.createElement('div');
     previewTextEl.className = 'font-controls-panel__preview-text';
     previewTextEl.textContent = 'AaBbCc 123';
@@ -669,8 +714,6 @@
     updatePanelContext();
     updatePreviewText();
     updatePreviewFromInputs();
-
-    doc.body.appendChild(panelEl);
 
     if(typeof Shared.attachColorPickerNear === 'function'){
       Shared.attachColorPickerNear(colorInput);
@@ -838,7 +881,7 @@
     });
 
     doc.addEventListener('click', (evt) => {
-      if(!panelEl || panelEl.style.display === 'none'){ return; }
+      if(!panelEl || panelEl.dataset.open !== '1'){ return; }
       if(panelEl.contains(evt.target)){ return; }
       if(currentTarget && evt.target === currentTarget){ return; }
       closePanel('outside');
@@ -852,10 +895,19 @@
     if(!panelEl){ return; }
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
+    panelEl.setAttribute('aria-hidden', 'true');
+    panelEl.hidden = true;
+    if(activeHost && panelEl.parentElement === activeHost){
+      hideToolbarHost(activeHost);
+      activeHost = null;
+    }
     if(colorInput){
       colorInput.__fontControlsAvoidRect = null;
     }
     toggleCustomFontInput(false);
+    currentTarget = null;
+    currentScope = null;
+    currentKey = null;
     logDebug('panel closed', { reason });
   }
 
@@ -866,13 +918,37 @@
     currentScope = options?.scopeId || target.dataset?.fontScope || null;
     currentKey = options?.key || target.dataset?.fontKey || null;
     if(!panelEl){ return; }
-    panelEl.style.display = 'block';
+    const host = resolveToolbarHost(currentScope);
+    if(host){
+      if(activeHost && activeHost !== host){
+        hideToolbarHost(activeHost);
+      }
+      if(panelEl.parentElement !== host){
+        host.appendChild(panelEl);
+      }
+      activeHost = host;
+      showToolbarHost(host);
+    } else {
+      if(activeHost){
+        hideToolbarHost(activeHost);
+      }
+      activeHost = null;
+      logDebug('panel host unavailable', { scope: currentScope, key: currentKey });
+    }
+
+    panelEl.style.display = 'flex';
+    panelEl.hidden = false;
+    panelEl.setAttribute('aria-hidden', 'false');
     panelEl.dataset.open = '1';
+    panelEl.style.left = '';
+    panelEl.style.top = '';
+    if(currentScope){
+      panelEl.dataset.scope = currentScope;
+    } else {
+      delete panelEl.dataset.scope;
+    }
 
     const rect = target.getBoundingClientRect();
-    const docEl = global.document?.documentElement;
-    const scrollTop = global.pageYOffset || docEl?.scrollTop || 0;
-    const scrollLeft = global.pageXOffset || docEl?.scrollLeft || 0;
     if(colorInput){
       colorInput.__fontControlsAvoidRect = {
         top: rect.top,
@@ -887,65 +963,13 @@
         height: rect.height
       });
     }
-    const viewportWidth = global.innerWidth || docEl?.clientWidth || 0;
-    const viewportHeight = global.innerHeight || docEl?.clientHeight || 0;
-    const safeMargin = 12;
-    const panelWidth = panelEl.offsetWidth || panelEl.getBoundingClientRect().width || 0;
-    const panelHeight = panelEl.offsetHeight || panelEl.getBoundingClientRect().height || 0;
-
-    const placements = [
-      { tag: 'below', top: rect.bottom + scrollTop + safeMargin, left: rect.left + scrollLeft },
-      { tag: 'above', top: rect.top + scrollTop - panelHeight - safeMargin, left: rect.left + scrollLeft },
-      { tag: 'right', top: rect.top + scrollTop, left: rect.right + scrollLeft + safeMargin },
-      { tag: 'left', top: rect.top + scrollTop, left: rect.left + scrollLeft - panelWidth - safeMargin }
-    ];
-
-    const clampPlacement = (placement) => {
-      let { top: nextTop, left: nextLeft } = placement;
-      if(viewportWidth){
-        const minLeft = (scrollLeft || 0) + safeMargin;
-        const maxLeftRaw = (scrollLeft || 0) + viewportWidth - panelWidth - safeMargin;
-        const maxLeft = maxLeftRaw >= minLeft ? maxLeftRaw : minLeft;
-        nextLeft = Math.min(Math.max(nextLeft, minLeft), maxLeft);
-      }
-      if(viewportHeight){
-        const minTop = (scrollTop || 0) + safeMargin;
-        const maxTopRaw = (scrollTop || 0) + viewportHeight - panelHeight - safeMargin;
-        const maxTop = maxTopRaw >= minTop ? maxTopRaw : minTop;
-        nextTop = Math.min(Math.max(nextTop, minTop), maxTop);
-      }
-      panelEl.style.left = `${Math.round(nextLeft)}px`;
-      panelEl.style.top = `${Math.round(nextTop)}px`;
-      const updatedRect = panelEl.getBoundingClientRect();
-      const intersects = updatedRect.left < rect.right && updatedRect.right > rect.left && updatedRect.top < rect.bottom && updatedRect.bottom > rect.top;
-      logDebug('panel placement evaluated', {
-        tag: placement.tag,
-        resolved: { top: nextTop, left: nextLeft },
-        intersects
-      });
-      return { rect: updatedRect, intersects, top: nextTop, left: nextLeft };
-    };
-
-    let finalPlacement = clampPlacement(placements[0]);
-    if(finalPlacement.intersects){
-      for(let i = 1; i < placements.length; i += 1){
-        const attempt = clampPlacement(placements[i]);
-        if(!attempt.intersects){
-          finalPlacement = attempt;
-          break;
-        }
-      }
-    }
 
     syncPanelStateFromTarget();
     logDebug('panel opened', {
       scope: currentScope,
       key: currentKey,
       text: target.textContent,
-      position: {
-        top: parseFloat(panelEl.style.top) || top,
-        left: parseFloat(panelEl.style.left) || left
-      }
+      hostScope: activeHost?.dataset?.fontToolbarScope || null
     });
   }
 
