@@ -1067,14 +1067,36 @@
     });
 
     if(refs.statsResults){
-      const html = stats.map(stat => {
+      refs.statsResults.textContent = '';
+      const fragment = document.createDocumentFragment();
+      stats.forEach((stat, index) => {
         const aucText = stat.auc.toFixed(3);
-        const apText = graphType === 'pr' && stat.avgPrecision !== undefined ? `AP = ${stat.avgPrecision.toFixed(3)}, ` : '';
         const pText = formatPValue(stat.pVal);
         const thrText = Number.isFinite(stat.thr) ? stat.thr.toFixed(3) : 'NA';
-        return `${stat.name}: AUC = ${aucText}, ${apText}p = ${pText}, Thr = ${thrText}, Acc = ${(stat.accuracy * 100).toFixed(1)}%, Prec = ${(stat.precision * 100).toFixed(1)}%, Recall = ${(stat.recall * 100).toFixed(1)}%, F1 = ${(stat.f1 * 100).toFixed(1)}%`;
-      }).join('<br>');
-      refs.statsResults.innerHTML = html;
+        const metrics = [];
+        metrics.push(`AUC = ${aucText}`);
+        if(graphType === 'pr' && stat.avgPrecision !== undefined){
+          metrics.push(`AP = ${stat.avgPrecision.toFixed(3)}`);
+        }
+        metrics.push(`p = ${pText}`);
+        metrics.push(`Thr = ${thrText}`);
+        metrics.push(`Acc = ${(stat.accuracy * 100).toFixed(1)}%`);
+        metrics.push(`Prec = ${(stat.precision * 100).toFixed(1)}%`);
+        metrics.push(`Recall = ${(stat.recall * 100).toFixed(1)}%`);
+        metrics.push(`F1 = ${(stat.f1 * 100).toFixed(1)}%`);
+
+        const line = document.createElement('p');
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = `${stat.name}:`;
+        line.appendChild(nameSpan);
+        const metricsSpan = document.createElement('span');
+        metricsSpan.textContent = ` ${metrics.join(', ')}`;
+        line.appendChild(metricsSpan);
+        fragment.appendChild(line);
+        console.debug('Debug: roc stat line built', { index, name: stat.name, metrics }); // Debug: stats DOM line details
+      });
+      refs.statsResults.appendChild(fragment);
+      console.debug('Debug: roc stats DOM updated', { count: stats.length }); // Debug: stats container refresh summary
     }
 
     if(series.length >= 2 && state.compareSel && state.compareSel.value){
