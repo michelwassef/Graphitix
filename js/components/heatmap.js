@@ -755,24 +755,44 @@
     }
   }
 
+  function appendStatRow(labelText, strongValueText, options = {}){
+    const { trailing = [] } = options;
+    const row = global.document.createElement('div');
+    const labelSpan = global.document.createElement('span');
+    labelSpan.textContent = `${labelText}: `;
+    row.append(labelSpan);
+    if(strongValueText !== undefined){
+      const strongEl = global.document.createElement('strong');
+      strongEl.textContent = strongValueText;
+      row.append(strongEl);
+    }
+    trailing.forEach(text => {
+      if(text !== undefined && text !== null && text !== ''){
+        row.append(global.document.createTextNode(String(text)));
+      }
+    });
+    state.statsEl.append(row);
+    console.debug('Debug: heatmap appendStatRow executed', { labelText, hasStrongValue: strongValueText !== undefined, trailingCount: trailing.length }); // Debug: track stat row creation
+    return row;
+  }
+
   function updateStats(stats){
     if(!state.statsEl){
       console.debug('Debug: heatmap stats element missing');
       return;
     }
+    state.statsEl.textContent = '';
     if(!stats || !stats.columnCount){
       state.statsEl.textContent = 'Add at least two numeric columns to calculate correlations.';
       return;
     }
     const methodLabel = stats.method === 'spearman' ? 'Spearman (rank)' : 'Pearson (linear)';
-    const pieces = [
-      `<div>Columns analysed: <strong>${stats.columnCount}</strong></div>`,
-      `<div>Pairs evaluated: <strong>${stats.pairCount}</strong></div>`,
-      `<div>Method: <strong>${methodLabel}</strong>${stats.useAbs ? ' (absolute values shown)' : ''}</div>`
-    ];
+    appendStatRow('Columns analysed', String(stats.columnCount));
+    appendStatRow('Pairs evaluated', String(stats.pairCount));
+    appendStatRow('Method', methodLabel, { trailing: stats.useAbs ? [' (absolute values shown)'] : [] });
     if(stats.clusterMode && stats.clusterMode !== 'none' && stats.clusterMethod){
       const clusterMethodLabel = stats.clusterMethod === 'spearman' ? 'Spearman (rank)' : 'Pearson (linear)';
-      pieces.push(`<div>Clustering: <strong>Hierarchical (${clusterMethodLabel})</strong></div>`);
+      appendStatRow('Clustering', `Hierarchical (${clusterMethodLabel})`);
     }
     if(stats.strongest){
       const magnitude = Number.isFinite(stats.strongest.magnitude)
@@ -791,13 +811,24 @@
       }
       const detailText = details.length ? ` (${details.join(', ')})` : '';
       const magText = Number.isFinite(magnitude) ? magnitude.toFixed(stats.decimals) : 'n/a';
-      pieces.push(`<div>Strongest |r|: <strong>${stats.strongest.labels.join(' vs ')}</strong> = ${magText}${detailText}</div>`);
+      const strongLabel = Array.isArray(stats.strongest.labels)
+        ? stats.strongest.labels.map(label => String(label)).join(' vs ')
+        : String(stats.strongest.labels || '');
+      const row = appendStatRow('Strongest |r|', strongLabel);
+      row.append(global.document.createTextNode(` = ${magText}`));
+      if(detailText){
+        row.append(global.document.createTextNode(detailText));
+      }
       console.debug('Debug: heatmap stats strongest rendered', { magnitude, raw, count }); // Debug: stats rendering details
     }
     if(stats.mostNegative && !stats.useAbs){
-      pieces.push(`<div>Most negative r: <strong>${stats.mostNegative.labels.join(' vs ')}</strong> = ${stats.mostNegative.value.toFixed(stats.decimals)} (n=${stats.mostNegative.count})</div>`);
+      const negativeLabel = Array.isArray(stats.mostNegative.labels)
+        ? stats.mostNegative.labels.map(label => String(label)).join(' vs ')
+        : String(stats.mostNegative.labels || '');
+      const trailing = ` = ${stats.mostNegative.value.toFixed(stats.decimals)} (n=${stats.mostNegative.count})`;
+      const row = appendStatRow('Most negative r', negativeLabel);
+      row.append(global.document.createTextNode(trailing));
     }
-    state.statsEl.innerHTML = pieces.join('');
     console.debug('Debug: heatmap stats updated', { pairCount: stats.pairCount, hasStrongest: !!stats.strongest }); // Debug: stats update summary
   }
 
