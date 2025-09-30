@@ -23,7 +23,8 @@
     'Open Sans',
     'Lato',
     'Montserrat',
-    'Poppins'
+    'Poppins',
+    'Symbol'
   ];
 
   const LATIN_TO_GREEK_UPPER = {
@@ -532,52 +533,20 @@
     const header = doc.createElement('div');
     header.className = 'font-controls-panel__header';
 
-    const titleGroup = doc.createElement('div');
-    titleGroup.className = 'font-controls-panel__title-group';
-
-    const subtitle = doc.createElement('div');
-    subtitle.className = 'font-controls-panel__subtitle';
-    subtitle.textContent = 'Typography';
-
-    const title = doc.createElement('div');
-    title.className = 'font-controls-panel__title';
-    title.textContent = 'Contextual font tools';
-
-    targetLabelEl = doc.createElement('div');
-    targetLabelEl.className = 'font-controls-panel__context';
-    targetLabelEl.textContent = 'Select text to edit';
-
-    titleGroup.appendChild(subtitle);
-    titleGroup.appendChild(title);
-    titleGroup.appendChild(targetLabelEl);
-
     closeBtn = doc.createElement('button');
     closeBtn.type = 'button';
     closeBtn.className = 'font-controls-panel__close';
     closeBtn.setAttribute('aria-label', 'Close font controls');
     closeBtn.textContent = '×';
 
-    header.appendChild(titleGroup);
     header.appendChild(closeBtn);
     panelEl.appendChild(header);
 
     const body = doc.createElement('div');
     body.className = 'font-controls-panel__body';
 
-    const previewSection = doc.createElement('div');
-    previewSection.className = 'font-controls-panel__preview';
-    const previewLabel = doc.createElement('span');
-    previewLabel.className = 'font-controls-panel__preview-label';
-    previewLabel.textContent = 'Preview';
-    previewTextEl = doc.createElement('div');
-    previewTextEl.className = 'font-controls-panel__preview-text';
-    previewTextEl.textContent = 'AaBbCc 123';
-    previewSection.appendChild(previewLabel);
-    previewSection.appendChild(previewTextEl);
-    body.appendChild(previewSection);
-
-    const grid = doc.createElement('div');
-    grid.className = 'font-controls-panel__grid';
+    const controlsRow = doc.createElement('div');
+    controlsRow.className = 'font-controls-panel__controls';
 
     const fontField = doc.createElement('label');
     fontField.className = 'font-controls-panel__field';
@@ -616,7 +585,7 @@
     fontInput.placeholder = 'Enter custom font';
     customInputWrapper.appendChild(fontInput);
     fontField.appendChild(customInputWrapper);
-    grid.appendChild(fontField);
+    controlsRow.appendChild(fontField);
 
     const sizeField = doc.createElement('label');
     sizeField.className = 'font-controls-panel__field';
@@ -632,10 +601,10 @@
     sizeInput.className = 'font-controls-panel__input font-controls-panel__input--number';
     sizeField.appendChild(sizeLabel);
     sizeField.appendChild(sizeInput);
-    grid.appendChild(sizeField);
+    controlsRow.appendChild(sizeField);
 
     const colorField = doc.createElement('label');
-    colorField.className = 'font-controls-panel__field font-controls-panel__field--full';
+    colorField.className = 'font-controls-panel__field';
     const colorLabel = doc.createElement('span');
     colorLabel.className = 'font-controls-panel__field-label';
     colorLabel.textContent = 'Color';
@@ -644,9 +613,7 @@
     colorInput.className = 'font-controls-panel__color-input';
     colorField.appendChild(colorLabel);
     colorField.appendChild(colorInput);
-    grid.appendChild(colorField);
-
-    body.appendChild(grid);
+    controlsRow.appendChild(colorField);
 
     const emphasisLabel = doc.createElement('span');
     emphasisLabel.className = 'font-controls-panel__field-label';
@@ -702,7 +669,9 @@
     emphasisContainer.className = 'font-controls-panel__section';
     emphasisContainer.appendChild(emphasisLabel);
     emphasisContainer.appendChild(chipRow);
-    body.appendChild(emphasisContainer);
+    controlsRow.appendChild(emphasisContainer);
+
+    body.appendChild(controlsRow);
 
     panelEl.appendChild(body);
 
@@ -712,6 +681,8 @@
     panelEl.appendChild(footer);
 
     updatePanelContext();
+    console.debug('Debug: font controls compact layout ready', { sections: controlsRow.children.length }); // Debug: layout ready
+
     updatePreviewText();
     updatePreviewFromInputs();
 

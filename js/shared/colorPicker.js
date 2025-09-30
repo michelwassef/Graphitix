@@ -41,8 +41,9 @@
         console.error('colorPicker normalizeColorInput error', normalizeErr);
       }
     }
-    el.addEventListener('pointerdown',()=>{
-      console.debug('Debug: color input pointerdown', { id: el.id || null }); // Debug: color input open
+    el.addEventListener('click',(evt)=>{
+      console.debug('Debug: color input click', { id: el.id || null }); // Debug: color input open
+      evt.preventDefault();
       const rect = el.getBoundingClientRect();
       const docEl = document.documentElement;
       const scrollX = window.pageXOffset || docEl?.scrollLeft || 0;
