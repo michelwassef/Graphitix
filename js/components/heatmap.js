@@ -775,12 +775,30 @@
       pieces.push(`<div>Clustering: <strong>Hierarchical (${clusterMethodLabel})</strong></div>`);
     }
     if(stats.strongest){
-      pieces.push(`<div>Strongest |r|: <strong>${stats.strongest.labels.join(' vs ')}</strong> = ${stats.strongest.value.toFixed(stats.decimals)} (n=${stats.strongest.count})</div>`);
+      const magnitude = Number.isFinite(stats.strongest.magnitude)
+        ? stats.strongest.magnitude
+        : Number.isFinite(stats.strongest.abs)
+          ? stats.strongest.abs
+          : (Number.isFinite(stats.strongest.value) ? Math.abs(stats.strongest.value) : NaN);
+      const raw = Number.isFinite(stats.strongest.raw) ? stats.strongest.raw : null;
+      const count = Number.isFinite(stats.strongest.count) ? stats.strongest.count : null;
+      const details = [];
+      if(count !== null){
+        details.push(`n=${count}`);
+      }
+      if(raw !== null){
+        details.push(`raw r = ${raw.toFixed(stats.decimals)}`);
+      }
+      const detailText = details.length ? ` (${details.join(', ')})` : '';
+      const magText = Number.isFinite(magnitude) ? magnitude.toFixed(stats.decimals) : 'n/a';
+      pieces.push(`<div>Strongest |r|: <strong>${stats.strongest.labels.join(' vs ')}</strong> = ${magText}${detailText}</div>`);
+      console.debug('Debug: heatmap stats strongest rendered', { magnitude, raw, count }); // Debug: stats rendering details
     }
     if(stats.mostNegative && !stats.useAbs){
       pieces.push(`<div>Most negative r: <strong>${stats.mostNegative.labels.join(' vs ')}</strong> = ${stats.mostNegative.value.toFixed(stats.decimals)} (n=${stats.mostNegative.count})</div>`);
     }
     state.statsEl.innerHTML = pieces.join('');
+    console.debug('Debug: heatmap stats updated', { pairCount: stats.pairCount, hasStrongest: !!stats.strongest }); // Debug: stats update summary
   }
 
   function draw(){
@@ -913,12 +931,16 @@
             if(i < j){
               stats.pairCount += 1;
               if(!stats.strongest || absCorr > stats.strongest.abs){
-                stats.strongest = {
+                const strongestEntry = {
                   labels: [columns[i].label, columns[j].label],
-                  value: useAbs ? display : raw,
+                  raw,
+                  magnitude: absCorr,
                   abs: absCorr,
-                  count: pair.count
+                  count: pair.count,
+                  value: useAbs ? display : absCorr
                 };
+                console.debug('Debug: heatmap strongest correlation candidate', { strongestEntry }); // Debug: track strongest update
+                stats.strongest = strongestEntry;
               }
               if(!stats.mostNegative || raw < stats.mostNegative.value){
                 stats.mostNegative = {
