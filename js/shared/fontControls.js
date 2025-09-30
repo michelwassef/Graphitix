@@ -27,62 +27,6 @@
     'Symbol'
   ];
 
-  const LATIN_TO_GREEK_UPPER = {
-    A: 'Α',
-    B: 'Β',
-    C: 'Χ',
-    D: 'Δ',
-    E: 'Ε',
-    F: 'Φ',
-    G: 'Γ',
-    H: 'Η',
-    I: 'Ι',
-    J: 'Ξ',
-    K: 'Κ',
-    L: 'Λ',
-    M: 'Μ',
-    N: 'Ν',
-    O: 'Ο',
-    P: 'Π',
-    Q: 'Θ',
-    R: 'Ρ',
-    S: 'Σ',
-    T: 'Τ',
-    U: 'Υ',
-    W: 'Ω',
-    X: 'Ξ',
-    Y: 'Ψ',
-    Z: 'Ζ'
-  };
-
-  const LATIN_TO_GREEK_LOWER = {
-    a: 'α',
-    b: 'β',
-    c: 'χ',
-    d: 'δ',
-    e: 'ε',
-    f: 'φ',
-    g: 'γ',
-    h: 'η',
-    i: 'ι',
-    j: 'ξ',
-    k: 'κ',
-    l: 'λ',
-    m: 'μ',
-    n: 'ν',
-    o: 'ο',
-    p: 'π',
-    q: 'θ',
-    r: 'ρ',
-    s: 'σ',
-    t: 'τ',
-    u: 'υ',
-    w: 'ω',
-    x: 'ξ',
-    y: 'ψ',
-    z: 'ζ'
-  };
-
   const styleStore = new Map();
   const svgRegistry = new WeakSet();
   const svgScopeMap = new WeakMap();
@@ -100,8 +44,6 @@
   let boldToggle = null;
   let italicToggle = null;
   let sizeInput = null;
-  let greekBtn = null;
-  let closeBtn = null;
   let previewTextEl = null;
   let targetLabelEl = null;
   let currentTarget = null;
@@ -197,34 +139,6 @@
       matched: matchedValue || null,
       source: meta?.source || 'sync'
     });
-  }
-
-  function convertLatinStringToGreek(input){
-    if(!input){
-      return { text: input, changes: 0 };
-    }
-    const chars = Array.from(input);
-    let changes = 0;
-    const converted = chars.map((char, index) => {
-      let replacement = null;
-      if(char === 's'){
-        const next = chars[index + 1];
-        const boundary = !next || /[^a-zA-Z]/.test(next);
-        replacement = boundary ? 'ς' : LATIN_TO_GREEK_LOWER.s;
-      } else if(char === 'S'){
-        replacement = LATIN_TO_GREEK_UPPER.S;
-      } else if(LATIN_TO_GREEK_UPPER[char]){
-        replacement = LATIN_TO_GREEK_UPPER[char];
-      } else if(LATIN_TO_GREEK_LOWER[char]){
-        replacement = LATIN_TO_GREEK_LOWER[char];
-      }
-      if(replacement && replacement !== char){
-        changes += 1;
-        return replacement;
-      }
-      return char;
-    }).join('');
-    return { text: converted, changes };
   }
 
   function humanizeToken(token){
@@ -530,18 +444,6 @@
       delete panelEl.dataset.scope;
     }
 
-    const header = doc.createElement('div');
-    header.className = 'font-controls-panel__header';
-
-    closeBtn = doc.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'font-controls-panel__close';
-    closeBtn.setAttribute('aria-label', 'Close font controls');
-    closeBtn.textContent = '×';
-
-    header.appendChild(closeBtn);
-    panelEl.appendChild(header);
-
     const body = doc.createElement('div');
     body.className = 'font-controls-panel__body';
 
@@ -615,6 +517,8 @@
     colorField.appendChild(colorInput);
     controlsRow.appendChild(colorField);
 
+    const emphasisField = doc.createElement('div');
+    emphasisField.className = 'font-controls-panel__field font-controls-panel__field--emphasis';
     const emphasisLabel = doc.createElement('span');
     emphasisLabel.className = 'font-controls-panel__field-label';
     emphasisLabel.textContent = 'Emphasis';
@@ -649,27 +553,12 @@
     italicToggle.appendChild(italicIcon);
     italicToggle.appendChild(italicText);
 
-    greekBtn = doc.createElement('button');
-    greekBtn.type = 'button';
-    greekBtn.className = 'font-controls-panel__chip font-controls-panel__chip--action';
-    greekBtn.setAttribute('title', 'Convert Latin a/A characters to Greek α/Α');
-    const greekIcon = doc.createElement('span');
-    greekIcon.className = 'font-controls-panel__chip-icon';
-    greekIcon.textContent = 'α';
-    const greekText = doc.createElement('span');
-    greekText.textContent = 'Greekify';
-    greekBtn.appendChild(greekIcon);
-    greekBtn.appendChild(greekText);
-
     chipRow.appendChild(boldToggle);
     chipRow.appendChild(italicToggle);
-    chipRow.appendChild(greekBtn);
-
-    const emphasisContainer = doc.createElement('div');
-    emphasisContainer.className = 'font-controls-panel__section';
-    emphasisContainer.appendChild(emphasisLabel);
-    emphasisContainer.appendChild(chipRow);
-    controlsRow.appendChild(emphasisContainer);
+    emphasisField.appendChild(emphasisLabel);
+    emphasisField.appendChild(chipRow);
+    controlsRow.appendChild(emphasisField);
+    logDebug('emphasis toggles initialized', { toggleCount: chipRow.children.length });
 
     body.appendChild(controlsRow);
 
@@ -681,7 +570,7 @@
     panelEl.appendChild(footer);
 
     updatePanelContext();
-    console.debug('Debug: font controls compact layout ready', { sections: controlsRow.children.length }); // Debug: layout ready
+    console.debug('Debug: font controls layout refreshed', { sections: controlsRow.children.length, closeButton: false }); // Debug: layout ready
 
     updatePreviewText();
     updatePreviewFromInputs();
@@ -824,28 +713,6 @@
 
     toggleHandler(boldToggle, 'font-weight', 'bold');
     toggleHandler(italicToggle, 'font-style', 'italic');
-
-    greekBtn.addEventListener('click', () => {
-      if(!currentTarget){ return; }
-      const original = currentTarget.textContent || '';
-      const result = convertLatinStringToGreek(original);
-      if(result.changes > 0){
-        currentTarget.textContent = result.text;
-        updatePreviewText();
-        updatePanelContext();
-        logDebug('greek conversion applied', {
-          before: original,
-          after: result.text,
-          changes: result.changes
-        });
-      } else {
-        logDebug('greek conversion skipped', { reason: 'no-latin-characters', text: original });
-      }
-    });
-
-    closeBtn.addEventListener('click', () => {
-      closePanel('button');
-    });
 
     doc.addEventListener('keydown', (evt) => {
       if(evt.key === 'Escape'){ closePanel('escape'); }
