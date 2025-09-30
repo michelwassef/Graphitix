@@ -83,7 +83,7 @@ describe('UI events and example loaders', () => {
     expect(firstRow).toEqual(['Control', 1.2, 1]);
   });
 
-  test('Color picker overlay opens on color input pointerdown', () => {
+  test('Color picker overlay opens on color input click', () => {
     const colorA = document.getElementById('colorA');
     expect(colorA).toBeTruthy();
     // Find overlay (the only color input appended directly under body with pointerEvents none)
@@ -91,8 +91,8 @@ describe('UI events and example loaders', () => {
     expect(overlay).toBeTruthy();
     expect(overlay.style.display).toBe('none');
 
-    // Dispatch pointerdown
-    const evt = new window.Event('pointerdown', { bubbles: true, cancelable: true });
+    // Dispatch click
+    const evt = new window.Event('click', { bubbles: true, cancelable: true });
     colorA.dispatchEvent(evt);
 
     // Overlay should be shown
