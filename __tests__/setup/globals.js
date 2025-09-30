@@ -46,6 +46,31 @@ global.Image = class ImageStub {
   async decode() { return; }
 };
 
+if(global.HTMLCanvasElement){
+  const originalGetContext = global.HTMLCanvasElement.prototype.getContext;
+  global.HTMLCanvasElement.prototype.getContext = function(type){
+    const normalizedType = String(type || '');
+    if(normalizedType.toLowerCase() === '2d'){
+      const ctx = {
+        font: '10px sans-serif',
+        measureText(text){
+          const content = String(text || '');
+          const width = content.length * 8;
+          console.debug('Debug: canvas measureText stub', { text: content, width }); // Debug: canvas measurement fallback
+          return { width };
+        }
+      };
+      console.debug('Debug: canvas getContext stub created', { type: normalizedType }); // Debug: canvas context stub creation
+      return ctx;
+    }
+    if(typeof originalGetContext === 'function'){
+      return originalGetContext.call(this, type);
+    }
+    console.debug('Debug: canvas getContext stub ignored', { type: normalizedType }); // Debug: canvas stub non-2d request
+    return null;
+  };
+}
+
 // Minimal Chart.js stub to satisfy Chart.defaults and new Chart(...)
 const ChartStub = function Chart(ctx, config) {
   this.ctx = ctx;

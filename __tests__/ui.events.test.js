@@ -12,6 +12,7 @@ describe('UI events and example loaders', () => {
     require('../js/shared/resizer.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/hot.js');
+    require('../js/shared/chartStyle.js');
     // Components
     require('../js/components/box.js');
     require('../js/components/hist.js');
@@ -71,6 +72,43 @@ describe('UI events and example loaders', () => {
     expect(loads.length).toBeGreaterThan(0);
     const firstRow = loads[loads.length - 1].firstRow;
     expect(firstRow).toEqual(expect.arrayContaining(['Label', 'Model1', 'Model2']));
+  });
+
+  test('ROC stats escape series names that look like HTML', () => {
+    const htmlName = 'Model <em>Injected</em>';
+    const payload = window.Components?.roc?.getPayload?.();
+    expect(payload).toBeTruthy();
+    const tableData = payload.data;
+    expect(Array.isArray(tableData)).toBe(true);
+
+    const ensureRow = index => {
+      tableData[index] = tableData[index] || [];
+      return tableData[index];
+    };
+    const header = ensureRow(0);
+    header[0] = 'Label';
+    header[1] = htmlName;
+    const rows = [
+      [1, 0.92],
+      [0, 0.12],
+      [1, 0.88],
+      [0, 0.05]
+    ];
+    rows.forEach((row, idx) => {
+      const target = ensureRow(idx + 1);
+      target[0] = row[0];
+      target[1] = row[1];
+    });
+
+    window.Components.roc.draw();
+
+    const statsResults = document.getElementById('rocStatsResults');
+    expect(statsResults).toBeTruthy();
+    const lines = Array.from(statsResults.querySelectorAll('p')).map(el => el.textContent);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toContain(htmlName);
+    expect(statsResults.querySelector('em')).toBeNull();
+    expect(statsResults.innerHTML).toContain('&lt;em&gt;');
   });
 
   test('Survival: Load Example populates data', () => {
