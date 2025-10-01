@@ -136,4 +136,22 @@ describe('UI events and example loaders', () => {
     // Overlay should be shown
     expect(overlay.style.display).toBe('block');
   });
+
+  test('Panel resizer drag triggers Shared.syncPanelWidths', () => {
+    const resizer = document.getElementById('boxPanelResizer');
+    expect(resizer).toBeTruthy();
+    const syncSpy = jest.spyOn(window.Shared, 'syncPanelWidths');
+
+    const pointerDown = new window.MouseEvent('pointerdown', { bubbles: true, clientX: 150 });
+    resizer.dispatchEvent(pointerDown);
+
+    const pointerMove = new window.MouseEvent('pointermove', { bubbles: true, clientX: 180 });
+    document.dispatchEvent(pointerMove);
+
+    const pointerUp = new window.MouseEvent('pointerup', { bubbles: true, clientX: 180 });
+    document.dispatchEvent(pointerUp);
+
+    expect(syncSpy).toHaveBeenCalled();
+    syncSpy.mockRestore();
+  });
 });

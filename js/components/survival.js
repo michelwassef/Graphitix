@@ -153,64 +153,29 @@
     }
 
     if(refs.panelResizer && refs.tablePanel && refs.graphPanel){
-      refs.panelResizer.addEventListener('pointerdown', event => {
-        event.preventDefault();
-        const startX = event.clientX;
-        const startTable = refs.tablePanel.getBoundingClientRect().width;
-        const startGraph = refs.graphPanel.getBoundingClientRect().width;
-        const configWidth = refs.configPanel?.getBoundingClientRect().width || 0;
-        const gap = parseFloat(getComputedStyle(refs.graphPanel.querySelector('.diagram-area')).gap || 0);
-        const svgWidth = refs.svgBox?.getBoundingClientRect().width || 0;
-        state.minSvgWidth = Math.max(state.minSvgWidth, svgWidth * 0.5);
-        const minGraph = configWidth + gap + state.minSvgWidth;
-        const total = startTable + startGraph;
-        const tableDataset = refs.tablePanel.dataset || {};
-        let defaultTableWidth = Number.parseFloat(tableDataset.panelDefaultWidth);
-        if(!Number.isFinite(defaultTableWidth) || defaultTableWidth <= 0){
-          defaultTableWidth = startTable;
-          tableDataset.panelDefaultWidth = String(defaultTableWidth);
-          logDebug('panel default width stored', { defaultTableWidth });
-        }else{
-          logDebug('panel default width reused', { defaultTableWidth });
-        }
-        let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
-        if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
-          storedMinWidth = Math.max(150, defaultTableWidth);
-          tableDataset.panelMinWidth = String(storedMinWidth);
-          logDebug('panel min width stored', { storedMinWidth, defaultTableWidth });
-        }
-        if(refs.tablePanel?.style){
-          const existingMin = Number.parseFloat(refs.tablePanel.style.minWidth) || 0;
-          const enforcedMin = Math.max(existingMin, storedMinWidth);
-          if(enforcedMin !== existingMin){
-            refs.tablePanel.style.minWidth = `${enforcedMin}px`;
-            logDebug('panel min style enforced', { enforcedMin, existingMin });
+      const attachHelper = Shared.resizer?.attachPanelDragResizer;
+      logDebug('attachPanelDragResizer init', { hasHelper: typeof attachHelper === 'function' });
+      if(typeof attachHelper === 'function'){
+        attachHelper({
+          panelResizer: refs.panelResizer,
+          tablePanel: refs.tablePanel,
+          graphPanel: refs.graphPanel,
+          configPanel: refs.configPanel,
+          debugLabel: 'survival',
+          syncPanels: () => syncPanelWidths(),
+          computeMinSvgWidth: () => {
+            const width = refs.svgBox?.getBoundingClientRect().width || 0;
+            const computed = Math.max(0, width * 0.5);
+            logDebug('attachPanelDragResizer computeMinSvgWidth', { width, computed });
+            return computed;
+          },
+          onMinSvgWidth: value => {
+            const coerced = Number.isFinite(value) ? value : 0;
+            state.minSvgWidth = Math.max(state.minSvgWidth, coerced);
+            logDebug('attachPanelDragResizer onMinSvgWidth', { value, coerced: state.minSvgWidth });
           }
-        }
-        logDebug('panel drag start', { startTable, startGraph, minGraph, total, defaultTableWidth, storedMinWidth });
-        function onMove(ev){
-          const dx = ev.clientX - startX;
-          const proposedTable = startTable + dx;
-          const clampedBase = Math.min(total - minGraph, proposedTable);
-          const minTableWidth = Math.max(150, defaultTableWidth, storedMinWidth);
-          const newTable = Math.max(minTableWidth, clampedBase);
-          const newGraph = total - newTable;
-          refs.tablePanel.style.flex = `0 0 ${newTable}px`;
-          refs.tablePanel.style.flexBasis = `${newTable}px`;
-          refs.tablePanel.style.width = `${newTable}px`;
-          refs.tablePanel.style.minWidth = `${minTableWidth}px`;
-          refs.graphPanel.style.flex = `0 0 ${newGraph}px`;
-          syncPanelWidths();
-          logDebug('panel drag move', { dx, proposedTable, newTable, newGraph, defaultTableWidth, minTableWidth });
-        }
-        function onUp(){
-          document.removeEventListener('pointermove', onMove);
-          document.removeEventListener('pointerup', onUp);
-          logDebug('panel drag end');
-        }
-        document.addEventListener('pointermove', onMove);
-        document.addEventListener('pointerup', onUp);
-      });
+        });
+      }
     }
   }
 
