@@ -121,8 +121,13 @@
       debugLog('processRows.filteredEmpty', { inputRows: rows.length }, debugLabel);
       return null;
     }
-    const startRow = options.startRow || 0;
-    const startCol = options.startCol || 0;
+    const rawStartRow = typeof options.startRow === 'number' ? options.startRow : 0;
+    const rawStartCol = typeof options.startCol === 'number' ? options.startCol : 0;
+    const startRow = rawStartRow < 0 ? 0 : rawStartRow;
+    const startCol = rawStartCol < 0 ? 0 : rawStartCol;
+    if(startRow !== rawStartRow || startCol !== rawStartCol){
+      debugLog('processRows.startAdjusted', { rawStartRow, rawStartCol, startRow, startCol }, debugLabel); // Debug: clamp negative start positions
+    }
     const incomingCols = filteredRows.reduce((max, row) => Math.max(max, row.length), 0);
     const incomingRows = filteredRows.length;
     const currentRows = typeof hot.countRows === 'function' ? hot.countRows() : filteredRows.length;
