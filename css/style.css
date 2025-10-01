@@ -733,7 +733,8 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 
 .font-toolbar-host{margin-left:12px;display:none;align-items:center;justify-content:flex-start;flex:1 1 auto;min-width:260px}
 .font-toolbar-host.font-toolbar-host--visible{display:flex}
-.font-controls-panel{position:static;z-index:auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;min-width:260px;max-width:100%;padding:10px 14px;border-radius:14px;border:1px solid rgba(148,163,184,0.4);background:linear-gradient(135deg,#f8fafc 0%,#e2e8f0 100%);box-shadow:0 6px 16px rgba(15,23,42,0.12);color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}
+.font-controls-panel{position:static;z-index:auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;min-width:260px;max-width:100%;padding:10px 14px;border-radius:14px;border:1px solid rgba(148,163,184,0.45);background:#f8fafc;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}
+.font-controls-panel--floating{position:fixed;top:12px;left:50%;transform:translateX(-50%);right:auto;z-index:3000;width:auto;max-width:min(720px,calc(100% - 32px));box-shadow:none}
 .font-controls-panel__title-group{display:flex;flex-direction:column;gap:2px}
 .font-controls-panel__subtitle{font-size:11px;text-transform:uppercase;letter-spacing:0.16em;color:#475569;font-weight:600}
 .font-controls-panel__title{font-size:14px;font-weight:650;color:#0f172a;margin:0;letter-spacing:.02em}
@@ -749,11 +750,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .font-controls-panel__input--number::-webkit-outer-spin-button,.font-controls-panel__input--number::-webkit-inner-spin-button{appearance:none;margin:0}
 .font-controls-panel__color-input{height:34px;width:120px;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;transition:border-color .2s ease,box-shadow .2s ease}
 .font-controls-panel__color-input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
-.font-controls-panel__field--emphasis{min-width:140px}
+.font-controls-panel__field--emphasis{min-width:120px}
 .font-controls-panel__chips{display:flex;flex-wrap:wrap;gap:8px}
-.font-controls-panel__chip{padding:6px 12px;border-radius:999px;border:1px solid rgba(148,163,184,0.55);background:rgba(255,255,255,0.95);color:#1e293b;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:transform .2s ease,border-color .2s ease,background .2s ease,box-shadow .2s ease;box-shadow:0 2px 8px rgba(15,23,42,0.08)}
-.font-controls-panel__chip[aria-pressed='true']{background:#1e293b;color:#f8fafc;border-color:#0f172a;box-shadow:0 4px 12px rgba(15,23,42,0.22)}
-.font-controls-panel__chip:hover{transform:translateY(-1px);border-color:rgba(59,130,246,0.6);box-shadow:0 5px 14px rgba(59,130,246,0.16)}
+.font-controls-panel__chip{padding:6px 12px;border-radius:999px;border:1px solid rgba(148,163,184,0.55);background:#ffffff;color:#1e293b;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:transform .2s ease,border-color .2s ease,background .2s ease}
+.font-controls-panel__chip[aria-pressed='true']{background:#1e293b;color:#f8fafc;border-color:#0f172a}
+.font-controls-panel__chip:hover{transform:translateY(-1px);border-color:rgba(59,130,246,0.6)}
 .font-controls-panel__chip-icon{font-size:14px;font-weight:700}
 .font-controls-panel__footer{display:none}
 .font-controls-panel__select{padding:7px 10px;font-size:13px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#0f172a;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease;appearance:none;background-image:url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"%3E%3Cpath fill="%23334155" d="M1.41.59 6 5.17l4.59-4.58L12 2 6 8 0 2z"/%3E%3C/svg%3E');background-repeat:no-repeat;background-position:right 10px center;background-size:12px;min-width:160px}
@@ -764,6 +765,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 @media (max-width:680px){
   .font-toolbar-host{flex:1 1 100%;margin-left:0}
   .font-controls-panel{width:100%;max-width:100%;justify-content:flex-start;padding:12px 14px}
+  .font-controls-panel--floating{left:16px;right:16px;transform:none;max-width:calc(100% - 32px)}
   .font-controls-panel__body{flex-wrap:wrap;gap:12px}
   .font-controls-panel__controls{flex-direction:column;align-items:stretch}
   .font-controls-panel__field,.font-controls-panel__field--full{flex:1 1 auto;min-width:0;align-self:stretch}
