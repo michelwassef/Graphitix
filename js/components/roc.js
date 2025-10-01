@@ -31,7 +31,7 @@
     compareLabel: null,
     compareResult: null,
     minSvgWidth: 0,
-    tableObserver: null,
+    layout: null,
     fileHandle: null,
     fileName: 'roc.graph'
   };
@@ -89,95 +89,6 @@
     refs.saveAsBtn = document.getElementById('saveAsRoc');
     refs.graphFileInput = document.getElementById('rocGraphFile');
     return !!(refs.tablePanel && refs.graphPanel && refs.hotContainer && refs.plotDiv);
-  }
-
-  function ensureWrapperStyles(){
-    if(global.Shared && Shared.ensureHotWrapperStyles && refs.hotWrapper){
-      Shared.ensureHotWrapperStyles(refs.hotWrapper);
-      console.debug('Debug: ROC hot wrapper styles applied', refs.hotWrapper.style.cssText);
-    }
-  }
-
-  function syncTableAndGraphWidths(){
-    Shared.syncPanelWidths(refs.tablePanel, refs.graphPanel, refs.configPanel, state.scheduleDraw, {
-      svgBox: refs.svgBox,
-      minSvgWidth: state.minSvgWidth,
-      debugLabel: 'roc',
-      panelResizer: refs.panelResizer
-    });
-  }
-
-  function initResizers(){
-    if(refs.tablePanel){
-      state.tableObserver = new ResizeObserver(()=>syncTableAndGraphWidths());
-      state.tableObserver.observe(refs.tablePanel);
-      syncTableAndGraphWidths();
-    }
-
-    const container = refs.plotDiv?.closest('.svgbox') || refs.plotDiv?.parentElement;
-    if(container && Shared && typeof Shared.attachResizableBox === 'function'){
-      const graphSizing = chartStyle.getSquareGraphSizing
-        ? chartStyle.getSquareGraphSizing({ context: 'roc' })
-        : (function fallbackSizing(){
-            const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
-            const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
-            const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
-            const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-            const fallback = {
-              width: baseWidth,
-              height: baseHeight,
-              minWidth: Math.max(1, Math.round(baseWidth * minScale)),
-              minHeight: Math.max(1, Math.round(baseHeight * minScale)),
-              maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-              maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-              aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
-              aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
-            };
-            console.debug('Debug: ROC fallback square sizing',{ context: 'roc', fallback }); // Debug: fallback sizing payload
-            return fallback;
-          })();
-      console.debug('Debug: ROC resizer sizing config', { graphSizing }); // Debug: ROC sizing helper output
-      Shared.attachResizableBox(container, {
-        defaultWidth: graphSizing.width,
-        defaultHeight: graphSizing.height,
-        minWidth: graphSizing.minWidth,
-        minHeight: graphSizing.minHeight,
-        maxWidth: graphSizing.maxWidth,
-        maxHeight: graphSizing.maxHeight,
-        aspectLocked: graphSizing.aspectLocked !== false,
-        aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
-        onResize: phase => {
-          console.debug('Debug: ROC box resized', { phase }); // Debug: roc svgbox resize callback
-          syncTableAndGraphWidths();
-        }
-      });
-    }
-
-    if(refs.panelResizer && refs.tablePanel && refs.graphPanel){
-      const attachHelper = Shared.resizer?.attachPanelDragResizer;
-      console.debug('Debug: ROC attachPanelDragResizer init', { hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
-      if(typeof attachHelper === 'function'){
-        attachHelper({
-          panelResizer: refs.panelResizer,
-          tablePanel: refs.tablePanel,
-          graphPanel: refs.graphPanel,
-          configPanel: refs.configPanel,
-          debugLabel: 'roc',
-          syncPanels: () => syncTableAndGraphWidths(),
-          computeMinSvgWidth: () => {
-            const width = refs.svgBox?.getBoundingClientRect().width || 0;
-            const computed = Math.max(0, width * 0.5);
-            console.debug('Debug: ROC attachPanelDragResizer computeMinSvgWidth', { width, computed }); // Debug: helper min width calc
-            return computed;
-          },
-          onMinSvgWidth: value => {
-            const coerced = Number.isFinite(value) ? value : 0;
-            state.minSvgWidth = Math.max(0, coerced);
-            console.debug('Debug: ROC attachPanelDragResizer onMinSvgWidth', { value, coerced: state.minSvgWidth }); // Debug: update cached min width
-          }
-        });
-      }
-    }
   }
 
   function initHot(){
@@ -1088,6 +999,7 @@
     }else if(state.compareResult){
       state.compareResult.textContent = '';
     }
+    state.layout?.syncPanels?.();
   }
 
   function getPayload(){
@@ -1250,10 +1162,36 @@
     }
     state.scheduleDraw = Shared.debounceFrame(drawRoc);
     console.debug('Debug: roc scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
-    ensureWrapperStyles();
+    state.layout = Shared.componentLayout?.createStandardPanels({
+      componentName: 'roc',
+      selectors: {
+        tablePanel: '#rocTablePanel',
+        graphPanel: '#rocGraphPanel',
+        panelResizer: '#rocPanelResizer',
+        hotWrapper: '#rocHotWrapper',
+        hotContainer: '#rocHot',
+        svgBox: () => refs.graphPanel?.querySelector('.svgbox'),
+        resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
+      },
+      scheduleDraw: state.scheduleDraw,
+      onMinSvgWidth: value => {
+        state.minSvgWidth = Math.max(0, Number(value) || 0);
+        console.debug('Debug: roc layout min width update', { value: state.minSvgWidth });
+      },
+      resizableBoxOptions: {
+        onResize: () => {
+          console.debug('Debug: roc layout onResize schedule trigger');
+          state.scheduleDraw?.();
+        }
+      }
+    });
+    if(state.layout?.elements?.svgBox){
+      refs.svgBox = state.layout.elements.svgBox;
+    }
+    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    state.layout?.syncPanels?.();
     initHot();
     initControls();
-    initResizers();
     initExampleAndImport();
     initExportsAndFiles();
     state.scheduleDraw?.();

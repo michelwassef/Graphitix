@@ -29,124 +29,14 @@
     svg: null,
     svgBox: null,
     statsEl: null,
-    panelResizer: null
+    layout: null,
+    minSvgWidth: 0
   };
 
   const refs = {};
 
   function $(id){
     return global.document.getElementById(id);
-  }
-
-  function ensureWrapperStyles(){
-    const wrapper = $('heatmapHotWrapper');
-    if(Shared.ensureHotWrapperStyles){
-      Shared.ensureHotWrapperStyles(wrapper);
-    }
-  }
-
-  function attachSvgResizer(){
-    const svgEl = state.svg;
-    if(!svgEl){
-      console.debug('Debug: heatmap attachSvgResizer skipped - no svg element');
-      return;
-    }
-    const container = svgEl.closest('.svgbox');
-    state.svgBox = container;
-    const sizing = chartStyle.getSquareGraphSizing ? chartStyle.getSquareGraphSizing({ context: 'heatmap' }) : null;
-    const fallbackSizing = (() => {
-      const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
-      const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
-      const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
-      const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-      return {
-        width: baseWidth,
-        height: baseHeight,
-        minWidth: Math.max(1, Math.round(baseWidth * minScale)),
-        minHeight: Math.max(1, Math.round(baseHeight * minScale)),
-        maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-        maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-        aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
-        aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
-      };
-    })();
-    const sizingConfig = sizing || fallbackSizing;
-    if(container && Shared.attachResizableBox){
-      console.debug('Debug: heatmap attaching resizable box', { sizing: sizingConfig });
-      Shared.attachResizableBox(container, {
-        defaultWidth: sizingConfig.width,
-        defaultHeight: sizingConfig.height,
-        minWidth: sizingConfig.minWidth,
-        minHeight: sizingConfig.minHeight,
-        maxWidth: sizingConfig.maxWidth,
-        maxHeight: sizingConfig.maxHeight,
-        aspectLocked: sizingConfig.aspectLocked !== false,
-        aspectRatio: Number.isFinite(sizingConfig.aspectRatio) ? sizingConfig.aspectRatio : 1,
-        onResize: phase => {
-          console.debug('Debug: heatmap svgbox resized', { phase });
-          syncPanels();
-        }
-      });
-    }else{
-      console.debug('Debug: heatmap attachResizableBox unavailable', {
-        hasContainer: !!container,
-        hasHelper: !!Shared.attachResizableBox
-      });
-    }
-  }
-
-  let syncPanels = () => {};
-  function initPanelSync(){
-    const tablePanel = $('heatmapTablePanel');
-    const graphPanel = $('heatmapGraphPanel');
-    const configPanel = graphPanel?.querySelector('.config-options');
-    state.panelResizer = $('heatmapPanelResizer');
-    let minSvgWidth = 0;
-    syncPanels = () => {
-      if(!Shared.syncPanelWidths){
-        console.debug('Debug: heatmap syncPanels skipped - missing Shared.syncPanelWidths');
-        return;
-      }
-      Shared.syncPanelWidths(tablePanel, graphPanel, configPanel, () => state.scheduleDraw(), {
-        svgBox: state.svgBox,
-        minSvgWidth,
-        debugLabel: 'heatmap',
-        panelResizer: state.panelResizer
-      });
-    };
-    if(global.ResizeObserver && tablePanel){
-      const observer = new global.ResizeObserver(() => {
-        syncPanels();
-      });
-      observer.observe(tablePanel);
-    }
-    syncPanels();
-
-    if(state.panelResizer && tablePanel && graphPanel){
-      const attachHelper = Shared.resizer?.attachPanelDragResizer;
-      console.debug('Debug: heatmap attachPanelDragResizer init', { hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability check
-      if(typeof attachHelper === 'function'){
-        attachHelper({
-          panelResizer: state.panelResizer,
-          tablePanel,
-          graphPanel,
-          configPanel,
-          debugLabel: 'heatmap',
-          syncPanels: () => syncPanels(),
-          computeMinSvgWidth: () => {
-            const width = state.svgBox?.getBoundingClientRect().width || 0;
-            const computed = Math.max(0, width * 0.5);
-            console.debug('Debug: heatmap attachPanelDragResizer computeMinSvgWidth', { width, computed }); // Debug: helper min width calc
-            return computed;
-          },
-          onMinSvgWidth: value => {
-            const coerced = Number.isFinite(value) ? value : 0;
-            minSvgWidth = Math.max(0, coerced);
-            console.debug('Debug: heatmap attachPanelDragResizer onMinSvgWidth', { value, coerced: minSvgWidth }); // Debug: update cached min width
-          }
-        });
-      }
-    }
   }
 
   function initHot(){
@@ -1308,7 +1198,7 @@
       if(typeof global.autoResizeSvg === 'function'){
         global.autoResizeSvg(state.svg);
       }
-      syncPanels();
+      state.layout?.syncPanels?.();
       console.debug('Debug: heatmap draw complete', {
         columns: orderedColumns.length,
         method,
@@ -1473,14 +1363,30 @@
     }
     console.debug('Debug: heatmap.init start');
     state.svg = $('heatmapSvg');
-    ensureWrapperStyles();
-    attachSvgResizer();
-    initPanelSync();
+    state.layout = Shared.componentLayout?.createStandardPanels({
+      componentName: 'heatmap',
+      selectors: {
+        tablePanel: '#heatmapTablePanel',
+        graphPanel: '#heatmapGraphPanel',
+        panelResizer: '#heatmapPanelResizer',
+        hotWrapper: '#heatmapHotWrapper',
+        hotContainer: '#heatmapHot',
+        svgBox: () => state.svg?.closest('.svgbox'),
+        resizeTarget: () => state.svg?.closest('.svgbox')
+      },
+      onMinSvgWidth: value => {
+        state.minSvgWidth = value;
+        console.debug('Debug: heatmap layout minSvgWidth updated', { value });
+      }
+    });
+    state.svgBox = state.layout?.elements?.svgBox || state.svg?.closest('.svgbox') || null;
     initHot();
     initControls();
     initFileButtons();
     state.scheduleDraw = Shared.debounceFrame ? Shared.debounceFrame(draw) : draw;
     console.debug('Debug: heatmap scheduler configured', { hasDebounce: !!Shared.debounceFrame });
+    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    state.layout?.syncPanels?.();
     heatmap.ready = true;
     state.scheduleDraw();
   };

@@ -16,6 +16,7 @@ describe('App initialization', () => {
       require('../js/shared/resizer.js');
       require('../js/shared/colorPicker.js');
       require('../js/shared/hot.js');
+      require('../js/shared/componentLayout.js');
       // Components
       require('../js/components/box.js');
       require('../js/components/hist.js');

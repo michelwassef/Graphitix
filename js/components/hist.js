@@ -28,13 +28,11 @@
     fileName: 'histogram.graph',
     titleText: 'Histogram',
     xLabelText: 'Value',
-    yLabelText: 'Count'
+    yLabelText: 'Count',
+    svgBox: null,
+    layout: null,
+    minSvgWidth: 0
   };
-
-  function ensureWrapperStyles(){
-    const wrapper = document.getElementById('histHotWrapper');
-    if(global.Shared && Shared.ensureHotWrapperStyles) Shared.ensureHotWrapperStyles(wrapper);
-  }
 
   const markFontEditable = (node, role, key) => {
     if (!node) { return; }
@@ -51,96 +49,6 @@
       console.debug('Debug: hist markFontEditable', payload); // Debug: font target tagging summary
     }
   };
-
-  function initTableAndResizers(){
-    const histTablePanel=document.getElementById('histTablePanel');
-    const histGraphPanel=document.getElementById('histGraphPanel');
-    const histPanelResizer=document.getElementById('histPanelResizer');
-    const histSvgBox=histGraphPanel?.querySelector('.svgbox');
-    state.svgBox = histSvgBox;
-    console.debug('Debug: hist svgBox reference stored',{hasSvgBox:!!state.svgBox});
-    const histConfigPanel=histGraphPanel?.querySelector('.config-options');
-    let histMinSvgWidth=0;
-    const syncHistPanels = () => {
-      Shared.syncPanelWidths(histTablePanel, histGraphPanel, histConfigPanel, state.scheduleDraw, {
-        svgBox: state.svgBox,
-        minSvgWidth: histMinSvgWidth,
-        debugLabel: 'hist',
-        panelResizer: histPanelResizer
-      });
-    };
-    const observer=new ResizeObserver(()=>{syncHistPanels();});
-    observer.observe(histTablePanel);
-    syncHistPanels();
-
-    // svgbox resizer
-    const histPlotDiv=document.getElementById('histPlot');
-    const histContainer=histPlotDiv.closest('.svgbox')||histPlotDiv.parentElement;
-    if(global.Shared && Shared.attachResizableBox && histContainer){
-      const graphSizing = chartStyle.getSquareGraphSizing
-        ? chartStyle.getSquareGraphSizing({ context: 'hist' })
-        : (function fallbackSizing(){
-            const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
-            const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
-            const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
-            const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-            const fallback = {
-              width: baseWidth,
-              height: baseHeight,
-              minWidth: Math.max(1, Math.round(baseWidth * minScale)),
-              minHeight: Math.max(1, Math.round(baseHeight * minScale)),
-              maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-              maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-              aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
-              aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
-            };
-            console.debug('Debug: hist fallback square sizing',{ context: 'hist', fallback }); // Debug: fallback sizing payload
-            return fallback;
-          })();
-      console.debug('Debug: hist resizer sizing config', { graphSizing }); // Debug: histogram sizing helper output
-      Shared.attachResizableBox(histContainer, {
-        defaultWidth: graphSizing.width,
-        defaultHeight: graphSizing.height,
-        minWidth: graphSizing.minWidth,
-        minHeight: graphSizing.minHeight,
-        maxWidth: graphSizing.maxWidth,
-        maxHeight: graphSizing.maxHeight,
-        aspectLocked: graphSizing.aspectLocked !== false,
-        aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
-        onResize: phase => {
-          console.debug('Debug: hist svgbox resized', { phase }); // Debug: hist svgbox resize callback
-          syncHistPanels();
-        }
-      });
-    }
-
-    // panel resizer
-    if(histPanelResizer && histTablePanel && histGraphPanel){
-      const attachHelper = Shared.resizer?.attachPanelDragResizer;
-      console.debug('Debug: hist attachPanelDragResizer init',{ hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
-      if(typeof attachHelper === 'function'){
-        attachHelper({
-          panelResizer: histPanelResizer,
-          tablePanel: histTablePanel,
-          graphPanel: histGraphPanel,
-          configPanel: histConfigPanel,
-          debugLabel: 'hist',
-          syncPanels: () => syncHistPanels(),
-          computeMinSvgWidth: () => {
-            const width = histSvgBox?.getBoundingClientRect().width || 0;
-            const computed = Math.max(0, width * 0.5);
-            console.debug('Debug: hist attachPanelDragResizer computeMinSvgWidth',{ width, computed }); // Debug: helper min width calc
-            return computed;
-          },
-          onMinSvgWidth: value => {
-            const coerced = Number.isFinite(value) ? value : 0;
-            histMinSvgWidth = Math.max(0, coerced);
-            console.debug('Debug: hist attachPanelDragResizer onMinSvgWidth',{ value, coerced: histMinSvgWidth }); // Debug: update cached min width
-          }
-        });
-      }
-    }
-  }
 
   function initHot(){
     const hotContainer=document.getElementById('histHot');
@@ -606,12 +514,31 @@
     console.debug('Debug: Components.hist.init');
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
-    ensureWrapperStyles();
-    initTableAndResizers();
+    state.layout = Shared.componentLayout?.createStandardPanels({
+      componentName: 'hist',
+      selectors: {
+        tablePanel: '#histTablePanel',
+        graphPanel: '#histGraphPanel',
+        panelResizer: '#histPanelResizer',
+        hotWrapper: '#histHotWrapper',
+        hotContainer: '#histHot',
+        svgBox: () => document.querySelector('#histGraphPanel .svgbox'),
+        resizeTarget: () => document.querySelector('#histGraphPanel .svgbox')
+      },
+      scheduleDraw: state.scheduleDraw,
+      onMinSvgWidth: value => {
+        state.minSvgWidth = Math.max(0, Number(value) || 0);
+        console.debug('Debug: hist layout min width update', { value: state.minSvgWidth });
+      }
+    });
+    state.svgBox = state.layout?.elements?.svgBox || state.svgBox;
+    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    state.layout?.syncPanels?.();
     initHot();
     initControls();
     state.scheduleDraw = Shared.debounceFrame(draw);
     console.debug('Debug: hist scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    state.layout?.setScheduleDraw?.(state.scheduleDraw);
     hist.ready = true;
   };
 

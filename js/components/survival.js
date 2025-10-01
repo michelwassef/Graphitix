@@ -25,7 +25,7 @@
     labelColors: {},
     groupOrder: [],
     minSvgWidth: 0,
-    tableObserver: null,
+    layout: null,
     fileHandle: null,
     fileName: 'survival.graph'
   };
@@ -77,106 +77,6 @@
     refs.graphFileInput = $('#survivalGraphFile');
     refs.exportContainer = $('#survivalExportControls');
     return !!(refs.tablePanel && refs.graphPanel && refs.hotContainer && refs.plotDiv);
-  }
-
-  function ensureWrapperStyles(){
-    if(typeof Shared.ensureHotWrapperStyles === 'function' && refs.hotWrapper){
-      Shared.ensureHotWrapperStyles(refs.hotWrapper);
-      logDebug('wrapper styles applied', { wrapperId: refs.hotWrapper.id });
-    }
-  }
-
-  function syncPanelWidths(){
-    if(!Shared.syncPanelWidths || !refs.tablePanel || !refs.graphPanel || !refs.configPanel){
-      logDebug('syncPanelWidths skipped', {
-        hasShared: !!Shared.syncPanelWidths,
-        hasTable: !!refs.tablePanel,
-        hasGraph: !!refs.graphPanel,
-        hasConfig: !!refs.configPanel
-      });
-      return;
-    }
-    Shared.syncPanelWidths(refs.tablePanel, refs.graphPanel, refs.configPanel, state.scheduleDraw, {
-      svgBox: refs.svgBox,
-      minSvgWidth: state.minSvgWidth,
-      debugLabel: 'survival',
-      panelResizer: refs.panelResizer
-    });
-    logDebug('panel widths synchronized', { minSvgWidth: state.minSvgWidth });
-  }
-
-  function initResizers(){
-    if(global.ResizeObserver && refs.tablePanel){
-      state.tableObserver = new ResizeObserver(() => syncPanelWidths());
-      state.tableObserver.observe(refs.tablePanel);
-      logDebug('table ResizeObserver attached');
-    }
-    syncPanelWidths();
-
-    const container = refs.svgBox || refs.graphPanel;
-    if(container && Shared.attachResizableBox){
-      const sizing = chartStyle.getSquareGraphSizing
-        ? chartStyle.getSquareGraphSizing({ context: 'survival' })
-        : (function fallbackSizing(){
-            const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
-            const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
-            const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
-            const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-            const fallback = {
-              width: baseWidth,
-              height: baseHeight,
-              minWidth: Math.max(160, Math.round(baseWidth * minScale)),
-              minHeight: Math.max(120, Math.round(baseHeight * minScale)),
-              maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-              maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-              aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
-              aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
-            };
-            logDebug('fallback sizing computed', fallback);
-            return fallback;
-          })();
-      logDebug('attachResizableBox config', sizing);
-      Shared.attachResizableBox(container, {
-        defaultWidth: sizing.width,
-        defaultHeight: sizing.height,
-        minWidth: sizing.minWidth,
-        minHeight: sizing.minHeight,
-        maxWidth: sizing.maxWidth,
-        maxHeight: sizing.maxHeight,
-        aspectLocked: sizing.aspectLocked !== false,
-        aspectRatio: Number.isFinite(sizing.aspectRatio) ? sizing.aspectRatio : 1,
-        onResize: phase => {
-          logDebug('resizable box resize', { phase });
-          syncPanelWidths();
-        }
-      });
-    }
-
-    if(refs.panelResizer && refs.tablePanel && refs.graphPanel){
-      const attachHelper = Shared.resizer?.attachPanelDragResizer;
-      logDebug('attachPanelDragResizer init', { hasHelper: typeof attachHelper === 'function' });
-      if(typeof attachHelper === 'function'){
-        attachHelper({
-          panelResizer: refs.panelResizer,
-          tablePanel: refs.tablePanel,
-          graphPanel: refs.graphPanel,
-          configPanel: refs.configPanel,
-          debugLabel: 'survival',
-          syncPanels: () => syncPanelWidths(),
-          computeMinSvgWidth: () => {
-            const width = refs.svgBox?.getBoundingClientRect().width || 0;
-            const computed = Math.max(0, width * 0.5);
-            logDebug('attachPanelDragResizer computeMinSvgWidth', { width, computed });
-            return computed;
-          },
-          onMinSvgWidth: value => {
-            const coerced = Number.isFinite(value) ? value : 0;
-            state.minSvgWidth = Math.max(state.minSvgWidth, coerced);
-            logDebug('attachPanelDragResizer onMinSvgWidth', { value, coerced: state.minSvgWidth });
-          }
-        });
-      }
-    }
   }
 
   function initHot(){
@@ -967,6 +867,7 @@
 
     updateStats({ ...summary, series: groupsForDraw });
     autoResizeSvgHelper(svg);
+    state.layout?.syncPanels?.();
     logDebug('draw complete', { debugStamp });
   }
 
@@ -1266,11 +1167,31 @@
     }
     state.scheduleDraw = Shared.debounceFrame ? Shared.debounceFrame(() => drawSurvival()) : (() => drawSurvival());
     logDebug('scheduleDraw configured', { hasDebounce: typeof Shared.debounceFrame === 'function' });
-    ensureWrapperStyles();
+    state.layout = Shared.componentLayout?.createStandardPanels({
+      componentName: 'survival',
+      selectors: {
+        tablePanel: '#survivalTablePanel',
+        graphPanel: '#survivalGraphPanel',
+        panelResizer: '#survivalPanelResizer',
+        hotWrapper: '#survivalHotWrapper',
+        hotContainer: '#survivalHot',
+        svgBox: () => refs.graphPanel?.querySelector('.svgbox'),
+        resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
+      },
+      scheduleDraw: state.scheduleDraw,
+      onMinSvgWidth: value => {
+        state.minSvgWidth = Math.max(0, Number(value) || 0);
+        logDebug('layout onMinSvgWidth', { value: state.minSvgWidth });
+      }
+    });
+    if(state.layout?.elements?.svgBox){
+      refs.svgBox = state.layout.elements.svgBox;
+    }
     initHot();
     initControls();
     initExampleAndImport();
-    initResizers();
+    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    state.layout?.syncPanels?.();
     initExportsAndFiles();
     survival.ready = true;
     state.scheduleDraw?.();

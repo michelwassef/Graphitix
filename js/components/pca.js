@@ -31,7 +31,6 @@
       console.error('Handsontable missing for PCA component');
       return;
     }
-    const ResizeObserverCtor = global.ResizeObserver;
     const attachPicker = (el)=>{ if (typeof global.attachColorPickerNear === 'function') { global.attachColorPickerNear(el); } };
     const serializeSvg = (svgEl)=>{
       if (typeof global.serializeCleanSVG === 'function') return global.serializeCleanSVG(svgEl);
@@ -47,23 +46,32 @@
       const pcaTablePanel=document.getElementById('pcaTablePanel');
       const pcaGraphPanel=document.getElementById('pcaGraphPanel');
       const pcaPanelResizer=document.getElementById('pcaPanelResizer');
-      const pcaSvgBox=pcaGraphPanel?.querySelector('.svgbox');
+      let pcaSvgBox=pcaGraphPanel?.querySelector('.svgbox');
       const pcaConfigPanel=pcaGraphPanel?.querySelector('.config-options');
-      let pcaMinSvgWidth=0;
-      const syncPcaWidths=()=>{
-        Shared.syncPanelWidths(pcaTablePanel, pcaGraphPanel, pcaConfigPanel, null, {
-          svgBox: pcaSvgBox,
-          minSvgWidth: pcaMinSvgWidth,
-          debugLabel: 'pca',
-          skipSchedule: true,
-          panelResizer: pcaPanelResizer
-        });
-      };
-      const pcaTableObserver = ResizeObserverCtor ? new ResizeObserverCtor(()=>{syncPcaWidths();}) : null;
-      if(pcaTableObserver) pcaTableObserver.observe(pcaTablePanel);
-      syncPcaWidths();
-      if(Shared && Shared.ensureHotWrapperStyles){ Shared.ensureHotWrapperStyles(pcaHotWrapper); }
-      console.debug('pcaHotWrapper style updated', pcaHotWrapper.style.cssText);
+      const pcaLayout = Shared.componentLayout?.createStandardPanels({
+        componentName: 'pca',
+        selectors: {
+          tablePanel: '#pcaTablePanel',
+          graphPanel: '#pcaGraphPanel',
+          panelResizer: '#pcaPanelResizer',
+          hotWrapper: '#pcaHotWrapper',
+          hotContainer: '#pcaHot',
+          svgBox: () => pcaGraphPanel?.querySelector('.svgbox'),
+          resizeTarget: () => pcaGraphPanel?.querySelector('.svgbox')
+        },
+        scheduleDraw: () => scheduleDrawPca(),
+        resizableBoxOptions: {
+          onResize: () => {
+            console.debug('Debug: pca layout onResize schedule trigger');
+            scheduleDrawPca();
+          }
+        }
+      });
+      if(pcaLayout?.elements?.svgBox){
+        pcaSvgBox = pcaLayout.elements.svgBox;
+      }
+      pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
+      pcaLayout?.syncPanels?.();
       console.debug('Debug: pca initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
       if(typeof Shared.hot?.createStandardTable !== 'function'){
         console.error('pca initHot missing Shared.hot.createStandardTable');
@@ -213,73 +221,9 @@
       global.DEBUG_PCA=true;
       if(global.DEBUG_PCA) console.log('pcaPlot background set to transparent');
       const pcaContainer=pcaPlotDiv.closest('.svgbox')||pcaPlotDiv.parentElement;
-      (function initPcaResizers(){
-        if(!pcaContainer) return;
-        if(Shared && Shared.attachResizableBox){
-          const graphSizing = chartStyle.getSquareGraphSizing
-            ? chartStyle.getSquareGraphSizing({ context: 'pca' })
-            : (function fallbackSizing(){
-                const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
-                const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
-                const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
-                const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-                const fallback = {
-                  width: baseWidth,
-                  height: baseHeight,
-                  minWidth: Math.max(1, Math.round(baseWidth * minScale)),
-                  minHeight: Math.max(1, Math.round(baseHeight * minScale)),
-                  maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-                  maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-                  aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
-                  aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
-                };
-                console.debug('Debug: pca fallback square sizing',{ context: 'pca', fallback }); // Debug: fallback sizing payload
-                return fallback;
-              })();
-          console.debug('Debug: pca resizer sizing config', { graphSizing }); // Debug: PCA sizing helper output
-          Shared.attachResizableBox(pcaContainer, {
-            defaultWidth: graphSizing.width,
-            defaultHeight: graphSizing.height,
-            minWidth: graphSizing.minWidth,
-            minHeight: graphSizing.minHeight,
-            maxWidth: graphSizing.maxWidth,
-            maxHeight: graphSizing.maxHeight,
-            aspectLocked: graphSizing.aspectLocked !== false,
-            aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
-            onResize: phase => {
-              console.debug('Debug: pca svgbox resized', { phase }); // Debug: pca svgbox resize callback
-              syncPcaWidths();
-              scheduleDrawPca();
-            }
-          });
-        }
-      })();
-      (function initPcaPanelResizer(){
-        if(!pcaPanelResizer||!pcaTablePanel||!pcaGraphPanel) return;
-        const attachHelper = Shared.resizer?.attachPanelDragResizer;
-        console.debug('Debug: pca attachPanelDragResizer init',{ hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
-        if(typeof attachHelper === 'function'){
-          attachHelper({
-            panelResizer: pcaPanelResizer,
-            tablePanel: pcaTablePanel,
-            graphPanel: pcaGraphPanel,
-            configPanel: pcaConfigPanel,
-            debugLabel: 'pca',
-            syncPanels: () => { syncPcaWidths(); scheduleDrawPca(); },
-            computeMinSvgWidth: () => {
-              const width = pcaSvgBox?.getBoundingClientRect().width || 0;
-              const computed = Math.max(0, width * 0.5);
-              console.debug('Debug: pca attachPanelDragResizer computeMinSvgWidth',{ width, computed }); // Debug: helper min width calc
-              return computed;
-            },
-            onMinSvgWidth: value => {
-              const coerced = Number.isFinite(value) ? value : 0;
-              pcaMinSvgWidth = Math.max(0, coerced);
-              console.debug('Debug: pca attachPanelDragResizer onMinSvgWidth',{ value, coerced: pcaMinSvgWidth }); // Debug: update cached min width
-            }
-          });
-        }
-      })();
+      if(!pcaContainer){
+        console.debug('Debug: pca resizer container missing', { hasContainer: !!pcaContainer });
+      }
       let pcaXLabelText='PC1'; let pcaYLabelText='PC2';
     async function drawPca(){
       const debugStamp = Date.now();
@@ -966,6 +910,7 @@
         width: W,
         height: H,
       });
+      pcaLayout?.syncPanels?.();
     }
     function getPcaGraphPayload(){
       return {
@@ -1099,6 +1044,7 @@
       document.getElementById('pcaGraphFile').addEventListener('change',e=>{ const f=e.target.files[0]; if(f){ pcaFileName=f.name; pcaFileHandle=null; loadPcaGraphFile(f); } });
     
     scheduleDrawPca = Shared.debounceFrame(drawPca);
+    pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
     console.debug('Debug: pca scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     pca.save = savePcaFile;
     pca.saveAs = saveAsPcaFile;

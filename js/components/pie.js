@@ -20,8 +20,6 @@
 
   const PIE_DEFAULT_ROWS = 100;
   const PIE_DEFAULT_COLS = 6;
-  const PIE_RESIZER_DEBUG_LABEL = 'pie-resizer';
-
   let state = {
     hot: null,
     scheduleDraw: null,
@@ -29,7 +27,10 @@
     fileName: 'pie.graph',
     titleText: 'Proportion graph',
     legendWidth: 120,
-    colors: {}
+    colors: {},
+    svgBox: null,
+    layout: null,
+    minSvgWidth: 0
   };
 
   // Return a default color palette for slices
@@ -47,11 +48,6 @@
     }
   }
 
-  function ensureWrapperStyles(){
-    const wrapper = document.getElementById('pieHotWrapper');
-    if(global.Shared && Shared.ensureHotWrapperStyles) Shared.ensureHotWrapperStyles(wrapper);
-  }
-
   const markFontEditable = (node, role, key) => {
     if (!node) { return; }
     const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
@@ -67,108 +63,6 @@
       console.debug('Debug: pie markFontEditable', payload); // Debug: font target tagging summary
     }
   };
-
-  function initTableAndResizers(){
-    const tablePanel=document.getElementById('pieTablePanel');
-    const graphPanel=document.getElementById('pieGraphPanel');
-    const panelResizer=document.getElementById('piePanelResizer');
-    const svgBox=graphPanel?.querySelector('.svgbox');
-    state.svgBox = svgBox;
-    console.debug('Debug: pie svgBox reference stored',{hasSvgBox:!!state.svgBox});
-    const configPanel=graphPanel?.querySelector('.config-options');
-    let minSvgWidth=0;
-    const syncPiePanels = () => {
-      Shared.syncPanelWidths(tablePanel, graphPanel, configPanel, state.scheduleDraw, {
-        svgBox,
-        minSvgWidth,
-        debugLabel: 'pie',
-        panelResizer
-      });
-    };
-    const observer=new ResizeObserver(()=>syncPiePanels()); observer.observe(tablePanel); syncPiePanels();
-
-    const plotDiv=document.getElementById('piePlot');
-    const container=plotDiv.closest('.svgbox')||plotDiv.parentElement;
-    if(global.Shared && Shared.attachResizableBox && container){
-      const graphSizing = chartStyle.getSquareGraphSizing
-        ? chartStyle.getSquareGraphSizing({ context: 'pie' })
-        : (function fallbackSizing(){
-            const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
-            const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
-            const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
-            const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-            const fallback = {
-              width: baseWidth,
-              height: baseHeight,
-              minWidth: Math.max(1, Math.round(baseWidth * minScale)),
-              minHeight: Math.max(1, Math.round(baseHeight * minScale)),
-              maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-              maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-              aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
-              aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
-            };
-            console.debug('Debug: pie fallback square sizing', { label: PIE_RESIZER_DEBUG_LABEL, fallback }); // Debug: fallback sizing payload
-            return fallback;
-          })();
-      console.debug('Debug: pie invoking attachResizableBox', {
-        label: PIE_RESIZER_DEBUG_LABEL,
-        containerId: container?.id || 'piePlotContainer',
-        sizing: graphSizing,
-        hasAttach: !!Shared.attachResizableBox
-      }); // Debug: attachResizableBox payload trace
-      console.debug('Debug: pie resizer sizing config', {
-        label: PIE_RESIZER_DEBUG_LABEL,
-        sizing: graphSizing
-      }); // Debug: pie resizer options trace
-      Shared.attachResizableBox(container, {
-        defaultWidth: graphSizing.width,
-        defaultHeight: graphSizing.height,
-        minWidth: graphSizing.minWidth,
-        maxWidth: graphSizing.maxWidth,
-        minHeight: graphSizing.minHeight,
-        maxHeight: graphSizing.maxHeight,
-        aspectLocked: graphSizing.aspectLocked !== false,
-        aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
-        onResize: phase => {
-          console.debug('Debug: pie svgbox resized', { phase }); // Debug: pie svgbox resize callback
-          syncPiePanels();
-        }
-      });
-    }else{
-      console.debug('Debug: pie attachResizableBox unavailable', {
-        label: PIE_RESIZER_DEBUG_LABEL,
-        hasShared: !!global.Shared,
-        hasAttach: !!Shared.attachResizableBox,
-        containerExists: !!container
-      }); // Debug: attachResizableBox guard branch
-    }
-
-    if(panelResizer && tablePanel && graphPanel){
-      const attachHelper = Shared.resizer?.attachPanelDragResizer;
-      console.debug('Debug: pie attachPanelDragResizer init',{ hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
-      if(typeof attachHelper === 'function'){
-        attachHelper({
-          panelResizer,
-          tablePanel,
-          graphPanel,
-          configPanel,
-          debugLabel: 'pie',
-          syncPanels: () => syncPiePanels(),
-          computeMinSvgWidth: () => {
-            const width = svgBox?.getBoundingClientRect().width || 0;
-            const computed = Math.max(0, width * 0.5);
-            console.debug('Debug: pie attachPanelDragResizer computeMinSvgWidth',{ width, computed }); // Debug: helper min width calc
-            return computed;
-          },
-          onMinSvgWidth: value => {
-            const coerced = Number.isFinite(value) ? value : 0;
-            minSvgWidth = Math.max(0, coerced);
-            console.debug('Debug: pie attachPanelDragResizer onMinSvgWidth',{ value, coerced: minSvgWidth }); // Debug: update cached min width
-          }
-        });
-      }
-    }
-  }
 
   function initHot(){
     const container=document.getElementById('pieHot');
@@ -631,12 +525,31 @@
     console.debug('Debug: Components.pie.init');
     // Placeholder to avoid early resizer callbacks failing
     state.scheduleDraw = ()=>{};
-    ensureWrapperStyles();
-    initTableAndResizers();
+    state.layout = Shared.componentLayout?.createStandardPanels({
+      componentName: 'pie',
+      selectors: {
+        tablePanel: '#pieTablePanel',
+        graphPanel: '#pieGraphPanel',
+        panelResizer: '#piePanelResizer',
+        hotWrapper: '#pieHotWrapper',
+        hotContainer: '#pieHot',
+        svgBox: () => document.querySelector('#pieGraphPanel .svgbox'),
+        resizeTarget: () => document.querySelector('#pieGraphPanel .svgbox')
+      },
+      scheduleDraw: state.scheduleDraw,
+      onMinSvgWidth: value => {
+        state.minSvgWidth = Math.max(0, Number(value) || 0);
+        console.debug('Debug: pie layout min width update', { value: state.minSvgWidth });
+      }
+    });
+    state.svgBox = state.layout?.elements?.svgBox || state.svgBox;
+    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    state.layout?.syncPanels?.();
     initHot();
     initControls();
     state.scheduleDraw = Shared.debounceFrame(draw);
     console.debug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    state.layout?.setScheduleDraw?.(state.scheduleDraw);
     pie.ready = true;
   };
 
