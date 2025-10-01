@@ -256,63 +256,29 @@
       })();
       (function initPcaPanelResizer(){
         if(!pcaPanelResizer||!pcaTablePanel||!pcaGraphPanel) return;
-        pcaPanelResizer.addEventListener('pointerdown',e=>{
-          e.preventDefault();
-          const startX=e.clientX;
-          const startTable=pcaTablePanel.getBoundingClientRect().width;
-          const startGraph=pcaGraphPanel.getBoundingClientRect().width;
-          const configWidth=pcaConfigPanel.getBoundingClientRect().width;
-          const gap=parseFloat(getComputedStyle(pcaGraphPanel.querySelector('.diagram-area')).gap||0);
-          pcaMinSvgWidth=pcaSvgBox.getBoundingClientRect().width*0.5;
-          const minGraph=configWidth+gap+pcaMinSvgWidth;
-          const total=startTable+startGraph;
-          const tableDataset=pcaTablePanel.dataset||{};
-          let defaultTableWidth=Number.parseFloat(tableDataset.panelDefaultWidth);
-          if(!Number.isFinite(defaultTableWidth) || defaultTableWidth<=0){
-            defaultTableWidth=startTable;
-            tableDataset.panelDefaultWidth=String(defaultTableWidth);
-            console.debug('Debug: pca resizer default width stored',{defaultTableWidth}); // Debug: capture default position
-          }else{
-            console.debug('Debug: pca resizer default width reused',{defaultTableWidth}); // Debug: reuse stored default
-          }
-          let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
-          if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
-            storedMinWidth = Math.max(150, defaultTableWidth);
-            tableDataset.panelMinWidth = String(storedMinWidth);
-            console.debug('Debug: pca resizer min width stored',{ storedMinWidth, defaultTableWidth }); // Debug: persist min width baseline
-          }
-          if(pcaTablePanel?.style){
-            const existingMin = Number.parseFloat(pcaTablePanel.style.minWidth) || 0;
-            const enforcedMin = Math.max(existingMin, storedMinWidth);
-            if(enforcedMin !== existingMin){
-              pcaTablePanel.style.minWidth = `${enforcedMin}px`;
-              console.debug('Debug: pca resizer min style enforced',{ enforcedMin, existingMin }); // Debug: align style min width
+        const attachHelper = Shared.resizer?.attachPanelDragResizer;
+        console.debug('Debug: pca attachPanelDragResizer init',{ hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
+        if(typeof attachHelper === 'function'){
+          attachHelper({
+            panelResizer: pcaPanelResizer,
+            tablePanel: pcaTablePanel,
+            graphPanel: pcaGraphPanel,
+            configPanel: pcaConfigPanel,
+            debugLabel: 'pca',
+            syncPanels: () => { syncPcaWidths(); scheduleDrawPca(); },
+            computeMinSvgWidth: () => {
+              const width = pcaSvgBox?.getBoundingClientRect().width || 0;
+              const computed = Math.max(0, width * 0.5);
+              console.debug('Debug: pca attachPanelDragResizer computeMinSvgWidth',{ width, computed }); // Debug: helper min width calc
+              return computed;
+            },
+            onMinSvgWidth: value => {
+              const coerced = Number.isFinite(value) ? value : 0;
+              pcaMinSvgWidth = Math.max(0, coerced);
+              console.debug('Debug: pca attachPanelDragResizer onMinSvgWidth',{ value, coerced: pcaMinSvgWidth }); // Debug: update cached min width
             }
-          }
-          console.debug('pca resizer start',{startTable,startGraph,configWidth,gap,pcaMinSvgWidth,minGraph,total,defaultTableWidth,storedMinWidth});
-          function onMove(ev){
-            const dx=ev.clientX-startX;
-            const proposedTable=startTable+dx;
-            const clampedBase=Math.min(total-minGraph, proposedTable);
-            const minTableWidth=Math.max(150, defaultTableWidth, storedMinWidth);
-            let newTable=Math.max(minTableWidth, clampedBase);
-            let newGraph=total-newTable;
-            pcaTablePanel.style.flex=`0 0 ${newTable}px`;
-            pcaTablePanel.style.flexBasis=`${newTable}px`;
-            pcaTablePanel.style.width=`${newTable}px`;
-            pcaTablePanel.style.minWidth=`${minTableWidth}px`;
-            pcaGraphPanel.style.flex=`0 0 ${newGraph}px`;
-            syncPcaWidths();
-            console.debug('pca resizer move',{dx,proposedTable,newTable,newGraph,defaultTableWidth,minTableWidth});
-          }
-          function onUp(){
-            document.removeEventListener('pointermove',onMove);
-            document.removeEventListener('pointerup',onUp);
-            console.debug('pca resizer end');
-          }
-          document.addEventListener('pointermove',onMove);
-          document.addEventListener('pointerup',onUp);
-        });
+          });
+        }
       })();
       let pcaXLabelText='PC1'; let pcaYLabelText='PC2';
     async function drawPca(){

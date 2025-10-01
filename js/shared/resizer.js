@@ -23,6 +23,187 @@
   }
 
   const undoManager = Shared.undoManager;
+  const resizerNamespace = Shared.resizer = Shared.resizer || {};
+
+  resizerNamespace.attachPanelDragResizer = function attachPanelDragResizer(opts = {}){
+    const {
+      panelResizer,
+      tablePanel,
+      graphPanel,
+      configPanel,
+      debugLabel,
+      syncPanels,
+      computeMinSvgWidth,
+      onMinSvgWidth,
+      minTableWidth = 150,
+      diagramSelector = '.diagram-area'
+    } = opts || {};
+    const label = debugLabel || panelResizer?.id || tablePanel?.id || 'panel';
+    if(!panelResizer || !tablePanel || !graphPanel){
+      console.debug('Debug: Shared.resizer.attachPanelDragResizer skipped', {
+        label,
+        hasPanelResizer: !!panelResizer,
+        hasTable: !!tablePanel,
+        hasGraph: !!graphPanel
+      }); // Debug: guard invalid wiring inputs
+      return { detach(){ /* no-op */ } };
+    }
+    const doc = global.document;
+    if(!doc){
+      console.debug('Debug: Shared.resizer.attachPanelDragResizer skipped (no document)', { label });
+      return { detach(){ /* no-op */ } };
+    }
+    const handlePointerDown = (event) => {
+      try{
+        if(event?.preventDefault){ event.preventDefault(); }
+      }catch(err){
+        console.error('Shared.resizer.attachPanelDragResizer preventDefault error', err);
+      }
+      const rectTable = tablePanel.getBoundingClientRect?.();
+      const rectGraph = graphPanel.getBoundingClientRect?.();
+      const startTable = rectTable?.width;
+      const startGraph = rectGraph?.width;
+      if(!Number.isFinite(startTable) || !Number.isFinite(startGraph)){
+        console.debug('Debug: Shared.resizer.attachPanelDragResizer invalid start sizes', {
+          label,
+          startTable,
+          startGraph
+        }); // Debug: abort when DOM widths are missing
+        return;
+      }
+      const startX = Number(event?.clientX) || 0;
+      const configWidth = configPanel?.getBoundingClientRect?.().width || 0;
+      let gap = 0;
+      if(diagramSelector){
+        const diagramArea = graphPanel.querySelector?.(diagramSelector);
+        if(diagramArea && global.getComputedStyle){
+          try{
+            const style = global.getComputedStyle(diagramArea);
+            gap = Number.parseFloat(style?.gap || 0) || 0;
+          }catch(err){
+            console.error('Shared.resizer.attachPanelDragResizer gap error', err);
+          }
+        }
+      }
+      let minSvgWidth = 0;
+      if(typeof computeMinSvgWidth === 'function'){
+        try{
+          const computed = computeMinSvgWidth({ tablePanel, graphPanel, configPanel, debugLabel: label });
+          if(Number.isFinite(computed) && computed > 0){
+            minSvgWidth = computed;
+          }
+        }catch(err){
+          console.error('Shared.resizer.attachPanelDragResizer computeMinSvgWidth error', err);
+        }
+      }
+      if(typeof onMinSvgWidth === 'function'){
+        try{
+          onMinSvgWidth(minSvgWidth);
+        }catch(err){
+          console.error('Shared.resizer.attachPanelDragResizer onMinSvgWidth error', err);
+        }
+      }
+      const total = startTable + startGraph;
+      const minGraph = Math.max(0, configWidth + gap + minSvgWidth);
+      const tableDataset = tablePanel.dataset || {};
+      const baseMinTable = Number.isFinite(minTableWidth) && minTableWidth > 0 ? Math.round(minTableWidth) : 150;
+      let defaultTableWidth = Number.parseFloat(tableDataset.panelDefaultWidth);
+      if(!Number.isFinite(defaultTableWidth) || defaultTableWidth <= 0){
+        defaultTableWidth = Math.max(Math.round(startTable), baseMinTable);
+        tableDataset.panelDefaultWidth = String(defaultTableWidth);
+        console.debug('Debug: Shared.resizer.attachPanelDragResizer stored default', { label, defaultTableWidth }); // Debug: capture default width
+      }else{
+        console.debug('Debug: Shared.resizer.attachPanelDragResizer reused default', { label, defaultTableWidth }); // Debug: reuse stored default
+      }
+      let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
+      if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
+        storedMinWidth = Math.max(baseMinTable, defaultTableWidth);
+        tableDataset.panelMinWidth = String(storedMinWidth);
+        console.debug('Debug: Shared.resizer.attachPanelDragResizer stored min', { label, storedMinWidth, defaultTableWidth }); // Debug: persist minimum width
+      }
+      if(tablePanel?.style){
+        const existingMin = Number.parseFloat(tablePanel.style.minWidth) || 0;
+        const enforcedMin = Math.max(existingMin, storedMinWidth, baseMinTable);
+        if(Number.isFinite(enforcedMin) && enforcedMin > 0 && enforcedMin !== existingMin){
+          tablePanel.style.minWidth = `${Math.round(enforcedMin)}px`;
+          console.debug('Debug: Shared.resizer.attachPanelDragResizer enforced table min', { label, enforcedMin, existingMin }); // Debug: align style minimum
+        }
+      }
+      console.debug('Debug: Shared.resizer.attachPanelDragResizer drag start', {
+        label,
+        startTable,
+        startGraph,
+        configWidth,
+        gap,
+        minSvgWidth,
+        minGraph,
+        total
+      });
+      const onMove = (ev) => {
+        const clientX = Number(ev?.clientX) || 0;
+        const dx = clientX - startX;
+        const proposedTable = startTable + dx;
+        const maxTable = total - minGraph;
+        const clampedBase = Number.isFinite(maxTable) ? Math.min(maxTable, proposedTable) : proposedTable;
+        const minTable = Math.max(baseMinTable, defaultTableWidth, storedMinWidth);
+        const newTable = Math.max(minTable, clampedBase);
+        const newGraph = Math.max(0, total - newTable);
+        if(tablePanel?.style){
+          const tablePx = `${Math.round(newTable)}px`;
+          tablePanel.style.flex = `0 0 ${tablePx}`;
+          tablePanel.style.flexBasis = tablePx;
+          tablePanel.style.width = tablePx;
+          tablePanel.style.minWidth = `${Math.round(minTable)}px`;
+        }
+        if(graphPanel?.style){
+          const graphPx = `${Math.max(0, Math.round(newGraph))}px`;
+          graphPanel.style.flex = `0 0 ${graphPx}`;
+          graphPanel.style.flexBasis = graphPx;
+        }
+        if(typeof syncPanels === 'function'){
+          try{
+            syncPanels({ phase: 'drag', minSvgWidth, newTable, newGraph, minTable });
+          }catch(err){
+            console.error('Shared.resizer.attachPanelDragResizer syncPanels error', err);
+          }
+        }
+        console.debug('Debug: Shared.resizer.attachPanelDragResizer drag move', {
+          label,
+          dx,
+          proposedTable,
+          newTable,
+          newGraph,
+          minTable,
+          minSvgWidth
+        });
+      };
+      const onUp = () => {
+        doc.removeEventListener('pointermove', onMove);
+        doc.removeEventListener('pointerup', onUp);
+        if(typeof syncPanels === 'function'){
+          try{
+            syncPanels({ phase: 'end', minSvgWidth });
+          }catch(err){
+            console.error('Shared.resizer.attachPanelDragResizer syncPanels end error', err);
+          }
+        }
+        console.debug('Debug: Shared.resizer.attachPanelDragResizer drag end', { label });
+      };
+      doc.addEventListener('pointermove', onMove);
+      doc.addEventListener('pointerup', onUp);
+    };
+    panelResizer.addEventListener('pointerdown', handlePointerDown);
+    console.debug('Debug: Shared.resizer.attachPanelDragResizer attached', {
+      label,
+      hasSync: typeof syncPanels === 'function'
+    }); // Debug: confirm helper wiring
+    return {
+      detach(){
+        panelResizer.removeEventListener('pointerdown', handlePointerDown);
+        console.debug('Debug: Shared.resizer.attachPanelDragResizer detached', { label }); // Debug: helper detach
+      }
+    };
+  };
 
   function resolveSquareSize(label){
     const style = Shared.chartStyle || {};

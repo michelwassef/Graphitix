@@ -154,63 +154,29 @@
     }
 
     if(refs.panelResizer && refs.tablePanel && refs.graphPanel){
-      refs.panelResizer.addEventListener('pointerdown', event => {
-        event.preventDefault();
-        const startX = event.clientX;
-        const startTable = refs.tablePanel.getBoundingClientRect().width;
-        const startGraph = refs.graphPanel.getBoundingClientRect().width;
-        const configWidth = refs.configPanel?.getBoundingClientRect().width || 0;
-        const gap = parseFloat(getComputedStyle(refs.graphPanel.querySelector('.diagram-area')).gap || 0);
-        state.minSvgWidth = (refs.svgBox?.getBoundingClientRect().width || 0) * 0.5;
-        const minGraph = configWidth + gap + state.minSvgWidth;
-        const total = startTable + startGraph;
-        const tableDataset = refs.tablePanel.dataset || {};
-        let defaultTableWidth = Number.parseFloat(tableDataset.panelDefaultWidth);
-        if(!Number.isFinite(defaultTableWidth) || defaultTableWidth <= 0){
-          defaultTableWidth = startTable;
-          tableDataset.panelDefaultWidth = String(defaultTableWidth);
-          console.debug('Debug: ROC resizer default width stored', { defaultTableWidth }); // Debug: capture default position
-        }else{
-          console.debug('Debug: ROC resizer default width reused', { defaultTableWidth }); // Debug: reuse stored default
-        }
-        let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
-        if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
-          storedMinWidth = Math.max(150, defaultTableWidth);
-          tableDataset.panelMinWidth = String(storedMinWidth);
-          console.debug('Debug: ROC resizer min width stored', { storedMinWidth, defaultTableWidth }); // Debug: persist min width baseline
-        }
-        if(refs.tablePanel?.style){
-          const existingMin = Number.parseFloat(refs.tablePanel.style.minWidth) || 0;
-          const enforcedMin = Math.max(existingMin, storedMinWidth);
-          if(enforcedMin !== existingMin){
-            refs.tablePanel.style.minWidth = `${enforcedMin}px`;
-            console.debug('Debug: ROC resizer min style enforced', { enforcedMin, existingMin }); // Debug: align style min width
+      const attachHelper = Shared.resizer?.attachPanelDragResizer;
+      console.debug('Debug: ROC attachPanelDragResizer init', { hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
+      if(typeof attachHelper === 'function'){
+        attachHelper({
+          panelResizer: refs.panelResizer,
+          tablePanel: refs.tablePanel,
+          graphPanel: refs.graphPanel,
+          configPanel: refs.configPanel,
+          debugLabel: 'roc',
+          syncPanels: () => syncTableAndGraphWidths(),
+          computeMinSvgWidth: () => {
+            const width = refs.svgBox?.getBoundingClientRect().width || 0;
+            const computed = Math.max(0, width * 0.5);
+            console.debug('Debug: ROC attachPanelDragResizer computeMinSvgWidth', { width, computed }); // Debug: helper min width calc
+            return computed;
+          },
+          onMinSvgWidth: value => {
+            const coerced = Number.isFinite(value) ? value : 0;
+            state.minSvgWidth = Math.max(0, coerced);
+            console.debug('Debug: ROC attachPanelDragResizer onMinSvgWidth', { value, coerced: state.minSvgWidth }); // Debug: update cached min width
           }
-        }
-        console.debug('Debug: ROC panel drag start', {startTable, startGraph, configWidth, gap, minSvgWidth: state.minSvgWidth, defaultTableWidth, storedMinWidth});
-        function onMove(ev){
-          const dx = ev.clientX - startX;
-          const proposedTable = startTable + dx;
-          const clampedBase = Math.min(total - minGraph, proposedTable);
-          const minTableWidth = Math.max(150, defaultTableWidth, storedMinWidth);
-          const newTable = Math.max(minTableWidth, clampedBase);
-          const newGraph = total - newTable;
-          refs.tablePanel.style.flex = `0 0 ${newTable}px`;
-          refs.tablePanel.style.flexBasis = `${newTable}px`;
-          refs.tablePanel.style.width = `${newTable}px`;
-          refs.tablePanel.style.minWidth = `${minTableWidth}px`;
-          refs.graphPanel.style.flex = `0 0 ${newGraph}px`;
-          syncTableAndGraphWidths();
-          console.debug('Debug: ROC panel drag move', {dx, proposedTable, newTable, newGraph, defaultTableWidth, minTableWidth});
-        }
-        function onUp(){
-          document.removeEventListener('pointermove', onMove);
-          document.removeEventListener('pointerup', onUp);
-          console.debug('Debug: ROC panel drag end');
-        }
-        document.addEventListener('pointermove', onMove);
-        document.addEventListener('pointerup', onUp);
-      });
+        });
+      }
     }
   }
 

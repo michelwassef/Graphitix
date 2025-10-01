@@ -209,58 +209,29 @@
       });
     }
     if(els.panelResizer && els.tablePanel && els.graphPanel){
-      els.panelResizer.addEventListener('pointerdown',e=>{
-        e.preventDefault();
-        const startX=e.clientX;
-        const startTable=els.tablePanel.getBoundingClientRect().width;
-        const startGraph=els.graphPanel.getBoundingClientRect().width;
-        const configWidth=els.configPanel.getBoundingClientRect().width;
-        const gap=parseFloat(getComputedStyle(els.graphPanel.querySelector('.diagram-area')).gap||0);
-        minSvgWidth=(els.svgBox?.getBoundingClientRect().width||0)*0.5;
-        const minGraph=configWidth+gap+minSvgWidth;
-        const total=startTable+startGraph;
-        const tableDataset=els.tablePanel.dataset||{};
-        let defaultTableWidth=Number.parseFloat(tableDataset.panelDefaultWidth);
-        if(!Number.isFinite(defaultTableWidth) || defaultTableWidth<=0){
-          defaultTableWidth=startTable;
-          tableDataset.panelDefaultWidth=String(defaultTableWidth);
-          console.debug('Debug: box resizer default width stored',{defaultTableWidth}); // Debug: capture default position
-        }else{
-          console.debug('Debug: box resizer default width reused',{defaultTableWidth}); // Debug: reuse stored default
-        }
-        let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
-        if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
-          storedMinWidth = Math.max(150, defaultTableWidth);
-          tableDataset.panelMinWidth = String(storedMinWidth);
-          console.debug('Debug: box resizer min width stored',{ storedMinWidth, defaultTableWidth }); // Debug: persist min width baseline
-        }
-        if(els.tablePanel?.style){
-          const existingMin = Number.parseFloat(els.tablePanel.style.minWidth) || 0;
-          const enforcedMin = Math.max(existingMin, storedMinWidth);
-          if(enforcedMin !== existingMin){
-            els.tablePanel.style.minWidth = `${enforcedMin}px`;
-            console.debug('Debug: box resizer min style enforced',{ enforcedMin, existingMin }); // Debug: align style min width
+      const attachHelper = Shared.resizer?.attachPanelDragResizer;
+      console.debug('Debug: box attachPanelDragResizer init',{ hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
+      if(typeof attachHelper === 'function'){
+        attachHelper({
+          panelResizer: els.panelResizer,
+          tablePanel: els.tablePanel,
+          graphPanel: els.graphPanel,
+          configPanel: els.configPanel,
+          debugLabel: 'box',
+          syncPanels: () => syncPanels(),
+          computeMinSvgWidth: () => {
+            const width = els.svgBox?.getBoundingClientRect().width || 0;
+            const computed = Math.max(0, width * 0.5);
+            console.debug('Debug: box attachPanelDragResizer computeMinSvgWidth',{ width, computed }); // Debug: helper min width calc
+            return computed;
+          },
+          onMinSvgWidth: value => {
+            const coerced = Number.isFinite(value) ? value : 0;
+            minSvgWidth = Math.max(0, coerced);
+            console.debug('Debug: box attachPanelDragResizer onMinSvgWidth',{ value, coerced: minSvgWidth }); // Debug: update cached min width
           }
-        }
-        console.debug('Debug: box resizer start',{startTable,startGraph,configWidth,gap,minSvgWidth,minGraph,total,defaultTableWidth,storedMinWidth});
-        function onMove(ev){
-          const dx=ev.clientX-startX;
-          const proposedTable=startTable+dx;
-          const clampedBase=Math.min(total-minGraph, proposedTable);
-          const minTableWidth=Math.max(150, defaultTableWidth, storedMinWidth);
-          const newTable=Math.max(minTableWidth, clampedBase);
-          const newGraph=total-newTable;
-          els.tablePanel.style.flex=`0 0 ${newTable}px`;
-          els.tablePanel.style.flexBasis=`${newTable}px`;
-          els.tablePanel.style.width=`${newTable}px`;
-          els.tablePanel.style.minWidth=`${minTableWidth}px`;
-          els.graphPanel.style.flex=`0 0 ${newGraph}px`;
-          syncPanels();
-          console.debug('Debug: box resizer move',{dx,proposedTable,newTable,newGraph,defaultTableWidth,minTableWidth}); // Debug: clamp enforcement trace
-        }
-        function onUp(){ document.removeEventListener('pointermove',onMove); document.removeEventListener('pointerup',onUp); console.debug('Debug: box resizer end'); }
-        document.addEventListener('pointermove',onMove); document.addEventListener('pointerup',onUp);
-      });
+        });
+      }
     }
   }
 

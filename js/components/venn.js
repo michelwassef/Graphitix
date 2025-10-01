@@ -1625,106 +1625,29 @@
     syncPanels({ skipSchedule: true });
 
     if (panelResizer && tablePanel && graphPanel) {
-      panelResizer.addEventListener('pointerdown', e => {
-        e.preventDefault();
-        const startX = e.clientX;
-        const startTable = tablePanel.getBoundingClientRect().width;
-        const startGraph = graphPanel.getBoundingClientRect().width;
-        const configWidth = configPanel ? configPanel.getBoundingClientRect().width : 0;
-        let gap = 0;
-        if (diagramArea && global.getComputedStyle) {
-          try {
-            const style = global.getComputedStyle(diagramArea);
-            gap = parseFloat(style.gap || 0) || 0;
-          } catch (err) {
-            console.error('venn panel gap calculation error', err);
+      const attachHelper = Shared.resizer?.attachPanelDragResizer;
+      console.debug('Debug: venn attachPanelDragResizer init', { hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
+      if (typeof attachHelper === 'function') {
+        attachHelper({
+          panelResizer,
+          tablePanel,
+          graphPanel,
+          configPanel,
+          debugLabel: 'venn',
+          syncPanels: () => syncPanels({ skipSchedule: false }),
+          computeMinSvgWidth: () => {
+            const width = svgBox?.getBoundingClientRect().width || 0;
+            const computed = Math.max(0, width * 0.5);
+            console.debug('Debug: venn attachPanelDragResizer computeMinSvgWidth', { width, computed }); // Debug: helper min width calc
+            return computed;
+          },
+          onMinSvgWidth: value => {
+            const coerced = Number.isFinite(value) ? value : 0;
+            vennMinSvgWidth = Math.max(0, coerced);
+            console.debug('Debug: venn attachPanelDragResizer onMinSvgWidth', { value, coerced: vennMinSvgWidth }); // Debug: update cached min width
           }
-        }
-        const svgWidth = svgBox?.getBoundingClientRect().width || 0;
-        vennMinSvgWidth = svgWidth * 0.5;
-        const minGraph = configWidth + gap + vennMinSvgWidth;
-        const total = startTable + startGraph;
-        const tableDataset = tablePanel.dataset || {};
-        let defaultTableWidth = Number.parseFloat(tableDataset.panelDefaultWidth);
-        if (!Number.isFinite(defaultTableWidth) || defaultTableWidth <= 0) {
-          defaultTableWidth = startTable;
-          tableDataset.panelDefaultWidth = String(defaultTableWidth);
-          console.debug('Debug: venn panel default width stored', { defaultTableWidth }); // Debug: capture default position
-        } else {
-          console.debug('Debug: venn panel default width reused', { defaultTableWidth }); // Debug: reuse stored default
-        }
-        let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
-        if (!Number.isFinite(storedMinWidth) || storedMinWidth <= 0) {
-          storedMinWidth = Math.max(150, defaultTableWidth);
-          tableDataset.panelMinWidth = String(storedMinWidth);
-          console.debug('Debug: venn panel min width stored', { storedMinWidth, defaultTableWidth }); // Debug: store min width baseline
-        }
-        if (tablePanel?.style) {
-          const existingMin = Number.parseFloat(tablePanel.style.minWidth) || 0;
-          const enforcedMin = Math.max(existingMin, storedMinWidth);
-          if (enforcedMin !== existingMin) {
-            tablePanel.style.minWidth = `${enforcedMin}px`;
-            console.debug('Debug: venn panel min style enforced', { enforcedMin, existingMin }); // Debug: enforce min style
-          }
-        }
-        console.debug('Debug: venn panel resizer start', {
-          startTable,
-          startGraph,
-          configWidth,
-          gap,
-          svgWidth,
-          vennMinSvgWidth,
-          minGraph,
-          total,
-          defaultTableWidth,
-          storedMinWidth
-        }); // Debug: venn panel resizer start
-        function onMove(ev) {
-          const dx = ev.clientX - startX;
-          const proposedTable = startTable + dx;
-          const clampedBase = Math.min(total - minGraph, proposedTable);
-          const minTableWidth = Math.max(150, defaultTableWidth, storedMinWidth);
-          let newTable = Math.max(minTableWidth, clampedBase);
-          let newGraph = total - newTable;
-          if (!Number.isFinite(newTable)) newTable = startTable;
-          if (!Number.isFinite(newGraph)) newGraph = startGraph;
-          tablePanel.style.flex = `0 0 ${newTable}px`;
-          tablePanel.style.flexBasis = `${newTable}px`;
-          tablePanel.style.width = `${newTable}px`;
-          tablePanel.style.minWidth = `${minTableWidth}px`;
-          graphPanel.style.flex = `0 0 ${newGraph}px`;
-          syncPanels({ skipSchedule: false });
-          console.debug('Debug: venn panel resizer move', {
-            dx,
-            proposedTable,
-            newTable,
-            newGraph,
-            defaultTableWidth,
-            minTableWidth
-          }); // Debug: venn panel resizer move
-        }
-        function onUp() {
-          document.removeEventListener('pointermove', onMove);
-          document.removeEventListener('pointerup', onUp);
-          console.debug('Debug: venn panel resizer end'); // Debug: venn panel resizer end
-          syncPanels({ skipSchedule: false });
-        }
-        document.addEventListener('pointermove', onMove);
-        document.addEventListener('pointerup', onUp);
-      });
-    } else {
-      console.debug('Debug: venn panel resizer binding skipped', {
-        hasPanelResizer: !!panelResizer,
-        hasTablePanel: !!tablePanel,
-        hasGraphPanel: !!graphPanel
-      }); // Debug: venn panel resizer binding skipped
-    }
-
-    if (global.addEventListener) {
-      global.addEventListener('resize', () => {
-        console.debug('Debug: venn window resize sync'); // Debug: venn window resize handler
-        syncPanels({ skipSchedule: true });
-      });
+        });
+      }
     }
   }
 

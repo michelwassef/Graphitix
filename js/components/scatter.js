@@ -455,63 +455,29 @@
 
       (function initScatterPanelResizer(){
         if(!scatterPanelResizer||!scatterTablePanel||!scatterGraphPanel) return;
-        scatterPanelResizer.addEventListener('pointerdown',e=>{
-          e.preventDefault();
-          const startX=e.clientX;
-          const startTable=scatterTablePanel.getBoundingClientRect().width;
-          const startGraph=scatterGraphPanel.getBoundingClientRect().width;
-          const configWidth=scatterConfigPanel.getBoundingClientRect().width;
-          const gap=parseFloat(getComputedStyle(scatterGraphPanel.querySelector('.diagram-area')).gap||0);
-          scatterMinSvgWidth=scatterSvgBox.getBoundingClientRect().width*0.5;
-          const minGraph=configWidth+gap+scatterMinSvgWidth;
-          const total=startTable+startGraph;
-          const tableDataset=scatterTablePanel.dataset||{};
-          let defaultTableWidth=Number.parseFloat(tableDataset.panelDefaultWidth);
-          if(!Number.isFinite(defaultTableWidth) || defaultTableWidth<=0){
-            defaultTableWidth=startTable;
-            tableDataset.panelDefaultWidth=String(defaultTableWidth);
-            console.debug('Debug: scatter resizer default width stored',{defaultTableWidth}); // Debug: capture default position
-          }else{
-            console.debug('Debug: scatter resizer default width reused',{defaultTableWidth}); // Debug: reuse stored default
-          }
-          let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
-          if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
-            storedMinWidth = Math.max(150, defaultTableWidth);
-            tableDataset.panelMinWidth = String(storedMinWidth);
-            console.debug('Debug: scatter resizer min width stored',{ storedMinWidth, defaultTableWidth }); // Debug: persist min width baseline
-          }
-          if(scatterTablePanel?.style){
-            const existingMin = Number.parseFloat(scatterTablePanel.style.minWidth) || 0;
-            const enforcedMin = Math.max(existingMin, storedMinWidth);
-            if(enforcedMin !== existingMin){
-              scatterTablePanel.style.minWidth = `${enforcedMin}px`;
-              console.debug('Debug: scatter resizer min style enforced',{ enforcedMin, existingMin }); // Debug: align style min width
+        const attachHelper = Shared.resizer?.attachPanelDragResizer;
+        console.debug('Debug: scatter attachPanelDragResizer init',{ hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
+        if(typeof attachHelper === 'function'){
+          attachHelper({
+            panelResizer: scatterPanelResizer,
+            tablePanel: scatterTablePanel,
+            graphPanel: scatterGraphPanel,
+            configPanel: scatterConfigPanel,
+            debugLabel: 'scatter',
+            syncPanels: () => scheduleDrawScatter(),
+            computeMinSvgWidth: () => {
+              const width = scatterSvgBox?.getBoundingClientRect().width || 0;
+              const computed = Math.max(0, width * 0.5);
+              console.debug('Debug: scatter attachPanelDragResizer computeMinSvgWidth',{ width, computed }); // Debug: helper min width calc
+              return computed;
+            },
+            onMinSvgWidth: value => {
+              const coerced = Number.isFinite(value) ? value : 0;
+              scatterMinSvgWidth = Math.max(0, coerced);
+              console.debug('Debug: scatter attachPanelDragResizer onMinSvgWidth',{ value, coerced: scatterMinSvgWidth }); // Debug: update cached min width
             }
-          }
-          console.debug('scatter resizer start',{startTable,startGraph,configWidth,gap,scatterMinSvgWidth,minGraph,total,defaultTableWidth,storedMinWidth});
-          function onMove(ev){
-            const dx=ev.clientX-startX;
-            const proposedTable=startTable+dx;
-            const clampedBase=Math.min(total-minGraph, proposedTable);
-            const minTableWidth=Math.max(150, defaultTableWidth, storedMinWidth);
-            const newTable=Math.max(minTableWidth, clampedBase);
-            let newGraph=total-newTable;
-            scatterTablePanel.style.flex=`0 0 ${newTable}px`;
-            scatterTablePanel.style.flexBasis=`${newTable}px`;
-            scatterTablePanel.style.width=`${newTable}px`;
-            scatterTablePanel.style.minWidth=`${minTableWidth}px`;
-            scatterGraphPanel.style.flex=`0 0 ${newGraph}px`;
-            syncScatterPanels();
-            console.debug('scatter resizer move',{dx,proposedTable,newTable,newGraph,defaultTableWidth,minTableWidth});
-          }
-          function onUp(){
-            document.removeEventListener('pointermove',onMove);
-            document.removeEventListener('pointerup',onUp);
-            console.debug('scatter resizer end');
-          }
-          document.addEventListener('pointermove',onMove);
-          document.addEventListener('pointerup',onUp);
-        });
+          });
+        }
       })();
     
       let scatterTitleText='Scatter plot';
