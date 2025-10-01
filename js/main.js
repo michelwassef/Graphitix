@@ -40,8 +40,24 @@
   }
 
   const MainComponents = Main.components || {};
-  const MainSession = Main.session || {};
-  const MainPreviews = Main.previews || {};
+
+  if (!Main.session) {
+    const message = 'main.js requires Main.session to be initialized before loading.';
+    console.error(message);
+    throw new Error(message);
+  }
+  if (!Main.previews) {
+    const message = 'main.js requires Main.previews to be initialized before loading.';
+    console.error(message);
+    throw new Error(message);
+  }
+
+  const MainSession = Main.session;
+  const MainPreviews = Main.previews;
+  console.debug('Debug: main.js dependencies detected', {
+    hasSession: !!MainSession,
+    hasPreviews: !!MainPreviews
+  }); // Debug: dependency confirmation log
 
   const scheduleDrawBoxplot = typeof MainComponents.scheduleDrawBoxplot === 'function'
     ? MainComponents.scheduleDrawBoxplot
@@ -70,132 +86,12 @@
 
   const WORKSPACES = MainComponents.registry || {};
   const workspaceDefaults = {};
-  const workspaceState = MainSession.workspaceState || (function createWorkspaceStateFallback() {
-    console.debug('Debug: main workspaceState fallback initialized');
-    const fallback = {
-      tabs: [],
-      activeTabId: null,
-      nextId: 1,
-      pendingDuplicateSource: null,
-      lastActiveGraphId: null,
-      renameFocusId: null,
-      pendingClosePrompt: null,
-      sessionFileHandle: null,
-      sessionFileName: '',
-      sessionDirty: false,
-      draggingTabId: null,
-      dragStartIndex: null,
-      dragOverTabId: null,
-      dragInsertBefore: true
-    };
-    MainSession.workspaceState = fallback;
-    return fallback;
-  })();
-
-  const clonePayload = typeof MainSession.clonePayload === 'function'
-    ? MainSession.clonePayload
-    : function clonePayloadFallback(payload) {
-      if (!payload) return null;
-      try {
-        return JSON.parse(JSON.stringify(payload));
-      } catch (err) {
-        console.error('clonePayload fallback error', err);
-        return null;
-      }
-    };
-  const serializePayloadSignature = typeof MainSession.serializePayloadSignature === 'function'
-    ? MainSession.serializePayloadSignature
-    : function serializePayloadSignatureFallback(value) {
-      if (value === undefined || value === null) {
-        return null;
-      }
-      try {
-        return JSON.stringify(value);
-      } catch (err) {
-        console.error('serializePayloadSignature fallback error', err);
-        return `error:${Date.now()}`;
-      }
-    };
-  const assignTabPayload = typeof MainSession.assignTabPayload === 'function'
-    ? MainSession.assignTabPayload
-    : function assignTabPayloadFallback(tab, payload, meta = {}) {
-      if (!tab) {
-        console.debug('Debug: assignTabPayload fallback skipped', { reason: 'no-tab', meta });
-        return false;
-      }
-      const previousSignature = tab.payloadSignature || null;
-      const nextSignature = serializePayloadSignature(payload);
-      tab.payload = payload || null;
-      tab.payloadSignature = nextSignature;
-      if (!payload) {
-        tab.previewMarkup = null;
-        tab.previewSignature = null;
-        tab.previewMeta = null;
-        console.debug('Debug: assignTabPayload fallback cleared preview', { tabId: tab.id });
-      }
-      const changed = previousSignature !== nextSignature;
-      console.debug('Debug: assignTabPayload fallback applied', { tabId: tab.id, changed, meta });
-      return changed;
-    };
-  const markSessionDirty = typeof MainSession.markSessionDirty === 'function'
-    ? MainSession.markSessionDirty
-    : function markSessionDirtyFallback(reason, details) {
-      const wasDirty = workspaceState.sessionDirty;
-      workspaceState.sessionDirty = true;
-      console.debug('Debug: session dirty fallback set', { reason: reason || 'unspecified', wasDirty, details: details || null });
-    };
-  const clearSessionDirty = typeof MainSession.clearSessionDirty === 'function'
-    ? MainSession.clearSessionDirty
-    : function clearSessionDirtyFallback(reason) {
-      const wasDirty = workspaceState.sessionDirty;
-      workspaceState.sessionDirty = false;
-      console.debug('Debug: session dirty fallback cleared', { reason: reason || 'unspecified', wasDirty });
-    };
-  const tabHasTableData = typeof MainSession.tabHasTableData === 'function'
-    ? MainSession.tabHasTableData
-    : function tabHasTableDataFallback() {
-      console.debug('Debug: tabHasTableData fallback used');
-      return false;
-    };
-  const graphTabsHaveData = typeof MainSession.graphTabsHaveData === 'function'
-    ? MainSession.graphTabsHaveData
-    : function graphTabsHaveDataFallback() {
-      console.debug('Debug: graphTabsHaveData fallback used');
-      return false;
-    };
-
-  const captureWorkspacePreview = typeof MainPreviews.captureWorkspacePreview === 'function'
-    ? MainPreviews.captureWorkspacePreview
-    : function captureWorkspacePreviewFallback(config, tab) {
-      console.debug('Debug: captureWorkspacePreview fallback invoked', { tabId: tab?.id || null, type: config?.type || null });
-      return null;
-    };
-  const updateTabPreviewFromWorkspace = typeof MainPreviews.updateTabPreviewFromWorkspace === 'function'
-    ? MainPreviews.updateTabPreviewFromWorkspace
-    : function updateTabPreviewFromWorkspaceFallback(tab, config, meta) {
-      console.debug('Debug: updateTabPreviewFromWorkspace fallback', { tabId: tab?.id || null, type: tab?.type || null, meta });
-      return false;
-    };
-  const syncTabPreviewIndicator = typeof MainPreviews.syncTabPreviewIndicator === 'function'
-    ? MainPreviews.syncTabPreviewIndicator
-    : function syncTabPreviewIndicatorFallback(tab) {
-      console.debug('Debug: syncTabPreviewIndicator fallback used', { tabId: tab?.id || null });
-    };
-  const hideTabPreviewTooltip = typeof MainPreviews.hideTabPreviewTooltip === 'function'
-    ? MainPreviews.hideTabPreviewTooltip
-    : function hideTabPreviewTooltipFallback(reason) {
-      console.debug('Debug: hideTabPreviewTooltip fallback', { reason: reason || 'unspecified' });
-    };
-  const handleTabPreviewEnter = typeof MainPreviews.handleTabPreviewEnter === 'function'
-    ? MainPreviews.handleTabPreviewEnter
-    : function handleTabPreviewEnterFallback() {
-      console.debug('Debug: handleTabPreviewEnter fallback');
-    };
-  const handleTabPreviewLeave = typeof MainPreviews.handleTabPreviewLeave === 'function'
-    ? MainPreviews.handleTabPreviewLeave
-    : function handleTabPreviewLeaveFallback(reason) {
-      console.debug('Debug: handleTabPreviewLeave fallback', { reason: reason || 'unspecified' });
-    };
+  const workspaceState = MainSession.workspaceState;
+  if (!workspaceState) {
+    const message = 'main.js requires Main.session.workspaceState to be available.';
+    console.error(message);
+    throw new Error(message);
+  }
 
   // Shared color palette
   const DEFAULT_SCATTER_COLORS = window.DEFAULT_SCATTER_COLORS || [
@@ -380,7 +276,7 @@
     }
     try {
       const payload = config.getPayload();
-      workspaceDefaults[type] = clonePayload(payload);
+      workspaceDefaults[type] = MainSession.clonePayload(payload);
       console.debug('Debug: workspace default captured', { type, hasPayload: !!workspaceDefaults[type] });
       return workspaceDefaults[type];
     } catch (err) {
@@ -425,15 +321,15 @@
     }
     try {
       const payload = config.getPayload();
-      const payloadClone = clonePayload(payload);
-      const changed = assignTabPayload(tab, payloadClone, { reason: 'persist-active' });
+      const payloadClone = MainSession.clonePayload(payload);
+      const changed = MainSession.assignTabPayload(tab, payloadClone, { reason: 'persist-active' });
       const previewNeedsCapture = changed || (tab.previewSignature !== tab.payloadSignature);
-      const previewChanged = updateTabPreviewFromWorkspace(tab, config, {
+      const previewChanged = MainPreviews.updateTabPreviewFromWorkspace(tab, config, {
         reason: 'persist-active',
         forceCapture: previewNeedsCapture
       });
       if (changed) {
-        markSessionDirty('tab-state-updated', { tabId: tab.id, type: tab.type });
+        MainSession.markSessionDirty('tab-state-updated', { tabId: tab.id, type: tab.type });
       }
       console.debug('Debug: workspace state persisted', {
         tabId: tab.id,
@@ -483,7 +379,7 @@
     }
     const defaultPayload = ensureDefaultPayload(tab.type, config);
     if (!options.skipApply) {
-      const payload = tab.payload ? clonePayload(tab.payload) : clonePayload(defaultPayload);
+      const payload = tab.payload ? MainSession.clonePayload(tab.payload) : MainSession.clonePayload(defaultPayload);
       applyWorkspacePayload(config, payload);
     }
     try {
@@ -521,7 +417,7 @@
       ? graphTabs.findIndex(tab => tab.id === active.id)
       : -1;
     const tabsPayload = graphTabs.map((tab, index) => {
-      const payloadClone = clonePayload(tab.payload);
+      const payloadClone = MainSession.clonePayload(tab.payload);
       console.debug('Debug: session tab snapshot', {
         tabId: tab.id,
         type: tab.type,
@@ -571,7 +467,7 @@
       });
       console.debug('Debug: session save result', { status: result?.status, via: result?.via });
       if (result && (result.status === 'saved' || result.status === 'downloaded')) {
-        clearSessionDirty('session-save-success');
+        MainSession.clearSessionDirty('session-save-success');
       }
     } catch (err) {
       console.error('handleSessionSaveClick error', err);
@@ -625,7 +521,7 @@
         console.warn('applySessionData skipping invalid tab', { index, tabData });
         return;
       }
-      const clonedPayload = clonePayload(tabData.payload) || null;
+      const clonedPayload = MainSession.clonePayload(tabData.payload) || null;
       const newTab = createTab({
         title: tabData.title || `Workspace ${index + 1}`,
         type: tabData.type,
@@ -651,7 +547,7 @@
     } else {
       showGraphSelection({ reason: 'session-empty' });
     }
-    clearSessionDirty(meta.reason || 'session-load');
+    MainSession.clearSessionDirty(meta.reason || 'session-load');
     console.debug('Debug: session applied', {
       requestedIndex,
       resolvedIndex: targetTab ? graphTabs.indexOf(targetTab) : -1,
@@ -734,7 +630,7 @@
     } catch (err) {
       console.error('beforeunload persist error', err);
     }
-    const hasData = graphTabsHaveData();
+    const hasData = MainSession.graphTabsHaveData();
     const shouldWarn = workspaceState.sessionDirty && hasData;
     console.debug('Debug: beforeunload evaluation', {
       shouldWarn,
@@ -755,7 +651,7 @@
       payload: options.payload || null,
       payloadSignature: options.payloadSignature !== undefined
         ? options.payloadSignature
-        : serializePayloadSignature(options.payload || null),
+        : MainSession.serializePayloadSignature(options.payload || null),
       duplicateSource: options.duplicateSource || null,
       isWelcome: !!options.isWelcome,
       allowClose: options.allowClose !== false,
@@ -977,7 +873,7 @@
     renderTabs();
     if (moveResult.moved) {
       const order = workspaceState.tabs.map(item => item.id);
-      markSessionDirty('tabs-reordered', {
+      MainSession.markSessionDirty('tabs-reordered', {
         reason: dropReason,
         fromIndex: moveResult.fromIndex,
         toIndex: moveResult.toIndex,
@@ -1026,7 +922,7 @@
     renderTabs();
     if (moveResult.moved) {
       const order = workspaceState.tabs.map(item => item.id);
-      markSessionDirty('tabs-reordered', {
+      MainSession.markSessionDirty('tabs-reordered', {
         reason: 'drop-end',
         fromIndex: moveResult.fromIndex,
         toIndex: moveResult.toIndex,
@@ -1062,7 +958,7 @@
 
   function renderTabs() {
     if (!dom.tabsList) return;
-    hideTabPreviewTooltip('render');
+    MainPreviews.hideTabPreviewTooltip('render');
     dom.tabsList.innerHTML = '';
     workspaceState.tabs.forEach((tab, index) => {
       const btn = document.createElement('button');
@@ -1091,9 +987,9 @@
       btn.addEventListener('dragover', event => handleTabDragOver(event, tab));
       btn.addEventListener('dragleave', event => handleTabDragLeave(event, tab));
       btn.addEventListener('drop', event => handleTabDrop(event, tab));
-      btn.addEventListener('mouseenter', event => handleTabPreviewEnter(event, tab));
-      btn.addEventListener('mouseleave', () => handleTabPreviewLeave('leave'));
-      btn.addEventListener('blur', () => handleTabPreviewLeave('blur'));
+      btn.addEventListener('mouseenter', event => MainPreviews.handleTabPreviewEnter(event, tab));
+      btn.addEventListener('mouseleave', () => MainPreviews.handleTabPreviewLeave('leave'));
+      btn.addEventListener('blur', () => MainPreviews.handleTabPreviewLeave('blur'));
 
       const label = document.createElement('span');
       label.className = 'workspace-tab__label';
@@ -1247,7 +1143,7 @@
     workspaceState.renameFocusId = null;
     renderTabs();
     if (tab.title !== previousTitle) {
-      markSessionDirty('tab-renamed', { tabId, previousTitle, nextTitle: tab.title });
+      MainSession.markSessionDirty('tab-renamed', { tabId, previousTitle, nextTitle: tab.title });
     }
     console.debug('Debug: tab rename committed', { tabId, title: tab.title, trigger: meta.reason || 'unknown' });
   }
@@ -1478,7 +1374,7 @@
     }
     console.debug('Debug: workspace tab closed', { tabId, wasActive, remainingTabs: workspaceState.tabs.length, reason });
     if (!meta.skipDirty) {
-      markSessionDirty('tab-removed', { tabId, reason });
+      MainSession.markSessionDirty('tab-removed', { tabId, reason });
     }
   }
 
@@ -1504,7 +1400,7 @@
       persistedActive = true;
     }
     if (!force && !skipPrompt) {
-      const hasData = tabHasTableData(tab);
+      const hasData = MainSession.tabHasTableData(tab);
       console.debug('Debug: closeTab unsaved data check', { tabId, hasData, wasActive, reason });
       if (hasData) {
         showUnsavedPrompt(tab, { wasActive, reason });
@@ -1566,23 +1462,23 @@
         hasSource: !!sourceTab
       });
       if (tab) {
-        assignTabPayload(tab, null, { reason: 'duplicate-bypass-clear' });
+        MainSession.assignTabPayload(tab, null, { reason: 'duplicate-bypass-clear' });
       }
       hideDuplicatePrompt();
       showWorkspaceForTab(tab);
-      markSessionDirty('duplicate-bypass', { tabId: tab?.id || null, type });
+      MainSession.markSessionDirty('duplicate-bypass', { tabId: tab?.id || null, type });
       return;
     }
     if (!dom.duplicatePrompt || !dom.duplicateEmpty) {
       console.debug('Debug: duplicate prompt unavailable, applying fallback', { type, canDuplicate });
       if (canDuplicate && sourceTab?.payload) {
-        const clonedPayload = clonePayload(sourceTab.payload);
-        assignTabPayload(tab, clonedPayload, { reason: 'duplicate-fallback-clone' });
+        const clonedPayload = MainSession.clonePayload(sourceTab.payload);
+        MainSession.assignTabPayload(tab, clonedPayload, { reason: 'duplicate-fallback-clone' });
       } else {
-        assignTabPayload(tab, null, { reason: 'duplicate-fallback-empty' });
+        MainSession.assignTabPayload(tab, null, { reason: 'duplicate-fallback-empty' });
       }
       showWorkspaceForTab(tab);
-      markSessionDirty('duplicate-fallback', { tabId: tab?.id || null, type, reused: !!(canDuplicate && sourceTab?.payload) });
+      MainSession.markSessionDirty('duplicate-fallback', { tabId: tab?.id || null, type, reused: !!(canDuplicate && sourceTab?.payload) });
       return;
     }
     const info = GRAPH_TYPES.find(item => item.type === type);
@@ -1599,18 +1495,18 @@
       dom.duplicateReuse.onclick = () => {
         hideDuplicatePrompt();
         if (canDuplicate && sourceTab?.payload) {
-          const clonedPayload = clonePayload(sourceTab.payload);
-          assignTabPayload(tab, clonedPayload, { reason: 'duplicate-reuse' });
+          const clonedPayload = MainSession.clonePayload(sourceTab.payload);
+          MainSession.assignTabPayload(tab, clonedPayload, { reason: 'duplicate-reuse' });
         }
         showWorkspaceForTab(tab);
-        markSessionDirty('duplicate-reuse', { tabId: tab?.id || null, sourceId: sourceTab?.id || null });
+        MainSession.markSessionDirty('duplicate-reuse', { tabId: tab?.id || null, sourceId: sourceTab?.id || null });
       };
     }
     dom.duplicateEmpty.onclick = () => {
       hideDuplicatePrompt();
-      assignTabPayload(tab, null, { reason: 'duplicate-empty' });
+      MainSession.assignTabPayload(tab, null, { reason: 'duplicate-empty' });
       showWorkspaceForTab(tab);
-      markSessionDirty('duplicate-empty', { tabId: tab?.id || null });
+      MainSession.markSessionDirty('duplicate-empty', { tabId: tab?.id || null });
     };
     if (dom.duplicateCancel) {
       dom.duplicateCancel.onclick = () => {
@@ -1649,7 +1545,7 @@
         type,
         candidateSource
       });
-      markSessionDirty('tab-created', { tabId: newTab.id, reason: 'welcome-selection' });
+      MainSession.markSessionDirty('tab-created', { tabId: newTab.id, reason: 'welcome-selection' });
       previousType = null;
       previousTitle = tab.title || '';
     }
@@ -1664,10 +1560,10 @@
     renderTabs();
     console.debug('Debug: graph assigned to tab', { tabId: tab.id, type });
     if (priorType !== type) {
-      markSessionDirty('graph-type-changed', { tabId: tab.id, previousType: priorType, nextType: type });
+      MainSession.markSessionDirty('graph-type-changed', { tabId: tab.id, previousType: priorType, nextType: type });
     }
     if (tab.title !== priorTitle) {
-      markSessionDirty('tab-title-updated', { tabId: tab.id, previousTitle: priorTitle, nextTitle: tab.title });
+      MainSession.markSessionDirty('tab-title-updated', { tabId: tab.id, previousTitle: priorTitle, nextTitle: tab.title });
     }
     const sourceId = tab.duplicateSource || workspaceState.pendingDuplicateSource;
     workspaceState.pendingDuplicateSource = null;
@@ -1686,9 +1582,9 @@
         hasPayload: !!sourceTab.payload
       });
     }
-    const payloadCleared = assignTabPayload(tab, null, { reason: 'graph-selection-reset' });
+    const payloadCleared = MainSession.assignTabPayload(tab, null, { reason: 'graph-selection-reset' });
     if (payloadCleared) {
-      markSessionDirty('graph-payload-reset', { tabId: tab.id, previousType: priorType, nextType: type });
+      MainSession.markSessionDirty('graph-payload-reset', { tabId: tab.id, previousType: priorType, nextType: type });
     }
     showWorkspaceForTab(tab);
   }
@@ -1704,7 +1600,7 @@
     workspaceState.activeTabId = newTab.id;
     workspaceState.pendingDuplicateSource = candidateSource;
     renderTabs();
-    markSessionDirty('tab-created', { tabId: newTab.id, reason: 'add-tab-click' });
+    MainSession.markSessionDirty('tab-created', { tabId: newTab.id, reason: 'add-tab-click' });
     showGraphSelection({ reason: 'new-tab' });
     console.debug('Debug: add tab invoked', { newTabId: newTab.id, duplicateSource: candidateSource });
   }
@@ -1832,8 +1728,8 @@
     }
   });
 
-  window.addEventListener('scroll', () => hideTabPreviewTooltip('scroll'), true);
-  window.addEventListener('resize', () => hideTabPreviewTooltip('resize'));
+  window.addEventListener('scroll', () => MainPreviews.hideTabPreviewTooltip('scroll'), true);
+  window.addEventListener('resize', () => MainPreviews.hideTabPreviewTooltip('resize'));
 
 })();
 
