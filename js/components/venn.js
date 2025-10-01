@@ -18,50 +18,161 @@
     console.debug(`Debug: venn ${label}`, payload || {});
   };
 
-  const state = {
-    scheduleDraw: null,
-    fileHandle: null,
-    fileName: 'venn.graph',
-    goChart: null,
-    lastStringSVG: null,
-    lastRegions: null,
-    lastCounts: null,
-    lastDrawMode: null,
-    inputs: null,
-    countsUI: null,
-    regionSelect: null,
-    regionList: null,
-    copyRegionBtn: null,
-    goBtn: null,
-    stringBtn: null,
-    goResults: null,
-    stringResults: null,
-    stringNetwork: null,
-    goChartExport: null,
-    stringNetworkExport: null,
-    tooltip: null,
-    speciesSelect: null,
-    totalGenesInput: null,
-    significanceResults: null,
-    calcSignificanceBtn: null,
-    goCategoryChecks: [],
-    goOptsBtn: null,
-    goOptions: null,
-    goUseAllBackground: null,
-    stringOptsBtn: null,
-    stringOptions: null,
-    analysisResults: null,
-    lastGOResult: null,
-    lastGOFormatted: [],
-    lastGOOrganism: 'hsapiens',
-    stage: null,
-    syncPanels: null,
-    panelObserver: null,
-    panelResizer: null,
-    tablePanel: null,
-    graphPanel: null,
-    svgBox: null,
-  };
+  /**
+   * @typedef {Object} VennInputCounts
+   * @property {HTMLInputElement|null} nA - Numeric input for the size of set A.
+   * @property {HTMLInputElement|null} nB - Numeric input for the size of set B.
+   * @property {HTMLInputElement|null} nC - Numeric input for the size of set C.
+   * @property {HTMLInputElement|null} nAB - Numeric input for |A ∩ B|.
+   * @property {HTMLInputElement|null} nAC - Numeric input for |A ∩ C|.
+   * @property {HTMLInputElement|null} nBC - Numeric input for |B ∩ C|.
+   * @property {HTMLInputElement|null} nABC - Numeric input for |A ∩ B ∩ C|.
+   */
+
+  /**
+   * @typedef {Object} VennInputControls
+   * @property {HTMLTextAreaElement|null} A - Text area for list A contents.
+   * @property {HTMLTextAreaElement|null} B - Text area for list B contents.
+   * @property {HTMLTextAreaElement|null} C - Text area for list C contents.
+   * @property {HTMLInputElement|null} labelA - Input for the display label of set A.
+   * @property {HTMLInputElement|null} labelB - Input for the display label of set B.
+   * @property {HTMLInputElement|null} labelC - Input for the display label of set C.
+   * @property {HTMLInputElement|null} colorA - Color input for set A.
+   * @property {HTMLInputElement|null} colorB - Color input for set B.
+   * @property {HTMLInputElement|null} colorC - Color input for set C.
+   * @property {HTMLInputElement|null} opacity - Range input for fill opacity.
+   * @property {HTMLInputElement|null} fontsize - Range input for label font size.
+   * @property {HTMLInputElement|null} borderColor - Color input for circle borders.
+   * @property {HTMLInputElement|null} borderWidth - Range input for circle border width.
+   * @property {HTMLElement|null} opacityVal - Display span for opacity value.
+   * @property {HTMLElement|null} fontsizeVal - Display span for font size value.
+   * @property {HTMLElement|null} borderWidthVal - Display span for border width value.
+   * @property {HTMLInputElement|null} caseSensitive - Toggle for case-sensitive parsing.
+   * @property {HTMLSelectElement|null} delimiter - Select box for list delimiter.
+   * @property {VennInputCounts} counts - Numeric fields for overlap-driven drawing.
+   */
+
+  /**
+   * @typedef {Object} VennStateUI
+   * @property {Function|null} scheduleDraw - Debounced draw scheduler produced during init.
+   * @property {VennInputControls|null} inputs - Collection of textarea and control inputs.
+   * @property {{[key: string]: HTMLElement|null}|null} countsUI - Output nodes for live counts.
+   * @property {HTMLSelectElement|null} regionSelect - Dropdown for selecting overlap regions.
+   * @property {HTMLElement|null} regionList - Container showing genes for the selected region.
+   * @property {HTMLButtonElement|null} copyRegionBtn - Copy-to-clipboard helper for genes.
+   * @property {HTMLButtonElement|null} goBtn - Trigger button for GO analysis.
+   * @property {HTMLButtonElement|null} stringBtn - Trigger button for STRING analysis.
+   * @property {HTMLElement|null} goResults - Container for GO analysis results.
+   * @property {HTMLElement|null} stringResults - Container for STRING analysis results.
+   * @property {HTMLElement|null} stringNetwork - Container for STRING network SVG content.
+   * @property {HTMLElement|null} goChartExport - Export controls wrapper for GO charts.
+   * @property {HTMLElement|null} stringNetworkExport - Export controls wrapper for STRING SVG.
+   * @property {HTMLElement|null} tooltip - Shared tooltip element for contextual hints.
+   * @property {HTMLSelectElement|null} speciesSelect - Species selector for downstream analysis.
+   * @property {HTMLInputElement|null} totalGenesInput - Total universe size input for stats.
+   * @property {HTMLElement|null} significanceResults - Output node for hypergeometric stats.
+   * @property {HTMLButtonElement|null} calcSignificanceBtn - Button to calculate significance.
+   * @property {HTMLInputElement[]} goCategoryChecks - GO source checkboxes.
+   * @property {HTMLButtonElement|null} goOptsBtn - Toggle button for GO advanced options.
+   * @property {HTMLElement|null} goOptions - Container holding GO advanced options.
+   * @property {HTMLInputElement|null} goUseAllBackground - Toggle to use all genes as background.
+   * @property {HTMLButtonElement|null} stringOptsBtn - Toggle for STRING advanced options.
+   * @property {HTMLElement|null} stringOptions - Container for STRING advanced options.
+   * @property {HTMLElement|null} analysisResults - Wrapper summarizing analysis status text.
+   * @property {SVGElement|null} stage - Main SVG stage element for the diagram.
+   * @property {Function|null} syncPanels - Reference to Shared.syncPanelWidths binding.
+   * @property {ResizeObserver|null} panelObserver - Observer watching panel size changes.
+   * @property {HTMLElement|null} panelResizer - Resizer handle element between panels.
+   * @property {HTMLElement|null} tablePanel - DOM node for the table panel.
+   * @property {HTMLElement|null} graphPanel - DOM node for the graph panel.
+   * @property {HTMLElement|null} svgBox - Cached `.svgbox` wrapper around the stage.
+   */
+
+  /**
+   * @typedef {Object} VennStateAnalysis
+   * @property {import('chart.js').Chart|null} goChart - Active Chart.js instance for GO data.
+   * @property {string|null} lastStringSVG - Cached STRING network SVG markup.
+   * @property {Object|null} lastRegions - Cached region-to-gene map from last draw.
+   * @property {Object|null} lastCounts - Cached counts from the last successful draw.
+   * @property {string|null} lastDrawMode - Indicator of whether list or numeric draw was last used.
+   * @property {Array|null} lastGOResult - Cached GO API response entries.
+   * @property {string[]} lastGOFormatted - Cached formatted genes submitted to GO.
+   * @property {string} lastGOOrganism - Organism code used for the last GO request.
+   */
+
+  /**
+   * @typedef {Object} VennStatePersistence
+   * @property {FileSystemFileHandle|null} fileHandle - Handle to the currently opened `.graph` file.
+   * @property {string} fileName - Friendly name to use when saving state to disk.
+   */
+
+  /**
+   * @typedef {Object} VennComponentState
+   * @property {VennStateUI} ui - Group of UI-focused references and DOM nodes.
+   * @property {VennStateAnalysis} analysis - Cached analytical outputs and results.
+   * @property {VennStatePersistence} persistence - Persistence-related metadata for files.
+   */
+
+  /**
+   * Creates the initial state tree used throughout the Venn component.
+   * Logs creation so debug coverage can assert initialization flow.
+   * @returns {VennComponentState}
+   */
+  function createInitialState() {
+    console.debug('Debug: venn createInitialState invoked'); // Debug: track initial state creation
+    return {
+      ui: {
+        scheduleDraw: null,
+        inputs: null,
+        countsUI: null,
+        regionSelect: null,
+        regionList: null,
+        copyRegionBtn: null,
+        goBtn: null,
+        stringBtn: null,
+        goResults: null,
+        stringResults: null,
+        stringNetwork: null,
+        goChartExport: null,
+        stringNetworkExport: null,
+        tooltip: null,
+        speciesSelect: null,
+        totalGenesInput: null,
+        significanceResults: null,
+        calcSignificanceBtn: null,
+        goCategoryChecks: [],
+        goOptsBtn: null,
+        goOptions: null,
+        goUseAllBackground: null,
+        stringOptsBtn: null,
+        stringOptions: null,
+        analysisResults: null,
+        stage: null,
+        syncPanels: null,
+        panelObserver: null,
+        panelResizer: null,
+        tablePanel: null,
+        graphPanel: null,
+        svgBox: null,
+      },
+      analysis: {
+        goChart: null,
+        lastStringSVG: null,
+        lastRegions: null,
+        lastCounts: null,
+        lastDrawMode: null,
+        lastGOResult: null,
+        lastGOFormatted: [],
+        lastGOOrganism: 'hsapiens',
+      },
+      persistence: {
+        fileHandle: null,
+        fileName: 'venn.graph',
+      }
+    };
+  }
+
+  const state = createInitialState();
 
   const DEFAULT_STAGE_WIDTH = 500;
   const DEFAULT_STAGE_HEIGHT = 340;
@@ -81,8 +192,8 @@
   // --- Core Functions ---
 
   function ensureInputs() {
-    if (!state.inputs) throw new Error('Venn inputs not initialized');
-    return state.inputs;
+    if (!state.ui.inputs) throw new Error('Venn inputs not initialized');
+    return state.ui.inputs;
   }
 
   function splitItems(text, mode) {
@@ -208,13 +319,13 @@
   }
 
   function clearSVG() {
-    const stage = state.stage;
+    const stage = state.ui.stage;
     if (!stage) return;
     while (stage.firstChild) stage.removeChild(stage.firstChild);
   }
 
   function makeEl(tag, attrs = {}, parent) {
-    const stage = state.stage;
+    const stage = state.ui.stage;
     if (!parent) parent = stage;
     const el = document.createElementNS(NS, tag);
     for (const [k, v] of Object.entries(attrs)) {
@@ -235,15 +346,15 @@
   }
 
   function resolveFontInfo(rawSize) {
-    const stageEl = state.stage;
-    const fallbackSvgBox = stageEl?.closest?.('.svgbox') || state.graphPanel?.querySelector?.('.svgbox') || null;
-    const svgBox = state.svgBox || fallbackSvgBox || null;
-    if (!state.svgBox && svgBox) {
-      state.svgBox = svgBox;
+    const stageEl = state.ui.stage;
+    const fallbackSvgBox = stageEl?.closest?.('.svgbox') || state.ui.graphPanel?.querySelector?.('.svgbox') || null;
+    const svgBox = state.ui.svgBox || fallbackSvgBox || null;
+    if (!state.ui.svgBox && svgBox) {
+      state.ui.svgBox = svgBox;
       console.debug('Debug: venn resolveFontInfo captured svgBox', { hasSvgBox: true });
     }
-    const inputs = ensureInputs?.() || state.inputs || {};
-    const fontInput = inputs.fontsize || state.inputs?.fontsize || document.getElementById('fontsize');
+    const inputs = ensureInputs?.() || state.ui.inputs || {};
+    const fontInput = inputs.fontsize || state.ui.inputs?.fontsize || document.getElementById('fontsize');
     if(fontInput && fontInput.dataset && typeof fontInput.dataset.fontBasePt === 'undefined'){
       fontInput.dataset.fontBasePt = String(fontInput.value || rawSize || '');
       console.debug('Debug: venn font size base ensured', { value: fontInput.value }); // Debug: ensure base dataset
@@ -340,7 +451,7 @@
   }
 
   function enableDrag(el) {
-    const stage = state.stage;
+    const stage = state.ui.stage;
     if (!stage) return;
     let drag = false, start = { x: 0, y: 0 }, orig = { x: 0, y: 0 };
     el.style.cursor = 'move';
@@ -450,15 +561,15 @@
   }
 
   function getRegionText(code) {
-    if (!state.lastRegions) return '';
+    if (!state.analysis.lastRegions) return '';
     const map = {
-      A: state.lastRegions.Aonly,
-      B: state.lastRegions.Bonly,
-      C: state.lastRegions.Conly,
-      AB: state.lastRegions.AB,
-      AC: state.lastRegions.AC,
-      BC: state.lastRegions.BC,
-      ABC: state.lastRegions.ABC
+      A: state.analysis.lastRegions.Aonly,
+      B: state.analysis.lastRegions.Bonly,
+      C: state.analysis.lastRegions.Conly,
+      AB: state.analysis.lastRegions.AB,
+      AC: state.analysis.lastRegions.AC,
+      BC: state.analysis.lastRegions.BC,
+      ABC: state.analysis.lastRegions.ABC
     };
     const genes = [...(map[code] || new Set())];
     return genes.join('\n');
@@ -466,30 +577,30 @@
 
   function populateRegion(code) {
     clearAnalysis();
-    if (!state.lastRegions || !state.regionList) return;
+    if (!state.analysis.lastRegions || !state.ui.regionList) return;
     const map = {
-      A: state.lastRegions.Aonly,
-      B: state.lastRegions.Bonly,
-      C: state.lastRegions.Conly,
-      AB: state.lastRegions.AB,
-      AC: state.lastRegions.AC,
-      BC: state.lastRegions.BC,
-      ABC: state.lastRegions.ABC
+      A: state.analysis.lastRegions.Aonly,
+      B: state.analysis.lastRegions.Bonly,
+      C: state.analysis.lastRegions.Conly,
+      AB: state.analysis.lastRegions.AB,
+      AC: state.analysis.lastRegions.AC,
+      BC: state.analysis.lastRegions.BC,
+      ABC: state.analysis.lastRegions.ABC
     };
     const arr = [...(map[code] || new Set())].sort();
-    state.regionList.innerHTML = arr.length ? arr.map(x => `<div class="gene-item">${x}<span class="gene-link" data-gene="${x}">&#128279;</span></div>`).join('') : '(empty)';
-    if (state.copyRegionBtn) { state.copyRegionBtn.style.display = arr.length ? 'block' : 'none'; }
+    state.ui.regionList.innerHTML = arr.length ? arr.map(x => `<div class="gene-item">${x}<span class="gene-link" data-gene="${x}">&#128279;</span></div>`).join('') : '(empty)';
+    if (state.ui.copyRegionBtn) { state.ui.copyRegionBtn.style.display = arr.length ? 'block' : 'none'; }
   }
 
   function refreshCounts(c) {
-    if (!state.countsUI) return;
-    state.countsUI.A.textContent = c.nA;
-    state.countsUI.B.textContent = c.nB;
-    state.countsUI.C.textContent = c.nC;
-    state.countsUI.AB.textContent = c.AB + c.ABC;
-    state.countsUI.AC.textContent = c.AC + c.ABC;
-    state.countsUI.BC.textContent = c.BC + c.ABC;
-    state.countsUI.ABC.textContent = c.ABC;
+    if (!state.ui.countsUI) return;
+    state.ui.countsUI.A.textContent = c.nA;
+    state.ui.countsUI.B.textContent = c.nB;
+    state.ui.countsUI.C.textContent = c.nC;
+    state.ui.countsUI.AB.textContent = c.AB + c.ABC;
+    state.ui.countsUI.AC.textContent = c.AC + c.ABC;
+    state.ui.countsUI.BC.textContent = c.BC + c.ABC;
+    state.ui.countsUI.ABC.textContent = c.ABC;
     debugLog('refreshCounts', c);
   }
 
@@ -511,7 +622,7 @@
   }
 
   function updateRegionSelect(labels, countsOverride) {
-    if (!state.regionSelect) return;
+    if (!state.ui.regionSelect) return;
     const map = {
       A: labels.A + ' only',
       B: labels.B + ' only',
@@ -521,7 +632,7 @@
       BC: labels.B + '∩' + labels.C + ' only',
       ABC: labels.A + '∩' + labels.B + '∩' + labels.C
     };
-    const counts = countsOverride || state.lastCounts;
+    const counts = countsOverride || state.analysis.lastCounts;
     const requiredSets = {
       A: ['A'],
       B: ['B'],
@@ -531,13 +642,13 @@
       BC: ['B', 'C'],
       ABC: ['A', 'B', 'C']
     };
-    const options = [...state.regionSelect.options];
+    const options = [...state.ui.regionSelect.options];
     const presence = counts ? {
       A: Number(counts.nA || 0) > 0,
       B: Number(counts.nB || 0) > 0,
       C: Number(counts.nC || 0) > 0
     } : { A: true, B: true, C: true };
-    const previousValue = state.regionSelect.value;
+    const previousValue = state.ui.regionSelect.value;
     let previousValueVisible = false;
     let firstVisibleValue = null;
     options.forEach(option => {
@@ -551,14 +662,14 @@
     });
     if (counts) {
       if (!firstVisibleValue) {
-        state.regionSelect.value = '';
-        if (state.regionList) state.regionList.textContent = '(empty)';
-        if (state.copyRegionBtn) state.copyRegionBtn.style.display = 'none';
+        state.ui.regionSelect.value = '';
+        if (state.ui.regionList) state.ui.regionList.textContent = '(empty)';
+        if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.style.display = 'none';
         console.debug('Debug: venn regionSelect empty after update', { counts }); // Debug: region select no visible options
       } else if (!previousValueVisible) {
-        state.regionSelect.value = firstVisibleValue;
+        state.ui.regionSelect.value = firstVisibleValue;
         console.debug('Debug: venn regionSelect fallback applied', { previousValue, next: firstVisibleValue }); // Debug: region select fallback selection
-        if (state.lastRegions) {
+        if (state.analysis.lastRegions) {
           populateRegion(firstVisibleValue);
         }
       }
@@ -566,7 +677,7 @@
     console.debug('Debug: venn regionSelect visibility updated', {
       countsAvailable: !!counts,
       presence,
-      selected: state.regionSelect.value
+      selected: state.ui.regionSelect.value
     }); // Debug: region select visibility state snapshot
   }
 
@@ -580,34 +691,34 @@
   }
 
   function clearAnalysis() {
-    if (state.goResults) state.goResults.innerHTML = '';
-    if (state.stringResults) state.stringResults.innerHTML = '';
-    if (state.stringNetwork) state.stringNetwork.innerHTML = '';
-    if (state.goChart) { state.goChart.destroy(); state.goChart = null; }
+    if (state.ui.goResults) state.ui.goResults.innerHTML = '';
+    if (state.ui.stringResults) state.ui.stringResults.innerHTML = '';
+    if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
+    if (state.analysis.goChart) { state.analysis.goChart.destroy(); state.analysis.goChart = null; }
     const canvas = document.getElementById('goChart');
     if (canvas) canvas.style.display = 'none';
-    if (state.goChartExport) state.goChartExport.style.display = 'none';
-    if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
+    if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
+    if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
   }
 
   function renderGOChart(limit = 5) {
-    if (!state.goResults) return;
-    if (!state.lastGOResult || !state.lastGOResult.length) {
+    if (!state.ui.goResults) return;
+    if (!state.analysis.lastGOResult || !state.analysis.lastGOResult.length) {
       const canvas = document.getElementById('goChart');
       if (canvas) canvas.style.display = 'none';
-      if (state.goChartExport) state.goChartExport.style.display = 'none';
-      if (state.goChart) { state.goChart.destroy(); state.goChart = null; }
+      if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
+      if (state.analysis.goChart) { state.analysis.goChart.destroy(); state.analysis.goChart = null; }
       return;
     }
-    const data = state.lastGOResult.slice(0, limit);
+    const data = state.analysis.lastGOResult.slice(0, limit);
     const labels = data.map(r => r.term_name || r.name || '');
     const values = data.map(r => -Math.log10(r.p_value));
     const barColor = '#64b5f6';
-    if (state.goChart) { state.goChart.destroy(); }
+    if (state.analysis.goChart) { state.analysis.goChart.destroy(); }
     const canvas = document.getElementById('goChart');
     if (!canvas) return;
     canvas.style.display = 'block';
-    if (state.goChartExport) state.goChartExport.style.display = 'flex';
+    if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'flex';
     const isAll = limit > 5;
     const baseBarHeight = 25;
     const minBarHeight = 18;
@@ -637,40 +748,40 @@
       },
       locale: 'en-US'
     };
-    state.goChart = new Chart(ctx, config);
+    state.analysis.goChart = new Chart(ctx, config);
   }
 
   function renderGOResults(limit = 5) {
-    if (!state.goResults) return;
-    if (!state.lastGOResult || !state.lastGOResult.length) {
-      state.goResults.innerHTML = '<div>No GO results</div>';
+    if (!state.ui.goResults) return;
+    if (!state.analysis.lastGOResult || !state.analysis.lastGOResult.length) {
+      state.ui.goResults.innerHTML = '<div>No GO results</div>';
       return;
     }
-    const items = state.lastGOResult.slice(0, limit).map(r => {
+    const items = state.analysis.lastGOResult.slice(0, limit).map(r => {
       const term = r.term_name || r.name || 'unknown term';
       const src = r.source || 'unknown source';
       return `<div>${term} [${src}] (p=${Number(r.p_value).toExponential(2)})</div>`;
     }).join('');
-    const fullUrl = `https://biit.cs.ut.ee/gprofiler/gost?organism=${state.lastGOOrganism}&query=${encodeURIComponent(state.lastGOFormatted.join('\n'))}`;
+    const fullUrl = `https://biit.cs.ut.ee/gprofiler/gost?organism=${state.analysis.lastGOOrganism}&query=${encodeURIComponent(state.analysis.lastGOFormatted.join('\n'))}`;
     const link = `<div><a href="${fullUrl}" target="_blank" rel="noopener">View full GO analysis</a>${
-      state.lastGOResult.length > 5 ? ` | <button class="btn" id="toggleGoResults" data-state="${limit === 5 ? 'top5' : 'all'}">${
+      state.analysis.lastGOResult.length > 5 ? ` | <button class="btn" id="toggleGoResults" data-state="${limit === 5 ? 'top5' : 'all'}">${
         limit === 5 ? 'Show all results' : 'Show top 5'}</button>` : ''}</div>`;
-    state.goResults.innerHTML = `<strong>${limit === 5 ? 'Top 5 GO terms' : 'All GO terms'}</strong>` + items + link;
+    state.ui.goResults.innerHTML = `<strong>${limit === 5 ? 'Top 5 GO terms' : 'All GO terms'}</strong>` + items + link;
     renderGOChart(limit);
   }
 
   function positionTooltip(x, y) {
-    if (!state.tooltip) return;
+    if (!state.ui.tooltip) return;
     let left = x, top = y;
-    state.tooltip.style.left = left + 'px';
-    state.tooltip.style.top = top + 'px';
-    const rect = state.tooltip.getBoundingClientRect();
+    state.ui.tooltip.style.left = left + 'px';
+    state.ui.tooltip.style.top = top + 'px';
+    const rect = state.ui.tooltip.getBoundingClientRect();
     const rightBound = window.scrollX + window.innerWidth - 8;
     const bottomBound = window.scrollY + window.innerHeight - 8;
     if (rect.right > rightBound) { left = Math.max(window.scrollX + 8, rightBound - rect.width); }
     if (rect.bottom > bottomBound) { top = Math.max(window.scrollY + 8, bottomBound - rect.height); }
-    state.tooltip.style.left = left + 'px';
-    state.tooltip.style.top = top + 'px';
+    state.ui.tooltip.style.left = left + 'px';
+    state.ui.tooltip.style.top = top + 'px';
   }
 
   async function fetchUniProtAnnotation(gene) {
@@ -703,26 +814,26 @@
   }
 
   function calculateSignificance() {
-    if (!state.lastCounts || !state.significanceResults) {
-      if (state.significanceResults) state.significanceResults.textContent = 'Draw a Venn diagram first.';
+    if (!state.analysis.lastCounts || !state.ui.significanceResults) {
+      if (state.ui.significanceResults) state.ui.significanceResults.textContent = 'Draw a Venn diagram first.';
       return;
     }
-    const total = +state.totalGenesInput.value;
-    if (!total || total < Math.max(state.lastCounts.nA, state.lastCounts.nB, state.lastCounts.nC)) {
-      state.significanceResults.textContent = 'Please enter a valid total gene count.';
+    const total = +state.ui.totalGenesInput.value;
+    if (!total || total < Math.max(state.analysis.lastCounts.nA, state.analysis.lastCounts.nB, state.analysis.lastCounts.nC)) {
+      state.ui.significanceResults.textContent = 'Please enter a valid total gene count.';
       return;
     }
     const inputs = ensureInputs();
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
     const res = [];
-    const pAB = hypergeomPval(total, state.lastCounts.nA, state.lastCounts.nB, state.lastCounts.AB + state.lastCounts.ABC);
+    const pAB = hypergeomPval(total, state.analysis.lastCounts.nA, state.analysis.lastCounts.nB, state.analysis.lastCounts.AB + state.analysis.lastCounts.ABC);
     res.push({ name: `${labels.A}∩${labels.B}`, p: pAB });
-    if (state.lastCounts.nC > 0) {
-      const pAC = hypergeomPval(total, state.lastCounts.nA, state.lastCounts.nC, state.lastCounts.AC + state.lastCounts.ABC);
+    if (state.analysis.lastCounts.nC > 0) {
+      const pAC = hypergeomPval(total, state.analysis.lastCounts.nA, state.analysis.lastCounts.nC, state.analysis.lastCounts.AC + state.analysis.lastCounts.ABC);
       res.push({ name: `${labels.A}∩${labels.C}`, p: pAC });
-      const pBC = hypergeomPval(total, state.lastCounts.nB, state.lastCounts.nC, state.lastCounts.BC + state.lastCounts.ABC);
+      const pBC = hypergeomPval(total, state.analysis.lastCounts.nB, state.analysis.lastCounts.nC, state.analysis.lastCounts.BC + state.analysis.lastCounts.ABC);
       res.push({ name: `${labels.B}∩${labels.C}`, p: pBC });
-      const pABC = hypergeomPval(total, state.lastCounts.AB + state.lastCounts.ABC, state.lastCounts.nC, state.lastCounts.ABC);
+      const pABC = hypergeomPval(total, state.analysis.lastCounts.AB + state.analysis.lastCounts.ABC, state.analysis.lastCounts.nC, state.analysis.lastCounts.ABC);
       res.push({ name: `${labels.A}∩${labels.B}∩${labels.C}`, p: pABC });
     }
     const hasRenderer = Shared.statsTable && typeof Shared.statsTable.render === 'function';
@@ -733,7 +844,7 @@
     }));
     if (hasRenderer) {
       Shared.statsTable.render({
-        target: state.significanceResults,
+        target: state.ui.significanceResults,
         columns: [
           { key: 'overlap', label: 'Overlap', align: 'left' },
           { key: 'pvalue', label: 'p-value', align: 'right' },
@@ -748,7 +859,7 @@
         }
       });
     } else {
-      state.significanceResults.innerHTML = '<table><tr><th>Overlap</th><th>p-value</th><th>Significant</th></tr>' +
+      state.ui.significanceResults.innerHTML = '<table><tr><th>Overlap</th><th>p-value</th><th>Significant</th></tr>' +
         rows.map(r => `<tr><td>${r.overlap}</td><td>${r.pvalue}</td><td>${r.significant}</td></tr>`).join('') +
         '</table>';
     }
@@ -791,54 +902,54 @@
   }
 
   function setSpeciesIndicator(success) {
-    if (!state.speciesSelect) return;
+    if (!state.ui.speciesSelect) return;
     if (success === null) {
-      state.speciesSelect.style.backgroundColor = '';
+      state.ui.speciesSelect.style.backgroundColor = '';
       return;
     }
     const color = success ? '#b5d99c' : '#f28b82';
-    state.speciesSelect.style.backgroundColor = color;
+    state.ui.speciesSelect.style.backgroundColor = color;
   }
 
   async function recognizeSpeciesFromInput() {
     const genes = getAllGenes();
     const guess = genes.length ? await guessSpecies(genes) : null;
     if (guess) {
-      state.speciesSelect.value = guess;
+      state.ui.speciesSelect.value = guess;
       setSpeciesIndicator(true);
     } else {
-      state.speciesSelect.value = '';
+      state.ui.speciesSelect.value = '';
       setSpeciesIndicator(false);
     }
   }
 
   async function runGOAnalysis(genes, organism) {
     const formatted = genes.map(g => g.trim().toUpperCase()).filter(x => x);
-    if (!formatted.length) { if (state.goResults) state.goResults.innerHTML = '<i>No genes for analysis</i>'; return; }
-    const org = organism || state.speciesSelect.value;
+    if (!formatted.length) { if (state.ui.goResults) state.ui.goResults.innerHTML = '<i>No genes for analysis</i>'; return; }
+    const org = organism || state.ui.speciesSelect.value;
     if (!org) {
-      if (state.goResults) state.goResults.innerHTML = '<div>Please select a species before running GO analysis.</div>';
+      if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Please select a species before running GO analysis.</div>';
       return;
     }
-    const sources = state.goCategoryChecks.filter(cb => cb.checked).map(cb => cb.value);
+    const sources = state.ui.goCategoryChecks.filter(cb => cb.checked).map(cb => cb.value);
     if (!sources.length) {
-      if (state.goResults) state.goResults.innerHTML = '<div>Please select at least one GO category.</div>';
+      if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Please select at least one GO category.</div>';
       return;
     }
     const service = Shared.goAnalysis;
     if (!service || typeof service.profile !== 'function') {
       console.warn('venn: Shared.goAnalysis.profile unavailable');
-      if (state.goResults) state.goResults.innerHTML = '<div>GO analysis service unavailable.</div>';
+      if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>GO analysis service unavailable.</div>';
       return;
     }
-    state.lastGOFormatted = formatted;
-    state.lastGOOrganism = org;
-    state.lastGOResult = null;
+    state.analysis.lastGOFormatted = formatted;
+    state.analysis.lastGOOrganism = org;
+    state.analysis.lastGOResult = null;
     renderGOChart();
-    if (state.goResults) state.goResults.innerHTML = '<i>Running GO analysis...</i>';
+    if (state.ui.goResults) state.ui.goResults.innerHTML = '<i>Running GO analysis...</i>';
     let background;
     let domainScope;
-    if (state.goUseAllBackground?.checked) {
+    if (state.ui.goUseAllBackground?.checked) {
       const bg = getAllGenes().map(g => g.trim().toUpperCase()).filter(x => x);
       if (bg.length) {
         background = bg;
@@ -854,15 +965,15 @@
         domainScope,
         fetch
       });
-      state.lastGOResult = response.result || [];
-      if (state.lastGOResult.length) {
+      state.analysis.lastGOResult = response.result || [];
+      if (state.analysis.lastGOResult.length) {
         renderGOResults(5);
-      } else if (state.goResults) {
-        state.goResults.innerHTML = '<div>No GO results</div>';
+      } else if (state.ui.goResults) {
+        state.ui.goResults.innerHTML = '<div>No GO results</div>';
       }
     } catch (err) {
       console.error('runGOAnalysis error', err);
-      if (state.goResults) state.goResults.innerHTML = '<div>Error fetching GO analysis</div>';
+      if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Error fetching GO analysis</div>';
     }
     debugLog('runGOAnalysis invoked', { organism: org, geneCount: formatted.length });
   }
@@ -870,34 +981,34 @@
   async function runStringAnalysis(genes, organism) {
     const formatted = genes.map(g => g.trim().toUpperCase()).filter(x => x);
     if (!formatted.length) {
-      if (state.stringNetwork) state.stringNetwork.innerHTML = '';
-      if (state.stringResults) state.stringResults.innerHTML = '<i>No genes for analysis</i>';
-      if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
+      if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
+      if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<i>No genes for analysis</i>';
+      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
       return;
     }
-    const org = organism || state.speciesSelect.value;
+    const org = organism || state.ui.speciesSelect.value;
     if (!org) {
-      if (state.stringNetwork) state.stringNetwork.innerHTML = '';
-      if (state.stringResults) state.stringResults.innerHTML = '<div>Please select a species before running STRING analysis.</div>';
-      if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
+      if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
+      if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>Please select a species before running STRING analysis.</div>';
+      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
       return;
     }
     const service = Shared.stringAnalysis;
     if (!service || typeof service.fetchNetwork !== 'function' || typeof service.fetchEnrichment !== 'function') {
       console.warn('venn: Shared.stringAnalysis helpers unavailable');
-      state.lastStringSVG = null;
-      if (state.stringNetwork) state.stringNetwork.innerHTML = '<div>STRING services unavailable.</div>';
-      if (state.stringResults) state.stringResults.innerHTML = '<div>STRING services unavailable.</div>';
-      if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
+      state.analysis.lastStringSVG = null;
+      if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<div>STRING services unavailable.</div>';
+      if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>STRING services unavailable.</div>';
+      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
       return;
     }
-    if (state.stringNetwork) state.stringNetwork.innerHTML = '<i>Loading STRING network...</i>';
-    if (state.stringResults) state.stringResults.innerHTML = '<i>Running STRING enrichment...</i>';
-    if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
+    if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<i>Loading STRING network...</i>';
+    if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<i>Running STRING enrichment...</i>';
+    if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
     const networkType = document.querySelector('input[name="stringNetworkType"]:checked')?.value || 'functional';
     const edgeMeaning = document.querySelector('input[name="stringEdgeMeaning"]:checked')?.value || 'evidence';
     const sources = [...document.querySelectorAll('.stringSource:checked')].map(el => el.value);
-    const fallbackCode = state.speciesSelect?.selectedOptions[0]?.dataset.string;
+    const fallbackCode = state.ui.speciesSelect?.selectedOptions[0]?.dataset.string;
     const speciesCode = typeof service.resolveSpeciesCode === 'function'
       ? service.resolveSpeciesCode(org, fallbackCode)
       : (fallbackCode || { hsapiens: '9606', mmusculus: '10090', dmelanogaster: '7227', celegans: '6239' }[org] || '9606');
@@ -911,23 +1022,23 @@
     };
     try {
       const network = await service.fetchNetwork(requestOptions);
-      state.lastStringSVG = network.svg;
+      state.analysis.lastStringSVG = network.svg;
       const wrapper = document.createElement('div');
       wrapper.innerHTML = network.svg;
       const svgEl = wrapper.querySelector('svg');
-      if (state.stringNetwork) state.stringNetwork.innerHTML = '';
+      if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
       if (svgEl) {
         svgEl.style.maxWidth = '150%';
-        state.stringNetwork?.appendChild(svgEl);
-        if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'flex';
-      } else if (state.stringNetwork) {
-        state.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
+        state.ui.stringNetwork?.appendChild(svgEl);
+        if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'flex';
+      } else if (state.ui.stringNetwork) {
+        state.ui.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
       }
     } catch (err) {
       console.error('runStringAnalysis network error', err);
-      state.lastStringSVG = null;
-      if (state.stringNetwork) state.stringNetwork.innerHTML = '<div>Error loading STRING network</div>';
-      if (state.stringNetworkExport) state.stringNetworkExport.style.display = 'none';
+      state.analysis.lastStringSVG = null;
+      if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<div>Error loading STRING network</div>';
+      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
     }
     try {
       const enrichment = await service.fetchEnrichment(requestOptions);
@@ -936,13 +1047,13 @@
           const desc = r.termDescription || r.description || 'unknown term';
           return '<div>' + desc + ' (FDR=' + Number(r.fdr).toExponential(2) + ')</div>';
         }).join('');
-        if (state.stringResults) state.stringResults.innerHTML = '<strong>STRING enrichment</strong>' + items;
-      } else if (state.stringResults) {
-        state.stringResults.innerHTML = '<div>No STRING results</div>';
+        if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<strong>STRING enrichment</strong>' + items;
+      } else if (state.ui.stringResults) {
+        state.ui.stringResults.innerHTML = '<div>No STRING results</div>';
       }
     } catch (err) {
       console.error('runStringAnalysis enrichment error', err);
-      if (state.stringResults) state.stringResults.innerHTML = '<div>Error fetching STRING analysis</div>';
+      if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>Error fetching STRING analysis</div>';
     }
     debugLog('runStringAnalysis invoked', {
       organism: org,
@@ -954,7 +1065,7 @@
   }
 
   function buildGoChartSvgString() {
-    if (!state.goChart) {
+    if (!state.analysis.goChart) {
       debugLog('buildGoChartSvgString skipped', { reason: 'no chart' });
       return '';
     }
@@ -964,9 +1075,9 @@
       return '';
     }
     try {
-      const { labels } = state.goChart.data;
-      const values = state.goChart.data.datasets[0].data;
-      const color = state.goChart.data.datasets[0].backgroundColor;
+      const { labels } = state.analysis.goChart.data;
+      const values = state.analysis.goChart.data.datasets[0].data;
+      const color = state.analysis.goChart.data.datasets[0].backgroundColor;
       const width = canvas.width;
       const height = canvas.height;
       const measureCtx = document.createElement('canvas').getContext('2d');
@@ -1008,7 +1119,7 @@
   }
 
   async function exportGoChart(format) {
-    if (!state.goChart) return;
+    if (!state.analysis.goChart) return;
     const exporter = Shared.exporter;
     if (!exporter) {
       console.warn('exportGoChart missing exporter');
@@ -1032,14 +1143,14 @@
   }
 
   async function downloadStringPNG() {
-    if (!state.lastStringSVG) return;
+    if (!state.analysis.lastStringSVG) return;
     const exporter = Shared.exporter;
     if (!exporter || typeof exporter.svgStringToPngBlob !== 'function') {
       console.warn('downloadStringPNG missing exporter helpers');
       return;
     }
     try {
-      const blob = await exporter.svgStringToPngBlob(state.lastStringSVG, { contextLabel: 'string-export' });
+      const blob = await exporter.svgStringToPngBlob(state.analysis.lastStringSVG, { contextLabel: 'string-export' });
       if (!blob) return;
       exporter.downloadBlob(blob, 'string_network.png', 'string-export');
     } catch (err) {
@@ -1048,26 +1159,26 @@
   }
 
   function downloadStringSVG() {
-    if (!state.lastStringSVG) return;
+    if (!state.analysis.lastStringSVG) return;
     const exporter = Shared.exporter;
     if (!exporter) {
       console.warn('downloadStringSVG missing exporter helpers');
       return;
     }
-    const blob = new Blob([state.lastStringSVG], { type: 'image/svg+xml' });
+    const blob = new Blob([state.analysis.lastStringSVG], { type: 'image/svg+xml' });
     exporter.downloadBlob(blob, 'string_network.svg', 'string-export');
   }
 
   function fitAndDraw(d, style, labels, counts) {
     clearSVG();
-    const stage = state.stage;
+    const stage = state.ui.stage;
     if (!stage) return;
     if (typeof chartStyle.applySvgDefaults === 'function') {
       chartStyle.applySvgDefaults(stage);
     }
-    const svgBox = state.svgBox || stage.closest?.('.svgbox') || state.graphPanel?.querySelector?.('.svgbox') || null;
-    if (!state.svgBox && svgBox) {
-      state.svgBox = svgBox;
+    const svgBox = state.ui.svgBox || stage.closest?.('.svgbox') || state.ui.graphPanel?.querySelector?.('.svgbox') || null;
+    if (!state.ui.svgBox && svgBox) {
+      state.ui.svgBox = svgBox;
       console.debug('Debug: venn fitAndDraw captured svgBox', { hasSvgBox: true });
     }
     const svgBoxRect = svgBox?.getBoundingClientRect?.();
@@ -1128,7 +1239,7 @@
       fontSizePx: style.fontSizePx,
       fontSizePt: style.fontPt
     }); // Debug: stage font sync
-    const tooltip = state.tooltip;
+    const tooltip = state.ui.tooltip;
     const W = stageWidth;
     const H = stageHeight;
     const pad = 20;
@@ -1284,7 +1395,7 @@
       else if (inA && inC && !inB) region = 'AC';
       else if (inB && inC && !inA) region = 'BC';
       else if (inA && inB && inC) region = 'ABC';
-      if (region && state.regionSelect) { state.regionSelect.value = region; populateRegion(region); }
+      if (region && state.ui.regionSelect) { state.ui.regionSelect.value = region; populateRegion(region); }
     };
   }
 
@@ -1293,15 +1404,15 @@
     const mode = inputs.delimiter.value, cs = inputs.caseSensitive.checked;
     const A = parseList(inputs.A.value, cs, mode), B = parseList(inputs.B.value, cs, mode), C = parseList(inputs.C.value, cs, mode);
     const regions = setsFromLists(A, B, C);
-    state.lastRegions = regions;
-    state.lastDrawMode = 'lists';
+    state.analysis.lastRegions = regions;
+    state.analysis.lastDrawMode = 'lists';
     const counts = {
       nA: regions.A.size, nB: regions.B.size, nC: regions.C.size,
       Aonly: regions.Aonly.size, Bonly: regions.Bonly.size, Conly: regions.Conly.size,
       AB: regions.AB.size, AC: regions.AC.size, BC: regions.BC.size, ABC: regions.ABC.size
     };
-    state.lastCounts = counts;
-    if (state.significanceResults) state.significanceResults.innerHTML = '';
+    state.analysis.lastCounts = counts;
+    if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
     refreshCounts(counts);
     const pairs = { nAB: counts.AB + counts.ABC, nAC: counts.AC + counts.ABC, nBC: counts.BC + counts.ABC };
     const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
@@ -1330,7 +1441,7 @@
     updateRegionSelect(labels, counts);
     updateColorLabels(labels);
     fitAndDraw(L, style, labels, counts);
-    if (state.regionSelect) populateRegion(state.regionSelect.value);
+    if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
     recognizeSpeciesFromInput().catch(err => { });
     debugLog('drawFromLists complete', { mode, caseSensitive: cs, counts });
   }
@@ -1346,13 +1457,13 @@
       nA, nB, nC, Aonly, Bonly, Conly,
       AB: Math.max(0, nAB - nABC), AC: Math.max(0, nAC - nABC), BC: Math.max(0, nBC - nABC), ABC: nABC
     };
-    state.lastRegions = {
+    state.analysis.lastRegions = {
       A: new Set(), B: new Set(), C: new Set(), Aonly: new Set(), Bonly: new Set(), Conly: new Set(),
       AB: new Set(), AC: new Set(), BC: new Set(), ABC: new Set()
     };
-    state.lastDrawMode = 'numeric';
-    state.lastCounts = counts;
-    if (state.significanceResults) state.significanceResults.innerHTML = '';
+    state.analysis.lastDrawMode = 'numeric';
+    state.analysis.lastCounts = counts;
+    if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
     refreshCounts(counts);
     const L = layoutFromCounts(nA, nB, nC, nAB, nAC, nBC);
     const fontInfo = resolveFontInfo(inputs.fontsize.value);
@@ -1380,18 +1491,18 @@
     updateRegionSelect(labels, counts);
     updateColorLabels(labels);
     fitAndDraw(L, style, labels, counts);
-    if (state.regionSelect) populateRegion(state.regionSelect.value);
+    if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
     debugLog('drawFromNumeric complete', { counts });
   }
 
   function refreshDiagram() {
-    const inputs = state.inputs;
+    const inputs = state.ui.inputs;
     if (!inputs) {
       console.warn('Debug: venn refreshDiagram called before init');
       return;
     }
     try {
-      const mode = state.lastDrawMode || ((inputs.A.value || inputs.B.value || inputs.C.value) ? 'lists' : 'numeric');
+      const mode = state.analysis.lastDrawMode || ((inputs.A.value || inputs.B.value || inputs.C.value) ? 'lists' : 'numeric');
       if (mode === 'numeric') {
         drawFromNumeric();
       } else {
@@ -1405,13 +1516,13 @@
 
   function requestScheduledDraw(reason, modeOverride) {
     if (modeOverride) {
-      state.lastDrawMode = modeOverride;
+      state.analysis.lastDrawMode = modeOverride;
     }
-    if (typeof state.scheduleDraw === 'function') {
-      console.debug('Debug: venn auto-redraw scheduled', { reason, mode: state.lastDrawMode }); // Debug: automatic redraw trigger
-      state.scheduleDraw();
+    if (typeof state.ui.scheduleDraw === 'function') {
+      console.debug('Debug: venn auto-redraw scheduled', { reason, mode: state.analysis.lastDrawMode }); // Debug: automatic redraw trigger
+      state.ui.scheduleDraw();
     } else {
-      console.debug('Debug: venn auto-redraw fallback', { reason, mode: state.lastDrawMode }); // Debug: fallback without scheduler
+      console.debug('Debug: venn auto-redraw fallback', { reason, mode: state.analysis.lastDrawMode }); // Debug: fallback without scheduler
       refreshDiagram();
     }
   }
@@ -1421,7 +1532,7 @@
   const LEGACY_DEFAULT_FONT_PT = 17;
 
   function loadStylePrefs() {
-    const inputs = state.inputs;
+    const inputs = state.ui.inputs;
     if (!inputs) return;
     try {
       const raw = localStorage.getItem(STYLE_KEY);
@@ -1474,7 +1585,7 @@
   }
 
   function saveStylePrefs() {
-    const inputs = state.inputs;
+    const inputs = state.ui.inputs;
     if (!inputs) return;
     const prefs = {
       version: STYLE_VERSION,
@@ -1503,11 +1614,11 @@
     const svgBox = graphPanel?.querySelector('.svgbox') || vennContainer;
     const diagramArea = graphPanel?.querySelector('.diagram-area');
     let vennMinSvgWidth = 0;
-    state.tablePanel = tablePanel;
-    state.graphPanel = graphPanel;
-    state.panelResizer = panelResizer;
+    state.ui.tablePanel = tablePanel;
+    state.ui.graphPanel = graphPanel;
+    state.ui.panelResizer = panelResizer;
     if (vennContainer) {
-      state.svgBox = vennContainer;
+      state.ui.svgBox = vennContainer;
       console.debug('Debug: venn initResizers stored svgBox', { hasSvgBox: true });
     } else {
       console.debug('Debug: venn initResizers missing svgBox container');
@@ -1522,7 +1633,7 @@
     }); // Debug: venn initResizers setup summary
 
     const syncPanels = (options = {}) => {
-      const skipSchedule = options.skipSchedule || typeof state.scheduleDraw !== 'function';
+      const skipSchedule = options.skipSchedule || typeof state.ui.scheduleDraw !== 'function';
       console.debug('Debug: venn syncPanels requested', {
         skipSchedule,
         minSvgWidth: vennMinSvgWidth,
@@ -1541,7 +1652,7 @@
         tablePanel,
         graphPanel,
         configPanel,
-        state.scheduleDraw,
+        state.ui.scheduleDraw,
         {
           svgBox,
           panelResizer,
@@ -1560,7 +1671,7 @@
       return result;
     };
 
-    state.syncPanels = syncPanels;
+    state.ui.syncPanels = syncPanels;
 
     if (Shared.attachResizableBox && vennContainer) {
       const graphSizing = chartStyle.getSquareGraphSizing
@@ -1614,7 +1725,7 @@
         syncPanels({ skipSchedule: true });
       });
       observer.observe(tablePanel);
-      state.panelObserver = observer;
+      state.ui.panelObserver = observer;
     } else {
       console.debug('Debug: venn table ResizeObserver unavailable', {
         hasObserver: !!global.ResizeObserver,
@@ -1652,7 +1763,7 @@
   }
 
   function getVennGraphPayload() {
-    const inputs = state.inputs;
+    const inputs = state.ui.inputs;
     if (!inputs) {
       console.debug('Debug: venn.getPayload skipped - missing inputs reference');
       return null;
@@ -1697,19 +1808,19 @@
   venn.save = async function () {
     const payload = getVennGraphPayload();
     if (!payload) return;
-    console.debug('Debug: saveVennFile invoked', { hasHandle: !!state.fileHandle });
+    console.debug('Debug: saveVennFile invoked', { hasHandle: !!state.persistence.fileHandle });
     if (!fileIO || typeof fileIO.saveGraphFile !== 'function') {
       console.error('saveVennFile missing fileIO.saveGraphFile');
       return;
     }
     const result = await fileIO.saveGraphFile({
       context: 'venn',
-      fileHandle: state.fileHandle,
+      fileHandle: state.persistence.fileHandle,
       payload,
-      fileName: state.fileName,
-      downloadFileName: state.fileName,
-      setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => { state.fileName = name; }
+      fileName: state.persistence.fileName,
+      downloadFileName: state.persistence.fileName,
+      setFileHandle: handle => { state.persistence.fileHandle = handle; },
+      setFileName: name => { state.persistence.fileName = name; }
     });
     console.debug('Debug: venn.save result', result);
   };
@@ -1717,7 +1828,7 @@
   venn.saveAs = async function () {
     const payload = getVennGraphPayload();
     if (!payload) return;
-    console.debug('Debug: saveAsVennFile invoked', { currentName: state.fileName });
+    console.debug('Debug: saveAsVennFile invoked', { currentName: state.persistence.fileName });
     if (!fileIO || typeof fileIO.saveGraphFileAs !== 'function') {
       console.error('saveAsVennFile missing fileIO.saveGraphFileAs');
       return;
@@ -1725,10 +1836,10 @@
     const result = await fileIO.saveGraphFileAs({
       context: 'venn',
       payload,
-      fileName: state.fileName,
-      downloadFileName: state.fileName,
-      setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => { state.fileName = name; }
+      fileName: state.persistence.fileName,
+      downloadFileName: state.persistence.fileName,
+      setFileHandle: handle => { state.persistence.fileHandle = handle; },
+      setFileName: name => { state.persistence.fileName = name; }
     });
     console.debug('Debug: venn.saveAs result', result);
   };
@@ -1741,8 +1852,8 @@
     }
     const result = await fileIO.openGraphFile({
       context: 'venn',
-      setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => { state.fileName = name; },
+      setFileHandle: handle => { state.persistence.fileHandle = handle; },
+      setFileName: name => { state.persistence.fileName = name; },
       loadFromFile: file => venn.loadFromFile(file),
       triggerInput: () => {
         const input = document.getElementById('vennGraphFile');
@@ -1762,7 +1873,7 @@
         const obj = JSON.parse(e.target.result);
         console.log('loadVennGraph', obj);
         if (obj.type !== 'venn') throw new Error('Invalid graph type');
-        const inputs = state.inputs;
+        const inputs = state.ui.inputs;
         if (!inputs) return;
         const d = obj.data || {};
         inputs.labelA.value = d.labelA || '';
@@ -1807,18 +1918,23 @@
 
   venn.init = function init() {
     if (venn.ready) { debugLog('init skipped'); return; }
+    const freshState = createInitialState();
+    Object.assign(state.ui, freshState.ui);
+    Object.assign(state.analysis, freshState.analysis);
+    Object.assign(state.persistence, freshState.persistence);
+    console.debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
     initResizers();
-    state.scheduleDraw = Shared.debounceFrame(refreshDiagram);
+    state.ui.scheduleDraw = Shared.debounceFrame(refreshDiagram);
     console.debug('Debug: venn scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
-    if (typeof state.syncPanels === 'function') {
+    if (typeof state.ui.syncPanels === 'function') {
       console.debug('Debug: venn post-scheduler syncPanels'); // Debug: sync panels after scheduler setup
-      state.syncPanels({ skipSchedule: true });
+      state.ui.syncPanels({ skipSchedule: true });
     }
     try { Chart.defaults.locale = 'en-US'; } catch (e) { }
     const $ = global.$;
-    state.stage = document.getElementById('stage');
-    state.inputs = {
+    state.ui.stage = document.getElementById('stage');
+    state.ui.inputs = {
       A: $('#listA'),
       B: $('#listB'),
       C: $('#listC'),
@@ -1847,7 +1963,7 @@
         nABC: $('#nABC')
       }
     };
-    state.countsUI = {
+    state.ui.countsUI = {
       A: $('#countA'),
       B: $('#countB'),
       C: $('#countC'),
@@ -1856,27 +1972,27 @@
       BC: $('#countBC'),
       ABC: $('#countABC')
     };
-    state.regionSelect = $('#regionSelect');
-    state.regionList = $('#regionList');
-    state.copyRegionBtn = $('#copyRegionBtn');
-    state.goBtn = $('#goBtn');
-    state.stringBtn = $('#stringBtn');
-    state.goResults = $('#goResults');
-    state.stringResults = $('#stringResults');
-    state.stringNetwork = $('#stringNetwork');
-    state.goChartExport = $('#goChartExport');
-    state.stringNetworkExport = $('#stringNetworkExport');
-    state.tooltip = $('#tooltip');
-    state.speciesSelect = $('#speciesSelect');
-    state.totalGenesInput = $('#totalGenes');
-    state.calcSignificanceBtn = $('#calcSignificance');
-    state.significanceResults = $('#significanceResults');
-    state.goCategoryChecks = Array.from(document.querySelectorAll('.goCategory'));
-    state.goOptsBtn = $('#goOptsBtn');
-    state.goOptions = $('#goOptions');
-    state.goUseAllBackground = $('#goUseAllBackground');
-    state.stringOptsBtn = $('#stringOptsBtn');
-    state.stringOptions = $('#stringOptions');
+    state.ui.regionSelect = $('#regionSelect');
+    state.ui.regionList = $('#regionList');
+    state.ui.copyRegionBtn = $('#copyRegionBtn');
+    state.ui.goBtn = $('#goBtn');
+    state.ui.stringBtn = $('#stringBtn');
+    state.ui.goResults = $('#goResults');
+    state.ui.stringResults = $('#stringResults');
+    state.ui.stringNetwork = $('#stringNetwork');
+    state.ui.goChartExport = $('#goChartExport');
+    state.ui.stringNetworkExport = $('#stringNetworkExport');
+    state.ui.tooltip = $('#tooltip');
+    state.ui.speciesSelect = $('#speciesSelect');
+    state.ui.totalGenesInput = $('#totalGenes');
+    state.ui.calcSignificanceBtn = $('#calcSignificance');
+    state.ui.significanceResults = $('#significanceResults');
+    state.ui.goCategoryChecks = Array.from(document.querySelectorAll('.goCategory'));
+    state.ui.goOptsBtn = $('#goOptsBtn');
+    state.ui.goOptions = $('#goOptions');
+    state.ui.goUseAllBackground = $('#goUseAllBackground');
+    state.ui.stringOptsBtn = $('#stringOptsBtn');
+    state.ui.stringOptions = $('#stringOptions');
     const exporter = Shared.exporter;
     if (exporter && typeof exporter.mountSvgControls === 'function') {
       exporter.mountSvgControls({
@@ -1904,7 +2020,7 @@
     if (exporter && typeof exporter.mountSvgStringControls === 'function') {
       exporter.mountSvgStringControls({
         container: '#stringNetworkExport',
-        getSvgString: () => state.lastStringSVG || '',
+        getSvgString: () => state.analysis.lastStringSVG || '',
         fileName: 'string_network',
         contextLabel: 'string-export'
       });
@@ -1917,129 +2033,129 @@
       const text = (e.clipboardData || global.clipboardData).getData('text/plain').replace(/\r/g, '').replace(/\u00A0/g, ' ');
       document.execCommand('insertText', false, text);
     };
-    [state.inputs.A, state.inputs.B, state.inputs.C].forEach(el => el && el.addEventListener('paste', handlePlainPaste));
+    [state.ui.inputs.A, state.ui.inputs.B, state.ui.inputs.C].forEach(el => el && el.addEventListener('paste', handlePlainPaste));
     loadStylePrefs();
-    state.inputs.opacity.addEventListener('input', () => { state.inputs.opacityVal.textContent = state.inputs.opacity.value; refreshDiagram(); saveStylePrefs(); });
-    state.inputs.fontsize.addEventListener('input', () => {
-      const raw = state.inputs.fontsize.value;
-      if(state.inputs.fontsize.dataset){
-        state.inputs.fontsize.dataset.fontBasePt = String(raw);
+    state.ui.inputs.opacity.addEventListener('input', () => { state.ui.inputs.opacityVal.textContent = state.ui.inputs.opacity.value; refreshDiagram(); saveStylePrefs(); });
+    state.ui.inputs.fontsize.addEventListener('input', () => {
+      const raw = state.ui.inputs.fontsize.value;
+      if(state.ui.inputs.fontsize.dataset){
+        state.ui.inputs.fontsize.dataset.fontBasePt = String(raw);
         console.debug('Debug: venn font size base updated', { raw }); // Debug: manual slider update
       }
       const fontInfo = resolveFontInfo(raw);
-      state.inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : state.inputs.fontsize.value;
-      chartStyle.renderFontSizeLabel({ element: state.inputs.fontsizeVal, fontInfo, input: state.inputs.fontsize });
+      state.ui.inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : state.ui.inputs.fontsize.value;
+      chartStyle.renderFontSizeLabel({ element: state.ui.inputs.fontsizeVal, fontInfo, input: state.ui.inputs.fontsize });
       console.debug('Debug: venn fontsize slider change', { raw, fontInfo });
       refreshDiagram();
       saveStylePrefs();
     });
-    ['colorA', 'colorB', 'colorC'].forEach(id => { state.inputs[id].addEventListener('input', () => { refreshDiagram(); saveStylePrefs(); }); });
-    state.inputs.borderColor.addEventListener('input', () => { refreshDiagram(); saveStylePrefs(); });
-    state.inputs.borderWidth.addEventListener('input', () => { state.inputs.borderWidthVal.textContent = state.inputs.borderWidth.value; refreshDiagram(); saveStylePrefs(); });
+    ['colorA', 'colorB', 'colorC'].forEach(id => { state.ui.inputs[id].addEventListener('input', () => { refreshDiagram(); saveStylePrefs(); }); });
+    state.ui.inputs.borderColor.addEventListener('input', () => { refreshDiagram(); saveStylePrefs(); });
+    state.ui.inputs.borderWidth.addEventListener('input', () => { state.ui.inputs.borderWidthVal.textContent = state.ui.inputs.borderWidth.value; refreshDiagram(); saveStylePrefs(); });
     ['labelA', 'labelB', 'labelC'].forEach(id => {
-      state.inputs[id].addEventListener('input', () => {
-        const labels = { A: state.inputs.labelA.value || 'A', B: state.inputs.labelB.value || 'B', C: state.inputs.labelC.value || 'C' };
+      state.ui.inputs[id].addEventListener('input', () => {
+        const labels = { A: state.ui.inputs.labelA.value || 'A', B: state.ui.inputs.labelB.value || 'B', C: state.ui.inputs.labelC.value || 'C' };
         updateColorLabels(labels);
-        updateRegionSelect(labels, state.lastCounts);
+        updateRegionSelect(labels, state.analysis.lastCounts);
         updateCountLabels(labels);
         requestScheduledDraw(`label-input-${id}`);
       });
     });
-    if (state.inputs.caseSensitive) {
-      state.inputs.caseSensitive.addEventListener('change', () => { requestScheduledDraw('case-sensitive-toggle', 'lists'); });
+    if (state.ui.inputs.caseSensitive) {
+      state.ui.inputs.caseSensitive.addEventListener('change', () => { requestScheduledDraw('case-sensitive-toggle', 'lists'); });
     }
-    if (state.inputs.delimiter) {
-      state.inputs.delimiter.addEventListener('change', () => { requestScheduledDraw('delimiter-change', 'lists'); });
+    if (state.ui.inputs.delimiter) {
+      state.ui.inputs.delimiter.addEventListener('change', () => { requestScheduledDraw('delimiter-change', 'lists'); });
     }
     {
-      const labels = { A: state.inputs.labelA.value || 'A', B: state.inputs.labelB.value || 'B', C: state.inputs.labelC.value || 'C' };
+      const labels = { A: state.ui.inputs.labelA.value || 'A', B: state.ui.inputs.labelB.value || 'B', C: state.ui.inputs.labelC.value || 'C' };
       updateColorLabels(labels);
-      updateRegionSelect(labels, state.lastCounts);
+      updateRegionSelect(labels, state.analysis.lastCounts);
       updateCountLabels(labels);
     }
-    if (state.regionSelect) {
-      state.regionSelect.addEventListener('change', () => { populateRegion(state.regionSelect.value); });
+    if (state.ui.regionSelect) {
+      state.ui.regionSelect.addEventListener('change', () => { populateRegion(state.ui.regionSelect.value); });
     }
     document.addEventListener('click', e => {
-      if (state.tooltip && state.tooltip.style.display === 'block' && !state.tooltip.contains(e.target)) {
-        state.tooltip.style.display = 'none';
+      if (state.ui.tooltip && state.ui.tooltip.style.display === 'block' && !state.ui.tooltip.contains(e.target)) {
+        state.ui.tooltip.style.display = 'none';
       }
     });
-    if (state.copyRegionBtn) {
-      state.copyRegionBtn.addEventListener('click', () => {
-        const text = getRegionText(state.regionSelect.value);
+    if (state.ui.copyRegionBtn) {
+      state.ui.copyRegionBtn.addEventListener('click', () => {
+        const text = getRegionText(state.ui.regionSelect.value);
         navigator.clipboard.writeText(text).catch(() => { });
       });
     }
-    if (state.goOptsBtn && state.goOptions) {
-      state.goOptsBtn.addEventListener('click', () => {
-        const show = state.goOptions.style.display === 'none';
-        state.goOptions.style.display = show ? 'block' : 'none';
+    if (state.ui.goOptsBtn && state.ui.goOptions) {
+      state.ui.goOptsBtn.addEventListener('click', () => {
+        const show = state.ui.goOptions.style.display === 'none';
+        state.ui.goOptions.style.display = show ? 'block' : 'none';
       });
     }
-    if (state.stringOptsBtn && state.stringOptions) {
-      state.stringOptsBtn.addEventListener('click', () => {
-        const show = state.stringOptions.style.display === 'none';
-        state.stringOptions.style.display = show ? 'block' : 'none';
+    if (state.ui.stringOptsBtn && state.ui.stringOptions) {
+      state.ui.stringOptsBtn.addEventListener('click', () => {
+        const show = state.ui.stringOptions.style.display === 'none';
+        state.ui.stringOptions.style.display = show ? 'block' : 'none';
       });
     }
     ['A', 'B', 'C'].forEach(k => {
-      state.inputs[k].addEventListener('input', () => {
-        if (state.speciesSelect) { state.speciesSelect.value = ''; }
+      state.ui.inputs[k].addEventListener('input', () => {
+        if (state.ui.speciesSelect) { state.ui.speciesSelect.value = ''; }
         setSpeciesIndicator(null);
         requestScheduledDraw(`list-input-${k}`, 'lists');
       });
     });
-    Object.entries(state.inputs.counts).forEach(([key, el]) => {
+    Object.entries(state.ui.inputs.counts).forEach(([key, el]) => {
       if (el) {
         el.addEventListener('input', () => {
           requestScheduledDraw(`numeric-input-${key}`, 'numeric');
         });
       }
     });
-    if (state.regionList) {
-      state.regionList.addEventListener('mouseover', async e => {
+    if (state.ui.regionList) {
+      state.ui.regionList.addEventListener('mouseover', async e => {
         const link = e.target.closest('.gene-link');
-        if (link && state.regionList.contains(link)) {
+        if (link && state.ui.regionList.contains(link)) {
           const gene = link.dataset.gene;
           const fn = await fetchUniProtAnnotation(gene);
-          if (state.tooltip) {
-            state.tooltip.innerHTML = fn ? `<strong>${gene}</strong><br>${fn}` : `<strong>${gene}</strong><br><i>Function not found</i>`;
-            state.tooltip.style.fontSize = '12px';
-            state.tooltip.style.maxHeight = 'none';
-            state.tooltip.style.overflow = 'visible';
-            state.tooltip.style.columnCount = 1;
-            state.tooltip.style.columnWidth = 'auto';
-            state.tooltip.style.columnGap = '0';
-            state.tooltip.style.width = 'auto';
-            state.tooltip.style.height = 'auto';
-            state.tooltip.style.whiteSpace = 'normal';
+          if (state.ui.tooltip) {
+            state.ui.tooltip.innerHTML = fn ? `<strong>${gene}</strong><br>${fn}` : `<strong>${gene}</strong><br><i>Function not found</i>`;
+            state.ui.tooltip.style.fontSize = '12px';
+            state.ui.tooltip.style.maxHeight = 'none';
+            state.ui.tooltip.style.overflow = 'visible';
+            state.ui.tooltip.style.columnCount = 1;
+            state.ui.tooltip.style.columnWidth = 'auto';
+            state.ui.tooltip.style.columnGap = '0';
+            state.ui.tooltip.style.width = 'auto';
+            state.ui.tooltip.style.height = 'auto';
+            state.ui.tooltip.style.whiteSpace = 'normal';
             let left = e.pageX + 8;
             let top = e.pageY + 8;
-            state.tooltip.style.left = left + 'px';
-            state.tooltip.style.top = top + 'px';
-            state.tooltip.style.display = 'block';
+            state.ui.tooltip.style.left = left + 'px';
+            state.ui.tooltip.style.top = top + 'px';
+            state.ui.tooltip.style.display = 'block';
             requestAnimationFrame(() => {
-              const w = state.tooltip.scrollWidth;
-              const h = state.tooltip.scrollHeight;
-              state.tooltip.style.width = w + 'px';
-              state.tooltip.style.height = h + 'px';
+              const w = state.ui.tooltip.scrollWidth;
+              const h = state.ui.tooltip.scrollHeight;
+              state.ui.tooltip.style.width = w + 'px';
+              state.ui.tooltip.style.height = h + 'px';
               positionTooltip(left, top);
             });
           }
         }
       });
-      state.regionList.addEventListener('mouseout', e => {
+      state.ui.regionList.addEventListener('mouseout', e => {
         const link = e.target.closest('.gene-link');
-        if (link && state.regionList.contains(link) && state.tooltip) {
-          state.tooltip.style.display = 'none';
+        if (link && state.ui.regionList.contains(link) && state.ui.tooltip) {
+          state.ui.tooltip.style.display = 'none';
         }
       });
-      state.regionList.addEventListener('click', async e => {
+      state.ui.regionList.addEventListener('click', async e => {
         const link = e.target.closest('.gene-link');
-        if (link && state.regionList.contains(link)) {
+        if (link && state.ui.regionList.contains(link)) {
           const gene = link.dataset.gene;
-          const taxId = state.speciesSelect?.selectedOptions[0]?.dataset.string || '9606';
+          const taxId = state.ui.speciesSelect?.selectedOptions[0]?.dataset.string || '9606';
           const fallbackUrl = `https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
           let targetUrl = fallbackUrl;
           const service = Shared.uniprot;
@@ -2058,73 +2174,73 @@
         }
       });
     }
-    if (state.goBtn && state.tooltip) {
+    if (state.ui.goBtn && state.ui.tooltip) {
       const goBtnTip = 'Sends the selected species and gene list to g:Profiler GOSt, returns all GO categories and default sources, and displays the top five terms by significance.';
-      state.goBtn.addEventListener('mouseenter', () => {
-        state.tooltip.innerHTML = goBtnTip;
-        state.tooltip.style.fontSize = '12px';
-        state.tooltip.style.maxHeight = 'none';
-        state.tooltip.style.overflow = 'visible';
-        state.tooltip.style.columnCount = 1;
-        state.tooltip.style.columnWidth = 'auto';
-        state.tooltip.style.width = 'max-content';
-        state.tooltip.style.height = 'auto';
-        state.tooltip.style.visibility = 'hidden';
-        state.tooltip.style.display = 'block';
-        const rect = state.goBtn.getBoundingClientRect();
+      state.ui.goBtn.addEventListener('mouseenter', () => {
+        state.ui.tooltip.innerHTML = goBtnTip;
+        state.ui.tooltip.style.fontSize = '12px';
+        state.ui.tooltip.style.maxHeight = 'none';
+        state.ui.tooltip.style.overflow = 'visible';
+        state.ui.tooltip.style.columnCount = 1;
+        state.ui.tooltip.style.columnWidth = 'auto';
+        state.ui.tooltip.style.width = 'max-content';
+        state.ui.tooltip.style.height = 'auto';
+        state.ui.tooltip.style.visibility = 'hidden';
+        state.ui.tooltip.style.display = 'block';
+        const rect = state.ui.goBtn.getBoundingClientRect();
         let left = rect.right + window.scrollX + 8;
         let top = rect.top + window.scrollY;
-        state.tooltip.style.left = left + 'px';
-        state.tooltip.style.top = top + 'px';
+        state.ui.tooltip.style.left = left + 'px';
+        state.ui.tooltip.style.top = top + 'px';
         positionTooltip(left, top);
-        let tRect = state.tooltip.getBoundingClientRect();
+        let tRect = state.ui.tooltip.getBoundingClientRect();
         const overlaps = !(tRect.right < rect.left || tRect.left > rect.right || tRect.bottom < rect.top || tRect.top > rect.bottom);
         if (overlaps) {
           left = rect.left + window.scrollX;
           top = rect.bottom + window.scrollY + 8;
-          state.tooltip.style.left = left + 'px';
-          state.tooltip.style.top = top + 'px';
+          state.ui.tooltip.style.left = left + 'px';
+          state.ui.tooltip.style.top = top + 'px';
           positionTooltip(left, top);
-          tRect = state.tooltip.getBoundingClientRect();
+          tRect = state.ui.tooltip.getBoundingClientRect();
           const stillOverlap = !(tRect.right < rect.left || tRect.left > rect.right || tRect.bottom < rect.top || tRect.top > rect.bottom);
           if (stillOverlap) {
             top = rect.top + window.scrollY - tRect.height - 8;
-            state.tooltip.style.left = left + 'px';
-            state.tooltip.style.top = top + 'px';
+            state.ui.tooltip.style.left = left + 'px';
+            state.ui.tooltip.style.top = top + 'px';
             positionTooltip(left, top);
           }
         }
-        state.tooltip.style.visibility = 'visible';
+        state.ui.tooltip.style.visibility = 'visible';
       });
-      state.goBtn.addEventListener('mouseleave', () => {
-        state.tooltip.style.display = 'none';
+      state.ui.goBtn.addEventListener('mouseleave', () => {
+        state.ui.tooltip.style.display = 'none';
       });
     }
-    if (state.goResults) {
-      state.goResults.addEventListener('click', e => {
+    if (state.ui.goResults) {
+      state.ui.goResults.addEventListener('click', e => {
         if (e.target.id === 'toggleGoResults') {
           const stateAttr = e.target.dataset.state;
-          if (stateAttr === 'top5') { renderGOResults(state.lastGOResult.length); }
+          if (stateAttr === 'top5') { renderGOResults(state.analysis.lastGOResult.length); }
           else { renderGOResults(5); }
         }
       });
     }
-    if (state.calcSignificanceBtn) {
-      state.calcSignificanceBtn.addEventListener('click', () => {
+    if (state.ui.calcSignificanceBtn) {
+      state.ui.calcSignificanceBtn.addEventListener('click', () => {
         console.debug('Debug: venn significance click');
         calculateSignificance();
       });
     }
-    if (state.goBtn) {
-      state.goBtn.addEventListener('click', async () => {
+    if (state.ui.goBtn) {
+      state.ui.goBtn.addEventListener('click', async () => {
         try {
-          const regionGenes = (getRegionText(state.regionSelect.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
-          let organism = state.speciesSelect.value;
+          const regionGenes = (getRegionText(state.ui.regionSelect.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
+          let organism = state.ui.speciesSelect.value;
           if (!organism) {
             const allGenes = getAllGenes();
             const guess = allGenes.length ? await guessSpecies(allGenes) : null;
             if (guess) {
-              state.speciesSelect.value = organism = guess;
+              state.ui.speciesSelect.value = organism = guess;
               setSpeciesIndicator(true);
             } else {
               setSpeciesIndicator(false);
@@ -2136,16 +2252,16 @@
         } catch (err) { console.error('goBtn error', err); }
       });
     }
-    if (state.stringBtn) {
-      state.stringBtn.addEventListener('click', async () => {
+    if (state.ui.stringBtn) {
+      state.ui.stringBtn.addEventListener('click', async () => {
         try {
-          const regionGenes = (getRegionText(state.regionSelect.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
-          let organism = state.speciesSelect.value;
+          const regionGenes = (getRegionText(state.ui.regionSelect.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
+          let organism = state.ui.speciesSelect.value;
           if (!organism) {
             const allGenes = getAllGenes();
             const guess = allGenes.length ? await guessSpecies(allGenes) : null;
             if (guess) {
-              state.speciesSelect.value = organism = guess;
+              state.ui.speciesSelect.value = organism = guess;
               setSpeciesIndicator(true);
             } else {
               setSpeciesIndicator(false);
@@ -2159,8 +2275,8 @@
     }
     const drawBtn = document.getElementById('draw');
     const useNumericBtn = document.getElementById('useNumeric');
-    if (drawBtn) drawBtn.addEventListener('click', () => { state.lastDrawMode = 'lists'; drawFromLists(); });
-    if (useNumericBtn) useNumericBtn.addEventListener('click', () => { state.lastDrawMode = 'numeric'; drawFromNumeric(); });
+    if (drawBtn) drawBtn.addEventListener('click', () => { state.analysis.lastDrawMode = 'lists'; drawFromLists(); });
+    if (useNumericBtn) useNumericBtn.addEventListener('click', () => { state.analysis.lastDrawMode = 'numeric'; drawFromNumeric(); });
     const openBtn = document.getElementById('openVenn');
     const saveBtn = document.getElementById('saveVenn');
     const saveAsBtn = document.getElementById('saveAsVenn');
@@ -2171,19 +2287,19 @@
     if (fileInput) {
       fileInput.addEventListener('change', e => {
         const f = e.target.files[0];
-        if (f) { state.fileName = f.name; state.fileHandle = null; venn.loadFromFile(f); }
+        if (f) { state.persistence.fileName = f.name; state.persistence.fileHandle = null; venn.loadFromFile(f); }
       });
     }
     const sampleBtn = document.getElementById('sample');
     if (sampleBtn) {
       sampleBtn.addEventListener('click', () => {
-        state.inputs.labelA.value = 'Transcriptomic';
-        state.inputs.labelB.value = 'Proteomic';
-        state.inputs.labelC.value = 'Phospho';
-        state.inputs.A.value = `BRCA1\nATM\nBAP1\nEZH2\nSUZ12\nRING1B`;
-        state.inputs.B.value = `BRCA1\nBAP1\nRING1B\nCBX2\nHDAC1\nPAXIP1\nHUWE1`;
-        state.inputs.C.value = `BRCA1\nPAXIP1\nCSNK2A1\nRING1B\nKAT7`;
-        state.lastDrawMode = 'lists';
+        state.ui.inputs.labelA.value = 'Transcriptomic';
+        state.ui.inputs.labelB.value = 'Proteomic';
+        state.ui.inputs.labelC.value = 'Phospho';
+        state.ui.inputs.A.value = `BRCA1\nATM\nBAP1\nEZH2\nSUZ12\nRING1B`;
+        state.ui.inputs.B.value = `BRCA1\nBAP1\nRING1B\nCBX2\nHDAC1\nPAXIP1\nHUWE1`;
+        state.ui.inputs.C.value = `BRCA1\nPAXIP1\nCSNK2A1\nRING1B\nKAT7`;
+        state.analysis.lastDrawMode = 'lists';
         refreshDiagram();
       });
     }
@@ -2191,25 +2307,25 @@
     if (resetBtn) {
       resetBtn.addEventListener('click', () => {
         console.debug('Debug: venn reset handler invoked');
-        state.inputs.A.value = '';
-        state.inputs.B.value = '';
-        state.inputs.C.value = '';
-        Object.values(state.inputs.counts).forEach(x => x.value = 0);
+        state.ui.inputs.A.value = '';
+        state.ui.inputs.B.value = '';
+        state.ui.inputs.C.value = '';
+        Object.values(state.ui.inputs.counts).forEach(x => x.value = 0);
         clearSVG();
-        state.lastRegions = null;
-        state.lastDrawMode = null;
-        state.lastCounts = null;
-        if (state.regionList) state.regionList.textContent = '';
-        Object.values(state.countsUI || {}).forEach(el => { if (el) el.textContent = '0'; });
+        state.analysis.lastRegions = null;
+        state.analysis.lastDrawMode = null;
+        state.analysis.lastCounts = null;
+        if (state.ui.regionList) state.ui.regionList.textContent = '';
+        Object.values(state.ui.countsUI || {}).forEach(el => { if (el) el.textContent = '0'; });
         const defaultLabels = { A: 'A', B: 'B', C: 'C' };
         updateCountLabels(defaultLabels);
         updateColorLabels(defaultLabels);
         updateRegionSelect(defaultLabels, null);
         clearAnalysis();
-        if (state.speciesSelect) state.speciesSelect.value = '';
+        if (state.ui.speciesSelect) state.ui.speciesSelect.value = '';
         setSpeciesIndicator(null);
-        if (state.totalGenesInput) state.totalGenesInput.value = '';
-        if (state.significanceResults) state.significanceResults.innerHTML = '';
+        if (state.ui.totalGenesInput) state.ui.totalGenesInput.value = '';
+        if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
         debugLog('reset handler completed', { defaultLabels });
       });
     }
