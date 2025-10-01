@@ -49,7 +49,6 @@
       console.error('Handsontable missing for scatter component');
       return;
     }
-    const ResizeObserverCtor = global.ResizeObserver;
     const makeEditableLocal = (el,onChange,options) => {
       const fn = Shared.makeEditable || global.makeEditable;
       if (typeof fn === 'function') {
@@ -143,24 +142,32 @@
       const scatterTablePanel=document.getElementById('scatterTablePanel');
       const scatterGraphPanel=document.getElementById('scatterGraphPanel');
       const scatterPanelResizer=document.getElementById('scatterPanelResizer');
-      const scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
+      let scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
       const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-options');
-      let scatterMinSvgWidth=0;
-      const syncScatterPanels=()=>{
-        Shared.syncPanelWidths(scatterTablePanel, scatterGraphPanel, scatterConfigPanel, null, {
-          svgBox: scatterSvgBox,
-          minSvgWidth: scatterMinSvgWidth,
-          debugLabel: 'scatter',
-          skipSchedule: true,
-          panelResizer: scatterPanelResizer
-        });
-      };
-      const scatterTableObserver = ResizeObserverCtor ? new ResizeObserverCtor(()=>{syncScatterPanels();}) : null;
-      if(scatterTableObserver) scatterTableObserver.observe(scatterTablePanel);
-      syncScatterPanels();
-    
-      if(global.Shared && global.Shared.ensureHotWrapperStyles){ global.Shared.ensureHotWrapperStyles(scatterHotWrapper); }
-      console.debug('scatterHotWrapper style updated', scatterHotWrapper.style.cssText);
+      const scatterLayout = Shared.componentLayout?.createStandardPanels({
+        componentName: 'scatter',
+        selectors: {
+          tablePanel: '#scatterTablePanel',
+          graphPanel: '#scatterGraphPanel',
+          panelResizer: '#scatterPanelResizer',
+          hotWrapper: '#scatterHotWrapper',
+          hotContainer: '#scatterHot',
+          svgBox: () => scatterGraphPanel?.querySelector('.svgbox'),
+          resizeTarget: () => scatterGraphPanel?.querySelector('.svgbox')
+        },
+        scheduleDraw: () => scheduleDrawScatter(),
+        resizableBoxOptions: {
+          onResize: () => {
+            console.debug('Debug: scatter layout onResize schedule trigger');
+            scheduleDrawScatter();
+          }
+        }
+      });
+      if(scatterLayout?.elements?.svgBox){
+        scatterSvgBox = scatterLayout.elements.svgBox;
+      }
+      scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
+      scatterLayout?.syncPanels?.();
       console.debug('Debug: scatter initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
       if(typeof Shared.hot?.createStandardTable !== 'function'){
         console.error('scatter initHot missing Shared.hot.createStandardTable');
@@ -413,73 +420,10 @@
     
       const scatterPlotDiv=document.getElementById('scatterPlot');
       const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
-      if(global.Shared && Shared.attachResizableBox && scatterContainer){
-        const graphSizing = chartStyle.getSquareGraphSizing
-          ? chartStyle.getSquareGraphSizing({ context: 'scatter' })
-          : (function fallbackSizing(){
-              const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
-              const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
-              const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
-              const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-              const fallback = {
-                width: baseWidth,
-                height: baseHeight,
-                minWidth: Math.max(1, Math.round(baseWidth * minScale)),
-                minHeight: Math.max(1, Math.round(baseHeight * minScale)),
-                maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-                maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-                aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
-                aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
-              };
-              console.debug('Debug: scatter fallback square sizing',{ context: 'scatter', fallback }); // Debug: fallback sizing payload
-              return fallback;
-            })();
-        console.debug('Debug: scatter resizer sizing config', { graphSizing }); // Debug: scatter sizing helper output
-        Shared.attachResizableBox(scatterContainer, {
-          defaultWidth: graphSizing.width,
-          defaultHeight: graphSizing.height,
-          minWidth: graphSizing.minWidth,
-          minHeight: graphSizing.minHeight,
-          maxWidth: graphSizing.maxWidth,
-          maxHeight: graphSizing.maxHeight,
-          aspectLocked: graphSizing.aspectLocked !== false,
-          aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
-          onResize: phase => {
-            console.debug('Debug: scatter resizer callback', { phase }); // Debug: scatter resizer callback
-            scheduleDrawScatter();
-          }
-        });
-      }else{
-        console.debug('Debug: scatter resizer attach skipped', { hasContainer: !!scatterContainer }); // Debug: scatter resizer skipped
+      if(!scatterContainer){
+        console.debug('Debug: scatter resizer container missing', { hasContainer: !!scatterContainer });
       }
 
-      (function initScatterPanelResizer(){
-        if(!scatterPanelResizer||!scatterTablePanel||!scatterGraphPanel) return;
-        const attachHelper = Shared.resizer?.attachPanelDragResizer;
-        console.debug('Debug: scatter attachPanelDragResizer init',{ hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
-        if(typeof attachHelper === 'function'){
-          attachHelper({
-            panelResizer: scatterPanelResizer,
-            tablePanel: scatterTablePanel,
-            graphPanel: scatterGraphPanel,
-            configPanel: scatterConfigPanel,
-            debugLabel: 'scatter',
-            syncPanels: () => scheduleDrawScatter(),
-            computeMinSvgWidth: () => {
-              const width = scatterSvgBox?.getBoundingClientRect().width || 0;
-              const computed = Math.max(0, width * 0.5);
-              console.debug('Debug: scatter attachPanelDragResizer computeMinSvgWidth',{ width, computed }); // Debug: helper min width calc
-              return computed;
-            },
-            onMinSvgWidth: value => {
-              const coerced = Number.isFinite(value) ? value : 0;
-              scatterMinSvgWidth = Math.max(0, coerced);
-              console.debug('Debug: scatter attachPanelDragResizer onMinSvgWidth',{ value, coerced: scatterMinSvgWidth }); // Debug: update cached min width
-            }
-          });
-        }
-      })();
-    
       let scatterTitleText='Scatter plot';
       let scatterXLabelText='X';
       let scatterYLabelText='Y';
@@ -1035,9 +979,11 @@
           console.debug('Debug: scatter significance summary',{graphType:scatterCurrentGraphType,significantCount,nonSigCount,log2fcThreshold,negLogPThreshold,missingP:maMissingPCount});
         }
         autoResizeSvg(svg);
+        scatterLayout?.syncPanels?.();
         console.log('scatter render complete with enhanced styles');
       }
       scheduleDrawScatter = Shared.debounceFrame(drawScatter);
+      scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
       console.debug('Debug: scatter scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     
     

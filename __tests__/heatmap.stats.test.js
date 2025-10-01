@@ -17,6 +17,7 @@ describe('Heatmap stats formatting', () => {
     require('../js/shared/resizer.js');
     require('../js/shared/colorPicker.js');
     require('../js/shared/hot.js');
+    require('../js/shared/componentLayout.js');
 
     const Shared = window.Shared || {};
     originalCreateStandardTable = Shared.hot?.createStandardTable;

@@ -36,6 +36,7 @@
   let lineFileHandle = null;
   let lineFileName = 'line.graph';
   let lineReplicates = LINE_MIN_REPLICATES;
+  let lineLayout = null;
 
   const refs = {};
   console.debug('Debug: line replicates initialized', {
@@ -285,15 +286,6 @@
       scheduleLineDraw();
     }
     return structure;
-  }
-
-  function syncLineWidths(){
-    Shared.syncPanelWidths(refs.tablePanel, refs.graphPanel, refs.configPanel, scheduleLineDraw, {
-      svgBox: refs.svgBox,
-      minSvgWidth: lineMinSvgWidth,
-      debugLabel: 'line',
-      panelResizer: refs.panelResizer
-    });
   }
 
   function updateLineLabelColorPickers(labels){
@@ -973,6 +965,7 @@
       makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
       updateLineStats(series);
       autoResizeSvgHelper(svg);
+      lineLayout?.syncPanels?.();
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
     }catch(err){ console.error('drawLine error',err); }
   }
@@ -1052,8 +1045,34 @@
     global.lineStatType = refs.statType; // legacy compatibility
     global.lineStatsResults = refs.statsResults; // legacy compatibility
 
-    if(refs.hotWrapper && Shared.ensureHotWrapperStyles){ Shared.ensureHotWrapperStyles(refs.hotWrapper); }
-    console.debug('Debug: lineHotWrapper style', refs.hotWrapper?.style?.cssText); // Debug: wrapper styles
+    lineLayout = Shared.componentLayout?.createStandardPanels({
+      componentName: 'line',
+      selectors: {
+        tablePanel: '#lineTablePanel',
+        graphPanel: '#lineGraphPanel',
+        panelResizer: '#linePanelResizer',
+        hotWrapper: '#lineHotWrapper',
+        hotContainer: '#lineHot',
+        svgBox: () => refs.graphPanel?.querySelector('.svgbox'),
+        resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
+      },
+      scheduleDraw: scheduleLineDraw,
+      onMinSvgWidth: value => {
+        lineMinSvgWidth = Math.max(0, Number(value) || 0);
+        console.debug('Debug: line layout min width update', { value: lineMinSvgWidth });
+      },
+      resizableBoxOptions: {
+        onResize: () => {
+          console.debug('Debug: line layout onResize schedule trigger');
+          scheduleLineDraw();
+        }
+      }
+    });
+    if(lineLayout?.elements?.svgBox){
+      refs.svgBox = lineLayout.elements.svgBox;
+    }
+    lineLayout?.setScheduleDraw?.(scheduleLineDraw);
+    lineLayout?.syncPanels?.();
 
     console.debug('Debug: line initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
     if(typeof Shared.hot?.createStandardTable !== 'function'){
@@ -1109,12 +1128,8 @@
     global.DEBUG_LINE=true;
     console.debug('Debug: lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
 
-    const ResizeObserverCtor = global.ResizeObserver;
-    if(ResizeObserverCtor && refs.tablePanel){
-      const observer=new ResizeObserverCtor(()=>{ syncLineWidths(); });
-      observer.observe(refs.tablePanel);
-    }
-    syncLineWidths();
+    lineLayout?.setScheduleDraw?.(scheduleLineDraw);
+    lineLayout?.syncPanels?.();
     applyLineReplicateChange(lineReplicates, { sourceReplicates: lineReplicates, skipDraw: true });
 
     const lineExamples={
@@ -1222,70 +1237,12 @@
 
     if(refs.plot){
       const container=refs.plot.closest('.svgbox')||refs.plot.parentElement;
-      if(container && Shared.attachResizableBox){
-        const graphSizing = chartStyle.getSquareGraphSizing
-          ? chartStyle.getSquareGraphSizing({ context: 'line' })
-          : (function fallbackSizing(){
-              const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
-              const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
-              const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
-              const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-              const fallback = {
-                width: baseWidth,
-                height: baseHeight,
-                minWidth: Math.max(1, Math.round(baseWidth * minScale)),
-                minHeight: Math.max(1, Math.round(baseHeight * minScale)),
-                maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-                maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-                aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
-                aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
-              };
-              console.debug('Debug: line fallback square sizing',{ context: 'line', fallback }); // Debug: fallback sizing payload
-              return fallback;
-            })();
-        console.debug('Debug: line resizer sizing config', { graphSizing }); // Debug: line sizing helper output
-        Shared.attachResizableBox(container,{
-          defaultWidth: graphSizing.width,
-          defaultHeight: graphSizing.height,
-          minWidth: graphSizing.minWidth,
-          minHeight: graphSizing.minHeight,
-          maxWidth: graphSizing.maxWidth,
-          maxHeight: graphSizing.maxHeight,
-          aspectLocked: graphSizing.aspectLocked !== false,
-          aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
-          onResize: phase => {
-            console.debug('Debug: line svgbox resized', { phase }); // Debug: line svgbox resize callback
-            syncLineWidths();
-          }
-        });
+      if(!container){
+        console.debug('Debug: line resizer container missing', { hasContainer: !!container });
       }
     }
 
-    if(refs.panelResizer && refs.tablePanel && refs.graphPanel){
-      const attachHelper = Shared.resizer?.attachPanelDragResizer;
-      console.debug('Debug: line attachPanelDragResizer init',{ hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
-      if(typeof attachHelper === 'function'){
-        attachHelper({
-          panelResizer: refs.panelResizer,
-          tablePanel: refs.tablePanel,
-          graphPanel: refs.graphPanel,
-          configPanel: refs.configPanel,
-          debugLabel: 'line',
-          syncPanels: () => syncLineWidths(),
-          computeMinSvgWidth: () => {
-            const width = refs.svgBox?.getBoundingClientRect().width || 0;
-            const computed = Math.max(0, width * 0.5);
-            console.debug('Debug: line attachPanelDragResizer computeMinSvgWidth',{ width, computed }); // Debug: helper min width calc
-            return computed;
-          },
-          onMinSvgWidth: value => {
-            const coerced = Number.isFinite(value) ? value : 0;
-            lineMinSvgWidth = Math.max(0, coerced);
-            console.debug('Debug: line attachPanelDragResizer onMinSvgWidth',{ value, coerced: lineMinSvgWidth }); // Debug: update cached min width
-          }
-        });
-      }
-    }
+    lineLayout?.setScheduleDraw?.(scheduleLineDraw);
 
     refs.fill?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.border?.addEventListener('input',()=>{ scheduleLineDraw(); });
@@ -1336,6 +1293,7 @@
     });
 
     scheduleLineDraw = Shared.debounceFrame(drawLine);
+    lineLayout?.setScheduleDraw?.(scheduleLineDraw);
     console.debug('Debug: line scheduleLineDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     line.ready = true;
     scheduleLineDraw();

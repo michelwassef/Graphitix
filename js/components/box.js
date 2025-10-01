@@ -75,10 +75,8 @@
       console.debug('Debug: box markFontEditable', payload); // Debug: font target tagging summary
     }
   };
-  function ensureWrapperStyles(){ const wrapper=global.document.getElementById('hotWrapper'); if(global.Shared && Shared.ensureHotWrapperStyles) Shared.ensureHotWrapperStyles(wrapper); }
-
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] } };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, layout: null, minSvgWidth: 0 };
   const els = {};
 
   // PART: CACHE_ELS
@@ -131,110 +129,6 @@
   }
 
   // PART: INIT_TABLE
-  function initTableAndResizers(){
-    let minSvgWidth=0;
-    const syncPanels = () => {
-      Shared.syncPanelWidths(els.tablePanel, els.graphPanel, els.configPanel, state.scheduleDraw, {
-        svgBox: els.svgBox,
-        minSvgWidth,
-        debugLabel: 'box',
-        panelResizer: els.panelResizer
-      });
-    };
-    const observer=new ResizeObserver(()=>{syncPanels();}); observer.observe(els.tablePanel); syncPanels();
-    const container=els.plotDiv.closest('.svgbox')||els.plotDiv.parentElement;
-    if(global.Shared && Shared.attachResizableBox && container){
-      let graphSizing = chartStyle.getSquareGraphSizing
-        ? chartStyle.getSquareGraphSizing({ context: 'box' })
-        : (function fallbackSizing(){
-            const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
-            const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
-            const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
-            const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-            const fallback = {
-              width: baseWidth,
-              height: baseHeight,
-              minWidth: Math.max(1, Math.round(baseWidth * minScale)),
-              minHeight: Math.max(1, Math.round(baseHeight * minScale)),
-              maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-              maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-              aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
-              aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
-            };
-            console.debug('Debug: box fallback square sizing',{ context: 'box', fallback }); // Debug: fallback sizing payload
-            return fallback;
-          })();
-      if(graphSizing && typeof graphSizing === 'object'){
-        const heightMultiplier = 1.5;
-        const adjustDimension = (value, label) => {
-          const numeric = Number(value);
-          const scaled = Number.isFinite(numeric) ? Math.round(numeric * heightMultiplier) : numeric;
-          console.debug('Debug: box height adjust', { label, numeric, scaled, heightMultiplier }); // Debug: height scaling trace
-          return scaled;
-        };
-        const adjustedHeight = adjustDimension(graphSizing.height, 'default');
-        const adjustedMinHeight = adjustDimension(graphSizing.minHeight, 'min');
-        const adjustedMaxHeight = adjustDimension(graphSizing.maxHeight, 'max');
-        const widthForRatio = Number(graphSizing.width);
-        const ratioCandidate = Number.isFinite(widthForRatio) && widthForRatio > 0 && Number.isFinite(adjustedHeight) && adjustedHeight > 0
-          ? widthForRatio / adjustedHeight
-          : Number(graphSizing.aspectRatio);
-        graphSizing = {
-          ...graphSizing,
-          height: adjustedHeight,
-          minHeight: adjustedMinHeight,
-          maxHeight: adjustedMaxHeight,
-          aspectRatio: Number.isFinite(ratioCandidate) && ratioCandidate > 0 ? ratioCandidate : graphSizing.aspectRatio
-        };
-        console.debug('Debug: box adjusted aspect ratio',{ // Debug: aspect ratio recalculation trace
-          widthForRatio,
-          adjustedHeight,
-          ratioCandidate: graphSizing.aspectRatio
-        });
-      }
-      console.debug('Debug: box resizer sizing config', { graphSizing }); // Debug: box sizing helper output
-      Shared.attachResizableBox(container, {
-        defaultWidth: graphSizing.width,
-        defaultHeight: graphSizing.height,
-        minWidth: graphSizing.minWidth,
-        minHeight: graphSizing.minHeight,
-        maxWidth: graphSizing.maxWidth,
-        maxHeight: graphSizing.maxHeight,
-        aspectLocked: graphSizing.aspectLocked !== false,
-        aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
-        onResize: phase => {
-          console.debug('Debug: box svgbox resized', { phase }); // Debug: box svgbox resize callback
-          syncPanels();
-        }
-      });
-    }
-    if(els.panelResizer && els.tablePanel && els.graphPanel){
-      const attachHelper = Shared.resizer?.attachPanelDragResizer;
-      console.debug('Debug: box attachPanelDragResizer init',{ hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
-      if(typeof attachHelper === 'function'){
-        attachHelper({
-          panelResizer: els.panelResizer,
-          tablePanel: els.tablePanel,
-          graphPanel: els.graphPanel,
-          configPanel: els.configPanel,
-          debugLabel: 'box',
-          syncPanels: () => syncPanels(),
-          computeMinSvgWidth: () => {
-            const width = els.svgBox?.getBoundingClientRect().width || 0;
-            const computed = Math.max(0, width * 0.5);
-            console.debug('Debug: box attachPanelDragResizer computeMinSvgWidth',{ width, computed }); // Debug: helper min width calc
-            return computed;
-          },
-          onMinSvgWidth: value => {
-            const coerced = Number.isFinite(value) ? value : 0;
-            minSvgWidth = Math.max(0, coerced);
-            console.debug('Debug: box attachPanelDragResizer onMinSvgWidth',{ value, coerced: minSvgWidth }); // Debug: update cached min width
-          }
-        });
-      }
-    }
-  }
-
   function ensureGroupedDefaults(){
     if(!state.grouped || typeof state.grouped !== 'object'){
       state.grouped = { replicatesPerGroup: 3, groups: ['Control', 'Treated'] };
@@ -2655,12 +2549,61 @@ function renderStatsControls(traces){
     // Will be filled by placeholders
     // cache elements, ensure styles, set up resizers, hot, ui, and schedule
     if (typeof cacheEls === 'function') cacheEls();
-    if (typeof ensureWrapperStyles === 'function') ensureWrapperStyles();
-    if (typeof initTableAndResizers === 'function') initTableAndResizers();
+    state.layout = Shared.componentLayout?.createStandardPanels({
+      componentName: 'box',
+      selectors: {
+        tablePanel: '#boxTablePanel',
+        graphPanel: '#boxGraphPanel',
+        panelResizer: '#boxPanelResizer',
+        hotWrapper: '#hotWrapper',
+        hotContainer: '#hot',
+        svgBox: () => els.graphPanel?.querySelector('.svgbox'),
+        resizeTarget: () => els.plotDiv?.closest('.svgbox') || els.graphPanel?.querySelector('.svgbox')
+      },
+      scheduleDraw: state.scheduleDraw,
+      getSizing: () => {
+        let sizing = chartStyle.getSquareGraphSizing ? chartStyle.getSquareGraphSizing({ context: 'box' }) : null;
+        if(sizing && typeof sizing === 'object'){
+          const heightMultiplier = 1.5;
+          const adjustDimension = (value, label) => {
+            const numeric = Number(value);
+            const scaled = Number.isFinite(numeric) ? Math.round(numeric * heightMultiplier) : numeric;
+            console.debug('Debug: box layout adjustDimension', { label, numeric, scaled, heightMultiplier });
+            return scaled;
+          };
+          const adjustedHeight = adjustDimension(sizing.height, 'default');
+          const adjustedMinHeight = adjustDimension(sizing.minHeight, 'min');
+          const adjustedMaxHeight = adjustDimension(sizing.maxHeight, 'max');
+          const widthForRatio = Number(sizing.width);
+          const ratioCandidate = Number.isFinite(widthForRatio) && widthForRatio > 0 && Number.isFinite(adjustedHeight) && adjustedHeight > 0
+            ? widthForRatio / adjustedHeight
+            : Number(sizing.aspectRatio);
+          sizing = {
+            ...sizing,
+            height: adjustedHeight,
+            minHeight: adjustedMinHeight,
+            maxHeight: adjustedMaxHeight,
+            aspectRatio: Number.isFinite(ratioCandidate) && ratioCandidate > 0 ? ratioCandidate : sizing.aspectRatio
+          };
+          console.debug('Debug: box layout sizing adjusted', { ratioCandidate: sizing.aspectRatio });
+        }
+        return sizing;
+      },
+      onMinSvgWidth: value => {
+        state.minSvgWidth = Math.max(0, Number(value) || 0);
+        console.debug('Debug: box layout min width update', { value: state.minSvgWidth });
+      }
+    });
+    if(state.layout?.elements?.svgBox){
+      els.svgBox = state.layout.elements.svgBox;
+    }
+    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    state.layout?.syncPanels?.();
     if (typeof initHot === 'function') initHot();
     if (typeof initUI === 'function') initUI();
     state.scheduleDraw = Shared.debounceFrame(draw);
     console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    state.layout?.setScheduleDraw?.(state.scheduleDraw);
     box.ready = true;
     try{ state.scheduleDraw(); } catch(e){ console.error('box init initial draw error', e); }
   };
