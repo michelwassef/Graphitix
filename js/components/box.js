@@ -30,6 +30,91 @@
     console.debug('Debug: shadeColor',{color,percent,newColor}); // Debug
     return newColor;
   }
+
+  function computeSampleSpreadFactor(sampleSize){
+    const n = Number(sampleSize) || 0;
+    if(n <= 1){
+      console.debug('Debug: computeSampleSpreadFactor minimal',{ sampleSize: n, factor: 0.2 });
+      return 0.2;
+    }
+    const sqrtScaled = Math.sqrt(n) / 7;
+    const factor = Math.min(1, Math.max(0.2, sqrtScaled));
+    console.debug('Debug: computeSampleSpreadFactor',{ sampleSize: n, sqrtScaled, factor });
+    return factor;
+  }
+
+  function computeSwarmOffsets(points, options){
+    const entries = Array.isArray(points) ? points.slice() : [];
+    const sampleSize = Number(options?.sampleSize) || entries.length;
+    const pointRadiusValue = Number(options?.pointRadius) || 1;
+    const axisSpacing = Number(options?.axisSpacing) || 0;
+    const orientation = options?.orientation || 'vertical';
+    const spreadFactor = computeSampleSpreadFactor(sampleSize);
+    const baseMax = axisSpacing * 0.1;
+    const minOffset = pointRadiusValue * 1.1;
+    let maxOffset = Math.max(minOffset, baseMax * spreadFactor);
+    if(!Number.isFinite(maxOffset) || maxOffset <= 0){
+      maxOffset = minOffset;
+    }
+    const searchStep = Math.max(1, pointRadiusValue * 0.75);
+    const minDistance = Math.max(pointRadiusValue * 2 + 0.5, searchStep);
+    const minDistanceSq = minDistance * minDistance;
+    const placed = [];
+    const offsetsMap = new Map();
+    const sorted = entries.slice().sort((a, b) => (Number(a?.coord) || 0) - (Number(b?.coord) || 0));
+    let maxUsed = 0;
+    console.debug('Debug: computeSwarmOffsets start',{ orientation, sampleSize, spreadFactor, axisSpacing, baseMax, minOffset, maxOffset, pointRadiusValue });
+    sorted.forEach(entry => {
+      if(!entry || typeof entry.index !== 'number'){
+        return;
+      }
+      const coord = Number(entry.coord) || 0;
+      const collides = candidate => {
+        for(const placedEntry of placed){
+          const dx = candidate - placedEntry.offset;
+          const dy = coord - placedEntry.coord;
+          if(dx * dx + dy * dy < minDistanceSq){
+            return true;
+          }
+        }
+        return false;
+      };
+      let chosen = 0;
+      if(collides(0)){
+        let step = searchStep;
+        let placedFlag = false;
+        let guard = 0;
+        while(step <= maxOffset + searchStep && !placedFlag && guard < 250){
+          for(const dir of [-1, 1]){
+            const candidate = dir * step;
+            if(Math.abs(candidate) > maxOffset + 0.01){
+              continue;
+            }
+            if(!collides(candidate)){
+              chosen = candidate;
+              placedFlag = true;
+              break;
+            }
+          }
+          step += searchStep;
+          guard++;
+        }
+        if(!placedFlag){
+          const fallbackDir = placed.length % 2 === 0 ? 1 : -1;
+          chosen = fallbackDir * maxOffset;
+          console.debug('Debug: computeSwarmOffsets fallback',{ orientation, sampleSize, fallbackDir, maxOffset });
+        }
+      }
+      placed.push({ offset: chosen, coord });
+      offsetsMap.set(entry.index, chosen);
+      if(Math.abs(chosen) > maxUsed){
+        maxUsed = Math.abs(chosen);
+      }
+    });
+    const offsets = entries.map(entry => offsetsMap.get(entry.index) || 0);
+    console.debug('Debug: computeSwarmOffsets result',{ orientation, sampleSize, spreadFactor, maxOffset, maxOffsetUsed: maxUsed, pointCount: entries.length });
+    return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset };
+  }
   const makeEditable = (el,onChange,options) => {
     const fn = Shared.makeEditable || global.makeEditable;
     if (typeof fn === 'function') {
@@ -76,7 +161,7 @@
     }
   };
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, layout: null, minSvgWidth: 0 };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, layout: null, minSvgWidth: 0, individualSummary: 'mean' };
   const els = {};
 
   // PART: CACHE_ELS
@@ -119,6 +204,14 @@
     els.boxLogScaleLabel=global.$('#boxLogScaleLabel');
     els.boxFlipAxes=global.$('#boxFlipAxes');
     els.boxGraphType=global.$('#boxGraphType');
+    els.boxIndividualSummaryCtl=global.$('#boxIndividualSummaryCtl');
+    els.boxIndividualSummary=global.$('#boxIndividualSummary');
+    if(els.boxIndividualSummary){
+      const allowedSummaries = new Set(['mean','median','none']);
+      const fallbackSummary = allowedSummaries.has(state.individualSummary) ? state.individualSummary : 'mean';
+      els.boxIndividualSummary.value = fallbackSummary;
+      console.debug('Debug: box individual summary initialised',{ value: els.boxIndividualSummary.value });
+    }
     els.boxPointMode=global.$('#boxPointMode');
     els.boxShowCaps=global.$('#boxShowCaps');
     els.boxErrorMode=global.$('#boxErrorMode');
@@ -513,9 +606,31 @@
         showCapsLabel.style.display = capsVisible ? '' : 'none';
         console.debug('Debug: box showCaps visibility updated',{ graphTypeValue, capsVisible });
       }
+      if(els.boxIndividualSummaryCtl){
+        const summaryVisible = graphTypeValue === 'strip';
+        els.boxIndividualSummaryCtl.style.display = summaryVisible ? '' : 'none';
+        if(summaryVisible && els.boxIndividualSummary){
+          const allowedSummaries = new Set(['mean','median','none']);
+          const summaryValue = allowedSummaries.has(state.individualSummary) ? state.individualSummary : 'mean';
+          if(els.boxIndividualSummary.value !== summaryValue){
+            els.boxIndividualSummary.value = summaryValue;
+            console.debug('Debug: box individual summary sync',{ summaryValue });
+          }
+        }
+        console.debug('Debug: box individual summary visibility',{ graphTypeValue, summaryVisible });
+      }
       console.debug('Debug: box graph type controls',{ graphTypeValue, showErrorControls });
     };
     els.boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', els.boxGraphType.value); updateGraphTypeControls(); state.scheduleDraw(); });
+    if(els.boxIndividualSummary){
+      els.boxIndividualSummary.addEventListener('change',()=>{
+        const allowedSummaries = new Set(['mean','median','none']);
+        const summaryValue = allowedSummaries.has(els.boxIndividualSummary.value) ? els.boxIndividualSummary.value : 'mean';
+        state.individualSummary = summaryValue;
+        console.debug('Debug: box individual summary change',{ summaryValue });
+        state.scheduleDraw();
+      });
+    }
     els.boxPointMode.addEventListener('change',()=>{ console.log('boxPointMode changed', els.boxPointMode.value); state.scheduleDraw(); });
     els.boxShowCaps.addEventListener('change',()=>{ console.log('boxShowCaps changed', els.boxShowCaps.checked); state.scheduleDraw(); });
     els.boxErrorMode.addEventListener('change',()=>{ console.log('boxErrorMode changed', els.boxErrorMode.value); state.scheduleDraw(); });
@@ -1167,6 +1282,19 @@ function renderStatsControls(traces){
     console.debug('Debug: box showFrame state',{ showFrame });
     const logScale = els.boxLogScale.checked;
     const graphTypeRaw = els.boxGraphType.value;
+    const isIndividualValues = graphTypeRaw === 'strip';
+    let individualSummaryMode = 'none';
+    if(isIndividualValues){
+      const allowedSummaries = new Set(['mean','median','none']);
+      const domValue = els.boxIndividualSummary?.value;
+      const summaryValue = allowedSummaries.has(domValue) ? domValue : (allowedSummaries.has(state.individualSummary) ? state.individualSummary : 'mean');
+      individualSummaryMode = summaryValue;
+      if(summaryValue !== state.individualSummary){
+        state.individualSummary = summaryValue;
+        console.debug('Debug: box individual summary state sync',{ summaryValue });
+      }
+    }
+    console.debug('Debug: box individual summary mode',{ graphTypeRaw, individualSummaryMode });
     const pointMode = els.boxPointMode.value;
     const showCaps = els.boxShowCaps.checked;
     const errorMode = els.boxErrorMode.value;
@@ -1867,31 +1995,60 @@ function renderStatsControls(traces){
           add('line',{ x1: cx - halfWidth, y1: yMed, x2: cx + halfWidth, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
           console.debug('Debug: box violin vertical render',{ index: i, points: vals.length, peak, halfWidth });
         }else if(graphTypeRaw === 'strip'){
-          const jitterWidth = Math.max(6, Math.min(localBand * 0.8, 80));
+          const pointEntries = vals.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value }));
+          const swarm = computeSwarmOffsets(pointEntries, {
+            axisSpacing: localBand,
+            pointRadius,
+            sampleSize: vals.length,
+            orientation: 'vertical'
+          });
           const frag = document.createDocumentFragment();
-          let ptIdx = 0;
-          for(const v of vals){
-            const cyPoint = y2px(v);
-            const jitter = (Math.random() - 0.5) * jitterWidth;
+          pointEntries.forEach(entry => {
+            const offset = swarm.offsets[entry.index] || 0;
             const circle = document.createElementNS(NS, 'circle');
-            circle.setAttribute('cx', cx + jitter);
-            circle.setAttribute('cy', cyPoint);
+            circle.setAttribute('cx', cx + offset);
+            circle.setAttribute('cy', entry.coord);
             circle.setAttribute('r', pointRadius);
             circle.setAttribute('fill', fillColor);
             circle.setAttribute('stroke', borderColor);
             circle.setAttribute('fill-opacity', 0.7);
             frag.appendChild(circle);
-            ptIdx++;
-            if(ptIdx % 1000 === 0){
-              console.debug('Debug: box strip jitter progress',{ index: i, ptIdx, jitterWidth });
+          });
+          const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
+          stripGroup.appendChild(frag);
+          if(individualSummaryMode !== 'none'){
+            const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode });
+            const summaryCap = Math.max(6, localBand * 0.12);
+            const summaryAdd = (tag, attrs) => {
+              const node = document.createElementNS(NS, tag);
+              for(const [key, value] of Object.entries(attrs)){
+                node.setAttribute(key, String(value));
+              }
+              summaryGroup.appendChild(node);
+              return node;
+            };
+            if(individualSummaryMode === 'mean'){
+              const sampleCount = vals.length;
+              const variance = sampleCount > 1 ? vals.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (sampleCount - 1) : 0;
+              const sd = Math.sqrt(Math.max(variance, 0));
+              const sem = sampleCount > 0 ? sd / Math.sqrt(sampleCount) : 0;
+              const yTop = y2px(mean + sem);
+              const yBottom = y2px(mean - sem);
+              summaryAdd('line',{ x1: cx, y1: yTop, x2: cx, y2: yBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yTop, x2: cx + summaryCap / 2, y2: yTop, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yBottom, x2: cx + summaryCap / 2, y2: yBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('circle',{ cx, cy: yMean, r: pointRadius * 1.4, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
+              console.debug('Debug: box individual summary vertical mean',{ index: i, sampleCount, sd, sem });
+            }else if(individualSummaryMode === 'median'){
+              summaryAdd('line',{ x1: cx, y1: yQ3, x2: cx, y2: yQ1, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yQ3, x2: cx + summaryCap / 2, y2: yQ3, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yQ1, x2: cx + summaryCap / 2, y2: yQ1, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yMed, x2: cx + summaryCap / 2, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('circle',{ cx, cy: yMed, r: pointRadius * 1.2, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
+              console.debug('Debug: box individual summary vertical median',{ index: i, q1, q3 });
             }
           }
-          const stripGroup = add('g',{ 'data-trace': i, 'data-strip': 'true' });
-          stripGroup.appendChild(frag);
-          const indicatorHalf = jitterWidth / 2;
-          add('line',{ x1: cx - indicatorHalf, y1: yMean, x2: cx + indicatorHalf, y2: yMean, stroke: borderColor, 'stroke-width': borderWidthPx });
-          add('circle',{ cx, cy: yMean, r: pointRadius * 1.4, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
-          console.debug('Debug: box strip vertical render',{ index: i, mean, jitterWidth, pointCount: vals.length });
+          console.debug('Debug: box individual vertical render',{ index: i, mean, maxOffsetUsed: swarm.maxOffsetUsed, spreadFactor: swarm.spreadFactor, pointCount: vals.length });
         }
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
@@ -2201,31 +2358,62 @@ function renderStatsControls(traces){
           add('line',{ x1: xMed, y1: cy - halfHeight, x2: xMed, y2: cy + halfHeight, stroke: borderColor, 'stroke-width': borderWidthPx });
           console.debug('Debug: box violin horizontal render',{ index: i, points: vals.length, peak, halfHeight });
         }else if(graphTypeRaw === 'strip'){
-          const jitterHeight = Math.max(6, Math.min(localBand * 0.8, 80));
+          const pointEntries = vals.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value }));
+          const swarm = computeSwarmOffsets(pointEntries, {
+            axisSpacing: localBand,
+            pointRadius,
+            sampleSize: vals.length,
+            orientation: 'horizontal'
+          });
           const frag = document.createDocumentFragment();
-          let ptIdx = 0;
-          for(const v of vals){
-            const px = valueToX(v);
-            const jitter = (Math.random() - 0.5) * jitterHeight;
+          pointEntries.forEach(entry => {
+            const offset = swarm.offsets[entry.index] || 0;
             const circle = document.createElementNS(NS, 'circle');
-            circle.setAttribute('cx', px);
-            circle.setAttribute('cy', cy + jitter);
+            circle.setAttribute('cx', entry.coord);
+            circle.setAttribute('cy', cy + offset);
             circle.setAttribute('r', pointRadius);
             circle.setAttribute('fill', fillColor);
             circle.setAttribute('stroke', borderColor);
             circle.setAttribute('fill-opacity', 0.7);
             frag.appendChild(circle);
-            ptIdx++;
-            if(ptIdx % 1000 === 0){
-              console.debug('Debug: box strip jitter horizontal',{ index: i, ptIdx, jitterHeight });
+          });
+          const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
+          stripGroup.appendChild(frag);
+          if(individualSummaryMode !== 'none'){
+            const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode });
+            const summaryCap = Math.max(6, localBand * 0.12);
+            const summaryAdd = (tag, attrs) => {
+              const node = document.createElementNS(NS, tag);
+              for(const [key, value] of Object.entries(attrs)){
+                node.setAttribute(key, String(value));
+              }
+              summaryGroup.appendChild(node);
+              return node;
+            };
+            if(individualSummaryMode === 'mean'){
+              const sampleCount = vals.length;
+              const variance = sampleCount > 1 ? vals.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (sampleCount - 1) : 0;
+              const sd = Math.sqrt(Math.max(variance, 0));
+              const sem = sampleCount > 0 ? sd / Math.sqrt(sampleCount) : 0;
+              const xLow = valueToX(mean - sem);
+              const xHigh = valueToX(mean + sem);
+              summaryAdd('line',{ x1: xLow, y1: cy, x2: xHigh, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('line',{ x1: xLow, y1: cy - summaryCap / 2, x2: xLow, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('line',{ x1: xHigh, y1: cy - summaryCap / 2, x2: xHigh, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('circle',{ cx: xMean, cy: cy, r: pointRadius * 1.4, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
+              console.debug('Debug: box individual summary horizontal mean',{ index: i, sampleCount, sd, sem });
+            }else if(individualSummaryMode === 'median'){
+              const xLow = valueToX(q1);
+              const xHigh = valueToX(q3);
+              summaryAdd('line',{ x1: xLow, y1: cy, x2: xHigh, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('line',{ x1: xLow, y1: cy - summaryCap / 2, x2: xLow, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('line',{ x1: xHigh, y1: cy - summaryCap / 2, x2: xHigh, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('line',{ x1: xMed - summaryCap / 2, y1: cy, x2: xMed + summaryCap / 2, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
+              summaryAdd('circle',{ cx: xMed, cy: cy, r: pointRadius * 1.2, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
+              console.debug('Debug: box individual summary horizontal median',{ index: i, q1, q3 });
             }
           }
-          const stripGroup = add('g',{ 'data-trace': i, 'data-strip': 'true' });
-          stripGroup.appendChild(frag);
-          const indicatorHalf = jitterHeight / 2;
-          add('line',{ x1: xMean, y1: cy - indicatorHalf, x2: xMean, y2: cy + indicatorHalf, stroke: borderColor, 'stroke-width': borderWidthPx });
-          add('circle',{ cx: xMean, cy: cy, r: pointRadius * 1.4, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
-          console.debug('Debug: box strip horizontal render',{ index: i, mean, jitterHeight, pointCount: vals.length });
+          console.debug('Debug: box individual horizontal render',{ index: i, mean, maxOffsetUsed: swarm.maxOffsetUsed, spreadFactor: swarm.spreadFactor, pointCount: vals.length });
         }
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
@@ -2352,6 +2540,7 @@ function renderStatsControls(traces){
         showFrame:!!els.boxShowFrame?.checked,
         logScale:els.boxLogScale.checked,
         graphType:els.boxGraphType.value,
+        individualSummary: state.individualSummary,
         pointMode:els.boxPointMode.value,
         showCaps:els.boxShowCaps.checked,
         errorMode:els.boxErrorMode.value,
@@ -2464,10 +2653,23 @@ function renderStatsControls(traces){
         if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
         els.boxLogScale.checked=!!c.logScale;
         els.boxGraphType.value=c.graphType||els.boxGraphType.value;
+        const allowedSummaries = new Set(['mean','median','none']);
+        if(typeof c.individualSummary === 'string' && allowedSummaries.has(c.individualSummary)){
+          state.individualSummary = c.individualSummary;
+        }else if(!allowedSummaries.has(state.individualSummary)){
+          state.individualSummary = 'mean';
+        }
+        if(els.boxIndividualSummary){
+          const summaryValue = allowedSummaries.has(state.individualSummary) ? state.individualSummary : 'mean';
+          els.boxIndividualSummary.value = summaryValue;
+        }
         els.boxPointMode.value=c.pointMode||els.boxPointMode.value;
         els.boxShowCaps.checked=!!c.showCaps;
         els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value;
         els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none';
+        if(els.boxIndividualSummaryCtl){
+          els.boxIndividualSummaryCtl.style.display = els.boxGraphType.value==='strip' ? '' : 'none';
+        }
         state.fillColors=c.colors||[];
         state.borderColors=c.borderColors||[];
         if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; }
