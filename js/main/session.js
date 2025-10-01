@@ -3,6 +3,40 @@
   const Main = window.Main = window.Main || {};
   const namespace = Main.session = Main.session || {};
 
+  /**
+   * @typedef {Object} WorkspaceTab
+   * @property {string} id Unique identifier for the tab.
+   * @property {string} title Display title shown in the tab list.
+   * @property {string|null} [type] Workspace type slug used to resolve component behavior.
+   * @property {*} [payload] Serialized component payload used when restoring the workspace.
+   * @property {string|null} [payloadSignature] Cached signature of the payload for fast comparisons.
+   * @property {string|null} [duplicateSource] Optional source tab identifier when duplicating.
+   * @property {boolean} [isWelcome] Flag indicating the tab is the static welcome screen.
+   * @property {boolean} [allowClose] Whether the tab can be closed by the user.
+   * @property {boolean} [isRenaming] True when the inline rename UI is active.
+   * @property {string|null} [previewMarkup] Cached HTML preview string for quick hover previews.
+   * @property {string|null} [previewSignature] Signature used to detect preview changes.
+   * @property {Object|null} [previewMeta] Metadata captured when generating previews.
+   */
+
+  /**
+   * @typedef {Object} WorkspaceState
+   * @property {WorkspaceTab[]} tabs Ordered list of workspace tabs.
+   * @property {string|null} activeTabId Identifier of the currently active tab.
+   * @property {number} nextId Incrementing counter used when generating tab IDs.
+   * @property {string|null} pendingDuplicateSource Tab ID staged for duplication confirmation.
+   * @property {string|null} lastActiveGraphId Last non-welcome tab viewed by the user.
+   * @property {string|null} renameFocusId Tab ID requesting focus after rename toggles.
+   * @property {Object|null} pendingClosePrompt Tracks the state for unsaved-close prompts.
+   * @property {FileSystemFileHandle|Object|null} sessionFileHandle Handle returned by the File System Access API.
+   * @property {string} sessionFileName Friendly name of the current session file.
+   * @property {boolean} sessionDirty True when the in-memory session differs from disk.
+   * @property {string|null} draggingTabId Tab currently being dragged in the UI.
+   * @property {number|null} dragStartIndex Starting index for the active drag operation.
+   * @property {string|null} dragOverTabId Tab currently hovered while dragging.
+   * @property {boolean} dragInsertBefore Whether the drop marker appears before the hovered tab.
+   */
+
   const workspaceState = namespace.workspaceState || {
     tabs: [],
     activeTabId: null,
@@ -96,6 +130,46 @@
     return changed;
   }
 
+  function getActiveTab() {
+    const activeId = workspaceState.activeTabId || null;
+    const tab = workspaceState.tabs.find(item => item.id === activeId) || null;
+    if (!tab) {
+      console.debug('Debug: session getActiveTab fallback', { activeId });
+    }
+    return tab;
+  }
+
+  function createTab(options = {}) {
+    const index = workspaceState.tabs.length + 1;
+    const id = `workspace-${workspaceState.nextId++}`;
+    const tab = {
+      id,
+      title: options.title || `Workspace ${index}`,
+      type: options.type || null,
+      payload: options.payload || null,
+      payloadSignature: options.payloadSignature !== undefined
+        ? options.payloadSignature
+        : serializePayloadSignature(options.payload || null),
+      duplicateSource: options.duplicateSource || null,
+      isWelcome: !!options.isWelcome,
+      allowClose: options.allowClose !== false,
+      isRenaming: false,
+      previewMarkup: options.previewMarkup || null,
+      previewSignature: options.previewSignature || null,
+      previewMeta: options.previewMeta || null
+    };
+    if (tab.isWelcome) {
+      tab.allowClose = false;
+    }
+    console.debug('Debug: session createTab generated', {
+      id,
+      index,
+      duplicateSource: tab.duplicateSource,
+      isWelcome: tab.isWelcome
+    });
+    return tab;
+  }
+
   function hasMeaningfulCellValue(value, seen = new Set()) {
     if (value === null || value === undefined) {
       return false;
@@ -179,14 +253,202 @@
     return workspaceState.tabs.some(tab => !tab.isWelcome && tab.type && tabHasTableData(tab));
   }
 
+  function persistActiveTabState(tab = getActiveTab(), options = {}) {
+    if (!tab || !tab.type) {
+      return false;
+    }
+    const workspaces = options.workspaces || (window.Main?.components?.registry) || {};
+    const previews = options.previews || window.Main?.previews || null;
+    const config = workspaces?.[tab.type];
+    if (!config || typeof config.getPayload !== 'function') {
+      console.debug('Debug: persistActiveTabState skipped', {
+        tabId: tab?.id,
+        type: tab?.type,
+        reason: 'missing-config'
+      });
+      return false;
+    }
+    try {
+      const payload = config.getPayload();
+      const payloadClone = clonePayload(payload);
+      const changed = assignTabPayload(tab, payloadClone, { reason: options.reason || 'persist-active' });
+      const previewNeedsCapture = options.forcePreviewCapture === true || changed || (tab.previewSignature !== tab.payloadSignature);
+      let previewChanged = false;
+      if (previews && typeof previews.updateTabPreviewFromWorkspace === 'function') {
+        previewChanged = previews.updateTabPreviewFromWorkspace(tab, config, {
+          reason: options.reason || 'persist-active',
+          forceCapture: previewNeedsCapture
+        });
+      } else {
+        console.debug('Debug: persistActiveTabState preview skipped', {
+          tabId: tab.id,
+          hasPreviews: !!previews
+        });
+      }
+      if (changed) {
+        markSessionDirty(options.reason || 'tab-state-updated', { tabId: tab.id, type: tab.type });
+      }
+      console.debug('Debug: workspace state persisted', {
+        tabId: tab.id,
+        type: tab.type,
+        hasPayload: !!tab.payload,
+        changed,
+        previewChanged
+      });
+      return changed;
+    } catch (err) {
+      console.error('persistActiveTabState error', { tabId: tab.id, type: tab.type, err });
+      return false;
+    }
+  }
+
+  function buildSessionPayload(options = {}) {
+    const active = options.activeTab || getActiveTab();
+    if (active && !active.isWelcome) {
+      persistActiveTabState(active, options);
+    } else {
+      console.debug('Debug: buildSessionPayload active tab skipped', {
+        hasActive: !!active,
+        isWelcome: !!active?.isWelcome
+      });
+    }
+    const graphTabs = workspaceState.tabs.filter(tab => !tab.isWelcome && tab.type);
+    const activeGraphIndex = active && !active.isWelcome
+      ? graphTabs.findIndex(tab => tab.id === active.id)
+      : -1;
+    const tabsPayload = graphTabs.map((tab, index) => {
+      const payloadClone = clonePayload(tab.payload);
+      console.debug('Debug: session tab snapshot', {
+        tabId: tab.id,
+        type: tab.type,
+        index,
+        hasPayload: !!payloadClone
+      });
+      return {
+        title: tab.title,
+        type: tab.type,
+        payload: payloadClone
+      };
+    });
+    const sessionPayload = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      activeIndex: activeGraphIndex,
+      tabs: tabsPayload
+    };
+    console.debug('Debug: session payload built', {
+      tabCount: tabsPayload.length,
+      activeIndex: activeGraphIndex
+    });
+    return sessionPayload;
+  }
+
+  async function loadWorkspaceSessionBlob(blob, options = {}) {
+    if (!blob) {
+      console.warn('loadWorkspaceSessionBlob skipped', { reason: 'no-blob', options });
+      return;
+    }
+    try {
+      const text = await blob.text();
+      const parsed = JSON.parse(text);
+      const tabCount = Array.isArray(parsed?.tabs) ? parsed.tabs.length : 0;
+      console.debug('Debug: session blob parsed', {
+        bytes: text.length,
+        hasTabs: Array.isArray(parsed?.tabs),
+        tabCount,
+        reason: options.reason || 'unknown'
+      });
+      applySessionData(parsed, options);
+    } catch (err) {
+      console.error('loadWorkspaceSessionBlob error', { err, options });
+    }
+  }
+
+  function applySessionData(session, options = {}) {
+    const tabs = Array.isArray(session?.tabs) ? session.tabs : [];
+    if (typeof options.hideDuplicatePrompt === 'function') {
+      options.hideDuplicatePrompt();
+      console.debug('Debug: session apply requested duplicate prompt hide', { reason: options.reason || 'session-load' });
+    }
+    workspaceState.tabs = [];
+    workspaceState.activeTabId = null;
+    workspaceState.pendingDuplicateSource = null;
+    workspaceState.lastActiveGraphId = null;
+    workspaceState.renameFocusId = null;
+    workspaceState.pendingClosePrompt = null;
+    workspaceState.nextId = 1;
+    if (Object.prototype.hasOwnProperty.call(options, 'fileHandle')) {
+      workspaceState.sessionFileHandle = options.fileHandle;
+      console.debug('Debug: session file handle applied', { hasHandle: !!options.fileHandle });
+    }
+    if (options.fileName) {
+      workspaceState.sessionFileName = options.fileName;
+      console.debug('Debug: session file name applied', { name: workspaceState.sessionFileName });
+    }
+    const welcomeTab = createTab({ title: 'Welcome', isWelcome: true, allowClose: false });
+    workspaceState.tabs.push(welcomeTab);
+    const graphTabs = [];
+    tabs.forEach((tabData, index) => {
+      if (!tabData || typeof tabData.type !== 'string') {
+        console.warn('applySessionData skipping invalid tab', { index, tabData });
+        return;
+      }
+      const clonedPayload = clonePayload(tabData.payload) || null;
+      const newTab = createTab({
+        title: tabData.title || `Workspace ${index + 1}`,
+        type: tabData.type,
+        payload: clonedPayload
+      });
+      graphTabs.push(newTab);
+      workspaceState.tabs.push(newTab);
+      console.debug('Debug: session tab restored', {
+        index,
+        tabId: newTab.id,
+        type: newTab.type,
+        hasPayload: !!clonedPayload
+      });
+    });
+    workspaceState.activeTabId = welcomeTab.id;
+    if (typeof options.renderTabs === 'function') {
+      options.renderTabs();
+    }
+    const requestedIndex = typeof session?.activeIndex === 'number' ? session.activeIndex : -1;
+    const targetTab = (requestedIndex >= 0 && requestedIndex < graphTabs.length)
+      ? graphTabs[requestedIndex]
+      : (graphTabs[0] || null);
+    if (targetTab && typeof options.activateTab === 'function') {
+      options.activateTab(targetTab.id, { skipPersist: true, reason: options.reason || 'session-load' });
+    } else if (!targetTab && typeof options.showGraphSelection === 'function') {
+      options.showGraphSelection({ reason: 'session-empty' });
+    }
+    clearSessionDirty(options.reason || 'session-load');
+    console.debug('Debug: session applied', {
+      requestedIndex,
+      resolvedIndex: targetTab ? graphTabs.indexOf(targetTab) : -1,
+      tabCount: graphTabs.length,
+      reason: options.reason || 'session-load'
+    });
+    return {
+      welcomeTabId: welcomeTab.id,
+      targetTabId: targetTab ? targetTab.id : null,
+      graphTabCount: graphTabs.length
+    };
+  }
+
   namespace.workspaceState = workspaceState;
   namespace.markSessionDirty = markSessionDirty;
   namespace.clearSessionDirty = clearSessionDirty;
   namespace.clonePayload = clonePayload;
   namespace.serializePayloadSignature = serializePayloadSignature;
   namespace.assignTabPayload = assignTabPayload;
+  namespace.getActiveTab = getActiveTab;
+  namespace.createTab = createTab;
   namespace.hasMeaningfulCellValue = hasMeaningfulCellValue;
   namespace.tabHasTableData = tabHasTableData;
   namespace.graphTabsHaveData = graphTabsHaveData;
+  namespace.persistActiveTabState = persistActiveTabState;
+  namespace.buildSessionPayload = buildSessionPayload;
+  namespace.loadWorkspaceSessionBlob = loadWorkspaceSessionBlob;
+  namespace.applySessionData = applySessionData;
   console.debug('Debug: Main session module initialized', { exportedHelpers: Object.keys(namespace) });
 })();

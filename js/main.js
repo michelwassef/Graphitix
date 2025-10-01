@@ -59,6 +59,22 @@
     hasPreviews: !!MainPreviews
   }); // Debug: dependency confirmation log
 
+  const requiredSessionHelpers = [
+    'getActiveTab',
+    'persistActiveTabState',
+    'buildSessionPayload',
+    'loadWorkspaceSessionBlob',
+    'applySessionData',
+    'createTab'
+  ];
+  const missingSessionHelpers = requiredSessionHelpers.filter(name => typeof MainSession[name] !== 'function');
+  if (missingSessionHelpers.length) {
+    const message = `main.js requires session helpers: ${missingSessionHelpers.join(', ')}`;
+    console.error(message);
+    throw new Error(message);
+  }
+  console.debug('Debug: main.js session helpers verified', { helpers: requiredSessionHelpers });
+
   const scheduleDrawBoxplot = typeof MainComponents.scheduleDrawBoxplot === 'function'
     ? MainComponents.scheduleDrawBoxplot
     : () => console.debug('Debug: main scheduler fallback used', { type: 'boxplot' });
@@ -85,6 +101,13 @@
     : () => console.debug('Debug: main scheduler fallback used', { type: 'survival' });
 
   const WORKSPACES = MainComponents.registry || {};
+  function withSessionContext(extra = {}) {
+    const context = {
+      workspaces: WORKSPACES,
+      previews: MainPreviews
+    };
+    return Object.assign(context, extra);
+  }
   const workspaceDefaults = {};
   const workspaceState = MainSession.workspaceState;
   if (!workspaceState) {
@@ -310,43 +333,8 @@
     console.warn('Workspace payload application unavailable', { type: config.type });
   }
 
-  function persistActiveTabState(tab = getActiveTab()) {
-    if (!tab || !tab.type) {
-      return false;
-    }
-    const config = WORKSPACES[tab.type];
-    if (!config || typeof config.getPayload !== 'function') {
-      console.debug('Debug: persistActiveTabState skipped', { tabId: tab?.id, type: tab?.type });
-      return false;
-    }
-    try {
-      const payload = config.getPayload();
-      const payloadClone = MainSession.clonePayload(payload);
-      const changed = MainSession.assignTabPayload(tab, payloadClone, { reason: 'persist-active' });
-      const previewNeedsCapture = changed || (tab.previewSignature !== tab.payloadSignature);
-      const previewChanged = MainPreviews.updateTabPreviewFromWorkspace(tab, config, {
-        reason: 'persist-active',
-        forceCapture: previewNeedsCapture
-      });
-      if (changed) {
-        MainSession.markSessionDirty('tab-state-updated', { tabId: tab.id, type: tab.type });
-      }
-      console.debug('Debug: workspace state persisted', {
-        tabId: tab.id,
-        type: tab.type,
-        hasPayload: !!tab.payload,
-        changed,
-        previewChanged
-      }); // Debug: persist state result
-      return changed;
-    } catch (err) {
-      console.error('persistActiveTabState error', { tabId: tab.id, type: tab.type, err });
-      return false;
-    }
-  }
-
   function getActiveTab() {
-    return workspaceState.tabs.find(tab => tab.id === workspaceState.activeTabId) || null;
+    return MainSession.getActiveTab();
   }
 
   function showWorkspaceForTab(tab, options = {}) {
@@ -402,54 +390,13 @@
     console.debug('Debug: welcome screen shown', { reason: options.reason || 'unspecified' });
   }
 
-  function buildSessionPayload() {
-    const active = getActiveTab();
-    if (active && !active.isWelcome) {
-      persistActiveTabState(active);
-    } else {
-      console.debug('Debug: buildSessionPayload active tab skipped', {
-        hasActive: !!active,
-        isWelcome: !!active?.isWelcome
-      });
-    }
-    const graphTabs = workspaceState.tabs.filter(tab => !tab.isWelcome && tab.type);
-    const activeGraphIndex = active && !active.isWelcome
-      ? graphTabs.findIndex(tab => tab.id === active.id)
-      : -1;
-    const tabsPayload = graphTabs.map((tab, index) => {
-      const payloadClone = MainSession.clonePayload(tab.payload);
-      console.debug('Debug: session tab snapshot', {
-        tabId: tab.id,
-        type: tab.type,
-        index,
-        hasPayload: !!payloadClone
-      });
-      return {
-        title: tab.title,
-        type: tab.type,
-        payload: payloadClone
-      };
-    });
-    const sessionPayload = {
-      version: 1,
-      savedAt: new Date().toISOString(),
-      activeIndex: activeGraphIndex,
-      tabs: tabsPayload
-    };
-    console.debug('Debug: session payload built', {
-      tabCount: tabsPayload.length,
-      activeIndex: activeGraphIndex
-    });
-    return sessionPayload;
-  }
-
   async function handleSessionSaveClick() {
     if (!Shared.fileIO || typeof Shared.fileIO.saveGraphFile !== 'function') {
       console.warn('Session save unavailable: missing Shared.fileIO.saveGraphFile');
       return;
     }
     try {
-      const sessionPayload = buildSessionPayload();
+      const sessionPayload = MainSession.buildSessionPayload(withSessionContext({ reason: 'session-save' }));
       const result = await Shared.fileIO.saveGraphFile({
         context: 'session',
         fileHandle: workspaceState.sessionFileHandle,
@@ -474,88 +421,6 @@
     }
   }
 
-  async function loadWorkspaceSessionBlob(blob, meta = {}) {
-    if (!blob) {
-      console.warn('loadWorkspaceSessionBlob skipped', { reason: 'no-blob', meta });
-      return;
-    }
-    try {
-      const text = await blob.text();
-      const parsed = JSON.parse(text);
-      const tabCount = Array.isArray(parsed?.tabs) ? parsed.tabs.length : 0;
-      console.debug('Debug: session blob parsed', {
-        bytes: text.length,
-        hasTabs: Array.isArray(parsed?.tabs),
-        tabCount,
-        reason: meta.reason || 'unknown'
-      });
-      applySessionData(parsed, meta);
-    } catch (err) {
-      console.error('loadWorkspaceSessionBlob error', { err, meta });
-    }
-  }
-
-  function applySessionData(session, meta = {}) {
-    const tabs = Array.isArray(session?.tabs) ? session.tabs : [];
-    hideDuplicatePrompt();
-    workspaceState.tabs = [];
-    workspaceState.activeTabId = null;
-    workspaceState.pendingDuplicateSource = null;
-    workspaceState.lastActiveGraphId = null;
-    workspaceState.renameFocusId = null;
-    workspaceState.pendingClosePrompt = null;
-    workspaceState.nextId = 1;
-    if (Object.prototype.hasOwnProperty.call(meta, 'fileHandle')) {
-      workspaceState.sessionFileHandle = meta.fileHandle;
-      console.debug('Debug: session file handle applied', { hasHandle: !!meta.fileHandle });
-    }
-    if (meta.fileName) {
-      workspaceState.sessionFileName = meta.fileName;
-      console.debug('Debug: session file name applied', { name: workspaceState.sessionFileName });
-    }
-    const welcomeTab = createTab({ title: 'Welcome', isWelcome: true, allowClose: false });
-    workspaceState.tabs.push(welcomeTab);
-    const graphTabs = [];
-    tabs.forEach((tabData, index) => {
-      if (!tabData || typeof tabData.type !== 'string') {
-        console.warn('applySessionData skipping invalid tab', { index, tabData });
-        return;
-      }
-      const clonedPayload = MainSession.clonePayload(tabData.payload) || null;
-      const newTab = createTab({
-        title: tabData.title || `Workspace ${index + 1}`,
-        type: tabData.type,
-        payload: clonedPayload
-      });
-      graphTabs.push(newTab);
-      workspaceState.tabs.push(newTab);
-      console.debug('Debug: session tab restored', {
-        index,
-        tabId: newTab.id,
-        type: newTab.type,
-        hasPayload: !!clonedPayload
-      });
-    });
-    workspaceState.activeTabId = welcomeTab.id;
-    renderTabs();
-    const requestedIndex = typeof session?.activeIndex === 'number' ? session.activeIndex : -1;
-    const targetTab = (requestedIndex >= 0 && requestedIndex < graphTabs.length)
-      ? graphTabs[requestedIndex]
-      : (graphTabs[0] || null);
-    if (targetTab) {
-      activateTab(targetTab.id, { skipPersist: true, reason: meta.reason || 'session-load' });
-    } else {
-      showGraphSelection({ reason: 'session-empty' });
-    }
-    MainSession.clearSessionDirty(meta.reason || 'session-load');
-    console.debug('Debug: session applied', {
-      requestedIndex,
-      resolvedIndex: targetTab ? graphTabs.indexOf(targetTab) : -1,
-      tabCount: graphTabs.length,
-      reason: meta.reason || 'session-load'
-    });
-  }
-
   async function handleSessionLoadClick() {
     if (!Shared.fileIO || typeof Shared.fileIO.openGraphFile !== 'function') {
       console.warn('Session load fallback to input: missing Shared.fileIO.openGraphFile');
@@ -578,11 +443,18 @@
           console.debug('Debug: session load filename captured', { name: workspaceState.sessionFileName });
         },
         fileTypes: SESSION_FILE_TYPES,
-        loadFromFile: file => loadWorkspaceSessionBlob(file, {
-          reason: 'session-load-picker',
-          fileHandle: lastHandle,
-          fileName: file?.name || lastName
-        }),
+        loadFromFile: file => MainSession.loadWorkspaceSessionBlob(
+          file,
+          withSessionContext({
+            reason: 'session-load-picker',
+            fileHandle: lastHandle,
+            fileName: file?.name || lastName,
+            hideDuplicatePrompt,
+            renderTabs,
+            activateTab,
+            showGraphSelection
+          })
+        ),
         triggerInput: () => {
           console.debug('Debug: session load fallback trigger', {});
           lastHandle = null;
@@ -609,11 +481,18 @@
       name: workspaceState.sessionFileName,
       size: file.size
     });
-    loadWorkspaceSessionBlob(file, {
-      reason: 'session-load-input',
-      fileHandle: null,
-      fileName: workspaceState.sessionFileName
-    }).finally(() => {
+    MainSession.loadWorkspaceSessionBlob(
+      file,
+      withSessionContext({
+        reason: 'session-load-input',
+        fileHandle: null,
+        fileName: workspaceState.sessionFileName,
+        hideDuplicatePrompt,
+        renderTabs,
+        activateTab,
+        showGraphSelection
+      })
+    ).finally(() => {
       if (input) {
         input.value = '';
       }
@@ -625,7 +504,7 @@
     try {
       const active = getActiveTab();
       if (active && !active.isWelcome) {
-        persistedActive = persistActiveTabState(active) || persistedActive;
+        persistedActive = MainSession.persistActiveTabState(active, withSessionContext({ reason: 'beforeunload' })) || persistedActive;
       }
     } catch (err) {
       console.error('beforeunload persist error', err);
@@ -639,37 +518,6 @@
       persistedActive
     }); // Debug: beforeunload state snapshot
     return shouldWarn;
-  }
-
-  function createTab(options = {}) {
-    const index = workspaceState.tabs.length + 1;
-    const id = `workspace-${workspaceState.nextId++}`;
-    const tab = {
-      id,
-      title: options.title || `Workspace ${index}`,
-      type: options.type || null,
-      payload: options.payload || null,
-      payloadSignature: options.payloadSignature !== undefined
-        ? options.payloadSignature
-        : MainSession.serializePayloadSignature(options.payload || null),
-      duplicateSource: options.duplicateSource || null,
-      isWelcome: !!options.isWelcome,
-      allowClose: options.allowClose !== false,
-      isRenaming: false,
-      previewMarkup: options.previewMarkup || null,
-      previewSignature: options.previewSignature || null,
-      previewMeta: options.previewMeta || null
-    };
-    if (tab.isWelcome) {
-      tab.allowClose = false;
-    }
-    console.debug('Debug: workspace tab created', {
-      id,
-      index,
-      duplicateSource: tab.duplicateSource,
-      isWelcome: tab.isWelcome
-    });
-    return tab;
   }
 
   function getTabById(tabId) {
@@ -1253,7 +1101,7 @@
       if (workspaceState.activeTabId !== tab.id) {
         const currentActive = getActiveTab();
         if (currentActive && currentActive.id !== tab.id) {
-          persistActiveTabState(currentActive);
+          MainSession.persistActiveTabState(currentActive, withSessionContext({ reason: 'unsaved-switch' }));
         }
         console.debug('Debug: unsaved prompt activating tab', { tabId: tab.id, previousActiveId: currentActive?.id || null });
         activateTab(tab.id, { reason: 'unsaved-save' });
@@ -1271,7 +1119,7 @@
         showUnsavedPrompt(tab, { wasActive: true, reason: 'no-save-handler', previousActiveId: pending.previousActiveId });
         return;
       }
-      persistActiveTabState(tab);
+      MainSession.persistActiveTabState(tab, withSessionContext({ reason: 'unsaved-save' }));
       workspaceState.pendingClosePrompt = null;
       console.debug('Debug: unsaved prompt save complete', { tabId: tab.id });
       closeTab(tab.id, { force: true, skipPrompt: true, skipPersist: true, reason: 'unsaved-save' });
@@ -1396,7 +1244,7 @@
     const reason = options.reason || 'close-tab';
     let persistedActive = false;
     if (wasActive && !skipPersist) {
-      persistActiveTabState(tab);
+      MainSession.persistActiveTabState(tab, withSessionContext({ reason }));
       persistedActive = true;
     }
     if (!force && !skipPrompt) {
@@ -1408,7 +1256,7 @@
       }
     }
     if (force && wasActive && !skipPersist && !persistedActive) {
-      persistActiveTabState(tab);
+      MainSession.persistActiveTabState(tab, withSessionContext({ reason: `${reason}-force` }));
     }
     workspaceState.pendingClosePrompt = null;
     hideUnsavedPrompt();
@@ -1418,7 +1266,7 @@
   function activateTab(tabId, options = {}) {
     const current = getActiveTab();
     if (current && current.id !== tabId && !options.skipPersist) {
-      persistActiveTabState(current);
+      MainSession.persistActiveTabState(current, withSessionContext({ reason: options.reason || 'activate-switch' }));
     }
     workspaceState.activeTabId = tabId;
     renderTabs();
@@ -1534,7 +1382,7 @@
     if (tab.isWelcome) {
       const candidateSource = workspaceState.pendingDuplicateSource
         || determineDuplicateSourceCandidate(workspaceState.lastActiveGraphId);
-      const newTab = createTab({ duplicateSource: candidateSource });
+      const newTab = MainSession.createTab({ duplicateSource: candidateSource });
       workspaceState.tabs.push(newTab);
       workspaceState.activeTabId = newTab.id;
       workspaceState.pendingDuplicateSource = candidateSource;
@@ -1592,10 +1440,10 @@
   function handleAddTabClick() {
     const current = getActiveTab();
     if (current && !current.isWelcome) {
-      persistActiveTabState(current);
+      MainSession.persistActiveTabState(current, withSessionContext({ reason: 'add-tab-before-new' }));
     }
     const candidateSource = determineDuplicateSourceCandidate(current?.id);
-    const newTab = createTab({ duplicateSource: candidateSource });
+    const newTab = MainSession.createTab({ duplicateSource: candidateSource });
     workspaceState.tabs.push(newTab);
     workspaceState.activeTabId = newTab.id;
     workspaceState.pendingDuplicateSource = candidateSource;
@@ -1680,7 +1528,7 @@
 
   function initializeWorkspace() {
     createSelectionCards();
-    const welcomeTab = createTab({ title: 'Welcome', isWelcome: true, allowClose: false });
+    const welcomeTab = MainSession.createTab({ title: 'Welcome', isWelcome: true, allowClose: false });
     workspaceState.tabs.push(welcomeTab);
     workspaceState.activeTabId = welcomeTab.id;
     renderTabs();
