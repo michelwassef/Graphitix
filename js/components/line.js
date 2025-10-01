@@ -37,6 +37,12 @@
   let lineFileName = 'line.graph';
   let lineReplicates = LINE_MIN_REPLICATES;
   let lineLayout = null;
+  let lineSeriesGroupLabels = [];
+
+  console.debug('Debug: line group labels state initialized', {
+    initial: lineSeriesGroupLabels,
+    replicates: lineReplicates
+  }); // Debug: group label state bootstrap
 
   const refs = {};
   console.debug('Debug: line replicates initialized', {
@@ -187,9 +193,39 @@
       }
       baseNames.push(baseName);
     }
+    const storedLabels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    const overrideLabels = Array.isArray(options?.groupLabels) ? options.groupLabels : null;
+    const shouldResetGroupLabels = !!options?.resetGroupLabels;
+    const preserveExistingLabels = options?.preserveGroupLabels !== false;
+    const nextGroupLabels = new Array(seriesCount).fill('');
+    for(let s=0;s<seriesCount;s++){
+      const fallback = baseNames[s] && String(baseNames[s]).trim() ? String(baseNames[s]).trim() : `Series ${s+1}`;
+      const override = overrideLabels?.[s];
+      const stored = storedLabels[s];
+      let resolved = fallback;
+      if(shouldResetGroupLabels){
+        resolved = override != null && String(override).trim() ? String(override).trim() : fallback;
+      }else if(preserveExistingLabels && stored != null && String(stored).trim()){
+        resolved = String(stored).trim();
+      }else if(override != null && String(override).trim()){
+        resolved = String(override).trim();
+      }else if(baseNames[s] != null && String(baseNames[s]).trim()){
+        resolved = String(baseNames[s]).trim();
+      }
+      nextGroupLabels[s] = resolved || `Series ${s+1}`;
+    }
+    lineSeriesGroupLabels = nextGroupLabels;
+    console.debug('Debug: line group labels synchronized', {
+      shouldResetGroupLabels,
+      preserveExistingLabels,
+      overrideCount: overrideLabels?.length || 0,
+      resolved: lineSeriesGroupLabels.slice()
+    }); // Debug: group label sync trace
     const newHeader = new Array(targetCols).fill('');
     newHeader[0] = headerRow[0] && String(headerRow[0]).trim() ? headerRow[0] : 'X';
     for(let s=0;s<seriesCount;s++){
+      const groupLabel = lineSeriesGroupLabels[s] || `Series ${s+1}`;
+      const groupLabelLower = groupLabel ? String(groupLabel).trim().toLowerCase() : '';
       for(let rep=0;rep<targetCount;rep++){
         const newIdx = 1 + s*targetCount + rep;
         if(newIdx >= targetCols) continue;
@@ -200,11 +236,22 @@
             label = headerRow[oldIdx];
           }
         }
-        if(rep === 0){
-          label = baseNames[s];
-        }
-        if(!label || !String(label).trim()){
-          label = targetCount > 1 ? `${baseNames[s]} Rep ${rep+1}` : baseNames[s];
+        const labelTrimmed = typeof label === 'string' ? label.trim() : '';
+        if(targetCount > 1){
+          if(!labelTrimmed){
+            label = `Rep ${rep+1}`;
+          }else{
+            const lower = labelTrimmed.toLowerCase();
+            const repMatch = /rep\s*\d+$/i.test(labelTrimmed);
+            const baseMatch = lower === groupLabelLower || (groupLabelLower && lower.startsWith(groupLabelLower) && repMatch);
+            if(baseMatch){
+              label = `Rep ${rep+1}`;
+            }else{
+              label = labelTrimmed;
+            }
+          }
+        }else{
+          label = labelTrimmed || groupLabel;
         }
         newHeader[newIdx] = label;
       }
@@ -259,12 +306,86 @@
       }
     }
     const nestedRow = [];
-    nestedRow.push({ label: headerRow?.[0] || 'X', colspan: 1 });
+    const xHeaderLabel = 'X values';
+    nestedRow.push({ label: xHeaderLabel, colspan: 1 });
     for(let s=0;s<seriesCount;s++){
-      nestedRow.push({ label: baseNames[s] || `Series ${s+1}`, colspan: replicates });
+      const stored = lineSeriesGroupLabels?.[s];
+      const label = stored && String(stored).trim() ? String(stored).trim() : (baseNames[s] || `Series ${s+1}`);
+      nestedRow.push({ label, colspan: replicates });
     }
     lineHot.updateSettings({ nestedHeaders: [nestedRow] });
-    console.debug('Debug: updateLineNestedHeaders applied',{ replicates, seriesCount, baseNames });
+    applyLineNestedHeaderEditors();
+    console.debug('Debug: updateLineNestedHeaders applied',{ replicates, seriesCount, baseNames, labels: lineSeriesGroupLabels.slice(), xHeaderLabel });
+  }
+
+  function applyLineNestedHeaderEditors(){
+    if(!lineHot || lineReplicates <= 1) return;
+    const root = lineHot.rootElement;
+    if(!root) return;
+    const headRows = root.querySelectorAll?.('thead tr');
+    if(!headRows || !headRows.length) return;
+    const topRow = headRows[0];
+    if(!topRow) return;
+    const headerCells = topRow.querySelectorAll?.('th');
+    if(!headerCells || !headerCells.length) return;
+    headerCells.forEach((cell, index)=>{
+      if(!cell) return;
+      if(index === 0){
+        const current = cell.textContent?.trim();
+        if(current !== 'X values'){
+          cell.textContent = 'X values';
+        }
+        cell.dataset.lineHeaderRole = 'x-values';
+        return;
+      }
+      const groupIndex = index - 1;
+      const target = cell.querySelector?.('.ht_nestingLabel') || cell.querySelector?.('.ht__nested-header-label') || cell.querySelector?.('.ht__header-content') || cell;
+      if(!target) return;
+      if(target.dataset?.lineGroupEditable === '1') return;
+      target.dataset.lineGroupEditable = '1';
+      target.dataset.lineGroupIndex = String(groupIndex);
+      makeEditableHelper(target, text => {
+        updateLineSeriesGroupLabel(groupIndex, text);
+      }, {
+        promptMessage: 'Edit series group name',
+        onEditStart: ()=>{
+          console.debug('Debug: line group header edit start',{ index: groupIndex });
+        },
+        onEditEnd: (_node, value)=>{
+          console.debug('Debug: line group header edit end',{ index: groupIndex, value });
+        }
+      });
+    });
+    console.debug('Debug: applyLineNestedHeaderEditors complete', {
+      headerCount: headerCells.length,
+      replicates: lineReplicates
+    });
+  }
+
+  function updateLineSeriesGroupLabel(index, nextText){
+    const idx = Number(index);
+    if(!Number.isInteger(idx) || idx < 0) return;
+    const existing = lineSeriesGroupLabels[idx];
+    const sanitized = (typeof nextText === 'string' ? nextText : '').trim();
+    const fallback = `Series ${idx+1}`;
+    const resolved = sanitized || fallback;
+    if(existing === resolved) return;
+    const nextLabels = lineSeriesGroupLabels.slice();
+    nextLabels[idx] = resolved;
+    lineSeriesGroupLabels = nextLabels;
+    if(existing && existing !== resolved && lineLabelColors[existing]){
+      if(!lineLabelColors[resolved]){
+        lineLabelColors[resolved] = lineLabelColors[existing];
+      }
+      delete lineLabelColors[existing];
+    }
+    console.debug('Debug: updateLineSeriesGroupLabel', {
+      index: idx,
+      existing,
+      resolved
+    });
+    updateLineNestedHeaders();
+    scheduleLineDraw();
   }
 
   function applyLineReplicateChange(newCount, options){
@@ -272,7 +393,13 @@
     const sourceReplicates = clampLineReplicateCount(options?.sourceReplicates ?? lineReplicates);
     const overrideData = options?.dataOverride;
     const matrix = Array.isArray(overrideData) ? overrideData : (lineHot ? lineHot.getData() : []);
-    const structure = buildLineReplicateMatrix(matrix, sourceReplicates, normalized, { minSeriesCount: options?.minSeriesCount });
+    const shouldResetLabels = options?.resetGroupLabels ?? Boolean(options?.groupLabels || options?.dataOverride);
+    const structure = buildLineReplicateMatrix(matrix, sourceReplicates, normalized, {
+      minSeriesCount: options?.minSeriesCount,
+      groupLabels: options?.groupLabels,
+      resetGroupLabels: shouldResetLabels,
+      preserveGroupLabels: options?.preserveGroupLabels
+    });
     lineReplicates = normalized;
     if(refs.replicatesInput){
       refs.replicatesInput.value = String(lineReplicates);
@@ -281,7 +408,7 @@
       lineHot.loadData(structure.data);
       updateLineNestedHeaders(structure);
     }
-    console.debug('Debug: applyLineReplicateChange',{ requested:newCount, normalized, sourceReplicates, seriesCount: structure.seriesCount, targetCols: structure.targetCols });
+    console.debug('Debug: applyLineReplicateChange',{ requested:newCount, normalized, sourceReplicates, seriesCount: structure.seriesCount, targetCols: structure.targetCols, shouldResetLabels });
     if(!options?.skipDraw){
       scheduleLineDraw();
     }
@@ -407,6 +534,7 @@
         xLabel:lineXLabelText,
         yLabel:lineYLabelText,
         replicates: lineReplicates,
+        groupLabels: Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [],
         dotSize:refs.dotSize?.value,
         fill:refs.fill?.value,
         border:refs.border?.value,
@@ -439,9 +567,21 @@
         const c=obj.config||{};
         const storedReplicates = clampLineReplicateCount(c.replicates ?? lineReplicates);
         const matrixData = Array.isArray(obj.data) ? obj.data : null;
+        const storedGroupLabels = Array.isArray(c.groupLabels) ? c.groupLabels.slice() : null;
+        if(storedGroupLabels){
+          lineSeriesGroupLabels = storedGroupLabels.slice();
+          console.debug('Debug: line group labels restored from file', { labels: storedGroupLabels });
+        }
         const inferredSeries = matrixData && Array.isArray(matrixData[0]) ? Math.max(1, Math.ceil(((matrixData[0].length || 1) - 1) / Math.max(storedReplicates, 1))) : undefined;
         if(lineHot && matrixData){
-          applyLineReplicateChange(storedReplicates, { dataOverride: matrixData, sourceReplicates: storedReplicates, skipDraw: true, minSeriesCount: inferredSeries });
+          applyLineReplicateChange(storedReplicates, {
+            dataOverride: matrixData,
+            sourceReplicates: storedReplicates,
+            skipDraw: true,
+            minSeriesCount: inferredSeries,
+            groupLabels: storedGroupLabels || lineSeriesGroupLabels,
+            resetGroupLabels: storedGroupLabels ? true : undefined
+          });
         }else{
           lineReplicates = storedReplicates;
           if(refs.replicatesInput){
@@ -627,8 +767,14 @@
         const fallback=`Series ${s+1}`;
         const label=baseIdx<header.length?header[baseIdx]:fallback;
         const baseName=inferSeriesBaseName(label,fallback);
-        series.push({name:baseName,points:[]});
+        const stored = lineSeriesGroupLabels?.[s];
+        const resolvedName = stored && String(stored).trim() ? String(stored).trim() : baseName;
+        if(!lineSeriesGroupLabels[s] && resolvedName){
+          lineSeriesGroupLabels[s] = resolvedName;
+        }
+        series.push({name:resolvedName,baseName,points:[]});
       }
+      console.debug('Debug: line series names resolved',{ seriesNames: series.map(s=>s.name), totalSeries });
       let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
       for(let r=1;r<data.length;r++){
         const row=Array.isArray(data[r])?data[r]:[];
@@ -1125,6 +1271,14 @@
         }
       }
     });
+    if(lineHot && typeof lineHot.addHook === 'function'){
+      lineHot.addHook('afterRender', () => {
+        if(lineReplicates > 1){
+          applyLineNestedHeaderEditors();
+        }
+      });
+      console.debug('Debug: lineHot afterRender hook registered for nested headers');
+    }
     global.DEBUG_LINE=true;
     console.debug('Debug: lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
 
