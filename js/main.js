@@ -2,6 +2,7 @@
   "use strict";
   console.debug("Debug: main.js loaded");
 
+  const Main = window.Main = window.Main || {};
   const Shared = window.Shared = window.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   if (typeof chartStyle.renderFontSizeLabel !== 'function') {
@@ -38,32 +39,163 @@
     };
   }
 
-  // Debounced draw schedulers (Shared.debounceFrame handles fallbacks internally)
-  const scheduleDrawBoxplot = Shared.debounceFrame(() => {
-    if (window.Components?.box?.draw) window.Components.box.draw();
-  });
-  const scheduleDrawScatter = Shared.debounceFrame(() => {
-    if (window.Components?.scatter?.draw) window.Components.scatter.draw();
-  });
-  const scheduleDrawPca = Shared.debounceFrame(() => {
-    if (window.Components?.pca?.draw) window.Components.pca.draw();
-  });
-  const scheduleDrawLine = Shared.debounceFrame(() => {
-    if (window.Components?.line?.draw) window.Components.line.draw();
-  });
-  const scheduleDrawHeatmap = Shared.debounceFrame(() => {
-    if (window.Components?.heatmap?.draw) window.Components.heatmap.draw();
-  });
-  const scheduleDrawHist = Shared.debounceFrame(() => {
-    if (window.Components?.hist?.draw) window.Components.hist.draw();
-  });
-  const scheduleDrawPie = Shared.debounceFrame(() => {
-    if (window.Components?.pie?.draw) window.Components.pie.draw();
-  });
-  const scheduleDrawSurvival = Shared.debounceFrame(() => {
-    if (window.Components?.survival?.draw) window.Components.survival.draw();
-  });
-  console.debug('Debug: main Shared.debounceFrame schedulers ready', { schedulers: ['boxplot','scatter','pca','line','heatmap','hist','pie','survival'] }); // Debug: scheduler wiring summary
+  const MainComponents = Main.components || {};
+  const MainSession = Main.session || {};
+  const MainPreviews = Main.previews || {};
+
+  const scheduleDrawBoxplot = typeof MainComponents.scheduleDrawBoxplot === 'function'
+    ? MainComponents.scheduleDrawBoxplot
+    : () => console.debug('Debug: main scheduler fallback used', { type: 'boxplot' });
+  const scheduleDrawScatter = typeof MainComponents.scheduleDrawScatter === 'function'
+    ? MainComponents.scheduleDrawScatter
+    : () => console.debug('Debug: main scheduler fallback used', { type: 'scatter' });
+  const scheduleDrawPca = typeof MainComponents.scheduleDrawPca === 'function'
+    ? MainComponents.scheduleDrawPca
+    : () => console.debug('Debug: main scheduler fallback used', { type: 'pca' });
+  const scheduleDrawLine = typeof MainComponents.scheduleDrawLine === 'function'
+    ? MainComponents.scheduleDrawLine
+    : () => console.debug('Debug: main scheduler fallback used', { type: 'line' });
+  const scheduleDrawHeatmap = typeof MainComponents.scheduleDrawHeatmap === 'function'
+    ? MainComponents.scheduleDrawHeatmap
+    : () => console.debug('Debug: main scheduler fallback used', { type: 'heatmap' });
+  const scheduleDrawHist = typeof MainComponents.scheduleDrawHist === 'function'
+    ? MainComponents.scheduleDrawHist
+    : () => console.debug('Debug: main scheduler fallback used', { type: 'hist' });
+  const scheduleDrawPie = typeof MainComponents.scheduleDrawPie === 'function'
+    ? MainComponents.scheduleDrawPie
+    : () => console.debug('Debug: main scheduler fallback used', { type: 'pie' });
+  const scheduleDrawSurvival = typeof MainComponents.scheduleDrawSurvival === 'function'
+    ? MainComponents.scheduleDrawSurvival
+    : () => console.debug('Debug: main scheduler fallback used', { type: 'survival' });
+
+  const WORKSPACES = MainComponents.registry || {};
+  const workspaceDefaults = {};
+  const workspaceState = MainSession.workspaceState || (function createWorkspaceStateFallback() {
+    console.debug('Debug: main workspaceState fallback initialized');
+    const fallback = {
+      tabs: [],
+      activeTabId: null,
+      nextId: 1,
+      pendingDuplicateSource: null,
+      lastActiveGraphId: null,
+      renameFocusId: null,
+      pendingClosePrompt: null,
+      sessionFileHandle: null,
+      sessionFileName: '',
+      sessionDirty: false,
+      draggingTabId: null,
+      dragStartIndex: null,
+      dragOverTabId: null,
+      dragInsertBefore: true
+    };
+    MainSession.workspaceState = fallback;
+    return fallback;
+  })();
+
+  const clonePayload = typeof MainSession.clonePayload === 'function'
+    ? MainSession.clonePayload
+    : function clonePayloadFallback(payload) {
+      if (!payload) return null;
+      try {
+        return JSON.parse(JSON.stringify(payload));
+      } catch (err) {
+        console.error('clonePayload fallback error', err);
+        return null;
+      }
+    };
+  const serializePayloadSignature = typeof MainSession.serializePayloadSignature === 'function'
+    ? MainSession.serializePayloadSignature
+    : function serializePayloadSignatureFallback(value) {
+      if (value === undefined || value === null) {
+        return null;
+      }
+      try {
+        return JSON.stringify(value);
+      } catch (err) {
+        console.error('serializePayloadSignature fallback error', err);
+        return `error:${Date.now()}`;
+      }
+    };
+  const assignTabPayload = typeof MainSession.assignTabPayload === 'function'
+    ? MainSession.assignTabPayload
+    : function assignTabPayloadFallback(tab, payload, meta = {}) {
+      if (!tab) {
+        console.debug('Debug: assignTabPayload fallback skipped', { reason: 'no-tab', meta });
+        return false;
+      }
+      const previousSignature = tab.payloadSignature || null;
+      const nextSignature = serializePayloadSignature(payload);
+      tab.payload = payload || null;
+      tab.payloadSignature = nextSignature;
+      if (!payload) {
+        tab.previewMarkup = null;
+        tab.previewSignature = null;
+        tab.previewMeta = null;
+        console.debug('Debug: assignTabPayload fallback cleared preview', { tabId: tab.id });
+      }
+      const changed = previousSignature !== nextSignature;
+      console.debug('Debug: assignTabPayload fallback applied', { tabId: tab.id, changed, meta });
+      return changed;
+    };
+  const markSessionDirty = typeof MainSession.markSessionDirty === 'function'
+    ? MainSession.markSessionDirty
+    : function markSessionDirtyFallback(reason, details) {
+      const wasDirty = workspaceState.sessionDirty;
+      workspaceState.sessionDirty = true;
+      console.debug('Debug: session dirty fallback set', { reason: reason || 'unspecified', wasDirty, details: details || null });
+    };
+  const clearSessionDirty = typeof MainSession.clearSessionDirty === 'function'
+    ? MainSession.clearSessionDirty
+    : function clearSessionDirtyFallback(reason) {
+      const wasDirty = workspaceState.sessionDirty;
+      workspaceState.sessionDirty = false;
+      console.debug('Debug: session dirty fallback cleared', { reason: reason || 'unspecified', wasDirty });
+    };
+  const tabHasTableData = typeof MainSession.tabHasTableData === 'function'
+    ? MainSession.tabHasTableData
+    : function tabHasTableDataFallback() {
+      console.debug('Debug: tabHasTableData fallback used');
+      return false;
+    };
+  const graphTabsHaveData = typeof MainSession.graphTabsHaveData === 'function'
+    ? MainSession.graphTabsHaveData
+    : function graphTabsHaveDataFallback() {
+      console.debug('Debug: graphTabsHaveData fallback used');
+      return false;
+    };
+
+  const captureWorkspacePreview = typeof MainPreviews.captureWorkspacePreview === 'function'
+    ? MainPreviews.captureWorkspacePreview
+    : function captureWorkspacePreviewFallback(config, tab) {
+      console.debug('Debug: captureWorkspacePreview fallback invoked', { tabId: tab?.id || null, type: config?.type || null });
+      return null;
+    };
+  const updateTabPreviewFromWorkspace = typeof MainPreviews.updateTabPreviewFromWorkspace === 'function'
+    ? MainPreviews.updateTabPreviewFromWorkspace
+    : function updateTabPreviewFromWorkspaceFallback(tab, config, meta) {
+      console.debug('Debug: updateTabPreviewFromWorkspace fallback', { tabId: tab?.id || null, type: tab?.type || null, meta });
+      return false;
+    };
+  const syncTabPreviewIndicator = typeof MainPreviews.syncTabPreviewIndicator === 'function'
+    ? MainPreviews.syncTabPreviewIndicator
+    : function syncTabPreviewIndicatorFallback(tab) {
+      console.debug('Debug: syncTabPreviewIndicator fallback used', { tabId: tab?.id || null });
+    };
+  const hideTabPreviewTooltip = typeof MainPreviews.hideTabPreviewTooltip === 'function'
+    ? MainPreviews.hideTabPreviewTooltip
+    : function hideTabPreviewTooltipFallback(reason) {
+      console.debug('Debug: hideTabPreviewTooltip fallback', { reason: reason || 'unspecified' });
+    };
+  const handleTabPreviewEnter = typeof MainPreviews.handleTabPreviewEnter === 'function'
+    ? MainPreviews.handleTabPreviewEnter
+    : function handleTabPreviewEnterFallback() {
+      console.debug('Debug: handleTabPreviewEnter fallback');
+    };
+  const handleTabPreviewLeave = typeof MainPreviews.handleTabPreviewLeave === 'function'
+    ? MainPreviews.handleTabPreviewLeave
+    : function handleTabPreviewLeaveFallback(reason) {
+      console.debug('Debug: handleTabPreviewLeave fallback', { reason: reason || 'unspecified' });
+    };
 
   // Shared color palette
   const DEFAULT_SCATTER_COLORS = window.DEFAULT_SCATTER_COLORS || [
@@ -226,600 +358,8 @@
     });
   }
 
-  function ensureComponent(name) {
-    const component = window.Components?.[name];
-    if (!component) {
-      console.debug('Debug: ensureComponent skipped', { name, reason: 'missing-component' });
-      return;
-    }
-    if (typeof component.ensure === 'function') {
-      component.ensure();
-      return;
-    }
-    if (typeof component.init === 'function') {
-      component.init();
-      return;
-    }
-    console.debug('Debug: ensureComponent no-op', { name });
-  }
-
-  const WORKSPACES = {
-    venn: {
-      type: 'venn',
-      tabLabel: 'Venn',
-      element: document.getElementById('vennPage'),
-      ensure: () => ensureComponent('venn'),
-      draw: () => window.Components?.venn?.draw?.(),
-      getPayload: () => window.Components?.venn?.getPayload?.(),
-      loadFromFile: blob => window.Components?.venn?.loadFromFile?.(blob)
-    },
-    box: {
-      type: 'box',
-      tabLabel: 'Box Plot',
-      element: document.getElementById('boxPage'),
-      ensure: () => ensureComponent('box'),
-      draw: () => scheduleDrawBoxplot(),
-      getPayload: () => window.Components?.box?.getPayload?.(),
-      loadFromFile: blob => window.Components?.box?.loadFromFile?.(blob)
-    },
-    scatter: {
-      type: 'scatter',
-      tabLabel: 'Scatter',
-      element: document.getElementById('scatterPage'),
-      ensure: () => ensureComponent('scatter'),
-      draw: () => scheduleDrawScatter(),
-      getPayload: () => window.Components?.scatter?.getPayload?.(),
-      loadFromFile: blob => window.Components?.scatter?.loadFromFile?.(blob)
-    },
-    pca: {
-      type: 'pca',
-      tabLabel: 'PCA / MDS',
-      element: document.getElementById('pcaPage'),
-      ensure: () => ensureComponent('pca'),
-      draw: () => scheduleDrawPca(),
-      getPayload: () => window.Components?.pca?.getPayload?.(),
-      loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob)
-    },
-    line: {
-      type: 'line',
-      tabLabel: 'Line Graph',
-      element: document.getElementById('linePage'),
-      ensure: () => ensureComponent('line'),
-      draw: () => scheduleDrawLine(),
-      getPayload: () => window.Components?.line?.getPayload?.(),
-      loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob)
-    },
-    heatmap: {
-      type: 'heatmap',
-      tabLabel: 'Heatmap',
-      element: document.getElementById('heatmapPage'),
-      ensure: () => ensureComponent('heatmap'),
-      draw: () => scheduleDrawHeatmap(),
-      getPayload: () => window.Components?.heatmap?.getPayload?.(),
-      loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob)
-    },
-    roc: {
-      type: 'roc',
-      tabLabel: 'ROC / PR',
-      element: document.getElementById('rocPage'),
-      ensure: () => ensureComponent('roc'),
-      draw: () => window.Components?.roc?.draw?.(),
-      getPayload: () => window.Components?.roc?.getPayload?.(),
-      loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob)
-    },
-    survival: {
-      type: 'survival',
-      tabLabel: 'Survival',
-      element: document.getElementById('survivalPage'),
-      ensure: () => ensureComponent('survival'),
-      draw: () => scheduleDrawSurvival(),
-      getPayload: () => window.Components?.survival?.getPayload?.(),
-      loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob)
-    },
-    hist: {
-      type: 'hist',
-      tabLabel: 'Histogram',
-      element: document.getElementById('histPage'),
-      ensure: () => ensureComponent('hist'),
-      draw: () => scheduleDrawHist(),
-      getPayload: () => window.Components?.hist?.getPayload?.(),
-      loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob)
-    },
-    pie: {
-      type: 'pie',
-      tabLabel: 'Proportion',
-      element: document.getElementById('piePage'),
-      ensure: () => ensureComponent('pie'),
-      draw: () => scheduleDrawPie(),
-      getPayload: () => window.Components?.pie?.getPayload?.(),
-      loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob)
-    }
-  };
-
-  const workspaceDefaults = {};
-  const workspaceState = {
-    tabs: [],
-    activeTabId: null,
-    nextId: 1,
-    pendingDuplicateSource: null,
-    lastActiveGraphId: null,
-    renameFocusId: null,
-    pendingClosePrompt: null,
-    sessionFileHandle: null,
-    sessionFileName: '',
-    sessionDirty: false,
-    draggingTabId: null,
-    dragStartIndex: null,
-    dragOverTabId: null,
-    dragInsertBefore: true
-  };
-
-  const TAB_PREVIEW_TARGET_WIDTH = 220;
-  const TAB_PREVIEW_MIN_HEIGHT = 120;
-  const TAB_PREVIEW_MAX_HEIGHT = 220;
-  const TAB_PREVIEW_MAX_CHARS = 120000;
-
-  let tabPreviewTooltipEl = null;
-  let tabPreviewActiveId = null;
-  let tabPreviewMeasureRaf = null;
 
   let unsavedPromptBusy = false;
-
-  function clonePayload(payload) {
-    if (!payload) return null;
-    try {
-      return JSON.parse(JSON.stringify(payload));
-    } catch (err) {
-      console.error('clonePayload error', err);
-      return null;
-    }
-  }
-
-  function serializePayloadSignature(value) {
-    if (value === undefined || value === null) {
-      return null;
-    }
-    try {
-      return JSON.stringify(value);
-    } catch (err) {
-      console.error('serializePayloadSignature error', err);
-      return `error:${Date.now()}`;
-    }
-  }
-
-  function assignTabPayload(tab, payload, meta = {}) {
-    if (!tab) {
-      console.debug('Debug: assignTabPayload skipped', { reason: 'no-tab', meta }); // Debug: payload assignment guard
-      return false;
-    }
-    const previousSignature = tab.payloadSignature || null;
-    const nextSignature = serializePayloadSignature(payload);
-    tab.payload = payload || null;
-    tab.payloadSignature = nextSignature;
-    if (!payload) {
-      tab.previewMarkup = null;
-      tab.previewSignature = null;
-      tab.previewMeta = null;
-      syncTabPreviewIndicator(tab);
-      console.debug('Debug: preview cleared via assignTabPayload', { tabId: tab.id, reason: meta.reason || 'payload-null' });
-    }
-    const changed = previousSignature !== nextSignature;
-    console.debug('Debug: assignTabPayload applied', {
-      tabId: tab.id,
-      reason: meta.reason || 'unspecified',
-      changed,
-      hasPayload: !!payload
-    }); // Debug: payload assignment trace
-    return changed;
-  }
-
-  function markSessionDirty(reason, details) {
-    const wasDirty = workspaceState.sessionDirty;
-    workspaceState.sessionDirty = true;
-    console.debug('Debug: session dirty flag updated', {
-      reason: reason || 'unspecified',
-      wasDirty,
-      details: details || null
-    }); // Debug: dirty flag trace
-  }
-
-  function clearSessionDirty(reason) {
-    const wasDirty = workspaceState.sessionDirty;
-    workspaceState.sessionDirty = false;
-    console.debug('Debug: session dirty flag cleared', {
-      reason: reason || 'unspecified',
-      wasDirty
-    }); // Debug: dirty flag reset trace
-  }
-
-  function hasMeaningfulCellValue(value, seen = new Set()) {
-    if (value === null || value === undefined) {
-      return false;
-    }
-    if (typeof value === 'number') {
-      return !Number.isNaN(value);
-    }
-    if (typeof value === 'string') {
-      return value.trim().length > 0;
-    }
-    if (typeof value === 'boolean') {
-      return true;
-    }
-    if (Array.isArray(value)) {
-      if (seen.has(value)) {
-        console.debug('Debug: hasMeaningfulCellValue detected circular array reference');
-        return false;
-      }
-      seen.add(value);
-      return value.some(item => hasMeaningfulCellValue(item, seen));
-    }
-    if (typeof value === 'object') {
-      if (seen.has(value)) {
-        console.debug('Debug: hasMeaningfulCellValue detected circular object reference');
-        return false;
-      }
-      seen.add(value);
-      const keys = Object.keys(value);
-      if (!keys.length) {
-        return false;
-      }
-      return keys.some(key => hasMeaningfulCellValue(value[key], seen));
-    }
-    return true;
-  }
-
-  function tabHasTableData(tab) {
-    const tabId = tab?.id || null;
-    if (!tab || !tab.payload) {
-      console.debug('Debug: tab data inspection skipped', { tabId, reason: 'no-tab-or-payload' });
-      return false;
-    }
-    const matrix = tab.payload.data;
-    if (Array.isArray(matrix)) {
-      let rowCount = 0;
-      let colCount = 0;
-      for (let r = 0; r < matrix.length; r++) {
-        const row = matrix[r];
-        if (!Array.isArray(row)) {
-          continue;
-        }
-        rowCount += 1;
-        colCount = Math.max(colCount, row.length);
-        for (let c = 0; c < row.length; c++) {
-          if (hasMeaningfulCellValue(row[c])) {
-            console.debug('Debug: tab data detected', { tabId, rowIndex: r, colIndex: c });
-            return true;
-          }
-        }
-      }
-      console.debug('Debug: tab data inspection complete', { tabId, rowsChecked: rowCount, colsChecked: colCount, found: false });
-      return false;
-    }
-    if (matrix && typeof matrix === 'object') {
-      const keys = Object.keys(matrix);
-      for (let i = 0; i < keys.length; i++) {
-        const key = keys[i];
-        if (hasMeaningfulCellValue(matrix[key])) {
-          console.debug('Debug: tab object data detected', { tabId, key });
-          return true;
-        }
-      }
-      console.debug('Debug: tab object data inspection complete', { tabId, keysChecked: keys.length });
-      return false;
-    }
-    console.debug('Debug: tab data inspection skipped', { tabId, reason: 'unrecognized-data-structure', type: typeof matrix });
-    return false;
-  }
-
-  function graphTabsHaveData() {
-    return workspaceState.tabs.some(tab => !tab.isWelcome && tab.type && tabHasTableData(tab));
-  }
-
-  function captureWorkspacePreview(config, tab) {
-    if (!config || !config.element) {
-      console.debug('Debug: preview capture skipped', { reason: 'no-config-element', type: config?.type || null, tabId: tab?.id || null });
-      return null;
-    }
-    const svg = config.element.querySelector('.svgbox svg, svg');
-    if (!svg) {
-      console.debug('Debug: preview capture skipped', { reason: 'no-svg', type: config.type, tabId: tab?.id || null });
-      return null;
-    }
-    const rawMarkup = typeof svg.innerHTML === 'string' ? svg.innerHTML.trim() : '';
-    if (!rawMarkup) {
-      console.debug('Debug: preview capture skipped', { reason: 'empty-svg', type: config.type, tabId: tab?.id || null });
-      return null;
-    }
-    const clone = svg.cloneNode(true);
-    const viewBoxRaw = clone.getAttribute('viewBox');
-    let minX = 0;
-    let minY = 0;
-    let boxW = NaN;
-    let boxH = NaN;
-    if (typeof viewBoxRaw === 'string' && viewBoxRaw.trim()) {
-      const parts = viewBoxRaw.trim().split(/[\s,]+/).map(part => Number.parseFloat(part));
-      if (parts.length === 4 && parts.every(num => Number.isFinite(num))) {
-        [minX, minY, boxW, boxH] = parts;
-      }
-    }
-    let widthAttr = Number.parseFloat(clone.getAttribute('width'));
-    let heightAttr = Number.parseFloat(clone.getAttribute('height'));
-    if (!Number.isFinite(widthAttr) || widthAttr <= 0) {
-      if (Number.isFinite(boxW) && boxW > 0) {
-        widthAttr = boxW;
-      } else {
-        widthAttr = TAB_PREVIEW_TARGET_WIDTH;
-      }
-    }
-    if (!Number.isFinite(heightAttr) || heightAttr <= 0) {
-      if (Number.isFinite(boxH) && boxH > 0) {
-        heightAttr = boxH;
-      } else {
-        heightAttr = widthAttr * 0.68;
-      }
-    }
-    if (!Number.isFinite(boxW) || boxW <= 0) {
-      boxW = widthAttr;
-    }
-    if (!Number.isFinite(boxH) || boxH <= 0) {
-      boxH = heightAttr;
-    }
-    const ratio = widthAttr > 0 ? Math.max(0.25, Math.min(heightAttr / widthAttr, 3)) : 0.68;
-    const targetWidth = TAB_PREVIEW_TARGET_WIDTH;
-    const targetHeight = Math.round(
-      Math.max(TAB_PREVIEW_MIN_HEIGHT, Math.min(targetWidth * ratio, TAB_PREVIEW_MAX_HEIGHT))
-    );
-    clone.setAttribute('width', String(targetWidth));
-    clone.setAttribute('height', String(targetHeight));
-    if (!clone.hasAttribute('preserveAspectRatio')) {
-      clone.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    }
-    if (!clone.hasAttribute('viewBox') && Number.isFinite(boxW) && Number.isFinite(boxH)) {
-      clone.setAttribute('viewBox', `${Number.isFinite(minX) ? minX : 0} ${Number.isFinite(minY) ? minY : 0} ${boxW} ${boxH}`);
-    }
-    if (!clone.querySelector('[data-preview-bg="true"]')) {
-      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      rect.setAttribute('x', String(Number.isFinite(minX) ? minX : 0));
-      rect.setAttribute('y', String(Number.isFinite(minY) ? minY : 0));
-      rect.setAttribute('width', Number.isFinite(boxW) ? String(boxW) : '100%');
-      rect.setAttribute('height', Number.isFinite(boxH) ? String(boxH) : '100%');
-      rect.setAttribute('fill', '#ffffff');
-      rect.setAttribute('data-preview-bg', 'true');
-      let insertTarget = clone.firstChild;
-      while (insertTarget && insertTarget.nodeType === 1 && insertTarget.nodeName.toLowerCase() === 'defs') {
-        insertTarget = insertTarget.nextSibling;
-      }
-      if (insertTarget) {
-        clone.insertBefore(rect, insertTarget);
-      } else {
-        clone.appendChild(rect);
-      }
-    }
-    const serializer = new XMLSerializer();
-    const markup = serializer.serializeToString(clone);
-    if (!markup) {
-      console.debug('Debug: preview capture skipped', { reason: 'serialize-empty', type: config.type, tabId: tab?.id || null });
-      return null;
-    }
-    if (markup.length > TAB_PREVIEW_MAX_CHARS) {
-      console.debug('Debug: preview capture skipped', { reason: 'oversize', length: markup.length, type: config.type, tabId: tab?.id || null });
-      return null;
-    }
-    console.debug('Debug: preview capture success', {
-      tabId: tab?.id || null,
-      type: config.type,
-      length: markup.length,
-      width: targetWidth,
-      height: targetHeight
-    });
-    return { markup, width: targetWidth, height: targetHeight, size: markup.length };
-  }
-
-  function syncTabPreviewIndicator(tab) {
-    if (!tab || !dom.tabsList) {
-      return;
-    }
-    const selector = `[data-tab-id="${tab.id}"]`;
-    const btn = dom.tabsList.querySelector(selector);
-    if (!btn) {
-      return;
-    }
-    if (tab.previewMarkup) {
-      btn.dataset.hasPreview = 'true';
-    } else {
-      delete btn.dataset.hasPreview;
-    }
-    console.debug('Debug: preview indicator synced', { tabId: tab.id, hasPreview: !!tab.previewMarkup });
-  }
-
-  function updateTabPreviewFromWorkspace(tab, config, meta = {}) {
-    if (!tab || tab.isWelcome || !tab.type || !config) {
-      console.debug('Debug: preview update skipped', { reason: 'invalid-tab', tabId: tab?.id || null, type: tab?.type || null, meta });
-      return false;
-    }
-    const hasData = meta.forceCapture ? true : tabHasTableData(tab);
-    if (!hasData) {
-      if (tab.previewMarkup || tab.previewSignature || tab.previewMeta) {
-        tab.previewMarkup = null;
-        tab.previewSignature = null;
-        tab.previewMeta = null;
-        syncTabPreviewIndicator(tab);
-        console.debug('Debug: preview cleared', { tabId: tab.id, reason: 'no-data', meta });
-        return true;
-      }
-      console.debug('Debug: preview update skipped', { reason: 'no-data', tabId: tab.id, meta });
-      return false;
-    }
-    const payloadSignature = tab.payloadSignature || null;
-    const shouldCapture = meta.forceCapture
-      || !tab.previewMarkup
-      || !tab.previewSignature
-      || (payloadSignature && tab.previewSignature !== payloadSignature);
-    if (!shouldCapture) {
-      console.debug('Debug: preview reuse', { tabId: tab.id, signature: tab.previewSignature, meta });
-      return false;
-    }
-    const preview = captureWorkspacePreview(config, tab);
-    if (preview && preview.markup) {
-      tab.previewMarkup = preview.markup;
-      tab.previewSignature = payloadSignature;
-      tab.previewMeta = {
-        width: preview.width,
-        height: preview.height,
-        size: preview.size,
-        updatedAt: Date.now(),
-        reason: meta.reason || 'capture'
-      };
-      syncTabPreviewIndicator(tab);
-      console.debug('Debug: preview stored', {
-        tabId: tab.id,
-        signature: payloadSignature,
-        width: preview.width,
-        height: preview.height,
-        size: preview.size,
-        meta
-      });
-      return true;
-    }
-    if (tab.previewMarkup || tab.previewSignature || tab.previewMeta) {
-      tab.previewMarkup = null;
-      tab.previewSignature = null;
-      tab.previewMeta = null;
-      syncTabPreviewIndicator(tab);
-      console.debug('Debug: preview cleared', { tabId: tab.id, reason: 'capture-failed', meta });
-      return true;
-    }
-    console.debug('Debug: preview capture unavailable', { tabId: tab.id, meta });
-    return false;
-  }
-
-  function ensureTabPreviewTooltipElement() {
-    if (tabPreviewTooltipEl) {
-      return tabPreviewTooltipEl;
-    }
-    const tooltip = document.createElement('div');
-    tooltip.className = 'workspace-tab__preview-tooltip';
-    tooltip.setAttribute('role', 'presentation');
-    tooltip.style.position = 'fixed';
-    tooltip.style.pointerEvents = 'none';
-    tooltip.style.display = 'none';
-    tooltip.style.opacity = '0';
-    tooltip.style.background = '#ffffff';
-    tooltip.style.border = '1px solid rgba(0, 0, 0, 0.15)';
-    tooltip.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.18)';
-    tooltip.style.padding = '8px';
-    tooltip.style.borderRadius = '8px';
-    tooltip.style.zIndex = '1200';
-    tooltip.style.maxWidth = `${TAB_PREVIEW_TARGET_WIDTH + 24}px`;
-    tooltip.style.transition = 'opacity 120ms ease-out';
-    document.body.appendChild(tooltip);
-    tabPreviewTooltipEl = tooltip;
-    console.debug('Debug: preview tooltip element created');
-    return tooltip;
-  }
-
-  function hideTabPreviewTooltip(reason = 'hide') {
-    if (tabPreviewMeasureRaf) {
-      cancelAnimationFrame(tabPreviewMeasureRaf);
-      tabPreviewMeasureRaf = null;
-    }
-    if (!tabPreviewTooltipEl) {
-      return;
-    }
-    tabPreviewTooltipEl.style.display = 'none';
-    tabPreviewTooltipEl.style.opacity = '0';
-    tabPreviewTooltipEl.innerHTML = '';
-    tabPreviewTooltipEl.dataset.tabId = '';
-    tabPreviewActiveId = null;
-    console.debug('Debug: preview tooltip hidden', { reason });
-  }
-
-  function showTabPreviewTooltip(tab, anchorEl) {
-    const tooltip = ensureTabPreviewTooltipElement();
-    if (!tooltip || !tab || !anchorEl) {
-      return;
-    }
-    tooltip.innerHTML = tab.previewMarkup;
-    tooltip.dataset.tabId = tab.id;
-    tooltip.style.display = 'block';
-    tooltip.style.opacity = '0';
-    tabPreviewActiveId = tab.id;
-    if (tabPreviewMeasureRaf) {
-      cancelAnimationFrame(tabPreviewMeasureRaf);
-    }
-    const rect = typeof anchorEl.getBoundingClientRect === 'function'
-      ? anchorEl.getBoundingClientRect()
-      : null;
-    tabPreviewMeasureRaf = requestAnimationFrame(() => {
-      const tooltipWidth = tooltip.offsetWidth || (tab.previewMeta?.width || TAB_PREVIEW_TARGET_WIDTH);
-      const tooltipHeight = tooltip.offsetHeight || (tab.previewMeta?.height || TAB_PREVIEW_MIN_HEIGHT);
-      let left = rect ? rect.left + (rect.width / 2) - (tooltipWidth / 2) : 12;
-      let top = rect ? rect.top - tooltipHeight - 12 : 12;
-      if (rect && (top < 8 || (rect.top - tooltipHeight) < 8)) {
-        top = rect.bottom + 12;
-      }
-      const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-      if (left + tooltipWidth > viewportWidth - 8) {
-        left = Math.max(8, viewportWidth - tooltipWidth - 8);
-      }
-      if (left < 8) {
-        left = 8;
-      }
-      if (top + tooltipHeight > viewportHeight - 8) {
-        top = Math.max(8, viewportHeight - tooltipHeight - 8);
-      }
-      if (top < 8) {
-        top = 8;
-      }
-      tooltip.style.left = `${Math.round(left)}px`;
-      tooltip.style.top = `${Math.round(top)}px`;
-      tooltip.style.opacity = '1';
-      console.debug('Debug: preview tooltip positioned', {
-        tabId: tab.id,
-        left: Math.round(left),
-        top: Math.round(top),
-        width: tooltipWidth,
-        height: tooltipHeight
-      });
-    });
-  }
-
-  function handleTabPreviewEnter(event, tab) {
-    if (!tab || tab.isWelcome || !tab.type) {
-      hideTabPreviewTooltip('enter-invalid');
-      return;
-    }
-    if (tab.isRenaming) {
-      hideTabPreviewTooltip('renaming');
-      return;
-    }
-    console.debug('Debug: preview hover enter', { tabId: tab.id, type: tab.type });
-    const isActive = tab.id === workspaceState.activeTabId;
-    if (isActive) {
-      const config = WORKSPACES[tab.type];
-      if (config) {
-        updateTabPreviewFromWorkspace(tab, config, { reason: 'hover-active', forceCapture: true });
-      }
-      hideTabPreviewTooltip('active-tab');
-      console.debug('Debug: preview hover suppressed for active tab', { tabId: tab.id }); // Debug: active tab hover suppression
-      return;
-    }
-    if (!tab.previewMarkup) {
-      hideTabPreviewTooltip('no-preview');
-      return;
-    }
-    if (tabPreviewActiveId === tab.id && tabPreviewTooltipEl && tabPreviewTooltipEl.style.display !== 'none') {
-      console.debug('Debug: preview hover reuse tooltip', { tabId: tab.id });
-      return;
-    }
-    const anchorEl = event?.currentTarget || event?.target || null;
-    showTabPreviewTooltip(tab, anchorEl);
-  }
-
-  function handleTabPreviewLeave(reason = 'leave') {
-    hideTabPreviewTooltip(reason);
-  }
 
   function hideWorkspaceElement(config) {
     if (!config?.element) return;

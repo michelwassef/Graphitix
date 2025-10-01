@@ -20,6 +20,9 @@ describe('UI events and example loaders', () => {
     require('../js/components/heatmap.js');
     require('../js/components/roc.js');
     require('../js/components/survival.js');
+    require('../js/main/components.js');
+    require('../js/main/session.js');
+    require('../js/main/previews.js');
     require('../js/main.js');
   });
 
