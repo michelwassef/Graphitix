@@ -660,6 +660,18 @@
               </div>
             </fieldset>
             <fieldset>
+              <legend>View</legend>
+              <div class="control" style="flex-wrap:wrap;">
+                <label style="width:auto;">
+                  Plot View
+                  <select id="pcaViewMode">
+                    <option value="2d">2D</option>
+                    <option value="3d">3D</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
               <legend>Dots</legend>
               <div class="control" style="flex-wrap:wrap;">
                 <div style="display:flex; align-items:center; gap:6px;">
@@ -718,6 +730,12 @@
               </div>
             </fieldset>
             <fieldset>
+              <legend>Tables</legend>
+              <div class="control" style="flex-wrap:wrap;">
+                <label style="width:auto;"><input type="checkbox" id="pcaShowLoadings" /> Show Loadings</label>
+              </div>
+            </fieldset>
+            <fieldset>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label>
@@ -731,6 +749,12 @@
           <fieldset>
             <legend>Statistics</legend>
             <div id="pcaStatsResults" style="margin-top:8px;"></div>
+          </fieldset>
+        </div>
+        <div id="pcaLoadingsPanel" style="width:100%; margin-top:12px; display:none;">
+          <fieldset>
+            <legend>Component Loadings</legend>
+            <div id="pcaLoadingsTable" style="margin-top:8px; overflow:auto;"></div>
           </fieldset>
         </div>
       </div>

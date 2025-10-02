@@ -18,6 +18,8 @@
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_ROWS=100;
   const DEFAULT_COLS=9;
+  const DEFAULT_VIEW_MODE='2d';
+  const PCA_3D_DEFAULTS={ rotationX: -0.6, rotationY: 0.9 };
 
   let scheduleDrawPca = () => {};
 
@@ -172,6 +174,13 @@
           });
         });
       }
+      const pcaLoadingsPanel=document.getElementById('pcaLoadingsPanel');
+      const pcaLoadingsTable=document.getElementById('pcaLoadingsTable');
+      if(pcaLoadingsPanel){
+        pcaLoadingsPanel.style.display='none';
+      }
+      const pcaShowLoadings=$('#pcaShowLoadings');
+      const pcaViewMode=$('#pcaViewMode');
       const pcaMethod=$('#pcaMethod'), pcaFill=$('#pcaFill'), pcaBorder=$('#pcaBorder'), pcaBorderWidth=$('#pcaBorderWidth'), pcaDotSize=$('#pcaDotSize'), pcaAlpha=$('#pcaAlpha');
       const pcaAlphaVal=$('#pcaAlphaVal');
       const pcaFontSize=$('#pcaFontSize'), pcaFontSizeVal=$('#pcaFontSizeVal');
@@ -189,6 +198,23 @@
       const pcaStatsResults=document.getElementById('pcaStatsResults');
       let pcaLabelColors={};
       pcaAlphaVal.textContent=pcaAlpha.value;
+      if(pcaViewMode){
+        pcaViewMode.addEventListener('change',()=>{
+          const mode = (pcaViewMode.value || DEFAULT_VIEW_MODE);
+          console.debug('Debug: pca viewMode change',{ mode }); // Debug: view mode toggle listener
+          scheduleDrawPca();
+        });
+      }
+      if(pcaShowLoadings){
+        pcaShowLoadings.addEventListener('change',()=>{
+          const checked = !!pcaShowLoadings.checked;
+          console.debug('Debug: pca showLoadings toggled',{ checked }); // Debug: loadings visibility listener
+          if(pcaLoadingsPanel){
+            pcaLoadingsPanel.style.display = checked ? '' : 'none';
+          }
+          scheduleDrawPca();
+        });
+      }
       pcaMethod.addEventListener('change',()=>{console.log('pcaMethod changed',pcaMethod.value); scheduleDrawPca();});
       pcaFill.addEventListener('input',()=>{console.log('pcaFill changed',pcaFill.value); scheduleDrawPca();});
       pcaBorder.addEventListener('input',()=>{console.log('pcaBorder changed',pcaBorder.value); scheduleDrawPca();});
@@ -224,7 +250,7 @@
       if(!pcaContainer){
         console.debug('Debug: pca resizer container missing', { hasContainer: !!pcaContainer });
       }
-      let pcaXLabelText='PC1'; let pcaYLabelText='PC2';
+      let pcaXLabelText='PC1'; let pcaYLabelText='PC2'; let pcaZLabelText='PC3';
     async function drawPca(){
       const debugStamp = Date.now();
       console.log('drawPca called', {debugStamp}); // Debug: draw invocation marker
@@ -243,6 +269,11 @@
         return;
       }
 
+      const requestedViewMode = (pcaViewMode?.value || DEFAULT_VIEW_MODE).toLowerCase();
+      const showLoadings = !!pcaShowLoadings?.checked;
+      if(pcaLoadingsPanel){
+        pcaLoadingsPanel.style.display = showLoadings ? '' : 'none';
+      }
       const fill = pcaFill.value;
       const alpha = Number(pcaAlpha.value) || 0;
       const borderWidthRaw = Number(pcaBorderWidth.value);
@@ -281,6 +312,46 @@
       });
       const axisMetrics = chartStyle.createAxisMetrics(fs);
       console.debug('Debug: pca axis metrics',axisMetrics);
+      const updateLoadingsTable = ({ rows, components, method, viewMode }) => {
+        if(!pcaLoadingsTable){
+          console.debug('Debug: pca loadings table skipped',{ reason: 'missing-container' });
+          return;
+        }
+        if(!showLoadings){
+          pcaLoadingsTable.innerHTML = '<i>Loadings hidden.</i>';
+          console.debug('Debug: pca loadings hidden',{ showLoadings });
+          return;
+        }
+        if(method !== 'pca'){
+          pcaLoadingsTable.innerHTML = '<i>Loadings available for PCA only.</i>';
+          console.debug('Debug: pca loadings unavailable for method',{ method });
+          return;
+        }
+        if(!rows || !rows.length || !components){
+          pcaLoadingsTable.innerHTML = '<i>No loadings computed.</i>';
+          console.debug('Debug: pca loadings empty',{ rowCount: rows?.length || 0, components });
+          return;
+        }
+        const columnLimit = viewMode === '3d' ? 3 : 2;
+        const columnsToRender = Math.min(columnLimit, components);
+        const headerCells = ['Variable'];
+        for(let idx=0; idx<columnsToRender; idx+=1){
+          headerCells.push(`PC${idx+1}`);
+        }
+        let html = '<table class="table table-compact"><thead><tr>' + headerCells.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+        rows.forEach(row => {
+          const label = row?.label || '';
+          html += `<tr><th scope="row">${label}</th>`;
+          for(let idx=0; idx<columnsToRender; idx+=1){
+            const value = Number(row?.values?.[idx] ?? 0);
+            html += `<td>${value.toFixed(4)}</td>`;
+          }
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        pcaLoadingsTable.innerHTML = html;
+        console.debug('Debug: pca loadings table rendered',{ rowCount: rows.length, columnsToRender, viewMode });
+      };
       const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
       const showGrid = pcaShowGrid.checked;
       const showFrame = pcaShowFrame.checked;
@@ -336,8 +407,16 @@
         numericColIndices,
       });
 
+      const featureHeaderLabels = numericColIndices.map((colIndex, idx) => {
+        const headerVal = headerRow[colIndex];
+        const headerText = headerVal == null ? '' : String(headerVal).trim();
+        return headerText || `Var ${idx + 1}`;
+      });
+      let featureLabels = featureHeaderLabels.slice();
+
       const labels = [];
       const matrixRaw = [];
+      const rowLabelsOriginal = [];
 
       for (let r = 1; r < data.length; r++) {
         const row = data[r];
@@ -367,6 +446,7 @@
         if (rowValid && vals.length) {
           labels.push(lab);
           matrixRaw.push(vals);
+          rowLabelsOriginal.push(lab || `Row ${rowLabelsOriginal.length + 1}`);
         }
       }
 
@@ -416,6 +496,12 @@
             for (let i = 0; i < columnLabels.length; i++) {
               labels.push(columnLabels[i]);
             }
+            if(rowLabelsOriginal.length === matrix[0]?.length){
+              featureLabels = rowLabelsOriginal.map((lab, idx) => lab || `Var ${idx + 1}`);
+              console.debug('Debug: pca feature labels derived from rows',{ featureLabels });
+            }else{
+              console.debug('Debug: pca feature label row mismatch',{ rowLabelCount: rowLabelsOriginal.length, featureCount: matrix[0]?.length });
+            }
             console.debug('Debug: pca matrix dimensions after transpose', {
               newSamples: matrix.length,
               newFeatures: matrix[0]?.length,
@@ -455,6 +541,10 @@
       let points = [];
       let statsHtml = '';
       const labelSet = new Set(labels.filter((l) => l));
+      let points3d = [];
+      let loadingsRows = [];
+      let loadingsComponents = 0;
+      let pc3Pct = 0;
 
       if (method === 'mds') {
         console.debug('Debug: mds branch entered', { method }); // Debug: MDS execution path
@@ -579,32 +669,64 @@
         const totalVar = variances.reduce((a, b) => a + b, 0);
         const pc1Pct = (variances[0] / totalVar) * 100;
         const pc2Pct = (variances[1] / totalVar) * 100;
+        pc3Pct = variances[2] != null ? (variances[2] / totalVar) * 100 : 0;
 
         pcaXLabelText = `PC1 (${pc1Pct.toFixed(1)}%)`;
         pcaYLabelText = `PC2 (${pc2Pct.toFixed(1)}%)`;
+        if(svd.q.length >= 3 && variances[2] != null){
+          pcaZLabelText = `PC3 (${pc3Pct.toFixed(1)}%)`;
+        }else{
+          pcaZLabelText = 'PC3';
+        }
 
         points = scores.map((s, i) => ({
           x: s[0],
           y: s[1],
           label: labels[i],
         }));
+        if (svd.q.length >= 3) {
+          points3d = scores.map((s, i) => ({
+            x: s[0],
+            y: s[1],
+            z: s[2],
+            label: labels[i],
+          }));
+          console.debug('Debug: pca 3d scores prepared',{ count: points3d.length, components: svd.q.length });
+        } else {
+          points3d = [];
+          console.debug('Debug: pca 3d scores skipped',{ components: svd.q.length });
+        }
         statsHtml = `PC1: ${pc1Pct.toFixed(1)}% variance`;
         statsHtml += `<br>PC2: ${pc2Pct.toFixed(1)}% variance`;
+        if(svd.q.length >= 3){
+          statsHtml += `<br>PC3: ${pc3Pct.toFixed(1)}% variance`;
+        }
+        if(svd.v && Array.isArray(svd.v)){
+          const componentCount = Array.isArray(svd.v[0]) ? Math.min(svd.v[0].length, svd.q.length) : Math.min(svd.v.length, svd.q.length);
+          loadingsComponents = componentCount;
+          const safeFeatureLabels = featureLabels.length ? featureLabels : featureHeaderLabels;
+          loadingsRows = safeFeatureLabels.map((label, featureIdx) => {
+            const values = [];
+            for(let compIdx = 0; compIdx < componentCount; compIdx += 1){
+              const raw = svd.v?.[featureIdx]?.[compIdx] ?? 0;
+              values.push(raw);
+            }
+            return { label: label || `Var ${featureIdx + 1}`, values };
+          });
+          console.debug('Debug: pca loadings computed',{ featureCount: loadingsRows.length, componentCount });
+        }else{
+          console.debug('Debug: pca loadings skipped',{ hasV: !!svd.v });
+        }
       }
 
       updatePcaLabelColorPickers(Array.from(labelSet));
 
-      let xMinRaw = Infinity;
-      let xMaxRaw = -Infinity;
-      let yMinRaw = Infinity;
-      let yMaxRaw = -Infinity;
-
-      points.forEach((p) => {
-        if (p.x < xMinRaw) xMinRaw = p.x;
-        if (p.x > xMaxRaw) xMaxRaw = p.x;
-        if (p.y < yMinRaw) yMinRaw = p.y;
-        if (p.y > yMaxRaw) yMaxRaw = p.y;
-      });
+      let effectiveViewMode = requestedViewMode;
+      if(effectiveViewMode === '3d' && (method !== 'pca' || !points3d.length)){
+        console.debug('Debug: pca 3d fallback triggered',{ method, pointCount: points3d.length });
+        effectiveViewMode = '2d';
+      }
+      updateLoadingsTable({ rows: loadingsRows, components: loadingsComponents, method, viewMode: effectiveViewMode });
 
       const legendLabels = Array.from(labelSet);
       const legendWidth = legendLabels.length ? Math.max(60, Math.round(120 * fontScale)) : 0;
@@ -622,9 +744,170 @@
 
       document.getElementById('pcaStatsResults').innerHTML = statsHtml;
 
-      if (!points.length) {
+      if (effectiveViewMode === '3d') {
+        if (!points3d.length) {
+          console.debug('Debug: pca 3d render skipped',{ reason: 'no-points' });
+          return;
+        }
+        const W3 = Math.max(50, Math.floor(plotEl.clientWidth || 50));
+        const H3 = Math.max(40, Math.floor(plotEl.clientHeight || 40));
+        plotEl.style.position = 'relative';
+        const svg3 = document.createElementNS(NS, 'svg');
+        svg3.setAttribute('id', 'pcaSvg');
+        svg3.setAttribute('width', String(W3));
+        svg3.setAttribute('height', String(H3));
+        svg3.setAttribute('viewBox', `0 0 ${W3} ${H3}`);
+        svg3.setAttribute('font-family', chartStyle.FONT_FAMILY);
+        svg3.dataset.viewMode = '3d';
+        chartStyle.applySvgDefaults(svg3);
+        plotEl.appendChild(svg3);
+        if(fontControls && typeof fontControls.enableForSvg === 'function'){
+          fontControls.enableForSvg(svg3,{ scopeId: 'pca' });
+          console.debug('Debug: pca fontControls enableForSvg invoked',{ width: W3, height: H3, mode: '3d' });
+        } else {
+          console.debug('Debug: pca fontControls enableForSvg missing',{ hasFontControls: !!fontControls, mode: '3d' });
+        }
+        const margin3 = {
+          top: Math.max(fs * 2.5, 20),
+          right: legendWidth + Math.max(fs * 1.5, 20),
+          bottom: Math.max(fs * 2.5, 24),
+          left: Math.max(fs * 2.5, 24)
+        };
+        const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
+        const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
+        const rotatePoint = (pt) => {
+          const rx = PCA_3D_DEFAULTS.rotationX;
+          const ry = PCA_3D_DEFAULTS.rotationY;
+          const cosY = Math.cos(ry);
+          const sinY = Math.sin(ry);
+          let x1 = pt.x * cosY + pt.z * sinY;
+          let z1 = -pt.x * sinY + pt.z * cosY;
+          const cosX = Math.cos(rx);
+          const sinX = Math.sin(rx);
+          const y1 = pt.y * cosX - z1 * sinX;
+          const z2 = pt.y * sinX + z1 * cosX;
+          return { x: x1, y: y1, z: z2 };
+        };
+        const rotatedPoints = points3d.map(pt => rotatePoint(pt));
+        const axisMagnitude = points3d.reduce((max, pt) => {
+          const candidate = Math.max(Math.abs(pt.x), Math.abs(pt.y), Math.abs(pt.z));
+          return Math.max(max, candidate);
+        }, 1);
+        const axisLength = axisMagnitude || 1;
+        const axes = [
+          { label: pcaXLabelText, vector: { x: axisLength, y: 0, z: 0 }, color: '#e41a1c' },
+          { label: pcaYLabelText, vector: { x: 0, y: axisLength, z: 0 }, color: '#377eb8' },
+          { label: pcaZLabelText, vector: { x: 0, y: 0, z: axisLength }, color: '#4daf4a' }
+        ];
+        const axisPoints = axes.map(axis => {
+          const rotated = rotatePoint(axis.vector);
+          return { ...rotated, axis };
+        });
+        const allProjected = rotatedPoints.concat(axisPoints, [{ x: 0, y: 0, z: 0 }]);
+        const minX3 = Math.min(...allProjected.map(p => p.x));
+        const maxX3 = Math.max(...allProjected.map(p => p.x));
+        const minY3 = Math.min(...allProjected.map(p => p.y));
+        const maxY3 = Math.max(...allProjected.map(p => p.y));
+        const rangeX3 = (maxX3 - minX3) || 1;
+        const rangeY3 = (maxY3 - minY3) || 1;
+        const scaleX3 = plotW3 / rangeX3;
+        const scaleY3 = plotH3 / rangeY3;
+        const project3 = (pt) => ({
+          x: margin3.left + (pt.x - minX3) * scaleX3,
+          y: margin3.top + plotH3 - (pt.y - minY3) * scaleY3,
+          depth: pt.z
+        });
+        const origin3 = project3({ x: 0, y: 0, z: 0 });
+        const add3 = (tag, attrs, text) => {
+          const el = document.createElementNS(NS, tag);
+          for (const k in attrs) {
+            el.setAttribute(k, String(attrs[k]));
+          }
+          if (text) {
+            el.textContent = text;
+          }
+          svg3.appendChild(el);
+          return el;
+        };
+        axisPoints.forEach(axisPt => {
+          const projected = project3(axisPt);
+          add3('line', {
+            x1: origin3.x,
+            y1: origin3.y,
+            x2: projected.x,
+            y2: projected.y,
+            stroke: axisPt.axis.color,
+            'stroke-width': axisStrokeWidth
+          });
+          const axisLabel = add3('text', {
+            x: projected.x,
+            y: projected.y,
+            'font-size': fs,
+            'text-anchor': 'middle',
+            fill: chartStyle.TEXT_COLOR,
+            dy: '-0.35em'
+          }, axisPt.axis.label);
+          markFontEditable(axisLabel,'axis3d',axisPt.axis.label);
+        });
+        const projectedPoints = rotatedPoints.map((rot, idx) => {
+          const base = project3(rot);
+          return {
+            x: base.x,
+            y: base.y,
+            depth: base.depth,
+            label: points3d[idx].label
+          };
+        }).sort((a,b)=>a.depth-b.depth);
+        projectedPoints.forEach(pt => {
+          const color = pt.label ? (pcaLabelColors[pt.label] || DEFAULT_SCATTER_COLORS[0]) : fill;
+          add3('circle', {
+            cx: pt.x,
+            cy: pt.y,
+            r: dotSizePx,
+            fill: color,
+            stroke: alpha > 0 && borderWidthPx > 0 ? borderColor : 'none',
+            'stroke-width': borderWidthPx,
+            opacity: 1 - alpha
+          });
+        });
+        const legendX3=W3-legendWidth+Math.max(6,Math.round(8*fontScale));
+        const legendSpacing3=Math.max(4,Math.round(fs*0.5));
+        const legendMarkerSize3=Math.max(10,Math.round(12*fontScale));
+        const legendTextOffset3=legendMarkerSize3+Math.max(6,Math.round(8*fontScale));
+        legendLabels.forEach((lab, i) => {
+          const itemY = margin3.top + i * (legendMarkerSize3 + legendSpacing3);
+          const color = pcaLabelColors[lab] || DEFAULT_SCATTER_COLORS[i % DEFAULT_SCATTER_COLORS.length];
+          add3('rect', {x: legendX3, y: itemY, width: legendMarkerSize3, height: legendMarkerSize3, fill: color});
+          const legendText = add3('text', {
+            x: legendX3 + legendTextOffset3,
+            y: itemY + legendMarkerSize3 / 2,
+            'font-size': fs,
+            'dominant-baseline': 'middle',
+            fill: chartStyle.TEXT_COLOR,
+          }, lab);
+          markFontEditable(legendText,'legend',`legend-${i}`);
+        });
+        console.debug('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisLength });
+        pcaLayout?.syncPanels?.();
         return;
       }
+
+      if (!points.length) {
+        console.debug('Debug: pca 2d render skipped',{ reason: 'no-points' });
+        return;
+      }
+
+      let xMinRaw = Infinity;
+      let xMaxRaw = -Infinity;
+      let yMinRaw = Infinity;
+      let yMaxRaw = -Infinity;
+
+      points.forEach((p) => {
+        if (p.x < xMinRaw) xMinRaw = p.x;
+        if (p.x > xMaxRaw) xMaxRaw = p.x;
+        if (p.y < yMinRaw) yMinRaw = p.y;
+        if (p.y > yMaxRaw) yMaxRaw = p.y;
+      });
 
       let xMin = xMinRaw;
       let xMax = xMaxRaw;
@@ -651,6 +934,7 @@
       svg.setAttribute('height', String(H));
       svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
       svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
+      svg.dataset.viewMode = effectiveViewMode;
       chartStyle.applySvgDefaults(svg);
       plotEl.appendChild(svg);
       if(fontControls && typeof fontControls.enableForSvg === 'function'){
@@ -931,7 +1215,9 @@
           yMin:pcaYMin.value,
           yMax:pcaYMax.value,
           scale:pcaScale.checked,
-          fontSize:pcaFontSize.value
+          fontSize:pcaFontSize.value,
+          viewMode:pcaViewMode?.value || DEFAULT_VIEW_MODE,
+          showLoadings:!!pcaShowLoadings?.checked
         }
       };
     }
@@ -1015,6 +1301,18 @@
             pcaYMax.value=c.yMax||'';
             pcaScale.checked=!!c.scale;
             pcaFontSize.value=c.fontSize||pcaFontSize.value;
+            if(pcaViewMode){
+              const restoredView = (c.viewMode || DEFAULT_VIEW_MODE);
+              pcaViewMode.value = restoredView;
+              pcaViewMode.dispatchEvent(new Event('change'));
+              console.debug('Debug: pca view mode restored',{ restoredView });
+            }
+            if(pcaShowLoadings){
+              const restoredLoadings = !!c.showLoadings;
+              pcaShowLoadings.checked = restoredLoadings;
+              pcaShowLoadings.dispatchEvent(new Event('change'));
+              console.debug('Debug: pca showLoadings restored',{ restoredLoadings });
+            }
             if(pcaFontSize.dataset){
               pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
               console.debug('Debug: pca font size base restored',{ value: pcaFontSize.value }); // Debug: restore base from file
