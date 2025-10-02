@@ -161,7 +161,7 @@
     }
   };
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, layout: null, minSvgWidth: 0, individualSummary: 'mean' };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [] };
   const els = {};
 
   // PART: CACHE_ELS
@@ -677,9 +677,652 @@
   function anova(groups){ const k=groups.length; const n=groups.reduce((s,g)=>s+g.length,0); const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n; let ssBetween=0, ssWithin=0; groups.forEach(g=>{ const m=mean(g); ssBetween+=g.length*Math.pow(m-grand,2); ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0); }); const dfBetween=k-1; const dfWithin=n-k; const msBetween=ssBetween/dfBetween; const msWithin=ssWithin/dfWithin; const F=msBetween/msWithin; const p=1-global.jStat.centralF.cdf(F,dfBetween,dfWithin); return {F,p}; }
   function kruskalWallis(groups){ const n=groups.reduce((s,g)=>s+g.length,0); const all=groups.flat(); const ranks=rankArray(all); let idx=0; const R=groups.map(g=>{ const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0); idx+=g.length; return r; }); const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1); const df=groups.length-1; const p=1-global.jStat.chisquare.cdf(H,df); return {H,p}; }
   function parsePairString(str,traces){ return str.split(/[\n,]+/).map(p=>p.trim()).filter(p=>p).map(p=>{ const [a,b]=p.split('-').map(s=>s.trim()); const ai=isNaN(parseInt(a))?traces.findIndex(t=>t.name===a):parseInt(a)-1; const bi=isNaN(parseInt(b))?traces.findIndex(t=>t.name===b):parseInt(b)-1; return (ai>=0&&bi>=0)?{ai,bi}:null; }).filter(Boolean); }
+  function ensureGroupedStatsDefaults(){
+    if(!state.groupedStats || typeof state.groupedStats !== 'object'){
+      state.groupedStats = { analysis: 'twoWayAnova' };
+    }
+    const allowed = new Set(['twoWayAnova','twoWayMixed','threeWayAnova','threeWayMixed','rowTTests']);
+    if(!allowed.has(state.groupedStats.analysis)){
+      state.groupedStats.analysis = 'twoWayAnova';
+      console.debug('Debug: grouped stats analysis reset to default');
+    }
+  }
+  function formatStatNumber(value, digits){
+    const places = Number.isInteger(digits) ? digits : 4;
+    if(!Number.isFinite(value)){
+      return '—';
+    }
+    return value.toFixed(places);
+  }
+  function prepareGroupedStatsData(traces, helpers){
+    ensureGroupedDefaults();
+    ensureGroupedStatsDefaults();
+    const hotInstance = state.hot;
+    const groups = Array.isArray(state.grouped?.groups) ? state.grouped.groups : [];
+    const groupsCount = groups.length;
+    const replicatesRaw = Number(state.grouped?.replicatesPerGroup);
+    const conditionsCount = Number.isFinite(replicatesRaw) && replicatesRaw >= 1 ? Math.round(replicatesRaw) : 1;
+    const axisLabelsSource = Array.isArray(helpers?.axisLabels) && helpers.axisLabels.length >= conditionsCount
+      ? helpers.axisLabels
+      : (Array.isArray(state.lastAxisLabels) && state.lastAxisLabels.length >= conditionsCount ? state.lastAxisLabels : []);
+    const conditionLabels = [];
+    for(let i = 0; i < conditionsCount; i++){
+      const rawLabel = axisLabelsSource[i];
+      const trimmed = typeof rawLabel === 'string' ? rawLabel.trim() : '';
+      conditionLabels.push(trimmed || `Condition ${i + 1}`);
+    }
+    if(!hotInstance || typeof hotInstance.getData !== 'function'){
+      console.debug('Debug: prepareGroupedStatsData missing hot instance');
+      return { ok: false, message: 'Table data unavailable for grouped analysis.', groupsCount, conditionsCount, groupLabels: [], conditionLabels, rows: [], cellData: [], rowsWithData: 0, totalRows: 0, partialRowsSkipped: 0 };
+    }
+    const tableData = hotInstance.getData();
+    const normalizedGroups = groups.map((name, idx)=>{
+      const trimmed = typeof name === 'string' ? name.trim() : '';
+      return trimmed || `Group ${idx + 1}`;
+    });
+    if(!groupsCount){
+      return { ok: false, message: 'Add at least one group to run grouped analyses.', groupsCount, conditionsCount, groupLabels: normalizedGroups, conditionLabels, rows: [], cellData: [], rowsWithData: 0, totalRows: 0, partialRowsSkipped: 0 };
+    }
+    const rows = [];
+    let candidateRows = 0;
+    for(let r = 1; r < tableData.length; r++){
+      const row = tableData[r];
+      if(!row) continue;
+      let rowHasAny = false;
+      let rowComplete = true;
+      const entry = Array.from({ length: groupsCount }, () => Array(conditionsCount).fill(null));
+      for(let gIdx = 0; gIdx < groupsCount; gIdx++){
+        for(let cIdx = 0; cIdx < conditionsCount; cIdx++){
+          const colIndex = gIdx * conditionsCount + cIdx;
+          const rawValue = Array.isArray(row) ? row[colIndex] : undefined;
+          const parsed = typeof rawValue === 'number' ? rawValue : parseFloat(rawValue);
+          if(Number.isFinite(parsed)){
+            entry[gIdx][cIdx] = parsed;
+            rowHasAny = true;
+          }else{
+            rowComplete = false;
+          }
+        }
+      }
+      if(rowHasAny){
+        candidateRows++;
+      }
+      if(rowHasAny && rowComplete){
+        rows.push(entry);
+      }
+    }
+    if(!rows.length){
+      return {
+        ok: false,
+        message: 'Enter complete rows (no missing values) to run grouped analyses.',
+        groupsCount,
+        conditionsCount,
+        groupLabels: normalizedGroups,
+        conditionLabels,
+        rows: [],
+        cellData: [],
+        rowsWithData: 0,
+        totalRows: candidateRows,
+        partialRowsSkipped: Math.max(0, candidateRows)
+      };
+    }
+    const cellData = Array.from({ length: groupsCount }, () => Array.from({ length: conditionsCount }, () => []));
+    rows.forEach((rowEntry, rowIdx) => {
+      for(let gIdx = 0; gIdx < groupsCount; gIdx++){
+        for(let cIdx = 0; cIdx < conditionsCount; cIdx++){
+          const value = rowEntry[gIdx][cIdx];
+          cellData[gIdx][cIdx].push(value);
+        }
+      }
+    });
+    const info = {
+      ok: true,
+      groupsCount,
+      conditionsCount,
+      groupLabels: normalizedGroups,
+      conditionLabels,
+      rows,
+      cellData,
+      rowsWithData: rows.length,
+      totalRows: candidateRows,
+      partialRowsSkipped: Math.max(0, candidateRows - rows.length)
+    };
+    console.debug('Debug: grouped stats dataset summary', {
+      groups: info.groupsCount,
+      conditions: info.conditionsCount,
+      rowsWithData: info.rowsWithData,
+      partialRowsSkipped: info.partialRowsSkipped
+    });
+    return info;
+  }
+  function collectGroupedMomentInfo(data){
+    const I = data.groupsCount;
+    const J = data.conditionsCount;
+    const K = data.rowsWithData;
+    if(I === 0 || J === 0 || K === 0){
+      return { ok: false, message: 'Insufficient data for grouped statistics.', detail: { groups: I, conditions: J, rows: K } };
+    }
+    const cellMeans = Array.from({ length: I }, () => Array(J).fill(0));
+    const totalsByGroup = new Array(I).fill(0);
+    const totalsByCondition = new Array(J).fill(0);
+    let grandTotal = 0;
+    let sse = 0;
+    let balanced = true;
+    let mismatch = null;
+    for(let i = 0; i < I; i++){
+      for(let j = 0; j < J; j++){
+        const arr = data.cellData[i][j];
+        if(arr.length !== K){
+          balanced = false;
+          mismatch = { groupIndex: i, conditionIndex: j, count: arr.length, expected: K };
+        }
+        const sum = arr.reduce((acc, val)=>acc + val, 0);
+        const mean = arr.length ? sum / arr.length : 0;
+        cellMeans[i][j] = mean;
+        totalsByGroup[i] += sum;
+        totalsByCondition[j] += sum;
+        grandTotal += sum;
+        sse += arr.reduce((acc, val)=>acc + Math.pow(val - mean, 2), 0);
+      }
+    }
+    if(!balanced){
+      console.debug('Debug: grouped stats imbalance detected', mismatch);
+      return { ok: false, message: 'Each group/condition combination must contain the same number of complete rows.', detail: mismatch };
+    }
+    const N = I * J * K;
+    const grandMean = grandTotal / N;
+    const meanByGroup = totalsByGroup.map(sum => sum / (J * K));
+    const meanByCondition = totalsByCondition.map(sum => sum / (I * K));
+    let ssa = 0;
+    for(let i = 0; i < I; i++){
+      ssa += Math.pow(meanByGroup[i] - grandMean, 2);
+    }
+    ssa *= J * K;
+    let ssb = 0;
+    for(let j = 0; j < J; j++){
+      ssb += Math.pow(meanByCondition[j] - grandMean, 2);
+    }
+    ssb *= I * K;
+    let ssab = 0;
+    for(let i = 0; i < I; i++){
+      for(let j = 0; j < J; j++){
+        ssab += Math.pow(cellMeans[i][j] - meanByGroup[i] - meanByCondition[j] + grandMean, 2);
+      }
+    }
+    ssab *= K;
+    const subjectMeans = new Array(K).fill(0);
+    const asMeans = Array.from({ length: I }, () => Array(K).fill(0));
+    const bsMeans = Array.from({ length: J }, () => Array(K).fill(0));
+    let sstotal = 0;
+    for(let k = 0; k < K; k++){
+      let subjectSum = 0;
+      for(let i = 0; i < I; i++){
+        let rowSumForGroup = 0;
+        for(let j = 0; j < J; j++){
+          const value = data.rows[k][i][j];
+          subjectSum += value;
+          rowSumForGroup += value;
+          sstotal += Math.pow(value - grandMean, 2);
+        }
+        asMeans[i][k] = rowSumForGroup / J;
+      }
+      subjectMeans[k] = subjectSum / (I * J);
+    }
+    for(let j = 0; j < J; j++){
+      for(let k = 0; k < K; k++){
+        let rowSumForCondition = 0;
+        for(let i = 0; i < I; i++){
+          rowSumForCondition += data.rows[k][i][j];
+        }
+        bsMeans[j][k] = rowSumForCondition / I;
+      }
+    }
+    return {
+      ok: true,
+      I,
+      J,
+      K,
+      cellMeans,
+      meanByGroup,
+      meanByCondition,
+      subjectMeans,
+      asMeans,
+      bsMeans,
+      grandMean,
+      ssa,
+      ssb,
+      ssab,
+      sse,
+      sstotal
+    };
+  }
+  function analyzeTwoWayAnova(data){
+    const base = collectGroupedMomentInfo(data);
+    if(!base.ok){
+      return { ok: false, message: base.message };
+    }
+    const jStatLib = global.jStat;
+    if(!jStatLib){
+      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
+    }
+    const { I, J, K, ssa, ssb, ssab, sse } = base;
+    if(I < 2 || J < 2){
+      return { ok: false, message: 'Two-way ANOVA requires at least two groups and two conditions.' };
+    }
+    if(K < 2){
+      return { ok: false, message: 'Two-way ANOVA requires at least two complete rows.' };
+    }
+    const dfA = I - 1;
+    const dfB = J - 1;
+    const dfAB = (I - 1) * (J - 1);
+    const dfError = I * J * (K - 1);
+    if(dfError <= 0){
+      return { ok: false, message: 'Two-way ANOVA requires at least two replicates per group/condition combination.' };
+    }
+    const msa = ssa / dfA;
+    const msb = ssb / dfB;
+    const msab = ssab / dfAB;
+    const mse = sse / dfError;
+    const fA = mse > 0 ? msa / mse : NaN;
+    const fB = mse > 0 ? msb / mse : NaN;
+    const fAB = mse > 0 ? msab / mse : NaN;
+    const pA = Number.isFinite(fA) ? 1 - jStatLib.centralF.cdf(fA, dfA, dfError) : NaN;
+    const pB = Number.isFinite(fB) ? 1 - jStatLib.centralF.cdf(fB, dfB, dfError) : NaN;
+    const pAB = Number.isFinite(fAB) ? 1 - jStatLib.centralF.cdf(fAB, dfAB, dfError) : NaN;
+    console.debug('Debug: two-way ANOVA stats',{ dfA, dfB, dfAB, dfError, fA, fB, fAB });
+    return {
+      ok: true,
+      caption: 'Two-way ANOVA',
+      columns: [
+        { key: 'source', label: 'Source', align: 'left' },
+        { key: 'df', label: 'df', align: 'right' },
+        { key: 'ss', label: 'SS', align: 'right' },
+        { key: 'ms', label: 'MS', align: 'right' },
+        { key: 'f', label: 'F', align: 'right' },
+        { key: 'p', label: 'P value', align: 'right' }
+      ],
+      rows: [
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
+        { source: 'Error', df: String(dfError), ss: formatStatNumber(sse), ms: formatStatNumber(mse), f: '—', p: '—' }
+      ],
+      options:{ fileName:'box-two-way-anova', contextLabel:'box-grouped-anova2' },
+      footnotes: ['F-tests use the pooled within-cell error term.'],
+      diagnostics: { dfA, dfB, dfAB, dfError }
+    };
+  }
+  function analyzeTwoWayMixed(data){
+    const base = collectGroupedMomentInfo(data);
+    if(!base.ok){
+      return { ok: false, message: base.message };
+    }
+    const jStatLib = global.jStat;
+    if(!jStatLib){
+      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
+    }
+    const { I, J, K, ssa, ssb, ssab, sse, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean } = base;
+    if(I < 2 || J < 2 || K < 2){
+      return { ok: false, message: 'Two-way mixed model requires at least two groups, two conditions, and two complete rows.' };
+    }
+    const dfA = I - 1;
+    const dfB = J - 1;
+    const dfS = K - 1;
+    const dfAS = (I - 1) * (K - 1);
+    const dfBS = (J - 1) * (K - 1);
+    const dfAB = (I - 1) * (J - 1);
+    const dfABS = (I - 1) * (J - 1) * (K - 1);
+    if(dfAS <= 0 || dfBS <= 0 || dfABS <= 0){
+      return { ok: false, message: 'Two-way mixed model requires at least two rows to estimate error terms.' };
+    }
+    let sss = 0;
+    for(let k = 0; k < K; k++){
+      sss += Math.pow(subjectMeans[k] - grandMean, 2);
+    }
+    sss *= I * J;
+    let ssas = 0;
+    for(let i = 0; i < I; i++){
+      for(let k = 0; k < K; k++){
+        const value = asMeans[i][k] - meanByGroup[i] - subjectMeans[k] + grandMean;
+        ssas += Math.pow(value, 2);
+      }
+    }
+    ssas *= J;
+    let ssbs = 0;
+    for(let j = 0; j < J; j++){
+      for(let k = 0; k < K; k++){
+        const value = bsMeans[j][k] - meanByCondition[j] - subjectMeans[k] + grandMean;
+        ssbs += Math.pow(value, 2);
+      }
+    }
+    ssbs *= I;
+    let ssabs = 0;
+    for(let k = 0; k < K; k++){
+      for(let i = 0; i < I; i++){
+        for(let j = 0; j < J; j++){
+          const term = data.rows[k][i][j]
+            - base.cellMeans[i][j]
+            - asMeans[i][k]
+            - bsMeans[j][k]
+            + meanByGroup[i]
+            + meanByCondition[j]
+            + subjectMeans[k]
+            - grandMean;
+          ssabs += Math.pow(term, 2);
+        }
+      }
+    }
+    const msa = ssa / dfA;
+    const msas = ssas / dfAS;
+    const msb = ssb / dfB;
+    const msbs = ssbs / dfBS;
+    const msab = ssab / dfAB;
+    const msabs = ssabs / dfABS;
+    const fA = msas > 0 ? msa / msas : NaN;
+    const fB = msbs > 0 ? msb / msbs : NaN;
+    const fAB = msabs > 0 ? msab / msabs : NaN;
+    const pA = Number.isFinite(fA) ? 1 - jStatLib.centralF.cdf(fA, dfA, dfAS) : NaN;
+    const pB = Number.isFinite(fB) ? 1 - jStatLib.centralF.cdf(fB, dfB, dfBS) : NaN;
+    const pAB = Number.isFinite(fAB) ? 1 - jStatLib.centralF.cdf(fAB, dfAB, dfABS) : NaN;
+    console.debug('Debug: two-way mixed stats',{ dfA, dfAS, dfB, dfBS, dfAB, dfABS, fA, fB, fAB });
+    return {
+      ok: true,
+      caption: 'Two-way Mixed Model',
+      columns: [
+        { key: 'source', label: 'Source', align: 'left' },
+        { key: 'df', label: 'df', align: 'right' },
+        { key: 'ss', label: 'SS', align: 'right' },
+        { key: 'ms', label: 'MS', align: 'right' },
+        { key: 'f', label: 'F', align: 'right' },
+        { key: 'p', label: 'P value', align: 'right' }
+      ],
+      rows: [
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
+        { source: 'Row (random)', df: String(dfS), ss: formatStatNumber(sss), ms: formatStatNumber(dfS ? sss / dfS : NaN), f: '—', p: '—' },
+        { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '—', p: '—' },
+        { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '—', p: '—' },
+        { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '—', p: '—' }
+      ],
+      options:{ fileName:'box-two-way-mixed', contextLabel:'box-grouped-mixed2' },
+      footnotes: ['Mixed model treats rows as a random effect; F-tests for fixed effects use row interactions as denominators.']
+    };
+  }
+  function analyzeThreeWayAnova(data){
+    const base = collectGroupedMomentInfo(data);
+    if(!base.ok){
+      return { ok: false, message: base.message };
+    }
+    const jStatLib = global.jStat;
+    if(!jStatLib){
+      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
+    }
+    const { I, J, K, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean, cellMeans, ssa, ssb, ssab, sstotal } = base;
+    if(I < 2 || J < 2 || K < 2){
+      return { ok: false, message: 'Three-way ANOVA requires at least two groups, two conditions, and two rows.' };
+    }
+    let ssc = 0;
+    for(let k = 0; k < K; k++){
+      ssc += Math.pow(subjectMeans[k] - grandMean, 2);
+    }
+    ssc *= I * J;
+    let ssac = 0;
+    for(let i = 0; i < I; i++){
+      for(let k = 0; k < K; k++){
+        const term = asMeans[i][k] - meanByGroup[i] - subjectMeans[k] + grandMean;
+        ssac += Math.pow(term, 2);
+      }
+    }
+    ssac *= J;
+    let ssbc = 0;
+    for(let j = 0; j < J; j++){
+      for(let k = 0; k < K; k++){
+        const term = bsMeans[j][k] - meanByCondition[j] - subjectMeans[k] + grandMean;
+        ssbc += Math.pow(term, 2);
+      }
+    }
+    ssbc *= I;
+    let ssabc = 0;
+    for(let i = 0; i < I; i++){
+      for(let j = 0; j < J; j++){
+        for(let k = 0; k < K; k++){
+          const value = data.rows[k][i][j];
+          const abMean = cellMeans[i][j];
+          const acMean = asMeans[i][k];
+          const bcMean = bsMeans[j][k];
+          const term = value - abMean - acMean - bcMean + meanByGroup[i] + meanByCondition[j] + subjectMeans[k] - grandMean;
+          ssabc += Math.pow(term, 2);
+        }
+      }
+    }
+    const residual = sstotal - (ssa + ssb + ssc + ssab + ssac + ssbc + ssabc);
+    const dfA = I - 1;
+    const dfB = J - 1;
+    const dfC = K - 1;
+    const dfAB = (I - 1) * (J - 1);
+    const dfAC = (I - 1) * (K - 1);
+    const dfBC = (J - 1) * (K - 1);
+    const dfABC = (I - 1) * (J - 1) * (K - 1);
+    if(dfABC <= 0){
+      return { ok: false, message: 'Three-way ANOVA requires at least two rows to estimate interaction variance.' };
+    }
+    const msabc = ssabc / dfABC;
+    const msa = ssa / dfA;
+    const msb = ssb / dfB;
+    const msc = ssc / dfC;
+    const msab = ssab / dfAB;
+    const msac = ssac / dfAC;
+    const msbc = ssbc / dfBC;
+    const fA = msabc > 0 ? msa / msabc : NaN;
+    const fB = msabc > 0 ? msb / msabc : NaN;
+    const fC = msabc > 0 ? msc / msabc : NaN;
+    const fAB = msabc > 0 ? msab / msabc : NaN;
+    const fAC = msabc > 0 ? msac / msabc : NaN;
+    const fBC = msabc > 0 ? msbc / msabc : NaN;
+    const pA = Number.isFinite(fA) ? 1 - jStatLib.centralF.cdf(fA, dfA, dfABC) : NaN;
+    const pB = Number.isFinite(fB) ? 1 - jStatLib.centralF.cdf(fB, dfB, dfABC) : NaN;
+    const pC = Number.isFinite(fC) ? 1 - jStatLib.centralF.cdf(fC, dfC, dfABC) : NaN;
+    const pAB = Number.isFinite(fAB) ? 1 - jStatLib.centralF.cdf(fAB, dfAB, dfABC) : NaN;
+    const pAC = Number.isFinite(fAC) ? 1 - jStatLib.centralF.cdf(fAC, dfAC, dfABC) : NaN;
+    const pBC = Number.isFinite(fBC) ? 1 - jStatLib.centralF.cdf(fBC, dfBC, dfABC) : NaN;
+    console.debug('Debug: three-way ANOVA stats',{ dfA, dfB, dfC, dfAB, dfAC, dfBC, dfABC, fA, fB, fC, fAB, fAC, fBC });
+    return {
+      ok: true,
+      caption: 'Three-way ANOVA',
+      columns: [
+        { key: 'source', label: 'Source', align: 'left' },
+        { key: 'df', label: 'df', align: 'right' },
+        { key: 'ss', label: 'SS', align: 'right' },
+        { key: 'ms', label: 'MS', align: 'right' },
+        { key: 'f', label: 'F', align: 'right' },
+        { key: 'p', label: 'P value', align: 'right' }
+      ],
+      rows: [
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
+        { source: 'Row', df: String(dfC), ss: formatStatNumber(ssc), ms: formatStatNumber(msc), f: formatStatNumber(fC), p: formatP(pC) },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
+        { source: 'Group × Row', df: String(dfAC), ss: formatStatNumber(ssac), ms: formatStatNumber(msac), f: formatStatNumber(fAC), p: formatP(pAC) },
+        { source: 'Condition × Row', df: String(dfBC), ss: formatStatNumber(ssbc), ms: formatStatNumber(msbc), f: formatStatNumber(fBC), p: formatP(pBC) },
+        { source: 'Group × Condition × Row', df: String(dfABC), ss: formatStatNumber(ssabc), ms: formatStatNumber(msabc), f: '—', p: '—' },
+        { source: 'Residual', df: '—', ss: formatStatNumber(residual), ms: '—', f: '—', p: '—' }
+      ],
+      options:{ fileName:'box-three-way-anova', contextLabel:'box-grouped-anova3' },
+      footnotes: ['Highest-order interaction is used as the error term for F-tests.'],
+      diagnostics: { dfA, dfB, dfC, dfAB, dfAC, dfBC, dfABC }
+    };
+  }
+  function analyzeThreeWayMixed(data){
+    const base = collectGroupedMomentInfo(data);
+    if(!base.ok){
+      return { ok: false, message: base.message };
+    }
+    const jStatLib = global.jStat;
+    if(!jStatLib){
+      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
+    }
+    const { I, J, K, ssa, ssb, ssab, meanByGroup, meanByCondition, subjectMeans, asMeans, bsMeans, grandMean } = base;
+    if(I < 2 || J < 2 || K < 2){
+      return { ok: false, message: 'Three-way mixed model requires at least two groups, two conditions, and two rows.' };
+    }
+    const dfA = I - 1;
+    const dfB = J - 1;
+    const dfC = K - 1;
+    const dfAS = (I - 1) * (K - 1);
+    const dfBS = (J - 1) * (K - 1);
+    const dfAB = (I - 1) * (J - 1);
+    const dfABS = (I - 1) * (J - 1) * (K - 1);
+    if(dfAS <= 0 || dfBS <= 0 || dfABS <= 0){
+      return { ok: false, message: 'Three-way mixed model requires at least two rows to estimate random effects.' };
+    }
+    let sss = 0;
+    for(let k = 0; k < K; k++){
+      sss += Math.pow(subjectMeans[k] - grandMean, 2);
+    }
+    sss *= I * J;
+    let ssas = 0;
+    for(let i = 0; i < I; i++){
+      for(let k = 0; k < K; k++){
+        const term = asMeans[i][k] - meanByGroup[i] - subjectMeans[k] + grandMean;
+        ssas += Math.pow(term, 2);
+      }
+    }
+    ssas *= J;
+    let ssbs = 0;
+    for(let j = 0; j < J; j++){
+      for(let k = 0; k < K; k++){
+        const term = bsMeans[j][k] - meanByCondition[j] - subjectMeans[k] + grandMean;
+        ssbs += Math.pow(term, 2);
+      }
+    }
+    ssbs *= I;
+    let ssabs = 0;
+    for(let k = 0; k < K; k++){
+      for(let i = 0; i < I; i++){
+        for(let j = 0; j < J; j++){
+          const term = data.rows[k][i][j]
+            - base.cellMeans[i][j]
+            - asMeans[i][k]
+            - bsMeans[j][k]
+            + meanByGroup[i]
+            + meanByCondition[j]
+            + subjectMeans[k]
+            - grandMean;
+          ssabs += Math.pow(term, 2);
+        }
+      }
+    }
+    const msa = ssa / dfA;
+    const msas = ssas / dfAS;
+    const msb = ssb / dfB;
+    const msbs = ssbs / dfBS;
+    const msab = ssab / dfAB;
+    const msabs = ssabs / dfABS;
+    const fA = msas > 0 ? msa / msas : NaN;
+    const fB = msbs > 0 ? msb / msbs : NaN;
+    const fAB = msabs > 0 ? msab / msabs : NaN;
+    const pA = Number.isFinite(fA) ? 1 - jStatLib.centralF.cdf(fA, dfA, dfAS) : NaN;
+    const pB = Number.isFinite(fB) ? 1 - jStatLib.centralF.cdf(fB, dfB, dfBS) : NaN;
+    const pAB = Number.isFinite(fAB) ? 1 - jStatLib.centralF.cdf(fAB, dfAB, dfABS) : NaN;
+    console.debug('Debug: three-way mixed stats',{ dfA, dfAS, dfB, dfBS, dfAB, dfABS, fA, fB, fAB });
+    return {
+      ok: true,
+      caption: 'Three-way Mixed Model',
+      columns: [
+        { key: 'source', label: 'Source', align: 'left' },
+        { key: 'df', label: 'df', align: 'right' },
+        { key: 'ss', label: 'SS', align: 'right' },
+        { key: 'ms', label: 'MS', align: 'right' },
+        { key: 'f', label: 'F', align: 'right' },
+        { key: 'p', label: 'P value', align: 'right' }
+      ],
+      rows: [
+        { source: 'Group', df: String(dfA), ss: formatStatNumber(ssa), ms: formatStatNumber(msa), f: formatStatNumber(fA), p: formatP(pA) },
+        { source: 'Condition', df: String(dfB), ss: formatStatNumber(ssb), ms: formatStatNumber(msb), f: formatStatNumber(fB), p: formatP(pB) },
+        { source: 'Row (random)', df: String(dfC), ss: formatStatNumber(sss), ms: formatStatNumber(dfC ? sss / dfC : NaN), f: '—', p: '—' },
+        { source: 'Group × Condition', df: String(dfAB), ss: formatStatNumber(ssab), ms: formatStatNumber(msab), f: formatStatNumber(fAB), p: formatP(pAB) },
+        { source: 'Group × Row', df: String(dfAS), ss: formatStatNumber(ssas), ms: formatStatNumber(msas), f: '—', p: '—' },
+        { source: 'Condition × Row', df: String(dfBS), ss: formatStatNumber(ssbs), ms: formatStatNumber(msbs), f: '—', p: '—' },
+        { source: 'Group × Condition × Row', df: String(dfABS), ss: formatStatNumber(ssabs), ms: formatStatNumber(msabs), f: '—', p: '—' }
+      ],
+      options:{ fileName:'box-three-way-mixed', contextLabel:'box-grouped-mixed3' },
+      footnotes: ['Rows treated as a random effect; F-tests reported for fixed factors only.']
+    };
+  }
+  function analyzeRowWiseTTests(data){
+    const jStatLib = global.jStat;
+    if(!jStatLib){
+      return { ok: false, message: 'Statistics unavailable (jStat missing).' };
+    }
+    if(data.groupsCount < 2){
+      return { ok: false, message: 'Row-wise t-tests require at least two groups.' };
+    }
+    const conditionLabels = data.conditionLabels;
+    const tests = [];
+    for(let condIdx = 0; condIdx < data.conditionsCount; condIdx++){
+      for(let gA = 0; gA < data.groupsCount; gA++){
+        for(let gB = gA + 1; gB < data.groupsCount; gB++){
+          const sampleA = data.cellData[gA][condIdx];
+          const sampleB = data.cellData[gB][condIdx];
+          if(sampleA.length < 2 || sampleB.length < 2){
+            console.debug('Debug: row-wise t-test skipped due to insufficient replicates',{ condIdx, gA, gB, aCount: sampleA.length, bCount: sampleB.length });
+            continue;
+          }
+          const result = tTest(sampleA, sampleB);
+          tests.push({
+            condition: conditionLabels[condIdx] || `Condition ${condIdx + 1}`,
+            groupA: data.groupLabels[gA],
+            groupB: data.groupLabels[gB],
+            t: result.t,
+            df: result.df,
+            p: result.p
+          });
+        }
+      }
+    }
+    if(!tests.length){
+      return { ok: false, message: 'Not enough replicates to compute row-wise t-tests.' };
+    }
+    const m = tests.length;
+    tests.forEach(test => {
+      test.padjust = Math.min(test.p * m, 1);
+    });
+    console.debug('Debug: row-wise t-tests computed',{ count: tests.length });
+    return {
+      ok: true,
+      caption: 'Row-wise t-tests',
+      columns: [
+        { key: 'condition', label: 'Condition', align: 'left' },
+        { key: 'comparison', label: 'Comparison', align: 'left' },
+        { key: 't', label: 't', align: 'right' },
+        { key: 'df', label: 'df', align: 'right' },
+        { key: 'p', label: 'P value', align: 'right' },
+        { key: 'padjust', label: 'P (adj)', align: 'right' }
+      ],
+      rows: tests.map(test => ({
+        condition: test.condition,
+        comparison: `${test.groupA} vs ${test.groupB}`,
+        t: formatStatNumber(test.t),
+        df: Number.isFinite(test.df) ? formatStatNumber(test.df, 2) : '—',
+        p: formatP(test.p),
+        padjust: formatP(test.padjust)
+      })),
+      options:{ fileName:'box-rowwise-ttest', contextLabel:'box-grouped-ttests' },
+      footnotes: [`Bonferroni-adjusted P values across ${m} tests.`]
+    };
+  }
 function renderStatsControls(traces){
   const controls=document.getElementById('statsControls');
+  if(!controls){
+    return;
+  }
   controls.innerHTML='';
+
+  if(state.tableFormat==='grouped'){
+    renderGroupedStatsControls(traces, controls);
+    return;
+  }
 
   if(state.selectedCols.size<2 && traces.length>=2){
     state.selectedCols.clear();
@@ -813,6 +1456,55 @@ function renderStatsControls(traces){
     controls.appendChild(checkbox);
     controls.appendChild(label);
   });
+}
+function renderGroupedStatsControls(traces, controls){
+  ensureGroupedStatsDefaults();
+  const prepared=prepareGroupedStatsData(traces,{ axisLabels: state.lastAxisLabels });
+  const summary=document.createElement('div');
+  summary.className='stats-table-lead';
+  summary.textContent=`Groups: ${prepared.groupsCount} | Conditions: ${prepared.conditionsCount} | Rows with data: ${prepared.rowsWithData || 0}`;
+  controls.appendChild(summary);
+  if(prepared.partialRowsSkipped){
+    const note=document.createElement('div');
+    note.style.fontSize='12px';
+    note.style.color='#555';
+    note.textContent=`${prepared.partialRowsSkipped} row(s) skipped due to missing values.`;
+    controls.appendChild(note);
+  }
+  const analysisWrap=document.createElement('div');
+  analysisWrap.style.display='flex';
+  analysisWrap.style.gap='8px';
+  analysisWrap.style.alignItems='center';
+  const label=document.createElement('label');
+  label.textContent='Analysis:';
+  const select=document.createElement('select');
+  const options=[
+    { value:'twoWayAnova', text:'Two-way ANOVA' },
+    { value:'twoWayMixed', text:'Two-way Mixed Model' },
+    { value:'threeWayAnova', text:'Three-way ANOVA' },
+    { value:'threeWayMixed', text:'Three-way Mixed Model' },
+    { value:'rowTTests', text:'Multiple t tests (row-wise)' }
+  ];
+  const allowed=new Set(options.map(opt=>opt.value));
+  if(!allowed.has(state.groupedStats.analysis)){
+    state.groupedStats.analysis='twoWayAnova';
+  }
+  options.forEach(opt=>{
+    const option=document.createElement('option');
+    option.value=opt.value;
+    option.textContent=opt.text;
+    if(state.groupedStats.analysis===opt.value) option.selected=true;
+    select.appendChild(option);
+  });
+  select.addEventListener('change',()=>{
+    state.groupedStats.analysis=select.value;
+    console.debug('Debug: grouped stats analysis changed',{ analysis: state.groupedStats.analysis });
+    state.scheduleDraw();
+  });
+  analysisWrap.appendChild(label);
+  analysisWrap.appendChild(select);
+  controls.appendChild(analysisWrap);
+  console.debug('Debug: renderGroupedStatsControls summary',{ analysis: state.groupedStats.analysis, rowsWithData: prepared.rowsWithData });
 }
   function annotatePair(svg,x1,x2,valueCoord,p,styleOptions){
     const opts=styleOptions||{};
@@ -1032,6 +1724,44 @@ function renderStatsControls(traces){
     const baseOffset=Number.isFinite(annotationOpts.baseOffset)?annotationOpts.baseOffset:ANN_BASE_OFFSET;
     const levelGap=Number.isFinite(annotationOpts.levelGap)?annotationOpts.levelGap:ANN_LEVEL_GAP;
     console.debug('Debug: box annotation offsets',{baseOffset,levelGap,orientation});
+    if(state.tableFormat==='grouped'){
+      const prepared=prepareGroupedStatsData(traces, helpers || { axisLabels: state.lastAxisLabels });
+      statsDiv.innerHTML='';
+      const summary=document.createElement('div');
+      summary.className='stats-table-lead';
+      summary.textContent=`Groups: ${prepared.groupsCount} | Conditions: ${prepared.conditionsCount} | Rows with data: ${prepared.rowsWithData || 0}`;
+      statsDiv.appendChild(summary);
+      if(prepared.partialRowsSkipped){
+        const note=document.createElement('div');
+        note.style.fontSize='12px';
+        note.style.color='#555';
+        note.textContent=`${prepared.partialRowsSkipped} row(s) skipped due to missing values.`;
+        statsDiv.appendChild(note);
+      }
+      if(!prepared.ok){
+        const warn=document.createElement('div');
+        warn.textContent=prepared.message || 'Unable to compute grouped statistics.';
+        statsDiv.appendChild(warn);
+        return;
+      }
+      const analysis=state.groupedStats?.analysis || 'twoWayAnova';
+      let resultModel;
+      if(analysis==='twoWayAnova') resultModel=analyzeTwoWayAnova(prepared);
+      else if(analysis==='twoWayMixed') resultModel=analyzeTwoWayMixed(prepared);
+      else if(analysis==='threeWayAnova') resultModel=analyzeThreeWayAnova(prepared);
+      else if(analysis==='threeWayMixed') resultModel=analyzeThreeWayMixed(prepared);
+      else if(analysis==='rowTTests') resultModel=analyzeRowWiseTTests(prepared);
+      if(!resultModel || !resultModel.ok){
+        const warn=document.createElement('div');
+        warn.textContent=resultModel?.message || 'Unable to compute grouped statistics for the selected analysis.';
+        statsDiv.appendChild(warn);
+        console.debug('Debug: grouped stats unavailable',{ analysis, reason: resultModel?.message });
+        return;
+      }
+      renderTableModel(resultModel, true);
+      console.debug('Debug: grouped stats rendered',{ analysis });
+      return;
+    }
     // Custom pairs mode
     if(state.statsMode==='custom'){
       if(!state.statsCustomPairs.length){ statsDiv.textContent='Specify pairs for comparison.'; return; }
@@ -1478,6 +2208,7 @@ function renderStatsControls(traces){
     console.debug('Debug: box trace colors primed',{ traceCount: traces.length, sample: colorPrimeSample });
     const colorPickerLabels = isGroupedMode ? groupedGroups : traceLabels;
     console.debug('Debug: box color picker labels resolved',{ isGroupedMode, labelCount: colorPickerLabels.length, labels: colorPickerLabels });
+    state.lastAxisLabels = Array.isArray(axisLabels) ? axisLabels.slice() : [];
     if(els.boxColorIndividual.checked){
       updateBoxColorPickers(colorPickerLabels, { grouped: isGroupedMode });
     }else{
@@ -2560,6 +3291,7 @@ function renderStatsControls(traces){
           mode: state.statsMode,
           referenceIndex: state.statsRef,
           pairsText: state.statsPairsText,
+          groupedAnalysis: state.groupedStats?.analysis,
           selectedColumns
         }
       }
@@ -2713,6 +3445,13 @@ function renderStatsControls(traces){
           state.statsPairsText=statsConfig.pairsText;
         }else if(typeof state.statsPairsText!=='string'){
           state.statsPairsText='';
+        }
+        ensureGroupedStatsDefaults();
+        const allowedGroupedAnalyses=new Set(['twoWayAnova','twoWayMixed','threeWayAnova','threeWayMixed','rowTTests']);
+        if(typeof statsConfig.groupedAnalysis==='string' && allowedGroupedAnalyses.has(statsConfig.groupedAnalysis)){
+          state.groupedStats.analysis=statsConfig.groupedAnalysis;
+        }else if(!allowedGroupedAnalyses.has(state.groupedStats.analysis)){
+          state.groupedStats.analysis='twoWayAnova';
         }
         const selectedFromFile=Array.isArray(statsConfig.selectedColumns)
           ? statsConfig.selectedColumns
