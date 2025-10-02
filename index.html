@@ -1118,6 +1118,13 @@
               </div>
             </fieldset>
             <fieldset>
+              <legend>Statistics Display</legend>
+              <div class="control" style="flex-wrap:wrap;">
+                <label style="width:auto;"><input type="checkbox" id="survivalShowHazardRatios" checked /> Show Hazard Ratios</label>
+                <label style="width:auto;"><input type="checkbox" id="survivalFitCox" checked /> Fit Cox Model</label>
+              </div>
+            </fieldset>
+            <fieldset>
               <legend>Grid &amp; Axis</legend>
               <div class="control" style="flex-wrap:wrap;">
                 <label style="width:auto;"><input type="checkbox" id="survivalShowGrid" /> Show Grid</label>
@@ -1155,6 +1162,8 @@
             <legend>Statistics</legend>
             <div id="survivalStatsSummary" style="margin-bottom:8px;"></div>
             <div id="survivalStatsLogRank"></div>
+            <div id="survivalStatsHazardRatios" style="margin-top:8px;"></div>
+            <div id="survivalStatsCox" style="margin-top:8px;"></div>
           </fieldset>
         </div>
       </div>
