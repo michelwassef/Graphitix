@@ -5,6 +5,7 @@
   const line = Components.line = Components.line || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
   line.__installed = true;
   line.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -38,6 +39,7 @@
   let lineReplicates = LINE_MIN_REPLICATES;
   let lineLayout = null;
   let lineSeriesGroupLabels = [];
+  let lineLastRegressionSummaries = [];
 
   console.debug('Debug: line group labels state initialized', {
     initial: lineSeriesGroupLabels,
@@ -106,6 +108,8 @@
     console.debug('Debug: line.formatP',{input:p,formatted}); // Debug: trace formatting
     return formatted;
   }
+
+  const formatMetricValue = (value, digits = 4) => Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
 
   function clampLineReplicateCount(raw){
     const numeric = Number(raw);
@@ -439,7 +443,7 @@
     console.debug('Debug: updateLineLabelColorPickers',{labels,count:labels.length}); // Debug: label picker update
   }
 
-  function computeLineStats(points,method,jStatLib){
+  function computeLineStats(points,method,jStatLib,regressionMode){
     const x=points.map(p=>p.x);
     const y=points.map(p=>p.y);
     const n=points.length;
@@ -450,15 +454,24 @@
     else {r=jStatLib.spearmancoeff(x,y); label='Spearman';}
     const t=r*Math.sqrt((n-2)/(1-r*r));
     const p=2*(1-jStatLib.studentt.cdf(Math.abs(t),n-2));
-    const slope = (()=>{
+    let regressionModel=null;
+    if(typeof regressionTools.fitRegression==='function'){
+      try{
+        regressionModel=regressionTools.fitRegression(points,{ mode: regressionMode });
+      }catch(err){
+        console.error('line compute regression error', err);
+      }
+    }
+    const slopeFallback = (()=>{
       const xMean=jStatLib.mean(x);
       const yMean=jStatLib.mean(y);
       const num=x.reduce((s,xi,i)=>s+(xi-xMean)*(y[i]-yMean),0);
       const den=x.reduce((s,xi)=>s+Math.pow(xi-xMean,2),0);
-      return num/den;
+      return den!==0?num/den:NaN;
     })();
-    console.debug('Debug: computeLineStats',{method:label,r,p,slope}); // Debug: stats computation
-    return {method:label,r,p,slope};
+    const slope = Number.isFinite(regressionModel?.summary?.slope) ? regressionModel.summary.slope : slopeFallback;
+    console.debug('Debug: computeLineStats',{method:label,r,p,slope,regressionMode}); // Debug: stats computation
+    return {method:label,r,p,slope,regression:regressionModel};
   }
 
   function updateLineStats(series){
@@ -469,22 +482,32 @@
       return;
     }
     const method=refs.statType.value||'pearson';
-    console.debug('Debug: updateLineStats',{seriesCount:series.length,method}); // Debug: stats update entry
+    const regressionMode=refs.regressionMode?.value || 'linear';
+    console.debug('Debug: updateLineStats',{seriesCount:series.length,method,regressionMode}); // Debug: stats update entry
     const tableRows=[];
     let methodLabel='';
+    lineLastRegressionSummaries = [];
     series.forEach(s=>{
       const pts=s.points.filter(Boolean);
       if(pts.length>=3){
-        const stats=computeLineStats(pts,method,jStatLib);
+        const stats=computeLineStats(pts,method,jStatLib,regressionMode);
         if(stats){
           methodLabel=stats.method;
+          const summary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(stats.regression) : null;
+          lineLastRegressionSummaries.push({ name: s.name, mode: regressionMode, summary });
+          const r2Value = summary?.metrics?.r2 ?? stats.regression?.metrics?.r2;
+          const rmseValue = summary?.metrics?.rmse ?? stats.regression?.metrics?.rmse;
           tableRows.push({
             series:s.name,
-            r:stats.r.toFixed(4),
+            r:formatMetricValue(stats.r),
             p:formatP(stats.p),
-            slope:stats.slope.toFixed(4)
+            slope:formatMetricValue(stats.slope),
+            r2:formatMetricValue(r2Value),
+            rmse:formatMetricValue(rmseValue)
           });
         }
+      }else{
+        lineLastRegressionSummaries.push({ name: s.name, mode: regressionMode, summary: null });
       }
     });
     if(tableRows.length){
@@ -502,10 +525,12 @@
             {key:'series',label:'Series',align:'left'},
             {key:'r',label:'r',align:'right'},
             {key:'p',label:'p',align:'right'},
-            {key:'slope',label:'Slope',align:'right'}
+            {key:'slope',label:'Slope',align:'right'},
+            {key:'r2',label:'R²',align:'right'},
+            {key:'rmse',label:'RMSE',align:'right'}
           ],
           rows:tableRows,
-          caption: methodLabel ? `${methodLabel} correlation summary` : 'Correlation summary',
+          caption: methodLabel ? `${methodLabel} correlation summary (${regressionMode} regression)` : 'Correlation summary',
           options:{
             fileName:'line-statistics',
             contextLabel:'line-stats'
@@ -514,14 +539,15 @@
         });
       }else{
         const table=document.createElement('table');
-        table.innerHTML='<tr><th>Series</th><th>r</th><th>p</th><th>Slope</th></tr>'+tableRows.map(row=>`<tr><td>${row.series}</td><td>${row.r}</td><td>${row.p}</td><td>${row.slope}</td></tr>`).join('');
+        table.innerHTML='<tr><th>Series</th><th>r</th><th>p</th><th>Slope</th><th>R²</th><th>RMSE</th></tr>'+
+          tableRows.map(row=>`<tr><td>${row.series}</td><td>${row.r}</td><td>${row.p}</td><td>${row.slope}</td><td>${row.r2}</td><td>${row.rmse}</td></tr>`).join('');
         refs.statsResults.appendChild(table);
         console.debug('Debug: updateLineStats fallback table rendered',{rowCount:tableRows.length});
       }
     }else{
       refs.statsResults.textContent='Not enough data for statistics.';
     }
-    console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,methodLabel}); // Debug: stats update exit
+    console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,methodLabel,regressionMode}); // Debug: stats update exit
   }
 
   function getLineGraphPayload(){
@@ -552,7 +578,11 @@
         originMode:refs.originMode?.value,
         originX:refs.originX?.value,
         originY:refs.originY?.value,
-        fontSize:refs.fontSize?.value
+        fontSize:refs.fontSize?.value,
+        regression:{
+          mode: refs.regressionMode?.value || 'linear',
+          seriesSummaries: Array.isArray(lineLastRegressionSummaries) ? lineLastRegressionSummaries : []
+        }
       }
     };
   }
@@ -616,6 +646,10 @@
           }
           chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
         }
+        if(refs.regressionMode && c.regression?.mode){
+          refs.regressionMode.value = c.regression.mode;
+        }
+        lineLastRegressionSummaries = Array.isArray(c.regression?.seriesSummaries) ? c.regression.seriesSummaries.slice() : [];
         updateLineLabelColorPickers(Object.keys(lineLabelColors));
         scheduleLineDraw();
       }catch(err){ console.error('loadLineGraph error',err); }
@@ -703,6 +737,7 @@
       const debugStamp=Date.now();
       console.debug('Debug: drawLine start',{debugStamp}); // Debug: draw entry
       if(!lineHot || !refs.plot) return;
+      lineLastRegressionSummaries = [];
       const fill=refs.fill?.value;
       const alpha=Number(refs.alpha?.value)||0;
       const borderWidthRaw=Number(refs.borderWidth?.value);
@@ -1133,6 +1168,7 @@
     refs.plot=document.getElementById('linePlot');
     refs.statType=document.getElementById('lineStatType');
     refs.statsResults=document.getElementById('lineStatsResults');
+    refs.regressionMode=document.getElementById('lineRegressionMode');
     refs.replicatesInput=document.getElementById('lineReplicates');
     refs.exampleSelect=document.getElementById('lineExampleSelect');
     refs.fill=document.getElementById('lineFill');
@@ -1167,6 +1203,12 @@
         console.debug('Debug: line example select change',{ value: e.target.value });
       });
     }
+    if(refs.regressionMode){
+      refs.regressionMode.addEventListener('change',e=>{
+        console.debug('Debug: line regression mode change',{ value: e.target.value });
+        scheduleLineDraw();
+      });
+    }
     refs.showGrid=document.getElementById('lineShowGrid');
     refs.showFrame=document.getElementById('lineShowFrame');
     refs.logX=document.getElementById('lineLogX');
@@ -1190,6 +1232,7 @@
 
     global.lineStatType = refs.statType; // legacy compatibility
     global.lineStatsResults = refs.statsResults; // legacy compatibility
+    global.lineRegressionMode = refs.regressionMode; // legacy compatibility for regression selector
 
     lineLayout = Shared.componentLayout?.createStandardPanels({
       componentName: 'line',

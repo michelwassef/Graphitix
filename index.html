@@ -593,6 +593,16 @@
               </select>
             </div>
             <div class="control">
+              <label>Regression
+                <select id="scatterRegressionMode">
+                  <option value="linear" selected>Linear</option>
+                  <option value="quadratic">Polynomial (Quadratic)</option>
+                  <option value="cubic">Polynomial (Cubic)</option>
+                  <option value="logistic">Logistic</option>
+                </select>
+              </label>
+            </div>
+            <div class="control">
               <label style="width:auto;">
                 <input type="checkbox" id="scatterShowLine" /> Trend Line & Stats on Plot
               </label>
@@ -864,6 +874,17 @@
                 <select id="lineStatType">
                   <option value="pearson">Parametric (Pearson)</option>
                   <option value="spearman">Non-Parametric (Spearman)</option>
+                </select>
+              </label>
+            </div>
+            <div class="control">
+              <label>
+                Regression
+                <select id="lineRegressionMode">
+                  <option value="linear" selected>Linear</option>
+                  <option value="quadratic">Polynomial (Quadratic)</option>
+                  <option value="cubic">Polynomial (Cubic)</option>
+                  <option value="logistic">Logistic</option>
                 </select>
               </label>
             </div>

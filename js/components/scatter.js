@@ -26,9 +26,344 @@
     ma: { title: 'MA plot' }
   };
 
+  const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
+  const regressionDebugNamespace = 'scatter-regression';
+  const jStatLib = global.jStat;
+
+  const ensureFiniteNumber = (value) => (Number.isFinite(value) ? value : NaN);
+
+  if(!regressionTools.fitRegression){
+    regressionTools.fitRegression = function fitRegression(points, options = {}){
+      const cleanPoints = Array.isArray(points) ? points.filter(pt => pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) : [];
+      const mode = options.mode || 'linear';
+      const sampleSize = cleanPoints.length;
+      const domain = cleanPoints.reduce((acc, pt) => {
+        if(!acc){
+          return { minX: pt.x, maxX: pt.x };
+        }
+        return {
+          minX: Math.min(acc.minX, pt.x),
+          maxX: Math.max(acc.maxX, pt.x)
+        };
+      }, null);
+      console.debug('Debug:', regressionDebugNamespace, 'fit input', { mode, sampleSize });
+      if(sampleSize < 2 || !jStatLib){
+        return {
+          mode,
+          coefficients: [],
+          metrics: { sampleSize },
+          residuals: { mean: NaN, sd: NaN, min: NaN, max: NaN },
+          warnings: ['Insufficient data or jStat unavailable'],
+          domain
+        };
+      }
+
+      const xVals = cleanPoints.map(pt => pt.x);
+      const yVals = cleanPoints.map(pt => pt.y);
+      const yMean = jStatLib.mean(yVals);
+      const sst = yVals.reduce((sum, val) => sum + Math.pow(val - yMean, 2), 0);
+
+      const summarizeResiduals = (residuals) => {
+        if(!residuals.length){
+          return { mean: NaN, sd: NaN, min: NaN, max: NaN };
+        }
+        const mean = residuals.reduce((sum,val)=>sum+val,0)/residuals.length;
+        const variance = residuals.length > 1
+          ? residuals.reduce((sum,val)=>sum+Math.pow(val-mean,2),0)/(residuals.length-1)
+          : 0;
+        return {
+          mean,
+          sd: residuals.length > 1 ? Math.sqrt(variance) : 0,
+          min: Math.min(...residuals),
+          max: Math.max(...residuals)
+        };
+      };
+
+      const evaluatePolynomial = (coeffs, x) => coeffs.reduce((sum, coeff, idx) => sum + coeff * Math.pow(x, idx), 0);
+
+      const computeLinear = () => {
+        const xMean = jStatLib.mean(xVals);
+        const yMeanLocal = yMean;
+        const numerator = xVals.reduce((sum, xv, idx) => sum + (xv - xMean) * (yVals[idx] - yMeanLocal), 0);
+        const denominator = xVals.reduce((sum, xv) => sum + Math.pow(xv - xMean, 2), 0);
+        const slope = denominator === 0 ? 0 : numerator / denominator;
+        const intercept = yMeanLocal - slope * xMean;
+        const predictions = xVals.map(x => intercept + slope * x);
+        const residuals = predictions.map((pred, idx) => yVals[idx] - pred);
+        const sse = residuals.reduce((sum,val)=>sum+val*val,0);
+        const r2 = sst === 0 ? 1 : 1 - (sse / sst);
+        return {
+          coefficients: [intercept, slope],
+          metrics: {
+            sampleSize,
+            predictors: 1,
+            sse,
+            sst,
+            r2,
+            adjR2: sampleSize > 2 ? 1 - (1 - r2) * ((sampleSize - 1) / (sampleSize - 2)) : r2,
+            rmse: Math.sqrt(sse / sampleSize),
+            mae: residuals.reduce((sum,val)=>sum+Math.abs(val),0)/sampleSize
+          },
+          residuals: summarizeResiduals(residuals),
+          predictions,
+          summary: {
+            intercept,
+            slope,
+            equation: `y = ${intercept.toFixed(4)} + ${slope.toFixed(4)}x`
+          }
+        };
+      };
+
+      const solveNormalEquations = (degree) => {
+        try{
+          const design = cleanPoints.map(pt => {
+            const row = [];
+            for(let power = 0; power <= degree; power++){
+              row.push(Math.pow(pt.x, power));
+            }
+            return row;
+          });
+          const yMatrix = yVals.map(val => [val]);
+          const designT = jStatLib.transpose(design);
+          const xtx = jStatLib.multiply(designT, design);
+          let xtxInv;
+          if(typeof jStatLib.inv === 'function'){
+            xtxInv = jStatLib.inv(xtx);
+          }
+          if(!xtxInv && typeof jStatLib.pinv === 'function'){
+            xtxInv = jStatLib.pinv(xtx);
+          }
+          if(!xtxInv){
+            console.warn('Polynomial regression matrix inversion failed');
+            return null;
+          }
+          const xty = jStatLib.multiply(designT, yMatrix);
+          const beta = jStatLib.multiply(xtxInv, xty).map(row => row[0]);
+          const predictions = cleanPoints.map(pt => evaluatePolynomial(beta, pt.x));
+          const residuals = predictions.map((pred, idx) => yVals[idx] - pred);
+          const sse = residuals.reduce((sum,val)=>sum+val*val,0);
+          const predictors = degree;
+          const r2 = sst === 0 ? 1 : 1 - (sse / sst);
+          const adjR2 = sampleSize > predictors + 1
+            ? 1 - (1 - r2) * ((sampleSize - 1) / (sampleSize - predictors - 1))
+            : r2;
+          const terms = beta.map((coeff, idx) => {
+            if(idx === 0){
+              return coeff.toFixed(4);
+            }
+            const powerLabel = idx === 1 ? 'x' : `x^${idx}`;
+            return `${coeff >= 0 ? '+ ' : '- '}${Math.abs(coeff).toFixed(4)}${powerLabel}`;
+          });
+          const leadingTerm = terms.shift();
+          const equation = `y = ${[leadingTerm, ...terms].join(' ')}`;
+          return {
+            coefficients: beta,
+            metrics: {
+              sampleSize,
+              predictors,
+              sse,
+              sst,
+              r2,
+              adjR2,
+              rmse: Math.sqrt(sse / sampleSize),
+              mae: residuals.reduce((sum,val)=>sum+Math.abs(val),0)/sampleSize
+            },
+            residuals: summarizeResiduals(residuals),
+            predictions,
+            summary: {
+              intercept: beta[0],
+              slope: beta[1] ?? NaN,
+              equation,
+              degree
+            },
+            evaluate: (x) => evaluatePolynomial(beta, x)
+          };
+        }catch(err){
+          console.error('Polynomial regression failure', err);
+          return null;
+        }
+      };
+
+      const computeLogistic = () => {
+        const warnings = [];
+        const logisticPoints = cleanPoints.map(pt => {
+          let yVal = pt.y;
+          if(yVal < 0 || yVal > 1){
+            warnings.push('Logistic regression expects Y values between 0 and 1; values were clamped.');
+            yVal = Math.min(1, Math.max(0, yVal));
+          }
+          return { x: pt.x, y: yVal };
+        });
+        const allSame = logisticPoints.every(pt => pt.y === logisticPoints[0].y);
+        if(allSame){
+          warnings.push('Logistic regression skipped due to constant response.');
+          return {
+            coefficients: [0, 0],
+            metrics: { sampleSize, sse: NaN, sst: sst || NaN, r2: NaN, adjR2: NaN, rmse: NaN, mae: NaN, logLoss: NaN },
+            residuals: { mean: NaN, sd: NaN, min: NaN, max: NaN },
+            warnings
+          };
+        }
+        let beta0 = 0;
+        let beta1 = 0;
+        const learningRate = options.learningRate || 0.01;
+        const tolerance = options.tolerance || 1e-6;
+        const maxIterations = options.maxIterations || 1000;
+        let iteration = 0;
+        for(; iteration < maxIterations; iteration++){
+          let grad0 = 0;
+          let grad1 = 0;
+          logisticPoints.forEach(pt => {
+            const z = beta0 + beta1 * pt.x;
+            const pred = 1 / (1 + Math.exp(-z));
+            const error = pred - pt.y;
+            grad0 += error;
+            grad1 += error * pt.x;
+          });
+          grad0 /= sampleSize;
+          grad1 /= sampleSize;
+          const delta0 = learningRate * grad0;
+          const delta1 = learningRate * grad1;
+          beta0 -= delta0;
+          beta1 -= delta1;
+          if(Math.abs(delta0) < tolerance && Math.abs(delta1) < tolerance){
+            break;
+          }
+        }
+        const predict = (x) => 1 / (1 + Math.exp(-(beta0 + beta1 * x)));
+        const predictions = logisticPoints.map(pt => predict(pt.x));
+        const residuals = predictions.map((pred, idx) => logisticPoints[idx].y - pred);
+        const sse = residuals.reduce((sum,val)=>sum+val*val,0);
+        const rmse = Math.sqrt(sse / sampleSize);
+        const mae = residuals.reduce((sum,val)=>sum+Math.abs(val),0)/sampleSize;
+        const eps = 1e-9;
+        const logLoss = logisticPoints.reduce((sum, pt, idx) => {
+          const pred = Math.min(1 - eps, Math.max(eps, predictions[idx]));
+          return sum - (pt.y * Math.log(pred) + (1 - pt.y) * Math.log(1 - pred));
+        }, 0) / sampleSize;
+        const meanY = logisticPoints.reduce((sum, pt) => sum + pt.y, 0) / sampleSize;
+        const nullLoss = - (meanY * Math.log(Math.min(1 - eps, Math.max(eps, meanY))) + (1 - meanY) * Math.log(Math.min(1 - eps, Math.max(eps, 1 - meanY))));
+        const pseudoR2 = Number.isFinite(nullLoss) && nullLoss > 0 ? 1 - (logLoss / nullLoss) : NaN;
+        return {
+          coefficients: [beta0, beta1],
+          metrics: {
+            sampleSize,
+            predictors: 1,
+            sse,
+            sst,
+            r2: pseudoR2,
+            adjR2: pseudoR2,
+            rmse,
+            mae,
+            logLoss,
+            iterations: iteration + 1
+          },
+          residuals: summarizeResiduals(residuals),
+          predictions,
+          warnings,
+          summary: {
+            intercept: beta0,
+            slope: beta1,
+            equation: `y = 1 / (1 + e^{-(${beta0.toFixed(4)} + ${beta1.toFixed(4)}x)})`
+          },
+          predict
+        };
+      };
+
+      let model;
+      if(mode === 'logistic'){
+        model = computeLogistic();
+      }else if(mode === 'quadratic' || mode === 'cubic'){
+        const degree = mode === 'quadratic' ? 2 : 3;
+        model = solveNormalEquations(degree);
+      }else{
+        model = computeLinear();
+      }
+
+      if(!model){
+        model = computeLinear();
+        if(model){
+          model.warnings = (model.warnings || []).concat([`Fell back to linear regression from mode "${mode}"`]);
+        }
+      }
+      model = model || { coefficients: [], metrics: { sampleSize }, residuals: { mean: NaN, sd: NaN, min: NaN, max: NaN } };
+      model.mode = mode;
+      model.domain = domain;
+      if(!model.predict && model.summary && Number.isFinite(model.summary.intercept) && Number.isFinite(model.summary.slope)){
+        const intercept = model.summary.intercept;
+        const slope = model.summary.slope;
+        model.predict = (x) => intercept + slope * x;
+      }else if(!model.predict && model.coefficients?.length){
+        model.predict = (x) => evaluatePolynomial(model.coefficients, x);
+      }
+      console.debug('Debug:', regressionDebugNamespace, 'fit result', {
+        mode: model.mode,
+        coefficients: model.coefficients,
+        metrics: model.metrics,
+        residuals: model.residuals,
+        warnings: model.warnings || []
+      });
+      return model;
+    };
+  }
+
+  if(!regressionTools.createSummary){
+    regressionTools.createSummary = function createRegressionSummary(model){
+      if(!model) return null;
+      const metrics = model.metrics || {};
+      const residuals = model.residuals || {};
+      return {
+        mode: model.mode,
+        coefficients: Array.isArray(model.coefficients) ? model.coefficients.map(ensureFiniteNumber) : [],
+        metrics: {
+          sampleSize: ensureFiniteNumber(metrics.sampleSize),
+          r2: ensureFiniteNumber(metrics.r2),
+          adjR2: ensureFiniteNumber(metrics.adjR2),
+          rmse: ensureFiniteNumber(metrics.rmse),
+          mae: ensureFiniteNumber(metrics.mae),
+          sse: ensureFiniteNumber(metrics.sse),
+          sst: ensureFiniteNumber(metrics.sst),
+          logLoss: ensureFiniteNumber(metrics.logLoss),
+          iterations: ensureFiniteNumber(metrics.iterations)
+        },
+        residuals: {
+          mean: ensureFiniteNumber(residuals.mean),
+          sd: ensureFiniteNumber(residuals.sd),
+          min: ensureFiniteNumber(residuals.min),
+          max: ensureFiniteNumber(residuals.max)
+        },
+        summary: model.summary || null,
+        domain: model.domain || null,
+        warnings: Array.isArray(model.warnings) ? model.warnings.slice() : []
+      };
+    };
+  }
+
+  if(!regressionTools.sampleCurve){
+    regressionTools.sampleCurve = function sampleCurve(model, options = {}){
+      if(!model || typeof model.predict !== 'function'){ return []; }
+      const domain = options.domain || model.domain;
+      if(!domain){ return []; }
+      const minX = Number.isFinite(options.minX) ? options.minX : domain.minX;
+      const maxX = Number.isFinite(options.maxX) ? options.maxX : domain.maxX;
+      if(!Number.isFinite(minX) || !Number.isFinite(maxX) || minX === maxX){ return []; }
+      const sampleCount = Math.max(2, options.sampleCount || (model.mode === 'logistic' ? 200 : 100));
+      const step = (maxX - minX) / (sampleCount - 1);
+      const samples = [];
+      for(let i = 0; i < sampleCount; i++){
+        const x = i === sampleCount - 1 ? maxX : (minX + step * i);
+        const y = model.predict(x);
+        samples.push({ x, y });
+      }
+      console.debug('Debug:', regressionDebugNamespace, 'sampleCurve', { mode: model.mode, sampleCount: samples.length });
+      return samples;
+    };
+  }
+
   let scheduleDrawScatter=null;
   let scatterCurrentGraphType='scatter';
   let scatterLastGraphType='scatter';
+  let scatterLastRegressionSummary=null;
 
   function formatP(p){
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
@@ -115,6 +450,7 @@
       target.appendChild(table);
       console.debug('Debug: scatter renderStatsCard fallback',{ caption:model.caption || null, rows:model.rows?.length || 0 });
     };
+    const formatMetricValue = (value, digits = 4) => Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
     console.debug('Debug: scatter component DOM helpers resolved', {
       hasSharedEditable: typeof Shared.makeEditable === 'function',
       hasSharedResize: typeof Shared.autoResizeSvg === 'function',
@@ -303,6 +639,7 @@
       const scatterXMin=$('#scatterXMin'), scatterXMax=$('#scatterXMax'), scatterYMin=$('#scatterYMin'), scatterYMax=$('#scatterYMax');
       const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
       const scatterStatType=$('#scatterStatType');
+      const scatterRegressionMode=$('#scatterRegressionMode');
       const scatterLabelColorsDiv=$('#scatterLabelColors');
       const scatterLabelColorsFieldset=$('#scatterLabelColorsFieldset');
       let scatterLabelColors={};
@@ -322,6 +659,9 @@
         });
         if(scatterStatType){
           scatterStatType.disabled=type!=='scatter';
+        }
+        if(scatterRegressionMode){
+          scatterRegressionMode.disabled=type!=='scatter';
         }
         if(scatterShowLine){
           scatterShowLine.disabled=type!=='scatter';
@@ -377,7 +717,13 @@
         chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
         scheduleDrawScatter();
       });
-      [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode,scatterShowLine].forEach(el=>el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
+      [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode,scatterShowLine].forEach(el=>el&&el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
+      if(scatterRegressionMode){
+        scatterRegressionMode.addEventListener('change',()=>{
+          console.debug('Debug: scatter regression mode change',{ value: scatterRegressionMode.value });
+          scheduleDrawScatter();
+        });
+      }
       scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleDrawScatter();});
       [scatterXMin,scatterXMax,scatterYMin,scatterYMax,scatterOriginX,scatterOriginY].forEach(el=>el.addEventListener('input',()=>{console.log('scatter axis input', el.id, el.value); scheduleDrawScatter();}));
       syncScatterGraphTypeUI();
@@ -897,50 +1243,111 @@
         markFontEditable(titleText,'graphTitle','graphTitle');
         makeEditableLocal(titleText,txt=>{scatterTitleText=txt;});
         if(scatterCurrentGraphType==='scatter'){
-          const stats=computeScatterStats(points,method);
+          const regressionModeValue = scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
+          const stats=computeScatterStats(points,method,{ regressionMode: regressionModeValue, domain: { minX: xMin, maxX: xMax } });
           if(token!==scatterDrawToken){console.log('scatter draw cancelled before stats',{token});return;}
-          if(showLine && isFinite(stats.m) && isFinite(stats.b)){
-            console.log('scatter trend line', stats);
-            const x1Raw=logX?Math.pow(10,xScale.min):xScale.min;
-            const x2Raw=logX?Math.pow(10,xScale.max):xScale.max;
-            const y1Raw=stats.m*x1Raw+stats.b;
-            const y2Raw=stats.m*x2Raw+stats.b;
-            if(!logY || (y1Raw>0 && y2Raw>0)){
-              const x1T=logX?Math.log10(x1Raw):x1Raw;
-              const x2T=logX?Math.log10(x2Raw):x2Raw;
-              const y1T=logY?Math.log10(y1Raw):y1Raw;
-              const y2T=logY?Math.log10(y2Raw):y2Raw;
-              add('line',{x1:x2px(x1T),y1:y2px(y1T),x2:x2px(x2T),y2:y2px(y2T),stroke:'#d00'});
-              console.debug('Debug: scatter trend vector effect enforced',{vectorEffect:'non-scaling-stroke'}); // Debug: scatter trend stroke scaling guard
-              const infoX=margin.left+plotW-4;
-              const infoY=stats.m>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
-              const info=add('text',{x:infoX,y:infoY,'text-anchor':'end','font-size':fs,fill:'#000'});
-              const eq=`y=${stats.m.toFixed(2)}x${stats.b>=0?'+':'-'}${Math.abs(stats.b).toFixed(2)}`;
-              const t1=document.createElementNS(NS,'tspan');t1.setAttribute('x',infoX);t1.setAttribute('dy',0);t1.textContent=eq;info.appendChild(t1);
-              const t2=document.createElementNS(NS,'tspan');t2.setAttribute('x',infoX);t2.setAttribute('dy',fs);t2.textContent=`r=${stats.r.toFixed(2)} R²=${stats.r2.toFixed(2)} p=${formatP(stats.p)}`;info.appendChild(t2);
+          const regressionModel = stats.regression;
+          scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(regressionModel) : null;
+          if(showLine && regressionModel){
+            const sampleCount = regressionModel.mode === 'linear' ? 60 : 160;
+            const samples = typeof regressionTools.sampleCurve === 'function'
+              ? regressionTools.sampleCurve(regressionModel,{ minX: xMin, maxX: xMax, sampleCount })
+              : [];
+            const pathCommands = [];
+            samples.forEach((sample, idx) => {
+              if(!Number.isFinite(sample.x) || !Number.isFinite(sample.y)) return;
+              if(logX && sample.x <= 0) return;
+              if(logY && sample.y <= 0) return;
+              const xVal = logX ? Math.log10(sample.x) : sample.x;
+              const yVal = logY ? Math.log10(sample.y) : sample.y;
+              if(!Number.isFinite(xVal) || !Number.isFinite(yVal)) return;
+              const command = `${pathCommands.length?'L':'M'}${x2px(xVal)},${y2px(yVal)}`;
+              pathCommands.push(command);
+            });
+            if(pathCommands.length>1){
+              const strokeWidth=chartStyle.scaleStrokeWidth(1.5, styleScaleInfo, { context: 'scatter-trend', min: 0.75 });
+              const path=add('path',{d:pathCommands.join(' '),fill:'none',stroke:'#d00','stroke-width':strokeWidth});
+              path.setAttribute('vector-effect','non-scaling-stroke');
+              console.debug('Debug: scatter regression path drawn',{ mode: regressionModel.mode, commandCount: pathCommands.length, strokeWidth });
             }else{
-              console.log('scatter trend line skipped due to non-positive values',{y1Raw,y2Raw});
+              console.debug('Debug: scatter regression path skipped',{ mode: regressionModel.mode, pathCommands: pathCommands.length });
             }
+            const infoLines=[];
+            if(regressionModel?.summary?.equation){
+              infoLines.push(regressionModel.summary.equation);
+            }else if(Number.isFinite(stats.m) && Number.isFinite(stats.b)){
+              const eq=`y=${stats.m.toFixed(2)}x${stats.b>=0?'+':'-'}${Math.abs(stats.b).toFixed(2)}`;
+              infoLines.push(eq);
+            }
+            infoLines.push(`r=${formatMetricValue(stats.r,2)} R²=${formatMetricValue(stats.r2,2)} p=${formatP(stats.p)}`);
+            if(regressionModel?.metrics){
+              if(Number.isFinite(regressionModel.metrics.rmse) || Number.isFinite(regressionModel.metrics.mae)){
+                infoLines.push(`RMSE=${formatMetricValue(regressionModel.metrics.rmse,3)} MAE=${formatMetricValue(regressionModel.metrics.mae,3)}`);
+              }
+            }
+            const infoX=margin.left+plotW-4;
+            const infoY=stats.m>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
+            const info=add('text',{x:infoX,y:infoY,'text-anchor':'end','font-size':fs,fill:'#000'});
+            infoLines.forEach((line,lineIdx)=>{
+              const t=document.createElementNS(NS,'tspan');
+              t.setAttribute('x',infoX);
+              t.setAttribute('dy',lineIdx===0?0:fs);
+              t.textContent=line;
+              info.appendChild(t);
+            });
+          }else{
+            console.debug('Debug: scatter regression trend omitted',{ showLine, hasModel: !!regressionModel });
           }
           const resDiv=document.getElementById('scatterStatsResults');
+          const rows=[];
+          rows.push({ metric:'r', value: formatMetricValue(stats.r) });
+          rows.push({ metric:'P value', value: formatP(stats.p) });
+          if(regressionModel?.metrics){
+            rows.push({ metric:'R²', value: formatMetricValue(regressionModel.metrics.r2) });
+            if(Number.isFinite(regressionModel.metrics.adjR2)){
+              rows.push({ metric:'Adjusted R²', value: formatMetricValue(regressionModel.metrics.adjR2) });
+            }
+            rows.push({ metric:'RMSE', value: formatMetricValue(regressionModel.metrics.rmse) });
+            rows.push({ metric:'MAE', value: formatMetricValue(regressionModel.metrics.mae) });
+            if(Number.isFinite(regressionModel.metrics.logLoss)){
+              rows.push({ metric:'Log loss', value: formatMetricValue(regressionModel.metrics.logLoss,6) });
+            }
+          }else{
+            rows.push({ metric:'R²', value: formatMetricValue(stats.r2) });
+          }
+          if(regressionModel?.summary){
+            if(Number.isFinite(regressionModel.summary.slope)){
+              rows.push({ metric:'Slope', value: formatMetricValue(regressionModel.summary.slope) });
+            }
+            if(Number.isFinite(regressionModel.summary.intercept)){
+              rows.push({ metric:'Intercept', value: formatMetricValue(regressionModel.summary.intercept) });
+            }
+          }else{
+            rows.push({ metric:'Slope', value: formatMetricValue(stats.m) });
+            rows.push({ metric:'Intercept', value: formatMetricValue(stats.b) });
+          }
+          if(regressionModel?.residuals){
+            rows.push({ metric:'Residual mean', value: formatMetricValue(regressionModel.residuals.mean) });
+            rows.push({ metric:'Residual SD', value: formatMetricValue(regressionModel.residuals.sd) });
+          }
+          if(regressionModel?.warnings?.length){
+            rows.push({ metric:'Warnings', value: regressionModel.warnings.join('; ') });
+          }
           renderStatsCard(resDiv,{
-            caption:`${stats.method} correlation`,
+            caption:`${stats.method} correlation (${regressionModeValue} regression)`,
             columns:[
               {key:'metric',label:'Metric',align:'left'},
               {key:'value',label:'Value',align:'right'}
             ],
-            rows:[
-              {metric:'r',value:stats.r.toFixed(4)},
-              {metric:'R²',value:stats.r2.toFixed(4)},
-              {metric:'P value',value:formatP(stats.p)}
-            ],
+            rows,
             options:{
               fileName:'scatter-correlation',
               contextLabel:'scatter-correlation'
             }
           });
-          console.log('scatter stats', stats);
+          console.log('scatter stats',{ stats, regressionSummary: scatterLastRegressionSummary });
         }else{
+          scatterLastRegressionSummary=null;
           const resDiv=document.getElementById('scatterStatsResults');
           const nonSigCount=points.length-significantCount;
           const negLabel=scatterCurrentGraphType==='ma' ? (extraLabelRaw && String(extraLabelRaw).trim() ? `-log10(${String(extraLabelRaw).trim()})` : '-log10(p-value)') : scatterYLabelText;
@@ -987,54 +1394,85 @@
       console.debug('Debug: scatter scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     
     
-      function computeScatterStats(points,method){
-        console.log('computeScatterStats',method,points.length);
+      function computeScatterStats(points,method,options={}){
+        console.log('computeScatterStats',method,points.length,options);
+        const regressionMode = options.regressionMode || 'linear';
+        const domainOption = options.domain || null;
         const x=points.map(p=>p.x);
         const y=points.map(p=>p.y);
         const n=points.length;
-        if(n<3) return {method, r:NaN, p:NaN, r2:NaN, m:NaN, b:NaN};
+        if(n<3){
+          return {method, r:NaN, p:NaN, r2:NaN, m:NaN, b:NaN, regression:null};
+        }
         const pearson=jStat.corrcoeff(x,y);
         let r,label;
         if(method==='pearson'){r=pearson; label='Pearson';}
         else {r=jStat.spearmancoeff(x,y); label='Spearman';}
         const t=r*Math.sqrt((n-2)/(1-r*r));
         const p=2*(1-jStat.studentt.cdf(Math.abs(t),n-2));
-        const r2=pearson*pearson;
         const xMean=jStat.mean(x);
         const yMean=jStat.mean(y);
         const num=x.reduce((s,xi,i)=>s+(xi-xMean)*(y[i]-yMean),0);
         const den=x.reduce((s,xi)=>s+Math.pow(xi-xMean,2),0);
-        const m=num/den;
-        const b=yMean-m*xMean;
-        console.log('computeScatterStats result',{method:label,r,r2,p,m,b});
-        return {method:label, r, p, r2, m, b};
+        const linearSlope=den!==0?num/den:NaN;
+        const linearIntercept=yMean-linearSlope*xMean;
+        let regression=null;
+        if(typeof regressionTools.fitRegression==='function'){
+          try{
+            regression=regressionTools.fitRegression(points,{ mode: regressionMode });
+            if(regression && domainOption){
+              const minCandidate = Number.isFinite(domainOption.minX) ? domainOption.minX : Number.isFinite(domainOption.min) ? domainOption.min : undefined;
+              const maxCandidate = Number.isFinite(domainOption.maxX) ? domainOption.maxX : Number.isFinite(domainOption.max) ? domainOption.max : undefined;
+              if(Number.isFinite(minCandidate) && Number.isFinite(maxCandidate)){
+                regression.domain = { minX: minCandidate, maxX: maxCandidate };
+              }
+            }
+          }catch(err){
+            console.error('Regression fit error', err);
+          }
+        }
+        const regressionSlope = regression?.summary?.slope;
+        const regressionIntercept = regression?.summary?.intercept;
+        const resolvedSlope = Number.isFinite(regressionSlope) ? regressionSlope : linearSlope;
+        const resolvedIntercept = Number.isFinite(regressionIntercept) ? regressionIntercept : linearIntercept;
+        const regressionR2 = regression?.metrics?.r2;
+        const r2 = Number.isFinite(regressionR2) ? regressionR2 : pearson*pearson;
+        const stats={method:label, r, p, r2, m:resolvedSlope, b:resolvedIntercept, regression};
+        console.log('computeScatterStats result',{method:label,r,r2,p,m:resolvedSlope,b:resolvedIntercept,mode:regressionMode});
+        return stats;
       }
       function updateLineStats(series){
         const method=lineStatType.value;
-        console.log('updateLineStats start',{seriesCount:series.length,method});
+        const regressionEl=global.lineRegressionMode || document.getElementById('lineRegressionMode');
+        const regressionMode=(regressionEl&&regressionEl.value)||'linear';
+        console.log('updateLineStats start',{seriesCount:series.length,method,regressionMode});
         const tableRows=[];
         let methodLabel='';
         series.forEach(s=>{
           const pts=s.points.filter(p=>p);
           if(pts.length>=3){
-            const stats=computeScatterStats(pts,method);
+            const stats=computeScatterStats(pts,method,{ regressionMode });
             methodLabel=stats.method;
             tableRows.push({
               series:s.name,
-              r:stats.r.toFixed(4),
+              r:formatMetricValue(stats.r),
               p:formatP(stats.p),
-              slope:stats.m.toFixed(4)
+              slope:formatMetricValue(stats.regression?.summary?.slope ?? stats.m),
+              r2:formatMetricValue(stats.regression?.metrics?.r2 ?? stats.r2),
+              rmse:formatMetricValue(stats.regression?.metrics?.rmse)
             });
           }
         });
         if(tableRows.length){
           renderStatsCard(lineStatsResults,{
-            caption:methodLabel?`${methodLabel} correlation summary`:'Correlation summary',
+            caption:methodLabel?`${methodLabel} correlation summary (${regressionMode} regression)`:'Correlation summary',
             columns:[
               {key:'series',label:'Series',align:'left'},
               {key:'r',label:'r',align:'right'},
               {key:'p',label:'p',align:'right'},
-              {key:'slope',label:'Slope',align:'right'}
+              {key:'slope',label:'Slope',align:'right'},
+              {key:'r2',label:'R²',align:'right'},
+              {key:'rmse',label:'RMSE',align:'right'}
             ],
             rows:tableRows,
             options:{
@@ -1045,7 +1483,7 @@
         }else{
           lineStatsResults.textContent='Not enough data for statistics.';
         }
-        console.log('updateLineStats complete',{rows:tableRows.length});
+        console.log('updateLineStats complete',{rows:tableRows.length,regressionMode});
       }
       function updateHistStats(values){
         console.log('updateHistStats start',values.length);
@@ -1129,7 +1567,11 @@
             showLine:scatterShowLine.checked,
             graphType:scatterGraphTypeSelect?.value || 'scatter',
             log2fcThreshold:scatterLog2FCThreshold?.value || '',
-            negLogPThreshold:scatterNegLogPThreshold?.value || ''
+            negLogPThreshold:scatterNegLogPThreshold?.value || '',
+            regression:{
+              mode: scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear',
+              summary: scatterLastRegressionSummary
+            }
           }
         };
       }
@@ -1228,6 +1670,10 @@
             if(scatterNegLogPThreshold && c.negLogPThreshold!==undefined){
               scatterNegLogPThreshold.value=c.negLogPThreshold;
             }
+            if(scatterRegressionMode && c.regression?.mode){
+              scatterRegressionMode.value=c.regression.mode;
+            }
+            scatterLastRegressionSummary = c.regression?.summary || null;
             syncScatterGraphTypeUI();
             scheduleDrawScatter();
           }catch(err){console.error('loadScatterGraph error',err);}
