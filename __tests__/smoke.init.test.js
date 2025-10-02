@@ -29,6 +29,9 @@ describe('App initialization', () => {
       require('../js/components/survival.js');
       require('../js/main/components.js');
       require('../js/main/session.js');
+      require('../js/main/domControls.js');
+      require('../js/main/sessionActions.js');
+      require('../js/main/tabDrag.js');
       require('../js/main/previews.js');
       // Load the application script (IIFE executes immediately)
       require('../js/main.js');
