@@ -21,6 +21,189 @@
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
+  const DEFAULT_CORRECTION='bonferroni';
+  function fallbackSanitizeP(value){
+    const num=Number(value);
+    if(!Number.isFinite(num)||num<0){
+      return 0;
+    }
+    if(num>1){
+      return 1;
+    }
+    return num;
+  }
+  function fallbackClampUnit(value){
+    if(!Number.isFinite(value)){
+      return 1;
+    }
+    if(value<0){
+      return 0;
+    }
+    if(value>1){
+      return 1;
+    }
+    return value;
+  }
+  function fallbackAdjustNone(values){
+    return values.map(v=>fallbackClampUnit(fallbackSanitizeP(v)));
+  }
+  function fallbackAdjustBonferroni(values){
+    const m=values.length||1;
+    return values.map(v=>fallbackClampUnit(fallbackSanitizeP(v)*m));
+  }
+  function fallbackAdjustSidak(values){
+    const m=values.length||1;
+    return values.map(v=>{
+      const p=fallbackSanitizeP(v);
+      return fallbackClampUnit(1-Math.pow(1-p,m));
+    });
+  }
+  function fallbackAdjustHolm(values){
+    const m=values.length;
+    const ordered=values.map((v,index)=>({ p:fallbackSanitizeP(v), index }));
+    ordered.sort((a,b)=>a.p-b.p);
+    const adjusted=new Array(m).fill(1);
+    let running=0;
+    ordered.forEach((entry,idx)=>{
+      const rank=m-idx;
+      const raw=fallbackClampUnit(entry.p*rank);
+      running=Math.max(running,raw);
+      adjusted[entry.index]=fallbackClampUnit(running);
+    });
+    return adjusted;
+  }
+  function fallbackAdjustHochberg(values){
+    const m=values.length;
+    const ordered=values.map((v,index)=>({ p:fallbackSanitizeP(v), index }));
+    ordered.sort((a,b)=>b.p-a.p);
+    const adjusted=new Array(m).fill(1);
+    let running=1;
+    ordered.forEach((entry,idx)=>{
+      const rank=idx+1;
+      const raw=fallbackClampUnit(entry.p*rank);
+      running=Math.min(running,raw);
+      adjusted[entry.index]=fallbackClampUnit(running);
+    });
+    return adjusted;
+  }
+  function fallbackAdjustBH(values){
+    const m=values.length;
+    const ordered=values.map((v,index)=>({ p:fallbackSanitizeP(v), index }));
+    ordered.sort((a,b)=>a.p-b.p);
+    const adjusted=new Array(m).fill(1);
+    let running=1;
+    for(let i=m-1;i>=0;i--){
+      const entry=ordered[i];
+      const rank=i+1;
+      const raw=fallbackClampUnit((entry.p*m)/rank);
+      running=Math.min(running,raw);
+      adjusted[entry.index]=fallbackClampUnit(running);
+    }
+    return adjusted;
+  }
+  function fallbackAdjustBY(values){
+    const m=values.length;
+    const harmonic=Array.from({ length: Math.max(m,1) },(_,idx)=>1/(idx+1)).reduce((sum,val)=>sum+val,0);
+    const ordered=values.map((v,index)=>({ p:fallbackSanitizeP(v), index }));
+    ordered.sort((a,b)=>a.p-b.p);
+    const adjusted=new Array(m).fill(1);
+    let running=1;
+    for(let i=m-1;i>=0;i--){
+      const entry=ordered[i];
+      const rank=i+1;
+      const raw=fallbackClampUnit((entry.p*m*harmonic)/rank);
+      running=Math.min(running,raw);
+      adjusted[entry.index]=fallbackClampUnit(running);
+    }
+    return adjusted;
+  }
+  const FALLBACK_CORRECTION_META={
+    none:{ label:'None (unadjusted)', shortLabel:'None', footnote:count=>`P-values are unadjusted${count>0?` (${count} comparison${count===1?'':'s'})`:''}.`, adjust:fallbackAdjustNone },
+    bonferroni:{ label:'Bonferroni', shortLabel:'Bonferroni', footnote:count=>`Bonferroni-adjusted P values across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustBonferroni },
+    holm:{ label:'Holm', shortLabel:'Holm', footnote:count=>`Holm correction applied across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustHolm },
+    sidak:{ label:'Šidák', shortLabel:'Šidák', footnote:count=>`Šidák correction applied across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustSidak },
+    hochberg:{ label:'Hochberg', shortLabel:'Hochberg', footnote:count=>`Hochberg correction applied across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustHochberg },
+    bh:{ label:'Benjamini–Hochberg (FDR)', shortLabel:'BH', footnote:count=>`Benjamini–Hochberg FDR correction across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustBH },
+    by:{ label:'Benjamini–Yekutieli (FDR)', shortLabel:'BY', footnote:count=>`Benjamini–Yekutieli FDR correction across ${count} test${count===1?'':'s'}.`, adjust:fallbackAdjustBY }
+  };
+  function fallbackCorrectionsList(){
+    return Object.entries(FALLBACK_CORRECTION_META).map(([value,cfg])=>({ value, label:cfg.label }));
+  }
+  function getAvailableCorrections(){
+    const statsHelpers=Shared.stats;
+    if(statsHelpers && typeof statsHelpers.listCorrections==='function'){
+      try{
+        const list=statsHelpers.listCorrections();
+        if(Array.isArray(list) && list.length){
+          console.debug('Debug: box corrections sourced from Shared.stats',{ methods:list.map(item=>item.value) });
+          return list.map(item=>({ value:item.value, label:item.label }));
+        }
+      }catch(err){
+        console.debug('Debug: box getAvailableCorrections Shared.stats error',{ message:err?.message });
+      }
+    }
+    const fallback=fallbackCorrectionsList();
+    console.debug('Debug: box getAvailableCorrections fallback',{ methods:fallback.map(item=>item.value) });
+    return fallback;
+  }
+  function ensureValidCorrectionValue(value){
+    const options=getAvailableCorrections();
+    const has=options.some(opt=>opt.value===value);
+    if(has){
+      return value;
+    }
+    const fallbackValue=options[0]?.value || DEFAULT_CORRECTION;
+    console.debug('Debug: box ensureValidCorrectionValue fallback',{ requested:value, fallback:fallbackValue });
+    return fallbackValue;
+  }
+  function resolveCorrectionMeta(method,count){
+    const statsHelpers=Shared.stats;
+    if(statsHelpers && typeof statsHelpers.getCorrectionMeta==='function'){
+      try{
+        const metaRaw=statsHelpers.getCorrectionMeta(method);
+        const note=typeof metaRaw?.footnote==='function'?metaRaw.footnote(count || 0):metaRaw?.footnote;
+        const resolved={
+          key:metaRaw?.key || method || DEFAULT_CORRECTION,
+          label:metaRaw?.label || metaRaw?.shortLabel || method || DEFAULT_CORRECTION,
+          shortLabel:metaRaw?.shortLabel || metaRaw?.label || method || DEFAULT_CORRECTION,
+          footnote:note || ''
+        };
+        console.debug('Debug: box resolveCorrectionMeta via Shared.stats',{ method:resolved.key, count });
+        return resolved;
+      }catch(err){
+        console.debug('Debug: box resolveCorrectionMeta error',{ method, message:err?.message });
+      }
+    }
+    const fallbackKey=FALLBACK_CORRECTION_META[method]?method:DEFAULT_CORRECTION;
+    const cfg=FALLBACK_CORRECTION_META[fallbackKey];
+    const footnote=typeof cfg.footnote==='function'?cfg.footnote(count || 0):cfg.footnote;
+    console.debug('Debug: box resolveCorrectionMeta fallback',{ method, resolved:fallbackKey, count });
+    return {
+      key:fallbackKey,
+      label:cfg.label,
+      shortLabel:cfg.shortLabel || cfg.label,
+      footnote:footnote || ''
+    };
+  }
+  function applyPValueCorrection(values,method){
+    const arr=Array.isArray(values)?values.slice():[];
+    const statsHelpers=Shared.stats;
+    if(statsHelpers && typeof statsHelpers.adjustPValues==='function'){
+      try{
+        const adjusted=statsHelpers.adjustPValues(arr,{ method });
+        if(Array.isArray(adjusted) && adjusted.length===arr.length){
+          console.debug('Debug: box applyPValueCorrection via Shared.stats',{ method, count:arr.length });
+          return adjusted;
+        }
+      }catch(err){
+        console.debug('Debug: box applyPValueCorrection Shared.stats error',{ method, message:err?.message });
+      }
+    }
+    const fallbackKey=FALLBACK_CORRECTION_META[method]?method:DEFAULT_CORRECTION;
+    const adjustFn=FALLBACK_CORRECTION_META[fallbackKey].adjust;
+    console.debug('Debug: box applyPValueCorrection fallback',{ method, fallback:fallbackKey, count:arr.length });
+    return adjustFn(arr);
+  }
 
   function shadeColor(color, percent){
     const num=parseInt(color.slice(1),16);
@@ -161,8 +344,24 @@
     }
   };
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [] };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [] };
   const els = {};
+
+  function updateStatsCorrectionSummary(count){
+    const noteEl=global.document.getElementById('statsCorrectionNote');
+    if(!noteEl){
+      console.debug('Debug: box updateStatsCorrectionSummary missing element');
+      return;
+    }
+    const rawCount=Number(count);
+    const safeCount=Number.isFinite(rawCount) && rawCount>0 ? Math.round(rawCount) : 0;
+    const meta=resolveCorrectionMeta(state.statsCorrection,safeCount);
+    const detail=safeCount>0?`${safeCount} test${safeCount===1?'':'s'}`:'awaiting data';
+    noteEl.textContent=`Multiple-testing correction: ${meta.label} (${detail}).`;
+    noteEl.dataset.method=meta.key;
+    noteEl.dataset.correctionLabel=meta.shortLabel || meta.label;
+    console.debug('Debug: box updateStatsCorrectionSummary',{ method:meta.key, label:meta.label, count:safeCount });
+  }
 
   // PART: CACHE_ELS
   function cacheEls(){
@@ -1285,10 +1484,13 @@
       return { ok: false, message: 'Not enough replicates to compute row-wise t-tests.' };
     }
     const m = tests.length;
-    tests.forEach(test => {
-      test.padjust = Math.min(test.p * m, 1);
+    const adjustedValues = applyPValueCorrection(tests.map(test => test.p), state.statsCorrection);
+    adjustedValues.forEach((adj, idx) => {
+      tests[idx].padjust = adj;
     });
-    console.debug('Debug: row-wise t-tests computed',{ count: tests.length });
+    const correctionMeta = resolveCorrectionMeta(state.statsCorrection, m);
+    updateStatsCorrectionSummary(m);
+    console.debug('Debug: row-wise t-tests computed',{ count: tests.length, correction: correctionMeta.key });
     return {
       ok: true,
       caption: 'Row-wise t-tests',
@@ -1298,7 +1500,7 @@
         { key: 't', label: 't', align: 'right' },
         { key: 'df', label: 'df', align: 'right' },
         { key: 'p', label: 'P value', align: 'right' },
-        { key: 'padjust', label: 'P (adj)', align: 'right' }
+        { key: 'padjust', label: `P (adj, ${correctionMeta.shortLabel})`, align: 'right' }
       ],
       rows: tests.map(test => ({
         condition: test.condition,
@@ -1309,7 +1511,7 @@
         padjust: formatP(test.padjust)
       })),
       options:{ fileName:'box-rowwise-ttest', contextLabel:'box-grouped-ttests' },
-      footnotes: [`Bonferroni-adjusted P values across ${m} tests.`]
+      footnotes: correctionMeta.footnote ? [correctionMeta.footnote] : []
     };
   }
 function renderStatsControls(traces){
@@ -1318,6 +1520,12 @@ function renderStatsControls(traces){
     return;
   }
   controls.innerHTML='';
+  const correctionOptions=getAvailableCorrections();
+  const normalizedCorrection=ensureValidCorrectionValue(state.statsCorrection);
+  if(normalizedCorrection!==state.statsCorrection){
+    console.debug('Debug: box statsCorrection normalized',{ before:state.statsCorrection, after:normalizedCorrection });
+    state.statsCorrection=normalizedCorrection;
+  }
 
   if(state.tableFormat==='grouped'){
     renderGroupedStatsControls(traces, controls);
@@ -1398,6 +1606,26 @@ function renderStatsControls(traces){
   optionWrap.appendChild(modeLabel);
   optionWrap.appendChild(modeSel);
 
+  const correctionLabel=document.createElement('label');
+  correctionLabel.textContent='Correction:';
+  const correctionSel=document.createElement('select');
+  correctionOptions.forEach(opt=>{
+    const option=document.createElement('option');
+    option.value=opt.value;
+    option.textContent=opt.label;
+    if(opt.value===state.statsCorrection) option.selected=true;
+    correctionSel.appendChild(option);
+  });
+  correctionSel.addEventListener('change',()=>{
+    const value=ensureValidCorrectionValue(correctionSel.value);
+    state.statsCorrection=value;
+    console.debug('Debug: box statsCorrection changed',{ value, source:'main-controls' });
+    updateStatsCorrectionSummary(0);
+    state.scheduleDraw();
+  });
+  optionWrap.appendChild(correctionLabel);
+  optionWrap.appendChild(correctionSel);
+
   if(state.statsMode==='reference'){
     const refLabel=document.createElement('label');
     refLabel.textContent='Reference:';
@@ -1456,6 +1684,7 @@ function renderStatsControls(traces){
     controls.appendChild(checkbox);
     controls.appendChild(label);
   });
+  updateStatsCorrectionSummary(state.selectedCols.size>=2?state.selectedCols.size*(state.selectedCols.size-1)/2:0);
 }
 function renderGroupedStatsControls(traces, controls){
   ensureGroupedStatsDefaults();
@@ -1504,7 +1733,33 @@ function renderGroupedStatsControls(traces, controls){
   analysisWrap.appendChild(label);
   analysisWrap.appendChild(select);
   controls.appendChild(analysisWrap);
+  const correctionWrap=document.createElement('div');
+  correctionWrap.style.display='flex';
+  correctionWrap.style.gap='8px';
+  correctionWrap.style.alignItems='center';
+  const correctionLabel=document.createElement('label');
+  correctionLabel.textContent='Correction:';
+  const correctionSel=document.createElement('select');
+  const correctionOptions=getAvailableCorrections();
+  correctionOptions.forEach(opt=>{
+    const option=document.createElement('option');
+    option.value=opt.value;
+    option.textContent=opt.label;
+    if(opt.value===state.statsCorrection) option.selected=true;
+    correctionSel.appendChild(option);
+  });
+  correctionSel.addEventListener('change',()=>{
+    const value=ensureValidCorrectionValue(correctionSel.value);
+    state.statsCorrection=value;
+    console.debug('Debug: box statsCorrection changed',{ value, source:'grouped-controls' });
+    updateStatsCorrectionSummary(0);
+    state.scheduleDraw();
+  });
+  correctionWrap.appendChild(correctionLabel);
+  correctionWrap.appendChild(correctionSel);
+  controls.appendChild(correctionWrap);
   console.debug('Debug: renderGroupedStatsControls summary',{ analysis: state.groupedStats.analysis, rowsWithData: prepared.rowsWithData });
+  updateStatsCorrectionSummary(prepared.conditionsCount>1?prepared.conditionsCount*(prepared.conditionsCount-1)/2:0);
 }
   function annotatePair(svg,x1,x2,valueCoord,p,styleOptions){
     const opts=styleOptions||{};
@@ -1776,7 +2031,13 @@ function renderGroupedStatsControls(traces, controls){
         let rangeMax=-Infinity; for(let k=Math.min(pr.ai,pr.bi);k<=Math.max(pr.ai,pr.bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
         pairs.push({...pr,p:r.p,rangeMax,labelA:traces[pr.ai].name,labelB:traces[pr.bi].name,stat:statVal,statName,df:r.df});
       });
-      const m=pairs.length; pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
+      const m=pairs.length;
+      if(m){
+        const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
+        adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
+      }
+      const correctionMeta=resolveCorrectionMeta(state.statsCorrection,m);
+      updateStatsCorrectionSummary(m);
       const tableRows=pairs.map(pr=>({
         comparison:`${pr.labelA} vs ${pr.labelB}`,
         statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
@@ -1789,10 +2050,10 @@ function renderGroupedStatsControls(traces, controls){
           {key:'comparison',label:'Comparison',align:'left',index:0},
           {key:'statistic',label:'Statistic',align:'left',index:1},
           {key:'df',label:'df',align:'right',index:2},
-          {key:'padj',label:'P (adj)',align:'right',index:3}
+          {key:'padj',label:`P (adj, ${correctionMeta.shortLabel})`,align:'right',index:3}
         ],
         rows:tableRows,
-        footnotes:m?[`P-values adjusted using Bonferroni (m=${m}).`] : [],
+        footnotes:correctionMeta.footnote ? [correctionMeta.footnote] : [],
         options:{
           fileName:'box-custom-comparisons',
           contextLabel:'box-custom'
@@ -1835,6 +2096,11 @@ function renderGroupedStatsControls(traces, controls){
       ];
       if(res.df!==undefined){ summaryRows.push({ metric:'df', value:res.df.toFixed(4) }); }
       summaryRows.push({ metric:'P value', value:formatP(res.p) });
+      const correctionMeta=resolveCorrectionMeta(state.statsCorrection,1);
+      const adjusted=applyPValueCorrection([res.p], state.statsCorrection);
+      const adjValue=Array.isArray(adjusted) && adjusted.length?adjusted[0]:res.p;
+      summaryRows.push({ metric:`P (${correctionMeta.shortLabel})`, value:formatP(adjValue) });
+      updateStatsCorrectionSummary(1);
       renderTableModel({
         caption:'Pairwise test summary',
         columns:[
@@ -1842,6 +2108,7 @@ function renderGroupedStatsControls(traces, controls){
           {key:'value',label:'Value',align:'left',index:1}
         ],
         rows:summaryRows,
+        footnotes:correctionMeta.footnote ? [correctionMeta.footnote] : [],
         options:{
           fileName:'box-pairwise-summary',
           contextLabel:'box-pairwise'
@@ -1866,7 +2133,10 @@ function renderGroupedStatsControls(traces, controls){
           pairs.push({a:i,b:j,ai:aIdx,bi:bIdx,p:r.p,rangeMax,stat:statVal,statName,df:r.df,labelA:labels[i],labelB:labels[j]});
         }
       }
-      const m=pairs.length; pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
+      if(pairs.length){
+        const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
+        adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
+      }
     } else if(state.statsMode==='reference'){
       const refIdx=indices.indexOf(state.statsRef); if(refIdx===-1){ statsDiv.textContent='Select reference column among the chosen groups.'; return; }
       const refData=groups[refIdx];
@@ -1879,10 +2149,16 @@ function renderGroupedStatsControls(traces, controls){
         let rangeMax=-Infinity; for(let k=Math.min(state.statsRef,idx);k<=Math.max(state.statsRef,idx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
         pairs.push({a:refIdx,b:i,ai:state.statsRef,bi:idx,p:r.p,rangeMax,labelA:labels[refIdx],labelB:labels[i],stat:statVal,statName,df:r.df});
       });
-      const m=pairs.length; pairs.forEach(pr=>pr.adjP=Math.min(pr.p*m,1));
+      if(pairs.length){
+        const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
+        adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
+      }
     }
     if(pairs.length){
-      const footnotes=[];
+      const correctionMeta=resolveCorrectionMeta(state.statsCorrection,pairs.length);
+      updateStatsCorrectionSummary(pairs.length);
+      console.debug('Debug: box pairwise correction applied',{ method:correctionMeta.key, count:pairs.length });
+      const footnotes=correctionMeta.footnote ? [correctionMeta.footnote] : [];
       let appendForPairs=false;
       if(!state.statsPaired && overall){
         const overallStatName=param?'F':'H';
@@ -1919,16 +2195,13 @@ function renderGroupedStatsControls(traces, controls){
       if(referenceLabel){
         footnotes.push(`Reference group: ${referenceLabel}`);
       }
-      if(pairs.length>1){
-        footnotes.push(`P-values adjusted using Bonferroni (m=${pairs.length}).`);
-      }
       renderTableModel({
         caption: state.statsMode==='reference' ? 'Comparisons vs reference' : 'Pairwise comparisons',
         columns:[
           {key:'comparison',label:'Comparison',align:'left',index:0},
           {key:'statistic',label:'Statistic',align:'left',index:1},
           {key:'df',label:'df',align:'right',index:2},
-          {key:'padj',label:'P (adj)',align:'right',index:3}
+          {key:'padj',label:`P (adj, ${correctionMeta.shortLabel})`,align:'right',index:3}
         ],
         rows:pairRows,
         footnotes,
@@ -1953,6 +2226,7 @@ function renderGroupedStatsControls(traces, controls){
     } else {
       // No pairwise; show overall only if available
       if(!state.statsPaired && indices.length>2 && overall){ annotateOverall(svg,xs,valueToCoord,maxVal,overall.p,0,helpers.annotationStyle); }
+      updateStatsCorrectionSummary(0);
     }
   }
 
@@ -3291,6 +3565,7 @@ function renderGroupedStatsControls(traces, controls){
           mode: state.statsMode,
           referenceIndex: state.statsRef,
           pairsText: state.statsPairsText,
+          correction: state.statsCorrection,
           groupedAnalysis: state.groupedStats?.analysis,
           selectedColumns
         }
@@ -3302,6 +3577,7 @@ function renderGroupedStatsControls(traces, controls){
       colorMode: payload.config.colorMode,
       statsTest: payload.config.stats?.test,
       statsMode: payload.config.stats?.mode,
+      statsCorrection: payload.config.stats?.correction,
       statsSelection: payload.config.stats?.selectedColumns?.length || 0
     });
     return payload;
@@ -3432,6 +3708,7 @@ function renderGroupedStatsControls(traces, controls){
         state.statsPaired=!!statsConfig.paired;
         const allowedModes=new Set(['all','reference','custom']);
         state.statsMode=allowedModes.has(statsConfig.mode)?statsConfig.mode:'all';
+        state.statsCorrection=ensureValidCorrectionValue(statsConfig.correction || state.statsCorrection);
         const candidateRef=Number(statsConfig.referenceIndex);
         const maxIndex=labelCount>0?labelCount-1:-1;
         if(Number.isInteger(candidateRef) && candidateRef>=0 && (maxIndex>=0?candidateRef<=maxIndex:true)){
@@ -3468,6 +3745,7 @@ function renderGroupedStatsControls(traces, controls){
           statsMode: state.statsMode,
           statsPaired: state.statsPaired,
           statsRef: state.statsRef,
+          statsCorrection: state.statsCorrection,
           selectedCount: state.selectedCols.size,
           hasPairsText: !!state.statsPairsText
         });
