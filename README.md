@@ -6,6 +6,7 @@ Venn is now a full browser-based data visualization and statistical analysis stu
 - [Overview](#overview)
 - [Feature Highlights](#feature-highlights)
 - [Quick Start](#quick-start)
+- [Developer Setup](#developer-setup)
 - [Data Input & Management](#data-input--management)
 - [Visualization Modules](#visualization-modules)
   - [Venn Diagram Workspace](#venn-diagram-workspace)
@@ -49,6 +50,9 @@ Because everything runs client-side, sensitive data never leaves the browser ses
 5. **Configure the visualization** using the right-hand controls (colors, grid, axis limits, statistical options) and observe live updates on the canvas.【F:index.html†L92-L153】【F:index.html†L320-L408】
 6. **Run analyses** by enabling statistical features relevant to the selected module—overlap significance, regression, AUC calculations, Chi², etc.【F:index.html†L160-L248】【F:index.html†L704-L781】
 7. **Export results** with the built-in PNG/SVG download buttons or save the session to a `.graph` file for future editing.【F:index.html†L108-L153】【F:index.html†L656-L671】
+
+## Developer Setup
+Before editing the bootstrap scripts, review how the `Main` namespace is assembled. The [Main Namespace Bootstrap Order](docs/development/main-bootstrap.md) guide explains the required initialization order for `Main.session`, `Main.previews`, `Main.domControls`, `Main.sessionActions`, and `Main.tabDrag`, plus where each module is defined.
 
 ## Data Input & Management
 - **Spreadsheet editing:** Each tab provides a Handsontable grid pre-populated with empty rows and columns, ready for paste operations from Excel, Google Sheets, R, or Python notebooks.【F:index.html†L704-L731】
