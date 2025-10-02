@@ -49,8 +49,11 @@
   }
   if ((!Main.tabs || typeof Main.tabs.createManager !== 'function') && typeof require === 'function') {
     try {
+      require('./main/tabs/render.js');
+      require('./main/tabs/unsavedPrompt.js');
+      require('./main/tabs/duplicatePrompt.js');
       require('./main/tabs.js');
-      console.debug('Debug: main.js tabs fallback required via Node');
+      console.debug('Debug: main.js tabs fallback required via Node (helpers + manager)');
     } catch (err) {
       console.debug('Debug: main.js tabs fallback require failed', { err });
     }

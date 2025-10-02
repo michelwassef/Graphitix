@@ -33,6 +33,10 @@ describe('App initialization', () => {
       require('../js/main/sessionActions.js');
       require('../js/main/tabDrag.js');
       require('../js/main/previews.js');
+      require('../js/main/tabs/render.js');
+      require('../js/main/tabs/unsavedPrompt.js');
+      require('../js/main/tabs/duplicatePrompt.js');
+      require('../js/main/tabs.js');
       // Load the application script (IIFE executes immediately)
       require('../js/main.js');
     }).not.toThrow();
@@ -57,5 +61,13 @@ describe('App initialization', () => {
         expect(createdIds).toContain(id);
       }
     }
+
+    expect(typeof window.Main?.tabs?.createRenderHelpers).toBe('function');
+    expect(typeof window.Main?.tabs?.createUnsavedPromptHandlers).toBe('function');
+    expect(typeof window.Main?.tabs?.createDuplicatePromptHandlers).toBe('function');
+    expect(typeof window.Main?.tabs?.renderTabs).toBe('function');
+
+    const renderedTabs = document.querySelectorAll('.workspace-tab');
+    expect(renderedTabs.length).toBeGreaterThan(0);
   });
 });
