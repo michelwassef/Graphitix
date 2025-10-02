@@ -59,6 +59,21 @@
     hasPreviews: !!MainPreviews
   }); // Debug: dependency confirmation log
 
+  if (!Main.domControls || !Main.sessionActions || !Main.tabDrag) {
+    const message = 'main.js requires domControls, sessionActions, and tabDrag to be initialized before loading.';
+    console.error(message);
+    throw new Error(message);
+  }
+
+  const MainDomControls = Main.domControls;
+  const MainSessionActions = Main.sessionActions;
+  const MainTabDrag = Main.tabDrag;
+  console.debug('Debug: main.js helper modules detected', {
+    hasDomControls: !!MainDomControls,
+    hasSessionActions: !!MainSessionActions,
+    hasTabDrag: !!MainTabDrag
+  });
+
   const requiredSessionHelpers = [
     'getActiveTab',
     'persistActiveTabState',
@@ -108,7 +123,7 @@
     };
     return Object.assign(context, extra);
   }
-  const workspaceDefaults = {};
+  const dom = MainDomControls.createDomHandles();
   const workspaceState = MainSession.workspaceState;
   if (!workspaceState) {
     const message = 'main.js requires Main.session.workspaceState to be available.';
@@ -167,30 +182,6 @@
   }
 
   // Workspace layout state and configuration
-  const dom = {
-    appHeader: document.getElementById('appHeader'),
-    welcomeScreen: document.getElementById('welcomeScreen'),
-    workspacePages: document.getElementById('workspacePages'),
-    selectionGrid: document.getElementById('graphSelectionGrid'),
-    tabsList: document.getElementById('workspaceTabsList'),
-    addTabBtn: document.getElementById('addWorkspaceTab'),
-    sessionSaveBtn: document.getElementById('saveWorkspaceSession'),
-    sessionLoadBtn: document.getElementById('loadWorkspaceSession'),
-    sessionFileInput: document.getElementById('workspaceSessionInput'),
-    duplicatePrompt: document.getElementById('duplicatePrompt'),
-    duplicateTitle: document.getElementById('duplicatePromptTitle'),
-    duplicateMessage: document.getElementById('duplicatePromptMessage'),
-    duplicateReuse: document.getElementById('duplicateReuse'),
-    duplicateEmpty: document.getElementById('duplicateEmpty'),
-    duplicateCancel: document.getElementById('duplicateCancel'),
-    unsavedPrompt: document.getElementById('unsavedPrompt'),
-    unsavedTitle: document.getElementById('unsavedPromptTitle'),
-    unsavedMessage: document.getElementById('unsavedPromptMessage'),
-    unsavedSave: document.getElementById('unsavedPromptSave'),
-    unsavedDiscard: document.getElementById('unsavedPromptDiscard'),
-    unsavedCancel: document.getElementById('unsavedPromptCancel')
-  };
-
   if (typeof chartStyle.onTextSizeLockChange === 'function') {
     chartStyle.onTextSizeLockChange((locked, origin, details) => {
       const scopeId = details?.scopeId || null;
@@ -254,83 +245,26 @@
     { description: 'Workspace Session', accept: { 'application/json': ['.session', '.json'] } }
   ];
 
-  let appHeaderVisible = true;
-
   function setAppHeaderVisibility(shouldShow, meta = {}) {
-    if (!dom.appHeader) {
-      console.debug('Debug: setAppHeaderVisibility skipped', { hasHeader: !!dom.appHeader, requested: shouldShow });
-      return;
-    }
-    if (appHeaderVisible === shouldShow) {
-      console.debug('Debug: app header visibility unchanged', {
-        visible: appHeaderVisible,
-        requested: shouldShow,
-        reason: meta.reason || 'no-change'
-      });
-      return;
-    }
-    dom.appHeader.style.display = shouldShow ? '' : 'none';
-    appHeaderVisible = shouldShow;
-    console.debug('Debug: app header visibility set', {
-      visible: appHeaderVisible,
-      reason: meta.reason || 'unspecified'
-    });
+    MainDomControls.setAppHeaderVisibility(dom, shouldShow, meta);
   }
-
 
   let unsavedPromptBusy = false;
 
   function hideWorkspaceElement(config) {
-    if (!config?.element) return;
-    config.element.setAttribute('hidden', 'hidden');
-    config.element.style.display = 'none';
+    MainDomControls.hideWorkspaceElement(config);
   }
 
   function hideAllWorkspaces() {
-    Object.values(WORKSPACES).forEach(hideWorkspaceElement);
+    MainDomControls.hideAllWorkspaces(WORKSPACES);
   }
 
   function ensureDefaultPayload(type, config) {
-    if (workspaceDefaults[type]) {
-      return workspaceDefaults[type];
-    }
-    if (!config || typeof config.getPayload !== 'function') {
-      return null;
-    }
-    try {
-      const payload = config.getPayload();
-      workspaceDefaults[type] = MainSession.clonePayload(payload);
-      console.debug('Debug: workspace default captured', { type, hasPayload: !!workspaceDefaults[type] });
-      return workspaceDefaults[type];
-    } catch (err) {
-      console.error('ensureDefaultPayload error', { type, err });
-      return null;
-    }
+    return MainDomControls.ensureDefaultPayload(MainSession, type, config);
   }
 
   function applyWorkspacePayload(config, payload) {
-    if (!config || !payload) {
-      console.debug('Debug: applyWorkspacePayload skipped', { hasConfig: !!config, hasPayload: !!payload });
-      return;
-    }
-    if (typeof config.loadFromPayload === 'function') {
-      config.loadFromPayload(payload);
-      console.debug('Debug: workspace payload applied via custom handler', { type: config.type });
-      return;
-    }
-    if (typeof config.loadFromFile === 'function') {
-      try {
-        const serialized = JSON.stringify(payload);
-        const BlobCtor = window.Blob || Blob;
-        const blob = new BlobCtor([serialized], { type: 'application/json' });
-        config.loadFromFile(blob);
-        console.debug('Debug: workspace payload applied via blob', { type: config.type, length: serialized.length });
-      } catch (err) {
-        console.error('applyWorkspacePayload error', { type: config.type, err });
-      }
-      return;
-    }
-    console.warn('Workspace payload application unavailable', { type: config.type });
+    MainDomControls.applyWorkspacePayload(config, payload);
   }
 
   function getActiveTab() {
@@ -338,186 +272,53 @@
   }
 
   function showWorkspaceForTab(tab, options = {}) {
-    if (!tab || !tab.type) {
-      showGraphSelection({ reason: 'no-type' });
-      return;
-    }
-    const config = WORKSPACES[tab.type];
-    if (!config) {
-      console.warn('Unknown workspace type', { type: tab.type });
-      showGraphSelection({ reason: 'unknown-type' });
-      return;
-    }
-    hideAllWorkspaces();
-    if (dom.welcomeScreen) {
-      dom.welcomeScreen.style.display = 'none';
-    }
-    setAppHeaderVisibility(false, { reason: 'workspace-view', tabId: tab.id, type: tab.type });
-    hideWorkspaceElement(config);
-    if (config.element) {
-      config.element.removeAttribute('hidden');
-      config.element.style.display = '';
-    }
-    try {
-      if (typeof config.ensure === 'function') {
-        config.ensure();
-      }
-    } catch (err) {
-      console.error('workspace ensure error', { type: tab.type, err });
-    }
-    const defaultPayload = ensureDefaultPayload(tab.type, config);
-    if (!options.skipApply) {
-      const payload = tab.payload ? MainSession.clonePayload(tab.payload) : MainSession.clonePayload(defaultPayload);
-      applyWorkspacePayload(config, payload);
-    }
-    try {
-      if (typeof config.draw === 'function') {
-        config.draw();
-      }
-    } catch (err) {
-      console.error('workspace draw error', { type: tab.type, err });
-    }
-    workspaceState.lastActiveGraphId = tab.id;
-    console.debug('Debug: workspace displayed', { tabId: tab.id, type: tab.type });
+    MainDomControls.showWorkspaceForTab({
+      tab,
+      options,
+      dom,
+      workspaces: WORKSPACES,
+      session: MainSession,
+      workspaceState
+    });
   }
 
   function showGraphSelection(options = {}) {
-    hideAllWorkspaces();
-    if (dom.welcomeScreen) {
-      dom.welcomeScreen.style.display = 'flex';
-    }
-    setAppHeaderVisibility(true, { reason: options.reason || 'graph-selection' });
-    console.debug('Debug: welcome screen shown', { reason: options.reason || 'unspecified' });
+    MainDomControls.showGraphSelection({
+      dom,
+      workspaces: WORKSPACES,
+      reason: options.reason
+    });
+  }
+
+  function getSessionActionsContext() {
+    return {
+      Shared,
+      session: MainSession,
+      workspaceState,
+      sessionFileTypes: SESSION_FILE_TYPES,
+      withSessionContext,
+      dom,
+      hideDuplicatePrompt,
+      renderTabs,
+      activateTab,
+      showGraphSelection
+    };
   }
 
   async function handleSessionSaveClick() {
-    if (!Shared.fileIO || typeof Shared.fileIO.saveGraphFile !== 'function') {
-      console.warn('Session save unavailable: missing Shared.fileIO.saveGraphFile');
-      return;
-    }
-    try {
-      const sessionPayload = MainSession.buildSessionPayload(withSessionContext({ reason: 'session-save' }));
-      const result = await Shared.fileIO.saveGraphFile({
-        context: 'session',
-        fileHandle: workspaceState.sessionFileHandle,
-        payload: sessionPayload,
-        setFileHandle: handle => {
-          workspaceState.sessionFileHandle = handle || null;
-          console.debug('Debug: session file handle stored', { hasHandle: !!handle });
-        },
-        setFileName: name => {
-          workspaceState.sessionFileName = name || '';
-          console.debug('Debug: session file name stored', { name: workspaceState.sessionFileName });
-        },
-        downloadFileName: workspaceState.sessionFileName || 'workspace.session',
-        fileTypes: SESSION_FILE_TYPES
-      });
-      console.debug('Debug: session save result', { status: result?.status, via: result?.via });
-      if (result && (result.status === 'saved' || result.status === 'downloaded')) {
-        MainSession.clearSessionDirty('session-save-success');
-      }
-    } catch (err) {
-      console.error('handleSessionSaveClick error', err);
-    }
+    await MainSessionActions.handleSessionSaveClick(getSessionActionsContext());
   }
 
   async function handleSessionLoadClick() {
-    if (!Shared.fileIO || typeof Shared.fileIO.openGraphFile !== 'function') {
-      console.warn('Session load fallback to input: missing Shared.fileIO.openGraphFile');
-      dom.sessionFileInput?.click();
-      return;
-    }
-    try {
-      let lastHandle = null;
-      let lastName = '';
-      const result = await Shared.fileIO.openGraphFile({
-        context: 'session',
-        setFileHandle: handle => {
-          lastHandle = handle || null;
-          workspaceState.sessionFileHandle = handle || null;
-          console.debug('Debug: session load handle captured', { hasHandle: !!handle });
-        },
-        setFileName: name => {
-          lastName = name || '';
-          workspaceState.sessionFileName = lastName;
-          console.debug('Debug: session load filename captured', { name: workspaceState.sessionFileName });
-        },
-        fileTypes: SESSION_FILE_TYPES,
-        loadFromFile: file => MainSession.loadWorkspaceSessionBlob(
-          file,
-          withSessionContext({
-            reason: 'session-load-picker',
-            fileHandle: lastHandle,
-            fileName: file?.name || lastName,
-            hideDuplicatePrompt,
-            renderTabs,
-            activateTab,
-            showGraphSelection
-          })
-        ),
-        triggerInput: () => {
-          console.debug('Debug: session load fallback trigger', {});
-          lastHandle = null;
-          lastName = '';
-          dom.sessionFileInput?.click();
-        }
-      });
-      console.debug('Debug: session load picker result', { status: result?.status, via: result?.via });
-    } catch (err) {
-      console.error('handleSessionLoadClick error', err);
-    }
+    await MainSessionActions.handleSessionLoadClick(getSessionActionsContext());
   }
 
   function handleSessionInputChange(event) {
-    const input = event?.target;
-    const file = input?.files && input.files[0];
-    if (!file) {
-      console.debug('Debug: session input change without file');
-      return;
-    }
-    workspaceState.sessionFileHandle = null;
-    workspaceState.sessionFileName = file.name || '';
-    console.debug('Debug: session input received file', {
-      name: workspaceState.sessionFileName,
-      size: file.size
-    });
-    MainSession.loadWorkspaceSessionBlob(
-      file,
-      withSessionContext({
-        reason: 'session-load-input',
-        fileHandle: null,
-        fileName: workspaceState.sessionFileName,
-        hideDuplicatePrompt,
-        renderTabs,
-        activateTab,
-        showGraphSelection
-      })
-    ).finally(() => {
-      if (input) {
-        input.value = '';
-      }
-    });
+    MainSessionActions.handleSessionInputChange(getSessionActionsContext(), event);
   }
 
   function shouldWarnBeforeUnload() {
-    let persistedActive = false;
-    try {
-      const active = getActiveTab();
-      if (active && !active.isWelcome) {
-        persistedActive = MainSession.persistActiveTabState(active, withSessionContext({ reason: 'beforeunload' })) || persistedActive;
-      }
-    } catch (err) {
-      console.error('beforeunload persist error', err);
-    }
-    const hasData = MainSession.graphTabsHaveData();
-    const shouldWarn = workspaceState.sessionDirty && hasData;
-    console.debug('Debug: beforeunload evaluation', {
-      shouldWarn,
-      dirty: workspaceState.sessionDirty,
-      hasData,
-      persistedActive
-    }); // Debug: beforeunload state snapshot
-    return shouldWarn;
+    return MainSessionActions.shouldWarnBeforeUnload(getSessionActionsContext());
   }
 
   function getTabById(tabId) {
@@ -540,268 +341,61 @@
     return null;
   }
 
+  function getTabDragContext() {
+    return {
+      dom,
+      workspaceState,
+      renderTabs,
+      markSessionDirty: MainSession.markSessionDirty
+    };
+  }
+
   function applyTabDragClasses() {
-    if (!dom.tabsList) {
-      return;
-    }
-    const draggingId = workspaceState.draggingTabId;
-    const overId = workspaceState.dragOverTabId;
-    const insertBefore = workspaceState.dragInsertBefore;
-    dom.tabsList.querySelectorAll('.workspace-tab').forEach(btn => {
-      const tabId = btn.dataset.tabId;
-      btn.classList.toggle('is-dragging', tabId === draggingId);
-      btn.classList.toggle('is-drag-over-before', tabId === overId && insertBefore);
-      btn.classList.toggle('is-drag-over-after', tabId === overId && !insertBefore);
-    });
-    dom.tabsList.classList.toggle('is-drag-active', !!draggingId);
-    dom.tabsList.classList.toggle('is-drag-over-end', !!draggingId && !overId);
+    MainTabDrag.applyTabDragClasses(getTabDragContext());
   }
 
   function updateTabDragHover(targetTabId, insertBefore, meta = {}) {
-    if (workspaceState.dragOverTabId === targetTabId && workspaceState.dragInsertBefore === insertBefore) {
-      return;
-    }
-    workspaceState.dragOverTabId = targetTabId;
-    workspaceState.dragInsertBefore = insertBefore;
-    applyTabDragClasses();
-    console.debug('Debug: workspace tab drag hover updated', {
-      targetTabId: targetTabId || null,
-      insertBefore,
-      reason: meta.reason || 'unspecified'
-    }); // Debug: drag hover trace
+    MainTabDrag.updateTabDragHover(getTabDragContext(), targetTabId, insertBefore, meta);
   }
 
   function resetTabDragState(reason) {
-    const hadDrag = !!(workspaceState.draggingTabId || workspaceState.dragOverTabId);
-    const snapshot = hadDrag ? {
-      draggingTabId: workspaceState.draggingTabId,
-      dragOverTabId: workspaceState.dragOverTabId,
-      dragInsertBefore: workspaceState.dragInsertBefore,
-      dragStartIndex: workspaceState.dragStartIndex
-    } : null;
-    workspaceState.draggingTabId = null;
-    workspaceState.dragStartIndex = null;
-    workspaceState.dragOverTabId = null;
-    workspaceState.dragInsertBefore = true;
-    applyTabDragClasses();
-    if (hadDrag) {
-      console.debug('Debug: workspace tab drag state reset', {
-        ...(snapshot || {}),
-        reason: reason || 'unspecified'
-      }); // Debug: drag reset trace
-    }
+    MainTabDrag.resetTabDragState(getTabDragContext(), reason);
   }
 
   function moveWorkspaceTab(tabId, targetIndex) {
-    const tabs = workspaceState.tabs;
-    const fromIndex = tabs.findIndex(item => item.id === tabId);
-    if (fromIndex === -1) {
-      console.debug('Debug: moveWorkspaceTab skipped', { tabId, targetIndex, reason: 'missing-source' }); // Debug: drag move guard
-      return { moved: false, fromIndex: -1, toIndex: -1 };
-    }
-    let desiredIndex = Number.isFinite(targetIndex) ? targetIndex : tabs.length;
-    desiredIndex = Math.max(0, Math.min(desiredIndex, tabs.length));
-    const [movedTab] = tabs.splice(fromIndex, 1);
-    let finalIndex = desiredIndex;
-    if (finalIndex > fromIndex) {
-      finalIndex -= 1;
-    }
-    tabs.splice(finalIndex, 0, movedTab);
-    const moved = fromIndex !== finalIndex;
-    console.debug('Debug: moveWorkspaceTab executed', {
-      tabId,
-      fromIndex,
-      requestedIndex: targetIndex,
-      finalIndex,
-      moved
-    }); // Debug: drag move trace
-    return { moved, fromIndex, toIndex: finalIndex };
+    return MainTabDrag.moveWorkspaceTab(getTabDragContext(), tabId, targetIndex);
   }
 
   function handleTabDragStart(event, tab) {
-    if (!tab || tab.isRenaming) {
-      if (!tab) {
-        console.debug('Debug: tab drag start skipped', { reason: 'missing-tab' }); // Debug: drag start guard
-      }
-      if (event && typeof event.preventDefault === 'function') {
-        event.preventDefault();
-      }
-      return;
-    }
-    const startIndex = workspaceState.tabs.indexOf(tab);
-    workspaceState.draggingTabId = tab.id;
-    workspaceState.dragStartIndex = startIndex;
-    workspaceState.dragOverTabId = null;
-    workspaceState.dragInsertBefore = true;
-    if (event?.dataTransfer) {
-      try {
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', tab.id);
-      } catch (transferErr) {
-        console.debug('Debug: tab drag dataTransfer setData failed', { error: transferErr?.message || transferErr }); // Debug: drag dataTransfer guard
-      }
-    }
-    applyTabDragClasses();
-    console.debug('Debug: workspace tab drag started', {
-      tabId: tab.id,
-      startIndex
-    }); // Debug: drag start trace
+    MainTabDrag.handleTabDragStart(getTabDragContext(), event, tab);
   }
 
   function handleTabDragEnd(event, tab) {
-    if (event?.dataTransfer) {
-      try {
-        event.dataTransfer.dropEffect = 'none';
-      } catch (transferErr) {
-        console.debug('Debug: tab drag end dropEffect clear failed', { error: transferErr?.message || transferErr }); // Debug: drag end dataTransfer guard
-      }
-    }
-    resetTabDragState('dragend');
-    if (tab) {
-      console.debug('Debug: workspace tab drag ended', { tabId: tab.id }); // Debug: drag end trace
-    }
+    MainTabDrag.handleTabDragEnd(getTabDragContext(), event, tab);
   }
 
   function handleTabDragOver(event, tab) {
-    if (!workspaceState.draggingTabId) {
-      return;
-    }
-    if (event && typeof event.preventDefault === 'function') {
-      event.preventDefault();
-    }
-    if (!tab) {
-      return;
-    }
-    const rect = event?.currentTarget?.getBoundingClientRect?.();
-    let insertBefore = true;
-    if (rect && typeof rect.width === 'number') {
-      const midpoint = rect.left + (rect.width / 2);
-      const clientX = typeof event?.clientX === 'number' ? event.clientX : midpoint;
-      insertBefore = clientX <= midpoint;
-    }
-    updateTabDragHover(tab.id, insertBefore, { reason: 'dragover' });
+    MainTabDrag.handleTabDragOver(getTabDragContext(), event, tab);
   }
 
   function handleTabDragLeave(event, tab) {
-    if (!workspaceState.draggingTabId || !tab) {
-      return;
-    }
-    const related = event?.relatedTarget || null;
-    const currentTarget = event?.currentTarget || null;
-    if (currentTarget && related && currentTarget.contains(related)) {
-      return;
-    }
-    if (workspaceState.dragOverTabId === tab.id) {
-      updateTabDragHover(null, false, { reason: 'dragleave' });
-    }
+    MainTabDrag.handleTabDragLeave(getTabDragContext(), event, tab);
   }
 
   function handleTabDrop(event, tab) {
-    if (!workspaceState.draggingTabId || !tab) {
-      return;
-    }
-    if (event && typeof event.preventDefault === 'function') {
-      event.preventDefault();
-    }
-    if (event && typeof event.stopPropagation === 'function') {
-      event.stopPropagation();
-    }
-    const rect = event?.currentTarget?.getBoundingClientRect?.();
-    let insertBefore = true;
-    if (rect && typeof rect.width === 'number') {
-      const midpoint = rect.left + (rect.width / 2);
-      const clientX = typeof event?.clientX === 'number' ? event.clientX : midpoint;
-      insertBefore = clientX <= midpoint;
-    }
-    const targetIndex = workspaceState.tabs.findIndex(item => item.id === tab.id);
-    const desiredIndex = insertBefore ? targetIndex : targetIndex + 1;
-    const moveResult = moveWorkspaceTab(workspaceState.draggingTabId, desiredIndex);
-    const dropReason = insertBefore ? 'drop-before' : 'drop-after';
-    resetTabDragState(dropReason);
-    renderTabs();
-    if (moveResult.moved) {
-      const order = workspaceState.tabs.map(item => item.id);
-      MainSession.markSessionDirty('tabs-reordered', {
-        reason: dropReason,
-        fromIndex: moveResult.fromIndex,
-        toIndex: moveResult.toIndex,
-        order
-      });
-      console.debug('Debug: workspace tabs reordered', {
-        reason: dropReason,
-        fromIndex: moveResult.fromIndex,
-        toIndex: moveResult.toIndex,
-        order
-      }); // Debug: drag drop reorder trace
-    } else {
-      console.debug('Debug: workspace tab drop without movement', {
-        reason: dropReason,
-        fromIndex: moveResult.fromIndex,
-        targetIndex
-      }); // Debug: drag drop no-op trace
-    }
+    MainTabDrag.handleTabDrop(getTabDragContext(), event, tab);
   }
 
   function handleTabListDragOver(event) {
-    if (!workspaceState.draggingTabId || !dom.tabsList) {
-      return;
-    }
-    if (event?.currentTarget !== dom.tabsList || event.target !== dom.tabsList) {
-      return;
-    }
-    if (typeof event.preventDefault === 'function') {
-      event.preventDefault();
-    }
-    updateTabDragHover(null, false, { reason: 'list-dragover' });
+    MainTabDrag.handleTabListDragOver(getTabDragContext(), event);
   }
 
   function handleTabListDrop(event) {
-    if (!workspaceState.draggingTabId || !dom.tabsList) {
-      return;
-    }
-    if (event?.currentTarget !== dom.tabsList || event.target !== dom.tabsList) {
-      return;
-    }
-    if (typeof event.preventDefault === 'function') {
-      event.preventDefault();
-    }
-    const moveResult = moveWorkspaceTab(workspaceState.draggingTabId, workspaceState.tabs.length);
-    resetTabDragState('drop-end');
-    renderTabs();
-    if (moveResult.moved) {
-      const order = workspaceState.tabs.map(item => item.id);
-      MainSession.markSessionDirty('tabs-reordered', {
-        reason: 'drop-end',
-        fromIndex: moveResult.fromIndex,
-        toIndex: moveResult.toIndex,
-        order
-      });
-      console.debug('Debug: workspace tabs reordered to end', {
-        reason: 'drop-end',
-        fromIndex: moveResult.fromIndex,
-        toIndex: moveResult.toIndex,
-        order
-      }); // Debug: drag drop end trace
-    } else {
-      console.debug('Debug: workspace tab drop end without movement', {
-        reason: 'drop-end',
-        fromIndex: moveResult.fromIndex
-      }); // Debug: drag drop end no-op trace
-    }
+    MainTabDrag.handleTabListDrop(getTabDragContext(), event);
   }
 
   function handleTabListDragLeave(event) {
-    if (!workspaceState.draggingTabId || !dom.tabsList) {
-      return;
-    }
-    if (event?.currentTarget !== dom.tabsList) {
-      return;
-    }
-    const related = event?.relatedTarget || null;
-    if (related && dom.tabsList.contains(related)) {
-      return;
-    }
-    updateTabDragHover(null, false, { reason: 'list-dragleave' });
+    MainTabDrag.handleTabListDragLeave(getTabDragContext(), event);
   }
 
   function renderTabs() {
