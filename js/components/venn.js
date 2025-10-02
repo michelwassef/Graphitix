@@ -19,6 +19,74 @@
   };
 
   /**
+   * Resolves an event binding target into an array of DOM nodes.
+   * Supports selector strings, direct elements, NodeLists, arrays, and
+   * lazy functions that return any of the above. Emits debug logs so tests
+   * can assert binding coverage when necessary.
+   * @param {string|Element|NodeList|Array|Function} target
+   * @returns {Element[]}
+   */
+  function resolveBindingTargets(target) {
+    if (typeof target === 'function') {
+      const resolved = target();
+      console.debug('Debug: venn resolveBindingTargets fn', { hasResolved: !!resolved }); // Debug: resolution via function
+      return resolveBindingTargets(resolved);
+    }
+    if (!target) {
+      console.debug('Debug: venn resolveBindingTargets empty', { target }); // Debug: guard for missing targets
+      return [];
+    }
+    if (typeof target === 'string') {
+      const nodes = Array.from(document.querySelectorAll(target));
+      console.debug('Debug: venn resolveBindingTargets selector', { selector: target, count: nodes.length }); // Debug: selector resolution
+      return nodes;
+    }
+    if (typeof NodeList !== 'undefined' && target instanceof NodeList) {
+      const nodes = Array.from(target).filter(Boolean);
+      console.debug('Debug: venn resolveBindingTargets nodeList', { count: nodes.length }); // Debug: NodeList resolution
+      return nodes;
+    }
+    if (typeof HTMLCollection !== 'undefined' && target instanceof HTMLCollection) {
+      const nodes = Array.from(target).filter(Boolean);
+      console.debug('Debug: venn resolveBindingTargets htmlCollection', { count: nodes.length }); // Debug: HTMLCollection resolution
+      return nodes;
+    }
+    if (Array.isArray(target)) {
+      const nodes = target.flatMap(item => resolveBindingTargets(item)).filter(Boolean);
+      console.debug('Debug: venn resolveBindingTargets array', { count: nodes.length }); // Debug: array resolution
+      return nodes;
+    }
+    if (target === document || target === window || (target instanceof Element)) {
+      console.debug('Debug: venn resolveBindingTargets element', { hasTarget: true }); // Debug: element resolution
+      return [target];
+    }
+    console.debug('Debug: venn resolveBindingTargets fallback', { targetType: typeof target }); // Debug: fallback resolution
+    return [];
+  }
+
+  /**
+   * Binds event listeners described by configuration entries. Each config can
+   * specify a selector, direct elements, or a resolver function for targets.
+   * Binding attempts are logged via console.debug to satisfy debugging
+   * instrumentation requirements.
+   * @param {Array<{selector?: string, elements?: any, type: string, handler: Function, options?: AddEventListenerOptions, label?: string}>} configs
+   */
+  function bindEventHandlers(configs) {
+    configs.forEach(cfg => {
+      const label = cfg.label || cfg.selector || 'anonymous';
+      const targets = resolveBindingTargets(cfg.elements || cfg.selector);
+      if (!targets.length) {
+        console.debug('Debug: venn bindEventHandlers skipped', { label, type: cfg.type }); // Debug: skipped binding
+        return;
+      }
+      targets.forEach(target => {
+        target.addEventListener(cfg.type, cfg.handler, cfg.options);
+      });
+      console.debug('Debug: venn bindEventHandlers attached', { label, type: cfg.type, count: targets.length }); // Debug: binding attachment
+    });
+  }
+
+  /**
    * @typedef {Object} VennInputCounts
    * @property {HTMLInputElement|null} nA - Numeric input for the size of set A.
    * @property {HTMLInputElement|null} nB - Numeric input for the size of set B.
@@ -1916,6 +1984,425 @@
     reader.readAsText(file);
   };
 
+  function handlePlainPaste(e) {
+    e.preventDefault();
+    const text = (e.clipboardData || global.clipboardData).getData('text/plain').replace(/\r/g, '').replace(/\u00A0/g, ' ');
+    document.execCommand('insertText', false, text);
+    console.debug('Debug: venn handlePlainPaste', { length: text.length }); // Debug: normalized paste text length
+  }
+
+  function handleOpacityInput() {
+    state.ui.inputs.opacityVal.textContent = state.ui.inputs.opacity.value;
+    refreshDiagram();
+    saveStylePrefs();
+    console.debug('Debug: venn handleOpacityInput', { value: state.ui.inputs.opacity.value }); // Debug: opacity slider change
+  }
+
+  function handleFontsizeInput() {
+    const raw = state.ui.inputs.fontsize.value;
+    if (state.ui.inputs.fontsize.dataset) {
+      state.ui.inputs.fontsize.dataset.fontBasePt = String(raw);
+      console.debug('Debug: venn font size base updated', { raw }); // Debug: manual slider update preserved
+    }
+    const fontInfo = resolveFontInfo(raw);
+    state.ui.inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : state.ui.inputs.fontsize.value;
+    chartStyle.renderFontSizeLabel({ element: state.ui.inputs.fontsizeVal, fontInfo, input: state.ui.inputs.fontsize });
+    console.debug('Debug: venn fontsize slider change', { raw, fontInfo });
+    refreshDiagram();
+    saveStylePrefs();
+  }
+
+  function handleColorInput() {
+    refreshDiagram();
+    saveStylePrefs();
+    console.debug('Debug: venn handleColorInput'); // Debug: color change trigger
+  }
+
+  function handleBorderColorInput() {
+    refreshDiagram();
+    saveStylePrefs();
+    console.debug('Debug: venn handleBorderColorInput'); // Debug: border color update
+  }
+
+  function handleBorderWidthInput() {
+    state.ui.inputs.borderWidthVal.textContent = state.ui.inputs.borderWidth.value;
+    refreshDiagram();
+    saveStylePrefs();
+    console.debug('Debug: venn handleBorderWidthInput', { value: state.ui.inputs.borderWidth.value }); // Debug: border width change
+  }
+
+  function createLabelInputHandler(id) {
+    return function labelInputHandler() {
+      const labels = {
+        A: state.ui.inputs.labelA.value || 'A',
+        B: state.ui.inputs.labelB.value || 'B',
+        C: state.ui.inputs.labelC.value || 'C'
+      };
+      updateColorLabels(labels);
+      updateRegionSelect(labels, state.analysis.lastCounts);
+      updateCountLabels(labels);
+      requestScheduledDraw(`label-input-${id}`);
+      console.debug('Debug: venn labelInputHandler', { id, labels }); // Debug: label input change
+    };
+  }
+
+  function handleCaseSensitiveChange() {
+    requestScheduledDraw('case-sensitive-toggle', 'lists');
+    console.debug('Debug: venn handleCaseSensitiveChange'); // Debug: case sensitivity toggle
+  }
+
+  function handleDelimiterChange() {
+    requestScheduledDraw('delimiter-change', 'lists');
+    console.debug('Debug: venn handleDelimiterChange'); // Debug: delimiter change
+  }
+
+  function initializeLabelState() {
+    const labels = {
+      A: state.ui.inputs.labelA.value || 'A',
+      B: state.ui.inputs.labelB.value || 'B',
+      C: state.ui.inputs.labelC.value || 'C'
+    };
+    updateColorLabels(labels);
+    updateRegionSelect(labels, state.analysis.lastCounts);
+    updateCountLabels(labels);
+    console.debug('Debug: venn initializeLabelState', { labels }); // Debug: initial label synchronization
+  }
+
+  function handleRegionSelectChange() {
+    populateRegion(state.ui.regionSelect.value);
+    console.debug('Debug: venn handleRegionSelectChange', { value: state.ui.regionSelect.value }); // Debug: region selection change
+  }
+
+  function handleDocumentClick(e) {
+    if (state.ui.tooltip && state.ui.tooltip.style.display === 'block' && !state.ui.tooltip.contains(e.target)) {
+      state.ui.tooltip.style.display = 'none';
+      console.debug('Debug: venn handleDocumentClick hideTooltip'); // Debug: tooltip dismissed via document click
+    }
+  }
+
+  function handleCopyRegionClick() {
+    const text = getRegionText(state.ui.regionSelect.value);
+    navigator.clipboard.writeText(text).catch(() => { });
+    console.debug('Debug: venn handleCopyRegionClick', { length: text.length }); // Debug: copy region length
+  }
+
+  function createToggleHandler(targetEl, label) {
+    return function toggleHandler() {
+      const show = targetEl.style.display === 'none';
+      targetEl.style.display = show ? 'block' : 'none';
+      console.debug('Debug: venn toggleHandler', { label, show }); // Debug: toggle state change
+    };
+  }
+
+  function createListInputHandler(key) {
+    return function listInputHandler() {
+      if (state.ui.speciesSelect) { state.ui.speciesSelect.value = ''; }
+      setSpeciesIndicator(null);
+      requestScheduledDraw(`list-input-${key}`, 'lists');
+      console.debug('Debug: venn listInputHandler', { key }); // Debug: list input change
+    };
+  }
+
+  function createNumericInputHandler(key) {
+    return function numericInputHandler() {
+      requestScheduledDraw(`numeric-input-${key}`, 'numeric');
+      console.debug('Debug: venn numericInputHandler', { key }); // Debug: numeric input change
+    };
+  }
+
+  async function handleRegionListMouseover(e) {
+    const link = e.target.closest('.gene-link');
+    if (link && state.ui.regionList.contains(link)) {
+      const gene = link.dataset.gene;
+      const fn = await fetchUniProtAnnotation(gene);
+      if (state.ui.tooltip) {
+        state.ui.tooltip.innerHTML = fn ? `<strong>${gene}</strong><br>${fn}` : `<strong>${gene}</strong><br><i>Function not found</i>`;
+        state.ui.tooltip.style.fontSize = '12px';
+        state.ui.tooltip.style.maxHeight = 'none';
+        state.ui.tooltip.style.overflow = 'visible';
+        state.ui.tooltip.style.columnCount = 1;
+        state.ui.tooltip.style.columnWidth = 'auto';
+        state.ui.tooltip.style.columnGap = '0';
+        state.ui.tooltip.style.width = 'auto';
+        state.ui.tooltip.style.height = 'auto';
+        state.ui.tooltip.style.whiteSpace = 'normal';
+        let left = e.pageX + 8;
+        let top = e.pageY + 8;
+        state.ui.tooltip.style.left = left + 'px';
+        state.ui.tooltip.style.top = top + 'px';
+        state.ui.tooltip.style.display = 'block';
+        requestAnimationFrame(() => {
+          const w = state.ui.tooltip.scrollWidth;
+          const h = state.ui.tooltip.scrollHeight;
+          state.ui.tooltip.style.width = w + 'px';
+          state.ui.tooltip.style.height = h + 'px';
+          positionTooltip(left, top);
+        });
+        console.debug('Debug: venn handleRegionListMouseover', { gene, hasFn: !!fn }); // Debug: tooltip gene lookup
+      }
+    }
+  }
+
+  function handleRegionListMouseout(e) {
+    const link = e.target.closest('.gene-link');
+    if (link && state.ui.regionList.contains(link) && state.ui.tooltip) {
+      state.ui.tooltip.style.display = 'none';
+      console.debug('Debug: venn handleRegionListMouseout', { gene: link.dataset.gene }); // Debug: tooltip mouseout
+    }
+  }
+
+  async function handleRegionListClick(e) {
+    const link = e.target.closest('.gene-link');
+    if (link && state.ui.regionList.contains(link)) {
+      const gene = link.dataset.gene;
+      const taxId = state.ui.speciesSelect?.selectedOptions[0]?.dataset.string || '9606';
+      const fallbackUrl = `https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
+      let targetUrl = fallbackUrl;
+      const service = Shared.uniprot;
+      if (service && typeof service.resolveEntryUrl === 'function') {
+        try {
+          const lookup = await service.resolveEntryUrl({ gene, organismTaxId: taxId, fetch });
+          if (lookup) {
+            targetUrl = lookup.entryUrl || lookup.fallbackUrl || fallbackUrl;
+            debugLog('geneLink navigate', { gene, taxId, accession: lookup.accession || null, targetUrl }); // Debug: gene link navigation result
+          }
+        } catch (err) {
+          debugLog('geneLink navigateError', { gene, message: err && err.message }); // Debug: gene link navigation error
+        }
+      }
+      window.open(targetUrl, '_blank', 'noopener');
+    }
+  }
+
+  function handleGoBtnMouseEnter() {
+    if (!state.ui.tooltip || !state.ui.goBtn) { return; }
+    const goBtnTip = 'Sends the selected species and gene list to g:Profiler GOSt, returns all GO categories and default sources, and displays the top five terms by significance.';
+    state.ui.tooltip.innerHTML = goBtnTip;
+    state.ui.tooltip.style.fontSize = '12px';
+    state.ui.tooltip.style.maxHeight = 'none';
+    state.ui.tooltip.style.overflow = 'visible';
+    state.ui.tooltip.style.columnCount = 1;
+    state.ui.tooltip.style.columnWidth = 'auto';
+    state.ui.tooltip.style.width = 'max-content';
+    state.ui.tooltip.style.height = 'auto';
+    state.ui.tooltip.style.visibility = 'hidden';
+    state.ui.tooltip.style.display = 'block';
+    const rect = state.ui.goBtn.getBoundingClientRect();
+    let left = rect.right + window.scrollX + 8;
+    let top = rect.top + window.scrollY;
+    state.ui.tooltip.style.left = left + 'px';
+    state.ui.tooltip.style.top = top + 'px';
+    positionTooltip(left, top);
+    let tRect = state.ui.tooltip.getBoundingClientRect();
+    const overlaps = !(tRect.right < rect.left || tRect.left > rect.right || tRect.bottom < rect.top || tRect.top > rect.bottom);
+    if (overlaps) {
+      left = rect.left + window.scrollX;
+      top = rect.bottom + window.scrollY + 8;
+      state.ui.tooltip.style.left = left + 'px';
+      state.ui.tooltip.style.top = top + 'px';
+      positionTooltip(left, top);
+      tRect = state.ui.tooltip.getBoundingClientRect();
+      const stillOverlap = !(tRect.right < rect.left || tRect.left > rect.right || tRect.bottom < rect.top || tRect.top > rect.bottom);
+      if (stillOverlap) {
+        top = rect.top + window.scrollY - tRect.height - 8;
+        state.ui.tooltip.style.left = left + 'px';
+        state.ui.tooltip.style.top = top + 'px';
+        positionTooltip(left, top);
+      }
+    }
+    state.ui.tooltip.style.visibility = 'visible';
+    console.debug('Debug: venn handleGoBtnMouseEnter'); // Debug: GO tooltip shown
+  }
+
+  function handleGoBtnMouseLeave() {
+    if (state.ui.tooltip) {
+      state.ui.tooltip.style.display = 'none';
+      console.debug('Debug: venn handleGoBtnMouseLeave'); // Debug: GO tooltip hidden
+    }
+  }
+
+  function handleGoResultsClick(e) {
+    if (e.target.id === 'toggleGoResults') {
+      const stateAttr = e.target.dataset.state;
+      if (stateAttr === 'top5') { renderGOResults(state.analysis.lastGOResult.length); }
+      else { renderGOResults(5); }
+      console.debug('Debug: venn handleGoResultsClick', { stateAttr }); // Debug: GO results toggle
+    }
+  }
+
+  function handleCalcSignificanceClick() {
+    console.debug('Debug: venn significance click');
+    calculateSignificance();
+  }
+
+  async function handleGoButtonClick() {
+    try {
+      const regionGenes = (getRegionText(state.ui.regionSelect.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
+      let organism = state.ui.speciesSelect.value;
+      if (!organism) {
+        const allGenes = getAllGenes();
+        const guess = allGenes.length ? await guessSpecies(allGenes) : null;
+        if (guess) {
+          state.ui.speciesSelect.value = organism = guess;
+          setSpeciesIndicator(true);
+        } else {
+          setSpeciesIndicator(false);
+          alert('Please select a species before running GO analysis.');
+          return;
+        }
+      }
+      runGOAnalysis(regionGenes, organism);
+      console.debug('Debug: venn handleGoButtonClick', { geneCount: regionGenes.length, organism }); // Debug: GO click payload
+    } catch (err) { console.error('goBtn error', err); }
+  }
+
+  async function handleStringButtonClick() {
+    try {
+      const regionGenes = (getRegionText(state.ui.regionSelect.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
+      let organism = state.ui.speciesSelect.value;
+      if (!organism) {
+        const allGenes = getAllGenes();
+        const guess = allGenes.length ? await guessSpecies(allGenes) : null;
+        if (guess) {
+          state.ui.speciesSelect.value = organism = guess;
+          setSpeciesIndicator(true);
+        } else {
+          setSpeciesIndicator(false);
+          alert('Please select a species before running STRING analysis.');
+          return;
+        }
+      }
+      runStringAnalysis(regionGenes, organism);
+      console.debug('Debug: venn handleStringButtonClick', { geneCount: regionGenes.length, organism }); // Debug: STRING click payload
+    } catch (err) { console.error('stringBtn error', err); }
+  }
+
+  function handleGoBtnTooltipLeave() {
+    handleGoBtnMouseLeave();
+  }
+
+  function handleDrawClick() {
+    state.analysis.lastDrawMode = 'lists';
+    drawFromLists();
+    console.debug('Debug: venn handleDrawClick'); // Debug: manual draw invocation
+  }
+
+  function handleUseNumericClick() {
+    state.analysis.lastDrawMode = 'numeric';
+    drawFromNumeric();
+    console.debug('Debug: venn handleUseNumericClick'); // Debug: numeric draw invocation
+  }
+
+  function handleGraphFileChange(e) {
+    const f = e.target.files[0];
+    if (f) {
+      state.persistence.fileName = f.name;
+      state.persistence.fileHandle = null;
+      venn.loadFromFile(f);
+      console.debug('Debug: venn handleGraphFileChange', { fileName: f.name }); // Debug: graph file change
+    }
+  }
+
+  function handleSampleClick() {
+    state.ui.inputs.labelA.value = 'Transcriptomic';
+    state.ui.inputs.labelB.value = 'Proteomic';
+    state.ui.inputs.labelC.value = 'Phospho';
+    state.ui.inputs.A.value = `BRCA1\nATM\nBAP1\nEZH2\nSUZ12\nRING1B`;
+    state.ui.inputs.B.value = `BRCA1\nBAP1\nRING1B\nCBX2\nHDAC1\nPAXIP1\nHUWE1`;
+    state.ui.inputs.C.value = `BRCA1\nPAXIP1\nCSNK2A1\nRING1B\nKAT7`;
+    state.analysis.lastDrawMode = 'lists';
+    refreshDiagram();
+    console.debug('Debug: venn handleSampleClick'); // Debug: sample data loaded
+  }
+
+  function handleResetClick() {
+    console.debug('Debug: venn reset handler invoked');
+    state.ui.inputs.A.value = '';
+    state.ui.inputs.B.value = '';
+    state.ui.inputs.C.value = '';
+    Object.values(state.ui.inputs.counts).forEach(x => x.value = 0);
+    clearSVG();
+    state.analysis.lastRegions = null;
+    state.analysis.lastDrawMode = null;
+    state.analysis.lastCounts = null;
+    if (state.ui.regionList) state.ui.regionList.textContent = '';
+    Object.values(state.ui.countsUI || {}).forEach(el => { if (el) el.textContent = '0'; });
+    const defaultLabels = { A: 'A', B: 'B', C: 'C' };
+    updateCountLabels(defaultLabels);
+    updateColorLabels(defaultLabels);
+    updateRegionSelect(defaultLabels, null);
+    clearAnalysis();
+    if (state.ui.speciesSelect) state.ui.speciesSelect.value = '';
+    setSpeciesIndicator(null);
+    if (state.ui.totalGenesInput) state.ui.totalGenesInput.value = '';
+    if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
+    debugLog('reset handler completed', { defaultLabels });
+  }
+
+  function registerEventHandlers() {
+    const inputs = state.ui.inputs;
+    bindEventHandlers([
+      { elements: [inputs.A, inputs.B, inputs.C], type: 'paste', handler: handlePlainPaste, label: 'plain-paste' },
+      { elements: inputs.opacity, type: 'input', handler: handleOpacityInput, label: 'opacity' },
+      { elements: inputs.fontsize, type: 'input', handler: handleFontsizeInput, label: 'fontsize' },
+      { elements: [inputs.colorA, inputs.colorB, inputs.colorC], type: 'input', handler: handleColorInput, label: 'fill-colors' },
+      { elements: inputs.borderColor, type: 'input', handler: handleBorderColorInput, label: 'border-color' },
+      { elements: inputs.borderWidth, type: 'input', handler: handleBorderWidthInput, label: 'border-width' },
+      { elements: inputs.caseSensitive, type: 'change', handler: handleCaseSensitiveChange, label: 'case-sensitive' },
+      { elements: inputs.delimiter, type: 'change', handler: handleDelimiterChange, label: 'delimiter' },
+      { elements: state.ui.regionSelect, type: 'change', handler: handleRegionSelectChange, label: 'region-select' },
+      { elements: document, type: 'click', handler: handleDocumentClick, label: 'document-click' },
+      { elements: state.ui.copyRegionBtn, type: 'click', handler: handleCopyRegionClick, label: 'copy-region' },
+      { elements: state.ui.goBtn, type: 'click', handler: handleGoButtonClick, label: 'go-run' },
+      { elements: state.ui.stringBtn, type: 'click', handler: handleStringButtonClick, label: 'string-run' },
+      { elements: state.ui.goBtn, type: 'mouseenter', handler: handleGoBtnMouseEnter, label: 'go-tooltip-enter' },
+      { elements: state.ui.goBtn, type: 'mouseleave', handler: handleGoBtnTooltipLeave, label: 'go-tooltip-leave' },
+      { elements: state.ui.goResults, type: 'click', handler: handleGoResultsClick, label: 'go-results' },
+      { elements: state.ui.calcSignificanceBtn, type: 'click', handler: handleCalcSignificanceClick, label: 'significance' },
+      { selector: '#draw', type: 'click', handler: handleDrawClick, label: 'draw-btn' },
+      { selector: '#useNumeric', type: 'click', handler: handleUseNumericClick, label: 'use-numeric' },
+      { selector: '#openVenn', type: 'click', handler: venn.open, label: 'open-venn' },
+      { selector: '#saveVenn', type: 'click', handler: venn.save, label: 'save-venn' },
+      { selector: '#saveAsVenn', type: 'click', handler: venn.saveAs, label: 'saveas-venn' },
+      { selector: '#vennGraphFile', type: 'change', handler: handleGraphFileChange, label: 'graph-file' },
+      { selector: '#sample', type: 'click', handler: handleSampleClick, label: 'sample' },
+      { selector: '#reset', type: 'click', handler: handleResetClick, label: 'reset' }
+    ]);
+
+    ['labelA', 'labelB', 'labelC'].forEach(id => {
+      bindEventHandlers([{ elements: inputs[id], type: 'input', handler: createLabelInputHandler(id), label: `${id}-input` }]);
+    });
+
+    ['A', 'B', 'C'].forEach(key => {
+      bindEventHandlers([{ elements: inputs[key], type: 'input', handler: createListInputHandler(key), label: `list-${key}` }]);
+    });
+
+    Object.entries(inputs.counts).forEach(([key, el]) => {
+      bindEventHandlers([{ elements: el, type: 'input', handler: createNumericInputHandler(key), label: `numeric-${key}` }]);
+    });
+
+    if (state.ui.goOptsBtn && state.ui.goOptions) {
+      bindEventHandlers([{ elements: state.ui.goOptsBtn, type: 'click', handler: createToggleHandler(state.ui.goOptions, 'go-options'), label: 'go-options-toggle' }]);
+    }
+    if (state.ui.stringOptsBtn && state.ui.stringOptions) {
+      bindEventHandlers([{ elements: state.ui.stringOptsBtn, type: 'click', handler: createToggleHandler(state.ui.stringOptions, 'string-options'), label: 'string-options-toggle' }]);
+    }
+
+    if (state.ui.copyRegionBtn && !navigator.clipboard) {
+      console.debug('Debug: venn copyRegionBtn clipboard fallback', { hasClipboard: !!navigator.clipboard }); // Debug: clipboard capability check
+    }
+
+    if (state.ui.regionList) {
+      bindEventHandlers([
+        { elements: state.ui.regionList, type: 'mouseover', handler: handleRegionListMouseover, label: 'region-list-mouseover' },
+        { elements: state.ui.regionList, type: 'mouseout', handler: handleRegionListMouseout, label: 'region-list-mouseout' },
+        { elements: state.ui.regionList, type: 'click', handler: handleRegionListClick, label: 'region-list-click' }
+      ]);
+    }
+
+    console.debug('Debug: venn registerEventHandlers complete'); // Debug: event registration finished
+  }
+
   venn.init = function init() {
     if (venn.ready) { debugLog('init skipped'); return; }
     const freshState = createInitialState();
@@ -2028,307 +2515,9 @@
     } else {
       console.debug('Debug: string export controls unavailable', { hasExporter: !!exporter }); // Debug: string export fallback
     }
-    const handlePlainPaste = e => {
-      e.preventDefault();
-      const text = (e.clipboardData || global.clipboardData).getData('text/plain').replace(/\r/g, '').replace(/\u00A0/g, ' ');
-      document.execCommand('insertText', false, text);
-    };
-    [state.ui.inputs.A, state.ui.inputs.B, state.ui.inputs.C].forEach(el => el && el.addEventListener('paste', handlePlainPaste));
     loadStylePrefs();
-    state.ui.inputs.opacity.addEventListener('input', () => { state.ui.inputs.opacityVal.textContent = state.ui.inputs.opacity.value; refreshDiagram(); saveStylePrefs(); });
-    state.ui.inputs.fontsize.addEventListener('input', () => {
-      const raw = state.ui.inputs.fontsize.value;
-      if(state.ui.inputs.fontsize.dataset){
-        state.ui.inputs.fontsize.dataset.fontBasePt = String(raw);
-        console.debug('Debug: venn font size base updated', { raw }); // Debug: manual slider update
-      }
-      const fontInfo = resolveFontInfo(raw);
-      state.ui.inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : state.ui.inputs.fontsize.value;
-      chartStyle.renderFontSizeLabel({ element: state.ui.inputs.fontsizeVal, fontInfo, input: state.ui.inputs.fontsize });
-      console.debug('Debug: venn fontsize slider change', { raw, fontInfo });
-      refreshDiagram();
-      saveStylePrefs();
-    });
-    ['colorA', 'colorB', 'colorC'].forEach(id => { state.ui.inputs[id].addEventListener('input', () => { refreshDiagram(); saveStylePrefs(); }); });
-    state.ui.inputs.borderColor.addEventListener('input', () => { refreshDiagram(); saveStylePrefs(); });
-    state.ui.inputs.borderWidth.addEventListener('input', () => { state.ui.inputs.borderWidthVal.textContent = state.ui.inputs.borderWidth.value; refreshDiagram(); saveStylePrefs(); });
-    ['labelA', 'labelB', 'labelC'].forEach(id => {
-      state.ui.inputs[id].addEventListener('input', () => {
-        const labels = { A: state.ui.inputs.labelA.value || 'A', B: state.ui.inputs.labelB.value || 'B', C: state.ui.inputs.labelC.value || 'C' };
-        updateColorLabels(labels);
-        updateRegionSelect(labels, state.analysis.lastCounts);
-        updateCountLabels(labels);
-        requestScheduledDraw(`label-input-${id}`);
-      });
-    });
-    if (state.ui.inputs.caseSensitive) {
-      state.ui.inputs.caseSensitive.addEventListener('change', () => { requestScheduledDraw('case-sensitive-toggle', 'lists'); });
-    }
-    if (state.ui.inputs.delimiter) {
-      state.ui.inputs.delimiter.addEventListener('change', () => { requestScheduledDraw('delimiter-change', 'lists'); });
-    }
-    {
-      const labels = { A: state.ui.inputs.labelA.value || 'A', B: state.ui.inputs.labelB.value || 'B', C: state.ui.inputs.labelC.value || 'C' };
-      updateColorLabels(labels);
-      updateRegionSelect(labels, state.analysis.lastCounts);
-      updateCountLabels(labels);
-    }
-    if (state.ui.regionSelect) {
-      state.ui.regionSelect.addEventListener('change', () => { populateRegion(state.ui.regionSelect.value); });
-    }
-    document.addEventListener('click', e => {
-      if (state.ui.tooltip && state.ui.tooltip.style.display === 'block' && !state.ui.tooltip.contains(e.target)) {
-        state.ui.tooltip.style.display = 'none';
-      }
-    });
-    if (state.ui.copyRegionBtn) {
-      state.ui.copyRegionBtn.addEventListener('click', () => {
-        const text = getRegionText(state.ui.regionSelect.value);
-        navigator.clipboard.writeText(text).catch(() => { });
-      });
-    }
-    if (state.ui.goOptsBtn && state.ui.goOptions) {
-      state.ui.goOptsBtn.addEventListener('click', () => {
-        const show = state.ui.goOptions.style.display === 'none';
-        state.ui.goOptions.style.display = show ? 'block' : 'none';
-      });
-    }
-    if (state.ui.stringOptsBtn && state.ui.stringOptions) {
-      state.ui.stringOptsBtn.addEventListener('click', () => {
-        const show = state.ui.stringOptions.style.display === 'none';
-        state.ui.stringOptions.style.display = show ? 'block' : 'none';
-      });
-    }
-    ['A', 'B', 'C'].forEach(k => {
-      state.ui.inputs[k].addEventListener('input', () => {
-        if (state.ui.speciesSelect) { state.ui.speciesSelect.value = ''; }
-        setSpeciesIndicator(null);
-        requestScheduledDraw(`list-input-${k}`, 'lists');
-      });
-    });
-    Object.entries(state.ui.inputs.counts).forEach(([key, el]) => {
-      if (el) {
-        el.addEventListener('input', () => {
-          requestScheduledDraw(`numeric-input-${key}`, 'numeric');
-        });
-      }
-    });
-    if (state.ui.regionList) {
-      state.ui.regionList.addEventListener('mouseover', async e => {
-        const link = e.target.closest('.gene-link');
-        if (link && state.ui.regionList.contains(link)) {
-          const gene = link.dataset.gene;
-          const fn = await fetchUniProtAnnotation(gene);
-          if (state.ui.tooltip) {
-            state.ui.tooltip.innerHTML = fn ? `<strong>${gene}</strong><br>${fn}` : `<strong>${gene}</strong><br><i>Function not found</i>`;
-            state.ui.tooltip.style.fontSize = '12px';
-            state.ui.tooltip.style.maxHeight = 'none';
-            state.ui.tooltip.style.overflow = 'visible';
-            state.ui.tooltip.style.columnCount = 1;
-            state.ui.tooltip.style.columnWidth = 'auto';
-            state.ui.tooltip.style.columnGap = '0';
-            state.ui.tooltip.style.width = 'auto';
-            state.ui.tooltip.style.height = 'auto';
-            state.ui.tooltip.style.whiteSpace = 'normal';
-            let left = e.pageX + 8;
-            let top = e.pageY + 8;
-            state.ui.tooltip.style.left = left + 'px';
-            state.ui.tooltip.style.top = top + 'px';
-            state.ui.tooltip.style.display = 'block';
-            requestAnimationFrame(() => {
-              const w = state.ui.tooltip.scrollWidth;
-              const h = state.ui.tooltip.scrollHeight;
-              state.ui.tooltip.style.width = w + 'px';
-              state.ui.tooltip.style.height = h + 'px';
-              positionTooltip(left, top);
-            });
-          }
-        }
-      });
-      state.ui.regionList.addEventListener('mouseout', e => {
-        const link = e.target.closest('.gene-link');
-        if (link && state.ui.regionList.contains(link) && state.ui.tooltip) {
-          state.ui.tooltip.style.display = 'none';
-        }
-      });
-      state.ui.regionList.addEventListener('click', async e => {
-        const link = e.target.closest('.gene-link');
-        if (link && state.ui.regionList.contains(link)) {
-          const gene = link.dataset.gene;
-          const taxId = state.ui.speciesSelect?.selectedOptions[0]?.dataset.string || '9606';
-          const fallbackUrl = `https://www.uniprot.org/uniprotkb?query=gene_exact:${encodeURIComponent(gene)}+AND+reviewed:true`;
-          let targetUrl = fallbackUrl;
-          const service = Shared.uniprot;
-          if (service && typeof service.resolveEntryUrl === 'function') {
-            try {
-              const lookup = await service.resolveEntryUrl({ gene, organismTaxId: taxId, fetch });
-              if (lookup) {
-                targetUrl = lookup.entryUrl || lookup.fallbackUrl || fallbackUrl;
-                debugLog('geneLink navigate', { gene, taxId, accession: lookup.accession || null, targetUrl }); // Debug: gene link navigation result
-              }
-            } catch (err) {
-              debugLog('geneLink navigateError', { gene, message: err && err.message }); // Debug: gene link navigation error
-            }
-          }
-          window.open(targetUrl, '_blank', 'noopener');
-        }
-      });
-    }
-    if (state.ui.goBtn && state.ui.tooltip) {
-      const goBtnTip = 'Sends the selected species and gene list to g:Profiler GOSt, returns all GO categories and default sources, and displays the top five terms by significance.';
-      state.ui.goBtn.addEventListener('mouseenter', () => {
-        state.ui.tooltip.innerHTML = goBtnTip;
-        state.ui.tooltip.style.fontSize = '12px';
-        state.ui.tooltip.style.maxHeight = 'none';
-        state.ui.tooltip.style.overflow = 'visible';
-        state.ui.tooltip.style.columnCount = 1;
-        state.ui.tooltip.style.columnWidth = 'auto';
-        state.ui.tooltip.style.width = 'max-content';
-        state.ui.tooltip.style.height = 'auto';
-        state.ui.tooltip.style.visibility = 'hidden';
-        state.ui.tooltip.style.display = 'block';
-        const rect = state.ui.goBtn.getBoundingClientRect();
-        let left = rect.right + window.scrollX + 8;
-        let top = rect.top + window.scrollY;
-        state.ui.tooltip.style.left = left + 'px';
-        state.ui.tooltip.style.top = top + 'px';
-        positionTooltip(left, top);
-        let tRect = state.ui.tooltip.getBoundingClientRect();
-        const overlaps = !(tRect.right < rect.left || tRect.left > rect.right || tRect.bottom < rect.top || tRect.top > rect.bottom);
-        if (overlaps) {
-          left = rect.left + window.scrollX;
-          top = rect.bottom + window.scrollY + 8;
-          state.ui.tooltip.style.left = left + 'px';
-          state.ui.tooltip.style.top = top + 'px';
-          positionTooltip(left, top);
-          tRect = state.ui.tooltip.getBoundingClientRect();
-          const stillOverlap = !(tRect.right < rect.left || tRect.left > rect.right || tRect.bottom < rect.top || tRect.top > rect.bottom);
-          if (stillOverlap) {
-            top = rect.top + window.scrollY - tRect.height - 8;
-            state.ui.tooltip.style.left = left + 'px';
-            state.ui.tooltip.style.top = top + 'px';
-            positionTooltip(left, top);
-          }
-        }
-        state.ui.tooltip.style.visibility = 'visible';
-      });
-      state.ui.goBtn.addEventListener('mouseleave', () => {
-        state.ui.tooltip.style.display = 'none';
-      });
-    }
-    if (state.ui.goResults) {
-      state.ui.goResults.addEventListener('click', e => {
-        if (e.target.id === 'toggleGoResults') {
-          const stateAttr = e.target.dataset.state;
-          if (stateAttr === 'top5') { renderGOResults(state.analysis.lastGOResult.length); }
-          else { renderGOResults(5); }
-        }
-      });
-    }
-    if (state.ui.calcSignificanceBtn) {
-      state.ui.calcSignificanceBtn.addEventListener('click', () => {
-        console.debug('Debug: venn significance click');
-        calculateSignificance();
-      });
-    }
-    if (state.ui.goBtn) {
-      state.ui.goBtn.addEventListener('click', async () => {
-        try {
-          const regionGenes = (getRegionText(state.ui.regionSelect.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
-          let organism = state.ui.speciesSelect.value;
-          if (!organism) {
-            const allGenes = getAllGenes();
-            const guess = allGenes.length ? await guessSpecies(allGenes) : null;
-            if (guess) {
-              state.ui.speciesSelect.value = organism = guess;
-              setSpeciesIndicator(true);
-            } else {
-              setSpeciesIndicator(false);
-              alert('Please select a species before running GO analysis.');
-              return;
-            }
-          }
-          runGOAnalysis(regionGenes, organism);
-        } catch (err) { console.error('goBtn error', err); }
-      });
-    }
-    if (state.ui.stringBtn) {
-      state.ui.stringBtn.addEventListener('click', async () => {
-        try {
-          const regionGenes = (getRegionText(state.ui.regionSelect.value) || '').split(/\n/).map(g => g.trim()).filter(Boolean);
-          let organism = state.ui.speciesSelect.value;
-          if (!organism) {
-            const allGenes = getAllGenes();
-            const guess = allGenes.length ? await guessSpecies(allGenes) : null;
-            if (guess) {
-              state.ui.speciesSelect.value = organism = guess;
-              setSpeciesIndicator(true);
-            } else {
-              setSpeciesIndicator(false);
-              alert('Please select a species before running STRING analysis.');
-              return;
-            }
-          }
-          runStringAnalysis(regionGenes, organism);
-        } catch (err) { console.error('stringBtn error', err); }
-      });
-    }
-    const drawBtn = document.getElementById('draw');
-    const useNumericBtn = document.getElementById('useNumeric');
-    if (drawBtn) drawBtn.addEventListener('click', () => { state.analysis.lastDrawMode = 'lists'; drawFromLists(); });
-    if (useNumericBtn) useNumericBtn.addEventListener('click', () => { state.analysis.lastDrawMode = 'numeric'; drawFromNumeric(); });
-    const openBtn = document.getElementById('openVenn');
-    const saveBtn = document.getElementById('saveVenn');
-    const saveAsBtn = document.getElementById('saveAsVenn');
-    if (openBtn) openBtn.addEventListener('click', venn.open);
-    if (saveBtn) saveBtn.addEventListener('click', venn.save);
-    if (saveAsBtn) saveAsBtn.addEventListener('click', venn.saveAs);
-    const fileInput = document.getElementById('vennGraphFile');
-    if (fileInput) {
-      fileInput.addEventListener('change', e => {
-        const f = e.target.files[0];
-        if (f) { state.persistence.fileName = f.name; state.persistence.fileHandle = null; venn.loadFromFile(f); }
-      });
-    }
-    const sampleBtn = document.getElementById('sample');
-    if (sampleBtn) {
-      sampleBtn.addEventListener('click', () => {
-        state.ui.inputs.labelA.value = 'Transcriptomic';
-        state.ui.inputs.labelB.value = 'Proteomic';
-        state.ui.inputs.labelC.value = 'Phospho';
-        state.ui.inputs.A.value = `BRCA1\nATM\nBAP1\nEZH2\nSUZ12\nRING1B`;
-        state.ui.inputs.B.value = `BRCA1\nBAP1\nRING1B\nCBX2\nHDAC1\nPAXIP1\nHUWE1`;
-        state.ui.inputs.C.value = `BRCA1\nPAXIP1\nCSNK2A1\nRING1B\nKAT7`;
-        state.analysis.lastDrawMode = 'lists';
-        refreshDiagram();
-      });
-    }
-    const resetBtn = document.getElementById('reset');
-    if (resetBtn) {
-      resetBtn.addEventListener('click', () => {
-        console.debug('Debug: venn reset handler invoked');
-        state.ui.inputs.A.value = '';
-        state.ui.inputs.B.value = '';
-        state.ui.inputs.C.value = '';
-        Object.values(state.ui.inputs.counts).forEach(x => x.value = 0);
-        clearSVG();
-        state.analysis.lastRegions = null;
-        state.analysis.lastDrawMode = null;
-        state.analysis.lastCounts = null;
-        if (state.ui.regionList) state.ui.regionList.textContent = '';
-        Object.values(state.ui.countsUI || {}).forEach(el => { if (el) el.textContent = '0'; });
-        const defaultLabels = { A: 'A', B: 'B', C: 'C' };
-        updateCountLabels(defaultLabels);
-        updateColorLabels(defaultLabels);
-        updateRegionSelect(defaultLabels, null);
-        clearAnalysis();
-        if (state.ui.speciesSelect) state.ui.speciesSelect.value = '';
-        setSpeciesIndicator(null);
-        if (state.ui.totalGenesInput) state.ui.totalGenesInput.value = '';
-        if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
-        debugLog('reset handler completed', { defaultLabels });
-      });
-    }
+    registerEventHandlers();
+    initializeLabelState();
     venn.ready = true;
     debugLog('init complete');
   };
