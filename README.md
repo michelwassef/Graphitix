@@ -76,6 +76,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Switch between box, notched box, or bar charts; toggle whisker caps; and control overlay or side-by-side point displays.【F:index.html†L360-L408】
 - Apply unified or per-series color palettes, log-scale the Y axis, and clamp axis ranges for publication-ready aesthetics.【F:index.html†L340-L392】
 - Use the statistics panel to configure comparison modes (all pairwise, reference vs. others, or custom) and run parametric (t-test) or non-parametric (Mann–Whitney U) analyses in paired or unpaired settings. Results render in both summary text and tabular form beneath the plot.【F:index.html†L392-L408】
+- Inspect accompanying effect sizes for every comparison, with configurable parametric (e.g., Cohen's d or Hedges' g) and non-parametric (rank-biserial r or common language probability) metrics persisted alongside significance results.【F:js/components/box.js†L2506-L2710】
 
 ### Scatter Plot Explorer
 - Import paired or multi-series data, then adjust dot size, fill, transparency, borders, and per-label color palettes.【F:index.html†L408-L456】
