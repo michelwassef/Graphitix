@@ -54,12 +54,17 @@
     return (Array.isArray(columns) ? columns : []).map((col, index) => {
       const key = col && col.key != null ? col.key : index;
       const align = (col && col.align) ? String(col.align) : (col && col.numeric ? 'right' : 'left');
+      const tooltip = col && col.tooltip != null ? String(col.tooltip) : '';
       const normalized = {
         key,
         label: col && col.label != null ? String(col.label) : '',
         align: align === 'center' ? 'center' : (align === 'right' ? 'right' : 'left'),
-        formatter: typeof col?.formatter === 'function' ? col.formatter : null
+        formatter: typeof col?.formatter === 'function' ? col.formatter : null,
+        tooltip
       };
+      if(tooltip){
+        logDebug('normalizeColumns tooltip',{ key, tooltip });
+      }
       return normalized;
     });
   };
@@ -326,6 +331,10 @@
       const th = doc.createElement('th');
       th.className = `stats-table__cell stats-table__header stats-table__cell--${col.align}`;
       th.textContent = col.label;
+      if(col.tooltip){
+        th.title = col.tooltip;
+        th.dataset.tooltip = col.tooltip;
+      }
       headRow.appendChild(th);
     });
     thead.appendChild(headRow);

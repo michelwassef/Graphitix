@@ -344,8 +344,184 @@
       console.debug('Debug: box markFontEditable', payload); // Debug: font target tagging summary
     }
   };
+  const EFFECT_SIZE_PARAM_OPTIONS=[
+    { value:'cohenD', label:"Cohen's d", shortLabel:"Cohen's d", tooltip:"Difference in means scaled by the pooled standard deviation.", format:'decimal' },
+    { value:'hedgesG', label:"Hedges' g", shortLabel:"Hedges' g", tooltip:"Small-sample corrected Cohen's d using a bias adjustment.", format:'decimal' }
+  ];
+  const EFFECT_SIZE_NONPARAM_OPTIONS=[
+    { value:'rankBiserial', label:'Rank-biserial r', shortLabel:'Rank-biserial r', tooltip:'Rank-biserial correlation (−1 to 1) comparing favorable vs. unfavorable pairings.', format:'decimal' },
+    { value:'commonLanguage', label:'Common language (A)', shortLabel:'Common language A', tooltip:'Probability that a score from the first sample exceeds the second (expressed as a percentage).', format:'percent' }
+  ];
+  function listEffectOptions(type){
+    return type==='parametric'?EFFECT_SIZE_PARAM_OPTIONS.slice():EFFECT_SIZE_NONPARAM_OPTIONS.slice();
+  }
+  function resolveEffectOptionMeta(type,value){
+    const list=listEffectOptions(type);
+    const found=list.find(opt=>opt.value===value);
+    if(found){
+      return found;
+    }
+    const fallback=list[0];
+    console.debug('Debug: box resolveEffectOptionMeta fallback',{ type, requested:value, fallback:fallback?.value });
+    return fallback;
+  }
+  function ensureValidEffectOption(type,value){
+    const meta=resolveEffectOptionMeta(type,value);
+    return meta?.value;
+  }
+  function safeRound(value,digits){
+    if(!Number.isFinite(value)) return null;
+    const factor=Math.pow(10,digits||0);
+    return Math.round(value*factor)/factor;
+  }
+  function clamp(value,min,max){
+    if(!Number.isFinite(value)) return value;
+    if(value<min) return min;
+    if(value>max) return max;
+    return value;
+  }
+  function formatEffectValue(value,meta){
+    if(value==null||!Number.isFinite(value)){
+      return '—';
+    }
+    if(meta?.format==='percent'){
+      const percent=clamp(value,0,1)*100;
+      return `${percent.toFixed(1)}%`;
+    }
+    return value.toFixed(3);
+  }
+  function buildEffectFootnotes(paramMeta,nonParamMeta){
+    const notes=[];
+    if(paramMeta?.tooltip){
+      notes.push(`Parametric effect (${paramMeta.shortLabel || paramMeta.label}): ${paramMeta.tooltip}`);
+    }
+    if(nonParamMeta?.tooltip){
+      notes.push(`Non-parametric effect (${nonParamMeta.shortLabel || nonParamMeta.label}): ${nonParamMeta.tooltip}`);
+    }
+    return notes;
+  }
+  function computeVectorStats(values){
+    const arr=(Array.isArray(values)?values:[]).map(Number).filter(v=>Number.isFinite(v));
+    const n=arr.length;
+    if(!n){
+      return { n:0, mean:NaN, variance:NaN, sd:NaN };
+    }
+    const meanVal=arr.reduce((sum,v)=>sum+v,0)/n;
+    let variance=0;
+    if(n>1){
+      const sumSq=arr.reduce((sum,v)=>sum+Math.pow(v-meanVal,2),0);
+      variance=sumSq/(n-1);
+    }
+    const sd=Math.sqrt(Math.max(variance,0));
+    return { n, mean:meanVal, variance, sd };
+  }
+  function computePairedSamples(a,b){
+    const len=Math.min(Array.isArray(a)?a.length:0,Array.isArray(b)?b.length:0);
+    const samples=[];
+    for(let i=0;i<len;i++){
+      const av=Number(a[i]);
+      const bv=Number(b[i]);
+      if(Number.isFinite(av)&&Number.isFinite(bv)){
+        samples.push({ a:av, b:bv });
+      }
+    }
+    return samples;
+  }
+  function computeDiffStats(pairedSamples){
+    const diffs=[];
+    let positive=0,negative=0,ties=0;
+    pairedSamples.forEach(pair=>{
+      const diff=pair.a-pair.b;
+      diffs.push(diff);
+      if(diff>0) positive++;
+      else if(diff<0) negative++;
+      else ties++;
+    });
+    const stats=computeVectorStats(diffs);
+    return { ...stats, positive, negative, ties, total:stats.n };
+  }
+  function computePairwiseCounts(a,b){
+    const arrA=(Array.isArray(a)?a:[]).map(Number).filter(v=>Number.isFinite(v));
+    const arrB=(Array.isArray(b)?b:[]).map(Number).filter(v=>Number.isFinite(v));
+    let greater=0,less=0,equal=0;
+    for(let i=0;i<arrA.length;i++){
+      const av=arrA[i];
+      for(let j=0;j<arrB.length;j++){
+        const bv=arrB[j];
+        if(av>bv) greater++;
+        else if(av<bv) less++;
+        else equal++;
+      }
+    }
+    const totalPairs=greater+less+equal;
+    return { greater, less, equal, totalPairs, nA:arrA.length, nB:arrB.length };
+  }
+  function computeEffectSizeMetrics(a,b,options){
+    const paired=!!options?.paired;
+    const statsA=computeVectorStats(a);
+    const statsB=computeVectorStats(b);
+    const pairedSamples=paired?computePairedSamples(a,b):[];
+    const diffStats=paired?computeDiffStats(pairedSamples):null;
+    const counts=!paired?computePairwiseCounts(a,b):null;
+    const metrics={ parametric:{}, nonParametric:{}, context:{ nA:statsA.n, nB:statsB.n, paired } };
+    if(paired){
+      metrics.context.nPairs=diffStats?.total || 0;
+    }
+    if(statsA.n>0 && statsB.n>0){
+      if(paired){
+        if(diffStats && diffStats.total>1 && Number.isFinite(diffStats.sd) && diffStats.sd>0){
+          const d=diffStats.mean/(diffStats.sd||1);
+          metrics.parametric.cohenD=d;
+          const correctionDenom=4*diffStats.total-9;
+          const correction=correctionDenom!==0?1-3/correctionDenom:1;
+          if(Number.isFinite(correction)){
+            metrics.parametric.hedgesG=d*correction;
+          }
+        }
+      }else{
+        const pooledDenom=(statsA.n-1)+(statsB.n-1);
+        if(pooledDenom>0){
+          const pooledVar=((statsA.variance*(statsA.n-1))+(statsB.variance*(statsB.n-1)))/pooledDenom;
+          const pooledSd=Math.sqrt(Math.max(pooledVar,0));
+          if(pooledSd>0){
+            const d=(statsA.mean-statsB.mean)/pooledSd;
+            metrics.parametric.cohenD=d;
+            const correctionDenom=4*(statsA.n+statsB.n)-9;
+            const correction=correctionDenom!==0?1-3/correctionDenom:1;
+            if(Number.isFinite(correction)){
+              metrics.parametric.hedgesG=d*correction;
+            }
+          }
+        }
+      }
+    }
+    if(!paired && counts && counts.totalPairs>0){
+      const delta=(counts.greater-counts.less)/counts.totalPairs;
+      metrics.nonParametric.rankBiserial=clamp(delta,-1,1);
+      const commonLanguage=(counts.greater+0.5*counts.equal)/counts.totalPairs;
+      metrics.nonParametric.commonLanguage=clamp(commonLanguage,0,1);
+    }
+    if(paired && diffStats && diffStats.total>0){
+      const rb=(diffStats.positive-diffStats.negative)/diffStats.total;
+      metrics.nonParametric.rankBiserial=clamp(rb,-1,1);
+      const cl=(diffStats.positive+0.5*diffStats.ties)/diffStats.total;
+      metrics.nonParametric.commonLanguage=clamp(cl,0,1);
+    }
+    const debugPayload={
+      paired,
+      nA:statsA.n,
+      nB:statsB.n,
+      nPairs:diffStats?.total || 0,
+      parametric:Object.fromEntries(Object.entries(metrics.parametric).map(([key,val])=>[key,safeRound(val,4)])),
+      nonParametric:Object.fromEntries(Object.entries(metrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])),
+      counts:counts?{ ...counts, totalPairs:counts.totalPairs }:null,
+      diffCounts:diffStats?{ positive:diffStats.positive, negative:diffStats.negative, ties:diffStats.ties }:null
+    };
+    console.debug('Debug: box computeEffectSizeMetrics',debugPayload);
+    return { ...metrics, statsA, statsB, diffStats, counts };
+  }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [] };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [] };
   const els = {};
 
   function updateStatsCorrectionSummary(count){
@@ -1971,6 +2147,16 @@ function renderStatsControls(traces){
     console.debug('Debug: box statsCorrection normalized',{ before:state.statsCorrection, after:normalizedCorrection });
     state.statsCorrection=normalizedCorrection;
   }
+  const normalizedParamEffect=ensureValidEffectOption('parametric',state.statsEffectParametric);
+  if(normalizedParamEffect!==state.statsEffectParametric){
+    console.debug('Debug: box statsEffectParametric normalized',{ before:state.statsEffectParametric, after:normalizedParamEffect });
+    state.statsEffectParametric=normalizedParamEffect;
+  }
+  const normalizedNonParamEffect=ensureValidEffectOption('nonparametric',state.statsEffectNonParametric);
+  if(normalizedNonParamEffect!==state.statsEffectNonParametric){
+    console.debug('Debug: box statsEffectNonParametric normalized',{ before:state.statsEffectNonParametric, after:normalizedNonParamEffect });
+    state.statsEffectNonParametric=normalizedNonParamEffect;
+  }
 
   if(state.tableFormat==='grouped'){
     renderGroupedStatsControls(traces, controls);
@@ -2070,6 +2256,46 @@ function renderStatsControls(traces){
   });
   optionWrap.appendChild(correctionLabel);
   optionWrap.appendChild(correctionSel);
+
+  const paramEffectLabel=document.createElement('label');
+  paramEffectLabel.textContent='Param effect size:';
+  const paramEffectSel=document.createElement('select');
+  listEffectOptions('parametric').forEach(opt=>{
+    const option=document.createElement('option');
+    option.value=opt.value;
+    option.textContent=opt.label;
+    option.title=opt.tooltip;
+    if(opt.value===state.statsEffectParametric) option.selected=true;
+    paramEffectSel.appendChild(option);
+  });
+  paramEffectSel.addEventListener('change',()=>{
+    const value=ensureValidEffectOption('parametric',paramEffectSel.value);
+    state.statsEffectParametric=value;
+    console.debug('Debug: box statsEffectParametric changed',{ value });
+    state.scheduleDraw();
+  });
+  optionWrap.appendChild(paramEffectLabel);
+  optionWrap.appendChild(paramEffectSel);
+
+  const nonParamEffectLabel=document.createElement('label');
+  nonParamEffectLabel.textContent='Non-param effect size:';
+  const nonParamEffectSel=document.createElement('select');
+  listEffectOptions('nonparametric').forEach(opt=>{
+    const option=document.createElement('option');
+    option.value=opt.value;
+    option.textContent=opt.label;
+    option.title=opt.tooltip;
+    if(opt.value===state.statsEffectNonParametric) option.selected=true;
+    nonParamEffectSel.appendChild(option);
+  });
+  nonParamEffectSel.addEventListener('change',()=>{
+    const value=ensureValidEffectOption('nonparametric',nonParamEffectSel.value);
+    state.statsEffectNonParametric=value;
+    console.debug('Debug: box statsEffectNonParametric changed',{ value });
+    state.scheduleDraw();
+  });
+  optionWrap.appendChild(nonParamEffectLabel);
+  optionWrap.appendChild(nonParamEffectSel);
 
   if(state.statsMode==='reference'){
     const refLabel=document.createElement('label');
@@ -2388,6 +2614,9 @@ function renderGroupedStatsControls(traces, controls){
       (model.columns||[]).forEach(col=>{
         const th=document.createElement('th');
         th.textContent=col.label;
+        if(col.tooltip){
+          th.title=col.tooltip;
+        }
         headRow.appendChild(th);
       });
       thead.appendChild(headRow);
@@ -2515,8 +2744,28 @@ function renderGroupedStatsControls(traces, controls){
         const r=pairTest(aData,bData);
         const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
         const statVal=r[statName];
+        const effectMetrics=computeEffectSizeMetrics(aData,bData,{ paired:state.statsPaired });
+        const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+        const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+        console.debug('Debug: box custom pair effect metrics',{
+          pair:{ a:traces[pr.ai].name, b:traces[pr.bi].name },
+          parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])),
+          nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)]))
+        });
         let rangeMax=-Infinity; for(let k=Math.min(pr.ai,pr.bi);k<=Math.max(pr.ai,pr.bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
-        pairs.push({...pr,p:r.p,rangeMax,labelA:traces[pr.ai].name,labelB:traces[pr.bi].name,stat:statVal,statName,df:r.df});
+        pairs.push({
+          ...pr,
+          p:r.p,
+          rangeMax,
+          labelA:traces[pr.ai].name,
+          labelB:traces[pr.bi].name,
+          stat:statVal,
+          statName,
+          df:r.df,
+          effects:effectMetrics,
+          effectParametric:formattedParamEffect,
+          effectNonParametric:formattedNonParamEffect
+        });
       });
       const m=pairs.length;
       if(m){
@@ -2529,7 +2778,9 @@ function renderGroupedStatsControls(traces, controls){
         comparison:`${pr.labelA} vs ${pr.labelB}`,
         statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
         df:pr.df!=null?pr.df:'—',
-        padj:formatP(pr.adjP)
+        padj:formatP(pr.adjP),
+        effectParametric:pr.effectParametric,
+        effectNonParametric:pr.effectNonParametric
       }));
       renderTableModel({
         caption:'Custom pairwise comparisons',
@@ -2537,10 +2788,15 @@ function renderGroupedStatsControls(traces, controls){
           {key:'comparison',label:'Comparison',align:'left',index:0},
           {key:'statistic',label:'Statistic',align:'left',index:1},
           {key:'df',label:'df',align:'right',index:2},
-          {key:'padj',label:`P (adj, ${correctionMeta.shortLabel})`,align:'right',index:3}
+          {key:'padj',label:`P (adj, ${correctionMeta.shortLabel})`,align:'right',index:3},
+          {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:4,tooltip:paramEffectMeta.tooltip},
+          {key:'effectNonParametric',label:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`,align:'right',index:5,tooltip:nonParamEffectMeta.tooltip}
         ],
         rows:tableRows,
-        footnotes:correctionMeta.footnote ? [correctionMeta.footnote] : [],
+        footnotes:[
+          ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+          ...effectFootnotes
+        ],
         options:{
           fileName:'box-custom-comparisons',
           contextLabel:'box-custom'
@@ -2564,6 +2820,10 @@ function renderGroupedStatsControls(traces, controls){
     const param=state.statsTest==='parametric';
     const pairTest=param?(state.statsPaired?tTestPaired:tTest):(state.statsPaired?wilcoxonSignedRank:mannWhitney);
     const overallTest=param?anova:kruskalWallis;
+    const paramEffectMeta=resolveEffectOptionMeta('parametric',state.statsEffectParametric);
+    const nonParamEffectMeta=resolveEffectOptionMeta('nonparametric',state.statsEffectNonParametric);
+    const effectFootnotes=buildEffectFootnotes(paramEffectMeta,nonParamEffectMeta);
+    console.debug('Debug: box effect meta',{ parametric:paramEffectMeta?.value, nonParametric:nonParamEffectMeta?.value });
     if(state.statsPaired && groups.some(g=>g.length!==groups[0].length)){
       setResultsMessage('Paired tests require equal group sizes.'); return;
     }
@@ -2571,6 +2831,14 @@ function renderGroupedStatsControls(traces, controls){
     if(indices.length===2){
       const res=pairTest(groups[0],groups[1]);
       const statName=res.t!==undefined?'t':res.U!==undefined?'U':res.W!==undefined?'W':'stat';
+      const effectMetrics=computeEffectSizeMetrics(groups[0],groups[1],{ paired:state.statsPaired });
+      console.debug('Debug: box pair summary effect metrics',{
+        labels:labels,
+        parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])),
+        nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)]))
+      });
+      const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+      const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
       const summaryRows=[
         { metric:'Comparison', value:`${labels[0]} vs ${labels[1]}` },
         { metric:'Test', value:param?(state.statsPaired?'Paired t-test':'t-test'):(state.statsPaired?'Wilcoxon signed-rank':'Mann-Whitney U') },
@@ -2582,7 +2850,13 @@ function renderGroupedStatsControls(traces, controls){
       const adjusted=applyPValueCorrection([res.p], state.statsCorrection);
       const adjValue=Array.isArray(adjusted) && adjusted.length?adjusted[0]:res.p;
       summaryRows.push({ metric:`P (${correctionMeta.shortLabel})`, value:formatP(adjValue) });
+      summaryRows.push({ metric:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`, value:formattedParamEffect });
+      summaryRows.push({ metric:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`, value:formattedNonParamEffect });
       updateStatsCorrectionSummary(1);
+      const footnotes=[
+        ...(correctionMeta.footnote ? [correctionMeta.footnote] : []),
+        ...effectFootnotes
+      ];
       renderTableModel({
         caption:'Pairwise test summary',
         columns:[
@@ -2590,7 +2864,7 @@ function renderGroupedStatsControls(traces, controls){
           {key:'value',label:'Value',align:'left',index:1}
         ],
         rows:summaryRows,
-        footnotes:correctionMeta.footnote ? [correctionMeta.footnote] : [],
+        footnotes,
         options:{
           fileName:'box-pairwise-summary',
           contextLabel:'box-pairwise'
@@ -2608,11 +2882,32 @@ function renderGroupedStatsControls(traces, controls){
       for(let i=0;i<indices.length;i++){
         for(let j=i+1;j<indices.length;j++){
           const aIdx=indices[i],bIdx=indices[j];
-          const r=pairTest(traces[aIdx].rawY,traces[bIdx].rawY);
+          const aValues=traces[aIdx].rawY;
+          const bValues=traces[bIdx].rawY;
+          const r=pairTest(aValues,bValues);
           const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
           const statVal=r[statName];
+          const effectMetrics=computeEffectSizeMetrics(aValues,bValues,{ paired:state.statsPaired });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          console.debug('Debug: box pair effect metrics',{ comparison:`${labels[i]} vs ${labels[j]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
           let rangeMax=-Infinity; for(let k=Math.min(aIdx,bIdx);k<=Math.max(aIdx,bIdx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
-          pairs.push({a:i,b:j,ai:aIdx,bi:bIdx,p:r.p,rangeMax,stat:statVal,statName,df:r.df,labelA:labels[i],labelB:labels[j]});
+          pairs.push({
+            a:i,
+            b:j,
+            ai:aIdx,
+            bi:bIdx,
+            p:r.p,
+            rangeMax,
+            stat:statVal,
+            statName,
+            df:r.df,
+            labelA:labels[i],
+            labelB:labels[j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect
+          });
         }
       }
       if(pairs.length){
@@ -2625,11 +2920,31 @@ function renderGroupedStatsControls(traces, controls){
       referenceLabel=labels[refIdx];
       indices.forEach((idx,i)=>{
         if(i===refIdx) return;
-        const r=pairTest(refData,traces[idx].rawY);
+        const compareValues=traces[idx].rawY;
+        const r=pairTest(refData,compareValues);
         const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
         const statVal=r[statName];
+        const effectMetrics=computeEffectSizeMetrics(refData,compareValues,{ paired:state.statsPaired });
+        const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+        const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+        console.debug('Debug: box reference pair effect metrics',{ comparison:`${labels[refIdx]} vs ${labels[i]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
         let rangeMax=-Infinity; for(let k=Math.min(state.statsRef,idx);k<=Math.max(state.statsRef,idx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
-        pairs.push({a:refIdx,b:i,ai:state.statsRef,bi:idx,p:r.p,rangeMax,labelA:labels[refIdx],labelB:labels[i],stat:statVal,statName,df:r.df});
+        pairs.push({
+          a:refIdx,
+          b:i,
+          ai:state.statsRef,
+          bi:idx,
+          p:r.p,
+          rangeMax,
+          labelA:labels[refIdx],
+          labelB:labels[i],
+          stat:statVal,
+          statName,
+          df:r.df,
+          effects:effectMetrics,
+          effectParametric:formattedParamEffect,
+          effectNonParametric:formattedNonParamEffect
+        });
       });
       if(pairs.length){
         const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
@@ -2672,18 +2987,23 @@ function renderGroupedStatsControls(traces, controls){
         comparison:`${pr.labelA ?? labels[pr.a]} vs ${pr.labelB ?? labels[pr.b]}`,
         statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
         df:pr.df!=null?pr.df:'—',
-        padj:formatP(pr.adjP)
+        padj:formatP(pr.adjP),
+        effectParametric:pr.effectParametric,
+        effectNonParametric:pr.effectNonParametric
       }));
       if(referenceLabel){
         footnotes.push(`Reference group: ${referenceLabel}`);
       }
+      effectFootnotes.forEach(note=>footnotes.push(note));
       renderTableModel({
         caption: state.statsMode==='reference' ? 'Comparisons vs reference' : 'Pairwise comparisons',
         columns:[
           {key:'comparison',label:'Comparison',align:'left',index:0},
           {key:'statistic',label:'Statistic',align:'left',index:1},
           {key:'df',label:'df',align:'right',index:2},
-          {key:'padj',label:`P (adj, ${correctionMeta.shortLabel})`,align:'right',index:3}
+          {key:'padj',label:`P (adj, ${correctionMeta.shortLabel})`,align:'right',index:3},
+          {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:4,tooltip:paramEffectMeta.tooltip},
+          {key:'effectNonParametric',label:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`,align:'right',index:5,tooltip:nonParamEffectMeta.tooltip}
         ],
         rows:pairRows,
         footnotes,
@@ -4014,6 +4334,7 @@ function renderGroupedStatsControls(traces, controls){
     selectedColumns.sort((a,b)=>a-b);
     const payload = {
       type:'box',
+      version:2,
       data: state.hot.getData(),
       config: {
         title:state.titleText,
@@ -4048,6 +4369,8 @@ function renderGroupedStatsControls(traces, controls){
           referenceIndex: state.statsRef,
           pairsText: state.statsPairsText,
           correction: state.statsCorrection,
+          effectParametric: state.statsEffectParametric,
+          effectNonParametric: state.statsEffectNonParametric,
           groupedAnalysis: state.groupedStats?.analysis,
           selectedColumns,
           assumptions: serializeAssumptions(state.assumptionDiagnostics)
@@ -4061,6 +4384,8 @@ function renderGroupedStatsControls(traces, controls){
       statsTest: payload.config.stats?.test,
       statsMode: payload.config.stats?.mode,
       statsCorrection: payload.config.stats?.correction,
+      effectParametric: payload.config.stats?.effectParametric,
+      effectNonParametric: payload.config.stats?.effectNonParametric,
       statsSelection: payload.config.stats?.selectedColumns?.length || 0,
       assumptionWarnings: payload.config.stats?.assumptions?.warnings?.length || 0
     });
@@ -4126,7 +4451,9 @@ function renderGroupedStatsControls(traces, controls){
     reader.onload=e=>{
       try{
         const obj=JSON.parse(e.target.result);
+        const version=Number.isFinite(obj?.version)?Number(obj.version):Number(obj?.version)||Number(obj?.configVersion)||1;
         console.log('loadBoxGraph',obj);
+        console.debug('Debug: box.loadFromFile version parse',{ version, hasStats:!!obj?.config?.stats, hasEffectOptions:!!obj?.config?.stats?.effectParametric });
         if(obj.type!=='box') throw new Error('Invalid graph type');
         state.hot.loadData(obj.data||[]);
         const c=obj.config||{};
@@ -4193,6 +4520,8 @@ function renderGroupedStatsControls(traces, controls){
         const allowedModes=new Set(['all','reference','custom']);
         state.statsMode=allowedModes.has(statsConfig.mode)?statsConfig.mode:'all';
         state.statsCorrection=ensureValidCorrectionValue(statsConfig.correction || state.statsCorrection);
+        state.statsEffectParametric=ensureValidEffectOption('parametric',statsConfig.effectParametric || state.statsEffectParametric);
+        state.statsEffectNonParametric=ensureValidEffectOption('nonparametric',statsConfig.effectNonParametric || state.statsEffectNonParametric);
         const candidateRef=Number(statsConfig.referenceIndex);
         const maxIndex=labelCount>0?labelCount-1:-1;
         if(Number.isInteger(candidateRef) && candidateRef>=0 && (maxIndex>=0?candidateRef<=maxIndex:true)){
@@ -4249,6 +4578,8 @@ function renderGroupedStatsControls(traces, controls){
           statsPaired: state.statsPaired,
           statsRef: state.statsRef,
           statsCorrection: state.statsCorrection,
+          statsEffectParametric: state.statsEffectParametric,
+          statsEffectNonParametric: state.statsEffectNonParametric,
           selectedCount: state.selectedCols.size,
           hasPairsText: !!state.statsPairsText
         });
