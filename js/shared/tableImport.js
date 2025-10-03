@@ -149,20 +149,48 @@
     if(typeof options.onBeforeProcess === 'function'){
       options.onBeforeProcess(stats);
     }
-    const data = Array.from({ length: targetRows }, () => Array(targetCols).fill(''));
-    if(typeof hot.getData === 'function'){
-      const existing = hot.getData();
-      for(let r = 0; r < Math.min(existing.length, targetRows); r++){
-        const row = existing[r];
-        for(let c = 0; c < Math.min(row.length, targetCols); c++){
-          data[r][c] = row[c];
+    const fullReplace = startRow === 0
+      && startCol === 0
+      && !options.selection
+      && options.preserveExisting !== true
+      && (!options.onRows || options.onRows === tableImport.processRows);
+    let data;
+    if(fullReplace){
+      debugLog('processRows.fullReplace', { targetRows, targetCols, incomingRows }, debugLabel); // Debug: full replace branch
+      data = new Array(targetRows);
+      const padRow = (row)=>{
+        const next = new Array(targetCols);
+        const limit = Math.min(row.length, targetCols);
+        for(let i = 0; i < limit; i++){
+          next[i] = row[i];
+        }
+        for(let i = limit; i < targetCols; i++){
+          next[i] = '';
+        }
+        return next;
+      };
+      for(let r = 0; r < incomingRows; r++){
+        data[r] = padRow(filteredRows[r]);
+      }
+      for(let r = incomingRows; r < targetRows; r++){
+        data[r] = new Array(targetCols).fill('');
+      }
+    }else{
+      data = Array.from({ length: targetRows }, () => Array(targetCols).fill(''));
+      if(typeof hot.getData === 'function'){
+        const existing = hot.getData();
+        for(let r = 0; r < Math.min(existing.length, targetRows); r++){
+          const row = existing[r];
+          for(let c = 0; c < Math.min(row.length, targetCols); c++){
+            data[r][c] = row[c];
+          }
         }
       }
-    }
-    for(let r = 0; r < incomingRows; r++){
-      const row = filteredRows[r];
-      for(let c = 0; c < row.length; c++){
-        data[startRow + r][startCol + c] = row[c];
+      for(let r = 0; r < incomingRows; r++){
+        const row = filteredRows[r];
+        for(let c = 0; c < row.length; c++){
+          data[startRow + r][startCol + c] = row[c];
+        }
       }
     }
     if(typeof hot.updateSettings === 'function'){

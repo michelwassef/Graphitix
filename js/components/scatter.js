@@ -20,6 +20,7 @@
   const DEFAULT_COLS=4;
   const SIGNIFICANT_COLOR = '#d62728';
   const DEFAULT_NON_SIG_COLOR = '#808080';
+  const MAX_SIGNIFICANT_ANNOTATIONS = 250;
   const GRAPH_TYPE_DEFAULTS = {
     scatter: { title: 'Scatter plot' },
     volcano: { title: 'Volcano plot' },
@@ -1304,7 +1305,8 @@
         }
         const maxLen=Math.max(labelCol.length,xCol.length,yCol.length,extraCol.length);
         const points=[];
-        const labelSet=new Set();
+        const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
+        const labelSet=shouldCollectLabelSet ? new Set() : null;
         const labelAnnotations=[];
         let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
         let skippedRows=0;
@@ -1318,7 +1320,7 @@
             const yv=parseFloat(yCol[r]);
             if(!Number.isNaN(xv) && !Number.isNaN(yv)){
               points.push({x:xv,y:yv,label:lab});
-              if(lab) labelSet.add(lab);
+              if(labelSet && lab) labelSet.add(lab);
               if(xv<xMinRaw) xMinRaw=xv;
               if(xv>xMaxRaw) xMaxRaw=xv;
               if(yv<yMinRaw) yMinRaw=yv;
@@ -1336,9 +1338,10 @@
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=Math.abs(log2fc)>=log2fcThreshold && negLogP>=negLogPThreshold;
-              points.push({x:log2fc,y:negLogP,label:lab,isSignificant,meta:{log2fc,pValue:pRaw,negLogP}});
+              const labelValue = lab && (shouldCollectLabelSet || isSignificant) ? lab : '';
+              points.push({x:log2fc,y:negLogP,label:labelValue,isSignificant});
               if(isSignificant) significantCount++;
-              if(lab) labelSet.add(lab);
+              if(labelSet && lab) labelSet.add(lab);
               if(log2fc<xMinRaw) xMinRaw=log2fc;
               if(log2fc>xMaxRaw) xMaxRaw=log2fc;
               if(negLogP<yMinRaw) yMinRaw=negLogP;
@@ -1358,13 +1361,14 @@
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=hasPositiveP && Math.abs(log2fcVal)>=log2fcThreshold && Number.isFinite(negLogP) && negLogP>=negLogPThreshold;
-              points.push({x:meanExpr,y:log2fcVal,label:lab,isSignificant,meta:{log2fc:log2fcVal,pValue:hasPositiveP?pRaw:NaN,negLogP}});
+              const labelValue = lab && (shouldCollectLabelSet || isSignificant) ? lab : '';
+              points.push({x:meanExpr,y:log2fcVal,label:labelValue,isSignificant});
               if(isSignificant) significantCount++;
               if(!hasPositiveP){
                 maMissingPCount++;
                 console.debug('Debug: MA missing positive p-value',{row:r,pRaw});
               }
-              if(lab) labelSet.add(lab);
+              if(labelSet && lab) labelSet.add(lab);
               if(meanExpr<xMinRaw) xMinRaw=meanExpr;
               if(meanExpr>xMaxRaw) xMaxRaw=meanExpr;
               if(log2fcVal<yMinRaw) yMinRaw=log2fcVal;
@@ -1385,7 +1389,8 @@
         if(maMissingPCount>0){
           console.debug('Debug: MA missing p-values summary',{count:maMissingPCount});
         }
-        const labelsUsed=Array.from(labelSet);
+        const labelsUsed=labelSet?Array.from(labelSet):[];
+        console.debug('Debug: scatter label summary',{graphType:scatterCurrentGraphType,labelCount:labelsUsed.length,tracked:shouldCollectLabelSet}); // Debug: label usage summary
         updateScatterLabelColorPickers(labelsUsed);
         console.log('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
         const legendEntries=[];
@@ -1621,15 +1626,19 @@
           bbox.maxY=Math.max(bbox.maxY,cyVal+dotSizePx);
           frag.appendChild(c);
           if(scatterCurrentGraphType!=='scatter' && p.isSignificant && p.label){
-            const labelNode=document.createElementNS(NS,'text');
-            labelNode.setAttribute('x',cxVal+dotSizePx+2);
-            labelNode.setAttribute('y',cyVal-(dotSizePx+2));
-            labelNode.setAttribute('font-size',Math.max(fs*0.75,8));
-            labelNode.setAttribute('fill',SIGNIFICANT_COLOR);
-            labelNode.setAttribute('text-anchor','start');
-            labelNode.textContent=p.label;
-            markFontEditable(labelNode,'annotation',`annotation-${labelAnnotations.length}`);
-            labelAnnotations.push(labelNode);
+            if(labelAnnotations.length < MAX_SIGNIFICANT_ANNOTATIONS){
+              const labelNode=document.createElementNS(NS,'text');
+              labelNode.setAttribute('x',cxVal+dotSizePx+2);
+              labelNode.setAttribute('y',cyVal-(dotSizePx+2));
+              labelNode.setAttribute('font-size',Math.max(fs*0.75,8));
+              labelNode.setAttribute('fill',SIGNIFICANT_COLOR);
+              labelNode.setAttribute('text-anchor','start');
+              labelNode.textContent=p.label;
+              markFontEditable(labelNode,'annotation',`annotation-${labelAnnotations.length}`);
+              labelAnnotations.push(labelNode);
+            }else if(labelAnnotations.length === MAX_SIGNIFICANT_ANNOTATIONS){
+              console.debug('Debug: scatter annotation cap reached',{graphType:scatterCurrentGraphType,cap:MAX_SIGNIFICANT_ANNOTATIONS}); // Debug: annotation cap notice
+            }
           }
           pointIndex++;
           if(pointIndex%10000===0){console.log('scatter svg draw progress',{pointIndex,token});}

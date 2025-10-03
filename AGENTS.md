@@ -28,6 +28,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 
 ## Testing
 - After making changes, run `npm test` (if available) and ensure the command completes.
+- For large scatter/volcano datasets, confirm memory behavior with `node --expose-gc scripts/volcano-benchmark.js` to compare optimized handling against the legacy approach before shipping performance-sensitive updates.
 
 ## Codebase Overview
 

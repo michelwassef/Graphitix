@@ -84,6 +84,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Toggle grid lines, log-transform axes, set explicit min/max bounds, and position the origin at the lower-left or a custom coordinate.【F:index.html†L440-L488】
 - Enable Pearson or Spearman correlation statistics and display optional trend lines with fitted equations directly on the chart.【F:index.html†L488-L520】
 - Inspect 95% confidence and prediction interval bands with residual diagnostics (skewness, kurtosis, Jarque–Bera) using the new shading and summary toggles, all captured in `.graph` sessions.【F:index.html†L596-L636】【F:js/components/scatter.js†L1247-L1766】
+- **High-volume datasets:** Volcano and MA modes trim label bookkeeping and cap automatic annotations so tens of thousands of differential expression points stay responsive without ballooning memory usage.【F:js/components/scatter.js†L1304-L1398】【F:js/components/scatter.js†L1588-L1635】
 
 ### Dimensionality Reduction (PCA & MDS)
 - Compute principal components or multidimensional scaling from wide-form tables using in-browser SVD routines.【F:index.html†L520-L640】
@@ -149,6 +150,7 @@ Internet access is required for these external services; all other features oper
 ## Troubleshooting & Tips
 - **Large tables:** For wide datasets, drag the panel resizers to allocate more screen real estate to the spreadsheet or chart as needed.【F:index.html†L320-L360】【F:index.html†L704-L731】
 - **Performance considerations:** Log-scaled axes and dense scatter plots can incur rendering costs. Adjust point transparency or limit visible data when working with tens of thousands of rows.
+- **Volcano plot memory benchmark:** Compare legacy and optimized processing on the bundled dataset with `node --expose-gc scripts/volcano-benchmark.js`; the script reports heap deltas so you can verify lightweight handling for ~18k rows.【F:scripts/volcano-benchmark.js†L1-L89】
 - **Keyboard shortcuts:** Handsontable supports familiar spreadsheet shortcuts (copy, paste, undo/redo), making it easy to prototype analyses before exporting results.
 - **Offline usage:** With the exception of GO/STRING integrations, all functionality works without an internet connection—ideal for secure lab environments.
 
