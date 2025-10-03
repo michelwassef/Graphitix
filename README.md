@@ -14,7 +14,8 @@ Venn is now a full browser-based data visualization and statistical analysis stu
   - [Scatter Plot Explorer](#scatter-plot-explorer)
   - [Dimensionality Reduction (PCA & MDS)](#dimensionality-reduction-pca--mds)
   - [Line Graph Studio](#line-graph-studio)
-  - [Classification Curves (ROC & PR)](#classification-curves-roc--pr)
+- [Classification Curves (ROC & PR)](#classification-curves-roc--pr)
+- [Survival Analysis (Kaplan–Meier & Cox)](#survival-analysis-kaplanmeier--cox)
   - [Histogram Builder](#histogram-builder)
   - [Proportion Graph & Chi² Analysis](#proportion-graph--chi²-analysis)
 - [Statistical Analysis Toolkit](#statistical-analysis-toolkit)
@@ -98,6 +99,11 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Build ROC or precision-recall curves from model scores and labels stored in the integrated table editor.【F:index.html†L800-L848】
 - Customize series colors, grid display, and line thickness; switch between ROC and PR modes dynamically.【F:index.html†L848-L904】
 - Review trapezoidal AUC or average precision metrics alongside configurable statistic controls below the chart.【F:index.html†L904-L928】
+
+### Survival Analysis (Kaplan–Meier & Cox)
+- Populate a wide-form table with group, time, event, optional entry time, and any number of covariate columns directly in the survival workspace’s spreadsheet.【F:index.html†L1124-L1189】【F:js/components/survival.js†L401-L474】
+- Toggle curve display options, select which covariate columns feed the Cox proportional hazards model, and flag time-dependent predictors through the dedicated control panel beside the plot.【F:index.html†L1155-L1189】【F:js/components/survival.js†L107-L175】
+- Fit multivariate Cox models with support for time-dependent risk sets, inspect per-predictor coefficients/intervals, and review convergence diagnostics and pairwise hazard ratios in the statistics panel.【F:js/components/survival.js†L740-L1033】【F:js/components/survival.js†L1480-L1663】
 
 ### Histogram Builder
 - Generate histograms from univariate data with configurable bin counts, fill colors, border styling, and optional log-scaled Y axis.【F:index.html†L928-L1000】

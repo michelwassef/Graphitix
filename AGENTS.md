@@ -24,6 +24,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 - Clearly comment any debug output to facilitate removal later.
 - Follow the existing pattern of exposing features through the `window.Shared` and `window.Components` namespaces so legacy inline code continues to work.
 - When creating Handsontable grids through `Shared.hot.createStandardTable`, keep the first (grey) row as headers by default. If a dataset has a fixed schema (such as survival analysis), set `firstRowIsHeader: false` and provide explicit `colHeaders` so the first row behaves like normal input cells.
+- The survival workspace now expects four baseline columns (Group, Time, Event, Entry Time) followed by optional covariate columns. Update `SURVIVAL_COL_HEADERS` in `js/components/survival.js` if the schema changes and keep the covariate selection controls in sync.
 
 ## Testing
 - After making changes, run `npm test` (if available) and ensure the command completes.
@@ -112,6 +113,11 @@ Any new dashboard sections must adhere to the following layout style for consist
 - Maintains per-series color pickers, line/point toggles, origin controls, and Pearson/Spearman statistics computed with `global.jStat`.
 - Legends dynamically measure text using `chartStyle.measureText` to allocate layout; `Shared.syncPanelWidths` keeps tables aligned after resizes.
 - Per-series regression interval bands, coefficient diagnostics, and residual normality checks are toggled in the stats fieldset and included when saving/loading `.graph` files.
+
+### Survival (`survival.js`)
+- Configures a multi-column Handsontable for group, time, event, optional entry time, and arbitrary covariates with `SURVIVAL_COL_HEADERS` keeping defaults aligned with the UI hints.
+- `refreshCovariateControls` rebuilds the Cox covariate selector whenever table columns or saved settings change; ensure new predictors register through `state.covariateSettings` so `.graph` files persist selections.
+- `prepareCoxData` constructs time-dependent risk sets using entry times and the selected covariates, while `fitCoxModel` and `computeHazardRatios` rely on the returned `design` metadata. Maintain the debug logging around design matrices and convergence when adjusting these helpers.
 
 ### Histogram (`hist.js`)
 - Operates on a single numeric column. `draw()` calculates “nice” tick spacing, bins data, and draws axes/bars manually, honoring log-scale and manual Y-range options.
