@@ -22,6 +22,7 @@
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
   const DEFAULT_CORRECTION='bonferroni';
+  const ASSUMPTION_ALPHA=0.05;
   function fallbackSanitizeP(value){
     const num=Number(value);
     if(!Number.isFinite(num)||num<0){
@@ -875,6 +876,450 @@
   function wilcoxonSignedRank(a,b){ const diffs=a.map((v,i)=>v-b[i]).filter(v=>v!==0); const abs=diffs.map(Math.abs); const ranks=rankArray(abs); let Wpos=0,Wneg=0; ranks.forEach((rk,i)=>{ if(diffs[i]>0) Wpos+=rk; else Wneg+=rk; }); const W=Math.min(Wpos,Wneg); const nEff=ranks.length; const mu=nEff*(nEff+1)/4; const sigma=Math.sqrt(nEff*(nEff+1)*(2*nEff+1)/24); const z=(W-mu)/sigma; const p=2*(1-global.jStat.normal.cdf(Math.abs(z),0,1)); return {W,z,p}; }
   function anova(groups){ const k=groups.length; const n=groups.reduce((s,g)=>s+g.length,0); const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n; let ssBetween=0, ssWithin=0; groups.forEach(g=>{ const m=mean(g); ssBetween+=g.length*Math.pow(m-grand,2); ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0); }); const dfBetween=k-1; const dfWithin=n-k; const msBetween=ssBetween/dfBetween; const msWithin=ssWithin/dfWithin; const F=msBetween/msWithin; const p=1-global.jStat.centralF.cdf(F,dfBetween,dfWithin); return {F,p}; }
   function kruskalWallis(groups){ const n=groups.reduce((s,g)=>s+g.length,0); const all=groups.flat(); const ranks=rankArray(all); let idx=0; const R=groups.map(g=>{ const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0); idx+=g.length; return r; }); const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1); const df=groups.length-1; const p=1-global.jStat.chisquare.cdf(H,df); return {H,p}; }
+
+  function normalQuantile(p){
+    const clipped=Math.min(Math.max(p,Number.EPSILON),1-Number.EPSILON);
+    const a=[-3.969683028665376e+01,2.209460984245205e+02,-2.759285104469687e+02,1.38357751867269e+02,-3.066479806614716e+01,2.506628277459239e+00];
+    const b=[-5.447609879822406e+01,1.615858368580409e+02,-1.556989798598866e+02,6.680131188771972e+01,-1.328068155288572e+01];
+    const c=[-7.784894002430293e-03,-3.223964580411365e-01,-2.400758277161838e+00,-2.549732539343734e+00,4.374664141464968e+00,2.938163982698783e+00];
+    const d=[7.784695709041462e-03,3.224671290700398e-01,2.445134137142996e+00,3.754408661907416e+00];
+    const plow=0.02425;
+    const phigh=1-plow;
+    let q,r;
+    if(clipped<plow){
+      q=Math.sqrt(-2*Math.log(clipped));
+      return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
+    }
+    if(clipped>phigh){
+      q=Math.sqrt(-2*Math.log(1-clipped));
+      return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
+    }
+    q=clipped-0.5;
+    r=q*q;
+    return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q/((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4]+1);
+  }
+
+  function logGamma(z){
+    const coeffs=[0.99999999999980993,676.5203681218851,-1259.1392167224028,771.32342877765313,-176.61502916214059,12.507343278686905,-0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];
+    if(z<0.5){
+      return Math.log(Math.PI)-Math.log(Math.sin(Math.PI*z))-logGamma(1-z);
+    }
+    z-=1;
+    let x=coeffs[0];
+    for(let i=1;i<coeffs.length;i++){
+      x+=coeffs[i]/(z+i);
+    }
+    const t=z+7.5;
+    return 0.5*Math.log(2*Math.PI)+(z+0.5)*Math.log(t)-t+Math.log(x);
+  }
+
+  function betacf(x,a,b){
+    const MAX_ITER=100;
+    const EPS=1e-12;
+    const FPMIN=Number.MIN_VALUE/EPS;
+    let qab=a+b;
+    let qap=a+1;
+    let qam=a-1;
+    let c=1;
+    let d=1-qab*x/qap;
+    if(Math.abs(d)<FPMIN) d=FPMIN;
+    d=1/d;
+    let h=d;
+    for(let m=1;m<=MAX_ITER;m++){
+      const m2=2*m;
+      let aa=m*(b-m)*x/((qam+m2)*(a+m2));
+      d=1+aa*d;
+      if(Math.abs(d)<FPMIN) d=FPMIN;
+      c=1+aa/c;
+      if(Math.abs(c)<FPMIN) c=FPMIN;
+      d=1/d;
+      h*=d*c;
+      aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));
+      d=1+aa*d;
+      if(Math.abs(d)<FPMIN) d=FPMIN;
+      c=1+aa/c;
+      if(Math.abs(c)<FPMIN) c=FPMIN;
+      d=1/d;
+      const del=d*c;
+      h*=del;
+      if(Math.abs(del-1)<EPS) break;
+    }
+    return h;
+  }
+
+  function regularizedIncompleteBeta(x,a,b){
+    if(x<=0) return 0;
+    if(x>=1) return 1;
+    const bt=Math.exp(logGamma(a+b)-logGamma(a)-logGamma(b)+a*Math.log(x)+b*Math.log(1-x));
+    if(x<(a+1)/(a+b+2)){
+      return bt*betacf(x,a,b)/a;
+    }
+    return 1-bt*betacf(1-x,b,a)/b;
+  }
+
+  function fcdf(x,d1,d2){
+    if(!Number.isFinite(x)||x<0){
+      return 0;
+    }
+    const transformed=(d1*x)/(d1*x+d2);
+    const result=regularizedIncompleteBeta(transformed,d1/2,d2/2);
+    return Number.isFinite(result)?result:0;
+  }
+
+  function computeQQPoints(values){
+    const cleaned=values.filter(Number.isFinite);
+    if(cleaned.length<3){
+      return [];
+    }
+    const sorted=cleaned.slice().sort((a,b)=>a-b);
+    const n=sorted.length;
+    const mean=sorted.reduce((sum,v)=>sum+v,0)/n;
+    const variance=sorted.reduce((sum,v)=>{ const diff=v-mean; return sum+diff*diff; },0)/(n-1||1);
+    const sd=Math.sqrt(variance)||0;
+    if(sd===0){
+      return [];
+    }
+    const sampleCount=Math.min(25,n);
+    const points=[];
+    for(let j=0;j<sampleCount;j++){
+      const frac=(j+0.5)/sampleCount;
+      const index=Math.min(n-1,Math.max(0,Math.round(frac*n-0.5)));
+      const theoretical=normalQuantile((index+0.5)/n);
+      const observed=(sorted[index]-mean)/sd;
+      points.push({ theoretical, observed });
+    }
+    console.debug('Debug: box QQ points computed',{ sampleCount: points.length, n });
+    return points;
+  }
+
+  function computeDagostino(values){
+    const cleaned=values.filter(Number.isFinite);
+    const n=cleaned.length;
+    if(n<8){
+      console.debug('Debug: box dagostino insufficient sample',{ n });
+      return { method:'dagostino', sampleSize:n, statistic:NaN, pValue:NaN, passed:null, reason:'Sample size < 8' };
+    }
+    const meanVal=cleaned.reduce((sum,v)=>sum+v,0)/n;
+    const diffs=cleaned.map(v=>v-meanVal);
+    const m2=diffs.reduce((sum,v)=>sum+v*v,0);
+    const m3=diffs.reduce((sum,v)=>sum+v*v*v,0);
+    const m4=diffs.reduce((sum,v)=>sum+Math.pow(v,4),0);
+    const s2=m2/(n-1||1);
+    const s=Math.sqrt(s2);
+    if(!Number.isFinite(s)||s===0){
+      console.debug('Debug: box dagostino zero variance',{ n });
+      return { method:'dagostino', sampleSize:n, statistic:0, pValue:1, passed:true, reason:'Zero variance' };
+    }
+    const g1=(n*m3)/((n-1)*(n-2)*Math.pow(s,3));
+    const g2=((n*(n+1)*m4)/((n-1)*(n-2)*(n-3)*Math.pow(s,4)))-(3*Math.pow(n-1,2))/((n-2)*(n-3));
+    const mu2=6*(n-2)/((n+1)*(n+3));
+    const gamma2=36*(n-7)*(n*n+2*n-5)/((n-2)*(n+5)*(n+7)*(n+9));
+    const w2=Math.sqrt(2*gamma2+4)-1;
+    const alpha=Math.sqrt(2/(w2-1));
+    const delta=1/Math.sqrt(Math.log(w2));
+    const z1=delta*Math.asinh(g1/(alpha*Math.sqrt(mu2)));
+    const mu1g2=-6/(n+1);
+    const mu2g2=24*n*(n-2)*(n-3)/(Math.pow(n+1,2)*(n+3)*(n+5));
+    const gamma1g2=(6*(n*n-5*n+2)/((n+7)*(n+9)))*Math.sqrt(6*(n+3)*(n+5)/(n*(n-2)*(n-3)));
+    const gamma2g2=36*(15*Math.pow(n,6)-36*Math.pow(n,5)-628*Math.pow(n,4)+982*Math.pow(n,3)+5777*Math.pow(n,2)-6402*n+900)/(n*(n-3)*(n-2)*(n+7)*(n+9)*(n+11)*(n+13));
+    const A=6+(8/gamma2g2)*(2/gamma2g2+gamma1g2*gamma1g2);
+    const term=(g2-mu1g2)/Math.sqrt(mu2g2)*Math.sqrt(2/(A-4));
+    const base=Math.pow((1-2/A)/(1+term),1/3);
+    const z2=Math.sqrt(9*A/2)*(1-2/(9*A)-base);
+    const statistic=z1*z1+z2*z2;
+    const pValue=Math.exp(-statistic/2);
+    const passed=Number.isFinite(pValue)?pValue>=ASSUMPTION_ALPHA:null;
+    console.debug('Debug: box dagostino metrics',{ n, g1, g2, z1, z2, statistic, pValue, passed });
+    return { method:'dagostino', sampleSize:n, statistic, pValue, passed, z1, z2, g1, g2 };
+  }
+
+  function computeVarianceDiagnostics(groups,labels){
+    const cleanedGroups=groups.map((group,idx)=>{
+      const filtered=group.filter(Number.isFinite);
+      console.debug('Debug: box variance group summary',{ index: idx, label: labels[idx], size: filtered.length });
+      return filtered;
+    });
+    if(cleanedGroups.length<2){
+      return { method:'brown-forsythe', statistic:NaN, pValue:NaN, passed:null, df1:0, df2:0, sparkline:[], reason:'Need >=2 groups' };
+    }
+    const medians=cleanedGroups.map(group=>{
+      if(!group.length) return NaN;
+      const sorted=group.slice().sort((a,b)=>a-b);
+      const mid=Math.floor(sorted.length/2);
+      return sorted.length%2===0?(sorted[mid-1]+sorted[mid])/2:sorted[mid];
+    });
+    const transformed=cleanedGroups.map((group,idx)=>group.map(value=>Math.abs(value-(medians[idx]||0))));
+    const totalN=transformed.reduce((sum,g)=>sum+g.length,0);
+    const k=transformed.length;
+    if(totalN<=k){
+      return { method:'brown-forsythe', statistic:NaN, pValue:NaN, passed:null, df1:k-1, df2:Math.max(totalN-k,0), sparkline:[], reason:'Insufficient observations' };
+    }
+    const groupMeans=transformed.map(group=>group.reduce((sum,v)=>sum+v,0)/(group.length||1));
+    const grandMean=transformed.reduce((sum,group,idx)=>sum+groupMeans[idx]*(group.length||0),0)/totalN;
+    let ssBetween=0;
+    let ssWithin=0;
+    transformed.forEach((group,idx)=>{
+      const mean=groupMeans[idx]||0;
+      ssBetween+=(group.length||0)*Math.pow(mean-grandMean,2);
+      group.forEach(val=>{ ssWithin+=Math.pow(val-mean,2); });
+    });
+    const df1=k-1;
+    const df2=totalN-k;
+    const msBetween=ssBetween/(df1||1);
+    const msWithin=ssWithin/(df2||1);
+    const F=msWithin===0?Infinity:msBetween/msWithin;
+    const pValue=Number.isFinite(F)?1-fcdf(F,df1,df2):0;
+    const passed=Number.isFinite(pValue)?pValue>=ASSUMPTION_ALPHA:null;
+    console.debug('Debug: box variance diagnostics',{ df1, df2, F, pValue, passed, grandMean });
+    const sparklineValues=groupMeans.map((val,idx)=>({ label: labels[idx], value: val }));
+    return { method:'brown-forsythe', statistic:F, pValue, passed, df1, df2, sparkline:sparklineValues };
+  }
+
+  function computeAssumptionDiagnostics(groups,labels){
+    const diagnostics={
+      normalityMethod:'dagostino',
+      varianceMethod:'brown-forsythe',
+      alpha:ASSUMPTION_ALPHA,
+      groups:[],
+      warnings:[]
+    };
+    const failReasons=[];
+    groups.forEach((group,idx)=>{
+      const label=labels[idx] || `Group ${idx + 1}`;
+      const dagostino=computeDagostino(group);
+      const qqPoints=computeQQPoints(group);
+      diagnostics.groups.push({
+        label,
+        size:group.filter(Number.isFinite).length,
+        normality:dagostino,
+        qqPoints
+      });
+      if(dagostino && dagostino.passed===false){
+        const formatted=Number.isFinite(dagostino.pValue)?formatP(dagostino.pValue):'—';
+        failReasons.push(`${label} failed normality (p = ${formatted})`);
+      }
+    });
+    const variance=computeVarianceDiagnostics(groups,labels);
+    diagnostics.variance=variance;
+    if(variance && variance.passed===false){
+      const formatted=Number.isFinite(variance.pValue)?formatP(variance.pValue):'—';
+      failReasons.push(`Variance equality violated (p = ${formatted})`);
+    }
+    diagnostics.warnings=failReasons;
+    diagnostics.recommendNonParametric=failReasons.length>0;
+    console.debug('Debug: box assumption diagnostics',{ failCount: failReasons.length, variancePassed: variance?.passed });
+    return diagnostics;
+  }
+
+  function createAssumptionBadge(result,label){
+    const badge=document.createElement('span');
+    badge.className='assumption-badge';
+    badge.textContent=label || (result ? 'PASS' : result===false ? 'FAIL' : 'N/A');
+    badge.dataset.result=result===false?'fail':result?'pass':'na';
+    badge.style.display='inline-block';
+    badge.style.padding='2px 6px';
+    badge.style.borderRadius='4px';
+    badge.style.fontSize='11px';
+    badge.style.fontWeight='600';
+    if(result===false){
+      badge.style.background='#f8d7da';
+      badge.style.color='#721c24';
+    }else if(result){
+      badge.style.background='#d4edda';
+      badge.style.color='#155724';
+    }else{
+      badge.style.background='#e2e3e5';
+      badge.style.color='#383d41';
+    }
+    return badge;
+  }
+
+  function createQQSparkline(points){
+    const width=80;
+    const height=40;
+    const padding=6;
+    const svg=document.createElementNS(NS,'svg');
+    svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+    svg.setAttribute('width',String(width));
+    svg.setAttribute('height',String(height));
+    svg.setAttribute('preserveAspectRatio','none');
+    if(!points || !points.length){
+      return svg;
+    }
+    const values=points.reduce((acc,p)=>{
+      acc.push(p.theoretical);
+      acc.push(p.observed);
+      return acc;
+    },[]);
+    let min=Math.min(...values);
+    let max=Math.max(...values);
+    if(!Number.isFinite(min) || !Number.isFinite(max)){
+      return svg;
+    }
+    if(min===max){
+      min-=1;
+      max+=1;
+    }
+    const scale=v=>(v-min)/(max-min);
+    const xCoord=v=>padding+scale(v)*(width-padding*2);
+    const yCoord=v=>height-padding-scale(v)*(height-padding*2);
+    const identity=document.createElementNS(NS,'line');
+    identity.setAttribute('x1',String(xCoord(min)));
+    identity.setAttribute('y1',String(yCoord(min)));
+    identity.setAttribute('x2',String(xCoord(max)));
+    identity.setAttribute('y2',String(yCoord(max)));
+    identity.setAttribute('stroke','#cccccc');
+    identity.setAttribute('stroke-width','1');
+    svg.appendChild(identity);
+    const path=document.createElementNS(NS,'polyline');
+    const sorted=points.slice().sort((a,b)=>a.theoretical-b.theoretical);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke','#1d78c8');
+    path.setAttribute('stroke-width','1.5');
+    path.setAttribute('points',sorted.map(p=>`${xCoord(p.theoretical)},${yCoord(p.observed)}`).join(' '));
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function createResidualSparkline(values){
+    const width=80;
+    const height=40;
+    const padding=6;
+    const svg=document.createElementNS(NS,'svg');
+    svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+    svg.setAttribute('width',String(width));
+    svg.setAttribute('height',String(height));
+    svg.setAttribute('preserveAspectRatio','none');
+    if(!values || !values.length){
+      return svg;
+    }
+    const data=values.map(v=>Number(v.value)).filter(Number.isFinite);
+    if(!data.length){
+      return svg;
+    }
+    const min=Math.min(...data);
+    const max=Math.max(...data);
+    const yScale=v=>height-padding-((v-min)/(max-min || 1))*(height-padding*2);
+    const xScale=idx=>padding+(idx/(data.length-1 || 1))*(width-padding*2);
+    const polyline=document.createElementNS(NS,'polyline');
+    polyline.setAttribute('fill','none');
+    polyline.setAttribute('stroke','#8e44ad');
+    polyline.setAttribute('stroke-width','1.5');
+    polyline.setAttribute('points',data.map((v,idx)=>`${xScale(idx)},${yScale(v)}`).join(' '));
+    svg.appendChild(polyline);
+    return svg;
+  }
+
+  function renderAssumptionSection(container,diagnostics){
+    if(!container){
+      return;
+    }
+    container.innerHTML='';
+    const section=document.createElement('div');
+    section.className='stats-assumption-section';
+    const heading=document.createElement('div');
+    heading.className='stats-table-lead';
+    heading.textContent='Assumption Checks';
+    section.appendChild(heading);
+    if(!diagnostics){
+      const message=document.createElement('div');
+      message.textContent='Assumption metrics will appear once groups are selected.';
+      section.appendChild(message);
+      container.appendChild(section);
+      return;
+    }
+    const table=document.createElement('table');
+    const thead=document.createElement('thead');
+    const headerRow=document.createElement('tr');
+    ['Group','Normality','p-value','QQ'].forEach(label=>{
+      const th=document.createElement('th');
+      th.textContent=label;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    const tbody=document.createElement('tbody');
+    diagnostics.groups.forEach(group=>{
+      const tr=document.createElement('tr');
+      const labelCell=document.createElement('td');
+      labelCell.textContent=group.label;
+      tr.appendChild(labelCell);
+      const badgeCell=document.createElement('td');
+      badgeCell.appendChild(createAssumptionBadge(group.normality?.passed));
+      tr.appendChild(badgeCell);
+      const pCell=document.createElement('td');
+      const pValue=group.normality?.pValue;
+      pCell.textContent=Number.isFinite(pValue)?formatP(pValue):'—';
+      tr.appendChild(pCell);
+      const sparkCell=document.createElement('td');
+      sparkCell.appendChild(createQQSparkline(group.qqPoints));
+      tr.appendChild(sparkCell);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    section.appendChild(table);
+    if(diagnostics.variance){
+      const varianceRow=document.createElement('div');
+      varianceRow.style.marginTop='8px';
+      const label=document.createElement('span');
+      label.textContent='Variance test:';
+      label.style.marginRight='8px';
+      varianceRow.appendChild(label);
+      varianceRow.appendChild(createAssumptionBadge(diagnostics.variance.passed, diagnostics.variance.passed===false?'FAIL':'PASS'));
+      const detail=document.createElement('span');
+      const pValue=diagnostics.variance?.pValue;
+      detail.textContent=` p = ${Number.isFinite(pValue)?formatP(pValue):'—'}`;
+      detail.style.marginLeft='6px';
+      varianceRow.appendChild(detail);
+      if(Array.isArray(diagnostics.variance.sparkline) && diagnostics.variance.sparkline.length){
+        const spark=createResidualSparkline(diagnostics.variance.sparkline);
+        spark.style.marginLeft='12px';
+        varianceRow.appendChild(spark);
+      }
+      section.appendChild(varianceRow);
+    }
+    if(Array.isArray(diagnostics.warnings) && diagnostics.warnings.length){
+      const warningList=document.createElement('div');
+      warningList.className='assumption-warning-list';
+      diagnostics.warnings.forEach(msg=>{
+        const warn=document.createElement('div');
+        warn.className='assumption-warning';
+        warn.textContent=msg;
+        warningList.appendChild(warn);
+      });
+      section.appendChild(warningList);
+    }
+    container.appendChild(section);
+  }
+
+  function serializeAssumptions(diag){
+    if(!diag){
+      return null;
+    }
+    return {
+      normalityMethod:diag.normalityMethod,
+      varianceMethod:diag.variance?.method || null,
+      alpha:diag.alpha,
+      groups:diag.groups.map(g=>({
+        label:g.label,
+        size:g.size,
+        statistic:Number.isFinite(g.normality?.statistic)?g.normality.statistic:null,
+        pValue:Number.isFinite(g.normality?.pValue)?g.normality.pValue:null,
+        passed:g.normality?.passed
+      })),
+      variance:diag.variance?{
+        statistic:Number.isFinite(diag.variance.statistic)?diag.variance.statistic:null,
+        pValue:Number.isFinite(diag.variance.pValue)?diag.variance.pValue:null,
+        passed:diag.variance.passed,
+        df1:diag.variance.df1,
+        df2:diag.variance.df2
+      }:null,
+      warnings:Array.isArray(diag.warnings)?diag.warnings.slice():[],
+      recommendNonParametric:!!diag.recommendNonParametric
+    };
+  }
+
+
   function parsePairString(str,traces){ return str.split(/[\n,]+/).map(p=>p.trim()).filter(p=>p).map(p=>{ const [a,b]=p.split('-').map(s=>s.trim()); const ai=isNaN(parseInt(a))?traces.findIndex(t=>t.name===a):parseInt(a)-1; const bi=isNaN(parseInt(b))?traces.findIndex(t=>t.name===b):parseInt(b)-1; return (ai>=0&&bi>=0)?{ai,bi}:null; }).filter(Boolean); }
   function ensureGroupedStatsDefaults(){
     if(!state.groupedStats || typeof state.groupedStats !== 'object'){
@@ -1915,9 +2360,12 @@ function renderGroupedStatsControls(traces, controls){
     if(!statsDiv){ console.warn('Debug: statsResults element not found'); return; }
     statsDiv.innerHTML='';
     const hasStatsTable=Shared.statsTable && typeof Shared.statsTable.render==='function';
-    const renderTableModel=(model,append=false)=>{
+    let resultsContainer=statsDiv;
+    let assumptionContainer=null;
+    const renderTableModel=(model,append=false,targetOverride)=>{
+      const target=targetOverride || resultsContainer || statsDiv;
       if(hasStatsTable){
-        Shared.statsTable.render({ target: statsDiv, append, ...model });
+        Shared.statsTable.render({ target, append, ...model });
         console.debug('Debug: box stats render via Shared.statsTable',{
           caption:model.caption || null,
           rowCount:model.rows?.length || 0,
@@ -1926,13 +2374,13 @@ function renderGroupedStatsControls(traces, controls){
         return;
       }
       if(!append){
-        statsDiv.innerHTML='';
+        target.innerHTML='';
       }
       if(model.caption){
         const captionEl=document.createElement('div');
         captionEl.className='stats-table-lead';
         captionEl.textContent=model.caption;
-        statsDiv.appendChild(captionEl);
+        target.appendChild(captionEl);
       }
       const table=document.createElement('table');
       const thead=document.createElement('thead');
@@ -1956,7 +2404,7 @@ function renderGroupedStatsControls(traces, controls){
         tbody.appendChild(tr);
       });
       table.appendChild(tbody);
-      statsDiv.appendChild(table);
+      target.appendChild(table);
       if(Array.isArray(model.footnotes) && model.footnotes.length){
         const list=document.createElement('div');
         model.footnotes.forEach(note=>{
@@ -1964,9 +2412,20 @@ function renderGroupedStatsControls(traces, controls){
           item.textContent=note;
           list.appendChild(item);
         });
-        statsDiv.appendChild(list);
+        target.appendChild(list);
       }
       console.debug('Debug: box stats render fallback',{ caption:model.caption || null, rowCount:model.rows?.length || 0, append });
+    };
+    const setResultsMessage=text=>{
+      if(!resultsContainer){
+        return;
+      }
+      resultsContainer.innerHTML='';
+      if(typeof text==='string'){
+        const msg=document.createElement('div');
+        msg.textContent=text;
+        resultsContainer.appendChild(msg);
+      }
     };
     const annotationOpts=helpers?.annotationStyle||{};
     const orientation=annotationOpts.orientation==='horizontal'?'horizontal':'vertical';
@@ -2013,13 +2472,41 @@ function renderGroupedStatsControls(traces, controls){
         console.debug('Debug: grouped stats unavailable',{ analysis, reason: resultModel?.message });
         return;
       }
-      renderTableModel(resultModel, true);
+      renderTableModel(resultModel, true, statsDiv);
       console.debug('Debug: grouped stats rendered',{ analysis });
+      state.assumptionDiagnostics=null;
       return;
+    }
+    assumptionContainer=document.createElement('div');
+    assumptionContainer.className='stats-assumption-container';
+    statsDiv.appendChild(assumptionContainer);
+    resultsContainer=document.createElement('div');
+    resultsContainer.className='stats-results-main';
+    statsDiv.appendChild(resultsContainer);
+    const indices=[...state.selectedCols];
+    if(indices.length<2){
+      state.assumptionDiagnostics=null;
+      renderAssumptionSection(assumptionContainer,null);
+      setResultsMessage('Select at least two columns for statistical analysis.');
+      return;
+    }
+    const groups=indices.map(i=>traces[i].rawY);
+    const labels=indices.map(i=>traces[i].name);
+    const assumptionDiagnostics=computeAssumptionDiagnostics(groups,labels);
+    state.assumptionDiagnostics=assumptionDiagnostics;
+    renderAssumptionSection(assumptionContainer,assumptionDiagnostics);
+    if(assumptionDiagnostics){
+      if(assumptionDiagnostics.recommendNonParametric && state.statsTest==='parametric'){
+        state.statsTest='nonparametric';
+        assumptionDiagnostics.autoSwitched=true;
+        console.debug('Debug: box assumptions auto-switch',{ warnings: assumptionDiagnostics.warnings });
+        renderStatsControls(traces);
+      }
+      assumptionDiagnostics.appliedTest=state.statsTest;
     }
     // Custom pairs mode
     if(state.statsMode==='custom'){
-      if(!state.statsCustomPairs.length){ statsDiv.textContent='Specify pairs for comparison.'; return; }
+      if(!state.statsCustomPairs.length){ setResultsMessage('Specify pairs for comparison.'); return; }
       const pairTest=state.statsTest==='parametric'?(state.statsPaired?tTestPaired:tTest):(state.statsPaired?wilcoxonSignedRank:mannWhitney);
       const pairs=[];
       state.statsCustomPairs.forEach(pr=>{
@@ -2074,16 +2561,11 @@ function renderGroupedStatsControls(traces, controls){
       }
       return;
     }
-    // Prepare groups/labels from selected columns
-    const indices=[...state.selectedCols];
-    if(indices.length<2){ statsDiv.textContent='Select at least two columns for statistical analysis.'; return; }
-    const groups=indices.map(i=>traces[i].rawY);
-    const labels=indices.map(i=>traces[i].name);
     const param=state.statsTest==='parametric';
     const pairTest=param?(state.statsPaired?tTestPaired:tTest):(state.statsPaired?wilcoxonSignedRank:mannWhitney);
     const overallTest=param?anova:kruskalWallis;
     if(state.statsPaired && groups.some(g=>g.length!==groups[0].length)){
-      statsDiv.textContent='Paired tests require equal group sizes.'; return;
+      setResultsMessage('Paired tests require equal group sizes.'); return;
     }
     // Two-group case
     if(indices.length===2){
@@ -2138,7 +2620,7 @@ function renderGroupedStatsControls(traces, controls){
         adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
       }
     } else if(state.statsMode==='reference'){
-      const refIdx=indices.indexOf(state.statsRef); if(refIdx===-1){ statsDiv.textContent='Select reference column among the chosen groups.'; return; }
+      const refIdx=indices.indexOf(state.statsRef); if(refIdx===-1){ setResultsMessage('Select reference column among the chosen groups.'); return; }
       const refData=groups[refIdx];
       referenceLabel=labels[refIdx];
       indices.forEach((idx,i)=>{
@@ -3567,7 +4049,8 @@ function renderGroupedStatsControls(traces, controls){
           pairsText: state.statsPairsText,
           correction: state.statsCorrection,
           groupedAnalysis: state.groupedStats?.analysis,
-          selectedColumns
+          selectedColumns,
+          assumptions: serializeAssumptions(state.assumptionDiagnostics)
         }
       }
     };
@@ -3578,7 +4061,8 @@ function renderGroupedStatsControls(traces, controls){
       statsTest: payload.config.stats?.test,
       statsMode: payload.config.stats?.mode,
       statsCorrection: payload.config.stats?.correction,
-      statsSelection: payload.config.stats?.selectedColumns?.length || 0
+      statsSelection: payload.config.stats?.selectedColumns?.length || 0,
+      assumptionWarnings: payload.config.stats?.assumptions?.warnings?.length || 0
     });
     return payload;
   }
@@ -3740,6 +4224,25 @@ function renderGroupedStatsControls(traces, controls){
           state.selectedCols.add(state.statsRef);
         }
         state.statsCustomPairs=[];
+        if(statsConfig.assumptions){
+          const restoredAssumptions={
+            ...statsConfig.assumptions,
+            groups:Array.isArray(statsConfig.assumptions.groups)
+              ? statsConfig.assumptions.groups.map(group=>({ ...group }))
+              : [],
+            variance:statsConfig.assumptions.variance
+              ? { ...statsConfig.assumptions.variance }
+              : null,
+            warnings:Array.isArray(statsConfig.assumptions.warnings)
+              ? statsConfig.assumptions.warnings.slice()
+              : []
+          };
+          state.assumptionDiagnostics=restoredAssumptions;
+          console.debug('Debug: box assumption diagnostics restored',{ warningCount: restoredAssumptions.warnings.length });
+        }else{
+          state.assumptionDiagnostics=null;
+          console.debug('Debug: box assumption diagnostics cleared on load');
+        }
         console.debug('Debug: box stats config restored', {
           statsTest: state.statsTest,
           statsMode: state.statsMode,
@@ -3829,5 +4332,9 @@ function renderGroupedStatsControls(traces, controls){
 
   box.draw = function(){ try{ if (typeof draw === 'function') draw(); } catch(e){ console.error('box.draw error', e); } };
   box.ensure = function(){ if(!box.ready) box.init(); };
+  box.__getState = function(){
+    console.debug('Debug: box.__getState invoked');
+    return state;
+  };
 })(window);
 

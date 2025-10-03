@@ -3,6 +3,73 @@
  * These catch regressions when splitting main.js into modules.
  */
 
+function createJStatTestStub(){
+  const erf = (x)=>{
+    const sign = x >= 0 ? 1 : -1;
+    const abs = Math.abs(x);
+    const a1 = 0.254829592;
+    const a2 = -0.284496736;
+    const a3 = 1.421413741;
+    const a4 = -1.453152027;
+    const a5 = 1.061405429;
+    const p = 0.3275911;
+    const t = 1 / (1 + p * abs);
+    const poly = (((((a5 * t) + a4) * t + a3) * t + a2) * t + a1) * t;
+    const y = 1 - poly * Math.exp(-abs * abs);
+    return sign * y;
+  };
+  const normalCdf = (x, mean = 0, sd = 1)=>{
+    const safeSd = Math.max(Math.abs(sd), 1e-9);
+    const z = (x - mean) / (safeSd * Math.SQRT2);
+    return 0.5 * (1 + erf(z));
+  };
+  const stub = {
+    normal: { cdf: normalCdf },
+    studentt: { cdf: (x, df = 1)=>{
+      const safeDf = Math.max(df, 1);
+      const scale = Math.sqrt(Math.max((safeDf - 2) / safeDf, 0.5));
+      return normalCdf(x * scale, 0, 1);
+    } },
+    centralF: { cdf: ()=>0.5 },
+    chisquare: { cdf: ()=>0.5 },
+    stdev: (arr, sample)=>{
+      const clean = (arr || []).map(Number).filter(Number.isFinite);
+      if(!clean.length){
+        return 0;
+      }
+      const mean = clean.reduce((sum,v)=>sum+v,0)/clean.length;
+      const divisor = sample ? Math.max(clean.length - 1, 1) : clean.length;
+      const variance = clean.reduce((sum,v)=>sum+Math.pow(v-mean,2),0)/divisor;
+      return Math.sqrt(Math.max(variance,0));
+    },
+    percentile: (arr,p)=>{
+      const clean = (arr || []).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+      if(!clean.length){
+        return NaN;
+      }
+      const pos = (clean.length - 1) * p;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      if(clean[base + 1] !== undefined){
+        return clean[base] + rest * (clean[base + 1] - clean[base]);
+      }
+      return clean[base];
+    }
+  };
+  console.debug('Debug: test jStat stub created',{ keys: Object.keys(stub) });
+  return stub;
+}
+
+function ensureJStatStub(){
+  const existing = global.jStat;
+  if(existing){
+    console.debug('Debug: test jStat stub reuse',{ hasExisting: true });
+    return ()=>{ global.jStat = existing; };
+  }
+  global.jStat = createJStatTestStub();
+  return ()=>{ delete global.jStat; };
+}
+
 describe('UI events and example loaders', () => {
   beforeEach(() => {
     jest.resetModules();
@@ -39,6 +106,64 @@ describe('UI events and example loaders', () => {
     expect(loads.length).toBeGreaterThan(0);
     const firstRow = loads[loads.length - 1].firstRow;
     expect(firstRow).toEqual(expect.arrayContaining(['Control']));
+  });
+
+  test('Box Plot: assumption warnings surface for non-normal data', async () => {
+    const cleanupJStat = ensureJStatStub();
+    try {
+      const boxComponent = window.Components?.box;
+      expect(boxComponent).toBeTruthy();
+      boxComponent.ensure?.();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const state = boxComponent.__getState?.();
+      expect(state?.hot).toBeTruthy();
+
+      const skewedData = [
+        ['Normal', 'Skewed'],
+        [10, 10],
+        [11, 10],
+        [9, 10],
+        [12, 10],
+        [10, 220],
+        [11, 240],
+        [10, 210],
+        [12, 230],
+        [9, 215],
+        [11, 205],
+        [10, 225]
+      ];
+      state.hot.loadData(skewedData);
+      state.selectedCols.clear();
+      state.selectedCols.add(0);
+      state.selectedCols.add(1);
+      state.statsTest = 'parametric';
+      state.statsMode = 'all';
+      state.statsPaired = false;
+
+      window.Components.box.draw();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const statsResults = document.getElementById('statsResults');
+      console.debug('Debug: test statsResults HTML', statsResults?.innerHTML);
+      const assumptionSection = statsResults?.querySelector('.stats-assumption-section');
+      expect(assumptionSection).toBeTruthy();
+      const failBadges = Array.from(assumptionSection.querySelectorAll('.assumption-badge[data-result="fail"]'));
+      expect(failBadges.length).toBeGreaterThan(0);
+      const warningTexts = Array.from(assumptionSection.querySelectorAll('.assumption-warning')).map(el => el.textContent || '');
+      expect(warningTexts.some(text => /failed normality/i.test(text))).toBe(true);
+
+      const updatedState = window.Components.box.__getState?.();
+      console.debug('Debug: test assumption state snapshot', {
+        recommend: updatedState?.assumptionDiagnostics?.recommendNonParametric,
+        warnings: updatedState?.assumptionDiagnostics?.warnings,
+        statsTest: updatedState?.statsTest
+      });
+      expect(updatedState?.assumptionDiagnostics?.recommendNonParametric).toBe(true);
+      expect(updatedState?.statsTest).toBe('nonparametric');
+      expect((updatedState?.assumptionDiagnostics?.warnings || []).length).toBeGreaterThan(0);
+    } finally {
+      cleanupJStat();
+    }
   });
 
   test('Histogram: Load Example populates data', () => {
