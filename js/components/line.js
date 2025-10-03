@@ -443,7 +443,7 @@
     console.debug('Debug: updateLineLabelColorPickers',{labels,count:labels.length}); // Debug: label picker update
   }
 
-  function computeLineStats(points,method,jStatLib,regressionMode){
+  function computeLineStats(points,method,jStatLib,regressionMode,options = {}){
     const x=points.map(p=>p.x);
     const y=points.map(p=>p.y);
     const n=points.length;
@@ -454,10 +454,11 @@
     else {r=jStatLib.spearmancoeff(x,y); label='Spearman';}
     const t=r*Math.sqrt((n-2)/(1-r*r));
     const p=2*(1-jStatLib.studentt.cdf(Math.abs(t),n-2));
-    let regressionModel=null;
-    if(typeof regressionTools.fitRegression==='function'){
+    const alpha = Number.isFinite(options.alpha) ? options.alpha : 0.05;
+    let regressionModel=options.precomputedRegression || null;
+    if(!regressionModel && typeof regressionTools.fitRegression==='function'){
       try{
-        regressionModel=regressionTools.fitRegression(points,{ mode: regressionMode });
+        regressionModel=regressionTools.fitRegression(points,{ mode: regressionMode, alpha });
       }catch(err){
         console.error('line compute regression error', err);
       }
@@ -474,7 +475,7 @@
     return {method:label,r,p,slope,regression:regressionModel};
   }
 
-  function updateLineStats(series){
+  function updateLineStats(series, options = {}){
     if(!refs.statType || !refs.statsResults) return;
     const jStatLib = global.jStat;
     if(!jStatLib){
@@ -483,14 +484,22 @@
     }
     const method=refs.statType.value||'pearson';
     const regressionMode=refs.regressionMode?.value || 'linear';
-    console.debug('Debug: updateLineStats',{seriesCount:series.length,method,regressionMode}); // Debug: stats update entry
+    const showIntervals = !!options.showIntervals;
+    const showDiagnostics = !!options.showDiagnostics;
+    const regressionAlpha = Number.isFinite(options.alpha) ? options.alpha : 0.05;
+    const regressionCache = options.regressionCache instanceof Map ? options.regressionCache : new Map();
+    console.debug('Debug: updateLineStats',{seriesCount:series.length,method,regressionMode,showIntervals,showDiagnostics}); // Debug: stats update entry
     const tableRows=[];
+    const intervalRows=[];
+    const diagnosticRows=[];
+    const coefficientRows=[];
     let methodLabel='';
     lineLastRegressionSummaries = [];
     series.forEach(s=>{
       const pts=s.points.filter(Boolean);
       if(pts.length>=3){
-        const stats=computeLineStats(pts,method,jStatLib,regressionMode);
+        const cached = regressionCache.get(s.name);
+        const stats=computeLineStats(pts,method,jStatLib,regressionMode,{ alpha: regressionAlpha, precomputedRegression: cached });
         if(stats){
           methodLabel=stats.method;
           const summary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(stats.regression) : null;
@@ -505,6 +514,40 @@
             r2:formatMetricValue(r2Value),
             rmse:formatMetricValue(rmseValue)
           });
+          if(showIntervals && stats.regression?.intervals?.summary){
+            const summaryIntervals = stats.regression.intervals.summary;
+            intervalRows.push({
+              series: s.name,
+              ciLow: formatMetricValue(summaryIntervals.ciMin),
+              ciHigh: formatMetricValue(summaryIntervals.ciMax),
+              piLow: formatMetricValue(summaryIntervals.piMin),
+              piHigh: formatMetricValue(summaryIntervals.piMax)
+            });
+          }
+          if(showDiagnostics && stats.regression?.diagnostics){
+            diagnosticRows.push({
+              series: s.name,
+              skewness: formatMetricValue(stats.regression.diagnostics.skewness,3),
+              kurtosis: formatMetricValue(stats.regression.diagnostics.kurtosis,3),
+              jb: formatMetricValue(stats.regression.diagnostics.jarqueBera,3),
+              jbP: formatP(stats.regression.diagnostics.jarqueBeraP)
+            });
+          }
+          if((showIntervals || showDiagnostics) && Array.isArray(stats.regression?.coefficientStats)){
+            stats.regression.coefficientStats.forEach(stat => {
+              if(!stat) return;
+              coefficientRows.push({
+                series: s.name,
+                term: stat.term,
+                estimate: formatMetricValue(stat.estimate),
+                se: formatMetricValue(stat.standardError),
+                t: formatMetricValue(stat.tStatistic,3),
+                p: formatP(stat.pValue),
+                ciLow: formatMetricValue(stat.ciLow),
+                ciHigh: formatMetricValue(stat.ciHigh)
+              });
+            });
+          }
         }
       }else{
         lineLastRegressionSummaries.push({ name: s.name, mode: regressionMode, summary: null });
@@ -537,17 +580,86 @@
           },
           append:true
         });
+        if(showIntervals && intervalRows.length){
+          Shared.statsTable.render({
+            target: refs.statsResults,
+            columns:[
+              { key:'series', label:'Series', align:'left' },
+              { key:'ciLow', label:'CI Low', align:'right' },
+              { key:'ciHigh', label:'CI High', align:'right' },
+              { key:'piLow', label:'PI Low', align:'right' },
+              { key:'piHigh', label:'PI High', align:'right' }
+            ],
+            rows: intervalRows,
+            caption: 'Regression interval bounds',
+            options:{ fileName:'line-intervals', contextLabel:'line-intervals' },
+            append:true
+          });
+        }
+        if(showDiagnostics && diagnosticRows.length){
+          Shared.statsTable.render({
+            target: refs.statsResults,
+            columns:[
+              { key:'series', label:'Series', align:'left' },
+              { key:'skewness', label:'Skewness', align:'right' },
+              { key:'kurtosis', label:'Kurtosis', align:'right' },
+              { key:'jb', label:'JB', align:'right' },
+              { key:'jbP', label:'JB p', align:'right' }
+            ],
+            rows: diagnosticRows,
+            caption: 'Residual diagnostics',
+            options:{ fileName:'line-diagnostics', contextLabel:'line-diagnostics' },
+            append:true
+          });
+        }
+        if((showIntervals || showDiagnostics) && coefficientRows.length){
+          Shared.statsTable.render({
+            target: refs.statsResults,
+            columns:[
+              { key:'series', label:'Series', align:'left' },
+              { key:'term', label:'Term', align:'left' },
+              { key:'estimate', label:'Estimate', align:'right' },
+              { key:'se', label:'Std Error', align:'right' },
+              { key:'t', label:'t-stat', align:'right' },
+              { key:'p', label:'p-value', align:'right' },
+              { key:'ciLow', label:'CI Low', align:'right' },
+              { key:'ciHigh', label:'CI High', align:'right' }
+            ],
+            rows: coefficientRows,
+            caption: 'Coefficient diagnostics',
+            options:{ fileName:'line-coefficients', contextLabel:'line-coefficients' },
+            append:true
+          });
+        }
       }else{
         const table=document.createElement('table');
         table.innerHTML='<tr><th>Series</th><th>r</th><th>p</th><th>Slope</th><th>R²</th><th>RMSE</th></tr>'+
           tableRows.map(row=>`<tr><td>${row.series}</td><td>${row.r}</td><td>${row.p}</td><td>${row.slope}</td><td>${row.r2}</td><td>${row.rmse}</td></tr>`).join('');
         refs.statsResults.appendChild(table);
         console.debug('Debug: updateLineStats fallback table rendered',{rowCount:tableRows.length});
+        if(showIntervals && intervalRows.length){
+          const intervalTable=document.createElement('table');
+          intervalTable.innerHTML='<tr><th>Series</th><th>CI Low</th><th>CI High</th><th>PI Low</th><th>PI High</th></tr>'+
+            intervalRows.map(row=>`<tr><td>${row.series}</td><td>${row.ciLow}</td><td>${row.ciHigh}</td><td>${row.piLow}</td><td>${row.piHigh}</td></tr>`).join('');
+          refs.statsResults.appendChild(intervalTable);
+        }
+        if(showDiagnostics && diagnosticRows.length){
+          const diagTable=document.createElement('table');
+          diagTable.innerHTML='<tr><th>Series</th><th>Skewness</th><th>Kurtosis</th><th>JB</th><th>JB p</th></tr>'+
+            diagnosticRows.map(row=>`<tr><td>${row.series}</td><td>${row.skewness}</td><td>${row.kurtosis}</td><td>${row.jb}</td><td>${row.jbP}</td></tr>`).join('');
+          refs.statsResults.appendChild(diagTable);
+        }
+        if((showIntervals || showDiagnostics) && coefficientRows.length){
+          const coeffTable=document.createElement('table');
+          coeffTable.innerHTML='<tr><th>Series</th><th>Term</th><th>Estimate</th><th>Std Error</th><th>t-stat</th><th>p-value</th><th>CI Low</th><th>CI High</th></tr>'+
+            coefficientRows.map(row=>`<tr><td>${row.series}</td><td>${row.term}</td><td>${row.estimate}</td><td>${row.se}</td><td>${row.t}</td><td>${row.p}</td><td>${row.ciLow}</td><td>${row.ciHigh}</td></tr>`).join('');
+          refs.statsResults.appendChild(coeffTable);
+        }
       }
     }else{
       refs.statsResults.textContent='Not enough data for statistics.';
     }
-    console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,methodLabel,regressionMode}); // Debug: stats update exit
+    console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,intervalRows:intervalRows.length,diagnosticRows:diagnosticRows.length,methodLabel,regressionMode}); // Debug: stats update exit
   }
 
   function getLineGraphPayload(){
@@ -571,6 +683,8 @@
         showFrame:refs.showFrame?.checked,
         logX:refs.logX?.checked,
         logY:refs.logY?.checked,
+        showIntervals:refs.showIntervals?.checked,
+        showDiagnostics:refs.showDiagnostics?.checked,
         xMin:refs.xMin?.value,
         xMax:refs.xMax?.value,
         yMin:refs.yMin?.value,
@@ -631,6 +745,8 @@
         if(refs.showFrame) refs.showFrame.checked=!!c.showFrame;
         if(refs.logX) refs.logX.checked=!!c.logX;
         if(refs.logY) refs.logY.checked=!!c.logY;
+        if(refs.showIntervals) refs.showIntervals.checked=!!c.showIntervals;
+        if(refs.showDiagnostics) refs.showDiagnostics.checked=!!c.showDiagnostics;
         if(refs.xMin) refs.xMin.value=c.xMin||'';
         if(refs.xMax) refs.xMax.value=c.xMax||'';
         if(refs.yMin) refs.yMin.value=c.yMin||'';
@@ -781,6 +897,11 @@
       console.debug('Debug: line showFrame state',{showFrame});
       const logX=!!refs.logX?.checked;
       const logY=!!refs.logY?.checked;
+      const showIntervals=!!refs.showIntervals?.checked;
+      const showDiagnostics=!!refs.showDiagnostics?.checked;
+      const regressionModeCurrent = refs.regressionMode?.value || 'linear';
+      const regressionAlpha = 0.05;
+      console.debug('Debug: line regression configuration',{ showIntervals, showDiagnostics, regressionMode: regressionModeCurrent });
       const xMinManual=parseFloat(refs.xMin?.value);
       const xMaxManual=parseFloat(refs.xMax?.value);
       const yMinManual=parseFloat(refs.yMin?.value);
@@ -847,6 +968,27 @@
         }
       }
       const labelsUsed=series.map(s=>s.name);
+      const regressionCache=new Map();
+      if(global.jStat && typeof regressionTools.fitRegression==='function'){
+        series.forEach(s=>{
+          const pts=s.points.filter(Boolean);
+          if(pts.length>=3){
+            try{
+              const regressionModel=regressionTools.fitRegression(pts,{ mode: regressionModeCurrent, alpha: regressionAlpha });
+              if(regressionModel){
+                regressionCache.set(s.name, regressionModel);
+                s.regression=regressionModel;
+                console.debug('Debug: line regression prepared',{ series: s.name, mode: regressionModeCurrent, hasIntervals: !!regressionModel.intervals });
+              }
+            }catch(err){
+              console.error('line regression fit error', err);
+              s.regression=null;
+            }
+          }else{
+            s.regression=null;
+          }
+        });
+      }
       updateLineLabelColorPickers(labelsUsed);
       const legendLabels=labelsUsed;
       const legendScale = styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
@@ -878,6 +1020,13 @@
       }
       if(xMin===xMax) xMax=xMin+1;
       if(yMin===yMax) yMax=yMin+1;
+      if(regressionCache.size){
+        series.forEach(s=>{
+          if(s.regression){
+            s.regression.domain = { minX: xMin, maxX: xMax };
+          }
+        });
+      }
       const plotEl=refs.plot;
       plotEl.style.display='block';
       while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
@@ -1025,6 +1174,57 @@
       const seriesElems=[];
       series.forEach((s,i)=>{
         const color=colors[i];
+        if(showIntervals && s.regression?.intervals?.samples?.length){
+          const intervalLayer=document.createElementNS(NS,'g');
+          intervalLayer.setAttribute('data-layer',`interval-${i}`);
+          svg.appendChild(intervalLayer);
+          const intervalSamples=s.regression.intervals.samples.slice().sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
+          const buildIntervalPath=(lowerKey,upperKey)=>{
+            const upper=[];
+            const lower=[];
+            intervalSamples.forEach(sample=>{
+              const xRaw=sample?.x;
+              const upperRaw=sample?.[upperKey];
+              const lowerRaw=sample?.[lowerKey];
+              if(!Number.isFinite(xRaw) || !Number.isFinite(upperRaw) || !Number.isFinite(lowerRaw)) return;
+              if(logX && xRaw<=0) return;
+              if(logY && (upperRaw<=0 || lowerRaw<=0)) return;
+              const xVal=logX?Math.log10(xRaw):xRaw;
+              const upperVal=logY?Math.log10(upperRaw):upperRaw;
+              const lowerVal=logY?Math.log10(lowerRaw):lowerRaw;
+              if(!Number.isFinite(xVal) || !Number.isFinite(upperVal) || !Number.isFinite(lowerVal)) return;
+              upper.push({x:x2px(xVal),y:y2px(upperVal)});
+              lower.push({x:x2px(xVal),y:y2px(lowerVal)});
+            });
+            if(upper.length<2 || lower.length<2) return null;
+            const commands=[];
+            upper.forEach((pt,idx)=>{commands.push(`${idx?'L':'M'}${pt.x},${pt.y}`);});
+            lower.slice().reverse().forEach(pt=>{commands.push(`L${pt.x},${pt.y}`);});
+            commands.push('Z');
+            return commands.join(' ');
+          };
+          const confidencePath=buildIntervalPath('ciLow','ciHigh');
+          const predictionPath=buildIntervalPath('piLow','piHigh');
+          if(confidencePath){
+            const confEl=document.createElementNS(NS,'path');
+            confEl.setAttribute('d',confidencePath);
+            confEl.setAttribute('fill',color);
+            confEl.setAttribute('fill-opacity','0.16');
+            confEl.setAttribute('stroke','none');
+            confEl.dataset.band='confidence';
+            intervalLayer.appendChild(confEl);
+          }
+          if(predictionPath){
+            const predEl=document.createElementNS(NS,'path');
+            predEl.setAttribute('d',predictionPath);
+            predEl.setAttribute('fill',color);
+            predEl.setAttribute('fill-opacity','0.08');
+            predEl.setAttribute('stroke','none');
+            predEl.dataset.band='prediction';
+            intervalLayer.appendChild(predEl);
+          }
+          console.debug('Debug: line interval shading rendered',{ series: s.name, hasConfidence: !!confidencePath, hasPrediction: !!predictionPath });
+        }
         let pathStr='';
         let started=false;
         const markerFrag=document.createDocumentFragment();
@@ -1144,7 +1344,7 @@
       titleText.textContent=lineTitleText;
       markFontEditable(titleText,'graphTitle','graphTitle');
       makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
-      updateLineStats(series);
+      updateLineStats(series,{ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache });
       autoResizeSvgHelper(svg);
       lineLayout?.syncPanels?.();
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
@@ -1169,6 +1369,8 @@
     refs.statType=document.getElementById('lineStatType');
     refs.statsResults=document.getElementById('lineStatsResults');
     refs.regressionMode=document.getElementById('lineRegressionMode');
+    refs.showIntervals=document.getElementById('lineShowIntervals');
+    refs.showDiagnostics=document.getElementById('lineShowDiagnostics');
     refs.replicatesInput=document.getElementById('lineReplicates');
     refs.exampleSelect=document.getElementById('lineExampleSelect');
     refs.fill=document.getElementById('lineFill');
@@ -1464,6 +1666,8 @@
       el?.addEventListener('input',()=>{ scheduleLineDraw(); });
     });
     refs.statType?.addEventListener('change',()=>{ scheduleLineDraw(); });
+    refs.showIntervals?.addEventListener('change',e=>{ console.debug('Debug: line showIntervals change',{checked:e.target.checked}); scheduleLineDraw(); });
+    refs.showDiagnostics?.addEventListener('change',e=>{ console.debug('Debug: line showDiagnostics change',{checked:e.target.checked}); scheduleLineDraw(); });
 
     if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
       Shared.exporter.mountSvgControls({
