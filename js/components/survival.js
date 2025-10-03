@@ -12,7 +12,17 @@
   survival.ready = false;
 
   const DEFAULT_ROWS = 100;
-  const SURVIVAL_DEFAULT_COLS = 3;
+  const SURVIVAL_DEFAULT_COLS = 7;
+  const BASE_COLUMN_COUNT = 4; // group, time, event, entry time
+  const SURVIVAL_COL_HEADERS = [
+    'Group',
+    'Time',
+    'Event (1=event,0=censored)',
+    'Entry Time (optional)',
+    'Covariate 1',
+    'Covariate 2',
+    'Covariate 3'
+  ];
   const DEFAULT_COLORS = global.DEFAULT_SCATTER_COLORS || [
     '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00',
     '#ffff33', '#a65628', '#f781bf', '#999999'
@@ -29,10 +39,14 @@
     fileHandle: null,
     fileName: 'survival.graph',
     lastSummary: null,
-    lastStats: null
+    lastStats: null,
+    covariateSettings: {},
+    covariateColumns: []
   };
 
   const refs = {};
+
+  let parseDebugCounter = 0;
 
   function $(selector){
     return document.querySelector(selector);
@@ -65,6 +79,8 @@
     refs.showCensor = $('#survivalShowCensor');
     refs.showHazardRatios = $('#survivalShowHazardRatios');
     refs.fitCoxModel = $('#survivalFitCox');
+    refs.covariateControls = $('#survivalCovariateControls');
+    refs.covariateHint = $('#survivalCovariateHint');
     refs.showGrid = $('#survivalShowGrid');
     refs.showFrame = $('#survivalShowFrame');
     refs.timeMax = $('#survivalTimeMax');
@@ -95,7 +111,7 @@
       return;
     }
     const baseData = Shared.createEmptyData(DEFAULT_ROWS, SURVIVAL_DEFAULT_COLS);
-    logDebug('initHot table schema', { firstRowIsHeader: false, columns: SURVIVAL_DEFAULT_COLS });
+    logDebug('initHot table schema', { firstRowIsHeader: false, columns: SURVIVAL_DEFAULT_COLS, headers: SURVIVAL_COL_HEADERS });
     state.hot = Shared.hot.createStandardTable(refs.hotContainer, { rows: DEFAULT_ROWS, cols: SURVIVAL_DEFAULT_COLS }, () => {
       if(state.scheduleDraw){
         logDebug('table scheduled redraw');
@@ -109,15 +125,19 @@
       hotOptions: {
         stretchH: 'all',
         contextMenu: true,
-        colHeaders: ['Group', 'Time', 'Event (1=event,0=censored)'],
+        colHeaders: SURVIVAL_COL_HEADERS.slice(),
         afterChange(changes, source){
           if(changes){
             logDebug('table afterChange', { count: changes.length, source });
+          }
+          if(source !== 'loadData'){
+            refreshCovariateControls();
           }
         }
       }
     });
     logDebug('Handsontable initialized', { hasHot: !!state.hot });
+    refreshCovariateControls();
   }
 
   function updateGroupColorPickers(groupNames){
@@ -159,6 +179,97 @@
     });
     refs.labelColorsFieldset.style.display = activeNames.length ? '' : 'none';
     logDebug('group color pickers updated', { count: activeNames.length });
+  }
+
+  function refreshCovariateControls(){
+    if(!refs.covariateControls){
+      return;
+    }
+    const columns = Array.isArray(state.covariateColumns) ? state.covariateColumns : [];
+    const availableIndices = columns.map(col => col.index);
+    Object.keys(state.covariateSettings).forEach(key => {
+      if(!availableIndices.includes(Number(key))){
+        delete state.covariateSettings[key];
+      }
+    });
+    refs.covariateControls.innerHTML = '';
+    if(!columns.length){
+      if(refs.covariateHint){
+        refs.covariateHint.style.display = '';
+      }
+      logDebug('covariate controls hidden - no extra columns');
+      return;
+    }
+    if(refs.covariateHint){
+      refs.covariateHint.style.display = 'none';
+    }
+    columns.forEach((col, index) => {
+      const key = String(col.index);
+      if(!state.covariateSettings[key]){
+        state.covariateSettings[key] = { enabled: false, type: 'baseline' };
+      }
+      const settings = state.covariateSettings[key];
+      const row = document.createElement('div');
+      row.className = 'survival-covariate-option';
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '6px';
+      row.style.flexWrap = 'wrap';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = `survivalCovariateToggle-${col.index}`;
+      checkbox.dataset.columnIndex = key;
+      checkbox.checked = !!settings.enabled;
+
+      const label = document.createElement('label');
+      label.setAttribute('for', checkbox.id);
+      label.textContent = col.header;
+      label.style.fontWeight = '500';
+      label.style.minWidth = '140px';
+
+      const select = document.createElement('select');
+      select.dataset.columnIndex = key;
+      select.style.minWidth = '140px';
+      const optionBaseline = document.createElement('option');
+      optionBaseline.value = 'baseline';
+      optionBaseline.textContent = 'Baseline';
+      const optionTime = document.createElement('option');
+      optionTime.value = 'time';
+      optionTime.textContent = 'Time-dependent';
+      select.appendChild(optionBaseline);
+      select.appendChild(optionTime);
+      select.value = settings.type === 'time' ? 'time' : 'baseline';
+
+      checkbox.addEventListener('change', ev => {
+        const idx = ev.target.dataset.columnIndex;
+        state.covariateSettings[idx] = state.covariateSettings[idx] || { type: select.value };
+        state.covariateSettings[idx].enabled = ev.target.checked;
+        logDebug('covariate toggle changed', { columnIndex: Number(idx), enabled: ev.target.checked });
+        if(state.scheduleDraw){
+          state.scheduleDraw();
+        }
+      });
+
+      select.addEventListener('change', ev => {
+        const idx = ev.target.dataset.columnIndex;
+        state.covariateSettings[idx] = state.covariateSettings[idx] || { enabled: checkbox.checked };
+        state.covariateSettings[idx].type = ev.target.value === 'time' ? 'time' : 'baseline';
+        logDebug('covariate type changed', { columnIndex: Number(idx), type: state.covariateSettings[idx].type });
+        if(state.scheduleDraw){
+          state.scheduleDraw();
+        }
+      });
+
+      row.appendChild(checkbox);
+      row.appendChild(label);
+      row.appendChild(select);
+      refs.covariateControls.appendChild(row);
+    });
+    logDebug('covariate controls refreshed', {
+      available: columns.map(col => ({ index: col.index, header: col.header })),
+      enabled: Object.keys(state.covariateSettings).filter(key => state.covariateSettings[key]?.enabled)
+    });
   }
 
   function computeKaplanMeier(records){
@@ -390,11 +501,23 @@
 
   function collectSeries(){
     if(!state.hot){
-      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false } };
+      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns: [] };
     }
     const data = state.hot.getData() || [];
+    const columnCount = typeof state.hot.countCols === 'function' ? state.hot.countCols() : (Array.isArray(data?.[0]) ? data[0].length : SURVIVAL_DEFAULT_COLS);
+    const headersRaw = typeof state.hot.getColHeader === 'function' ? state.hot.getColHeader() : SURVIVAL_COL_HEADERS;
+    const headerLookup = [];
+    for(let col = 0; col < columnCount; col += 1){
+      const headerValue = Array.isArray(headersRaw) ? headersRaw[col] : null;
+      headerLookup[col] = headerValue != null ? String(headerValue) : (SURVIVAL_COL_HEADERS[col] || `Column ${col + 1}`);
+    }
+    const covariateColumns = [];
+    for(let col = BASE_COLUMN_COUNT; col < columnCount; col += 1){
+      covariateColumns.push({ index: col, header: headerLookup[col], key: `col${col}` });
+    }
+    state.covariateColumns = covariateColumns;
     if(!Array.isArray(data) || !data.length){
-      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false } };
+      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns, headers: headerLookup };
     }
     const groups = new Map();
     let maxTime = 0;
@@ -407,15 +530,26 @@
       const groupRaw = row[0];
       const timeRaw = row[1];
       const eventRaw = row[2];
+      const entryRaw = row[3];
       const groupName = typeof groupRaw === 'string' ? groupRaw.trim() : (groupRaw != null ? String(groupRaw).trim() : '');
       const time = Number.parseFloat(timeRaw);
       const eventFlag = Number(eventRaw);
+      const entry = Number.parseFloat(entryRaw);
       if(!groupName || !Number.isFinite(time)){
         continue;
       }
       usedRows += 1;
       const bucket = groups.get(groupName) || { name: groupName, records: [], events: 0, censored: 0 };
-      const record = { time, event: eventFlag === 1 };
+      const record = {
+        time,
+        event: eventFlag === 1,
+        entry: Number.isFinite(entry) ? entry : 0,
+        extras: Array.isArray(row) ? row.slice(BASE_COLUMN_COUNT) : [],
+        rowIndex: i
+      };
+      if(Number.isFinite(record.entry) && record.entry > record.time){
+        logDebug('entry greater than event time encountered', { rowIndex: i, entry: record.entry, time: record.time });
+      }
       bucket.records.push(record);
       if(record.event){ bucket.events += 1; } else { bucket.censored += 1; }
       groups.set(groupName, bucket);
@@ -425,7 +559,7 @@
     }
     const groupNames = Array.from(groups.keys());
     if(!groupNames.length || usedRows === 0){
-      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false } };
+      return { series: [], groupNames: [], maxTime: 0, logRank: { available: false }, covariateColumns, headers: headerLookup };
     }
     state.groupOrder = state.groupOrder.filter(name => groups.has(name));
     groupNames.forEach(name => {
@@ -451,8 +585,14 @@
       };
     }).filter(Boolean);
     const logRank = computeLogRank(series);
-    logDebug('series collected', { groupCount: series.length, maxTime, logRankAvailable: !!logRank.available, usedRows });
-    return { series, groupNames: ordered, maxTime, logRank };
+    logDebug('series collected', {
+      groupCount: series.length,
+      maxTime,
+      logRankAvailable: !!logRank.available,
+      usedRows,
+      covariateColumnCount: covariateColumns.length
+    });
+    return { series, groupNames: ordered, maxTime, logRank, covariateColumns, headers: headerLookup };
   }
 
   function escapeHtml(value){
@@ -474,6 +614,61 @@
     }
     const clipped = Math.max(Math.min(value, 50), -50);
     return Math.exp(clipped);
+  }
+
+  function parseCovariateValue(raw, predictor){
+    let value = 0;
+    let handled = false;
+    if(typeof raw === 'number'){
+      if(Number.isFinite(raw)){
+        value = raw;
+        handled = true;
+      }
+    } else if(typeof raw === 'boolean'){
+      value = raw ? 1 : 0;
+      handled = true;
+    } else if(raw != null){
+      const str = String(raw).trim();
+      if(str.length){
+        const numeric = Number.parseFloat(str);
+        if(Number.isFinite(numeric)){
+          value = numeric;
+          handled = true;
+        } else {
+          const lowered = str.toLowerCase();
+          if(['true', 'yes', 'y', 't', 'active', 'on'].includes(lowered)){
+            value = 1;
+            handled = true;
+          } else if(['false', 'no', 'n', 'f', 'inactive', 'off'].includes(lowered)){
+            value = 0;
+            handled = true;
+          } else if(predictor?.type === 'time'){
+            const matches = str.match(/-?\d+(?:\.\d+)?/g);
+            if(Array.isArray(matches) && matches.length){
+              const lastToken = matches[matches.length - 1];
+              const parsed = Number.parseFloat(lastToken);
+              if(Number.isFinite(parsed)){
+                value = parsed;
+                handled = true;
+              }
+            }
+          }
+        }
+      }
+    }
+    if(!handled){
+      value = 0;
+    }
+    if(parseDebugCounter < 5){
+      logDebug('covariate parsed', {
+        raw,
+        value,
+        predictorType: predictor?.type || 'baseline',
+        handled
+      });
+      parseDebugCounter += 1;
+    }
+    return value;
   }
 
   function normalCDF(value){
@@ -520,116 +715,221 @@
     return Array.from({ length: size }, () => new Array(size).fill(0));
   }
 
-  function prepareCoxData(series){
-    if(!Array.isArray(series) || series.length < 2){
-      return { available: false, message: 'Cox model requires at least two groups.' };
+  function getSelectedCovariates(columns){
+    const selected = [];
+    const list = Array.isArray(columns) ? columns : [];
+    list.forEach(col => {
+      const settings = state.covariateSettings[String(col.index)];
+      if(settings?.enabled){
+        selected.push({
+          columnIndex: col.index,
+          header: col.header,
+          type: settings.type === 'time' ? 'time' : 'baseline'
+        });
+      }
+    });
+    logDebug('selected covariates resolved', { count: selected.length });
+    return selected;
+  }
+
+  function prepareCoxData(summary){
+    if(!summary || !Array.isArray(summary.series) || !summary.series.length){
+      return { available: false, message: 'No series available for Cox model.' };
     }
+    const series = summary.series;
     const baselineGroup = series[0]?.name || 'Group 1';
-    const predictors = Math.max(series.length - 1, 0);
+    const covariateSelections = getSelectedCovariates(summary.covariateColumns);
+    const designPredictors = [];
+    for(let idx = 1; idx < series.length; idx += 1){
+      const group = series[idx];
+      designPredictors.push({
+        key: `group:${group?.name ?? idx}`,
+        label: `${group?.name ?? `Group ${idx + 1}`} vs ${baselineGroup}`,
+        type: 'group',
+        groupName: group?.name ?? `Group ${idx + 1}`,
+        groupIndex: idx
+      });
+    }
+    covariateSelections.forEach(selection => {
+      designPredictors.push({
+        key: `cov:${selection.columnIndex}`,
+        label: selection.header,
+        type: selection.type,
+        columnIndex: selection.columnIndex
+      });
+    });
+    const predictors = designPredictors.length;
     if(predictors <= 0){
-      return { available: false, message: 'Cox model requires a reference comparison.' };
+      return { available: false, message: 'Cox model requires at least one predictor.' };
     }
     const data = [];
     series.forEach((group, groupIndex) => {
       if(!group || !Array.isArray(group.records)){
         return;
       }
-      group.records.forEach(rec => {
+      group.records.forEach((rec, recordIndex) => {
         if(!Number.isFinite(rec.time)){
           return;
         }
-        const covariates = new Array(predictors).fill(0);
-        if(groupIndex > 0){
-          covariates[groupIndex - 1] = 1;
-        }
+        const covariates = designPredictors.map(predictor => {
+          if(predictor.type === 'group'){
+            return predictor.groupIndex === groupIndex ? 1 : 0;
+          }
+          const offset = predictor.columnIndex - BASE_COLUMN_COUNT;
+          const raw = Array.isArray(rec.extras) ? rec.extras[offset] : undefined;
+          return parseCovariateValue(raw, predictor);
+        });
         data.push({
           time: rec.time,
+          entry: Number.isFinite(rec.entry) ? rec.entry : 0,
           event: rec.event ? 1 : 0,
-          covariates
+          covariates,
+          group: group.name,
+          rowIndex: rec.rowIndex ?? recordIndex,
+          extras: rec.extras
         });
       });
     });
     if(!data.length){
       return { available: false, message: 'No valid observations to fit Cox model.' };
     }
-    data.sort((a, b) => {
-      if(a.time === b.time){
-        if(a.event === b.event){
-          return 0;
-        }
-        return a.event ? -1 : 1;
-      }
-      return b.time - a.time;
-    });
+    data.sort((a, b) => a.time - b.time);
     const eventCount = data.reduce((sum, rec) => sum + (rec.event ? 1 : 0), 0);
     if(eventCount === 0){
       return { available: false, message: 'Cox model requires at least one observed event.' };
     }
-    return { available: true, baselineGroup, predictors, data, eventCount };
+    const groupedEvents = new Map();
+    data.forEach((obs, idx) => {
+      if(!obs.event){
+        return;
+      }
+      const timeKey = Number.isFinite(obs.time) ? obs.time : 0;
+      if(!groupedEvents.has(timeKey)){
+        groupedEvents.set(timeKey, []);
+      }
+      groupedEvents.get(timeKey).push(idx);
+    });
+    const eventsByTime = [];
+    const sortedTimes = Array.from(groupedEvents.keys()).sort((a, b) => a - b);
+    sortedTimes.forEach(timeValue => {
+      const eventIndices = groupedEvents.get(timeValue) || [];
+      const riskSet = [];
+      data.forEach((candidate, candidateIndex) => {
+        if(!Number.isFinite(candidate.time)){
+          return;
+        }
+        const entryTime = Number.isFinite(candidate.entry) ? candidate.entry : 0;
+        if(entryTime <= timeValue + 1e-9 && candidate.time >= timeValue - 1e-9){
+          riskSet.push(candidateIndex);
+        }
+      });
+      eventsByTime.push({
+        time: timeValue,
+        eventIndices,
+        riskSet,
+        eventCount: eventIndices.length
+      });
+    });
+    logDebug('cox design prepared', {
+      predictors,
+      baselineGroup,
+      totalRecords: data.length,
+      events: eventCount,
+      extraCovariates: covariateSelections.length,
+      tieGroups: eventsByTime.length
+    });
+    if(data.length && parseDebugCounter < 5){
+      logDebug('cox design sample row', {
+        sample: Object.assign({}, data[0], { covariates: data[0].covariates.slice() })
+      });
+    }
+    return {
+      available: true,
+      baselineGroup,
+      predictors,
+      data,
+      eventCount,
+      design: { predictors: designPredictors, covariateSelections },
+      eventsByTime
+    };
   }
 
   function evaluateCoxAt(beta, prepared){
-    const { data, predictors } = prepared;
+    const { data, predictors, eventsByTime } = prepared;
     const gradient = new Array(predictors).fill(0);
     const fisher = Array.from({ length: predictors }, () => new Array(predictors).fill(0));
     let logLik = 0;
-    let prevExp = 0;
-    let prevX = new Array(predictors).fill(0);
-    let prevXX = createZeroMatrix(predictors);
-    const runningExp = new Array(data.length);
-    const runningX = new Array(data.length);
-    const runningXX = new Array(data.length);
-
-    for(let i = 0; i < data.length; i += 1){
-      const covariates = data[i].covariates;
-      const xb = dotProduct(covariates, beta);
-      const weight = safeExp(xb);
-      const nextExp = prevExp + weight;
-      const nextX = new Array(predictors);
-      const nextXX = createZeroMatrix(predictors);
+    if(!Array.isArray(eventsByTime) || !eventsByTime.length){
+      return { gradient, fisher, logLik };
+    }
+    eventsByTime.forEach((group, idx) => {
+      const riskSet = Array.isArray(group.riskSet) ? group.riskSet : [];
+      const eventIndices = Array.isArray(group.eventIndices) ? group.eventIndices : [];
+      if(!riskSet.length || !eventIndices.length){
+        return;
+      }
+      let denom = 0;
+      const weightedX = new Array(predictors).fill(0);
+      const weightedXX = createZeroMatrix(predictors);
+      riskSet.forEach(candidateIndex => {
+        const obs = data[candidateIndex];
+        if(!obs){
+          return;
+        }
+        const xb = dotProduct(obs.covariates, beta);
+        const weight = safeExp(xb);
+        denom += weight;
+        for(let r = 0; r < predictors; r += 1){
+          const vr = obs.covariates[r] ?? 0;
+          weightedX[r] += vr * weight;
+          for(let c = 0; c < predictors; c += 1){
+            const vc = obs.covariates[c] ?? 0;
+            weightedXX[r][c] += vr * vc * weight;
+          }
+        }
+      });
+      const denomSafe = Math.max(denom, 1e-12);
+      const expectedX = weightedX.map(val => val / denomSafe);
+      const eventCount = group.eventCount || eventIndices.length;
+      const observedSum = new Array(predictors).fill(0);
+      eventIndices.forEach(eventIndex => {
+        const obs = data[eventIndex];
+        if(!obs){
+          return;
+        }
+        logLik += dotProduct(obs.covariates, beta) - Math.log(denomSafe);
+        for(let r = 0; r < predictors; r += 1){
+          observedSum[r] += obs.covariates[r] ?? 0;
+        }
+      });
       for(let r = 0; r < predictors; r += 1){
-        nextX[r] = prevX[r] + covariates[r] * weight;
+        gradient[r] += observedSum[r] - eventCount * expectedX[r];
+      }
+      for(let r = 0; r < predictors; r += 1){
         for(let c = 0; c < predictors; c += 1){
-          nextXX[r][c] = prevXX[r][c] + covariates[r] * covariates[c] * weight;
+          const expectedXX = weightedXX[r][c] / denomSafe;
+          const varTerm = expectedXX - expectedX[r] * expectedX[c];
+          fisher[r][c] += eventCount * varTerm;
         }
       }
-      runningExp[i] = nextExp;
-      runningX[i] = nextX;
-      runningXX[i] = nextXX;
-      prevExp = nextExp;
-      prevX = nextX;
-      prevXX = nextXX;
-    }
-
-    for(let i = 0; i < data.length; i += 1){
-      const obs = data[i];
-      if(!obs.event){
-        continue;
+      if(idx < 5){
+        logDebug('cox risk set evaluated', {
+          time: group.time,
+          riskSize: riskSet.length,
+          eventCount,
+          denom: denomSafe
+        });
       }
-      const denom = Math.max(runningExp[i], 1e-12);
-      logLik += dotProduct(obs.covariates, beta) - Math.log(denom);
-      const expected = new Array(predictors);
-      for(let r = 0; r < predictors; r += 1){
-        expected[r] = runningX[i][r] / denom;
-        gradient[r] += obs.covariates[r] - expected[r];
-      }
-      for(let r = 0; r < predictors; r += 1){
-        for(let c = 0; c < predictors; c += 1){
-          const numer = runningXX[i][r][c] / denom;
-          const term = numer - (expected[r] * expected[c]);
-          fisher[r][c] += term;
-        }
-      }
-    }
+    });
     return { gradient, fisher, logLik };
   }
 
-  function fitCoxModel(series, options){
+  function fitCoxModel(summary, options){
     const enabled = options?.enabled !== false;
     if(!enabled){
       return { available: false, message: 'Cox model fitting disabled.' };
     }
-    const prepared = prepareCoxData(series);
+    const prepared = prepareCoxData(summary);
     if(!prepared.available){
       logDebug('cox preparation failed', { message: prepared.message });
       return { available: false, message: prepared.message };
@@ -671,20 +971,21 @@
     }
     const finalEval = evaluateCoxAt(beta, prepared);
     const nullEval = evaluateCoxAt(new Array(predictors).fill(0), prepared);
-    const coefficients = [];
-    const coefficientIndex = {};
-    for(let idx = 1; idx < series.length; idx += 1){
-      const group = series[idx];
-      const coef = beta[idx - 1];
-      const variance = Math.max(covariance[idx - 1]?.[idx - 1] ?? 0, 0);
+    const designPredictors = Array.isArray(prepared.design?.predictors) ? prepared.design.predictors : [];
+    const coefficients = designPredictors.map((predictor, idx) => {
+      const coef = beta[idx];
+      const variance = Math.max(covariance[idx]?.[idx] ?? 0, 0);
       const se = Math.sqrt(variance);
       const hr = Math.exp(coef);
       const ciLow = se > 0 ? Math.exp(coef - 1.96 * se) : hr;
       const ciHigh = se > 0 ? Math.exp(coef + 1.96 * se) : hr;
       const z = se > 0 ? coef / se : null;
       const p = pValueFromZ(z);
-      coefficients.push({
-        group: group.name,
+      const label = predictor.label || predictor.groupName || `Predictor ${idx + 1}`;
+      const entry = {
+        key: predictor.key || `predictor:${idx}`,
+        label,
+        type: predictor.type || 'baseline',
         beta: coef,
         se,
         hazardRatio: hr,
@@ -692,9 +993,21 @@
         ciHigh,
         z,
         p
-      });
-      coefficientIndex[group.name] = idx - 1;
-    }
+      };
+      if(predictor.type === 'group'){
+        entry.group = predictor.groupName;
+      } else if(Number.isFinite(predictor.columnIndex)){
+        entry.columnIndex = predictor.columnIndex;
+      }
+      return entry;
+    });
+    const coefficientIndex = {};
+    coefficients.forEach((coef, idx) => {
+      coefficientIndex[coef.key] = idx;
+      if(coef.type === 'group' && coef.group){
+        coefficientIndex[coef.group] = idx;
+      }
+    });
     const likelihoodRatio = {
       statistic: 2 * (finalEval.logLik - nullEval.logLik),
       df: predictors,
@@ -715,6 +1028,7 @@
       coefficients,
       covariance,
       coefficientIndex,
+      design: prepared.design,
       diagnostics,
       converged,
       message: converged ? 'Cox model converged.' : 'Cox model reached iteration limit.'
@@ -723,7 +1037,8 @@
       converged,
       iterations: diagnostics.iterations,
       coefficientCount: coefficients.length,
-      logLik: diagnostics.logLikelihood
+      logLik: diagnostics.logLikelihood,
+      predictorLabels: coefficients.map(coef => coef.label)
     });
     return result;
   }
@@ -875,6 +1190,7 @@
       refs.plotDiv.removeChild(refs.plotDiv.firstChild);
     }
     const summary = collectSeries();
+    refreshCovariateControls();
     const hazardRatiosEnabled = !!refs.showHazardRatios?.checked;
     const coxEnabled = !!refs.fitCoxModel?.checked;
     let coxModelSummary = { available: false, message: coxEnabled ? 'Cox model unavailable.' : 'Cox model fitting disabled.' };
@@ -882,7 +1198,7 @@
     if(summary.series.length){
       const shouldFitCox = hazardRatiosEnabled || coxEnabled;
       if(shouldFitCox){
-        coxModelSummary = fitCoxModel(summary.series, { enabled: shouldFitCox });
+        coxModelSummary = fitCoxModel(summary, { enabled: shouldFitCox });
       }
       if(hazardRatiosEnabled){
         hazardSummary = computeHazardRatios(summary.series, coxModelSummary, { enabled: hazardRatiosEnabled });
@@ -1289,6 +1605,7 @@
               </thead>
               <tbody>${hazardRows}</tbody>
             </table>`;
+          logDebug('hazard ratio stats rendered', { rowCount: summary.hazardRatios.rows.length });
         } else {
           refs.statsHazardRatios.textContent = summary.hazardRatios?.message || 'Hazard ratios unavailable.';
         }
@@ -1301,13 +1618,14 @@
         if(summary.coxModel?.available){
           const baseline = escapeHtml(summary.coxModel.baselineGroup || 'Reference');
           const coefRows = (summary.coxModel.coefficients || []).map(coef => {
-            const safeGroup = escapeHtml(coef.group || '');
+            const safeLabel = escapeHtml(coef.label || coef.group || '');
+            const typeLabel = coef.type === 'group' ? 'Group' : (coef.type === 'time' ? 'Time-dependent' : 'Baseline');
             const betaLabel = formatNumber(coef.beta, 3);
             const hr = formatNumber(coef.hazardRatio, 3);
             const ci = coef.ciLow != null && coef.ciHigh != null ? `${formatNumber(coef.ciLow, 3)} – ${formatNumber(coef.ciHigh, 3)}` : 'n/a';
             const zLabel = coef.z != null ? formatNumber(coef.z, 3) : 'n/a';
             const pLabel = formatP(coef.p);
-            return `<tr><td>${safeGroup}</td><td style="text-align:right;">${betaLabel}</td><td style="text-align:right;">${hr}</td><td style="text-align:right;">${ci}</td><td style="text-align:right;">${zLabel}</td><td style="text-align:right;">${pLabel}</td></tr>`;
+            return `<tr><td>${safeLabel}</td><td>${escapeHtml(typeLabel)}</td><td style="text-align:right;">${betaLabel}</td><td style="text-align:right;">${hr}</td><td style="text-align:right;">${ci}</td><td style="text-align:right;">${zLabel}</td><td style="text-align:right;">${pLabel}</td></tr>`;
           }).join('');
           const diag = summary.coxModel.diagnostics || {};
           const lr = diag.likelihoodRatio || {};
@@ -1324,7 +1642,8 @@
             <table class="stats-table" style="border-collapse:collapse; width:100%; margin-bottom:6px;">
               <thead>
                 <tr>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:left;">Group</th>
+                  <th style="border:1px solid #ccc; padding:4px; text-align:left;">Predictor</th>
+                  <th style="border:1px solid #ccc; padding:4px; text-align:left;">Type</th>
                   <th style="border:1px solid #ccc; padding:4px; text-align:right;">β</th>
                   <th style="border:1px solid #ccc; padding:4px; text-align:right;">Hazard Ratio</th>
                   <th style="border:1px solid #ccc; padding:4px; text-align:right;">95% CI</th>
@@ -1335,6 +1654,10 @@
               <tbody>${coefRows}</tbody>
             </table>
             <div>${diagLines.map(line => `<div>${escapeHtml(line)}</div>`).join('')}</div>`;
+          logDebug('cox stats rendered', {
+            rowCount: summary.coxModel.coefficients?.length || 0,
+            baseline: summary.coxModel.baselineGroup
+          });
         } else {
           refs.statsCox.textContent = summary.coxModel?.message || 'Cox model unavailable.';
         }
@@ -1386,7 +1709,8 @@
         yMax: refs.yMax?.value || '',
         fontSize: refs.fontSize?.value || '13',
         xLabel: refs.xLabel?.value || '',
-        yLabel: refs.yLabel?.value || ''
+        yLabel: refs.yLabel?.value || '',
+        covariateSettings: state.covariateSettings
       },
       stats: state.lastStats || null
     };
@@ -1396,7 +1720,8 @@
       showCI: payload.config.showCI,
       hazardRatios: payload.config.showHazardRatios,
       fitCoxModel: payload.config.fitCoxModel,
-      hasStats: !!payload.stats
+      hasStats: !!payload.stats,
+      covariateSettingKeys: Object.keys(state.covariateSettings || {})
     });
     return payload;
   }
@@ -1407,6 +1732,15 @@
       return;
     }
     state.labelColors = Object.assign({}, config.labelColors || {});
+    if(config.covariateSettings && typeof config.covariateSettings === 'object'){
+      state.covariateSettings = Object.assign({}, config.covariateSettings);
+      logDebug('covariate settings restored', { keys: Object.keys(state.covariateSettings) });
+    } else {
+      if(Object.keys(state.covariateSettings || {}).length){
+        logDebug('covariate settings reset due to missing config (legacy payload)');
+      }
+      state.covariateSettings = {};
+    }
     if(refs.showCI) refs.showCI.checked = !!config.showCI;
     if(refs.showCensor) refs.showCensor.checked = !!config.showCensor;
     if(refs.showHazardRatios) refs.showHazardRatios.checked = config.showHazardRatios !== false;
@@ -1426,6 +1760,7 @@
     }
     if(refs.xLabel) refs.xLabel.value = config.xLabel || 'Time';
     if(refs.yLabel) refs.yLabel.value = config.yLabel || 'Survival Probability';
+    refreshCovariateControls();
     logDebug('config applied', config);
   }
 

@@ -1140,6 +1140,9 @@
         <div id="survivalHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
           <div id="survivalHot" style="width:100%; height:100%;"></div>
         </div>
+        <div id="survivalTableHint" style="font-size:12px; color:#555; margin-top:6px;">
+          Enter rows as: Group, Time, Event (1=event,0=censored), optional Entry Time, and any additional covariates.
+        </div>
       </div>
       <div id="survivalPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" style="align-items:center;" id="survivalGraphPanel">
@@ -1168,6 +1171,12 @@
               <div class="control" style="flex-wrap:wrap;">
                 <label style="width:auto;"><input type="checkbox" id="survivalShowHazardRatios" checked /> Show Hazard Ratios</label>
                 <label style="width:auto;"><input type="checkbox" id="survivalFitCox" checked /> Fit Cox Model</label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Cox Covariates</legend>
+              <div class="control" id="survivalCovariateControls" style="flex-direction:column; gap:6px; align-items:flex-start;">
+                <div id="survivalCovariateHint" style="font-size:12px; color:#555;">Add extra columns to pick covariates for the Cox model.</div>
               </div>
             </fieldset>
             <fieldset>
