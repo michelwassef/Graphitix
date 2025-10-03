@@ -100,6 +100,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 - Sets up a three-column Handsontable (label, X, Y) with resize observers and shared resizer hooks. Alpha, dot size, border, grid, and log-scale controls trigger debounced redraws.
 - `drawScatter` (inside `draw`) plots points with optional regression lines. `global.jStat.corrcoeff` plus Spearman implementations power the statistics panel; formatting helpers keep p-values friendly.
 - Label-based coloring uses dynamically generated color inputs stored in `scatterLabelColors`; `Shared.attachColorPickerNear` enables the overlay picker. Export buttons serialize the SVG.
+- Confidence/prediction interval shading with residual diagnostics is exposed through dedicated checkboxes; interval summaries and coefficient standard errors are persisted in `.graph` saves alongside regression mode selections.
 
 ### PCA/MDS (`pca.js`)
 - Handsontable defaults to five columns (`Label`, `Var1`–`Var4`). Users choose PCA vs. MDS, scaling, and color encodings.
@@ -110,6 +111,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 - Extends the scatter palette to multiple series (default six columns). Data interpretation expects a header row followed by wide-form values.
 - Maintains per-series color pickers, line/point toggles, origin controls, and Pearson/Spearman statistics computed with `global.jStat`.
 - Legends dynamically measure text using `chartStyle.measureText` to allocate layout; `Shared.syncPanelWidths` keeps tables aligned after resizes.
+- Per-series regression interval bands, coefficient diagnostics, and residual normality checks are toggled in the stats fieldset and included when saving/loading `.graph` files.
 
 ### Histogram (`hist.js`)
 - Operates on a single numeric column. `draw()` calculates “nice” tick spacing, bins data, and draws axes/bars manually, honoring log-scale and manual Y-range options.

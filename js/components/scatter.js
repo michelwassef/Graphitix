@@ -32,10 +32,62 @@
 
   const ensureFiniteNumber = (value) => (Number.isFinite(value) ? value : NaN);
 
+  const hasMatrixOps = !!(jStatLib && typeof jStatLib.transpose === 'function' && typeof jStatLib.multiply === 'function');
+  const safeTranspose = (matrix) => {
+    if(!hasMatrixOps){
+      console.debug('Debug:', regressionDebugNamespace, 'transpose unavailable; returning null');
+      return null;
+    }
+    try{
+      return jStatLib.transpose(matrix);
+    }catch(err){
+      console.warn('transpose failed in regression calculations', err);
+      return null;
+    }
+  };
+  const safeMultiply = (a, b) => {
+    if(!hasMatrixOps){
+      console.debug('Debug:', regressionDebugNamespace, 'multiply unavailable; returning null');
+      return null;
+    }
+    try{
+      return jStatLib.multiply(a, b);
+    }catch(err){
+      console.warn('multiply failed in regression calculations', err);
+      return null;
+    }
+  };
+  const safeInverse = (matrix) => {
+    if(!hasMatrixOps){
+      return null;
+    }
+    let invResult = null;
+    try{
+      if(typeof jStatLib.inv === 'function'){
+        invResult = jStatLib.inv(matrix);
+      }
+    }catch(err){
+      console.warn('inv failed in regression calculations', err);
+      invResult = null;
+    }
+    if(!invResult){
+      try{
+        if(typeof jStatLib.pinv === 'function'){
+          invResult = jStatLib.pinv(matrix);
+        }
+      }catch(err){
+        console.warn('pinv failed in regression calculations', err);
+        invResult = null;
+      }
+    }
+    return invResult;
+  };
+
   if(!regressionTools.fitRegression){
     regressionTools.fitRegression = function fitRegression(points, options = {}){
       const cleanPoints = Array.isArray(points) ? points.filter(pt => pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) : [];
       const mode = options.mode || 'linear';
+      const alpha = Number.isFinite(options.alpha) && options.alpha > 0 && options.alpha < 1 ? options.alpha : 0.05;
       const sampleSize = cleanPoints.length;
       const domain = cleanPoints.reduce((acc, pt) => {
         if(!acc){
@@ -79,21 +131,219 @@
         };
       };
 
+      const computeResidualDiagnostics = (residuals) => {
+        if(!residuals || residuals.length < 3){
+          return {
+            skewness: NaN,
+            kurtosis: NaN,
+            jarqueBera: NaN,
+            jarqueBeraP: NaN
+          };
+        }
+        const n = residuals.length;
+        const mean = residuals.reduce((sum,val)=>sum+val,0)/n;
+        const centered = residuals.map(val => val - mean);
+        const variance = centered.reduce((sum,val)=>sum+val*val,0)/(n-1);
+        const sd = Math.sqrt(Math.max(variance, 0));
+        if(sd === 0){
+          return {
+            skewness: 0,
+            kurtosis: 3,
+            jarqueBera: 0,
+            jarqueBeraP: 1
+          };
+        }
+        const skewness = centered.reduce((sum,val)=>sum+Math.pow(val/sd,3),0)/n;
+        const kurtosis = centered.reduce((sum,val)=>sum+Math.pow(val/sd,4),0)/n;
+        const jarqueBera = (n/6) * (Math.pow(skewness,2) + Math.pow(kurtosis-3,2)/4);
+        const jbP = jStatLib?.chisquare && typeof jStatLib.chisquare.cdf === 'function'
+          ? 1 - jStatLib.chisquare.cdf(jarqueBera,2)
+          : NaN;
+        const diagnostics = { skewness, kurtosis, jarqueBera, jarqueBeraP: jbP };
+        console.debug('Debug:', regressionDebugNamespace, 'residual diagnostics', diagnostics);
+        return diagnostics;
+      };
+
+      const buildCoefficientStats = ({ coefficients, xtxInv, residuals, alpha, termLabels, degreesOfFreedom }) => {
+        if(!coefficients || !xtxInv || !residuals){
+          return [];
+        }
+        const coeffCount = coefficients.length;
+        const variance = residuals.length > coeffCount
+          ? residuals.reduce((sum,val)=>sum+val*val,0) / Math.max(residuals.length - coeffCount, 1)
+          : NaN;
+        if(!Number.isFinite(variance)){
+          return [];
+        }
+        const se = coefficients.map((_, idx) => {
+          const diag = xtxInv?.[idx]?.[idx];
+          return Number.isFinite(diag) && diag >= 0 ? Math.sqrt(diag * variance) : NaN;
+        });
+        const tDist = jStatLib?.studentt;
+        const alphaHalf = alpha/2;
+        const tCritical = (tDist && typeof tDist.inv === 'function' && degreesOfFreedom > 0)
+          ? tDist.inv(1 - alphaHalf, degreesOfFreedom)
+          : NaN;
+        const stats = coefficients.map((estimate, idx) => {
+          const standardError = se[idx];
+          const tStatistic = Number.isFinite(standardError) && standardError !== 0
+            ? estimate / standardError
+            : NaN;
+          const pValue = (tDist && typeof tDist.cdf === 'function' && Number.isFinite(tStatistic) && degreesOfFreedom > 0)
+            ? 2 * (1 - tDist.cdf(Math.abs(tStatistic), degreesOfFreedom))
+            : NaN;
+          const ciHalfWidth = Number.isFinite(tCritical) && Number.isFinite(standardError)
+            ? tCritical * standardError
+            : NaN;
+          const ciLow = Number.isFinite(ciHalfWidth) ? estimate - ciHalfWidth : NaN;
+          const ciHigh = Number.isFinite(ciHalfWidth) ? estimate + ciHalfWidth : NaN;
+          const term = termLabels?.[idx] || `β${idx}`;
+          const entry = { term, estimate, standardError, tStatistic, pValue, ciLow, ciHigh };
+          console.debug('Debug:', regressionDebugNamespace, 'coefficient stats', entry);
+          return entry;
+        });
+        return stats;
+      };
+
+      const buildIntervalSamples = ({ xtxInv, coefficients, residuals, domain, degree, alpha }) => {
+        if(!xtxInv || !coefficients || !residuals || !domain){
+          return { samples: [], summary: null };
+        }
+        const dof = residuals.length - coefficients.length;
+        if(dof <= 0){
+          return { samples: [], summary: null };
+        }
+        const tDist = jStatLib?.studentt;
+        const tCritical = (tDist && typeof tDist.inv === 'function')
+          ? tDist.inv(1 - alpha/2, dof)
+          : NaN;
+        const sumSquares = residuals.reduce((sum,val)=>sum+val*val,0);
+        const sigmaSq = sumSquares / Math.max(dof, 1);
+        if(!Number.isFinite(sigmaSq) || !Number.isFinite(tCritical)){
+          return { samples: [], summary: null };
+        }
+        const minX = Number.isFinite(domain.minX) ? domain.minX : null;
+        const maxX = Number.isFinite(domain.maxX) ? domain.maxX : null;
+        if(minX === null || maxX === null || minX === maxX){
+          return { samples: [], summary: null };
+        }
+        const sampleCount = 120;
+        const step = (maxX - minX) / (sampleCount - 1);
+        const samples = [];
+        let ciMin = Infinity, ciMax = -Infinity, piMin = Infinity, piMax = -Infinity;
+        for(let i=0;i<sampleCount;i++){
+          const x = i === sampleCount - 1 ? maxX : (minX + step * i);
+          const basis = [];
+          for(let power = 0; power <= degree; power++){
+            basis.push(Math.pow(x, power));
+          }
+          const yHat = basis.reduce((sum, coeff, idx) => sum + coeff * coefficients[idx], 0);
+          const xtxVec = basis.map((_, rowIdx) => {
+            return xtxInv[rowIdx]?.reduce((sum,val,colIdx)=>sum + (val * basis[colIdx]),0);
+          });
+          const varHat = xtxVec.reduce((sum,val,idx)=>sum + (basis[idx] * val),0);
+          const stdErr = Number.isFinite(varHat) && varHat >= 0 ? Math.sqrt(sigmaSq * varHat) : NaN;
+          const ciHalf = Number.isFinite(stdErr) ? tCritical * stdErr : NaN;
+          const predStdErr = Number.isFinite(stdErr) ? Math.sqrt(stdErr*stdErr + sigmaSq) : NaN;
+          const ciLow = Number.isFinite(ciHalf) ? yHat - ciHalf : NaN;
+          const ciHigh = Number.isFinite(ciHalf) ? yHat + ciHalf : NaN;
+          const piLow = Number.isFinite(predStdErr) ? yHat - tCritical * predStdErr : NaN;
+          const piHigh = Number.isFinite(predStdErr) ? yHat + tCritical * predStdErr : NaN;
+          if(Number.isFinite(ciLow) && ciLow < ciMin) ciMin = ciLow;
+          if(Number.isFinite(ciHigh) && ciHigh > ciMax) ciMax = ciHigh;
+          if(Number.isFinite(piLow) && piLow < piMin) piMin = piLow;
+          if(Number.isFinite(piHigh) && piHigh > piMax) piMax = piHigh;
+          const sample = { x, y: yHat, ciLow, ciHigh, piLow, piHigh };
+          samples.push(sample);
+        }
+        const summary = {
+          ciMin: Number.isFinite(ciMin) ? ciMin : NaN,
+          ciMax: Number.isFinite(ciMax) ? ciMax : NaN,
+          piMin: Number.isFinite(piMin) ? piMin : NaN,
+          piMax: Number.isFinite(piMax) ? piMax : NaN,
+          degreesOfFreedom: dof,
+          tCritical
+        };
+        console.debug('Debug:', regressionDebugNamespace, 'interval samples generated', {
+          sampleCount: samples.length,
+          summary
+        });
+        return { samples, summary, degreesOfFreedom: dof, tCritical };
+      };
+
       const evaluatePolynomial = (coeffs, x) => coeffs.reduce((sum, coeff, idx) => sum + coeff * Math.pow(x, idx), 0);
 
-      const computeLinear = () => {
-        const xMean = jStatLib.mean(xVals);
-        const yMeanLocal = yMean;
-        const numerator = xVals.reduce((sum, xv, idx) => sum + (xv - xMean) * (yVals[idx] - yMeanLocal), 0);
-        const denominator = xVals.reduce((sum, xv) => sum + Math.pow(xv - xMean, 2), 0);
-        const slope = denominator === 0 ? 0 : numerator / denominator;
-        const intercept = yMeanLocal - slope * xMean;
-        const predictions = xVals.map(x => intercept + slope * x);
+      const computeLinear = (alphaValue) => {
+        let xtxInv = null;
+        let beta = null;
+        if(hasMatrixOps){
+          const design = cleanPoints.map(pt => [1, pt.x]);
+          const yMatrix = yVals.map(val => [val]);
+          const designT = safeTranspose(design);
+          if(designT){
+            const xtx = safeMultiply(designT, design);
+            if(xtx){
+              xtxInv = safeInverse(xtx);
+            }
+            if(!xtxInv){
+              console.warn('Linear regression matrix inversion failed; falling back to simple estimates');
+            }
+            const xty = safeMultiply(designT, yMatrix);
+            if(xtxInv && xty){
+              const betaMatrix = safeMultiply(xtxInv, xty);
+              if(betaMatrix){
+                beta = betaMatrix.map(row => row[0]);
+              }
+            }
+          }
+        }else{
+          console.debug('Debug:', regressionDebugNamespace, 'matrix operations unavailable; using analytic fallback');
+        }
+        const fallbackSlopeIntercept = () => {
+          const xMean = jStatLib.mean(xVals);
+          const yMeanLocal = yMean;
+          const numerator = xVals.reduce((sum, xv, idx) => sum + (xv - xMean) * (yVals[idx] - yMeanLocal), 0);
+          const denominator = xVals.reduce((sum, xv) => sum + Math.pow(xv - xMean, 2), 0);
+          const slopeVal = denominator === 0 ? 0 : numerator / denominator;
+          const interceptVal = yMeanLocal - slopeVal * xMean;
+          return { slopeVal, interceptVal };
+        };
+        let resolvedCoefficients;
+        if(beta){
+          resolvedCoefficients = beta;
+        }else{
+          const fallback = fallbackSlopeIntercept();
+          resolvedCoefficients = [fallback.interceptVal, fallback.slopeVal];
+        }
+        const slope = resolvedCoefficients[1];
+        const intercept = resolvedCoefficients[0];
+        const predictions = xVals.map(x => resolvedCoefficients[0] + resolvedCoefficients[1] * x);
         const residuals = predictions.map((pred, idx) => yVals[idx] - pred);
         const sse = residuals.reduce((sum,val)=>sum+val*val,0);
         const r2 = sst === 0 ? 1 : 1 - (sse / sst);
+        const diagnostics = computeResidualDiagnostics(residuals);
+        const coefficientStats = xtxInv
+          ? buildCoefficientStats({
+              coefficients: resolvedCoefficients,
+              xtxInv,
+              residuals,
+              alpha: alphaValue,
+              termLabels: ['Intercept','Slope'],
+              degreesOfFreedom: sampleSize - resolvedCoefficients.length
+            })
+          : [];
+        const intervalInfo = xtxInv
+          ? buildIntervalSamples({
+              xtxInv,
+              coefficients: resolvedCoefficients,
+              residuals,
+              domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) },
+              degree: 1,
+              alpha: alphaValue
+            })
+          : { samples: [], summary: null };
         return {
-          coefficients: [intercept, slope],
+          coefficients: resolvedCoefficients,
           metrics: {
             sampleSize,
             predictors: 1,
@@ -106,16 +356,29 @@
           },
           residuals: summarizeResiduals(residuals),
           predictions,
+          diagnostics,
+          coefficientStats,
+          intervals: intervalInfo.summary ? {
+            alpha: alphaValue,
+            tCritical: intervalInfo.tCritical,
+            degreesOfFreedom: intervalInfo.degreesOfFreedom,
+            samples: intervalInfo.samples,
+            summary: intervalInfo.summary
+          } : null,
           summary: {
-            intercept,
-            slope,
-            equation: `y = ${intercept.toFixed(4)} + ${slope.toFixed(4)}x`
+            intercept: resolvedCoefficients[0],
+            slope: resolvedCoefficients[1],
+            equation: `y = ${resolvedCoefficients[0].toFixed(4)} + ${resolvedCoefficients[1].toFixed(4)}x`
           }
         };
       };
 
-      const solveNormalEquations = (degree) => {
+      const solveNormalEquations = (degree, alphaValue) => {
         try{
+          if(!hasMatrixOps){
+            console.warn('Polynomial regression requires matrix operations that are unavailable');
+            return null;
+          }
           const design = cleanPoints.map(pt => {
             const row = [];
             for(let power = 0; power <= degree; power++){
@@ -124,21 +387,28 @@
             return row;
           });
           const yMatrix = yVals.map(val => [val]);
-          const designT = jStatLib.transpose(design);
-          const xtx = jStatLib.multiply(designT, design);
-          let xtxInv;
-          if(typeof jStatLib.inv === 'function'){
-            xtxInv = jStatLib.inv(xtx);
+          const designT = safeTranspose(design);
+          if(!designT){
+            return null;
           }
-          if(!xtxInv && typeof jStatLib.pinv === 'function'){
-            xtxInv = jStatLib.pinv(xtx);
+          const xtx = safeMultiply(designT, design);
+          if(!xtx){
+            return null;
           }
+          let xtxInv = safeInverse(xtx);
           if(!xtxInv){
             console.warn('Polynomial regression matrix inversion failed');
             return null;
           }
-          const xty = jStatLib.multiply(designT, yMatrix);
-          const beta = jStatLib.multiply(xtxInv, xty).map(row => row[0]);
+          const xty = safeMultiply(designT, yMatrix);
+          if(!xty){
+            return null;
+          }
+          const betaMatrix = safeMultiply(xtxInv, xty);
+          if(!betaMatrix){
+            return null;
+          }
+          const beta = betaMatrix.map(row => row[0]);
           const predictions = cleanPoints.map(pt => evaluatePolynomial(beta, pt.x));
           const residuals = predictions.map((pred, idx) => yVals[idx] - pred);
           const sse = residuals.reduce((sum,val)=>sum+val*val,0);
@@ -147,6 +417,24 @@
           const adjR2 = sampleSize > predictors + 1
             ? 1 - (1 - r2) * ((sampleSize - 1) / (sampleSize - predictors - 1))
             : r2;
+          const diagnostics = computeResidualDiagnostics(residuals);
+          const termLabels = Array.from({ length: beta.length }, (_, idx) => idx === 0 ? 'Intercept' : `x^${idx}`);
+          const coefficientStats = buildCoefficientStats({
+            coefficients: beta,
+            xtxInv,
+            residuals,
+            alpha: alphaValue,
+            termLabels,
+            degreesOfFreedom: sampleSize - beta.length
+          });
+          const intervalInfo = buildIntervalSamples({
+            xtxInv,
+            coefficients: beta,
+            residuals,
+            domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) },
+            degree,
+            alpha: alphaValue
+          });
           const terms = beta.map((coeff, idx) => {
             if(idx === 0){
               return coeff.toFixed(4);
@@ -170,6 +458,15 @@
             },
             residuals: summarizeResiduals(residuals),
             predictions,
+            diagnostics,
+            coefficientStats,
+            intervals: intervalInfo.summary ? {
+              alpha,
+              tCritical: intervalInfo.tCritical,
+              degreesOfFreedom: intervalInfo.degreesOfFreedom,
+              samples: intervalInfo.samples,
+              summary: intervalInfo.summary
+            } : null,
             summary: {
               intercept: beta[0],
               slope: beta[1] ?? NaN,
@@ -184,7 +481,7 @@
         }
       };
 
-      const computeLogistic = () => {
+      const computeLogistic = (alpha) => {
         const warnings = [];
         const logisticPoints = cleanPoints.map(pt => {
           let yVal = pt.y;
@@ -244,6 +541,77 @@
         const meanY = logisticPoints.reduce((sum, pt) => sum + pt.y, 0) / sampleSize;
         const nullLoss = - (meanY * Math.log(Math.min(1 - eps, Math.max(eps, meanY))) + (1 - meanY) * Math.log(Math.min(1 - eps, Math.max(eps, 1 - meanY))));
         const pseudoR2 = Number.isFinite(nullLoss) && nullLoss > 0 ? 1 - (logLoss / nullLoss) : NaN;
+        const diagnostics = computeResidualDiagnostics(residuals);
+        const design = logisticPoints.map(pt => [1, pt.x]);
+        let xtwxInv;
+        if(hasMatrixOps){
+          const designT = safeTranspose(design);
+          if(designT){
+            const weights = predictions.map(p => p * (1 - p));
+            const weightedDesign = design.map((row, idx) => row.map(val => val * weights[idx]));
+            const xtwx = safeMultiply(designT, weightedDesign);
+            if(xtwx){
+              xtwxInv = safeInverse(xtwx);
+            }
+          }
+        }else{
+          console.debug('Debug:', regressionDebugNamespace, 'logistic matrix operations unavailable; skipping coefficient variance');
+        }
+        let coefficientStats = [];
+        if(xtwxInv){
+          coefficientStats = buildCoefficientStats({
+            coefficients: [beta0, beta1],
+            xtxInv: xtwxInv,
+            residuals,
+            alpha: alphaValue,
+            termLabels: ['Intercept','Slope'],
+            degreesOfFreedom: sampleSize - 2
+          });
+        }
+        let intervalSummary = null;
+        let intervalSamples = [];
+        let zCritical = NaN;
+        if(xtwxInv){
+          const normal = jStatLib?.normal;
+          zCritical = (normal && typeof normal.inv === 'function') ? normal.inv(1 - alpha/2, 0, 1) : NaN;
+          const minX = Number.isFinite(domain?.minX) ? domain.minX : Math.min(...xVals);
+          const maxX = Number.isFinite(domain?.maxX) ? domain.maxX : Math.max(...xVals);
+          if(Number.isFinite(zCritical) && Number.isFinite(minX) && Number.isFinite(maxX) && minX !== maxX){
+            const sampleCount = 160;
+            const step = (maxX - minX) / (sampleCount - 1);
+            let ciMin = Infinity, ciMax = -Infinity, piMin = Infinity, piMax = -Infinity;
+            for(let i=0;i<sampleCount;i++){
+              const xVal = i === sampleCount - 1 ? maxX : (minX + step * i);
+              const eta = beta0 + beta1 * xVal;
+              const pHat = 1 / (1 + Math.exp(-eta));
+              const basis = [1, xVal];
+              const xtwxVec = xtwxInv.map(row => row.reduce((sum,val,colIdx)=>sum + val * basis[colIdx],0));
+              const varEta = xtwxVec.reduce((sum,val,idx)=>sum + (basis[idx] * val),0);
+              const seEta = Number.isFinite(varEta) && varEta >= 0 ? Math.sqrt(varEta) : NaN;
+              const ciHalf = Number.isFinite(seEta) ? zCritical * seEta * pHat * (1 - pHat) : NaN;
+              const predHalf = Number.isFinite(pHat) ? zCritical * Math.sqrt(Math.max(pHat * (1 - pHat), 0)) : NaN;
+              const ciLow = Number.isFinite(ciHalf) ? Math.max(0, Math.min(1, pHat - ciHalf)) : NaN;
+              const ciHigh = Number.isFinite(ciHalf) ? Math.max(0, Math.min(1, pHat + ciHalf)) : NaN;
+              const piLow = Number.isFinite(predHalf) ? Math.max(0, Math.min(1, pHat - predHalf)) : NaN;
+              const piHigh = Number.isFinite(predHalf) ? Math.max(0, Math.min(1, pHat + predHalf)) : NaN;
+              if(Number.isFinite(ciLow) && ciLow < ciMin) ciMin = ciLow;
+              if(Number.isFinite(ciHigh) && ciHigh > ciMax) ciMax = ciHigh;
+              if(Number.isFinite(piLow) && piLow < piMin) piMin = piLow;
+              if(Number.isFinite(piHigh) && piHigh > piMax) piMax = piHigh;
+              intervalSamples.push({ x: xVal, y: pHat, ciLow, ciHigh, piLow, piHigh });
+            }
+            intervalSummary = {
+              ciMin: Number.isFinite(ciMin) ? ciMin : NaN,
+              ciMax: Number.isFinite(ciMax) ? ciMax : NaN,
+              piMin: Number.isFinite(piMin) ? piMin : NaN,
+              piMax: Number.isFinite(piMax) ? piMax : NaN
+            };
+            console.debug('Debug:', regressionDebugNamespace, 'logistic interval samples generated', {
+              sampleCount: intervalSamples.length,
+              zCritical
+            });
+          }
+        }
         return {
           coefficients: [beta0, beta1],
           metrics: {
@@ -260,28 +628,36 @@
           },
           residuals: summarizeResiduals(residuals),
           predictions,
-          warnings,
+          diagnostics,
+          coefficientStats,
+          intervals: intervalSummary ? {
+            alpha,
+            zCritical,
+            samples: intervalSamples,
+            summary: intervalSummary
+          } : null,
           summary: {
             intercept: beta0,
             slope: beta1,
             equation: `y = 1 / (1 + e^{-(${beta0.toFixed(4)} + ${beta1.toFixed(4)}x)})`
           },
-          predict
+          predict,
+          warnings
         };
       };
 
       let model;
       if(mode === 'logistic'){
-        model = computeLogistic();
+        model = computeLogistic(alpha);
       }else if(mode === 'quadratic' || mode === 'cubic'){
         const degree = mode === 'quadratic' ? 2 : 3;
-        model = solveNormalEquations(degree);
+        model = solveNormalEquations(degree, alpha);
       }else{
-        model = computeLinear();
+        model = computeLinear(alpha);
       }
 
       if(!model){
-        model = computeLinear();
+        model = computeLinear(alpha);
         if(model){
           model.warnings = (model.warnings || []).concat([`Fell back to linear regression from mode "${mode}"`]);
         }
@@ -301,6 +677,8 @@
         coefficients: model.coefficients,
         metrics: model.metrics,
         residuals: model.residuals,
+        diagnostics: model.diagnostics || null,
+        intervalsSummary: model.intervals?.summary || null,
         warnings: model.warnings || []
       });
       return model;
@@ -332,6 +710,34 @@
           min: ensureFiniteNumber(residuals.min),
           max: ensureFiniteNumber(residuals.max)
         },
+        diagnostics: model.diagnostics ? {
+          skewness: ensureFiniteNumber(model.diagnostics.skewness),
+          kurtosis: ensureFiniteNumber(model.diagnostics.kurtosis),
+          jarqueBera: ensureFiniteNumber(model.diagnostics.jarqueBera),
+          jarqueBeraP: ensureFiniteNumber(model.diagnostics.jarqueBeraP)
+        } : null,
+        coefficientStats: Array.isArray(model.coefficientStats)
+          ? model.coefficientStats.map(stat => ({
+            term: stat.term,
+            estimate: ensureFiniteNumber(stat.estimate),
+            standardError: ensureFiniteNumber(stat.standardError),
+            tStatistic: ensureFiniteNumber(stat.tStatistic),
+            pValue: ensureFiniteNumber(stat.pValue),
+            ciLow: ensureFiniteNumber(stat.ciLow),
+            ciHigh: ensureFiniteNumber(stat.ciHigh)
+          }))
+          : [],
+        intervals: model.intervals ? {
+          alpha: ensureFiniteNumber(model.intervals.alpha),
+          tCritical: ensureFiniteNumber(model.intervals.tCritical ?? model.intervals.zCritical),
+          degreesOfFreedom: ensureFiniteNumber(model.intervals.degreesOfFreedom),
+          summary: model.intervals.summary ? {
+            ciMin: ensureFiniteNumber(model.intervals.summary.ciMin),
+            ciMax: ensureFiniteNumber(model.intervals.summary.ciMax),
+            piMin: ensureFiniteNumber(model.intervals.summary.piMin),
+            piMax: ensureFiniteNumber(model.intervals.summary.piMax)
+          } : null
+        } : null,
         summary: model.summary || null,
         domain: model.domain || null,
         warnings: Array.isArray(model.warnings) ? model.warnings.slice() : []
@@ -628,6 +1034,8 @@
       const scatterLog2FCThreshold=$('#scatterLog2FCThreshold');
       const scatterNegLogPThreshold=$('#scatterNegLogPThreshold');
       const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterAlpha=$('#scatterAlpha');
+      const scatterShowIntervals=$('#scatterShowIntervals');
+      const scatterShowDiagnostics=$('#scatterShowDiagnostics');
       const scatterAlphaVal=$('#scatterAlphaVal');
       const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
       if(scatterFontSize?.dataset){
@@ -663,11 +1071,18 @@
         if(scatterRegressionMode){
           scatterRegressionMode.disabled=type!=='scatter';
         }
+        const disableRegressionControls = type !== 'scatter';
         if(scatterShowLine){
-          scatterShowLine.disabled=type!=='scatter';
-          if(type!=='scatter' && scatterShowLine.checked){
+          scatterShowLine.disabled=disableRegressionControls;
+          if(disableRegressionControls && scatterShowLine.checked){
             scatterShowLine.checked=false;
           }
+        }
+        if(scatterShowIntervals){
+          scatterShowIntervals.disabled=disableRegressionControls;
+        }
+        if(scatterShowDiagnostics){
+          scatterShowDiagnostics.disabled=disableRegressionControls;
         }
         if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()==='#377eb8'){
           scatterFill.value=DEFAULT_NON_SIG_COLOR;
@@ -717,7 +1132,11 @@
         chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
         scheduleDrawScatter();
       });
-      [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode,scatterShowLine].forEach(el=>el&&el.addEventListener('change',()=>{console.log('scatter config changed', el.id); scheduleDrawScatter();}));
+      [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode,scatterShowLine,scatterShowIntervals,scatterShowDiagnostics]
+        .forEach(el=>el&&el.addEventListener('change',()=>{
+          console.debug('Debug: scatter config changed', { id: el.id, checked: el.checked, value: el.value });
+          scheduleDrawScatter();
+        }));
       if(scatterRegressionMode){
         scatterRegressionMode.addEventListener('change',()=>{
           console.debug('Debug: scatter regression mode change',{ value: scatterRegressionMode.value });
@@ -819,6 +1238,8 @@
         const showFrame=scatterShowFrame.checked;
         console.debug('Debug: scatter showFrame state',{showFrame});
         let showLine=scatterShowLine.checked;
+        const showIntervals = !!(scatterShowIntervals && scatterShowIntervals.checked);
+        const showDiagnostics = !!(scatterShowDiagnostics && scatterShowDiagnostics.checked);
         const graphType=scatterGraphTypeSelect?.value || 'scatter';
         scatterCurrentGraphType=graphType;
         const allowLogAxes=graphType==='scatter';
@@ -845,7 +1266,7 @@
         if(!allowLogAxes){
           console.debug('Debug: scatter forcing trend line off',{graphType});
         }
-        console.log('scatter showLine', showLine);
+        console.debug('Debug: scatter regression toggles', { showLine, showIntervals, showDiagnostics });
         console.log('drawScatter dot size', dotSizeRaw);
         const log2fcThresholdValue=parseFloat(scatterLog2FCThreshold?.value);
         const negLogPThresholdValue=parseFloat(scatterNegLogPThreshold?.value);
@@ -1249,6 +1670,76 @@
           const regressionModel = stats.regression;
           scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(regressionModel) : null;
           if(showLine && regressionModel){
+            const intervalSamplesRaw = Array.isArray(regressionModel.intervals?.samples) ? regressionModel.intervals.samples.slice() : [];
+            const intervalSamples = intervalSamplesRaw.sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
+            const intervalLayer = (showIntervals && intervalSamples.length >= 2) ? document.createElementNS(NS,'g') : null;
+            if(intervalLayer){
+              intervalLayer.setAttribute('data-layer','interval-bands');
+              svg.appendChild(intervalLayer);
+              const buildIntervalPath = (lowerKey, upperKey) => {
+                const upperPoints=[];
+                const lowerPoints=[];
+                intervalSamples.forEach(sample => {
+                  const xRaw = sample?.x;
+                  const upperRaw = sample?.[upperKey];
+                  const lowerRaw = sample?.[lowerKey];
+                  if(!Number.isFinite(xRaw) || !Number.isFinite(upperRaw) || !Number.isFinite(lowerRaw)){
+                    return;
+                  }
+                  if(logX && xRaw <= 0){
+                    return;
+                  }
+                  if(logY && (upperRaw <= 0 || lowerRaw <= 0)){
+                    return;
+                  }
+                  const xVal = logX ? Math.log10(xRaw) : xRaw;
+                  const upperVal = logY ? Math.log10(upperRaw) : upperRaw;
+                  const lowerVal = logY ? Math.log10(lowerRaw) : lowerRaw;
+                  if(!Number.isFinite(xVal) || !Number.isFinite(upperVal) || !Number.isFinite(lowerVal)){
+                    return;
+                  }
+                  upperPoints.push({ x: x2px(xVal), y: y2px(upperVal) });
+                  lowerPoints.push({ x: x2px(xVal), y: y2px(lowerVal) });
+                });
+                if(upperPoints.length < 2 || lowerPoints.length < 2){
+                  return null;
+                }
+                const commands=[];
+                upperPoints.forEach((pt, idx)=>{
+                  commands.push(`${idx?'L':'M'}${pt.x},${pt.y}`);
+                });
+                lowerPoints.slice().reverse().forEach(pt=>{
+                  commands.push(`L${pt.x},${pt.y}`);
+                });
+                commands.push('Z');
+                return commands.join(' ');
+              };
+              const confidencePath = buildIntervalPath('ciLow','ciHigh');
+              const predictionPath = buildIntervalPath('piLow','piHigh');
+              if(confidencePath){
+                const confEl=document.createElementNS(NS,'path');
+                confEl.setAttribute('d',confidencePath);
+                confEl.setAttribute('fill','#d62728');
+                confEl.setAttribute('fill-opacity','0.15');
+                confEl.setAttribute('stroke','none');
+                confEl.dataset.band='confidence';
+                intervalLayer.appendChild(confEl);
+              }
+              if(predictionPath){
+                const predEl=document.createElementNS(NS,'path');
+                predEl.setAttribute('d',predictionPath);
+                predEl.setAttribute('fill','#d62728');
+                predEl.setAttribute('fill-opacity','0.08');
+                predEl.setAttribute('stroke','none');
+                predEl.dataset.band='prediction';
+                intervalLayer.appendChild(predEl);
+              }
+              console.debug('Debug: scatter interval shading rendered', {
+                sampleCount: intervalSamples.length,
+                hasConfidence: !!confidencePath,
+                hasPrediction: !!predictionPath
+              });
+            }
             const sampleCount = regressionModel.mode === 'linear' ? 60 : 160;
             const samples = typeof regressionTools.sampleCurve === 'function'
               ? regressionTools.sampleCurve(regressionModel,{ minX: xMin, maxX: xMax, sampleCount })
@@ -1322,6 +1813,31 @@
             if(Number.isFinite(regressionModel.summary.intercept)){
               rows.push({ metric:'Intercept', value: formatMetricValue(regressionModel.summary.intercept) });
             }
+            const coefficientStats = Array.isArray(regressionModel.coefficientStats) ? regressionModel.coefficientStats : [];
+            const interceptStats = coefficientStats.find(stat => stat && /intercept/i.test(stat.term || ''));
+            const slopeStats = coefficientStats.find(stat => stat && (/slope/i.test(stat.term || '') || /x\^1/.test(stat.term || '')));
+            if(showDiagnostics){
+              if(interceptStats && Number.isFinite(interceptStats.standardError)){
+                rows.push({ metric:'Intercept ± SE', value: `${formatMetricValue(interceptStats.estimate)} ± ${formatMetricValue(interceptStats.standardError)}` });
+              }
+              if(slopeStats && Number.isFinite(slopeStats.standardError)){
+                rows.push({ metric:'Slope ± SE', value: `${formatMetricValue(slopeStats.estimate)} ± ${formatMetricValue(slopeStats.standardError)}` });
+              }
+              if(slopeStats && Number.isFinite(slopeStats.tStatistic)){
+                rows.push({ metric:'Slope t-stat', value: formatMetricValue(slopeStats.tStatistic,3) });
+              }
+              if(slopeStats && Number.isFinite(slopeStats.pValue)){
+                rows.push({ metric:'Slope p-value', value: formatP(slopeStats.pValue) });
+              }
+            }
+            if(showIntervals){
+              if(interceptStats && Number.isFinite(interceptStats.ciLow) && Number.isFinite(interceptStats.ciHigh)){
+                rows.push({ metric:'Intercept CI', value: `${formatMetricValue(interceptStats.ciLow)} – ${formatMetricValue(interceptStats.ciHigh)}` });
+              }
+              if(slopeStats && Number.isFinite(slopeStats.ciLow) && Number.isFinite(slopeStats.ciHigh)){
+                rows.push({ metric:'Slope CI', value: `${formatMetricValue(slopeStats.ciLow)} – ${formatMetricValue(slopeStats.ciHigh)}` });
+              }
+            }
           }else{
             rows.push({ metric:'Slope', value: formatMetricValue(stats.m) });
             rows.push({ metric:'Intercept', value: formatMetricValue(stats.b) });
@@ -1329,6 +1845,25 @@
           if(regressionModel?.residuals){
             rows.push({ metric:'Residual mean', value: formatMetricValue(regressionModel.residuals.mean) });
             rows.push({ metric:'Residual SD', value: formatMetricValue(regressionModel.residuals.sd) });
+          }
+          if(showIntervals && regressionModel?.intervals?.summary){
+            const summary = regressionModel.intervals.summary;
+            if(Number.isFinite(summary.ciMin) && Number.isFinite(summary.ciMax)){
+              rows.push({ metric:'Confidence interval (y)', value: `${formatMetricValue(summary.ciMin)} – ${formatMetricValue(summary.ciMax)}` });
+            }
+            if(Number.isFinite(summary.piMin) && Number.isFinite(summary.piMax)){
+              rows.push({ metric:'Prediction interval (y)', value: `${formatMetricValue(summary.piMin)} – ${formatMetricValue(summary.piMax)}` });
+            }
+          }
+          if(showDiagnostics && regressionModel?.diagnostics){
+            rows.push({ metric:'Residual skewness', value: formatMetricValue(regressionModel.diagnostics.skewness,3) });
+            rows.push({ metric:'Residual kurtosis', value: formatMetricValue(regressionModel.diagnostics.kurtosis,3) });
+            if(Number.isFinite(regressionModel.diagnostics.jarqueBera)){
+              rows.push({ metric:'Jarque-Bera', value: formatMetricValue(regressionModel.diagnostics.jarqueBera,3) });
+            }
+            if(Number.isFinite(regressionModel.diagnostics.jarqueBeraP)){
+              rows.push({ metric:'Jarque-Bera p', value: formatP(regressionModel.diagnostics.jarqueBeraP) });
+            }
           }
           if(regressionModel?.warnings?.length){
             rows.push({ metric:'Warnings', value: regressionModel.warnings.join('; ') });
@@ -1565,6 +2100,8 @@
             originX:scatterOriginX.value,
             originY:scatterOriginY.value,
             showLine:scatterShowLine.checked,
+            showIntervals:scatterShowIntervals ? scatterShowIntervals.checked : false,
+            showDiagnostics:scatterShowDiagnostics ? scatterShowDiagnostics.checked : false,
             graphType:scatterGraphTypeSelect?.value || 'scatter',
             log2fcThreshold:scatterLog2FCThreshold?.value || '',
             negLogPThreshold:scatterNegLogPThreshold?.value || '',
@@ -1661,6 +2198,12 @@
             scatterOriginX.value=c.originX||'';
             scatterOriginY.value=c.originY||'';
             scatterShowLine.checked=!!c.showLine;
+            if(scatterShowIntervals){
+              scatterShowIntervals.checked=!!c.showIntervals;
+            }
+            if(scatterShowDiagnostics){
+              scatterShowDiagnostics.checked=!!c.showDiagnostics;
+            }
             if(scatterGraphTypeSelect && c.graphType){
               scatterGraphTypeSelect.value=c.graphType;
             }

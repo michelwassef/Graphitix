@@ -81,6 +81,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Import paired or multi-series data, then adjust dot size, fill, transparency, borders, and per-label color palettes.【F:index.html†L408-L456】
 - Toggle grid lines, log-transform axes, set explicit min/max bounds, and position the origin at the lower-left or a custom coordinate.【F:index.html†L440-L488】
 - Enable Pearson or Spearman correlation statistics and display optional trend lines with fitted equations directly on the chart.【F:index.html†L488-L520】
+- Inspect 95% confidence and prediction interval bands with residual diagnostics (skewness, kurtosis, Jarque–Bera) using the new shading and summary toggles, all captured in `.graph` sessions.【F:index.html†L596-L636】【F:js/components/scatter.js†L1247-L1766】
 
 ### Dimensionality Reduction (PCA & MDS)
 - Compute principal components or multidimensional scaling from wide-form tables using in-browser SVD routines.【F:index.html†L520-L640】
@@ -91,6 +92,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Plot longitudinal or series-based data with per-series color pickers, dot styling, and adjustable line borders.【F:index.html†L640-L712】
 - Configure linear or logarithmic axes, clamp ranges, and reposition the origin to highlight specific domains.【F:index.html†L704-L752】
 - Summarize trends by computing Pearson or Spearman correlations in the dedicated statistics block.【F:index.html†L752-L777】
+- Visualize per-series regression confidence/prediction bands and review coefficient standard errors plus residual diagnostics via the statistics table toggles, with settings persisted for saved workbooks.【F:index.html†L893-L916】【F:js/components/line.js†L478-L662】
 
 ### Classification Curves (ROC & PR)
 - Build ROC or precision-recall curves from model scores and labels stored in the integrated table editor.【F:index.html†L800-L848】
@@ -110,7 +112,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 Across modules, statistical helpers are surfaced exactly where you need them:
 - **Overlap significance:** Hypergeometric p-values for Venn diagram intersections based on a user-provided universe size.【F:index.html†L160-L208】
 - **Hypothesis testing:** Parametric and non-parametric comparisons for box plots, including paired analysis and customizable pairings, plus Chi² tests for categorical proportions.【F:index.html†L392-L408】【F:index.html†L1096-L1108】
-- **Correlation and regression:** Pearson or Spearman correlation coefficients for scatter and line graphs, with optional regression overlays on scatter plots.【F:index.html†L488-L520】【F:index.html†L752-L777】
+- **Correlation and regression:** Pearson or Spearman correlation coefficients for scatter and line graphs, optional regression overlays, coefficient standard errors, interval bounds, and residual diagnostics to validate model assumptions.【F:index.html†L488-L520】【F:index.html†L752-L777】【F:js/components/line.js†L478-L662】
 - **Classification metrics:** ROC/PR workspaces compute trapezoidal area under the curve, average precision, and related diagnostics via inline summaries.【F:index.html†L800-L928】
 - **Dimension summaries:** PCA/MDS output includes eigenvalue or stress statistics to contextualize ordination quality.【F:index.html†L520-L640】
 
