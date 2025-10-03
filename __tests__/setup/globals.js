@@ -100,6 +100,11 @@ class HandsontableInstance {
   countCols() { return Array.isArray(this._data?.[0]) ? this._data[0].length : 0; }
   getSelectedLast() { return this._selected; }
   getDataAtRow(r) { return this._data?.[r] || []; }
+  getDataAtCell(r, c) {
+    const value = this._data?.[r]?.[c];
+    console.debug('Debug: Handsontable stub getDataAtCell',{ row: r, col: c, value });
+    return value;
+  }
   getDataAtCol(c) { return (this._data || []).map(row => row?.[c]); }
   updateSettings({ data, minRows, minCols } = {}) {
     if (data) this._data = data;
