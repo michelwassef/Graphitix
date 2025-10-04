@@ -397,6 +397,7 @@
     let yMax=0;
     let yMinT=0;
     let yMaxT=0;
+    let maxYLabelWidth = 0;
     for(let pass=0;pass<2;pass++){
       xScale=niceScale(xMin,xMax,xTickTarget);
       binWidth=(xScale.max-xScale.min)/bins || 1;
@@ -421,7 +422,7 @@
       xTickLabels=xScale.ticks.map(t=>formatTick(t));
       yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
-      const maxYLabelWidth=Math.max(...yLabelWidths,0);
+      maxYLabelWidth=Math.max(...yLabelWidths,0);
       margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
