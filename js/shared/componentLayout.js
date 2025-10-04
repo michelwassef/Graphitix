@@ -106,12 +106,13 @@
       resizeObserver: null
     };
 
-    const syncPanels = () => {
+    const syncPanels = (options = {}) => {
+      const skipSchedule = options && options.skipSchedule === true;
       if(typeof Shared.syncPanelWidths !== 'function'){
         console.debug('Debug: componentLayout syncPanels skipped - missing Shared.syncPanelWidths', { component: componentName });
         return;
       }
-      const scheduleWrapper = scheduleDrawFn ? () => {
+      const scheduleWrapper = (!skipSchedule && scheduleDrawFn) ? () => {
         console.debug('Debug: componentLayout scheduleDraw invoked', { component: componentName });
         scheduleDrawFn();
       } : null;
@@ -119,12 +120,13 @@
         svgBox: elements.svgBox,
         minSvgWidth: panelState.minSvgWidth,
         debugLabel: componentName,
-        panelResizer: elements.panelResizer
+        panelResizer: elements.panelResizer,
+        skipSchedule
       });
       console.debug('Debug: componentLayout syncPanels complete', { component: componentName, minSvgWidth: panelState.minSvgWidth });
       if(typeof config?.onAfterSync === 'function'){
         try{
-          config.onAfterSync({ elements, component: componentName });
+          config.onAfterSync({ elements, component: componentName, options });
         }catch(err){
           console.error('Shared.componentLayout onAfterSync error', err);
         }
@@ -238,7 +240,7 @@
         graphPanel: elements.graphPanel,
         configPanel: elements.configPanel,
         debugLabel: componentName,
-        syncPanels: () => syncPanels(),
+        syncPanels: opts => syncPanels(opts || {}),
         computeMinSvgWidth: () => {
           const computed = computeMinSvgWidth({ elements, component: componentName });
           console.debug('Debug: componentLayout computeMinSvgWidth invoked', { component: componentName, computed });

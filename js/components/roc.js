@@ -999,7 +999,7 @@
     }else if(state.compareResult){
       state.compareResult.textContent = '';
     }
-    state.layout?.syncPanels?.();
+    state.layout?.syncPanels?.({ skipSchedule: true });
   }
 
   function getPayload(){

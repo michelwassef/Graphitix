@@ -1346,7 +1346,7 @@
       makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
       updateLineStats(series,{ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache });
       autoResizeSvgHelper(svg);
-      lineLayout?.syncPanels?.();
+      lineLayout?.syncPanels?.({ skipSchedule: true });
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
     }catch(err){ console.error('drawLine error',err); }
   }
