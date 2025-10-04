@@ -151,6 +151,7 @@ Internet access is required for these external services; all other features oper
 - **Large tables:** For wide datasets, drag the panel resizers to allocate more screen real estate to the spreadsheet or chart as needed.【F:index.html†L320-L360】【F:index.html†L704-L731】
 - **Performance considerations:** Log-scaled axes and dense scatter plots can incur rendering costs. Adjust point transparency or limit visible data when working with tens of thousands of rows.
 - **Volcano plot memory benchmark:** Compare legacy and optimized processing on the bundled dataset with `node --expose-gc scripts/volcano-benchmark.js`; the script reports heap deltas so you can verify lightweight handling for ~18k rows.【F:scripts/volcano-benchmark.js†L1-L89】
+- **Avoid redraw loops:** When reflowing layouts from inside a draw routine, call `layout.syncPanels({ skipSchedule: true })` so the Shared panel synchronizer does not immediately queue another draw on your behalf.【F:js/shared/componentLayout.js†L96-L126】【F:js/components/scatter.js†L1929-L1934】
 - **Keyboard shortcuts:** Handsontable supports familiar spreadsheet shortcuts (copy, paste, undo/redo), making it easy to prototype analyses before exporting results.
 - **Offline usage:** With the exception of GO/STRING integrations, all functionality works without an internet connection—ideal for secure lab environments.
 

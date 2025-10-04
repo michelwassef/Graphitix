@@ -1541,7 +1541,7 @@
 
     updateStats({ ...summary, series: groupsForDraw });
     autoResizeSvgHelper(svg);
-    state.layout?.syncPanels?.();
+    state.layout?.syncPanels?.({ skipSchedule: true });
     logDebug('draw complete', { debugStamp });
   }
 

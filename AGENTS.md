@@ -154,6 +154,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 ## Development Tips
 - When adding new inputs or configuration controls, update the corresponding component `state` serialization so `.graph` persistence stays accurate.
 - Reuse `Shared.debounceFrame` for any redraws triggered by rapid UI events to keep the dashboard responsive.
+- When invoking `layout.syncPanels` from within a draw routine, pass `{ skipSchedule: true }` so the automatic panel synchronizer doesn’t immediately requeue another draw on the same frame.
 - Prefer `console.debug` with descriptive labels (as the existing codebase does) so logs can be filtered easily in production.
 - Keep new modules aligned with the two-panel Handsontable + chart layout, and route imports through `Shared.tableImport` to benefit from shared CSV/XLSX handling.
 - If you integrate additional external services, mirror the pattern used in `goAnalysis`, `stringAnalysis`, or `uniprot` and centralize API interaction inside `window.Shared` so tests can stub it cleanly.

@@ -1930,7 +1930,7 @@
           console.debug('Debug: scatter significance summary',{graphType:scatterCurrentGraphType,significantCount,nonSigCount,log2fcThreshold,negLogPThreshold,missingP:maMissingPCount});
         }
         autoResizeSvg(svg);
-        scatterLayout?.syncPanels?.();
+        scatterLayout?.syncPanels?.({ skipSchedule: true });
         console.log('scatter render complete with enhanced styles');
       }
       scheduleDrawScatter = Shared.debounceFrame(drawScatter);

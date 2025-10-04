@@ -888,7 +888,7 @@
           markFontEditable(legendText,'legend',`legend-${i}`);
         });
         console.debug('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisLength });
-        pcaLayout?.syncPanels?.();
+        pcaLayout?.syncPanels?.({ skipSchedule: true });
         return;
       }
 
@@ -1194,7 +1194,7 @@
         width: W,
         height: H,
       });
-      pcaLayout?.syncPanels?.();
+      pcaLayout?.syncPanels?.({ skipSchedule: true });
     }
     function getPcaGraphPayload(){
       return {
