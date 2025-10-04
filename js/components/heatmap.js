@@ -1198,7 +1198,7 @@
       if(typeof global.autoResizeSvg === 'function'){
         global.autoResizeSvg(state.svg);
       }
-      state.layout?.syncPanels?.();
+      state.layout?.syncPanels?.({ skipSchedule: true });
       console.debug('Debug: heatmap draw complete', {
         columns: orderedColumns.length,
         method,
