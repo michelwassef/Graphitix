@@ -102,7 +102,8 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Plot longitudinal or series-based data with per-series color pickers, dot styling, and adjustable line borders.【F:index.html†L640-L712】
 - Configure linear or logarithmic axes, clamp ranges, and reposition the origin to highlight specific domains.【F:index.html†L704-L752】
 - Summarize trends by computing Pearson or Spearman correlations in the dedicated statistics block.【F:index.html†L752-L777】
-- Switch between linear, polynomial, exponential, power, spline, or logistic regressions while reviewing confidence intervals, residual diagnostics, and coefficient summaries for each series.【F:index.html†L893-L916】【F:js/components/line.js†L446-L662】【F:js/shared/regression.js†L1-L451】
+- Switch between linear, polynomial, exponential, power, spline, logistic, ARIMA, or Holt-Winters forecasting modes while reviewing interval shading, residual diagnostics, and coefficient summaries for each series.【F:index.html†L900-L937】【F:js/components/line.js†L446-L1325】【F:js/shared/regression.js†L1-L1194】
+- Forecast future observations with configurable horizons, seasonal lengths, and automatic AIC/BIC parameter tuning while exporting seasonal components and accuracy metrics alongside the SVG/PNG snapshots.【F:index.html†L909-L937】【F:js/components/line.js†L680-L1390】【F:js/shared/regression.js†L520-L1194】
 - Visualize per-series regression confidence/prediction bands and review coefficient standard errors plus residual diagnostics via the statistics table toggles, with settings persisted for saved workbooks.【F:index.html†L893-L916】【F:js/components/line.js†L478-L662】
 
 ### Classification Curves (ROC & PR)
@@ -128,7 +129,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 Across modules, statistical helpers are surfaced exactly where you need them:
 - **Overlap significance:** Hypergeometric p-values for Venn diagram intersections based on a user-provided universe size.【F:index.html†L160-L208】
 - **Hypothesis testing:** Parametric and non-parametric comparisons for box plots, including paired analysis, customizable pairings, and configurable post-hoc adjustments (standard corrections, Tukey HSD, or Dunn) alongside Chi² tests for categorical proportions.【F:index.html†L392-L408】【F:js/components/box.js†L2143-L2194】【F:index.html†L1096-L1108】
-- **Correlation and regression:** Pearson or Spearman correlation coefficients for scatter and line graphs with selectable linear, polynomial, exponential, power, spline, or logistic models, complete with coefficient summaries, interval bounds, and residual diagnostics to validate assumptions.【F:index.html†L488-L520】【F:index.html†L752-L916】【F:js/shared/regression.js†L1-L451】
+- **Correlation and regression:** Pearson or Spearman correlation coefficients for scatter and line graphs with selectable linear, polynomial, exponential, power, spline, logistic, ARIMA, or Holt-Winters models, complete with coefficient summaries, forecast horizons, and residual diagnostics to validate assumptions.【F:index.html†L488-L937】【F:js/shared/regression.js†L1-L1194】
 - **Classification metrics:** ROC/PR workspaces compute trapezoidal area under the curve, average precision, and related diagnostics via inline summaries.【F:index.html†L800-L928】
 - **Dimension summaries:** PCA/MDS output includes eigenvalue or stress statistics to contextualize ordination quality.【F:index.html†L520-L640】
 

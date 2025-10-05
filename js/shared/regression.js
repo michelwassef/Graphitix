@@ -111,6 +111,163 @@
     return diagnostics;
   };
 
+  const clampPositiveInt = (value, { min = 1, max = 120, fallback = 1 } = {}) => {
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return fallback;
+    }
+    const rounded = Math.round(numeric);
+    const bounded = Math.max(min, Math.min(max, rounded));
+    console.debug('Debug:', debugNs, 'clampPositiveInt', { value, numeric, rounded, bounded, min, max, fallback });
+    return bounded;
+  };
+
+  const differenceSeries = (values, order = 0) => {
+    let current = Array.isArray(values) ? values.slice() : [];
+    const history = [];
+    const stages = [];
+    for(let d = 0; d < order; d++){
+      if(current.length < 2){
+        return { series: current.slice(), order: d, history, stages };
+      }
+      const next = [];
+      for(let i = 1; i < current.length; i++){
+        next.push(current[i] - current[i - 1]);
+      }
+      history.push(current[0]);
+      stages.push(current.slice());
+      current = next;
+    }
+    stages.push(current.slice());
+    console.debug('Debug:', debugNs, 'differenceSeries', { requestedOrder: order, appliedOrder: stages.length - 1, length: current.length });
+    return { series: current.slice(), order: stages.length - 1, history, stages };
+  };
+
+  const restoreDifferences = (baseValues, diffPredictions, order) => {
+    if(!Number.isInteger(order) || order <= 0){
+      return diffPredictions.slice();
+    }
+    const restored = [];
+    const history = Array.isArray(baseValues) ? baseValues.slice() : [];
+    diffPredictions.forEach((diffVal, idx) => {
+      let value = diffVal;
+      for(let d = order - 1; d >= 0; d--){
+        const reference = history[history.length - 1] ?? 0;
+        value = reference + value;
+        history.push(value);
+      }
+      restored[idx] = value;
+    });
+    console.debug('Debug:', debugNs, 'restoreDifferences', { order, baseSeedCount: baseValues.length, restoredCount: restored.length });
+    return restored;
+  };
+
+  const computeForecastVariance = (phiCoefficients, horizon, sigmaSq) => {
+    if(!Array.isArray(phiCoefficients) || phiCoefficients.length === 0){
+      const variances = [];
+      for(let h = 1; h <= horizon; h++){
+        variances.push(sigmaSq * h);
+      }
+      return variances;
+    }
+    const p = phiCoefficients.length;
+    const psi = [1];
+    for(let k = 1; k <= horizon; k++){
+      let value = 0;
+      for(let i = 1; i <= Math.min(k, p); i++){
+        value += phiCoefficients[i - 1] * (psi[k - i] ?? 0);
+      }
+      psi[k] = value;
+    }
+    const variances = [];
+    for(let h = 1; h <= horizon; h++){
+      let sumSq = 0;
+      for(let i = 0; i < h; i++){
+        const psiVal = psi[i] ?? 0;
+        sumSq += psiVal * psiVal;
+      }
+      variances.push(Math.max(0, sigmaSq * (1 + sumSq)));
+    }
+    console.debug('Debug:', debugNs, 'computeForecastVariance', { horizon, sigmaSq, variances });
+    return variances;
+  };
+
+  const computeMeanAbsolutePercentageError = (actual, predicted) => {
+    if(!Array.isArray(actual) || !Array.isArray(predicted) || !actual.length){
+      return NaN;
+    }
+    let total = 0;
+    let count = 0;
+    for(let i = 0; i < actual.length; i++){
+      const a = actual[i];
+      const p = predicted[i];
+      if(Number.isFinite(a) && Number.isFinite(p) && a !== 0){
+        total += Math.abs((a - p) / a);
+        count++;
+      }
+    }
+    return count ? total / count : NaN;
+  };
+
+  const computeSymmetricMAPE = (actual, predicted) => {
+    if(!Array.isArray(actual) || !Array.isArray(predicted) || !actual.length){
+      return NaN;
+    }
+    let total = 0;
+    let count = 0;
+    for(let i = 0; i < actual.length; i++){
+      const a = actual[i];
+      const p = predicted[i];
+      if(Number.isFinite(a) && Number.isFinite(p)){
+        const denom = Math.abs(a) + Math.abs(p);
+        if(denom === 0) continue;
+        total += (2 * Math.abs(a - p)) / denom;
+        count++;
+      }
+    }
+    return count ? total / count : NaN;
+  };
+
+  const computeAverageSpacing = (values) => {
+    if(!Array.isArray(values) || values.length < 2){
+      return NaN;
+    }
+    let total = 0;
+    let count = 0;
+    for(let i = 1; i < values.length; i++){
+      const delta = values[i] - values[i - 1];
+      if(Number.isFinite(delta)){
+        total += delta;
+        count++;
+      }
+    }
+    return count ? total / count : NaN;
+  };
+
+  const linearInterpolateSamples = (samples, x) => {
+    if(!Array.isArray(samples) || samples.length === 0){
+      return NaN;
+    }
+    const sorted = samples.slice().sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
+    if(x <= sorted[0].x){
+      return sorted[0].y;
+    }
+    if(x >= sorted[sorted.length - 1].x){
+      return sorted[sorted.length - 1].y;
+    }
+    for(let i = 1; i < sorted.length; i++){
+      const prev = sorted[i - 1];
+      const next = sorted[i];
+      if(x >= prev.x && x <= next.x){
+        const span = next.x - prev.x;
+        if(span === 0){ return prev.y; }
+        const ratio = (x - prev.x) / span;
+        return prev.y + ratio * (next.y - prev.y);
+      }
+    }
+    return NaN;
+  };
+
   const buildCoefficientStats = ({ coefficients, xtxInv, residuals, alpha, termLabels, degreesOfFreedom }) => {
     if(!coefficients || !xtxInv || !residuals){
       return [];
@@ -841,6 +998,599 @@
     };
   };
 
+  const autoSelectArimaOrder = (series, options = {}) => {
+    if(!Array.isArray(series) || series.length < 5){
+      return { p: 1, d: 0, criterion: NaN };
+    }
+    const maxP = Math.max(0, Math.min(Number(options.maxP) || 2, 5));
+    const maxD = Math.max(0, Math.min(Number(options.maxD) || 2, 2));
+    const criterion = options.criterion === 'aic' ? 'aic' : 'bic';
+    let best = null;
+    for(let d = 0; d <= maxD; d++){
+      const diffed = differenceSeries(series, d);
+      const values = diffed.series;
+      if(values.length < 4){
+        continue;
+      }
+      for(let p = 0; p <= maxP; p++){
+        if(p === 0){
+          continue;
+        }
+        const design = [];
+        const target = [];
+        for(let t = p; t < values.length; t++){
+          const row = [1];
+          for(let lag = 1; lag <= p; lag++){
+            row.push(values[t - lag]);
+          }
+          design.push(row);
+          target.push([values[t]]);
+        }
+        const solved = solveLeastSquares(design, target);
+        if(!solved.coefficients){
+          continue;
+        }
+        const coeffs = solved.coefficients;
+        const residuals = [];
+        for(let t = p; t < values.length; t++){
+          let pred = coeffs[0];
+          for(let lag = 1; lag <= p; lag++){
+            pred += coeffs[lag] * values[t - lag];
+          }
+          residuals.push(values[t] - pred);
+        }
+        const nEff = residuals.length;
+        if(nEff <= 0){
+          continue;
+        }
+        const sse = residuals.reduce((sum,val)=>sum+val*val,0);
+        const sigmaSq = sse / Math.max(nEff, 1);
+        if(!Number.isFinite(sigmaSq) || sigmaSq <= 0){
+          continue;
+        }
+        const k = coeffs.length;
+        const logLikelihood = -0.5 * nEff * (Math.log(2 * Math.PI) + Math.log(sigmaSq) + 1);
+        const aic = 2 * k - 2 * logLikelihood;
+        const bic = Math.log(nEff) * k - 2 * logLikelihood;
+        const score = criterion === 'aic' ? aic : bic;
+        console.debug('Debug:', debugNs, 'autoSelectArimaOrder candidate', { p, d, k, aic, bic, score });
+        if(!best || score < best.score){
+          best = { p, d, score, aic, bic };
+        }
+      }
+    }
+    return best || { p: 1, d: 0, criterion: NaN };
+  };
+
+  const computeArimaModel = ({ points, alpha, domain, forecast }) => {
+    const sorted = points.slice().sort((a,b)=>a.x - b.x);
+    if(sorted.length < 4){
+      return null;
+    }
+    const warnings = [];
+    const yVals = sorted.map(pt => pt.y);
+    const xVals = sorted.map(pt => pt.x);
+    const yMean = jStatLib.mean(yVals);
+    const sst = yVals.reduce((sum,val)=>sum+Math.pow(val - yMean,2),0);
+    const forecastOptions = forecast || {};
+    const horizon = clampPositiveInt(forecastOptions.horizon, { min: 1, max: 120, fallback: Math.max(1, Math.round(sorted.length * 0.25)) });
+    const autoTune = !!forecastOptions.autoTune;
+    const selection = autoTune ? autoSelectArimaOrder(yVals, forecastOptions) : null;
+    if(autoTune){
+      if(selection){
+        warnings.push(`Auto-selected ARIMA order p=${selection.p}, d=${selection.d} using ${(forecastOptions.criterion === 'aic' ? 'AIC' : 'BIC')}.`);
+      }else{
+        warnings.push('Automatic ARIMA search retained manual order.');
+      }
+    }
+    const pRaw = Number.isInteger(forecastOptions.p) ? forecastOptions.p : 1;
+    const dRaw = Number.isInteger(forecastOptions.d) ? forecastOptions.d : 0;
+    const p = Math.max(1, selection ? selection.p : Math.max(0, Math.min(pRaw, forecastOptions.maxP || 5)));
+    const d = Math.max(0, selection ? selection.d : Math.max(0, Math.min(dRaw, forecastOptions.maxD || 2)));
+    const differenced = differenceSeries(yVals, d);
+    const diffSeries = differenced.series;
+    if(diffSeries.length <= p){
+      return null;
+    }
+    const design = [];
+    const target = [];
+    for(let t = p; t < diffSeries.length; t++){
+      const row = [1];
+      for(let lag = 1; lag <= p; lag++){
+        row.push(diffSeries[t - lag]);
+      }
+      design.push(row);
+      target.push([diffSeries[t]]);
+    }
+    const solved = solveLeastSquares(design, target);
+    if(!solved.coefficients){
+      return null;
+    }
+    const coefficients = solved.coefficients;
+    const intercept = coefficients[0];
+    const phi = coefficients.slice(1);
+    const residuals = [];
+    const fitted = [];
+    const predictedDiff = [];
+    const actualForResiduals = [];
+    for(let t = p; t < diffSeries.length; t++){
+      let pred = intercept;
+      for(let lag = 1; lag <= p; lag++){
+        pred += phi[lag - 1] * diffSeries[t - lag];
+      }
+      predictedDiff[t] = pred;
+      const actualIndex = t + d;
+      const baseActual = yVals[actualIndex - 1];
+      const predictedActual = baseActual + pred;
+      fitted[actualIndex] = predictedActual;
+      const resid = yVals[actualIndex] - predictedActual;
+      residuals.push(resid);
+      actualForResiduals.push(yVals[actualIndex]);
+    }
+    const nEff = residuals.length;
+    const sse = residuals.reduce((sum,val)=>sum+val*val,0);
+    const sigmaSq = nEff ? sse / Math.max(nEff, 1) : 0;
+    const sigma = Math.sqrt(Math.max(sigmaSq, 0));
+    const rmse = nEff ? Math.sqrt(sse / nEff) : NaN;
+    const mae = nEff ? residuals.reduce((sum,val)=>sum+Math.abs(val),0)/nEff : NaN;
+    const mape = computeMeanAbsolutePercentageError(actualForResiduals, residuals.map((res, idx)=>actualForResiduals[idx] - res));
+    const smape = computeSymmetricMAPE(actualForResiduals, residuals.map((res, idx)=>actualForResiduals[idx] - res));
+    const k = coefficients.length;
+    const logLikelihood = nEff > 0 && sigmaSq > 0
+      ? -0.5 * nEff * (Math.log(2 * Math.PI) + Math.log(sigmaSq) + 1)
+      : NaN;
+    const aic = Number.isFinite(logLikelihood) ? (2 * k) - (2 * logLikelihood) : NaN;
+    const bic = Number.isFinite(logLikelihood) ? (Math.log(nEff || 1) * k) - (2 * logLikelihood) : NaN;
+    const spacing = computeAverageSpacing(xVals);
+    const lastX = xVals[xVals.length - 1];
+    let workingActual = yVals[yVals.length - 1];
+    const diffHistory = diffSeries.slice(-p);
+    const forecastPoints = [];
+    const forecastVariances = computeForecastVariance(phi, horizon, sigmaSq);
+    const zCritical = (jStatLib?.normal && typeof jStatLib.normal.inv === 'function')
+      ? jStatLib.normal.inv(1 - alpha/2, 0, 1)
+      : 1.96;
+    const intervalSamples = [];
+    sorted.forEach((pt, idx) => {
+      const predicted = Number.isFinite(fitted[idx]) ? fitted[idx] : pt.y;
+      const ciLow = Number.isFinite(predicted) ? predicted - zCritical * sigma : NaN;
+      const ciHigh = Number.isFinite(predicted) ? predicted + zCritical * sigma : NaN;
+      const piLow = ciLow;
+      const piHigh = ciHigh;
+      intervalSamples.push({ x: pt.x, y: predicted, ciLow, ciHigh, piLow, piHigh });
+    });
+    for(let h = 1; h <= horizon; h++){
+      let diffPred = intercept;
+      for(let lag = 1; lag <= p; lag++){
+        const historyIndex = diffHistory.length - lag;
+        diffPred += (phi[lag - 1] || 0) * (diffHistory[historyIndex] ?? 0);
+      }
+      diffHistory.push(diffPred);
+      workingActual = workingActual + diffPred;
+      const x = Number.isFinite(spacing) ? lastX + spacing * h : lastX + h;
+      const variance = forecastVariances[h - 1] ?? sigmaSq;
+      const stdErr = Math.sqrt(Math.max(variance, sigmaSq));
+      const ciLow = workingActual - zCritical * stdErr;
+      const ciHigh = workingActual + zCritical * stdErr;
+      forecastPoints.push({ x, y: workingActual, lower: ciLow, upper: ciHigh, stdErr });
+      intervalSamples.push({ x, y: workingActual, ciLow, ciHigh, piLow: ciLow, piHigh: ciHigh });
+    }
+    const diagnostics = computeResidualDiagnostics(residuals);
+    const residualSummary = summarizeResiduals(residuals);
+    const r2 = sst === 0 ? 1 : 1 - (sse / sst);
+    const adjR2 = nEff > (k + 1) ? 1 - (1 - r2) * ((nEff - 1) / (nEff - k - 1)) : r2;
+    const summaryParameters = {
+      Intercept: intercept,
+      Horizon: horizon,
+      'AR order (p)': p,
+      'Differencing (d)': d
+    };
+    phi.forEach((value, idx) => {
+      summaryParameters[`AR${idx + 1}`] = value;
+    });
+    const primaryParameter = phi.length ? { label: `AR${1}`, value: phi[0] } : { label: 'Intercept', value: intercept };
+    const modelDomain = {
+      minX: domain?.minX ?? Math.min(...xVals),
+      maxX: Math.max(domain?.maxX ?? Math.max(...xVals), forecastPoints.length ? forecastPoints[forecastPoints.length - 1].x : Math.max(...xVals))
+    };
+    const intervals = intervalSamples.length ? {
+      alpha,
+      zCritical,
+      degreesOfFreedom: nEff,
+      summary: {
+        ciMin: intervalSamples.reduce((acc, sample) => Number.isFinite(sample.ciLow) ? Math.min(acc, sample.ciLow) : acc, Infinity),
+        ciMax: intervalSamples.reduce((acc, sample) => Number.isFinite(sample.ciHigh) ? Math.max(acc, sample.ciHigh) : acc, -Infinity),
+        piMin: intervalSamples.reduce((acc, sample) => Number.isFinite(sample.piLow) ? Math.min(acc, sample.piLow) : acc, Infinity),
+        piMax: intervalSamples.reduce((acc, sample) => Number.isFinite(sample.piHigh) ? Math.max(acc, sample.piHigh) : acc, -Infinity)
+      },
+      samples: intervalSamples
+    } : null;
+    if(intervals && intervals.summary){
+      if(!Number.isFinite(intervals.summary.ciMin)) intervals.summary.ciMin = NaN;
+      if(!Number.isFinite(intervals.summary.ciMax)) intervals.summary.ciMax = NaN;
+      if(!Number.isFinite(intervals.summary.piMin)) intervals.summary.piMin = NaN;
+      if(!Number.isFinite(intervals.summary.piMax)) intervals.summary.piMax = NaN;
+    }
+    const predict = (x) => {
+      if(!intervalSamples.length){
+        return NaN;
+      }
+      const direct = intervalSamples.find(sample => sample.x === x);
+      if(direct){
+        return direct.y;
+      }
+      return linearInterpolateSamples(intervalSamples, x);
+    };
+    console.debug('Debug:', debugNs, 'ARIMA model summary', {
+      p,
+      d,
+      horizon,
+      rmse,
+      mae,
+      mape,
+      smape,
+      aic,
+      bic,
+      residualCount: residuals.length
+    });
+    return {
+      coefficients,
+      mode: 'arima',
+      metrics: {
+        sampleSize: sorted.length,
+        predictors: p,
+        sse,
+        sst,
+        r2,
+        adjR2,
+        rmse,
+        mae,
+        mape,
+        smape,
+        aic,
+        bic,
+        horizon
+      },
+      residuals: residualSummary,
+      diagnostics,
+      domain: modelDomain,
+      intervals,
+      predict,
+      forecast: {
+        horizon,
+        step: spacing,
+        points: forecastPoints,
+        seasonLength: null,
+        parameters: { p, d }
+      },
+      summary: {
+        intercept,
+        slope: phi[0] ?? intercept,
+        equation: `ARIMA(${p},${d},0)` ,
+        parameters: summaryParameters,
+        primaryParameter
+      },
+      warnings
+    };
+  };
+
+  const clampUnitInterval = (value, fallback = 0.2) => {
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return fallback;
+    }
+    const bounded = Math.max(0.001, Math.min(0.999, numeric));
+    return bounded;
+  };
+
+  const buildInitialSeasonalComponents = (values, seasonLength) => {
+    const seasons = Math.max(1, Math.floor(values.length / seasonLength));
+    if(seasons < 2){
+      const avg = jStatLib.mean(values);
+      const seasonals = Array.from({ length: seasonLength }, (_, idx) => {
+        const value = values[idx];
+        return Number.isFinite(value) ? value - avg : 0;
+      });
+      return {
+        level: avg,
+        trend: 0,
+        seasonals
+      };
+    }
+    const seasonAverages = [];
+    for(let s = 0; s < seasons; s++){
+      const start = s * seasonLength;
+      const slice = values.slice(start, start + seasonLength);
+      if(slice.length < seasonLength){
+        continue;
+      }
+      const mean = slice.reduce((sum,val)=>sum+val,0)/seasonLength;
+      seasonAverages.push(mean);
+    }
+    const seasonals = new Array(seasonLength).fill(0);
+    for(let i = 0; i < seasonLength; i++){
+      let sum = 0;
+      let count = 0;
+      for(let s = 0; s < seasons; s++){
+        const idx = s * seasonLength + i;
+        if(idx >= values.length){
+          continue;
+        }
+        const value = values[idx];
+        if(!Number.isFinite(value)){
+          continue;
+        }
+        sum += value - (seasonAverages[s] ?? 0);
+        count++;
+      }
+      seasonals[i] = count ? sum / count : 0;
+    }
+    const level = seasonAverages[0] ?? values[0];
+    const trend = seasonAverages.length > 1
+      ? (seasonAverages[1] - seasonAverages[0]) / seasonLength
+      : ((values[seasonLength] ?? values[values.length - 1]) - (values[0] ?? 0)) / Math.max(seasonLength, 1);
+    return { level, trend, seasonals };
+  };
+
+  const runHoltWinters = ({ values, seasonLength, levelAlpha, trendBeta, seasonalGamma }) => {
+    const sanitizedSeason = Math.max(2, Math.round(seasonLength));
+    const init = buildInitialSeasonalComponents(values, sanitizedSeason);
+    let level = Number.isFinite(init.level) ? init.level : values[0] || 0;
+    let trend = Number.isFinite(init.trend) ? init.trend : 0;
+    const seasonal = Array.isArray(init.seasonals) ? init.seasonals.slice() : new Array(sanitizedSeason).fill(0);
+    const fitted = [];
+    const residuals = [];
+    const alphaClamped = clampUnitInterval(levelAlpha);
+    const betaClamped = clampUnitInterval(trendBeta);
+    const gammaClamped = clampUnitInterval(seasonalGamma);
+    for(let t = 0; t < values.length; t++){
+      const seasonIndex = t % sanitizedSeason;
+      const seasonFactor = seasonal[seasonIndex] ?? 0;
+      const fittedValue = level + trend + seasonFactor;
+      fitted[t] = fittedValue;
+      const actual = values[t];
+      const resid = Number.isFinite(actual) ? actual - fittedValue : 0;
+      residuals[t] = resid;
+      const prevLevel = level;
+      level = alphaClamped * (actual - seasonFactor) + (1 - alphaClamped) * (level + trend);
+      trend = betaClamped * (level - prevLevel) + (1 - betaClamped) * trend;
+      seasonal[seasonIndex] = gammaClamped * (actual - level) + (1 - gammaClamped) * seasonFactor;
+    }
+    return { fitted, residuals, level, trend, seasonals: seasonal, initial: init };
+  };
+
+  const autoTuneHoltWinters = (values, seasonLength, options = {}) => {
+    const criteria = options.criterion === 'aic' ? 'aic' : 'bic';
+    const candidates = options.gridValues && Array.isArray(options.gridValues) && options.gridValues.length
+      ? options.gridValues
+      : [0.2, 0.4, 0.6, 0.8];
+    let best = null;
+    candidates.forEach(alphaCandidate => {
+      candidates.forEach(betaCandidate => {
+        candidates.forEach(gammaCandidate => {
+          const result = runHoltWinters({
+            values,
+            seasonLength,
+            levelAlpha: alphaCandidate,
+            trendBeta: betaCandidate,
+            seasonalGamma: gammaCandidate
+          });
+          const residuals = result.residuals.slice(seasonLength);
+          if(!residuals.length){
+            return;
+          }
+          const sse = residuals.reduce((sum,val)=>sum+val*val,0);
+          const sigmaSq = sse / Math.max(residuals.length, 1);
+          if(!Number.isFinite(sigmaSq) || sigmaSq <= 0){
+            return;
+          }
+          const k = seasonLength + 3;
+          const logLikelihood = -0.5 * residuals.length * (Math.log(2 * Math.PI) + Math.log(sigmaSq) + 1);
+          const aic = 2 * k - 2 * logLikelihood;
+          const bic = Math.log(residuals.length) * k - 2 * logLikelihood;
+          const score = criteria === 'aic' ? aic : bic;
+          console.debug('Debug:', debugNs, 'autoTuneHoltWinters candidate', {
+            alpha: alphaCandidate,
+            beta: betaCandidate,
+            gamma: gammaCandidate,
+            aic,
+            bic,
+            score
+          });
+          if(!best || score < best.score){
+            best = {
+              alpha: alphaCandidate,
+              beta: betaCandidate,
+              gamma: gammaCandidate,
+              score,
+              aic,
+              bic
+            };
+          }
+        });
+      });
+    });
+    return best;
+  };
+
+  const computeHoltWintersModel = ({ points, alpha, domain, forecast }) => {
+    const sorted = points.slice().sort((a,b)=>a.x - b.x);
+    if(sorted.length < 4){
+      return null;
+    }
+    const warnings = [];
+    const yVals = sorted.map(pt => pt.y);
+    const xVals = sorted.map(pt => pt.x);
+    const meanY = jStatLib.mean(yVals);
+    const sst = yVals.reduce((sum, val) => sum + Math.pow(val - meanY, 2), 0);
+    const forecastOptions = forecast || {};
+    const seasonLength = clampPositiveInt(forecastOptions.seasonLength, { min: 2, max: Math.max(2, Math.floor(sorted.length / 2)), fallback: 12 });
+    const horizon = clampPositiveInt(forecastOptions.horizon, { min: 1, max: 120, fallback: Math.max(1, Math.round(sorted.length * 0.25)) });
+    const autoTune = !!forecastOptions.autoTune;
+    const tuned = autoTune ? autoTuneHoltWinters(yVals, seasonLength, forecastOptions) : null;
+    if(autoTune){
+      if(tuned){
+        warnings.push(`Auto-selected Holt-Winters α=${tuned.alpha.toFixed(2)}, β=${tuned.beta.toFixed(2)}, γ=${tuned.gamma.toFixed(2)} using ${(forecastOptions.criterion === 'aic' ? 'AIC' : 'BIC')}.`);
+      }else{
+        warnings.push('Automatic Holt-Winters tuning retained manual parameters.');
+      }
+    }
+    const levelAlpha = clampUnitInterval(tuned?.alpha ?? forecastOptions.level ?? 0.2);
+    const trendBeta = clampUnitInterval(tuned?.beta ?? forecastOptions.trend ?? 0.1);
+    const seasonalGamma = clampUnitInterval(tuned?.gamma ?? forecastOptions.seasonal ?? 0.1);
+    const execution = runHoltWinters({
+      values: yVals,
+      seasonLength,
+      levelAlpha,
+      trendBeta,
+      seasonalGamma
+    });
+    const residuals = execution.residuals.slice(seasonLength);
+    const fitted = execution.fitted;
+    if(!residuals.length){
+      return null;
+    }
+    const residualSummary = summarizeResiduals(residuals);
+    const sse = residuals.reduce((sum,val)=>sum+val*val,0);
+    const rmse = Math.sqrt(sse / residuals.length);
+    const mae = residuals.reduce((sum,val)=>sum+Math.abs(val),0)/residuals.length;
+    const actualForErrors = yVals.slice(seasonLength);
+    const predictedForErrors = fitted.slice(seasonLength);
+    const mape = computeMeanAbsolutePercentageError(actualForErrors, predictedForErrors);
+    const smape = computeSymmetricMAPE(actualForErrors, predictedForErrors);
+    const sigmaSq = sse / Math.max(residuals.length, 1);
+    const sigma = Math.sqrt(Math.max(sigmaSq, 0));
+    const k = seasonLength + 3;
+    const logLikelihood = -0.5 * residuals.length * (Math.log(2 * Math.PI) + Math.log(sigmaSq) + 1);
+    const aic = 2 * k - 2 * logLikelihood;
+    const bic = Math.log(residuals.length) * k - 2 * logLikelihood;
+    const r2 = sst === 0 ? 1 : 1 - (sse / sst);
+    const adjR2 = residuals.length > k ? 1 - (1 - r2) * ((residuals.length - 1) / (residuals.length - k - 1)) : r2;
+    const zCritical = (jStatLib?.normal && typeof jStatLib.normal.inv === 'function')
+      ? jStatLib.normal.inv(1 - alpha/2, 0, 1)
+      : 1.96;
+    const spacing = computeAverageSpacing(xVals);
+    const lastX = xVals[xVals.length - 1];
+    const forecastPoints = [];
+    const intervalSamples = [];
+    sorted.forEach((pt, idx) => {
+      const predicted = fitted[idx];
+      const ciLow = predicted - zCritical * sigma;
+      const ciHigh = predicted + zCritical * sigma;
+      intervalSamples.push({ x: pt.x, y: predicted, ciLow, ciHigh, piLow: ciLow, piHigh: ciHigh });
+    });
+    for(let h = 1; h <= horizon; h++){
+      const seasonIndex = (yVals.length + h - 1) % seasonLength;
+      const seasonal = execution.seasonals[seasonIndex] ?? 0;
+      const forecastValue = execution.level + h * execution.trend + seasonal;
+      const inflation = Math.sqrt(1 + (h / seasonLength));
+      const stdErr = sigma * inflation;
+      const ciLow = forecastValue - zCritical * stdErr;
+      const ciHigh = forecastValue + zCritical * stdErr;
+      const x = Number.isFinite(spacing) ? lastX + spacing * h : lastX + h;
+      forecastPoints.push({ x, y: forecastValue, lower: ciLow, upper: ciHigh, stdErr, seasonal });
+      intervalSamples.push({ x, y: forecastValue, ciLow, ciHigh, piLow: ciLow, piHigh: ciHigh });
+    }
+    const diagnostics = computeResidualDiagnostics(residuals);
+    const seasonalsPreview = execution.seasonals.slice(0, Math.min(seasonLength, 6));
+    const parameters = {
+      Level: execution.level,
+      Trend: execution.trend,
+      'Season length': seasonLength,
+      Horizon: horizon,
+      'Level α': levelAlpha,
+      'Trend β': trendBeta,
+      'Season γ': seasonalGamma
+    };
+    seasonalsPreview.forEach((value, idx) => {
+      parameters[`Seasonal ${idx + 1}`] = value;
+    });
+    const modelDomain = {
+      minX: domain?.minX ?? Math.min(...xVals),
+      maxX: Math.max(domain?.maxX ?? Math.max(...xVals), forecastPoints.length ? forecastPoints[forecastPoints.length - 1].x : Math.max(...xVals))
+    };
+    const intervals = intervalSamples.length ? {
+      alpha,
+      zCritical,
+      degreesOfFreedom: residuals.length,
+      summary: {
+        ciMin: intervalSamples.reduce((acc, sample) => Number.isFinite(sample.ciLow) ? Math.min(acc, sample.ciLow) : acc, Infinity),
+        ciMax: intervalSamples.reduce((acc, sample) => Number.isFinite(sample.ciHigh) ? Math.max(acc, sample.ciHigh) : acc, -Infinity),
+        piMin: intervalSamples.reduce((acc, sample) => Number.isFinite(sample.piLow) ? Math.min(acc, sample.piLow) : acc, Infinity),
+        piMax: intervalSamples.reduce((acc, sample) => Number.isFinite(sample.piHigh) ? Math.max(acc, sample.piHigh) : acc, -Infinity)
+      },
+      samples: intervalSamples
+    } : null;
+    if(intervals && intervals.summary){
+      if(!Number.isFinite(intervals.summary.ciMin)) intervals.summary.ciMin = NaN;
+      if(!Number.isFinite(intervals.summary.ciMax)) intervals.summary.ciMax = NaN;
+      if(!Number.isFinite(intervals.summary.piMin)) intervals.summary.piMin = NaN;
+      if(!Number.isFinite(intervals.summary.piMax)) intervals.summary.piMax = NaN;
+    }
+    const predict = (x) => {
+      if(!intervalSamples.length){
+        return NaN;
+      }
+      const direct = intervalSamples.find(sample => sample.x === x);
+      if(direct){
+        return direct.y;
+      }
+      return linearInterpolateSamples(intervalSamples, x);
+    };
+    console.debug('Debug:', debugNs, 'Holt-Winters summary', {
+      horizon,
+      seasonLength,
+      rmse,
+      mae,
+      mape,
+      smape,
+      aic,
+      bic
+    });
+    return {
+      mode: 'holtWinters',
+      coefficients: [],
+      metrics: {
+        sampleSize: sorted.length,
+        predictors: seasonLength,
+        sse,
+        sst,
+        r2,
+        adjR2,
+        rmse,
+        mae,
+        mape,
+        smape,
+        aic,
+        bic,
+        horizon
+      },
+      residuals: residualSummary,
+      diagnostics,
+      domain: modelDomain,
+      intervals,
+      predict,
+      forecast: {
+        horizon,
+        step: spacing,
+        points: forecastPoints,
+        seasonLength,
+        parameters: { levelAlpha, trendBeta, seasonalGamma }
+      },
+      summary: {
+        intercept: execution.level,
+        slope: execution.trend,
+        equation: 'Holt-Winters (additive)',
+        parameters,
+        primaryParameter: {
+          label: 'Trend',
+          value: execution.trend
+        }
+      },
+      warnings
+    };
+  };
+
   const computeSplineModel = ({ points, domain }) => {
     const warnings = [];
     const sorted = points.slice().sort((a,b)=>a.x-b.x);
@@ -958,6 +1708,28 @@
     };
   };
 
+  if(!regressionTools.autoSelectArima){
+    regressionTools.autoSelectArima = function autoSelectArima(series, options){
+      try{
+        return autoSelectArimaOrder(Array.isArray(series) ? series : [], options || {});
+      }catch(err){
+        console.error('autoSelectArima error', err);
+        return null;
+      }
+    };
+  }
+
+  if(!regressionTools.autoTuneHoltWinters){
+    regressionTools.autoTuneHoltWinters = function autoTuneHoltWintersWrapper(series, seasonLength, options){
+      try{
+        return autoTuneHoltWinters(Array.isArray(series) ? series : [], seasonLength, options || {});
+      }catch(err){
+        console.error('autoTuneHoltWinters error', err);
+        return null;
+      }
+    };
+  }
+
   if(!regressionTools.fitRegression){
     regressionTools.fitRegression = function fitRegression(points, options = {}){
       const cleanPoints = Array.isArray(points) ? points.filter(pt => pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) : [];
@@ -988,8 +1760,13 @@
       const yVals = cleanPoints.map(pt => pt.y);
       const yMean = jStatLib.mean(yVals);
       const sst = yVals.reduce((sum, val) => sum + Math.pow(val - yMean, 2), 0);
+      const forecastOptions = options.forecast || {};
       let model;
-      if(mode === 'logistic'){
+      if(mode === 'arima'){
+        model = computeArimaModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, forecast: forecastOptions });
+      }else if(mode === 'holtWinters'){
+        model = computeHoltWintersModel({ points: cleanPoints, alpha, domain: domain || { minX: Math.min(...xVals), maxX: Math.max(...xVals) }, forecast: forecastOptions });
+      }else if(mode === 'logistic'){
         model = computeLogisticModel({ points: cleanPoints, alpha, domain });
       }else if(mode === 'quadratic' || mode === 'cubic'){
         const degree = mode === 'quadratic' ? 2 : 3;
@@ -1072,7 +1849,12 @@
           sse: ensureFiniteNumber(metrics.sse),
           sst: ensureFiniteNumber(metrics.sst),
           logLoss: ensureFiniteNumber(metrics.logLoss),
-          iterations: ensureFiniteNumber(metrics.iterations)
+          iterations: ensureFiniteNumber(metrics.iterations),
+          mape: ensureFiniteNumber(metrics.mape),
+          smape: ensureFiniteNumber(metrics.smape),
+          aic: ensureFiniteNumber(metrics.aic),
+          bic: ensureFiniteNumber(metrics.bic),
+          horizon: ensureFiniteNumber(metrics.horizon)
         },
         residuals: {
           mean: ensureFiniteNumber(residuals.mean),
@@ -1116,7 +1898,21 @@
           primaryParameter: sanitizedPrimary
         } : null,
         domain: model.domain || null,
-        warnings: Array.isArray(model.warnings) ? model.warnings.slice() : []
+        warnings: Array.isArray(model.warnings) ? model.warnings.slice() : [],
+        forecast: model.forecast ? {
+          horizon: ensureFiniteNumber(model.forecast.horizon),
+          seasonLength: ensureFiniteNumber(model.forecast.seasonLength ?? model.forecast.parameters?.seasonLength),
+          step: ensureFiniteNumber(model.forecast.step),
+          parameters: typeof model.forecast.parameters === 'object' ? { ...model.forecast.parameters } : null,
+          points: Array.isArray(model.forecast.points)
+            ? model.forecast.points.slice(0, Math.min(model.forecast.points.length, 180)).map(pt => ({
+                x: ensureFiniteNumber(pt.x),
+                y: ensureFiniteNumber(pt.y),
+                lower: ensureFiniteNumber(pt.lower ?? pt.ciLow ?? pt.piLow),
+                upper: ensureFiniteNumber(pt.upper ?? pt.ciHigh ?? pt.piHigh)
+              }))
+            : []
+        } : null
       };
     };
   }

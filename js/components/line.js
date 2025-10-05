@@ -22,6 +22,9 @@
   const LINE_DEFAULT_SERIES_COUNT = 5;
   const LINE_MIN_REPLICATES = 1;
   const LINE_MAX_REPLICATES = 10;
+  const DEFAULT_FORECAST_HORIZON = 6;
+  const DEFAULT_FORECAST_SEASON = 12;
+  const MAX_FORECAST_HORIZON = 120;
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
@@ -40,6 +43,12 @@
   let lineLayout = null;
   let lineSeriesGroupLabels = [];
   let lineLastRegressionSummaries = [];
+  let lineForecastOptions = {
+    horizon: DEFAULT_FORECAST_HORIZON,
+    seasonLength: DEFAULT_FORECAST_SEASON,
+    autoTune: true,
+    criterion: 'bic'
+  };
 
   console.debug('Debug: line group labels state initialized', {
     initial: lineSeriesGroupLabels,
@@ -52,6 +61,7 @@
     min: LINE_MIN_REPLICATES,
     max: LINE_MAX_REPLICATES
   });
+  console.debug('Debug: line forecast defaults', lineForecastOptions);
 
   const makeEditableHelper = (el,onChange,options) => {
     const fn = Shared.makeEditable || global.makeEditable;
@@ -115,6 +125,70 @@
   }
 
   const formatMetricValue = (value, digits = 4) => Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
+
+  const formatPercent = (value, digits = 2) => {
+    if(!Number.isFinite(value)) return 'n/a';
+    return `${(value * 100).toFixed(digits)}%`;
+  };
+
+  const clampForecastHorizon = (value) => {
+    const numeric = Number(value);
+    const resolved = Number.isFinite(numeric) ? Math.round(numeric) : DEFAULT_FORECAST_HORIZON;
+    const bounded = Math.max(1, Math.min(MAX_FORECAST_HORIZON, resolved));
+    console.debug('Debug: clampForecastHorizon', { value, numeric, resolved, bounded });
+    return bounded;
+  };
+
+  const clampSeasonLength = (value) => {
+    const numeric = Number(value);
+    const resolved = Number.isFinite(numeric) ? Math.round(numeric) : DEFAULT_FORECAST_SEASON;
+    const bounded = Math.max(2, Math.min(60, resolved));
+    console.debug('Debug: clampSeasonLength', { value, numeric, resolved, bounded });
+    return bounded;
+  };
+
+  function resolveForecastOptions(options = {}){
+    const next = { ...lineForecastOptions };
+    if(refs.forecastHorizon){
+      next.horizon = clampForecastHorizon(refs.forecastHorizon.value);
+    }
+    if(refs.forecastSeasonLength){
+      next.seasonLength = clampSeasonLength(refs.forecastSeasonLength.value);
+    }
+    if(refs.forecastAuto){
+      next.autoTune = !!refs.forecastAuto.checked;
+    }
+    if(refs.forecastCriterion){
+      const critRaw = String(refs.forecastCriterion.value || '').toLowerCase();
+      next.criterion = critRaw === 'aic' ? 'aic' : 'bic';
+    }
+    lineForecastOptions = next;
+    if(options.syncInputs){
+      if(refs.forecastHorizon){
+        refs.forecastHorizon.value = String(next.horizon);
+      }
+      if(refs.forecastSeasonLength){
+        refs.forecastSeasonLength.value = String(next.seasonLength);
+      }
+      if(refs.forecastAuto){
+        refs.forecastAuto.checked = !!next.autoTune;
+      }
+      if(refs.forecastCriterion){
+        refs.forecastCriterion.value = next.criterion;
+      }
+    }
+    console.debug('Debug: resolveForecastOptions', next);
+    return { ...next };
+  }
+
+  function updateForecastVisibility(){
+    const mode = refs.regressionMode?.value;
+    const show = mode === 'arima' || mode === 'holtWinters';
+    if(refs.forecastFieldset){
+      refs.forecastFieldset.style.display = show ? '' : 'none';
+    }
+    return show;
+  }
 
   function clampLineReplicateCount(raw){
     const numeric = Number(raw);
@@ -463,7 +537,7 @@
     let regressionModel=options.precomputedRegression || null;
     if(!regressionModel && typeof regressionTools.fitRegression==='function'){
       try{
-        regressionModel=regressionTools.fitRegression(points,{ mode: regressionMode, alpha });
+        regressionModel=regressionTools.fitRegression(points,{ mode: regressionMode, alpha, forecast: options.forecast });
       }catch(err){
         console.error('line compute regression error', err);
       }
@@ -509,13 +583,15 @@
     const diagnosticRows=[];
     const coefficientRows=[];
     const parameterRows=[];
+    const seasonalRows=[];
+    const forecastRows=[];
     let methodLabel='';
     lineLastRegressionSummaries = [];
     series.forEach(s=>{
       const pts=s.points.filter(Boolean);
       if(pts.length>=3){
         const cached = regressionCache.get(s.name);
-        const stats=computeLineStats(pts,method,jStatLib,regressionMode,{ alpha: regressionAlpha, precomputedRegression: cached });
+        const stats=computeLineStats(pts,method,jStatLib,regressionMode,{ alpha: regressionAlpha, precomputedRegression: cached, forecast: options.forecast });
         if(stats){
           methodLabel=stats.method;
           const summary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(stats.regression) : null;
@@ -538,6 +614,15 @@
             Object.entries(stats.regression.summary.parameters).forEach(([label, value]) => {
               if(value == null || value === '') return;
               const formattedValue = Number.isFinite(value) ? formatMetricValue(value) : String(value);
+              const normalizedLabel = String(label || '').toLowerCase();
+              if(normalizedLabel.startsWith('seasonal') || normalizedLabel.includes('season length')){
+                seasonalRows.push({ series: s.name, label, value: formattedValue });
+                return;
+              }
+              if(normalizedLabel === 'horizon'){
+                forecastRows.push({ series: s.name, horizon: formattedValue, mae: 'n/a', rmse: 'n/a', mape: 'n/a', smape: 'n/a', aic: 'n/a', bic: 'n/a' });
+                return;
+              }
               parameterRows.push({ series: s.name, parameter: label, value: formattedValue });
             });
           }
@@ -574,6 +659,25 @@
                 ciHigh: formatMetricValue(stat.ciHigh)
               });
             });
+          }
+          const metricsSource = stats.regression?.metrics || {};
+          const summaryMetrics = summary?.metrics || {};
+          const hasAccuracy = [metricsSource.mae, metricsSource.mape, metricsSource.smape, metricsSource.aic, metricsSource.bic].some(val => Number.isFinite(val));
+          if(hasAccuracy){
+            const existingIndex = forecastRows.findIndex(row => row.series === s.name);
+            const rowBase = existingIndex >= 0 ? forecastRows[existingIndex] : { series: s.name };
+            rowBase.horizon = rowBase.horizon || formatMetricValue(summaryMetrics.horizon ?? metricsSource.horizon ?? NaN,0);
+            rowBase.mae = formatMetricValue(metricsSource.mae);
+            rowBase.rmse = formatMetricValue(metricsSource.rmse);
+            rowBase.mape = formatPercent(metricsSource.mape);
+            rowBase.smape = formatPercent(metricsSource.smape);
+            rowBase.aic = formatMetricValue(metricsSource.aic ?? summaryMetrics.aic ?? NaN,2);
+            rowBase.bic = formatMetricValue(metricsSource.bic ?? summaryMetrics.bic ?? NaN,2);
+            if(existingIndex >= 0){
+              forecastRows[existingIndex] = rowBase;
+            }else{
+              forecastRows.push(rowBase);
+            }
           }
         }
       }else{
@@ -653,6 +757,39 @@
             append:true
           });
         }
+        if(seasonalRows.length){
+          Shared.statsTable.render({
+            target: refs.statsResults,
+            columns:[
+              { key:'series', label:'Series', align:'left' },
+              { key:'label', label:'Component', align:'left' },
+              { key:'value', label:'Value', align:'right' }
+            ],
+            rows: seasonalRows,
+            caption: 'Seasonal components',
+            options:{ fileName:'line-seasonals', contextLabel:'line-seasonals' },
+            append:true
+          });
+        }
+        if(forecastRows.length){
+          Shared.statsTable.render({
+            target: refs.statsResults,
+            columns:[
+              { key:'series', label:'Series', align:'left' },
+              { key:'horizon', label:'Horizon', align:'right' },
+              { key:'mae', label:'MAE', align:'right' },
+              { key:'rmse', label:'RMSE', align:'right' },
+              { key:'mape', label:'MAPE', align:'right' },
+              { key:'smape', label:'sMAPE', align:'right' },
+              { key:'aic', label:'AIC', align:'right' },
+              { key:'bic', label:'BIC', align:'right' }
+            ],
+            rows: forecastRows,
+            caption: 'Forecast accuracy metrics',
+            options:{ fileName:'line-forecast', contextLabel:'line-forecast' },
+            append:true
+          });
+        }
         if((showIntervals || showDiagnostics) && coefficientRows.length){
           Shared.statsTable.render({
             target: refs.statsResults,
@@ -696,6 +833,18 @@
             parameterRows.map(row=>`<tr><td>${row.series}</td><td>${row.parameter}</td><td>${row.value}</td></tr>`).join('');
           refs.statsResults.appendChild(paramTable);
         }
+        if(seasonalRows.length){
+          const seasonTable=document.createElement('table');
+          seasonTable.innerHTML='<tr><th>Series</th><th>Component</th><th>Value</th></tr>'+
+            seasonalRows.map(row=>`<tr><td>${row.series}</td><td>${row.label}</td><td>${row.value}</td></tr>`).join('');
+          refs.statsResults.appendChild(seasonTable);
+        }
+        if(forecastRows.length){
+          const forecastTable=document.createElement('table');
+          forecastTable.innerHTML='<tr><th>Series</th><th>Horizon</th><th>MAE</th><th>RMSE</th><th>MAPE</th><th>sMAPE</th><th>AIC</th><th>BIC</th></tr>'+
+            forecastRows.map(row=>`<tr><td>${row.series}</td><td>${row.horizon || 'n/a'}</td><td>${row.mae || 'n/a'}</td><td>${row.rmse || 'n/a'}</td><td>${row.mape || 'n/a'}</td><td>${row.smape || 'n/a'}</td><td>${row.aic || 'n/a'}</td><td>${row.bic || 'n/a'}</td></tr>`).join('');
+          refs.statsResults.appendChild(forecastTable);
+        }
         if((showIntervals || showDiagnostics) && coefficientRows.length){
           const coeffTable=document.createElement('table');
           coeffTable.innerHTML='<tr><th>Series</th><th>Term</th><th>Estimate</th><th>Std Error</th><th>t-stat</th><th>p-value</th><th>CI Low</th><th>CI High</th></tr>'+
@@ -706,7 +855,7 @@
     }else{
       refs.statsResults.textContent='Not enough data for statistics.';
     }
-    console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,intervalRows:intervalRows.length,diagnosticRows:diagnosticRows.length,methodLabel,regressionMode}); // Debug: stats update exit
+    console.debug('Debug: updateLineStats complete',{rowCount:tableRows.length,intervalRows:intervalRows.length,diagnosticRows:diagnosticRows.length,parameterRows:parameterRows.length,seasonalRows:seasonalRows.length,forecastRows:forecastRows.length,methodLabel,regressionMode}); // Debug: stats update exit
   }
 
   function getLineGraphPayload(){
@@ -743,6 +892,12 @@
         regression:{
           mode: refs.regressionMode?.value || 'linear',
           seriesSummaries: Array.isArray(lineLastRegressionSummaries) ? lineLastRegressionSummaries : []
+        },
+        forecast:{
+          horizon: refs.forecastHorizon?.value ?? String(lineForecastOptions.horizon),
+          seasonLength: refs.forecastSeasonLength?.value ?? String(lineForecastOptions.seasonLength),
+          autoTune: !!refs.forecastAuto?.checked,
+          criterion: refs.forecastCriterion?.value || lineForecastOptions.criterion
         }
       }
     };
@@ -812,6 +967,21 @@
         if(refs.regressionMode && c.regression?.mode){
           refs.regressionMode.value = c.regression.mode;
         }
+        if(c.forecast){
+          const restoredForecast = {
+            horizon: clampForecastHorizon(c.forecast.horizon ?? lineForecastOptions.horizon),
+            seasonLength: clampSeasonLength(c.forecast.seasonLength ?? lineForecastOptions.seasonLength),
+            autoTune: c.forecast.autoTune != null ? !!c.forecast.autoTune : lineForecastOptions.autoTune,
+            criterion: c.forecast.criterion === 'aic' ? 'aic' : 'bic'
+          };
+          lineForecastOptions = restoredForecast;
+          if(refs.forecastHorizon) refs.forecastHorizon.value = String(restoredForecast.horizon);
+          if(refs.forecastSeasonLength) refs.forecastSeasonLength.value = String(restoredForecast.seasonLength);
+          if(refs.forecastAuto) refs.forecastAuto.checked = !!restoredForecast.autoTune;
+          if(refs.forecastCriterion) refs.forecastCriterion.value = restoredForecast.criterion;
+        }
+        resolveForecastOptions({ syncInputs: true });
+        updateForecastVisibility();
         lineLastRegressionSummaries = Array.isArray(c.regression?.seriesSummaries) ? c.regression.seriesSummaries.slice() : [];
         updateLineLabelColorPickers(Object.keys(lineLabelColors));
         scheduleLineDraw();
@@ -948,7 +1118,8 @@
       const showDiagnostics=!!refs.showDiagnostics?.checked;
       const regressionModeCurrent = refs.regressionMode?.value || 'linear';
       const regressionAlpha = 0.05;
-      console.debug('Debug: line regression configuration',{ showIntervals, showDiagnostics, regressionMode: regressionModeCurrent });
+      const forecastOptions = resolveForecastOptions();
+      console.debug('Debug: line regression configuration',{ showIntervals, showDiagnostics, regressionMode: regressionModeCurrent, forecastOptions });
       const xMinManual=parseFloat(refs.xMin?.value);
       const xMaxManual=parseFloat(refs.xMax?.value);
       const yMinManual=parseFloat(refs.yMin?.value);
@@ -1021,7 +1192,7 @@
           const pts=s.points.filter(Boolean);
           if(pts.length>=3){
             try{
-              const regressionModel=regressionTools.fitRegression(pts,{ mode: regressionModeCurrent, alpha: regressionAlpha });
+              const regressionModel=regressionTools.fitRegression(pts,{ mode: regressionModeCurrent, alpha: regressionAlpha, forecast: forecastOptions });
               if(regressionModel){
                 regressionCache.set(s.name, regressionModel);
                 s.regression=regressionModel;
@@ -1034,6 +1205,24 @@
           }else{
             s.regression=null;
           }
+        });
+      }
+      if(regressionCache.size){
+        series.forEach(s=>{
+          const forecastPts = Array.isArray(s.regression?.forecast?.points) ? s.regression.forecast.points : [];
+          forecastPts.forEach(pt=>{
+            if(pt && Number.isFinite(pt.x)){
+              if(pt.x < xMinRaw) xMinRaw = pt.x;
+              if(pt.x > xMaxRaw) xMaxRaw = pt.x;
+            }
+            ['y','lower','upper','ciLow','ciHigh','piLow','piHigh'].forEach(key=>{
+              const val = pt && Number.isFinite(pt[key]) ? pt[key] : undefined;
+              if(Number.isFinite(val)){
+                if(val < yMinRaw) yMinRaw = val;
+                if(val > yMaxRaw) yMaxRaw = val;
+              }
+            });
+          });
         });
       }
       updateLineLabelColorPickers(labelsUsed);
@@ -1337,7 +1526,64 @@
         const path=add('path',{d:pathStr,fill:'none',stroke:color,'stroke-width':borderWidthPx,'stroke-opacity':1-alpha});
         const mGroup=add('g',{});
         mGroup.appendChild(markerFrag);
-        seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup});
+        let forecastPathEl=null;
+        const forecastPointsRaw = Array.isArray(s.regression?.forecast?.points) ? s.regression.forecast.points.slice() : null;
+        if(forecastPointsRaw && forecastPointsRaw.length){
+          const sortedForecast = forecastPointsRaw.filter(pt=>pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)).sort((a,b)=>a.x-b.x);
+          if(sortedForecast.length){
+            let forecastStr='';
+            let forecastStarted=false;
+            const lastObserved = (() => {
+              for(let idx=s.points.length-1; idx>=0; idx--){
+                const candidate=s.points[idx];
+                if(candidate && Number.isFinite(candidate.x) && Number.isFinite(candidate.y)){
+                  return candidate;
+                }
+              }
+              return null;
+            })();
+            sortedForecast.forEach((pt,idx)=>{
+              let xVal=logX?Math.log10(pt.x):pt.x;
+              let yVal=logY?Math.log10(pt.y):pt.y;
+              if(!Number.isFinite(xVal) || !Number.isFinite(yVal)){
+                return;
+              }
+              const px=x2px(xVal);
+              const py=y2px(yVal);
+              if(!forecastStarted){
+                if(lastObserved){
+                  const obsX=logX?Math.log10(lastObserved.x):lastObserved.x;
+                  const obsY=logY?Math.log10(lastObserved.y):lastObserved.y;
+                  if(Number.isFinite(obsX) && Number.isFinite(obsY)){
+                    const pxObs=x2px(obsX);
+                    const pyObs=y2px(obsY);
+                    forecastStr+=`M${pxObs} ${pyObs}`;
+                    forecastStarted=true;
+                  }
+                }
+              }
+              if(!forecastStarted){
+                forecastStr+=`M${px} ${py}`;
+                forecastStarted=true;
+              }else{
+                forecastStr+=`L${px} ${py}`;
+              }
+            });
+            if(forecastStr){
+              forecastPathEl=document.createElementNS(NS,'path');
+              forecastPathEl.setAttribute('d',forecastStr);
+              forecastPathEl.setAttribute('fill','none');
+              const forecastStroke=Math.max(borderWidthPx||0, chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'line-forecast', min: 0.5 }));
+              forecastPathEl.setAttribute('stroke',color);
+              forecastPathEl.setAttribute('stroke-width',forecastStroke);
+              forecastPathEl.setAttribute('stroke-opacity',Math.max(0.2,1-alpha));
+              forecastPathEl.setAttribute('stroke-dasharray','6 4');
+              forecastPathEl.dataset.series = s.name;
+              svg.appendChild(forecastPathEl);
+            }
+          }
+        }
+        seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,forecastPath:forecastPathEl});
       });
       console.debug('Debug: line series rendered',{ showErrorBars, seriesCount: series.length });
       if(legendLabels.length){
@@ -1371,6 +1617,10 @@
             if(errGroup){
               errGroup.style.display=vis?'none':'inline';
             }
+            const fPath=seriesElems[i].forecastPath;
+            if(fPath){
+              fPath.style.display=vis?'none':'inline';
+            }
           });
           legendGroup.appendChild(itemG);
         });
@@ -1391,7 +1641,7 @@
       titleText.textContent=lineTitleText;
       markFontEditable(titleText,'graphTitle','graphTitle');
       makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
-      updateLineStats(series,{ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache });
+      updateLineStats(series,{ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache, forecast: forecastOptions });
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
@@ -1418,6 +1668,11 @@
     refs.regressionMode=document.getElementById('lineRegressionMode');
     refs.showIntervals=document.getElementById('lineShowIntervals');
     refs.showDiagnostics=document.getElementById('lineShowDiagnostics');
+    refs.forecastFieldset=document.getElementById('lineForecastControls');
+    refs.forecastHorizon=document.getElementById('lineForecastHorizon');
+    refs.forecastSeasonLength=document.getElementById('lineForecastSeasonLength');
+    refs.forecastAuto=document.getElementById('lineForecastAuto');
+    refs.forecastCriterion=document.getElementById('lineForecastCriterion');
     refs.replicatesInput=document.getElementById('lineReplicates');
     refs.exampleSelect=document.getElementById('lineExampleSelect');
     refs.fill=document.getElementById('lineFill');
@@ -1455,6 +1710,7 @@
     if(refs.regressionMode){
       refs.regressionMode.addEventListener('change',e=>{
         console.debug('Debug: line regression mode change',{ value: e.target.value });
+        updateForecastVisibility();
         scheduleLineDraw();
       });
     }
@@ -1482,6 +1738,34 @@
     global.lineStatType = refs.statType; // legacy compatibility
     global.lineStatsResults = refs.statsResults; // legacy compatibility
     global.lineRegressionMode = refs.regressionMode; // legacy compatibility for regression selector
+
+    if(refs.forecastHorizon){
+      refs.forecastHorizon.addEventListener('change',()=>{
+        resolveForecastOptions();
+        scheduleLineDraw();
+      });
+    }
+    if(refs.forecastSeasonLength){
+      refs.forecastSeasonLength.addEventListener('change',()=>{
+        resolveForecastOptions();
+        scheduleLineDraw();
+      });
+    }
+    if(refs.forecastAuto){
+      refs.forecastAuto.addEventListener('change',()=>{
+        resolveForecastOptions();
+        scheduleLineDraw();
+      });
+    }
+    if(refs.forecastCriterion){
+      refs.forecastCriterion.addEventListener('change',()=>{
+        resolveForecastOptions();
+        scheduleLineDraw();
+      });
+    }
+
+    resolveForecastOptions({ syncInputs: true });
+    updateForecastVisibility();
 
     lineLayout = Shared.componentLayout?.createStandardPanels({
       componentName: 'line',
