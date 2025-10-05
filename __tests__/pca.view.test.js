@@ -60,16 +60,17 @@ describe('PCA view controls', () => {
     await flushAll();
   });
 
-  test('PCA toggles show loadings and 3D view persists in payload', async () => {
+  test('PCA loadings render and 3D view persists in payload', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
     expect(exampleBtn).toBeTruthy();
     exampleBtn.click();
     await flushAll();
 
-    const showLoadings = document.getElementById('pcaShowLoadings');
-    expect(showLoadings).toBeTruthy();
-    showLoadings.checked = true;
-    showLoadings.dispatchEvent(new Event('change'));
+    const loadingsContainer = document.getElementById('pcaLoadingsContainer');
+    expect(loadingsContainer).toBeTruthy();
+    expect(loadingsContainer.hidden).toBe(false);
+    const initialTable = loadingsContainer.querySelector('#pcaLoadingsTable table');
+    expect(initialTable).toBeTruthy();
 
     const viewSelect = document.getElementById('pcaViewMode');
     expect(viewSelect).toBeTruthy();
@@ -85,8 +86,6 @@ describe('PCA view controls', () => {
     expect(svg).toBeTruthy();
     expect(svg.dataset.viewMode).toBe('3d');
 
-    const panel = document.getElementById('pcaLoadingsPanel');
-    expect(panel.style.display).toBe('');
     const table = document.querySelector('#pcaLoadingsTable table');
     expect(table).toBeTruthy();
     const headers = Array.from(table.querySelectorAll('th')).map(el => el.textContent.trim());
@@ -94,13 +93,6 @@ describe('PCA view controls', () => {
 
     const payload = window.Components.pca.getPayload();
     expect(payload.config.viewMode).toBe('3d');
-    expect(payload.config.showLoadings).toBe(true);
-
-    showLoadings.checked = false;
-    showLoadings.dispatchEvent(new Event('change'));
-    window.Components?.pca?.draw?.();
-    await flushAll();
-    expect(panel.style.display).toBe('none');
   });
 
   test('PCA scree data and eigen table export are generated for example dataset', async () => {
@@ -109,26 +101,16 @@ describe('PCA view controls', () => {
     exampleBtn.click();
     await flushAll();
 
-    const showScree = document.getElementById('pcaShowScree');
-    const showEigen = document.getElementById('pcaShowEigenTable');
-    const enableExport = document.getElementById('pcaEnableEigenExport');
-    expect(showScree).toBeTruthy();
-    expect(showEigen).toBeTruthy();
-    expect(enableExport).toBeTruthy();
-    showScree.checked = true;
-    showEigen.checked = true;
-    enableExport.checked = true;
-    showScree.dispatchEvent(new Event('change'));
-    showEigen.dispatchEvent(new Event('change'));
-    enableExport.dispatchEvent(new Event('change'));
-
-    window.Components?.pca?.draw?.();
-    await flushAll();
-
     const screeContainer = document.getElementById('pcaScreeContainer');
     expect(screeContainer).toBeTruthy();
     expect(screeContainer.hidden).toBe(false);
     expect(screeContainer.querySelector('svg')).toBeTruthy();
+
+    const varianceCard = document.getElementById('pcaVarianceSummary');
+    expect(varianceCard).toBeTruthy();
+    expect(varianceCard.hidden).toBe(false);
+    const varianceItems = Array.from(varianceCard.querySelectorAll('li'));
+    expect(varianceItems.length).toBeGreaterThan(0);
 
     const eigenContainer = document.getElementById('pcaEigenTableContainer');
     expect(eigenContainer).toBeTruthy();
@@ -148,6 +130,7 @@ describe('PCA view controls', () => {
     const firstEntry = payload.stats.eigenSummary[0];
     expect(firstEntry.component).toBe(1);
     expect(firstEntry.variancePercent).toBeGreaterThan(0);
+    expect(varianceItems[0].textContent).toContain(`PC${firstEntry.component}`);
     const cumulative = payload.stats.eigenSummary.map(item => item.cumulativeVariancePercent);
     const sorted = [...cumulative].sort((a, b) => a - b);
     expect(cumulative).toEqual(sorted);

@@ -91,7 +91,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 ### Dimensionality Reduction (PCA & MDS)
 - Compute principal components or multidimensional scaling from wide-form tables using in-browser SVD routines.【F:index.html†L520-L640】
 - Scale variables before analysis, choose point styling, and color observations by label categories using customizable palettes.【F:index.html†L552-L616】
-- Inspect resulting eigenvalue summaries with toggleable scree plots and downloadable eigen tables directly from the statistics panel.【F:index.html†L640-L700】【F:js/components/pca.js†L180-L460】
+- Inspect resulting eigenvalue summaries with an always-on scree plot, side-by-side variance breakdown, and downloadable eigen table directly from the statistics panel.【F:index.html†L640-L696】【F:js/components/pca.js†L620-L720】
 - Choose which principal components or MDS dimensions power each axis, then rotate PCA plots in 3D with click-and-drag gestures for richer spatial inspection.【F:index.html†L668-L704】【F:js/components/pca.js†L300-L470】【F:js/components/pca.js†L1136-L1230】
 
 ### Line Graph Studio

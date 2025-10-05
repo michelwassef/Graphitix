@@ -250,12 +250,11 @@
           });
         });
       }
-      const pcaLoadingsPanel=document.getElementById('pcaLoadingsPanel');
+      const pcaLoadingsContainer=document.getElementById('pcaLoadingsContainer');
       const pcaLoadingsTable=document.getElementById('pcaLoadingsTable');
-      if(pcaLoadingsPanel){
-        pcaLoadingsPanel.style.display='none';
-      }
-      const pcaShowLoadings=$('#pcaShowLoadings');
+      const pcaScreeVarianceRow=document.getElementById('pcaScreeVarianceRow');
+      const pcaVarianceSummary=document.getElementById('pcaVarianceSummary');
+      const pcaVarianceList=document.getElementById('pcaVarianceList');
       const pcaViewMode=$('#pcaViewMode');
       const pcaXAxis=$('#pcaXAxis');
       const pcaYAxis=$('#pcaYAxis');
@@ -285,9 +284,6 @@
       const pcaEigenTableContainer=document.getElementById('pcaEigenTableContainer');
       const pcaEigenTableWrapper=document.getElementById('pcaEigenTableWrapper');
       const pcaExportEigenTableBtn=document.getElementById('pcaExportEigenTable');
-      const pcaShowScree=$('#pcaShowScree');
-      const pcaShowEigenTable=$('#pcaShowEigenTable');
-      const pcaEnableEigenExport=$('#pcaEnableEigenExport');
       function syncAxisSelectValues(){
         const entries = [
           { key: 'x', element: pcaXAxis },
@@ -438,6 +434,12 @@
           pcaExportEigenTableBtn.disabled = true;
         }
       }
+      function updateScreeVarianceRowVisibility(){
+        if(!pcaScreeVarianceRow){ return; }
+        const screeVisible = !!pcaScreeContainer && !pcaScreeContainer.hidden;
+        const varianceVisible = !!pcaVarianceSummary && !pcaVarianceSummary.hidden;
+        pcaScreeVarianceRow.style.display = (screeVisible || varianceVisible) ? 'flex' : 'none';
+      }
       function resetStatsPanel(message){
         if(pcaStatsSummary){
           pcaStatsSummary.innerHTML = message ? `<div class="stats-table-message">${message}</div>` : '';
@@ -448,16 +450,29 @@
           pcaScreeContainer.innerHTML = '';
           pcaScreeContainer.hidden = true;
         }
+        if(pcaVarianceSummary){
+          pcaVarianceSummary.hidden = true;
+        }
+        if(pcaVarianceList){
+          pcaVarianceList.innerHTML = '';
+        }
         if(pcaEigenTableWrapper){
           pcaEigenTableWrapper.innerHTML = '';
         }
         if(pcaEigenTableContainer){
           pcaEigenTableContainer.hidden = true;
         }
+        if(pcaLoadingsTable){
+          pcaLoadingsTable.innerHTML = '';
+        }
+        if(pcaLoadingsContainer){
+          pcaLoadingsContainer.hidden = true;
+        }
         if(pcaExportEigenTableBtn){
           pcaExportEigenTableBtn.disabled = true;
         }
         updateEigenExportVisibility(false);
+        updateScreeVarianceRowVisibility();
         console.debug('Debug: pca stats panel reset',{ message: message || null }); // Debug: stats reset helper
       }
       function renderScreeChart(options){
@@ -469,12 +484,23 @@
           return;
         }
         pcaScreeContainer.innerHTML = '';
-        if(!show || !data.length || opts.method !== 'pca'){
+        if(!show || opts.method !== 'pca'){
           pcaScreeContainer.hidden = true;
           if(pcaScreeContainer.style){
             pcaScreeContainer.style.removeProperty('max-width');
           }
           console.debug('Debug: pca scree hidden',{ show, count: data.length, method: opts.method }); // Debug: scree visibility
+          updateScreeVarianceRowVisibility();
+          return;
+        }
+        if(!data.length){
+          pcaScreeContainer.hidden = false;
+          pcaScreeContainer.innerHTML = '<div class="stats-table-message">Scree plot will appear after PCA runs.</div>';
+          if(pcaScreeContainer.style){
+            pcaScreeContainer.style.removeProperty('max-width');
+          }
+          console.debug('Debug: pca scree placeholder shown');
+          updateScreeVarianceRowVisibility();
           return;
         }
         pcaScreeContainer.hidden = false;
@@ -586,6 +612,39 @@
         });
         pcaScreeContainer.appendChild(svg);
         console.debug('Debug: pca scree chart rendered',{ count: data.length, maxPct, width, height, drawingBoxWidth, containerWidth });
+        updateScreeVarianceRowVisibility();
+      }
+      function renderVarianceSummary(options){
+        const opts = options || {};
+        const method = opts.method || null;
+        const data = Array.isArray(opts.data) ? opts.data : [];
+        if(!pcaVarianceSummary || !pcaVarianceList){
+          console.debug('Debug: pca variance summary skipped',{ reason: 'missing-container' });
+          return;
+        }
+        if(method !== 'pca'){
+          pcaVarianceSummary.hidden = true;
+          pcaVarianceList.innerHTML = '';
+          updateScreeVarianceRowVisibility();
+          console.debug('Debug: pca variance summary hidden',{ method, count: data.length });
+          return;
+        }
+        if(!data.length){
+          pcaVarianceSummary.hidden = false;
+          pcaVarianceList.innerHTML = '<li class="variance-card__item variance-card__item--empty">Variance summary will appear after PCA runs.</li>';
+          updateScreeVarianceRowVisibility();
+          console.debug('Debug: pca variance summary placeholder shown');
+          return;
+        }
+        const items = data.map(entry => {
+          const component = Number(entry.component) || 0;
+          const pct = Number(entry.variancePercent) || 0;
+          return `<li class="variance-card__item"><span class="variance-card__label">PC${component}</span><span class="variance-card__value">${pct.toFixed(2)}%</span></li>`;
+        });
+        pcaVarianceList.innerHTML = items.join('');
+        pcaVarianceSummary.hidden = false;
+        updateScreeVarianceRowVisibility();
+        console.debug('Debug: pca variance summary rendered',{ count: data.length });
       }
       function renderEigenTable(options){
         const opts = options || {};
@@ -595,9 +654,9 @@
           console.debug('Debug: pca eigen table skipped',{ reason: 'missing-container' });
           return;
         }
-        if(!show || opts.method !== 'pca' || !data.length){
+        if(!show || opts.method !== 'pca'){
           if(pcaEigenTableWrapper){
-            pcaEigenTableWrapper.innerHTML = show && opts.method === 'pca' ? '<i>No eigenvalue data available.</i>' : '';
+            pcaEigenTableWrapper.innerHTML = '';
           }
           pcaEigenTableContainer.hidden = true;
           updateEigenExportVisibility(false);
@@ -605,6 +664,17 @@
           return;
         }
         pcaEigenTableContainer.hidden = false;
+        if(!data.length){
+          if(pcaEigenTableWrapper){
+            pcaEigenTableWrapper.innerHTML = '<div class="stats-table-message">Eigenvalue table will populate after PCA runs.</div>';
+          }
+          updateEigenExportVisibility(false);
+          if(pcaExportEigenTableBtn){
+            pcaExportEigenTableBtn.disabled = true;
+          }
+          console.debug('Debug: pca eigen table placeholder shown');
+          return;
+        }
         if(pcaEigenTableWrapper){
           let html = '<table class="stats-table"><thead><tr>';
           const headers = ['Component','Eigenvalue','Variance %','Cumulative %'];
@@ -640,6 +710,8 @@
         if(pcaStatsSummary){
           if(summaryLines.length){
             pcaStatsSummary.innerHTML = summaryLines.map(line => `<div class="stats-table-lead">${line}</div>`).join('');
+          } else if((opts.method || '').toLowerCase() === 'pca'){
+            pcaStatsSummary.innerHTML = '<div class="stats-table-message">Component variance summary appears alongside the scree plot.</div>';
           } else {
             pcaStatsSummary.innerHTML = '<div class="stats-table-message">No statistics computed.</div>';
           }
@@ -652,6 +724,10 @@
           method: opts.method,
           pointColor: opts.pointColor,
         });
+        renderVarianceSummary({
+          method: opts.method,
+          data: opts.varianceSummary,
+        });
         renderEigenTable({
           show: opts.showEigenTable,
           data: opts.eigenSummary,
@@ -660,11 +736,11 @@
         });
       }
       function handleEigenExport(){
-        if(!pcaEnableEigenExport || !pcaEnableEigenExport.checked){
-          console.debug('Debug: pca eigen export blocked',{ reason: 'toggle-disabled' });
+        if(!lastPcaStats || lastPcaStats.method !== 'pca'){
+          console.debug('Debug: pca eigen export blocked',{ reason: 'non-pca', method: lastPcaStats?.method || null });
           return;
         }
-        if(!lastPcaStats || !Array.isArray(lastPcaStats.eigenSummary) || !lastPcaStats.eigenSummary.length){
+        if(!Array.isArray(lastPcaStats.eigenSummary) || !lastPcaStats.eigenSummary.length){
           console.debug('Debug: pca eigen export skipped',{ reason: 'no-data' });
           return;
         }
@@ -701,34 +777,6 @@
           const mode = (pcaViewMode.value || DEFAULT_VIEW_MODE);
           console.debug('Debug: pca viewMode change',{ mode }); // Debug: view mode toggle listener
           applyAxisVisibility(mode);
-          scheduleDrawPca();
-        });
-      }
-      if(pcaShowLoadings){
-        pcaShowLoadings.addEventListener('change',()=>{
-          const checked = !!pcaShowLoadings.checked;
-          console.debug('Debug: pca showLoadings toggled',{ checked }); // Debug: loadings visibility listener
-          if(pcaLoadingsPanel){
-            pcaLoadingsPanel.style.display = checked ? '' : 'none';
-          }
-          scheduleDrawPca();
-        });
-      }
-      if(pcaShowScree){
-        pcaShowScree.addEventListener('change',()=>{
-          console.debug('Debug: pca showScree toggled',{ checked: !!pcaShowScree.checked });
-          scheduleDrawPca();
-        });
-      }
-      if(pcaShowEigenTable){
-        pcaShowEigenTable.addEventListener('change',()=>{
-          console.debug('Debug: pca showEigenTable toggled',{ checked: !!pcaShowEigenTable.checked });
-          scheduleDrawPca();
-        });
-      }
-      if(pcaEnableEigenExport){
-        pcaEnableEigenExport.addEventListener('change',()=>{
-          console.debug('Debug: pca enableEigenExport toggled',{ checked: !!pcaEnableEigenExport.checked });
           scheduleDrawPca();
         });
       }
@@ -803,10 +851,6 @@
 
       const requestedViewMode = (pcaViewMode?.value || DEFAULT_VIEW_MODE).toLowerCase();
       const method = (pcaMethod.value || 'pca').toLowerCase();
-      const showLoadings = !!pcaShowLoadings?.checked;
-      if(pcaLoadingsPanel){
-        pcaLoadingsPanel.style.display = showLoadings ? '' : 'none';
-      }
       const fill = pcaFill.value;
       const alpha = Number(pcaAlpha.value) || 0;
       const borderWidthRaw = Number(pcaBorderWidth.value);
@@ -850,10 +894,8 @@
           console.debug('Debug: pca loadings table skipped',{ reason: 'missing-container' });
           return;
         }
-        if(!showLoadings){
-          pcaLoadingsTable.innerHTML = '<i>Loadings hidden.</i>';
-          console.debug('Debug: pca loadings hidden',{ showLoadings });
-          return;
+        if(pcaLoadingsContainer){
+          pcaLoadingsContainer.hidden = false;
         }
         if(method !== 'pca'){
           pcaLoadingsTable.innerHTML = '<i>Loadings available for PCA only.</i>';
@@ -1048,24 +1090,8 @@
         }
       }
       statsMethod = method;
-      if(pcaShowScree){
-        pcaShowScree.disabled = method !== 'pca';
-      }
-      if(pcaShowEigenTable){
-        pcaShowEigenTable.disabled = method !== 'pca';
-      }
-      if(pcaEnableEigenExport){
-        pcaEnableEigenExport.disabled = method !== 'pca';
-      }
-      const showScree = method === 'pca' && !!pcaShowScree?.checked;
-      const showEigenTable = method === 'pca' && !!pcaShowEigenTable?.checked;
-      const enableEigenExport = method === 'pca' && !!pcaEnableEigenExport?.checked;
-      console.debug('Debug: pca stats toggles state',{
-        method,
-        showScree,
-        showEigenTable,
-        enableEigenExport
-      });
+      const statsOutputsEnabled = method === 'pca';
+      console.debug('Debug: pca stats outputs configured',{ method, statsOutputsEnabled });
       const nSamples = matrix.length;
       const nFeatures = matrix[0].length;
 
@@ -1094,7 +1120,6 @@
       let points3d = [];
       let loadingsRows = [];
       let loadingsComponents = 0;
-      let pc3Pct = 0;
 
       if (method === 'mds') {
         console.debug('Debug: mds branch entered', { method }); // Debug: MDS execution path
@@ -1255,20 +1280,14 @@
         }));
         const firstEigen = eigenSummaryData[0] || null;
         const secondEigen = eigenSummaryData[1] || null;
-        const thirdEigen = eigenSummaryData[2] || null;
         const pc1Pct = firstEigen ? firstEigen.variancePercent : 0;
         const pc2Pct = secondEigen ? secondEigen.variancePercent : 0;
-        pc3Pct = thirdEigen ? thirdEigen.variancePercent : 0;
-        statsSummaryLines = [];
-        if(firstEigen){
-          statsSummaryLines.push(`PC1: ${pc1Pct.toFixed(1)}% variance`);
-        }
-        if(secondEigen){
-          statsSummaryLines.push(`PC2: ${pc2Pct.toFixed(1)}% variance`);
-        }
-        if(thirdEigen){
-          statsSummaryLines.push(`PC3: ${pc3Pct.toFixed(1)}% variance`);
-        }
+        const topTwoCumulative = pc1Pct + pc2Pct;
+        statsSummaryLines = [
+          `Samples analysed: ${nSamples}`,
+          `Variables analysed: ${nFeatures}`,
+          `Top two PCs capture ${topTwoCumulative.toFixed(1)}% of variance`
+        ];
         dimensionMeta = eigenSummaryData.map(entry => ({
           value: entry.component,
           label: `PC${entry.component}`,
@@ -1367,14 +1386,17 @@
         }
       }
 
+      const eigenSummaryForStats = method === 'pca' ? eigenSummaryData : [];
+      const allowEigenExport = method === 'pca' && eigenSummaryForStats.length > 0;
       renderStatsPanel({
         summaryLines: statsSummaryLines,
-        showScree: showScree && method === 'pca',
+        showScree: method === 'pca',
         screeData,
         method: statsMethod || method,
-        showEigenTable: showEigenTable && method === 'pca',
-        eigenSummary: method === 'pca' ? eigenSummaryData : [],
-        enableEigenExport: enableEigenExport && method === 'pca',
+        showEigenTable: method === 'pca',
+        eigenSummary: eigenSummaryForStats,
+        enableEigenExport: allowEigenExport,
+        varianceSummary: eigenSummaryForStats,
         pointColor: fill
       });
 
@@ -1857,10 +1879,6 @@
           scale:pcaScale.checked,
           fontSize:pcaFontSize.value,
           viewMode:pcaViewMode?.value || DEFAULT_VIEW_MODE,
-          showLoadings:!!pcaShowLoadings?.checked,
-          showScree:!!pcaShowScree?.checked,
-          showEigenTable:!!pcaShowEigenTable?.checked,
-          enableEigenExport:!!pcaEnableEigenExport?.checked,
           axisSelection:{
             x:pcaState.axisSelection.x,
             y:pcaState.axisSelection.y,
@@ -1966,36 +1984,6 @@
               pcaViewMode.value = restoredView;
               pcaViewMode.dispatchEvent(new Event('change'));
               console.debug('Debug: pca view mode restored',{ restoredView });
-            }
-            if(pcaShowLoadings){
-              const restoredLoadings = !!c.showLoadings;
-              pcaShowLoadings.checked = restoredLoadings;
-              pcaShowLoadings.dispatchEvent(new Event('change'));
-              console.debug('Debug: pca showLoadings restored',{ restoredLoadings });
-            }
-            if(pcaShowScree){
-              const restoredScree = c.showScree;
-              if(typeof restoredScree !== 'undefined'){
-                pcaShowScree.checked = !!restoredScree;
-              }
-              pcaShowScree.dispatchEvent(new Event('change'));
-              console.debug('Debug: pca showScree restored',{ restoredScree: !!pcaShowScree.checked });
-            }
-            if(pcaShowEigenTable){
-              const restoredEigenTable = c.showEigenTable;
-              if(typeof restoredEigenTable !== 'undefined'){
-                pcaShowEigenTable.checked = !!restoredEigenTable;
-              }
-              pcaShowEigenTable.dispatchEvent(new Event('change'));
-              console.debug('Debug: pca showEigenTable restored',{ restoredEigenTable: !!pcaShowEigenTable.checked });
-            }
-            if(pcaEnableEigenExport){
-              const restoredExport = c.enableEigenExport;
-              if(typeof restoredExport !== 'undefined'){
-                pcaEnableEigenExport.checked = !!restoredExport;
-              }
-              pcaEnableEigenExport.dispatchEvent(new Event('change'));
-              console.debug('Debug: pca enableEigenExport restored',{ restoredExport: !!pcaEnableEigenExport.checked });
             }
             if(c.axisSelection){
               const sel = c.axisSelection;

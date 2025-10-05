@@ -672,8 +672,22 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #pcaPage .stats-summary{font-size:13px;color:#3b4758;line-height:1.5;display:flex;flex-direction:column;gap:4px}
 #pcaPage .stats-table-message{font-size:13px;color:#6b7280}
 #pcaPage .stats-toggle-row{gap:12px;margin-bottom:8px}
-#pcaPage .scree-card{border:1px solid #c8d2e3;border-radius:10px;background:#ffffff;padding:16px;display:flex;flex-direction:column;gap:12px}
+#pcaPage .scree-variance-row{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px}
+#pcaPage .scree-card{border:1px solid #c8d2e3;border-radius:10px;background:#ffffff;padding:16px;display:flex;flex-direction:column;gap:12px;flex:1 1 280px}
 #pcaPage .scree-card svg{width:100%;height:auto;max-height:260px}
+#pcaPage .variance-card{border:1px solid #c8d2e3;border-radius:10px;background:#f8fbff;padding:16px;display:flex;flex-direction:column;gap:12px;flex:1 1 220px;min-width:200px}
+#pcaPage .variance-card__title{font-weight:600;color:#2d3b55}
+#pcaPage .variance-card__list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+#pcaPage .variance-card__item{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border:1px solid #d8e0ef;border-radius:8px;background:#ffffff}
+#pcaPage .variance-card__item--empty{justify-content:center;color:#5d6a85;font-style:italic}
+#pcaPage .variance-card__label{font-weight:500;color:#1f2a3d}
+#pcaPage .variance-card__value{font-variant-numeric:tabular-nums;font-weight:600;color:#375a9e}
+#pcaPage .loadings-card{border:1px solid #c8d2e3;border-radius:10px;background:#ffffff;padding:16px;display:flex;flex-direction:column;gap:12px;margin-top:16px}
+#pcaPage .loadings-card__title{font-weight:600;color:#2d3b55}
+#pcaPage .loadings-card__table{overflow:auto}
+#pcaPage .loadings-card__table table{width:100%;border-collapse:collapse}
+#pcaPage .loadings-card__table th,#pcaPage .loadings-card__table td{border:1px solid #d8e0ef;padding:6px 8px;text-align:right}
+#pcaPage .loadings-card__table th:first-child,#pcaPage .loadings-card__table td:first-child{text-align:left}
 #pcaPage .eigen-table-container{border:1px solid #c8d2e3;border-radius:10px;background:#ffffff;display:flex;flex-direction:column;gap:0}
 #pcaPage .eigen-table-wrapper{max-height:260px;overflow:auto;padding:0 16px 16px 16px}
 #pcaPage .eigen-table-wrapper .stats-table{min-width:100%}

@@ -760,12 +760,6 @@
               </div>
             </fieldset>
             <fieldset>
-              <legend>Tables</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="pcaShowLoadings" /> Show Loadings</label>
-              </div>
-            </fieldset>
-            <fieldset>
               <legend>Font</legend>
               <div class="control">
                 <label>Size</label>
@@ -778,28 +772,27 @@
         <div id="pcaStats" style="width:100%; margin-top:12px;">
             <fieldset>
               <legend>Statistics</legend>
-              <div class="control stats-toggle-row" id="pcaStatsToggleRow" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="pcaShowScree" checked /> Show Scree Plot</label>
-                <label style="width:auto;"><input type="checkbox" id="pcaShowEigenTable" checked /> Show Eigenvalue Table</label>
-                <label style="width:auto;"><input type="checkbox" id="pcaEnableEigenExport" checked /> Enable Eigen Table Export</label>
-              </div>
               <div id="pcaStatsResults" class="stats-panel">
                 <div id="pcaStatsSummary" class="stats-summary"></div>
-                <div id="pcaScreeContainer" class="scree-card" hidden></div>
+                <div id="pcaScreeVarianceRow" class="scree-variance-row">
+                  <div id="pcaScreeContainer" class="scree-card" hidden></div>
+                  <div id="pcaVarianceSummary" class="variance-card" hidden>
+                    <div class="variance-card__title">Component Variance</div>
+                    <ul id="pcaVarianceList" class="variance-card__list"></ul>
+                  </div>
+                </div>
                 <div id="pcaEigenTableContainer" class="eigen-table-container" hidden>
                   <div class="stats-table-actions">
                     <button class="btn" id="pcaExportEigenTable" type="button">Export Eigen Table</button>
                   </div>
                   <div id="pcaEigenTableWrapper" class="eigen-table-wrapper"></div>
                 </div>
+                <div id="pcaLoadingsContainer" class="loadings-card" hidden>
+                  <div class="loadings-card__title">Component Loadings</div>
+                  <div id="pcaLoadingsTable" class="loadings-card__table"></div>
+                </div>
               </div>
             </fieldset>
-        </div>
-        <div id="pcaLoadingsPanel" style="width:100%; margin-top:12px; display:none;">
-          <fieldset>
-            <legend>Component Loadings</legend>
-            <div id="pcaLoadingsTable" style="margin-top:8px; overflow:auto;"></div>
-          </fieldset>
         </div>
       </div>
     </div>
