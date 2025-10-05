@@ -102,5 +102,57 @@ describe('PCA view controls', () => {
     await flushAll();
     expect(panel.style.display).toBe('none');
   });
+
+  test('PCA scree data and eigen table export are generated for example dataset', async () => {
+    const exampleBtn = document.getElementById('pcaLoadExample');
+    expect(exampleBtn).toBeTruthy();
+    exampleBtn.click();
+    await flushAll();
+
+    const showScree = document.getElementById('pcaShowScree');
+    const showEigen = document.getElementById('pcaShowEigenTable');
+    const enableExport = document.getElementById('pcaEnableEigenExport');
+    expect(showScree).toBeTruthy();
+    expect(showEigen).toBeTruthy();
+    expect(enableExport).toBeTruthy();
+    showScree.checked = true;
+    showEigen.checked = true;
+    enableExport.checked = true;
+    showScree.dispatchEvent(new Event('change'));
+    showEigen.dispatchEvent(new Event('change'));
+    enableExport.dispatchEvent(new Event('change'));
+
+    window.Components?.pca?.draw?.();
+    await flushAll();
+
+    const screeContainer = document.getElementById('pcaScreeContainer');
+    expect(screeContainer).toBeTruthy();
+    expect(screeContainer.hidden).toBe(false);
+    expect(screeContainer.querySelector('svg')).toBeTruthy();
+
+    const eigenContainer = document.getElementById('pcaEigenTableContainer');
+    expect(eigenContainer).toBeTruthy();
+    expect(eigenContainer.hidden).toBe(false);
+    const eigenTable = document.querySelector('#pcaEigenTableWrapper table');
+    expect(eigenTable).toBeTruthy();
+    const exportBtn = document.getElementById('pcaExportEigenTable');
+    expect(exportBtn).toBeTruthy();
+    expect(exportBtn.disabled).toBe(false);
+
+    const payload = window.Components.pca.getPayload();
+    expect(payload.stats).toBeTruthy();
+    expect(Array.isArray(payload.stats.eigenSummary)).toBe(true);
+    expect(Array.isArray(payload.stats.scree)).toBe(true);
+    expect(payload.stats.eigenSummary.length).toBeGreaterThan(0);
+    expect(payload.stats.scree.length).toBe(payload.stats.eigenSummary.length);
+    const firstEntry = payload.stats.eigenSummary[0];
+    expect(firstEntry.component).toBe(1);
+    expect(firstEntry.variancePercent).toBeGreaterThan(0);
+    const cumulative = payload.stats.eigenSummary.map(item => item.cumulativeVariancePercent);
+    const sorted = [...cumulative].sort((a, b) => a - b);
+    expect(cumulative).toEqual(sorted);
+    const screeFirst = payload.stats.scree[0];
+    expect(screeFirst.variancePercent).toBeCloseTo(firstEntry.variancePercent, 5);
+  });
 });
 

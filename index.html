@@ -754,10 +754,24 @@
           </div>
         </div>
         <div id="pcaStats" style="width:100%; margin-top:12px;">
-          <fieldset>
-            <legend>Statistics</legend>
-            <div id="pcaStatsResults" style="margin-top:8px;"></div>
-          </fieldset>
+            <fieldset>
+              <legend>Statistics</legend>
+              <div class="control stats-toggle-row" id="pcaStatsToggleRow" style="flex-wrap:wrap;">
+                <label style="width:auto;"><input type="checkbox" id="pcaShowScree" checked /> Show Scree Plot</label>
+                <label style="width:auto;"><input type="checkbox" id="pcaShowEigenTable" checked /> Show Eigenvalue Table</label>
+                <label style="width:auto;"><input type="checkbox" id="pcaEnableEigenExport" checked /> Enable Eigen Table Export</label>
+              </div>
+              <div id="pcaStatsResults" class="stats-panel">
+                <div id="pcaStatsSummary" class="stats-summary"></div>
+                <div id="pcaScreeContainer" class="scree-card" hidden></div>
+                <div id="pcaEigenTableContainer" class="eigen-table-container" hidden>
+                  <div class="stats-table-actions">
+                    <button class="btn" id="pcaExportEigenTable" type="button">Export Eigen Table</button>
+                  </div>
+                  <div id="pcaEigenTableWrapper" class="eigen-table-wrapper"></div>
+                </div>
+              </div>
+            </fieldset>
         </div>
         <div id="pcaLoadingsPanel" style="width:100%; margin-top:12px; display:none;">
           <fieldset>

@@ -22,6 +22,7 @@
   const PCA_3D_DEFAULTS={ rotationX: -0.6, rotationY: 0.9 };
 
   let scheduleDrawPca = () => {};
+  let lastPcaStats = null;
 
   function setup(){
     if(pca.ready){ console.debug('Debug: Components.pca.setup skipped'); return; }
@@ -196,6 +197,257 @@
       const pcaLabelColorsDiv=$('#pcaLabelColors');
       const pcaLabelColorsFieldset=$('#pcaLabelColorsFieldset');
       const pcaStatsResults=document.getElementById('pcaStatsResults');
+      const pcaStatsSummary=document.getElementById('pcaStatsSummary');
+      const pcaScreeContainer=document.getElementById('pcaScreeContainer');
+      const pcaEigenTableContainer=document.getElementById('pcaEigenTableContainer');
+      const pcaEigenTableWrapper=document.getElementById('pcaEigenTableWrapper');
+      const pcaExportEigenTableBtn=document.getElementById('pcaExportEigenTable');
+      const pcaShowScree=$('#pcaShowScree');
+      const pcaShowEigenTable=$('#pcaShowEigenTable');
+      const pcaEnableEigenExport=$('#pcaEnableEigenExport');
+      function updateEigenExportVisibility(shouldShow){
+        if(!pcaExportEigenTableBtn){ return; }
+        const visible = !!shouldShow;
+        pcaExportEigenTableBtn.style.display = visible ? '' : 'none';
+        if(!visible){
+          pcaExportEigenTableBtn.disabled = true;
+        }
+      }
+      function resetStatsPanel(message){
+        if(pcaStatsSummary){
+          pcaStatsSummary.innerHTML = message ? `<div class="stats-table-message">${message}</div>` : '';
+        } else if(pcaStatsResults){
+          pcaStatsResults.innerHTML = message ? `<div class="stats-table-message">${message}</div>` : '';
+        }
+        if(pcaScreeContainer){
+          pcaScreeContainer.innerHTML = '';
+          pcaScreeContainer.hidden = true;
+        }
+        if(pcaEigenTableWrapper){
+          pcaEigenTableWrapper.innerHTML = '';
+        }
+        if(pcaEigenTableContainer){
+          pcaEigenTableContainer.hidden = true;
+        }
+        if(pcaExportEigenTableBtn){
+          pcaExportEigenTableBtn.disabled = true;
+        }
+        updateEigenExportVisibility(false);
+        console.debug('Debug: pca stats panel reset',{ message: message || null }); // Debug: stats reset helper
+      }
+      function renderScreeChart(options){
+        const opts = options || {};
+        const show = !!opts.show;
+        const data = Array.isArray(opts.data) ? opts.data : [];
+        if(!pcaScreeContainer){
+          console.debug('Debug: pca scree render skipped',{ reason: 'missing-container' });
+          return;
+        }
+        pcaScreeContainer.innerHTML = '';
+        if(!show || !data.length || opts.method !== 'pca'){
+          pcaScreeContainer.hidden = true;
+          console.debug('Debug: pca scree hidden',{ show, count: data.length, method: opts.method }); // Debug: scree visibility
+          return;
+        }
+        pcaScreeContainer.hidden = false;
+        const width = Math.max(pcaScreeContainer.clientWidth || 0, 320);
+        const height = 220;
+        const margin = { top: 24, right: 24, bottom: 40, left: 54 };
+        const plotWidth = Math.max(20, width - margin.left - margin.right);
+        const plotHeight = Math.max(20, height - margin.top - margin.bottom);
+        const maxPct = Math.max(...data.map(item => Number(item.variancePercent) || 0), 1);
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('class', 'scree-chart');
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', String(height));
+        svg.setAttribute('role', 'img');
+        svg.setAttribute('aria-label', 'Scree plot showing explained variance by component');
+        chartStyle.applySvgDefaults(svg);
+        const axisColor = chartStyle.TEXT_COLOR || '#333333';
+        const yAxis = document.createElementNS(NS, 'line');
+        yAxis.setAttribute('x1', String(margin.left));
+        yAxis.setAttribute('y1', String(margin.top));
+        yAxis.setAttribute('x2', String(margin.left));
+        yAxis.setAttribute('y2', String(margin.top + plotHeight));
+        yAxis.setAttribute('stroke', axisColor);
+        yAxis.setAttribute('stroke-width', '1');
+        svg.appendChild(yAxis);
+        const xAxis = document.createElementNS(NS, 'line');
+        xAxis.setAttribute('x1', String(margin.left));
+        xAxis.setAttribute('y1', String(margin.top + plotHeight));
+        xAxis.setAttribute('x2', String(margin.left + plotWidth));
+        xAxis.setAttribute('y2', String(margin.top + plotHeight));
+        xAxis.setAttribute('stroke', axisColor);
+        xAxis.setAttribute('stroke-width', '1');
+        svg.appendChild(xAxis);
+        const tickCount = 4;
+        for(let i=0;i<=tickCount;i+=1){
+          const pct = (maxPct / tickCount) * i;
+          const y = margin.top + plotHeight - (plotHeight * (pct / maxPct));
+          const grid = document.createElementNS(NS, 'line');
+          grid.setAttribute('x1', String(margin.left));
+          grid.setAttribute('x2', String(margin.left + plotWidth));
+          grid.setAttribute('y1', String(y));
+          grid.setAttribute('y2', String(y));
+          grid.setAttribute('stroke', 'rgba(0,0,0,0.08)');
+          grid.setAttribute('stroke-width', '1');
+          svg.appendChild(grid);
+          const label = document.createElementNS(NS, 'text');
+          label.setAttribute('x', String(margin.left - 8));
+          label.setAttribute('y', String(y));
+          label.setAttribute('text-anchor', 'end');
+          label.setAttribute('dominant-baseline', 'middle');
+          label.setAttribute('fill', axisColor);
+          label.textContent = `${pct.toFixed(1)}%`;
+          svg.appendChild(label);
+        }
+        const xPositions = data.map((item, idx) => {
+          const relative = data.length <= 1 ? 0 : idx / (data.length - 1);
+          return margin.left + relative * plotWidth;
+        });
+        const yPositions = data.map(item => {
+          const pct = Number(item.variancePercent) || 0;
+          const scaled = margin.top + plotHeight - (plotHeight * (pct / maxPct));
+          return scaled;
+        });
+        const path = document.createElementNS(NS, 'path');
+        const pointColor = opts.pointColor || '#377eb8';
+        const d = xPositions.map((x, idx) => `${idx===0?'M':'L'}${x} ${yPositions[idx]}`).join(' ');
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', pointColor);
+        path.setAttribute('stroke-width', '2');
+        svg.appendChild(path);
+        data.forEach((item, idx) => {
+          const cx = xPositions[idx];
+          const cy = yPositions[idx];
+          const circle = document.createElementNS(NS, 'circle');
+          circle.setAttribute('cx', String(cx));
+          circle.setAttribute('cy', String(cy));
+          circle.setAttribute('r', '4');
+          circle.setAttribute('fill', pointColor);
+          circle.setAttribute('stroke', '#ffffff');
+          circle.setAttribute('stroke-width', '1');
+          svg.appendChild(circle);
+          const label = document.createElementNS(NS, 'text');
+          label.setAttribute('x', String(cx));
+          label.setAttribute('y', String(margin.top + plotHeight + 18));
+          label.setAttribute('text-anchor', 'middle');
+          label.setAttribute('fill', axisColor);
+          label.textContent = `PC${item.component}`;
+          svg.appendChild(label);
+        });
+        pcaScreeContainer.appendChild(svg);
+        console.debug('Debug: pca scree chart rendered',{ count: data.length, maxPct, width, height });
+      }
+      function renderEigenTable(options){
+        const opts = options || {};
+        const show = !!opts.show;
+        const data = Array.isArray(opts.data) ? opts.data : [];
+        if(!pcaEigenTableContainer){
+          console.debug('Debug: pca eigen table skipped',{ reason: 'missing-container' });
+          return;
+        }
+        if(!show || opts.method !== 'pca' || !data.length){
+          if(pcaEigenTableWrapper){
+            pcaEigenTableWrapper.innerHTML = show && opts.method === 'pca' ? '<i>No eigenvalue data available.</i>' : '';
+          }
+          pcaEigenTableContainer.hidden = true;
+          updateEigenExportVisibility(false);
+          console.debug('Debug: pca eigen table hidden',{ show, method: opts.method, count: data.length });
+          return;
+        }
+        pcaEigenTableContainer.hidden = false;
+        if(pcaEigenTableWrapper){
+          let html = '<table class="stats-table"><thead><tr>';
+          const headers = ['Component','Eigenvalue','Variance %','Cumulative %'];
+          headers.forEach(header => {
+            html += `<th class="stats-table__cell stats-table__header stats-table__cell--center">${header}</th>`;
+          });
+          html += '</tr></thead><tbody>';
+          data.forEach(entry => {
+            const comp = Number(entry.component) || 0;
+            const eigen = Number(entry.eigenvalue) || 0;
+            const pct = Number(entry.variancePercent) || 0;
+            const cumulative = Number(entry.cumulativeVariancePercent) || 0;
+            html += '<tr>';
+            html += `<td class="stats-table__cell stats-table__cell--center">PC${comp}</td>`;
+            html += `<td class="stats-table__cell stats-table__cell--right">${eigen.toFixed(4)}</td>`;
+            html += `<td class="stats-table__cell stats-table__cell--right">${pct.toFixed(2)}%</td>`;
+            html += `<td class="stats-table__cell stats-table__cell--right">${cumulative.toFixed(2)}%</td>`;
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+          pcaEigenTableWrapper.innerHTML = html;
+        }
+        const exportEnabled = !!opts.enableExport;
+        updateEigenExportVisibility(exportEnabled);
+        if(pcaExportEigenTableBtn){
+          pcaExportEigenTableBtn.disabled = !exportEnabled;
+        }
+        console.debug('Debug: pca eigen table rendered',{ rows: data.length, exportEnabled });
+      }
+      function renderStatsPanel(options){
+        const opts = options || {};
+        const summaryLines = Array.isArray(opts.summaryLines) ? opts.summaryLines : [];
+        if(pcaStatsSummary){
+          if(summaryLines.length){
+            pcaStatsSummary.innerHTML = summaryLines.map(line => `<div class="stats-table-lead">${line}</div>`).join('');
+          } else {
+            pcaStatsSummary.innerHTML = '<div class="stats-table-message">No statistics computed.</div>';
+          }
+        } else if(pcaStatsResults){
+          pcaStatsResults.innerHTML = summaryLines.length ? summaryLines.join('<br>') : '<i>No statistics computed.</i>';
+        }
+        renderScreeChart({
+          show: opts.showScree,
+          data: opts.screeData,
+          method: opts.method,
+          pointColor: opts.pointColor,
+        });
+        renderEigenTable({
+          show: opts.showEigenTable,
+          data: opts.eigenSummary,
+          enableExport: opts.enableEigenExport,
+          method: opts.method,
+        });
+      }
+      function handleEigenExport(){
+        if(!pcaEnableEigenExport || !pcaEnableEigenExport.checked){
+          console.debug('Debug: pca eigen export blocked',{ reason: 'toggle-disabled' });
+          return;
+        }
+        if(!lastPcaStats || !Array.isArray(lastPcaStats.eigenSummary) || !lastPcaStats.eigenSummary.length){
+          console.debug('Debug: pca eigen export skipped',{ reason: 'no-data' });
+          return;
+        }
+        const rows = [['Component','Eigenvalue','VariancePercent','CumulativePercent','SingularValue']];
+        lastPcaStats.eigenSummary.forEach(entry => {
+          rows.push([
+            `PC${entry.component}`,
+            Number(entry.eigenvalue || 0).toFixed(6),
+            Number(entry.variancePercent || 0).toFixed(4),
+            Number(entry.cumulativeVariancePercent || 0).toFixed(4),
+            Number(entry.singularValue || 0).toFixed(6)
+          ]);
+        });
+        const csvContent = rows.map(row => row.join(',')).join('\n');
+        try{
+          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'pca-eigenvalues.csv';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          console.debug('Debug: pca eigen export generated',{ rows: rows.length - 1 });
+        }catch(err){
+          console.error('pca eigen export failed', err);
+        }
+      }
       let pcaLabelColors={};
       pcaAlphaVal.textContent=pcaAlpha.value;
       if(pcaViewMode){
@@ -215,6 +467,28 @@
           scheduleDrawPca();
         });
       }
+      if(pcaShowScree){
+        pcaShowScree.addEventListener('change',()=>{
+          console.debug('Debug: pca showScree toggled',{ checked: !!pcaShowScree.checked });
+          scheduleDrawPca();
+        });
+      }
+      if(pcaShowEigenTable){
+        pcaShowEigenTable.addEventListener('change',()=>{
+          console.debug('Debug: pca showEigenTable toggled',{ checked: !!pcaShowEigenTable.checked });
+          scheduleDrawPca();
+        });
+      }
+      if(pcaEnableEigenExport){
+        pcaEnableEigenExport.addEventListener('change',()=>{
+          console.debug('Debug: pca enableEigenExport toggled',{ checked: !!pcaEnableEigenExport.checked });
+          scheduleDrawPca();
+        });
+      }
+      if(pcaExportEigenTableBtn){
+        pcaExportEigenTableBtn.addEventListener('click', handleEigenExport);
+      }
+      updateEigenExportVisibility(false);
       pcaMethod.addEventListener('change',()=>{console.log('pcaMethod changed',pcaMethod.value); scheduleDrawPca();});
       pcaFill.addEventListener('input',()=>{console.log('pcaFill changed',pcaFill.value); scheduleDrawPca();});
       pcaBorder.addEventListener('input',()=>{console.log('pcaBorder changed',pcaBorder.value); scheduleDrawPca();});
@@ -263,11 +537,15 @@
         if (pcaPlotDiv) {
           pcaPlotDiv.innerHTML = '<i>PCA dependencies missing.</i>';
         }
-        if (pcaStatsResults) {
-          pcaStatsResults.textContent = '';
-        }
+        resetStatsPanel('');
         return;
       }
+      resetStatsPanel();
+      lastPcaStats = null;
+      let statsSummaryLines = [];
+      let eigenSummaryData = [];
+      let screeData = [];
+      let statsMethod = null;
 
       const requestedViewMode = (pcaViewMode?.value || DEFAULT_VIEW_MODE).toLowerCase();
       const showLoadings = !!pcaShowLoadings?.checked;
@@ -464,15 +742,13 @@
 
       if (numericColIndices.length < 2) {
         pcaPlotDiv.innerHTML = '<i>At least two numeric variable columns required.</i>';
-        if (pcaStatsResults) {
-          pcaStatsResults.textContent = '';
-        }
+        resetStatsPanel();
         return;
       }
 
       if (matrixRaw.length < 2 || matrixRaw[0].length < 2) {
         pcaPlotDiv.innerHTML = '<i>At least two samples and two variables required.</i>';
-        pcaStatsResults.textContent = '';
+        resetStatsPanel();
         return;
       }
 
@@ -515,6 +791,25 @@
         }
       }
       const method = (pcaMethod.value || 'pca').toLowerCase();
+      statsMethod = method;
+      if(pcaShowScree){
+        pcaShowScree.disabled = method !== 'pca';
+      }
+      if(pcaShowEigenTable){
+        pcaShowEigenTable.disabled = method !== 'pca';
+      }
+      if(pcaEnableEigenExport){
+        pcaEnableEigenExport.disabled = method !== 'pca';
+      }
+      const showScree = method === 'pca' && !!pcaShowScree?.checked;
+      const showEigenTable = method === 'pca' && !!pcaShowEigenTable?.checked;
+      const enableEigenExport = method === 'pca' && !!pcaEnableEigenExport?.checked;
+      console.debug('Debug: pca stats toggles state',{
+        method,
+        showScree,
+        showEigenTable,
+        enableEigenExport
+      });
       const nSamples = matrix.length;
       const nFeatures = matrix[0].length;
 
@@ -539,7 +834,6 @@
       }
 
       let points = [];
-      let statsHtml = '';
       const labelSet = new Set(labels.filter((l) => l));
       let points3d = [];
       let loadingsRows = [];
@@ -603,9 +897,7 @@
 
         if (dimsToUse === 0) {
           pcaPlotDiv.innerHTML = '<i>MDS could not find positive eigenvalues.</i>';
-          if (pcaStatsResults) {
-            pcaStatsResults.textContent = '';
-          }
+          resetStatsPanel();
           return;
         }
 
@@ -646,11 +938,18 @@
           }
         }
         const stress = stressDenominator > 0 ? Math.sqrt(stressNumerator / stressDenominator) : 0;
-        statsHtml = `Dim1: ${dim1Pct.toFixed(1)}% inertia`;
+        statsSummaryLines = [`Dim1: ${dim1Pct.toFixed(1)}% inertia`];
         if (dimsToUse > 1) {
-          statsHtml += `<br>Dim2: ${dim2Pct.toFixed(1)}% inertia`;
+          statsSummaryLines.push(`Dim2: ${dim2Pct.toFixed(1)}% inertia`);
         }
-        statsHtml += `<br>Stress-1: ${stress.toFixed(3)}`;
+        statsSummaryLines.push(`Stress-1: ${stress.toFixed(3)}`);
+        lastPcaStats = {
+          method: 'mds',
+          eigenSummary: [],
+          scree: [],
+          stress: Number(stress.toFixed(6)),
+          dimensions: dimsToUse
+        };
         console.debug('Debug: mds stress computed', { stress, dimsToUse });
       } else {
         const svd = SVDLib.SVD(matrix);
@@ -667,13 +966,46 @@
 
         const variances = svd.q.map((s) => (s * s) / (nSamples - 1));
         const totalVar = variances.reduce((a, b) => a + b, 0);
-        const pc1Pct = (variances[0] / totalVar) * 100;
-        const pc2Pct = (variances[1] / totalVar) * 100;
-        pc3Pct = variances[2] != null ? (variances[2] / totalVar) * 100 : 0;
-
-        pcaXLabelText = `PC1 (${pc1Pct.toFixed(1)}%)`;
-        pcaYLabelText = `PC2 (${pc2Pct.toFixed(1)}%)`;
-        if(svd.q.length >= 3 && variances[2] != null){
+        const safeTotal = totalVar > 0 ? totalVar : 1;
+        let cumulativeRatio = 0;
+        eigenSummaryData = variances.map((variance, idx) => {
+          const ratio = safeTotal > 0 ? variance / safeTotal : 0;
+          cumulativeRatio += ratio;
+          const percent = ratio * 100;
+          const cumulativePercent = Math.min(100, cumulativeRatio * 100);
+          return {
+            component: idx + 1,
+            eigenvalue: variance,
+            varianceRatio: ratio,
+            variancePercent: percent,
+            cumulativeVarianceRatio: Math.min(1, cumulativeRatio),
+            cumulativeVariancePercent: cumulativePercent,
+            singularValue: svd.q[idx] || 0
+          };
+        });
+        screeData = eigenSummaryData.map(entry => ({
+          component: entry.component,
+          variancePercent: entry.variancePercent
+        }));
+        const firstEigen = eigenSummaryData[0] || null;
+        const secondEigen = eigenSummaryData[1] || null;
+        const thirdEigen = eigenSummaryData[2] || null;
+        const pc1Pct = firstEigen ? firstEigen.variancePercent : 0;
+        const pc2Pct = secondEigen ? secondEigen.variancePercent : 0;
+        pc3Pct = thirdEigen ? thirdEigen.variancePercent : 0;
+        statsSummaryLines = [];
+        if(firstEigen){
+          statsSummaryLines.push(`PC1: ${pc1Pct.toFixed(1)}% variance`);
+        }
+        if(secondEigen){
+          statsSummaryLines.push(`PC2: ${pc2Pct.toFixed(1)}% variance`);
+        }
+        if(thirdEigen){
+          statsSummaryLines.push(`PC3: ${pc3Pct.toFixed(1)}% variance`);
+        }
+        pcaXLabelText = firstEigen ? `PC1 (${pc1Pct.toFixed(1)}%)` : 'PC1';
+        pcaYLabelText = secondEigen ? `PC2 (${pc2Pct.toFixed(1)}%)` : 'PC2';
+        if(thirdEigen && svd.q.length >= 3){
           pcaZLabelText = `PC3 (${pc3Pct.toFixed(1)}%)`;
         }else{
           pcaZLabelText = 'PC3';
@@ -696,11 +1028,6 @@
           points3d = [];
           console.debug('Debug: pca 3d scores skipped',{ components: svd.q.length });
         }
-        statsHtml = `PC1: ${pc1Pct.toFixed(1)}% variance`;
-        statsHtml += `<br>PC2: ${pc2Pct.toFixed(1)}% variance`;
-        if(svd.q.length >= 3){
-          statsHtml += `<br>PC3: ${pc3Pct.toFixed(1)}% variance`;
-        }
         if(svd.v && Array.isArray(svd.v)){
           const componentCount = Array.isArray(svd.v[0]) ? Math.min(svd.v[0].length, svd.q.length) : Math.min(svd.v.length, svd.q.length);
           loadingsComponents = componentCount;
@@ -717,6 +1044,28 @@
         }else{
           console.debug('Debug: pca loadings skipped',{ hasV: !!svd.v });
         }
+        lastPcaStats = {
+          method: 'pca',
+          eigenSummary: eigenSummaryData.map(entry => ({
+            component: entry.component,
+            eigenvalue: Number(entry.eigenvalue),
+            varianceRatio: Number(entry.varianceRatio),
+            variancePercent: Number(entry.variancePercent),
+            cumulativeVarianceRatio: Number(entry.cumulativeVarianceRatio),
+            cumulativeVariancePercent: Number(entry.cumulativeVariancePercent),
+            singularValue: Number(entry.singularValue)
+          })),
+          scree: screeData.map(item => ({
+            component: item.component,
+            variancePercent: Number(item.variancePercent)
+          })),
+          totalVariance: Number(totalVar)
+        };
+        console.debug('Debug: pca eigen summary prepared',{
+          components: eigenSummaryData.length,
+          totalVariance: totalVar,
+          screePoints: screeData.length
+        });
       }
 
       updatePcaLabelColorPickers(Array.from(labelSet));
@@ -742,7 +1091,16 @@
         plotEl.removeChild(plotEl.firstChild);
       }
 
-      document.getElementById('pcaStatsResults').innerHTML = statsHtml;
+      renderStatsPanel({
+        summaryLines: statsSummaryLines,
+        showScree: showScree && method === 'pca',
+        screeData,
+        method: statsMethod || method,
+        showEigenTable: showEigenTable && method === 'pca',
+        eigenSummary: method === 'pca' ? eigenSummaryData : [],
+        enableEigenExport: enableEigenExport && method === 'pca',
+        pointColor: fill
+      });
 
       if (effectiveViewMode === '3d') {
         if (!points3d.length) {
@@ -1217,8 +1575,19 @@
           scale:pcaScale.checked,
           fontSize:pcaFontSize.value,
           viewMode:pcaViewMode?.value || DEFAULT_VIEW_MODE,
-          showLoadings:!!pcaShowLoadings?.checked
-        }
+          showLoadings:!!pcaShowLoadings?.checked,
+          showScree:!!pcaShowScree?.checked,
+          showEigenTable:!!pcaShowEigenTable?.checked,
+          enableEigenExport:!!pcaEnableEigenExport?.checked
+        },
+        stats:lastPcaStats ? {
+          method:lastPcaStats.method || null,
+          eigenSummary:Array.isArray(lastPcaStats.eigenSummary) ? lastPcaStats.eigenSummary : [],
+          scree:Array.isArray(lastPcaStats.scree) ? lastPcaStats.scree : [],
+          stress:lastPcaStats.stress,
+          totalVariance:lastPcaStats.totalVariance,
+          dimensions:lastPcaStats.dimensions
+        } : null
       };
     }
       let pcaFileHandle=null, pcaFileName='pca.graph';
@@ -1313,11 +1682,43 @@
               pcaShowLoadings.dispatchEvent(new Event('change'));
               console.debug('Debug: pca showLoadings restored',{ restoredLoadings });
             }
+            if(pcaShowScree){
+              const restoredScree = c.showScree;
+              if(typeof restoredScree !== 'undefined'){
+                pcaShowScree.checked = !!restoredScree;
+              }
+              pcaShowScree.dispatchEvent(new Event('change'));
+              console.debug('Debug: pca showScree restored',{ restoredScree: !!pcaShowScree.checked });
+            }
+            if(pcaShowEigenTable){
+              const restoredEigenTable = c.showEigenTable;
+              if(typeof restoredEigenTable !== 'undefined'){
+                pcaShowEigenTable.checked = !!restoredEigenTable;
+              }
+              pcaShowEigenTable.dispatchEvent(new Event('change'));
+              console.debug('Debug: pca showEigenTable restored',{ restoredEigenTable: !!pcaShowEigenTable.checked });
+            }
+            if(pcaEnableEigenExport){
+              const restoredExport = c.enableEigenExport;
+              if(typeof restoredExport !== 'undefined'){
+                pcaEnableEigenExport.checked = !!restoredExport;
+              }
+              pcaEnableEigenExport.dispatchEvent(new Event('change'));
+              console.debug('Debug: pca enableEigenExport restored',{ restoredExport: !!pcaEnableEigenExport.checked });
+            }
             if(pcaFontSize.dataset){
               pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
               console.debug('Debug: pca font size base restored',{ value: pcaFontSize.value }); // Debug: restore base from file
             }
             chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
+            if(c.stats){
+              lastPcaStats = c.stats;
+              console.debug('Debug: pca stats restored from file',{
+                hasEigenSummary: Array.isArray(c.stats?.eigenSummary) && c.stats.eigenSummary.length > 0,
+                hasScree: Array.isArray(c.stats?.scree) && c.stats.scree.length > 0,
+                method: c.stats?.method || null
+              });
+            }
             scheduleDrawPca();
           }catch(err){
             console.error('loadPcaGraph error',err);
