@@ -19,7 +19,7 @@
   const DEFAULT_ROWS=100;
   const DEFAULT_COLS=9;
   const DEFAULT_VIEW_MODE='2d';
-  const PCA_3D_DEFAULTS={ rotationX: -0.45, rotationY: 0.95, aspectRatio: 4 / 3 };
+  const PCA_3D_DEFAULTS={ rotationX: -0.31, rotationY: -0.48, aspectRatio: 4 / 3 };
 
   let scheduleDrawPca = () => {};
   let lastPcaStats = null;
@@ -1606,7 +1606,7 @@
         ];
         const paneGroup = svg3.ownerDocument?.createElementNS ? svg3.ownerDocument.createElementNS(NS, 'g') : null;
         if(paneGroup){
-          paneGroup.setAttribute('fill', 'rgba(0,0,0,0.02)');
+          paneGroup.setAttribute('fill', 'rgba(0,0,0,0.008)');
           paneGroup.setAttribute('stroke', 'none');
           svg3.appendChild(paneGroup);
         }
@@ -1648,8 +1648,8 @@
             min: Math.min(...panePolys.map(p => p.avgDepth)),
             max: Math.max(...panePolys.map(p => p.avgDepth))
           } : { min: 0, max: 1 };
-          const minPaneOpacity = 0.012;
-          const maxPaneOpacity = 0.028;
+          const minPaneOpacity = 0.004;
+          const maxPaneOpacity = 0.012;
           console.debug('Debug: pca 3d pane shading',{ minPaneOpacity, maxPaneOpacity }); // Debug: pane shading bounds
           panePolys.forEach(pane => {
             const polygon = document.createElementNS(NS, 'polygon');
