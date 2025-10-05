@@ -147,6 +147,20 @@
       console.error('Handsontable missing for PCA component');
       return;
     }
+    const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+      ? Shared.graphViewport.createEnsurer('pca')
+      : (svg, options = {}) => {
+        const helper = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+        if(typeof helper === 'function'){
+          helper(svg, { component: 'pca', debugLabel: 'pca-viewport-fallback', ...options });
+          return;
+        }
+        console.debug('Debug: pca ensureGraphViewport helper missing', { hasShared: !!Shared, hasAutoResize: typeof Shared?.autoResizeSvg === 'function' });
+      };
+    console.debug('Debug: pca graph viewport helper configured', {
+      hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
+      usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
+    });
     const attachPicker = (el)=>{ if (typeof global.attachColorPickerNear === 'function') { global.attachColorPickerNear(el); } };
     const serializeSvg = (svgEl)=>{
       if (typeof global.serializeCleanSVG === 'function') return global.serializeCleanSVG(svgEl);
@@ -1943,6 +1957,7 @@
           markFontEditable(legendText,'legend',`legend-${i}`);
         });
         console.debug('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisRanges });
+        ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'pca-3d-graph' });
         pcaLayout?.syncPanels?.({ skipSchedule: true });
         return;
       }
@@ -2315,6 +2330,7 @@
         width: W,
         height: H,
       });
+      ensureGraphViewport(svg, { padding: Math.max(fs, 18), debugLabel: 'pca-2d-graph' });
       pcaLayout?.syncPanels?.({ skipSchedule: true });
     }
     function getPcaGraphPayload(){

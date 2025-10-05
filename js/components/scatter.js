@@ -67,14 +67,23 @@
       console.warn('scatter component makeEditable fallback missing');
       return undefined;
     };
-    const autoResizeSvg = (svg, opts) => {
-      const fn = Shared.autoResizeSvg || global.autoResizeSvg;
-      if (typeof fn === 'function') {
-        return fn(svg, opts);
-      }
-      console.warn('scatter component autoResizeSvg fallback missing');
-      return undefined;
-    };
+    const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+      ? Shared.graphViewport.createEnsurer('scatter')
+      : (svg, options = {}) => {
+        const fn = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+        if(typeof fn === 'function'){
+          fn(svg, { component: 'scatter', debugLabel: 'scatter-viewport-fallback', ...options });
+          return;
+        }
+        console.debug('Debug: scatter ensureGraphViewport helper missing', {
+          hasShared: !!Shared,
+          hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
+        });
+      };
+    console.debug('Debug: scatter graph viewport helper configured', {
+      hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
+      usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
+    });
     const attachPicker = (el)=>{ if (typeof global.attachColorPickerNear === 'function') { global.attachColorPickerNear(el); } };
     const serializeSvg = (svgEl, options)=>{
       const fn = Shared.serializeCleanSVG || global.serializeCleanSVG;
@@ -1195,7 +1204,7 @@
           });
           console.debug('Debug: scatter significance summary',{graphType:scatterCurrentGraphType,significantCount,nonSigCount,log2fcThreshold,negLogPThreshold,missingP:maMissingPCount});
         }
-        autoResizeSvg(svg);
+        ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'scatter-graph' });
         scatterLayout?.syncPanels?.({ skipSchedule: true });
         console.log('scatter render complete with enhanced styles');
       }

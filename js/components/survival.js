@@ -29,6 +29,24 @@
   ];
   global.DEFAULT_SCATTER_COLORS = DEFAULT_COLORS;
 
+  const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+    ? Shared.graphViewport.createEnsurer('survival')
+    : (svg, options = {}) => {
+      const fn = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+      if(typeof fn === 'function'){
+        fn(svg, { component: 'survival', debugLabel: 'survival-viewport-fallback', ...options });
+        return;
+      }
+      logDebug('ensureGraphViewport helper missing', {
+        hasShared: !!Shared,
+        hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
+      });
+    };
+  logDebug('graph viewport helper configured', {
+    hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
+    usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
+  });
+
   const state = {
     hot: null,
     scheduleDraw: null,
@@ -1213,10 +1231,11 @@
   }
 
   function autoResizeSvgHelper(svg){
-    const fn = Shared.autoResizeSvg || global.autoResizeSvg;
-    if(typeof fn === 'function'){
-      fn(svg, { scopeId: 'survivalGraphPanel' });
+    if(!svg){
+      logDebug('autoResizeSvgHelper skipped', { hasSvg: false });
+      return;
     }
+    ensureGraphViewport(svg, { padding: 18, debugLabel: 'survival-graph', component: 'survival' });
   }
 
   function drawSurvival(){
