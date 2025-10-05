@@ -246,11 +246,29 @@
         pcaScreeContainer.innerHTML = '';
         if(!show || !data.length || opts.method !== 'pca'){
           pcaScreeContainer.hidden = true;
+          if(pcaScreeContainer.style){
+            pcaScreeContainer.style.removeProperty('max-width');
+          }
           console.debug('Debug: pca scree hidden',{ show, count: data.length, method: opts.method }); // Debug: scree visibility
           return;
         }
         pcaScreeContainer.hidden = false;
-        const width = Math.max(pcaScreeContainer.clientWidth || 0, 320);
+        const containerWidth = pcaScreeContainer.clientWidth || 0;
+        let drawingBoxWidth = 0;
+        if(pcaSvgBox){
+          const rectWidth = typeof pcaSvgBox.getBoundingClientRect === 'function' ? pcaSvgBox.getBoundingClientRect().width : 0;
+          const clientWidth = pcaSvgBox.clientWidth || 0;
+          drawingBoxWidth = Math.max(rectWidth || 0, clientWidth || 0);
+        }
+        let width = containerWidth > 0 ? containerWidth : 320;
+        if(drawingBoxWidth > 0){
+          width = Math.min(width, drawingBoxWidth);
+        }else if(width < 320){
+          width = 320;
+        }
+        if(pcaScreeContainer.style){
+          pcaScreeContainer.style.maxWidth = `${Math.max(width, 0)}px`;
+        }
         const height = 220;
         const margin = { top: 24, right: 24, bottom: 40, left: 54 };
         const plotWidth = Math.max(20, width - margin.left - margin.right);
@@ -263,6 +281,9 @@
         svg.setAttribute('height', String(height));
         svg.setAttribute('role', 'img');
         svg.setAttribute('aria-label', 'Scree plot showing explained variance by component');
+        if(svg.style){
+          svg.style.maxWidth = `${Math.max(width, 0)}px`;
+        }
         chartStyle.applySvgDefaults(svg);
         const axisColor = chartStyle.TEXT_COLOR || '#333333';
         const yAxis = document.createElementNS(NS, 'line');
@@ -339,7 +360,7 @@
           svg.appendChild(label);
         });
         pcaScreeContainer.appendChild(svg);
-        console.debug('Debug: pca scree chart rendered',{ count: data.length, maxPct, width, height });
+        console.debug('Debug: pca scree chart rendered',{ count: data.length, maxPct, width, height, drawingBoxWidth, containerWidth });
       }
       function renderEigenTable(options){
         const opts = options || {};
