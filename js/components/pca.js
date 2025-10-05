@@ -20,6 +20,7 @@
   const DEFAULT_COLS=9;
   const DEFAULT_VIEW_MODE='2d';
   const PCA_3D_DEFAULTS={ rotationX: -0.31, rotationY: -0.48, aspectRatio: 4 / 3 };
+  const MIN_VARIANCE_WEIGHT = 1e-3;
 
   let scheduleDrawPca = () => {};
   let lastPcaStats = null;
@@ -28,7 +29,8 @@
     axisMeta: [],
     rotation: { x: PCA_3D_DEFAULTS.rotationX, y: PCA_3D_DEFAULTS.rotationY },
     rotationPending: false,
-    rotationPendingLogged: false
+    rotationPendingLogged: false,
+    axesVarianceScaled: false
   };
 
   function sanitizeAxisSelection(dimensionCount){
@@ -97,6 +99,42 @@
       return `${base} (${pct.toFixed(1)}%)`;
     }
     return base;
+  }
+
+  function resolveAxisVarianceInfo(axisIndices, dimensionMeta){
+    const indices = axisIndices || {};
+    const metaArray = Array.isArray(dimensionMeta) ? dimensionMeta : [];
+    const weights = { x: null, y: null, z: null };
+    const normalized = { x: null, y: null, z: null };
+    let positiveCount = 0;
+    let maxWeight = 0;
+    ['x','y','z'].forEach(axisKey => {
+      const idx = indices[axisKey];
+      if(typeof idx === 'number' && idx >= 0 && idx < metaArray.length){
+        const meta = metaArray[idx];
+        const pct = Number(meta?.variancePercent);
+        if(Number.isFinite(pct)){
+          const weight = Math.max(pct, MIN_VARIANCE_WEIGHT);
+          weights[axisKey] = weight;
+          if(weight > 0){
+            positiveCount += 1;
+          }
+          if(weight > maxWeight){
+            maxWeight = weight;
+          }
+        }
+      }
+    });
+    if(maxWeight <= 0){
+      maxWeight = 1;
+    }
+    ['x','y','z'].forEach(axisKey => {
+      const weight = weights[axisKey];
+      normalized[axisKey] = Number.isFinite(weight) && weight !== null ? weight / maxWeight : null;
+    });
+    const info = { weights, normalized, hasAny: positiveCount > 0, maxWeight };
+    console.debug('Debug: pca resolveAxisVarianceInfo', info); // Debug: axis variance weighting snapshot
+    return info;
   }
 
   function setup(){
@@ -275,6 +313,7 @@
       const pcaShowGrid=$('#pcaShowGrid');
       const pcaXMin=$('#pcaXMin'), pcaXMax=$('#pcaXMax'), pcaYMin=$('#pcaYMin'), pcaYMax=$('#pcaYMax');
       const pcaShowFrame=$('#pcaShowFrame');
+      const pcaVarianceAxisScale=$('#pcaVarianceAxisScale');
       const pcaScale=$('#pcaScale');
       const pcaLabelColorsDiv=$('#pcaLabelColors');
       const pcaLabelColorsFieldset=$('#pcaLabelColorsFieldset');
@@ -467,6 +506,19 @@
         });
       });
       applyAxisVisibility(pcaViewMode?.value || DEFAULT_VIEW_MODE);
+      if(pcaVarianceAxisScale){
+        pcaVarianceAxisScale.checked = !!pcaState.axesVarianceScaled;
+        pcaVarianceAxisScale.addEventListener('change', () => {
+          const enabled = !!pcaVarianceAxisScale.checked;
+          const previous = !!pcaState.axesVarianceScaled;
+          pcaState.axesVarianceScaled = enabled;
+          console.debug('Debug: pca variance axis scaling toggled',{ enabled, previous });
+          scheduleDrawPca();
+        });
+        console.debug('Debug: pca variance axis toggle ready',{ initial: pcaVarianceAxisScale.checked });
+      } else {
+        console.debug('Debug: pca variance axis toggle missing');
+      }
       function updateEigenExportVisibility(shouldShow){
         if(!pcaExportEigenTableBtn){ return; }
         const visible = !!shouldShow;
@@ -1159,6 +1211,7 @@
       let points = [];
       const labelSet = new Set(labels.filter((l) => l));
       let points3d = [];
+      let axisIndices = { x: 0, y: 1, z: null };
       let loadingsRows = [];
       let loadingsComponents = 0;
 
@@ -1242,7 +1295,7 @@
           dimensionMeta.push({ value: dim + 1, label: `MDS${dim + 1}`, variancePercent: pct });
         }
         updateAxisSelectOptions({ dimensionMeta, viewMode: requestedViewMode, method });
-        const axisIndices = axisSelectionToIndices(dimensionMeta.length);
+        axisIndices = axisSelectionToIndices(dimensionMeta.length);
         points = coords.map((row, idx) => ({
           x: row[axisIndices.x] || 0,
           y: axisIndices.y != null ? (row[axisIndices.y] || 0) : 0,
@@ -1335,7 +1388,7 @@
           variancePercent: entry.variancePercent
         }));
         updateAxisSelectOptions({ dimensionMeta, viewMode: requestedViewMode, method });
-        const axisIndices = axisSelectionToIndices(dimensionMeta.length);
+        axisIndices = axisSelectionToIndices(dimensionMeta.length);
         const xMeta = dimensionMeta[axisIndices.x] || null;
         const yMeta = dimensionMeta[axisIndices.y] || null;
         const zMeta = typeof axisIndices.z === 'number' ? (dimensionMeta[axisIndices.z] || null) : null;
@@ -1408,6 +1461,8 @@
         effectiveViewMode = '2d';
       }
       updateLoadingsTable({ rows: loadingsRows, components: loadingsComponents, method, viewMode: effectiveViewMode });
+
+      const axisVarianceInfo = resolveAxisVarianceInfo(axisIndices, dimensionMeta);
 
       const legendLabels = Array.from(labelSet);
       const legendWidth = legendLabels.length ? Math.max(60, Math.round(120 * fontScale)) : 0;
@@ -1543,18 +1598,48 @@
           y: (axisRanges.y.min + axisRanges.y.max) / 2,
           z: (axisRanges.z.min + axisRanges.z.max) / 2
         };
-        const maxSpan = Math.max(
-          axisRanges.x.max - axisRanges.x.min,
-          axisRanges.y.max - axisRanges.y.min,
-          axisRanges.z.max - axisRanges.z.min,
-          1
-        );
-        const halfSpan = maxSpan / 2;
+        const originalSpans3d = {
+          x: axisRanges.x.max - axisRanges.x.min,
+          y: axisRanges.y.max - axisRanges.y.min,
+          z: axisRanges.z.max - axisRanges.z.min
+        };
+        const variance3dActive = pcaState.axesVarianceScaled && axisVarianceInfo && axisVarianceInfo.normalized.x != null && axisVarianceInfo.normalized.y != null && axisVarianceInfo.normalized.z != null;
+        if(variance3dActive){
+          const baseSpan = Math.max(originalSpans3d.x, originalSpans3d.y, originalSpans3d.z, 1);
+          Object.keys(axisRanges).forEach(axisKey => {
+            const normalizedWeight = axisVarianceInfo.normalized[axisKey];
+            if(normalizedWeight == null){
+              return;
+            }
+            const desiredSpan = baseSpan * Math.max(normalizedWeight, MIN_VARIANCE_WEIGHT);
+            const span = Math.max(desiredSpan, originalSpans3d[axisKey] || desiredSpan);
+            const half = span / 2;
+            axisRanges[axisKey] = {
+              min: axisCenters[axisKey] - half,
+              max: axisCenters[axisKey] + half
+            };
+          });
+          console.debug('Debug: pca variance axis spans applied (3d)', {
+            normalized: axisVarianceInfo.normalized,
+            baseSpan,
+            axisRanges
+          });
+        } else {
+          const maxSpan = Math.max(originalSpans3d.x, originalSpans3d.y, originalSpans3d.z, 1);
+          const halfSpan = maxSpan / 2;
+          Object.keys(axisRanges).forEach(axisKey => {
+            axisRanges[axisKey] = {
+              min: axisCenters[axisKey] - halfSpan,
+              max: axisCenters[axisKey] + halfSpan
+            };
+          });
+          console.debug('Debug: pca variance axis spans skipped (3d)', {
+            reason: variance3dActive ? 'partial-weights' : 'disabled',
+            normalized: axisVarianceInfo?.normalized
+          });
+        }
         Object.keys(axisRanges).forEach(axisKey => {
-          axisRanges[axisKey] = {
-            min: axisCenters[axisKey] - halfSpan,
-            max: axisCenters[axisKey] + halfSpan
-          };
+          axisCenters[axisKey] = (axisRanges[axisKey].min + axisRanges[axisKey].max) / 2;
         });
         const allCorners = [
           { x: axisRanges.x.min, y: axisRanges.y.min, z: axisRanges.z.min },
@@ -1998,23 +2083,89 @@
         yTickTarget = refinedY;
       }
       console.debug('Debug: pca tick targets finalized',{xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth});
+      const enforcePlotAspect = (marginInput, totalWidth, totalHeight, aspectValue) => {
+        const aspect = Number.isFinite(aspectValue) && aspectValue > 0 ? aspectValue : null;
+        const baseMargin = { ...marginInput };
+        const innerW = Math.max(20, totalWidth - baseMargin.left - baseMargin.right);
+        const innerH = Math.max(20, totalHeight - baseMargin.top - baseMargin.bottom);
+        if(!aspect){
+          return { margin: baseMargin, plotW: innerW, plotH: innerH };
+        }
+        let targetW = innerW;
+        let targetH = innerW / aspect;
+        if(!Number.isFinite(targetH) || targetH <= 0){
+          targetH = innerH;
+          targetW = targetH * aspect;
+        }
+        if(targetH > innerH){
+          targetH = innerH;
+          targetW = targetH * aspect;
+        }
+        if(targetW > innerW){
+          targetW = innerW;
+          targetH = targetW / aspect;
+        }
+        const adjusted = { ...baseMargin };
+        if(innerW > targetW){
+          adjusted.right += innerW - targetW;
+        }
+        if(innerH > targetH){
+          adjusted.bottom += innerH - targetH;
+        }
+        return {
+          margin: adjusted,
+          plotW: Math.max(20, targetW),
+          plotH: Math.max(20, targetH)
+        };
+      };
       const aspectData = pcaSvgBox?.dataset;
       const shouldLockAspect = aspectData?.resizerAspectLocked === 'true';
       console.debug('Debug: pca aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: pca aspect toggle decision
-      if(shouldLockAspect){
-        const square = chartStyle.ensureSquarePlot(W, H, margin);
-        margin = square.margin;
-        plotW = square.plotW;
-        plotH = square.plotH;
-        if(aspectData){
-          const derivedRatio = plotH > 0 ? plotW / plotH : NaN;
-          if(Number.isFinite(derivedRatio)){
-            aspectData.resizerAspectRatio = String(derivedRatio);
+      let varianceAspectApplied = false;
+      if(pcaState.axesVarianceScaled){
+        const weightX = axisVarianceInfo?.weights?.x;
+        const weightY = axisVarianceInfo?.weights?.y;
+        if(Number.isFinite(weightX) && weightX > 0 && Number.isFinite(weightY) && weightY > 0){
+          const desiredAspect = weightX / weightY;
+          const enforced = enforcePlotAspect(margin, W, H, desiredAspect);
+          margin = enforced.margin;
+          plotW = enforced.plotW;
+          plotH = enforced.plotH;
+          varianceAspectApplied = true;
+          if(aspectData){
+            const derivedRatio = plotH > 0 ? plotW / plotH : NaN;
+            if(Number.isFinite(derivedRatio)){
+              aspectData.resizerAspectRatio = String(derivedRatio);
+            }
           }
+          console.debug('Debug: pca layout (variance-enforced)',{
+            desiredAspect,
+            appliedAspect: plotH > 0 ? plotW / plotH : null,
+            margin,
+            plotW,
+            plotH,
+            weights: axisVarianceInfo.weights
+          });
+        } else {
+          console.debug('Debug: pca variance aspect skipped',{ reason: 'insufficient-weights', weights: axisVarianceInfo?.weights });
         }
-        console.debug('Debug: pca layout (locked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca square enforcement branch
-      }else{
-        console.debug('Debug: pca layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca free resize branch
+      }
+      if(!varianceAspectApplied){
+        if(shouldLockAspect){
+          const square = chartStyle.ensureSquarePlot(W, H, margin);
+          margin = square.margin;
+          plotW = square.plotW;
+          plotH = square.plotH;
+          if(aspectData){
+            const derivedRatio = plotH > 0 ? plotW / plotH : NaN;
+            if(Number.isFinite(derivedRatio)){
+              aspectData.resizerAspectRatio = String(derivedRatio);
+            }
+          }
+          console.debug('Debug: pca layout (locked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca square enforcement branch
+        }else{
+          console.debug('Debug: pca layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca free resize branch
+        }
       }
       const x2px = value => margin.left + ((value - xScale.min) * plotW) / (xScale.max - xScale.min);
       const y2px = value => margin.top + plotH - ((value - yScale.min) * plotH) / (yScale.max - yScale.min);
@@ -2185,6 +2336,7 @@
           yMin:pcaYMin.value,
           yMax:pcaYMax.value,
           scale:pcaScale.checked,
+          axesVarianceScaled:pcaState.axesVarianceScaled,
           fontSize:pcaFontSize.value,
           viewMode:pcaViewMode?.value || DEFAULT_VIEW_MODE,
           axisSelection:{
@@ -2286,6 +2438,10 @@
             pcaYMin.value=c.yMin||'';
             pcaYMax.value=c.yMax||'';
             pcaScale.checked=!!c.scale;
+            if(pcaVarianceAxisScale){
+              pcaVarianceAxisScale.checked = !!c.axesVarianceScaled;
+            }
+            pcaState.axesVarianceScaled = !!c.axesVarianceScaled;
             pcaFontSize.value=c.fontSize||pcaFontSize.value;
             if(pcaViewMode){
               const restoredView = (c.viewMode || DEFAULT_VIEW_MODE);
