@@ -1203,19 +1203,6 @@
               </div>
             </fieldset>
             <fieldset>
-              <legend>Statistics Display</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="survivalShowHazardRatios" checked /> Show Hazard Ratios</label>
-                <label style="width:auto;"><input type="checkbox" id="survivalFitCox" checked /> Fit Cox Model</label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Cox Covariates</legend>
-              <div class="control" id="survivalCovariateControls" style="flex-direction:column; gap:6px; align-items:flex-start;">
-                <div id="survivalCovariateHint" style="font-size:12px; color:#555;">Add extra columns to pick covariates for the Cox model.</div>
-              </div>
-            </fieldset>
-            <fieldset>
               <legend>Grid &amp; Axis</legend>
               <div class="control" style="flex-wrap:wrap;">
                 <label style="width:auto;"><input type="checkbox" id="survivalShowGrid" /> Show Grid</label>
@@ -1249,13 +1236,20 @@
           </div>
         </div>
         <div id="survivalStats" style="width:100%; margin-top:12px;">
-          <fieldset>
-            <legend>Statistics</legend>
-            <div id="survivalStatsSummary" style="margin-bottom:8px;"></div>
-            <div id="survivalStatsLogRank"></div>
-            <div id="survivalStatsHazardRatios" style="margin-top:8px;"></div>
-            <div id="survivalStatsCox" style="margin-top:8px;"></div>
-          </fieldset>
+            <fieldset>
+              <legend>Statistics</legend>
+              <div class="control stats-toggle-row" id="survivalStatsToggleRow" style="flex-wrap:wrap;">
+                <label style="width:auto;"><input type="checkbox" id="survivalShowHazardRatios" checked /> Show Hazard Ratios</label>
+                <label style="width:auto;"><input type="checkbox" id="survivalFitCox" checked /> Fit Cox Model</label>
+              </div>
+              <div class="control" id="survivalCovariateControls" style="flex-direction:column; gap:6px; align-items:flex-start;">
+                <div id="survivalCovariateHint" style="font-size:12px; color:#555;">Add extra columns to pick covariates for the Cox model.</div>
+              </div>
+              <div id="survivalStatsSummary" style="margin-bottom:8px;"></div>
+              <div id="survivalStatsLogRank"></div>
+              <div id="survivalStatsHazardRatios" style="margin-top:8px;"></div>
+              <div id="survivalStatsCox" style="margin-top:8px;"></div>
+            </fieldset>
         </div>
       </div>
     </div>

@@ -107,8 +107,8 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 
 ### Survival Analysis (Kaplan–Meier & Cox)
 - Populate a wide-form table with group, time, event, optional entry time, and any number of covariate columns directly in the survival workspace’s spreadsheet.【F:index.html†L1124-L1189】【F:js/components/survival.js†L401-L474】
-- Toggle curve display options, select which covariate columns feed the Cox proportional hazards model, and flag time-dependent predictors through the dedicated control panel beside the plot.【F:index.html†L1155-L1189】【F:js/components/survival.js†L107-L175】
-- Fit multivariate Cox models with support for time-dependent risk sets, inspect per-predictor coefficients/intervals, and review convergence diagnostics and pairwise hazard ratios in the statistics panel.【F:js/components/survival.js†L740-L1033】【F:js/components/survival.js†L1480-L1663】
+- Toggle curve display options next to the plot while managing hazard ratio visibility, Cox-model fitting, and covariate selections directly inside the statistics fieldset for a single consolidated workflow.【F:index.html†L1155-L1257】【F:js/components/survival.js†L107-L198】
+- Fit multivariate Cox models with support for time-dependent risk sets, inspect per-predictor coefficients/intervals, and review convergence diagnostics and pairwise hazard ratios with regularized Fisher inversion for stable estimates even in small-sample examples.【F:js/components/survival.js†L735-L1074】【F:js/components/survival.js†L1500-L1677】
 
 ### Histogram Builder
 - Generate histograms from univariate data with configurable bin counts, fill colors, border styling, and optional log-scaled Y axis.【F:index.html†L928-L1000】

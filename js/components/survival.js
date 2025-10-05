@@ -397,6 +397,39 @@
     return inverse;
   }
 
+  function addDiagonal(matrix, epsilon){
+    return matrix.map((row, rowIndex) => row.map((value, colIndex) => value + (rowIndex === colIndex ? epsilon : 0)));
+  }
+
+  function tryInvertMatrix(matrix, options){
+    if(!Array.isArray(matrix) || !matrix.length){
+      return null;
+    }
+    const epsilons = Array.isArray(options?.epsilons) && options.epsilons.length ? options.epsilons : [0, 1e-8, 1e-6, 1e-4];
+    for(let attempt = 0; attempt < epsilons.length; attempt += 1){
+      const epsilon = epsilons[attempt];
+      const adjusted = epsilon !== 0 ? addDiagonal(matrix, epsilon) : matrix.map(row => row.slice());
+      const inverse = invertMatrix(adjusted);
+      if(inverse){
+        if(epsilon !== 0){
+          inverse.__ridgeEpsilon = epsilon;
+          logDebug('matrix inversion regularized', {
+            context: options?.context || 'matrix',
+            epsilon,
+            attempt,
+            iteration: options?.iteration ?? null
+          });
+        }
+        return inverse;
+      }
+    }
+    logDebug('matrix inversion failed after retries', {
+      context: options?.context || 'matrix',
+      epsilons
+    });
+    return null;
+  }
+
   function multiplyMatrixVector(matrix, vector){
     return matrix.map(row => row.reduce((sum, value, index) => sum + value * vector[index], 0));
   }
@@ -484,7 +517,7 @@
       }
       reducedMatrix.push(row);
     }
-    const inverse = invertMatrix(reducedMatrix);
+    const inverse = tryInvertMatrix(reducedMatrix, { context: 'log-rank variance' });
     if(!inverse){
       return { available: false, message: 'Unable to invert log-rank variance matrix.' };
     }
@@ -941,10 +974,13 @@
     let iterations = 0;
     for(iterations = 0; iterations < 25; iterations += 1){
       const evaluation = evaluateCoxAt(beta, prepared);
-      const fisherInv = invertMatrix(evaluation.fisher);
+      const fisherInv = tryInvertMatrix(evaluation.fisher, { context: 'cox fisher', iteration: iterations });
       if(!fisherInv){
         logDebug('cox iteration inversion failed', { iteration: iterations });
         return { available: false, message: 'Failed to invert Fisher information matrix.' };
+      }
+      if(fisherInv.__ridgeEpsilon){
+        logDebug('cox fisher ridge applied', { iteration: iterations, epsilon: fisherInv.__ridgeEpsilon });
       }
       const step = multiplyMatrixVector(fisherInv, evaluation.gradient);
       let maxChange = 0;
@@ -963,10 +999,13 @@
     }
     if(!covariance){
       const fallbackEval = evaluateCoxAt(beta, prepared);
-      covariance = invertMatrix(fallbackEval.fisher);
+      covariance = tryInvertMatrix(fallbackEval.fisher, { context: 'cox fisher fallback' });
       if(!covariance){
         logDebug('cox covariance fallback failed');
         return { available: false, message: 'Unable to compute covariance for Cox model.' };
+      }
+      if(covariance.__ridgeEpsilon){
+        logDebug('cox covariance ridge applied', { epsilon: covariance.__ridgeEpsilon });
       }
     }
     const finalEval = evaluateCoxAt(beta, prepared);
@@ -1610,7 +1649,7 @@
           refs.statsHazardRatios.textContent = summary.hazardRatios?.message || 'Hazard ratios unavailable.';
         }
       } else {
-        refs.statsHazardRatios.textContent = 'Hazard ratio table hidden.';
+        refs.statsHazardRatios.textContent = 'Enable "Show Hazard Ratios" above to compute pairwise comparisons.';
       }
     }
     if(refs.statsCox){
@@ -1662,7 +1701,7 @@
           refs.statsCox.textContent = summary.coxModel?.message || 'Cox model unavailable.';
         }
       } else {
-        refs.statsCox.textContent = 'Cox model fitting disabled.';
+        refs.statsCox.textContent = 'Enable "Fit Cox Model" above to review coefficient estimates.';
       }
     }
     const statsPayload = {
