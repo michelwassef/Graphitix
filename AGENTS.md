@@ -115,6 +115,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 - Maintains per-series color pickers, line/point toggles, origin controls, and Pearson/Spearman statistics computed with `global.jStat`.
 - Legends dynamically measure text using `chartStyle.measureText` to allocate layout; `Shared.syncPanelWidths` keeps tables aligned after resizes.
 - Per-series regression interval bands, coefficient diagnostics, and residual normality checks are toggled in the stats fieldset and included when saving/loading `.graph` files.
+- ARIMA and Holt–Winters forecasting modes expose horizon/season controls, auto-tuning helpers, seasonal summaries, and export-safe forecast payloads. Keep debug logs aligned with `regressionTools` helpers when extending interval shading or stats tables.
 
 ### Survival (`survival.js`)
 - Configures a multi-column Handsontable for group, time, event, optional entry time, and arbitrary covariates with `SURVIVAL_COL_HEADERS` keeping defaults aligned with the UI hints.
