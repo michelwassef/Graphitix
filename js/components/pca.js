@@ -1379,7 +1379,7 @@
       const plotEl = document.getElementById('pcaPlot');
       plotEl.style.display = 'block';
       const existingSvg = plotEl.querySelector('#pcaSvg');
-      const reuse3dSvg = existingSvg && existingSvg.dataset.viewMode === '3d';
+      const reuse3dSvg = effectiveViewMode === '3d' && existingSvg && existingSvg.dataset.viewMode === '3d';
       if(!reuse3dSvg){
         while (plotEl.firstChild) {
           plotEl.removeChild(plotEl.firstChild);
