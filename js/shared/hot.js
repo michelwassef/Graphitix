@@ -52,7 +52,7 @@
     const firstRowRenderer = overrides?.firstRowRenderer;
     const applyCellMeta = overrides?.applyCellMeta;
     const hotOptions = overrides?.hotOptions || {};
-    const { 
+    const {
       rowHeaders: userRowHeaders,
       cells: userCells,
       afterChange: userAfterChange,
@@ -66,6 +66,9 @@
       afterSelectionEnd: userAfterSelectionEnd,
       afterScrollVertically: userAfterScrollVertically,
       afterScrollHorizontally: userAfterScrollHorizontally,
+      beforeColumnSort: userBeforeColumnSort,
+      afterColumnSort: userAfterColumnSort,
+      columnSorting: userColumnSorting,
       ...otherHotOptions
     } = hotOptions;
 
@@ -209,6 +212,84 @@
     console.debug('Debug: Shared.hot autoGrowth config prepared', { debugLabel, autoGrowthConfig }); // Debug: auto growth config
 
     const raf = global.requestAnimationFrame || function(cb){ return setTimeout(cb, 16); };
+
+    const prepareSortValue = (rawValue)=>{
+      if(rawValue === null || typeof rawValue === 'undefined'){
+        return { empty: true, numeric: false, number: 0, text: '' };
+      }
+      if(typeof rawValue === 'number'){
+        if(Number.isFinite(rawValue)){
+          return { empty: false, numeric: true, number: rawValue, text: String(rawValue) };
+        }
+        return { empty: true, numeric: false, number: 0, text: '' };
+      }
+      const stringValue = String(rawValue).trim();
+      if(stringValue === ''){
+        return { empty: true, numeric: false, number: 0, text: '' };
+      }
+      const numericValue = Number(stringValue);
+      if(!Number.isNaN(numericValue) && Number.isFinite(numericValue)){
+        return { empty: false, numeric: true, number: numericValue, text: stringValue };
+      }
+      return { empty: false, numeric: false, number: 0, text: stringValue.toLowerCase() };
+    };
+
+    const collator = typeof Intl !== 'undefined' && Intl?.Collator ? new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }) : null;
+
+    const columnSortingSettings = Object.assign({
+      indicator: true,
+      headerAction: true,
+      sortEmptyCells: false,
+      compareFunctionFactory(sortOrder){
+        const multiplier = sortOrder === 'desc' ? -1 : 1;
+        return function(valueA, valueB, rowA, rowB){
+          if(treatFirstRowAsHeader){
+            const aIsHeader = rowA === 0;
+            const bIsHeader = rowB === 0;
+            if(aIsHeader && bIsHeader){
+              return 0;
+            }
+            if(aIsHeader){
+              return -1;
+            }
+            if(bIsHeader){
+              return 1;
+            }
+          }
+          const preparedA = prepareSortValue(valueA);
+          const preparedB = prepareSortValue(valueB);
+          if(preparedA.empty && preparedB.empty){
+            return (rowA - rowB) * multiplier;
+          }
+          if(preparedA.empty){
+            return 1;
+          }
+          if(preparedB.empty){
+            return -1;
+          }
+          if(preparedA.numeric && preparedB.numeric){
+            const diff = preparedA.number - preparedB.number;
+            if(diff !== 0){
+              return diff * multiplier;
+            }
+          }
+          if(collator){
+            const result = collator.compare(preparedA.text, preparedB.text);
+            if(result !== 0){
+              return result * multiplier;
+            }
+          }else{
+            const textA = preparedA.text;
+            const textB = preparedB.text;
+            if(textA !== textB){
+              return (textA > textB ? 1 : -1) * multiplier;
+            }
+          }
+          return (rowA - rowB) * multiplier;
+        };
+      }
+    }, userColumnSorting || {});
+    console.debug('Debug: Shared.hot columnSorting configured', { debugLabel, columnSortingSettings, treatFirstRowAsHeader }); // Debug: column sorting config
 
     let instance = null;
     const autoGrowthState = {
@@ -466,6 +547,15 @@
       }
     };
 
+    const beforeColumnSortBase = function(currentSortConfig, destinationSortConfigs){
+      console.debug('Debug: Shared.hot beforeColumnSortBase invoked', { debugLabel, currentSortConfig, destinationSortConfigs });
+    };
+
+    const afterColumnSortBase = function(currentSortConfig, destinationSortConfigs){
+      console.debug('Debug: Shared.hot afterColumnSortBase invoked', { debugLabel, currentSortConfig, destinationSortConfigs });
+      triggerSchedule('afterColumnSort', { currentSortConfig, destinationSortConfigs });
+    };
+
     const afterChangeBase = function(changes, source){
       if(!changes){
         return;
@@ -499,7 +589,8 @@
       contextMenu: true,
       undo: true,
       licenseKey: 'non-commercial-and-evaluation',
-      cells
+      cells,
+      columnSorting: columnSortingSettings
     }, otherHotOptions, {
       afterChange: wrapHook('afterChange', userAfterChange, afterChangeBase),
       afterCreateRow: wrapHook('afterCreateRow', userAfterCreateRow, afterCreateRowBase),
@@ -511,7 +602,9 @@
       afterColumnMove: wrapHook('afterColumnMove', userAfterColumnMove, afterColumnMoveBase),
       afterSelectionEnd: wrapHook('afterSelectionEnd', userAfterSelectionEnd, afterSelectionEndBase),
       afterScrollVertically: wrapHook('afterScrollVertically', userAfterScrollVertically, afterScrollVerticallyBase),
-      afterScrollHorizontally: wrapHook('afterScrollHorizontally', userAfterScrollHorizontally, afterScrollHorizontallyBase)
+      afterScrollHorizontally: wrapHook('afterScrollHorizontally', userAfterScrollHorizontally, afterScrollHorizontallyBase),
+      beforeColumnSort: wrapHook('beforeColumnSort', userBeforeColumnSort, beforeColumnSortBase),
+      afterColumnSort: wrapHook('afterColumnSort', userAfterColumnSort, afterColumnSortBase)
     });
 
     console.debug('Debug: createStandardTable options prepared', { debugLabel, rowCount, colCount });
