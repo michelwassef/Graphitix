@@ -584,6 +584,17 @@
     return `rgb(${r},${g},${bVal})`;
   }
 
+  function rgbToCss(rgb){
+    if(!rgb || !Number.isFinite(rgb.r) || !Number.isFinite(rgb.g) || !Number.isFinite(rgb.b)){
+      console.debug('Debug: heatmap rgbToCss received invalid rgb', { rgb });
+      return '#000000';
+    }
+    const clamp = value => Math.min(255, Math.max(0, Math.round(value)));
+    const css = `rgb(${clamp(rgb.r)},${clamp(rgb.g)},${clamp(rgb.b)})`;
+    console.debug('Debug: heatmap rgbToCss computed css string', { rgb, css });
+    return css;
+  }
+
   function colorForValue(entry, palette, useAbs){
     if(!entry || !Number.isFinite(entry.raw) || !Number.isFinite(entry.value)){
       return '#d0d0d0';
@@ -1007,6 +1018,17 @@
           dendrogramWidth
         });
       }
+      const scalePadding = Math.min(40, Math.max(16, Math.round(cellSize * 0.3)));
+      const scaleWidth = Math.min(36, Math.max(12, Math.round(cellSize * 0.35)));
+      const scaleLabelGap = Math.max(40, Math.round((fontInfo?.scaledPx || fontSizePx || 12) * 2.4));
+      const scaleReserved = scalePadding + scaleWidth + scaleLabelGap;
+      marginRight += scaleReserved;
+      console.debug('Debug: heatmap color scale layout reserved', {
+        scalePadding,
+        scaleWidth,
+        scaleLabelGap,
+        scaleReserved
+      });
       const totalSize = orderedColumns.length * cellSize;
       const width = marginLeft + totalSize + marginRight;
       let height = marginTop + totalSize + marginBottom;
@@ -1114,6 +1136,8 @@
       });
 
       const doc = global.document;
+      const defs = doc.createElementNS(NS, 'defs');
+      state.svg.appendChild(defs);
       const g = doc.createElementNS(NS, 'g');
       state.svg.appendChild(g);
 
@@ -1130,6 +1154,89 @@
           maxDistance: clusteringDetails.maxDistance
         });
       }
+
+      const gradientId = 'heatmap-scale-gradient';
+      const gradient = doc.createElementNS(NS, 'linearGradient');
+      gradient.setAttribute('id', gradientId);
+      gradient.setAttribute('x1', '0%');
+      gradient.setAttribute('x2', '0%');
+      gradient.setAttribute('y1', '100%');
+      gradient.setAttribute('y2', '0%');
+      const appendStop = (offset, color) => {
+        const stop = doc.createElementNS(NS, 'stop');
+        stop.setAttribute('offset', `${offset}%`);
+        stop.setAttribute('stop-color', color);
+        gradient.appendChild(stop);
+      };
+      if(useAbs){
+        appendStop(0, rgbToCss(palette.zero));
+        appendStop(100, rgbToCss(palette.positive));
+      }else{
+        appendStop(0, rgbToCss(palette.negative));
+        appendStop(50, rgbToCss(palette.zero));
+        appendStop(100, rgbToCss(palette.positive));
+      }
+      defs.appendChild(gradient);
+      console.debug('Debug: heatmap color scale gradient prepared', {
+        useAbs,
+        stops: gradient.children.length
+      });
+
+      const scaleX = marginLeft + totalSize + (shouldRenderDendrogram ? dendrogramPadding + dendrogramWidth : 0) + scalePadding;
+      const scaleY = marginTop;
+      const scaleHeight = totalSize;
+      const scaleGroup = doc.createElementNS(NS, 'g');
+      scaleGroup.setAttribute('class', 'heatmap-color-scale');
+      const scaleRect = doc.createElementNS(NS, 'rect');
+      scaleRect.setAttribute('x', String(scaleX));
+      scaleRect.setAttribute('y', String(scaleY));
+      scaleRect.setAttribute('width', String(scaleWidth));
+      scaleRect.setAttribute('height', String(scaleHeight));
+      scaleRect.setAttribute('fill', `url(#${gradientId})`);
+      scaleRect.setAttribute('stroke', '#333');
+      scaleRect.setAttribute('stroke-width', '1');
+      scaleGroup.appendChild(scaleRect);
+
+      const tickStartX = scaleX + scaleWidth;
+      const tickLabelX = tickStartX + Math.max(8, Math.round(scaleLabelGap * 0.4));
+      const tickLength = Math.max(6, Math.round(scaleWidth * 0.35));
+      const tickFontSize = Math.max(8, Math.round(renderFontSizePx));
+
+      const valueToY = value => {
+        if(useAbs){
+          const clamped = Math.min(1, Math.max(0, value));
+          return scaleY + (1 - clamped) * scaleHeight;
+        }
+        const clamped = Math.min(1, Math.max(-1, value));
+        const normalized = (clamped + 1) / 2;
+        return scaleY + (1 - normalized) * scaleHeight;
+      };
+      const tickValues = useAbs ? [0, 0.25, 0.5, 0.75, 1] : [-1, -0.5, 0, 0.5, 1];
+      tickValues.forEach(value => {
+        const y = valueToY(value);
+        const line = doc.createElementNS(NS, 'line');
+        line.setAttribute('x1', String(tickStartX));
+        line.setAttribute('x2', String(tickStartX + tickLength));
+        line.setAttribute('y1', String(y));
+        line.setAttribute('y2', String(y));
+        line.setAttribute('stroke', '#333');
+        line.setAttribute('stroke-width', '1');
+        scaleGroup.appendChild(line);
+        const text = doc.createElementNS(NS, 'text');
+        text.setAttribute('x', String(tickLabelX));
+        text.setAttribute('y', String(y));
+        text.setAttribute('dominant-baseline', 'middle');
+        text.setAttribute('font-size', String(tickFontSize));
+        text.textContent = value.toFixed(decimals);
+        scaleGroup.appendChild(text);
+      });
+      g.appendChild(scaleGroup);
+      console.debug('Debug: heatmap color scale rendered', {
+        tickCount: tickValues.length,
+        scaleX,
+        scaleY,
+        scaleHeight
+      });
 
       for(let i = 0; i < orderedColumns.length; i += 1){
         const rowLabel = doc.createElementNS(NS, 'text');

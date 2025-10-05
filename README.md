@@ -41,6 +41,7 @@ Because everything runs client-side, sensitive data never leaves the browser ses
 - **Interactive column sorting:** Ascend, descend, or reset each Handsontable column through dedicated arrow buttons embedded in every header while the grey first row stays pinned for continuous context.【F:js/shared/hot.js†L694-L889】【F:css/style.css†L24-L63】
 - **Rich styling controls:** Adjust colors, fonts, borders, opacity, grid lines, and axis limits directly beside the live plot for every visualization type.【F:index.html†L92-L153】【F:index.html†L704-L781】
 - **Integrated statistics:** Access module-specific statistical summaries, including overlap significance, parametric/non-parametric correlations, hypothesis tests, Chi², and ROC/PR metrics, with results rendered beneath the plots.【F:index.html†L160-L248】【F:index.html†L320-L408】
+- **Correlation heatmap clarity:** Cluster Pearson or Spearman matrices, optionally overlay dendrograms, and reference the built-in color scale legend to interpret coefficient magnitudes at a glance.【F:js/components/heatmap.js†L942-L1089】
 - **Reusable `.graph` sessions:** Open, save, and “save as” persistent graph files that capture table data plus visual settings, making it easy to revisit or share analyses.【F:index.html†L76-L108】【F:index.html†L656-L671】
 - **Zero-install deployment:** Launch by opening `index.html` in any modern browser; no build step or server-side components required.【F:index.html†L1-L20】
 
