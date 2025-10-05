@@ -79,6 +79,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Switch between box, notched box, or bar charts; toggle whisker caps; and control overlay or side-by-side point displays.【F:index.html†L360-L408】
 - Apply unified or per-series color palettes, log-scale the Y axis, and clamp axis ranges for publication-ready aesthetics.【F:index.html†L340-L392】
 - Use the statistics panel to configure comparison modes (all pairwise, reference vs. others, or custom) and run parametric (t-test) or non-parametric (Mann–Whitney U) analyses in paired or unpaired settings. Results render in both summary text and tabular form beneath the plot.【F:index.html†L392-L408】
+- Toggle dedicated post-hoc strategies—standard pairwise corrections, Tukey HSD (studentized range, parametric/unpaired), or Dunn's rank-based contrasts—directly inside the statistics panel. Adjusted P-values, selected effect sizes, and descriptive footnotes persist in `.graph` saves for reproducible reporting.【F:index.html†L392-L408】【F:js/components/box.js†L2143-L2194】【F:js/components/box.js†L2882-L3077】【F:js/components/box.js†L4370-L4520】
 - Inspect accompanying effect sizes for every comparison, with configurable parametric (e.g., Cohen's d or Hedges' g) and non-parametric (rank-biserial r or common language probability) metrics persisted alongside significance results.【F:js/components/box.js†L2506-L2710】
 
 ### Scatter Plot Explorer
@@ -126,7 +127,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 ## Statistical Analysis Toolkit
 Across modules, statistical helpers are surfaced exactly where you need them:
 - **Overlap significance:** Hypergeometric p-values for Venn diagram intersections based on a user-provided universe size.【F:index.html†L160-L208】
-- **Hypothesis testing:** Parametric and non-parametric comparisons for box plots, including paired analysis and customizable pairings, plus Chi² tests for categorical proportions.【F:index.html†L392-L408】【F:index.html†L1096-L1108】
+- **Hypothesis testing:** Parametric and non-parametric comparisons for box plots, including paired analysis, customizable pairings, and configurable post-hoc adjustments (standard corrections, Tukey HSD, or Dunn) alongside Chi² tests for categorical proportions.【F:index.html†L392-L408】【F:js/components/box.js†L2143-L2194】【F:index.html†L1096-L1108】
 - **Correlation and regression:** Pearson or Spearman correlation coefficients for scatter and line graphs with selectable linear, polynomial, exponential, power, spline, or logistic models, complete with coefficient summaries, interval bounds, and residual diagnostics to validate assumptions.【F:index.html†L488-L520】【F:index.html†L752-L916】【F:js/shared/regression.js†L1-L451】
 - **Classification metrics:** ROC/PR workspaces compute trapezoidal area under the curve, average precision, and related diagnostics via inline summaries.【F:index.html†L800-L928】
 - **Dimension summaries:** PCA/MDS output includes eigenvalue or stress statistics to contextualize ordination quality.【F:index.html†L520-L640】
@@ -159,6 +160,7 @@ Internet access is required for these external services; all other features oper
 - **Performance considerations:** Log-scaled axes and dense scatter plots can incur rendering costs. Adjust point transparency or limit visible data when working with tens of thousands of rows.
 - **Volcano plot memory benchmark:** Compare legacy and optimized processing on the bundled dataset with `node --expose-gc scripts/volcano-benchmark.js`; the script reports heap deltas so you can verify lightweight handling for ~18k rows.【F:scripts/volcano-benchmark.js†L1-L89】
 - **Avoid redraw loops:** When reflowing layouts from inside a draw routine, call `layout.syncPanels({ skipSchedule: true })` so the Shared panel synchronizer does not immediately queue another draw on your behalf.【F:js/shared/componentLayout.js†L96-L126】【F:js/components/scatter.js†L1929-L1934】
+- **Graph viewport helper:** After constructing SVG content, call `Shared.graphViewport.ensure(svg, { padding, debugLabel })` to normalize the viewBox and container overflow so titles, legends, and annotations stay inside the visible graph area across modules.【F:js/shared/dom.js†L118-L168】
 - **Keyboard shortcuts:** Handsontable supports familiar spreadsheet shortcuts (copy, paste, undo/redo), making it easy to prototype analyses before exporting results.
 - **Offline usage:** With the exception of GO/STRING integrations, all functionality works without an internet connection—ideal for secure lab environments.
 

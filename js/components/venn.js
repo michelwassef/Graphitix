@@ -18,6 +18,24 @@
     console.debug(`Debug: venn ${label}`, payload || {});
   };
 
+  const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+    ? Shared.graphViewport.createEnsurer('venn')
+    : (svg, options = {}) => {
+      const fn = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+      if(typeof fn === 'function'){
+        fn(svg, { component: 'venn', debugLabel: 'venn-viewport-fallback', ...options });
+        return;
+      }
+      debugLog('ensureGraphViewport helper missing', {
+        hasShared: !!Shared,
+        hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
+      });
+    };
+  debugLog('graph viewport helper configured', {
+    hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
+    usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
+  });
+
   /**
    * Resolves an event binding target into an array of DOM nodes.
    * Supports selector strings, direct elements, NodeLists, arrays, and
@@ -1465,6 +1483,7 @@
       else if (inA && inB && inC) region = 'ABC';
       if (region && state.ui.regionSelect) { state.ui.regionSelect.value = region; populateRegion(region); }
     };
+    ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'venn-diagram' });
   }
 
   function drawFromLists() {

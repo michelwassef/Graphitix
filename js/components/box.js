@@ -316,17 +316,22 @@
     const serializer = new (global.XMLSerializer || XMLSerializer)();
     return serializer.serializeToString(svgEl);
   };
-  const autoResizeSvg = (svg, opts) => {
-    const fn = Shared.autoResizeSvg || global.autoResizeSvg;
-    if (typeof fn === 'function') {
-      return fn(svg, opts);
-    }
-    console.warn('box component autoResizeSvg fallback missing');
-    return undefined;
-  };
+  const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+    ? Shared.graphViewport.createEnsurer('box')
+    : (svg, options = {}) => {
+      const fn = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+      if(typeof fn === 'function'){
+        fn(svg, { component: 'box', debugLabel: 'box-viewport-fallback', ...options });
+        return;
+      }
+      console.debug('Debug: box ensureGraphViewport helper missing', {
+        hasShared: !!Shared,
+        hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
+      });
+    };
   console.debug('Debug: box component DOM helpers resolved', {
     hasSharedEditable: typeof Shared.makeEditable === 'function',
-    hasSharedResize: typeof Shared.autoResizeSvg === 'function',
+    hasSharedResize: typeof Shared.graphViewport?.ensure === 'function' || typeof Shared.autoResizeSvg === 'function',
     hasSharedSerialize: typeof Shared.serializeCleanSVG === 'function'
   }); // Debug: helper resolution summary
   const markFontEditable = (node, role, key) => {
@@ -355,6 +360,307 @@
   function listEffectOptions(type){
     return type==='parametric'?EFFECT_SIZE_PARAM_OPTIONS.slice():EFFECT_SIZE_NONPARAM_OPTIONS.slice();
   }
+
+  const POST_HOC_META={
+    standard:{
+      value:'standard',
+      label:'Pairwise + correction',
+      shortLabel:'Standard',
+      tooltip:'Run pairwise tests and adjust P values using the selected multiple-testing correction.',
+      applies:context=>context?.mode!=='custom',
+      summary:()=>'Pairwise tests with the chosen correction.'
+    },
+    tukey:{
+      value:'tukey',
+      label:'Tukey HSD',
+      shortLabel:'Tukey',
+      tooltip:'Parametric Tukey Honestly Significant Difference using the studentized range distribution (unpaired, ≥3 groups).',
+      applies:context=>context && context.mode!=='custom' && context.test==='parametric' && !context.paired && context.groupCount>=3,
+      summary:context=>`Tukey HSD on ${context?.groupCount || 0} groups (family-wise adjusted).`
+    },
+    dunn:{
+      value:'dunn',
+      label:"Dunn's test",
+      shortLabel:'Dunn',
+      tooltip:"Non-parametric Dunn's post-hoc test using rank sums (unpaired, ≥3 groups).",
+      applies:context=>context && context.mode!=='custom' && context.test==='nonparametric' && !context.paired && context.groupCount>=3,
+      summary:context=>`Dunn's rank-based post-hoc across ${context?.groupCount || 0} groups.`
+    }
+  };
+  const POST_HOC_ORDER=['standard','tukey','dunn'];
+  function listPostHocOptions(){
+    return POST_HOC_ORDER.map(key=>({
+      value:key,
+      label:POST_HOC_META[key]?.label || key,
+      tooltip:POST_HOC_META[key]?.tooltip || ''
+    }));
+  }
+  function isPostHocSupported(method,context){
+    const meta=POST_HOC_META[method];
+    if(!meta||typeof meta.applies!=='function'){ return false; }
+    try{
+      return !!meta.applies(context||{});
+    }catch(err){
+      console.debug('Debug: box isPostHocSupported error',{ method, message:err?.message });
+      return false;
+    }
+  }
+  function ensureValidPostHoc(method,context){
+    const requested=(typeof method==='string'?method:'').toLowerCase();
+    if(requested && isPostHocSupported(requested,context)){
+      return requested;
+    }
+    for(const key of POST_HOC_ORDER){
+      if(isPostHocSupported(key,context)){
+        if(requested && requested!==key){
+          console.debug('Debug: box postHoc fallback',{ requested, fallback:key, context });
+        }
+        return key;
+      }
+    }
+    console.debug('Debug: box postHoc default to standard',{ requested, context });
+    return 'standard';
+  }
+  function getPostHocSummary(method,context){
+    const meta=POST_HOC_META[method];
+    if(meta){
+      const summary=typeof meta.summary==='function'?meta.summary(context):meta.summary;
+      return summary || meta.tooltip || meta.label || method;
+    }
+    return method || 'standard';
+  }
+
+  const GAUSS_HERMITE_NODES=[
+    -3.889724897869781,
+    -3.020637025120889,
+    -2.2795070805010594,
+    -1.5976826351526044,
+    -0.9477883912401637,
+    -0.3142403762543591,
+    0.3142403762543591,
+    0.9477883912401637,
+    1.5976826351526044,
+    2.2795070805010594,
+    3.020637025120889,
+    3.889724897869781
+  ];
+  const GAUSS_HERMITE_WEIGHTS=[
+    2.6585516843563013e-07,
+    0.00001761400713915212,
+    0.0009322840086241802,
+    0.02697315497843491,
+    0.3982821276709972,
+    1.830103131080486,
+    1.830103131080486,
+    0.3982821276709972,
+    0.02697315497843491,
+    0.0009322840086241802,
+    0.00001761400713915212,
+    2.6585516843563013e-07
+  ];
+  function studentizedRangeCDFInfinite(q,r){
+    if(!Number.isFinite(q) || q<=0){
+      return 0;
+    }
+    if(!Number.isFinite(r) || r<2){
+      return 1;
+    }
+    const jStatLib=global.jStat;
+    const normalCdf=(value)=>{
+      if(jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'){
+        return jStatLib.normal.cdf(value,0,1);
+      }
+      return 0.5*(1+Math.erf(value/Math.SQRT2));
+    };
+    let acc=0;
+    for(let i=0;i<GAUSS_HERMITE_NODES.length;i++){
+      const node=GAUSS_HERMITE_NODES[i];
+      const weight=GAUSS_HERMITE_WEIGHTS[i];
+      const t=node*Math.SQRT2;
+      const upper=normalCdf(t+q);
+      const lower=normalCdf(t);
+      const span=Math.max(0,Math.min(1,upper-lower));
+      acc+=weight*Math.pow(span,r-1);
+    }
+    const result=acc/Math.sqrt(Math.PI);
+    const clamped=Math.max(0,Math.min(1,result));
+    console.debug('Debug: box studentizedRangeCDFInfinite',{ q, r, result:clamped });
+    return clamped;
+  }
+  function studentizedRangeCDF(q,r,df){
+    if(!Number.isFinite(q) || q<=0){
+      return 0;
+    }
+    if(!Number.isFinite(df) || df<=2){
+      const fallback=studentizedRangeCDFInfinite(q*Math.SQRT1_2,r);
+      console.debug('Debug: box studentizedRangeCDF df<=2 fallback',{ q, r, df, fallback });
+      return fallback;
+    }
+    const scale=Math.sqrt(df/(df-2));
+    const adjusted=q*scale;
+    const result=studentizedRangeCDFInfinite(adjusted,r);
+    console.debug('Debug: box studentizedRangeCDF',{ q, r, df, scale, adjusted, result });
+    return result;
+  }
+  function computeAnovaComponents(groups){
+    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
+    const counts=cleaned.map(group=>group.length);
+    const validCounts=counts.every(n=>n>0);
+    if(!validCounts){
+      return { ok:false, reason:'Each group needs at least one observation for Tukey HSD.' };
+    }
+    const k=cleaned.length;
+    const totals=cleaned.map(group=>group.reduce((sum,val)=>sum+val,0));
+    const totalN=counts.reduce((sum,val)=>sum+val,0);
+    if(totalN<=k){
+      return { ok:false, reason:'Tukey HSD requires more observations than groups.' };
+    }
+    const means=totals.map((sum,idx)=>sum/(counts[idx]||1));
+    const grandMean=totals.reduce((sum,val)=>sum+val,0)/totalN;
+    let sse=0;
+    cleaned.forEach((group,idx)=>{
+      const meanVal=means[idx];
+      group.forEach(value=>{ sse+=Math.pow(value-meanVal,2); });
+    });
+    const dfWithin=totalN-k;
+    const mse=dfWithin>0?sse/dfWithin:NaN;
+    return {
+      ok:Number.isFinite(mse) && mse>0 && dfWithin>0,
+      mse,
+      dfWithin,
+      means,
+      counts,
+      grandMean,
+      totalN,
+      groupCount:k,
+      sse
+    };
+  }
+  function computeTukeyComparisons(groups,labels){
+    const base=computeAnovaComponents(groups);
+    if(!base.ok){
+      console.debug('Debug: box computeTukeyComparisons unavailable',base);
+      return { ok:false, message:base.reason || 'Unable to compute Tukey HSD.' };
+    }
+    const pairs=[];
+    for(let i=0;i<base.groupCount;i++){
+      for(let j=i+1;j<base.groupCount;j++){
+        const ni=base.counts[i];
+        const nj=base.counts[j];
+        const se=Math.sqrt(base.mse*0.5*(1/ni+1/nj));
+        if(!Number.isFinite(se) || se<=0){
+          console.debug('Debug: box computeTukeyComparisons skip pair',{ i,j,se });
+          continue;
+        }
+        const diff=base.means[i]-base.means[j];
+        const q=Math.abs(diff)/se;
+        const cdf=studentizedRangeCDF(q,base.groupCount,base.dfWithin);
+        const pAdj=Math.max(0,Math.min(1,1-cdf));
+        pairs.push({
+          i,
+          j,
+          diff,
+          se,
+          q,
+          pAdj,
+          df:base.dfWithin,
+          mse:base.mse,
+          ni,
+          nj,
+          labelA:labels?.[i],
+          labelB:labels?.[j]
+        });
+      }
+    }
+    console.debug('Debug: box computeTukeyComparisons summary',{ pairCount:pairs.length, df:base.dfWithin, mse:base.mse });
+    return {
+      ok:pairs.length>0,
+      pairs,
+      df:base.dfWithin,
+      mse:base.mse,
+      footnote:`Tukey HSD adjusted via studentized range (df = ${base.dfWithin})`,
+      counts:base.counts,
+      means:base.means
+    };
+  }
+  function computeDunnComparisons(groups,labels){
+    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
+    const counts=cleaned.map(group=>group.length);
+    if(counts.some(n=>n===0)){
+      return { ok:false, message:"Dunn's test requires at least one value per group." };
+    }
+    const k=cleaned.length;
+    if(k<2){
+      return { ok:false, message:"Dunn's test needs at least two groups." };
+    }
+    const flat=[];
+    cleaned.forEach((group,gi)=>{
+      group.forEach(value=>flat.push({ value, group:gi }));
+    });
+    flat.sort((a,b)=>a.value-b.value);
+    let idx=0;
+    let tieSum=0;
+    while(idx<flat.length){
+      let j=idx+1;
+      while(j<flat.length && flat[j].value===flat[idx].value){ j++; }
+      const t=j-idx;
+      const avg=(idx+j-1)/2+1;
+      for(let m=idx;m<j;m++){ flat[m].rank=avg; }
+      if(t>1){ tieSum+=t*t*t-t; }
+      idx=j;
+    }
+    const rankSums=new Array(k).fill(0);
+    flat.forEach(item=>{ rankSums[item.group]+=item.rank; });
+    const totalN=flat.length;
+    if(totalN<=1){
+      return { ok:false, message:"Dunn's test requires more than one observation." };
+    }
+    const varianceBase=totalN*(totalN+1)/12;
+    const tieCorrectionDenom=Math.pow(totalN,3)-totalN;
+    const tieCorrection=tieCorrectionDenom!==0?1-tieSum/tieCorrectionDenom:1;
+    const corrected=Math.max(tieCorrection,1e-6);
+    const pairs=[];
+    for(let i=0;i<k;i++){
+      for(let j=i+1;j<k;j++){
+        const meanRankI=rankSums[i]/counts[i];
+        const meanRankJ=rankSums[j]/counts[j];
+        const diff=meanRankI-meanRankJ;
+        const se=Math.sqrt(varianceBase*corrected*((1/counts[i])+(1/counts[j])));
+        if(!Number.isFinite(se) || se<=0){
+          console.debug('Debug: box computeDunnComparisons skip pair',{ i,j,se });
+          continue;
+        }
+        const z=diff/se;
+        const absZ=Math.abs(z);
+        const jStatLib=global.jStat;
+        const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
+          ? jStatLib.normal.cdf(absZ,0,1)
+          : 0.5*(1+Math.erf(absZ/Math.SQRT2));
+        const p=Math.max(0,Math.min(1,2*(1-cdf)));
+        pairs.push({
+          i,
+          j,
+          diff,
+          z,
+          se,
+          p,
+          labelA:labels?.[i],
+          labelB:labels?.[j],
+          counts:{ a:counts[i], b:counts[j] },
+          rankMeans:{ a:meanRankI, b:meanRankJ }
+        });
+      }
+    }
+    console.debug('Debug: box computeDunnComparisons summary',{ pairCount:pairs.length, totalN, tieCorrection:corrected });
+    return {
+      ok:pairs.length>0,
+      pairs,
+      footnote:"Dunn's test uses rank sums with tie correction.",
+      totalN,
+      counts
+    };
+  }
+
   function resolveEffectOptionMeta(type,value){
     const list=listEffectOptions(type);
     const found=list.find(opt=>opt.value===value);
@@ -521,7 +827,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [] };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [] };
   const els = {};
 
   function updateStatsCorrectionSummary(count){
@@ -532,9 +838,18 @@
     }
     const rawCount=Number(count);
     const safeCount=Number.isFinite(rawCount) && rawCount>0 ? Math.round(rawCount) : 0;
+    if(state.statsPostHoc==='tukey'){
+      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:'awaiting data';
+      noteEl.textContent=`Post-hoc: Tukey HSD (${detail}, studentized range).`;
+      noteEl.dataset.method='tukey';
+      noteEl.dataset.correctionLabel='Tukey HSD';
+      console.debug('Debug: box updateStatsCorrectionSummary tukey',{ count:safeCount });
+      return;
+    }
     const meta=resolveCorrectionMeta(state.statsCorrection,safeCount);
     const detail=safeCount>0?`${safeCount} test${safeCount===1?'':'s'}`:'awaiting data';
-    noteEl.textContent=`Multiple-testing correction: ${meta.label} (${detail}).`;
+    const labelPrefix=state.statsPostHoc==='dunn'?"Dunn's test correction":"Multiple-testing correction";
+    noteEl.textContent=`${labelPrefix}: ${meta.label} (${detail}).`;
     noteEl.dataset.method=meta.key;
     noteEl.dataset.correctionLabel=meta.shortLabel || meta.label;
     console.debug('Debug: box updateStatsCorrectionSummary',{ method:meta.key, label:meta.label, count:safeCount });
@@ -2157,6 +2472,17 @@ function renderStatsControls(traces){
     console.debug('Debug: box statsEffectNonParametric normalized',{ before:state.statsEffectNonParametric, after:normalizedNonParamEffect });
     state.statsEffectNonParametric=normalizedNonParamEffect;
   }
+  const postHocContext={
+    mode: state.statsMode,
+    test: state.statsTest,
+    paired: state.statsPaired,
+    groupCount: Array.isArray(traces)?traces.length:0
+  };
+  const normalizedPostHoc=ensureValidPostHoc(state.statsPostHoc,postHocContext);
+  if(normalizedPostHoc!==state.statsPostHoc){
+    console.debug('Debug: box statsPostHoc normalized',{ before:state.statsPostHoc, after:normalizedPostHoc, context:postHocContext });
+    state.statsPostHoc=normalizedPostHoc;
+  }
 
   if(state.tableFormat==='grouped'){
     renderGroupedStatsControls(traces, controls);
@@ -2237,6 +2563,29 @@ function renderStatsControls(traces){
   optionWrap.appendChild(modeLabel);
   optionWrap.appendChild(modeSel);
 
+  const postHocLabel=document.createElement('label');
+  postHocLabel.textContent='Post-hoc:';
+  const postHocSel=document.createElement('select');
+  const postHocOptions=listPostHocOptions();
+  postHocOptions.forEach(opt=>{
+    const option=document.createElement('option');
+    option.value=opt.value;
+    option.textContent=opt.label;
+    option.title=opt.tooltip || '';
+    const supported=isPostHocSupported(opt.value,postHocContext);
+    option.disabled=!supported;
+    if(opt.value===state.statsPostHoc){ option.selected=true; }
+    postHocSel.appendChild(option);
+  });
+  postHocSel.addEventListener('change',()=>{
+    state.statsPostHoc=postHocSel.value;
+    console.debug('Debug: box statsPostHoc changed',{ value:state.statsPostHoc });
+    renderStatsControls(traces);
+    state.scheduleDraw();
+  });
+  optionWrap.appendChild(postHocLabel);
+  optionWrap.appendChild(postHocSel);
+
   const correctionLabel=document.createElement('label');
   correctionLabel.textContent='Correction:';
   const correctionSel=document.createElement('select');
@@ -2254,6 +2603,10 @@ function renderStatsControls(traces){
     updateStatsCorrectionSummary(0);
     state.scheduleDraw();
   });
+  correctionSel.disabled=state.statsPostHoc==='tukey';
+  if(correctionSel.disabled){
+    correctionSel.title='Tukey HSD already adjusts for multiple comparisons.';
+  }
   optionWrap.appendChild(correctionLabel);
   optionWrap.appendChild(correctionSel);
 
@@ -2296,6 +2649,11 @@ function renderStatsControls(traces){
   });
   optionWrap.appendChild(nonParamEffectLabel);
   optionWrap.appendChild(nonParamEffectSel);
+
+  const postHocHelp=document.getElementById('statsPostHocHelp');
+  if(postHocHelp){
+    postHocHelp.textContent=getPostHocSummary(state.statsPostHoc,postHocContext);
+  }
 
   if(state.statsMode==='reference'){
     const refLabel=document.createElement('label');
@@ -2878,84 +3236,253 @@ function renderGroupedStatsControls(traces, controls){
     const xs=indices.map(i=>categoryCenter(i));
     let pairs=[];
     let referenceLabel=null;
+    let methodFootnotes=[];
+    const postHocMode=ensureValidPostHoc(state.statsPostHoc,{ mode: state.statsMode, test: param?'parametric':'nonparametric', paired: state.statsPaired, groupCount: indices.length });
+    if(postHocMode!==state.statsPostHoc){
+      console.debug('Debug: box computeStats postHoc normalized',{ before:state.statsPostHoc, after:postHocMode });
+      state.statsPostHoc=postHocMode;
+    }
     if(state.statsMode==='all'){
-      for(let i=0;i<indices.length;i++){
-        for(let j=i+1;j<indices.length;j++){
-          const aIdx=indices[i],bIdx=indices[j];
-          const aValues=traces[aIdx].rawY;
-          const bValues=traces[bIdx].rawY;
-          const r=pairTest(aValues,bValues);
-          const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
-          const statVal=r[statName];
-          const effectMetrics=computeEffectSizeMetrics(aValues,bValues,{ paired:state.statsPaired });
+      if(postHocMode==='tukey'){
+        const tukey=computeTukeyComparisons(groups,labels);
+        if(!tukey.ok){
+          setResultsMessage(tukey.message || 'Unable to compute Tukey HSD.');
+          updateStatsCorrectionSummary(0);
+          return;
+        }
+        methodFootnotes.push(tukey.footnote);
+        pairs=tukey.pairs.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          console.debug('Debug: box pair effect metrics',{ comparison:`${labels[i]} vs ${labels[j]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
-          let rangeMax=-Infinity; for(let k=Math.min(aIdx,bIdx);k<=Math.max(aIdx,bIdx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
-          pairs.push({
-            a:i,
-            b:j,
-            ai:aIdx,
-            bi:bIdx,
-            p:r.p,
-            rangeMax,
-            stat:statVal,
-            statName,
-            df:r.df,
-            labelA:labels[i],
-            labelB:labels[j],
+          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          return {
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.pAdj,
+            adjP:pr.pAdj,
+            stat:pr.q,
+            statName:'q',
+            df:pr.df,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
             effects:effectMetrics,
             effectParametric:formattedParamEffect,
-            effectNonParametric:formattedNonParamEffect
-          });
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:'tukey'
+          };
+        });
+        updateStatsCorrectionSummary(pairs.length);
+      }else if(postHocMode==='dunn'){
+        const dunn=computeDunnComparisons(groups,labels);
+        if(!dunn.ok){
+          setResultsMessage(dunn.message || "Unable to compute Dunn's test.");
+          updateStatsCorrectionSummary(0);
+          return;
         }
-      }
-      if(pairs.length){
-        const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
-        adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
+        methodFootnotes.push(dunn.footnote);
+        pairs=dunn.pairs.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          return {
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.p,
+            stat:pr.z,
+            statName:'z',
+            df:null,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:'dunn'
+          };
+        });
+        if(pairs.length){
+          const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
+          adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
+        }
+        updateStatsCorrectionSummary(pairs.length);
+      }else{
+        for(let i=0;i<indices.length;i++){
+          for(let j=i+1;j<indices.length;j++){
+            const aIdx=indices[i],bIdx=indices[j];
+            const aValues=traces[aIdx].rawY;
+            const bValues=traces[bIdx].rawY;
+            const r=pairTest(aValues,bValues);
+            const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
+            const statVal=r[statName];
+            const effectMetrics=computeEffectSizeMetrics(aValues,bValues,{ paired:state.statsPaired });
+            const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+            const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+            console.debug('Debug: box pair effect metrics',{ comparison:`${labels[i]} vs ${labels[j]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
+            let rangeMax=-Infinity; for(let k=Math.min(aIdx,bIdx);k<=Math.max(aIdx,bIdx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+            pairs.push({
+              a:i,
+              b:j,
+              ai:aIdx,
+              bi:bIdx,
+              p:r.p,
+              rangeMax,
+              stat:statVal,
+              statName,
+              df:r.df,
+              labelA:labels[i],
+              labelB:labels[j],
+              effects:effectMetrics,
+              effectParametric:formattedParamEffect,
+              effectNonParametric:formattedNonParamEffect,
+              method:'standard'
+            });
+          }
+        }
+        if(pairs.length){
+          const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
+          adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
+        }
+        updateStatsCorrectionSummary(pairs.length);
       }
     } else if(state.statsMode==='reference'){
       const refIdx=indices.indexOf(state.statsRef); if(refIdx===-1){ setResultsMessage('Select reference column among the chosen groups.'); return; }
       const refData=groups[refIdx];
       referenceLabel=labels[refIdx];
-      indices.forEach((idx,i)=>{
-        if(i===refIdx) return;
-        const compareValues=traces[idx].rawY;
-        const r=pairTest(refData,compareValues);
-        const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
-        const statVal=r[statName];
-        const effectMetrics=computeEffectSizeMetrics(refData,compareValues,{ paired:state.statsPaired });
-        const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
-        const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-        console.debug('Debug: box reference pair effect metrics',{ comparison:`${labels[refIdx]} vs ${labels[i]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
-        let rangeMax=-Infinity; for(let k=Math.min(state.statsRef,idx);k<=Math.max(state.statsRef,idx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
-        pairs.push({
-          a:refIdx,
-          b:i,
-          ai:state.statsRef,
-          bi:idx,
-          p:r.p,
-          rangeMax,
-          labelA:labels[refIdx],
-          labelB:labels[i],
-          stat:statVal,
-          statName,
-          df:r.df,
-          effects:effectMetrics,
-          effectParametric:formattedParamEffect,
-          effectNonParametric:formattedNonParamEffect
+      if(postHocMode==='tukey'){
+        const tukey=computeTukeyComparisons(groups,labels);
+        if(!tukey.ok){
+          setResultsMessage(tukey.message || 'Unable to compute Tukey HSD.');
+          updateStatsCorrectionSummary(0);
+          return;
+        }
+        methodFootnotes.push(tukey.footnote);
+        const filtered=tukey.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
+        pairs=filtered.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          return {
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.pAdj,
+            adjP:pr.pAdj,
+            stat:pr.q,
+            statName:'q',
+            df:pr.df,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:'tukey'
+          };
         });
-      });
-      if(pairs.length){
-        const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
-        adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
+        updateStatsCorrectionSummary(pairs.length);
+      }else if(postHocMode==='dunn'){
+        const dunn=computeDunnComparisons(groups,labels);
+        if(!dunn.ok){
+          setResultsMessage(dunn.message || "Unable to compute Dunn's test.");
+          updateStatsCorrectionSummary(0);
+          return;
+        }
+        methodFootnotes.push(dunn.footnote);
+        const filtered=dunn.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
+        pairs=filtered.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          return {
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.p,
+            stat:pr.z,
+            statName:'z',
+            df:null,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:'dunn'
+          };
+        });
+        if(pairs.length){
+          const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
+          adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
+        }
+        updateStatsCorrectionSummary(pairs.length);
+      }else{
+        indices.forEach((idx,i)=>{
+          if(i===refIdx) return;
+          const compareValues=traces[idx].rawY;
+          const r=pairTest(refData,compareValues);
+          const statName=r.t!==undefined?'t':r.U!==undefined?'U':r.W!==undefined?'W':'stat';
+          const statVal=r[statName];
+          const effectMetrics=computeEffectSizeMetrics(refData,compareValues,{ paired:state.statsPaired });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          console.debug('Debug: box reference pair effect metrics',{ comparison:`${labels[refIdx]} vs ${labels[i]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
+          let rangeMax=-Infinity; for(let k=Math.min(state.statsRef,idx);k<=Math.max(state.statsRef,idx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          pairs.push({
+            a:refIdx,
+            b:i,
+            ai:state.statsRef,
+            bi:idx,
+            p:r.p,
+            rangeMax,
+            labelA:labels[refIdx],
+            labelB:labels[i],
+            stat:statVal,
+            statName,
+            df:r.df,
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            method:'standard'
+          });
+        });
+        if(pairs.length){
+          const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
+          adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
+        }
+        updateStatsCorrectionSummary(pairs.length);
       }
     }
     if(pairs.length){
-      const correctionMeta=resolveCorrectionMeta(state.statsCorrection,pairs.length);
+      let correctionMeta;
+      if(postHocMode==='tukey'){
+        correctionMeta={ key:'tukey', label:'Tukey HSD', shortLabel:'Tukey HSD', footnote:null };
+      }else{
+        correctionMeta=resolveCorrectionMeta(state.statsCorrection,pairs.length);
+      }
       updateStatsCorrectionSummary(pairs.length);
       console.debug('Debug: box pairwise correction applied',{ method:correctionMeta.key, count:pairs.length });
-      const footnotes=correctionMeta.footnote ? [correctionMeta.footnote] : [];
+      const footnotes=[];
+      if(correctionMeta.footnote){ footnotes.push(correctionMeta.footnote); }
+      methodFootnotes.forEach(note=>{ if(note){ footnotes.push(note); } });
       let appendForPairs=false;
       if(!state.statsPaired && overall){
         const overallStatName=param?'F':'H';
@@ -2995,13 +3522,16 @@ function renderGroupedStatsControls(traces, controls){
         footnotes.push(`Reference group: ${referenceLabel}`);
       }
       effectFootnotes.forEach(note=>footnotes.push(note));
+      const pLabel=postHocMode==='tukey'
+        ? 'P (Tukey HSD)'
+        : `P (adj, ${correctionMeta.shortLabel})`;
       renderTableModel({
         caption: state.statsMode==='reference' ? 'Comparisons vs reference' : 'Pairwise comparisons',
         columns:[
           {key:'comparison',label:'Comparison',align:'left',index:0},
           {key:'statistic',label:'Statistic',align:'left',index:1},
           {key:'df',label:'df',align:'right',index:2},
-          {key:'padj',label:`P (adj, ${correctionMeta.shortLabel})`,align:'right',index:3},
+          {key:'padj',label:pLabel,align:'right',index:3},
           {key:'effectParametric',label:`Effect (${paramEffectMeta.shortLabel || paramEffectMeta.label})`,align:'right',index:4,tooltip:paramEffectMeta.tooltip},
           {key:'effectNonParametric',label:`Effect (${nonParamEffectMeta.shortLabel || nonParamEffectMeta.label})`,align:'right',index:5,tooltip:nonParamEffectMeta.tooltip}
         ],
@@ -4289,7 +4819,7 @@ function renderGroupedStatsControls(traces, controls){
 
     const orientationResult = isFlipped ? renderHorizontal() : renderVertical();
     if(!orientationResult){
-      autoResizeSvg(svg);
+      ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
       return;
     }
     if(token !== state.drawToken){
@@ -4323,7 +4853,7 @@ function renderGroupedStatsControls(traces, controls){
       const newY = Math.max(spacing, topMost - spacing);
       titleText.setAttribute('y', newY);
     }
-    autoResizeSvg(svg);
+    ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
     console.log('boxplot render complete');
   }
   // PART: SAVE_OPEN
@@ -4368,6 +4898,7 @@ function renderGroupedStatsControls(traces, controls){
           mode: state.statsMode,
           referenceIndex: state.statsRef,
           pairsText: state.statsPairsText,
+          postHoc: state.statsPostHoc,
           correction: state.statsCorrection,
           effectParametric: state.statsEffectParametric,
           effectNonParametric: state.statsEffectNonParametric,
@@ -4383,6 +4914,7 @@ function renderGroupedStatsControls(traces, controls){
       colorMode: payload.config.colorMode,
       statsTest: payload.config.stats?.test,
       statsMode: payload.config.stats?.mode,
+      statsPostHoc: payload.config.stats?.postHoc,
       statsCorrection: payload.config.stats?.correction,
       effectParametric: payload.config.stats?.effectParametric,
       effectNonParametric: payload.config.stats?.effectNonParametric,
@@ -4552,6 +5084,17 @@ function renderGroupedStatsControls(traces, controls){
         if(state.statsMode==='reference' && !state.selectedCols.has(state.statsRef)){
           state.selectedCols.add(state.statsRef);
         }
+        const postHocContextOnLoad={
+          mode: state.statsMode,
+          test: state.statsTest,
+          paired: state.statsPaired,
+          groupCount: state.selectedCols.size || labels.filter(l=>l!=null && l!=='').length
+        };
+        const restoredPostHoc=ensureValidPostHoc(statsConfig.postHoc || state.statsPostHoc,postHocContextOnLoad);
+        if(restoredPostHoc!==state.statsPostHoc){
+          console.debug('Debug: box statsPostHoc restored',{ before:state.statsPostHoc, after:restoredPostHoc, context:postHocContextOnLoad });
+          state.statsPostHoc=restoredPostHoc;
+        }
         state.statsCustomPairs=[];
         if(statsConfig.assumptions){
           const restoredAssumptions={
@@ -4577,6 +5120,7 @@ function renderGroupedStatsControls(traces, controls){
           statsMode: state.statsMode,
           statsPaired: state.statsPaired,
           statsRef: state.statsRef,
+          statsPostHoc: state.statsPostHoc,
           statsCorrection: state.statsCorrection,
           statsEffectParametric: state.statsEffectParametric,
           statsEffectNonParametric: state.statsEffectNonParametric,

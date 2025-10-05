@@ -17,6 +17,24 @@
     console.debug('Debug: roc component awaiting Shared.tableImport helpers'); // Debug: table import helper check
   }
 
+  const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+    ? Shared.graphViewport.createEnsurer('roc')
+    : (svg, options = {}) => {
+      const fn = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+      if(typeof fn === 'function'){
+        fn(svg, { component: 'roc', debugLabel: 'roc-viewport-fallback', ...options });
+        return;
+      }
+      console.debug('Debug: roc ensureGraphViewport helper missing', {
+        hasShared: !!Shared,
+        hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
+      });
+    };
+  console.debug('Debug: roc graph viewport helper configured', {
+    hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
+    usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
+  });
+
   const DEFAULT_ROWS = 100;
   const ROC_DEFAULT_COLS = 3;
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
@@ -999,6 +1017,7 @@
     }else if(state.compareResult){
       state.compareResult.textContent = '';
     }
+    ensureGraphViewport(svg, { padding: Math.max(fontSize, 16), debugLabel: 'roc-graph' });
     state.layout?.syncPanels?.({ skipSchedule: true });
   }
 
