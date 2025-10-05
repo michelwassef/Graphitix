@@ -713,6 +713,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #survivalPage .diagram-area .config-options{flex:0 0 auto}
 #survivalPage .panel{display:flex;flex-direction:column;min-width:0}
 #survivalPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
+#survivalPage .stats-toggle-row{gap:12px;margin-bottom:8px}
 #survivalPage #survivalPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 @media (max-width:1000px){#survivalPage .wrap{grid-template-columns:1fr}}
 #histPage .wrap{display:flex;align-items:stretch;gap:0}
