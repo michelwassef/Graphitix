@@ -38,6 +38,7 @@ Because everything runs client-side, sensitive data never leaves the browser ses
 ## Feature Highlights
 - **Multi-graph dashboard:** Switch instantly between Venn, box, scatter, PCA/MDS, line, ROC/PR, histogram, and proportion graph modules from the top navigation bar.【F:index.html†L12-L24】【F:index.html†L640-L795】
 - **Handsontable-powered data entry:** Each module embeds a fully featured spreadsheet editor with undo/redo, column reordering, context menus, and CSV/TSV/Excel/ODS import utilities.【F:index.html†L68-L129】【F:index.html†L704-L731】
+- **Clickable column sorting:** Toggle ascending or descending order by clicking any Handsontable column header—header rows remain pinned so field labels stay visible while you explore data.【F:js/shared/hot.js†L116-L206】【F:index.html†L68-L129】
 - **Rich styling controls:** Adjust colors, fonts, borders, opacity, grid lines, and axis limits directly beside the live plot for every visualization type.【F:index.html†L92-L153】【F:index.html†L704-L781】
 - **Integrated statistics:** Access module-specific statistical summaries, including overlap significance, parametric/non-parametric correlations, hypothesis tests, Chi², and ROC/PR metrics, with results rendered beneath the plots.【F:index.html†L160-L248】【F:index.html†L320-L408】
 - **Reusable `.graph` sessions:** Open, save, and “save as” persistent graph files that capture table data plus visual settings, making it easy to revisit or share analyses.【F:index.html†L76-L108】【F:index.html†L656-L671】
