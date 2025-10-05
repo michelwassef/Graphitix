@@ -23,6 +23,81 @@
 
   let scheduleDrawPca = () => {};
   let lastPcaStats = null;
+  const pcaState = {
+    axisSelection: { x: 1, y: 2, z: 3 },
+    axisMeta: [],
+    rotation: { x: PCA_3D_DEFAULTS.rotationX, y: PCA_3D_DEFAULTS.rotationY },
+    rotationPending: false,
+    rotationPendingLogged: false
+  };
+
+  function sanitizeAxisSelection(dimensionCount){
+    const axis = pcaState.axisSelection;
+    const before = { ...axis };
+    const count = Number.isFinite(Number(dimensionCount)) ? Math.max(0, Math.floor(Number(dimensionCount))) : 0;
+    if(count <= 0){
+      return axis;
+    }
+    const clampVal = (value, fallback) => {
+      const num = Number(value);
+      if(!Number.isFinite(num)){ return fallback; }
+      const rounded = Math.round(num);
+      return Math.min(Math.max(rounded, 1), count);
+    };
+    axis.x = clampVal(axis.x, 1);
+    axis.y = clampVal(axis.y, count >= 2 ? 2 : 1);
+    if(count >= 2 && axis.x === axis.y){
+      axis.y = axis.x === count ? Math.max(1, axis.x - 1) : Math.min(count, axis.x + 1);
+      if(axis.x === axis.y && count > 1){
+        axis.y = axis.x === 1 ? 2 : 1;
+      }
+    }
+    if(count >= 3){
+      axis.z = clampVal(axis.z, 3);
+      if(axis.z === axis.x || axis.z === axis.y){
+        let candidate = 1;
+        while(candidate <= count && (candidate === axis.x || candidate === axis.y)){
+          candidate += 1;
+        }
+        axis.z = candidate <= count ? candidate : count;
+      }
+    } else if(count > 0){
+      axis.z = clampVal(axis.z, count);
+    }
+    const changed = before.x !== axis.x || before.y !== axis.y || before.z !== axis.z;
+    if(changed){
+      console.debug('Debug: pca axis selection sanitized',{ before, after: { ...axis }, dimensionCount: count }); // Debug: axis sanitize summary
+    }
+    return axis;
+  }
+
+  function axisSelectionToIndices(dimensionCount){
+    const count = Number.isFinite(Number(dimensionCount)) ? Math.max(0, Math.floor(Number(dimensionCount))) : 0;
+    if(count <= 0){
+      return { x: 0, y: 0, z: null };
+    }
+    const toIndex = (value) => {
+      const num = Number(value);
+      if(!Number.isFinite(num)){ return 0; }
+      const idx = Math.round(num) - 1;
+      return Math.min(Math.max(idx, 0), count - 1);
+    };
+    return {
+      x: toIndex(pcaState.axisSelection.x),
+      y: toIndex(pcaState.axisSelection.y),
+      z: count >= 3 ? toIndex(pcaState.axisSelection.z) : null
+    };
+  }
+
+  function formatAxisLabel(meta){
+    if(!meta){ return ''; }
+    const base = meta.label || '';
+    const pct = typeof meta.variancePercent === 'number' ? meta.variancePercent : null;
+    if(pct !== null && !Number.isNaN(pct)){
+      return `${base} (${pct.toFixed(1)}%)`;
+    }
+    return base;
+  }
 
   function setup(){
     if(pca.ready){ console.debug('Debug: Components.pca.setup skipped'); return; }
@@ -182,6 +257,14 @@
       }
       const pcaShowLoadings=$('#pcaShowLoadings');
       const pcaViewMode=$('#pcaViewMode');
+      const pcaXAxis=$('#pcaXAxis');
+      const pcaYAxis=$('#pcaYAxis');
+      const pcaZAxis=$('#pcaZAxis');
+      const pcaAxis2DControls=document.getElementById('pcaAxis2DControls');
+      const pcaAxis3DControl=document.getElementById('pcaAxis3DControl');
+      if(pcaAxis3DControl){
+        pcaAxis3DControl.style.display = 'none';
+      }
       const pcaMethod=$('#pcaMethod'), pcaFill=$('#pcaFill'), pcaBorder=$('#pcaBorder'), pcaBorderWidth=$('#pcaBorderWidth'), pcaDotSize=$('#pcaDotSize'), pcaAlpha=$('#pcaAlpha');
       const pcaAlphaVal=$('#pcaAlphaVal');
       const pcaFontSize=$('#pcaFontSize'), pcaFontSizeVal=$('#pcaFontSizeVal');
@@ -205,6 +288,144 @@
       const pcaShowScree=$('#pcaShowScree');
       const pcaShowEigenTable=$('#pcaShowEigenTable');
       const pcaEnableEigenExport=$('#pcaEnableEigenExport');
+      function syncAxisSelectValues(){
+        const entries = [
+          { key: 'x', element: pcaXAxis },
+          { key: 'y', element: pcaYAxis },
+          { key: 'z', element: pcaZAxis }
+        ];
+        entries.forEach(({ key, element }) => {
+          if(!element){ return; }
+          const desired = String(pcaState.axisSelection[key]);
+          const options = Array.from(element.options || []);
+          if(options.some(opt => opt.value === desired)){
+            element.value = desired;
+          }
+        });
+      }
+      function applyAxisVisibility(viewMode){
+        if(pcaAxis3DControl){
+          const show3d = (viewMode || '').toLowerCase() === '3d' && pcaState.axisMeta.length >= 3;
+          pcaAxis3DControl.style.display = show3d ? '' : 'none';
+        }
+        if(pcaAxis2DControls){
+          pcaAxis2DControls.style.opacity = pcaState.axisMeta.length >= 2 ? '1' : '0.7';
+        }
+      }
+      function updateAxisSelectOptions(options){
+        const meta = Array.isArray(options?.dimensionMeta) ? options.dimensionMeta : [];
+        const dimensionCount = meta.length;
+        pcaState.axisMeta = meta;
+        sanitizeAxisSelection(dimensionCount);
+        const axisEntries = [
+          { key: 'x', element: pcaXAxis, required: 1 },
+          { key: 'y', element: pcaYAxis, required: 2 },
+          { key: 'z', element: pcaZAxis, required: 3 }
+        ];
+        axisEntries.forEach(({ key, element, required }) => {
+          if(!element){ return; }
+          element.innerHTML = '';
+          if(dimensionCount < required){
+            element.disabled = true;
+            return;
+          }
+          meta.forEach(item => {
+            const option = document.createElement('option');
+            option.value = String(item.value);
+            option.textContent = formatAxisLabel(item);
+            element.appendChild(option);
+          });
+          element.disabled = false;
+        });
+        syncAxisSelectValues();
+        applyAxisVisibility(options?.viewMode || (pcaViewMode?.value || DEFAULT_VIEW_MODE));
+        console.debug('Debug: pca axis options updated',{ dimensionCount, viewMode: options?.viewMode || null, selection: { ...pcaState.axisSelection } }); // Debug: axis option summary
+      }
+      function scheduleRotationRedraw(){
+        if(pcaState.rotationPending){
+          if(!pcaState.rotationPendingLogged){
+            console.debug('Debug: pca rotation redraw skipped',{ reason: 'pending' });
+            pcaState.rotationPendingLogged = true;
+          }
+          return;
+        }
+        pcaState.rotationPending = true;
+        pcaState.rotationPendingLogged = false;
+        console.debug('Debug: pca rotation redraw scheduled');
+        scheduleDrawPca();
+      }
+      function attach3dRotationControls(svgEl){
+        if(!svgEl){ return; }
+        svgEl.style.cursor = 'grab';
+        svgEl.style.touchAction = 'none';
+        const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0, logged: false };
+        svgEl.addEventListener('pointerdown', (event) => {
+          pointerState.active = true;
+          pointerState.pointerId = event.pointerId;
+          pointerState.lastX = event.clientX;
+          pointerState.lastY = event.clientY;
+          pointerState.logged = false;
+          svgEl.setPointerCapture?.(event.pointerId);
+          svgEl.style.cursor = 'grabbing';
+          console.debug('Debug: pca rotation drag start',{ pointerId: event.pointerId });
+        });
+        svgEl.addEventListener('pointermove', (event) => {
+          if(!pointerState.active){ return; }
+          const dx = event.clientX - pointerState.lastX;
+          const dy = event.clientY - pointerState.lastY;
+          pointerState.lastX = event.clientX;
+          pointerState.lastY = event.clientY;
+          const sensitivity = 0.01;
+          pcaState.rotation.y += dx * sensitivity;
+          pcaState.rotation.x += dy * sensitivity;
+          const halfPi = Math.PI / 2;
+          if(pcaState.rotation.x > halfPi){ pcaState.rotation.x = halfPi; }
+          if(pcaState.rotation.x < -halfPi){ pcaState.rotation.x = -halfPi; }
+          if(pcaState.rotation.y > Math.PI){ pcaState.rotation.y -= Math.PI * 2; }
+          if(pcaState.rotation.y < -Math.PI){ pcaState.rotation.y += Math.PI * 2; }
+          if(!pointerState.logged){
+            console.debug('Debug: pca rotation updating',{ rotation: { ...pcaState.rotation } }); // Debug: first rotation update snapshot
+            pointerState.logged = true;
+          }
+          scheduleRotationRedraw();
+        });
+        const stopDrag = (event, reason) => {
+          if(!pointerState.active){ return; }
+          pointerState.active = false;
+          try{
+            if(pointerState.pointerId !== null){
+              svgEl.releasePointerCapture(pointerState.pointerId);
+            }
+          }catch(err){
+            console.debug('Debug: pca rotation pointer release error',{ message: err?.message || String(err) });
+          }
+          svgEl.style.cursor = 'grab';
+          console.debug('Debug: pca rotation drag end',{ reason, rotation: { ...pcaState.rotation } });
+        };
+        svgEl.addEventListener('pointerup', (event) => stopDrag(event,'pointerup'));
+        svgEl.addEventListener('pointercancel', (event) => stopDrag(event,'pointercancel'));
+        svgEl.addEventListener('pointerleave', (event) => stopDrag(event,'pointerleave'));
+      }
+      const axisSelectEntries = [
+        { axis: 'x', element: pcaXAxis },
+        { axis: 'y', element: pcaYAxis },
+        { axis: 'z', element: pcaZAxis }
+      ];
+      axisSelectEntries.forEach(({ axis, element }) => {
+        if(!element){ return; }
+        element.addEventListener('change', () => {
+          const requested = Number(element.value);
+          if(!Number.isFinite(requested)){ return; }
+          const previous = { ...pcaState.axisSelection };
+          pcaState.axisSelection[axis] = requested;
+          sanitizeAxisSelection(pcaState.axisMeta.length);
+          syncAxisSelectValues();
+          const changed = previous[axis] !== pcaState.axisSelection[axis];
+          console.debug('Debug: pca axis selection change',{ axis, requested, final: pcaState.axisSelection[axis], changed });
+          scheduleDrawPca();
+        });
+      });
+      applyAxisVisibility(pcaViewMode?.value || DEFAULT_VIEW_MODE);
       function updateEigenExportVisibility(shouldShow){
         if(!pcaExportEigenTableBtn){ return; }
         const visible = !!shouldShow;
@@ -475,6 +696,7 @@
         pcaViewMode.addEventListener('change',()=>{
           const mode = (pcaViewMode.value || DEFAULT_VIEW_MODE);
           console.debug('Debug: pca viewMode change',{ mode }); // Debug: view mode toggle listener
+          applyAxisVisibility(mode);
           scheduleDrawPca();
         });
       }
@@ -547,6 +769,11 @@
       }
       let pcaXLabelText='PC1'; let pcaYLabelText='PC2'; let pcaZLabelText='PC3';
     async function drawPca(){
+      if(pcaState.rotationPending){
+        console.debug('Debug: pca rotation pending reset at draw');
+      }
+      pcaState.rotationPending = false;
+      pcaState.rotationPendingLogged = false;
       const debugStamp = Date.now();
       console.log('drawPca called', {debugStamp}); // Debug: draw invocation marker
 
@@ -559,6 +786,7 @@
           pcaPlotDiv.innerHTML = '<i>PCA dependencies missing.</i>';
         }
         resetStatsPanel('');
+        updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
         return;
       }
       resetStatsPanel();
@@ -567,8 +795,10 @@
       let eigenSummaryData = [];
       let screeData = [];
       let statsMethod = null;
+      let dimensionMeta = [];
 
       const requestedViewMode = (pcaViewMode?.value || DEFAULT_VIEW_MODE).toLowerCase();
+      const method = (pcaMethod.value || 'pca').toLowerCase();
       const showLoadings = !!pcaShowLoadings?.checked;
       if(pcaLoadingsPanel){
         pcaLoadingsPanel.style.display = showLoadings ? '' : 'none';
@@ -764,12 +994,14 @@
       if (numericColIndices.length < 2) {
         pcaPlotDiv.innerHTML = '<i>At least two numeric variable columns required.</i>';
         resetStatsPanel();
+        updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
         return;
       }
 
       if (matrixRaw.length < 2 || matrixRaw[0].length < 2) {
         pcaPlotDiv.innerHTML = '<i>At least two samples and two variables required.</i>';
         resetStatsPanel();
+        updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
         return;
       }
 
@@ -811,7 +1043,6 @@
           }
         }
       }
-      const method = (pcaMethod.value || 'pca').toLowerCase();
       statsMethod = method;
       if(pcaShowScree){
         pcaShowScree.disabled = method !== 'pca';
@@ -919,6 +1150,7 @@
         if (dimsToUse === 0) {
           pcaPlotDiv.innerHTML = '<i>MDS could not find positive eigenvalues.</i>';
           resetStatsPanel();
+          updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
           return;
         }
 
@@ -933,17 +1165,26 @@
           coords.push(coordRow);
         }
 
+        const totalPositive = positiveEigen.reduce((sum, { val }) => sum + val, 0);
+        dimensionMeta = [];
+        for (let dim = 0; dim < dimsToUse; dim++) {
+          const pct = totalPositive > 0 ? (positiveEigen[dim].val / totalPositive) * 100 : 0;
+          dimensionMeta.push({ value: dim + 1, label: `MDS${dim + 1}`, variancePercent: pct });
+        }
+        updateAxisSelectOptions({ dimensionMeta, viewMode: requestedViewMode, method });
+        const axisIndices = axisSelectionToIndices(dimensionMeta.length);
         points = coords.map((row, idx) => ({
-          x: row[0] || 0,
-          y: dimsToUse > 1 ? row[1] : 0,
+          x: row[axisIndices.x] || 0,
+          y: axisIndices.y != null ? (row[axisIndices.y] || 0) : 0,
           label: labels[idx],
         }));
 
-        const totalPositive = positiveEigen.reduce((sum, { val }) => sum + val, 0);
-        const dim1Pct = (positiveEigen[0].val / totalPositive) * 100;
-        const dim2Pct = dimsToUse > 1 ? (positiveEigen[1].val / totalPositive) * 100 : 0;
-        pcaXLabelText = `MDS1 (${dim1Pct.toFixed(1)}%)`;
-        pcaYLabelText = dimsToUse > 1 ? `MDS2 (${dim2Pct.toFixed(1)}%)` : 'MDS2';
+        const xMeta = dimensionMeta[axisIndices.x] || dimensionMeta[0] || null;
+        const yMeta = dimensionMeta[axisIndices.y] || dimensionMeta[1] || null;
+        const dim1Pct = dimensionMeta[0]?.variancePercent ?? 0;
+        const dim2Pct = dimensionMeta[1]?.variancePercent ?? 0;
+        pcaXLabelText = xMeta ? formatAxisLabel(xMeta) : `MDS${(axisIndices.x || 0) + 1}`;
+        pcaYLabelText = yMeta ? formatAxisLabel(yMeta) : (dimensionMeta.length > 1 ? `MDS${(axisIndices.y || 1) + 1}` : 'MDS2');
 
         let stressNumerator = 0;
         let stressDenominator = 0;
@@ -1024,30 +1265,36 @@
         if(thirdEigen){
           statsSummaryLines.push(`PC3: ${pc3Pct.toFixed(1)}% variance`);
         }
-        pcaXLabelText = firstEigen ? `PC1 (${pc1Pct.toFixed(1)}%)` : 'PC1';
-        pcaYLabelText = secondEigen ? `PC2 (${pc2Pct.toFixed(1)}%)` : 'PC2';
-        if(thirdEigen && svd.q.length >= 3){
-          pcaZLabelText = `PC3 (${pc3Pct.toFixed(1)}%)`;
-        }else{
-          pcaZLabelText = 'PC3';
-        }
+        dimensionMeta = eigenSummaryData.map(entry => ({
+          value: entry.component,
+          label: `PC${entry.component}`,
+          variancePercent: entry.variancePercent
+        }));
+        updateAxisSelectOptions({ dimensionMeta, viewMode: requestedViewMode, method });
+        const axisIndices = axisSelectionToIndices(dimensionMeta.length);
+        const xMeta = dimensionMeta[axisIndices.x] || null;
+        const yMeta = dimensionMeta[axisIndices.y] || null;
+        const zMeta = typeof axisIndices.z === 'number' ? (dimensionMeta[axisIndices.z] || null) : null;
+        pcaXLabelText = xMeta ? formatAxisLabel(xMeta) : `PC${axisIndices.x + 1}`;
+        pcaYLabelText = yMeta ? formatAxisLabel(yMeta) : `PC${axisIndices.y + 1}`;
+        pcaZLabelText = zMeta ? formatAxisLabel(zMeta) : (dimensionMeta.length >= 3 ? `PC${(axisIndices.z ?? 2) + 1}` : 'PC3');
 
         points = scores.map((s, i) => ({
-          x: s[0],
-          y: s[1],
+          x: s[axisIndices.x] ?? 0,
+          y: s[axisIndices.y] ?? 0,
           label: labels[i],
         }));
-        if (svd.q.length >= 3) {
+        if (typeof axisIndices.z === 'number' && dimensionMeta.length >= 3) {
           points3d = scores.map((s, i) => ({
-            x: s[0],
-            y: s[1],
-            z: s[2],
+            x: s[axisIndices.x] ?? 0,
+            y: s[axisIndices.y] ?? 0,
+            z: s[axisIndices.z] ?? 0,
             label: labels[i],
           }));
-          console.debug('Debug: pca 3d scores prepared',{ count: points3d.length, components: svd.q.length });
+          console.debug('Debug: pca 3d scores prepared',{ count: points3d.length, components: svd.q.length, selection: axisIndices });
         } else {
           points3d = [];
-          console.debug('Debug: pca 3d scores skipped',{ components: svd.q.length });
+          console.debug('Debug: pca 3d scores skipped',{ components: svd.q.length, selection: axisIndices });
         }
         if(svd.v && Array.isArray(svd.v)){
           const componentCount = Array.isArray(svd.v[0]) ? Math.min(svd.v[0].length, svd.q.length) : Math.min(svd.v.length, svd.q.length);
@@ -1140,6 +1387,7 @@
         svg3.dataset.viewMode = '3d';
         chartStyle.applySvgDefaults(svg3);
         plotEl.appendChild(svg3);
+        attach3dRotationControls(svg3);
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
           fontControls.enableForSvg(svg3,{ scopeId: 'pca' });
           console.debug('Debug: pca fontControls enableForSvg invoked',{ width: W3, height: H3, mode: '3d' });
@@ -1155,8 +1403,8 @@
         const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
         const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
         const rotatePoint = (pt) => {
-          const rx = PCA_3D_DEFAULTS.rotationX;
-          const ry = PCA_3D_DEFAULTS.rotationY;
+          const rx = pcaState.rotation.x;
+          const ry = pcaState.rotation.y;
           const cosY = Math.cos(ry);
           const sinY = Math.sin(ry);
           let x1 = pt.x * cosY + pt.z * sinY;
@@ -1599,7 +1847,16 @@
           showLoadings:!!pcaShowLoadings?.checked,
           showScree:!!pcaShowScree?.checked,
           showEigenTable:!!pcaShowEigenTable?.checked,
-          enableEigenExport:!!pcaEnableEigenExport?.checked
+          enableEigenExport:!!pcaEnableEigenExport?.checked,
+          axisSelection:{
+            x:pcaState.axisSelection.x,
+            y:pcaState.axisSelection.y,
+            z:pcaState.axisSelection.z
+          },
+          rotation:{
+            x:pcaState.rotation.x,
+            y:pcaState.rotation.y
+          }
         },
         stats:lastPcaStats ? {
           method:lastPcaStats.method || null,
@@ -1726,6 +1983,26 @@
               }
               pcaEnableEigenExport.dispatchEvent(new Event('change'));
               console.debug('Debug: pca enableEigenExport restored',{ restoredExport: !!pcaEnableEigenExport.checked });
+            }
+            if(c.axisSelection){
+              const sel = c.axisSelection;
+              if(sel && typeof sel === 'object'){
+                const before = { ...pcaState.axisSelection };
+                if(Number.isFinite(Number(sel.x))){ pcaState.axisSelection.x = Number(sel.x); }
+                if(Number.isFinite(Number(sel.y))){ pcaState.axisSelection.y = Number(sel.y); }
+                if(Number.isFinite(Number(sel.z))){ pcaState.axisSelection.z = Number(sel.z); }
+                sanitizeAxisSelection(pcaState.axisMeta.length);
+                syncAxisSelectValues();
+                console.debug('Debug: pca axis selection restored',{ before, after: { ...pcaState.axisSelection } });
+              }
+            }
+            if(c.rotation){
+              const rot = c.rotation;
+              if(rot && typeof rot === 'object'){
+                if(Number.isFinite(Number(rot.x))){ pcaState.rotation.x = Number(rot.x); }
+                if(Number.isFinite(Number(rot.y))){ pcaState.rotation.y = Number(rot.y); }
+                console.debug('Debug: pca rotation restored',{ rotation: { ...pcaState.rotation } });
+              }
             }
             if(pcaFontSize.dataset){
               pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
