@@ -470,9 +470,17 @@
       const den=x.reduce((s,xi)=>s+Math.pow(xi-xMean,2),0);
       return den!==0?num/den:NaN;
     })();
-    const slope = Number.isFinite(regressionModel?.summary?.slope) ? regressionModel.summary.slope : slopeFallback;
-    console.debug('Debug: computeLineStats',{method:label,r,p,slope,regressionMode}); // Debug: stats computation
-    return {method:label,r,p,slope,regression:regressionModel};
+    const summaryForRegression = regressionModel?.summary;
+    let slope = Number.isFinite(summaryForRegression?.slope) ? summaryForRegression.slope : slopeFallback;
+    let slopeLabel = 'Slope';
+    if(summaryForRegression?.primaryParameter && Number.isFinite(summaryForRegression.primaryParameter.value)){
+      slope = summaryForRegression.primaryParameter.value;
+      if(summaryForRegression.primaryParameter.label){
+        slopeLabel = summaryForRegression.primaryParameter.label;
+      }
+    }
+    console.debug('Debug: computeLineStats',{method:label,r,p,slope,regressionMode,slopeLabel}); // Debug: stats computation
+    return {method:label,r,p,slope,slopeLabel,regression:regressionModel};
   }
 
   function updateLineStats(series, options = {}){
@@ -484,6 +492,8 @@
     }
     const method=refs.statType.value||'pearson';
     const regressionMode=refs.regressionMode?.value || 'linear';
+    let parameterColumnLabel = 'Slope';
+    let parameterLabelResolved = false;
     const showIntervals = !!options.showIntervals;
     const showDiagnostics = !!options.showDiagnostics;
     const regressionAlpha = Number.isFinite(options.alpha) ? options.alpha : 0.05;
@@ -493,6 +503,7 @@
     const intervalRows=[];
     const diagnosticRows=[];
     const coefficientRows=[];
+    const parameterRows=[];
     let methodLabel='';
     lineLastRegressionSummaries = [];
     series.forEach(s=>{
@@ -506,6 +517,10 @@
           lineLastRegressionSummaries.push({ name: s.name, mode: regressionMode, summary });
           const r2Value = summary?.metrics?.r2 ?? stats.regression?.metrics?.r2;
           const rmseValue = summary?.metrics?.rmse ?? stats.regression?.metrics?.rmse;
+          if(!parameterLabelResolved && typeof stats.slopeLabel === 'string' && stats.slopeLabel){
+            parameterColumnLabel = stats.slopeLabel;
+            parameterLabelResolved = true;
+          }
           tableRows.push({
             series:s.name,
             r:formatMetricValue(stats.r),
@@ -514,6 +529,13 @@
             r2:formatMetricValue(r2Value),
             rmse:formatMetricValue(rmseValue)
           });
+          if(stats.regression?.summary?.parameters && typeof stats.regression.summary.parameters === 'object'){
+            Object.entries(stats.regression.summary.parameters).forEach(([label, value]) => {
+              if(value == null || value === '') return;
+              const formattedValue = Number.isFinite(value) ? formatMetricValue(value) : String(value);
+              parameterRows.push({ series: s.name, parameter: label, value: formattedValue });
+            });
+          }
           if(showIntervals && stats.regression?.intervals?.summary){
             const summaryIntervals = stats.regression.intervals.summary;
             intervalRows.push({
@@ -568,7 +590,7 @@
             {key:'series',label:'Series',align:'left'},
             {key:'r',label:'r',align:'right'},
             {key:'p',label:'p',align:'right'},
-            {key:'slope',label:'Slope',align:'right'},
+            {key:'slope',label:parameterColumnLabel,align:'right'},
             {key:'r2',label:'R²',align:'right'},
             {key:'rmse',label:'RMSE',align:'right'}
           ],
@@ -612,6 +634,20 @@
             append:true
           });
         }
+        if(parameterRows.length){
+          Shared.statsTable.render({
+            target: refs.statsResults,
+            columns:[
+              { key:'series', label:'Series', align:'left' },
+              { key:'parameter', label:'Parameter', align:'left' },
+              { key:'value', label:'Value', align:'right' }
+            ],
+            rows: parameterRows,
+            caption: 'Regression parameters',
+            options:{ fileName:'line-parameters', contextLabel:'line-parameters' },
+            append:true
+          });
+        }
         if((showIntervals || showDiagnostics) && coefficientRows.length){
           Shared.statsTable.render({
             target: refs.statsResults,
@@ -633,7 +669,7 @@
         }
       }else{
         const table=document.createElement('table');
-        table.innerHTML='<tr><th>Series</th><th>r</th><th>p</th><th>Slope</th><th>R²</th><th>RMSE</th></tr>'+
+        table.innerHTML=`<tr><th>Series</th><th>r</th><th>p</th><th>${parameterColumnLabel}</th><th>R²</th><th>RMSE</th></tr>`+
           tableRows.map(row=>`<tr><td>${row.series}</td><td>${row.r}</td><td>${row.p}</td><td>${row.slope}</td><td>${row.r2}</td><td>${row.rmse}</td></tr>`).join('');
         refs.statsResults.appendChild(table);
         console.debug('Debug: updateLineStats fallback table rendered',{rowCount:tableRows.length});
@@ -648,6 +684,12 @@
           diagTable.innerHTML='<tr><th>Series</th><th>Skewness</th><th>Kurtosis</th><th>JB</th><th>JB p</th></tr>'+
             diagnosticRows.map(row=>`<tr><td>${row.series}</td><td>${row.skewness}</td><td>${row.kurtosis}</td><td>${row.jb}</td><td>${row.jbP}</td></tr>`).join('');
           refs.statsResults.appendChild(diagTable);
+        }
+        if(parameterRows.length){
+          const paramTable=document.createElement('table');
+          paramTable.innerHTML='<tr><th>Series</th><th>Parameter</th><th>Value</th></tr>'+
+            parameterRows.map(row=>`<tr><td>${row.series}</td><td>${row.parameter}</td><td>${row.value}</td></tr>`).join('');
+          refs.statsResults.appendChild(paramTable);
         }
         if((showIntervals || showDiagnostics) && coefficientRows.length){
           const coeffTable=document.createElement('table');

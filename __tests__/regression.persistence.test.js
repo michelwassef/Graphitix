@@ -50,6 +50,8 @@ describe('Regression controls persistence', () => {
         cdf: () => 0.5
       }
     };
+    global.Shared = global.Shared || {};
+    global.Components = global.Components || {};
     require('../js/vendor.js');
     require('../js/shared/debounce.js');
     require('../js/shared/resizer.js');
@@ -57,6 +59,7 @@ describe('Regression controls persistence', () => {
     require('../js/shared/hot.js');
     require('../js/shared/chartStyle.js');
     require('../js/shared/componentLayout.js');
+    require('../js/shared/regression.js');
     require('../js/components/scatter.js');
     require('../js/components/line.js');
   });
