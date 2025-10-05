@@ -92,6 +92,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Compute principal components or multidimensional scaling from wide-form tables using in-browser SVD routines.【F:index.html†L520-L640】
 - Scale variables before analysis, choose point styling, and color observations by label categories using customizable palettes.【F:index.html†L552-L616】
 - Inspect resulting eigenvalue summaries with toggleable scree plots and downloadable eigen tables directly from the statistics panel.【F:index.html†L640-L700】【F:js/components/pca.js†L180-L460】
+- Choose which principal components or MDS dimensions power each axis, then rotate PCA plots in 3D with click-and-drag gestures for richer spatial inspection.【F:index.html†L668-L704】【F:js/components/pca.js†L300-L470】【F:js/components/pca.js†L1136-L1230】
 
 ### Line Graph Studio
 - Plot longitudinal or series-based data with per-series color pickers, dot styling, and adjustable line borders.【F:index.html†L640-L712】

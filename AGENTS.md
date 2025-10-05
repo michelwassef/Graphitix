@@ -107,6 +107,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 ### PCA/MDS (`pca.js`)
 - Handsontable defaults to five columns (`Label`, `Var1`–`Var4`). Users choose PCA vs. MDS, scaling, and color encodings.
 - Uses `global.SVDJS` for PCA decomposition and `global.jStat` for statistical helpers. Computed eigenvalues/variance/stress metrics populate the stats panel.
+- Axis selects for X/Y/Z components live under `pcaState.axisSelection`; keep them unique and persisted via `getPcaGraphPayload`/`loadPcaGraphFile` when extending the module. Drag-based 3D rotation updates `pcaState.rotation` and schedules redraws through `scheduleRotationRedraw`.
 - Points render in SVG via axes computed from the first two components; legend entries respect label colors selected through color pickers.
 
 ### Line Graph (`line.js`)
