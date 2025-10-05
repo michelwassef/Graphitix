@@ -94,6 +94,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Scale variables before analysis, choose point styling, and color observations by label categories using customizable palettes.【F:index.html†L552-L616】
 - Inspect resulting eigenvalue summaries with an always-on scree plot, side-by-side variance breakdown, and downloadable eigen table directly from the statistics panel.【F:index.html†L640-L696】【F:js/components/pca.js†L620-L720】
 - Choose which principal components or MDS dimensions power each axis, then rotate PCA plots in 3D with click-and-drag gestures for richer spatial inspection.【F:index.html†L668-L704】【F:js/components/pca.js†L300-L470】【F:js/components/pca.js†L1136-L1230】
+- Toggle variance-scaled axes so 2D plots stretch proportionally to the variance captured on each component and 3D cubes elongate according to the selected PC percentages.【F:index.html†L742-L752】【F:js/components/pca.js†L1201-L1316】【F:js/components/pca.js†L1537-L1653】
 - Reveal publication-style cubic bounding boxes with multi-face grid panes, neutral edge-anchored axes, and axis-parallel PC labels so the 3D PCA view mirrors the provided reference perspective while maintaining consistent scale across components.【F:js/components/pca.js†L1384-L1713】
 
 ### Line Graph Studio
