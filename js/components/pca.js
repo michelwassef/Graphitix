@@ -1406,16 +1406,31 @@
           return;
         }
         const targetAspect = Number.isFinite(PCA_3D_DEFAULTS.aspectRatio) && PCA_3D_DEFAULTS.aspectRatio > 0 ? PCA_3D_DEFAULTS.aspectRatio : (4 / 3);
-        const minCanvasWidth = 480;
-        const baseWidth = Math.max(minCanvasWidth, Math.floor(plotEl.clientWidth || minCanvasWidth));
-        const projectedHeight = Math.max(360, Math.round(baseWidth / targetAspect));
-        const W3 = baseWidth;
-        const H3 = projectedHeight;
+        const fallbackWidth = 480;
+        const fallbackHeight = Math.round(fallbackWidth / targetAspect);
+        const bounds = typeof plotEl.getBoundingClientRect === 'function' ? plotEl.getBoundingClientRect() : { width: 0, height: 0 };
+        const availableWidth = Math.floor(bounds.width || plotEl.clientWidth || 0);
+        const availableHeight = Math.floor(bounds.height || plotEl.clientHeight || 0);
+        let W3 = availableWidth > 0 ? availableWidth : fallbackWidth;
+        let H3 = Math.round(W3 / targetAspect);
+        if(availableHeight > 0 && H3 > availableHeight){
+          H3 = Math.max(1, availableHeight);
+          W3 = Math.max(1, Math.round(H3 * targetAspect));
+          if(availableWidth > 0 && W3 > availableWidth){
+            W3 = Math.max(1, availableWidth);
+            H3 = Math.max(1, Math.round(W3 / targetAspect));
+          }
+        }
+        if(W3 <= 0 || H3 <= 0){
+          W3 = fallbackWidth;
+          H3 = fallbackHeight;
+        }
         plotEl.style.position = 'relative';
-        plotEl.style.minWidth = `${minCanvasWidth}px`;
-        plotEl.style.minHeight = `${projectedHeight}px`;
-        plotEl.style.aspectRatio = '4 / 3';
+        plotEl.style.minWidth = '';
+        plotEl.style.minHeight = '';
+        plotEl.style.aspectRatio = `${W3} / ${H3}`;
         plotEl.style.padding = plotEl.style.padding || '12px';
+        console.debug('Debug: pca 3d dimensions resolved',{ availableWidth, availableHeight, width: W3, height: H3 }); // Debug: 3d plot sizing diagnostics
         const svg3 = reuse3dSvg ? existingSvg : document.createElementNS(NS, 'svg');
         if(!reuse3dSvg){
           svg3.setAttribute('id', 'pcaSvg');
@@ -1591,7 +1606,7 @@
         ];
         const paneGroup = svg3.ownerDocument?.createElementNS ? svg3.ownerDocument.createElementNS(NS, 'g') : null;
         if(paneGroup){
-          paneGroup.setAttribute('fill', 'rgba(0,0,0,0.035)');
+          paneGroup.setAttribute('fill', 'rgba(0,0,0,0.02)');
           paneGroup.setAttribute('stroke', 'none');
           svg3.appendChild(paneGroup);
         }
@@ -1633,12 +1648,15 @@
             min: Math.min(...panePolys.map(p => p.avgDepth)),
             max: Math.max(...panePolys.map(p => p.avgDepth))
           } : { min: 0, max: 1 };
+          const minPaneOpacity = 0.012;
+          const maxPaneOpacity = 0.028;
+          console.debug('Debug: pca 3d pane shading',{ minPaneOpacity, maxPaneOpacity }); // Debug: pane shading bounds
           panePolys.forEach(pane => {
             const polygon = document.createElementNS(NS, 'polygon');
             const pointsAttr = pane.projectedPane.map(pt => `${pt.x},${pt.y}`).join(' ');
             polygon.setAttribute('points', pointsAttr);
             const depthRatio = depthRange.max === depthRange.min ? 0.5 : (pane.avgDepth - depthRange.min) / (depthRange.max - depthRange.min);
-            const opacity = 0.02 + (1 - depthRatio) * 0.02;
+            const opacity = minPaneOpacity + (1 - depthRatio) * (maxPaneOpacity - minPaneOpacity);
             polygon.setAttribute('fill', `rgba(0,0,0,${opacity.toFixed(3)})`);
             polygon.setAttribute('stroke', 'none');
             paneGroup.appendChild(polygon);
