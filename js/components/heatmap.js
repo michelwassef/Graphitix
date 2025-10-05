@@ -16,6 +16,24 @@
     console.debug('Debug: heatmap component awaiting Shared.tableImport helpers');
   }
 
+  const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+    ? Shared.graphViewport.createEnsurer('heatmap')
+    : (svg, options = {}) => {
+      const fn = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+      if(typeof fn === 'function'){
+        fn(svg, { component: 'heatmap', debugLabel: 'heatmap-viewport-fallback', ...options });
+        return;
+      }
+      console.debug('Debug: heatmap ensureGraphViewport helper missing', {
+        hasShared: !!Shared,
+        hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
+      });
+    };
+  console.debug('Debug: heatmap graph viewport helper configured', {
+    hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
+    usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
+  });
+
   const DEFAULT_ROWS = 100;
   const DEFAULT_COLS = 6;
   const NS = 'http://www.w3.org/2000/svg';
@@ -606,9 +624,7 @@
     text.setAttribute('fill', '#555');
     text.textContent = message;
     state.svg.appendChild(text);
-    if(typeof global.autoResizeSvg === 'function'){
-      global.autoResizeSvg(state.svg);
-    }
+    ensureGraphViewport(state.svg, { padding: 16, debugLabel: 'heatmap-empty' });
   }
 
   function appendStatRow(labelText, strongValueText, options = {}){
@@ -1195,9 +1211,7 @@
 
       updateStats(stats);
 
-      if(typeof global.autoResizeSvg === 'function'){
-        global.autoResizeSvg(state.svg);
-      }
+      ensureGraphViewport(state.svg, { padding: Math.max(renderFontSizePx, 16), debugLabel: 'heatmap-graph' });
       state.layout?.syncPanels?.({ skipSchedule: true });
       console.debug('Debug: heatmap draw complete', {
         columns: orderedColumns.length,

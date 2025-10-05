@@ -316,17 +316,22 @@
     const serializer = new (global.XMLSerializer || XMLSerializer)();
     return serializer.serializeToString(svgEl);
   };
-  const autoResizeSvg = (svg, opts) => {
-    const fn = Shared.autoResizeSvg || global.autoResizeSvg;
-    if (typeof fn === 'function') {
-      return fn(svg, opts);
-    }
-    console.warn('box component autoResizeSvg fallback missing');
-    return undefined;
-  };
+  const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+    ? Shared.graphViewport.createEnsurer('box')
+    : (svg, options = {}) => {
+      const fn = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+      if(typeof fn === 'function'){
+        fn(svg, { component: 'box', debugLabel: 'box-viewport-fallback', ...options });
+        return;
+      }
+      console.debug('Debug: box ensureGraphViewport helper missing', {
+        hasShared: !!Shared,
+        hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
+      });
+    };
   console.debug('Debug: box component DOM helpers resolved', {
     hasSharedEditable: typeof Shared.makeEditable === 'function',
-    hasSharedResize: typeof Shared.autoResizeSvg === 'function',
+    hasSharedResize: typeof Shared.graphViewport?.ensure === 'function' || typeof Shared.autoResizeSvg === 'function',
     hasSharedSerialize: typeof Shared.serializeCleanSVG === 'function'
   }); // Debug: helper resolution summary
   const markFontEditable = (node, role, key) => {
@@ -4289,7 +4294,7 @@ function renderGroupedStatsControls(traces, controls){
 
     const orientationResult = isFlipped ? renderHorizontal() : renderVertical();
     if(!orientationResult){
-      autoResizeSvg(svg);
+      ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
       return;
     }
     if(token !== state.drawToken){
@@ -4323,7 +4328,7 @@ function renderGroupedStatsControls(traces, controls){
       const newY = Math.max(spacing, topMost - spacing);
       titleText.setAttribute('y', newY);
     }
-    autoResizeSvg(svg);
+    ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
     console.log('boxplot render complete');
   }
   // PART: SAVE_OPEN

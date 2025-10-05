@@ -18,6 +18,24 @@
     console.debug('Debug: pie component awaiting Shared.tableImport helpers'); // Debug: table import helper check
   }
 
+  const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+    ? Shared.graphViewport.createEnsurer('pie')
+    : (svg, options = {}) => {
+      const fn = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+      if(typeof fn === 'function'){
+        fn(svg, { component: 'pie', debugLabel: 'pie-viewport-fallback', ...options });
+        return;
+      }
+      console.debug('Debug: pie ensureGraphViewport helper missing', {
+        hasShared: !!Shared,
+        hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
+      });
+    };
+  console.debug('Debug: pie graph viewport helper configured', {
+    hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
+    usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
+  });
+
   const PIE_DEFAULT_ROWS = 100;
   const PIE_DEFAULT_COLS = 6;
   let state = {
@@ -485,7 +503,7 @@
       });
       // Title inline (editable)
       const title=document.createElementNS(NS,'text'); title.setAttribute('x',margin.left+chartWidth/2); title.setAttribute('y',margin.top/2); title.setAttribute('text-anchor','middle'); title.setAttribute('font-size',fs); title.textContent=state.titleText; markFontEditable(title,'graphTitle','graphTitle'); if(global.makeEditable) makeEditable(title,txt=>{state.titleText=txt;}); svg.appendChild(title);
-      if(global.autoResizeSvg) global.autoResizeSvg(svg);
+      ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
       // Stats for stacked: use selected value/expected columns across segments
       const vi=(parseInt($('#pieValueColumn').value||'1',10)-1);
       const ei=(parseInt($('#pieExpectedColumn').value||'2',10)-1);
@@ -514,7 +532,7 @@
       console.debug('Debug: pie circular frame request',{stroke:frameStroke, size, showFrame}); // Debug: frame styling inputs
       chartStyle.drawPlotFrame({ svg, margin: { top: 0, right: 0, bottom: 0, left: 0 }, plotW: size, plotH: size, stroke: frameStroke, sides: ['top','right','bottom','left'] });
     }
-    if(global.autoResizeSvg) global.autoResizeSvg(svg);
+    ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
     // Stats for single pie/donut
     updatePieStats(labels, values, expected);
   }

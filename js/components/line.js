@@ -61,14 +61,19 @@
     console.warn('line component makeEditable fallback missing');
     return undefined;
   };
-  const autoResizeSvgHelper = (svg, opts) => {
-    const fn = Shared.autoResizeSvg || global.autoResizeSvg;
-    if (typeof fn === 'function') {
-      return fn(svg, opts);
-    }
-    console.warn('line component autoResizeSvg fallback missing');
-    return undefined;
-  };
+  const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+    ? Shared.graphViewport.createEnsurer('line')
+    : (svg, options = {}) => {
+      const fn = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+      if(typeof fn === 'function'){
+        fn(svg, { component: 'line', debugLabel: 'line-viewport-fallback', ...options });
+        return;
+      }
+      console.debug('Debug: line ensureGraphViewport helper missing', {
+        hasShared: !!Shared,
+        hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
+      });
+    };
   const serializeSvg = (svgEl, options) => {
     const fn = Shared.serializeCleanSVG || global.serializeCleanSVG;
     if (typeof fn === 'function') {
@@ -80,7 +85,7 @@
   };
   console.debug('Debug: line component DOM helpers resolved', {
     hasSharedEditable: typeof Shared.makeEditable === 'function',
-    hasSharedResize: typeof Shared.autoResizeSvg === 'function',
+    hasSharedResize: typeof Shared.graphViewport?.ensure === 'function' || typeof Shared.autoResizeSvg === 'function',
     hasSharedSerialize: typeof Shared.serializeCleanSVG === 'function'
   }); // Debug: helper availability summary
 
@@ -1387,7 +1392,7 @@
       markFontEditable(titleText,'graphTitle','graphTitle');
       makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
       updateLineStats(series,{ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache });
-      autoResizeSvgHelper(svg);
+      ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
     }catch(err){ console.error('drawLine error',err); }

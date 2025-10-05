@@ -21,6 +21,24 @@
     console.debug('Debug: hist component awaiting Shared.tableImport helpers');
   }
 
+  const ensureGraphViewport = Shared.graphViewport?.createEnsurer
+    ? Shared.graphViewport.createEnsurer('hist')
+    : (svg, options = {}) => {
+      const fn = Shared.ensureGraphViewport || Shared.autoResizeSvg || global.ensureGraphViewport || global.autoResizeSvg;
+      if(typeof fn === 'function'){
+        fn(svg, { component: 'hist', debugLabel: 'hist-viewport-fallback', ...options });
+        return;
+      }
+      console.debug('Debug: hist ensureGraphViewport helper missing', {
+        hasShared: !!Shared,
+        hasAutoResize: typeof Shared?.autoResizeSvg === 'function'
+      });
+    };
+  console.debug('Debug: hist graph viewport helper configured', {
+    hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
+    usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
+  });
+
   let state = {
     hot: null,
     scheduleDraw: null,
@@ -502,7 +520,7 @@
     const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
     const yText=add('text',{x:yX,y:margin.top+plotH/2,'dominant-baseline':'middle',transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); yText.textContent=state.yLabelText; markFontEditable(yText,'yTitle','yTitle'); if(global.makeEditable) makeEditable(yText,txt=>{state.yLabelText=txt;});
     const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); titleText.textContent=state.titleText; markFontEditable(titleText,'graphTitle','graphTitle'); if(global.makeEditable) makeEditable(titleText,txt=>{state.titleText=txt;});
-    if(global.autoResizeSvg) global.autoResizeSvg(svg);
+    ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'hist-graph' });
     // Update stats panel
     updateHistStats(values);
     console.debug('Debug: drawHistogram complete');

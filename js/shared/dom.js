@@ -127,6 +127,54 @@
     }
   }
 
+  function ensureGraphViewport(svg, options = {}) {
+    if (!svg) {
+      logDebug('ensureGraphViewport skipped (no svg)', { hasSvg: false });
+      return;
+    }
+    const helper = Shared.autoResizeSvg || global.autoResizeSvg;
+    if (typeof helper !== 'function') {
+      logDebug('ensureGraphViewport missing autoResizeSvg helper', {
+        component: options.component || null,
+        debugLabel: options.debugLabel || null
+      });
+      return;
+    }
+    const defaults = {
+      fill: true,
+      padding: 16,
+      remeasure: true
+    };
+    const payload = { ...defaults, ...options };
+    if (payload.component && !payload.debugLabel) {
+      payload.debugLabel = `${payload.component}-viewport`;
+    }
+    try {
+      helper(svg, payload);
+      logDebug('ensureGraphViewport applied', {
+        component: payload.component || null,
+        debugLabel: payload.debugLabel || null,
+        padding: payload.padding,
+        fill: payload.fill
+      });
+    } catch (err) {
+      console.error('Shared.ensureGraphViewport error', err);
+    }
+  }
+
+  function createGraphViewportEnsurer(componentName, defaultOptions = {}) {
+    return function ensureForComponent(svg, options = {}) {
+      const payload = { ...defaultOptions, ...options };
+      if (componentName && !payload.component) {
+        payload.component = componentName;
+      }
+      if (componentName && !payload.debugLabel) {
+        payload.debugLabel = `${componentName}-viewport`;
+      }
+      ensureGraphViewport(svg, payload);
+    };
+  }
+
   function serializeCleanSVG(svgEl, options = {}) {
     if (!svgEl) {
       logDebug('serializeCleanSVG skipped (no element)', { hasElement: false });
@@ -164,6 +212,10 @@
 
   Shared.makeEditable = makeEditable;
   Shared.autoResizeSvg = autoResizeSvg;
+  Shared.ensureGraphViewport = ensureGraphViewport;
+  Shared.graphViewport = Shared.graphViewport || {};
+  Shared.graphViewport.ensure = ensureGraphViewport;
+  Shared.graphViewport.createEnsurer = createGraphViewportEnsurer;
   Shared.serializeCleanSVG = serializeCleanSVG;
 
   if (typeof global.makeEditable !== 'function') {
@@ -171,6 +223,9 @@
   }
   if (typeof global.autoResizeSvg !== 'function') {
     global.autoResizeSvg = autoResizeSvg;
+  }
+  if (typeof global.ensureGraphViewport !== 'function') {
+    global.ensureGraphViewport = ensureGraphViewport;
   }
   if (typeof global.serializeCleanSVG !== 'function') {
     global.serializeCleanSVG = serializeCleanSVG;
