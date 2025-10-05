@@ -68,6 +68,7 @@
       afterScrollHorizontally: userAfterScrollHorizontally,
       beforeColumnSort: userBeforeColumnSort,
       afterColumnSort: userAfterColumnSort,
+      afterGetColHeader: userAfterGetColHeader,
       columnSorting: userColumnSorting,
       ...otherHotOptions
     } = hotOptions;
@@ -237,8 +238,8 @@
     const collator = typeof Intl !== 'undefined' && Intl?.Collator ? new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }) : null;
 
     const columnSortingSettings = Object.assign({
-      indicator: true,
-      headerAction: true,
+      indicator: false,
+      headerAction: !treatFirstRowAsHeader,
       sortEmptyCells: false,
       compareFunctionFactory(sortOrder){
         const multiplier = sortOrder === 'desc' ? -1 : 1;
@@ -290,6 +291,40 @@
       }
     }, userColumnSorting || {});
     console.debug('Debug: Shared.hot columnSorting configured', { debugLabel, columnSortingSettings, treatFirstRowAsHeader }); // Debug: column sorting config
+
+    const sanitizeSortConfigs = (sortConfigs)=>{
+      if(!Array.isArray(sortConfigs)){
+        return [];
+      }
+      const sanitized = [];
+      for(let i = 0; i < sortConfigs.length; i++){
+        const config = sortConfigs[i] || {};
+        const columnIndex = typeof config.column === 'number' ? config.column : null;
+        const rawOrder = typeof config.sortOrder === 'string' ? config.sortOrder.toLowerCase() : '';
+        const sortOrder = rawOrder === 'asc' || rawOrder === 'desc' ? rawOrder : null;
+        if(columnIndex !== null && sortOrder){
+          sanitized.push({ column: columnIndex, sortOrder });
+        }
+      }
+      console.debug('Debug: Shared.hot sanitizeSortConfigs', { debugLabel, requested: sortConfigs, sanitized });
+      return sanitized;
+    };
+
+    const runUserHookSafely = (name, hookFn, args)=>{
+      if(typeof hookFn !== 'function'){
+        return undefined;
+      }
+      try{
+        return hookFn.apply(instance, args);
+      }catch(err){
+        console.error(`Shared.hot ${name} user hook error`, err);
+        return undefined;
+      }
+    };
+
+    let currentSortState = sanitizeSortConfigs(userColumnSorting?.initialConfig || []);
+    let manualSortInProgress = false;
+    let baseOrderSnapshot = null;
 
     let instance = null;
     const autoGrowthState = {
@@ -547,13 +582,375 @@
       }
     };
 
+    const captureCurrentOrder = ()=>{
+      if(!instance || typeof instance.getSourceData !== 'function'){
+        return null;
+      }
+      const data = instance.getSourceData();
+      if(!Array.isArray(data)){
+        return null;
+      }
+      const snapshot = data.slice();
+      console.debug('Debug: Shared.hot captureCurrentOrder', { debugLabel, length: snapshot.length });
+      return snapshot;
+    };
+
+    const applyRowOrder = (rows)=>{
+      if(!instance || !Array.isArray(rows)){
+        console.debug('Debug: Shared.hot applyRowOrder skipped', { debugLabel, hasInstance: !!instance, rowsValid: Array.isArray(rows) });
+        return false;
+      }
+      console.debug('Debug: Shared.hot applyRowOrder executing', { debugLabel, rowCount: rows.length });
+      instance.loadData(rows);
+      return true;
+    };
+
+    const sortBodyRows = (sortConfigs)=>{
+      if(!instance || typeof instance.getSourceData !== 'function'){
+        return false;
+      }
+      const data = instance.getSourceData();
+      if(!Array.isArray(data) || data.length <= 1){
+        console.debug('Debug: Shared.hot sortBodyRows skipped - insufficient data', { debugLabel, length: data ? data.length : 0 });
+        return false;
+      }
+      const headerRow = data[0];
+      const bodyEntries = [];
+      for(let idx = 1; idx < data.length; idx++){
+        bodyEntries.push({ row: data[idx], originalIndex: idx });
+      }
+      if(bodyEntries.length === 0){
+        console.debug('Debug: Shared.hot sortBodyRows skipped - empty body', { debugLabel });
+        return false;
+      }
+      const comparators = sortConfigs.map((config)=>{
+        const multiplier = config.sortOrder === 'desc' ? -1 : 1;
+        return (a, b)=>{
+          const valueA = Array.isArray(a.row) ? a.row[config.column] : undefined;
+          const valueB = Array.isArray(b.row) ? b.row[config.column] : undefined;
+          const preparedA = prepareSortValue(valueA);
+          const preparedB = prepareSortValue(valueB);
+          if(preparedA.empty && preparedB.empty){
+            return (a.originalIndex - b.originalIndex);
+          }
+          if(preparedA.empty){
+            return 1;
+          }
+          if(preparedB.empty){
+            return -1;
+          }
+          if(preparedA.numeric && preparedB.numeric){
+            const diff = preparedA.number - preparedB.number;
+            if(diff !== 0){
+              return diff * multiplier;
+            }
+          }
+          if(collator){
+            const result = collator.compare(preparedA.text, preparedB.text);
+            if(result !== 0){
+              return result * multiplier;
+            }
+          }else{
+            if(preparedA.text !== preparedB.text){
+              return (preparedA.text > preparedB.text ? 1 : -1) * multiplier;
+            }
+          }
+          return (a.originalIndex - b.originalIndex);
+        };
+      });
+      bodyEntries.sort((a, b)=>{
+        for(let i = 0; i < comparators.length; i++){
+          const diff = comparators[i](a, b);
+          if(diff !== 0){
+            return diff;
+          }
+        }
+        return a.originalIndex - b.originalIndex;
+      });
+      const orderedRows = [headerRow];
+      for(let i = 0; i < bodyEntries.length; i++){
+        orderedRows.push(bodyEntries[i].row);
+      }
+      console.debug('Debug: Shared.hot sortBodyRows completed', { debugLabel, sortConfigs, bodyLength: bodyEntries.length });
+      return orderedRows;
+    };
+
+    const applySortState = (sortConfigs)=>{
+      currentSortState = sortConfigs;
+      if(instance && typeof instance.render === 'function'){
+        instance.render();
+      }
+      console.debug('Debug: Shared.hot applySortState', { debugLabel, currentSortState });
+    };
+
+    const clearSortState = ()=>{
+      currentSortState = [];
+      if(instance && typeof instance.render === 'function'){
+        instance.render();
+      }
+      console.debug('Debug: Shared.hot clearSortState', { debugLabel });
+    };
+
     const beforeColumnSortBase = function(currentSortConfig, destinationSortConfigs){
       console.debug('Debug: Shared.hot beforeColumnSortBase invoked', { debugLabel, currentSortConfig, destinationSortConfigs });
+      if(!treatFirstRowAsHeader){
+        const sanitized = sanitizeSortConfigs(destinationSortConfigs);
+        if(!sanitized.length){
+          clearSortState();
+        }else{
+          currentSortState = sanitized;
+          if(instance && typeof instance.render === 'function'){
+            instance.render();
+          }
+        }
+        return;
+      }
+      if(manualSortInProgress){
+        console.debug('Debug: Shared.hot manual sort already running - skipping', { debugLabel });
+        return false;
+      }
+      const sanitized = sanitizeSortConfigs(destinationSortConfigs);
+      if(!sanitized.length){
+        if(currentSortState.length > 0 && Array.isArray(baseOrderSnapshot)){
+          manualSortInProgress = true;
+          try{
+            if(applyRowOrder(baseOrderSnapshot.slice())){
+              clearSortState();
+              baseOrderSnapshot = captureCurrentOrder();
+              triggerSchedule('manualColumnSortReset', { currentSortConfig, destinationSortConfigs });
+            }
+          }finally{
+            manualSortInProgress = false;
+          }
+          return false;
+        }
+        clearSortState();
+        baseOrderSnapshot = captureCurrentOrder();
+        return;
+      }
+      if(currentSortState.length === 0){
+        baseOrderSnapshot = captureCurrentOrder();
+      }
+      manualSortInProgress = true;
+      try{
+        const orderedRows = sortBodyRows(sanitized);
+        if(Array.isArray(orderedRows) && orderedRows.length){
+          applyRowOrder(orderedRows);
+          applySortState(sanitized);
+          triggerSchedule('manualColumnSort', { currentSortConfig, destinationSortConfigs: sanitized });
+        }
+      }finally{
+        manualSortInProgress = false;
+      }
+      return false;
     };
 
     const afterColumnSortBase = function(currentSortConfig, destinationSortConfigs){
       console.debug('Debug: Shared.hot afterColumnSortBase invoked', { debugLabel, currentSortConfig, destinationSortConfigs });
-      triggerSchedule('afterColumnSort', { currentSortConfig, destinationSortConfigs });
+      if(!treatFirstRowAsHeader){
+        triggerSchedule('afterColumnSort', { currentSortConfig, destinationSortConfigs });
+      }
+    };
+
+    const executeSortPipeline = (destinationSortConfigs, meta)=>{
+      const sanitized = sanitizeSortConfigs(destinationSortConfigs);
+      const currentSnapshot = Array.isArray(currentSortState) ? currentSortState.slice() : [];
+      console.debug('Debug: Shared.hot executeSortPipeline start', { debugLabel, sanitized, meta, currentSnapshot });
+      const beforeResult = runUserHookSafely('beforeColumnSort', userBeforeColumnSort, [currentSnapshot.slice(), sanitized.slice()]);
+      if(beforeResult === false){
+        console.debug('Debug: Shared.hot executeSortPipeline cancelled by user hook', { debugLabel, meta, sanitized });
+        return false;
+      }
+      const baseResult = beforeColumnSortBase.call(instance, currentSnapshot, sanitized);
+      runUserHookSafely('afterColumnSort', userAfterColumnSort, [currentSnapshot.slice(), sanitized.slice()]);
+      afterColumnSortBase.call(instance, currentSnapshot, sanitized);
+      console.debug('Debug: Shared.hot executeSortPipeline complete', { debugLabel, sanitized, meta, baseResult });
+      return true;
+    };
+
+    const requestManualSortForColumn = (column, order, meta)=>{
+      const normalizedColumn = typeof column === 'number' ? column : null;
+      if(normalizedColumn === null){
+        console.debug('Debug: Shared.hot requestManualSortForColumn skipped - invalid column', { debugLabel, column, order, meta });
+        return false;
+      }
+      const active = currentSortState.find((config)=>config.column === normalizedColumn) || null;
+      if(!treatFirstRowAsHeader){
+        const plugin = instance?.getPlugin?.('columnSorting') || null;
+        if(!plugin){
+          console.debug('Debug: Shared.hot requestManualSortForColumn plugin missing', { debugLabel, column: normalizedColumn, order, meta });
+          return false;
+        }
+        if(active && active.sortOrder === order){
+          if(typeof plugin.clearSort === 'function'){
+            plugin.clearSort();
+          }else if(typeof plugin.sort === 'function'){
+            plugin.sort([]);
+          }
+          clearSortState();
+          return true;
+        }
+        if(typeof plugin.sort === 'function'){
+          plugin.sort({ column: normalizedColumn, sortOrder: order });
+          currentSortState = [{ column: normalizedColumn, sortOrder: order }];
+          if(instance && typeof instance.render === 'function'){
+            instance.render();
+          }
+          console.debug('Debug: Shared.hot requestManualSortForColumn delegated to plugin', { debugLabel, column: normalizedColumn, order, meta });
+          return true;
+        }
+        console.debug('Debug: Shared.hot requestManualSortForColumn plugin sort unavailable', { debugLabel, column: normalizedColumn, order, meta });
+        return false;
+      }
+      if(active && active.sortOrder === order){
+        console.debug('Debug: Shared.hot requestManualSortForColumn toggling off', { debugLabel, column: normalizedColumn, order, meta });
+        return executeSortPipeline([], Object.assign({}, meta, { column: normalizedColumn, order, action: 'clear' }));
+      }
+      const destination = [{ column: normalizedColumn, sortOrder: order }];
+      console.debug('Debug: Shared.hot requestManualSortForColumn applying', { debugLabel, column: normalizedColumn, order, meta });
+      return executeSortPipeline(destination, Object.assign({}, meta, { column: normalizedColumn, order, action: 'apply' }));
+    };
+
+    const clearManualSortForColumn = (column, meta)=>{
+      const normalizedColumn = typeof column === 'number' ? column : null;
+      console.debug('Debug: Shared.hot clearManualSortForColumn invoked', { debugLabel, column: normalizedColumn, meta });
+      if(!treatFirstRowAsHeader){
+        const plugin = instance?.getPlugin?.('columnSorting') || null;
+        if(plugin){
+          if(typeof plugin.clearSort === 'function'){
+            plugin.clearSort();
+          }else if(typeof plugin.sort === 'function'){
+            plugin.sort([]);
+          }
+        }
+        clearSortState();
+        return true;
+      }
+      return executeSortPipeline([], Object.assign({}, meta, { column: normalizedColumn, action: 'clear' }));
+    };
+
+    const cycleSortForColumn = (column, meta)=>{
+      const normalizedColumn = typeof column === 'number' ? column : null;
+      if(normalizedColumn === null){
+        console.debug('Debug: Shared.hot cycleSortForColumn skipped - invalid column', { debugLabel, column, meta });
+        return false;
+      }
+      const active = currentSortState.find((config)=>config.column === normalizedColumn) || null;
+      if(!active){
+        return requestManualSortForColumn(normalizedColumn, 'asc', Object.assign({}, meta, { cycleStep: 'asc' }));
+      }
+      if(active.sortOrder === 'asc'){
+        return requestManualSortForColumn(normalizedColumn, 'desc', Object.assign({}, meta, { cycleStep: 'desc' }));
+      }
+      return clearManualSortForColumn(normalizedColumn, Object.assign({}, meta, { cycleStep: 'clear' }));
+    };
+
+    const afterGetColHeaderBase = function(col, TH){
+      if(!TH || typeof col !== 'number' || col < 0){
+        return;
+      }
+      TH.classList.add('hot-header-sortable');
+      const active = currentSortState.find((config)=>config.column === col);
+      const order = active ? active.sortOrder : 'none';
+      TH.setAttribute('data-sort-order', order);
+      let headerLabel = '';
+      if(typeof instance?.getColHeader === 'function'){
+        try{
+          const headerLookup = instance.getColHeader(col);
+          if(Array.isArray(headerLookup)){
+            headerLabel = headerLookup[col] != null ? String(headerLookup[col]) : '';
+          }else if(headerLookup != null){
+            headerLabel = String(headerLookup);
+          }
+        }catch(err){
+          console.error('Shared.hot getColHeader lookup failed', err);
+        }
+      }
+      if(!headerLabel){
+        const existingLabel = TH.querySelector('.hot-sort-label');
+        if(existingLabel && existingLabel.textContent){
+          headerLabel = existingLabel.textContent;
+        }
+      }
+      if(!headerLabel){
+        const fallbackText = TH.textContent || '';
+        headerLabel = fallbackText.trim();
+      }
+      if(!headerLabel){
+        headerLabel = `Column ${col + 1}`;
+      }
+      TH.dataset.sortLabel = headerLabel;
+      let wrapper = TH.querySelector('.hot-sort-wrapper');
+      if(!wrapper){
+        wrapper = document.createElement('div');
+        wrapper.className = 'hot-sort-wrapper';
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'hot-sort-label';
+        wrapper.appendChild(labelSpan);
+        const buttonGroup = document.createElement('div');
+        buttonGroup.className = 'hot-sort-buttons';
+        const ascButton = document.createElement('button');
+        ascButton.type = 'button';
+        ascButton.className = 'hot-sort-button hot-sort-button--asc';
+        ascButton.innerHTML = '<span aria-hidden="true">▲</span>';
+        const descButton = document.createElement('button');
+        descButton.type = 'button';
+        descButton.className = 'hot-sort-button hot-sort-button--desc';
+        descButton.innerHTML = '<span aria-hidden="true">▼</span>';
+        buttonGroup.appendChild(ascButton);
+        buttonGroup.appendChild(descButton);
+        wrapper.appendChild(buttonGroup);
+        TH.textContent = '';
+        TH.appendChild(wrapper);
+        if(!ascButton.dataset.bound){
+          ascButton.dataset.bound = 'true';
+          ascButton.addEventListener('click', function(event){
+            event.preventDefault();
+            event.stopPropagation();
+            requestManualSortForColumn(col, 'asc', { trigger: 'headerButtonAsc' });
+          });
+        }
+        if(!descButton.dataset.bound){
+          descButton.dataset.bound = 'true';
+          descButton.addEventListener('click', function(event){
+            event.preventDefault();
+            event.stopPropagation();
+            requestManualSortForColumn(col, 'desc', { trigger: 'headerButtonDesc' });
+          });
+        }
+        if(TH.dataset.sortClickBound !== 'true'){
+          TH.dataset.sortClickBound = 'true';
+          TH.addEventListener('click', function(event){
+            if(event.target.closest('.hot-sort-button')){
+              return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            cycleSortForColumn(col, { trigger: 'headerLabelClick' });
+          });
+        }
+        console.debug('Debug: Shared.hot header controls attached', { debugLabel, column: col });
+      }
+      const labelNode = TH.querySelector('.hot-sort-label');
+      if(labelNode){
+        labelNode.textContent = headerLabel;
+        labelNode.title = headerLabel;
+      }
+      const ascNode = TH.querySelector('.hot-sort-button--asc');
+      if(ascNode){
+        const ascActive = order === 'asc';
+        ascNode.classList.toggle('is-active', ascActive);
+        ascNode.setAttribute('aria-pressed', ascActive ? 'true' : 'false');
+        ascNode.setAttribute('aria-label', `${headerLabel} ascending sort${ascActive ? ' (active)' : ''}`);
+      }
+      const descNode = TH.querySelector('.hot-sort-button--desc');
+      if(descNode){
+        const descActive = order === 'desc';
+        descNode.classList.toggle('is-active', descActive);
+        descNode.setAttribute('aria-pressed', descActive ? 'true' : 'false');
+        descNode.setAttribute('aria-label', `${headerLabel} descending sort${descActive ? ' (active)' : ''}`);
+      }
+      console.debug('Debug: Shared.hot afterGetColHeaderBase applied', { debugLabel, column: col, order, headerLabel });
     };
 
     const afterChangeBase = function(changes, source){
@@ -604,11 +1001,13 @@
       afterScrollVertically: wrapHook('afterScrollVertically', userAfterScrollVertically, afterScrollVerticallyBase),
       afterScrollHorizontally: wrapHook('afterScrollHorizontally', userAfterScrollHorizontally, afterScrollHorizontallyBase),
       beforeColumnSort: wrapHook('beforeColumnSort', userBeforeColumnSort, beforeColumnSortBase),
-      afterColumnSort: wrapHook('afterColumnSort', userAfterColumnSort, afterColumnSortBase)
+      afterColumnSort: wrapHook('afterColumnSort', userAfterColumnSort, afterColumnSortBase),
+      afterGetColHeader: wrapHook('afterGetColHeader', userAfterGetColHeader, afterGetColHeaderBase)
     });
 
     console.debug('Debug: createStandardTable options prepared', { debugLabel, rowCount, colCount });
     instance = new Handsontable(container, options);
+    baseOrderSnapshot = captureCurrentOrder();
     attachScrollHandler();
     scheduleRowGrowth('init');
     scheduleColGrowth('init');

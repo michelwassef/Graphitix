@@ -38,7 +38,7 @@ Because everything runs client-side, sensitive data never leaves the browser ses
 ## Feature Highlights
 - **Multi-graph dashboard:** Switch instantly between Venn, box, scatter, PCA/MDS, line, ROC/PR, histogram, and proportion graph modules from the top navigation bar.【F:index.html†L12-L24】【F:index.html†L640-L795】
 - **Handsontable-powered data entry:** Each module embeds a fully featured spreadsheet editor with undo/redo, column reordering, context menus, and CSV/TSV/Excel/ODS import utilities.【F:index.html†L68-L129】【F:index.html†L704-L731】
-- **Clickable column sorting:** Toggle ascending or descending order by clicking any Handsontable column header—header rows remain pinned so field labels stay visible while you explore data.【F:js/shared/hot.js†L116-L206】【F:index.html†L68-L129】
+- **Interactive column sorting:** Ascend, descend, or reset each Handsontable column through dedicated arrow buttons embedded in every header while the grey first row stays pinned for continuous context.【F:js/shared/hot.js†L694-L889】【F:css/style.css†L24-L63】
 - **Rich styling controls:** Adjust colors, fonts, borders, opacity, grid lines, and axis limits directly beside the live plot for every visualization type.【F:index.html†L92-L153】【F:index.html†L704-L781】
 - **Integrated statistics:** Access module-specific statistical summaries, including overlap significance, parametric/non-parametric correlations, hypothesis tests, Chi², and ROC/PR metrics, with results rendered beneath the plots.【F:index.html†L160-L248】【F:index.html†L320-L408】
 - **Reusable `.graph` sessions:** Open, save, and “save as” persistent graph files that capture table data plus visual settings, making it easy to revisit or share analyses.【F:index.html†L76-L108】【F:index.html†L656-L671】
@@ -60,6 +60,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - **Spreadsheet editing:** Each tab provides a Handsontable grid pre-populated with empty rows and columns, ready for paste operations from Excel, Google Sheets, R, or Python notebooks.【F:index.html†L704-L731】
 - **File imports:** Use the *Import File* buttons to ingest CSV, TSV, TXT, XLS, XLSX, ODS, or ODG files. Column headers should occupy the first row for best results.【F:index.html†L704-L731】【F:index.html†L816-L891】
 - **Undo/redo and column reordering:** Built-in table controls allow exploratory manipulation without losing the original data order. Changes trigger redraws automatically.
+- **Pinned header sorting cues:** Sorting now leaves the first-row headers anchored while reordering body rows, and every column header exposes paired arrow buttons so users can explicitly choose ascending or descending order without losing context.【F:js/shared/hot.js†L694-L889】【F:css/style.css†L24-L63】
 - **Delimiter detection for lists:** The Venn workspace can parse newline, tab, comma, or space-separated entries, with an automatic mode that guesses the correct delimiter.【F:index.html†L80-L129】
 - **Numeric input mode:** Switch the Venn module to manual count entry when list data is unavailable, populating each region by hand.【F:index.html†L108-L153】
 - **Session persistence:** `.graph` files store both the table contents and all stylistic choices. Use *Open*, *Save*, and *Save As* controls to manage workbooks per module.【F:index.html†L68-L108】【F:index.html†L320-L408】
