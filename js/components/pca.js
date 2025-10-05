@@ -773,11 +773,13 @@
         const opts = options || {};
         const show = !!opts.show;
         const data = Array.isArray(opts.data) ? opts.data : [];
+        const method = (opts.method || '').toLowerCase();
+        const supportsEigen = method === 'pca' || method === 'mds';
         if(!pcaEigenTableContainer){
           console.debug('Debug: pca eigen table skipped',{ reason: 'missing-container' });
           return;
         }
-        if(!show || opts.method !== 'pca'){
+        if(!show || !supportsEigen){
           if(pcaEigenTableWrapper){
             pcaEigenTableWrapper.innerHTML = '';
           }
@@ -789,7 +791,8 @@
         pcaEigenTableContainer.hidden = false;
         if(!data.length){
           if(pcaEigenTableWrapper){
-            pcaEigenTableWrapper.innerHTML = '<div class="stats-table-message">Eigenvalue table will populate after PCA runs.</div>';
+            const friendly = method === 'mds' ? 'MDS' : 'PCA';
+            pcaEigenTableWrapper.innerHTML = `<div class="stats-table-message">${friendly} eigenvalues will populate after the analysis runs.</div>`;
           }
           updateEigenExportVisibility(false);
           if(pcaExportEigenTableBtn){
@@ -800,7 +803,9 @@
         }
         if(pcaEigenTableWrapper){
           let html = '<table class="stats-table"><thead><tr>';
-          const headers = ['Component','Eigenvalue','Variance %','Cumulative %'];
+          const percentHeader = method === 'mds' ? 'Inertia %' : 'Variance %';
+          const cumulativeHeader = method === 'mds' ? 'Cumulative Inertia %' : 'Cumulative %';
+          const headers = ['Component','Eigenvalue',percentHeader,cumulativeHeader];
           headers.forEach(header => {
             html += `<th class="stats-table__cell stats-table__header stats-table__cell--center">${header}</th>`;
           });
@@ -810,8 +815,9 @@
             const eigen = Number(entry.eigenvalue) || 0;
             const pct = Number(entry.variancePercent) || 0;
             const cumulative = Number(entry.cumulativeVariancePercent) || 0;
+            const label = entry.componentLabel || (method === 'mds' ? `Dim${comp}` : `PC${comp}`);
             html += '<tr>';
-            html += `<td class="stats-table__cell stats-table__cell--center">PC${comp}</td>`;
+            html += `<td class="stats-table__cell stats-table__cell--center">${label}</td>`;
             html += `<td class="stats-table__cell stats-table__cell--right">${eigen.toFixed(4)}</td>`;
             html += `<td class="stats-table__cell stats-table__cell--right">${pct.toFixed(2)}%</td>`;
             html += `<td class="stats-table__cell stats-table__cell--right">${cumulative.toFixed(2)}%</td>`;
@@ -825,7 +831,7 @@
         if(pcaExportEigenTableBtn){
           pcaExportEigenTableBtn.disabled = !exportEnabled;
         }
-        console.debug('Debug: pca eigen table rendered',{ rows: data.length, exportEnabled });
+        console.debug('Debug: pca eigen table rendered',{ rows: data.length, exportEnabled, method });
       }
       function renderStatsPanel(options){
         const opts = options || {};
@@ -859,18 +865,22 @@
         });
       }
       function handleEigenExport(){
-        if(!lastPcaStats || lastPcaStats.method !== 'pca'){
-          console.debug('Debug: pca eigen export blocked',{ reason: 'non-pca', method: lastPcaStats?.method || null });
+        if(!lastPcaStats || !['pca','mds'].includes(lastPcaStats.method)){
+          console.debug('Debug: pca eigen export blocked',{ reason: 'non-supported-method', method: lastPcaStats?.method || null });
           return;
         }
         if(!Array.isArray(lastPcaStats.eigenSummary) || !lastPcaStats.eigenSummary.length){
           console.debug('Debug: pca eigen export skipped',{ reason: 'no-data' });
           return;
         }
-        const rows = [['Component','Eigenvalue','VariancePercent','CumulativePercent','SingularValue']];
+        const method = lastPcaStats.method;
+        const percentHeader = method === 'mds' ? 'InertiaPercent' : 'VariancePercent';
+        const cumulativeHeader = method === 'mds' ? 'CumulativeInertiaPercent' : 'CumulativePercent';
+        const rows = [['Component','Eigenvalue',percentHeader,cumulativeHeader,'SingularValue']];
         lastPcaStats.eigenSummary.forEach(entry => {
+          const compLabel = entry.componentLabel || (method === 'mds' ? `Dim${entry.component}` : `PC${entry.component}`);
           rows.push([
-            `PC${entry.component}`,
+            compLabel,
             Number(entry.eigenvalue || 0).toFixed(6),
             Number(entry.variancePercent || 0).toFixed(4),
             Number(entry.cumulativeVariancePercent || 0).toFixed(4),
@@ -883,12 +893,12 @@
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
-          link.download = 'pca-eigenvalues.csv';
+          link.download = `${method}-eigenvalues.csv`;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
           setTimeout(() => URL.revokeObjectURL(url), 1000);
-          console.debug('Debug: pca eigen export generated',{ rows: rows.length - 1 });
+          console.debug('Debug: pca eigen export generated',{ rows: rows.length - 1, method });
         }catch(err){
           console.error('pca eigen export failed', err);
         }
@@ -1303,8 +1313,10 @@
         const positiveEigen = eigenValues
           .map((val, idx) => ({ val, idx }))
           .filter(({ val }) => val > 1e-9);
-        const dimsToUse = Math.min(2, positiveEigen.length);
-        console.debug('Debug: mds eigen summary', { eigenValues, dimsToUse });
+        const dimsAvailable = positiveEigen.length;
+        const requestedDims = (requestedViewMode === '3d') ? 3 : 2;
+        const dimsToUse = Math.min(Math.max(requestedDims, 2), dimsAvailable);
+        console.debug('Debug: mds eigen summary', { eigenValues, dimsAvailable, dimsToUse, requestedViewMode });
 
         if (dimsToUse === 0) {
           pcaPlotDiv.innerHTML = '<i>MDS could not find positive eigenvalues.</i>';
@@ -1326,9 +1338,25 @@
 
         const totalPositive = positiveEigen.reduce((sum, { val }) => sum + val, 0);
         dimensionMeta = [];
+        let cumulativeRatio = 0;
+        eigenSummaryData = [];
         for (let dim = 0; dim < dimsToUse; dim++) {
-          const pct = totalPositive > 0 ? (positiveEigen[dim].val / totalPositive) * 100 : 0;
+          const eigenVal = positiveEigen[dim]?.val ?? 0;
+          const ratio = totalPositive > 0 ? eigenVal / totalPositive : 0;
+          cumulativeRatio += ratio;
+          const pct = ratio * 100;
+          const cumulativePercent = Math.min(100, cumulativeRatio * 100);
           dimensionMeta.push({ value: dim + 1, label: `MDS${dim + 1}`, variancePercent: pct });
+          eigenSummaryData.push({
+            component: dim + 1,
+            componentLabel: `Dim${dim + 1}`,
+            eigenvalue: eigenVal,
+            varianceRatio: ratio,
+            variancePercent: pct,
+            cumulativeVarianceRatio: Math.min(1, cumulativeRatio),
+            cumulativeVariancePercent: cumulativePercent,
+            singularValue: Math.sqrt(Math.max(eigenVal, 0))
+          });
         }
         updateAxisSelectOptions({ dimensionMeta, viewMode: requestedViewMode, method });
         axisIndices = axisSelectionToIndices(dimensionMeta.length);
@@ -1340,10 +1368,15 @@
 
         const xMeta = dimensionMeta[axisIndices.x] || dimensionMeta[0] || null;
         const yMeta = dimensionMeta[axisIndices.y] || dimensionMeta[1] || null;
+        const zMeta = typeof axisIndices.z === 'number' ? (dimensionMeta[axisIndices.z] || null) : null;
         const dim1Pct = dimensionMeta[0]?.variancePercent ?? 0;
         const dim2Pct = dimensionMeta[1]?.variancePercent ?? 0;
+        const dim3Pct = dimensionMeta[2]?.variancePercent ?? null;
         pcaXLabelText = xMeta ? formatAxisLabel(xMeta) : `MDS${(axisIndices.x || 0) + 1}`;
         pcaYLabelText = yMeta ? formatAxisLabel(yMeta) : (dimensionMeta.length > 1 ? `MDS${(axisIndices.y || 1) + 1}` : 'MDS2');
+        if(zMeta || dimensionMeta.length >= 3){
+          pcaZLabelText = zMeta ? formatAxisLabel(zMeta) : `MDS${(axisIndices.z ?? 2) + 1}`;
+        }
 
         let stressNumerator = 0;
         let stressDenominator = 0;
@@ -1363,15 +1396,43 @@
         if (dimsToUse > 1) {
           statsSummaryLines.push(`Dim2: ${dim2Pct.toFixed(1)}% inertia`);
         }
+        if (dimsToUse > 2 && dim3Pct != null) {
+          statsSummaryLines.push(`Dim3: ${dim3Pct.toFixed(1)}% inertia`);
+        }
         statsSummaryLines.push(`Stress-1: ${stress.toFixed(3)}`);
         lastPcaStats = {
           method: 'mds',
-          eigenSummary: [],
-          scree: [],
+          eigenSummary: eigenSummaryData.map(entry => ({
+            component: entry.component,
+            componentLabel: entry.componentLabel,
+            eigenvalue: Number(entry.eigenvalue),
+            varianceRatio: Number(entry.varianceRatio),
+            variancePercent: Number(entry.variancePercent),
+            cumulativeVarianceRatio: Number(entry.cumulativeVarianceRatio),
+            cumulativeVariancePercent: Number(entry.cumulativeVariancePercent),
+            singularValue: Number(entry.singularValue)
+          })),
+          scree: eigenSummaryData.map(entry => ({
+            component: entry.component,
+            variancePercent: Number(entry.variancePercent)
+          })),
           stress: Number(stress.toFixed(6)),
-          dimensions: dimsToUse
+          dimensions: dimsToUse,
+          totalVariance: Number(totalPositive)
         };
         console.debug('Debug: mds stress computed', { stress, dimsToUse });
+        if (dimensionMeta.length >= 3 && typeof axisIndices.z === 'number') {
+          points3d = coords.map((row, idx) => ({
+            x: row[axisIndices.x] || 0,
+            y: axisIndices.y != null ? (row[axisIndices.y] || 0) : 0,
+            z: row[axisIndices.z] || 0,
+            label: labels[idx],
+          }));
+          console.debug('Debug: mds 3d coordinates prepared', { count: points3d.length, dimsToUse, axisIndices });
+        } else {
+          points3d = [];
+          console.debug('Debug: mds 3d coordinates skipped', { dimsToUse, axisIndices });
+        }
       } else {
         const svd = SVDLib.SVD(matrix);
         console.debug('pca svd result', svd);
@@ -1492,7 +1553,7 @@
       ensurePcaLabelColors(Array.from(labelSet));
 
       let effectiveViewMode = requestedViewMode;
-      if(effectiveViewMode === '3d' && (method !== 'pca' || !points3d.length)){
+      if(effectiveViewMode === '3d' && !points3d.length){
         console.debug('Debug: pca 3d fallback triggered',{ method, pointCount: points3d.length });
         effectiveViewMode = '2d';
       }
@@ -1518,17 +1579,17 @@
         }
       }
 
-      const eigenSummaryForStats = method === 'pca' ? eigenSummaryData : [];
-      const allowEigenExport = method === 'pca' && eigenSummaryForStats.length > 0;
+      const eigenSummaryForStats = (method === 'pca' || method === 'mds') ? eigenSummaryData : [];
+      const allowEigenExport = eigenSummaryForStats.length > 0;
       renderStatsPanel({
         summaryLines: statsSummaryLines,
         showScree: method === 'pca',
         screeData,
         method: statsMethod || method,
-        showEigenTable: method === 'pca',
+        showEigenTable: method === 'pca' || method === 'mds',
         eigenSummary: eigenSummaryForStats,
         enableEigenExport: allowEigenExport,
-        varianceSummary: eigenSummaryForStats,
+        varianceSummary: method === 'pca' ? eigenSummaryForStats : [],
         pointColor: fill
       });
 
