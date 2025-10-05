@@ -358,13 +358,49 @@
         svgEl.dataset.rotationControlsAttached = 'true';
         svgEl.style.cursor = 'grab';
         svgEl.style.touchAction = 'none';
+        svgEl.style.userSelect = 'none';
+        svgEl.style.webkitUserSelect = 'none';
         const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0, logged: false };
+        const selectionGuards = {
+          applied: false,
+          previous: null
+        };
+        const disableDocumentSelection = () => {
+          if(selectionGuards.applied){ return; }
+          const doc = svgEl.ownerDocument || global.document;
+          const body = doc?.body;
+          if(!body){ return; }
+          selectionGuards.previous = {
+            userSelect: body.style.userSelect,
+            webkitUserSelect: body.style.webkitUserSelect
+          };
+          body.style.userSelect = 'none';
+          body.style.webkitUserSelect = 'none';
+          selectionGuards.applied = true;
+          console.debug('Debug: pca rotation selection disabled');
+        };
+        const restoreDocumentSelection = () => {
+          if(!selectionGuards.applied){ return; }
+          const doc = svgEl.ownerDocument || global.document;
+          const body = doc?.body;
+          if(body){
+            body.style.userSelect = selectionGuards.previous?.userSelect || '';
+            body.style.webkitUserSelect = selectionGuards.previous?.webkitUserSelect || '';
+          }
+          selectionGuards.applied = false;
+          selectionGuards.previous = null;
+          console.debug('Debug: pca rotation selection restored');
+        };
         svgEl.addEventListener('pointerdown', (event) => {
           pointerState.active = true;
           pointerState.pointerId = event.pointerId;
           pointerState.lastX = event.clientX;
           pointerState.lastY = event.clientY;
           pointerState.logged = false;
+          disableDocumentSelection();
+          if(typeof event.preventDefault === 'function'){
+            event.preventDefault();
+          }
           svgEl.setPointerCapture?.(event.pointerId);
           svgEl.style.cursor = 'grabbing';
           console.debug('Debug: pca rotation drag start',{ pointerId: event.pointerId });
@@ -376,8 +412,12 @@
           pointerState.lastX = event.clientX;
           pointerState.lastY = event.clientY;
           const sensitivity = 0.01;
-          pcaState.rotation.y += dx * sensitivity;
-          pcaState.rotation.x += dy * sensitivity;
+          const yawDelta = dx * sensitivity;
+          const pitchDelta = dy * sensitivity;
+          const pitchCos = Math.cos(pcaState.rotation.x || 0);
+          const horizontalSign = pitchCos >= 0 ? -1 : 1;
+          pcaState.rotation.y += yawDelta * horizontalSign;
+          pcaState.rotation.x -= pitchDelta;
           const halfPi = Math.PI / 2;
           if(pcaState.rotation.x > halfPi){ pcaState.rotation.x = halfPi; }
           if(pcaState.rotation.x < -halfPi){ pcaState.rotation.x = -halfPi; }
@@ -400,6 +440,7 @@
             console.debug('Debug: pca rotation pointer release error',{ message: err?.message || String(err) });
           }
           svgEl.style.cursor = 'grab';
+          restoreDocumentSelection();
           console.debug('Debug: pca rotation drag end',{ reason, rotation: { ...pcaState.rotation } });
         };
         svgEl.addEventListener('pointerup', (event) => stopDrag(event,'pointerup'));
