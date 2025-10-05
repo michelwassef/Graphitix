@@ -83,7 +83,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Inspect accompanying effect sizes for every comparison, with configurable parametric (e.g., Cohen's d or Hedges' g) and non-parametric (rank-biserial r or common language probability) metrics persisted alongside significance results.【F:js/components/box.js†L2506-L2710】
 
 ### Scatter Plot Explorer
-- Import paired or multi-series data, then adjust dot size, fill, transparency, borders, and per-label color palettes.【F:index.html†L408-L456】
+- Import paired or multi-series data, then adjust dot size, fill, transparency, borders, and per-label color palettes directly from the legend swatches.【F:index.html†L408-L456】【F:js/components/scatter.js†L662-L691】
 - Toggle grid lines, log-transform axes, set explicit min/max bounds, and position the origin at the lower-left or a custom coordinate.【F:index.html†L440-L488】
 - Enable Pearson or Spearman correlation statistics and display optional trend lines with fitted equations directly on the chart.【F:index.html†L488-L520】
 - Choose from linear, polynomial (quadratic/cubic), exponential, power, spline, or logistic regressions with interval shading and diagnostics persisted in saved `.graph` sessions.【F:index.html†L596-L636】【F:js/shared/regression.js†L1-L451】
@@ -92,14 +92,14 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 
 ### Dimensionality Reduction (PCA & MDS)
 - Compute principal components or multidimensional scaling from wide-form tables using in-browser SVD routines.【F:index.html†L520-L640】
-- Scale variables before analysis, choose point styling, and color observations by label categories using customizable palettes.【F:index.html†L552-L616】
+- Scale variables before analysis, choose point styling, and color observations by label categories using customizable palettes editable from the legend swatches.【F:index.html†L552-L616】【F:js/components/pca.js†L2304-L2334】
 - Inspect resulting eigenvalue summaries with an always-on scree plot, side-by-side variance breakdown, and downloadable eigen table directly from the statistics panel.【F:index.html†L640-L696】【F:js/components/pca.js†L620-L720】
 - Choose which principal components or MDS dimensions power each axis, then rotate PCA plots in 3D with click-and-drag gestures for richer spatial inspection.【F:index.html†L668-L704】【F:js/components/pca.js†L300-L470】【F:js/components/pca.js†L1136-L1230】
 - Toggle variance-scaled axes so 2D plots stretch proportionally to the variance captured on each component and 3D cubes elongate according to the selected PC percentages.【F:index.html†L742-L752】【F:js/components/pca.js†L1201-L1316】【F:js/components/pca.js†L1537-L1653】
 - Reveal publication-style cubic bounding boxes with multi-face grid panes, neutral edge-anchored axes, and axis-parallel PC labels so the 3D PCA view mirrors the provided reference perspective while maintaining consistent scale across components.【F:js/components/pca.js†L1384-L1713】
 
 ### Line Graph Studio
-- Plot longitudinal or series-based data with per-series color pickers, dot styling, and adjustable line borders.【F:index.html†L640-L712】
+- Plot longitudinal or series-based data while recoloring series by clicking legend swatches, alongside dot styling and adjustable line borders.【F:index.html†L640-L712】【F:js/components/line.js†L1340-L1373】
 - Configure linear or logarithmic axes, clamp ranges, and reposition the origin to highlight specific domains.【F:index.html†L704-L752】
 - Summarize trends by computing Pearson or Spearman correlations in the dedicated statistics block.【F:index.html†L752-L777】
 - Switch between linear, polynomial, exponential, power, spline, or logistic regressions while reviewing confidence intervals, residual diagnostics, and coefficient summaries for each series.【F:index.html†L893-L916】【F:js/components/line.js†L446-L662】【F:js/shared/regression.js†L1-L451】
@@ -107,7 +107,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 
 ### Classification Curves (ROC & PR)
 - Build ROC or precision-recall curves from model scores and labels stored in the integrated table editor.【F:index.html†L800-L848】
-- Customize series colors, grid display, and line thickness; switch between ROC and PR modes dynamically.【F:index.html†L848-L904】
+- Customize series colors directly from the legend, adjust grid display and line thickness, and switch between ROC and PR modes dynamically.【F:index.html†L848-L904】【F:js/components/roc.js†L933-L963】
 - Review trapezoidal AUC or average precision metrics alongside configurable statistic controls below the chart.【F:index.html†L904-L928】
 
 ### Survival Analysis (Kaplan–Meier & Cox)
@@ -121,7 +121,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 
 ### Proportion Graph & Chi² Analysis
 - Visualize categorical proportions as pie, donut, or stacked bar charts by providing category, observed, and expected columns.【F:index.html†L1032-L1088】
-- Customize slice colors, display percentages, rotate the start angle, and export the resulting chart as PNG/SVG.【F:index.html†L1068-L1096】
+- Customize slice colors by clicking legend swatches, display percentages, rotate the start angle, and export the resulting chart as PNG/SVG.【F:index.html†L1068-L1096】【F:js/components/pie.js†L470-L600】
 - Select observed/expected columns for the built-in Chi² goodness-of-fit test, with results shown in the statistics panel.【F:index.html†L1096-L1108】
 
 ## Statistical Analysis Toolkit

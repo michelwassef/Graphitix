@@ -161,7 +161,6 @@
       hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
       usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
     });
-    const attachPicker = (el)=>{ if (typeof global.attachColorPickerNear === 'function') { global.attachColorPickerNear(el); } };
     const serializeSvg = (svgEl)=>{
       if (typeof global.serializeCleanSVG === 'function') return global.serializeCleanSVG(svgEl);
       const clone = svgEl.cloneNode(true);
@@ -329,8 +328,6 @@
       const pcaShowFrame=$('#pcaShowFrame');
       const pcaVarianceAxisScale=$('#pcaVarianceAxisScale');
       const pcaScale=$('#pcaScale');
-      const pcaLabelColorsDiv=$('#pcaLabelColors');
-      const pcaLabelColorsFieldset=$('#pcaLabelColorsFieldset');
       const pcaStatsResults=document.getElementById('pcaStatsResults');
       const pcaStatsSummary=document.getElementById('pcaStatsSummary');
       const pcaScreeContainer=document.getElementById('pcaScreeContainer');
@@ -908,15 +905,21 @@
       [pcaShowGrid,pcaScale].forEach(el=>el.addEventListener('change',()=>{console.log('pca config changed',el.id); scheduleDrawPca();}));
       pcaShowFrame.addEventListener('change',()=>{console.debug('Debug: pca showFrame change',{checked:pcaShowFrame.checked}); scheduleDrawPca();});
       [pcaXMin,pcaXMax,pcaYMin,pcaYMax].forEach(el=>el.addEventListener('input',()=>{console.log('pca axis input',el.id,el.value); scheduleDrawPca();}));
-      function updatePcaLabelColorPickers(labels){
-        pcaLabelColorsDiv.innerHTML='';
-        if(labels.length===0){ pcaLabelColorsFieldset.style.display='none'; console.log('updatePcaLabelColorPickers hide'); return; }
-        pcaLabelColorsFieldset.style.display='';
-        labels.forEach((lab,i)=>{ if(!pcaLabelColors[lab]){ pcaLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]; console.log('pca default label color',{label:lab,color:pcaLabelColors[lab]}); }
-          const input=document.createElement('input'); input.type='color'; input.value=pcaLabelColors[lab]; attachPicker(input);
-          input.addEventListener('input',e=>{ pcaLabelColors[lab]=e.target.value; console.log('pca label color changed',{label:lab,color:pcaLabelColors[lab]}); scheduleDrawPca(); });
-          const lbl=document.createElement('label'); lbl.textContent=lab+' '; lbl.appendChild(input); pcaLabelColorsDiv.appendChild(lbl); });
-        console.log('updatePcaLabelColorPickers',pcaLabelColors);
+      function ensurePcaLabelColors(labels){
+        const labelSet = new Set(labels);
+        labels.forEach((lab,i)=>{
+          if(!pcaLabelColors[lab]){
+            pcaLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+            console.debug('Debug: pca default label color applied',{label:lab,color:pcaLabelColors[lab]});
+          }
+        });
+        Object.keys(pcaLabelColors).forEach(existing=>{
+          if(!labelSet.has(existing)){
+            console.debug('Debug: pca label color pruned',{label:existing});
+            delete pcaLabelColors[existing];
+          }
+        });
+        console.debug('Debug: ensurePcaLabelColors sync complete',{count:Object.keys(pcaLabelColors).length});
       }
       const pcaPlotDiv=document.getElementById('pcaPlot');
       pcaPlotDiv.style.background='none';
@@ -1467,7 +1470,7 @@
         });
       }
 
-      updatePcaLabelColorPickers(Array.from(labelSet));
+      ensurePcaLabelColors(Array.from(labelSet));
 
       let effectiveViewMode = requestedViewMode;
       if(effectiveViewMode === '3d' && (method !== 'pca' || !points3d.length)){
@@ -1946,7 +1949,24 @@
         legendLabels.forEach((lab, i) => {
           const itemY = margin3.top + i * (legendMarkerSize3 + legendSpacing3);
           const color = pcaLabelColors[lab] || DEFAULT_SCATTER_COLORS[i % DEFAULT_SCATTER_COLORS.length];
-          add3('rect', {x: legendX3, y: itemY, width: legendMarkerSize3, height: legendMarkerSize3, fill: color});
+          const swatch3 = add3('rect', {x: legendX3, y: itemY, width: legendMarkerSize3, height: legendMarkerSize3, fill: color});
+          if(swatch3){
+            swatch3.style.cursor = 'pointer';
+            swatch3.dataset.legendKey = lab;
+            swatch3.addEventListener('click',(evt)=>{
+              if(evt){ evt.stopPropagation(); }
+              const currentColor = pcaLabelColors[lab] || color;
+              Shared.openColorPicker({
+                anchor: swatch3,
+                color: currentColor,
+                onInput(value){
+                  pcaLabelColors[lab] = value;
+                  console.debug('Debug: pca 3d legend color input',{label:lab,color:value});
+                  scheduleDrawPca();
+                }
+              });
+            });
+          }
           const legendText = add3('text', {
             x: legendX3 + legendTextOffset3,
             y: itemY + legendMarkerSize3 / 2,
@@ -2314,7 +2334,24 @@
       legendLabels.forEach((lab, i) => {
         const itemY = margin.top + i * (legendMarkerSize + legendSpacing);
         const color = pcaLabelColors[lab] || DEFAULT_SCATTER_COLORS[i % DEFAULT_SCATTER_COLORS.length];
-        add('rect', {x: legendX, y: itemY, width: legendMarkerSize, height: legendMarkerSize, fill: color});
+        const swatch = add('rect', {x: legendX, y: itemY, width: legendMarkerSize, height: legendMarkerSize, fill: color});
+        if(swatch){
+          swatch.style.cursor = 'pointer';
+          swatch.dataset.legendKey = lab;
+          swatch.addEventListener('click',(evt)=>{
+            if(evt){ evt.stopPropagation(); }
+            const currentColor = pcaLabelColors[lab] || color;
+            Shared.openColorPicker({
+              anchor: swatch,
+              color: currentColor,
+              onInput(value){
+                pcaLabelColors[lab] = value;
+                console.debug('Debug: pca legend color input',{label:lab,color:value});
+                scheduleDrawPca();
+              }
+            });
+          });
+        }
         const legendText = add('text', {
           x: legendX + legendTextOffset,
           y: itemY + legendMarkerSize / 2,

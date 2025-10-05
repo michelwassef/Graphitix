@@ -310,16 +310,23 @@
     document.getElementById('pieGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; pie.loadFromFile(f); }});
   }
 
-  function updatePieColorPickers(labels){
-    const colorPickers=document.getElementById('pieColorPickers');
-    colorPickers.innerHTML='';
+  function ensurePieColors(labels){
     const palette = getDefaultPalette();
+    const labelSet = new Set(labels);
     console.debug('Debug: pie color palette in use', { palette }); // Debug: palette source and values
     labels.forEach((lab,i)=>{
-      if(!state.colors[lab]) state.colors[lab]= palette[i % palette.length];
-      const input=document.createElement('input'); input.type='color'; input.value=state.colors[lab]; if(global.attachColorPickerNear) attachColorPickerNear(input); input.addEventListener('input',e=>{ state.colors[lab]=e.target.value; console.log('pie color changed',{lab,color:state.colors[lab]}); state.scheduleDraw(); }); const lbl=document.createElement('label'); lbl.textContent=lab+' '; lbl.appendChild(input); colorPickers.appendChild(lbl);
+      if(!state.colors[lab]){
+        state.colors[lab]= palette[i % palette.length];
+        console.debug('Debug: pie default color applied',{label:lab,color:state.colors[lab]});
+      }
     });
-    console.log('updatePieColorPickers',state.colors); // Debug: resulting color map
+    Object.keys(state.colors).forEach(existing=>{
+      if(!labelSet.has(existing)){
+        console.debug('Debug: pie color pruned',{label:existing});
+        delete state.colors[existing];
+      }
+    });
+    console.log('ensurePieColors sync',state.colors); // Debug: resulting color map
   }
 
   // Compute and render Chi-square statistics for proportion graphs
@@ -419,7 +426,7 @@
       const header=data[0]||[]; const barHeaders=header.slice(1).filter(h=>h!==null&&h!==''); const segmentLabels=[]; const segmentValues=[];
       for(let r=1;r<data.length;r++){ const row=data[r]; const seg=row[0]; if(seg){ const vals=[]; for(let c=1;c<=barHeaders.length;c++){ const v=parseFloat(row[c]); vals.push(isNaN(v)?0:v);} segmentLabels.push(String(seg)); segmentValues.push(vals);} }
       if(!barHeaders.length||!segmentLabels.length){plotEl.innerHTML='<i>No data</i>';return;}
-      updatePieColorPickers(segmentLabels);
+      ensurePieColors(segmentLabels);
       plotEl.style.display='flex'; plotEl.style.alignItems='flex-start';
       const svgWidth=Math.max(50,Math.floor(plotEl.clientWidth||50)-state.legendWidth);
       const svgHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
@@ -490,6 +497,20 @@
         swatch.style.height=legendMarkerSize+'px';
         swatch.style.borderRadius='2px';
         swatch.style.background=state.colors[lab] || palette[i % palette.length];
+        swatch.style.cursor='pointer';
+        swatch.addEventListener('click',(evt)=>{
+          if(evt){ evt.stopPropagation(); }
+          const currentColor=state.colors[lab] || palette[i % palette.length];
+          Shared.openColorPicker({
+            anchor: swatch,
+            color: currentColor,
+            onInput(value){
+              state.colors[lab]=value;
+              console.debug('Debug: pie stacked legend color input',{label:lab,color:value});
+              state.scheduleDraw?.();
+            }
+          });
+        });
         const labelSpan=document.createElement('span');
         labelSpan.textContent=lab;
         item.appendChild(swatch);
@@ -515,7 +536,7 @@
     }
 
     // Pie/Donut
-    const valueColumn=$('#pieValueColumn'); const expectedColumn=$('#pieExpectedColumn'); const header=data[0]||[]; const values=[]; const expected=[]; const labels=[]; for(let r=1;r<data.length;r++){ const row=data[r]; if(row && row[0]!=null && row[0]!=='' ){ labels.push(String(row[0])); const vi=parseInt(valueColumn.value||'1',10); const ei=parseInt(expectedColumn.value||'2',10); const v=parseFloat(row[vi]); const e=parseFloat(row[ei]); values.push(isNaN(v)?0:v); expected.push(e); }} if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; } updatePieColorPickers(labels);
+    const valueColumn=$('#pieValueColumn'); const expectedColumn=$('#pieExpectedColumn'); const header=data[0]||[]; const values=[]; const expected=[]; const labels=[]; for(let r=1;r<data.length;r++){ const row=data[r]; if(row && row[0]!=null && row[0]!=='' ){ labels.push(String(row[0])); const vi=parseInt(valueColumn.value||'1',10); const ei=parseInt(expectedColumn.value||'2',10); const v=parseFloat(row[vi]); const e=parseFloat(row[ei]); values.push(isNaN(v)?0:v); expected.push(e); }} if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; } ensurePieColors(labels);
     plotEl.style.display='flex';
     plotEl.style.alignItems='flex-start';
     const legend=document.createElement('div');
@@ -558,7 +579,7 @@
     const legendGap=Math.max(4,Math.round(6*fontScale));
     const legendMarkerSize=Math.max(10,Math.round(12*fontScale));
     legend.style.gap=legendGap+'px';
-    labels.forEach((lab,i)=>{ const v=values[i]; const frac=v/sum; const endAngle=startAngle+2*Math.PI*frac; const x1=cx + r*Math.cos(startAngle); const y1=cy + r*Math.sin(startAngle); const x2=cx + r*Math.cos(endAngle); const y2=cy + r*Math.sin(endAngle); const largeArc = (endAngle-startAngle) > Math.PI ? 1 : 0; const path=document.createElementNS(NS,'path'); if(rInner>0){ const x1i=cx + rInner*Math.cos(startAngle); const y1i=cy + rInner*Math.sin(startAngle); const x2i=cx + rInner*Math.cos(endAngle); const y2i=cy + rInner*Math.sin(endAngle); const d=`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${x2i} ${y2i} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x1i} ${y1i} Z`; path.setAttribute('d',d); } else { const d=`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`; path.setAttribute('d',d);} const fillColor = state.colors[lab] || palette2[i % palette2.length]; path.setAttribute('fill', fillColor); svg.appendChild(path); if(showPerc && frac>0){ const mid=(startAngle+endAngle)/2; const tx=cx + (rInner>0?(r+rInner)/2:r*0.65)*Math.cos(mid); const ty=cy + (rInner>0?(r+rInner)/2:r*0.65)*Math.sin(mid); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',tx); txt.setAttribute('y',ty); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size',fs); txt.textContent=(frac*100).toFixed(1)+'%'; markFontEditable(txt,'annotation',`pie-annotation-${i}`); svg.appendChild(txt);} const legendItem=document.createElement('div'); legendItem.style.display='flex'; legendItem.style.alignItems='center'; legendItem.style.gap=legendGap+'px'; const swatch=document.createElement('span'); swatch.style.display='inline-block'; swatch.style.width=legendMarkerSize+'px'; swatch.style.height=legendMarkerSize+'px'; swatch.style.borderRadius='2px'; swatch.style.background=fillColor; const labelSpan=document.createElement('span'); labelSpan.textContent=lab; legendItem.appendChild(swatch); legendItem.appendChild(labelSpan); legend.appendChild(legendItem); startAngle=endAngle; });
+    labels.forEach((lab,i)=>{ const v=values[i]; const frac=v/sum; const endAngle=startAngle+2*Math.PI*frac; const x1=cx + r*Math.cos(startAngle); const y1=cy + r*Math.sin(startAngle); const x2=cx + r*Math.cos(endAngle); const y2=cy + r*Math.sin(endAngle); const largeArc = (endAngle-startAngle) > Math.PI ? 1 : 0; const path=document.createElementNS(NS,'path'); if(rInner>0){ const x1i=cx + rInner*Math.cos(startAngle); const y1i=cy + rInner*Math.sin(startAngle); const x2i=cx + rInner*Math.cos(endAngle); const y2i=cy + rInner*Math.sin(endAngle); const d=`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${x2i} ${y2i} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x1i} ${y1i} Z`; path.setAttribute('d',d); } else { const d=`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`; path.setAttribute('d',d);} const fillColor = state.colors[lab] || palette2[i % palette2.length]; path.setAttribute('fill', fillColor); svg.appendChild(path); if(showPerc && frac>0){ const mid=(startAngle+endAngle)/2; const tx=cx + (rInner>0?(r+rInner)/2:r*0.65)*Math.cos(mid); const ty=cy + (rInner>0?(r+rInner)/2:r*0.65)*Math.sin(mid); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',tx); txt.setAttribute('y',ty); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size',fs); txt.textContent=(frac*100).toFixed(1)+'%'; markFontEditable(txt,'annotation',`pie-annotation-${i}`); svg.appendChild(txt);} const legendItem=document.createElement('div'); legendItem.style.display='flex'; legendItem.style.alignItems='center'; legendItem.style.gap=legendGap+'px'; const swatch=document.createElement('span'); swatch.style.display='inline-block'; swatch.style.width=legendMarkerSize+'px'; swatch.style.height=legendMarkerSize+'px'; swatch.style.borderRadius='2px'; swatch.style.background=fillColor; swatch.style.cursor='pointer'; swatch.addEventListener('click',(evt)=>{ if(evt){ evt.stopPropagation(); } const currentColor=state.colors[lab] || fillColor; Shared.openColorPicker({ anchor: swatch, color: currentColor, onInput(value){ state.colors[lab]=value; console.debug('Debug: pie legend color input',{label:lab,color:value}); state.scheduleDraw?.(); } }); }); const labelSpan=document.createElement('span'); labelSpan.textContent=lab; legendItem.appendChild(swatch); legendItem.appendChild(labelSpan); legend.appendChild(legendItem); startAngle=endAngle; });
     console.debug('Debug: pie legend items rendered',{ legendItemCount: labels.length, legendMarkerSize, legendGap, chartType: type });
     const title=document.createElementNS(NS,'text'); title.setAttribute('x',cx); title.setAttribute('y',fs); title.setAttribute('text-anchor','middle'); title.setAttribute('font-size',fs); title.textContent=state.titleText; markFontEditable(title,'graphTitle','graphTitle'); if(global.makeEditable) makeEditable(title,txt=>{state.titleText=txt;}); svg.appendChild(title);
     const frameStroke = '#000';
