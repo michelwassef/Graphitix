@@ -223,7 +223,7 @@ html, body {
     border-radius: 0 12px 0 0;
     box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.08);
     padding: 0;
-    max-width: min(100%, 960px);
+    width: 100%;
     overflow: hidden;
     z-index: 4000;
     flex-wrap: nowrap;
@@ -531,6 +531,7 @@ html, body {
     background: rgba(248, 250, 252, 0.9);
     white-space: nowrap;
     align-self: stretch;
+    margin-left: auto;
 }
 
 .workspace-action-btn {
