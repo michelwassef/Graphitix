@@ -356,6 +356,10 @@
       }
       function attach3dRotationControls(svgEl){
         if(!svgEl){ return; }
+        if(svgEl.dataset.rotationControlsAttached === 'true'){
+          return;
+        }
+        svgEl.dataset.rotationControlsAttached = 'true';
         svgEl.style.cursor = 'grab';
         svgEl.style.touchAction = 'none';
         const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0, logged: false };
@@ -1355,8 +1359,12 @@
 
       const plotEl = document.getElementById('pcaPlot');
       plotEl.style.display = 'block';
-      while (plotEl.firstChild) {
-        plotEl.removeChild(plotEl.firstChild);
+      const existingSvg = plotEl.querySelector('#pcaSvg');
+      const reuse3dSvg = existingSvg && existingSvg.dataset.viewMode === '3d';
+      if(!reuse3dSvg){
+        while (plotEl.firstChild) {
+          plotEl.removeChild(plotEl.firstChild);
+        }
       }
 
       renderStatsPanel({
@@ -1378,15 +1386,20 @@
         const W3 = Math.max(50, Math.floor(plotEl.clientWidth || 50));
         const H3 = Math.max(40, Math.floor(plotEl.clientHeight || 40));
         plotEl.style.position = 'relative';
-        const svg3 = document.createElementNS(NS, 'svg');
-        svg3.setAttribute('id', 'pcaSvg');
+        const svg3 = reuse3dSvg ? existingSvg : document.createElementNS(NS, 'svg');
+        if(!reuse3dSvg){
+          svg3.setAttribute('id', 'pcaSvg');
+          plotEl.appendChild(svg3);
+        }
         svg3.setAttribute('width', String(W3));
         svg3.setAttribute('height', String(H3));
         svg3.setAttribute('viewBox', `0 0 ${W3} ${H3}`);
         svg3.setAttribute('font-family', chartStyle.FONT_FAMILY);
         svg3.dataset.viewMode = '3d';
         chartStyle.applySvgDefaults(svg3);
-        plotEl.appendChild(svg3);
+        while (svg3.firstChild) {
+          svg3.removeChild(svg3.firstChild);
+        }
         attach3dRotationControls(svg3);
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
           fontControls.enableForSvg(svg3,{ scopeId: 'pca' });
