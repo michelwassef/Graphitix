@@ -940,6 +940,8 @@
                   <option value="power">Power</option>
                   <option value="spline">Spline</option>
                   <option value="logistic">Logistic</option>
+                  <option value="arima">ARIMA</option>
+                  <option value="holtWinters">Holt-Winters</option>
                 </select>
               </label>
             </div>
@@ -951,6 +953,33 @@
                 <input type="checkbox" id="lineShowDiagnostics" /> Show Diagnostics Summary
               </label>
             </div>
+            <fieldset id="lineForecastControls" style="margin-top:8px;">
+              <legend>Forecasting</legend>
+              <div class="control">
+                <label>
+                  Horizon
+                  <input type="number" id="lineForecastHorizon" min="1" max="120" value="6" />
+                </label>
+              </div>
+              <div class="control">
+                <label>
+                  Season Length
+                  <input type="number" id="lineForecastSeasonLength" min="2" max="60" value="12" />
+                </label>
+              </div>
+              <div class="control" style="flex-wrap:wrap; gap:12px;">
+                <label style="width:auto;">
+                  <input type="checkbox" id="lineForecastAuto" checked /> Auto-tune parameters (AIC/BIC)
+                </label>
+                <label>
+                  Criterion
+                  <select id="lineForecastCriterion">
+                    <option value="bic" selected>BIC</option>
+                    <option value="aic">AIC</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
             <div id="lineStatsResults" style="margin-top:8px;"></div>
           </fieldset>
         </div>
