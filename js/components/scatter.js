@@ -84,7 +84,6 @@
       hasGraphViewport: typeof Shared.graphViewport?.ensure === 'function',
       usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
     });
-    const attachPicker = (el)=>{ if (typeof global.attachColorPickerNear === 'function') { global.attachColorPickerNear(el); } };
     const serializeSvg = (svgEl, options)=>{
       const fn = Shared.serializeCleanSVG || global.serializeCleanSVG;
       if (typeof fn === 'function') {
@@ -326,8 +325,6 @@
       const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
       const scatterStatType=$('#scatterStatType');
       const scatterRegressionMode=$('#scatterRegressionMode');
-      const scatterLabelColorsDiv=$('#scatterLabelColors');
-      const scatterLabelColorsFieldset=$('#scatterLabelColorsFieldset');
       let scatterLabelColors={};
       function syncScatterGraphTypeUI(){
         const type=scatterGraphTypeSelect?.value || 'scatter';
@@ -371,9 +368,6 @@
             scatterTitleText=defaults.title;
           }
           scatterLastGraphType=type;
-        }
-        if(type!=='scatter' && scatterLabelColorsFieldset){
-          scatterLabelColorsFieldset.style.display='none';
         }
         console.debug('Debug: syncScatterGraphTypeUI complete',{type,showThresholds});
       }
@@ -425,40 +419,24 @@
       [scatterXMin,scatterXMax,scatterYMin,scatterYMax,scatterOriginX,scatterOriginY].forEach(el=>el.addEventListener('input',()=>{console.log('scatter axis input', el.id, el.value); scheduleDrawScatter();}));
       syncScatterGraphTypeUI();
 
-      function updateScatterLabelColorPickers(labels){
+      function ensureScatterLabelColors(labels){
         if(scatterCurrentGraphType!=='scatter'){
-          scatterLabelColorsDiv.innerHTML='';
-          scatterLabelColorsFieldset.style.display='none';
-          console.debug('Debug: scatter label colors disabled',{graphType:scatterCurrentGraphType});
           return;
         }
-        scatterLabelColorsDiv.innerHTML='';
-        if(labels.length===0){
-          scatterLabelColorsFieldset.style.display='none';
-          console.log('updateScatterLabelColorPickers hide');
-          return;
-        }
-        scatterLabelColorsFieldset.style.display='';
+        const labelSet=new Set(labels);
         labels.forEach((lab,i)=>{
           if(!scatterLabelColors[lab]){
             scatterLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
-            console.log('scatter default label color',{label:lab,color:scatterLabelColors[lab]});
+            console.debug('Debug: scatter default label color applied',{label:lab,color:scatterLabelColors[lab]});
           }
-          const input=document.createElement('input');
-          input.type='color';
-          input.value=scatterLabelColors[lab];
-          attachPicker(input);
-          input.addEventListener('input',e=>{
-            scatterLabelColors[lab]=e.target.value;
-            console.log('scatter label color changed',{label:lab,color:scatterLabelColors[lab]});
-            scheduleDrawScatter();
-          });
-          const lbl=document.createElement('label');
-          lbl.textContent=lab+' ';
-          lbl.appendChild(input);
-          scatterLabelColorsDiv.appendChild(lbl);
         });
-        console.log('updateScatterLabelColorPickers',scatterLabelColors);
+        Object.keys(scatterLabelColors).forEach(existing=>{
+          if(!labelSet.has(existing)){
+            console.debug('Debug: scatter label color pruned',{label:existing});
+            delete scatterLabelColors[existing];
+          }
+        });
+        console.debug('Debug: ensureScatterLabelColors sync complete',{count:Object.keys(scatterLabelColors).length});
       }
     
       const scatterPlotDiv=document.getElementById('scatterPlot');
@@ -668,13 +646,13 @@
         }
         const labelsUsed=labelSet?Array.from(labelSet):[];
         console.debug('Debug: scatter label summary',{graphType:scatterCurrentGraphType,labelCount:labelsUsed.length,tracked:shouldCollectLabelSet}); // Debug: label usage summary
-        updateScatterLabelColorPickers(labelsUsed);
+        ensureScatterLabelColors(labelsUsed);
         console.log('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
         const legendEntries=[];
         const significanceLegendNeeded=scatterCurrentGraphType!=='scatter';
         if(scatterCurrentGraphType==='scatter'){
           labelsUsed.forEach(labelName=>{
-            legendEntries.push({label:labelName,fill:scatterLabelColors[labelName]||fill});
+            legendEntries.push({label:labelName,fill:scatterLabelColors[labelName]||fill,key:labelName,editable:true});
           });
         }else if(significanceLegendNeeded){
           legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
@@ -682,7 +660,24 @@
         }
         const legendRenderer=chartStyle.createLegendRenderer({
           entries:legendEntries,
-          fontSize:fs
+          fontSize:fs,
+          onSwatchClick:({ entry, event, swatch })=>{
+            const labelKey=entry?.key;
+            if(!labelKey){
+              return;
+            }
+            if(event){ event.stopPropagation(); }
+            const currentColor=scatterLabelColors[labelKey]||entry.fill;
+            Shared.openColorPicker({
+              anchor:swatch,
+              color:currentColor,
+              onInput(value){
+                scatterLabelColors[labelKey]=value;
+                console.debug('Debug: scatter legend color input',{label:labelKey,color:value});
+                scheduleDrawScatter();
+              }
+            });
+          }
         });
         const legendGapPx=legendRenderer.entries.length?Math.max(12,Math.round(fs*0.5)):0;
         const legendWidth=legendRenderer.entries.length?legendRenderer.width+legendGapPx:0;

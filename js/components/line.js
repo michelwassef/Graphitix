@@ -498,28 +498,21 @@
     return structure;
   }
 
-  function updateLineLabelColorPickers(labels){
-    if(!refs.labelColorsDiv || !refs.labelColorsFieldset) return;
-    refs.labelColorsDiv.innerHTML='';
-    Object.keys(lineLabelColors).forEach(k=>{ if(!labels.includes(k)) delete lineLabelColors[k]; });
+  function ensureLineLabelColors(labels){
+    const labelSet = new Set(labels);
     labels.forEach((lab,i)=>{
-      if(!lineLabelColors[lab]) lineLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
-      const input=document.createElement('input');
-      input.type='color';
-      input.value=lineLabelColors[lab];
-      if(typeof global.attachColorPickerNear === 'function') global.attachColorPickerNear(input);
-      input.addEventListener('input',e=>{
-        lineLabelColors[lab]=e.target.value;
-        console.debug('Debug: line label color change',{label:lab,color:e.target.value}); // Debug: label color edit
-        scheduleLineDraw();
-      });
-      const lbl=document.createElement('label');
-      lbl.textContent=lab+' ';
-      lbl.appendChild(input);
-      refs.labelColorsDiv.appendChild(lbl);
+      if(!lineLabelColors[lab]){
+        lineLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
+        console.debug('Debug: line default label color applied',{label:lab,color:lineLabelColors[lab]});
+      }
     });
-    refs.labelColorsFieldset.style.display=labels.length?'':'none';
-    console.debug('Debug: updateLineLabelColorPickers',{labels,count:labels.length}); // Debug: label picker update
+    Object.keys(lineLabelColors).forEach(k=>{
+      if(!labelSet.has(k)){
+        console.debug('Debug: line label color pruned',{label:k});
+        delete lineLabelColors[k];
+      }
+    });
+    console.debug('Debug: ensureLineLabelColors sync complete',{count:Object.keys(lineLabelColors).length});
   }
 
   function computeLineStats(points,method,jStatLib,regressionMode,options = {}){
@@ -983,7 +976,7 @@
         resolveForecastOptions({ syncInputs: true });
         updateForecastVisibility();
         lineLastRegressionSummaries = Array.isArray(c.regression?.seriesSummaries) ? c.regression.seriesSummaries.slice() : [];
-        updateLineLabelColorPickers(Object.keys(lineLabelColors));
+        ensureLineLabelColors(Object.keys(lineLabelColors));
         scheduleLineDraw();
       }catch(err){ console.error('loadLineGraph error',err); }
     };
@@ -1207,25 +1200,7 @@
           }
         });
       }
-      if(regressionCache.size){
-        series.forEach(s=>{
-          const forecastPts = Array.isArray(s.regression?.forecast?.points) ? s.regression.forecast.points : [];
-          forecastPts.forEach(pt=>{
-            if(pt && Number.isFinite(pt.x)){
-              if(pt.x < xMinRaw) xMinRaw = pt.x;
-              if(pt.x > xMaxRaw) xMaxRaw = pt.x;
-            }
-            ['y','lower','upper','ciLow','ciHigh','piLow','piHigh'].forEach(key=>{
-              const val = pt && Number.isFinite(pt[key]) ? pt[key] : undefined;
-              if(Number.isFinite(val)){
-                if(val < yMinRaw) yMinRaw = val;
-                if(val > yMaxRaw) yMaxRaw = val;
-              }
-            });
-          });
-        });
-      }
-      updateLineLabelColorPickers(labelsUsed);
+      ensureLineLabelColors(labelsUsed);
       const legendLabels=labelsUsed;
       const legendScale = styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
       const legendWidth=legendLabels.length?Math.max(60, Math.round(120*legendScale)):0;
@@ -1600,6 +1575,21 @@
           sw.setAttribute('width',12);
           sw.setAttribute('height',12);
           sw.setAttribute('fill',colors[i]);
+          sw.style.cursor='pointer';
+          sw.addEventListener('click',(evt)=>{
+            if(evt){ evt.stopPropagation(); }
+            const seriesName=s.name;
+            const currentColor=lineLabelColors[seriesName]||colors[i];
+            Shared.openColorPicker({
+              anchor: sw,
+              color: currentColor,
+              onInput(value){
+                lineLabelColors[seriesName]=value;
+                console.debug('Debug: line legend color input',{label:seriesName,color:value});
+                scheduleLineDraw();
+              }
+            });
+          });
           itemG.appendChild(sw);
           const t=document.createElementNS(NS,'text');
           t.setAttribute('x',legendX+16);
@@ -1725,8 +1715,6 @@
     refs.originMode=document.getElementById('lineOriginMode');
     refs.originX=document.getElementById('lineOriginX');
     refs.originY=document.getElementById('lineOriginY');
-    refs.labelColorsDiv=document.getElementById('lineLabelColors');
-    refs.labelColorsFieldset=document.getElementById('lineLabelColorsFieldset');
     refs.loadExample=document.getElementById('lineLoadExample');
     refs.importBtn=document.getElementById('lineImport');
     refs.fileInput=document.getElementById('lineFile');

@@ -1220,7 +1220,10 @@
       const fill = typeof entry.fill === 'string' ? entry.fill : (typeof entry.color === 'string' ? entry.color : defaultFill);
       const stroke = typeof entry.stroke === 'string' ? entry.stroke : (typeof entry.border === 'string' ? entry.border : defaultStroke);
       const strokeWidth = Number.isFinite(entry.strokeWidth) ? Number(entry.strokeWidth) : defaultStrokeWidth;
-      normalizedEntries.push({ label, fill, stroke, strokeWidth, sourceIndex: index });
+      const keyRaw = entry.key ?? entry.id ?? label;
+      const key = keyRaw == null ? '' : String(keyRaw);
+      const editable = entry.editable === true;
+      normalizedEntries.push({ label, fill, stroke, strokeWidth, sourceIndex: index, key, editable, raw: entry });
     });
     const fontSize = Math.max(4, Number(opts.fontSize) || 12);
     const rowGap = Number.isFinite(opts.rowGap) ? Number(opts.rowGap) : Math.max(4, Math.round(fontSize * 0.3));
@@ -1282,6 +1285,10 @@
           swatch.setAttribute('width', swatchSize);
           swatch.setAttribute('height', swatchSize);
           swatch.setAttribute('fill', entry.fill);
+          if(entry.key){
+            swatch.dataset.legendKey = entry.key;
+          }
+          swatch.dataset.legendIndex = String(idx);
           const effectiveStrokeWidth = entry.strokeWidth > 0 ? entry.strokeWidth : 0;
           if(effectiveStrokeWidth > 0){
             swatch.setAttribute('stroke', entry.stroke || entry.fill);
@@ -1289,6 +1296,25 @@
           }else if(entry.stroke){
             swatch.setAttribute('stroke', entry.stroke);
             swatch.setAttribute('stroke-width', 0);
+          }
+          if(entry.editable && typeof opts.onSwatchClick === 'function'){
+            swatch.style.cursor = 'pointer';
+            swatch.addEventListener('click', (evt) => {
+              console.debug('Debug: legend swatch click', {
+                label: entry.label,
+                key: entry.key,
+                index: idx
+              });
+              opts.onSwatchClick({
+                event: evt,
+                entry,
+                index: idx,
+                swatch,
+                textNode: null,
+                renderer,
+                svg
+              });
+            });
           }
           group.appendChild(swatch);
           const text = doc.createElementNS(NS, 'text');
@@ -1298,6 +1324,10 @@
           text.setAttribute('fill', chartStyle.TEXT_COLOR);
           text.setAttribute('dominant-baseline', 'alphabetic');
           text.textContent = entry.label;
+          if(entry.editable && typeof opts.onSwatchClick === 'function'){
+            text.dataset.legendIndex = String(idx);
+            if(entry.key){ text.dataset.legendKey = entry.key; }
+          }
           group.appendChild(text);
         });
         svg.appendChild(group);

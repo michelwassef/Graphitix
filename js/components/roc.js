@@ -97,8 +97,6 @@
     refs.fontSize = document.getElementById('rocFontSize');
     refs.fontSizeVal = document.getElementById('rocFontSizeVal');
     refs.graphType = document.getElementById('rocGraphType');
-    refs.labelColorsDiv = document.getElementById('rocLabelColors');
-    refs.labelColorsFieldset = document.getElementById('rocLabelColorsFieldset');
     refs.loadExampleBtn = document.getElementById('rocLoadExample');
     refs.importBtn = document.getElementById('rocImport');
     refs.fileInput = document.getElementById('rocFile');
@@ -229,38 +227,21 @@
     console.debug('Debug: ROC stats controls rendered', {graphType, diff: state.diffMethod});
   }
 
-  function updateLabelColorPickers(labels){
-    if(!refs.labelColorsDiv || !refs.labelColorsFieldset){
-      return;
-    }
-    refs.labelColorsDiv.innerHTML = '';
-    Object.keys(state.labelColors).forEach(key => {
-      if(!labels.includes(key)){
-        delete state.labelColors[key];
-      }
-    });
+  function ensureLabelColors(labels){
+    const labelSet = new Set(labels);
     labels.forEach((label, index) => {
       if(!state.labelColors[label]){
         state.labelColors[label] = DEFAULT_SCATTER_COLORS[index % DEFAULT_SCATTER_COLORS.length];
+        console.debug('Debug: ROC default label color applied', { label, color: state.labelColors[label] });
       }
-      const input = document.createElement('input');
-      input.type = 'color';
-      input.value = state.labelColors[label];
-      if(typeof global.attachColorPickerNear === 'function'){
-        global.attachColorPickerNear(input);
-      }
-      input.addEventListener('input', event => {
-        state.labelColors[label] = event.target.value;
-        console.debug('Debug: ROC label color update', {label, color: event.target.value});
-        state.scheduleDraw?.();
-      });
-      const wrapper = document.createElement('label');
-      wrapper.textContent = `${label} `;
-      wrapper.appendChild(input);
-      refs.labelColorsDiv.appendChild(wrapper);
     });
-    refs.labelColorsFieldset.style.display = labels.length ? '' : 'none';
-    console.debug('Debug: ROC color pickers refreshed', {labels});
+    Object.keys(state.labelColors).forEach(key => {
+      if(!labelSet.has(key)){
+        console.debug('Debug: ROC label color pruned', { label: key });
+        delete state.labelColors[key];
+      }
+    });
+    console.debug('Debug: ensureLabelColors sync complete', { count: Object.keys(state.labelColors).length });
   }
 
   function initExampleAndImport(){
@@ -609,7 +590,7 @@
     }));
 
     const legendLabels = series.map(s => s.name);
-    updateLabelColorPickers(legendLabels);
+    ensureLabelColors(legendLabels);
 
     if(state.compareSel){
       const previous = state.compareSel.value;
@@ -951,7 +932,24 @@
     legendLabels.forEach((label, index) => {
       const baseY = margin.top + legendMargin + index * (legendMarkerSize + legendSpacing);
       const color = state.labelColors[label] || DEFAULT_SCATTER_COLORS[index % DEFAULT_SCATTER_COLORS.length];
-      add('rect', {x: legendX, y: baseY, width: legendMarkerSize, height: legendMarkerSize, fill: color});
+      const swatch = add('rect', {x: legendX, y: baseY, width: legendMarkerSize, height: legendMarkerSize, fill: color});
+      if(swatch){
+        swatch.style.cursor = 'pointer';
+        swatch.dataset.legendKey = label;
+        swatch.addEventListener('click',(evt)=>{
+          if(evt){ evt.stopPropagation(); }
+          const currentColor = state.labelColors[label] || color;
+          Shared.openColorPicker({
+            anchor: swatch,
+            color: currentColor,
+            onInput(value){
+              state.labelColors[label] = value;
+              console.debug('Debug: ROC legend color input',{label,color:value});
+              state.scheduleDraw?.();
+            }
+          });
+        });
+      }
       add('text', {
         x: legendX + legendTextOffset,
         y: baseY + legendMarkerSize / 2,
