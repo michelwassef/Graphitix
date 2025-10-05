@@ -19,7 +19,7 @@
   const DEFAULT_ROWS=100;
   const DEFAULT_COLS=9;
   const DEFAULT_VIEW_MODE='2d';
-  const PCA_3D_DEFAULTS={ rotationX: -0.6, rotationY: 0.9 };
+  const PCA_3D_DEFAULTS={ rotationX: -0.45, rotationY: 0.95, aspectRatio: 4 / 3 };
 
   let scheduleDrawPca = () => {};
   let lastPcaStats = null;
@@ -1383,9 +1383,17 @@
           console.debug('Debug: pca 3d render skipped',{ reason: 'no-points' });
           return;
         }
-        const W3 = Math.max(50, Math.floor(plotEl.clientWidth || 50));
-        const H3 = Math.max(40, Math.floor(plotEl.clientHeight || 40));
+        const targetAspect = Number.isFinite(PCA_3D_DEFAULTS.aspectRatio) && PCA_3D_DEFAULTS.aspectRatio > 0 ? PCA_3D_DEFAULTS.aspectRatio : (4 / 3);
+        const minCanvasWidth = 480;
+        const baseWidth = Math.max(minCanvasWidth, Math.floor(plotEl.clientWidth || minCanvasWidth));
+        const projectedHeight = Math.max(360, Math.round(baseWidth / targetAspect));
+        const W3 = baseWidth;
+        const H3 = projectedHeight;
         plotEl.style.position = 'relative';
+        plotEl.style.minWidth = `${minCanvasWidth}px`;
+        plotEl.style.minHeight = `${projectedHeight}px`;
+        plotEl.style.aspectRatio = '4 / 3';
+        plotEl.style.padding = plotEl.style.padding || '12px';
         const svg3 = reuse3dSvg ? existingSvg : document.createElementNS(NS, 'svg');
         if(!reuse3dSvg){
           svg3.setAttribute('id', 'pcaSvg');
@@ -1407,11 +1415,12 @@
         } else {
           console.debug('Debug: pca fontControls enableForSvg missing',{ hasFontControls: !!fontControls, mode: '3d' });
         }
+        const legendMargin = legendWidth + Math.max(fs * 2.25, 28);
         const margin3 = {
-          top: Math.max(fs * 2.5, 20),
-          right: legendWidth + Math.max(fs * 1.5, 20),
-          bottom: Math.max(fs * 2.5, 24),
-          left: Math.max(fs * 2.5, 24)
+          top: Math.max(fs * 3.2, 36),
+          right: legendMargin,
+          bottom: Math.max(fs * 3.2, 40),
+          left: Math.max(fs * 3.2, 40)
         };
         const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
         const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
@@ -1429,35 +1438,97 @@
           return { x: x1, y: y1, z: z2 };
         };
         const rotatedPoints = points3d.map(pt => rotatePoint(pt));
-        const axisMagnitude = points3d.reduce((max, pt) => {
-          const candidate = Math.max(Math.abs(pt.x), Math.abs(pt.y), Math.abs(pt.z));
-          return Math.max(max, candidate);
-        }, 1);
-        const axisLength = axisMagnitude || 1;
-        const axes = [
-          { label: pcaXLabelText, vector: { x: axisLength, y: 0, z: 0 }, color: '#e41a1c' },
-          { label: pcaYLabelText, vector: { x: 0, y: axisLength, z: 0 }, color: '#377eb8' },
-          { label: pcaZLabelText, vector: { x: 0, y: 0, z: axisLength }, color: '#4daf4a' }
-        ];
-        const axisPoints = axes.map(axis => {
-          const rotated = rotatePoint(axis.vector);
-          return { ...rotated, axis };
+        const rangeForAxis = (axisKey) => {
+          const values = points3d.map(pt => pt[axisKey]);
+          let min = Math.min(...values);
+          let max = Math.max(...values);
+          if(!Number.isFinite(min) || !Number.isFinite(max)){
+            min = -1;
+            max = 1;
+          }
+          if(min === max){
+            const pad = Math.abs(min) || 1;
+            min -= pad;
+            max += pad;
+          }
+          if(min > 0){ min = 0; }
+          if(max < 0){ max = 0; }
+          return { min, max };
+        };
+        const axisRanges = {
+          x: rangeForAxis('x'),
+          y: rangeForAxis('y'),
+          z: rangeForAxis('z')
+        };
+        const axisCenters = {
+          x: (axisRanges.x.min + axisRanges.x.max) / 2,
+          y: (axisRanges.y.min + axisRanges.y.max) / 2,
+          z: (axisRanges.z.min + axisRanges.z.max) / 2
+        };
+        const maxSpan = Math.max(
+          axisRanges.x.max - axisRanges.x.min,
+          axisRanges.y.max - axisRanges.y.min,
+          axisRanges.z.max - axisRanges.z.min,
+          1
+        );
+        const halfSpan = maxSpan / 2;
+        Object.keys(axisRanges).forEach(axisKey => {
+          axisRanges[axisKey] = {
+            min: axisCenters[axisKey] - halfSpan,
+            max: axisCenters[axisKey] + halfSpan
+          };
         });
-        const allProjected = rotatedPoints.concat(axisPoints, [{ x: 0, y: 0, z: 0 }]);
+        const allCorners = [
+          { x: axisRanges.x.min, y: axisRanges.y.min, z: axisRanges.z.min },
+          { x: axisRanges.x.max, y: axisRanges.y.min, z: axisRanges.z.min },
+          { x: axisRanges.x.min, y: axisRanges.y.max, z: axisRanges.z.min },
+          { x: axisRanges.x.max, y: axisRanges.y.max, z: axisRanges.z.min },
+          { x: axisRanges.x.min, y: axisRanges.y.min, z: axisRanges.z.max },
+          { x: axisRanges.x.max, y: axisRanges.y.min, z: axisRanges.z.max },
+          { x: axisRanges.x.min, y: axisRanges.y.max, z: axisRanges.z.max },
+          { x: axisRanges.x.max, y: axisRanges.y.max, z: axisRanges.z.max }
+        ];
+        const rotatedCorners = allCorners.map(corner => rotatePoint(corner));
+        const allProjected = rotatedPoints.concat(rotatedCorners);
         const minX3 = Math.min(...allProjected.map(p => p.x));
         const maxX3 = Math.max(...allProjected.map(p => p.x));
         const minY3 = Math.min(...allProjected.map(p => p.y));
         const maxY3 = Math.max(...allProjected.map(p => p.y));
         const rangeX3 = (maxX3 - minX3) || 1;
         const rangeY3 = (maxY3 - minY3) || 1;
-        const scaleX3 = plotW3 / rangeX3;
-        const scaleY3 = plotH3 / rangeY3;
+        const uniformScale = Math.min(plotW3 / rangeX3, plotH3 / rangeY3);
+        const scaledWidth = rangeX3 * uniformScale;
+        const scaledHeight = rangeY3 * uniformScale;
+        const offsetX = margin3.left + (plotW3 - scaledWidth) / 2;
+        const offsetY = margin3.top + (plotH3 - scaledHeight) / 2;
         const project3 = (pt) => ({
-          x: margin3.left + (pt.x - minX3) * scaleX3,
-          y: margin3.top + plotH3 - (pt.y - minY3) * scaleY3,
+          x: offsetX + (pt.x - minX3) * uniformScale,
+          y: offsetY + scaledHeight - (pt.y - minY3) * uniformScale,
           depth: pt.z
         });
-        const origin3 = project3({ x: 0, y: 0, z: 0 });
+        const axisScales = {
+          x: niceScale(axisRanges.x.min, axisRanges.x.max, 5),
+          y: niceScale(axisRanges.y.min, axisRanges.y.max, 5),
+          z: niceScale(axisRanges.z.min, axisRanges.z.max, 5)
+        };
+        const clampTicks = (ticks, range) => ticks.filter(t => t >= range.min - 1e-9 && t <= range.max + 1e-9);
+        const axisTicks = {
+          x: clampTicks(axisScales.x.ticks, axisRanges.x),
+          y: clampTicks(axisScales.y.ticks, axisRanges.y),
+          z: clampTicks(axisScales.z.ticks, axisRanges.z)
+        };
+        const cubeCenter = { x: axisCenters.x, y: axisCenters.y, z: axisCenters.z };
+        const cubeCenter2D = project3(rotatePoint(cubeCenter));
+        const depthFor = (point) => rotatePoint(point).z;
+        const frontIsMinY = depthFor({ x: axisCenters.x, y: axisRanges.y.min, z: axisCenters.z }) >= depthFor({ x: axisCenters.x, y: axisRanges.y.max, z: axisCenters.z });
+        const frontYValue = frontIsMinY ? axisRanges.y.min : axisRanges.y.max;
+        const backYValue = frontIsMinY ? axisRanges.y.max : axisRanges.y.min;
+        const bottomZValue = axisRanges.z.min;
+        const topZValue = axisRanges.z.max;
+        const projectedCandidateLeft = project3(rotatePoint({ x: axisRanges.x.min, y: frontYValue, z: bottomZValue }));
+        const projectedCandidateRight = project3(rotatePoint({ x: axisRanges.x.max, y: frontYValue, z: bottomZValue }));
+        const leftXValue = projectedCandidateLeft.x <= projectedCandidateRight.x ? axisRanges.x.min : axisRanges.x.max;
+        const rightXValue = leftXValue === axisRanges.x.min ? axisRanges.x.max : axisRanges.x.min;
         const add3 = (tag, attrs, text) => {
           const el = document.createElementNS(NS, tag);
           for (const k in attrs) {
@@ -1469,26 +1540,204 @@
           svg3.appendChild(el);
           return el;
         };
-        axisPoints.forEach(axisPt => {
-          const projected = project3(axisPt);
-          add3('line', {
-            x1: origin3.x,
-            y1: origin3.y,
-            x2: projected.x,
-            y2: projected.y,
-            stroke: axisPt.axis.color,
-            'stroke-width': axisStrokeWidth
+        const neutralAxisColor = chartStyle.AXIS_COLOR || chartStyle.TEXT_COLOR || '#333';
+        const axisDefs = [
+          {
+            key: 'x',
+            color: neutralAxisColor,
+            label: pcaXLabelText,
+            start: { x: leftXValue, y: frontYValue, z: bottomZValue },
+            end: { x: rightXValue, y: frontYValue, z: bottomZValue },
+            ticks: axisTicks.x
+          },
+          {
+            key: 'y',
+            color: neutralAxisColor,
+            label: pcaYLabelText,
+            start: { x: rightXValue, y: frontYValue, z: bottomZValue },
+            end: { x: rightXValue, y: backYValue, z: bottomZValue },
+            ticks: axisTicks.y
+          },
+          {
+            key: 'z',
+            color: neutralAxisColor,
+            label: pcaZLabelText,
+            start: { x: leftXValue, y: frontYValue, z: bottomZValue },
+            end: { x: leftXValue, y: frontYValue, z: topZValue },
+            ticks: axisTicks.z
+          }
+        ];
+        const paneGroup = svg3.ownerDocument?.createElementNS ? svg3.ownerDocument.createElementNS(NS, 'g') : null;
+        if(paneGroup){
+          paneGroup.setAttribute('fill', 'rgba(0,0,0,0.035)');
+          paneGroup.setAttribute('stroke', 'none');
+          svg3.appendChild(paneGroup);
+        }
+        const gridGroup = svg3.ownerDocument?.createElementNS ? svg3.ownerDocument.createElementNS(NS, 'g') : null;
+        if(gridGroup){
+          gridGroup.setAttribute('stroke-width', axisStrokeWidth * 0.6);
+          gridGroup.setAttribute('stroke', 'rgba(0,0,0,0.12)');
+          gridGroup.setAttribute('fill', 'none');
+          svg3.appendChild(gridGroup);
+        }
+        const appendLine = (startRot, endRot, attrs, targetGroup) => {
+          const start = project3(startRot);
+          const end = project3(endRot);
+          const line = document.createElementNS(NS, 'line');
+          line.setAttribute('x1', String(start.x));
+          line.setAttribute('y1', String(start.y));
+          line.setAttribute('x2', String(end.x));
+          line.setAttribute('y2', String(end.y));
+          Object.keys(attrs || {}).forEach(key => line.setAttribute(key, String(attrs[key])));
+          (targetGroup || svg3).appendChild(line);
+          return line;
+        };
+        if(paneGroup && showFrame){
+          const paneDefs = [
+            { key: 'bottom', corners: [0, 1, 3, 2] },
+            { key: 'top', corners: [4, 5, 7, 6] },
+            { key: 'front', corners: [0, 1, 5, 4] },
+            { key: 'back', corners: [2, 3, 7, 6] },
+            { key: 'left', corners: [0, 2, 6, 4] },
+            { key: 'right', corners: [1, 3, 7, 5] }
+          ];
+          const panePolys = paneDefs.map(def => {
+            const rotatedPane = def.corners.map(idx => rotatePoint(allCorners[idx]));
+            const projectedPane = rotatedPane.map(rot => project3(rot));
+            const avgDepth = rotatedPane.reduce((acc, rot) => acc + rot.z, 0) / rotatedPane.length;
+            return { def, projectedPane, avgDepth };
+          }).sort((a, b) => a.avgDepth - b.avgDepth);
+          const depthRange = panePolys.length ? {
+            min: Math.min(...panePolys.map(p => p.avgDepth)),
+            max: Math.max(...panePolys.map(p => p.avgDepth))
+          } : { min: 0, max: 1 };
+          panePolys.forEach(pane => {
+            const polygon = document.createElementNS(NS, 'polygon');
+            const pointsAttr = pane.projectedPane.map(pt => `${pt.x},${pt.y}`).join(' ');
+            polygon.setAttribute('points', pointsAttr);
+            const depthRatio = depthRange.max === depthRange.min ? 0.5 : (pane.avgDepth - depthRange.min) / (depthRange.max - depthRange.min);
+            const opacity = 0.02 + (1 - depthRatio) * 0.02;
+            polygon.setAttribute('fill', `rgba(0,0,0,${opacity.toFixed(3)})`);
+            polygon.setAttribute('stroke', 'none');
+            paneGroup.appendChild(polygon);
           });
+          console.debug('Debug: pca 3d panes rendered',{ count: panePolys.length });
+        }
+        if(showGrid){
+          const gridAttrs = { 'stroke-dasharray': `${Math.max(1, axisStrokeWidth * 2.5)} ${Math.max(1, axisStrokeWidth * 1.5)}` };
+          const gridTarget = gridGroup || svg3;
+          const interior = (ticks, min, max) => ticks.filter(t => t > min + 1e-9 && t < max - 1e-9);
+          const axisInterior = {
+            x: interior(axisTicks.x, axisRanges.x.min, axisRanges.x.max),
+            y: interior(axisTicks.y, axisRanges.y.min, axisRanges.y.max),
+            z: interior(axisTicks.z, axisRanges.z.min, axisRanges.z.max)
+          };
+          const planeConfigs = [
+            { axisA: 'x', axisB: 'y', fixed: { key: 'z', value: axisRanges.z.min } },
+            { axisA: 'x', axisB: 'y', fixed: { key: 'z', value: axisRanges.z.max } },
+            { axisA: 'x', axisB: 'z', fixed: { key: 'y', value: axisRanges.y.min } },
+            { axisA: 'x', axisB: 'z', fixed: { key: 'y', value: axisRanges.y.max } },
+            { axisA: 'y', axisB: 'z', fixed: { key: 'x', value: axisRanges.x.min } },
+            { axisA: 'y', axisB: 'z', fixed: { key: 'x', value: axisRanges.x.max } }
+          ];
+          const basePoint = { x: axisRanges.x.min, y: axisRanges.y.min, z: axisRanges.z.min };
+          const makePoint = (overrides) => Object.assign({}, basePoint, overrides || {});
+          planeConfigs.forEach(plane => {
+            const { axisA, axisB, fixed } = plane;
+            const fixedValue = fixed.value;
+            const startMin = makePoint({ [axisA]: axisRanges[axisA].min, [axisB]: axisRanges[axisB].min, [fixed.key]: fixedValue });
+            const endMax = makePoint({ [axisA]: axisRanges[axisA].max, [axisB]: axisRanges[axisB].max, [fixed.key]: fixedValue });
+            // Draw outline of plane to reinforce grid boundaries
+            appendLine(rotatePoint(startMin), rotatePoint(makePoint({ [axisA]: axisRanges[axisA].max, [axisB]: axisRanges[axisB].min, [fixed.key]: fixedValue })), { stroke: 'rgba(0,0,0,0.1)', 'stroke-width': axisStrokeWidth * 0.55 }, gridTarget);
+            appendLine(rotatePoint(startMin), rotatePoint(makePoint({ [axisA]: axisRanges[axisA].min, [axisB]: axisRanges[axisB].max, [fixed.key]: fixedValue })), { stroke: 'rgba(0,0,0,0.1)', 'stroke-width': axisStrokeWidth * 0.55 }, gridTarget);
+            appendLine(rotatePoint(makePoint({ [axisA]: axisRanges[axisA].max, [axisB]: axisRanges[axisB].min, [fixed.key]: fixedValue })), rotatePoint(endMax), { stroke: 'rgba(0,0,0,0.08)', 'stroke-width': axisStrokeWidth * 0.55 }, gridTarget);
+            appendLine(rotatePoint(makePoint({ [axisA]: axisRanges[axisA].min, [axisB]: axisRanges[axisB].max, [fixed.key]: fixedValue })), rotatePoint(endMax), { stroke: 'rgba(0,0,0,0.08)', 'stroke-width': axisStrokeWidth * 0.55 }, gridTarget);
+            axisInterior[axisA].forEach(aVal => {
+              appendLine(
+                rotatePoint(makePoint({ [axisA]: aVal, [axisB]: axisRanges[axisB].min, [fixed.key]: fixedValue })),
+                rotatePoint(makePoint({ [axisA]: aVal, [axisB]: axisRanges[axisB].max, [fixed.key]: fixedValue })),
+                gridAttrs,
+                gridTarget
+              );
+            });
+            axisInterior[axisB].forEach(bVal => {
+              appendLine(
+                rotatePoint(makePoint({ [axisA]: axisRanges[axisA].min, [axisB]: bVal, [fixed.key]: fixedValue })),
+                rotatePoint(makePoint({ [axisA]: axisRanges[axisA].max, [axisB]: bVal, [fixed.key]: fixedValue })),
+                gridAttrs,
+                gridTarget
+              );
+            });
+          });
+          console.debug('Debug: pca 3d grid generated',{ xTicks: axisInterior.x.length, yTicks: axisInterior.y.length, zTicks: axisInterior.z.length });
+        }
+        if(showFrame){
+          const frameTarget = gridGroup || svg3;
+          const edges = [
+            [0,1],[0,2],[1,3],[2,3],
+            [4,5],[4,6],[5,7],[6,7],
+            [0,4],[1,5],[2,6],[3,7]
+          ];
+          const frameAttrs = { stroke: 'rgba(0,0,0,0.45)', 'stroke-width': axisStrokeWidth };
+          edges.forEach(([aIdx,bIdx]) => {
+            appendLine(
+              rotatePoint(allCorners[aIdx]),
+              rotatePoint(allCorners[bIdx]),
+              frameAttrs,
+              frameTarget
+            );
+          });
+          console.debug('Debug: pca 3d frame rendered',{ edgeCount: edges.length });
+        }
+        axisDefs.forEach(def => {
+          const startRot = rotatePoint(def.start);
+          const endRot = rotatePoint(def.end);
+          const startPos = project3(startRot);
+          const endPos = project3(endRot);
+          appendLine(startRot, endRot, { stroke: def.color, 'stroke-width': axisStrokeWidth * 0.9 }, svg3);
+          const axisVector = {
+            x: def.end.x - def.start.x,
+            y: def.end.y - def.start.y,
+            z: def.end.z - def.start.z
+          };
+          const labelPointRaw = {
+            x: def.start.x + axisVector.x * 0.5,
+            y: def.start.y + axisVector.y * 0.5,
+            z: def.start.z + axisVector.z * 0.5
+          };
+          const labelRot = rotatePoint(labelPointRaw);
+          const labelBasePos = project3(labelRot);
+          const axisVec2d = { x: endPos.x - startPos.x, y: endPos.y - startPos.y };
+          const axisVecLength = Math.hypot(axisVec2d.x, axisVec2d.y) || 1;
+          const unitAxis2d = { x: axisVec2d.x / axisVecLength, y: axisVec2d.y / axisVecLength };
+          const perp2d = { x: -unitAxis2d.y, y: unitAxis2d.x };
+          const axisMid3d = {
+            x: (def.start.x + def.end.x) / 2,
+            y: (def.start.y + def.end.y) / 2,
+            z: (def.start.z + def.end.z) / 2
+          };
+          const axisMidPos = project3(rotatePoint(axisMid3d));
+          const toCenter = { x: cubeCenter2D.x - axisMidPos.x, y: cubeCenter2D.y - axisMidPos.y };
+          const perpDot = perp2d.x * toCenter.x + perp2d.y * toCenter.y;
+          const outwardPerp = perpDot > 0 ? { x: -perp2d.x, y: -perp2d.y } : perp2d;
+          const offsetMagnitude = Math.max(fs * 1.2, 12);
+          const labelPos = {
+            x: labelBasePos.x + outwardPerp.x * offsetMagnitude,
+            y: labelBasePos.y + outwardPerp.y * offsetMagnitude
+          };
+          const angleDeg = Math.atan2(endPos.y - startPos.y, endPos.x - startPos.x) * (180 / Math.PI);
           const axisLabel = add3('text', {
-            x: projected.x,
-            y: projected.y,
+            x: labelPos.x,
+            y: labelPos.y,
             'font-size': fs,
             'text-anchor': 'middle',
+            'dominant-baseline': 'middle',
             fill: chartStyle.TEXT_COLOR,
-            dy: '-0.35em'
-          }, axisPt.axis.label);
-          markFontEditable(axisLabel,'axis3d',axisPt.axis.label);
+            transform: `rotate(${angleDeg} ${labelPos.x} ${labelPos.y})`
+          }, def.label);
+          markFontEditable(axisLabel,'axis3d',def.label);
         });
+        console.debug('Debug: pca 3d axis ranges',{ axisRanges, ticks: axisTicks });
         const projectedPoints = rotatedPoints.map((rot, idx) => {
           const base = project3(rot);
           return {
@@ -1527,7 +1776,7 @@
           }, lab);
           markFontEditable(legendText,'legend',`legend-${i}`);
         });
-        console.debug('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisLength });
+        console.debug('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisRanges });
         pcaLayout?.syncPanels?.({ skipSchedule: true });
         return;
       }
