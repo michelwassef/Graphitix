@@ -411,6 +411,22 @@
         svgEl.style.userSelect = 'none';
         svgEl.style.webkitUserSelect = 'none';
         const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0, logged: false };
+        const shouldIgnorePointer = (event) => {
+          const target = event?.target;
+          if(!target){ return false; }
+          if(target.dataset?.legendKey){
+            console.debug('Debug: pca rotation pointerdown ignored',{ reason: 'legend-swatch', tag: target.tagName });
+            return true;
+          }
+          if(typeof target.closest === 'function'){
+            const interactiveLegend = target.closest('[data-legend-key]');
+            if(interactiveLegend){
+              console.debug('Debug: pca rotation pointerdown ignored',{ reason: 'legend-ancestor', tag: target.tagName });
+              return true;
+            }
+          }
+          return false;
+        };
         const selectionGuards = {
           applied: false,
           previous: null
@@ -442,6 +458,9 @@
           console.debug('Debug: pca rotation selection restored');
         };
         svgEl.addEventListener('pointerdown', (event) => {
+          if(shouldIgnorePointer(event)){
+            return;
+          }
           pointerState.active = true;
           pointerState.pointerId = event.pointerId;
           pointerState.lastX = event.clientX;
@@ -1953,6 +1972,11 @@
           if(swatch3){
             swatch3.style.cursor = 'pointer';
             swatch3.dataset.legendKey = lab;
+            swatch3.addEventListener('pointerdown',(evt)=>{
+              // Debug: prevent rotation drag when interacting with legend swatches
+              console.debug('Debug: pca 3d legend pointerdown intercepted',{ label: lab });
+              evt.stopPropagation();
+            });
             swatch3.addEventListener('click',(evt)=>{
               if(evt){ evt.stopPropagation(); }
               const currentColor = pcaLabelColors[lab] || color;
