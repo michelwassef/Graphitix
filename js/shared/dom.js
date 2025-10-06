@@ -20,6 +20,167 @@
     }
   };
 
+  const STYLE_PROPS = [
+    { key: 'fontFamily', attr: 'font-family' },
+    { key: 'fontWeight', attr: 'font-weight' },
+    { key: 'fontStyle', attr: 'font-style' },
+    { key: 'fontSize', attr: 'font-size' },
+    { key: 'fill', attr: 'fill' },
+  ];
+
+  const stylesEqual = (a, b) => {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    for (let i = 0; i < STYLE_PROPS.length; i += 1) {
+      const key = STYLE_PROPS[i].key;
+      if ((a[key] || null) !== (b[key] || null)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const hasStyledCharacters = (styleMap) => {
+    if (!Array.isArray(styleMap)) { return false; }
+    for (let i = 0; i < styleMap.length; i += 1) {
+      const entry = styleMap[i];
+      if (!entry) { continue; }
+      for (let j = 0; j < STYLE_PROPS.length; j += 1) {
+        if (entry[STYLE_PROPS[j].key]) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const buildStyleMapFromElement = (node) => {
+    const text = node?.textContent ?? '';
+    const length = text.length;
+    const styleMap = new Array(length).fill(null);
+    const baseStyle = {};
+    if (!node || length === 0) {
+      return { text, styleMap, baseStyle };
+    }
+    STYLE_PROPS.forEach(({ key, attr }) => {
+      const value = node.getAttribute ? node.getAttribute(attr) : null;
+      baseStyle[key] = value || null;
+    });
+    let cursor = 0;
+    const walk = (current, inheritedStyle) => {
+      if (!current || cursor >= length) { return; }
+      if (current.nodeType === 3) {
+        const value = current.textContent || '';
+        for (let idx = 0; idx < value.length && cursor < length; idx += 1, cursor += 1) {
+          const diff = {};
+          STYLE_PROPS.forEach(({ key }) => {
+            const inheritedVal = inheritedStyle[key] || null;
+            const baseVal = baseStyle[key] || null;
+            if (inheritedVal && inheritedVal !== baseVal) {
+              diff[key] = inheritedVal;
+            }
+          });
+          styleMap[cursor] = Object.keys(diff).length ? diff : null;
+        }
+        return;
+      }
+      if (current.nodeType !== 1) {
+        return;
+      }
+      const nextInherited = { ...inheritedStyle };
+      STYLE_PROPS.forEach(({ key, attr }) => {
+        const val = current.getAttribute ? current.getAttribute(attr) : null;
+        if (val != null && val !== '') {
+          nextInherited[key] = val;
+        }
+      });
+      const children = current.childNodes || [];
+      for (let i = 0; i < children.length; i += 1) {
+        walk(children[i], nextInherited);
+      }
+    };
+    walk(node, { ...baseStyle });
+    return { text, styleMap, baseStyle };
+  };
+
+  const adjustStyleMapForTextChange = (prevText, nextText, prevStyleMap) => {
+    if (!Array.isArray(prevStyleMap)) {
+      return new Array(nextText.length).fill(null);
+    }
+    if (prevText === nextText) {
+      return prevStyleMap.slice();
+    }
+    const prevLength = prevText.length;
+    const nextLength = nextText.length;
+    let prefix = 0;
+    const maxPrefix = Math.min(prevLength, nextLength);
+    while (prefix < maxPrefix && prevText[prefix] === nextText[prefix]) {
+      prefix += 1;
+    }
+    let suffix = 0;
+    const prevRemain = prevLength - prefix;
+    const nextRemain = nextLength - prefix;
+    while (
+      suffix < prevRemain &&
+      suffix < nextRemain &&
+      prevText[prevLength - 1 - suffix] === nextText[nextLength - 1 - suffix]
+    ) {
+      suffix += 1;
+    }
+    const prefixStyles = prevStyleMap.slice(0, prefix);
+    const suffixStyles = suffix > 0 ? prevStyleMap.slice(prevLength - suffix) : [];
+    const insertedLength = Math.max(nextLength - prefix - suffix, 0);
+    const insertedStyles = new Array(insertedLength).fill(null);
+    return prefixStyles.concat(insertedStyles, suffixStyles);
+  };
+
+  const renderStyledText = (targetEl, textValue, styleMap) => {
+    if (!targetEl) { return; }
+    const doc = targetEl.ownerDocument || global.document;
+    if (!textValue) {
+      targetEl.textContent = '';
+      return;
+    }
+    const hasStyles = hasStyledCharacters(styleMap);
+    if (!hasStyles) {
+      targetEl.textContent = textValue;
+      return;
+    }
+    while (targetEl.firstChild) {
+      targetEl.removeChild(targetEl.firstChild);
+    }
+    const ns = targetEl.namespaceURI || 'http://www.w3.org/2000/svg';
+    let index = 0;
+    while (index < textValue.length) {
+      const styleEntry = styleMap[index];
+      let end = index + 1;
+      while (end < textValue.length && stylesEqual(styleEntry, styleMap[end])) {
+        end += 1;
+      }
+      const segmentText = textValue.slice(index, end);
+      if (segmentText.length === 0) {
+        index = end;
+        continue;
+      }
+      if (!styleEntry || Object.keys(styleEntry).length === 0) {
+        targetEl.appendChild(doc.createTextNode(segmentText));
+      } else {
+        const tspan = doc.createElementNS(ns, 'tspan');
+        tspan.textContent = segmentText;
+        STYLE_PROPS.forEach(({ key, attr }) => {
+          const val = styleEntry[key];
+          if (val) {
+            tspan.setAttribute(attr, val);
+          } else {
+            tspan.removeAttribute(attr);
+          }
+        });
+        targetEl.appendChild(tspan);
+      }
+      index = end;
+    }
+  };
+
   function makeEditable(el, onChange, options = {}) {
     if (!el) {
       logDebug('makeEditable skipped (no element)', { hasElement: false });
@@ -28,7 +189,7 @@
 
     const {
       getInitialValue = node => node?.textContent ?? '',
-      applyValue = (node, value) => { if (node) node.textContent = value; },
+      applyValue: applyValueOption,
       onEditStart,
       onEditEnd,
       cursor = 'pointer',
@@ -38,6 +199,10 @@
       minHeight = 0,
       inputProps = {},
     } = options;
+
+    const applyValueDelegate = typeof applyValueOption === 'function'
+      ? applyValueOption
+      : (node, value) => { if (node) node.textContent = value; };
 
     const ownerDocument = el.ownerDocument || global.document;
     const ownerWindow = ownerDocument?.defaultView || global;
@@ -51,11 +216,26 @@
 
     const removeOverlay = (state) => {
       if (!state) return;
+      if (typeof state.stopDeferredCommitWatcher === 'function') {
+        try {
+          state.stopDeferredCommitWatcher();
+        } catch (cleanupErr) {
+          console.error('Shared.makeEditable deferred watcher cleanup error', cleanupErr);
+        }
+      }
       if (state.overlay) {
         state.overlay.remove();
       }
       if (state.measure) {
         state.measure.remove();
+      }
+      if (el && el.__inlineEditState === state) {
+        try {
+          delete el.__inlineEditState;
+        } catch (deleteErr) {
+          el.__inlineEditState = undefined;
+          console.warn('Shared.makeEditable inline state cleanup fallback', deleteErr);
+        }
       }
       state.overlay = null;
       state.input = null;
@@ -146,6 +326,14 @@
         measureNode.style.maxWidth = 'none';
         body.appendChild(measureNode);
 
+        const styleMeta = buildStyleMapFromElement(el);
+        const inlineInitialValue = typeof initialValue === 'string' ? initialValue : (initialValue ?? '');
+        const initialStyleMap = adjustStyleMapForTextChange(
+          styleMeta.text,
+          inlineInitialValue,
+          styleMeta.styleMap
+        );
+
         const state = {
           overlay,
           input,
@@ -155,7 +343,231 @@
           centerY: targetCenterY,
           minWidth: Math.max(4, minWidth || 0),
           minHeight: Math.max(4, minHeight || 0),
+          deferCommitHandler: null,
+          shouldRestoreSelection: false,
+          selection: null,
+          stopDeferredCommitWatcher: null,
+          inlineText: inlineInitialValue,
+          styleMap: Array.isArray(initialStyleMap)
+            ? initialStyleMap.slice()
+            : new Array(inlineInitialValue.length).fill(null),
+          usingInlineSegments: hasStyledCharacters(initialStyleMap),
+          baseStyle: { ...(styleMeta.baseStyle || {}) },
         };
+
+        state.usingInlineSegments = hasStyledCharacters(state.styleMap);
+        if (!Array.isArray(state.styleMap)) {
+          state.styleMap = new Array(inlineInitialValue.length).fill(null);
+        } else if (state.styleMap.length !== inlineInitialValue.length) {
+          if (state.styleMap.length < inlineInitialValue.length) {
+            const deficit = inlineInitialValue.length - state.styleMap.length;
+            state.styleMap = state.styleMap.concat(new Array(deficit).fill(null));
+          } else {
+            state.styleMap.length = inlineInitialValue.length;
+          }
+        }
+
+        const refreshInlineRendering = (forcePlain = false) => {
+          const textValue = state.inlineText ?? '';
+          if (forcePlain) {
+            state.styleMap = new Array(textValue.length).fill(null);
+          }
+          state.usingInlineSegments = !forcePlain && hasStyledCharacters(state.styleMap);
+          renderStyledText(el, textValue, state.styleMap);
+          logDebug('makeEditable inline render refresh', {
+            forcePlain,
+            length: textValue.length,
+            hasStyles: state.usingInlineSegments,
+          });
+        };
+
+        const describeSelection = () => {
+          const length = state.inlineText?.length ?? 0;
+          const current = state.selection || {};
+          const rawStart = Number.isInteger(current.start) ? current.start : 0;
+          const rawEnd = Number.isInteger(current.end) ? current.end : rawStart;
+          const start = Math.max(0, Math.min(rawStart, rawEnd, length));
+          const end = Math.max(start, Math.min(Math.max(rawStart, rawEnd), length));
+          return {
+            start,
+            end,
+            hasSelection: end > start,
+            isFullRange: start === 0 && end === length,
+            length,
+          };
+        };
+
+        const applyStylePatchToSelection = (patch = {}) => {
+          if (!patch || typeof patch !== 'object') {
+            return { handled: false };
+          }
+          const info = describeSelection();
+          if (!info.hasSelection) {
+            return { handled: false };
+          }
+          if (info.isFullRange) {
+            return { handled: false, entire: true, range: { start: info.start, end: info.end } };
+          }
+          const map = Array.isArray(state.styleMap)
+            ? state.styleMap.slice()
+            : new Array(state.inlineText.length).fill(null);
+          const keys = Object.keys(patch);
+          for (let idx = info.start; idx < info.end; idx += 1) {
+            const currentEntry = map[idx] ? { ...map[idx] } : {};
+            keys.forEach(key => {
+              const value = patch[key];
+              if (value === null || value === '' || typeof value === 'undefined') {
+                delete currentEntry[key];
+              } else {
+                currentEntry[key] = value;
+              }
+            });
+            map[idx] = Object.keys(currentEntry).length ? currentEntry : null;
+          }
+          state.styleMap = map;
+          state.usingInlineSegments = hasStyledCharacters(map);
+          refreshInlineRendering(false);
+          logDebug('makeEditable inline selection style applied', {
+            patchKeys: keys,
+            range: { start: info.start, end: info.end },
+            hasStyles: state.usingInlineSegments,
+          });
+          return { handled: true, partial: true, range: { start: info.start, end: info.end } };
+        };
+
+        const resetStyleMapToBase = () => {
+          const textValue = state.inlineText ?? '';
+          state.styleMap = new Array(textValue.length).fill(null);
+          refreshInlineRendering(true);
+          logDebug('makeEditable inline style reset', { length: textValue.length });
+        };
+
+        const updateInlineText = (nextText) => {
+          const prevText = state.inlineText ?? '';
+          const normalizedNext = nextText ?? '';
+          if (prevText === normalizedNext) {
+            state.inlineText = normalizedNext;
+            return;
+          }
+          state.styleMap = adjustStyleMapForTextChange(prevText, normalizedNext, state.styleMap);
+          state.inlineText = normalizedNext;
+          state.usingInlineSegments = hasStyledCharacters(state.styleMap);
+          logDebug('makeEditable inline text updated', {
+            previousLength: prevText.length,
+            nextLength: normalizedNext.length,
+            hasStyles: state.usingInlineSegments,
+          });
+        };
+
+        state.describeSelection = describeSelection;
+        state.applyStylePatchToSelection = applyStylePatchToSelection;
+        state.resetStyleMapToBase = resetStyleMapToBase;
+        state.updateInlineText = updateInlineText;
+        state.refreshInlineRendering = refreshInlineRendering;
+
+        if (el) {
+          try {
+            Object.defineProperty(el, '__inlineEditState', {
+              value: state,
+              configurable: true,
+              writable: true,
+            });
+          } catch (assignStateErr) {
+            el.__inlineEditState = state;
+            console.warn('Shared.makeEditable inline state assignment fallback', assignStateErr);
+          }
+        }
+
+        const isSafeFocusTarget = (node) => {
+          if (!node) { return false; }
+          if (state.overlay && typeof state.overlay.contains === 'function' && state.overlay.contains(node)) {
+            return true;
+          }
+          if (typeof node.closest === 'function') {
+            if (node.closest('.inline-edit-overlay')) { return true; }
+            if (node.closest('.font-controls-panel')) { return true; }
+          }
+          if (node.dataset && node.dataset.fontControlsOverlay === '1') {
+            return true;
+          }
+          return false;
+        };
+
+        const rememberSelection = () => {
+          if (!input) { return; }
+          try {
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            if (Number.isInteger(start) && Number.isInteger(end)) {
+              state.selection = { start, end };
+            }
+          } catch (selectionErr) {
+            console.error('Shared.makeEditable selection capture error', selectionErr);
+          }
+        };
+
+        state.stopDeferredCommitWatcher = () => {
+          if (!state.deferCommitHandler) { return; }
+          ownerDocument.removeEventListener('focusin', state.deferCommitHandler, true);
+          ownerDocument.removeEventListener('pointerdown', state.deferCommitHandler, true);
+          state.deferCommitHandler = null;
+          logDebug('makeEditable deferred commit watcher cleared', { reason: 'cleanup' });
+        };
+        const stopDeferredCommitWatcher = state.stopDeferredCommitWatcher;
+
+        const startDeferredCommitWatcher = () => {
+          if (state.deferCommitHandler) { return; }
+          const handler = (evt) => {
+            const activeNode = ownerDocument.activeElement;
+            const candidate = evt?.target || activeNode;
+            if (isSafeFocusTarget(candidate) || isSafeFocusTarget(activeNode)) {
+              return;
+            }
+            stopDeferredCommitWatcher();
+            if (!state.input) { return; }
+            logDebug('makeEditable deferred commit firing', { eventType: evt?.type || 'focus-change' });
+            commit(state.input.value, 'deferred-blur');
+          };
+          state.deferCommitHandler = handler;
+          ownerDocument.addEventListener('focusin', handler, true);
+          ownerDocument.addEventListener('pointerdown', handler, true);
+          logDebug('makeEditable deferred commit watcher attached', { reason: 'font-controls-focus' });
+        };
+
+        const restoreSelectionIfNeeded = () => {
+          if (!state.shouldRestoreSelection || !state.selection) {
+            state.shouldRestoreSelection = false;
+            return;
+          }
+          if (typeof input.setSelectionRange === 'function') {
+            try {
+              const start = Number.isInteger(state.selection.start) ? state.selection.start : 0;
+              const end = Number.isInteger(state.selection.end) ? state.selection.end : start;
+              input.setSelectionRange(start, end);
+              logDebug('makeEditable selection restored', { start, end });
+            } catch (selectionErr) {
+              console.error('Shared.makeEditable selection restore error', selectionErr);
+            }
+          }
+          state.shouldRestoreSelection = false;
+        };
+
+        input.addEventListener('select', rememberSelection);
+        input.addEventListener('keyup', rememberSelection);
+        input.addEventListener('mouseup', rememberSelection);
+        input.addEventListener('focus', restoreSelectionIfNeeded);
+
+        const fontControlsApi = (Shared && Shared.fontControls) || ownerWindow?.Shared?.fontControls || null;
+        if (fontControlsApi && typeof fontControlsApi.openForElement === 'function') {
+          const scopeId = el?.dataset?.fontScope || null;
+          const key = el?.dataset?.fontKey || null;
+          try {
+            fontControlsApi.openForElement(el, { scopeId, key });
+            logDebug('makeEditable font controls reopened', { scopeId, key });
+          } catch (fontErr) {
+            console.error('Shared.makeEditable fontControls.openForElement error', fontErr);
+          }
+        }
 
         const syncSizeToContent = () => {
           const value = input.value ?? '';
@@ -185,24 +597,50 @@
           overlay.style.top = `${state.centerY - nextHeight / 2}px`;
         };
 
-        const commit = (nextValue, reason) => {
+        function commit(nextValue, reason) {
           const finalValue = nextValue ?? '';
+          const prevText = state.inlineText ?? '';
+          state.updateInlineText(finalValue);
+          const hasInlineStyles = hasStyledCharacters(state.styleMap);
+          if (hasInlineStyles) {
+            state.refreshInlineRendering(false);
+          } else {
+            safeCall(applyValueDelegate, [el, finalValue], 'Shared.makeEditable applyValue error');
+          }
           removeOverlay(state);
-          logDebug('makeEditable commit', { finalValue, reason });
-          safeCall(applyValue, [el, finalValue], 'Shared.makeEditable applyValue error');
+          logDebug('makeEditable commit', { finalValue, reason, prevLength: prevText.length });
           if (typeof onChange === 'function') {
             safeCall(onChange, [finalValue, el], 'Shared.makeEditable onChange error');
           }
           safeCall(onEditEnd, [el, finalValue], 'Shared.makeEditable onEditEnd error');
-        };
+        }
 
-        const cancel = (reason) => {
+        function cancel(reason) {
           removeOverlay(state);
           logDebug('makeEditable cancel', { reason });
           safeCall(onEditEnd, [el, initialValue], 'Shared.makeEditable onEditEnd error');
-        };
+        }
 
-        const handleBlur = () => commit(input.value, 'blur');
+        const handleBlur = (evt) => {
+          const relatedTarget = evt?.relatedTarget || null;
+          ownerWindow.setTimeout(() => {
+            if (!state.input) { return; }
+            const activeAfterBlur = ownerDocument.activeElement;
+            const focusCandidate = relatedTarget || activeAfterBlur;
+            if (isSafeFocusTarget(focusCandidate)) {
+              rememberSelection();
+              state.shouldRestoreSelection = true;
+              startDeferredCommitWatcher();
+              logDebug('makeEditable blur deferred', {
+                reason: focusCandidate?.dataset?.fontControlsOverlay === '1' ? 'color-picker' : 'font-controls',
+                tag: focusCandidate?.tagName || null
+              });
+              return;
+            }
+            stopDeferredCommitWatcher();
+            commit(input.value, 'blur');
+          }, 0);
+        };
         const handleKeyDown = (e) => {
           if (!e) return;
           if (e.key === 'Enter' && (!multiline || e.ctrlKey || e.metaKey || e.shiftKey === false)) {
@@ -220,7 +658,10 @@
         overlay.addEventListener('dblclick', stopPropagation);
         input.addEventListener('blur', handleBlur);
         input.addEventListener('keydown', handleKeyDown);
-        input.addEventListener('input', syncSizeToContent);
+        input.addEventListener('input', () => {
+          state.updateInlineText(input.value ?? '');
+          syncSizeToContent();
+        });
 
         syncSizeToContent();
 

@@ -53,6 +53,69 @@
   let floatingPlaceholder = null;
   let placementMonitoringAttached = false;
 
+  function getInlineState(target){
+    if(!target){ return null; }
+    try {
+      return target.__inlineEditState || null;
+    } catch(err){
+      console.warn('fontControls inline state access error', err);
+      return null;
+    }
+  }
+
+  function isInlineEditingActive(target){
+    const inlineState = getInlineState(target);
+    if(!inlineState){ return false; }
+    const overlayAttached = inlineState.overlay && inlineState.overlay.isConnected;
+    const inputActive = inlineState.input && inlineState.input.isConnected;
+    const hasSelectionApi = typeof inlineState.describeSelection === 'function';
+    const active = !!(overlayAttached || inputActive || hasSelectionApi);
+    if(active){
+      logDebug('inline editing detected for close guard', {
+        overlayAttached,
+        inputActive,
+        hasSelectionApi
+      });
+    }
+    return active;
+  }
+
+  function handleInlineSelectionPatch(patch, meta){
+    if(!currentTarget){ return { handled: false }; }
+    const inlineState = getInlineState(currentTarget);
+    if(!inlineState){ return { handled: false }; }
+    if(typeof inlineState.describeSelection === 'function'){
+      const selectionInfo = inlineState.describeSelection();
+      if(!selectionInfo?.hasSelection){
+        return { handled: false };
+      }
+      if(selectionInfo.isFullRange){
+        if(typeof inlineState.resetStyleMapToBase === 'function'){
+          inlineState.resetStyleMapToBase();
+        }
+        logDebug('inline selection full range detected', {
+          meta,
+          length: selectionInfo.length
+        });
+        return { handled: false, entire: true };
+      }
+    }
+    if(typeof inlineState.applyStylePatchToSelection === 'function'){
+      const result = inlineState.applyStylePatchToSelection(patch || {});
+      if(result?.handled){
+        logDebug('inline selection patch applied', {
+          meta,
+          patchKeys: Object.keys(patch || {})
+        });
+        return { handled: true, partial: true };
+      }
+      if(result?.entire){
+        return { handled: false, entire: true };
+      }
+    }
+    return { handled: false };
+  }
+
   function logDebug(label, payload){
     try {
       console.debug(`Debug: fontControls ${label}`, payload); // Debug: font control trace
@@ -696,6 +759,14 @@
     const commitFontFamily = (rawValue, meta) => {
       if(!currentTarget){ return; }
       const value = (rawValue || '').trim();
+      const inlineResult = handleInlineSelectionPatch({ fontFamily: value || null }, {
+        source: meta?.source || 'unknown',
+        action: 'font-family'
+      });
+      if(inlineResult.handled){
+        updatePreviewFromInputs();
+        return;
+      }
       if(value){
         currentTarget.setAttribute('font-family', value);
       } else {
@@ -709,6 +780,12 @@
         fill: currentTarget.getAttribute('fill') || colorInput.value
       };
       storeCurrentStyle(style);
+      if(inlineResult.entire){
+        const inlineState = getInlineState(currentTarget);
+        if(inlineState && inlineState.baseStyle){
+          inlineState.baseStyle.fontFamily = value || null;
+        }
+      }
       updatePreviewFromInputs();
       logDebug('font family committed', {
         value: value || null,
@@ -755,6 +832,14 @@
     colorInput.addEventListener('input', () => {
       if(!currentTarget) return;
       const val = colorInput.value;
+      const inlineResult = handleInlineSelectionPatch({ fill: val }, {
+        source: 'color-input',
+        action: 'fill'
+      });
+      if(inlineResult.handled){
+        updatePreviewFromInputs();
+        return;
+      }
       currentTarget.setAttribute('fill', val);
       const style = {
         fontFamily: currentTarget.getAttribute('font-family') || null,
@@ -764,6 +849,12 @@
         fill: val
       };
       storeCurrentStyle(style);
+      if(inlineResult.entire){
+        const inlineState = getInlineState(currentTarget);
+        if(inlineState && inlineState.baseStyle){
+          inlineState.baseStyle.fill = val;
+        }
+      }
       updatePreviewFromInputs();
       logDebug('colorInput input', { value: val, text: currentTarget.textContent });
     });
@@ -780,6 +871,14 @@
           val = `${numeric}px`;
         }
       }
+      const inlineResult = handleInlineSelectionPatch({ fontSize: val }, {
+        source: 'size-change',
+        action: 'font-size'
+      });
+      if(inlineResult.handled){
+        updatePreviewFromInputs();
+        return;
+      }
       if(val){
         currentTarget.setAttribute('font-size', val);
       } else {
@@ -793,6 +892,12 @@
         fill: currentTarget.getAttribute('fill') || colorInput.value
       };
       storeCurrentStyle(style);
+      if(inlineResult.entire){
+        const inlineState = getInlineState(currentTarget);
+        if(inlineState && inlineState.baseStyle){
+          inlineState.baseStyle.fontSize = val;
+        }
+      }
       updatePreviewFromInputs();
       logDebug('sizeInput change', { value: raw, applied: style.fontSize, text: currentTarget.textContent });
     });
@@ -807,13 +912,26 @@
       logDebug('sizeInput input preview', { value: sizeInput.value });
     });
 
-    const toggleHandler = (btn, attr, activeValue) => {
+    const toggleHandler = (btn, attr, activeValue, propKey) => {
       btn.addEventListener('click', () => {
         if(!currentTarget) return;
         const isActive = btn.dataset.active === '1';
         const nextActive = !isActive;
         btn.dataset.active = nextActive ? '1' : '0';
         btn.setAttribute('aria-pressed', nextActive ? 'true' : 'false');
+        const patch = {};
+        if(propKey){
+          patch[propKey] = nextActive ? activeValue : null;
+        }
+        const inlineResult = handleInlineSelectionPatch(patch, {
+          source: `${attr}-toggle`,
+          action: attr,
+          active: nextActive
+        });
+        if(inlineResult.handled){
+          updatePreviewFromInputs();
+          return;
+        }
         if(nextActive){
           currentTarget.setAttribute(attr, activeValue);
         } else {
@@ -827,13 +945,19 @@
           fill: currentTarget.getAttribute('fill') || colorInput.value
         };
         storeCurrentStyle(style);
+        if(inlineResult.entire && propKey){
+          const inlineState = getInlineState(currentTarget);
+          if(inlineState && inlineState.baseStyle){
+            inlineState.baseStyle[propKey] = nextActive ? activeValue : null;
+          }
+        }
         updatePreviewFromInputs();
         logDebug('toggle change', { attr, active: nextActive, text: currentTarget.textContent });
       });
     };
 
-    toggleHandler(boldToggle, 'font-weight', 'bold');
-    toggleHandler(italicToggle, 'font-style', 'italic');
+    toggleHandler(boldToggle, 'font-weight', 'bold', 'fontWeight');
+    toggleHandler(italicToggle, 'font-style', 'italic', 'fontStyle');
 
     doc.addEventListener('keydown', (evt) => {
       if(evt.key === 'Escape'){ closePanel('escape'); }
@@ -841,8 +965,17 @@
 
     doc.addEventListener('click', (evt) => {
       if(!panelEl || panelEl.dataset.open !== '1'){ return; }
-      if(panelEl.contains(evt.target)){ return; }
-      if(currentTarget && evt.target === currentTarget){ return; }
+      const target = evt.target;
+      if(panelEl.contains(target)){ return; }
+      if(currentTarget && target === currentTarget){ return; }
+      if(target?.closest?.('.inline-edit-overlay')){
+        logDebug('panel click ignored (inline edit overlay)', {});
+        return;
+      }
+      if(target?.dataset?.fontControlsOverlay === '1'){
+        logDebug('panel click ignored (color overlay focus)', {});
+        return;
+      }
       closePanel('outside');
     });
 
@@ -852,6 +985,10 @@
 
   function closePanel(reason){
     if(!panelEl){ return; }
+    if(currentTarget && isInlineEditingActive(currentTarget) && reason !== 'escape'){
+      logDebug('panel close deferred during inline edit', { reason });
+      return;
+    }
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.setAttribute('aria-hidden', 'true');
@@ -936,7 +1073,16 @@
   }
 
   function handleSvgClick(evt){
-    const target = evt.target;
+    let target = evt.target;
+    if(!target){ return; }
+    if(target.tagName?.toLowerCase() !== 'text'){
+      if(typeof target.closest === 'function'){
+        const ownerText = target.closest('text');
+        if(ownerText){
+          target = ownerText;
+        }
+      }
+    }
     if(!target || target.tagName?.toLowerCase() !== 'text'){ return; }
     const editableFlag = target.dataset?.fontEditable;
     if(editableFlag === '0'){ return; }

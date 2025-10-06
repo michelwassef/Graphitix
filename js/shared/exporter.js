@@ -159,8 +159,36 @@
     return { changed, found };
   }
 
+  function hasExplicitFontFamily(node) {
+    if (!node || typeof node.getAttribute !== 'function') {
+      return false;
+    }
+    const attr = node.getAttribute('font-family');
+    if (attr && attr.trim()) {
+      return true;
+    }
+    const styleAttr = node.getAttribute('style') || '';
+    if (styleAttr) {
+      const match = styleAttr.match(/font-family\s*:\s*([^;]+)/i);
+      if (match && match[1] && match[1].trim()) {
+        return true;
+      }
+    }
+    if (node.style && node.style.fontFamily && node.style.fontFamily.trim()) {
+      return true;
+    }
+    return false;
+  }
+
   function applyFontFamilyAttr(node, fontFamily, counters, counterKey) {
     if (!node?.setAttribute || !fontFamily) return false;
+    if (hasExplicitFontFamily(node)) {
+      logDebug('applyFontFamilyAttr preserved explicit font', {
+        tag: node.tagName || null,
+        fontFamily: node.getAttribute('font-family') || node.style?.fontFamily || null
+      });
+      return false;
+    }
     const current = node.getAttribute('font-family');
     if (normalizeFontString(current) === normalizeFontString(fontFamily)) {
       return false;
@@ -228,7 +256,16 @@
 
       const styleNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('[style]') : [];
       styleNodes.forEach(node => {
-        const styleFont = normalizeStyleProperty(node, 'font-family', () => defaultFont);
+        const styleFont = normalizeStyleProperty(node, 'font-family', value => {
+          const trimmed = typeof value === 'string' ? value.trim() : '';
+          if (trimmed) {
+            return trimmed;
+          }
+          if (hasExplicitFontFamily(node)) {
+            return value;
+          }
+          return defaultFont;
+        });
         if (styleFont.changed) {
           counters.styleFontFamilyNormalized += 1;
         }

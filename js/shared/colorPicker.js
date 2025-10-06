@@ -17,6 +17,7 @@
     overlay.style.display = 'none';
     overlay.style.opacity = '0';
     overlay.style.pointerEvents = 'none';
+    overlay.dataset.fontControlsOverlay = '1';
     document.body.appendChild(overlay);
     const dispatchInput = (eventType)=>{
       const handlerName = eventType === 'change' ? 'onOverlayChange' : 'onOverlayInput';
