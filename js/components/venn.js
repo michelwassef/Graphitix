@@ -1582,6 +1582,28 @@
     debugLog('drawFromNumeric complete', { counts });
   }
 
+  function hasListContent(inputs) {
+    if (!inputs) return false;
+    const present = ['A', 'B', 'C'].some(key => {
+      const value = inputs[key]?.value || '';
+      return typeof value === 'string' && value.trim().length > 0;
+    });
+    console.debug('Debug: venn hasListContent check', { present }); // Debug: list content detection
+    return present;
+  }
+
+  function hasNumericContent(inputs) {
+    if (!inputs) return false;
+    const present = Object.values(inputs.counts || {}).some(input => {
+      const raw = input?.value;
+      if (raw === '' || raw === null || typeof raw === 'undefined') return false;
+      const num = Number(raw);
+      return Number.isFinite(num) && num > 0;
+    });
+    console.debug('Debug: venn hasNumericContent check', { present }); // Debug: numeric content detection
+    return present;
+  }
+
   function refreshDiagram() {
     const inputs = state.ui.inputs;
     if (!inputs) {
@@ -1589,7 +1611,19 @@
       return;
     }
     try {
-      const mode = state.analysis.lastDrawMode || ((inputs.A.value || inputs.B.value || inputs.C.value) ? 'lists' : 'numeric');
+      const hasLists = hasListContent(inputs);
+      const hasNumeric = hasNumericContent(inputs);
+      const hintedMode = state.analysis.lastDrawMode;
+      if (!hintedMode && !hasLists && !hasNumeric) {
+        clearSVG();
+        if (state.ui.regionList) state.ui.regionList.innerHTML = '';
+        if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.style.display = 'none';
+        state.analysis.lastRegions = null;
+        state.analysis.lastCounts = null;
+        debugLog('refreshDiagram skipped', { reason: 'no-data', hasLists, hasNumeric });
+        return;
+      }
+      const mode = hintedMode || (hasLists ? 'lists' : 'numeric');
       if (mode === 'numeric') {
         drawFromNumeric();
       } else {

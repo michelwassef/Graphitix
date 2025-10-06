@@ -165,6 +165,31 @@
     });
   }
 
+  function clearPlotArea(reason){
+    if(refs.plotDiv){
+      while(refs.plotDiv.firstChild){
+        refs.plotDiv.removeChild(refs.plotDiv.firstChild);
+      }
+      refs.plotDiv.style.display = 'none';
+    }
+    if(refs.statsResults){
+      refs.statsResults.textContent = '';
+    }
+    if(state.compareSel){
+      state.compareSel.innerHTML = '';
+      state.compareSel.value = '';
+      state.compareSel.style.display = 'none';
+    }
+    if(state.compareLabel){
+      state.compareLabel.style.display = 'none';
+    }
+    if(state.compareResult){
+      state.compareResult.textContent = '';
+      state.compareResult.style.display = 'none';
+    }
+    console.debug('Debug: roc clearPlotArea invoked', { reason }); // Debug: cleared plot state summary
+  }
+
   function updateFontSizeLabel(){
     if(refs.fontSizeVal && refs.fontSize){
       if(refs.fontSize.dataset){
@@ -571,6 +596,18 @@
     const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
     const data = state.hot.getData();
     if(!data || !data.length){
+      clearPlotArea('no-table');
+      return;
+    }
+    const bodyRows = data.slice(1);
+    const hasRowContent = bodyRows.some(row => Array.isArray(row) && row.some(cell => {
+      if(cell === null || typeof cell === 'undefined'){ return false; }
+      if(typeof cell === 'number'){ return !Number.isNaN(cell); }
+      const text = String(cell);
+      return text.trim().length > 0;
+    }));
+    if(!hasRowContent){
+      clearPlotArea('empty-rows');
       return;
     }
     const header = data[0] || [];
@@ -578,16 +615,29 @@
     if(labelIndex < 0){
       labelIndex = 0;
     }
-    const labels = data.slice(1).map(row => parseFloat(row[labelIndex]));
+    const labels = bodyRows.map(row => parseFloat(row[labelIndex]));
     const positives = labels.filter(val => !Number.isNaN(val) && val > 0).length;
     const negatives = labels.filter(val => !Number.isNaN(val) && val <= 0).length;
+    if(positives === 0 && negatives === 0){
+      clearPlotArea('no-labels');
+      return;
+    }
     const scoreColumns = header
       .map((_, idx) => idx)
       .filter(idx => idx !== labelIndex && header[idx] != null && String(header[idx]).trim() !== '');
     const series = scoreColumns.map((colIdx, index) => ({
       name: header[colIdx] || `Model ${index + 1}`,
-      scores: data.slice(1).map(row => parseFloat(row[colIdx]))
+      scores: bodyRows.map(row => parseFloat(row[colIdx]))
     }));
+    if(!series.length){
+      clearPlotArea('no-series');
+      return;
+    }
+    const hasValidScores = series.some(serie => serie.scores.some(score => !Number.isNaN(score)));
+    if(!hasValidScores){
+      clearPlotArea('no-scores');
+      return;
+    }
 
     const legendLabels = series.map(s => s.name);
     ensureLabelColors(legendLabels);
