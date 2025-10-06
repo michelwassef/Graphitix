@@ -336,14 +336,36 @@
     const rect = container.getBoundingClientRect();
     const data = container.dataset || {};
     const chartStyle = Shared.chartStyle || {};
+    const graphSizing = Shared.graphSizing || null;
     const resizeMinScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
     const resizeMaxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-    const fallbackLabel = opts.debugLabel || container?.id || container?.className || 'resizer';
-    const squareFallback = resolveSquareSize(fallbackLabel);
+    const helperContext = opts.debugLabel || container?.id || container?.className || 'resizer';
+    if(graphSizing && typeof graphSizing.ensureCssVariables === 'function'){
+      graphSizing.ensureCssVariables({ context: helperContext });
+    }
+    let helperSizing = null;
+    if(graphSizing && typeof graphSizing.getSizing === 'function'){
+      try{
+        helperSizing = graphSizing.getSizing({ context: helperContext });
+      }catch(err){
+        console.error('Shared.attachResizableBox graphSizing error', err);
+      }
+    }
+    if(helperSizing){
+      console.debug('Debug: attachResizableBox helper sizing applied', { context: helperContext, helperSizing });
+    }
+    const fallbackLabel = helperContext;
+    const squareFallback = Number.isFinite(helperSizing?.width) && helperSizing.width > 0
+      ? helperSizing.width
+      : resolveSquareSize(fallbackLabel);
     const defaultWidthRaw = Number(chartStyle.DEFAULT_WIDTH);
     const defaultHeightRaw = Number(chartStyle.DEFAULT_HEIGHT);
-    const defaultWidthFallback = Number.isFinite(defaultWidthRaw) && defaultWidthRaw > 0 ? defaultWidthRaw : squareFallback;
-    const defaultHeightFallback = Number.isFinite(defaultHeightRaw) && defaultHeightRaw > 0 ? defaultHeightRaw : defaultWidthFallback;
+    const defaultWidthFallback = Number.isFinite(defaultWidthRaw) && defaultWidthRaw > 0
+      ? defaultWidthRaw
+      : (Number.isFinite(helperSizing?.width) && helperSizing.width > 0 ? helperSizing.width : squareFallback);
+    const defaultHeightFallback = Number.isFinite(defaultHeightRaw) && defaultHeightRaw > 0
+      ? defaultHeightRaw
+      : (Number.isFinite(helperSizing?.height) && helperSizing.height > 0 ? helperSizing.height : defaultWidthFallback);
     const parsedDefaultWidth = Number(opts.defaultWidth);
     const parsedDefaultHeight = Number(opts.defaultHeight);
     let defaultWidth = Number.isFinite(parsedDefaultWidth) && parsedDefaultWidth > 0
@@ -360,10 +382,18 @@
       const rectHeight = Math.round(rect.height);
       defaultHeight = rectHeight > 0 ? rectHeight : defaultHeightFallback;
     }
-    const minFromDefaultWidth = Math.max(1, Math.round(defaultWidth * resizeMinScale));
-    const minFromDefaultHeight = Math.max(1, Math.round(defaultHeight * resizeMinScale));
-    const maxFromDefaultWidth = Math.max(defaultWidth, Math.round(defaultWidth * resizeMaxScale));
-    const maxFromDefaultHeight = Math.max(defaultHeight, Math.round(defaultHeight * resizeMaxScale));
+    const minFromDefaultWidth = Number.isFinite(helperSizing?.minWidth) && helperSizing.minWidth > 0
+      ? Math.round(helperSizing.minWidth)
+      : Math.max(1, Math.round(defaultWidth * resizeMinScale));
+    const minFromDefaultHeight = Number.isFinite(helperSizing?.minHeight) && helperSizing.minHeight > 0
+      ? Math.round(helperSizing.minHeight)
+      : Math.max(1, Math.round(defaultHeight * resizeMinScale));
+    const maxFromDefaultWidth = Number.isFinite(helperSizing?.maxWidth) && helperSizing.maxWidth > 0
+      ? Math.round(Math.max(helperSizing.maxWidth, defaultWidth))
+      : Math.max(defaultWidth, Math.round(defaultWidth * resizeMaxScale));
+    const maxFromDefaultHeight = Number.isFinite(helperSizing?.maxHeight) && helperSizing.maxHeight > 0
+      ? Math.round(Math.max(helperSizing.maxHeight, defaultHeight))
+      : Math.max(defaultHeight, Math.round(defaultHeight * resizeMaxScale));
     const parsedMinWidth = Number(opts.minWidth);
     const parsedMinHeight = Number(opts.minHeight);
     let MIN_W = Number.isFinite(parsedMinWidth) && parsedMinWidth > 0 ? parsedMinWidth : Number(data.resizerMinWidth);
@@ -432,7 +462,7 @@
     }); // Debug: resizer scope trace
     const ratioFromDefaults = (Number.isFinite(defaultWidth) && defaultWidth > 0 && Number.isFinite(defaultHeight) && defaultHeight > 0)
       ? (defaultWidth / defaultHeight)
-      : NaN;
+      : (Number.isFinite(helperSizing?.aspectRatio) && helperSizing.aspectRatio > 0 ? helperSizing.aspectRatio : NaN);
     const rectWidthVal = parsePositive(rect.width);
     const rectHeightVal = parsePositive(rect.height);
     const ratioFromRect = (Number.isFinite(rectWidthVal) && Number.isFinite(rectHeightVal) && rectHeightVal > 0)
@@ -451,6 +481,9 @@
       aspectRatio = Number.isFinite(ratioFromDefaults) ? ratioFromDefaults : 1;
     }
     let aspectLocked = data.resizerAspectLocked === 'true';
+    if(helperSizing && helperSizing.aspectLocked === false){
+      aspectLocked = false;
+    }
     if(typeof opts.aspectLocked === 'boolean'){
       aspectLocked = opts.aspectLocked;
       console.debug('Debug: resizer aspect lock override', { container: containerLabel, aspectLocked }); // Debug: aspect lock override applied
@@ -995,11 +1028,29 @@
     const datasetMaxHeight = svgDataset ? parsePositive(svgDataset.resizerMaxHeight) : NaN;
     const datasetDefaultWidth = svgDataset ? parsePositive(svgDataset.resizerDefaultWidth) : NaN;
     const datasetDefaultHeight = svgDataset ? parsePositive(svgDataset.resizerDefaultHeight) : NaN;
+    const storedAutoWidth = (!isManualResize && svgDataset)
+      ? parsePositive(svgDataset.resizerWidth)
+      : NaN;
     const aspectLocked = svgDataset ? svgDataset.resizerAspectLocked === 'true' : false;
     const storedAspectRatio = svgDataset ? parsePositive(svgDataset.resizerAspectRatio) : NaN;
     const svgRect = svgBox ? svgBox.getBoundingClientRect() : null;
     const svgCurrentWidth = svgRect ? svgRect.width : NaN;
     const svgCurrentHeight = svgRect ? svgRect.height : NaN;
+    let cssDefaultWidth = NaN;
+    if(!Number.isFinite(datasetDefaultWidth) && svgBox && global.getComputedStyle){
+      try {
+        const computed = global.getComputedStyle(svgBox);
+        cssDefaultWidth = parsePositive(computed.getPropertyValue('--graph-default-width'));
+      } catch(defaultErr){
+        console.error('Shared.syncPanelWidths default width css error', defaultErr);
+      }
+    }
+    const autoDefaultWidth = Number.isFinite(datasetDefaultWidth) && datasetDefaultWidth > 0
+      ? datasetDefaultWidth
+      : cssDefaultWidth;
+    const preferredAutoWidth = Number.isFinite(autoDefaultWidth) && autoDefaultWidth > 0
+      ? autoDefaultWidth
+      : (Number.isFinite(storedAutoWidth) && storedAutoWidth > 0 ? storedAutoWidth : NaN);
     const tableWidth = tablePanel.getBoundingClientRect().width;
     const tableDataset = tablePanel.dataset || {};
     let defaultTableWidth = parsePositive(tableDataset.panelDefaultWidth);
@@ -1118,6 +1169,15 @@
       const fallbackWidth = Number.isFinite(tableWidth) && tableWidth > 0 ? tableWidth : svgCurrentWidth;
       if(Number.isFinite(maxAvailable) && maxAvailable > 0){
         baseWidth = maxAvailable;
+        if(!isManualResize && Number.isFinite(preferredAutoWidth) && preferredAutoWidth > 0){
+          baseWidth = Math.min(baseWidth, preferredAutoWidth);
+          console.debug('Debug: Shared.syncPanelWidths auto default clamp', {
+            label: debugLabel,
+            preferredAutoWidth,
+            maxAvailable,
+            clampedWidth: baseWidth
+          });
+        }
         console.debug('Debug: Shared.syncPanelWidths baseWidth auto-fill', {
           label: debugLabel,
           baseWidth,
@@ -1131,6 +1191,16 @@
         }else{
           baseWidth = availableRaw;
         }
+        if(!isManualResize && Number.isFinite(preferredAutoWidth) && preferredAutoWidth > 0){
+          baseWidth = Math.min(baseWidth, preferredAutoWidth);
+          console.debug('Debug: Shared.syncPanelWidths auto fallback clamp', {
+            label: debugLabel,
+            preferredAutoWidth,
+            availableRaw,
+            fallbackWidth,
+            clampedWidth: baseWidth
+          });
+        }
       }else{
         baseWidth = fallbackWidth;
       }
@@ -1138,6 +1208,8 @@
     if(!Number.isFinite(baseWidth) || baseWidth <= 0){
       if(Number.isFinite(svgCurrentWidth) && svgCurrentWidth > 0){
         baseWidth = svgCurrentWidth;
+      }else if(!isManualResize && Number.isFinite(preferredAutoWidth) && preferredAutoWidth > 0){
+        baseWidth = preferredAutoWidth;
       }else if(Number.isFinite(datasetDefaultWidth) && datasetDefaultWidth > 0){
         baseWidth = datasetDefaultWidth;
       }else if(Number.isFinite(minSvgWidth) && minSvgWidth > 0){

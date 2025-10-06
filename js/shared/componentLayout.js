@@ -6,6 +6,7 @@
   const Shared = global.Shared = global.Shared || {};
   const componentLayout = Shared.componentLayout = Shared.componentLayout || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const graphSizing = Shared.graphSizing = Shared.graphSizing || {};
 
   function resolveElement({ selector, label, documentRef, componentName }){
     if(!selector){
@@ -32,25 +33,6 @@
     }
     console.debug('Debug: componentLayout resolveElement fallback null', { component: componentName, label });
     return null;
-  }
-
-  function computeFallbackSizing(componentName){
-    const baseWidth = Number(chartStyle?.DEFAULT_WIDTH) || 640;
-    const baseHeight = Number(chartStyle?.DEFAULT_HEIGHT) || baseWidth;
-    const minScale = Number(chartStyle?.RESIZE_MIN_SCALE) || 0.3;
-    const maxScale = Number(chartStyle?.RESIZE_MAX_SCALE) || 3;
-    const fallback = {
-      width: baseWidth,
-      height: baseHeight,
-      minWidth: Math.max(1, Math.round(baseWidth * minScale)),
-      minHeight: Math.max(1, Math.round(baseHeight * minScale)),
-      maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-      maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-      aspectRatio: chartStyle?.DEFAULT_ASPECT_RATIO || 1,
-      aspectLocked: chartStyle?.DEFAULT_ASPECT_LOCKED !== false
-    };
-    console.debug('Debug: componentLayout fallback sizing', { component: componentName, fallback });
-    return fallback;
   }
 
   componentLayout.createStandardPanels = function createStandardPanels(config){
@@ -185,18 +167,32 @@
             console.error('Shared.componentLayout getSizing error', err);
           }
         }
-        if(typeof chartStyle?.getSquareGraphSizing === 'function'){
+        if(typeof graphSizing?.ensureCssVariables === 'function'){
+          graphSizing.ensureCssVariables({ context: componentName });
+        }
+        if(typeof graphSizing?.getSizing === 'function'){
           try{
-            const sizingResult = chartStyle.getSquareGraphSizing({ context: componentName });
-            if(sizingResult){
-              console.debug('Debug: componentLayout using chartStyle sizing', { component: componentName, sizingResult });
-              return sizingResult;
+            const sizingHelper = graphSizing.getSizing({ context: componentName });
+            if(sizingHelper){
+              console.debug('Debug: componentLayout using graphSizing helper', { component: componentName, sizingHelper });
+              return sizingHelper;
             }
           }catch(err){
-            console.error('Shared.componentLayout chartStyle sizing error', err);
+            console.error('Shared.componentLayout graphSizing error', err);
           }
         }
-        return computeFallbackSizing(componentName);
+        const fallbackSizing = {
+          width: Number(chartStyle?.DEFAULT_WIDTH) || 640,
+          height: Number(chartStyle?.DEFAULT_HEIGHT) || Number(chartStyle?.DEFAULT_WIDTH) || 640,
+          minWidth: Math.max(1, Math.round((Number(chartStyle?.DEFAULT_WIDTH) || 640) * (Number(chartStyle?.RESIZE_MIN_SCALE) || 0.3))),
+          minHeight: Math.max(1, Math.round((Number(chartStyle?.DEFAULT_HEIGHT) || Number(chartStyle?.DEFAULT_WIDTH) || 640) * (Number(chartStyle?.RESIZE_MIN_SCALE) || 0.3))),
+          maxWidth: Math.max(Number(chartStyle?.DEFAULT_WIDTH) || 640, Math.round((Number(chartStyle?.DEFAULT_WIDTH) || 640) * Math.max(Number(chartStyle?.RESIZE_MAX_SCALE) || 3, Number(chartStyle?.RESIZE_MIN_SCALE) || 0.3))),
+          maxHeight: Math.max(Number(chartStyle?.DEFAULT_HEIGHT) || Number(chartStyle?.DEFAULT_WIDTH) || 640, Math.round((Number(chartStyle?.DEFAULT_HEIGHT) || Number(chartStyle?.DEFAULT_WIDTH) || 640) * Math.max(Number(chartStyle?.RESIZE_MAX_SCALE) || 3, Number(chartStyle?.RESIZE_MIN_SCALE) || 0.3))),
+          aspectRatio: chartStyle?.DEFAULT_ASPECT_RATIO || 1,
+          aspectLocked: chartStyle?.DEFAULT_ASPECT_LOCKED !== false
+        };
+        console.debug('Debug: componentLayout fallback sizing used', { component: componentName, fallbackSizing });
+        return fallbackSizing;
       })();
 
       const userResizeOptions = config?.resizableBoxOptions || {};
