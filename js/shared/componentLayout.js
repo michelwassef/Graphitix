@@ -217,6 +217,7 @@
         maxHeight: sizing.maxHeight,
         aspectLocked: sizing.aspectLocked !== false,
         aspectRatio: Number.isFinite(sizing.aspectRatio) ? sizing.aspectRatio : 1,
+        allowUnlimitedWidth: true,
         ...userResizeOptions,
         onResize
       });
