@@ -853,6 +853,14 @@
 
   function getLineGraphPayload(){
     if(!lineHot) return null;
+    if((!Array.isArray(lineLastRegressionSummaries) || lineLastRegressionSummaries.length === 0) && lineHot){
+      console.debug('Debug: line payload refreshing summaries',{ hasHot: !!lineHot, summaryCount: lineLastRegressionSummaries?.length || 0 });
+      try{
+        drawLine();
+      }catch(err){
+        console.error('line payload refresh failed',err);
+      }
+    }
     return {
       type:'line',
       data:lineHot.getData(),
