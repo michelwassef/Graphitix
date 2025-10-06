@@ -396,6 +396,10 @@
       : Math.max(defaultHeight, Math.round(defaultHeight * resizeMaxScale));
     const parsedMinWidth = Number(opts.minWidth);
     const parsedMinHeight = Number(opts.minHeight);
+    const labelFromOpts = typeof opts.debugLabel === 'string' ? opts.debugLabel : null;
+    const closestPanel = typeof container.closest === 'function' ? container.closest('.panel') : null;
+    const panelId = closestPanel && closestPanel.id ? closestPanel.id : null;
+    const containerLabel = labelFromOpts || container.id || panelId || container.className || 'svgbox';
     let MIN_W = Number.isFinite(parsedMinWidth) && parsedMinWidth > 0 ? parsedMinWidth : Number(data.resizerMinWidth);
     if(!Number.isFinite(MIN_W) || MIN_W <= 0){
       MIN_W = minFromDefaultWidth;
@@ -408,12 +412,32 @@
     MIN_H = Math.max(MIN_H, minFromDefaultHeight);
     const parsedMaxWidth = Number(opts.maxWidth);
     const parsedMaxHeight = Number(opts.maxHeight);
-    let MAX_W = Number.isFinite(parsedMaxWidth) && parsedMaxWidth > 0 ? parsedMaxWidth : Number(data.resizerMaxWidth);
-    if(!Number.isFinite(MAX_W) || MAX_W <= 0){
-      MAX_W = maxFromDefaultWidth;
+    const helperMaxWidth = Number.isFinite(helperSizing?.maxWidth) && helperSizing.maxWidth > 0;
+    const hasExplicitMaxWidth = Number.isFinite(parsedMaxWidth) && parsedMaxWidth > 0;
+    const allowUnlimitedOverride = opts.allowUnlimitedWidth === true;
+    const allowUnlimitedWidth = allowUnlimitedOverride || (!hasExplicitMaxWidth && opts.allowUnlimitedWidth !== false);
+    let MAX_W;
+    if(allowUnlimitedWidth){
+      MAX_W = Number.POSITIVE_INFINITY;
+      console.debug('Debug: attachResizableBox unlimited width enabled', {
+        container: containerLabel,
+        helperMaxWidth,
+        hasExplicitMaxWidth,
+        ignoringHelperMaxWidth: helperMaxWidth,
+        allowUnlimitedOverride
+      }); // Debug: trace unlimited width flag
+    }else{
+      const storedMaxWidthRaw = data.resizerMaxWidth;
+      const storedMaxWidth = Number(storedMaxWidthRaw);
+      MAX_W = hasExplicitMaxWidth
+        ? parsedMaxWidth
+        : (Number.isFinite(storedMaxWidth) && storedMaxWidth > 0 ? storedMaxWidth : NaN);
+      if(!Number.isFinite(MAX_W) || MAX_W <= 0){
+        MAX_W = maxFromDefaultWidth;
+      }
+      MAX_W = Math.max(MAX_W, defaultWidth);
+      MAX_W = Math.min(MAX_W, Math.max(defaultWidth, maxFromDefaultWidth));
     }
-    MAX_W = Math.max(MAX_W, defaultWidth);
-    MAX_W = Math.min(MAX_W, Math.max(defaultWidth, maxFromDefaultWidth));
     let MAX_H = Number.isFinite(parsedMaxHeight) && parsedMaxHeight > 0 ? parsedMaxHeight : Number(data.resizerMaxHeight);
     if(!Number.isFinite(MAX_H) || MAX_H <= 0){
       MAX_H = maxFromDefaultHeight;
@@ -424,14 +448,11 @@
     data.resizerDefaultHeight = String(defaultHeight);
     data.resizerMinWidth = String(MIN_W);
     data.resizerMinHeight = String(MIN_H);
-    data.resizerMaxWidth = String(MAX_W);
+    data.resizerUnlimitedWidth = allowUnlimitedWidth ? 'true' : 'false';
+    data.resizerMaxWidth = Number.isFinite(MAX_W) ? String(MAX_W) : 'Infinity';
     data.resizerMaxHeight = String(MAX_H);
     data.resizerResized = data.resizerResized || 'false';
 
-    const labelFromOpts = typeof opts.debugLabel === 'string' ? opts.debugLabel : null;
-    const closestPanel = typeof container.closest === 'function' ? container.closest('.panel') : null;
-    const panelId = closestPanel && closestPanel.id ? closestPanel.id : null;
-    const containerLabel = labelFromOpts || container.id || panelId || container.className || 'svgbox';
     const existingScope = data.resizerTextLockScope || null;
     const optionScope = typeof opts.scopeId === 'string' && opts.scopeId.trim() ? opts.scopeId.trim()
       : (typeof opts.textLockScope === 'string' && opts.textLockScope.trim() ? opts.textLockScope.trim() : null);
@@ -742,7 +763,7 @@
     console.debug('Debug: attachResizableBox on', containerLabel); // Debug: resizer attach
     container.style.minWidth = px(MIN_W);
     container.style.minHeight = px(MIN_H);
-    container.style.maxWidth = px(MAX_W);
+    container.style.maxWidth = Number.isFinite(MAX_W) ? px(MAX_W) : 'none';
     container.style.maxHeight = px(MAX_H);
 
     const hasUndo = undoManager && typeof undoManager.record === 'function';
@@ -1020,6 +1041,7 @@
       }
     }
     const svgDataset = svgBox && svgBox.dataset ? svgBox.dataset : null;
+    const unlimitedWidth = !!(svgDataset && (svgDataset.resizerUnlimitedWidth === 'true' || svgDataset.resizerMaxWidth === 'Infinity' || svgDataset.resizerMaxWidth === 'none'));
     const storedTableWidth = svgDataset ? Number(svgDataset.resizerTableWidth) : NaN;
     const isManualResize = svgDataset ? svgDataset.resizerResized === 'true' : false;
     const datasetMinWidth = svgDataset ? parsePositive(svgDataset.resizerMinWidth) : NaN;
@@ -1221,11 +1243,11 @@
       }
     }
     let appliedWidth = baseWidth;
-    if(Number.isFinite(maxAvailable)){
+    if(!unlimitedWidth && Number.isFinite(maxAvailable)){
       appliedWidth = Math.min(appliedWidth, maxAvailable);
     }
     const minTarget = Number.isFinite(minSvgWidth) && minSvgWidth > 0 ? minSvgWidth : 0;
-    if(Number.isFinite(maxAvailable) && maxAvailable >= 0 && maxAvailable < minTarget){
+    if(!unlimitedWidth && Number.isFinite(maxAvailable) && maxAvailable >= 0 && maxAvailable < minTarget){
       appliedWidth = maxAvailable;
     }else if(appliedWidth < minTarget){
       appliedWidth = minTarget;
@@ -1236,7 +1258,7 @@
         minWidthConstraint = Number.isFinite(minWidthConstraint) ? Math.max(minWidthConstraint, minSvgWidth) : minSvgWidth;
       }
       let maxWidthConstraint = Number.isFinite(datasetMaxWidth) ? datasetMaxWidth : NaN;
-      if(Number.isFinite(maxAvailable) && maxAvailable > 0){
+      if(!unlimitedWidth && Number.isFinite(maxAvailable) && maxAvailable > 0){
         maxWidthConstraint = Number.isFinite(maxWidthConstraint) ? Math.min(maxWidthConstraint, maxAvailable) : maxAvailable;
       }
       if(Number.isFinite(minWidthConstraint) && Number.isFinite(maxWidthConstraint) && maxWidthConstraint < minWidthConstraint){
@@ -1282,11 +1304,15 @@
       if(Number.isFinite(minWidthConstraint)){
         widthToApply = Math.max(widthToApply, Math.round(minWidthConstraint));
       }
-      if(Number.isFinite(maxWidthConstraint)){
+      if(!unlimitedWidth && Number.isFinite(maxWidthConstraint)){
         widthToApply = Math.min(widthToApply, Math.round(maxWidthConstraint));
       }
       svgBox.style.width = widthToApply + 'px';
-      svgBox.style.maxWidth = Math.max(widthToApply, Number.isFinite(datasetDefaultWidth) ? datasetDefaultWidth : widthToApply) + 'px';
+      if(unlimitedWidth){
+        svgBox.style.maxWidth = 'none';
+      }else{
+        svgBox.style.maxWidth = Math.max(widthToApply, Number.isFinite(datasetDefaultWidth) ? datasetDefaultWidth : widthToApply) + 'px';
+      }
       if(svgDataset){
         svgDataset.resizerWidth = svgBox.style.width;
       }
