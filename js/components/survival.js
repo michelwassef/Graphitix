@@ -1388,6 +1388,7 @@
     let xTickLabels = [];
     let yTickLabels = [];
 
+    let maxYLabelWidth = 0;
     for(let pass = 0; pass < 2; pass += 1){
       plotW = Math.max(20, width - margin.left - margin.right);
       plotH = Math.max(20, height - margin.top - margin.bottom);
@@ -1396,7 +1397,7 @@
       xTickLabels = xScale.ticks.map(value => formatNumber(value, 2));
       yTickLabels = yScale.ticks.map(value => formatNumber(value, 2));
       const yLabelWidths = yTickLabels.map(label => chartStyle.measureText ? chartStyle.measureText(label, tickFont) : label.length * fs * 0.6);
-      const maxYLabelWidth = yLabelWidths.length ? Math.max(...yLabelWidths) : 0;
+      maxYLabelWidth = yLabelWidths.length ? Math.max(...yLabelWidths) : 0;
       margin = chartStyle.computeBaseMargins ? chartStyle.computeBaseMargins({
         fontSize: fs,
         legendWidth,
@@ -1503,7 +1504,8 @@
     });
     xTitle.textContent = xLabelText;
 
-    const yTitleX = margin.left - (yTitleWidthBase + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+    const yTitleX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+    logDebug('y-axis title placement', { yTitleX, maxYLabelWidth }); // Debug: axis label alignment
     const yTitle = add('text', {
       x: yTitleX,
       y: margin.top + plotH / 2,
