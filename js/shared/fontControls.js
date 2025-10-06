@@ -240,7 +240,28 @@
       return toolbarHostMap.get(key);
     }
     const buttonId = scopeId ? `${scopeId}LoadExample` : null;
-    const button = buttonId ? doc.getElementById(buttonId) : null;
+    let button = buttonId ? doc.getElementById(buttonId) : null;
+    if(!button && scopeId){
+      const fallbackIds = [];
+      if(scopeId === 'venn'){ fallbackIds.push('sample'); }
+      fallbackIds.push(`${scopeId}Example`, `${scopeId}Sample`, `${scopeId}FontHost`);
+      for(let i = 0; i < fallbackIds.length && !button; i += 1){
+        const candidateId = fallbackIds[i];
+        if(!candidateId){ continue; }
+        const candidate = doc.getElementById(candidateId);
+        if(candidate){
+          button = candidate;
+          logDebug('resolveToolbarHost fallback match', { scopeId: key, candidateId });
+        }
+      }
+    }
+    if(!button && scopeId){
+      const dataHost = doc.querySelector(`[data-font-toolbar-scope="${key}"]`);
+      if(dataHost){
+        button = dataHost;
+        logDebug('resolveToolbarHost data attribute host match', { scopeId: key });
+      }
+    }
     if(!button){
       logDebug('resolveToolbarHost missing button', { scopeId: key, buttonId });
       return null;

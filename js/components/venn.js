@@ -4,6 +4,7 @@
   const NS = 'http://www.w3.org/2000/svg';
   const Shared = global.Shared = global.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const fontControls = Shared.fontControls = Shared.fontControls || {};
   const Components = global.Components = global.Components || {};
   const venn = Components.venn = Components.venn || {};
   venn.__installed = true;
@@ -409,6 +410,21 @@
     if (!stage) return;
     while (stage.firstChild) stage.removeChild(stage.firstChild);
   }
+
+  const markFontEditable = (node, role, key) => {
+    if(!node){ return; }
+    const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
+    if(fontControls && typeof fontControls.markText === 'function'){
+      fontControls.markText(node, { scopeId: 'venn', role, key });
+    } else if(node.dataset){
+      node.dataset.fontEditable = '1';
+      node.dataset.fontScope = 'venn';
+      if(role){ node.dataset.fontRole = role; }
+      if(key || role){ node.dataset.fontKey = key || role; }
+    }
+    if(role && role.indexOf('region') !== -1){ return; }
+    debugLog('font mark applied', payload);
+  };
 
   function makeEl(tag, attrs = {}, parent) {
     const stage = state.ui.stage;
@@ -1262,6 +1278,15 @@
     if (typeof chartStyle.applySvgDefaults === 'function') {
       chartStyle.applySvgDefaults(stage);
     }
+    if(stage?.dataset){
+      stage.dataset.fontScope = 'venn';
+    }
+    if(fontControls && typeof fontControls.enableForSvg === 'function'){
+      fontControls.enableForSvg(stage, { scopeId: 'venn' });
+      debugLog('fontControls enableForSvg invoked', { width: stage.getAttribute('width'), height: stage.getAttribute('height') });
+    } else {
+      debugLog('fontControls enableForSvg missing', { hasFontControls: !!fontControls });
+    }
     const svgBox = state.ui.svgBox || stage.closest?.('.svgbox') || state.ui.graphPanel?.querySelector?.('.svgbox') || null;
     if (!state.ui.svgBox && svgBox) {
       state.ui.svgBox = svgBox;
@@ -1345,7 +1370,7 @@
       const p = toPx(c.x, c.y);
       makeEl('circle', { cx: p.x, cy: p.y, r: c.r * scale, fill: c.color, 'fill-opacity': style.opacity, stroke: style.borderColor, 'stroke-width': style.borderWidth });
     }
-    function addText(txt, x, y, regionCode) {
+    function addText(txt, x, y, regionCode, meta) {
       const t = makeEl('text', {
         x,
         y,
@@ -1355,6 +1380,9 @@
         'font-family': fontFamily
       });
       t.textContent = txt;
+      const resolvedRole = meta?.role || (regionCode ? 'regionLabel' : 'label');
+      const resolvedKey = meta?.key || (regionCode ? `region-${regionCode}` : null);
+      markFontEditable(t, resolvedRole, resolvedKey);
       if (regionCode && tooltip) {
         t.addEventListener('mouseenter', e => {
           const genes = getRegionText(regionCode).split(/\n/).filter(g => g);
@@ -1411,7 +1439,7 @@
       const isTop = others.every(o => circle.y <= o.y);
       const margin = style.fontSizePx * 0.6;
       let y = center.y + (isTop ? -(circle.r * scale + margin) : (circle.r * scale + margin));
-      const t = addText(label + ' (' + count + ')', center.x, y);
+      const t = addText(label + ' (' + count + ')', center.x, y, null, { role: 'setLabel', key: circle?.id ? `set-${circle.id}` : 'setLabel' });
       let box = t.getBBox();
       for (const b of labelBoxes) {
         while (!(box.x + box.width < b.x || b.x + b.width < box.x || box.y + box.height < b.y || b.y + b.height < box.y)) {
@@ -1442,31 +1470,31 @@
     const hasC = counts.nC > 0;
     if (counts.Aonly) {
       const p = _findRegionLabelPoint('A', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
-      if (p) addText(String(counts.Aonly), p.x, p.y, 'A');
+      if (p) addText(String(counts.Aonly), p.x, p.y, 'A', { role: 'regionLabel', key: 'region-A' });
     }
     if (counts.Bonly) {
       const p = _findRegionLabelPoint('B', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
-      if (p) addText(String(counts.Bonly), p.x, p.y, 'B');
+      if (p) addText(String(counts.Bonly), p.x, p.y, 'B', { role: 'regionLabel', key: 'region-B' });
     }
     if (hasC && counts.Conly) {
       const p = _findRegionLabelPoint('C', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
-      if (p) addText(String(counts.Conly), p.x, p.y, 'C');
+      if (p) addText(String(counts.Conly), p.x, p.y, 'C', { role: 'regionLabel', key: 'region-C' });
     }
     if (counts.AB) {
       const p = _findRegionLabelPoint('AB', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
-      if (p) addText(String(counts.AB), p.x, p.y, 'AB');
+      if (p) addText(String(counts.AB), p.x, p.y, 'AB', { role: 'regionLabel', key: 'region-AB' });
     }
     if (hasC && counts.AC) {
       const p = _findRegionLabelPoint('AC', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
-      if (p) addText(String(counts.AC), p.x, p.y, 'AC');
+      if (p) addText(String(counts.AC), p.x, p.y, 'AC', { role: 'regionLabel', key: 'region-AC' });
     }
     if (hasC && counts.BC) {
       const p = _findRegionLabelPoint('BC', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
-      if (p) addText(String(counts.BC), p.x, p.y, 'BC');
+      if (p) addText(String(counts.BC), p.x, p.y, 'BC', { role: 'regionLabel', key: 'region-BC' });
     }
     if (hasC && counts.ABC) {
       const p = _findRegionLabelPoint('ABC', cA, rAp, cB, rBp, cC, rCp, hasC, 0.6);
-      if (p) addText(String(counts.ABC), p.x, p.y, 'ABC');
+      if (p) addText(String(counts.ABC), p.x, p.y, 'ABC', { role: 'regionLabel', key: 'region-ABC' });
     }
     stage.onclick = (evt) => {
       const pt = stage.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY; const loc = pt.matrixTransform(stage.getScreenCTM().inverse());
