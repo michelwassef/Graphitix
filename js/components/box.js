@@ -5158,34 +5158,6 @@ function renderGroupedStatsControls(traces, controls){
         resizeTarget: () => els.plotDiv?.closest('.svgbox') || els.graphPanel?.querySelector('.svgbox')
       },
       scheduleDraw: state.scheduleDraw,
-      getSizing: () => {
-        let sizing = chartStyle.getSquareGraphSizing ? chartStyle.getSquareGraphSizing({ context: 'box' }) : null;
-        if(sizing && typeof sizing === 'object'){
-          const heightMultiplier = 1.5;
-          const adjustDimension = (value, label) => {
-            const numeric = Number(value);
-            const scaled = Number.isFinite(numeric) ? Math.round(numeric * heightMultiplier) : numeric;
-            console.debug('Debug: box layout adjustDimension', { label, numeric, scaled, heightMultiplier });
-            return scaled;
-          };
-          const adjustedHeight = adjustDimension(sizing.height, 'default');
-          const adjustedMinHeight = adjustDimension(sizing.minHeight, 'min');
-          const adjustedMaxHeight = adjustDimension(sizing.maxHeight, 'max');
-          const widthForRatio = Number(sizing.width);
-          const ratioCandidate = Number.isFinite(widthForRatio) && widthForRatio > 0 && Number.isFinite(adjustedHeight) && adjustedHeight > 0
-            ? widthForRatio / adjustedHeight
-            : Number(sizing.aspectRatio);
-          sizing = {
-            ...sizing,
-            height: adjustedHeight,
-            minHeight: adjustedMinHeight,
-            maxHeight: adjustedMaxHeight,
-            aspectRatio: Number.isFinite(ratioCandidate) && ratioCandidate > 0 ? ratioCandidate : sizing.aspectRatio
-          };
-          console.debug('Debug: box layout sizing adjusted', { ratioCandidate: sizing.aspectRatio });
-        }
-        return sizing;
-      },
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: box layout min width update', { value: state.minSvgWidth });

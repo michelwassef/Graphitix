@@ -167,7 +167,6 @@
    * @property {HTMLElement|null} analysisResults - Wrapper summarizing analysis status text.
    * @property {SVGElement|null} stage - Main SVG stage element for the diagram.
    * @property {Function|null} syncPanels - Reference to Shared.syncPanelWidths binding.
-   * @property {ResizeObserver|null} panelObserver - Observer watching panel size changes.
    * @property {HTMLElement|null} panelResizer - Resizer handle element between panels.
    * @property {HTMLElement|null} tablePanel - DOM node for the table panel.
    * @property {HTMLElement|null} graphPanel - DOM node for the graph panel.
@@ -235,11 +234,12 @@
         analysisResults: null,
         stage: null,
         syncPanels: null,
-        panelObserver: null,
         panelResizer: null,
         tablePanel: null,
         graphPanel: null,
         svgBox: null,
+        layout: null,
+        minSvgWidth: 0,
       },
       analysis: {
         goChart: null,
@@ -1691,162 +1691,58 @@
     }
   }
 
-  function initResizers() {
-    const stage = document.getElementById('stage');
-    const vennContainer = stage?.closest('.svgbox') || stage?.parentElement;
-    const tablePanel = document.getElementById('vennInputPanel');
-    const graphPanel = document.getElementById('vennGraphPanel');
-    const panelResizer = document.getElementById('vennPanelResizer');
-    const configPanel = graphPanel?.querySelector('.config-options');
-    const svgBox = graphPanel?.querySelector('.svgbox') || vennContainer;
-    const diagramArea = graphPanel?.querySelector('.diagram-area');
-    let vennMinSvgWidth = 0;
-    state.ui.tablePanel = tablePanel;
-    state.ui.graphPanel = graphPanel;
-    state.ui.panelResizer = panelResizer;
-    if (vennContainer) {
-      state.ui.svgBox = vennContainer;
-      console.debug('Debug: venn initResizers stored svgBox', { hasSvgBox: true });
-    } else {
-      console.debug('Debug: venn initResizers missing svgBox container');
+  function initLayout() {
+    const layoutFactory = Shared.componentLayout?.createStandardPanels;
+    if (typeof layoutFactory !== 'function') {
+      debugLog('initLayout skipped - missing factory', { hasFactory: typeof layoutFactory === 'function' });
+      return;
     }
-    console.debug('Debug: venn initResizers setup', {
-      hasStage: !!stage,
-      hasContainer: !!vennContainer,
-      hasTablePanel: !!tablePanel,
-      hasGraphPanel: !!graphPanel,
-      hasConfigPanel: !!configPanel,
-      hasPanelResizer: !!panelResizer
-    }); // Debug: venn initResizers setup summary
-
-    const syncPanels = (options = {}) => {
-      const skipSchedule = options.skipSchedule || typeof state.ui.scheduleDraw !== 'function';
-      console.debug('Debug: venn syncPanels requested', {
-        skipSchedule,
-        minSvgWidth: vennMinSvgWidth,
-        hasTable: !!tablePanel,
-        hasGraph: !!graphPanel,
-        hasConfig: !!configPanel
-      }); // Debug: venn syncPanels invocation
-      if (!Shared || typeof Shared.syncPanelWidths !== 'function') {
-        console.debug('Debug: venn syncPanels helper missing', {
-          hasShared: !!Shared,
-          hasSync: Shared && typeof Shared.syncPanelWidths === 'function'
-        }); // Debug: venn syncPanels helper check
-        return null;
-      }
-      const result = Shared.syncPanelWidths(
-        tablePanel,
-        graphPanel,
-        configPanel,
-        state.ui.scheduleDraw,
-        {
-          svgBox,
-          panelResizer,
-          minSvgWidth: vennMinSvgWidth,
-          debugLabel: 'venn',
-          skipSchedule
-        }
-      );
-      if (result) {
-        console.debug('Debug: venn syncPanels metrics', {
-          appliedWidth: result.appliedWidth,
-          tableWidth: result.tableWidth,
-          graphWidth: result.graphWidth
-        }); // Debug: venn syncPanels result summary
-      }
-      return result;
-    };
-
-    state.ui.syncPanels = syncPanels;
-
-    if (Shared.attachResizableBox && vennContainer) {
-      const graphSizing = chartStyle.getSquareGraphSizing
-        ? chartStyle.getSquareGraphSizing({ context: 'venn' })
-        : (function fallbackSizing(){
-            const baseWidth = Number(chartStyle.DEFAULT_WIDTH) || 640;
-            const baseHeight = Number(chartStyle.DEFAULT_HEIGHT) || baseWidth;
-            const minScale = Number(chartStyle.RESIZE_MIN_SCALE) || 0.3;
-            const maxScale = Number(chartStyle.RESIZE_MAX_SCALE) || 3;
-            const fallback = {
-              width: baseWidth,
-              height: baseHeight,
-              minWidth: Math.max(1, Math.round(baseWidth * minScale)),
-              minHeight: Math.max(1, Math.round(baseHeight * minScale)),
-              maxWidth: Math.max(baseWidth, Math.round(baseWidth * Math.max(maxScale, minScale))),
-              maxHeight: Math.max(baseHeight, Math.round(baseHeight * Math.max(maxScale, minScale))),
-              aspectRatio: chartStyle.DEFAULT_ASPECT_RATIO || 1,
-              aspectLocked: chartStyle.DEFAULT_ASPECT_LOCKED !== false
-            };
-            debugLog('fallback square sizing applied', { context: 'venn', fallback });
-            return fallback;
-          })();
-      debugLog('resizer defaults applied', { graphSizing });
-      Shared.attachResizableBox(vennContainer, {
-        defaultWidth: graphSizing.width,
-        defaultHeight: graphSizing.height,
-        minWidth: graphSizing.minWidth,
-        minHeight: graphSizing.minHeight,
-        maxWidth: graphSizing.maxWidth,
-        maxHeight: graphSizing.maxHeight,
-        aspectLocked: graphSizing.aspectLocked !== false,
-        aspectRatio: Number.isFinite(graphSizing.aspectRatio) ? graphSizing.aspectRatio : 1,
+    const doc = global.document;
+    const layout = layoutFactory({
+      componentName: 'venn',
+      selectors: {
+        tablePanel: '#vennInputPanel',
+        graphPanel: '#vennGraphPanel',
+        panelResizer: '#vennPanelResizer',
+        svgBox: () => doc?.querySelector('#vennGraphPanel .svgbox'),
+        resizeTarget: () => doc?.querySelector('#vennGraphPanel .svgbox')
+      },
+      scheduleDraw: () => { state.ui.scheduleDraw?.(); },
+      resizableBoxOptions: {
         onResize: phase => {
-          debugLog('resizer callback', { phase });
-          syncPanels({ skipSchedule: phase === 'observe' });
-        }
-      });
-      debugLog('resizer attached', { hasContainer: true });
-    } else {
-      debugLog('resizer attach skipped', {
-        hasAttach: !!(Shared && Shared.attachResizableBox),
-        hasContainer: !!vennContainer
-      });
-    }
-
-    if (global.ResizeObserver && tablePanel) {
-      const observer = new ResizeObserver(entries => {
-        console.debug('Debug: venn table ResizeObserver triggered', {
-          entries: entries ? entries.length : 0
-        }); // Debug: venn table observer trigger
-        syncPanels({ skipSchedule: true });
-      });
-      observer.observe(tablePanel);
-      state.ui.panelObserver = observer;
-    } else {
-      console.debug('Debug: venn table ResizeObserver unavailable', {
-        hasObserver: !!global.ResizeObserver,
-        hasTablePanel: !!tablePanel
-      }); // Debug: venn table observer skipped
-    }
-
-    syncPanels({ skipSchedule: true });
-
-    if (panelResizer && tablePanel && graphPanel) {
-      const attachHelper = Shared.resizer?.attachPanelDragResizer;
-      console.debug('Debug: venn attachPanelDragResizer init', { hasHelper: typeof attachHelper === 'function' }); // Debug: helper availability trace
-      if (typeof attachHelper === 'function') {
-        attachHelper({
-          panelResizer,
-          tablePanel,
-          graphPanel,
-          configPanel,
-          debugLabel: 'venn',
-          syncPanels: () => syncPanels({ skipSchedule: false }),
-          computeMinSvgWidth: () => {
-            const width = svgBox?.getBoundingClientRect().width || 0;
-            const computed = Math.max(0, width * 0.5);
-            console.debug('Debug: venn attachPanelDragResizer computeMinSvgWidth', { width, computed }); // Debug: helper min width calc
-            return computed;
-          },
-          onMinSvgWidth: value => {
-            const coerced = Number.isFinite(value) ? value : 0;
-            vennMinSvgWidth = Math.max(0, coerced);
-            console.debug('Debug: venn attachPanelDragResizer onMinSvgWidth', { value, coerced: vennMinSvgWidth }); // Debug: update cached min width
+          debugLog('layout onResize', { phase });
+          if (phase !== 'observe') {
+            state.ui.scheduleDraw?.();
           }
-        });
+        }
+      },
+      onMinSvgWidth: value => {
+        state.ui.minSvgWidth = Math.max(0, Number(value) || 0);
+        debugLog('layout minSvgWidth update', { value: state.ui.minSvgWidth });
+      },
+      onAfterSync: ({ elements }) => {
+        if (elements?.svgBox && elements.svgBox !== state.ui.svgBox) {
+          state.ui.svgBox = elements.svgBox;
+          debugLog('layout svgBox updated', { hasSvgBox: true });
+        }
       }
+    });
+    if (!layout) {
+      debugLog('initLayout returned falsy layout');
+      return;
     }
+    state.ui.layout = layout;
+    state.ui.syncPanels = options => layout.syncPanels(options || {});
+    state.ui.tablePanel = layout.elements.tablePanel || state.ui.tablePanel;
+    state.ui.graphPanel = layout.elements.graphPanel || state.ui.graphPanel;
+    state.ui.panelResizer = layout.elements.panelResizer || state.ui.panelResizer;
+    state.ui.svgBox = layout.elements.svgBox || state.ui.svgBox;
+    debugLog('layout initialized', {
+      hasTable: !!state.ui.tablePanel,
+      hasGraph: !!state.ui.graphPanel,
+      hasResizer: !!state.ui.panelResizer,
+      hasSvgBox: !!state.ui.svgBox
+    });
   }
 
   function getVennGraphPayload() {
@@ -2430,9 +2326,10 @@
     Object.assign(state.persistence, freshState.persistence);
     console.debug('Debug: venn init state refreshed'); // Debug: state reset before init wiring
     debugLog('init start');
-    initResizers();
     state.ui.scheduleDraw = Shared.debounceFrame(refreshDiagram);
     console.debug('Debug: venn scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    initLayout();
+    state.ui.layout?.setScheduleDraw?.(state.ui.scheduleDraw);
     if (typeof state.ui.syncPanels === 'function') {
       console.debug('Debug: venn post-scheduler syncPanels'); // Debug: sync panels after scheduler setup
       state.ui.syncPanels({ skipSchedule: true });
