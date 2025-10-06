@@ -33,6 +33,7 @@
   const supportsWeakRef = typeof global.WeakRef === 'function';
   const nodeGroupStore = new Map();
   const toolbarHostMap = new Map();
+  const undoManager = Shared.undoManager || null;
   let activeHost = null;
 
   let panelEl = null;
@@ -52,6 +53,90 @@
   let isFloating = false;
   let floatingPlaceholder = null;
   let placementMonitoringAttached = false;
+
+  const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill'];
+
+  function captureStyleSnapshot(node){
+    if(!node){ return null; }
+    const snapshot = {
+      fontFamily: node.getAttribute('font-family') || null,
+      fontWeight: node.getAttribute('font-weight') || null,
+      fontStyle: node.getAttribute('font-style') || null,
+      fontSize: node.getAttribute('font-size') || null,
+      fill: node.getAttribute('fill') || null,
+    };
+    return snapshot;
+  }
+
+  function stylesAreEqual(a, b){
+    if(a === b){ return true; }
+    const refA = a || {};
+    const refB = b || {};
+    return STYLE_KEYS.every(key => {
+      const valA = refA[key] || null;
+      const valB = refB[key] || null;
+      return valA === valB;
+    });
+  }
+
+  function inferUndoScopeForNode(node){
+    if(!node || typeof node.closest !== 'function'){ return null; }
+    const panel = node.closest('.panel');
+    if(panel && panel.id){ return panel.id; }
+    const svgbox = node.closest('.svgbox');
+    if(svgbox && svgbox.id){ return svgbox.id; }
+    return null;
+  }
+
+  function describeUndoTarget(node, meta){
+    if(meta && meta.label){ return meta.label; }
+    if(!node){ return 'font:text'; }
+    const data = node.dataset || {};
+    if(data.fontRole){ return `font:${data.fontRole}`; }
+    if(data.fontKey){ return `font:${data.fontKey}`; }
+    if(node.id){ return `font:#${node.id}`; }
+    const snippet = (node.textContent || '').trim().slice(0, 32);
+    if(snippet){ return `font:"${snippet}"`; }
+    return `font:${node.tagName || 'text'}`;
+  }
+
+  function applyStyleSnapshot(node, snapshot){
+    if(!node){ return; }
+    if(!snapshot || isStyleEmpty(snapshot)){
+      clearStyleFromNode(node);
+    } else {
+      applyStyleToNode(node, snapshot);
+    }
+    storeStyleForNode(node, snapshot);
+    if(node === currentTarget){
+      syncPanelStateFromTarget();
+      updatePreviewFromInputs();
+    }
+  }
+
+  function recordStyleUndo(node, prevSnapshot, nextSnapshot, meta){
+    if(!node){ return; }
+    const manager = Shared.undoManager || undoManager;
+    if(!manager || typeof manager.record !== 'function'){ return; }
+    if(stylesAreEqual(prevSnapshot, nextSnapshot)){ return; }
+    const scope = inferUndoScopeForNode(node);
+    const label = `font-controls:${describeUndoTarget(node, meta)}`;
+    const prevClone = prevSnapshot ? { ...prevSnapshot } : null;
+    const nextClone = nextSnapshot ? { ...nextSnapshot } : null;
+    manager.record({
+      label,
+      scope,
+      undo: () => {
+        applyStyleSnapshot(node, prevClone);
+        logDebug('undo applied for style change', { label, scope });
+      },
+      redo: () => {
+        applyStyleSnapshot(node, nextClone);
+        logDebug('redo applied for style change', { label, scope });
+      }
+    });
+    logDebug('undo entry recorded', { label, scope });
+  }
 
   function getInlineState(target){
     if(!target){ return null; }
@@ -556,15 +641,15 @@
     logDebug('broadcastStyle', { storeKey, hasStyle: !isStyleEmpty(style || null) });
   }
 
-  function storeCurrentStyle(style){
-    if(!currentTarget){ return; }
-    const scope = currentScope || currentTarget.dataset?.fontScope || null;
-    const key = currentKey || currentTarget.dataset?.fontKey || null;
-    const dataset = currentTarget.dataset || {};
+  function storeStyleForNode(node, style){
+    if(!node){ return; }
+    const scope = node.dataset?.fontScope || null;
+    const key = node.dataset?.fontKey || null;
+    const dataset = node.dataset || {};
     const explicitEditable = dataset.fontEditable === '1';
     if(!explicitEditable && !scope && !key){
-      logDebug('storeCurrentStyle skipped (no scope/key for implicit node)', {
-        text: currentTarget.textContent,
+      logDebug('storeStyleForNode skipped (no scope/key for implicit node)', {
+        text: node.textContent,
         hasDataset: !!dataset,
       });
       return;
@@ -572,14 +657,19 @@
     const storeKey = buildStoreKey(scope, key);
     if(isStyleEmpty(style)){
       styleStore.delete(storeKey);
-      broadcastStyle(storeKey, null, currentTarget);
-      logDebug('storeCurrentStyle cleared', { scope, key, style });
+      broadcastStyle(storeKey, null, node);
+      logDebug('storeStyleForNode cleared', { scope, key });
     } else {
       const clone = Object.assign({}, style);
       styleStore.set(storeKey, clone);
-      broadcastStyle(storeKey, clone, currentTarget);
-      logDebug('storeCurrentStyle saved', { scope, key, style });
+      broadcastStyle(storeKey, clone, node);
+      logDebug('storeStyleForNode saved', { scope, key, style });
     }
+  }
+
+  function storeCurrentStyle(style){
+    if(!currentTarget){ return; }
+    storeStyleForNode(currentTarget, style);
   }
 
   function syncPanelStateFromTarget(){
@@ -779,6 +869,7 @@
 
     const commitFontFamily = (rawValue, meta) => {
       if(!currentTarget){ return; }
+      const prevStyle = captureStyleSnapshot(currentTarget);
       const value = (rawValue || '').trim();
       const inlineResult = handleInlineSelectionPatch({ fontFamily: value || null }, {
         source: meta?.source || 'unknown',
@@ -793,14 +884,12 @@
       } else {
         currentTarget.removeAttribute('font-family');
       }
-      const style = {
-        fontFamily: value || null,
-        fontWeight: currentTarget.getAttribute('font-weight') || null,
-        fontStyle: currentTarget.getAttribute('font-style') || null,
-        fontSize: currentTarget.getAttribute('font-size') || null,
-        fill: currentTarget.getAttribute('fill') || colorInput.value
+      const nextStyle = captureStyleSnapshot(currentTarget);
+      const storePayload = {
+        ...nextStyle,
+        fill: nextStyle?.fill || colorInput?.value || null
       };
-      storeCurrentStyle(style);
+      storeCurrentStyle(storePayload);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -808,6 +897,7 @@
         }
       }
       updatePreviewFromInputs();
+      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'font-family' });
       logDebug('font family committed', {
         value: value || null,
         source: meta?.source || 'unknown',
@@ -852,6 +942,7 @@
 
     colorInput.addEventListener('input', () => {
       if(!currentTarget) return;
+      const prevStyle = captureStyleSnapshot(currentTarget);
       const val = colorInput.value;
       const inlineResult = handleInlineSelectionPatch({ fill: val }, {
         source: 'color-input',
@@ -862,14 +953,8 @@
         return;
       }
       currentTarget.setAttribute('fill', val);
-      const style = {
-        fontFamily: currentTarget.getAttribute('font-family') || null,
-        fontWeight: currentTarget.getAttribute('font-weight') || null,
-        fontStyle: currentTarget.getAttribute('font-style') || null,
-        fontSize: currentTarget.getAttribute('font-size') || null,
-        fill: val
-      };
-      storeCurrentStyle(style);
+      const nextStyle = captureStyleSnapshot(currentTarget);
+      storeCurrentStyle(nextStyle);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -877,11 +962,13 @@
         }
       }
       updatePreviewFromInputs();
+      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'fill' });
       logDebug('colorInput input', { value: val, text: currentTarget.textContent });
     });
 
     sizeInput.addEventListener('change', () => {
       if(!currentTarget) return;
+      const prevStyle = captureStyleSnapshot(currentTarget);
       const normalized = normalizeFontSizeValue(sizeInput.value, { source: 'change' });
       sizeInput.value = normalized;
       const raw = normalized.trim();
@@ -905,14 +992,12 @@
       } else {
         currentTarget.removeAttribute('font-size');
       }
-      const style = {
-        fontFamily: currentTarget.getAttribute('font-family') || null,
-        fontWeight: currentTarget.getAttribute('font-weight') || null,
-        fontStyle: currentTarget.getAttribute('font-style') || null,
-        fontSize: currentTarget.getAttribute('font-size') || null,
-        fill: currentTarget.getAttribute('fill') || colorInput.value
+      const nextStyle = captureStyleSnapshot(currentTarget);
+      const storePayload = {
+        ...nextStyle,
+        fill: nextStyle?.fill || colorInput?.value || null
       };
-      storeCurrentStyle(style);
+      storeCurrentStyle(storePayload);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -920,7 +1005,8 @@
         }
       }
       updatePreviewFromInputs();
-      logDebug('sizeInput change', { value: raw, applied: style.fontSize, text: currentTarget.textContent });
+      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'font-size' });
+      logDebug('sizeInput change', { value: raw, applied: nextStyle?.fontSize || null, text: currentTarget.textContent });
     });
 
     sizeInput.addEventListener('input', () => {
@@ -936,6 +1022,7 @@
     const toggleHandler = (btn, attr, activeValue, propKey) => {
       btn.addEventListener('click', () => {
         if(!currentTarget) return;
+        const prevStyle = captureStyleSnapshot(currentTarget);
         const isActive = btn.dataset.active === '1';
         const nextActive = !isActive;
         btn.dataset.active = nextActive ? '1' : '0';
@@ -958,14 +1045,12 @@
         } else {
           currentTarget.removeAttribute(attr);
         }
-        const style = {
-          fontFamily: currentTarget.getAttribute('font-family') || null,
-          fontWeight: currentTarget.getAttribute('font-weight') || null,
-          fontStyle: currentTarget.getAttribute('font-style') || null,
-          fontSize: currentTarget.getAttribute('font-size') || null,
-          fill: currentTarget.getAttribute('fill') || colorInput.value
+        const nextStyle = captureStyleSnapshot(currentTarget);
+        const storePayload = {
+          ...nextStyle,
+          fill: nextStyle?.fill || colorInput?.value || null
         };
-        storeCurrentStyle(style);
+        storeCurrentStyle(storePayload);
         if(inlineResult.entire && propKey){
           const inlineState = getInlineState(currentTarget);
           if(inlineState && inlineState.baseStyle){
@@ -973,6 +1058,7 @@
           }
         }
         updatePreviewFromInputs();
+        recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: attr });
         logDebug('toggle change', { attr, active: nextActive, text: currentTarget.textContent });
       });
     };
