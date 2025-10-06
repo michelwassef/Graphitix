@@ -6,6 +6,7 @@
   const Components = global.Components = global.Components || {};
   const survival = Components.survival = Components.survival || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const fontControls = Shared.fontControls = Shared.fontControls || {};
   const fileIO = Shared.fileIO = Shared.fileIO || {};
 
   survival.__installed = true;
@@ -118,6 +119,21 @@
     refs.exportContainer = $('#survivalExportControls');
     return !!(refs.tablePanel && refs.graphPanel && refs.hotContainer && refs.plotDiv);
   }
+
+  const markFontEditable = (node, role, key) => {
+    if(!node){ return; }
+    const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
+    if(fontControls && typeof fontControls.markText === 'function'){
+      fontControls.markText(node, { scopeId: 'survival', role, key });
+    } else if(node.dataset){
+      node.dataset.fontEditable = '1';
+      node.dataset.fontScope = 'survival';
+      if(role){ node.dataset.fontRole = role; }
+      if(key || role){ node.dataset.fontKey = key || role; }
+    }
+    if(role && role.includes('Tick')){ return; }
+    logDebug('font mark applied', payload);
+  };
 
   function initHot(){
     if(!refs.hotContainer || !global.Handsontable){
@@ -1283,6 +1299,15 @@
     svg.setAttribute('height', String(height));
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
     chartStyle.applySvgDefaults(svg);
+    if(svg.dataset){
+      svg.dataset.fontScope = 'survival';
+    }
+    if(fontControls && typeof fontControls.enableForSvg === 'function'){
+      fontControls.enableForSvg(svg, { scopeId: 'survival' });
+      logDebug('fontControls enableForSvg invoked', { width, height });
+    } else {
+      logDebug('fontControls enableForSvg missing', { hasFontControls: !!fontControls });
+    }
     refs.plotDiv.appendChild(svg);
 
     const fontInfo = chartStyle.resolveScaledFontSize ? chartStyle.resolveScaledFontSize({
@@ -1476,6 +1501,7 @@
         fill: chartStyle.TEXT_COLOR || '#000'
       });
       text.textContent = formatNumber(value, 2);
+      markFontEditable(text, 'xTick');
       xTickNodes.push(text);
     });
     chartStyle.applyLabelOrientation?.(xTickNodes, { angle: -45, anchor: 'end', dy: '0.35em', force: bottomLayout.shouldRotate });
@@ -1492,6 +1518,7 @@
         fill: chartStyle.TEXT_COLOR || '#000'
       });
       text.textContent = formatNumber(value, 2);
+      markFontEditable(text, 'yTick');
     });
 
     const xTitleY = xAxisY + (bottomLayout.titleOffset || fs * 2);
@@ -1503,6 +1530,7 @@
       fill: chartStyle.TEXT_COLOR || '#000'
     });
     xTitle.textContent = xLabelText;
+    markFontEditable(xTitle, 'xTitle', 'xTitle');
 
     const yTitleX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
     logDebug('y-axis title placement', { yTitleX, maxYLabelWidth }); // Debug: axis label alignment
@@ -1515,6 +1543,7 @@
       fill: chartStyle.TEXT_COLOR || '#000'
     });
     yTitle.textContent = yLabelText;
+    markFontEditable(yTitle, 'yTitle', 'yTitle');
 
     const showCI = !!refs.showCI?.checked;
     const showCensor = !!refs.showCensor?.checked;
@@ -1593,6 +1622,7 @@
         label.setAttribute('dominant-baseline', 'middle');
         label.setAttribute('fill', chartStyle.TEXT_COLOR || '#000');
         label.textContent = entry.name;
+        markFontEditable(label, 'legend', `legend-${index}`);
         row.appendChild(label);
         legendGroup.appendChild(row);
       });

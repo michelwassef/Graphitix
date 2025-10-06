@@ -5,6 +5,7 @@
   const Components = global.Components = global.Components || {};
   const heatmap = Components.heatmap = Components.heatmap || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const fontControls = Shared.fontControls = Shared.fontControls || {};
   heatmap.__installed = true;
   heatmap.ready = false;
 
@@ -52,6 +53,21 @@
   };
 
   const refs = {};
+
+  const markFontEditable = (node, role, key) => {
+    if(!node){ return; }
+    const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
+    if(fontControls && typeof fontControls.markText === 'function'){
+      fontControls.markText(node, { scopeId: 'heatmap', role, key });
+    } else if(node.dataset){
+      node.dataset.fontEditable = '1';
+      node.dataset.fontScope = 'heatmap';
+      if(role){ node.dataset.fontRole = role; }
+      if(key || role){ node.dataset.fontKey = key || role; }
+    }
+    if(role && (role === 'cellValue' || role.includes('Tick'))){ return; }
+    console.debug('Debug: heatmap font mark applied', payload); // Debug: font tagging summary
+  };
 
   function $(id){
     return global.document.getElementById(id);
@@ -635,6 +651,7 @@
     text.setAttribute('fill', '#555');
     text.textContent = message;
     state.svg.appendChild(text);
+    markFontEditable(text, 'emptyMessage', 'heatmap-empty');
     ensureGraphViewport(state.svg, { padding: 16, debugLabel: 'heatmap-empty' });
   }
 
@@ -1229,6 +1246,7 @@
         text.setAttribute('font-size', String(tickFontSize));
         text.textContent = value.toFixed(decimals);
         scaleGroup.appendChild(text);
+        markFontEditable(text, 'scaleTick', 'scale-tick');
       });
       g.appendChild(scaleGroup);
       console.debug('Debug: heatmap color scale rendered', {
@@ -1247,6 +1265,7 @@
         rowLabel.setAttribute('font-size', String(renderFontSizePx));
         rowLabel.textContent = orderedColumns[i].label;
         g.appendChild(rowLabel);
+        markFontEditable(rowLabel, 'rowLabel', 'row-label');
       }
 
       for(let j = 0; j < orderedColumns.length; j += 1){
@@ -1278,6 +1297,7 @@
         }
         colLabel.textContent = orderedColumns[j].label;
         g.appendChild(colLabel);
+        markFontEditable(colLabel, 'columnLabel', 'column-label');
       }
 
       for(let i = 0; i < orderedColumns.length; i += 1){
@@ -1312,6 +1332,7 @@
             text.setAttribute('fill', textColorForBackground(fill));
             text.textContent = entry.value.toFixed(decimals);
             g.appendChild(text);
+            markFontEditable(text, 'cellValue', 'cell-value');
           }
         }
       }
@@ -1484,6 +1505,20 @@
     }
     console.debug('Debug: heatmap.init start');
     state.svg = $('heatmapSvg');
+    if(state.svg){
+      if(typeof chartStyle.applySvgDefaults === 'function'){
+        chartStyle.applySvgDefaults(state.svg);
+      }
+      if(state.svg.dataset){
+        state.svg.dataset.fontScope = 'heatmap';
+      }
+      if(fontControls && typeof fontControls.enableForSvg === 'function'){
+        fontControls.enableForSvg(state.svg, { scopeId: 'heatmap' });
+        console.debug('Debug: heatmap fontControls enableForSvg invoked', { hasFontControls: !!fontControls }); // Debug: font toolbar binding
+      } else {
+        console.debug('Debug: heatmap fontControls enableForSvg missing', { hasFontControls: !!fontControls });
+      }
+    }
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'heatmap',
       selectors: {
