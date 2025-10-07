@@ -66,6 +66,7 @@
       afterSelectionEnd: userAfterSelectionEnd,
       afterScrollVertically: userAfterScrollVertically,
       afterScrollHorizontally: userAfterScrollHorizontally,
+      afterPaste: userAfterPaste,
       beforeColumnSort: userBeforeColumnSort,
       afterColumnSort: userAfterColumnSort,
       afterGetColHeader: userAfterGetColHeader,
@@ -327,6 +328,160 @@
     let baseOrderSnapshot = null;
 
     let instance = null;
+    const undoManager = Shared.undoManager || null;
+    const undoScope = (()=>{
+      if(container?.closest){
+        const panel = container.closest('.panel');
+        if(panel?.id){
+          return panel.id;
+        }
+        const svgBox = container.closest('.svgbox');
+        if(svgBox?.id){
+          return svgBox.id;
+        }
+      }
+      return container?.id || debugLabel;
+    })();
+    const hasGlobalUndo = !!(undoManager && typeof undoManager.record === 'function');
+    let undoRecordLock = 0;
+    let pendingUndoRegistration = null;
+    let pendingUndoScheduled = false;
+    let pendingUndoScheduleMode = 'microtask';
+
+    const getUndoPlugin = ()=>{
+      const localInstance = instance;
+      if(!localInstance) return null;
+      if(typeof localInstance.getPlugin === 'function'){
+        return localInstance.getPlugin('undoRedo') || localInstance.getPlugin('UndoRedo') || null;
+      }
+      if(localInstance.undoRedo) return localInstance.undoRedo;
+      if(localInstance.UndoRedo) return localInstance.UndoRedo;
+      return null;
+    };
+
+    const withUndoLock = (phase, fn)=>{
+      undoRecordLock += 1;
+      console.debug('Debug: hot undo lock engaged', { debugLabel, phase, lockDepth: undoRecordLock });
+      try{
+        return typeof fn === 'function' ? fn() : undefined;
+      }finally{
+        undoRecordLock = Math.max(0, undoRecordLock - 1);
+        console.debug('Debug: hot undo lock released', { debugLabel, phase, lockDepth: undoRecordLock });
+      }
+    };
+
+    const applyHandsontableUndoRedo = (direction, meta)=>{
+      const localInstance = instance;
+      if(!localInstance){
+        console.debug('Debug: hot undo apply skipped - missing instance', { debugLabel, direction });
+        return;
+      }
+      const plugin = getUndoPlugin();
+      const availabilityKey = direction === 'redo' ? 'isRedoAvailable' : 'isUndoAvailable';
+      if(plugin && typeof plugin[availabilityKey] === 'function' && !plugin[availabilityKey]()){
+        console.debug('Debug: hot undo apply skipped - not available', { debugLabel, direction, meta });
+        return;
+      }
+      try{
+        if(typeof localInstance[direction] === 'function'){
+          console.debug('Debug: hot undo apply via instance', { debugLabel, direction, meta });
+          localInstance[direction]();
+        }else if(plugin && typeof plugin[direction] === 'function'){
+          console.debug('Debug: hot undo apply via plugin', { debugLabel, direction, meta });
+          plugin[direction]();
+        }else{
+          console.warn('Shared.hot undo/redo missing methods', { debugLabel, direction });
+        }
+      }catch(err){
+        console.error('Shared.hot undo apply error', err);
+      }
+    };
+
+    const flushPendingUndoRegistration = ()=>{
+      const payload = pendingUndoRegistration;
+      pendingUndoRegistration = null;
+      if(!payload){
+        return;
+      }
+      if(!hasGlobalUndo){
+        console.debug('Debug: hot undo registration skipped - no global undo', { debugLabel });
+        return;
+      }
+      if(undoRecordLock > 0){
+        console.debug('Debug: hot undo registration skipped - lock engaged', { debugLabel, lockDepth: undoRecordLock });
+        return;
+      }
+      if(!instance){
+        console.debug('Debug: hot undo registration skipped - missing instance', { debugLabel });
+        return;
+      }
+      const plugin = getUndoPlugin();
+      if(plugin && typeof plugin.isUndoAvailable === 'function' && !plugin.isUndoAvailable()){
+        payload.attempts = (payload.attempts || 0) + 1;
+        if(payload.attempts <= 3){
+          console.debug('Debug: hot undo registration retry scheduled - plugin empty', { debugLabel, attempts: payload.attempts, reasons: Array.from(payload.reasons || []) });
+          pendingUndoRegistration = payload;
+          scheduleUndoFlush('raf');
+          return;
+        }
+        console.debug('Debug: hot undo registration proceeding after retries', { debugLabel, attempts: payload.attempts });
+      }
+      const reasons = Array.from(payload.reasons || []);
+      const labelSuffix = reasons.length ? reasons.join('+') : 'change';
+      const label = `table:${debugLabel}:${labelSuffix}`;
+      console.debug('Debug: hot undo registration flush', { debugLabel, label, reasons, meta: payload.meta });
+      undoManager.record({
+        label,
+        scope: undoScope,
+        undo: ()=> withUndoLock('undo', ()=> applyHandsontableUndoRedo('undo', { label, reasons })),
+        redo: ()=> withUndoLock('redo', ()=> applyHandsontableUndoRedo('redo', { label, reasons }))
+      });
+    };
+
+    const scheduleUndoFlush = (mode = 'microtask')=>{
+      if(pendingUndoScheduled && pendingUndoScheduleMode === mode){
+        return;
+      }
+      pendingUndoScheduled = true;
+      pendingUndoScheduleMode = mode;
+      const finalize = ()=>{
+        pendingUndoScheduled = false;
+        pendingUndoScheduleMode = 'microtask';
+        flushPendingUndoRegistration();
+      };
+      if(mode === 'raf'){
+        if(typeof raf === 'function'){
+          raf(finalize);
+        }else{
+          setTimeout(finalize, 16);
+        }
+        return;
+      }
+      if(typeof global.Promise === 'function'){
+        global.Promise.resolve().then(finalize);
+      }else{
+        setTimeout(finalize, 0);
+      }
+    };
+
+    const queueUndoRegistration = (reason, meta)=>{
+      if(!hasGlobalUndo) return;
+      if(undoRecordLock > 0) return;
+      if(!instance) return;
+      if(!pendingUndoRegistration){
+        pendingUndoRegistration = { scope: undoScope, reasons: new Set(), meta: [], attempts: 0 };
+        scheduleUndoFlush();
+      }
+      pendingUndoRegistration.reasons.add(reason);
+      if(meta){
+        pendingUndoRegistration.meta.push({ reason, detail: meta });
+      }
+      console.debug('Debug: hot undo registration queued', { debugLabel, reason, meta });
+    };
+
+    if(hasGlobalUndo){
+      console.debug('Debug: hot undo scope resolved', { debugLabel, undoScope });
+    }
     const autoGrowthState = {
       scrollAttached: false,
       pendingRowHandle: null,
@@ -961,20 +1116,54 @@
         console.debug('Debug: Shared.hot afterChange skipped loadData', { debugLabel, count: changes.length });
         return;
       }
+      if(hasGlobalUndo && source !== 'loadData' && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
+        queueUndoRegistration('change', { count: changes.length, source });
+      }
       triggerSchedule('afterChange', { count: changes.length, source });
     };
-    const afterCreateRowBase = function(){ triggerSchedule('afterCreateRow'); };
-    const afterCreateColBase = function(){ triggerSchedule('afterCreateCol'); };
-    const afterRemoveRowBase = function(){ triggerSchedule('afterRemoveRow'); };
-    const afterRemoveColBase = function(){ triggerSchedule('afterRemoveCol'); };
+    const afterCreateRowBase = function(index, amount, source){
+      if(hasGlobalUndo && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
+        queueUndoRegistration('createRow', { index, amount, source });
+      }
+      triggerSchedule('afterCreateRow');
+    };
+    const afterCreateColBase = function(index, amount, source){
+      if(hasGlobalUndo && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
+        queueUndoRegistration('createCol', { index, amount, source });
+      }
+      triggerSchedule('afterCreateCol');
+    };
+    const afterRemoveRowBase = function(index, amount, physicalRows, source){
+      if(hasGlobalUndo && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
+        queueUndoRegistration('removeRow', { index, amount, physicalRows, source });
+      }
+      triggerSchedule('afterRemoveRow');
+    };
+    const afterRemoveColBase = function(index, amount, physicalColumns, source){
+      if(hasGlobalUndo && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
+        queueUndoRegistration('removeCol', { index, amount, physicalColumns, source });
+      }
+      triggerSchedule('afterRemoveCol');
+    };
     const afterUndoBase = function(){ triggerSchedule('afterUndo'); };
     const afterRedoBase = function(){ triggerSchedule('afterRedo'); };
     const afterColumnMoveBase = function(_moved, _finalIndex, _dropIndex, _possible, orderChanged){
       if(orderChanged){
+        if(hasGlobalUndo){
+          queueUndoRegistration('columnMove', { finalIndex: _finalIndex, dropIndex: _dropIndex });
+        }
         triggerSchedule('afterColumnMove');
       }else{
         console.debug('Debug: Shared.hot afterColumnMove ignored', { debugLabel, orderChanged });
       }
+    };
+    const afterPasteBase = function(data, coords){
+      if(hasGlobalUndo){
+        const rowCount = Array.isArray(data) ? data.length : 0;
+        const colCount = rowCount > 0 && Array.isArray(data[0]) ? data[0].length : 0;
+        queueUndoRegistration('paste', { rowCount, colCount, coords });
+      }
+      triggerSchedule('afterPaste', { dataLength: Array.isArray(data) ? data.length : 0, coords });
     };
 
     const options = Object.assign({
@@ -1000,6 +1189,7 @@
       afterSelectionEnd: wrapHook('afterSelectionEnd', userAfterSelectionEnd, afterSelectionEndBase),
       afterScrollVertically: wrapHook('afterScrollVertically', userAfterScrollVertically, afterScrollVerticallyBase),
       afterScrollHorizontally: wrapHook('afterScrollHorizontally', userAfterScrollHorizontally, afterScrollHorizontallyBase),
+      afterPaste: wrapHook('afterPaste', userAfterPaste, afterPasteBase),
       beforeColumnSort: wrapHook('beforeColumnSort', userBeforeColumnSort, beforeColumnSortBase),
       afterColumnSort: wrapHook('afterColumnSort', userAfterColumnSort, afterColumnSortBase),
       afterGetColHeader: wrapHook('afterGetColHeader', userAfterGetColHeader, afterGetColHeaderBase)
