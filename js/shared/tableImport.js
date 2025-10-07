@@ -301,8 +301,29 @@
     const selection = options.selection || (hot && typeof hot.getSelectedLast === 'function' ? hot.getSelectedLast() : null);
     const startRow = options.startRow ?? (selection ? selection[0] : 0);
     const startCol = options.startCol ?? (selection ? selection[1] : 0);
-    debugLog('handlePaste.rows', { rows: filtered.length, cols: filtered[0]?.length || 0, startRow, startCol }, debugLabel);
+    const singleRowPaste = filtered.length === 1;
+    const selectionTuple = Array.isArray(selection) ? selection : null;
+    const singleRowSelection = selectionTuple ? selectionTuple[0] === selectionTuple[2] : false;
+    const shouldPreserveExisting = options.preserveExisting === true
+      || (singleRowPaste && singleRowSelection);
+    debugLog('handlePaste.rows', {
+      rows: filtered.length,
+      cols: filtered[0]?.length || 0,
+      startRow,
+      startCol,
+      preserveExisting: shouldPreserveExisting
+    }, debugLabel);
     const processOptions = cloneOptions(options, { startRow, startCol, delimiter });
+    if(shouldPreserveExisting){
+      processOptions.preserveExisting = true;
+      console.debug('Debug: tableImport.handlePaste preserveExisting enforced', {
+        debugLabel,
+        startRow,
+        startCol,
+        rows: filtered.length,
+        cols: filtered[0]?.length || 0
+      });
+    }
     const result = tableImport.processRows(filtered, hot, processOptions);
     return result;
   };
