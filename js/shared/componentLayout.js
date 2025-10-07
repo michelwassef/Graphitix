@@ -8,6 +8,8 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const graphSizing = Shared.graphSizing = Shared.graphSizing || {};
 
+  const layoutRegistry = componentLayout.__registry = componentLayout.__registry || {};
+
   function resolveElement({ selector, label, documentRef, componentName }){
     if(!selector){
       console.debug('Debug: componentLayout resolveElement missing selector', { component: componentName, label });
@@ -257,9 +259,113 @@
       });
     }
 
+    const STYLE_PROPS = ['width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight', 'flex', 'flexBasis', 'aspectRatio'];
+
+    const cloneDataset = (element) => {
+      if(!element || !element.dataset){ return null; }
+      const entries = Object.entries(element.dataset);
+      if(!entries.length){ return null; }
+      const clone = {};
+      entries.forEach(([key, value]) => {
+        clone[key] = value;
+      });
+      return clone;
+    };
+
+    const cloneStyle = (element) => {
+      if(!element || !element.style){ return null; }
+      const result = {};
+      STYLE_PROPS.forEach(prop => {
+        const value = element.style[prop];
+        if(typeof value === 'string' && value.length){
+          result[prop] = value;
+        }
+      });
+      return Object.keys(result).length ? result : null;
+    };
+
+    const captureState = () => {
+      const state = {
+        version: 1,
+        component: componentName,
+        minSvgWidth: Number.isFinite(panelState.minSvgWidth) ? panelState.minSvgWidth : null,
+        svgBox: {
+          style: cloneStyle(elements.svgBox),
+          dataset: cloneDataset(elements.svgBox)
+        },
+        tablePanel: {
+          style: cloneStyle(elements.tablePanel),
+          dataset: cloneDataset(elements.tablePanel)
+        },
+        graphPanel: {
+          style: cloneStyle(elements.graphPanel),
+          dataset: cloneDataset(elements.graphPanel)
+        },
+        configPanel: {
+          style: cloneStyle(elements.configPanel)
+        }
+      };
+      console.debug('Debug: componentLayout captureState', {
+        component: componentName,
+        hasSvg: !!state.svgBox?.style || !!state.svgBox?.dataset,
+        hasTable: !!state.tablePanel?.style || !!state.tablePanel?.dataset,
+        minSvgWidth: state.minSvgWidth
+      });
+      return state;
+    };
+
+    const applyStyle = (element, map, contextLabel) => {
+      if(!element || !map){ return; }
+      Object.entries(map).forEach(([prop, value]) => {
+        try{
+          element.style[prop] = value || '';
+        }catch(err){
+          console.error('Shared.componentLayout applyStyle error', { component: componentName, prop, value, context: contextLabel, err });
+        }
+      });
+    };
+
+    const applyDataset = (element, map, contextLabel) => {
+      if(!element || !element.dataset || !map){ return; }
+      Object.entries(map).forEach(([key, value]) => {
+        try{
+          if(value === undefined || value === null || value === ''){
+            delete element.dataset[key];
+          }else{
+            element.dataset[key] = String(value);
+          }
+        }catch(err){
+          console.error('Shared.componentLayout applyDataset error', { component: componentName, key, value, context: contextLabel, err });
+        }
+      });
+    };
+
+    const applyState = (state, options = {}) => {
+      if(!state || typeof state !== 'object'){ return false; }
+      const clonedState = state;
+      if(Number.isFinite(clonedState.minSvgWidth)){
+        updateMinSvgWidth(clonedState.minSvgWidth);
+      }
+      applyStyle(elements.tablePanel, clonedState.tablePanel?.style, 'table');
+      applyDataset(elements.tablePanel, clonedState.tablePanel?.dataset, 'table');
+      applyStyle(elements.graphPanel, clonedState.graphPanel?.style, 'graph');
+      applyDataset(elements.graphPanel, clonedState.graphPanel?.dataset, 'graph');
+      applyStyle(elements.configPanel, clonedState.configPanel?.style, 'config');
+      applyStyle(elements.svgBox, clonedState.svgBox?.style, 'svg');
+      applyDataset(elements.svgBox, clonedState.svgBox?.dataset, 'svg');
+      const skipSchedule = options.skipSchedule === true;
+      syncPanels({ skipSchedule });
+      console.debug('Debug: componentLayout applyState', {
+        component: componentName,
+        applied: true,
+        skipSchedule
+      });
+      return true;
+    };
+
     syncPanels();
 
-    return {
+    const layoutApi = {
       elements,
       syncPanels,
       setScheduleDraw(fn){
@@ -274,6 +380,8 @@
         console.debug('Debug: componentLayout svgBox updated', { component: componentName, hasSvgBox: !!node });
       },
       updateMinSvgWidth,
+      captureState,
+      applyState,
       destroy(){
         if(panelState.resizeObserver){
           try{
@@ -284,7 +392,44 @@
           panelState.resizeObserver = null;
           console.debug('Debug: componentLayout ResizeObserver disconnected', { component: componentName });
         }
+        if(layoutRegistry[componentName] === layoutApi){
+          delete layoutRegistry[componentName];
+          console.debug('Debug: componentLayout registry entry removed', { component: componentName });
+        }
       }
     };
+
+    layoutRegistry[componentName] = layoutApi;
+    console.debug('Debug: componentLayout registry updated', { component: componentName, hasCapture: true, hasApply: true });
+
+    return layoutApi;
+  };
+
+  componentLayout.captureStateFor = function captureStateFor(componentName){
+    if(!componentName){ return null; }
+    const entry = layoutRegistry[componentName];
+    if(entry && typeof entry.captureState === 'function'){
+      try{
+        return entry.captureState();
+      }catch(err){
+        console.error('Shared.componentLayout.captureStateFor error', { component: componentName, err });
+      }
+    }
+    console.debug('Debug: componentLayout.captureStateFor skipped', { component: componentName, hasEntry: !!entry });
+    return null;
+  };
+
+  componentLayout.applyStateFor = function applyStateFor(componentName, state, options = {}){
+    if(!componentName){ return false; }
+    const entry = layoutRegistry[componentName];
+    if(entry && typeof entry.applyState === 'function'){
+      try{
+        return entry.applyState(state, options);
+      }catch(err){
+        console.error('Shared.componentLayout.applyStateFor error', { component: componentName, err });
+      }
+    }
+    console.debug('Debug: componentLayout.applyStateFor skipped', { component: componentName, hasEntry: !!entry });
+    return false;
   };
 })(window);

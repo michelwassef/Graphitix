@@ -3,6 +3,7 @@
   const Main = window.Main = window.Main || {};
   const Shared = window.Shared = window.Shared || {};
   const namespace = Main.components = Main.components || {};
+  const componentLayout = Shared.componentLayout = Shared.componentLayout || {};
 
   const scheduleDrawBoxplot = Shared.debounceFrame(() => {
     if (window.Components?.box?.draw) window.Components.box.draw();
@@ -65,7 +66,9 @@
       ensure: () => ensureComponent('venn'),
       draw: () => window.Components?.venn?.draw?.(),
       getPayload: () => window.Components?.venn?.getPayload?.(),
-      loadFromFile: blob => window.Components?.venn?.loadFromFile?.(blob)
+      loadFromFile: blob => window.Components?.venn?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('venn'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('venn', state, options || {})
     },
     box: {
       type: 'box',
@@ -74,7 +77,9 @@
       ensure: () => ensureComponent('box'),
       draw: () => scheduleDrawBoxplot(),
       getPayload: () => window.Components?.box?.getPayload?.(),
-      loadFromFile: blob => window.Components?.box?.loadFromFile?.(blob)
+      loadFromFile: blob => window.Components?.box?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('box'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('box', state, options || {})
     },
     scatter: {
       type: 'scatter',
@@ -83,7 +88,9 @@
       ensure: () => ensureComponent('scatter'),
       draw: () => scheduleDrawScatter(),
       getPayload: () => window.Components?.scatter?.getPayload?.(),
-      loadFromFile: blob => window.Components?.scatter?.loadFromFile?.(blob)
+      loadFromFile: blob => window.Components?.scatter?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('scatter'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('scatter', state, options || {})
     },
     pca: {
       type: 'pca',
@@ -92,7 +99,9 @@
       ensure: () => ensureComponent('pca'),
       draw: () => scheduleDrawPca(),
       getPayload: () => window.Components?.pca?.getPayload?.(),
-      loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob)
+      loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('pca'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pca', state, options || {})
     },
     line: {
       type: 'line',
@@ -101,7 +110,9 @@
       ensure: () => ensureComponent('line'),
       draw: () => scheduleDrawLine(),
       getPayload: () => window.Components?.line?.getPayload?.(),
-      loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob)
+      loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('line'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('line', state, options || {})
     },
     heatmap: {
       type: 'heatmap',
@@ -110,7 +121,9 @@
       ensure: () => ensureComponent('heatmap'),
       draw: () => scheduleDrawHeatmap(),
       getPayload: () => window.Components?.heatmap?.getPayload?.(),
-      loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob)
+      loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('heatmap'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('heatmap', state, options || {})
     },
     roc: {
       type: 'roc',
@@ -119,7 +132,9 @@
       ensure: () => ensureComponent('roc'),
       draw: () => window.Components?.roc?.draw?.(),
       getPayload: () => window.Components?.roc?.getPayload?.(),
-      loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob)
+      loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('roc'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('roc', state, options || {})
     },
     survival: {
       type: 'survival',
@@ -128,7 +143,9 @@
       ensure: () => ensureComponent('survival'),
       draw: () => scheduleDrawSurvival(),
       getPayload: () => window.Components?.survival?.getPayload?.(),
-      loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob)
+      loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('survival'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('survival', state, options || {})
     },
     hist: {
       type: 'hist',
@@ -137,7 +154,9 @@
       ensure: () => ensureComponent('hist'),
       draw: () => scheduleDrawHist(),
       getPayload: () => window.Components?.hist?.getPayload?.(),
-      loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob)
+      loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('hist'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('hist', state, options || {})
     },
     pie: {
       type: 'pie',
@@ -146,7 +165,9 @@
       ensure: () => ensureComponent('pie'),
       draw: () => scheduleDrawPie(),
       getPayload: () => window.Components?.pie?.getPayload?.(),
-      loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob)
+      loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('pie'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pie', state, options || {})
     }
   };
 

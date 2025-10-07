@@ -1167,19 +1167,13 @@
           if(inputEl){
             const min = Number(inputEl.min);
             const max = Number(inputEl.max);
-            let clamped = displayPt;
-            if(Number.isFinite(min)) clamped = Math.max(min, clamped);
-            if(Number.isFinite(max)) clamped = Math.min(max, clamped);
-            if(String(inputEl.value) !== String(clamped)){
-              inputEl.value = String(clamped);
-            }
-            console.debug('Debug: chartStyle.renderFontSizeLabel control sync', {
+            const payload = {
               inputId: inputEl.id || null,
               displayPt,
-              clamped,
               min,
               max
-            }); // Debug: auto slider sync
+            };
+            console.debug('Debug: chartStyle.renderFontSizeLabel control observed', payload); // Debug: control state observation
           }
         }
       }

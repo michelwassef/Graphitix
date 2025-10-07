@@ -70,6 +70,7 @@
       beforeColumnSort: userBeforeColumnSort,
       afterColumnSort: userAfterColumnSort,
       afterGetColHeader: userAfterGetColHeader,
+      afterContextMenuDefaultOptions: userAfterContextMenuDefaultOptions,
       columnSorting: userColumnSorting,
       ...otherHotOptions
     } = hotOptions;
@@ -328,6 +329,8 @@
     let baseOrderSnapshot = null;
 
     let instance = null;
+
+    // === Global undo support (from codex branch) ===
     const undoManager = Shared.undoManager || null;
     const undoScope = (()=>{
       if(container?.closest){
@@ -482,6 +485,147 @@
     if(hasGlobalUndo){
       console.debug('Debug: hot undo scope resolved', { debugLabel, undoScope });
     }
+
+    // === Clipboard transpose support (from main branch) ===
+    let clipboardCache = '';
+
+    const updateClipboardCache = (text, meta)=>{
+      if(typeof text !== 'string'){
+        return;
+      }
+      clipboardCache = text;
+      console.debug('Debug: Shared.hot clipboard cache updated', { debugLabel, length: text.length, meta: meta || null });
+    };
+
+    const containerPasteListener = (event)=>{
+      const plain = event?.clipboardData?.getData?.('text/plain') || event?.clipboardData?.getData?.('text') || '';
+      if(plain){
+        updateClipboardCache(plain, { trigger: 'pasteEvent' });
+      }
+    };
+
+    if(container && !container.__hotTransposePasteBound && typeof container.addEventListener === 'function'){
+      container.addEventListener('paste', containerPasteListener);
+      container.__hotTransposePasteBound = true;
+      console.debug('Debug: Shared.hot container paste listener bound', { debugLabel });
+    }
+
+    const normalizeClipboardRows = (text)=>{
+      if(typeof text !== 'string' || !text){
+        return [];
+      }
+      const sanitized = text.replace(/\r\n?/g, '\n');
+      const lines = sanitized.split('\n');
+      if(lines.length && lines[lines.length - 1] === ''){
+        lines.pop();
+      }
+      return lines.map((line)=>{
+        if(line.indexOf('\t') !== -1){
+          return line.split('\t');
+        }
+        if(line.indexOf(',') !== -1){
+          return line.split(',');
+        }
+        return [line];
+      });
+    };
+
+    const transposeMatrix = (matrix)=>{
+      if(!Array.isArray(matrix) || !matrix.length){
+        return [];
+      }
+      let maxCols = 0;
+      for(let r = 0; r < matrix.length; r++){
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        maxCols = Math.max(maxCols, row.length);
+      }
+      const transposed = [];
+      for(let c = 0; c < maxCols; c++){
+        const newRow = [];
+        for(let r = 0; r < matrix.length; r++){
+          const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+          newRow.push(row[c] != null ? row[c] : '');
+        }
+        transposed.push(newRow);
+      }
+      console.debug('Debug: Shared.hot transpose computed', { debugLabel, sourceRows: matrix.length, sourceCols: maxCols, targetRows: transposed.length, targetCols: transposed[0]?.length || 0 });
+      return transposed;
+    };
+
+    const readClipboardText = async()=>{
+      if(typeof navigator === 'undefined'){
+        console.debug('Debug: Shared.hot navigator clipboard unavailable', { debugLabel });
+        return null;
+      }
+      const clip = navigator?.clipboard;
+      if(!clip || typeof clip.readText !== 'function'){
+        console.debug('Debug: Shared.hot clipboard.readText unavailable', { debugLabel });
+        return null;
+      }
+      try{
+        const text = await clip.readText();
+        console.debug('Debug: Shared.hot clipboard.readText success', { debugLabel, length: text?.length || 0 });
+        return text;
+      }catch(err){
+        console.error('Shared.hot clipboard.readText failed', err);
+        return null;
+      }
+    };
+
+    const applyTransposeFromText = (text, source)=>{
+      if(!instance){
+        console.debug('Debug: Shared.hot transpose skipped - no instance', { debugLabel });
+        return;
+      }
+      const selection = typeof instance.getSelectedRangeLast === 'function' ? instance.getSelectedRangeLast() : null;
+      if(!selection){
+        console.debug('Debug: Shared.hot transpose skipped - no selection', { debugLabel, source });
+        return;
+      }
+      const matrix = normalizeClipboardRows(text);
+      if(!matrix.length){
+        console.debug('Debug: Shared.hot transpose skipped - empty matrix', { debugLabel, source });
+        return;
+      }
+      const transposed = transposeMatrix(matrix);
+      if(!transposed.length){
+        console.debug('Debug: Shared.hot transpose skipped - empty transpose', { debugLabel, source });
+        return;
+      }
+      const startRow = Math.max(selection.from?.row ?? 0, 0);
+      const startCol = Math.max(selection.from?.col ?? 0, 0);
+      const endRow = startRow + transposed.length - 1;
+      const endCol = startCol + (transposed[0]?.length || 1) - 1;
+      console.debug('Debug: Shared.hot transpose populateFromArray', { debugLabel, startRow, startCol, endRow, endCol, source });
+      try{
+        instance.populateFromArray(startRow, startCol, transposed, endRow, endCol, 'ContextMenu.pasteTranspose', 'transpose');
+        triggerSchedule('pasteTranspose', { rows: transposed.length, cols: transposed[0]?.length || 0, source });
+      }catch(err){
+        console.error('Shared.hot transpose populate error', err);
+      }
+    };
+
+    const requestTransposePaste = ()=>{
+      console.debug('Debug: Shared.hot transpose requested', { debugLabel });
+      (async()=>{
+        const direct = await readClipboardText();
+        if(direct){
+          updateClipboardCache(direct, { trigger: 'navigatorClipboard' });
+          applyTransposeFromText(direct, 'navigatorClipboard');
+          return;
+        }
+        if(clipboardCache){
+          console.debug('Debug: Shared.hot transpose using cache', { debugLabel });
+          applyTransposeFromText(clipboardCache, 'cachedClipboard');
+          return;
+        }
+        console.warn('Shared.hot transpose failed - clipboard unavailable', { debugLabel });
+        if(typeof window !== 'undefined' && typeof window.alert === 'function'){
+          window.alert('Unable to read clipboard data for transposed paste. Please allow clipboard access or paste normally first.');
+        }
+      })();
+    };
+
     const autoGrowthState = {
       scrollAttached: false,
       pendingRowHandle: null,
@@ -1166,6 +1310,34 @@
       triggerSchedule('afterPaste', { dataLength: Array.isArray(data) ? data.length : 0, coords });
     };
 
+    const afterContextMenuDefaultOptionsBase = function(defaultOptions){
+      const items = defaultOptions?.items || defaultOptions;
+      if(!items || typeof items !== 'object'){
+        console.debug('Debug: Shared.hot context menu injection skipped', { debugLabel, hasItems: !!items });
+        return;
+      }
+      if(items.paste_transpose){
+        console.debug('Debug: Shared.hot context menu already contains transpose', { debugLabel });
+        return;
+      }
+      const hasNavigatorClipboard = typeof navigator !== 'undefined' && !!(navigator?.clipboard && typeof navigator.clipboard.readText === 'function'); // eslint-disable-line no-undef
+      items.paste_transpose = {
+        name: 'Paste → Transposed',
+        callback(){
+          requestTransposePaste();
+        },
+        disabled(){
+          const selection = instance?.getSelectedRangeLast?.() || null;
+          const validSelection = !!selection;
+          const hasClipboardData = hasNavigatorClipboard || !!clipboardCache;
+          const disabledState = !(validSelection && hasClipboardData);
+          console.debug('Debug: Shared.hot transpose disabled check', { debugLabel, validSelection, hasClipboardData, disabled: disabledState });
+          return disabledState;
+        }
+      };
+      console.debug('Debug: Shared.hot context menu transpose injected', { debugLabel });
+    };
+
     const options = Object.assign({
       data: baseData,
       rowHeaders,
@@ -1192,7 +1364,8 @@
       afterPaste: wrapHook('afterPaste', userAfterPaste, afterPasteBase),
       beforeColumnSort: wrapHook('beforeColumnSort', userBeforeColumnSort, beforeColumnSortBase),
       afterColumnSort: wrapHook('afterColumnSort', userAfterColumnSort, afterColumnSortBase),
-      afterGetColHeader: wrapHook('afterGetColHeader', userAfterGetColHeader, afterGetColHeaderBase)
+      afterGetColHeader: wrapHook('afterGetColHeader', userAfterGetColHeader, afterGetColHeaderBase),
+      afterContextMenuDefaultOptions: wrapHook('afterContextMenuDefaultOptions', userAfterContextMenuDefaultOptions, afterContextMenuDefaultOptionsBase)
     });
 
     console.debug('Debug: createStandardTable options prepared', { debugLabel, rowCount, colCount });
