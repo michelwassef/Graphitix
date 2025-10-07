@@ -6,7 +6,8 @@
 
   const moduleState = {
     appHeaderVisible: true,
-    workspaceDefaults: {}
+    workspaceDefaults: {},
+    workspaceLayoutDefaults: {}
   };
 
   namespace.createDomHandles = function createDomHandles() {
@@ -80,6 +81,14 @@
       const payload = config.getPayload();
       moduleState.workspaceDefaults[type] = session.clonePayload(payload);
       console.debug('Debug: workspace default captured', { type, hasPayload: !!moduleState.workspaceDefaults[type] });
+      if (typeof config.getLayoutState === 'function') {
+        const layout = config.getLayoutState();
+        moduleState.workspaceLayoutDefaults[type] = session.clonePayload(layout);
+        console.debug('Debug: workspace layout default captured', {
+          type,
+          hasLayout: !!moduleState.workspaceLayoutDefaults[type]
+        });
+      }
       return moduleState.workspaceDefaults[type];
     } catch (err) {
       console.error('ensureDefaultPayload error', { type, err });
@@ -152,6 +161,20 @@
     if (!options.skipApply) {
       const payload = tab.payload ? session?.clonePayload?.(tab.payload) : session?.clonePayload?.(defaultPayload);
       namespace.applyWorkspacePayload(config, payload);
+    }
+    if (typeof config.applyLayoutState === 'function') {
+      const layoutSource = tab.layoutState
+        ? session?.clonePayload?.(tab.layoutState)
+        : (moduleState.workspaceLayoutDefaults[tab.type]
+          ? session?.clonePayload?.(moduleState.workspaceLayoutDefaults[tab.type])
+          : null);
+      const applied = config.applyLayoutState(layoutSource, { reason: options.reason || 'workspace-view' });
+      console.debug('Debug: workspace layout applied', {
+        tabId: tab.id,
+        type: tab.type,
+        hasState: !!layoutSource,
+        applied
+      });
     }
     try {
       if (typeof config.draw === 'function') {

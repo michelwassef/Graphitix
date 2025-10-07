@@ -362,6 +362,8 @@
         });
       }
       const payloadCleared = session.assignTabPayload(tab, null, { reason: 'graph-selection-reset' });
+      tab.layoutState = null;
+      tab.layoutSignature = null;
       if (payloadCleared) {
         session.markSessionDirty('graph-payload-reset', { tabId: tab.id, previousType: priorType, nextType: type });
       }

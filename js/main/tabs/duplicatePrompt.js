@@ -42,6 +42,8 @@
         });
         if (tab) {
           session.assignTabPayload(tab, null, { reason: 'duplicate-bypass-clear' });
+          tab.layoutState = null;
+          tab.layoutSignature = null;
         }
         hideDuplicatePrompt();
         showWorkspaceForTab(tab);
@@ -52,9 +54,16 @@
         console.debug('Debug: duplicate prompt unavailable, applying fallback', { type, canDuplicate });
         if (canDuplicate && sourceTab?.payload) {
           const clonedPayload = session.clonePayload(sourceTab.payload);
+          const clonedLayout = session.clonePayload(sourceTab.layoutState);
           session.assignTabPayload(tab, clonedPayload, { reason: 'duplicate-fallback-clone' });
+          tab.layoutState = clonedLayout;
+          tab.layoutSignature = session.serializePayloadSignature
+            ? session.serializePayloadSignature(clonedLayout)
+            : null;
         } else {
           session.assignTabPayload(tab, null, { reason: 'duplicate-fallback-empty' });
+          tab.layoutState = null;
+          tab.layoutSignature = null;
         }
         showWorkspaceForTab(tab);
         session.markSessionDirty('duplicate-fallback', { tabId: tab?.id || null, type });
@@ -71,15 +80,24 @@
         const clonedPayload = canDuplicate && sourceTab?.payload
           ? session.clonePayload(sourceTab.payload)
           : null;
+        const clonedLayout = canDuplicate && sourceTab?.layoutState
+          ? session.clonePayload(sourceTab.layoutState)
+          : null;
         if (clonedPayload) {
           session.assignTabPayload(tab, clonedPayload, { reason: 'duplicate-accept' });
         }
+        tab.layoutState = clonedLayout;
+        tab.layoutSignature = session.serializePayloadSignature
+          ? session.serializePayloadSignature(clonedLayout)
+          : null;
         hideDuplicatePrompt();
         showWorkspaceForTab(tab);
         session.markSessionDirty('duplicate-accepted', { tabId: tab.id, sourceId: sourceTab?.id || null, type });
       };
       dom.duplicateEmpty.onclick = () => {
         session.assignTabPayload(tab, null, { reason: 'duplicate-empty' });
+        tab.layoutState = null;
+        tab.layoutSignature = null;
         hideDuplicatePrompt();
         showWorkspaceForTab(tab);
         session.markSessionDirty('duplicate-empty-selected', { tabId: tab.id, sourceId: sourceTab?.id || null, type });

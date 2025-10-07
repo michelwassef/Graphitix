@@ -1,6 +1,7 @@
 (function() {
   "use strict";
   const Main = window.Main = window.Main || {};
+  const Shared = window.Shared = window.Shared || {};
   const namespace = Main.session = Main.session || {};
 
   /**
@@ -17,6 +18,8 @@
    * @property {string|null} [previewMarkup] Cached HTML preview string for quick hover previews.
    * @property {string|null} [previewSignature] Signature used to detect preview changes.
    * @property {Object|null} [previewMeta] Metadata captured when generating previews.
+   * @property {Object|null} [layoutState] Serialized panel/layout sizing information.
+   * @property {string|null} [layoutSignature] Cached signature of the layout state.
    */
 
   /**
@@ -156,7 +159,11 @@
       isRenaming: false,
       previewMarkup: options.previewMarkup || null,
       previewSignature: options.previewSignature || null,
-      previewMeta: options.previewMeta || null
+      previewMeta: options.previewMeta || null,
+      layoutState: options.layoutState || null,
+      layoutSignature: options.layoutSignature !== undefined
+        ? options.layoutSignature
+        : serializePayloadSignature(options.layoutState || null)
     };
     if (tab.isWelcome) {
       tab.allowClose = false;
@@ -271,7 +278,15 @@
     try {
       const payload = config.getPayload();
       const payloadClone = clonePayload(payload);
+      const layoutState = Shared.componentLayout?.captureStateFor
+        ? Shared.componentLayout.captureStateFor(tab.type)
+        : null;
+      const layoutClone = clonePayload(layoutState);
+      const previousLayoutSignature = tab.layoutSignature || null;
       const changed = assignTabPayload(tab, payloadClone, { reason: options.reason || 'persist-active' });
+      tab.layoutState = layoutClone;
+      tab.layoutSignature = serializePayloadSignature(layoutClone);
+      const layoutChanged = previousLayoutSignature !== tab.layoutSignature;
       const previewNeedsCapture = options.forcePreviewCapture === true || changed || (tab.previewSignature !== tab.payloadSignature);
       let previewChanged = false;
       if (previews && typeof previews.updateTabPreviewFromWorkspace === 'function') {
@@ -285,15 +300,21 @@
           hasPreviews: !!previews
         });
       }
-      if (changed) {
-        markSessionDirty(options.reason || 'tab-state-updated', { tabId: tab.id, type: tab.type });
+      if (changed || layoutChanged) {
+        markSessionDirty(options.reason || 'tab-state-updated', {
+          tabId: tab.id,
+          type: tab.type,
+          layoutChanged
+        });
       }
       console.debug('Debug: workspace state persisted', {
         tabId: tab.id,
         type: tab.type,
         hasPayload: !!tab.payload,
         changed,
-        previewChanged
+        previewChanged,
+        hasLayout: !!tab.layoutState,
+        layoutChanged
       });
       return changed;
     } catch (err) {
@@ -318,16 +339,19 @@
       : -1;
     const tabsPayload = graphTabs.map((tab, index) => {
       const payloadClone = clonePayload(tab.payload);
+      const layoutClone = clonePayload(tab.layoutState);
       console.debug('Debug: session tab snapshot', {
         tabId: tab.id,
         type: tab.type,
         index,
-        hasPayload: !!payloadClone
+        hasPayload: !!payloadClone,
+        hasLayout: !!layoutClone
       });
       return {
         title: tab.title,
         type: tab.type,
-        payload: payloadClone
+        payload: payloadClone,
+        layout: layoutClone
       };
     });
     const sessionPayload = {
@@ -394,10 +418,12 @@
         return;
       }
       const clonedPayload = clonePayload(tabData.payload) || null;
+      const clonedLayout = clonePayload(tabData.layout) || null;
       const newTab = createTab({
         title: tabData.title || `Workspace ${index + 1}`,
         type: tabData.type,
-        payload: clonedPayload
+        payload: clonedPayload,
+        layoutState: clonedLayout
       });
       graphTabs.push(newTab);
       workspaceState.tabs.push(newTab);
@@ -405,7 +431,8 @@
         index,
         tabId: newTab.id,
         type: newTab.type,
-        hasPayload: !!clonedPayload
+        hasPayload: !!clonedPayload,
+        hasLayout: !!clonedLayout
       });
     });
     workspaceState.activeTabId = welcomeTab.id;
