@@ -79,6 +79,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 ### Box Plot & Statistical Testing
 - Maintain tabular data in a resizable spreadsheet with import/export and example loaders.【F:index.html†L320-L360】
 - Switch between box, notched box, or bar charts; toggle whisker caps; and control overlay or side-by-side point displays.【F:index.html†L360-L408】
+- Overlay statistical significance brackets only when needed via the new graph control—kept off by default so exported plots stay clean until explicitly enabled.【F:index.html†L360-L408】【F:js/components/box.js†L3607-L3654】
 - Apply unified or per-series color palettes, log-scale the Y axis, and clamp axis ranges for publication-ready aesthetics.【F:index.html†L340-L392】
 - Use the statistics panel to configure comparison modes (all pairwise, reference vs. others, or custom) and run parametric (t-test) or non-parametric (Mann–Whitney U) analyses in paired or unpaired settings. Results render in both summary text and tabular form beneath the plot.【F:index.html†L392-L408】
 - Toggle dedicated post-hoc strategies—standard pairwise corrections, Tukey HSD (studentized range, parametric/unpaired), or Dunn's rank-based contrasts—directly inside the statistics panel. Adjusted P-values, selected effect sizes, and descriptive footnotes persist in `.graph` saves for reproducible reporting.【F:index.html†L392-L408】【F:js/components/box.js†L2143-L2194】【F:js/components/box.js†L2882-L3077】【F:js/components/box.js†L4370-L4520】
