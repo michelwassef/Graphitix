@@ -22,6 +22,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 ## Code Guidelines
 - Include debugging code (e.g., `console.debug` or `console.log`) whenever new functionality is implemented to trace key inputs and state.
 - Clearly comment any debug output to facilitate removal later.
+- Suppress error bars when a series/category has only a single valid observation so plots do not render misleading caps; log the skip for debugging when you do so.
 - Follow the existing pattern of exposing features through the `window.Shared` and `window.Components` namespaces so legacy inline code continues to work.
 - When creating Handsontable grids through `Shared.hot.createStandardTable`, keep the first (grey) row as headers by default. If a dataset has a fixed schema (such as survival analysis), set `firstRowIsHeader: false` and provide explicit `colHeaders` so the first row behaves like normal input cells.
 - The survival workspace now expects four baseline columns (Group, Time, Event, Entry Time) followed by optional covariate columns. Update `SURVIVAL_COL_HEADERS` in `js/components/survival.js` if the schema changes and keep the covariate selection controls in sync.

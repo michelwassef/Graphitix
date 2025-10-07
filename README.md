@@ -82,6 +82,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Apply unified or per-series color palettes, log-scale the Y axis, and clamp axis ranges for publication-ready aesthetics.【F:index.html†L340-L392】
 - Use the statistics panel to configure comparison modes (all pairwise, reference vs. others, or custom) and run parametric (t-test) or non-parametric (Mann–Whitney U) analyses in paired or unpaired settings. Results render in both summary text and tabular form beneath the plot.【F:index.html†L392-L408】
 - Toggle dedicated post-hoc strategies—standard pairwise corrections, Tukey HSD (studentized range, parametric/unpaired), or Dunn's rank-based contrasts—directly inside the statistics panel. Adjusted P-values, selected effect sizes, and descriptive footnotes persist in `.graph` saves for reproducible reporting.【F:index.html†L392-L408】【F:js/components/box.js†L2143-L2194】【F:js/components/box.js†L2882-L3077】【F:js/components/box.js†L4370-L4520】
+- Automatic single-value handling ensures that when a group or bar only contains a lone measurement the workspace now omits SEM/SD error bars while still plotting the mean marker, preventing misleading caps on minimal data.【F:js/components/box.js†L3868-L3879】【F:js/components/box.js†L4329-L4337】【F:js/components/box.js†L4379-L4396】【F:js/components/box.js†L4693-L4702】【F:js/components/box.js†L4758-L4776】
 - Inspect accompanying effect sizes for every comparison, with configurable parametric (e.g., Cohen's d or Hedges' g) and non-parametric (rank-biserial r or common language probability) metrics persisted alongside significance results.【F:js/components/box.js†L2506-L2710】
 
 ### Scatter Plot Explorer
@@ -107,6 +108,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Switch between linear, polynomial, exponential, power, spline, logistic, ARIMA, or Holt-Winters forecasting modes while reviewing interval shading, residual diagnostics, and coefficient summaries for each series.【F:index.html†L900-L937】【F:js/components/line.js†L446-L1325】【F:js/shared/regression.js†L1-L1194】
 - Forecast future observations with configurable horizons, seasonal lengths, and automatic AIC/BIC parameter tuning while exporting seasonal components and accuracy metrics alongside the SVG/PNG snapshots.【F:index.html†L909-L937】【F:js/components/line.js†L680-L1390】【F:js/shared/regression.js†L520-L1194】
 - Visualize per-series regression confidence/prediction bands and review coefficient standard errors plus residual diagnostics via the statistics table toggles, with settings persisted for saved workbooks.【F:index.html†L893-L916】【F:js/components/line.js†L478-L662】
+- Clean single-point series render without error bars while logging the skip for debugging, so sparsely populated tables do not produce misleading caps.【F:js/components/line.js†L1160-L1187】【F:js/components/line.js†L1446-L1469】
 
 ### Classification Curves (ROC & PR)
 - Build ROC or precision-recall curves from model scores and labels stored in the integrated table editor.【F:index.html†L800-L848】
