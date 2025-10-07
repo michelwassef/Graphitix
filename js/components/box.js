@@ -827,7 +827,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [] };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false };
   const els = {};
 
   function updateStatsCorrectionSummary(count){
@@ -905,6 +905,10 @@
     }
     els.boxPointMode=global.$('#boxPointMode');
     els.boxShowCaps=global.$('#boxShowCaps');
+    els.boxShowSignificance=global.$('#boxShowSignificance');
+    if(els.boxShowSignificance){
+      els.boxShowSignificance.checked = !!state.showSignificanceBars;
+    }
     els.boxErrorMode=global.$('#boxErrorMode');
     els.boxErrorModeCtl=global.$('#boxErrorModeCtl');
     els.boxColorPerBox=global.$('#boxColorPerBox');
@@ -1324,6 +1328,14 @@
     }
     els.boxPointMode.addEventListener('change',()=>{ console.log('boxPointMode changed', els.boxPointMode.value); state.scheduleDraw(); });
     els.boxShowCaps.addEventListener('change',()=>{ console.log('boxShowCaps changed', els.boxShowCaps.checked); state.scheduleDraw(); });
+    if(els.boxShowSignificance){
+      els.boxShowSignificance.checked = !!state.showSignificanceBars;
+      els.boxShowSignificance.addEventListener('change',()=>{
+        state.showSignificanceBars = !!els.boxShowSignificance.checked;
+        console.debug('Debug: box significance toggle',{ enabled: state.showSignificanceBars });
+        state.scheduleDraw();
+      });
+    }
     els.boxErrorMode.addEventListener('change',()=>{ console.log('boxErrorMode changed', els.boxErrorMode.value); state.scheduleDraw(); });
     els.boxYMin.addEventListener('input',()=>{ console.log('boxYMin changed', els.boxYMin.value); state.scheduleDraw(); });
     els.boxYMax.addEventListener('input',()=>{ console.log('boxYMax changed', els.boxYMax.value); state.scheduleDraw(); });
@@ -3014,6 +3026,8 @@ function renderGroupedStatsControls(traces, controls){
         resultsContainer.appendChild(msg);
       }
     };
+    const significanceEnabled = helpers?.significance?.enabled ?? !!state.showSignificanceBars;
+    console.debug('Debug: box significance annotations status',{ enabled: significanceEnabled });
     const annotationOpts=helpers?.annotationStyle||{};
     const orientation=annotationOpts.orientation==='horizontal'?'horizontal':'vertical';
     const categoryCenter=typeof helpers?.categoryCenter==='function'
@@ -3228,7 +3242,12 @@ function renderGroupedStatsControls(traces, controls){
           contextLabel:'box-pairwise'
         }
       });
-      const from=Math.min(indices[0],indices[1]); const to=Math.max(indices[0],indices[1]); let rangeMax=-Infinity; for(let k=from;k<=to;k++) rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); const baseCoord=valueToCoord(rangeMax); const annotationCoord=orientation==='horizontal'?baseCoord+baseOffset:baseCoord-baseOffset; annotatePair(svg,categoryCenter(indices[0]),categoryCenter(indices[1]),annotationCoord,res.p,helpers.annotationStyle); return;
+      const from=Math.min(indices[0],indices[1]); const to=Math.max(indices[0],indices[1]); let rangeMax=-Infinity; for(let k=from;k<=to;k++) rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); const baseCoord=valueToCoord(rangeMax); const annotationCoord=orientation==='horizontal'?baseCoord+baseOffset:baseCoord-baseOffset; if(significanceEnabled){
+        annotatePair(svg,categoryCenter(indices[0]),categoryCenter(indices[1]),annotationCoord,res.p,helpers.annotationStyle);
+      }else{
+        console.debug('Debug: box significance annotation skipped for pair',{ p: res.p, significanceEnabled });
+      }
+      return;
     }
     // Multi-group
     let overall=null; if(!state.statsPaired){ overall=overallTest(groups); }
@@ -3542,22 +3561,30 @@ function renderGroupedStatsControls(traces, controls){
           contextLabel:'box-pairs'
         }
       },appendForPairs);
-      pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
-      const placed=[];
-      pairs.forEach(pr=>{
-        let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
-        const baseCoord=valueToCoord(pr.rangeMax);
-        const annotationCoord=orientation==='horizontal'
-          ? baseCoord+baseOffset+level*levelGap
-          : baseCoord-baseOffset-level*levelGap;
-        annotatePair(svg,categoryCenter(pr.ai),categoryCenter(pr.bi),annotationCoord,pr.p,helpers.annotationStyle);
-        pr.level=level; placed.push(pr);
-      });
-      const maxLevel=Math.max(...pairs.map(pr=>pr.level));
-      void maxLevel;
+      if(significanceEnabled && pairs.length){
+        pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+        const placed=[];
+        pairs.forEach(pr=>{
+          let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
+          const baseCoord=valueToCoord(pr.rangeMax);
+          const annotationCoord=orientation==='horizontal'
+            ? baseCoord+baseOffset+level*levelGap
+            : baseCoord-baseOffset-level*levelGap;
+          annotatePair(svg,categoryCenter(pr.ai),categoryCenter(pr.bi),annotationCoord,pr.p,helpers.annotationStyle);
+          pr.level=level; placed.push(pr);
+        });
+        const maxLevel=Math.max(...pairs.map(pr=>pr.level));
+        void maxLevel;
+      }else{
+        console.debug('Debug: box significance annotation skipped for pairs',{ pairCount: pairs.length, significanceEnabled });
+      }
     } else {
       // No pairwise; show overall only if available
-      if(!state.statsPaired && indices.length>2 && overall){ annotateOverall(svg,xs,valueToCoord,maxVal,overall.p,0,helpers.annotationStyle); }
+      if(significanceEnabled && !state.statsPaired && indices.length>2 && overall){
+        annotateOverall(svg,xs,valueToCoord,maxVal,overall.p,0,helpers.annotationStyle);
+      }else if(!significanceEnabled){
+        console.debug('Debug: box overall significance annotation skipped',{ significanceEnabled, groupCount: indices.length, overallP: overall?.p });
+      }
       updateStatsCorrectionSummary(0);
     }
   }
@@ -3589,6 +3616,8 @@ function renderGroupedStatsControls(traces, controls){
     const annotationBaseOffset = chartStyle.scaleLength(ANN_BASE_OFFSET, styleScaleInfo, { context: 'box-annotation-offset', min: 10 });
     const annotationLevelGap = chartStyle.scaleLength(ANN_LEVEL_GAP, styleScaleInfo, { context: 'box-annotation-gap', min: 8 });
     const annotationBracketSize = chartStyle.scaleLength(12, styleScaleInfo, { context: 'box-annotation-bracket', min: 8 });
+    const showSignificance = !!state.showSignificanceBars;
+    console.debug('Debug: box showSignificance flag',{ showSignificance });
     chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, fontInfo, input: els.boxFontSize });
     console.debug('Debug: box font scaling applied',{
       input: els.boxFontSize.value,
@@ -4024,7 +4053,8 @@ function renderGroupedStatsControls(traces, controls){
       bracketSize: annotationBracketSize,
       orientation: isFlipped ? 'horizontal' : 'vertical'
     };
-    const maxLevelEstimate = state.selectedCols.size > 1 ? state.selectedCols.size : 0;
+    const selectionCount = state.selectedCols.size || 0;
+    const maxLevelEstimate = showSignificance && selectionCount > 1 ? selectionCount : 0;
 
     function renderVertical(){
       const tickFont = chartStyle.makeFont(fs);
@@ -4032,7 +4062,7 @@ function renderGroupedStatsControls(traces, controls){
       const yTitleWidthBase = chartStyle.measureText(state.yLabelText, axisLabelFont);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
-      const topExtra = maxLevelEstimate ? (annotationBaseOffset + maxLevelEstimate * annotationLevelGap) : 0;
+      const topExtra = showSignificance && maxLevelEstimate ? (annotationBaseOffset + maxLevelEstimate * annotationLevelGap) : 0;
       let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: 0, yTitleWidth: yTitleWidthBase, axisMetrics, legendWidth: legendWidthForMargin });
       marginLocal.top += topExtra;
       marginLocal.left = Math.max(marginLocal.left, fs * 0.5);
@@ -4478,7 +4508,7 @@ function renderGroupedStatsControls(traces, controls){
       const maxCategoryWidth = Math.max(...categoryWidths, 0);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
-      const rightExtra = maxLevelEstimate ? (annotationBaseOffset + maxLevelEstimate * annotationLevelGap) : 0;
+      const rightExtra = showSignificance && maxLevelEstimate ? (annotationBaseOffset + maxLevelEstimate * annotationLevelGap) : 0;
       let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: maxCategoryWidth, yTitleWidth: 0, axisMetrics, legendWidth: legendWidthForMargin });
       marginLocal.top = Math.max(marginLocal.top, fs * 2);
       marginLocal.left = Math.max(marginLocal.left, maxCategoryWidth + tickLen + tickGap + fs * 0.5);
@@ -4871,9 +4901,10 @@ function renderGroupedStatsControls(traces, controls){
       categoryCenter: orientationResult.categoryCenter,
       y2px: orientationResult.valueToCoord,
       valueToCoord: orientationResult.valueToCoord,
-      annotationStyle
+      annotationStyle,
+      significance: { enabled: showSignificance }
     };
-    console.debug('Debug: box annotation style forwarded', helpers.annotationStyle);
+    console.debug('Debug: box annotation style forwarded', { annotationStyle: helpers.annotationStyle, significance: helpers.significance });
     computeStats(traces, svg, helpers);
     renderStatsTable(traces);
     const otherBoxes = Array.from(svg.children).filter(el => el !== titleText && el.getBBox).map(el => el.getBBox());
@@ -4894,7 +4925,7 @@ function renderGroupedStatsControls(traces, controls){
     selectedColumns.sort((a,b)=>a-b);
     const payload = {
       type:'box',
-      version:2,
+      version:3,
       data: state.hot.getData(),
       config: {
         title:state.titleText,
@@ -4911,6 +4942,7 @@ function renderGroupedStatsControls(traces, controls){
         individualSummary: state.individualSummary,
         pointMode:els.boxPointMode.value,
         showCaps:els.boxShowCaps.checked,
+        showSignificanceBars: state.showSignificanceBars,
         errorMode:els.boxErrorMode.value,
         colors:[...state.fillColors],
         borderColors:[...state.borderColors],
@@ -5046,6 +5078,10 @@ function renderGroupedStatsControls(traces, controls){
         }
         els.boxPointMode.value=c.pointMode||els.boxPointMode.value;
         els.boxShowCaps.checked=!!c.showCaps;
+        state.showSignificanceBars = !!c.showSignificanceBars;
+        if(els.boxShowSignificance){
+          els.boxShowSignificance.checked = state.showSignificanceBars;
+        }
         els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value;
         els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none';
         if(els.boxIndividualSummaryCtl){
