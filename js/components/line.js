@@ -1166,21 +1166,28 @@
             }
           }
           if(hasX && repValues.length){
-            const mean=repValues.reduce((sum,val)=>sum+val,0)/repValues.length;
+            const replicateCount=repValues.length;
+            const mean=repValues.reduce((sum,val)=>sum+val,0)/replicateCount;
             let variance=0;
-            if(repValues.length>1){
-              variance=repValues.reduce((sum,val)=>{const diff=val-mean;return sum+diff*diff;},0)/(repValues.length-1);
+            if(replicateCount>1){
+              variance=repValues.reduce((sum,val)=>{const diff=val-mean;return sum+diff*diff;},0)/(replicateCount-1);
             }
-            const stdev=repValues.length>1?Math.sqrt(variance):0;
+            const stdev=replicateCount>1?Math.sqrt(variance):0;
             const minVal=Math.min(...repValues);
             const maxVal=Math.max(...repValues);
-            const lower=repValues.length>1?mean-stdev:minVal;
-            const upper=repValues.length>1?mean+stdev:maxVal;
-            series[s].points.push({x:xv,y:mean,replicates:repValues.slice(),stdev,lower,upper});
+            const hasSpread=replicateCount>1;
+            const lower=hasSpread?mean-stdev:null;
+            const upper=hasSpread?mean+stdev:null;
+            const yMinCandidate=hasSpread?lower:minVal;
+            const yMaxCandidate=hasSpread?upper:maxVal;
+            if(!hasSpread){
+              console.debug('Debug: line skip error range for single value',{ series:s, row:r, replicateCount, x:xv, value:minVal });
+            }
+            series[s].points.push({x:xv,y:mean,replicates:repValues.slice(),replicateCount,stdev:hasSpread?stdev:0,lower,upper});
             if(xv<xMinRaw) xMinRaw=xv;
             if(xv>xMaxRaw) xMaxRaw=xv;
-            if(lower<yMinRaw) yMinRaw=lower;
-            if(upper>yMaxRaw) yMaxRaw=upper;
+            if(yMinCandidate<yMinRaw) yMinRaw=yMinCandidate;
+            if(yMaxCandidate>yMaxRaw) yMaxRaw=yMaxCandidate;
           }else{
             series[s].points.push(null);
           }
@@ -1462,7 +1469,12 @@
             const px=x2px(xv);
             const py=y2px(yv);
             if(!started){pathStr+=`M${px} ${py}`; started=true;} else {pathStr+=`L${px} ${py}`;}
-            if(showErrorBars && errorGroup && Number.isFinite(pt.lower) && Number.isFinite(pt.upper) && pt.upper>=pt.lower){
+            const replicateCount=Number.isInteger(pt?.replicateCount)?pt.replicateCount:(Array.isArray(pt?.replicates)?pt.replicates.length:0);
+            const canShowError=showErrorBars && replicateCount>1 && errorGroup && Number.isFinite(pt.lower) && Number.isFinite(pt.upper) && pt.upper>=pt.lower;
+            if(!canShowError && showErrorBars && replicateCount<=1){
+              console.debug('Debug: line error bar suppressed for single value',{ series:series[s].name, x:pt.x, replicateCount });
+            }
+            if(canShowError){
               const lowerVal=logY?(pt.lower>0?Math.log10(pt.lower):null):pt.lower;
               const upperVal=logY?(pt.upper>0?Math.log10(pt.upper):null):pt.upper;
               if(lowerVal!=null && upperVal!=null && Number.isFinite(lowerVal) && Number.isFinite(upperVal)){

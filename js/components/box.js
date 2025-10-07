@@ -3872,9 +3872,17 @@ function renderGroupedStatsControls(traces, controls){
     let barErrorMin = Infinity;
     if(graphTypeRaw === 'bar'){
       traces.forEach(t => {
-        const mean = t.y.reduce((a, b) => a + b, 0) / t.y.length;
-        const sd = Math.sqrt(t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (t.y.length - 1 || 1));
-        barErrorMin = Math.min(barErrorMin, mean - sd);
+        const sampleCount = t.y.length;
+        if(!sampleCount) return;
+        const mean = t.y.reduce((a, b) => a + b, 0) / sampleCount;
+        const hasSpread = sampleCount > 1;
+        const variance = hasSpread ? t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (sampleCount - 1) : 0;
+        const sd = hasSpread ? Math.sqrt(Math.max(variance, 0)) : 0;
+        const candidate = hasSpread ? mean - sd : mean;
+        if(!hasSpread){
+          console.debug('Debug: box skip bar extent for single value',{ trace: t.name, sampleCount, mean });
+        }
+        barErrorMin = Math.min(barErrorMin, candidate);
       });
       if(isFinite(barErrorMin)) ymin = Math.min(ymin, barErrorMin);
     }
@@ -4291,21 +4299,28 @@ function renderGroupedStatsControls(traces, controls){
             add('line',{ x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': borderWidthPx });
           }
         }else if(graphTypeRaw === 'bar'){
-          const sd = Math.sqrt(t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (t.y.length - 1 || 1));
+          const sampleCount = t.y.length;
+          const hasSpread = sampleCount > 1;
+          const variance = hasSpread ? t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (sampleCount - 1) : 0;
+          const sd = hasSpread ? Math.sqrt(Math.max(variance, 0)) : 0;
           const yZero = y2px(0);
           const rectY = Math.min(yMean, yZero);
           const rectH = Math.abs(yZero - yMean);
           add('rect',{ x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
-          const ySdTop = y2px(mean + sd);
-          const cap = Math.max(6, boxW * 0.4);
-          if(errorMode === 'both'){
-            const ySdBottom = y2px(mean - sd);
-            add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: ySdBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
-            add('line',{ x1: cx - cap / 2, y1: ySdBottom, x2: cx + cap / 2, y2: ySdBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+          if(hasSpread){
+            const ySdTop = y2px(mean + sd);
+            const cap = Math.max(6, boxW * 0.4);
+            if(errorMode === 'both'){
+              const ySdBottom = y2px(mean - sd);
+              add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: ySdBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+              add('line',{ x1: cx - cap / 2, y1: ySdBottom, x2: cx + cap / 2, y2: ySdBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+            }else{
+              add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: yMean, stroke: borderColor, 'stroke-width': borderWidthPx });
+            }
+            add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': borderWidthPx });
           }else{
-            add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: yMean, stroke: borderColor, 'stroke-width': borderWidthPx });
+            console.debug('Debug: box bar error bar skipped for single value',{ index: i, sampleCount, mean });
           }
-          add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': borderWidthPx });
         }else if(graphTypeRaw === 'violin'){
           const densityInfo = computeDensity(vals, yScale.min, yScale.max, 80);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
@@ -4369,13 +4384,17 @@ function renderGroupedStatsControls(traces, controls){
               const variance = sampleCount > 1 ? vals.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (sampleCount - 1) : 0;
               const sd = Math.sqrt(Math.max(variance, 0));
               const sem = sampleCount > 0 ? sd / Math.sqrt(sampleCount) : 0;
-              const yTop = y2px(mean + sem);
-              const yBottom = y2px(mean - sem);
-              summaryAdd('line',{ x1: cx, y1: yTop, x2: cx, y2: yBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yTop, x2: cx + summaryCap / 2, y2: yTop, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yBottom, x2: cx + summaryCap / 2, y2: yBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+              if(sampleCount > 1){
+                const yTop = y2px(mean + sem);
+                const yBottom = y2px(mean - sem);
+                summaryAdd('line',{ x1: cx, y1: yTop, x2: cx, y2: yBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+                summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yTop, x2: cx + summaryCap / 2, y2: yTop, stroke: borderColor, 'stroke-width': borderWidthPx });
+                summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yBottom, x2: cx + summaryCap / 2, y2: yBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+                console.debug('Debug: box individual summary vertical mean',{ index: i, sampleCount, sd, sem });
+              }else{
+                console.debug('Debug: box individual summary vertical mean skipped error bars',{ index: i, sampleCount, mean });
+              }
               summaryAdd('circle',{ cx, cy: yMean, r: pointRadius * 1.4, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
-              console.debug('Debug: box individual summary vertical mean',{ index: i, sampleCount, sd, sem });
             }else if(individualSummaryMode === 'median'){
               summaryAdd('line',{ x1: cx, y1: yQ3, x2: cx, y2: yQ1, stroke: borderColor, 'stroke-width': borderWidthPx });
               summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yQ3, x2: cx + summaryCap / 2, y2: yQ3, stroke: borderColor, 'stroke-width': borderWidthPx });
@@ -4654,21 +4673,28 @@ function renderGroupedStatsControls(traces, controls){
             add('line',{ x1: xWMax, y1: cy - cap / 2, x2: xWMax, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
           }
         }else if(graphTypeRaw === 'bar'){
-          const sd = Math.sqrt(t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (t.y.length - 1 || 1));
+          const sampleCount = t.y.length;
+          const hasSpread = sampleCount > 1;
+          const variance = hasSpread ? t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (sampleCount - 1) : 0;
+          const sd = hasSpread ? Math.sqrt(Math.max(variance, 0)) : 0;
           const xZero = valueToX(0);
           const rectX = Math.min(xMean, xZero);
           const rectW = Math.max(1, Math.abs(xZero - xMean));
           add('rect',{ x: rectX, y: y0, width: rectW, height: Math.max(1, boxH), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
-          const xSdPos = valueToX(mean + sd);
-          const cap = Math.max(6, boxH * 0.4);
-          if(errorMode === 'both'){
-            const xSdNeg = valueToX(mean - sd);
-            add('line',{ x1: xSdNeg, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
-            add('line',{ x1: xSdNeg, y1: cy - cap / 2, x2: xSdNeg, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+          if(hasSpread){
+            const xSdPos = valueToX(mean + sd);
+            const cap = Math.max(6, boxH * 0.4);
+            if(errorMode === 'both'){
+              const xSdNeg = valueToX(mean - sd);
+              add('line',{ x1: xSdNeg, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
+              add('line',{ x1: xSdNeg, y1: cy - cap / 2, x2: xSdNeg, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+            }else{
+              add('line',{ x1: xMean, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
+            }
+            add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
           }else{
-            add('line',{ x1: xMean, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
+            console.debug('Debug: box horizontal bar error bar skipped for single value',{ index: i, sampleCount, mean });
           }
-          add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
         }else if(graphTypeRaw === 'violin'){
           const densityInfo = computeDensity(vals, yScale.min, yScale.max, 80);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
@@ -4732,13 +4758,17 @@ function renderGroupedStatsControls(traces, controls){
               const variance = sampleCount > 1 ? vals.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (sampleCount - 1) : 0;
               const sd = Math.sqrt(Math.max(variance, 0));
               const sem = sampleCount > 0 ? sd / Math.sqrt(sampleCount) : 0;
-              const xLow = valueToX(mean - sem);
-              const xHigh = valueToX(mean + sem);
-              summaryAdd('line',{ x1: xLow, y1: cy, x2: xHigh, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('line',{ x1: xLow, y1: cy - summaryCap / 2, x2: xLow, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('line',{ x1: xHigh, y1: cy - summaryCap / 2, x2: xHigh, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+              if(sampleCount > 1){
+                const xLow = valueToX(mean - sem);
+                const xHigh = valueToX(mean + sem);
+                summaryAdd('line',{ x1: xLow, y1: cy, x2: xHigh, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
+                summaryAdd('line',{ x1: xLow, y1: cy - summaryCap / 2, x2: xLow, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+                summaryAdd('line',{ x1: xHigh, y1: cy - summaryCap / 2, x2: xHigh, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+                console.debug('Debug: box individual summary horizontal mean',{ index: i, sampleCount, sd, sem });
+              }else{
+                console.debug('Debug: box individual summary horizontal mean skipped error bars',{ index: i, sampleCount, mean });
+              }
               summaryAdd('circle',{ cx: xMean, cy: cy, r: pointRadius * 1.4, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
-              console.debug('Debug: box individual summary horizontal mean',{ index: i, sampleCount, sd, sem });
             }else if(individualSummaryMode === 'median'){
               const xLow = valueToX(q1);
               const xHigh = valueToX(q3);
