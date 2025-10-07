@@ -377,27 +377,30 @@
       const localInstance = instance;
       if(!localInstance){
         console.debug('Debug: hot undo apply skipped - missing instance', { debugLabel, direction });
-        return;
+        return false;
       }
       const plugin = getUndoPlugin();
       const availabilityKey = direction === 'redo' ? 'isRedoAvailable' : 'isUndoAvailable';
       if(plugin && typeof plugin[availabilityKey] === 'function' && !plugin[availabilityKey]()){
         console.debug('Debug: hot undo apply skipped - not available', { debugLabel, direction, meta });
-        return;
+        return false;
       }
       try{
         if(typeof localInstance[direction] === 'function'){
           console.debug('Debug: hot undo apply via instance', { debugLabel, direction, meta });
           localInstance[direction]();
+          return true;
         }else if(plugin && typeof plugin[direction] === 'function'){
           console.debug('Debug: hot undo apply via plugin', { debugLabel, direction, meta });
           plugin[direction]();
+          return true;
         }else{
           console.warn('Shared.hot undo/redo missing methods', { debugLabel, direction });
         }
       }catch(err){
         console.error('Shared.hot undo apply error', err);
       }
+      return false;
     };
 
     const flushPendingUndoRegistration = ()=>{

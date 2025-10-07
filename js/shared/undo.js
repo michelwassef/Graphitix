@@ -131,13 +131,21 @@
       console.debug('Debug: undo stack empty on undo');
       return false;
     }
-    const entry = stack[pointer];
+    const currentIndex = pointer;
+    const entry = stack[currentIndex];
     pointer -= 1;
+    let result = true;
     try{
       console.debug('Debug: undo executing', { label: entry.label, pointer });
-      entry.undo();
+      result = entry.undo();
     }catch(err){
       console.error('Shared.undoManager undo error', err);
+      result = false;
+    }
+    if(result === false){
+      pointer = currentIndex;
+      console.debug('Debug: undo entry reported failure', { label: entry.label, pointer });
+      return false;
     }
     return true;
   };
@@ -147,18 +155,26 @@
       console.debug('Debug: undo stack empty on redo');
       return false;
     }
+    const previousPointer = pointer;
     pointer += 1;
     const entry = stack[pointer];
+    let result = true;
     try{
       if(typeof entry.redo === 'function'){
         console.debug('Debug: undo executing redo', { label: entry.label, pointer });
-        entry.redo();
+        result = entry.redo();
       }else if(typeof entry.undo === 'function'){
         console.debug('Debug: undo fallback redo using undo()', { label: entry.label, pointer });
-        entry.undo();
+        result = entry.undo();
       }
     }catch(err){
       console.error('Shared.undoManager redo error', err);
+      result = false;
+    }
+    if(result === false){
+      pointer = previousPointer;
+      console.debug('Debug: redo entry reported failure', { label: entry.label, pointer });
+      return false;
     }
     return true;
   };

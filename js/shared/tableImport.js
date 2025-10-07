@@ -106,6 +106,86 @@
     return Object.assign({}, rest, extra);
   }
 
+  function cloneMatrix(matrix){
+    if(!Array.isArray(matrix)) return [];
+    return matrix.map(row => Array.isArray(row) ? row.slice() : []);
+  }
+
+  function captureHotSnapshot(hot, debugLabel){
+    if(!hot) return null;
+    try{
+      const settings = typeof hot.getSettings === 'function' ? hot.getSettings() : {};
+      const minRows = typeof settings?.minRows === 'number' ? settings.minRows : (typeof hot.countRows === 'function' ? hot.countRows() : 0);
+      const minCols = typeof settings?.minCols === 'number' ? settings.minCols : (typeof hot.countCols === 'function' ? hot.countCols() : 0);
+      const data = typeof hot.getData === 'function' ? cloneMatrix(hot.getData()) : [];
+      console.debug('Debug: tableImport.snapshot.captured', { debugLabel, minRows, minCols, rows: data.length, cols: data[0]?.length || 0 });
+      return { data, minRows, minCols };
+    }catch(err){
+      console.error('tableImport snapshot capture failed', err);
+      return null;
+    }
+  }
+
+  function cloneSnapshotData(snapshot){
+    if(!snapshot) return [];
+    return cloneMatrix(snapshot.data);
+  }
+
+  function restoreHotSnapshot(hot, snapshot, reason, debugLabel){
+    if(!hot || !snapshot) return false;
+    try{
+      const payload = {
+        data: cloneSnapshotData(snapshot),
+        minRows: snapshot.minRows,
+        minCols: snapshot.minCols
+      };
+      if(typeof hot.updateSettings === 'function'){
+        hot.updateSettings(payload);
+      }else if(typeof hot.loadData === 'function'){
+        hot.loadData(payload.data);
+        if(typeof hot.updateSettings === 'function'){
+          hot.updateSettings({ minRows: snapshot.minRows, minCols: snapshot.minCols });
+        }
+      }
+      if(typeof hot.render === 'function'){
+        hot.render();
+      }
+      console.debug('Debug: tableImport.snapshot.restored', { debugLabel, reason, rows: payload.data.length, cols: payload.data[0]?.length || 0 });
+      return true;
+    }catch(err){
+      console.error('tableImport snapshot restore failed', err);
+      return false;
+    }
+  }
+
+  function snapshotsEqual(a, b){
+    if(!a || !b) return false;
+    if(a.minRows !== b.minRows || a.minCols !== b.minCols) return false;
+    const rowsA = Array.isArray(a.data) ? a.data.length : 0;
+    const rowsB = Array.isArray(b.data) ? b.data.length : 0;
+    if(rowsA !== rowsB) return false;
+    for(let r = 0; r < rowsA; r++){
+      const rowA = Array.isArray(a.data[r]) ? a.data[r] : [];
+      const rowB = Array.isArray(b.data[r]) ? b.data[r] : [];
+      if(rowA.length !== rowB.length) return false;
+      for(let c = 0; c < rowA.length; c++){
+        if(rowA[c] !== rowB[c]) return false;
+      }
+    }
+    return true;
+  }
+
+  function inferHotScope(hot, debugLabel){
+    const root = hot?.rootElement || hot?.container || null;
+    if(root && typeof root.closest === 'function'){
+      const panel = root.closest('.panel');
+      if(panel?.id) return panel.id;
+      const svgbox = root.closest('.svgbox');
+      if(svgbox?.id) return svgbox.id;
+    }
+    return root?.id || debugLabel;
+  }
+
   tableImport.processRows = function processRows(rows, hot, options = {}){
     const debugLabel = options.debugLabel || 'tableImport';
     if(!rows || !rows.length){
@@ -324,7 +404,35 @@
         cols: filtered[0]?.length || 0
       });
     }
+    const undoManager = Shared.undoManager;
+    const beforeSnapshot = captureHotSnapshot(hot, debugLabel);
     const result = tableImport.processRows(filtered, hot, processOptions);
+    const afterSnapshot = captureHotSnapshot(hot, debugLabel);
+    if(result && beforeSnapshot && afterSnapshot && !snapshotsEqual(beforeSnapshot, afterSnapshot) && undoManager && typeof undoManager.record === 'function'){
+      const scope = options.scope || inferHotScope(hot, debugLabel);
+      const label = `tableImport:${debugLabel}:paste`;
+      console.debug('Debug: tableImport.handlePaste undo prepared', { debugLabel, scope, label });
+      undoManager.record({
+        label,
+        scope,
+        undo(){
+          const restored = restoreHotSnapshot(hot, beforeSnapshot, 'undo', debugLabel);
+          if(restored && typeof options.scheduleDraw === 'function'){
+            options.scheduleDraw();
+          }
+          return restored;
+        },
+        redo(){
+          const restored = restoreHotSnapshot(hot, afterSnapshot, 'redo', debugLabel);
+          if(restored && typeof options.scheduleDraw === 'function'){
+            options.scheduleDraw();
+          }
+          return restored;
+        }
+      });
+    }else{
+      console.debug('Debug: tableImport.handlePaste undo skipped', { debugLabel, hasResult: !!result, hasBefore: !!beforeSnapshot, hasAfter: !!afterSnapshot });
+    }
     return result;
   };
 })(window);
