@@ -2140,6 +2140,7 @@
     const payload = {
       type: 'survival',
       data: state.hot.getData(),
+      exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
       config: {
         labelColors: state.labelColors,
         showCI: !!refs.showCI?.checked,
@@ -2223,6 +2224,9 @@
         }
         if(Array.isArray(payload.data) && state.hot){
           state.hot.loadData(payload.data);
+          if(payload.exclusions){
+            state.hot.applyExclusions?.(payload.exclusions);
+          }
         }
         applyConfig(payload.config);
         state.lastStats = payload.stats || null;

@@ -1368,6 +1368,7 @@
     return {
       type:'line',
       data:lineHot.getData(),
+      exclusions: lineHot?.exportExclusions?.() || Shared.hot.exportExclusions(lineHot),
       config:{
         title:lineTitleText,
         xLabel:lineXLabelText,
@@ -1433,11 +1434,19 @@
             groupLabels: storedGroupLabels || lineSeriesGroupLabels,
             resetGroupLabels: storedGroupLabels ? true : undefined
           });
+          if(obj.exclusions){
+            lineHot.applyExclusions?.(obj.exclusions);
+          }
         }else{
           lineReplicates = storedReplicates;
           if(refs.replicatesInput){
             refs.replicatesInput.value = String(lineReplicates);
           }
+        }
+        if(!lineHot && obj.exclusions){
+          console.debug('Debug: line exclusions deferred until hot ready');
+        }else if(lineHot && obj.exclusions && matrixData == null){
+          lineHot.applyExclusions?.(obj.exclusions);
         }
         lineTitleText=c.title||lineTitleText;
         lineXLabelText=c.xLabel||lineXLabelText;

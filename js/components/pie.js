@@ -197,7 +197,12 @@
 
     // Save/Open
     function getPayload(){
-      const payload = { type:'pie', data: state.hot.getData(), config: collectConfig() };
+      const payload = {
+        type:'pie',
+        data: state.hot.getData(),
+        exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
+        config: collectConfig()
+      };
       console.debug('Debug: pie.getPayload captured state', {
         rows: payload.data?.length || 0,
         cols: payload.data?.[0]?.length || 0,
@@ -281,6 +286,9 @@
           console.log('loadPieGraph',obj);
           if(obj.type!=='pie') throw new Error('Invalid graph type');
           state.hot.loadData(obj.data||[]);
+          if(obj.exclusions){
+            state.hot.applyExclusions?.(obj.exclusions);
+          }
           const c=obj.config||{};
           state.titleText=c.title||state.titleText;
           $('#pieChartType').value=c.chartType||$('#pieChartType').value;

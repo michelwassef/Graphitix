@@ -82,6 +82,44 @@ html, body {
     font-weight: 600;
 }
 
+.handsontable .hot-cell-excluded {
+    background-color: rgba(220, 53, 69, 0.08) !important;
+    color: #6c757d !important;
+    position: relative;
+}
+
+.handsontable .hot-cell-excluded.hot-cell-excluded-cell {
+    background-image: repeating-linear-gradient(
+        -45deg,
+        rgba(220, 53, 69, 0.25) 0,
+        rgba(220, 53, 69, 0.25) 4px,
+        rgba(220, 53, 69, 0.05) 4px,
+        rgba(220, 53, 69, 0.05) 8px
+    ) !important;
+}
+
+.handsontable .hot-cell-excluded-row {
+    box-shadow: inset 3px 0 0 rgba(220, 53, 69, 0.45);
+}
+
+.handsontable .hot-cell-excluded-column {
+    box-shadow: inset 0 3px 0 rgba(220, 53, 69, 0.45);
+}
+
+.handsontable th.hot-header-excluded,
+.handsontable td.hot-header-excluded {
+    background: linear-gradient(135deg, rgba(220, 53, 69, 0.18), rgba(220, 53, 69, 0.06)) !important;
+    color: #842029 !important;
+}
+
+.handsontable th.hot-row-header-excluded {
+    font-weight: 600 !important;
+}
+
+.handsontable th.hot-column-header-excluded .hot-sort-label {
+    color: #842029 !important;
+}
+
 #appShell {
     min-height: 100vh;
     display: flex;

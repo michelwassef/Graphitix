@@ -4365,20 +4365,38 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     const groupedGroups = isGroupedMode ? state.grouped.groups.map((name, idx)=>{ const trimmed = typeof name === 'string' ? name.trim() : ''; return trimmed || `Group ${idx + 1}`; }) : [];
     const groupedReplicates = isGroupedMode ? Math.max(1, state.grouped.replicatesPerGroup) : 1;
-    const nCols = state.hot.countCols();
+    const analysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
+    const dataMatrix = analysis.data || [];
+    const nCols = analysis.colCount || state.hot.countCols();
+    const nRows = analysis.rowCount || state.hot.countRows?.() || dataMatrix.length;
+    console.debug('Debug: box analysis snapshot',{ nCols, nRows, excludedCols: analysis.excluded?.cols?.length || 0, excludedRows: analysis.excluded?.rows?.length || 0 });
     if(!isGroupedMode){
       if(state.colOrder.length !== nCols){
         state.colOrder = Array.from({ length: nCols }, (_, i) => i);
       }
+      state.colOrder = state.colOrder.filter(index=>index < nCols);
+      if(!state.colOrder.length){
+        state.colOrder = Array.from({ length: nCols }, (_, i) => i);
+      }
       for(let orderIdx = 0; orderIdx < state.colOrder.length; orderIdx++){
         const i = state.colOrder[orderIdx];
-        const headerCell = state.hot.getDataAtCell(0, i);
+        if(i >= nCols){
+          continue;
+        }
+        if(analysis.isColumnExcluded?.(i)){
+          console.debug('Debug: box column skipped due to exclusion',{ column: i });
+          continue;
+        }
+        const headerCell = dataMatrix?.[0]?.[i];
         const label = (headerCell && String(headerCell).trim()) || `Col ${i + 1}`;
-        const colData = state.hot.getDataAtCol(i);
         const col = [];
         console.time(`boxColCollect_${i}_${token}`);
-        for(let r = 1; r < colData.length; r++){
-          const v = parseFloat(colData[r]);
+        for(let r = 1; r < nRows; r++){
+          const rawValue = dataMatrix?.[r]?.[i];
+          if(rawValue === null || typeof rawValue === 'undefined'){
+            continue;
+          }
+          const v = parseFloat(rawValue);
           if(!isNaN(v)) col.push(v);
           if(r % 10000 === 0){
             console.log('boxplot collect progress',{ col: i, row: r, token });
@@ -4408,16 +4426,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             console.debug('Debug: grouped column missing',{ colIndex, gIdx, repIdx, nCols });
             continue;
           }
-          const headerCell = state.hot.getDataAtCell(0, colIndex);
+          if(analysis.isColumnExcluded?.(colIndex)){
+            console.debug('Debug: grouped column excluded',{ colIndex, gIdx, repIdx });
+            continue;
+          }
+          const headerCell = dataMatrix?.[0]?.[colIndex];
           const headerText = headerCell && String(headerCell).trim();
           if(headerText && !categoryName){
             categoryName = headerText;
           }
-          const colData = state.hot.getDataAtCol(colIndex);
           const values = [];
           console.time(`boxColCollect_${colIndex}_${token}`);
-          for(let r = 1; r < colData.length; r++){
-            const v = parseFloat(colData[r]);
+          for(let r = 1; r < nRows; r++){
+            const rawValue = dataMatrix?.[r]?.[colIndex];
+            if(rawValue === null || typeof rawValue === 'undefined'){
+              continue;
+            }
+            const v = parseFloat(rawValue);
             if(!isNaN(v)) values.push(v);
             if(r % 10000 === 0){
               console.log('boxplot collect progress',{ col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
@@ -5572,6 +5597,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       type:'box',
       version:3,
       data: state.hot.getData(),
+      exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
       config: {
         title:state.titleText,
         yLabel:state.yLabelText,
@@ -5695,6 +5721,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         console.debug('Debug: box.loadFromFile version parse',{ version, hasStats:!!obj?.config?.stats, hasEffectOptions:!!obj?.config?.stats?.effectParametric });
         if(obj.type!=='box') throw new Error('Invalid graph type');
         state.hot.loadData(obj.data||[]);
+        if(obj.exclusions){
+          state.hot.applyExclusions?.(obj.exclusions);
+        }
         const c=obj.config||{};
         state.titleText=c.title||state.titleText;
         state.yLabelText=c.yLabel||state.yLabelText;
@@ -5755,7 +5784,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         els.boxYMax.value=c.yMax||'';
         state.flipAxes=!!c.flipAxes;
         if(els.boxFlipAxes){ els.boxFlipAxes.checked=state.flipAxes; }
-        const labels=state.hot.getDataAtRow(0) || [];
+        const statsAnalysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
+        const labels=(statsAnalysis.data?.[0] || []).map(value=>value === null ? '' : value);
         const labelCount=labels.length;
         const statsConfig=c.stats||{};
         state.statsTest=statsConfig.test==='nonparametric'?'nonparametric':'parametric';

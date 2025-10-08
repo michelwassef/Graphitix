@@ -6,6 +6,425 @@
   const hotNS = Shared.hot = Shared.hot || {};
   const MIN_INPUT_COLS = 12;
 
+  const EXCLUSION_SCOPES = Object.freeze({
+    CELL: 'cell',
+    ROW: 'row',
+    COLUMN: 'column'
+  });
+
+  const noop = ()=>{};
+
+  const appendClassName = (existing, cls)=>{
+    if(!cls){
+      return existing || '';
+    }
+    if(!existing){
+      return cls;
+    }
+    const parts = new Set(String(existing).split(/\s+/).filter(Boolean));
+    parts.add(cls);
+    return Array.from(parts).join(' ');
+  };
+
+  const appendTitle = (existing, addition)=>{
+    if(!addition){
+      return existing || '';
+    }
+    if(!existing){
+      return addition;
+    }
+    if(String(existing).includes(addition)){
+      return existing;
+    }
+    return `${existing}\n${addition}`;
+  };
+
+  const toNumber = (value)=>{
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  };
+
+  const parseCellKey = (key)=>{
+    if(typeof key !== 'string'){
+      return { row: null, col: null };
+    }
+    const parts = key.split(':');
+    if(parts.length !== 2){
+      return { row: null, col: null };
+    }
+    return { row: Number(parts[0]), col: Number(parts[1]) };
+  };
+
+  function createExclusionController(instanceAccessor, debugLabel, scheduleChange){
+    const rows = new Set();
+    const cols = new Set();
+    const cells = new Set();
+
+    const getInstance = ()=>{
+      const inst = typeof instanceAccessor === 'function' ? instanceAccessor() : null;
+      return inst || null;
+    };
+
+    const schedule = (scope, payload)=>{
+      if(typeof scheduleChange === 'function'){
+        try{
+          scheduleChange(scope, payload || {});
+        }catch(err){
+          console.error('Shared.hot exclusion schedule error', err);
+        }
+      }
+    };
+
+    const render = ()=>{
+      const inst = getInstance();
+      if(inst && typeof inst.render === 'function'){
+        try{
+          inst.render();
+        }catch(err){
+          console.error('Shared.hot exclusion render error', err);
+        }
+      }
+    };
+
+    const cellKey = (row, col)=>`${row}:${col}`;
+
+    const normalizeIndex = (index)=>{
+      const value = Number(index);
+      return Number.isInteger(value) && value >= 0 ? value : null;
+    };
+
+    const exportCells = ()=>Array.from(cells).map(key=>{
+      const { row, col } = parseCellKey(key);
+      return [row, col];
+    }).filter(pair=>pair.every(num=>Number.isInteger(num) && num >= 0));
+
+    const updateSetBulk = (set, indices, exclude)=>{
+      let changed = false;
+      indices.forEach(idx=>{
+        const normalized = normalizeIndex(idx);
+        if(normalized === null){
+          return;
+        }
+        if(exclude){
+          if(!set.has(normalized)){
+            set.add(normalized);
+            changed = true;
+          }
+        }else if(set.delete(normalized)){
+          changed = true;
+        }
+      });
+      return changed;
+    };
+
+    const updateCellsBulk = (pairs, exclude)=>{
+      let changed = false;
+      pairs.forEach(pair=>{
+        if(!pair){
+          return;
+        }
+        const row = normalizeIndex(pair.row ?? pair[0]);
+        const col = normalizeIndex(pair.col ?? pair[1]);
+        if(row === null || col === null){
+          return;
+        }
+        const key = cellKey(row, col);
+        if(exclude){
+          if(!cells.has(key)){
+            cells.add(key);
+            changed = true;
+          }
+        }else if(cells.delete(key)){
+          changed = true;
+        }
+      });
+      return changed;
+    };
+
+    const shiftSetForInsert = (set, index, amount)=>{
+      if(!set.size || amount <= 0){
+        return false;
+      }
+      const updated = new Set();
+      let changed = false;
+      set.forEach(value=>{
+        if(value >= index){
+          updated.add(value + amount);
+          if(value + amount !== value){
+            changed = true;
+          }
+        }else{
+          updated.add(value);
+        }
+      });
+      if(changed){
+        set.clear();
+        updated.forEach(v=>set.add(v));
+      }
+      return changed;
+    };
+
+    const shiftSetForRemoval = (set, removedIndices)=>{
+      if(!set.size || !Array.isArray(removedIndices) || !removedIndices.length){
+        return false;
+      }
+      const sorted = removedIndices.slice().map(toNumber).filter(num=>Number.isInteger(num) && num >= 0).sort((a,b)=>a-b);
+      if(!sorted.length){
+        return false;
+      }
+      const updated = new Set();
+      let changed = false;
+      set.forEach(value=>{
+        let removed = false;
+        let shift = 0;
+        for(let i = 0; i < sorted.length; i++){
+          const removedIdx = sorted[i];
+          if(removedIdx === value){
+            removed = true;
+            changed = true;
+            break;
+          }
+          if(removedIdx < value){
+            shift += 1;
+          }
+        }
+        if(!removed){
+          const newValue = value - shift;
+          if(newValue !== value){
+            changed = true;
+          }
+          updated.add(newValue);
+        }
+      });
+      if(changed){
+        set.clear();
+        updated.forEach(v=>set.add(v));
+      }
+      return changed;
+    };
+
+    const shiftCellsForInsert = (index, amount, axis)=>{
+      if(!cells.size || amount <= 0){
+        return false;
+      }
+      const updated = new Set();
+      let changed = false;
+      cells.forEach(key=>{
+        const { row, col } = parseCellKey(key);
+        if(!Number.isInteger(row) || !Number.isInteger(col)){
+          return;
+        }
+        let nextRow = row;
+        let nextCol = col;
+        if(axis === 'row' && row >= index){
+          nextRow = row + amount;
+        }
+        if(axis === 'col' && col >= index){
+          nextCol = col + amount;
+        }
+        if(nextRow !== row || nextCol !== col){
+          changed = true;
+        }
+        updated.add(cellKey(nextRow, nextCol));
+      });
+      if(changed){
+        cells.clear();
+        updated.forEach(key=>cells.add(key));
+      }
+      return changed;
+    };
+
+    const shiftCellsForRemoval = (removedIndices, axis)=>{
+      if(!cells.size || !Array.isArray(removedIndices) || !removedIndices.length){
+        return false;
+      }
+      const sorted = removedIndices.slice().map(toNumber).filter(num=>Number.isInteger(num) && num >= 0).sort((a,b)=>a-b);
+      if(!sorted.length){
+        return false;
+      }
+      const updated = new Set();
+      let changed = false;
+      cells.forEach(key=>{
+        const { row, col } = parseCellKey(key);
+        if(!Number.isInteger(row) || !Number.isInteger(col)){
+          return;
+        }
+        let nextRow = row;
+        let nextCol = col;
+        let removed = false;
+        if(axis === 'row'){
+          let shift = 0;
+          for(let i = 0; i < sorted.length; i++){
+            const removedIdx = sorted[i];
+            if(removedIdx === row){
+              removed = true;
+              changed = true;
+              break;
+            }
+            if(removedIdx < row){
+              shift += 1;
+            }
+          }
+          if(!removed){
+            nextRow = row - shift;
+            if(nextRow !== row){
+              changed = true;
+            }
+          }
+        }else if(axis === 'col'){
+          let shift = 0;
+          for(let i = 0; i < sorted.length; i++){
+            const removedIdx = sorted[i];
+            if(removedIdx === col){
+              removed = true;
+              changed = true;
+              break;
+            }
+            if(removedIdx < col){
+              shift += 1;
+            }
+          }
+          if(!removed){
+            nextCol = col - shift;
+            if(nextCol !== col){
+              changed = true;
+            }
+          }
+        }
+        if(!removed){
+          updated.add(cellKey(nextRow, nextCol));
+        }
+      });
+      if(changed){
+        cells.clear();
+        updated.forEach(key=>cells.add(key));
+      }
+      return changed;
+    };
+
+    const controller = {
+      markRows(indices, exclude){
+        const changed = updateSetBulk(rows, indices, exclude);
+        if(changed){
+          console.debug('Debug: hot exclusion rows updated', { debugLabel, exclude, rows: Array.from(rows) });
+          render();
+          schedule(EXCLUSION_SCOPES.ROW, { exclude, indices: Array.from(indices || []) });
+        }
+      },
+      markColumns(indices, exclude){
+        const changed = updateSetBulk(cols, indices, exclude);
+        if(changed){
+          console.debug('Debug: hot exclusion columns updated', { debugLabel, exclude, cols: Array.from(cols) });
+          render();
+          schedule(EXCLUSION_SCOPES.COLUMN, { exclude, indices: Array.from(indices || []) });
+        }
+      },
+      markCells(pairs, exclude){
+        const changed = updateCellsBulk(pairs, exclude);
+        if(changed){
+          console.debug('Debug: hot exclusion cells updated', { debugLabel, exclude, cells: exportCells() });
+          render();
+          schedule(EXCLUSION_SCOPES.CELL, { exclude, pairs: exportCells() });
+        }
+      },
+      isRowExcluded(physicalRow){
+        const idx = normalizeIndex(physicalRow);
+        return idx !== null && rows.has(idx);
+      },
+      isColumnExcluded(physicalCol){
+        const idx = normalizeIndex(physicalCol);
+        return idx !== null && cols.has(idx);
+      },
+      isCellExcluded(physicalRow, physicalCol){
+        const rowIdx = normalizeIndex(physicalRow);
+        const colIdx = normalizeIndex(physicalCol);
+        if(rowIdx === null || colIdx === null){
+          return false;
+        }
+        if(rows.has(rowIdx) || cols.has(colIdx)){
+          return true;
+        }
+        return cells.has(cellKey(rowIdx, colIdx));
+      },
+      resolveCellState(physicalRow, physicalCol){
+        const rowIdx = normalizeIndex(physicalRow);
+        const colIdx = normalizeIndex(physicalCol);
+        const fromRow = rowIdx !== null && rows.has(rowIdx);
+        const fromCol = colIdx !== null && cols.has(colIdx);
+        const fromCell = rowIdx !== null && colIdx !== null && cells.has(cellKey(rowIdx, colIdx));
+        return { excluded: fromRow || fromCol || fromCell, fromRow, fromCol, fromCell };
+      },
+      clearAll(silent){
+        const had = rows.size || cols.size || cells.size;
+        if(had){
+          rows.clear();
+          cols.clear();
+          cells.clear();
+          console.debug('Debug: hot exclusion cleared', { debugLabel });
+          render();
+          if(!silent){
+            schedule('clear', {});
+          }
+        }
+      },
+      exportState(){
+        return {
+          rows: Array.from(rows),
+          cols: Array.from(cols),
+          cells: exportCells()
+        };
+      },
+      importState(payload){
+        const nextRows = Array.isArray(payload?.rows) ? payload.rows : [];
+        const nextCols = Array.isArray(payload?.cols) ? payload.cols : [];
+        const nextCells = Array.isArray(payload?.cells) ? payload.cells : [];
+        rows.clear();
+        cols.clear();
+        cells.clear();
+        updateSetBulk(rows, nextRows, true);
+        updateSetBulk(cols, nextCols, true);
+        updateCellsBulk(nextCells.map(pair=>({ row: pair?.row ?? pair?.[0], col: pair?.col ?? pair?.[1] })), true);
+        console.debug('Debug: hot exclusion imported', { debugLabel, rows: Array.from(rows), cols: Array.from(cols), cells: exportCells() });
+        render();
+        schedule('import', {});
+      },
+      shiftRowsForInsert(index, amount){
+        const changedRows = shiftSetForInsert(rows, index, amount);
+        const changedCells = shiftCellsForInsert(index, amount, 'row');
+        if(changedRows || changedCells){
+          console.debug('Debug: hot exclusion rows shifted for insert', { debugLabel, index, amount, rows: Array.from(rows) });
+          render();
+        }
+      },
+      shiftRowsForRemoval(physicalRows){
+        const changedRows = shiftSetForRemoval(rows, physicalRows);
+        const changedCells = shiftCellsForRemoval(physicalRows, 'row');
+        if(changedRows || changedCells){
+          console.debug('Debug: hot exclusion rows shifted for removal', { debugLabel, physicalRows, rows: Array.from(rows) });
+          render();
+        }
+      },
+      shiftColsForInsert(index, amount){
+        const changedCols = shiftSetForInsert(cols, index, amount);
+        const changedCells = shiftCellsForInsert(index, amount, 'col');
+        if(changedCols || changedCells){
+          console.debug('Debug: hot exclusion cols shifted for insert', { debugLabel, index, amount, cols: Array.from(cols) });
+          render();
+        }
+      },
+      shiftColsForRemoval(physicalCols){
+        const changedCols = shiftSetForRemoval(cols, physicalCols);
+        const changedCells = shiftCellsForRemoval(physicalCols, 'col');
+        if(changedCols || changedCells){
+          console.debug('Debug: hot exclusion cols shifted for removal', { debugLabel, physicalCols, cols: Array.from(cols) });
+          render();
+        }
+      }
+    };
+
+    return controller;
+  }
+
   function ensureHotWrapperStyles(wrapper){
     if(!wrapper){
       console.debug('Debug: ensureHotWrapperStyles skipped - no wrapper');
@@ -52,6 +471,7 @@
     const firstRowRenderer = overrides?.firstRowRenderer;
     const applyCellMeta = overrides?.applyCellMeta;
     const hotOptions = overrides?.hotOptions || {};
+    const preserveExclusionsOnLoad = overrides?.preserveExclusionsOnLoad === true;
     const {
       rowHeaders: userRowHeaders,
       cells: userCells,
@@ -63,6 +483,7 @@
       afterUndo: userAfterUndo,
       afterRedo: userAfterRedo,
       afterColumnMove: userAfterColumnMove,
+      afterLoadData: userAfterLoadData,
       afterSelectionEnd: userAfterSelectionEnd,
       afterScrollVertically: userAfterScrollVertically,
       afterScrollHorizontally: userAfterScrollHorizontally,
@@ -70,6 +491,7 @@
       beforeColumnSort: userBeforeColumnSort,
       afterColumnSort: userAfterColumnSort,
       afterGetColHeader: userAfterGetColHeader,
+      afterGetRowHeader: userAfterGetRowHeader,
       afterContextMenuDefaultOptions: userAfterContextMenuDefaultOptions,
       columnSorting: userColumnSorting,
       ...otherHotOptions
@@ -117,6 +539,8 @@
     }
     console.debug('Debug: createStandardTable column enforcement', { debugLabel, requestedColCount, effectiveColCount: colCount }); // Debug: column enforcement trace
 
+    let instance = null;
+
     const triggerSchedule = (reason, payload)=>{
       if(!scheduleFn){
         console.debug('Debug: Shared.hot schedule skipped', { debugLabel, reason });
@@ -127,6 +551,10 @@
     };
 
     console.debug('Debug: Shared.hot firstRowMode', { debugLabel, firstRowIsHeader: treatFirstRowAsHeader }); // Debug: header mode flag
+
+    const exclusionController = createExclusionController(()=>instance, debugLabel, (scope, payload)=>{
+      triggerSchedule('exclusionChanged', Object.assign({ scope }, payload || {}));
+    });
 
     const rowHeaders = function(index){
       const defaultLabel = treatFirstRowAsHeader ? (index === 0 ? '' : index) : (index + 1);
@@ -176,6 +604,30 @@
         }catch(err){
           console.error('Shared.hot.applyCellMeta error', err);
         }
+      }
+      const inst = this || instance;
+      const toPhysicalRow = typeof inst?.toPhysicalRow === 'function' ? inst.toPhysicalRow.bind(inst) : null;
+      const toPhysicalCol = typeof inst?.toPhysicalColumn === 'function' ? inst.toPhysicalColumn.bind(inst) : null;
+      const physicalRow = toPhysicalRow ? toPhysicalRow(row) : row;
+      const physicalCol = toPhysicalCol ? toPhysicalCol(col) : col;
+      const cellState = exclusionController.resolveCellState(physicalRow, physicalCol);
+      if(cellState.excluded){
+        const titleParts = [];
+        props.className = appendClassName(props.className, 'hot-cell-excluded');
+        if(cellState.fromRow){
+          props.className = appendClassName(props.className, 'hot-cell-excluded-row');
+          titleParts.push('row');
+        }
+        if(cellState.fromCol){
+          props.className = appendClassName(props.className, 'hot-cell-excluded-column');
+          titleParts.push('column');
+        }
+        if(cellState.fromCell){
+          props.className = appendClassName(props.className, 'hot-cell-excluded-cell');
+          titleParts.push('cell');
+        }
+        const titleSuffix = titleParts.length ? ` (${titleParts.join(', ')})` : '';
+        props.title = appendTitle(props.title, `Excluded from analysis${titleSuffix}`);
       }
       return props;
     };
@@ -327,8 +779,6 @@
     let currentSortState = sanitizeSortConfigs(userColumnSorting?.initialConfig || []);
     let manualSortInProgress = false;
     let baseOrderSnapshot = null;
-
-    let instance = null;
 
     // === Global undo support (from codex branch) ===
     const undoManager = Shared.undoManager || null;
@@ -1252,7 +1702,34 @@
         descNode.setAttribute('aria-pressed', descActive ? 'true' : 'false');
         descNode.setAttribute('aria-label', `${headerLabel} descending sort${descActive ? ' (active)' : ''}`);
       }
+      const physicalCol = typeof instance?.toPhysicalColumn === 'function' ? instance.toPhysicalColumn(col) : col;
+      const colExcluded = exclusionController.isColumnExcluded(physicalCol);
+      if(colExcluded){
+        TH.classList.add('hot-header-excluded');
+        TH.classList.add('hot-column-header-excluded');
+        TH.title = appendTitle(TH.title || TH.getAttribute('title') || '', 'Excluded from analysis (column)');
+      }else{
+        TH.classList.remove('hot-header-excluded');
+        TH.classList.remove('hot-column-header-excluded');
+      }
       console.debug('Debug: Shared.hot afterGetColHeaderBase applied', { debugLabel, column: col, order, headerLabel });
+    };
+
+    const afterGetRowHeaderBase = function(row, TH){
+      if(!TH || typeof row !== 'number' || row < 0){
+        return;
+      }
+      const physicalRow = typeof instance?.toPhysicalRow === 'function' ? instance.toPhysicalRow(row) : row;
+      const rowExcluded = exclusionController.isRowExcluded(physicalRow);
+      if(rowExcluded){
+        TH.classList.add('hot-header-excluded');
+        TH.classList.add('hot-row-header-excluded');
+        TH.title = appendTitle(TH.title || TH.getAttribute('title') || '', 'Excluded from analysis (row)');
+      }else{
+        TH.classList.remove('hot-header-excluded');
+        TH.classList.remove('hot-row-header-excluded');
+      }
+      console.debug('Debug: Shared.hot afterGetRowHeaderBase applied', { debugLabel, row, rowExcluded });
     };
 
     const afterChangeBase = function(changes, source){
@@ -1269,24 +1746,32 @@
       triggerSchedule('afterChange', { count: changes.length, source });
     };
     const afterCreateRowBase = function(index, amount, source){
+      exclusionController.shiftRowsForInsert(index, amount);
       if(hasGlobalUndo && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
         queueUndoRegistration('createRow', { index, amount, source });
       }
       triggerSchedule('afterCreateRow');
     };
     const afterCreateColBase = function(index, amount, source){
+      exclusionController.shiftColsForInsert(index, amount);
       if(hasGlobalUndo && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
         queueUndoRegistration('createCol', { index, amount, source });
       }
       triggerSchedule('afterCreateCol');
     };
     const afterRemoveRowBase = function(index, amount, physicalRows, source){
+      if(Array.isArray(physicalRows)){
+        exclusionController.shiftRowsForRemoval(physicalRows);
+      }
       if(hasGlobalUndo && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
         queueUndoRegistration('removeRow', { index, amount, physicalRows, source });
       }
       triggerSchedule('afterRemoveRow');
     };
     const afterRemoveColBase = function(index, amount, physicalColumns, source){
+      if(Array.isArray(physicalColumns)){
+        exclusionController.shiftColsForRemoval(physicalColumns);
+      }
       if(hasGlobalUndo && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
         queueUndoRegistration('removeCol', { index, amount, physicalColumns, source });
       }
@@ -1313,32 +1798,241 @@
       triggerSchedule('afterPaste', { dataLength: Array.isArray(data) ? data.length : 0, coords });
     };
 
+    const afterLoadDataBase = function(_sourceData, initialLoad){
+      if(!preserveExclusionsOnLoad && !initialLoad){
+        exclusionController.clearAll(true);
+        console.debug('Debug: Shared.hot afterLoadData cleared exclusions', { debugLabel });
+      }
+      if(scheduleOnLoadData || !initialLoad){
+        triggerSchedule('afterLoadData');
+      }
+    };
+
+    const collectSelectionDetails = ()=>{
+      const inst = instance;
+      if(!inst || typeof inst.getSelectedRangeLast !== 'function'){
+        console.debug('Debug: Shared.hot collectSelectionDetails missing instance or selection', { debugLabel });
+        return null;
+      }
+      const selection = inst.getSelectedRangeLast();
+      if(!selection){
+        console.debug('Debug: Shared.hot collectSelectionDetails no selection', { debugLabel });
+        return null;
+      }
+      const from = selection.from || selection.highlight || selection.start || selection;
+      const to = selection.to || selection.end || selection;
+      if(!from || !to){
+        console.debug('Debug: Shared.hot collectSelectionDetails invalid selection object', { debugLabel });
+        return null;
+      }
+      const rowStart = Math.min(from.row, to.row);
+      const rowEnd = Math.max(from.row, to.row);
+      const colStart = Math.min(from.col, to.col);
+      const colEnd = Math.max(from.col, to.col);
+      const visualRows = [];
+      const visualCols = [];
+      const physicalRows = new Set();
+      const physicalCols = new Set();
+      const physicalPairs = [];
+      let hasExcluded = false;
+      let hasIncluded = false;
+      for(let row = rowStart; row <= rowEnd; row++){
+        visualRows.push(row);
+        const physicalRow = typeof inst.toPhysicalRow === 'function' ? inst.toPhysicalRow(row) : row;
+        if(Number.isInteger(physicalRow) && physicalRow >= 0){
+          physicalRows.add(physicalRow);
+        }
+      }
+      for(let col = colStart; col <= colEnd; col++){
+        visualCols.push(col);
+        const physicalCol = typeof inst.toPhysicalColumn === 'function' ? inst.toPhysicalColumn(col) : col;
+        if(Number.isInteger(physicalCol) && physicalCol >= 0){
+          physicalCols.add(physicalCol);
+        }
+      }
+      for(let row = rowStart; row <= rowEnd; row++){
+        const physicalRow = typeof inst.toPhysicalRow === 'function' ? inst.toPhysicalRow(row) : row;
+        if(!Number.isInteger(physicalRow) || physicalRow < 0){
+          continue;
+        }
+        for(let col = colStart; col <= colEnd; col++){
+          const physicalCol = typeof inst.toPhysicalColumn === 'function' ? inst.toPhysicalColumn(col) : col;
+          if(!Number.isInteger(physicalCol) || physicalCol < 0){
+            continue;
+          }
+          const state = exclusionController.resolveCellState(physicalRow, physicalCol);
+          if(state.excluded){
+            hasExcluded = true;
+          }else{
+            hasIncluded = true;
+          }
+          physicalPairs.push({ row: physicalRow, col: physicalCol, state });
+        }
+      }
+      const physicalRowList = Array.from(physicalRows);
+      const physicalColList = Array.from(physicalCols);
+      const allRowsExcluded = physicalRowList.length > 0 && physicalRowList.every(row=>exclusionController.isRowExcluded(row));
+      const allColsExcluded = physicalColList.length > 0 && physicalColList.every(col=>exclusionController.isColumnExcluded(col));
+      const anyRowExcluded = physicalRowList.some(row=>exclusionController.isRowExcluded(row));
+      const anyColExcluded = physicalColList.some(col=>exclusionController.isColumnExcluded(col));
+      const result = {
+        visualRows,
+        visualCols,
+        physicalRows: physicalRowList,
+        physicalCols: physicalColList,
+        physicalPairs,
+        hasExcluded,
+        hasIncluded,
+        allRowsExcluded,
+        allColsExcluded,
+        anyRowExcluded,
+        anyColExcluded
+      };
+      console.debug('Debug: Shared.hot selection details collected', Object.assign({ debugLabel }, result));
+      return result;
+    };
+
+    const toggleSelectionCells = (exclude)=>{
+      const details = collectSelectionDetails();
+      if(!details || !details.physicalPairs.length){
+        console.debug('Debug: Shared.hot toggleSelectionCells skipped', { debugLabel, exclude });
+        return;
+      }
+      const targets = details.physicalPairs.map(pair=>({ row: pair.row, col: pair.col }));
+      exclusionController.markCells(targets, exclude);
+    };
+
+    const toggleSelectionRows = (exclude)=>{
+      const details = collectSelectionDetails();
+      if(!details || !details.physicalRows.length){
+        console.debug('Debug: Shared.hot toggleSelectionRows skipped', { debugLabel, exclude });
+        return;
+      }
+      exclusionController.markRows(details.physicalRows, exclude);
+    };
+
+    const toggleSelectionCols = (exclude)=>{
+      const details = collectSelectionDetails();
+      if(!details || !details.physicalCols.length){
+        console.debug('Debug: Shared.hot toggleSelectionCols skipped', { debugLabel, exclude });
+        return;
+      }
+      exclusionController.markColumns(details.physicalCols, exclude);
+    };
+
     const afterContextMenuDefaultOptionsBase = function(defaultOptions){
       const items = defaultOptions?.items || defaultOptions;
       if(!items || typeof items !== 'object'){
         console.debug('Debug: Shared.hot context menu injection skipped', { debugLabel, hasItems: !!items });
         return;
       }
-      if(items.paste_transpose){
-        console.debug('Debug: Shared.hot context menu already contains transpose', { debugLabel });
-        return;
-      }
       const hasNavigatorClipboard = typeof navigator !== 'undefined' && !!(navigator?.clipboard && typeof navigator.clipboard.readText === 'function'); // eslint-disable-line no-undef
-      items.paste_transpose = {
-        name: 'Paste → Transposed',
-        callback(){
-          requestTransposePaste();
-        },
-        disabled(){
-          const selection = instance?.getSelectedRangeLast?.() || null;
-          const validSelection = !!selection;
-          const hasClipboardData = hasNavigatorClipboard || !!clipboardCache;
-          const disabledState = !(validSelection && hasClipboardData);
-          console.debug('Debug: Shared.hot transpose disabled check', { debugLabel, validSelection, hasClipboardData, disabled: disabledState });
-          return disabledState;
-        }
-      };
-      console.debug('Debug: Shared.hot context menu transpose injected', { debugLabel });
+      if(!items.paste_transpose){
+        items.paste_transpose = {
+          name: 'Paste → Transposed',
+          callback(){
+            requestTransposePaste();
+          },
+          disabled(){
+            const selection = instance?.getSelectedRangeLast?.() || null;
+            const validSelection = !!selection;
+            const hasClipboardData = hasNavigatorClipboard || !!clipboardCache;
+            const disabledState = !(validSelection && hasClipboardData);
+            console.debug('Debug: Shared.hot transpose disabled check', { debugLabel, validSelection, hasClipboardData, disabled: disabledState });
+            return disabledState;
+          }
+        };
+        console.debug('Debug: Shared.hot context menu transpose injected', { debugLabel });
+      }
+      const separatorKey = 'exclusion_separator';
+      const separatorValue = Handsontable?.plugins?.ContextMenu?.SEPARATOR || '---------';
+      if(!items[separatorKey]){
+        items[separatorKey] = separatorValue;
+      }
+      if(!items.exclude_selection_analysis){
+        items.exclude_selection_analysis = {
+          name: 'Exclude selection from analysis',
+          callback(){
+            toggleSelectionCells(true);
+          },
+          disabled(){
+            const info = collectSelectionDetails();
+            const disabledState = !(info && info.hasIncluded);
+            console.debug('Debug: Shared.hot exclude selection disabled check', { debugLabel, disabled: disabledState, hasInfo: !!info });
+            return disabledState;
+          }
+        };
+      }
+      if(!items.include_selection_analysis){
+        items.include_selection_analysis = {
+          name: 'Include selection in analysis',
+          callback(){
+            toggleSelectionCells(false);
+          },
+          disabled(){
+            const info = collectSelectionDetails();
+            const disabledState = !(info && info.hasExcluded);
+            console.debug('Debug: Shared.hot include selection disabled check', { debugLabel, disabled: disabledState, hasInfo: !!info });
+            return disabledState;
+          }
+        };
+      }
+      if(!items.exclude_rows_analysis){
+        items.exclude_rows_analysis = {
+          name: 'Exclude row(s) from analysis',
+          callback(){
+            toggleSelectionRows(true);
+          },
+          disabled(){
+            const info = collectSelectionDetails();
+            const disabledState = !(info && info.physicalRows.length && info.physicalRows.some(row=>!exclusionController.isRowExcluded(row)));
+            console.debug('Debug: Shared.hot exclude rows disabled check', { debugLabel, disabled: disabledState, rows: info?.physicalRows || [] });
+            return disabledState;
+          }
+        };
+      }
+      if(!items.include_rows_analysis){
+        items.include_rows_analysis = {
+          name: 'Include row(s) in analysis',
+          callback(){
+            toggleSelectionRows(false);
+          },
+          disabled(){
+            const info = collectSelectionDetails();
+            const disabledState = !(info && info.physicalRows.length && info.physicalRows.some(row=>exclusionController.isRowExcluded(row)));
+            console.debug('Debug: Shared.hot include rows disabled check', { debugLabel, disabled: disabledState, rows: info?.physicalRows || [] });
+            return disabledState;
+          }
+        };
+      }
+      if(!items.exclude_columns_analysis){
+        items.exclude_columns_analysis = {
+          name: 'Exclude column(s) from analysis',
+          callback(){
+            toggleSelectionCols(true);
+          },
+          disabled(){
+            const info = collectSelectionDetails();
+            const disabledState = !(info && info.physicalCols.length && info.physicalCols.some(col=>!exclusionController.isColumnExcluded(col)));
+            console.debug('Debug: Shared.hot exclude columns disabled check', { debugLabel, disabled: disabledState, cols: info?.physicalCols || [] });
+            return disabledState;
+          }
+        };
+      }
+      if(!items.include_columns_analysis){
+        items.include_columns_analysis = {
+          name: 'Include column(s) in analysis',
+          callback(){
+            toggleSelectionCols(false);
+          },
+          disabled(){
+            const info = collectSelectionDetails();
+            const disabledState = !(info && info.physicalCols.length && info.physicalCols.some(col=>exclusionController.isColumnExcluded(col)));
+            console.debug('Debug: Shared.hot include columns disabled check', { debugLabel, disabled: disabledState, cols: info?.physicalCols || [] });
+            return disabledState;
+          }
+        };
+      }
     };
 
     const options = Object.assign({
@@ -1361,6 +2055,7 @@
       afterUndo: wrapHook('afterUndo', userAfterUndo, afterUndoBase),
       afterRedo: wrapHook('afterRedo', userAfterRedo, afterRedoBase),
       afterColumnMove: wrapHook('afterColumnMove', userAfterColumnMove, afterColumnMoveBase),
+      afterLoadData: wrapHook('afterLoadData', userAfterLoadData, afterLoadDataBase),
       afterSelectionEnd: wrapHook('afterSelectionEnd', userAfterSelectionEnd, afterSelectionEndBase),
       afterScrollVertically: wrapHook('afterScrollVertically', userAfterScrollVertically, afterScrollVerticallyBase),
       afterScrollHorizontally: wrapHook('afterScrollHorizontally', userAfterScrollHorizontally, afterScrollHorizontallyBase),
@@ -1368,6 +2063,7 @@
       beforeColumnSort: wrapHook('beforeColumnSort', userBeforeColumnSort, beforeColumnSortBase),
       afterColumnSort: wrapHook('afterColumnSort', userAfterColumnSort, afterColumnSortBase),
       afterGetColHeader: wrapHook('afterGetColHeader', userAfterGetColHeader, afterGetColHeaderBase),
+      afterGetRowHeader: wrapHook('afterGetRowHeader', userAfterGetRowHeader, afterGetRowHeaderBase),
       afterContextMenuDefaultOptions: wrapHook('afterContextMenuDefaultOptions', userAfterContextMenuDefaultOptions, afterContextMenuDefaultOptionsBase)
     });
 
@@ -1377,6 +2073,60 @@
     attachScrollHandler();
     scheduleRowGrowth('init');
     scheduleColGrowth('init');
+    instance.__hotDebugLabel = debugLabel;
+    instance.__hotExclusionController = exclusionController;
+    instance.getAnalysisData = function(options){
+      return hotNS.getAnalysisData(instance, options);
+    };
+    instance.exportExclusions = function(){
+      return hotNS.exportExclusions(instance);
+    };
+    instance.applyExclusions = function(payload){
+      return hotNS.applyExclusions(instance, payload);
+    };
+    instance.clearExclusions = function(){
+      return hotNS.clearExclusions(instance);
+    };
+    const originalGetDataAtCell = typeof instance.getDataAtCell === 'function' ? instance.getDataAtCell.bind(instance) : null;
+    if(originalGetDataAtCell){
+      instance.getDataAtCell = function(row, col){
+        const value = originalGetDataAtCell(row, col);
+        const physicalRow = toPhysicalRow(instance, row);
+        const physicalCol = toPhysicalColumn(instance, col);
+        return exclusionController.isCellExcluded(physicalRow, physicalCol) ? null : value;
+      };
+    }
+    const originalGetDataAtRow = typeof instance.getDataAtRow === 'function' ? instance.getDataAtRow.bind(instance) : null;
+    if(originalGetDataAtRow){
+      instance.getDataAtRow = function(row){
+        const raw = originalGetDataAtRow(row) || [];
+        const physicalRow = toPhysicalRow(instance, row);
+        if(physicalRow === null){
+          return raw;
+        }
+        return raw.map((value, colIndex)=>{
+          const physicalCol = toPhysicalColumn(instance, colIndex);
+          return exclusionController.isCellExcluded(physicalRow, physicalCol) ? null : value;
+        });
+      };
+    }
+    const originalGetDataAtCol = typeof instance.getDataAtCol === 'function' ? instance.getDataAtCol.bind(instance) : null;
+    if(originalGetDataAtCol){
+      instance.getDataAtCol = function(col){
+        const raw = originalGetDataAtCol(col) || [];
+        const physicalCol = toPhysicalColumn(instance, col);
+        if(physicalCol === null){
+          return raw;
+        }
+        return raw.map((value, rowIndex)=>{
+          const physicalRow = toPhysicalRow(instance, rowIndex);
+          return exclusionController.isCellExcluded(physicalRow, physicalCol) ? null : value;
+        });
+      };
+    }
+    if(overrides?.exclusions){
+      exclusionController.importState(overrides.exclusions);
+    }
     console.debug('Debug: createStandardTable created', { debugLabel });
     if(typeof overrides?.onCreate === 'function'){
       try{
@@ -1388,10 +2138,274 @@
     return instance;
   }
 
+  const resolveInstance = (instance)=>{
+    if(instance && typeof instance.countRows === 'function' && typeof instance.countCols === 'function'){
+      return instance;
+    }
+    return null;
+  };
+
+  const getInstanceDebugLabel = (instance)=>{
+    if(!instance){
+      return 'hot';
+    }
+    return instance.__hotDebugLabel || instance.rootElement?.id || 'hot';
+  };
+
+  const getControllerFromInstance = (instance)=>{
+    const inst = resolveInstance(instance);
+    if(!inst){
+      return null;
+    }
+    const controller = inst.__hotExclusionController || null;
+    if(!controller){
+      console.debug('Debug: Shared.hot controller missing', { debugLabel: getInstanceDebugLabel(inst) });
+    }
+    return controller;
+  };
+
+  const normalizeSelectionIndex = (value)=>{
+    const num = Number(value);
+    return Number.isInteger(num) && num >= 0 ? num : null;
+  };
+
+  const toPhysicalRow = (instance, visualRow)=>{
+    const inst = resolveInstance(instance);
+    if(!inst){
+      return null;
+    }
+    if(typeof inst.toPhysicalRow === 'function'){
+      const physical = inst.toPhysicalRow(visualRow);
+      if(Number.isInteger(physical) && physical >= 0){
+        return physical;
+      }
+    }
+    return normalizeSelectionIndex(visualRow);
+  };
+
+  const toPhysicalColumn = (instance, visualCol)=>{
+    const inst = resolveInstance(instance);
+    if(!inst){
+      return null;
+    }
+    if(typeof inst.toPhysicalColumn === 'function'){
+      const physical = inst.toPhysicalColumn(visualCol);
+      if(Number.isInteger(physical) && physical >= 0){
+        return physical;
+      }
+    }
+    return normalizeSelectionIndex(visualCol);
+  };
+
+  const EMPTY_EXCLUSION_STATE = Object.freeze({ rows: [], cols: [], cells: [] });
+
+  function exportExclusions(instance){
+    const inst = resolveInstance(instance);
+    const controller = getControllerFromInstance(inst);
+    if(!controller){
+      return EMPTY_EXCLUSION_STATE;
+    }
+    const state = controller.exportState();
+    console.debug('Debug: Shared.hot exportExclusions', { debugLabel: getInstanceDebugLabel(inst), state });
+    return state;
+  }
+
+  function applyExclusions(instance, payload){
+    const inst = resolveInstance(instance);
+    const controller = getControllerFromInstance(inst);
+    if(!controller){
+      return EMPTY_EXCLUSION_STATE;
+    }
+    controller.importState(payload || {});
+    return controller.exportState();
+  }
+
+  function clearExclusions(instance){
+    const inst = resolveInstance(instance);
+    const controller = getControllerFromInstance(inst);
+    if(!controller){
+      return false;
+    }
+    controller.clearAll();
+    return true;
+  }
+
+  function isRowExcluded(instance, row, options){
+    const inst = resolveInstance(instance);
+    const controller = getControllerFromInstance(inst);
+    if(!controller){
+      return false;
+    }
+    const usePhysical = options?.mode === 'physical';
+    const physicalRow = usePhysical ? normalizeSelectionIndex(row) : toPhysicalRow(inst, row);
+    return physicalRow !== null ? controller.isRowExcluded(physicalRow) : false;
+  }
+
+  function isColumnExcluded(instance, col, options){
+    const inst = resolveInstance(instance);
+    const controller = getControllerFromInstance(inst);
+    if(!controller){
+      return false;
+    }
+    const usePhysical = options?.mode === 'physical';
+    const physicalCol = usePhysical ? normalizeSelectionIndex(col) : toPhysicalColumn(inst, col);
+    return physicalCol !== null ? controller.isColumnExcluded(physicalCol) : false;
+  }
+
+  function isCellExcluded(instance, row, col, options){
+    const inst = resolveInstance(instance);
+    const controller = getControllerFromInstance(inst);
+    if(!controller){
+      return false;
+    }
+    const usePhysical = options?.mode === 'physical';
+    const physicalRow = usePhysical ? normalizeSelectionIndex(row) : toPhysicalRow(inst, row);
+    const physicalCol = usePhysical ? normalizeSelectionIndex(col) : toPhysicalColumn(inst, col);
+    if(physicalRow === null || physicalCol === null){
+      return false;
+    }
+    return controller.isCellExcluded(physicalRow, physicalCol);
+  }
+
+  function getAnalysisData(instance, options){
+    const inst = resolveInstance(instance);
+    if(!inst){
+      return {
+        data: [],
+        rowCount: 0,
+        colCount: 0,
+        excluded: EMPTY_EXCLUSION_STATE,
+        isRowExcluded: ()=>false,
+        isColumnExcluded: ()=>false,
+        isCellExcluded: ()=>false,
+        getColumnValues: ()=>[],
+        getRowValues: ()=>[],
+        toPhysicalRow: ()=>null,
+        toPhysicalColumn: ()=>null
+      };
+    }
+    const controller = getControllerFromInstance(inst);
+    const rowCount = inst.countRows();
+    const colCount = inst.countCols();
+    const visualToPhysicalRow = Array.from({ length: rowCount }, (_, row)=>toPhysicalRow(inst, row));
+    const visualToPhysicalCol = Array.from({ length: colCount }, (_, col)=>toPhysicalColumn(inst, col));
+    const data = [];
+    for(let row = 0; row < rowCount; row++){
+      const rowValues = [];
+      for(let col = 0; col < colCount; col++){
+        const physicalRow = visualToPhysicalRow[row];
+        const physicalCol = visualToPhysicalCol[col];
+        const excluded = controller ? controller.isCellExcluded(physicalRow, physicalCol) : false;
+        if(excluded){
+          rowValues.push(null);
+        }else{
+          try{
+            rowValues.push(inst.getDataAtCell(row, col));
+          }catch(err){
+            console.error('Shared.hot getAnalysisData cell read error', err);
+            rowValues.push(null);
+          }
+        }
+      }
+      data.push(rowValues);
+    }
+    const analysis = {
+      data,
+      rowCount,
+      colCount,
+      excluded: controller ? controller.exportState() : EMPTY_EXCLUSION_STATE,
+      isRowExcluded(visualRow){
+        const physicalRow = visualToPhysicalRow[visualRow];
+        return physicalRow != null && controller ? controller.isRowExcluded(physicalRow) : false;
+      },
+      isColumnExcluded(visualCol){
+        const physicalCol = visualToPhysicalCol[visualCol];
+        return physicalCol != null && controller ? controller.isColumnExcluded(physicalCol) : false;
+      },
+      isCellExcluded(visualRow, visualCol){
+        const physicalRow = visualToPhysicalRow[visualRow];
+        const physicalCol = visualToPhysicalCol[visualCol];
+        if(physicalRow == null || physicalCol == null || !controller){
+          return false;
+        }
+        return controller.isCellExcluded(physicalRow, physicalCol);
+      },
+      getColumnValues(visualCol, opts){
+        const optionsLocal = opts || {};
+        const skipHeader = optionsLocal.skipHeader === true;
+        const includeEmpty = optionsLocal.includeEmpty === true;
+        const values = [];
+        for(let row = 0; row < data.length; row++){
+          if(skipHeader && row === 0){
+            continue;
+          }
+          const value = data[row][visualCol];
+          if(value === null){
+            continue;
+          }
+          if(!includeEmpty && (value === '' || typeof value === 'undefined')){
+            continue;
+          }
+          values.push(value);
+        }
+        console.debug('Debug: Shared.hot getColumnValues', { debugLabel: getInstanceDebugLabel(inst), visualCol, count: values.length });
+        return values;
+      },
+      getRowValues(visualRow, opts){
+        const optionsLocal = opts || {};
+        if(optionsLocal.skipHeader === true && visualRow === 0){
+          return [];
+        }
+        const includeEmpty = optionsLocal.includeEmpty === true;
+        const rowData = data[visualRow] || [];
+        const values = [];
+        for(let col = 0; col < rowData.length; col++){
+          const value = rowData[col];
+          if(value === null){
+            continue;
+          }
+          if(!includeEmpty && (value === '' || typeof value === 'undefined')){
+            continue;
+          }
+          values.push(value);
+        }
+        console.debug('Debug: Shared.hot getRowValues', { debugLabel: getInstanceDebugLabel(inst), visualRow, count: values.length });
+        return values;
+      },
+      toPhysicalRow(visualRow){
+        return visualToPhysicalRow[visualRow] ?? null;
+      },
+      toPhysicalColumn(visualCol){
+        return visualToPhysicalCol[visualCol] ?? null;
+      }
+    };
+    console.debug('Debug: Shared.hot getAnalysisData complete', { debugLabel: getInstanceDebugLabel(inst), rowCount, colCount });
+    return analysis;
+  }
+
+  function getIncludedColumn(instance, visualCol, options){
+    const analysis = getAnalysisData(instance, options);
+    return analysis.getColumnValues(visualCol, options);
+  }
+
+  function getIncludedRow(instance, visualRow, options){
+    const analysis = getAnalysisData(instance, options);
+    return analysis.getRowValues(visualRow, options);
+  }
+
   Shared.ensureHotWrapperStyles = ensureHotWrapperStyles;
   Shared.createEmptyData = createEmptyData;
   hotNS.ensureHotWrapperStyles = ensureHotWrapperStyles;
   hotNS.createEmptyData = createEmptyData;
   hotNS.createStandardTable = createStandardTable;
+  hotNS.exportExclusions = exportExclusions;
+  hotNS.applyExclusions = applyExclusions;
+  hotNS.clearExclusions = clearExclusions;
+  hotNS.isRowExcluded = isRowExcluded;
+  hotNS.isColumnExcluded = isColumnExcluded;
+  hotNS.isCellExcluded = isCellExcluded;
+  hotNS.getAnalysisData = getAnalysisData;
+  hotNS.getIncludedColumn = getIncludedColumn;
+  hotNS.getIncludedRow = getIncludedRow;
 })(window);
 
