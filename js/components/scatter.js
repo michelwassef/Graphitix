@@ -1006,10 +1006,28 @@
         const originXInput=parseFloat(scatterOriginX.value);
         const originYInput=parseFloat(scatterOriginY.value);
         console.log('scatter origin inputs',{originMode,originXInput,originYInput});
-        const labelCol=scatterHot.getDataAtCol(0)||[];
-        const xCol=scatterHot.getDataAtCol(1)||[];
-        const yCol=scatterHot.getDataAtCol(2)||[];
-        const extraCol=scatterHot.getDataAtCol(3)||[];
+        const analysis = scatterHot?.getAnalysisData?.() || Shared.hot.getAnalysisData(scatterHot);
+        const rowCount = analysis.rowCount || 0;
+        const colCount = analysis.colCount || 0;
+        const extractColumn = (colIndex)=>{
+          if(colIndex >= colCount){
+            return [];
+          }
+          const values = [];
+          for(let r = 0; r < rowCount; r++){
+            values.push(analysis.data?.[r]?.[colIndex]);
+          }
+          return values;
+        };
+        if(analysis.isColumnExcluded?.(1) || analysis.isColumnExcluded?.(2)){
+          console.warn('Scatter draw cancelled - axis column excluded',{ excludeX: analysis.isColumnExcluded?.(1), excludeY: analysis.isColumnExcluded?.(2) });
+          chartStyle.clearSvg(scatterSvg);
+          return;
+        }
+        const labelCol = extractColumn(0);
+        const xCol = extractColumn(1);
+        const yCol = extractColumn(2);
+        const extraCol = extractColumn(3);
         console.log('scatter column lengths',{label:labelCol.length,x:xCol.length,y:yCol.length,extra:extraCol.length});
         const xLabelRaw=xCol[0];
         const yLabelRaw=yCol[0];
@@ -1025,7 +1043,7 @@
           scatterXLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
           scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
         }
-        const maxLen=Math.max(labelCol.length,xCol.length,yCol.length,extraCol.length);
+        const maxLen=rowCount;
         const points=[];
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
         const labelSet=shouldCollectLabelSet ? new Set() : null;
@@ -1036,11 +1054,19 @@
         let maMissingPCount=0;
         console.time(`scatterCollectPoints_${token}`);
         for(let r=1;r<maxLen;r++){
-          const lab=labelCol[r]?String(labelCol[r]).trim():'';
+          const labelValue = labelCol[r];
+          const lab=labelValue ? String(labelValue).trim() : '';
+          const rawX=xCol[r];
+          const rawY=yCol[r];
           if(graphType==='scatter'){
-            const xv=parseFloat(xCol[r]);
-            const yv=parseFloat(yCol[r]);
-            if(!Number.isNaN(xv) && !Number.isNaN(yv)){
+            if(rawX === null || rawY === null || typeof rawX === 'undefined' || typeof rawY === 'undefined'){
+              skippedRows++;
+              console.debug('Debug: scatter row skipped',{graphType,row:r,reason:'excludedCell'});
+              continue;
+            }
+            const xv=parseFloat(rawX);
+            const yv=parseFloat(rawY);
+            if(!Number.isNaN(xv) && Number.isFinite(xv) && !Number.isNaN(yv) && Number.isFinite(yv)){
               points.push({x:xv,y:yv,label:lab});
               if(labelSet && lab) labelSet.add(lab);
               if(xv<xMinRaw) xMinRaw=xv;
@@ -1052,16 +1078,21 @@
               console.debug('Debug: scatter row skipped',{graphType,row:r,xv,yv});
             }
           }else if(graphType==='volcano'){
-            const log2fc=parseFloat(xCol[r]);
-            const pRaw=parseFloat(yCol[r]);
+            if(rawX === null || rawY === null || typeof rawX === 'undefined' || typeof rawY === 'undefined'){
+              skippedRows++;
+              console.debug('Debug: volcano row skipped',{row:r,reason:'excludedCell'});
+              continue;
+            }
+            const log2fc=parseFloat(rawX);
+            const pRaw=parseFloat(rawY);
             if(Number.isFinite(log2fc) && Number.isFinite(pRaw) && pRaw>0){
               let negLogP=-Math.log10(pRaw);
               if(!Number.isFinite(negLogP)){
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=Math.abs(log2fc)>=log2fcThreshold && negLogP>=negLogPThreshold;
-              const labelValue = lab && (shouldCollectLabelSet || isSignificant) ? lab : '';
-              points.push({x:log2fc,y:negLogP,label:labelValue,isSignificant});
+              const labelValueFinal = lab && (shouldCollectLabelSet || isSignificant) ? lab : '';
+              points.push({x:log2fc,y:negLogP,label:labelValueFinal,isSignificant});
               if(isSignificant) significantCount++;
               if(labelSet && lab) labelSet.add(lab);
               if(log2fc<xMinRaw) xMinRaw=log2fc;
@@ -1073,9 +1104,15 @@
               console.debug('Debug: volcano row skipped',{row:r,log2fc,pRaw});
             }
           }else{
-            const meanExpr=parseFloat(xCol[r]);
-            const log2fcVal=parseFloat(yCol[r]);
-            const pRaw=parseFloat(extraCol[r]);
+            if(rawX === null || rawY === null || typeof rawX === 'undefined' || typeof rawY === 'undefined'){
+              skippedRows++;
+              console.debug('Debug: MA row skipped',{row:r,reason:'excludedCell'});
+              continue;
+            }
+            const meanExpr=parseFloat(rawX);
+            const log2fcVal=parseFloat(rawY);
+            const rawExtra = extraCol[r];
+            const pRaw = rawExtra === null || typeof rawExtra === 'undefined' ? NaN : parseFloat(rawExtra);
             const hasPositiveP=Number.isFinite(pRaw) && pRaw>0;
             if(Number.isFinite(meanExpr) && Number.isFinite(log2fcVal)){
               let negLogP=hasPositiveP?-Math.log10(pRaw):NaN;
@@ -1083,8 +1120,8 @@
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=hasPositiveP && Math.abs(log2fcVal)>=log2fcThreshold && Number.isFinite(negLogP) && negLogP>=negLogPThreshold;
-              const labelValue = lab && (shouldCollectLabelSet || isSignificant) ? lab : '';
-              points.push({x:meanExpr,y:log2fcVal,label:labelValue,isSignificant});
+              const labelValueFinal = lab && (shouldCollectLabelSet || isSignificant) ? lab : '';
+              points.push({x:meanExpr,y:log2fcVal,label:labelValueFinal,isSignificant});
               if(isSignificant) significantCount++;
               if(!hasPositiveP){
                 maMissingPCount++;
@@ -1833,6 +1870,7 @@
         return {
           type:'scatter',
           data:scatterHot.getData(),
+          exclusions: scatterHot?.exportExclusions?.() || Shared.hot.exportExclusions(scatterHot),
           config:{
             title:scatterTitleText,
             xLabel:scatterXLabelText,
@@ -1930,6 +1968,9 @@
             console.log('loadScatterGraph',obj);
             if(obj.type!=='scatter') throw new Error('Invalid graph type');
             scatterHot.loadData(obj.data||[]);
+            if(obj.exclusions){
+              scatterHot.applyExclusions?.(obj.exclusions);
+            }
             const c=obj.config||{};
             scatterTitleText=c.title||scatterTitleText;
             scatterXLabelText=c.xLabel||scatterXLabelText;

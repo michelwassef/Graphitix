@@ -1408,6 +1408,7 @@
     const payload = {
       type: 'heatmap',
       data: state.hot ? state.hot.getData() : [],
+      exclusions: state.hot?.exportExclusions?.() || (state.hot ? Shared.hot.exportExclusions(state.hot) : Shared.hot.exportExclusions(null)),
       config: getConfig()
     };
     console.debug('Debug: heatmap.getPayload captured state', {
@@ -1487,6 +1488,9 @@
           throw new Error('Invalid graph type');
         }
         state.hot?.loadData(obj.data || []);
+        if(obj.exclusions && state.hot){
+          state.hot.applyExclusions?.(obj.exclusions);
+        }
         applyConfig(obj.config || {});
         state.scheduleDraw();
       }catch(err){

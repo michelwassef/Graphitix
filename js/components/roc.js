@@ -1334,6 +1334,7 @@
     const payload = {
       type: 'roc',
       data: state.hot?.getData() || [],
+      exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
       config: {
         borderWidth: refs.borderWidth?.value,
         showGrid: !!refs.showGrid?.checked,
@@ -1398,6 +1399,9 @@
           throw new Error('Invalid graph type');
         }
         state.hot?.loadData(obj.data || []);
+        if(obj.exclusions){
+          state.hot?.applyExclusions?.(obj.exclusions);
+        }
         const config = obj.config || {};
         if(refs.borderWidth) refs.borderWidth.value = config.borderWidth || refs.borderWidth.value;
         if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;

@@ -186,7 +186,12 @@
         yMin:$('#histYMin').value,
         yMax:$('#histYMax').value
       };
-      const payload = {type:'hist', data: state.hot.getData(), config: c};
+      const payload = {
+        type:'hist',
+        data: state.hot.getData(),
+        exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
+        config: c
+      };
       console.debug('Debug: hist.getPayload captured state', {
         rows: payload.data?.length || 0,
         bins: c.bins,
@@ -257,6 +262,9 @@
           console.log('loadHistGraph',obj);
           if(obj.type!=='hist') throw new Error('Invalid graph type');
           state.hot.loadData(obj.data||[]);
+          if(obj.exclusions){
+            state.hot.applyExclusions?.(obj.exclusions);
+          }
           const c=obj.config||{};
           state.titleText=c.title||state.titleText;
           state.xLabelText=c.xLabel||state.xLabelText;

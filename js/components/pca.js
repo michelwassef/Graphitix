@@ -2459,6 +2459,7 @@
       return {
         type:'pca',
         data:pcaHot.getData(),
+        exclusions: pcaHot?.exportExclusions?.() || Shared.hot.exportExclusions(pcaHot),
         config:{
           method:pcaMethod.value,
           dotSize:pcaDotSize.value,
@@ -2560,6 +2561,9 @@
             console.log('loadPcaGraph',obj);
             if(obj.type!=='pca') throw new Error('Invalid graph type');
             pcaHot.loadData(obj.data||[]);
+            if(obj.exclusions){
+              pcaHot.applyExclusions?.(obj.exclusions);
+            }
             const c=obj.config||{};
             pcaDotSize.value=c.dotSize||pcaDotSize.value;
             pcaFill.value=c.fill||pcaFill.value;
