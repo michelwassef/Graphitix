@@ -251,6 +251,8 @@
         lastGOResult: null,
         lastGOFormatted: [],
         lastGOOrganism: 'hsapiens',
+        lastRegionSignature: null,
+        lastRegionCode: null,
       },
       persistence: {
         fileHandle: null,
@@ -678,8 +680,10 @@
   }
 
   function populateRegion(code) {
-    clearAnalysis();
-    if (!state.analysis.lastRegions || !state.ui.regionList) return;
+    if (!state.analysis.lastRegions || !state.ui.regionList) {
+      console.debug('Debug: venn populateRegion skipped', { hasRegions: !!state.analysis.lastRegions });
+      return;
+    }
     const map = {
       A: state.analysis.lastRegions.Aonly,
       B: state.analysis.lastRegions.Bonly,
@@ -690,8 +694,32 @@
       ABC: state.analysis.lastRegions.ABC
     };
     const arr = [...(map[code] || new Set())].sort();
+    const signature = `${code || ''}::${arr.join('|')}`;
+    const shouldClear = signature !== state.analysis.lastRegionSignature;
+    if (shouldClear) {
+      clearAnalysis();
+      console.debug('Debug: venn populateRegion cleared analysis', {
+        code,
+        geneCount: arr.length,
+        previousSignature: state.analysis.lastRegionSignature,
+        nextSignature: signature
+      });
+    } else {
+      console.debug('Debug: venn populateRegion retained analysis', {
+        code,
+        geneCount: arr.length,
+        signature
+      });
+    }
+    state.analysis.lastRegionSignature = signature;
+    state.analysis.lastRegionCode = code || null;
     state.ui.regionList.innerHTML = arr.length ? arr.map(x => `<div class="gene-item">${x}<span class="gene-link" data-gene="${x}">&#128279;</span></div>`).join('') : '(empty)';
     if (state.ui.copyRegionBtn) { state.ui.copyRegionBtn.style.display = arr.length ? 'block' : 'none'; }
+    console.debug('Debug: venn populateRegion rendered list', {
+      code,
+      geneCount: arr.length,
+      signature
+    });
   }
 
   function refreshCounts(c) {
@@ -801,6 +829,7 @@
     if (canvas) canvas.style.display = 'none';
     if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
     if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+    console.debug('Debug: venn clearAnalysis invoked'); // Debug: analysis outputs cleared
   }
 
   function renderGOChart(limit = 5) {
@@ -2302,6 +2331,8 @@
     state.analysis.lastRegions = null;
     state.analysis.lastDrawMode = null;
     state.analysis.lastCounts = null;
+    state.analysis.lastRegionSignature = null;
+    state.analysis.lastRegionCode = null;
     if (state.ui.regionList) state.ui.regionList.textContent = '';
     Object.values(state.ui.countsUI || {}).forEach(el => { if (el) el.textContent = '0'; });
     const defaultLabels = { A: 'A', B: 'B', C: 'C' };
@@ -2525,6 +2556,12 @@
     drawFromNumeric,
     refreshDiagram
   });
+
+  venn.__testHooks = {
+    state,
+    populateRegion,
+    clearAnalysis
+  };
 
   venn.draw = function draw() {
     try {

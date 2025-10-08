@@ -147,6 +147,7 @@ Across modules, statistical helpers are surfaced exactly where you need them:
 The Venn workspace integrates post-overlap biological analysis without leaving the app:
 - **Gene Ontology enrichment:** Trigger GO term analysis with selectable category filters (Biological Process, Molecular Function, Cellular Component) and optional background adjustment. Results can be plotted and exported as charts.【F:index.html†L184-L216】
 - **STRING network exploration:** Request STRING protein-protein interaction networks with configurable network types, edge semantics, and active data sources, then export the rendered network visualization.【F:index.html†L208-L224】
+- **Stable downstream views:** GO and STRING results remain visible when the Venn diagram redraws or the layout resizes; analyses are only cleared when you switch regions or edit the underlying gene lists, keeping enrichment context in place while you tweak styling.【F:js/components/venn.js†L672-L707】【F:js/components/venn.js†L1030-L1095】
 
 Internet access is required for these external services; all other features operate fully offline.
 
