@@ -67,6 +67,13 @@
 
   let parseDebugCounter = 0;
 
+  const survivalAdvisorState = {
+    open: false,
+    answers: {},
+    lastApplied: null,
+    context: null
+  };
+
   function $(selector){
     return document.querySelector(selector);
   }
@@ -172,6 +179,352 @@
     });
     logDebug('Handsontable initialized', { hasHot: !!state.hot });
     refreshCovariateControls();
+  }
+
+  function buildSurvivalAdvisorContext(summary, overrides){
+    const safeSummary = summary && typeof summary === 'object' ? summary : {};
+    const series = Array.isArray(safeSummary.series) ? safeSummary.series : [];
+    const covariateColumns = Array.isArray(safeSummary.covariateColumns)
+      ? safeSummary.covariateColumns
+      : (Array.isArray(state.covariateColumns) ? state.covariateColumns : []);
+    const totals = series.map(group => Number.isFinite(group.total) ? group.total : 0);
+    const events = series.map(group => Number.isFinite(group.events) ? group.events : 0);
+    const censored = series.map(group => Number.isFinite(group.censored) ? group.censored : 0);
+    const totalParticipants = totals.reduce((acc, value) => acc + value, 0);
+    const totalEvents = events.reduce((acc, value) => acc + value, 0);
+    const zeroEventGroups = series.filter(group => (group.events || 0) === 0).map(group => group.name);
+    const enabledCovariates = Object.entries(state.covariateSettings || {}).filter(([, cfg]) => cfg && cfg.enabled);
+    const enabledBaseline = enabledCovariates.filter(([, cfg]) => (cfg.type || 'baseline') !== 'time').length;
+    const enabledTime = enabledCovariates.filter(([, cfg]) => cfg.type === 'time').length;
+    const context = {
+      summary: safeSummary,
+      groupCount: series.length,
+      totals,
+      events,
+      censored,
+      totalParticipants,
+      totalEvents,
+      zeroEventGroups,
+      hasCensoring: censored.some(value => value > 0),
+      medianReachedCount: series.filter(group => group?.km?.median != null).length,
+      covariateCount: covariateColumns.length,
+      enabledCovariateCount: enabledCovariates.length,
+      enabledBaselineCovariates: enabledBaseline,
+      enabledTimeCovariates: enabledTime,
+      hazardRatiosEnabled: !!refs.showHazardRatios?.checked,
+      coxEnabled: !!refs.fitCoxModel?.checked,
+      hasLogRank: !!safeSummary?.logRank?.available,
+      maxTime: Number.isFinite(safeSummary?.maxTime) ? safeSummary.maxTime : 0,
+      ...overrides
+    };
+    logDebug('advisor context built', {
+      groupCount: context.groupCount,
+      covariateCount: context.covariateCount,
+      enabledCovariateCount: context.enabledCovariateCount,
+      hazardRatiosEnabled: context.hazardRatiosEnabled,
+      coxEnabled: context.coxEnabled,
+      totalParticipants: context.totalParticipants
+    });
+    return context;
+  }
+
+  function ensureSurvivalAdvisorDefaults(context){
+    if(!survivalAdvisorState.answers || typeof survivalAdvisorState.answers !== 'object'){
+      survivalAdvisorState.answers = {};
+    }
+    const answers = survivalAdvisorState.answers;
+    if(!answers.analysisFocus){
+      answers.analysisFocus = context.groupCount >= 2 ? 'compare' : 'describe';
+    }
+    if(answers.analysisFocus === 'compare' && !answers.comparisonDetail){
+      answers.comparisonDetail = context.groupCount >= 2 ? 'hazardRatios' : 'logRankOnly';
+    }
+    if(answers.analysisFocus === 'adjust' && !answers.covariateStrategy){
+      if(context.enabledTimeCovariates > 0){
+        answers.covariateStrategy = 'timeDependent';
+      } else if(context.enabledBaselineCovariates > 0 || context.covariateCount > 0){
+        answers.covariateStrategy = 'baseline';
+      } else {
+        answers.covariateStrategy = 'none';
+      }
+    }
+    return answers;
+  }
+
+  function buildSurvivalAdvisorQuestions(context){
+    const answers = ensureSurvivalAdvisorDefaults(context);
+    const questions = [
+      {
+        id: 'analysisFocus',
+        prompt: 'What is your primary survival analysis goal?',
+        help: 'Choose whether you want to describe a single curve, compare groups, or adjust for covariates.',
+        options: [
+          { value: 'describe', label: 'Describe Kaplan–Meier survival for the groups' },
+          { value: 'compare', label: 'Compare survival between groups' },
+          { value: 'adjust', label: 'Adjust for covariates with a Cox model' }
+        ]
+      }
+    ];
+    if(answers.analysisFocus === 'compare'){
+      questions.push({
+        id: 'comparisonDetail',
+        prompt: 'How much detail do you need when comparing groups?',
+        help: 'Pairwise hazard ratios complement the overall log-rank test.',
+        options: [
+          { value: 'logRankOnly', label: 'Use the overall log-rank test only' },
+          { value: 'hazardRatios', label: 'Add pairwise hazard ratios between groups' }
+        ]
+      });
+    }
+    if(answers.analysisFocus === 'adjust'){
+      questions.push({
+        id: 'covariateStrategy',
+        prompt: 'How will you model covariates?',
+        help: 'Baseline covariates stay fixed; time-dependent covariates can vary over follow-up.',
+        options: [
+          { value: 'baseline', label: 'Baseline predictors only' },
+          { value: 'timeDependent', label: 'Include time-dependent covariates' },
+          { value: 'none', label: 'No covariates yet—fit the Cox model for groups only' }
+        ]
+      });
+    }
+    return questions;
+  }
+
+  function computeSurvivalAdvisorRecommendation(answers, context){
+    const recommendation = {
+      ready: false,
+      message: '',
+      summary: '',
+      rationale: [],
+      warnings: [],
+      showHazardRatios: context.hazardRatiosEnabled,
+      fitCoxModel: context.coxEnabled
+    };
+    if(context.groupCount === 0){
+      recommendation.message = 'Enter at least one group with follow-up times to enable recommendations.';
+      return recommendation;
+    }
+    if(!answers.analysisFocus ||
+      (answers.analysisFocus === 'compare' && !answers.comparisonDetail) ||
+      (answers.analysisFocus === 'adjust' && !answers.covariateStrategy)){
+      recommendation.message = 'Answer the advisor questions to receive a recommendation.';
+      return recommendation;
+    }
+    if(context.groupCount < 2 && answers.analysisFocus !== 'describe'){
+      recommendation.message = 'Provide at least two groups to compare survival or fit a Cox model across groups.';
+      return recommendation;
+    }
+    switch(answers.analysisFocus){
+      case 'describe':
+        recommendation.showHazardRatios = false;
+        recommendation.fitCoxModel = false;
+        recommendation.summary = 'Focus on Kaplan–Meier curves with the log-rank test for overall differences.';
+        recommendation.rationale.push('Disabling hazard ratios and Cox modeling keeps the emphasis on visual survival patterns.');
+        if(context.groupCount >= 2 && !context.hasLogRank){
+          recommendation.warnings.push('Provide more complete data to enable the log-rank comparison between groups.');
+        }
+        break;
+      case 'compare':
+        if(answers.comparisonDetail === 'hazardRatios'){
+          recommendation.showHazardRatios = true;
+          recommendation.fitCoxModel = false;
+          recommendation.summary = 'Use the log-rank test and display pairwise hazard ratios between groups.';
+          recommendation.rationale.push('Hazard ratios quantify the magnitude of survival differences between every pair of groups.');
+        } else {
+          recommendation.showHazardRatios = false;
+          recommendation.fitCoxModel = false;
+          recommendation.summary = 'Rely on the log-rank test without the hazard ratio table.';
+          recommendation.rationale.push('The log-rank test compares survival curves without estimating pairwise hazard ratios.');
+        }
+        if(context.zeroEventGroups.length){
+          recommendation.warnings.push(`Group${context.zeroEventGroups.length > 1 ? 's' : ''} ${context.zeroEventGroups.join(', ')} ha${context.zeroEventGroups.length > 1 ? 've' : 's'} zero events; hazard ratios may be unstable.`);
+        }
+        if(context.totalEvents < context.groupCount){
+          recommendation.warnings.push('Few observed events relative to group count can weaken both log-rank and hazard ratio estimates.');
+        }
+        break;
+      case 'adjust':
+        recommendation.fitCoxModel = true;
+        recommendation.showHazardRatios = context.groupCount >= 2 && answers.covariateStrategy !== 'none';
+        if(answers.covariateStrategy === 'timeDependent'){
+          recommendation.summary = 'Fit a Cox model with time-dependent covariates and report adjusted hazard ratios.';
+          recommendation.rationale.push('Cox regression handles varying predictors over follow-up when covariates are marked time-dependent.');
+          if(context.enabledTimeCovariates === 0){
+            recommendation.warnings.push('Mark at least one covariate as time-dependent in the controls to follow this plan.');
+          }
+        } else if(answers.covariateStrategy === 'baseline'){
+          recommendation.summary = 'Fit a Cox model with baseline covariates and show adjusted hazard ratios.';
+          recommendation.rationale.push('Baseline Cox regression adjusts survival comparisons for fixed covariates.');
+          if(context.enabledBaselineCovariates === 0 && context.covariateCount > 0){
+            recommendation.warnings.push('Enable at least one baseline covariate in the selection panel to include it in the Cox model.');
+          }
+        } else {
+          recommendation.summary = 'Fit a Cox model using group indicators only; omit additional covariates.';
+          recommendation.rationale.push('A group-only Cox model yields adjusted hazard ratios when no covariates are selected.');
+          recommendation.showHazardRatios = context.groupCount >= 2;
+        }
+        if(context.enabledCovariateCount === 0 && context.covariateCount === 0){
+          recommendation.warnings.push('Add extra columns for covariates if you plan to adjust beyond group membership.');
+        }
+        if(context.totalEvents < 10){
+          recommendation.warnings.push('Cox regression is unreliable with very few events; confirm that event counts support the model.');
+        }
+        break;
+      default:
+        recommendation.message = 'Select an analysis goal to generate a recommendation.';
+        return recommendation;
+    }
+    recommendation.ready = true;
+    return recommendation;
+  }
+
+  function renderSurvivalStatsAdvisor(summary, providedContext){
+    const container = document.getElementById('survivalStatsAdvisor');
+    if(!container){
+      return;
+    }
+    const context = providedContext || buildSurvivalAdvisorContext(summary || state.lastSummary || {});
+    survivalAdvisorState.context = context;
+    const answers = ensureSurvivalAdvisorDefaults(context);
+    const recommendation = computeSurvivalAdvisorRecommendation(answers, context);
+    container.innerHTML = '';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'stats-advisor';
+    wrapper.dataset.open = survivalAdvisorState.open ? '1' : '0';
+    const header = document.createElement('div');
+    header.className = 'stats-advisor__header';
+    const title = document.createElement('strong');
+    title.textContent = 'Test advisor';
+    header.appendChild(title);
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'stats-advisor__toggle';
+    toggle.textContent = survivalAdvisorState.open ? 'Hide advisor' : 'Guide me';
+    toggle.addEventListener('click', () => {
+      survivalAdvisorState.open = !survivalAdvisorState.open;
+      logDebug('stats advisor toggled', { open: survivalAdvisorState.open });
+      renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+    });
+    header.appendChild(toggle);
+    wrapper.appendChild(header);
+    const summaryBlock = document.createElement('div');
+    summaryBlock.className = 'stats-advisor__summary';
+    if(recommendation.ready){
+      const summaryLine = document.createElement('div');
+      summaryLine.className = 'stats-advisor__summary-line';
+      summaryLine.textContent = `Recommendation: ${recommendation.summary}`;
+      summaryBlock.appendChild(summaryLine);
+      if(Array.isArray(recommendation.rationale) && recommendation.rationale.length){
+        const rationaleList = document.createElement('ul');
+        rationaleList.className = 'stats-advisor__rationale';
+        recommendation.rationale.forEach(item => {
+          const li = document.createElement('li');
+          li.textContent = item;
+          rationaleList.appendChild(li);
+        });
+        summaryBlock.appendChild(rationaleList);
+      }
+      if(Array.isArray(recommendation.warnings) && recommendation.warnings.length){
+        const warnTitle = document.createElement('div');
+        warnTitle.className = 'stats-advisor__warnings-title';
+        warnTitle.textContent = 'Cautions:';
+        summaryBlock.appendChild(warnTitle);
+        const warnList = document.createElement('ul');
+        warnList.className = 'stats-advisor__warnings';
+        recommendation.warnings.forEach(item => {
+          const li = document.createElement('li');
+          li.textContent = item;
+          warnList.appendChild(li);
+        });
+        summaryBlock.appendChild(warnList);
+      }
+    } else {
+      const message = document.createElement('div');
+      message.textContent = recommendation.message || 'Answer the advisor questions to receive a recommendation.';
+      summaryBlock.appendChild(message);
+    }
+    wrapper.appendChild(summaryBlock);
+    if(survivalAdvisorState.open){
+      const questionsWrap = document.createElement('div');
+      questionsWrap.className = 'stats-advisor__questions';
+      const questions = buildSurvivalAdvisorQuestions(context);
+      questions.forEach(question => {
+        const fieldset = document.createElement('fieldset');
+        fieldset.className = 'stats-advisor__question';
+        const legend = document.createElement('legend');
+        legend.textContent = question.prompt;
+        fieldset.appendChild(legend);
+        if(question.help){
+          const hint = document.createElement('p');
+          hint.className = 'stats-advisor__hint';
+          hint.textContent = question.help;
+          fieldset.appendChild(hint);
+        }
+        (question.options || []).forEach(option => {
+          const label = document.createElement('label');
+          label.className = 'stats-advisor__option';
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = `survival-advisor-${question.id}`;
+          input.value = option.value;
+          input.checked = answers[question.id] === option.value;
+          input.addEventListener('change', () => {
+            answers[question.id] = option.value;
+            survivalAdvisorState.answers = answers;
+            logDebug('stats advisor answer change', { question: question.id, value: option.value });
+            renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+          });
+          const span = document.createElement('span');
+          span.textContent = option.label;
+          label.appendChild(input);
+          label.appendChild(span);
+          fieldset.appendChild(label);
+        });
+        questionsWrap.appendChild(fieldset);
+      });
+      wrapper.appendChild(questionsWrap);
+      const actions = document.createElement('div');
+      actions.className = 'stats-advisor__actions';
+      const applyBtn = document.createElement('button');
+      applyBtn.type = 'button';
+      applyBtn.textContent = 'Apply recommendation';
+      applyBtn.disabled = !recommendation.ready;
+      applyBtn.addEventListener('click', () => {
+        if(!recommendation.ready){
+          return;
+        }
+        if(refs.showHazardRatios){
+          refs.showHazardRatios.checked = !!recommendation.showHazardRatios;
+        }
+        if(refs.fitCoxModel){
+          refs.fitCoxModel.checked = !!recommendation.fitCoxModel;
+        }
+        survivalAdvisorState.lastApplied = { ...recommendation, answers: { ...answers } };
+        logDebug('stats advisor recommendation applied', {
+          showHazardRatios: recommendation.showHazardRatios,
+          fitCoxModel: recommendation.fitCoxModel,
+          answers: { ...answers }
+        });
+        if(typeof state.scheduleDraw === 'function'){
+          state.scheduleDraw();
+        }
+        renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+      });
+      actions.appendChild(applyBtn);
+      const resetBtn = document.createElement('button');
+      resetBtn.type = 'button';
+      resetBtn.className = 'stats-advisor__reset';
+      resetBtn.textContent = 'Reset answers';
+      resetBtn.addEventListener('click', () => {
+        survivalAdvisorState.answers = {};
+        logDebug('stats advisor answers reset');
+        renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
+      });
+      actions.appendChild(resetBtn);
+      wrapper.appendChild(actions);
+    }
+    container.appendChild(wrapper);
   }
 
   function updateGroupColorPickers(groupNames){
@@ -1282,6 +1635,7 @@
     summary.hazardRatios = hazardSummary;
     summary.flags = { hazardRatiosEnabled, coxEnabled };
     state.lastSummary = summary;
+    renderSurvivalStatsAdvisor(summary);
     logDebug('stat toggles resolved', { hazardRatiosEnabled, coxEnabled, coxAvailable: coxModelSummary.available });
     updateGroupColorPickers(summary.groupNames);
     if(!summary.series.length){
@@ -1851,6 +2205,11 @@
     if(refs.xLabel) refs.xLabel.value = config.xLabel || 'Time';
     if(refs.yLabel) refs.yLabel.value = config.yLabel || 'Survival Probability';
     refreshCovariateControls();
+    renderSurvivalStatsAdvisor(state.lastSummary || {
+      series: [],
+      covariateColumns: state.covariateColumns || [],
+      logRank: { available: false }
+    });
     logDebug('config applied', config);
   }
 
@@ -1951,12 +2310,14 @@
       control?.addEventListener('change', () => {
         console.debug('Debug: survival control toggle', { id: control.id, checked: control.checked });
         logDebug('control toggled', { id: control.id, checked: control.checked });
+        renderSurvivalStatsAdvisor(state.lastSummary || { series: [], covariateColumns: state.covariateColumns });
         schedule();
       });
     });
     refs.showFrame?.addEventListener('change', () => {
       console.debug('Debug: survival control toggle', { id: refs.showFrame.id, checked: refs.showFrame.checked });
       logDebug('control toggled', { id: refs.showFrame.id, checked: refs.showFrame.checked });
+      renderSurvivalStatsAdvisor(state.lastSummary || { series: [], covariateColumns: state.covariateColumns });
       schedule();
     });
     [refs.timeMax, refs.yMin, refs.yMax, refs.xLabel, refs.yLabel].forEach(input => {
@@ -2089,6 +2450,11 @@
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();
     initExportsAndFiles();
+    renderSurvivalStatsAdvisor({
+      series: [],
+      covariateColumns: state.covariateColumns || [],
+      logRank: { available: false }
+    });
     survival.ready = true;
     state.scheduleDraw?.();
     logDebug('component initialized', { ready: survival.ready });

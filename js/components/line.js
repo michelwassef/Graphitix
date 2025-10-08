@@ -49,6 +49,12 @@
     autoTune: true,
     criterion: 'bic'
   };
+  const lineAdvisorState={
+    open:false,
+    answers:{},
+    lastApplied:null,
+    context:null
+  };
 
   console.debug('Debug: line group labels state initialized', {
     initial: lineSeriesGroupLabels,
@@ -188,6 +194,503 @@
       refs.forecastFieldset.style.display = show ? '' : 'none';
     }
     return show;
+  }
+
+  function buildLineAdvisorContext(series, options){
+    const arr=Array.isArray(series)?series:[];
+    const context={
+      seriesCount: arr.length,
+      statsMethod: refs.statType?.value || 'pearson',
+      regressionMode: refs.regressionMode?.value || 'linear',
+      showIntervals: options?.showIntervals ?? !!refs.showIntervals?.checked,
+      showDiagnostics: options?.showDiagnostics ?? !!refs.showDiagnostics?.checked,
+      forecastOptions: options?.forecast || null
+    };
+    let totalPoints=0;
+    let minLen=Infinity;
+    let maxLen=0;
+    let missingCount=0;
+    const spacingCounts=new Map();
+    const yValues=[];
+    let xMin=Infinity,xMax=-Infinity;
+    let yMin=Infinity,yMax=-Infinity;
+    arr.forEach(entry=>{
+      const pointList=Array.isArray(entry?.points)?entry.points:[];
+      const valid=pointList.filter(Boolean);
+      totalPoints+=valid.length;
+      if(valid.length<minLen) minLen=valid.length;
+      if(valid.length>maxLen) maxLen=valid.length;
+      missingCount+=pointList.length-valid.length;
+      const sorted=valid.slice().sort((a,b)=>a.x-b.x);
+      for(let i=1;i<sorted.length;i++){
+        const dx=sorted[i].x-sorted[i-1].x;
+        if(Number.isFinite(dx) && dx>0){
+          const rounded=Number(dx.toFixed(6));
+          spacingCounts.set(rounded,(spacingCounts.get(rounded)||0)+1);
+        }
+      }
+      valid.forEach(pt=>{
+        if(Number.isFinite(pt.x)){
+          if(pt.x<xMin) xMin=pt.x;
+          if(pt.x>xMax) xMax=pt.x;
+        }
+        if(Number.isFinite(pt.y)){
+          if(pt.y<yMin) yMin=pt.y;
+          if(pt.y>yMax) yMax=pt.y;
+          yValues.push(pt.y);
+        }
+      });
+    });
+    const spacingTotals=Array.from(spacingCounts.values());
+    const spacingTotalCount=spacingTotals.reduce((sum,count)=>sum+count,0);
+    const spacingMaxCount=Math.max(0,...spacingTotals);
+    context.regularSpacing=spacingTotalCount>0 && spacingMaxCount/spacingTotalCount>=0.6;
+    context.totalPoints=totalPoints;
+    context.minLength=(totalPoints>0 && minLen!==Infinity)?minLen:0;
+    context.maxLength=totalPoints>0?maxLen:0;
+    context.avgLength=context.seriesCount>0?totalPoints/Math.max(context.seriesCount,1):0;
+    context.hasUnequalLengths=context.seriesCount>1 && context.minLength!==context.maxLength;
+    context.hasMissing=missingCount>0;
+    context.xMin=Number.isFinite(xMin)?xMin:NaN;
+    context.xMax=Number.isFinite(xMax)?xMax:NaN;
+    context.yMin=Number.isFinite(yMin)?yMin:NaN;
+    context.yMax=Number.isFinite(yMax)?yMax:NaN;
+    context.yWithinZeroOne=Number.isFinite(context.yMin) && Number.isFinite(context.yMax) && context.yMin>=0 && context.yMax<=1;
+    if(yValues.length>3){
+      const mean=yValues.reduce((sum,val)=>sum+val,0)/yValues.length;
+      const variance=yValues.reduce((sum,val)=>sum+Math.pow(val-mean,2),0)/Math.max(1,yValues.length-1);
+      const std=Math.sqrt(Math.max(variance,0));
+      context.yStd=std;
+      context.yOutlierCount=std>0?yValues.reduce((count,val)=>count+(Math.abs((val-mean)/std)>3?1:0),0):0;
+    }else{
+      context.yStd=NaN;
+      context.yOutlierCount=0;
+    }
+    context.currentDetail=context.showDiagnostics?'diagnostics':(context.showIntervals?'intervals':'minimal');
+    context.regularSeasonHint=context.regularSpacing && context.maxLength>=12;
+    context.hasForecastMode=['arima','holtWinters'].includes((refs.regressionMode?.value || '').toLowerCase());
+    return context;
+  }
+
+  function ensureLineAdvisorDefaults(context){
+    const answers=lineAdvisorState.answers || {};
+    if(!answers.measurement){
+      if(context.yWithinZeroOne && context.totalPoints>0){
+        answers.measurement='binaryOutcome';
+      }else if(context.yOutlierCount>0 || !Number.isFinite(context.yStd) || context.yStd===0){
+        answers.measurement='continuousNonNormal';
+      }else{
+        answers.measurement='continuousNormal';
+      }
+    }
+    if(!answers.analysisGoal){
+      const mode=(context.regressionMode||'').toLowerCase();
+      if(mode==='arima' || mode==='holtwinters'){
+        answers.analysisGoal='forecast';
+      }else if(mode==='spline'){
+        answers.analysisGoal='smooth';
+      }else{
+        answers.analysisGoal='trend';
+      }
+    }
+    if((answers.analysisGoal||'trend')==='trend' && !answers.trendShape){
+      const mode=(context.regressionMode||'').toLowerCase();
+      if(mode==='quadratic' || mode==='cubic'){
+        answers.trendShape='curved';
+      }else if(mode==='logistic'){
+        answers.trendShape='logistic';
+      }else if(mode==='exponential'){
+        answers.trendShape='exponential';
+      }else if(mode==='power'){
+        answers.trendShape='power';
+      }else if(mode==='spline'){
+        answers.trendShape='flexible';
+      }else{
+        answers.trendShape='linear';
+      }
+    }
+    if(answers.analysisGoal==='smooth'){
+      answers.trendShape='flexible';
+    }
+    if(answers.analysisGoal==='forecast' && !answers.seasonality){
+      const mode=(context.regressionMode||'').toLowerCase();
+      answers.seasonality=mode==='holtwinters'?'seasonal':'nonSeasonal';
+    }
+    if(!answers.detailLevel){
+      answers.detailLevel=context.currentDetail || 'minimal';
+    }
+    lineAdvisorState.answers=answers;
+    return answers;
+  }
+
+  function buildLineAdvisorQuestions(context, answers){
+    const resolvedAnswers=answers || {};
+    const questions=[
+      {
+        id:'measurement',
+        prompt:'How are the series measured?',
+        help:'This choice determines whether Pearson or Spearman correlation is more appropriate.',
+        options:[
+          { value:'continuousNormal', label:'Continuous and roughly symmetric' },
+          { value:'continuousNonNormal', label:'Continuous with skew/outliers' },
+          { value:'ordinal', label:'Ordinal or ranked values' },
+          { value:'binaryOutcome', label:'Binary or bounded (0–1) response' }
+        ]
+      },
+      {
+        id:'analysisGoal',
+        prompt:'What is your primary analysis goal?',
+        help:'Choose whether you need a descriptive trend, smoothing, or forecasting.',
+        options:[
+          { value:'trend', label:'Characterize the current trend/association' },
+          { value:'forecast', label:'Forecast future values' },
+          { value:'smooth', label:'Smooth complex fluctuations' }
+        ]
+      }
+    ];
+    const goal=resolvedAnswers.analysisGoal || 'trend';
+    if(goal==='trend'){
+      questions.push({
+        id:'trendShape',
+        prompt:'Which pattern best describes the trend?',
+        help:'Select the regression family that matches your expected shape.',
+        options:[
+          { value:'linear', label:'Mostly linear change' },
+          { value:'curved', label:'Single bend (quadratic/cubic)' },
+          { value:'logistic', label:'S-shaped / saturating growth' },
+          { value:'exponential', label:'Exponential growth or decay' },
+          { value:'power', label:'Power-law (y ∝ xᵏ)' },
+          { value:'flexible', label:'Allow multiple bends (spline)' }
+        ]
+      });
+    }
+    if(goal==='forecast'){
+      questions.push({
+        id:'seasonality',
+        prompt:'Do you expect a repeating seasonal pattern?',
+        help:'Seasonal data benefits from Holt–Winters smoothing; otherwise ARIMA is typically preferred.',
+        options:[
+          { value:'seasonal', label:'Yes, there is a recurring seasonal pattern' },
+          { value:'nonSeasonal', label:'No, focus on trend without seasonality' }
+        ]
+      });
+    }
+    questions.push({
+      id:'detailLevel',
+      prompt:'How much model detail should accompany the lines?',
+      help:'Controls whether interval shading and diagnostics are displayed.',
+      options:[
+        { value:'minimal', label:'Show fitted lines only' },
+        { value:'intervals', label:'Include confidence/prediction intervals' },
+        { value:'diagnostics', label:'Include intervals and diagnostics summary' }
+      ]
+    });
+    return questions;
+  }
+
+  function computeLineAdvisorRecommendation(answers, context){
+    const recommendation={
+      ready:false,
+      message:'',
+      summary:'',
+      rationale:[],
+      warnings:[],
+      statsMethod:context.statsMethod || 'pearson',
+      regression:context.regressionMode || 'linear',
+      showIntervals:context.showIntervals,
+      showDiagnostics:context.showDiagnostics
+    };
+    if(!answers.measurement || !answers.analysisGoal || !answers.detailLevel ||
+      (answers.analysisGoal==='trend' && !answers.trendShape) ||
+      (answers.analysisGoal==='forecast' && !answers.seasonality)){
+      recommendation.message='Answer the advisor questions to receive a recommendation.';
+      return recommendation;
+    }
+    switch(answers.measurement){
+      case 'continuousNormal':
+        recommendation.statsMethod='pearson';
+        recommendation.rationale.push('Pearson correlation suits continuous, roughly normal measurements.');
+        break;
+      case 'continuousNonNormal':
+        recommendation.statsMethod='spearman';
+        recommendation.rationale.push('Spearman correlation resists skew and outliers by ranking the data.');
+        break;
+      case 'ordinal':
+        recommendation.statsMethod='spearman';
+        recommendation.rationale.push('Ordinal data violates Pearson assumptions; Spearman works with ranks.');
+        break;
+      case 'binaryOutcome':
+        recommendation.statsMethod='spearman';
+        recommendation.rationale.push('Binary/bounded responses break Pearson’s normality assumption, so Spearman is safer.');
+        break;
+      default:
+        break;
+    }
+    if(answers.analysisGoal==='forecast'){
+      recommendation.regression=answers.seasonality==='seasonal'?'holtWinters':'arima';
+      if(recommendation.regression==='holtWinters'){
+        recommendation.rationale.push('Holt–Winters captures recurring seasonal structure alongside trend and level.');
+        if(!context.regularSpacing){
+          recommendation.warnings.push('Holt–Winters assumes evenly spaced observations; verify spacing before forecasting.');
+        }
+        const seasonLength=context.forecastOptions?.seasonLength || 0;
+        if(seasonLength>0 && context.maxLength < seasonLength*2){
+          recommendation.warnings.push('Provide at least two full seasons of data for Holt–Winters to stabilize.');
+        }
+      }else{
+        recommendation.rationale.push('ARIMA handles non-seasonal autoregressive patterns for forecasting.');
+        if(context.avgLength<8){
+          recommendation.warnings.push('ARIMA forecasting is unstable with fewer than ~8 time points per series.');
+        }
+      }
+    }else if(answers.analysisGoal==='smooth'){
+      recommendation.regression='spline';
+      recommendation.rationale.push('A spline smoother adapts to complex fluctuations without assuming a rigid parametric form.');
+      if(context.avgLength<5){
+        recommendation.warnings.push('Spline smoothing benefits from at least five observations per series.');
+      }
+    }else{
+      switch(answers.trendShape){
+        case 'linear':
+          recommendation.regression='linear';
+          recommendation.rationale.push('Linear regression summarizes straight-line trends across the series.');
+          break;
+        case 'curved':
+          recommendation.regression='quadratic';
+          recommendation.rationale.push('A quadratic polynomial captures single bends in the trajectory.');
+          break;
+        case 'logistic':
+          recommendation.regression='logistic';
+          recommendation.rationale.push('Logistic regression models saturating S-shaped growth.');
+          if(!context.yWithinZeroOne){
+            recommendation.warnings.push('Logistic regression expects a bounded 0–1 response; rescale or verify Y values.');
+          }
+          break;
+        case 'exponential':
+          recommendation.regression='exponential';
+          recommendation.rationale.push('Exponential regression fits rapid growth or decay trajectories.');
+          break;
+        case 'power':
+          recommendation.regression='power';
+          recommendation.rationale.push('Power-law regression addresses allometric scaling relationships.');
+          if(Number.isFinite(context.xMin) && context.xMin<=0){
+            recommendation.warnings.push('Power-law models require positive X values; shift or filter non-positive points.');
+          }
+          break;
+        case 'flexible':
+          recommendation.regression='spline';
+          recommendation.rationale.push('A spline regression handles multiple bends without overfitting high-degree polynomials.');
+          break;
+        default:
+          break;
+      }
+    }
+    switch(answers.detailLevel){
+      case 'minimal':
+        recommendation.showIntervals=false;
+        recommendation.showDiagnostics=false;
+        recommendation.rationale.push('Displaying only the fitted lines keeps the visualization uncluttered.');
+        break;
+      case 'intervals':
+        recommendation.showIntervals=recommendation.regression!=='spline';
+        recommendation.showDiagnostics=false;
+        recommendation.rationale.push('Confidence/prediction intervals communicate model uncertainty.');
+        if(recommendation.regression==='spline'){
+          recommendation.warnings.push('Interval shading is unavailable for spline fits and will remain hidden.');
+        }
+        break;
+      case 'diagnostics':
+        recommendation.showIntervals=recommendation.regression!=='spline';
+        recommendation.showDiagnostics=true;
+        recommendation.rationale.push('Residual diagnostics help verify model assumptions for each series.');
+        if(recommendation.regression==='spline'){
+          recommendation.warnings.push('Interval shading is unavailable for spline fits and will remain hidden.');
+        }
+        break;
+      default:
+        break;
+    }
+    const methodLabel=recommendation.statsMethod==='pearson'?'Pearson correlation':'Spearman correlation';
+    const regressionLabels={
+      linear:'linear regression',
+      quadratic:'quadratic regression',
+      cubic:'cubic regression',
+      exponential:'exponential regression',
+      power:'power-law regression',
+      logistic:'logistic regression',
+      spline:'spline smoothing',
+      arima:'ARIMA forecasting',
+      holtWinters:'Holt–Winters forecasting'
+    };
+    let summary=`${methodLabel} with ${regressionLabels[recommendation.regression] || recommendation.regression}`;
+    const extras=[];
+    if(recommendation.showIntervals && recommendation.regression!=='spline'){
+      extras.push('interval shading');
+    }
+    if(recommendation.showDiagnostics){
+      extras.push('diagnostics summary');
+    }
+    if(extras.length){
+      summary += ` plus ${extras.join(' and ')}`;
+    }
+    recommendation.summary=`${summary}.`;
+    recommendation.ready=true;
+    return recommendation;
+  }
+
+  function renderLineStatsAdvisor(series, options, providedContext){
+    const container=document.getElementById('lineStatsAdvisor');
+    if(!container){
+      return;
+    }
+    const context=providedContext || buildLineAdvisorContext(series||[], options||{});
+    lineAdvisorState.context=context;
+    const answers=ensureLineAdvisorDefaults(context);
+    const recommendation=computeLineAdvisorRecommendation(answers, context);
+    container.innerHTML='';
+    const wrapper=document.createElement('div');
+    wrapper.className='stats-advisor';
+    wrapper.dataset.open=lineAdvisorState.open?'1':'0';
+    const header=document.createElement('div');
+    header.className='stats-advisor__header';
+    const title=document.createElement('strong');
+    title.textContent='Test advisor';
+    header.appendChild(title);
+    const toggle=document.createElement('button');
+    toggle.type='button';
+    toggle.className='stats-advisor__toggle';
+    toggle.textContent=lineAdvisorState.open?'Hide advisor':'Guide me';
+    toggle.addEventListener('click',()=>{
+      lineAdvisorState.open=!lineAdvisorState.open;
+      console.debug('Debug: line statsAdvisor toggled',{ open:lineAdvisorState.open });
+      renderLineStatsAdvisor(null, null, lineAdvisorState.context);
+    });
+    header.appendChild(toggle);
+    wrapper.appendChild(header);
+    const summary=document.createElement('div');
+    summary.className='stats-advisor__summary';
+    if(recommendation.ready){
+      const summaryLine=document.createElement('div');
+      summaryLine.className='stats-advisor__summary-line';
+      summaryLine.textContent=`Recommendation: ${recommendation.summary}`;
+      summary.appendChild(summaryLine);
+      if(Array.isArray(recommendation.rationale) && recommendation.rationale.length){
+        const list=document.createElement('ul');
+        list.className='stats-advisor__rationale';
+        recommendation.rationale.forEach(item=>{
+          const li=document.createElement('li');
+          li.textContent=item;
+          list.appendChild(li);
+        });
+        summary.appendChild(list);
+      }
+      if(Array.isArray(recommendation.warnings) && recommendation.warnings.length){
+        const warnTitle=document.createElement('div');
+        warnTitle.className='stats-advisor__warnings-title';
+        warnTitle.textContent='Cautions:';
+        summary.appendChild(warnTitle);
+        const warnList=document.createElement('ul');
+        warnList.className='stats-advisor__warnings';
+        recommendation.warnings.forEach(item=>{
+          const li=document.createElement('li');
+          li.textContent=item;
+          warnList.appendChild(li);
+        });
+        summary.appendChild(warnList);
+      }
+    }else{
+      const message=document.createElement('div');
+      message.textContent=recommendation.message || 'Answer the advisor questions to receive a recommendation.';
+      summary.appendChild(message);
+    }
+    wrapper.appendChild(summary);
+    if(lineAdvisorState.open){
+      const questionsWrap=document.createElement('div');
+      questionsWrap.className='stats-advisor__questions';
+      const questions=buildLineAdvisorQuestions(context, answers);
+      questions.forEach(question=>{
+        const fieldset=document.createElement('fieldset');
+        fieldset.className='stats-advisor__question';
+        const legend=document.createElement('legend');
+        legend.textContent=question.prompt;
+        fieldset.appendChild(legend);
+        if(question.help){
+          const hint=document.createElement('p');
+          hint.className='stats-advisor__hint';
+          hint.textContent=question.help;
+          fieldset.appendChild(hint);
+        }
+        (question.options||[]).forEach(option=>{
+          const label=document.createElement('label');
+          label.className='stats-advisor__option';
+          const input=document.createElement('input');
+          input.type='radio';
+          input.name=`line-advisor-${question.id}`;
+          input.value=option.value;
+          input.checked=answers[question.id]===option.value;
+          input.addEventListener('change',()=>{
+            answers[question.id]=option.value;
+            lineAdvisorState.answers=answers;
+            console.debug('Debug: line statsAdvisor answer change',{ question:question.id, value:option.value });
+            renderLineStatsAdvisor(null, null, lineAdvisorState.context);
+          });
+          const span=document.createElement('span');
+          span.textContent=option.label;
+          label.appendChild(input);
+          label.appendChild(span);
+          fieldset.appendChild(label);
+        });
+        questionsWrap.appendChild(fieldset);
+      });
+      wrapper.appendChild(questionsWrap);
+      const actions=document.createElement('div');
+      actions.className='stats-advisor__actions';
+      const applyBtn=document.createElement('button');
+      applyBtn.type='button';
+      applyBtn.textContent='Apply recommendation';
+      applyBtn.disabled=!recommendation.ready;
+      applyBtn.addEventListener('click',()=>{
+        if(!recommendation.ready){
+          return;
+        }
+        if(refs.statType){
+          refs.statType.value=recommendation.statsMethod;
+        }
+        if(refs.regressionMode){
+          refs.regressionMode.value=recommendation.regression;
+        }
+        if(refs.showIntervals){
+          refs.showIntervals.checked=!!recommendation.showIntervals;
+        }
+        if(refs.showDiagnostics){
+          refs.showDiagnostics.checked=!!recommendation.showDiagnostics;
+        }
+        updateForecastVisibility();
+        lineAdvisorState.lastApplied={ ...recommendation };
+        console.debug('Debug: line statsAdvisor applied',{
+          statsMethod:recommendation.statsMethod,
+          regression:recommendation.regression,
+          showIntervals:recommendation.showIntervals,
+          showDiagnostics:recommendation.showDiagnostics,
+          answers:{ ...answers }
+        });
+        scheduleLineDraw();
+        renderLineStatsAdvisor(null, null, lineAdvisorState.context);
+      });
+      actions.appendChild(applyBtn);
+      const resetBtn=document.createElement('button');
+      resetBtn.type='button';
+      resetBtn.className='stats-advisor__reset';
+      resetBtn.textContent='Reset answers';
+      resetBtn.addEventListener('click',()=>{
+        lineAdvisorState.answers={};
+        console.debug('Debug: line statsAdvisor reset');
+        renderLineStatsAdvisor(null, null, lineAdvisorState.context);
+      });
+      actions.appendChild(resetBtn);
+      wrapper.appendChild(actions);
+    }
+    container.appendChild(wrapper);
   }
 
   function clampLineReplicateCount(raw){
@@ -570,6 +1073,7 @@
     const showDiagnostics = !!options.showDiagnostics;
     const regressionAlpha = Number.isFinite(options.alpha) ? options.alpha : 0.05;
     const regressionCache = options.regressionCache instanceof Map ? options.regressionCache : new Map();
+    renderLineStatsAdvisor(series, { ...options, showIntervals, showDiagnostics });
     console.debug('Debug: updateLineStats',{seriesCount:series.length,method,regressionMode,showIntervals,showDiagnostics}); // Debug: stats update entry
     const tableRows=[];
     const intervalRows=[];
@@ -1678,6 +2182,7 @@
     refs.regressionMode=document.getElementById('lineRegressionMode');
     refs.showIntervals=document.getElementById('lineShowIntervals');
     refs.showDiagnostics=document.getElementById('lineShowDiagnostics');
+    renderLineStatsAdvisor([], { showIntervals: !!refs.showIntervals?.checked, showDiagnostics: !!refs.showDiagnostics?.checked });
     refs.forecastFieldset=document.getElementById('lineForecastControls');
     refs.forecastHorizon=document.getElementById('lineForecastHorizon');
     refs.forecastSeasonLength=document.getElementById('lineForecastSeasonLength');

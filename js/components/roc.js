@@ -53,6 +53,12 @@
     fileHandle: null,
     fileName: 'roc.graph'
   };
+  const rocAdvisorState={
+    open:false,
+    answers:{},
+    lastApplied:null,
+    context:null
+  };
 
   const refs = {};
 
@@ -200,10 +206,243 @@
     }
   }
 
+  function buildRocAdvisorContext(raw){
+    const graphType=(refs.graphType?.value || raw?.graphType || 'roc').toLowerCase();
+    const positives=Number.isFinite(raw?.positives)?raw.positives:0;
+    const negatives=Number.isFinite(raw?.negatives)?raw.negatives:0;
+    const pairCounts=Array.isArray(raw?.pairCounts)?raw.pairCounts:[];
+    const minPairs=pairCounts.length?Math.min(...pairCounts):0;
+    return {
+      graphType,
+      positives,
+      negatives,
+      totalCases: positives+negatives,
+      seriesCount: Number.isFinite(raw?.seriesCount)?raw.seriesCount:0,
+      minPairs,
+      pairCounts,
+      diffMethod: state.diffMethod
+    };
+  }
+
+  function ensureRocAdvisorDefaults(context){
+    const answers=rocAdvisorState.answers || {};
+    if(!answers.methodChoice){
+      if(context.graphType==='roc'){
+        const minClass=Math.min(context.positives, context.negatives);
+        answers.methodChoice=minClass>=50?'delong':'bootstrap';
+      }else{
+        answers.methodChoice='bootstrap';
+      }
+    }
+    rocAdvisorState.answers=answers;
+    return answers;
+  }
+
+  function buildRocAdvisorQuestions(context){
+    const graphType=context.graphType || 'roc';
+    const options=graphType==='roc'
+      ? [
+        { value:'delong', label:'DeLong analytic test (fast with ≥ ~50 positives & negatives)' },
+        { value:'bootstrap', label:'Bootstrap resampling (robust for small or imbalanced samples)' }
+      ]
+      : [
+        { value:'bootstrap', label:'Bootstrap resampling (captures score variability)' },
+        { value:'permutation', label:'Permutation test (shuffle labels for a strict null)' }
+      ];
+    const help=graphType==='roc'
+      ? 'Pick DeLong for well-powered ROC comparisons or bootstrap when counts are small or imbalanced.'
+      : 'Precision–recall comparisons typically rely on resampling; choose permutation if you need an exact label shuffle test.';
+    return [{
+      id:'methodChoice',
+      prompt:'How should curve differences be estimated?',
+      help,
+      options
+    }];
+  }
+
+  function computeRocAdvisorRecommendation(answers, context){
+    const recommendation={
+      ready:false,
+      message:'',
+      summary:'',
+      rationale:[],
+      warnings:[],
+      diffMethod:state.diffMethod || 'delong'
+    };
+    if(!answers.methodChoice){
+      recommendation.message='Answer the advisor question to receive a recommendation.';
+      return recommendation;
+    }
+    recommendation.diffMethod=answers.methodChoice;
+    if(answers.methodChoice==='delong'){
+      recommendation.rationale.push('DeLong provides a fast analytic variance estimate for ROC AUC differences.');
+      if(Math.min(context.positives, context.negatives) < 40){
+        recommendation.warnings.push('DeLong accuracy drops with very small positive/negative counts; consider bootstrap instead.');
+      }
+      if(context.graphType==='pr'){
+        recommendation.warnings.push('DeLong is not defined for precision–recall curves; use bootstrap or permutation.');
+      }
+    }else if(answers.methodChoice==='bootstrap'){
+      recommendation.rationale.push('Bootstrap resampling works across ROC and PR curves and tolerates small or imbalanced samples.');
+      if(context.minPairs && context.minPairs < 20){
+        recommendation.warnings.push('Increase bootstrap iterations for very small series to stabilize the resampled distribution.');
+      }
+    }else if(answers.methodChoice==='permutation'){
+      recommendation.rationale.push('Permutation tests construct a null distribution by shuffling labels without distributional assumptions.');
+      recommendation.warnings.push('Permutation tests can be computationally intensive; ensure enough shuffles for stable p-values.');
+    }
+    const labels={
+      delong:'DeLong analytic comparison',
+      bootstrap:'Bootstrap resampling comparison',
+      permutation:'Permutation-based comparison'
+    };
+    recommendation.summary=`Use ${labels[recommendation.diffMethod] || recommendation.diffMethod}.`;
+    recommendation.ready=true;
+    return recommendation;
+  }
+
+  function renderRocStatsAdvisor(rawContext){
+    const container=document.getElementById('rocStatsAdvisor');
+    if(!container){
+      return;
+    }
+    const context=buildRocAdvisorContext(rawContext || rocAdvisorState.context || {});
+    rocAdvisorState.context=context;
+    const answers=ensureRocAdvisorDefaults(context);
+    const recommendation=computeRocAdvisorRecommendation(answers, context);
+    container.innerHTML='';
+    const wrapper=document.createElement('div');
+    wrapper.className='stats-advisor';
+    wrapper.dataset.open=rocAdvisorState.open?'1':'0';
+    const header=document.createElement('div');
+    header.className='stats-advisor__header';
+    const title=document.createElement('strong');
+    title.textContent='Test advisor';
+    header.appendChild(title);
+    const toggle=document.createElement('button');
+    toggle.type='button';
+    toggle.className='stats-advisor__toggle';
+    toggle.textContent=rocAdvisorState.open?'Hide advisor':'Guide me';
+    toggle.addEventListener('click',()=>{
+      rocAdvisorState.open=!rocAdvisorState.open;
+      console.debug('Debug: roc statsAdvisor toggled',{ open:rocAdvisorState.open });
+      renderRocStatsAdvisor(rocAdvisorState.context);
+    });
+    header.appendChild(toggle);
+    wrapper.appendChild(header);
+    const summary=document.createElement('div');
+    summary.className='stats-advisor__summary';
+    if(recommendation.ready){
+      const summaryLine=document.createElement('div');
+      summaryLine.className='stats-advisor__summary-line';
+      summaryLine.textContent=`Recommendation: ${recommendation.summary}`;
+      summary.appendChild(summaryLine);
+      if(Array.isArray(recommendation.rationale) && recommendation.rationale.length){
+        const list=document.createElement('ul');
+        list.className='stats-advisor__rationale';
+        recommendation.rationale.forEach(item=>{
+          const li=document.createElement('li');
+          li.textContent=item;
+          list.appendChild(li);
+        });
+        summary.appendChild(list);
+      }
+      if(Array.isArray(recommendation.warnings) && recommendation.warnings.length){
+        const warnTitle=document.createElement('div');
+        warnTitle.className='stats-advisor__warnings-title';
+        warnTitle.textContent='Cautions:';
+        summary.appendChild(warnTitle);
+        const warnList=document.createElement('ul');
+        warnList.className='stats-advisor__warnings';
+        recommendation.warnings.forEach(item=>{
+          const li=document.createElement('li');
+          li.textContent=item;
+          warnList.appendChild(li);
+        });
+        summary.appendChild(warnList);
+      }
+    }else{
+      const message=document.createElement('div');
+      message.textContent=recommendation.message || 'Answer the advisor question to receive a recommendation.';
+      summary.appendChild(message);
+    }
+    wrapper.appendChild(summary);
+    if(rocAdvisorState.open){
+      const questionsWrap=document.createElement('div');
+      questionsWrap.className='stats-advisor__questions';
+      const questions=buildRocAdvisorQuestions(context);
+      questions.forEach(question=>{
+        const fieldset=document.createElement('fieldset');
+        fieldset.className='stats-advisor__question';
+        const legend=document.createElement('legend');
+        legend.textContent=question.prompt;
+        fieldset.appendChild(legend);
+        if(question.help){
+          const hint=document.createElement('p');
+          hint.className='stats-advisor__hint';
+          hint.textContent=question.help;
+          fieldset.appendChild(hint);
+        }
+        (question.options||[]).forEach(option=>{
+          const label=document.createElement('label');
+          label.className='stats-advisor__option';
+          const input=document.createElement('input');
+          input.type='radio';
+          input.name=`roc-advisor-${question.id}`;
+          input.value=option.value;
+          input.checked=answers[question.id]===option.value;
+          input.addEventListener('change',()=>{
+            answers[question.id]=option.value;
+            rocAdvisorState.answers=answers;
+            console.debug('Debug: roc statsAdvisor answer change',{ question:question.id, value:option.value });
+            renderRocStatsAdvisor(rocAdvisorState.context);
+          });
+          const span=document.createElement('span');
+          span.textContent=option.label;
+          label.appendChild(input);
+          label.appendChild(span);
+          fieldset.appendChild(label);
+        });
+        questionsWrap.appendChild(fieldset);
+      });
+      wrapper.appendChild(questionsWrap);
+      const actions=document.createElement('div');
+      actions.className='stats-advisor__actions';
+      const applyBtn=document.createElement('button');
+      applyBtn.type='button';
+      applyBtn.textContent='Apply recommendation';
+      applyBtn.disabled=!recommendation.ready;
+      applyBtn.addEventListener('click',()=>{
+        if(!recommendation.ready){
+          return;
+        }
+        state.diffMethod=recommendation.diffMethod;
+        rocAdvisorState.lastApplied={ ...recommendation };
+        console.debug('Debug: roc statsAdvisor applied',{ diffMethod:recommendation.diffMethod, answers:{ ...answers } });
+        renderStatsControls();
+        state.scheduleDraw?.();
+      });
+      actions.appendChild(applyBtn);
+      const resetBtn=document.createElement('button');
+      resetBtn.type='button';
+      resetBtn.className='stats-advisor__reset';
+      resetBtn.textContent='Reset answers';
+      resetBtn.addEventListener('click',()=>{
+        rocAdvisorState.answers={};
+        console.debug('Debug: roc statsAdvisor reset');
+        renderRocStatsAdvisor(rocAdvisorState.context);
+      });
+      actions.appendChild(resetBtn);
+      wrapper.appendChild(actions);
+    }
+    container.appendChild(wrapper);
+  }
+
   function renderStatsControls(){
     if(!refs.statsControls){
       return;
     }
+    renderRocStatsAdvisor(state.advisorContext);
     refs.statsControls.innerHTML = '';
 
     const diffLabel = document.createElement('label');
@@ -638,6 +877,28 @@
       clearPlotArea('no-scores');
       return;
     }
+
+    const pairCountsForAdvisor = series.map(serie => {
+      const scores = Array.isArray(serie.scores) ? serie.scores : [];
+      let count = 0;
+      for(let idx = 0; idx < scores.length; idx += 1){
+        const score = scores[idx];
+        const label = labels[idx];
+        if(!Number.isNaN(score) && !Number.isNaN(label)){
+          count += 1;
+        }
+      }
+      return count;
+    });
+    state.advisorContext = {
+      graphType,
+      positives,
+      negatives,
+      seriesCount: series.length,
+      pairCounts: pairCountsForAdvisor,
+      minPairs: pairCountsForAdvisor.length ? Math.min(...pairCountsForAdvisor) : 0
+    };
+    renderRocStatsAdvisor(state.advisorContext);
 
     const legendLabels = series.map(s => s.name);
     ensureLabelColors(legendLabels);

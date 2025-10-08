@@ -39,6 +39,12 @@
   let scatterCurrentGraphType='scatter';
   let scatterLastGraphType='scatter';
   let scatterLastRegressionSummary=null;
+  const scatterAdvisorState={
+    open:false,
+    answers:{},
+    lastApplied:null,
+    context:null
+  };
 
   function formatP(p){
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
@@ -368,10 +374,471 @@
             scatterTitleText=defaults.title;
           }
           scatterLastGraphType=type;
+      }
+      renderScatterStatsAdvisor(null, buildScatterAdvisorContext([]));
+      console.debug('Debug: syncScatterGraphTypeUI complete',{type,showThresholds});
+    }
+
+      function buildScatterAdvisorContext(points, overrides){
+        const context={
+          graphType: scatterCurrentGraphType,
+          statsMethod: scatterStatType?.value || 'pearson',
+          regressionMode: scatterRegressionMode?.value || 'linear',
+          showLine: !!scatterShowLine?.checked,
+          showIntervals: !!scatterShowIntervals?.checked,
+          showDiagnostics: !!scatterShowDiagnostics?.checked,
+          logX: !!scatterLogX?.checked,
+          logY: !!scatterLogY?.checked
+        };
+        const finitePoints=Array.isArray(points)?points.filter(pt=>Number.isFinite(pt?.x)&&Number.isFinite(pt?.y)):[];
+        context.pointCount=finitePoints.length;
+        const xUnique=new Set();
+        const yUnique=new Set();
+        const monotonicSigns=new Set();
+        let approxBinary=true;
+        let bounded01=true;
+        let prevPoint=null;
+        const yValues=[];
+        const xValues=[];
+        let xMin=Infinity,xMax=-Infinity,yMin=Infinity,yMax=-Infinity;
+        finitePoints.forEach(pt=>{
+          const x=pt.x;
+          const y=pt.y;
+          if(x<xMin) xMin=x;
+          if(x>xMax) xMax=x;
+          if(y<yMin) yMin=y;
+          if(y>yMax) yMax=y;
+          if(xUnique.size<400 && Number.isFinite(x)){
+            xUnique.add(Number(x.toFixed(6)));
+          }
+          if(yUnique.size<400 && Number.isFinite(y)){
+            yUnique.add(Number(y.toFixed(6)));
+          }
+          if(!(y===0 || y===1)){
+            approxBinary=false;
+          }
+          if(y<0 || y>1){
+            bounded01=false;
+          }
+          if(prevPoint){
+            const dx=x-prevPoint.x;
+            const dy=y-prevPoint.y;
+            if(Number.isFinite(dx) && dx!==0 && Number.isFinite(dy)){
+              if(dy>0){ monotonicSigns.add('pos'); }
+              else if(dy<0){ monotonicSigns.add('neg'); }
+            }
+          }
+          prevPoint=pt;
+          xValues.push(x);
+          yValues.push(y);
+        });
+        if(finitePoints.length){
+          context.xMin=xMin;
+          context.xMax=xMax;
+          context.yMin=yMin;
+          context.yMax=yMax;
         }
-        console.debug('Debug: syncScatterGraphTypeUI complete',{type,showThresholds});
+        context.xUniqueCount=xUnique.size;
+        context.yUniqueCount=yUnique.size;
+        context.approxBinaryY=approxBinary && yUnique.size<=2;
+        context.yWithinZeroOne=bounded01;
+        context.monotonicSigns=monotonicSigns;
+        if(yValues.length>3){
+          const yMean=yValues.reduce((sum,val)=>sum+val,0)/yValues.length;
+          const yVar=yValues.reduce((sum,val)=>sum+Math.pow(val-yMean,2),0)/Math.max(1,yValues.length-1);
+          const yStd=Math.sqrt(Math.max(yVar,0));
+          context.yStd=yStd;
+          if(yStd>0){
+            context.yOutlierCount=yValues.reduce((count,val)=>count+(Math.abs((val-yMean)/yStd)>3?1:0),0);
+          }else{
+            context.yOutlierCount=0;
+          }
+        }else{
+          context.yStd=NaN;
+          context.yOutlierCount=0;
+        }
+        if(xValues.length>3){
+          const xMean=xValues.reduce((sum,val)=>sum+val,0)/xValues.length;
+          const xVar=xValues.reduce((sum,val)=>sum+Math.pow(val-xMean,2),0)/Math.max(1,xValues.length-1);
+          context.xStd=Math.sqrt(Math.max(xVar,0));
+        }else{
+          context.xStd=NaN;
+        }
+        return overrides ? { ...context, ...overrides } : context;
+      }
+
+      function ensureScatterAdvisorDefaults(context){
+        const answers=scatterAdvisorState.answers || {};
+        if(!answers.measurement){
+          if(context.approxBinaryY){
+            answers.measurement='binaryOutcome';
+          }else if(context.pointCount>=6 && (context.yOutlierCount>0 || !Number.isFinite(context.yStd) || context.yStd===0)){
+            answers.measurement='continuousNonNormal';
+          }else{
+            answers.measurement='continuousNormal';
+          }
+        }
+        if(!answers.trend){
+          if(context.graphType!=='scatter'){
+            answers.trend='linear';
+          }else if(context.monotonicSigns && context.monotonicSigns.size>1){
+            answers.trend='multiple';
+          }else{
+            answers.trend='linear';
+          }
+        }
+        if(!answers.lineDetail){
+          if(context.showDiagnostics){
+            answers.lineDetail='diagnostics';
+          }else if(context.showIntervals){
+            answers.lineDetail='intervals';
+          }else if(context.showLine){
+            answers.lineDetail='minimal';
+          }else{
+            answers.lineDetail='hide';
+          }
+        }
+        scatterAdvisorState.answers=answers;
+        return answers;
+      }
+
+      function buildScatterAdvisorQuestions(context){
+        if(context.graphType!=='scatter'){
+          return [];
+        }
+        return [
+          {
+            id:'measurement',
+            prompt:'How are X and Y measured?',
+            help:'This determines whether Pearson or Spearman correlation fits best.',
+            options:[
+              { value:'continuousNormal', label:'Continuous and roughly symmetric' },
+              { value:'continuousNonNormal', label:'Continuous with skew/outliers' },
+              { value:'ordinal', label:'Ordinal or ranked values' },
+              { value:'binaryOutcome', label:'Binary or 0–1 response vs. predictor' }
+            ]
+          },
+          {
+            id:'trend',
+            prompt:'Which pattern best describes the relationship?',
+            help:'Choose a trend to fit when drawing the optional line.',
+            options:[
+              { value:'linear', label:'Straight-line trend' },
+              { value:'curved', label:'Single curve (U- or inverted-U)' },
+              { value:'sShape', label:'S-shaped / bounded response' },
+              { value:'exponential', label:'Exponential growth or decay' },
+              { value:'power', label:'Power-law scaling (y ∝ xᵏ)' },
+              { value:'multiple', label:'Irregular with multiple bends' }
+            ]
+          },
+          {
+            id:'lineDetail',
+            prompt:'How much detail should accompany the fitted line?',
+            help:'Controls the fitted line, interval shading, and diagnostics on the plot.',
+            options:[
+              { value:'minimal', label:'Show fitted line only' },
+              { value:'intervals', label:'Include confidence/prediction intervals' },
+              { value:'diagnostics', label:'Include intervals and diagnostics summary' },
+              { value:'hide', label:'Do not draw a trend line' }
+            ]
+          }
+        ];
+      }
+
+      function computeScatterAdvisorRecommendation(answers, context){
+        const recommendation={
+          ready:false,
+          message:'',
+          summary:'',
+          rationale:[],
+          warnings:[],
+          statsMethod:context.statsMethod || 'pearson',
+          regression:context.regressionMode || 'linear',
+          showLine:context.showLine,
+          showIntervals:context.showIntervals,
+          showDiagnostics:context.showDiagnostics
+        };
+        if(context.graphType!=='scatter'){
+          recommendation.message='Switch the graph type to “Scatter Plot” to access correlation and regression guidance.';
+          return recommendation;
+        }
+        if(!answers.measurement || !answers.trend || !answers.lineDetail){
+          recommendation.message='Answer the advisor questions to receive a recommendation.';
+          return recommendation;
+        }
+        switch(answers.measurement){
+          case 'continuousNormal':
+            recommendation.statsMethod='pearson';
+            recommendation.rationale.push('Pearson correlation is appropriate for roughly normal, continuous variables.');
+            break;
+          case 'continuousNonNormal':
+            recommendation.statsMethod='spearman';
+            recommendation.rationale.push('Spearman correlation is robust to skewed distributions and outliers by ranking the data.');
+            break;
+          case 'ordinal':
+            recommendation.statsMethod='spearman';
+            recommendation.rationale.push('Ordinal scales break Pearson assumptions; Spearman works with ranked measurements.');
+            break;
+          case 'binaryOutcome':
+            recommendation.statsMethod='spearman';
+            recommendation.rationale.push('Binary responses violate Pearson’s normality assumption, so Spearman is safer.');
+            break;
+          default:
+            break;
+        }
+        const trendLabels={
+          linear:'linear regression line',
+          curved:'quadratic regression curve',
+          sShape:'logistic regression curve',
+          exponential:'exponential regression curve',
+          power:'power-law regression curve',
+          multiple:'spline smoother'
+        };
+        switch(answers.trend){
+          case 'linear':
+            recommendation.regression='linear';
+            recommendation.rationale.push('A straight-line model captures linear relationships.');
+            break;
+          case 'curved':
+            recommendation.regression='quadratic';
+            recommendation.rationale.push('A quadratic polynomial captures a single bend in the trend.');
+            break;
+          case 'sShape':
+            recommendation.regression='logistic';
+            recommendation.rationale.push('Logistic regression models S-shaped responses bounded between 0 and 1.');
+            break;
+          case 'exponential':
+            recommendation.regression='exponential';
+            recommendation.rationale.push('Exponential regression fits rapid growth or decay patterns.');
+            break;
+          case 'power':
+            recommendation.regression='power';
+            recommendation.rationale.push('Power regression suits scaling relationships where y varies with xᵏ.');
+            break;
+          case 'multiple':
+            recommendation.regression='spline';
+            recommendation.rationale.push('A spline smoother adapts to multiple bends without a high-order polynomial.');
+            break;
+          default:
+            break;
+        }
+        switch(answers.lineDetail){
+          case 'minimal':
+            recommendation.showLine=true;
+            recommendation.showIntervals=false;
+            recommendation.showDiagnostics=false;
+            recommendation.rationale.push('Showing only the fitted line keeps the scatter uncluttered.');
+            break;
+          case 'intervals':
+            recommendation.showLine=true;
+            recommendation.showIntervals=recommendation.regression!=='spline' && recommendation.regression!=='logistic';
+            recommendation.showDiagnostics=false;
+            recommendation.rationale.push('Confidence/prediction intervals highlight model uncertainty.');
+            if(recommendation.regression==='spline' || recommendation.regression==='logistic'){
+              recommendation.warnings.push('Interval shading is unavailable for spline or logistic fits and will remain hidden.');
+            }
+            break;
+          case 'diagnostics':
+            recommendation.showLine=true;
+            recommendation.showIntervals=recommendation.regression!=='spline' && recommendation.regression!=='logistic';
+            recommendation.showDiagnostics=true;
+            recommendation.rationale.push('Diagnostics summarize residuals to check model assumptions.');
+            if(recommendation.regression==='spline' || recommendation.regression==='logistic'){
+              recommendation.warnings.push('Interval shading is unavailable for spline or logistic fits and will remain hidden.');
+            }
+            break;
+          case 'hide':
+            recommendation.showLine=false;
+            recommendation.showIntervals=false;
+            recommendation.showDiagnostics=false;
+            recommendation.rationale.push('Disabling the trend line keeps the scatter free of model overlays.');
+            break;
+          default:
+            break;
+        }
+        if(recommendation.regression==='logistic' && !context.approxBinaryY && !context.yWithinZeroOne){
+          recommendation.warnings.push('Logistic regression expects a binary or 0–1 bounded response; verify that Y meets this condition.');
+        }
+        if(context.pointCount>0 && context.pointCount<6){
+          recommendation.warnings.push('With fewer than six paired observations the fitted model may be unstable.');
+        }
+        const methodLabel=recommendation.statsMethod==='pearson'?'Pearson correlation':'Spearman correlation';
+        if(recommendation.showLine){
+          const regLabel=trendLabels[answers.trend] || `${recommendation.regression} fit`;
+          recommendation.summary=`${methodLabel} with a ${regLabel}.`;
+        }else{
+          recommendation.summary=`${methodLabel} without a fitted trend line.`;
+        }
+        recommendation.ready=true;
+        return recommendation;
+      }
+
+      function renderScatterStatsAdvisor(points, providedContext){
+        const container=document.getElementById('scatterStatsAdvisor');
+        if(!container){
+          return;
+        }
+        const context=providedContext || buildScatterAdvisorContext(points||[]);
+        scatterAdvisorState.context=context;
+        const answers=ensureScatterAdvisorDefaults(context);
+        const recommendation=computeScatterAdvisorRecommendation(answers, context);
+        container.innerHTML='';
+        const wrapper=document.createElement('div');
+        wrapper.className='stats-advisor';
+        wrapper.dataset.open=scatterAdvisorState.open?'1':'0';
+        const header=document.createElement('div');
+        header.className='stats-advisor__header';
+        const title=document.createElement('strong');
+        title.textContent='Test advisor';
+        header.appendChild(title);
+        const toggle=document.createElement('button');
+        toggle.type='button';
+        toggle.className='stats-advisor__toggle';
+        toggle.textContent=scatterAdvisorState.open?'Hide advisor':'Guide me';
+        toggle.addEventListener('click',()=>{
+          scatterAdvisorState.open=!scatterAdvisorState.open;
+          console.debug('Debug: scatter statsAdvisor toggled',{ open:scatterAdvisorState.open });
+          renderScatterStatsAdvisor(null, scatterAdvisorState.context);
+        });
+        header.appendChild(toggle);
+        wrapper.appendChild(header);
+        const summary=document.createElement('div');
+        summary.className='stats-advisor__summary';
+        if(recommendation.ready){
+          const summaryLine=document.createElement('div');
+          summaryLine.className='stats-advisor__summary-line';
+          summaryLine.textContent=`Recommendation: ${recommendation.summary}`;
+          summary.appendChild(summaryLine);
+          if(Array.isArray(recommendation.rationale) && recommendation.rationale.length){
+            const list=document.createElement('ul');
+            list.className='stats-advisor__rationale';
+            recommendation.rationale.forEach(item=>{
+              const li=document.createElement('li');
+              li.textContent=item;
+              list.appendChild(li);
+            });
+            summary.appendChild(list);
+          }
+          if(Array.isArray(recommendation.warnings) && recommendation.warnings.length){
+            const warnTitle=document.createElement('div');
+            warnTitle.className='stats-advisor__warnings-title';
+            warnTitle.textContent='Cautions:';
+            summary.appendChild(warnTitle);
+            const warnList=document.createElement('ul');
+            warnList.className='stats-advisor__warnings';
+            recommendation.warnings.forEach(item=>{
+              const li=document.createElement('li');
+              li.textContent=item;
+              warnList.appendChild(li);
+            });
+            summary.appendChild(warnList);
+          }
+        }else{
+          const message=document.createElement('div');
+          message.textContent=recommendation.message || 'Answer the advisor questions to receive a recommendation.';
+          summary.appendChild(message);
+        }
+        wrapper.appendChild(summary);
+        if(scatterAdvisorState.open){
+          if(context.graphType==='scatter'){
+            const questionsWrap=document.createElement('div');
+            questionsWrap.className='stats-advisor__questions';
+            const questions=buildScatterAdvisorQuestions(context);
+            questions.forEach(question=>{
+              const fieldset=document.createElement('fieldset');
+              fieldset.className='stats-advisor__question';
+              const legend=document.createElement('legend');
+              legend.textContent=question.prompt;
+              fieldset.appendChild(legend);
+              if(question.help){
+                const hint=document.createElement('p');
+                hint.className='stats-advisor__hint';
+                hint.textContent=question.help;
+                fieldset.appendChild(hint);
+              }
+              (question.options||[]).forEach(option=>{
+                const label=document.createElement('label');
+                label.className='stats-advisor__option';
+                const input=document.createElement('input');
+                input.type='radio';
+                input.name=`scatter-advisor-${question.id}`;
+                input.value=option.value;
+                input.checked=answers[question.id]===option.value;
+                input.addEventListener('change',()=>{
+                  answers[question.id]=option.value;
+                  scatterAdvisorState.answers=answers;
+                  console.debug('Debug: scatter statsAdvisor answer change',{ question:question.id, value:option.value });
+                  renderScatterStatsAdvisor(null, scatterAdvisorState.context);
+                });
+                const span=document.createElement('span');
+                span.textContent=option.label;
+                label.appendChild(input);
+                label.appendChild(span);
+                fieldset.appendChild(label);
+              });
+              questionsWrap.appendChild(fieldset);
+            });
+            wrapper.appendChild(questionsWrap);
+            const actions=document.createElement('div');
+            actions.className='stats-advisor__actions';
+            const applyBtn=document.createElement('button');
+            applyBtn.type='button';
+            applyBtn.textContent='Apply recommendation';
+            applyBtn.disabled=!recommendation.ready;
+            applyBtn.addEventListener('click',()=>{
+              if(!recommendation.ready){
+                return;
+              }
+              if(scatterStatType){
+                scatterStatType.value=recommendation.statsMethod;
+              }
+              if(scatterRegressionMode){
+                scatterRegressionMode.value=recommendation.regression;
+              }
+              if(scatterShowLine){
+                scatterShowLine.checked=!!recommendation.showLine;
+              }
+              if(scatterShowIntervals){
+                scatterShowIntervals.checked=!!recommendation.showIntervals;
+              }
+              if(scatterShowDiagnostics){
+                scatterShowDiagnostics.checked=!!recommendation.showDiagnostics;
+              }
+              scatterAdvisorState.lastApplied={ ...recommendation };
+              console.debug('Debug: scatter statsAdvisor applied',{
+                statsMethod:recommendation.statsMethod,
+                regression:recommendation.regression,
+                showLine:recommendation.showLine,
+                showIntervals:recommendation.showIntervals,
+                showDiagnostics:recommendation.showDiagnostics,
+                answers:{ ...answers }
+              });
+              scheduleDrawScatter();
+              renderScatterStatsAdvisor(null, scatterAdvisorState.context);
+            });
+            actions.appendChild(applyBtn);
+            const resetBtn=document.createElement('button');
+            resetBtn.type='button';
+            resetBtn.className='stats-advisor__reset';
+            resetBtn.textContent='Reset answers';
+            resetBtn.addEventListener('click',()=>{
+              scatterAdvisorState.answers={};
+              console.debug('Debug: scatter statsAdvisor reset');
+              renderScatterStatsAdvisor(null, scatterAdvisorState.context);
+            });
+            actions.appendChild(resetBtn);
+            wrapper.appendChild(actions);
+          }else{
+            const hint=document.createElement('div');
+            hint.className='stats-advisor__hint';
+            hint.textContent='Switch to the scatter plot type to receive correlation and regression recommendations.';
+            wrapper.appendChild(hint);
+          }
+        }
+        container.appendChild(wrapper);
       }
       scatterAlphaVal.textContent=scatterAlpha.value;
+      renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
       if(scatterGraphTypeSelect){
         scatterGraphTypeSelect.addEventListener('change',()=>{
           console.debug('Debug: scatter graph type change event',{value:scatterGraphTypeSelect.value});
@@ -646,6 +1113,11 @@
         }
         const labelsUsed=labelSet?Array.from(labelSet):[];
         console.debug('Debug: scatter label summary',{graphType:scatterCurrentGraphType,labelCount:labelsUsed.length,tracked:shouldCollectLabelSet}); // Debug: label usage summary
+        if(scatterCurrentGraphType==='scatter'){
+          renderScatterStatsAdvisor(points);
+        }else{
+          renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
+        }
         ensureScatterLabelColors(labelsUsed);
         console.log('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
         const legendEntries=[];
