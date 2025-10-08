@@ -989,17 +989,20 @@
           { key: 'significant', label: 'Significant', align: 'center' }
         ],
         rows,
-        caption: 'Overlap enrichment significance',
-        footnotes: ['Significance threshold: p < 0.05.'],
+        caption: 'Overlap enrichment significance (hypergeometric test)',
+        footnotes: [
+          'Significance threshold: p < 0.05.',
+          'Test: One-sided hypergeometric overlap enrichment.'
+        ],
         options: {
           fileName: 'venn-significance',
           contextLabel: 'venn-significance'
         }
       });
     } else {
-      state.ui.significanceResults.innerHTML = '<table><tr><th>Overlap</th><th>p-value</th><th>Significant</th></tr>' +
+      state.ui.significanceResults.innerHTML = '<table><caption>Overlap enrichment significance (hypergeometric test)</caption><tr><th>Overlap</th><th>p-value</th><th>Significant</th></tr>' +
         rows.map(r => `<tr><td>${r.overlap}</td><td>${r.pvalue}</td><td>${r.significant}</td></tr>`).join('') +
-        '</table>';
+        '</table><p class="stats-footnote">Significance threshold: p &lt; 0.05.<br>Test: One-sided hypergeometric overlap enrichment.</p>';
     }
     const countsSignature = makeCountsSignature(state.analysis.lastCounts);
     state.analysis.lastSignificance = { countsSignature, total };
