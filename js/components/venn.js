@@ -253,6 +253,7 @@
         lastGOOrganism: 'hsapiens',
         lastRegionSignature: null,
         lastRegionCode: null,
+        lastSignificance: null,
       },
       persistence: {
         fileHandle: null,
@@ -944,6 +945,12 @@
     return p;
   }
 
+  function makeCountsSignature(counts) {
+    if (!counts) return null;
+    const keys = ['nA', 'nB', 'nC', 'Aonly', 'Bonly', 'Conly', 'AB', 'AC', 'BC', 'ABC'];
+    return keys.map(key => `${key}:${Number(counts[key]) || 0}`).join('|');
+  }
+
   function calculateSignificance() {
     if (!state.analysis.lastCounts || !state.ui.significanceResults) {
       if (state.ui.significanceResults) state.ui.significanceResults.textContent = 'Draw a Venn diagram first.';
@@ -994,7 +1001,9 @@
         rows.map(r => `<tr><td>${r.overlap}</td><td>${r.pvalue}</td><td>${r.significant}</td></tr>`).join('') +
         '</table>';
     }
-    debugLog('calculateSignificance complete', { total, overlaps: res.length });
+    const countsSignature = makeCountsSignature(state.analysis.lastCounts);
+    state.analysis.lastSignificance = { countsSignature, total };
+    debugLog('calculateSignificance complete', { total, overlaps: res.length, countsSignature });
   }
 
   async function guessSpecies(genes) {
@@ -1556,7 +1565,16 @@
       AB: regions.AB.size, AC: regions.AC.size, BC: regions.BC.size, ABC: regions.ABC.size
     };
     state.analysis.lastCounts = counts;
-    if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
+    const countsSignature = makeCountsSignature(counts);
+    const lastSig = state.analysis.lastSignificance;
+    const shouldClearSignificance = !lastSig || lastSig.countsSignature !== countsSignature;
+    if (shouldClearSignificance) {
+      if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
+      state.analysis.lastSignificance = null;
+      debugLog('significance invalidated after list draw', { countsSignature, hadPrevious: !!lastSig });
+    } else {
+      debugLog('significance preserved after list draw', { countsSignature });
+    }
     refreshCounts(counts);
     const pairs = { nAB: counts.AB + counts.ABC, nAC: counts.AC + counts.ABC, nBC: counts.BC + counts.ABC };
     const L = layoutFromCounts(counts.nA, counts.nB, counts.nC, pairs.nAB, pairs.nAC, pairs.nBC);
@@ -1607,7 +1625,16 @@
     };
     state.analysis.lastDrawMode = 'numeric';
     state.analysis.lastCounts = counts;
-    if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
+    const countsSignature = makeCountsSignature(counts);
+    const lastSig = state.analysis.lastSignificance;
+    const shouldClearSignificance = !lastSig || lastSig.countsSignature !== countsSignature;
+    if (shouldClearSignificance) {
+      if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
+      state.analysis.lastSignificance = null;
+      debugLog('significance invalidated after numeric draw', { countsSignature, hadPrevious: !!lastSig });
+    } else {
+      debugLog('significance preserved after numeric draw', { countsSignature });
+    }
     refreshCounts(counts);
     const L = layoutFromCounts(nA, nB, nC, nAB, nAC, nBC);
     const fontInfo = resolveFontInfo(inputs.fontsize.value);
@@ -1677,6 +1704,11 @@
         if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.style.display = 'none';
         state.analysis.lastRegions = null;
         state.analysis.lastCounts = null;
+        if (state.analysis.lastSignificance) {
+          state.analysis.lastSignificance = null;
+          if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
+          debugLog('significance cleared during empty refresh');
+        }
         debugLog('refreshDiagram skipped', { reason: 'no-data', hasLists, hasNumeric });
         return;
       }
@@ -2344,6 +2376,7 @@
     setSpeciesIndicator(null);
     if (state.ui.totalGenesInput) state.ui.totalGenesInput.value = '';
     if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
+    state.analysis.lastSignificance = null;
     debugLog('reset handler completed', { defaultLabels });
   }
 
