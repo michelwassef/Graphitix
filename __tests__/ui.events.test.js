@@ -32,6 +32,14 @@ function createJStatTestStub(){
     } },
     centralF: { cdf: ()=>0.5 },
     chisquare: { cdf: ()=>0.5 },
+    mean: (arr)=>{
+      const clean = (arr || []).map(Number).filter(Number.isFinite);
+      if(!clean.length){
+        return NaN;
+      }
+      const sum = clean.reduce((total, value)=>total + value, 0);
+      return sum / clean.length;
+    },
     stdev: (arr, sample)=>{
       const clean = (arr || []).map(Number).filter(Number.isFinite);
       if(!clean.length){
@@ -82,6 +90,7 @@ describe('UI events and example loaders', () => {
     require('../js/shared/componentLayout.js');
     require('../js/shared/chartStyle.js');
     // Components
+    require('../js/components/venn.js');
     require('../js/components/box.js');
     require('../js/components/hist.js');
     require('../js/components/pie.js');
@@ -285,5 +294,67 @@ describe('UI events and example loaders', () => {
 
     expect(syncSpy).toHaveBeenCalled();
     syncSpy.mockRestore();
+  });
+
+  test('Venn GO analysis results persist when repopulating the same region', () => {
+    const hooks = window.Components?.venn?.__testHooks;
+    expect(hooks).toBeTruthy();
+    const { state, populateRegion } = hooks;
+    state.analysis.lastRegionSignature = null;
+    state.analysis.lastRegionCode = null;
+    state.analysis.lastRegions = {
+      Aonly: new Set(['BRCA1', 'ATM']),
+      Bonly: new Set(),
+      Conly: new Set(),
+      AB: new Set(),
+      AC: new Set(),
+      BC: new Set(),
+      ABC: new Set()
+    };
+    state.ui.regionList = document.createElement('div');
+    state.ui.copyRegionBtn = document.createElement('button');
+    state.ui.goResults = document.createElement('div');
+    state.ui.stringResults = document.createElement('div');
+    state.ui.stringNetwork = document.createElement('div');
+    state.ui.goChartExport = document.createElement('div');
+    state.ui.stringNetworkExport = document.createElement('div');
+
+    populateRegion('A');
+    state.ui.goResults.innerHTML = 'DNA repair';
+    populateRegion('A');
+
+    expect(state.ui.goResults.innerHTML).toBe('DNA repair');
+  });
+
+  test('Venn STRING analysis results persist when repopulating the same region', () => {
+    const hooks = window.Components?.venn?.__testHooks;
+    expect(hooks).toBeTruthy();
+    const { state, populateRegion } = hooks;
+    state.analysis.lastRegionSignature = null;
+    state.analysis.lastRegionCode = null;
+    state.analysis.lastRegions = {
+      Aonly: new Set(['BRCA1', 'ATM']),
+      Bonly: new Set(['CBX2']),
+      Conly: new Set(),
+      AB: new Set(['BAP1']),
+      AC: new Set(),
+      BC: new Set(),
+      ABC: new Set(['RING1B'])
+    };
+    state.ui.regionList = document.createElement('div');
+    state.ui.copyRegionBtn = document.createElement('button');
+    state.ui.goResults = state.ui.goResults || document.createElement('div');
+    state.ui.stringResults = document.createElement('div');
+    state.ui.stringNetwork = document.createElement('div');
+    state.ui.goChartExport = state.ui.goChartExport || document.createElement('div');
+    state.ui.stringNetworkExport = document.createElement('div');
+
+    populateRegion('A');
+    state.ui.stringResults.innerHTML = '<strong>STRING enrichment</strong><div>Protein binding</div>';
+    state.ui.stringNetwork.innerHTML = '<svg></svg>';
+    populateRegion('A');
+
+    expect(state.ui.stringResults.innerHTML).toContain('Protein binding');
+    expect(state.ui.stringNetwork.innerHTML).toContain('<svg');
   });
 });
