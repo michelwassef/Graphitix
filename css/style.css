@@ -641,6 +641,28 @@ input[type=number]{width:100%;background:#fff;border:1px solid #ccc;color:#000;b
 .stats-table-actions{border-top:1px solid #d7e0ef;padding:10px 16px;display:flex;justify-content:flex-end;background:#f7f9fc}
 .stats-table-actions__fallback{font-size:12px;color:#6b7280}
 .stats-table-lead{font-size:13px;color:#445065;margin-bottom:8px}
+.stats-advisor{margin:12px 0;border:1px solid #d7e0ef;border-radius:10px;background:#f8fbff;padding:12px 16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 1px 2px rgba(15,23,42,0.08);color:#1d2735}
+.stats-advisor__header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.stats-advisor__toggle{border:none;border-radius:6px;background:#2563eb;color:#fff;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:background .2s ease}
+.stats-advisor__toggle:hover,.stats-advisor__toggle:focus-visible{background:#1d4ed8}
+.stats-advisor__summary{display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5}
+.stats-advisor__summary-line{font-weight:600}
+.stats-advisor__rationale,.stats-advisor__warnings{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;font-size:12px}
+.stats-advisor__warnings-title{font-weight:600;color:#b45309;font-size:12px}
+.stats-advisor__warnings{color:#92400e}
+.stats-advisor__questions{display:flex;flex-direction:column;gap:12px}
+.stats-advisor__question{border:1px solid #dbe4f3;border-radius:8px;padding:10px 12px;background:#fff;display:flex;flex-direction:column;gap:8px}
+.stats-advisor__question legend{font-weight:600;font-size:13px;color:#1d2735}
+.stats-advisor__hint{margin:0;font-size:12px;color:#475569}
+.stats-advisor__option{display:flex;align-items:center;gap:8px;font-size:13px;color:#1e293b;cursor:pointer}
+.stats-advisor__option input{accent-color:#2563eb;cursor:pointer}
+.stats-advisor__actions{display:flex;gap:8px;flex-wrap:wrap}
+.stats-advisor__actions button{border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:background .2s ease,color .2s ease,border-color .2s ease}
+.stats-advisor__actions button:disabled{opacity:.5;cursor:not-allowed}
+.stats-advisor__actions button:not(.stats-advisor__reset){background:#2563eb;color:#fff}
+.stats-advisor__actions button:not(.stats-advisor__reset):hover,.stats-advisor__actions button:not(.stats-advisor__reset):focus-visible{background:#1d4ed8}
+.stats-advisor__reset{background:transparent;border:1px solid #cbd5e1;color:#1e293b}
+.stats-advisor__reset:hover,.stats-advisor__reset:focus-visible{background:#f1f5f9}
 #goOptsBtn,#stringOptsBtn{font-size:12px;padding:4px 6px}
 .svgbox{background:#ffffff;border:1px solid #ddd;border-radius:8px;padding:8px;margin:8px 0;box-shadow:0 1px 4px rgba(0,0,0,0.08);position:relative;display:flex;flex-direction:column;min-width:var(--graph-min-width,192px);min-height:var(--graph-min-height,126px);width:min(100%,var(--graph-default-width,640px));height:auto;max-width:var(--graph-max-width,1920px);max-height:var(--graph-max-height,1260px);box-sizing:border-box;overflow:visible;flex:0 0 auto;aspect-ratio:var(--graph-aspect-ratio,1)}
 .svgbox .resizer{position:absolute;z-index:40;background:rgba(0,0,0,0);touch-action:none}

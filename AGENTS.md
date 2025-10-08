@@ -27,6 +27,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 - Follow the existing pattern of exposing features through the `window.Shared` and `window.Components` namespaces so legacy inline code continues to work.
 - When creating Handsontable grids through `Shared.hot.createStandardTable`, keep the first (grey) row as headers by default. If a dataset has a fixed schema (such as survival analysis), set `firstRowIsHeader: false` and provide explicit `colHeaders` so the first row behaves like normal input cells.
 - The survival workspace now expects four baseline columns (Group, Time, Event, Entry Time) followed by optional covariate columns. Update `SURVIVAL_COL_HEADERS` in `js/components/survival.js` if the schema changes and keep the covariate selection controls in sync.
+- The box plot statistics advisor (`renderStatsAdvisor` in `js/components/box.js`) uses a question tree to recommend tests. Keep its options, wording, and styling (`.stats-advisor` rules in `css/style.css`) aligned with any future changes to available analyses or layout.
 
 ## Testing
 - After making changes, run `npm test` (if available) and ensure the command completes.

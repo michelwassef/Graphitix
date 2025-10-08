@@ -430,6 +430,333 @@
     return method || 'standard';
   }
 
+  const ADVISOR_GROUP_OPTIONS=[
+    { value:'two', label:'Two groups' },
+    { value:'threePlus', label:'Three or more groups' }
+  ];
+  const ADVISOR_PAIRED_OPTIONS=[
+    { value:'unpaired', label:'No, groups are independent' },
+    { value:'paired', label:'Yes, measurements are paired/repeated' }
+  ];
+  const ADVISOR_DISTRIBUTION_OPTIONS=[
+    { value:'normal', label:'Yes, roughly bell-shaped' },
+    { value:'nonnormal', label:'No, noticeably non-normal' },
+    { value:'unsure', label:"I am not sure yet" }
+  ];
+  const ADVISOR_VARIANCE_OPTIONS=[
+    { value:'yes', label:'Yes, variances look similar' },
+    { value:'no', label:'No, variances differ a lot' },
+    { value:'unsure', label:"Not sure / haven’t checked" }
+  ];
+  const GROUPED_GOAL_OPTIONS=[
+    { value:'interaction', label:'Study group × condition effects together' },
+    { value:'perCondition', label:'Compare groups within each condition separately' }
+  ];
+  const GROUPED_REPEATED_OPTIONS=[
+    { value:'yes', label:'Yes, rows are repeated measurements of the same subjects' },
+    { value:'no', label:'No, rows are independent observations' }
+  ];
+  const GROUPED_ROW_FACTOR_OPTIONS=[
+    { value:'yes', label:'Yes, include the row/subject dimension as a factor' },
+    { value:'no', label:'No, focus on group and condition only' }
+  ];
+
+  function normalizeAdvisorGroupAnswer(answer,context){
+    const fallback=(context?.groupCount||0)>=3?'threePlus':(context?.groupCount===2?'two':null);
+    if(answer==='two'||answer==='threePlus'){ return answer; }
+    return fallback;
+  }
+
+  function computeGroupedAdvisorRecommendation(rawAnswers,rawContext){
+    const answers=rawAnswers || {};
+    const context=rawContext || {};
+    const groupCount=Number.isFinite(context.groupCount)?context.groupCount:0;
+    const conditionCount=Number.isFinite(context.conditionCount)?context.conditionCount:0;
+    const rowCount=Number.isFinite(context.rowCount)?context.rowCount:0;
+    if(groupCount<2){
+      return {
+        format:'grouped',
+        ready:false,
+        message:'Add at least two groups before running the advisor for grouped analyses.',
+        missing:['groupedGoal']
+      };
+    }
+    if(conditionCount<1){
+      return {
+        format:'grouped',
+        ready:false,
+        message:'Increase the conditions per group to at least one before running grouped analyses.',
+        missing:['groupedGoal']
+      };
+    }
+    const goal=answers.groupedGoal;
+    if(goal!=='interaction' && goal!=='perCondition'){
+      return {
+        format:'grouped',
+        ready:false,
+        message:'Tell the advisor whether you want interaction tests or per-condition comparisons.',
+        missing:['groupedGoal']
+      };
+    }
+    const rationale=[];
+    const warnings=[];
+    if(goal==='perCondition'){
+      const summary=`Run row-wise t-tests to compare groups within each of the ${conditionCount} condition${conditionCount===1?'':'s'}.`;
+      rationale.push('Row-wise t-tests provide simple group comparisons within each condition.');
+      if(!context.ok && context.message){
+        warnings.push(context.message);
+      }
+      if((context.partialRowsSkipped||0)>0){
+        warnings.push(`${context.partialRowsSkipped} incomplete row${context.partialRowsSkipped===1?' was':'s were'} skipped; ensure rows are fully populated.`);
+      }
+      return {
+        format:'grouped',
+        ready:true,
+        analysis:'rowTTests',
+        summary,
+        rationale,
+        warnings,
+        detail:{ goal }
+      };
+    }
+    const repeated=answers.groupedRepeated;
+    if(repeated!=='yes' && repeated!=='no'){
+      return {
+        format:'grouped',
+        ready:false,
+        message:'Specify whether rows represent repeated measurements of the same subjects across conditions.',
+        missing:['groupedRepeated'],
+        goal
+      };
+    }
+    let includeRowFactor=false;
+    if(rowCount>=2){
+      const rowAnswer=answers.groupedRowFactor;
+      if(rowAnswer!=='yes' && rowAnswer!=='no'){
+        return {
+          format:'grouped',
+          ready:false,
+          message:'Tell the advisor whether the row/subject dimension should be included as a factor.',
+          missing:['groupedRowFactor'],
+          goal,
+          repeated:repeated==='yes'
+        };
+      }
+      includeRowFactor=rowAnswer==='yes';
+    }else if(answers.groupedRowFactor==='yes'){
+      warnings.push('At least two complete rows are required to include the row/subject dimension; defaulting to a two-way model.');
+    }
+    let analysis='twoWayAnova';
+    let summary='Use a two-way ANOVA to assess group and condition main effects plus their interaction.';
+    if(includeRowFactor){
+      if(repeated==='yes'){
+        analysis='threeWayMixed';
+        summary='Use a three-way mixed model to evaluate group, condition, and row effects with repeated measurements.';
+      }else{
+        analysis='threeWayAnova';
+        summary='Use a three-way ANOVA to evaluate group, condition, and row factors together.';
+      }
+    }else if(repeated==='yes'){
+      analysis='twoWayMixed';
+      summary='Use a two-way mixed model to assess group and condition effects with repeated measurements across conditions.';
+    }
+    if(repeated==='yes'){
+      rationale.push('Rows track repeated observations for each subject, so a mixed-model approach accounts for within-subject correlation.');
+    }else{
+      rationale.push('Groups and conditions are independent, so a standard ANOVA is appropriate.');
+    }
+    if(includeRowFactor){
+      rationale.push('Including the row/subject factor lets you test for row-level trends and higher-order interactions.');
+    }
+    if(!context.ok && context.message){
+      warnings.push(context.message);
+    }
+    if((context.partialRowsSkipped||0)>0){
+      warnings.push(`${context.partialRowsSkipped} incomplete row${context.partialRowsSkipped===1?' was':'s were'} skipped; fill missing values to retain balance.`);
+    }
+    return {
+      format:'grouped',
+      ready:true,
+      analysis,
+      summary,
+      rationale,
+      warnings,
+      detail:{ goal, repeated, includeRowFactor, rowCount }
+    };
+  }
+
+  function computeAdvisorRecommendation(rawAnswers,rawContext){
+    const answers=rawAnswers||{};
+    const context=rawContext||{};
+    if(context?.format==='grouped'){
+      return computeGroupedAdvisorRecommendation(answers,context);
+    }
+    const groupCount=Number.isFinite(context.groupCount)?context.groupCount:0;
+    if(groupCount<2){
+      return {
+        ready:false,
+        message:'Select at least two groups before running the advisor.',
+        missing:['groups']
+      };
+    }
+    const groupsAnswer=normalizeAdvisorGroupAnswer(answers.groups,context);
+    if(!groupsAnswer){
+      return {
+        ready:false,
+        message:'Tell the advisor how many groups you are comparing.',
+        missing:['groups']
+      };
+    }
+    const pairedAnswer=answers.paired;
+    if(pairedAnswer!=='paired' && pairedAnswer!=='unpaired'){
+      return {
+        ready:false,
+        message:'Specify whether the measurements are paired/repeated.',
+        missing:['paired'],
+        groups:groupsAnswer
+      };
+    }
+    const distributionAnswer=answers.distribution;
+    if(!distributionAnswer){
+      return {
+        ready:false,
+        message:'Let the advisor know whether the data look approximately normal.',
+        missing:['distribution'],
+        groups:groupsAnswer,
+        paired:pairedAnswer==='paired'
+      };
+    }
+    const equalVarianceAnswer=answers.equalVariance;
+    const paired=pairedAnswer==='paired';
+    const sampleSizes=Array.isArray(context.sampleSizes)
+      ? context.sampleSizes.map(n=>Number.isFinite(n)?n:0)
+      : [];
+    const assumptionDiagnostics=context.assumptions||null;
+
+    let statsTest='parametric';
+    let postHoc='standard';
+    let primaryLabel='';
+    let postHocLabel='';
+    const rationale=[];
+    const warnings=[];
+
+    if(groupsAnswer==='two'){
+      if(paired){
+        if(distributionAnswer==='normal'){
+          statsTest='parametric';
+          primaryLabel='Paired t-test';
+          rationale.push('Paired measurements with approximately normal differences favour parametric tests.');
+        }else if(distributionAnswer==='nonnormal'){
+          statsTest='nonparametric';
+          primaryLabel='Wilcoxon signed-rank test';
+          rationale.push('Non-normal paired differences are handled best with rank-based Wilcoxon tests.');
+        }else{
+          statsTest='nonparametric';
+          primaryLabel='Wilcoxon signed-rank test';
+          rationale.push('When normality is uncertain, rank-based paired tests offer robustness.');
+        }
+      }else{
+        if(distributionAnswer==='normal'){
+          statsTest='parametric';
+          primaryLabel='Welch t-test';
+          rationale.push('Independent groups with roughly normal distributions support the Welch t-test.');
+        }else if(distributionAnswer==='nonnormal'){
+          statsTest='nonparametric';
+          primaryLabel='Mann–Whitney U test';
+          rationale.push('Rank-based Mann–Whitney tests are robust for non-normal independent groups.');
+        }else{
+          statsTest='nonparametric';
+          primaryLabel='Mann–Whitney U test';
+          rationale.push('When unsure about normality, Mann–Whitney offers a safer default for independent groups.');
+        }
+      }
+    }else{
+      if(paired){
+        if(distributionAnswer==='normal'){
+          statsTest='parametric';
+          primaryLabel='Paired contrasts with Holm correction';
+          rationale.push('Repeated measures with normal-ish differences can use paired t-tests plus Holm correction.');
+        }else if(distributionAnswer==='nonnormal'){
+          statsTest='nonparametric';
+          primaryLabel='Wilcoxon signed-rank contrasts with Holm correction';
+          rationale.push('Rank-based paired contrasts protect against non-normal repeated measures.');
+        }else{
+          statsTest='nonparametric';
+          primaryLabel='Wilcoxon signed-rank contrasts with Holm correction';
+          rationale.push('When normality is uncertain for repeated measures, start with rank-based paired contrasts.');
+        }
+        postHoc='standard';
+        postHocLabel='Apply the selected multiple-testing correction across paired contrasts.';
+      }else{
+        if(distributionAnswer==='normal'){
+          if(equalVarianceAnswer==='no'){
+            statsTest='nonparametric';
+            primaryLabel='Kruskal–Wallis test';
+            postHoc='dunn';
+            postHocLabel='Follow up with Dunn post-hoc comparisons (rank-based).';
+            rationale.push('Substantial variance differences undermine ANOVA; Kruskal–Wallis is variance-robust.');
+            warnings.push('Welch ANOVA handles unequal variances but is not available here; consider transformations or heteroscedastic methods.');
+          }else{
+            statsTest='parametric';
+            primaryLabel='ANOVA';
+            postHoc='tukey';
+            postHocLabel='Use Tukey HSD for adjusted pairwise comparisons.';
+            rationale.push('Normal, independent groups support ANOVA with Tukey-controlled post-hoc tests.');
+            if(equalVarianceAnswer==='unsure' || !equalVarianceAnswer){
+              warnings.push('Check variance homogeneity (e.g., Levene/Bartlett). If variances differ, prefer Welch ANOVA or non-parametric tests.');
+            }
+          }
+        }else if(distributionAnswer==='nonnormal'){
+          statsTest='nonparametric';
+          primaryLabel='Kruskal–Wallis test';
+          postHoc='dunn';
+          postHocLabel='Follow up with Dunn post-hoc comparisons (rank-based).';
+          rationale.push('Rank-based Kruskal–Wallis handles non-normal independent groups.');
+        }else{
+          statsTest='nonparametric';
+          primaryLabel='Kruskal–Wallis test';
+          postHoc='dunn';
+          postHocLabel='Follow up with Dunn post-hoc comparisons (rank-based).';
+          rationale.push('When normality is uncertain, Kruskal–Wallis offers a robust default for multiple groups.');
+        }
+      }
+    }
+
+    if(Array.isArray(sampleSizes) && sampleSizes.some(n=>n>0 && n<3) && groupsAnswer!=='two'){
+      warnings.push('Some groups have fewer than 3 observations; post-hoc comparisons may have limited power.');
+    }
+    if(assumptionDiagnostics?.recommendNonParametric && statsTest==='parametric'){
+      warnings.push('Recent assumption diagnostics flagged issues with parametric assumptions.');
+    }
+
+    const groupPhrase=groupsAnswer==='two'
+      ? 'the two selected groups'
+      : `${groupCount} selected groups`;
+    const methodLabel=statsTest==='parametric'?'parametric':'non-parametric';
+    const summaryParts=[`Use ${methodLabel} ${primaryLabel} on ${groupPhrase}.`];
+    if(postHocLabel){
+      summaryParts.push(postHocLabel);
+    }else if(groupsAnswer!=='two'){
+      summaryParts.push('Keep the current multiple-testing correction for pairwise follow-ups.');
+    }
+
+    return {
+      ready:true,
+      statsTest,
+      paired,
+      postHoc,
+      summary:summaryParts.join(' '),
+      rationale,
+      warnings,
+      groups:groupsAnswer,
+      distribution:distributionAnswer,
+      detail:{
+        primaryLabel,
+        postHocLabel
+      }
+    };
+  }
+
   const GAUSS_HERMITE_NODES=[
     -3.889724897869781,
     -3.020637025120889,
@@ -827,7 +1154,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} } };
   const els = {};
 
   function updateStatsCorrectionSummary(count){
@@ -2462,7 +2789,323 @@
       footnotes: correctionMeta.footnote ? [correctionMeta.footnote] : []
     };
   }
-function renderStatsControls(traces){
+  function getAdvisorState(){
+    if(!state.statsAdvisor || typeof state.statsAdvisor!=='object'){
+      state.statsAdvisor={ open:false, answers:{} };
+    }
+    if(!state.statsAdvisor.answers || typeof state.statsAdvisor.answers!=='object'){
+      state.statsAdvisor.answers={};
+    }
+    return state.statsAdvisor;
+  }
+  function buildAdvisorContext(traces){
+    if(state.tableFormat==='grouped'){
+      const prepared=prepareGroupedStatsData(traces,{ axisLabels: state.lastAxisLabels });
+      const groupsCount=Number.isFinite(prepared?.groupsCount)?prepared.groupsCount:0;
+      const conditionsCount=Number.isFinite(prepared?.conditionsCount)?prepared.conditionsCount:0;
+      const rowsWithData=Number.isFinite(prepared?.rowsWithData)?prepared.rowsWithData:0;
+      return {
+        format:'grouped',
+        groupCount:groupsCount,
+        conditionCount:conditionsCount,
+        rowCount:rowsWithData,
+        ok:!!prepared?.ok,
+        message:prepared?.message || '',
+        partialRowsSkipped:Number.isFinite(prepared?.partialRowsSkipped)?prepared.partialRowsSkipped:0,
+        analysis:state.groupedStats?.analysis || 'twoWayAnova',
+        prepared
+      };
+    }
+    const indices=[...state.selectedCols].filter(idx=>Number.isInteger(idx) && idx<traces.length);
+    const sampleSizes=indices.map(idx=>{
+      const trace=traces[idx] || {};
+      const values=Array.isArray(trace.rawY)?trace.rawY:(Array.isArray(trace.y)?trace.y:[]);
+      return values.filter(Number.isFinite).length;
+    });
+    return {
+      format:'standard',
+      groupCount: indices.length,
+      sampleSizes,
+      assumptions: state.assumptionDiagnostics || null,
+      currentTest: state.statsTest,
+      currentPaired: state.statsPaired,
+      currentPostHoc: state.statsPostHoc
+    };
+  }
+  function ensureAdvisorDefaults(context){
+    const advisor=getAdvisorState();
+    const answers=advisor.answers;
+    if(context?.format==='grouped'){
+      const analysis=context?.analysis || state.groupedStats?.analysis;
+      if(answers.groupedGoal===undefined){
+        answers.groupedGoal=analysis==='rowTTests'?'perCondition':'interaction';
+      }
+      if(answers.groupedRepeated===undefined){
+        if(analysis==='twoWayMixed' || analysis==='threeWayMixed'){
+          answers.groupedRepeated='yes';
+        }else if(analysis==='twoWayAnova' || analysis==='threeWayAnova'){
+          answers.groupedRepeated='no';
+        }
+      }
+      const rowCount=Number.isFinite(context?.rowCount)?context.rowCount:0;
+      if(rowCount>=2){
+        if(answers.groupedRowFactor===undefined){
+          answers.groupedRowFactor=(analysis==='threeWayAnova' || analysis==='threeWayMixed')?'yes':'no';
+        }
+      }else if(answers.groupedRowFactor!==undefined){
+        delete answers.groupedRowFactor;
+      }
+      return answers;
+    }
+    if(answers.groups===undefined && (context.groupCount||0)>=2){
+      answers.groups=context.groupCount>=3?'threePlus':'two';
+    }
+    if(answers.paired===undefined){
+      answers.paired=state.statsPaired?'paired':'unpaired';
+    }
+    if(answers.distribution===undefined){
+      if(context.assumptions?.recommendNonParametric){
+        answers.distribution='nonnormal';
+      }else if(state.statsTest==='parametric'){
+        answers.distribution='normal';
+      }
+    }
+    if(answers.equalVariance===undefined && (context.groupCount||0)>=3){
+      answers.equalVariance='unsure';
+    }
+    return answers;
+  }
+  function buildAdvisorQuestions(context,answers){
+    if(context?.format==='grouped'){
+      const questions=[];
+      const conditionHelp=`Detected ${context.conditionCount || 0} condition${context.conditionCount===1?'':'s'} per group.`;
+      questions.push({
+        id:'groupedGoal',
+        prompt:'What is your grouped-analysis goal?',
+        help:conditionHelp,
+        options:GROUPED_GOAL_OPTIONS
+      });
+      const multiCondition=(context.conditionCount||0)>=2;
+      if(multiCondition && (answers.groupedGoal==='interaction' || !answers.groupedGoal)){
+        const repeatedHelp=context.rowCount>=2
+          ? 'Rows appear aligned across groups/conditions. Confirm if they represent repeated subjects.'
+          : 'With a single complete row the mixed-model option is limited.';
+        questions.push({
+          id:'groupedRepeated',
+          prompt:'Are rows repeated measures of the same subjects across conditions?',
+          help:repeatedHelp,
+          options:GROUPED_REPEATED_OPTIONS
+        });
+        if((context.rowCount||0)>=2){
+          questions.push({
+            id:'groupedRowFactor',
+            prompt:'Do you want to include the row/subject dimension as a factor?',
+            help:`Detected ${context.rowCount || 0} complete row${context.rowCount===1?'':'s'} available for modeling row-level effects.`,
+            options:GROUPED_ROW_FACTOR_OPTIONS
+          });
+        }
+      }
+      return questions;
+    }
+    const questions=[];
+    const groupsHelp=`Detected ${context.groupCount || 0} selected column${context.groupCount===1?'':'s'}.`;
+    questions.push({
+      id:'groups',
+      prompt:'How many groups are you comparing?',
+      help:groupsHelp,
+      options:ADVISOR_GROUP_OPTIONS
+    });
+    questions.push({
+      id:'paired',
+      prompt:'Are the observations paired/repeated on the same subjects?',
+      help:'Paired means each row links the groups (e.g., before/after or matched pairs).',
+      options:ADVISOR_PAIRED_OPTIONS
+    });
+    questions.push({
+      id:'distribution',
+      prompt:'Do the group distributions look approximately normal?',
+      help:'Inspect the boxplots, QQ plots, or normality diagnostics when available.',
+      options:ADVISOR_DISTRIBUTION_OPTIONS
+    });
+    const resolvedGroups=normalizeAdvisorGroupAnswer(answers.groups,context);
+    const resolvedPaired=(answers.paired==='paired' || (answers.paired===undefined && state.statsPaired))?'paired':'unpaired';
+    if(resolvedGroups==='threePlus' && resolvedPaired!=='paired'){
+      questions.push({
+        id:'equalVariance',
+        prompt:'For parametric tests, can you assume equal variances across groups?',
+        help:'Large variance differences call for Welch-type or non-parametric methods.',
+        options:ADVISOR_VARIANCE_OPTIONS
+      });
+    }
+    return questions;
+  }
+  function renderStatsAdvisor(traces,controls,providedContext){
+    const advisorState=getAdvisorState();
+    const context=providedContext || buildAdvisorContext(traces);
+    const answers=ensureAdvisorDefaults(context);
+    const recommendation=computeAdvisorRecommendation(answers,context);
+    const container=document.createElement('div');
+    container.className='stats-advisor';
+    container.dataset.open=advisorState.open?'1':'0';
+
+    const header=document.createElement('div');
+    header.className='stats-advisor__header';
+    const title=document.createElement('strong');
+    title.textContent='Test advisor';
+    header.appendChild(title);
+    const toggle=document.createElement('button');
+    toggle.type='button';
+    toggle.className='stats-advisor__toggle';
+    toggle.textContent=advisorState.open?'Hide advisor':'Guide me';
+    toggle.addEventListener('click',()=>{
+      advisorState.open=!advisorState.open;
+      console.debug('Debug: box statsAdvisor toggled',{ open:advisorState.open });
+      renderStatsControls(traces);
+    });
+    header.appendChild(toggle);
+    container.appendChild(header);
+
+    const summary=document.createElement('div');
+    summary.className='stats-advisor__summary';
+    if(recommendation.ready){
+      const summaryLine=document.createElement('div');
+      summaryLine.className='stats-advisor__summary-line';
+      summaryLine.textContent=`Recommendation: ${recommendation.summary}`;
+      summary.appendChild(summaryLine);
+      if(Array.isArray(recommendation.rationale) && recommendation.rationale.length){
+        const rationaleList=document.createElement('ul');
+        rationaleList.className='stats-advisor__rationale';
+        recommendation.rationale.forEach(item=>{
+          const li=document.createElement('li');
+          li.textContent=item;
+          rationaleList.appendChild(li);
+        });
+        summary.appendChild(rationaleList);
+      }
+      if(Array.isArray(recommendation.warnings) && recommendation.warnings.length){
+        const warnTitle=document.createElement('div');
+        warnTitle.className='stats-advisor__warnings-title';
+        warnTitle.textContent='Cautions:';
+        summary.appendChild(warnTitle);
+        const warnList=document.createElement('ul');
+        warnList.className='stats-advisor__warnings';
+        recommendation.warnings.forEach(item=>{
+          const li=document.createElement('li');
+          li.textContent=item;
+          warnList.appendChild(li);
+        });
+        summary.appendChild(warnList);
+      }
+    }else{
+      const msg=document.createElement('div');
+      msg.textContent=recommendation.message || 'Answer the advisor questions to receive a recommendation.';
+      summary.appendChild(msg);
+    }
+    container.appendChild(summary);
+
+    if(advisorState.open){
+      const questionsWrap=document.createElement('div');
+      questionsWrap.className='stats-advisor__questions';
+      const questions=buildAdvisorQuestions(context,answers);
+      questions.forEach(question=>{
+        const fieldset=document.createElement('fieldset');
+        fieldset.className='stats-advisor__question';
+        const legend=document.createElement('legend');
+        legend.textContent=question.prompt;
+        fieldset.appendChild(legend);
+        if(question.help){
+          const hint=document.createElement('p');
+          hint.className='stats-advisor__hint';
+          hint.textContent=question.help;
+          fieldset.appendChild(hint);
+        }
+        (question.options||[]).forEach(opt=>{
+          const optionWrap=document.createElement('label');
+          optionWrap.className='stats-advisor__option';
+          const input=document.createElement('input');
+          input.type='radio';
+          input.name=`advisor-${question.id}`;
+          input.value=opt.value;
+          input.checked=answers[question.id]===opt.value;
+          input.addEventListener('change',()=>{
+            answers[question.id]=opt.value;
+            console.debug('Debug: box statsAdvisor answer change',{ question:question.id, value:opt.value });
+            renderStatsControls(traces);
+          });
+          const span=document.createElement('span');
+          span.textContent=opt.label;
+          optionWrap.appendChild(input);
+          optionWrap.appendChild(span);
+          fieldset.appendChild(optionWrap);
+        });
+        questionsWrap.appendChild(fieldset);
+      });
+      container.appendChild(questionsWrap);
+
+      const actions=document.createElement('div');
+      actions.className='stats-advisor__actions';
+      const applyBtn=document.createElement('button');
+      applyBtn.type='button';
+      applyBtn.textContent='Apply recommendation';
+      applyBtn.disabled=!recommendation.ready;
+      applyBtn.addEventListener('click',()=>{
+        if(!recommendation.ready){
+          return;
+        }
+        if(context?.format==='grouped' || recommendation.format==='grouped'){
+          ensureGroupedStatsDefaults();
+          if(!state.groupedStats || typeof state.groupedStats!=='object'){
+            state.groupedStats={ analysis:'twoWayAnova' };
+          }
+          if(recommendation.analysis){
+            state.groupedStats.analysis=recommendation.analysis;
+          }
+          advisorState.lastApplied={ ...recommendation };
+          console.debug('Debug: box grouped statsAdvisor applied',{
+            analysis: state.groupedStats.analysis,
+            answers:{ ...answers }
+          });
+          renderStatsControls(traces);
+          state.scheduleDraw();
+          return;
+        }
+        state.statsTest=recommendation.statsTest;
+        state.statsPaired=recommendation.paired;
+        const postHocContext={
+          mode: state.statsMode,
+          test: recommendation.statsTest,
+          paired: recommendation.paired,
+          groupCount: context.groupCount
+        };
+        state.statsPostHoc=ensureValidPostHoc(recommendation.postHoc,postHocContext);
+        advisorState.lastApplied={ ...recommendation };
+        console.debug('Debug: box statsAdvisor applied',{
+          statsTest: state.statsTest,
+          statsPaired: state.statsPaired,
+          statsPostHoc: state.statsPostHoc,
+          answers:{ ...answers }
+        });
+        renderStatsControls(traces);
+        state.scheduleDraw();
+      });
+      actions.appendChild(applyBtn);
+      const resetBtn=document.createElement('button');
+      resetBtn.type='button';
+      resetBtn.className='stats-advisor__reset';
+      resetBtn.textContent='Reset answers';
+      resetBtn.addEventListener('click',()=>{
+        advisorState.answers={};
+        console.debug('Debug: box statsAdvisor reset');
+        renderStatsControls(traces);
+      });
+      actions.appendChild(resetBtn);
+      container.appendChild(actions);
+    }
+
+    controls.appendChild(container);
+  }
+
+  function renderStatsControls(traces){
   const controls=document.getElementById('statsControls');
   if(!controls){
     return;
@@ -2495,12 +3138,6 @@ function renderStatsControls(traces){
     console.debug('Debug: box statsPostHoc normalized',{ before:state.statsPostHoc, after:normalizedPostHoc, context:postHocContext });
     state.statsPostHoc=normalizedPostHoc;
   }
-
-  if(state.tableFormat==='grouped'){
-    renderGroupedStatsControls(traces, controls);
-    return;
-  }
-
   if(state.selectedCols.size<2 && traces.length>=2){
     state.selectedCols.clear();
     state.selectedCols.add(0);
@@ -2508,6 +3145,14 @@ function renderStatsControls(traces){
   }
   if(state.statsMode==='reference' && !state.selectedCols.has(state.statsRef)){
     state.selectedCols.add(state.statsRef);
+  }
+
+  const advisorContext=buildAdvisorContext(traces);
+  renderStatsAdvisor(traces, controls, advisorContext);
+
+  if(state.tableFormat==='grouped'){
+    renderGroupedStatsControls(traces, controls, advisorContext?.prepared);
+    return;
   }
 
   const optionWrap=document.createElement('div');
@@ -2727,9 +3372,9 @@ function renderStatsControls(traces){
   });
   updateStatsCorrectionSummary(state.selectedCols.size>=2?state.selectedCols.size*(state.selectedCols.size-1)/2:0);
 }
-function renderGroupedStatsControls(traces, controls){
+function renderGroupedStatsControls(traces, controls, precomputed){
   ensureGroupedStatsDefaults();
-  const prepared=prepareGroupedStatsData(traces,{ axisLabels: state.lastAxisLabels });
+  const prepared=precomputed && precomputed.ok!==undefined ? precomputed : prepareGroupedStatsData(traces,{ axisLabels: state.lastAxisLabels });
   const summary=document.createElement('div');
   summary.className='stats-table-lead';
   summary.textContent=`Groups: ${prepared.groupsCount} | Conditions: ${prepared.conditionsCount} | Rows with data: ${prepared.rowsWithData || 0}`;
@@ -5245,6 +5890,9 @@ function renderGroupedStatsControls(traces, controls){
 
   box.draw = function(){ try{ if (typeof draw === 'function') draw(); } catch(e){ console.error('box.draw error', e); } };
   box.ensure = function(){ if(!box.ready) box.init(); };
+  box.getAdvisorRecommendation = function(answers,context){
+    return computeAdvisorRecommendation(answers || {}, context || {});
+  };
   box.__getState = function(){
     console.debug('Debug: box.__getState invoked');
     return state;
