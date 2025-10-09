@@ -883,6 +883,17 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 
 .font-toolbar-host{margin-left:12px;display:none;align-items:center;justify-content:flex-start;flex:1 1 auto;min-width:260px}
 .font-toolbar-host.font-toolbar-host--visible{display:flex}
+.axis-controls-panel{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:12px;border:1px solid rgba(148,163,184,0.45);background:#f8fafc;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;box-shadow:none}
+.axis-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:72px}
+.axis-controls-panel__summary-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#475569;font-weight:600}
+.axis-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
+.axis-controls-panel__field{display:flex;flex-direction:column;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:110px}
+.axis-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:10px;text-transform:uppercase;letter-spacing:.12em}
+.axis-controls-panel__input{padding:6px 10px;font-size:13px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#0f172a;min-width:90px}
+.axis-controls-panel__input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
+.axis-controls-panel__color-input{height:32px;width:100px;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer}
+.axis-controls-panel__color-input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
+.axis-controls-panel__field--compact{min-width:100px}
 .font-controls-panel{position:static;z-index:auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;min-width:260px;max-width:100%;padding:10px 14px;border-radius:14px;border:1px solid rgba(148,163,184,0.45);background:#f8fafc;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}
 .font-controls-panel--floating{position:fixed;top:12px;left:50%;transform:translateX(-50%);right:auto;z-index:3000;width:auto;max-width:min(720px,calc(100% - 32px));box-shadow:none}
 .font-controls-panel__title-group{display:flex;flex-direction:column;gap:2px}

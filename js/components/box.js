@@ -5,6 +5,7 @@
   const box = Components.box = Components.box || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const axisControls = Shared.axisControls = Shared.axisControls || {};
   box.__installed = true;
   box.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -19,10 +20,19 @@
   const NS='http://www.w3.org/2000/svg';
   const DEFAULT_BOX_COLORS=['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'];
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
+  const DEFAULT_AXIS_COLOR='#000000';
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
   const DEFAULT_CORRECTION='bonferroni';
   const ASSUMPTION_ALPHA=0.05;
+  function createDefaultAxisSettings(){
+    return {
+      strokeWidth: 1,
+      color: DEFAULT_AXIS_COLOR,
+      x: { tickInterval: null },
+      y: { tickInterval: null }
+    };
+  }
   function fallbackSanitizeP(value){
     const num=Number(value);
     if(!Number.isFinite(num)||num<0){
@@ -1154,7 +1164,93 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} } };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings() };
+
+  function ensureAxisSettings(){
+    const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
+    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null }; }
+    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null }; }
+    if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
+    if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
+    const strokeNumeric = Number(settings.strokeWidth);
+    if(!Number.isFinite(strokeNumeric) || strokeNumeric <= 0){
+      settings.strokeWidth = 1;
+    }
+    if(typeof settings.color !== 'string' || !settings.color.trim()){
+      settings.color = DEFAULT_AXIS_COLOR;
+    }
+    state.axisSettings = settings;
+    return settings;
+  }
+
+  function getAxisTickInterval(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureAxisSettings();
+    const raw = settings[axis]?.tickInterval;
+    const numeric = typeof raw === 'string' ? Number(raw) : raw;
+    if(Number.isFinite(numeric) && numeric > 0){
+      const resolved = axis === 'x' ? Math.max(1, Math.round(numeric)) : numeric;
+      return resolved;
+    }
+    return null;
+  }
+
+  function updateAxisTickInterval(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings[axis].tickInterval = null;
+    } else {
+      const numeric = Number(value);
+      if(Number.isFinite(numeric) && numeric > 0){
+        settings[axis].tickInterval = axis === 'x' ? Math.max(1, Math.round(numeric)) : numeric;
+      } else {
+        settings[axis].tickInterval = null;
+      }
+    }
+    console.debug('Debug: box axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function getAxisStrokeWidthBase(){
+    const settings = ensureAxisSettings();
+    const numeric = Number(settings.strokeWidth);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+  }
+
+  function updateAxisStrokeWidth(value){
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings.strokeWidth = 1;
+    } else {
+      const numeric = Number(value);
+      settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+    }
+    console.debug('Debug: box axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function getAxisColor(){
+    const settings = ensureAxisSettings();
+    return typeof settings.color === 'string' && settings.color ? settings.color : DEFAULT_AXIS_COLOR;
+  }
+
+  function updateAxisColor(value){
+    const settings = ensureAxisSettings();
+    if(typeof value === 'string' && value.trim()){
+      settings.color = value;
+    } else {
+      settings.color = DEFAULT_AXIS_COLOR;
+    }
+    console.debug('Debug: box axis color updated',{ color: settings.color });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
   const els = {};
 
   function updateStatsCorrectionSummary(count){
@@ -1478,6 +1574,8 @@
         state.hot.loadData(exampleSingle);
         console.log('boxplot example loaded');
       }
+      state.axisSettings = createDefaultAxisSettings();
+      console.debug('Debug: box axis settings reset from example load');
       state.scheduleDraw();
     });
     importBtn.addEventListener('click',()=>{ fileInput.value=''; fileInput.click(); });
@@ -4253,7 +4351,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     });
     const fs = fontInfo.scaledPx;
     const styleScaleInfo = fontInfo.scaleInfo;
-    const axisStrokeWidth = chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-axis', min: 0.5 });
+    const axisSettings = ensureAxisSettings();
+    console.debug('Debug: box axis settings current',{
+      strokeWidth: axisSettings.strokeWidth,
+      color: axisSettings.color,
+      tickIntervalX: axisSettings.x?.tickInterval || null,
+      tickIntervalY: axisSettings.y?.tickInterval || null
+    });
+    const axisStrokeBase = getAxisStrokeWidthBase();
+    const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeBase, styleScaleInfo, { context: 'box-axis', min: 0.5 });
+    const axisStrokeColor = getAxisColor();
     const gridStrokeWidth = chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-grid', min: 0.25 });
     const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'box-border', min: 0 });
     const pointRadius = chartStyle.scaleRadius(3, styleScaleInfo, { context: 'box-point', min: 0.75 });
@@ -4664,7 +4771,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const rest = pos - base;
       return (sorted[base + 1] !== undefined) ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base];
     }
-    const axisStroke = '#000';
+    const axisStroke = axisStrokeColor || DEFAULT_AXIS_COLOR;
     function estimateBandwidth(sorted){
       if(!sorted.length) return 1;
       const n = sorted.length;
@@ -4726,6 +4833,52 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const selectionCount = state.selectedCols.size || 0;
     const maxLevelEstimate = showSignificance && selectionCount > 1 ? selectionCount : 0;
 
+    function buildManualTicks(minVal, maxVal, step){
+      const safeStep = Number(step);
+      if(!Number.isFinite(minVal) || !Number.isFinite(maxVal)){
+        console.debug('Debug: box manual ticks skipped',{ minVal, maxVal, step, reason: 'non-finite-range' });
+        return null;
+      }
+      if(!Number.isFinite(safeStep) || safeStep <= 0){
+        console.debug('Debug: box manual ticks skipped',{ minVal, maxVal, step });
+        return null;
+      }
+      let graphMin = Math.floor(minVal / safeStep) * safeStep;
+      let graphMax = Math.ceil(maxVal / safeStep) * safeStep;
+      if(graphMin === graphMax){
+        graphMax = graphMin + safeStep;
+      }
+      const ticks = [];
+      let current = graphMin;
+      let guard = 0;
+      while(current <= graphMax + safeStep * 0.25 && guard < 1000){
+        ticks.push(Number.parseFloat(current.toPrecision(12)));
+        current += safeStep;
+        guard += 1;
+      }
+      if(!ticks.length){
+        ticks.push(Number.parseFloat(graphMin.toPrecision(12)));
+      }
+      console.debug('Debug: box manual ticks generated',{ minVal, maxVal, step: safeStep, tickCount: ticks.length });
+      return {
+        min: Math.min(graphMin, ticks[0], minVal),
+        max: Math.max(graphMax, ticks[ticks.length - 1], maxVal),
+        ticks,
+        step: safeStep
+      };
+    }
+
+    const axisControlConfig = axis => ({
+      axis,
+      scopeId: 'box',
+      getTickInterval: () => getAxisTickInterval(axis),
+      getThickness: () => getAxisStrokeWidthBase(),
+      getColor: () => getAxisColor(),
+      onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+      onThicknessChange: value => updateAxisStrokeWidth(value),
+      onColorChange: value => updateAxisColor(value)
+    });
+
     function renderVertical(){
       const tickFont = chartStyle.makeFont(fs);
       const axisLabelFont = chartStyle.makeFont(fs);
@@ -4742,8 +4895,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       marginLocal.bottom = bottomLayout.bottom;
       plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
       plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
+      const yIntervalSetting = getAxisTickInterval('y');
       let yTickTarget = chartStyle.estimateTickCount(plotHLocal, { axis: 'y', fallback: 6 });
       let yScale = niceScale(ymin, ymax, yTickTarget);
+      if(yIntervalSetting){
+        const manual = buildManualTicks(ymin, ymax, yIntervalSetting);
+        if(manual){
+          yScale = manual;
+          yTickTarget = manual.ticks.length;
+          console.debug('Debug: box y-axis manual override',{ step: manual.step, tickCount: manual.ticks.length });
+        }
+      }
       let tickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
       let tickWidths = tickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
       let maxTickWidth = Math.max(...tickWidths, 0);
@@ -4812,7 +4974,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       axisYStart = Math.min(axisYStart, xAxisY);
       axisYEnd = Math.max(axisYEnd, xAxisY);
       console.debug('Debug: box axis join span',{ axisYStart, axisYEnd, xAxisY, yAxisX });
-      add('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      const yAxisLine = add('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+      }
       let yTickFontCount = 0;
       yScale.ticks.forEach((t, i) => {
         const y = y2px(t);
@@ -4823,6 +4988,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         yTickFontCount += 1;
       });
       const xTickPositions = axisLabels.map((_, i) => marginLocal.left + (i + 0.5) * bandW);
+      const xIntervalSetting = getAxisTickInterval('x');
+      const xInterval = Number.isFinite(xIntervalSetting) && xIntervalSetting > 1 ? Math.max(1, Math.round(xIntervalSetting)) : null;
       let axisXStart = xTickPositions.length ? Math.min(...xTickPositions) : yAxisX;
       let axisXEnd = xTickPositions.length ? Math.max(...xTickPositions) : yAxisX + plotWLocal;
       if(xTickPositions.length === 1){
@@ -4838,7 +5005,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const frameXMax = yAxisX + plotWLocal;
       axisXEnd = Math.max(axisXEnd, frameXMax);
       console.debug('Debug: box x-axis span',{ axisXStart, axisXEnd, yAxisX, frameXMax });
-      add('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      const xAxisLine = add('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+      }
       console.debug('Debug: box axes stroke scaled',{ axisStrokeWidth });
       if(showFrame){
         console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame });
@@ -4858,7 +5028,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const xLabelOffset = tickLen + tickGap;
       const xLabels = [];
       let xTickFontCount = 0;
+      let renderedXTicks = 0;
       axisLabels.forEach((lab, i) => {
+        if(xInterval && i % xInterval !== 0){
+          return;
+        }
         const x = marginLocal.left + (i + 0.5) * bandW;
         add('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
@@ -4873,10 +5047,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           enableLabelDrag(t, i);
         }
         xLabels.push(t);
+        renderedXTicks += 1;
       });
       console.debug('Debug: box font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
-      console.debug('Debug: box ticks stroke scaled',{ yTickCount: yScale.ticks.length, xTickCount: axisLabels.length, axisStrokeWidth });
+      console.debug('Debug: box ticks stroke scaled',{ yTickCount: yScale.ticks.length, xTickCount: renderedXTicks, axisStrokeWidth });
       chartStyle.applyLabelOrientation(xLabels,{ angle: -45, anchor: 'end', dy: '0.35em', force: bottomLayout.shouldRotate });
+      if(xInterval && axisLabels.length){
+        console.debug('Debug: box x-axis tick filter',{ interval: xInterval, rendered: renderedXTicks, total: axisLabels.length });
+      }
       function enableLabelDrag(t, idx){
         if(isGroupedMode){
           return;
@@ -5186,7 +5364,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       marginLocal.bottom = Math.max(marginLocal.bottom, tickLen + tickGap + fs + axisMetrics.axisTitleGap + fs);
       let plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
       let plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
-      const yScale = niceScale(ymin, ymax, chartStyle.estimateTickCount(Math.max(plotWLocal, 40), { axis: 'x', fallback: 6 }));
+      const xIntervalSetting = getAxisTickInterval('x');
+      let yScale = niceScale(ymin, ymax, chartStyle.estimateTickCount(Math.max(plotWLocal, 40), { axis: 'x', fallback: 6 }));
+      if(xIntervalSetting){
+        const manual = buildManualTicks(ymin, ymax, xIntervalSetting);
+        if(manual){
+          yScale = manual;
+          console.debug('Debug: box x-axis manual override',{ step: manual.step, tickCount: manual.ticks.length });
+        }
+      }
       const valueRange = yScale.max - yScale.min || 1;
       const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
       const axisCount = Math.max(axisLabels.length, 1);
@@ -5218,8 +5404,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       const yAxisLeft = marginLocal.left;
       const xAxisBottom = marginLocal.top + plotHLocal;
-      add('line',{ x1: yAxisLeft, y1: marginLocal.top, x2: yAxisLeft, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      const yAxisLine = add('line',{ x1: yAxisLeft, y1: marginLocal.top, x2: yAxisLeft, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+      }
+      const yIntervalSetting = getAxisTickInterval('y');
+      const yInterval = Number.isFinite(yIntervalSetting) && yIntervalSetting > 1 ? Math.max(1, Math.round(yIntervalSetting)) : null;
+      let renderedYTicks = 0;
       axisLabels.forEach((lab, i) => {
+        if(yInterval && i % yInterval !== 0){
+          return;
+        }
         const y = marginLocal.top + (i + 0.5) * bandH;
         add('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - tickLen, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
@@ -5231,14 +5426,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           t.style.cursor = 'ns-resize';
           enableVerticalLabelDrag(t, i);
         }
+        renderedYTicks += 1;
       });
+      if(yInterval && axisLabels.length){
+        console.debug('Debug: box y-axis tick filter',{ interval: yInterval, rendered: renderedYTicks, total: axisLabels.length });
+      }
       yScale.ticks.forEach(t => {
         const x = valueToX(t);
         add('line',{ x1: x, y1: xAxisBottom, x2: x, y2: xAxisBottom + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const txt = add('text',{ x, y: xAxisBottom + tickLen + tickGap, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
       });
-      add('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      const xAxisLine = add('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+      }
       if(showFrame){
         chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, sides: ['top', 'right'] });
       }
@@ -5593,6 +5795,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       .map(idx => Number(idx))
       .filter(idx => Number.isInteger(idx));
     selectedColumns.sort((a,b)=>a-b);
+    const axisSnapshot = ensureAxisSettings();
     const payload = {
       type:'box',
       version:3,
@@ -5624,6 +5827,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         grouped: {
           replicatesPerGroup: state.grouped?.replicatesPerGroup,
           groups: Array.isArray(state.grouped?.groups) ? [...state.grouped.groups] : []
+        },
+        axis: {
+          strokeWidth: axisSnapshot.strokeWidth,
+          color: axisSnapshot.color,
+          tickInterval: {
+            x: axisSnapshot.x?.tickInterval ?? null,
+            y: axisSnapshot.y?.tickInterval ?? null
+          }
         },
         stats: {
           test: state.statsTest,
@@ -5784,6 +5995,33 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         els.boxYMax.value=c.yMax||'';
         state.flipAxes=!!c.flipAxes;
         if(els.boxFlipAxes){ els.boxFlipAxes.checked=state.flipAxes; }
+        if(c.axis && typeof c.axis === 'object'){
+          const axisCfg = c.axis;
+          const axisState = ensureAxisSettings();
+          if(axisCfg.strokeWidth !== undefined){
+            const numeric = Number(axisCfg.strokeWidth);
+            axisState.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+          }
+          if(typeof axisCfg.color === 'string' && axisCfg.color.trim()){
+            axisState.color = axisCfg.color;
+          } else {
+            axisState.color = DEFAULT_AXIS_COLOR;
+          }
+          const tickCfg = axisCfg.tickInterval || {};
+          const tickX = tickCfg.x;
+          const tickY = tickCfg.y;
+          axisState.x.tickInterval = Number.isFinite(Number(tickX)) && Number(tickX) > 0 ? Math.max(1, Math.round(Number(tickX))) : null;
+          axisState.y.tickInterval = Number.isFinite(Number(tickY)) && Number(tickY) > 0 ? Number(tickY) : null;
+          console.debug('Debug: box axis settings restored from file',{
+            strokeWidth: axisState.strokeWidth,
+            color: axisState.color,
+            tickIntervalX: axisState.x.tickInterval,
+            tickIntervalY: axisState.y.tickInterval
+          });
+        } else {
+          state.axisSettings = createDefaultAxisSettings();
+          console.debug('Debug: box axis settings reset to default from file');
+        }
         const statsAnalysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
         const labels=(statsAnalysis.data?.[0] || []).map(value=>value === null ? '' : value);
         const labelCount=labels.length;
