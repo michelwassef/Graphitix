@@ -1183,9 +1183,22 @@
     return settings;
   }
 
+  function isAxisNumeric(axis){
+    if(axis === 'x'){ return !!state.flipAxes; }
+    if(axis === 'y'){ return !state.flipAxes; }
+    return false;
+  }
+
   function getAxisTickInterval(axis){
     if(axis !== 'x' && axis !== 'y'){ return null; }
     const settings = ensureAxisSettings();
+    if(!isAxisNumeric(axis)){
+      const stored = settings[axis]?.tickInterval;
+      if(stored){
+        console.debug('Debug: box axis tick interval ignored for categorical axis',{ axis, stored, flipAxes: state.flipAxes });
+      }
+      return null;
+    }
     const raw = settings[axis]?.tickInterval;
     const numeric = typeof raw === 'string' ? Number(raw) : raw;
     if(Number.isFinite(numeric) && numeric > 0){
@@ -1198,6 +1211,14 @@
   function updateAxisTickInterval(axis, value){
     if(axis !== 'x' && axis !== 'y'){ return; }
     const settings = ensureAxisSettings();
+    if(!isAxisNumeric(axis)){
+      settings[axis].tickInterval = null;
+      console.debug('Debug: box axis tick interval blocked for categorical axis',{ axis, flipAxes: state.flipAxes, attempted: value });
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+      return;
+    }
     if(value === null || value === undefined || value === ''){
       settings[axis].tickInterval = null;
     } else {
@@ -4874,6 +4895,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       getTickInterval: () => getAxisTickInterval(axis),
       getThickness: () => getAxisStrokeWidthBase(),
       getColor: () => getAxisColor(),
+      isTickIntervalEnabled: () => isAxisNumeric(axis),
+      getTickIntervalDisabledMessage: () => {
+        if(axis === 'x'){
+          return 'Tick interval is only available when the X axis shows numeric values. Enable Flip Axes to adjust X ticks.';
+        }
+        if(axis === 'y'){
+          return 'Tick interval is only available when the Y axis shows numeric values. Disable Flip Axes to adjust Y ticks.';
+        }
+        return 'Tick interval available only for numeric axes.';
+      },
       onTickIntervalChange: value => updateAxisTickInterval(axis, value),
       onThicknessChange: value => updateAxisStrokeWidth(value),
       onColorChange: value => updateAxisColor(value)
@@ -4898,20 +4929,25 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const yIntervalSetting = getAxisTickInterval('y');
       let yTickTarget = chartStyle.estimateTickCount(plotHLocal, { axis: 'y', fallback: 6 });
       let yScale = niceScale(ymin, ymax, yTickTarget);
+      let manualYScale = null;
       if(yIntervalSetting){
         const manual = buildManualTicks(ymin, ymax, yIntervalSetting);
         if(manual){
+          manualYScale = manual;
           yScale = manual;
           yTickTarget = manual.ticks.length;
-          console.debug('Debug: box y-axis manual override',{ step: manual.step, tickCount: manual.ticks.length });
+          console.debug('Debug: box y-axis manual override',{ step: manual.step, tickCount: manual.ticks.length, min: manual.min, max: manual.max });
         }
       }
-      let tickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
-      let tickWidths = tickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
-      let maxTickWidth = Math.max(...tickWidths, 0);
-      let yLabelGap = maxTickWidth + tickLen + tickGap;
-      for(let pass = 0; pass < 2; pass++){
-        yScale = niceScale(ymin, ymax, yTickTarget);
+      let tickLabels = [];
+      let tickWidths = [];
+      let maxTickWidth = 0;
+      let yLabelGap = 0;
+      const tickPasses = manualYScale ? 1 : 2;
+      for(let pass = 0; pass < tickPasses; pass++){
+        if(!manualYScale){
+          yScale = niceScale(ymin, ymax, yTickTarget);
+        }
         tickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
         tickWidths = tickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
         maxTickWidth = Math.max(...tickWidths, 0);
@@ -4925,6 +4961,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         marginLocal.bottom = bottomLayout.bottom;
         plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
         plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
+        if(manualYScale){
+          break;
+        }
         const refinedTickTarget = chartStyle.estimateTickCount(plotHLocal, { axis: 'y', fallback: yTickTarget });
         console.debug('Debug: box tick target evaluation',{ pass, plotH: plotHLocal, yTickTarget, refinedTickTarget });
         if(refinedTickTarget === yTickTarget){
@@ -4932,7 +4971,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         yTickTarget = refinedTickTarget;
       }
-      console.debug('Debug: box layout',{ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, rotate: bottomLayout.shouldRotate, yTickTarget });
+      console.debug('Debug: box layout',{ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, rotate: bottomLayout.shouldRotate, yTickTarget, manualTicks: !!manualYScale });
       const axisCount = Math.max(axisLabels.length, 1);
       const bandW = plotWLocal / axisCount;
       const groupCountLocal = isGroupedMode ? Math.max(1, groupedGroups.length) : 1;

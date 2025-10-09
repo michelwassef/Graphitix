@@ -6,6 +6,7 @@
   const hostCache = new Map();
   let panelEl = null;
   let axisLabelEl = null;
+  let tickFieldEl = null;
   let tickInput = null;
   let thicknessInput = null;
   let colorInput = null;
@@ -119,6 +120,7 @@
     tickField.appendChild(tickLabel);
     tickField.appendChild(tickInput);
     panelEl.appendChild(tickField);
+    tickFieldEl = tickField;
 
     const thicknessField = doc.createElement('label');
     thicknessField.className = 'axis-controls-panel__field';
@@ -153,7 +155,7 @@
     }
 
     tickInput.addEventListener('change', () => {
-      if(!activeConfig){ return; }
+      if(!activeConfig || tickInput.disabled){ return; }
       const raw = tickInput.value;
       const value = raw === '' ? null : Number(raw);
       logDebug('tick interval change',{ raw, value, axis: activeConfig.axis });
@@ -218,6 +220,15 @@
   function openPanel(config){
     ensurePanel();
     if(!panelEl){ return; }
+    try {
+      const fontControls = global.Shared?.fontControls;
+      if(fontControls && typeof fontControls.close === 'function'){
+        fontControls.close('axis-open');
+        logDebug('font controls closed before axis open');
+      }
+    } catch(fontErr){
+      console.error('axisControls openPanel fontControls.close error', fontErr);
+    }
     activeConfig = config;
     const host = resolveToolbarHost(config.scopeId);
     if(host){
@@ -233,18 +244,35 @@
     }
     const axisName = config.axis === 'y' ? 'Y axis' : 'X axis';
     axisLabelEl.textContent = axisName;
-    if(config.axis === 'x'){
-      tickInput.step = '1';
-      tickInput.min = '1';
+    const tickSupported = config.isTickIntervalEnabled ? !!config.isTickIntervalEnabled(config.axis) : true;
+    const tickDisabledMessage = config.getTickIntervalDisabledMessage
+      ? config.getTickIntervalDisabledMessage(config.axis)
+      : (config.tickIntervalDisabledMessage || 'Tick interval available only for numeric axes.');
+    if(tickSupported){
+      if(config.axis === 'x'){
+        tickInput.step = '1';
+        tickInput.min = '1';
+      } else {
+        tickInput.step = '0.1';
+        tickInput.min = '0';
+      }
+      tickInput.disabled = false;
+      tickInput.placeholder = config.tickPlaceholder || 'Auto';
+      tickInput.title = '';
+      if(tickFieldEl){ tickFieldEl.dataset.disabled = '0'; }
+      const tickValue = config.getTickInterval ? config.getTickInterval(config.axis) : null;
+      if(tickValue === null || typeof tickValue === 'undefined' || tickValue === ''){
+        tickInput.value = '';
+      } else {
+        tickInput.value = String(tickValue);
+      }
     } else {
-      tickInput.step = '0.1';
-      tickInput.min = '0';
-    }
-    const tickValue = config.getTickInterval ? config.getTickInterval(config.axis) : null;
-    if(tickValue === null || typeof tickValue === 'undefined' || tickValue === ''){
+      tickInput.disabled = true;
       tickInput.value = '';
-    } else {
-      tickInput.value = String(tickValue);
+      tickInput.placeholder = 'Not available';
+      tickInput.title = tickDisabledMessage || '';
+      if(tickFieldEl){ tickFieldEl.dataset.disabled = '1'; }
+      logDebug('tick interval disabled',{ axis: config.axis, scopeId: config.scopeId, reason: tickDisabledMessage });
     }
     const thicknessValue = config.getThickness ? config.getThickness() : null;
     if(thicknessValue === null || typeof thicknessValue === 'undefined' || Number.isNaN(thicknessValue)){
@@ -274,6 +302,10 @@
         getTickInterval: config.getTickInterval,
         getThickness: config.getThickness,
         getColor: config.getColor,
+        isTickIntervalEnabled: config.isTickIntervalEnabled,
+        getTickIntervalDisabledMessage: config.getTickIntervalDisabledMessage,
+        tickIntervalDisabledMessage: config.tickIntervalDisabledMessage,
+        tickPlaceholder: config.tickPlaceholder,
         onTickIntervalChange: config.onTickIntervalChange,
         onThicknessChange: config.onThicknessChange,
         onColorChange: config.onColorChange
