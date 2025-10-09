@@ -56,13 +56,26 @@
       }
       const previousTitle = tab.title;
       const trimmed = (newTitle || '').trim();
-      if (trimmed) {
-        tab.title = trimmed;
-      } else if (!tab.title) {
-        const tabIndex = workspaceState.tabs.indexOf(tab);
-        tab.title = `Workspace ${tabIndex >= 0 ? tabIndex + 1 : ''}`.trim();
-        console.debug('Debug: tab rename fallback applied', { tabId, fallbackTitle: tab.title });
+      let proposedTitle = trimmed;
+      if (!trimmed) {
+        if (tab.title) {
+          proposedTitle = tab.title;
+        } else {
+          const tabIndex = workspaceState.tabs.indexOf(tab);
+          proposedTitle = `Workspace ${tabIndex >= 0 ? tabIndex + 1 : ''}`.trim() || 'Workspace';
+          console.debug('Debug: tab rename fallback applied', { tabId, fallbackTitle: proposedTitle });
+        }
       }
+      if (typeof session.generateUniqueTabTitle === 'function') {
+        proposedTitle = session.generateUniqueTabTitle(proposedTitle, { excludeTabId: tab.id });
+      }
+      tab.title = proposedTitle;
+      console.debug('Debug: tab rename unique title resolved', {
+        tabId,
+        previousTitle,
+        nextTitle: tab.title,
+        providedTitle: trimmed
+      });
       tab.isRenaming = false;
       workspaceState.renameFocusId = null;
       renderTabs();

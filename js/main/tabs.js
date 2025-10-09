@@ -333,8 +333,16 @@
       tab.type = type;
       const info = graphTypes.find(item => item.type === type);
       const config = workspaces[type];
-      const resolvedTitle = info?.label || config?.tabLabel || tab.title;
+      const resolvedTitleBase = info?.label || config?.tabLabel || tab.title;
+      const resolvedTitle = typeof session.generateUniqueTabTitle === 'function'
+        ? session.generateUniqueTabTitle(resolvedTitleBase, { excludeTabId: tab.id })
+        : resolvedTitleBase;
       tab.title = resolvedTitle;
+      console.debug('Debug: graph tab title resolved', {
+        tabId: tab.id,
+        baseTitle: resolvedTitleBase,
+        uniqueTitle: resolvedTitle
+      });
       tab.isRenaming = false;
       renderTabs();
       console.debug('Debug: graph assigned to tab', { tabId: tab.id, type });
