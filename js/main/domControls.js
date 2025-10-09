@@ -20,6 +20,7 @@
       addTabBtn: document.getElementById('addWorkspaceTab'),
       sessionSaveBtn: document.getElementById('saveWorkspaceSession'),
       sessionLoadBtn: document.getElementById('loadWorkspaceSession'),
+      matchStylesBtn: document.getElementById('matchWorkspaceStyles'),
       sessionFileInput: document.getElementById('workspaceSessionInput'),
       duplicatePrompt: document.getElementById('duplicatePrompt'),
       duplicateTitle: document.getElementById('duplicatePromptTitle'),
@@ -32,7 +33,15 @@
       unsavedMessage: document.getElementById('unsavedPromptMessage'),
       unsavedSave: document.getElementById('unsavedPromptSave'),
       unsavedDiscard: document.getElementById('unsavedPromptDiscard'),
-      unsavedCancel: document.getElementById('unsavedPromptCancel')
+      unsavedCancel: document.getElementById('unsavedPromptCancel'),
+      styleSyncPrompt: document.getElementById('styleSyncPrompt'),
+      styleSyncForm: document.querySelector('#styleSyncPrompt [data-style-sync-form]'),
+      styleSyncSource: document.getElementById('styleSyncSource'),
+      styleSyncTargets: document.getElementById('styleSyncTargets'),
+      styleSyncSelectAll: document.getElementById('styleSyncTargetSelectAll'),
+      styleSyncStatus: document.getElementById('styleSyncStatus'),
+      styleSyncApply: document.querySelector('#styleSyncPrompt [data-style-sync-apply]'),
+      styleSyncCancel: document.querySelector('#styleSyncPrompt [data-style-sync-cancel]')
     };
     console.debug('Debug: domControls.createDomHandles generated', { keys: Object.keys(handles) });
     return handles;

@@ -530,6 +530,103 @@ html, body {
     gap: 16px;
 }
 
+.style-sync-panel form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.style-sync-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.style-sync-field__label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #111827;
+}
+
+.style-sync-field select {
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 14px;
+    color: #111827;
+}
+
+.style-sync-select-all {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #4b5563;
+}
+
+.style-sync-targets {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f9fafb;
+    padding: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.style-sync-targets label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #1f2937;
+}
+
+.style-sync-targets__empty {
+    font-size: 14px;
+    color: #6b7280;
+    font-style: italic;
+}
+
+.style-sync-options {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.style-sync-options legend {
+    font-weight: 600;
+    color: #111827;
+    font-size: 14px;
+}
+
+.style-sync-options label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #1f2937;
+}
+
+.style-sync-status {
+    min-height: 20px;
+    font-size: 13px;
+    color: #2563eb;
+}
+
+.style-sync-status[data-status="error"] {
+    color: #b91c1c;
+}
+
+.style-sync-status[data-status="success"] {
+    color: #047857;
+}
+
 .workspace-modal__title {
     margin: 0;
     font-size: 20px;

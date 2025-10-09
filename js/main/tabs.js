@@ -458,6 +458,9 @@
       if (dom.sessionSaveBtn && typeof callbacks.onSessionSaveClick === 'function') {
         dom.sessionSaveBtn.addEventListener('click', callbacks.onSessionSaveClick);
       }
+      if (dom.matchStylesBtn && typeof callbacks.onMatchStylesClick === 'function') {
+        dom.matchStylesBtn.addEventListener('click', callbacks.onMatchStylesClick);
+      }
       if (dom.sessionLoadBtn && typeof callbacks.onSessionLoadClick === 'function') {
         dom.sessionLoadBtn.addEventListener('click', callbacks.onSessionLoadClick);
       }

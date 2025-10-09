@@ -241,6 +241,21 @@
 
   const { initializeWorkspace } = tabsManager;
 
+  const styleSyncApi = Main.styleSync && typeof Main.styleSync.init === 'function'
+    ? Main.styleSync.init({
+      session: MainSession,
+      workspaceState,
+      workspaces: WORKSPACES,
+      domControls: MainDomControls,
+      previews: MainPreviews,
+      dom,
+      renderTabs: typeof tabsManager.renderTabs === 'function' ? () => tabsManager.renderTabs() : null
+    })
+    : null;
+  if (!styleSyncApi) {
+    console.debug('Debug: styleSync init skipped or unavailable');
+  }
+
   const getSessionActionsContext = () => tabsManager.getSessionActionsContext();
 
   async function handleSessionSaveClick() {
@@ -262,7 +277,8 @@
   initializeWorkspace({
     onSessionSaveClick: handleSessionSaveClick,
     onSessionLoadClick: handleSessionLoadClick,
-    onSessionInputChange: handleSessionInputChange
+    onSessionInputChange: handleSessionInputChange,
+    onMatchStylesClick: styleSyncApi?.handleMatchStylesClick
   });
 
   window.addEventListener('beforeunload', event => {

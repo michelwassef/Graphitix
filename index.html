@@ -1465,6 +1465,7 @@
       <button id="addWorkspaceTab" type="button" class="workspace-tab workspace-add-tab" aria-label="Add workspace tab">+</button>
       <div class="workspace-tabs-actions" role="group" aria-label="Session actions">
         <button id="saveWorkspaceSession" type="button" class="workspace-action-btn" aria-label="Save current session">Save Session</button>
+        <button id="matchWorkspaceStyles" type="button" class="workspace-action-btn" aria-label="Match styles across open graphs">Match Styles</button>
         <button id="loadWorkspaceSession" type="button" class="workspace-action-btn" aria-label="Load a saved session">Load Session</button>
       </div>
       <input id="workspaceSessionInput" type="file" accept=".session,.json" style="display:none;" />
@@ -1489,6 +1490,38 @@
           <button id="unsavedPromptDiscard" type="button" class="btn">Close without saving</button>
           <button id="unsavedPromptCancel" type="button" class="btn btn-secondary">Cancel</button>
         </div>
+      </div>
+    </div>
+    <div id="styleSyncPrompt" class="workspace-modal" hidden role="dialog" aria-modal="true" aria-labelledby="styleSyncTitle">
+      <div class="workspace-modal__panel style-sync-panel">
+        <h3 id="styleSyncTitle" class="workspace-modal__title">Match styles across graphs</h3>
+        <p id="styleSyncDescription" class="workspace-modal__message">Choose an example graph and the tabs you want to update.</p>
+        <form data-style-sync-form>
+          <label class="style-sync-field">
+            <span class="style-sync-field__label">Example graph</span>
+            <select id="styleSyncSource" aria-describedby="styleSyncDescription"></select>
+          </label>
+          <div class="style-sync-field">
+            <div class="style-sync-field__label">Target graphs</div>
+            <label class="style-sync-select-all">
+              <input type="checkbox" id="styleSyncTargetSelectAll" /> Select all
+            </label>
+            <div id="styleSyncTargets" class="style-sync-targets" role="group" aria-label="Graph tabs to update"></div>
+          </div>
+          <fieldset class="style-sync-options">
+            <legend>Properties to apply</legend>
+            <label><input type="checkbox" data-style-group="appearance" checked /> Graph origin and appearance</label>
+            <label><input type="checkbox" data-style-group="axes" checked /> Range and ticks of axis</label>
+            <label><input type="checkbox" data-style-group="fonts" /> Fonts used for numbering and titles</label>
+            <label><input type="checkbox" data-style-group="titles" /> Change axis and graph titles to match example graph</label>
+            <label><input type="checkbox" data-style-group="layout" /> Match panel layout</label>
+          </fieldset>
+          <div id="styleSyncStatus" class="style-sync-status" role="status" aria-live="polite"></div>
+          <div class="workspace-modal__actions">
+            <button type="button" class="btn" data-style-sync-apply>Apply styles</button>
+            <button type="button" class="btn btn-secondary" data-style-sync-cancel>Cancel</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
@@ -1534,6 +1567,7 @@
   <script src="js/main/session.js"></script>
   <script src="js/main/domControls.js"></script>
   <script src="js/main/sessionActions.js"></script>
+  <script src="js/main/styleSync.js"></script>
   <script src="js/main/tabDrag.js"></script>
   <script src="js/main/previews.js"></script>
   <script src="js/main/bootstrap.js"></script>
