@@ -142,12 +142,68 @@
     return tab;
   }
 
+  function escapeRegExp(value) {
+    return (value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function generateUniqueTabTitle(baseTitle, options = {}) {
+    const excludeId = options.excludeTabId || null;
+    const trimmedBase = (baseTitle || '').trim();
+    const normalizedBase = trimmedBase || 'Workspace';
+    const suffixMatch = normalizedBase.match(/^(.*\S)\s#(\d+)$/);
+    const collisionBase = suffixMatch && suffixMatch[1]
+      ? suffixMatch[1].trim()
+      : normalizedBase;
+    const pattern = new RegExp(`^${escapeRegExp(collisionBase)}(?:\\s#(\\d+))?$`);
+    let highestIndex = 0;
+    const collisions = [];
+    workspaceState.tabs.forEach(tab => {
+      if (!tab || (excludeId && tab.id === excludeId)) {
+        return;
+      }
+      const title = (tab.title || '').trim();
+      if (!title) {
+        return;
+      }
+      const match = title.match(pattern);
+      if (!match) {
+        return;
+      }
+      const number = match[1] ? parseInt(match[1], 10) : 1;
+      if (Number.isFinite(number) && number > highestIndex) {
+        highestIndex = number;
+      }
+      collisions.push({ tabId: tab.id, title });
+    });
+    if (highestIndex === 0) {
+      console.debug('Debug: session unique title computed', {
+        baseTitle: normalizedBase,
+        collisionBase,
+        uniqueTitle: normalizedBase,
+        excludeId,
+        highestIndex,
+        collisionCount: collisions.length
+      });
+      return normalizedBase;
+    }
+    const uniqueTitle = `${collisionBase} #${highestIndex + 1}`;
+    console.debug('Debug: session unique title computed', {
+      baseTitle: normalizedBase,
+      collisionBase,
+      uniqueTitle,
+      excludeId,
+      highestIndex,
+      collisionCount: collisions.length
+    });
+    return uniqueTitle;
+  }
+
   function createTab(options = {}) {
     const index = workspaceState.tabs.length + 1;
     const id = `workspace-${workspaceState.nextId++}`;
     const tab = {
       id,
-      title: options.title || `Workspace ${index}`,
+      title: generateUniqueTabTitle(options.title || `Workspace ${index}`, { excludeTabId: id }),
       type: options.type || null,
       payload: options.payload || null,
       payloadSignature: options.payloadSignature !== undefined
@@ -469,6 +525,7 @@
   namespace.serializePayloadSignature = serializePayloadSignature;
   namespace.assignTabPayload = assignTabPayload;
   namespace.getActiveTab = getActiveTab;
+  namespace.generateUniqueTabTitle = generateUniqueTabTitle;
   namespace.createTab = createTab;
   namespace.hasMeaningfulCellValue = hasMeaningfulCellValue;
   namespace.tabHasTableData = tabHasTableData;
