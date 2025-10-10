@@ -5,6 +5,7 @@
   const scatter = Components.scatter = Components.scatter || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const axisControls = Shared.axisControls = Shared.axisControls || {};
   scatter.__installed = true;
   scatter.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -35,6 +36,139 @@
     ? regressionTools.ensureFiniteNumber
     : (value => (Number.isFinite(value) ? value : NaN));
 
+  const DEFAULT_AXIS_COLOR = '#000000';
+
+  function createScatterAxisSettings(){
+    return {
+      strokeWidth: 1,
+      color: DEFAULT_AXIS_COLOR,
+      x: { tickInterval: null },
+      y: { tickInterval: null }
+    };
+  }
+
+  let scatterAxisSettings = createScatterAxisSettings();
+
+  function ensureScatterAxisSettings(){
+    if(!scatterAxisSettings || typeof scatterAxisSettings !== 'object'){
+      scatterAxisSettings = createScatterAxisSettings();
+    }
+    if(!scatterAxisSettings.x || typeof scatterAxisSettings.x !== 'object'){
+      scatterAxisSettings.x = { tickInterval: null };
+    }
+    if(!scatterAxisSettings.y || typeof scatterAxisSettings.y !== 'object'){
+      scatterAxisSettings.y = { tickInterval: null };
+    }
+    const strokeNumeric = Number(scatterAxisSettings.strokeWidth);
+    scatterAxisSettings.strokeWidth = Number.isFinite(strokeNumeric) && strokeNumeric > 0 ? strokeNumeric : 1;
+    if(typeof scatterAxisSettings.color !== 'string' || !scatterAxisSettings.color){
+      scatterAxisSettings.color = DEFAULT_AXIS_COLOR;
+    }
+    return scatterAxisSettings;
+  }
+
+  function getScatterAxisTickInterval(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureScatterAxisSettings();
+    const raw = settings[axis]?.tickInterval;
+    if(raw === null || raw === undefined || raw === ''){
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function updateScatterAxisTickInterval(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureScatterAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings[axis].tickInterval = null;
+    } else {
+      const numeric = Number(value);
+      settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    }
+    console.debug('Debug: scatter axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    if(typeof scheduleDrawScatter === 'function'){
+      scheduleDrawScatter();
+    }
+  }
+
+  function getScatterAxisStrokeWidth(){
+    const settings = ensureScatterAxisSettings();
+    return settings.strokeWidth;
+  }
+
+  function updateScatterAxisStrokeWidth(value){
+    const settings = ensureScatterAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings.strokeWidth = 1;
+    } else {
+      const numeric = Number(value);
+      settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+    }
+    console.debug('Debug: scatter axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    if(typeof scheduleDrawScatter === 'function'){
+      scheduleDrawScatter();
+    }
+  }
+
+  function getScatterAxisColor(){
+    const settings = ensureScatterAxisSettings();
+    return settings.color || DEFAULT_AXIS_COLOR;
+  }
+
+  function updateScatterAxisColor(value){
+    const settings = ensureScatterAxisSettings();
+    settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
+    console.debug('Debug: scatter axis color updated',{ color: settings.color });
+    if(typeof scheduleDrawScatter === 'function'){
+      scheduleDrawScatter();
+    }
+  }
+
+  function applyScatterAxisSettings(settings){
+    const base = createScatterAxisSettings();
+    if(settings && typeof settings === 'object'){
+      const strokeCandidate = Number(settings.strokeWidth);
+      if(Number.isFinite(strokeCandidate) && strokeCandidate > 0){
+        base.strokeWidth = strokeCandidate;
+      }
+      if(typeof settings.color === 'string' && settings.color.trim()){
+        base.color = settings.color;
+      }
+      const xInterval = settings.tickIntervalX ?? settings.xTickInterval ?? settings?.x?.tickInterval ?? null;
+      const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
+      base.x.tickInterval = xInterval === '' ? null : xInterval;
+      base.y.tickInterval = yInterval === '' ? null : yInterval;
+    }
+    scatterAxisSettings = base;
+    ensureScatterAxisSettings();
+    console.debug('Debug: scatter axis settings applied',{ settings: scatterAxisSettings });
+  }
+
+  function buildScatterManualTicks(min, max, interval){
+    if(!Number.isFinite(interval) || interval <= 0){ return null; }
+    if(!Number.isFinite(min) || !Number.isFinite(max)){ return null; }
+    if(min === max){
+      max = min + interval;
+    }
+    const graphMin = Math.floor(min / interval) * interval;
+    const graphMax = Math.ceil(max / interval) * interval;
+    const ticks = [];
+    let current = graphMin;
+    let guard = 0;
+    while(current <= graphMax + interval * 0.25 && guard < 1000){
+      ticks.push(Number.parseFloat(current.toPrecision(12)));
+      current += interval;
+      guard += 1;
+    }
+    if(!ticks.length){
+      ticks.push(Number.parseFloat(graphMin.toPrecision(12)));
+    }
+    console.debug('Debug: scatter manual ticks computed',{ interval, tickCount: ticks.length, min: graphMin, max: graphMax });
+    return { min: graphMin, max: graphMax, ticks };
+  }
+
   let scheduleDrawScatter=null;
   let scatterCurrentGraphType='scatter';
   let scatterLastGraphType='scatter';
@@ -58,6 +192,7 @@
     if(scatter.ready){ console.debug('Debug: Components.scatter.setup skipped'); return; }
     console.debug('Debug: Components.scatter.setup start');
     scheduleDrawScatter = () => {};
+    ensureScatterAxisSettings();
     const $ = global.$;
     const document = global.document;
     const Handsontable = global.Handsontable;
@@ -932,7 +1067,9 @@
         });
         const fs=fontInfo.scaledPx;
         const styleScaleInfo=fontInfo.scaleInfo;
-        const axisStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'scatter-axis', min: 0.5 });
+        const axisStrokeWidthBase = getScatterAxisStrokeWidth();
+        const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'scatter-axis', min: 0.25 });
+        const axisStroke = getScatterAxisColor();
         const dotSizeRaw=Number(scatterDotSize.value)||3;
         const dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'scatter-point', min: 0 });
         const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'scatter-border', min: 0 });
@@ -942,6 +1079,8 @@
           borderWidthRaw,
           borderWidthPx,
           axisStrokeWidth,
+          axisStrokeWidthBase,
+          axisStroke,
           styleScale: styleScaleInfo?.styleScale
         }); // Debug: scatter style scaling summary
         chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, fontInfo, input: scatterFontSize });
@@ -1276,6 +1415,16 @@
         let yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
         let maxYLabelWidth=0;
         let maxXLabelWidth=0;
+        const storedManualIntervalX = getScatterAxisTickInterval('x');
+        const storedManualIntervalY = getScatterAxisTickInterval('y');
+        const manualIntervalX = !logX ? storedManualIntervalX : null;
+        const manualIntervalY = !logY ? storedManualIntervalY : null;
+        if(logX && storedManualIntervalX){
+          console.debug('Debug: scatter manual interval suppressed',{ axis: 'x', reason: 'log-scale', stored: storedManualIntervalX });
+        }
+        if(logY && storedManualIntervalY){
+          console.debug('Debug: scatter manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
+        }
         for(let pass=0;pass<2;pass++){
           xScale=niceScale(xMinT,xMaxT,xTickTarget);
           yScale=niceScale(yMinT,yMaxT,yTickTarget);
@@ -1290,12 +1439,40 @@
             }
             xScale.ticks=manualXTicks;
           }
+          if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
+            const manual = buildScatterManualTicks(
+              Number.isFinite(xScale.min) ? xScale.min : xMinT,
+              Number.isFinite(xScale.max) ? xScale.max : xMaxT,
+              manualIntervalX
+            );
+            if(manual){
+              xScale.min = manual.min;
+              xScale.max = manual.max;
+              xScale.ticks = manual.ticks;
+              xScale.step = manualIntervalX;
+              console.debug('Debug: scatter manual interval applied',{ axis: 'x', interval: manualIntervalX, tickCount: manual.ticks.length });
+            }
+          }
           if(isFinite(yMinManual)||isFinite(yMaxManual)){
             const manualYTicks=[];
             for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step;v<=yScale.max+1e-9;v+=yScale.step){
               manualYTicks.push(v);
             }
             yScale.ticks=manualYTicks;
+          }
+          if(Number.isFinite(manualIntervalY) && manualIntervalY > 0){
+            const manualY = buildScatterManualTicks(
+              Number.isFinite(yScale.min) ? yScale.min : yMinT,
+              Number.isFinite(yScale.max) ? yScale.max : yMaxT,
+              manualIntervalY
+            );
+            if(manualY){
+              yScale.min = manualY.min;
+              yScale.max = manualY.max;
+              yScale.ticks = manualY.ticks;
+              yScale.step = manualIntervalY;
+              console.debug('Debug: scatter manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
+            }
           }
           xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t));
           yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
@@ -1364,10 +1541,30 @@
         if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
         if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
         console.debug('Debug: scatter axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
-        const axisStroke = '#000';
-        add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
-        add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
-        console.debug('Debug: scatter axes stroke scaled',{axisStrokeWidth});
+        const axisControlConfig = axis => ({
+          axis,
+          scopeId: 'scatter',
+          getTickInterval: () => getScatterAxisTickInterval(axis),
+          getThickness: () => getScatterAxisStrokeWidth(),
+          getColor: () => getScatterAxisColor(),
+          isTickIntervalEnabled: () => axis === 'x' ? !logX : !logY,
+          getTickIntervalDisabledMessage: () => axis === 'x'
+            ? 'Tick interval is disabled while the X axis uses a logarithmic scale.'
+            : 'Tick interval is disabled while the Y axis uses a logarithmic scale.',
+          tickPlaceholder: 'Auto',
+          onTickIntervalChange: value => updateScatterAxisTickInterval(axis, value),
+          onThicknessChange: value => updateScatterAxisStrokeWidth(value),
+          onColorChange: value => updateScatterAxisColor(value)
+        });
+        const xAxisLine = add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+          axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+        }
+        const yAxisLine = add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+          axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+        }
+        console.debug('Debug: scatter axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
         if(showFrame){
           console.debug('Debug: scatter frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
           chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
@@ -1375,10 +1572,10 @@
         // Frame closes scatter plot using axis styling continuity
         const xTickNodes=[];
         let xTickFontCount=0;
-        xScale.ticks.forEach((t,i)=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':axisStrokeWidth});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);markFontEditable(txt,'xTick');xTickFontCount+=1;xTickNodes.push(txt);});
+        xScale.ticks.forEach((t,i)=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);markFontEditable(txt,'xTick');xTickFontCount+=1;xTickNodes.push(txt);});
         chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
         let yTickFontCount=0;
-        yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});
+        yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});
         console.debug('Debug: scatter font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
         console.debug('Debug: scatter ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
         console.time(`scatterSvgDraw_${token}`);
@@ -1867,12 +2064,13 @@
       }
     
       function getScatterGraphPayload(){
-        return {
-          type:'scatter',
-          data:scatterHot.getData(),
-          exclusions: scatterHot?.exportExclusions?.() || Shared.hot.exportExclusions(scatterHot),
-          config:{
-            title:scatterTitleText,
+      const axisSettings = ensureScatterAxisSettings();
+      return {
+        type:'scatter',
+        data:scatterHot.getData(),
+        exclusions: scatterHot?.exportExclusions?.() || Shared.hot.exportExclusions(scatterHot),
+        config:{
+          title:scatterTitleText,
             xLabel:scatterXLabelText,
             yLabel:scatterYLabelText,
             dotSize:scatterDotSize.value,
@@ -1901,6 +2099,12 @@
             regression:{
               mode: scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear',
               summary: scatterLastRegressionSummary
+            },
+            axis:{
+              strokeWidth: axisSettings.strokeWidth,
+              color: axisSettings.color,
+              tickIntervalX: axisSettings.x?.tickInterval ?? null,
+              tickIntervalY: axisSettings.y?.tickInterval ?? null
             }
           }
         };
@@ -2013,6 +2217,15 @@
               scatterRegressionMode.value=c.regression.mode;
             }
             scatterLastRegressionSummary = c.regression?.summary || null;
+            if(c.axis){
+              applyScatterAxisSettings({
+                strokeWidth: c.axis.strokeWidth,
+                color: c.axis.color,
+                tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
+                tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null
+              });
+              console.debug('Debug: scatter axis settings restored',{ axis: ensureScatterAxisSettings() });
+            }
             syncScatterGraphTypeUI();
             scheduleDrawScatter();
           }catch(err){console.error('loadScatterGraph error',err);}

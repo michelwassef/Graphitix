@@ -7,6 +7,7 @@
   const survival = Components.survival = Components.survival || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const axisControls = Shared.axisControls = Shared.axisControls || {};
   const fileIO = Shared.fileIO = Shared.fileIO || {};
 
   survival.__installed = true;
@@ -48,6 +49,17 @@
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
   });
 
+  const DEFAULT_AXIS_COLOR = '#000000';
+
+  function createDefaultAxisSettings(){
+    return {
+      strokeWidth: 1,
+      color: DEFAULT_AXIS_COLOR,
+      x: { tickInterval: null },
+      y: { tickInterval: null }
+    };
+  }
+
   const state = {
     hot: null,
     scheduleDraw: null,
@@ -60,8 +72,121 @@
     lastSummary: null,
     lastStats: null,
     covariateSettings: {},
-    covariateColumns: []
+    covariateColumns: [],
+    axisSettings: createDefaultAxisSettings()
   };
+
+  function ensureAxisSettings(){
+    if(!state.axisSettings || typeof state.axisSettings !== 'object'){
+      state.axisSettings = createDefaultAxisSettings();
+    }
+    if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
+      state.axisSettings.x = { tickInterval: null };
+    }
+    if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
+      state.axisSettings.y = { tickInterval: null };
+    }
+    const numericStroke = Number(state.axisSettings.strokeWidth);
+    state.axisSettings.strokeWidth = Number.isFinite(numericStroke) && numericStroke > 0 ? numericStroke : 1;
+    if(typeof state.axisSettings.color !== 'string' || !state.axisSettings.color.trim()){
+      state.axisSettings.color = DEFAULT_AXIS_COLOR;
+    }
+    return state.axisSettings;
+  }
+
+  function getAxisTickInterval(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureAxisSettings();
+    const raw = settings[axis]?.tickInterval;
+    if(raw === null || raw === undefined || raw === ''){
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function updateAxisTickInterval(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings[axis].tickInterval = null;
+    } else {
+      const numeric = Number(value);
+      settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    }
+    logDebug('axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    state.scheduleDraw?.();
+  }
+
+  function getAxisStrokeWidthBase(){
+    return ensureAxisSettings().strokeWidth;
+  }
+
+  function updateAxisStrokeWidth(value){
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings.strokeWidth = 1;
+    } else {
+      const numeric = Number(value);
+      settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+    }
+    logDebug('axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    state.scheduleDraw?.();
+  }
+
+  function getAxisColor(){
+    return ensureAxisSettings().color || DEFAULT_AXIS_COLOR;
+  }
+
+  function updateAxisColor(value){
+    const settings = ensureAxisSettings();
+    settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
+    logDebug('axis color updated',{ color: settings.color });
+    state.scheduleDraw?.();
+  }
+
+  function applyAxisSettings(settings){
+    const base = createDefaultAxisSettings();
+    if(settings && typeof settings === 'object'){
+      const strokeCandidate = Number(settings.strokeWidth ?? settings.axisThickness);
+      if(Number.isFinite(strokeCandidate) && strokeCandidate > 0){
+        base.strokeWidth = strokeCandidate;
+      }
+      if(typeof settings.color === 'string' && settings.color.trim()){
+        base.color = settings.color;
+      }
+      const xInterval = settings.tickIntervalX ?? settings.xTickInterval ?? settings?.x?.tickInterval ?? null;
+      const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
+      base.x.tickInterval = xInterval === '' ? null : xInterval;
+      base.y.tickInterval = yInterval === '' ? null : yInterval;
+    }
+    state.axisSettings = base;
+    ensureAxisSettings();
+    logDebug('axis settings applied',{ settings: state.axisSettings });
+  }
+
+  function buildManualTicks(min, max, interval){
+    if(!Number.isFinite(interval) || interval <= 0){ return null; }
+    if(!Number.isFinite(min) || !Number.isFinite(max)){ return null; }
+    if(min === max){
+      max = min + interval;
+    }
+    const graphMin = Math.floor(min / interval) * interval;
+    const graphMax = Math.ceil(max / interval) * interval;
+    const ticks = [];
+    let current = graphMin;
+    let guard = 0;
+    while(current <= graphMax + interval * 0.25 && guard < 1000){
+      ticks.push(Number.parseFloat(current.toPrecision(12)));
+      current += interval;
+      guard += 1;
+    }
+    if(!ticks.length){
+      ticks.push(Number.parseFloat(graphMin.toPrecision(12)));
+    }
+    logDebug('manual ticks computed',{ interval, tickCount: ticks.length, min: graphMin, max: graphMax });
+    return { min: graphMin, max: graphMax, ticks };
+  }
 
   const refs = {};
 
@@ -1674,7 +1799,10 @@
     chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize });
     const fs = fontInfo.scaledPx || 13;
     const styleScaleInfo = fontInfo.scaleInfo || { styleScale: 1 };
-    const axisStrokeWidth = chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'survival-axis', min: 0.5 }) : 1;
+    const axisSettings = ensureAxisSettings();
+    const axisStrokeWidthBase = axisSettings.strokeWidth;
+    const axisStrokeWidth = chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'survival-axis', min: 0.5 }) : axisStrokeWidthBase;
+    const axisStroke = axisSettings.color || '#000';
     const curveStrokeWidth = chartStyle.scaleStrokeWidth ? chartStyle.scaleStrokeWidth(2, styleScaleInfo, { context: 'survival-curve', min: 0.8 }) : 2;
 
     const axisMetrics = chartStyle.createAxisMetrics ? chartStyle.createAxisMetrics(fs) : { tickLength: 6, tickLabelGap: 6, axisTitleGap: 8, outerPadding: 8 };
@@ -1768,11 +1896,31 @@
     let yTickLabels = [];
 
     let maxYLabelWidth = 0;
+    const manualIntervalX = getAxisTickInterval('x');
+    const manualIntervalY = getAxisTickInterval('y');
     for(let pass = 0; pass < 2; pass += 1){
       plotW = Math.max(20, width - margin.left - margin.right);
       plotH = Math.max(20, height - margin.top - margin.bottom);
       xScale = niceScale(xMin, xMax, xTickTarget);
       yScale = niceScale(yMin, yMax, yTickTarget);
+      if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
+        const manualX = buildManualTicks(xScale.min, xScale.max, manualIntervalX);
+        if(manualX){
+          xScale.min = manualX.min;
+          xScale.max = manualX.max;
+          xScale.ticks = manualX.ticks;
+          xScale.step = manualIntervalX;
+        }
+      }
+      if(Number.isFinite(manualIntervalY) && manualIntervalY > 0){
+        const manualY = buildManualTicks(yScale.min, yScale.max, manualIntervalY);
+        if(manualY){
+          yScale.min = manualY.min;
+          yScale.max = manualY.max;
+          yScale.ticks = manualY.ticks;
+          yScale.step = manualIntervalY;
+        }
+      }
       xTickLabels = xScale.ticks.map(value => formatNumber(value, 2));
       yTickLabels = yScale.ticks.map(value => formatNumber(value, 2));
       const yLabelWidths = yTickLabels.map(label => chartStyle.measureText ? chartStyle.measureText(label, tickFont) : label.length * fs * 0.6);
@@ -1795,6 +1943,7 @@
       }) : bottomLayout;
       margin.bottom = bottomLayout.bottom;
     }
+    logDebug('tick targets finalized', { manualIntervalX, manualIntervalY, xTickCount: xScale?.ticks?.length, yTickCount: yScale?.ticks?.length });
 
     plotW = Math.max(20, width - margin.left - margin.right);
     plotH = Math.max(20, height - margin.top - margin.bottom);
@@ -1835,17 +1984,37 @@
 
     const xAxisY = margin.top + plotH;
     const yAxisX = margin.left;
-    add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: '#000', 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square' });
-    add('line', { x1: yAxisX, y1: margin.top, x2: yAxisX, y2: margin.top + plotH, stroke: '#000', 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square' });
+    const axisControlConfig = axis => ({
+      axis,
+      scopeId: 'survival',
+      getTickInterval: () => getAxisTickInterval(axis),
+      getThickness: () => getAxisStrokeWidthBase(),
+      getColor: () => getAxisColor(),
+      isTickIntervalEnabled: () => true,
+      getTickIntervalDisabledMessage: () => 'Tick interval available for numeric axes.',
+      tickPlaceholder: 'Auto',
+      onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+      onThicknessChange: value => updateAxisStrokeWidth(value),
+      onColorChange: value => updateAxisColor(value)
+    });
+    const xAxisLine = add('line', { x1: margin.left, y1: xAxisY, x2: margin.left + plotW, y2: xAxisY, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square' });
+    if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+      axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+    }
+    const yAxisLine = add('line', { x1: yAxisX, y1: margin.top, x2: yAxisX, y2: margin.top + plotH, stroke: axisStroke, 'stroke-width': axisStrokeWidth, 'stroke-linecap': 'square' });
+    if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+      axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+    }
+    logDebug('axes stroke scaled',{ axisStrokeWidthBase, axisStrokeWidth, axisStroke });
 
     if(showFrame){
-      chartStyle.drawPlotFrame?.({ svg, margin, plotW, plotH, stroke: '#000', sides: ['top', 'right'] });
+      chartStyle.drawPlotFrame?.({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top', 'right'] });
     }
 
     const xTickNodes = [];
     xScale.ticks.forEach(value => {
       const x = x2px(value);
-      add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: '#000', 'stroke-width': axisStrokeWidth });
+      add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
       const text = add('text', {
         x,
         y: xAxisY + tickLen + tickGap,
@@ -1862,7 +2031,7 @@
 
     yScale.ticks.forEach(value => {
       const y = y2px(value);
-      add('line', { x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: '#000', 'stroke-width': axisStrokeWidth });
+      add('line', { x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
       const text = add('text', {
         x: yAxisX - (tickLen + tickGap),
         y,
@@ -2137,6 +2306,7 @@
       console.debug('Debug: survival.getPayload skipped - no table instance');
       return null;
     }
+    const axisSettings = ensureAxisSettings();
     const payload = {
       type: 'survival',
       data: state.hot.getData(),
@@ -2155,7 +2325,13 @@
         fontSize: refs.fontSize?.value || '13',
         xLabel: refs.xLabel?.value || '',
         yLabel: refs.yLabel?.value || '',
-        covariateSettings: state.covariateSettings
+        covariateSettings: state.covariateSettings,
+        axis: {
+          strokeWidth: axisSettings.strokeWidth,
+          color: axisSettings.color,
+          tickIntervalX: axisSettings.x?.tickInterval ?? null,
+          tickIntervalY: axisSettings.y?.tickInterval ?? null
+        }
       },
       stats: state.lastStats || null
     };
@@ -2205,6 +2381,7 @@
     }
     if(refs.xLabel) refs.xLabel.value = config.xLabel || 'Time';
     if(refs.yLabel) refs.yLabel.value = config.yLabel || 'Survival Probability';
+    applyAxisSettings(config.axis || config.axisSettings);
     refreshCovariateControls();
     renderSurvivalStatsAdvisor(state.lastSummary || {
       series: [],

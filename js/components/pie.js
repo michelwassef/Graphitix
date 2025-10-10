@@ -8,6 +8,7 @@
   const pie = Components.pie = Components.pie || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const axisControls = Shared.axisControls = Shared.axisControls || {};
   pie.__installed = true; // signal to legacy code to skip
   pie.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -38,6 +39,123 @@
 
   const PIE_DEFAULT_ROWS = 100;
   const PIE_DEFAULT_COLS = 6;
+  const DEFAULT_AXIS_COLOR = '#000000';
+
+  function createDefaultAxisSettings(){
+    return {
+      strokeWidth: 1,
+      color: DEFAULT_AXIS_COLOR,
+      x: { tickInterval: null },
+      y: { tickInterval: null }
+    };
+  }
+
+  function ensureAxisSettings(){
+    if(!state.axisSettings || typeof state.axisSettings !== 'object'){
+      state.axisSettings = createDefaultAxisSettings();
+    }
+    if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
+      state.axisSettings.x = { tickInterval: null };
+    }
+    if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
+      state.axisSettings.y = { tickInterval: null };
+    }
+    const numericStroke = Number(state.axisSettings.strokeWidth);
+    state.axisSettings.strokeWidth = Number.isFinite(numericStroke) && numericStroke > 0 ? numericStroke : 1;
+    if(typeof state.axisSettings.color !== 'string' || !state.axisSettings.color.trim()){
+      state.axisSettings.color = DEFAULT_AXIS_COLOR;
+    }
+    return state.axisSettings;
+  }
+
+  function getAxisTickInterval(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureAxisSettings();
+    const raw = settings[axis]?.tickInterval;
+    if(raw === null || raw === undefined || raw === ''){
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function updateAxisTickInterval(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings[axis].tickInterval = null;
+    } else {
+      const numeric = Number(value);
+      settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    }
+    console.debug('Debug: pie axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    state.scheduleDraw?.();
+  }
+
+  function getAxisStrokeWidthBase(){
+    return ensureAxisSettings().strokeWidth;
+  }
+
+  function updateAxisStrokeWidth(value){
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings.strokeWidth = 1;
+    } else {
+      const numeric = Number(value);
+      settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+    }
+    console.debug('Debug: pie axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    state.scheduleDraw?.();
+  }
+
+  function getAxisColor(){
+    return ensureAxisSettings().color || DEFAULT_AXIS_COLOR;
+  }
+
+  function updateAxisColor(value){
+    const settings = ensureAxisSettings();
+    settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
+    console.debug('Debug: pie axis color updated',{ color: settings.color });
+    state.scheduleDraw?.();
+  }
+
+  function applyAxisSettings(settings){
+    const base = createDefaultAxisSettings();
+    if(settings && typeof settings === 'object'){
+      const strokeCandidate = Number(settings.strokeWidth ?? settings.axisThickness);
+      if(Number.isFinite(strokeCandidate) && strokeCandidate > 0){
+        base.strokeWidth = strokeCandidate;
+      }
+      if(typeof settings.color === 'string' && settings.color.trim()){
+        base.color = settings.color;
+      }
+      const xInterval = settings.tickIntervalX ?? settings.xTickInterval ?? settings?.x?.tickInterval ?? null;
+      const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
+      base.x.tickInterval = xInterval === '' ? null : xInterval;
+      base.y.tickInterval = yInterval === '' ? null : yInterval;
+    }
+    state.axisSettings = base;
+    ensureAxisSettings();
+    console.debug('Debug: pie axis settings applied',{ settings: state.axisSettings });
+  }
+
+  function buildManualPercentTicks(interval){
+    if(!Number.isFinite(interval) || interval <= 0){ return null; }
+    const ticks = [];
+    let current = 0;
+    let guard = 0;
+    while(current <= 100 + interval * 0.25 && guard < 1000){
+      ticks.push(Number.parseFloat(current.toFixed(6)));
+      current += interval;
+      guard += 1;
+    }
+    if(ticks[ticks.length - 1] !== 100){
+      ticks.push(100);
+    }
+    console.debug('Debug: pie manual percent ticks',{ interval, tickCount: ticks.length });
+    return ticks;
+  }
+
   let state = {
     hot: null,
     scheduleDraw: null,
@@ -48,7 +166,8 @@
     colors: {},
     svgBox: null,
     layout: null,
-    minSvgWidth: 0
+    minSvgWidth: 0,
+    axisSettings: createDefaultAxisSettings()
   };
 
   // Return a default color palette for slices
@@ -212,6 +331,7 @@
     }
     pie.getPayload = getPayload;
     function collectConfig(){
+      const axisSettings = ensureAxisSettings();
       return {
         title: state.titleText,
         chartType: $('#pieChartType').value,
@@ -221,7 +341,13 @@
         fontSize: $('#pieFontSize').value,
         valueColumn: $('#pieValueColumn').value,
         expectedColumn: $('#pieExpectedColumn').value,
-        colors: state.colors
+        colors: state.colors,
+        axis: {
+          strokeWidth: axisSettings.strokeWidth,
+          color: axisSettings.color,
+          tickIntervalX: axisSettings.x?.tickInterval ?? null,
+          tickIntervalY: axisSettings.y?.tickInterval ?? null
+        }
       };
     }
     pie.save = async function(){
@@ -305,6 +431,7 @@
           $('#pieValueColumn').value=c.valueColumn||$('#pieValueColumn').value;
           $('#pieExpectedColumn').value=c.expectedColumn||$('#pieExpectedColumn').value;
           state.colors=c.colors||state.colors;
+          applyAxisSettings(c.axis || c.axisSettings);
           state.scheduleDraw();
         }catch(err){
           console.error('loadPieGraph error',err);
@@ -445,6 +572,12 @@
       } else {
         console.debug('Debug: pie fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
       }
+      const axisSettings = ensureAxisSettings();
+      const axisStrokeWidthBase = axisSettings.strokeWidth;
+      const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0.25 });
+      const axisStroke = axisSettings.color || '#000';
+      const manualIntervalY = getAxisTickInterval('y');
+      const percentTicks = Number.isFinite(manualIntervalY) && manualIntervalY > 0 ? buildManualPercentTicks(manualIntervalY) : [0,25,50,75,100];
       const legend=document.createElement('div');
       legend.style.width=state.legendWidth+'px';
       legend.style.fontSize=fs+'px';
@@ -452,7 +585,8 @@
       legend.style.display='flex';
       legend.style.flexDirection='column';
       plotEl.appendChild(legend);
-      const yTickLabels=['0%','25%','50%','75%','100%'];
+      console.debug('Debug: pie stacked axis stroke',{ axisStrokeWidthBase, axisStrokeWidth, axisStroke, manualIntervalY });
+      const yTickLabels=percentTicks.map(v=>`${Number.isInteger(v) ? v : Number(v).toFixed(1)}%`);
       const tickFont=chartStyle.makeFont(fs);
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       const maxYLabelWidth=Math.max(...yLabelWidths,0);
@@ -469,11 +603,27 @@
       const tickLen=axisMetrics.tickLength;
       const tickGap=axisMetrics.tickLabelGap;
       const axis=document.createElementNS(NS,'g');
-      const yAxis=document.createElementNS(NS,'line'); yAxis.setAttribute('x1',margin.left); yAxis.setAttribute('y1',margin.top); yAxis.setAttribute('x2',margin.left); yAxis.setAttribute('y2',margin.top+chartHeight); yAxis.setAttribute('stroke','#000'); axis.appendChild(yAxis);
-      const xAxis=document.createElementNS(NS,'line'); xAxis.setAttribute('x1',margin.left); xAxis.setAttribute('y1',margin.top+chartHeight); xAxis.setAttribute('x2',margin.left+chartWidth); xAxis.setAttribute('y2',margin.top+chartHeight); xAxis.setAttribute('stroke','#000'); axis.appendChild(xAxis);
+      const yAxis=document.createElementNS(NS,'line'); yAxis.setAttribute('x1',margin.left); yAxis.setAttribute('y1',margin.top); yAxis.setAttribute('x2',margin.left); yAxis.setAttribute('y2',margin.top+chartHeight); yAxis.setAttribute('stroke',axisStroke); yAxis.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(yAxis);
+      const xAxis=document.createElementNS(NS,'line'); xAxis.setAttribute('x1',margin.left); xAxis.setAttribute('y1',margin.top+chartHeight); xAxis.setAttribute('x2',margin.left+chartWidth); xAxis.setAttribute('y2',margin.top+chartHeight); xAxis.setAttribute('stroke',axisStroke); xAxis.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(xAxis);
+      const axisControlConfig = axisName => ({
+        axis: axisName,
+        scopeId: 'pie',
+        getTickInterval: () => getAxisTickInterval(axisName),
+        getThickness: () => getAxisStrokeWidthBase(),
+        getColor: () => getAxisColor(),
+        isTickIntervalEnabled: () => axisName === 'y',
+        getTickIntervalDisabledMessage: () => 'Tick interval is managed automatically for categorical axes.',
+        tickPlaceholder: 'Auto',
+        onTickIntervalChange: value => updateAxisTickInterval(axisName, value),
+        onThicknessChange: value => updateAxisStrokeWidth(value),
+        onColorChange: value => updateAxisColor(value)
+      });
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(xAxis, axisControlConfig('x'));
+        axisControls.registerAxisElement(yAxis, axisControlConfig('y'));
+      }
       let stackedYTickCount = 0;
-      for(let t=0;t<=100;t+=25){ const y=margin.top+chartHeight-(chartHeight*t/100); const tick=document.createElementNS(NS,'line'); tick.setAttribute('x1',margin.left-tickLen); tick.setAttribute('y1',y); tick.setAttribute('x2',margin.left); tick.setAttribute('y2',y); tick.setAttribute('stroke','#000'); axis.appendChild(tick); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',margin.left-(tickLen+tickGap)); txt.setAttribute('y',y); txt.setAttribute('text-anchor','end'); txt.setAttribute('dominant-baseline','middle'); txt.setAttribute('font-size',fs); txt.textContent=t+'%'; markFontEditable(txt,'yTick'); stackedYTickCount+=1; axis.appendChild(txt);} const yTitleX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5); const yTitle=document.createElementNS(NS,'text'); yTitle.setAttribute('x',yTitleX); yTitle.setAttribute('y',margin.top+chartHeight/2); yTitle.setAttribute('text-anchor','middle'); yTitle.setAttribute('transform',`rotate(-90 ${yTitleX} ${margin.top+chartHeight/2})`); yTitle.setAttribute('font-size',fs); yTitle.textContent=yTitleText; markFontEditable(yTitle,'yTitle','yTitle'); axis.appendChild(yTitle); svg.appendChild(axis);
-      const axisStroke = '#000';
+      percentTicks.forEach(t=>{ const y=margin.top+chartHeight-(chartHeight*t/100); const tick=document.createElementNS(NS,'line'); tick.setAttribute('x1',margin.left-tickLen); tick.setAttribute('y1',y); tick.setAttribute('x2',margin.left); tick.setAttribute('y2',y); tick.setAttribute('stroke',axisStroke); tick.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(tick); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',margin.left-(tickLen+tickGap)); txt.setAttribute('y',y); txt.setAttribute('text-anchor','end'); txt.setAttribute('dominant-baseline','middle'); txt.setAttribute('font-size',fs); txt.textContent=`${Number.isInteger(t)?t:t.toFixed(1)}%`; markFontEditable(txt,'yTick'); stackedYTickCount+=1; axis.appendChild(txt);}); const yTitleX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5); const yTitle=document.createElementNS(NS,'text'); yTitle.setAttribute('x',yTitleX); yTitle.setAttribute('y',margin.top+chartHeight/2); yTitle.setAttribute('text-anchor','middle'); yTitle.setAttribute('transform',`rotate(-90 ${yTitleX} ${margin.top+chartHeight/2})`); yTitle.setAttribute('font-size',fs); yTitle.textContent=yTitleText; markFontEditable(yTitle,'yTitle','yTitle'); axis.appendChild(yTitle); svg.appendChild(axis);
       if(showFrame){
         console.debug('Debug: pie frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
         chartStyle.drawPlotFrame({ svg, margin, plotW: chartWidth, plotH: chartHeight, stroke: axisStroke, sides: ['top','right'], group: axis });
