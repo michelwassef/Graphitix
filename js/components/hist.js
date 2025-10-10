@@ -11,6 +11,7 @@
   const hist = Components.hist = Components.hist || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const axisControls = Shared.axisControls = Shared.axisControls || {};
   hist.__installed = true; // signal to legacy code to skip
   hist.ready = false; // set true after successful init
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -39,6 +40,17 @@
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
   });
 
+  const DEFAULT_AXIS_COLOR = '#000000';
+
+  function createDefaultAxisSettings(){
+    return {
+      strokeWidth: 1,
+      color: DEFAULT_AXIS_COLOR,
+      x: { tickInterval: null },
+      y: { tickInterval: null }
+    };
+  }
+
   let state = {
     hot: null,
     scheduleDraw: null,
@@ -49,8 +61,127 @@
     yLabelText: 'Count',
     svgBox: null,
     layout: null,
-    minSvgWidth: 0
+    minSvgWidth: 0,
+    axisSettings: createDefaultAxisSettings()
   };
+
+  function ensureAxisSettings(){
+    if(!state.axisSettings || typeof state.axisSettings !== 'object'){
+      state.axisSettings = createDefaultAxisSettings();
+    }
+    if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
+      state.axisSettings.x = { tickInterval: null };
+    }
+    if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
+      state.axisSettings.y = { tickInterval: null };
+    }
+    const strokeNumeric = Number(state.axisSettings.strokeWidth);
+    state.axisSettings.strokeWidth = Number.isFinite(strokeNumeric) && strokeNumeric > 0 ? strokeNumeric : 1;
+    if(typeof state.axisSettings.color !== 'string' || !state.axisSettings.color){
+      state.axisSettings.color = DEFAULT_AXIS_COLOR;
+    }
+    return state.axisSettings;
+  }
+
+  function getAxisTickInterval(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureAxisSettings();
+    const raw = settings[axis]?.tickInterval;
+    if(raw === null || raw === undefined || raw === ''){
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function updateAxisTickInterval(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings[axis].tickInterval = null;
+    } else {
+      const numeric = Number(value);
+      settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    }
+    console.debug('Debug: hist axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function getAxisStrokeWidthBase(){
+    return ensureAxisSettings().strokeWidth;
+  }
+
+  function updateAxisStrokeWidth(value){
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings.strokeWidth = 1;
+    } else {
+      const numeric = Number(value);
+      settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+    }
+    console.debug('Debug: hist axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function getAxisColor(){
+    return ensureAxisSettings().color || DEFAULT_AXIS_COLOR;
+  }
+
+  function updateAxisColor(value){
+    const settings = ensureAxisSettings();
+    settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
+    console.debug('Debug: hist axis color updated',{ color: settings.color });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function applyAxisSettings(settings){
+    const base = createDefaultAxisSettings();
+    if(settings && typeof settings === 'object'){
+      const strokeCandidate = Number(settings.strokeWidth);
+      if(Number.isFinite(strokeCandidate) && strokeCandidate > 0){
+        base.strokeWidth = strokeCandidate;
+      }
+      if(typeof settings.color === 'string' && settings.color.trim()){
+        base.color = settings.color;
+      }
+      const xInterval = settings.tickIntervalX ?? settings.xTickInterval ?? settings?.x?.tickInterval ?? null;
+      const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
+      base.x.tickInterval = xInterval === '' ? null : xInterval;
+      base.y.tickInterval = yInterval === '' ? null : yInterval;
+    }
+    state.axisSettings = base;
+    ensureAxisSettings();
+    console.debug('Debug: hist axis settings applied',{ settings: state.axisSettings });
+  }
+
+  function buildManualTicks(min, max, interval){
+    if(!Number.isFinite(interval) || interval <= 0){ return null; }
+    if(!Number.isFinite(min) || !Number.isFinite(max)){ return null; }
+    if(min === max){
+      max = min + interval;
+    }
+    const graphMin = Math.floor(min / interval) * interval;
+    const graphMax = Math.ceil(max / interval) * interval;
+    const ticks = [];
+    let current = graphMin;
+    let guard = 0;
+    while(current <= graphMax + interval * 0.25 && guard < 1000){
+      ticks.push(Number.parseFloat(current.toPrecision(12)));
+      current += interval;
+      guard += 1;
+    }
+    if(!ticks.length){
+      ticks.push(Number.parseFloat(graphMin.toPrecision(12)));
+    }
+    console.debug('Debug: hist manual ticks computed',{ interval, tickCount: ticks.length, min: graphMin, max: graphMax });
+    return { min: graphMin, max: graphMax, ticks };
+  }
 
   const markFontEditable = (node, role, key) => {
     if (!node) { return; }
@@ -171,6 +302,7 @@
 
     // File Save/Open
     function getPayload(){
+      const axisSettings = ensureAxisSettings();
       const c={
         title:state.titleText,
         xLabel:state.xLabelText,
@@ -184,7 +316,13 @@
         logY:$('#histLogY').checked,
         fontSize:$('#histFontSize').value,
         yMin:$('#histYMin').value,
-        yMax:$('#histYMax').value
+        yMax:$('#histYMax').value,
+        axis:{
+          strokeWidth: axisSettings.strokeWidth,
+          color: axisSettings.color,
+          tickIntervalX: axisSettings.x?.tickInterval ?? null,
+          tickIntervalY: axisSettings.y?.tickInterval ?? null
+        }
       };
       const payload = {
         type:'hist',
@@ -284,6 +422,15 @@
           chartStyle.renderFontSizeLabel({ element: $('#histFontSizeVal'), pt: Number(histFontInput.value), input: histFontInput, manual: true });
           $('#histYMin').value=c.yMin||'';
           $('#histYMax').value=c.yMax||'';
+          if(c.axis){
+            applyAxisSettings({
+              strokeWidth: c.axis.strokeWidth,
+              color: c.axis.color,
+              tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
+              tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null
+            });
+            console.debug('Debug: hist axis settings restored',{ axis: ensureAxisSettings() });
+          }
           state.scheduleDraw();
         }catch(err){
           console.error('loadHistGraph error',err);
@@ -344,6 +491,7 @@
   function draw(){
     // Reuse existing global draw implementation if present? Implement local logic mirroring legacy drawHistogram
     const histFill=$('#histFill'), histBorder=$('#histBorder'), histBorderWidth=$('#histBorderWidth'), histBins=$('#histBins'), histShowGrid=$('#histShowGrid'), histShowFrame=$('#histShowFrame'), histLogY=$('#histLogY'), histFontSize=$('#histFontSize'), histYMin=$('#histYMin'), histYMax=$('#histYMax');
+    ensureAxisSettings();
     const data=state.hot.getDataAtCol(0);
     const labelRaw=data[0];
     state.xLabelText=(labelRaw&&String(labelRaw).trim())||'Value';
@@ -358,6 +506,13 @@
     const bins=Math.max(1,Math.floor(Number(histBins.value)||10));
     const yMinManual=parseFloat(histYMin.value), yMaxManual=parseFloat(histYMax.value);
     const logY=histLogY.checked;
+    const storedManualIntervalX = getAxisTickInterval('x');
+    const storedManualIntervalY = getAxisTickInterval('y');
+    const manualIntervalX = storedManualIntervalX;
+    const manualIntervalY = logY ? null : storedManualIntervalY;
+    if(logY && storedManualIntervalY){
+      console.debug('Debug: hist manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
+    }
     plotEl.style.position='relative';
     const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','histSvg'); svg.setAttribute('width',String(W)); svg.setAttribute('height',String(H)); svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.applySvgDefaults(svg); plotEl.appendChild(svg);
     if(fontControls && typeof fontControls.enableForSvg === 'function'){
@@ -377,13 +532,17 @@
     });
     const fs=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
-    const axisStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'hist-axis', min: 0.5 });
+    const axisStrokeWidthBase = getAxisStrokeWidthBase();
+    const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'hist-axis', min: 0.25 });
+    const axisStroke = getAxisColor();
     const borderWidthRaw=Number(histBorderWidth.value)||0;
     const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'hist-border', min: 0 });
     console.debug('Debug: hist style scaling applied',{
       borderWidthRaw,
       borderWidthPx,
       axisStrokeWidth,
+      axisStrokeWidthBase,
+      axisStroke,
       styleScale: styleScaleInfo?.styleScale
     }); // Debug: histogram style scaling summary
     chartStyle.renderFontSizeLabel({ element: histFontSizeVal, fontInfo, input: histFontSize });
@@ -445,6 +604,34 @@
         for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step; v<=yScale.max+1e-9; v+=yScale.step) manualTicks.push(v);
         yScale.ticks=manualTicks;
       }
+      if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
+        const manualX = buildManualTicks(
+          Number.isFinite(xScale.min) ? xScale.min : xMin,
+          Number.isFinite(xScale.max) ? xScale.max : xMax,
+          manualIntervalX
+        );
+        if(manualX){
+          xScale.min = manualX.min;
+          xScale.max = manualX.max;
+          xScale.ticks = manualX.ticks;
+          xScale.step = manualIntervalX;
+          console.debug('Debug: hist manual interval applied',{ axis: 'x', interval: manualIntervalX, tickCount: manualX.ticks.length });
+        }
+      }
+      if(Number.isFinite(manualIntervalY) && manualIntervalY > 0){
+        const manualY = buildManualTicks(
+          Number.isFinite(yScale.min) ? yScale.min : yMinT,
+          Number.isFinite(yScale.max) ? yScale.max : yMaxT,
+          manualIntervalY
+        );
+        if(manualY){
+          yScale.min = manualY.min;
+          yScale.max = manualY.max;
+          yScale.ticks = manualY.ticks;
+          yScale.step = manualIntervalY;
+          console.debug('Debug: hist manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
+        }
+      }
       xTickLabels=xScale.ticks.map(t=>formatTick(t));
       yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
@@ -488,10 +675,30 @@
     if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
     if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
     console.debug('Debug: hist axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
-      const axisStroke = '#000';
-      add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
-      add('line',{x1:margin.left,y1:axisYStart,x2:margin.left,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
-      console.debug('Debug: hist axes stroke scaled',{axisStrokeWidth});
+      const axisControlConfig = axis => ({
+        axis,
+        scopeId: 'hist',
+        getTickInterval: () => getAxisTickInterval(axis),
+        getThickness: () => getAxisStrokeWidthBase(),
+        getColor: () => getAxisColor(),
+        isTickIntervalEnabled: () => axis === 'y' ? !logY : true,
+        getTickIntervalDisabledMessage: () => axis === 'y'
+          ? 'Tick interval is disabled while the Y axis uses a logarithmic scale.'
+          : 'Tick interval available for numeric axes.',
+        tickPlaceholder: 'Auto',
+        onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+        onThicknessChange: value => updateAxisStrokeWidth(value),
+        onColorChange: value => updateAxisColor(value)
+      });
+      const xAxisLine = add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+      }
+      const yAxisLine = add('line',{x1:margin.left,y1:axisYStart,x2:margin.left,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+      }
+      console.debug('Debug: hist axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
     if(showFrame){
       console.debug('Debug: hist frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
       chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
@@ -501,7 +708,7 @@
       let xTickFontCount=0;
       xScale.ticks.forEach((t,i)=>{
         const x=x2px(t);
-        add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:'#000','stroke-width':axisStrokeWidth});
+        add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
         const txt=add('text',{x,y:margin.top+plotH+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});
         txt.textContent=formatTick(t);
         markFontEditable(txt,'xTick');
@@ -512,7 +719,7 @@
       let yTickFontCount=0;
       yScale.ticks.forEach((t,i)=>{
         const y=y2px(t);
-        add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:'#000','stroke-width':axisStrokeWidth});
+        add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
         const txt=add('text',{x:margin.left-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
         txt.textContent=formatTick(logY?Math.pow(10,t):t);
         markFontEditable(txt,'yTick');

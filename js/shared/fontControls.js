@@ -37,13 +37,20 @@
   let activeHost = null;
 
   let panelEl = null;
+  let fontComboWrapper = null;
   let fontInput = null;
-  let fontSelect = null;
-  let customInputWrapper = null;
-  let customInputVisible = false;
+  let fontDatalist = null;
+  let fontMenuButton = null;
+  let fontMenuPopup = null;
+  let fontMenuEmptyState = null;
+  let fontMenuVisible = false;
+  let fontMenuCloseHandler = null;
   let colorInput = null;
   let boldToggle = null;
   let italicToggle = null;
+  let underlineToggle = null;
+  let subscriptToggle = null;
+  let superscriptToggle = null;
   let sizeInput = null;
   let previewTextEl = null;
   let targetLabelEl = null;
@@ -54,7 +61,7 @@
   let floatingPlaceholder = null;
   let placementMonitoringAttached = false;
 
-  const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill'];
+  const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
 
   function captureStyleSnapshot(node){
     if(!node){ return null; }
@@ -64,6 +71,8 @@
       fontStyle: node.getAttribute('font-style') || null,
       fontSize: node.getAttribute('font-size') || null,
       fill: node.getAttribute('fill') || null,
+      textDecoration: node.getAttribute('text-decoration') || null,
+      baselineShift: node.getAttribute('baseline-shift') || null,
     };
     return snapshot;
   }
@@ -375,50 +384,181 @@
     logDebug('toolbar host hidden', { scopeId: host.dataset?.fontToolbarScope || null });
   }
 
-  function toggleCustomFontInput(show){
-    if(!customInputWrapper){ return; }
-    const shouldShow = !!show;
-    if(customInputVisible === shouldShow){ return; }
-    customInputVisible = shouldShow;
-    if(shouldShow){
-      customInputWrapper.classList.remove('font-controls-panel__custom-input--hidden');
-    } else {
-      customInputWrapper.classList.add('font-controls-panel__custom-input--hidden');
-    }
-    logDebug('custom font input toggled', { visible: shouldShow });
-  }
-
-  function syncFontSelectValue(rawValue, meta){
-    if(!fontSelect){ return; }
+  function syncFontInputValue(rawValue, meta){
+    if(!fontInput){ return; }
     const sanitized = (rawValue || '').replace(/"/g, '').trim();
-    const options = fontSelect.options ? Array.from(fontSelect.options) : [];
-    let matchedValue = '';
-    for(let i = 0; i < options.length; i += 1){
-      const option = options[i];
-      if(!option || !option.value || option.value === '__custom__'){ continue; }
-      if(option.value.toLowerCase() === sanitized.toLowerCase()){
-        matchedValue = option.value;
-        break;
-      }
+    if(fontInput.value !== sanitized){
+      fontInput.value = sanitized;
     }
-    if(sanitized && !matchedValue){
-      fontSelect.value = '__custom__';
-      toggleCustomFontInput(true);
-      if(fontInput && fontInput.value.trim() !== sanitized){
-        fontInput.value = sanitized;
-      }
-    } else {
-      fontSelect.value = matchedValue || '';
-      toggleCustomFontInput(false);
-      if(!sanitized && fontInput){
-        fontInput.value = '';
-      }
-    }
-    logDebug('font select sync', {
+    highlightFontMenuSelection(sanitized);
+    logDebug('font input sync', {
       value: sanitized || null,
-      matched: matchedValue || null,
       source: meta?.source || 'sync'
     });
+  }
+
+  function getVisibleFontMenuOptions(){
+    if(!fontMenuPopup){ return []; }
+    const nodes = fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+    return Array.from(nodes).filter(node => node.dataset.hidden !== '1' && !node.hidden);
+  }
+
+  function getActiveFontMenuOption(){
+    if(!fontMenuPopup){ return null; }
+    const active = fontMenuPopup.querySelector('.font-controls-panel__combo-option--active');
+    if(active && active.dataset.hidden !== '1' && !active.hidden){
+      return active;
+    }
+    return null;
+  }
+
+  function focusRelativeFontOption(current, delta){
+    if(!fontMenuPopup){ return; }
+    const visible = getVisibleFontMenuOptions();
+    if(!visible.length){ return; }
+    const index = visible.indexOf(current);
+    let nextIndex = index;
+    if(index === -1){
+      nextIndex = delta > 0 ? 0 : visible.length - 1;
+    } else {
+      nextIndex = Math.max(0, Math.min(visible.length - 1, index + delta));
+    }
+    const target = visible[nextIndex];
+    if(target){
+      target.focus();
+    }
+  }
+
+  function focusFirstFontOption(){
+    const visible = getVisibleFontMenuOptions();
+    if(visible.length){
+      visible[0].focus();
+    }
+  }
+
+  function focusLastFontOption(){
+    const visible = getVisibleFontMenuOptions();
+    if(visible.length){
+      visible[visible.length - 1].focus();
+    }
+  }
+
+  function highlightFontMenuSelection(value){
+    if(!fontMenuPopup){ return; }
+    const normalized = (value || '').trim().toLowerCase();
+    const options = fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+    options.forEach(option => {
+      const optionValue = (option.dataset.value || '').trim().toLowerCase();
+      const isActive = optionValue === normalized && (option.dataset.value || '') === (value || '');
+      option.classList.toggle('font-controls-panel__combo-option--active', isActive);
+      option.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      if(isActive && fontMenuVisible && typeof option.scrollIntoView === 'function'){
+        option.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    });
+  }
+
+  function filterFontMenuOptions(query){
+    if(!fontMenuPopup){ return; }
+    const normalized = (query || '').trim().toLowerCase();
+    const options = fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+    let matches = 0;
+    options.forEach(option => {
+      const valueText = (option.dataset.value || '').toLowerCase();
+      const labelText = (option.dataset.label || '').toLowerCase();
+      const keep = !normalized || option.dataset.value === '' || valueText.includes(normalized) || labelText.includes(normalized);
+      option.hidden = !keep;
+      option.dataset.hidden = keep ? '0' : '1';
+      if(keep){
+        matches += 1;
+      }
+    });
+    if(fontMenuEmptyState){
+      fontMenuEmptyState.hidden = matches > 0;
+    }
+    logDebug('font menu filtered', {
+      query: normalized || null,
+      matches
+    });
+  }
+
+  function detachFontMenuDismissWatcher(){
+    if(!fontMenuCloseHandler || !global.document){ return; }
+    global.document.removeEventListener('pointerdown', fontMenuCloseHandler, true);
+    fontMenuCloseHandler = null;
+  }
+
+  function attachFontMenuDismissWatcher(){
+    if(fontMenuCloseHandler || !global.document){ return; }
+    const doc = global.document;
+    fontMenuCloseHandler = (evt) => {
+      if(!fontMenuVisible){ return; }
+      if(!fontComboWrapper){ return; }
+      const target = evt.target;
+      if(fontComboWrapper.contains(target)){ return; }
+      closeFontMenu('outside');
+    };
+    doc.addEventListener('pointerdown', fontMenuCloseHandler, true);
+  }
+
+  function openFontMenu(trigger, meta){
+    if(!fontMenuPopup || fontMenuVisible){ return; }
+    fontMenuPopup.hidden = false;
+    fontMenuPopup.classList.add('font-controls-panel__combo-menu--open');
+    fontMenuVisible = true;
+    if(fontMenuButton){
+      fontMenuButton.setAttribute('aria-expanded', 'true');
+    }
+    filterFontMenuOptions(fontInput?.value || '');
+    highlightFontMenuSelection(fontInput?.value || '');
+    attachFontMenuDismissWatcher();
+    const focusMode = meta?.focusOption || null;
+    if(focusMode){
+      const focusTask = () => {
+        if(focusMode === 'first'){
+          focusFirstFontOption();
+        } else if(focusMode === 'last'){
+          focusLastFontOption();
+        } else if(focusMode === 'active'){
+          const active = getActiveFontMenuOption();
+          if(active){
+            active.focus();
+          } else {
+            focusFirstFontOption();
+          }
+        }
+      };
+      setTimeout(focusTask, 0);
+    }
+    logDebug('font menu opened', {
+      trigger: trigger || 'unknown',
+      focusMode
+    });
+  }
+
+  function closeFontMenu(reason){
+    if(!fontMenuPopup || !fontMenuVisible){ return; }
+    fontMenuPopup.hidden = true;
+    fontMenuPopup.classList.remove('font-controls-panel__combo-menu--open');
+    fontMenuVisible = false;
+    if(fontMenuButton){
+      fontMenuButton.setAttribute('aria-expanded', 'false');
+    }
+    detachFontMenuDismissWatcher();
+    if(reason !== 'button-toggle'){ // keep input focus for toggle interactions
+      highlightFontMenuSelection(fontInput?.value || '');
+    }
+    logDebug('font menu closed', {
+      reason: reason || 'unknown'
+    });
+  }
+
+  function toggleFontMenu(trigger, meta){
+    if(fontMenuVisible){
+      closeFontMenu(trigger || 'toggle');
+    } else {
+      openFontMenu(trigger || 'toggle', meta);
+    }
   }
 
   function humanizeToken(token){
@@ -462,6 +602,9 @@
     const fontFamilyRaw = fontInput?.value?.trim() || '';
     const weightActive = boldToggle?.dataset?.active === '1';
     const italicActive = italicToggle?.dataset?.active === '1';
+    const underlineActive = underlineToggle?.dataset?.active === '1';
+    const subscriptActive = subscriptToggle?.dataset?.active === '1';
+    const superscriptActive = superscriptToggle?.dataset?.active === '1';
     const sizeValue = sizeInput?.value?.trim();
     const colorValue = colorInput?.value || '#0f172a';
     let computedSize = '';
@@ -476,13 +619,34 @@
     previewTextEl.style.fontStyle = italicActive ? 'italic' : 'normal';
     previewTextEl.style.fontSize = computedSize;
     previewTextEl.style.color = colorValue;
+    previewTextEl.style.textDecoration = underlineActive ? 'underline' : 'none';
+    const baselineMode = subscriptActive ? 'sub' : (superscriptActive ? 'super' : 'baseline');
+    previewTextEl.style.fontVariantPosition = baselineMode === 'baseline' ? 'normal' : baselineMode;
+    previewTextEl.style.position = baselineMode === 'baseline' ? 'static' : 'relative';
+    if(baselineMode === 'sub'){
+      previewTextEl.style.top = '0.25em';
+    } else if(baselineMode === 'super'){
+      previewTextEl.style.top = '-0.25em';
+    } else {
+      previewTextEl.style.top = '0';
+    }
     logDebug('preview style refreshed', {
       fontFamily: fontFamilyRaw || null,
       weightActive,
       italicActive,
+      underlineActive,
+      baselineMode,
       size: computedSize || null,
       color: colorValue
     });
+  }
+
+  function setToggleState(btn, active){
+    if(!btn){ return; }
+    const isActive = !!active;
+    btn.dataset.active = isActive ? '1' : '0';
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    btn.classList.toggle('font-controls-panel__toggle--active', isActive);
   }
 
   function buildStoreKey(scopeId, key){
@@ -550,6 +714,16 @@
     if(style.fill){
       node.setAttribute('fill', style.fill);
     }
+    if(style.textDecoration){
+      node.setAttribute('text-decoration', style.textDecoration);
+    } else {
+      node.removeAttribute('text-decoration');
+    }
+    if(style.baselineShift){
+      node.setAttribute('baseline-shift', style.baselineShift);
+    } else {
+      node.removeAttribute('baseline-shift');
+    }
     logDebug('applyStyleToNode', {
       text: node?.textContent,
       scope: node?.dataset?.fontScope || null,
@@ -560,7 +734,10 @@
 
   function isStyleEmpty(style){
     if(!style){ return true; }
-    return !style.fontFamily && !style.fontWeight && !style.fontStyle && !style.fill && !style.fontSize;
+    return STYLE_KEYS.every(key => {
+      const value = style[key];
+      return value === undefined || value === null || value === '';
+    });
   }
 
   function clearStyleFromNode(node){
@@ -570,6 +747,8 @@
     node.removeAttribute('font-style');
     node.removeAttribute('font-size');
     node.removeAttribute('fill');
+    node.removeAttribute('text-decoration');
+    node.removeAttribute('baseline-shift');
     logDebug('clearStyleFromNode', {
       text: node?.textContent,
       scope: node?.dataset?.fontScope || null,
@@ -680,11 +859,10 @@
     const attrStyle = currentTarget.getAttribute('font-style') || computed.fontStyle || '';
     const attrSize = currentTarget.getAttribute('font-size') || computed.fontSize || '';
     const attrFill = currentTarget.getAttribute('fill') || computed.fill || '#000000';
+    const attrDecoration = currentTarget.getAttribute('text-decoration') || computed.textDecoration || '';
+    const attrBaseline = currentTarget.getAttribute('baseline-shift') || computed.baselineShift || '';
     const sanitizedFamily = attrFamily.replace(/"/g, '').trim();
-    if(fontInput){
-      fontInput.value = sanitizedFamily;
-    }
-    syncFontSelectValue(sanitizedFamily, { source: 'target-sync' });
+    syncFontInputValue(sanitizedFamily, { source: 'target-sync' });
     if(colorInput){
       colorInput.value = parseColorToHex(attrFill);
     }
@@ -692,16 +870,17 @@
       const sizeNum = parseFloat(String(attrSize).replace(/px$/, ''));
       sizeInput.value = Number.isFinite(sizeNum) ? normalizeFontSizeValue(sizeNum, { source: 'target-sync' }) : '';
     }
-    if(boldToggle){
-      const boldActive = /bold|700|800|900/.test(String(attrWeight));
-      boldToggle.setAttribute('aria-pressed', boldActive ? 'true' : 'false');
-      boldToggle.dataset.active = boldActive ? '1' : '0';
-    }
-    if(italicToggle){
-      const italicActive = /italic|oblique/.test(String(attrStyle));
-      italicToggle.setAttribute('aria-pressed', italicActive ? 'true' : 'false');
-      italicToggle.dataset.active = italicActive ? '1' : '0';
-    }
+    const boldActive = /bold|700|800|900/.test(String(attrWeight));
+    setToggleState(boldToggle, boldActive);
+    const italicActive = /italic|oblique/.test(String(attrStyle));
+    setToggleState(italicToggle, italicActive);
+    const underlineActive = /underline/.test(String(attrDecoration));
+    setToggleState(underlineToggle, underlineActive);
+    const baselineToken = String(attrBaseline).toLowerCase();
+    const subActive = baselineToken.includes('sub');
+    const superActive = baselineToken.includes('super') && !subActive;
+    setToggleState(subscriptToggle, subActive);
+    setToggleState(superscriptToggle, superActive);
     updatePanelContext();
     updatePreviewText();
     updatePreviewFromInputs();
@@ -710,7 +889,9 @@
       fontFamily: fontInput?.value || null,
       fill: colorInput?.value || null,
       bold: boldToggle?.dataset?.active === '1',
-      italic: italicToggle?.dataset?.active === '1'
+      italic: italicToggle?.dataset?.active === '1',
+      underline: underlineToggle?.dataset?.active === '1',
+      baselineShift: subscriptToggle?.dataset?.active === '1' ? 'sub' : (superscriptToggle?.dataset?.active === '1' ? 'super' : 'baseline')
     });
   }
 
@@ -742,40 +923,163 @@
     fontLabel.textContent = 'Font family';
     fontField.appendChild(fontLabel);
 
-    const selectWrapper = doc.createElement('div');
-    selectWrapper.className = 'font-controls-panel__select-wrapper';
-    fontSelect = doc.createElement('select');
-    fontSelect.className = 'font-controls-panel__select';
+    fontComboWrapper = doc.createElement('div');
+    fontComboWrapper.className = 'font-controls-panel__combo';
+    const comboRow = doc.createElement('div');
+    comboRow.className = 'font-controls-panel__combo-row';
+    fontInput = doc.createElement('input');
+    fontInput.type = 'text';
+    fontInput.className = 'font-controls-panel__input font-controls-panel__input--combo';
+    fontInput.placeholder = 'Match chart default or type a font';
+    const datalistId = 'font-controls-defaults';
+    fontInput.setAttribute('list', datalistId);
+    fontMenuButton = doc.createElement('button');
+    fontMenuButton.type = 'button';
+    fontMenuButton.className = 'font-controls-panel__combo-button';
+    fontMenuButton.setAttribute('aria-label', 'Show available fonts');
+    fontMenuButton.setAttribute('title', 'Show available fonts');
+    fontMenuButton.setAttribute('aria-haspopup', 'listbox');
+    fontMenuButton.setAttribute('aria-expanded', 'false');
+    const menuIcon = doc.createElement('span');
+    menuIcon.className = 'font-controls-panel__combo-button-icon';
+    menuIcon.textContent = '▾';
+    menuIcon.setAttribute('aria-hidden', 'true');
+    fontMenuButton.appendChild(menuIcon);
+    comboRow.appendChild(fontInput);
+    comboRow.appendChild(fontMenuButton);
+    fontComboWrapper.appendChild(comboRow);
+    fontDatalist = doc.createElement('datalist');
+    fontDatalist.id = datalistId;
     const defaultOption = doc.createElement('option');
     defaultOption.value = '';
-    defaultOption.textContent = 'Match chart default';
-    fontSelect.appendChild(defaultOption);
+    defaultOption.label = 'Match chart default';
+    fontDatalist.appendChild(defaultOption);
     const uniqueFonts = Array.from(new Set(DEFAULT_FONTS));
     uniqueFonts.forEach(fontName => {
       const option = doc.createElement('option');
       option.value = fontName;
       option.textContent = fontName;
-      option.style.fontFamily = `'${fontName}', 'Inter', 'Segoe UI', Arial, sans-serif`;
-      option.style.fontWeight = '500';
-      fontSelect.appendChild(option);
+      fontDatalist.appendChild(option);
     });
-    logDebug('font select options styled', { count: uniqueFonts.length });
-    const customOption = doc.createElement('option');
-    customOption.value = '__custom__';
-    customOption.textContent = 'Custom font…';
-    fontSelect.appendChild(customOption);
-    selectWrapper.appendChild(fontSelect);
-    fontField.appendChild(selectWrapper);
-
-    customInputWrapper = doc.createElement('div');
-    customInputWrapper.className = 'font-controls-panel__custom-input font-controls-panel__custom-input--hidden';
-    fontInput = doc.createElement('input');
-    fontInput.type = 'text';
-    fontInput.className = 'font-controls-panel__input';
-    fontInput.placeholder = 'Enter custom font';
-    customInputWrapper.appendChild(fontInput);
-    fontField.appendChild(customInputWrapper);
+    fontComboWrapper.appendChild(fontDatalist);
+    fontMenuPopup = doc.createElement('div');
+    fontMenuPopup.className = 'font-controls-panel__combo-menu';
+    fontMenuPopup.setAttribute('role', 'listbox');
+    fontMenuPopup.setAttribute('aria-label', 'Common fonts');
+    fontMenuPopup.hidden = true;
+    fontComboWrapper.appendChild(fontMenuPopup);
+    fontMenuEmptyState = doc.createElement('div');
+    fontMenuEmptyState.className = 'font-controls-panel__combo-empty';
+    fontMenuEmptyState.textContent = 'No matching fonts';
+    fontMenuEmptyState.hidden = true;
+    fontMenuPopup.appendChild(fontMenuEmptyState);
+    fontField.appendChild(fontComboWrapper);
+    logDebug('font datalist initialized', { count: uniqueFonts.length });
     controlsRow.appendChild(fontField);
+
+    function createFontMenuOption(value, label){
+      const optionBtn = doc.createElement('button');
+      optionBtn.type = 'button';
+      optionBtn.className = 'font-controls-panel__combo-option';
+      optionBtn.dataset.value = value || '';
+      optionBtn.dataset.label = label || '';
+      optionBtn.dataset.hidden = '0';
+      optionBtn.textContent = label || 'Match chart default';
+      optionBtn.setAttribute('role', 'option');
+      optionBtn.setAttribute('tabindex', '-1');
+      optionBtn.addEventListener('mousedown', (evt) => {
+        evt.preventDefault();
+      });
+      optionBtn.addEventListener('click', () => {
+        closeFontMenu('menu-select');
+        syncFontInputValue(value || '', { source: 'menu-select' });
+        commitFontFamily(value || '', { source: 'menu-select' });
+        if(fontInput){
+          try {
+            fontInput.focus({ preventScroll: true });
+          } catch(focusErr){
+            fontInput.focus();
+          }
+        }
+      });
+      optionBtn.addEventListener('keydown', (evt) => {
+        if(evt.key === 'ArrowDown'){
+          evt.preventDefault();
+          focusRelativeFontOption(optionBtn, 1);
+        } else if(evt.key === 'ArrowUp'){
+          evt.preventDefault();
+          focusRelativeFontOption(optionBtn, -1);
+        } else if(evt.key === 'Home'){
+          evt.preventDefault();
+          focusFirstFontOption();
+        } else if(evt.key === 'End'){
+          evt.preventDefault();
+          focusLastFontOption();
+        } else if(evt.key === 'Escape'){
+          evt.preventDefault();
+          closeFontMenu('menu-escape');
+          if(fontInput){
+            try {
+              fontInput.focus({ preventScroll: true });
+            } catch(focusErr){
+              fontInput.focus();
+            }
+          }
+        } else if(evt.key === ' ' || evt.key === 'Enter'){
+          evt.preventDefault();
+          optionBtn.click();
+        }
+      });
+      if(value){
+        optionBtn.style.fontFamily = `'${value}', 'Inter', 'Segoe UI', Arial, sans-serif`;
+      }
+      return optionBtn;
+    }
+
+    const defaultMenuButton = createFontMenuOption('', 'Match chart default');
+    fontMenuPopup.insertBefore(defaultMenuButton, fontMenuEmptyState);
+    uniqueFonts.forEach(fontName => {
+      const optionBtn = createFontMenuOption(fontName, fontName);
+      fontMenuPopup.insertBefore(optionBtn, fontMenuEmptyState);
+    });
+    fontMenuEmptyState.hidden = true;
+    highlightFontMenuSelection('');
+    logDebug('font menu options created', {
+      count: fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option').length
+    });
+
+    fontMenuButton.addEventListener('click', () => {
+      const wasOpen = fontMenuVisible;
+      toggleFontMenu('button-toggle', { focusOption: 'active' });
+      if(!wasOpen){
+        try {
+          fontInput.focus({ preventScroll: true });
+        } catch(focusErr){
+          fontInput.focus();
+        }
+      } else if(fontInput){
+        try {
+          fontInput.focus({ preventScroll: true });
+        } catch(focusErr){
+          fontInput.focus();
+        }
+      }
+    });
+
+    fontMenuButton.addEventListener('keydown', (evt) => {
+      if(evt.key === 'ArrowDown'){
+        evt.preventDefault();
+        openFontMenu('button-arrow', { focusOption: 'first' });
+      } else if(evt.key === 'ArrowUp'){
+        evt.preventDefault();
+        openFontMenu('button-arrow', { focusOption: 'last' });
+      } else if(evt.key === 'Escape'){
+        if(fontMenuVisible){
+          evt.preventDefault();
+          closeFontMenu('button-escape');
+        }
+      }
+    });
 
     const sizeField = doc.createElement('label');
     sizeField.className = 'font-controls-panel__field';
@@ -805,48 +1109,46 @@
     colorField.appendChild(colorInput);
     controlsRow.appendChild(colorField);
 
-    const emphasisField = doc.createElement('div');
-    emphasisField.className = 'font-controls-panel__field font-controls-panel__field--emphasis';
-    const emphasisLabel = doc.createElement('span');
-    emphasisLabel.className = 'font-controls-panel__field-label';
-    emphasisLabel.textContent = 'Emphasis';
-    const chipRow = doc.createElement('div');
-    chipRow.className = 'font-controls-panel__chips';
+    const formatField = doc.createElement('div');
+    formatField.className = 'font-controls-panel__field font-controls-panel__field--format';
+    formatField.setAttribute('role', 'group');
+    formatField.setAttribute('aria-label', 'Text formatting');
+    const formatLabel = doc.createElement('span');
+    formatLabel.className = 'font-controls-panel__field-label';
+    formatLabel.textContent = 'Format';
+    const formatRow = doc.createElement('div');
+    formatRow.className = 'font-controls-panel__format-buttons';
 
-    boldToggle = doc.createElement('button');
-    boldToggle.type = 'button';
-    boldToggle.className = 'font-controls-panel__chip font-controls-panel__toggle';
-    boldToggle.dataset.active = '0';
-    boldToggle.setAttribute('aria-pressed', 'false');
-    boldToggle.setAttribute('title', 'Toggle bold');
-    const boldIcon = doc.createElement('span');
-    boldIcon.className = 'font-controls-panel__chip-icon';
-    boldIcon.textContent = 'B';
-    const boldText = doc.createElement('span');
-    boldText.textContent = 'Bold';
-    boldToggle.appendChild(boldIcon);
-    boldToggle.appendChild(boldText);
+    const createFormatButton = (symbol, ariaLabel, title) => {
+      const btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.className = 'font-controls-panel__format-button font-controls-panel__toggle';
+      btn.dataset.active = '0';
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('aria-label', ariaLabel);
+      btn.setAttribute('title', title);
+      btn.textContent = symbol;
+      return btn;
+    };
 
-    italicToggle = doc.createElement('button');
-    italicToggle.type = 'button';
-    italicToggle.className = 'font-controls-panel__chip font-controls-panel__toggle';
-    italicToggle.dataset.active = '0';
-    italicToggle.setAttribute('aria-pressed', 'false');
-    italicToggle.setAttribute('title', 'Toggle italic');
-    const italicIcon = doc.createElement('span');
-    italicIcon.className = 'font-controls-panel__chip-icon';
-    italicIcon.textContent = 'I';
-    const italicText = doc.createElement('span');
-    italicText.textContent = 'Italic';
-    italicToggle.appendChild(italicIcon);
-    italicToggle.appendChild(italicText);
+    boldToggle = createFormatButton('B', 'Toggle bold', 'Toggle bold');
+    italicToggle = createFormatButton('I', 'Toggle italic', 'Toggle italic');
+    underlineToggle = createFormatButton('U', 'Toggle underline', 'Toggle underline');
+    underlineToggle.classList.add('font-controls-panel__format-button--underline');
+    subscriptToggle = createFormatButton('x₂', 'Toggle subscript', 'Toggle subscript');
+    subscriptToggle.classList.add('font-controls-panel__format-button--script');
+    superscriptToggle = createFormatButton('x²', 'Toggle superscript', 'Toggle superscript');
+    superscriptToggle.classList.add('font-controls-panel__format-button--script');
 
-    chipRow.appendChild(boldToggle);
-    chipRow.appendChild(italicToggle);
-    emphasisField.appendChild(emphasisLabel);
-    emphasisField.appendChild(chipRow);
-    controlsRow.appendChild(emphasisField);
-    logDebug('emphasis toggles initialized', { toggleCount: chipRow.children.length });
+    formatRow.appendChild(boldToggle);
+    formatRow.appendChild(italicToggle);
+    formatRow.appendChild(underlineToggle);
+    formatRow.appendChild(subscriptToggle);
+    formatRow.appendChild(superscriptToggle);
+    formatField.appendChild(formatLabel);
+    formatField.appendChild(formatRow);
+    controlsRow.appendChild(formatField);
+    logDebug('format toggles initialized', { toggleCount: formatRow.children.length });
 
     body.appendChild(controlsRow);
 
@@ -867,7 +1169,7 @@
       Shared.attachColorPickerNear(colorInput);
     }
 
-    const commitFontFamily = (rawValue, meta) => {
+    function commitFontFamily(rawValue, meta){
       if(!currentTarget){ return; }
       const prevStyle = captureStyleSnapshot(currentTarget);
       const value = (rawValue || '').trim();
@@ -903,41 +1205,45 @@
         source: meta?.source || 'unknown',
         text: currentTarget.textContent
       });
-    };
-
-    if(fontSelect){
-      fontSelect.addEventListener('change', () => {
-        if(!currentTarget){ return; }
-        const selected = fontSelect.value;
-        if(selected === '__custom__'){
-          toggleCustomFontInput(true);
-          if(fontInput){ fontInput.focus(); }
-          logDebug('font select custom activated', { text: currentTarget.textContent });
-          return;
-        }
-        const applied = selected || '';
-        if(fontInput){ fontInput.value = applied; }
-        toggleCustomFontInput(false);
-        commitFontFamily(applied, { source: 'select-change' });
-        syncFontSelectValue(applied, { source: 'select-change' });
-        logDebug('font select change', { selected: applied || null, text: currentTarget.textContent });
-      });
     }
 
     fontInput.addEventListener('change', () => {
       if(!currentTarget){ return; }
       const value = fontInput.value.trim();
       commitFontFamily(value, { source: 'input-change' });
-      syncFontSelectValue(value, { source: 'input-change' });
+      syncFontInputValue(value, { source: 'input-change' });
     });
 
     fontInput.addEventListener('input', () => {
-      if(fontSelect && fontSelect.value !== '__custom__'){
-        fontSelect.value = '__custom__';
-      }
-      toggleCustomFontInput(true);
       updatePreviewFromInputs();
+      if(fontMenuVisible){
+        filterFontMenuOptions(fontInput.value);
+        highlightFontMenuSelection(fontInput.value);
+      }
       logDebug('fontInput input preview', { value: fontInput.value });
+    });
+
+    fontInput.addEventListener('focus', () => {
+      highlightFontMenuSelection(fontInput.value);
+    });
+
+    fontInput.addEventListener('keydown', (evt) => {
+      if(evt.key === 'ArrowDown'){
+        evt.preventDefault();
+        openFontMenu('input-arrow', { focusOption: 'active' });
+      } else if(evt.key === 'ArrowUp'){
+        evt.preventDefault();
+        openFontMenu('input-arrow', { focusOption: 'last' });
+      } else if(evt.key === 'Escape' && fontMenuVisible){
+        evt.preventDefault();
+        closeFontMenu('input-escape');
+      } else if((evt.key === 'Enter' || evt.key === 'Tab') && fontMenuVisible){
+        const activeOption = getActiveFontMenuOption();
+        if(activeOption){
+          evt.preventDefault();
+          activeOption.click();
+        }
+      }
     });
 
     colorInput.addEventListener('input', () => {
@@ -1019,17 +1325,21 @@
       logDebug('sizeInput input preview', { value: sizeInput.value });
     });
 
-    const toggleHandler = (btn, attr, activeValue, propKey) => {
+    const toggleHandler = (btn, attr, activeValue, propKey, options) => {
+      if(!btn){ return; }
+      const config = options || {};
       btn.addEventListener('click', () => {
         if(!currentTarget) return;
         const prevStyle = captureStyleSnapshot(currentTarget);
         const isActive = btn.dataset.active === '1';
         const nextActive = !isActive;
-        btn.dataset.active = nextActive ? '1' : '0';
-        btn.setAttribute('aria-pressed', nextActive ? 'true' : 'false');
+        setToggleState(btn, nextActive);
         const patch = {};
         if(propKey){
           patch[propKey] = nextActive ? activeValue : null;
+        }
+        if(typeof config.onTogglePrepare === 'function'){
+          config.onTogglePrepare({ nextActive, patch, attr, activeValue, propKey });
         }
         const inlineResult = handleInlineSelectionPatch(patch, {
           source: `${attr}-toggle`,
@@ -1060,11 +1370,29 @@
         updatePreviewFromInputs();
         recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: attr });
         logDebug('toggle change', { attr, active: nextActive, text: currentTarget.textContent });
+        if(typeof config.onToggleApplied === 'function'){
+          config.onToggleApplied({ nextActive });
+        }
       });
     };
 
     toggleHandler(boldToggle, 'font-weight', 'bold', 'fontWeight');
     toggleHandler(italicToggle, 'font-style', 'italic', 'fontStyle');
+    toggleHandler(underlineToggle, 'text-decoration', 'underline', 'textDecoration');
+    toggleHandler(subscriptToggle, 'baseline-shift', 'sub', 'baselineShift', {
+      onTogglePrepare({ nextActive }){
+        if(nextActive){
+          setToggleState(superscriptToggle, false);
+        }
+      }
+    });
+    toggleHandler(superscriptToggle, 'baseline-shift', 'super', 'baselineShift', {
+      onTogglePrepare({ nextActive }){
+        if(nextActive){
+          setToggleState(subscriptToggle, false);
+        }
+      }
+    });
 
     doc.addEventListener('keydown', (evt) => {
       if(evt.key === 'Escape'){ closePanel('escape'); }
@@ -1096,6 +1424,7 @@
       logDebug('panel close deferred during inline edit', { reason });
       return;
     }
+    closeFontMenu('panel-close');
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.setAttribute('aria-hidden', 'true');
@@ -1108,7 +1437,6 @@
     if(colorInput){
       colorInput.__fontControlsAvoidRect = null;
     }
-    toggleCustomFontInput(false);
     currentTarget = null;
     currentScope = null;
     currentKey = null;

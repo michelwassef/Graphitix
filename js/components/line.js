@@ -5,6 +5,7 @@
   const line = Components.line = Components.line || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const axisControls = Shared.axisControls = Shared.axisControls || {};
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
   line.__installed = true;
   line.ready = false;
@@ -55,6 +56,139 @@
     lastApplied:null,
     context:null
   };
+
+  const DEFAULT_AXIS_COLOR = '#000000';
+
+  function createLineAxisSettings(){
+    return {
+      strokeWidth: 1,
+      color: DEFAULT_AXIS_COLOR,
+      x: { tickInterval: null },
+      y: { tickInterval: null }
+    };
+  }
+
+  let lineAxisSettings = createLineAxisSettings();
+
+  function ensureLineAxisSettings(){
+    if(!lineAxisSettings || typeof lineAxisSettings !== 'object'){
+      lineAxisSettings = createLineAxisSettings();
+    }
+    if(!lineAxisSettings.x || typeof lineAxisSettings.x !== 'object'){
+      lineAxisSettings.x = { tickInterval: null };
+    }
+    if(!lineAxisSettings.y || typeof lineAxisSettings.y !== 'object'){
+      lineAxisSettings.y = { tickInterval: null };
+    }
+    const strokeNumeric = Number(lineAxisSettings.strokeWidth);
+    lineAxisSettings.strokeWidth = Number.isFinite(strokeNumeric) && strokeNumeric > 0 ? strokeNumeric : 1;
+    if(typeof lineAxisSettings.color !== 'string' || !lineAxisSettings.color){
+      lineAxisSettings.color = DEFAULT_AXIS_COLOR;
+    }
+    return lineAxisSettings;
+  }
+
+  function getLineAxisTickInterval(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureLineAxisSettings();
+    const raw = settings[axis]?.tickInterval;
+    if(raw === null || raw === undefined || raw === ''){
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function updateLineAxisTickInterval(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureLineAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings[axis].tickInterval = null;
+    } else {
+      const numeric = Number(value);
+      settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    }
+    console.debug('Debug: line axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    if(typeof scheduleLineDraw === 'function'){
+      scheduleLineDraw();
+    }
+  }
+
+  function getLineAxisStrokeWidth(){
+    const settings = ensureLineAxisSettings();
+    return settings.strokeWidth;
+  }
+
+  function updateLineAxisStrokeWidth(value){
+    const settings = ensureLineAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings.strokeWidth = 1;
+    } else {
+      const numeric = Number(value);
+      settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+    }
+    console.debug('Debug: line axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    if(typeof scheduleLineDraw === 'function'){
+      scheduleLineDraw();
+    }
+  }
+
+  function getLineAxisColor(){
+    const settings = ensureLineAxisSettings();
+    return settings.color || DEFAULT_AXIS_COLOR;
+  }
+
+  function updateLineAxisColor(value){
+    const settings = ensureLineAxisSettings();
+    settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
+    console.debug('Debug: line axis color updated',{ color: settings.color });
+    if(typeof scheduleLineDraw === 'function'){
+      scheduleLineDraw();
+    }
+  }
+
+  function applyLineAxisSettings(settings){
+    const base = createLineAxisSettings();
+    if(settings && typeof settings === 'object'){
+      const strokeCandidate = Number(settings.strokeWidth);
+      if(Number.isFinite(strokeCandidate) && strokeCandidate > 0){
+        base.strokeWidth = strokeCandidate;
+      }
+      if(typeof settings.color === 'string' && settings.color.trim()){
+        base.color = settings.color;
+      }
+      const xInterval = settings.tickIntervalX ?? settings.xTickInterval ?? settings?.x?.tickInterval ?? null;
+      const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
+      base.x.tickInterval = xInterval === '' ? null : xInterval;
+      base.y.tickInterval = yInterval === '' ? null : yInterval;
+    }
+    lineAxisSettings = base;
+    ensureLineAxisSettings();
+    console.debug('Debug: line axis settings applied',{ settings: lineAxisSettings });
+  }
+
+  function buildLineManualTicks(min, max, interval){
+    if(!Number.isFinite(interval) || interval <= 0){ return null; }
+    if(!Number.isFinite(min) || !Number.isFinite(max)){ return null; }
+    if(min === max){
+      max = min + interval;
+    }
+    const graphMin = Math.floor(min / interval) * interval;
+    const graphMax = Math.ceil(max / interval) * interval;
+    const ticks = [];
+    let current = graphMin;
+    let guard = 0;
+    while(current <= graphMax + interval * 0.25 && guard < 1000){
+      ticks.push(Number.parseFloat(current.toPrecision(12)));
+      current += interval;
+      guard += 1;
+    }
+    if(!ticks.length){
+      ticks.push(Number.parseFloat(graphMin.toPrecision(12)));
+    }
+    console.debug('Debug: line manual ticks computed',{ interval, tickCount: ticks.length, min: graphMin, max: graphMax });
+    return { min: graphMin, max: graphMax, ticks };
+  }
 
   console.debug('Debug: line group labels state initialized', {
     initial: lineSeriesGroupLabels,
@@ -1365,6 +1499,7 @@
         console.error('line payload refresh failed',err);
       }
     }
+    const axisSettings = ensureLineAxisSettings();
     return {
       type:'line',
       data:lineHot.getData(),
@@ -1404,6 +1539,12 @@
           seasonLength: refs.forecastSeasonLength?.value ?? String(lineForecastOptions.seasonLength),
           autoTune: !!refs.forecastAuto?.checked,
           criterion: refs.forecastCriterion?.value || lineForecastOptions.criterion
+        },
+        axis:{
+          strokeWidth: axisSettings.strokeWidth,
+          color: axisSettings.color,
+          tickIntervalX: axisSettings.x?.tickInterval ?? null,
+          tickIntervalY: axisSettings.y?.tickInterval ?? null
         }
       }
     };
@@ -1477,6 +1618,15 @@
             console.debug('Debug: line font size base restored',{ value: refs.fontSize.value }); // Debug: restore base size
           }
           chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
+        }
+        if(c.axis){
+          applyLineAxisSettings({
+            strokeWidth: c.axis.strokeWidth,
+            color: c.axis.color,
+            tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
+            tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null
+          });
+          console.debug('Debug: line axis settings restored',{ axis: ensureLineAxisSettings() });
         }
         if(refs.regressionMode && c.regression?.mode){
           refs.regressionMode.value = c.regression.mode;
@@ -1599,7 +1749,9 @@
       });
       const fs=fontInfo.scaledPx;
       const styleScaleInfo=fontInfo.scaleInfo;
-      const axisStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'line-axis', min: 0.5 });
+      const axisStrokeWidthBase = getLineAxisStrokeWidth();
+      const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'line-axis', min: 0.25 });
+      const axisStroke = getLineAxisColor();
       const dotSizeRaw=Number(refs.dotSize?.value)||0;
       const dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'line-marker', min: 0 });
       const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'line-series', min: 0 });
@@ -1609,6 +1761,8 @@
         borderWidthRaw,
         borderWidthPx,
         axisStrokeWidth,
+        axisStrokeWidthBase,
+        axisStroke,
         styleScale: styleScaleInfo?.styleScale
       }); // Debug: line style scaling summary
       chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize });
@@ -1628,6 +1782,16 @@
       console.debug('Debug: line showFrame state',{showFrame});
       const logX=!!refs.logX?.checked;
       const logY=!!refs.logY?.checked;
+      const storedManualIntervalX = getLineAxisTickInterval('x');
+      const storedManualIntervalY = getLineAxisTickInterval('y');
+      const manualIntervalX = !logX ? storedManualIntervalX : null;
+      const manualIntervalY = !logY ? storedManualIntervalY : null;
+      if(logX && storedManualIntervalX){
+        console.debug('Debug: line manual interval suppressed',{ axis: 'x', reason: 'log-scale', stored: storedManualIntervalX });
+      }
+      if(logY && storedManualIntervalY){
+        console.debug('Debug: line manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
+      }
       const showIntervals=!!refs.showIntervals?.checked;
       const showDiagnostics=!!refs.showDiagnostics?.checked;
       const regressionModeCurrent = refs.regressionMode?.value || 'linear';
@@ -1829,12 +1993,40 @@
           }
           xScale.ticks=manualXTicks;
         }
+        if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
+          const manual = buildLineManualTicks(
+            Number.isFinite(xScale.min) ? xScale.min : xMinT,
+            Number.isFinite(xScale.max) ? xScale.max : xMaxT,
+            manualIntervalX
+          );
+          if(manual){
+            xScale.min = manual.min;
+            xScale.max = manual.max;
+            xScale.ticks = manual.ticks;
+            xScale.step = manualIntervalX;
+            console.debug('Debug: line manual interval applied',{ axis: 'x', interval: manualIntervalX, tickCount: manual.ticks.length });
+          }
+        }
         if(isFinite(yMinManual)||isFinite(yMaxManual)){
           const manualYTicks=[];
           for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step; v<=yScale.max+1e-9; v+=yScale.step){
             manualYTicks.push(v);
           }
           yScale.ticks=manualYTicks;
+        }
+        if(Number.isFinite(manualIntervalY) && manualIntervalY > 0){
+          const manualY = buildLineManualTicks(
+            Number.isFinite(yScale.min) ? yScale.min : yMinT,
+            Number.isFinite(yScale.max) ? yScale.max : yMaxT,
+            manualIntervalY
+          );
+          if(manualY){
+            yScale.min = manualY.min;
+            yScale.max = manualY.max;
+            yScale.ticks = manualY.ticks;
+            yScale.step = manualIntervalY;
+            console.debug('Debug: line manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
+          }
         }
         xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t));
         yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
@@ -1889,10 +2081,30 @@
       if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
       if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
       console.debug('Debug: line axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
-      const axisStroke = '#000';
-      add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
-      add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
-      console.debug('Debug: line axes stroke scaled',{axisStrokeWidth});
+      const axisControlConfig = axis => ({
+        axis,
+        scopeId: 'line',
+        getTickInterval: () => getLineAxisTickInterval(axis),
+        getThickness: () => getLineAxisStrokeWidth(),
+        getColor: () => getLineAxisColor(),
+        isTickIntervalEnabled: () => axis === 'x' ? !logX : !logY,
+        getTickIntervalDisabledMessage: () => axis === 'x'
+          ? 'Tick interval is disabled while the X axis uses a logarithmic scale.'
+          : 'Tick interval is disabled while the Y axis uses a logarithmic scale.',
+        tickPlaceholder: 'Auto',
+        onTickIntervalChange: value => updateLineAxisTickInterval(axis, value),
+        onThicknessChange: value => updateLineAxisStrokeWidth(value),
+        onColorChange: value => updateLineAxisColor(value)
+      });
+      const xAxisLine = add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+      }
+      const yAxisLine = add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+      }
+      console.debug('Debug: line axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
       if(showFrame){
         console.debug('Debug: line frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
         chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
@@ -1900,10 +2112,10 @@
       // Frame closes plot area using existing axis styling for continuity
       const xTickNodes=[];
       let xTickFontCount=0;
-      xScale.ticks.forEach((t,i)=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:'#000','stroke-width':axisStrokeWidth});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);markFontEditable(txt,'xTick');xTickFontCount+=1;xTickNodes.push(txt);});
+      xScale.ticks.forEach((t,i)=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logX?Math.pow(10,t):t);markFontEditable(txt,'xTick');xTickFontCount+=1;xTickNodes.push(txt);});
       chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
       let yTickFontCount=0;
-      yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:'#000','stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});
+      yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});
       console.debug('Debug: line font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
       console.debug('Debug: line ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
       const colors=series.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
@@ -2177,6 +2389,7 @@
     const document = global.document;
     const Handsontable = global.Handsontable;
     if(!document || !Handsontable){ console.error('Line component dependencies missing'); return; }
+    ensureLineAxisSettings();
     const $ = global.$ || (sel=>document.querySelector(sel));
     refs.tablePanel=document.getElementById('lineTablePanel');
     refs.graphPanel=document.getElementById('lineGraphPanel');

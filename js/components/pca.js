@@ -5,6 +5,7 @@
   const pca = Components.pca = Components.pca || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const axisControls = Shared.axisControls = Shared.axisControls || {};
   pca.__installed = true;
   pca.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -21,6 +22,7 @@
   const DEFAULT_VIEW_MODE='2d';
   const PCA_3D_DEFAULTS={ rotationX: -0.31, rotationY: -0.48, aspectRatio: 4 / 3 };
   const MIN_VARIANCE_WEIGHT = 1e-3;
+  const DEFAULT_AXIS_COLOR = '#000000';
 
   let scheduleDrawPca = () => {};
   let lastPcaStats = null;
@@ -30,8 +32,130 @@
     rotation: { x: PCA_3D_DEFAULTS.rotationX, y: PCA_3D_DEFAULTS.rotationY },
     rotationPending: false,
     rotationPendingLogged: false,
-    axesVarianceScaled: false
+    axesVarianceScaled: false,
+    axisSettings: createDefaultAxisSettings()
   };
+
+  function createDefaultAxisSettings(){
+    return {
+      strokeWidth: 1,
+      color: DEFAULT_AXIS_COLOR,
+      x: { tickInterval: null },
+      y: { tickInterval: null }
+    };
+  }
+
+  function ensureAxisSettings(){
+    if(!pcaState.axisSettings || typeof pcaState.axisSettings !== 'object'){
+      pcaState.axisSettings = createDefaultAxisSettings();
+    }
+    if(!pcaState.axisSettings.x || typeof pcaState.axisSettings.x !== 'object'){
+      pcaState.axisSettings.x = { tickInterval: null };
+    }
+    if(!pcaState.axisSettings.y || typeof pcaState.axisSettings.y !== 'object'){
+      pcaState.axisSettings.y = { tickInterval: null };
+    }
+    const numericStroke = Number(pcaState.axisSettings.strokeWidth);
+    pcaState.axisSettings.strokeWidth = Number.isFinite(numericStroke) && numericStroke > 0 ? numericStroke : 1;
+    if(typeof pcaState.axisSettings.color !== 'string' || !pcaState.axisSettings.color.trim()){
+      pcaState.axisSettings.color = DEFAULT_AXIS_COLOR;
+    }
+    return pcaState.axisSettings;
+  }
+
+  function getAxisTickInterval(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureAxisSettings();
+    const raw = settings[axis]?.tickInterval;
+    if(raw === null || raw === undefined || raw === ''){
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function updateAxisTickInterval(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings[axis].tickInterval = null;
+    } else {
+      const numeric = Number(value);
+      settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    }
+    console.debug('Debug: pca axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    scheduleDrawPca?.();
+  }
+
+  function getAxisStrokeWidthBase(){
+    return ensureAxisSettings().strokeWidth;
+  }
+
+  function updateAxisStrokeWidth(value){
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings.strokeWidth = 1;
+    } else {
+      const numeric = Number(value);
+      settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+    }
+    console.debug('Debug: pca axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    scheduleDrawPca?.();
+  }
+
+  function getAxisColor(){
+    return ensureAxisSettings().color || DEFAULT_AXIS_COLOR;
+  }
+
+  function updateAxisColor(value){
+    const settings = ensureAxisSettings();
+    settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
+    console.debug('Debug: pca axis color updated',{ color: settings.color });
+    scheduleDrawPca?.();
+  }
+
+  function applyAxisSettings(settings){
+    const base = createDefaultAxisSettings();
+    if(settings && typeof settings === 'object'){
+      const strokeCandidate = Number(settings.strokeWidth ?? settings.axisThickness);
+      if(Number.isFinite(strokeCandidate) && strokeCandidate > 0){
+        base.strokeWidth = strokeCandidate;
+      }
+      if(typeof settings.color === 'string' && settings.color.trim()){
+        base.color = settings.color;
+      }
+      const xInterval = settings.tickIntervalX ?? settings.xTickInterval ?? settings?.x?.tickInterval ?? null;
+      const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
+      base.x.tickInterval = xInterval === '' ? null : xInterval;
+      base.y.tickInterval = yInterval === '' ? null : yInterval;
+    }
+    pcaState.axisSettings = base;
+    ensureAxisSettings();
+    console.debug('Debug: pca axis settings applied',{ settings: pcaState.axisSettings });
+  }
+
+  function buildManualTicks(min, max, interval){
+    if(!Number.isFinite(interval) || interval <= 0){ return null; }
+    if(!Number.isFinite(min) || !Number.isFinite(max)){ return null; }
+    if(min === max){
+      max = min + interval;
+    }
+    const graphMin = Math.floor(min / interval) * interval;
+    const graphMax = Math.ceil(max / interval) * interval;
+    const ticks = [];
+    let current = graphMin;
+    let guard = 0;
+    while(current <= graphMax + interval * 0.25 && guard < 1000){
+      ticks.push(Number.parseFloat(current.toPrecision(12)));
+      current += interval;
+      guard += 1;
+    }
+    if(!ticks.length){
+      ticks.push(Number.parseFloat(graphMin.toPrecision(12)));
+    }
+    console.debug('Debug: pca manual ticks computed',{ interval, tickCount: ticks.length, min: graphMin, max: graphMax });
+    return { min: graphMin, max: graphMax, ticks };
+  }
 
   function sanitizeAxisSelection(dimensionCount){
     const axis = pcaState.axisSelection;
@@ -1004,7 +1128,10 @@
       });
       const fs=fontInfo.scaledPx;
       const styleScaleInfo=fontInfo.scaleInfo;
-      const axisStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'pca-axis', min: 0.5 });
+      const axisSettings = ensureAxisSettings();
+      const axisStrokeWidthBase = axisSettings.strokeWidth;
+      const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pca-axis', min: 0.5 });
+      const axisStroke = axisSettings.color || '#000';
       const dotSizeRaw = Number(pcaDotSize.value) || 3;
       const dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'pca-point', min: 0 });
       const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'pca-border', min: 0 });
@@ -2166,6 +2293,8 @@
       margin.bottom = bottomLayout.bottom;
       plotW = Math.max(20, W - margin.left - margin.right);
       plotH = Math.max(20, H - margin.top - margin.bottom);
+      const manualIntervalX = getAxisTickInterval('x');
+      const manualIntervalY = getAxisTickInterval('y');
       let xScale = niceScale(xMin, xMax, xTickTarget);
       let yScale = niceScale(yMin, yMax, yTickTarget);
       let xTickLabels = xScale.ticks.map(t => formatTick(t));
@@ -2179,6 +2308,24 @@
         if (isFinite(xMaxManual)) xScale.max = xMax;
         if (isFinite(yMinManual)) yScale.min = yMin;
         if (isFinite(yMaxManual)) yScale.max = yMax;
+        if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
+          const manualX = buildManualTicks(xScale.min, xScale.max, manualIntervalX);
+          if(manualX){
+            xScale.min = manualX.min;
+            xScale.max = manualX.max;
+            xScale.ticks = manualX.ticks;
+            xScale.step = manualIntervalX;
+          }
+        }
+        if(Number.isFinite(manualIntervalY) && manualIntervalY > 0){
+          const manualY = buildManualTicks(yScale.min, yScale.max, manualIntervalY);
+          if(manualY){
+            yScale.min = manualY.min;
+            yScale.max = manualY.max;
+            yScale.ticks = manualY.ticks;
+            yScale.step = manualIntervalY;
+          }
+        }
         xTickLabels = xScale.ticks.map(t => formatTick(t));
         yTickLabels = yScale.ticks.map(t => formatTick(t));
         const yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
@@ -2193,16 +2340,22 @@
         margin.bottom = bottomLayout.bottom;
         plotW = Math.max(20, W - margin.left - margin.right);
         plotH = Math.max(20, H - margin.top - margin.bottom);
-        const refinedX = chartStyle.estimateTickCount(plotW, { axis: 'x', fallback: xTickTarget });
-        const refinedY = chartStyle.estimateTickCount(plotH, { axis: 'y', fallback: yTickTarget });
-        console.debug('Debug: pca tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxXLabelWidth,maxYLabelWidth});
-        if(refinedX === xTickTarget && refinedY === yTickTarget){
+        const refinedX = manualIntervalX ? xTickTarget : chartStyle.estimateTickCount(plotW, { axis: 'x', fallback: xTickTarget });
+        const refinedY = manualIntervalY ? yTickTarget : chartStyle.estimateTickCount(plotH, { axis: 'y', fallback: yTickTarget });
+        console.debug('Debug: pca tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxXLabelWidth,maxYLabelWidth, manualIntervalX, manualIntervalY});
+        const xStable = manualIntervalX || refinedX === xTickTarget;
+        const yStable = manualIntervalY || refinedY === yTickTarget;
+        if(xStable && yStable){
           break;
         }
-        xTickTarget = refinedX;
-        yTickTarget = refinedY;
+        if(!manualIntervalX){
+          xTickTarget = refinedX;
+        }
+        if(!manualIntervalY){
+          yTickTarget = refinedY;
+        }
       }
-      console.debug('Debug: pca tick targets finalized',{xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth});
+      console.debug('Debug: pca tick targets finalized',{xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth, manualIntervalX, manualIntervalY});
       const enforcePlotAspect = (marginInput, totalWidth, totalHeight, aspectValue) => {
         const aspect = Number.isFinite(aspectValue) && aspectValue > 0 ? aspectValue : null;
         const baseMargin = { ...marginInput };
@@ -2324,10 +2477,28 @@
       if(axisXStart === axisXEnd){ axisXStart = margin.left; axisXEnd = margin.left + plotW; }
       if(axisYStart === axisYEnd){ axisYStart = margin.top; axisYEnd = margin.top + plotH; }
       console.debug('Debug: pca axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
-      const axisStroke = '#000';
-      add('line', {x1: axisXStart, y1: margin.top + plotH, x2: axisXEnd, y2: margin.top + plotH, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
-      add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
-      console.debug('Debug: pca axes stroke scaled',{axisStrokeWidth});
+      const axisControlConfig = axis => ({
+        axis,
+        scopeId: 'pca',
+        getTickInterval: () => getAxisTickInterval(axis),
+        getThickness: () => getAxisStrokeWidthBase(),
+        getColor: () => getAxisColor(),
+        isTickIntervalEnabled: () => true,
+        getTickIntervalDisabledMessage: () => 'Tick interval available for numeric axes.',
+        tickPlaceholder: 'Auto',
+        onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+        onThicknessChange: value => updateAxisStrokeWidth(value),
+        onColorChange: value => updateAxisColor(value)
+      });
+      const xAxisLine = add('line', {x1: axisXStart, y1: margin.top + plotH, x2: axisXEnd, y2: margin.top + plotH, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+      }
+      const yAxisLine = add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
+      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+      }
+      console.debug('Debug: pca axes stroke scaled',{axisStrokeWidthBase, axisStrokeWidth, axisStroke});
       if(showFrame){
         console.debug('Debug: pca frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
         chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
@@ -2338,7 +2509,7 @@
       let xTickFontCount = 0;
       xScale.ticks.forEach((t, i) => {
         const x = x2px(t);
-        add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + tickLen, stroke: '#000', 'stroke-width': axisStrokeWidth});
+        add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
         const txt = add('text', {
           x,
           y: margin.top + plotH + tickLen + tickGap,
@@ -2356,7 +2527,7 @@
       let yTickFontCount = 0;
       yScale.ticks.forEach((t, i) => {
         const y = y2px(t);
-        add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': axisStrokeWidth});
+        add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
         const txt = add('text', {
           x: margin.left - (tickLen + tickGap),
           y,
@@ -2456,6 +2627,7 @@
       pcaLayout?.syncPanels?.({ skipSchedule: true });
     }
     function getPcaGraphPayload(){
+      const axisSettings = ensureAxisSettings();
       return {
         type:'pca',
         data:pcaHot.getData(),
@@ -2486,6 +2658,12 @@
           rotation:{
             x:pcaState.rotation.x,
             y:pcaState.rotation.y
+          },
+          axis:{
+            strokeWidth: axisSettings.strokeWidth,
+            color: axisSettings.color,
+            tickIntervalX: axisSettings.x?.tickInterval ?? null,
+            tickIntervalY: axisSettings.y?.tickInterval ?? null
           }
         },
         stats:lastPcaStats ? {
@@ -2611,6 +2789,7 @@
                 console.debug('Debug: pca rotation restored',{ rotation: { ...pcaState.rotation } });
               }
             }
+            applyAxisSettings(c.axis || c.axisSettings);
             if(pcaFontSize.dataset){
               pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
               console.debug('Debug: pca font size base restored',{ value: pcaFontSize.value }); // Debug: restore base from file

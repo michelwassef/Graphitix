@@ -7,6 +7,7 @@
   const roc = Components.roc = Components.roc || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const axisControls = Shared.axisControls = Shared.axisControls || {};
   roc.__installed = true;
   roc.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -40,6 +41,17 @@
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
+  const DEFAULT_AXIS_COLOR = '#000000';
+
+  function createDefaultAxisSettings(){
+    return {
+      strokeWidth: 1,
+      color: DEFAULT_AXIS_COLOR,
+      x: { tickInterval: null },
+      y: { tickInterval: null }
+    };
+  }
+
   const state = {
     hot: null,
     scheduleDraw: null,
@@ -51,7 +63,8 @@
     minSvgWidth: 0,
     layout: null,
     fileHandle: null,
-    fileName: 'roc.graph'
+    fileName: 'roc.graph',
+    axisSettings: createDefaultAxisSettings()
   };
   const rocAdvisorState={
     open:false,
@@ -61,6 +74,121 @@
   };
 
   const refs = {};
+
+  function ensureAxisSettings(){
+    if(!state.axisSettings || typeof state.axisSettings !== 'object'){
+      state.axisSettings = createDefaultAxisSettings();
+    }
+    if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
+      state.axisSettings.x = { tickInterval: null };
+    }
+    if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
+      state.axisSettings.y = { tickInterval: null };
+    }
+    const numericStroke = Number(state.axisSettings.strokeWidth);
+    state.axisSettings.strokeWidth = Number.isFinite(numericStroke) && numericStroke > 0 ? numericStroke : 1;
+    if(typeof state.axisSettings.color !== 'string' || !state.axisSettings.color.trim()){
+      state.axisSettings.color = DEFAULT_AXIS_COLOR;
+    }
+    return state.axisSettings;
+  }
+
+  function getAxisTickInterval(axis){
+    if(axis !== 'x' && axis !== 'y'){ return null; }
+    const settings = ensureAxisSettings();
+    const raw = settings[axis]?.tickInterval;
+    if(raw === null || raw === undefined || raw === ''){
+      return null;
+    }
+    const numeric = Number(raw);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  function updateAxisTickInterval(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings[axis].tickInterval = null;
+    } else {
+      const numeric = Number(value);
+      settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+    }
+    console.debug('Debug: roc axis tick interval updated', { axis, tickInterval: settings[axis].tickInterval });
+    state.scheduleDraw?.();
+  }
+
+  function getAxisStrokeWidthBase(){
+    return ensureAxisSettings().strokeWidth;
+  }
+
+  function updateAxisStrokeWidth(value){
+    const settings = ensureAxisSettings();
+    if(value === null || value === undefined || value === ''){
+      settings.strokeWidth = 1;
+    } else {
+      const numeric = Number(value);
+      settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+    }
+    console.debug('Debug: roc axis stroke width updated', { strokeWidth: settings.strokeWidth });
+    state.scheduleDraw?.();
+  }
+
+  function getAxisColor(){
+    return ensureAxisSettings().color || DEFAULT_AXIS_COLOR;
+  }
+
+  function updateAxisColor(value){
+    const settings = ensureAxisSettings();
+    settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
+    console.debug('Debug: roc axis color updated', { color: settings.color });
+    state.scheduleDraw?.();
+  }
+
+  function applyAxisSettings(settings){
+    const base = createDefaultAxisSettings();
+    if(settings && typeof settings === 'object'){
+      const strokeCandidate = Number(settings.strokeWidth ?? settings.axisThickness);
+      if(Number.isFinite(strokeCandidate) && strokeCandidate > 0){
+        base.strokeWidth = strokeCandidate;
+      }
+      if(typeof settings.color === 'string' && settings.color.trim()){
+        base.color = settings.color;
+      }
+      const xInterval = settings.tickIntervalX ?? settings.xTickInterval ?? settings?.x?.tickInterval ?? null;
+      const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
+      base.x.tickInterval = xInterval === '' ? null : xInterval;
+      base.y.tickInterval = yInterval === '' ? null : yInterval;
+    }
+    state.axisSettings = base;
+    ensureAxisSettings();
+    console.debug('Debug: roc axis settings applied', { settings: state.axisSettings });
+  }
+
+  function buildManualTicksNormalized(interval){
+    if(!Number.isFinite(interval) || interval <= 0){ return null; }
+    const ticks = [];
+    let value = 0;
+    let guard = 0;
+    const epsilon = interval * 1e-4;
+    while(value <= 1 + epsilon && guard < 1000){
+      const clamped = Math.min(Math.max(value, 0), 1);
+      if(ticks.length === 0 || Math.abs(ticks[ticks.length - 1] - clamped) > 1e-6){
+        ticks.push(Number.parseFloat(clamped.toFixed(6)));
+      }
+      value += interval;
+      guard += 1;
+    }
+    if(Math.abs((ticks[ticks.length - 1] ?? 0) - 1) > 1e-6){
+      ticks.push(1);
+    } else {
+      ticks[ticks.length - 1] = 1;
+    }
+    if(ticks[0] !== 0){
+      ticks.unshift(0);
+    }
+    console.debug('Debug: roc manual ticks built', { interval, tickCount: ticks.length });
+    return { min: 0, max: 1, ticks };
+  }
 
   const markFontEditable = (node, role, key) => {
     if(!node){ return; }
@@ -812,12 +940,16 @@
     });
     const fontSize=fontInfo.scaledPx;
     const styleScaleInfo=fontInfo.scaleInfo;
-    const axisStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'roc-axis', min: 0.5 });
+    const axisStrokeWidthBase = getAxisStrokeWidthBase();
+    const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'roc-axis', min: 0.5 });
+    const axisStroke = getAxisColor();
     const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'roc-curve', min: 0 });
     console.debug('Debug: roc style scaling applied',{
       borderWidthRaw,
       borderWidthPx,
       axisStrokeWidth,
+      axisStrokeWidthBase,
+      axisStroke,
       styleScale: styleScaleInfo?.styleScale
     }); // Debug: ROC style scaling summary
     if(refs.fontSizeVal){ chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize }); }
@@ -950,6 +1082,12 @@
     console.debug('Debug: roc svg dataset scope assigned', { scope: svg.dataset.fontScope }); // Debug: svg font scope tagging
     chartStyle.applySvgDefaults(svg);
     plotEl.appendChild(svg);
+    if(fontControls && typeof fontControls.enableForSvg === 'function'){
+      fontControls.enableForSvg(svg,{ scopeId: 'roc' });
+      console.debug('Debug: roc fontControls enableForSvg invoked',{ width, height }); // Debug: font toolbar binding
+    } else {
+      console.debug('Debug: roc fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font toolbar missing
+    }
 
     const legendWidth = legendLabels.length ? Math.max(60, Math.round(120 * fontScale)) : 0;
     console.debug('Debug: roc legend width scaling',{
@@ -976,9 +1114,14 @@
     const xAxisLabel = graphType === 'roc' ? 'False Positive Rate' : 'Recall';
     const yAxisLabel = graphType === 'roc' ? 'True Positive Rate' : 'Precision';
     const yTitleWidth = chartStyle.measureText(yAxisLabel, axisLabelFont);
-    let ticks = buildTicks(tickCount);
-    let yTickLabels = ticks.map(formatTick);
-    let xTickLabels = ticks.map(formatTick);
+    const manualIntervalX = getAxisTickInterval('x');
+    const manualIntervalY = getAxisTickInterval('y');
+    const manualXTicks = buildManualTicksNormalized(manualIntervalX)?.ticks || null;
+    const manualYTicks = buildManualTicksNormalized(manualIntervalY)?.ticks || null;
+    let xTicks = manualXTicks || buildTicks(tickCount);
+    let yTicks = manualYTicks || buildTicks(tickCount);
+    let yTickLabels = yTicks.map(formatTick);
+    let xTickLabels = xTicks.map(formatTick);
     let yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
     let maxYLabelWidth = Math.max(...yLabelWidths, 0);
     let margin = chartStyle.computeBaseMargins({fontSize, legendWidth, maxYLabelWidth, yTitleWidth, axisMetrics});
@@ -990,14 +1133,15 @@
     plotHeight = Math.max(20, height - margin.top - margin.bottom);
     for(let pass=0; pass<2; pass++){
       const refinedCount = chartStyle.estimateTickCount(Math.min(plotWidth, plotHeight), { axis: graphType, fallback: tickCount, min: 3, max: 11 });
-      console.debug('Debug: roc tick target evaluation',{pass,tickCount,refinedCount,plotWidth,plotHeight});
-      if(refinedCount === tickCount){
+      console.debug('Debug: roc tick target evaluation',{pass,tickCount,refinedCount,plotWidth,plotHeight, manualIntervalX, manualIntervalY});
+      if((manualXTicks || manualYTicks) || refinedCount === tickCount){
         break;
       }
       tickCount = refinedCount;
-      ticks = buildTicks(tickCount);
-      yTickLabels = ticks.map(formatTick);
-      xTickLabels = ticks.map(formatTick);
+      xTicks = manualXTicks || buildTicks(tickCount);
+      yTicks = manualYTicks || buildTicks(tickCount);
+      yTickLabels = yTicks.map(formatTick);
+      xTickLabels = xTicks.map(formatTick);
       yLabelWidths = yTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
       maxYLabelWidth = Math.max(...yLabelWidths, 0);
       margin = chartStyle.computeBaseMargins({fontSize, legendWidth, maxYLabelWidth, yTitleWidth, axisMetrics});
@@ -1008,7 +1152,7 @@
       plotWidth = Math.max(20, width - margin.left - margin.right);
       plotHeight = Math.max(20, height - margin.top - margin.bottom);
     }
-    console.debug('Debug: roc tick targets',{tickCount, tickSteps: Math.max(tickCount - 1, 1), ticks}); // Debug: ROC tick density summary
+    console.debug('Debug: roc tick targets',{tickCount, tickSteps: Math.max(tickCount - 1, 1), xTickCount: xTicks.length, yTickCount: yTicks.length}); // Debug: ROC tick density summary
     const aspectData = refs.svgBox?.dataset;
     const shouldLockAspect = aspectData?.resizerAspectLocked === 'true';
     console.debug('Debug: roc aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: roc aspect toggle decision
@@ -1051,19 +1195,19 @@
     }
 
     if(showGrid){
-      ticks.forEach(tick => {
+      xTicks.forEach(tick => {
         const x = xToPx(tick);
         add('line', {x1: x, y1: margin.top, x2: x, y2: margin.top + plotHeight, stroke: '#ddd', 'stroke-width': axisStrokeWidth});
       });
-      ticks.forEach(tick => {
+      yTicks.forEach(tick => {
         const y = yToPx(tick);
         add('line', {x1: margin.left, y1: y, x2: margin.left + plotWidth, y2: y, stroke: '#ddd', 'stroke-width': axisStrokeWidth});
       });
-      console.debug('Debug: roc grid stroke scaled',{tickCount:ticks.length,axisStrokeWidth});
+      console.debug('Debug: roc grid stroke scaled',{xTickCount: xTicks.length, yTickCount: yTicks.length, axisStrokeWidth});
     }
 
-    const xTickPositions = ticks.map(tick => xToPx(tick));
-    const yTickPositions = ticks.map(tick => yToPx(tick));
+    const xTickPositions = xTicks.map(tick => xToPx(tick));
+    const yTickPositions = yTicks.map(tick => yToPx(tick));
     let axisXStart = xTickPositions.length ? Math.min(...xTickPositions) : margin.left;
     let axisXEnd = xTickPositions.length ? Math.max(...xTickPositions) : margin.left + plotWidth;
     let axisYStart = yTickPositions.length ? Math.min(...yTickPositions) : margin.top;
@@ -1071,10 +1215,28 @@
     if(axisXStart === axisXEnd){ axisXStart = margin.left; axisXEnd = margin.left + plotWidth; }
     if(axisYStart === axisYEnd){ axisYStart = margin.top; axisYEnd = margin.top + plotHeight; }
     console.debug('Debug: roc axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
-    const axisStroke = '#000';
-    add('line', {x1: axisXStart, y1: margin.top + plotHeight, x2: axisXEnd, y2: margin.top + plotHeight, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
-    add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
-    console.debug('Debug: roc axes stroke scaled',{axisStrokeWidth});
+    const axisControlConfig = axis => ({
+      axis,
+      scopeId: 'roc',
+      getTickInterval: () => getAxisTickInterval(axis),
+      getThickness: () => getAxisStrokeWidthBase(),
+      getColor: () => getAxisColor(),
+      isTickIntervalEnabled: () => true,
+      getTickIntervalDisabledMessage: () => 'Tick interval available for probability axes.',
+      tickPlaceholder: 'Auto',
+      onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+      onThicknessChange: value => updateAxisStrokeWidth(value),
+      onColorChange: value => updateAxisColor(value)
+    });
+    const xAxisLine = add('line', {x1: axisXStart, y1: margin.top + plotHeight, x2: axisXEnd, y2: margin.top + plotHeight, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
+    if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+      axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+    }
+    const yAxisLine = add('line', {x1: margin.left, y1: axisYStart, x2: margin.left, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth});
+    if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+      axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+    }
+    console.debug('Debug: roc axes stroke scaled',{axisStrokeWidthBase, axisStrokeWidth, axisStroke});
     if(showFrame){
       console.debug('Debug: roc frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
       chartStyle.drawPlotFrame({ svg, margin, plotW: plotWidth, plotH: plotHeight, stroke: axisStroke, sides: ['top','right'] });
@@ -1093,19 +1255,19 @@
     const xTickNodes = [];
     const tickLen = axisMetrics.tickLength;
     const tickGap = axisMetrics.tickLabelGap;
-    ticks.forEach((tick, index) => {
+    xTicks.forEach(tick => {
       const x = xToPx(tick);
-      add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + tickLen, stroke: '#000', 'stroke-width': axisStrokeWidth});
+      add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
       const txt = add('text', {x, y: margin.top + plotHeight + tickLen + tickGap, 'text-anchor': 'middle', 'font-size': fontSize, 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR}, formatTick(tick), { role: 'xTick' });
       xTickNodes.push(txt);
     });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
-    ticks.forEach((tick, index) => {
+    yTicks.forEach(tick => {
       const y = yToPx(tick);
-      add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: '#000', 'stroke-width': axisStrokeWidth});
+      add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
       add('text', {x: margin.left - (tickLen + tickGap), y, 'text-anchor': 'end', 'font-size': fontSize, 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR}, formatTick(tick), { role: 'yTick' });
     });
-    console.debug('Debug: roc ticks stroke scaled',{tickCount:ticks.length,axisStrokeWidth});
+    console.debug('Debug: roc ticks stroke scaled',{xTickCount: xTicks.length, yTickCount: yTicks.length, axisStrokeWidth});
 
     add('text', {
       x: margin.left + plotWidth / 2,
@@ -1344,6 +1506,13 @@
         graphType: refs.graphType?.value
       }
     };
+    const axisSettings = ensureAxisSettings();
+    payload.config.axis = {
+      strokeWidth: axisSettings.strokeWidth,
+      color: axisSettings.color,
+      tickIntervalX: axisSettings.x?.tickInterval ?? null,
+      tickIntervalY: axisSettings.y?.tickInterval ?? null
+    };
     console.debug('Debug: roc.getPayload captured state', {
       rows: payload.data?.length || 0,
       cols: payload.data?.[0]?.length || 0,
@@ -1410,6 +1579,7 @@
         updateFontSizeLabel();
         state.labelColors = config.labelColors || {};
         if(refs.graphType) refs.graphType.value = config.graphType || refs.graphType.value;
+        applyAxisSettings(config.axis || config.axisSettings);
         renderStatsControls();
         state.scheduleDraw?.();
       }catch(err){
