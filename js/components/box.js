@@ -1322,6 +1322,8 @@
     els.boxFill=global.$('#boxFill');
     els.boxBorder=global.$('#boxBorder');
     els.boxBorderWidth=global.$('#boxBorderWidth');
+    els.boxErrorBarWidth=global.$('#boxErrorBarWidth');
+    els.boxErrorBarWidthCtl=global.$('#boxErrorBarWidthCtl');
     els.boxFontSize=global.$('#boxFontSize');
     els.boxFontSizeVal=global.$('#boxFontSizeVal');
     if (typeof chartStyle.renderFontSizeLabel === 'function') {
@@ -1738,8 +1740,13 @@
     const updateGraphTypeControls = () => {
       const graphTypeValue = els.boxGraphType.value;
       const showErrorControls = graphTypeValue === 'bar';
+      const showErrorBarThickness = graphTypeValue === 'bar' || graphTypeValue === 'strip';
       if(els.boxErrorModeCtl){
         els.boxErrorModeCtl.style.display = showErrorControls ? '' : 'none';
+      }
+      if(els.boxErrorBarWidthCtl){
+        els.boxErrorBarWidthCtl.style.display = showErrorBarThickness ? '' : 'none';
+        console.debug('Debug: box error bar thickness visibility',{ graphTypeValue, showErrorBarThickness });
       }
       const showCapsLabel = els.boxShowCaps?.closest('label');
       if(showCapsLabel){
@@ -1797,6 +1804,12 @@
     els.boxFill.addEventListener('input',()=>{ console.log('boxFill changed',{newColor:els.boxFill.value,oldColor:state.lastDefaultFill}); state.fillColors=state.fillColors.map(c=>c===state.lastDefaultFill?els.boxFill.value:c); state.lastDefaultFill=els.boxFill.value; state.scheduleDraw(); });
     els.boxBorder.addEventListener('input',()=>{ console.log('boxBorder changed', els.boxBorder.value); state.scheduleDraw(); });
     els.boxBorderWidth.addEventListener('input',()=>{ console.log('boxBorderWidth changed', els.boxBorderWidth.value); state.scheduleDraw(); });
+    if(els.boxErrorBarWidth){
+      els.boxErrorBarWidth.addEventListener('input',()=>{
+        console.debug('Debug: boxErrorBarWidth changed',{ value: els.boxErrorBarWidth.value });
+        state.scheduleDraw();
+      });
+    }
     if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
       Shared.exporter.mountSvgControls({
         container: '#boxExportControls',
@@ -4362,6 +4375,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const defaultFill = els.boxFill.value;
     const defaultBorder = els.boxBorder.value;
     const borderWidthRaw = Number(els.boxBorderWidth.value);
+    const errorBarWidthInput = Number(els.boxErrorBarWidth?.value);
+    const errorBarWidthRaw = Number.isFinite(errorBarWidthInput) ? errorBarWidthInput : borderWidthRaw;
     const containerRect = els.svgBox?.getBoundingClientRect?.();
     const fontInfo = chartStyle.resolveScaledFontSize({
       rawSize: els.boxFontSize.value,
@@ -4384,6 +4399,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const axisStrokeColor = getAxisColor();
     const gridStrokeWidth = chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-grid', min: 0.25 });
     const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'box-border', min: 0 });
+    const errorBarWidthPx = chartStyle.scaleStrokeWidth(errorBarWidthRaw, styleScaleInfo, { context: 'box-errorbar', min: 0 });
     const pointRadius = chartStyle.scaleRadius(3, styleScaleInfo, { context: 'box-point', min: 0.75 });
     const annotationStrokeWidth = chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-annotation', min: 0.5 });
     const annotationBaseOffset = chartStyle.scaleLength(ANN_BASE_OFFSET, styleScaleInfo, { context: 'box-annotation-offset', min: 10 });
@@ -4404,6 +4420,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     console.debug('Debug: box style scaling applied',{
       borderWidthRaw,
       borderWidthPx,
+      errorBarWidthRaw,
+      errorBarWidthPx,
       axisStrokeWidth,
       gridStrokeWidth,
       pointRadius,
@@ -5229,12 +5247,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             const cap = Math.max(6, boxW * 0.4);
             if(errorMode === 'both'){
               const ySdBottom = y2px(mean - sd);
-              add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: ySdBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
-              add('line',{ x1: cx - cap / 2, y1: ySdBottom, x2: cx + cap / 2, y2: ySdBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+              add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: ySdBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+              add('line',{ x1: cx - cap / 2, y1: ySdBottom, x2: cx + cap / 2, y2: ySdBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
             }else{
-              add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: yMean, stroke: borderColor, 'stroke-width': borderWidthPx });
+              add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: yMean, stroke: borderColor, 'stroke-width': errorBarWidthPx });
             }
-            add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': borderWidthPx });
+            add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': errorBarWidthPx });
           }else{
             console.debug('Debug: box bar error bar skipped for single value',{ index: i, sampleCount, mean });
           }
@@ -5304,9 +5322,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               if(sampleCount > 1){
                 const yTop = y2px(mean + sem);
                 const yBottom = y2px(mean - sem);
-                summaryAdd('line',{ x1: cx, y1: yTop, x2: cx, y2: yBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
-                summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yTop, x2: cx + summaryCap / 2, y2: yTop, stroke: borderColor, 'stroke-width': borderWidthPx });
-                summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yBottom, x2: cx + summaryCap / 2, y2: yBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+                summaryAdd('line',{ x1: cx, y1: yTop, x2: cx, y2: yBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yTop, x2: cx + summaryCap / 2, y2: yTop, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yBottom, x2: cx + summaryCap / 2, y2: yBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
                 console.debug('Debug: box individual summary vertical mean',{ index: i, sampleCount, sd, sem });
               }else{
                 console.debug('Debug: box individual summary vertical mean skipped error bars',{ index: i, sampleCount, mean });
@@ -5627,12 +5645,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             const cap = Math.max(6, boxH * 0.4);
             if(errorMode === 'both'){
               const xSdNeg = valueToX(mean - sd);
-              add('line',{ x1: xSdNeg, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
-              add('line',{ x1: xSdNeg, y1: cy - cap / 2, x2: xSdNeg, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+              add('line',{ x1: xSdNeg, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+              add('line',{ x1: xSdNeg, y1: cy - cap / 2, x2: xSdNeg, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
             }else{
-              add('line',{ x1: xMean, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
+              add('line',{ x1: xMean, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
             }
-            add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+            add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
           }else{
             console.debug('Debug: box horizontal bar error bar skipped for single value',{ index: i, sampleCount, mean });
           }
@@ -5702,9 +5720,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               if(sampleCount > 1){
                 const xLow = valueToX(mean - sem);
                 const xHigh = valueToX(mean + sem);
-                summaryAdd('line',{ x1: xLow, y1: cy, x2: xHigh, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
-                summaryAdd('line',{ x1: xLow, y1: cy - summaryCap / 2, x2: xLow, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
-                summaryAdd('line',{ x1: xHigh, y1: cy - summaryCap / 2, x2: xHigh, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+                summaryAdd('line',{ x1: xLow, y1: cy, x2: xHigh, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                summaryAdd('line',{ x1: xLow, y1: cy - summaryCap / 2, x2: xLow, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                summaryAdd('line',{ x1: xHigh, y1: cy - summaryCap / 2, x2: xHigh, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
                 console.debug('Debug: box individual summary horizontal mean',{ index: i, sampleCount, sd, sem });
               }else{
                 console.debug('Debug: box individual summary horizontal mean skipped error bars',{ index: i, sampleCount, mean });
@@ -5847,6 +5865,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         fill:els.boxFill.value,
         border:els.boxBorder.value,
         borderWidth:els.boxBorderWidth.value,
+        errorBarWidth:els.boxErrorBarWidth?.value ?? els.boxBorderWidth.value,
         fontSize:els.boxFontSize.value,
         showGrid:els.boxShowGrid.checked,
         showFrame:!!els.boxShowFrame?.checked,
@@ -5980,6 +5999,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         els.boxFill.value=c.fill||els.boxFill.value;
         els.boxBorder.value=c.border||els.boxBorder.value;
         els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value;
+        if(els.boxErrorBarWidth){
+          if(c.errorBarWidth != null){
+            els.boxErrorBarWidth.value = c.errorBarWidth;
+          }else if(!els.boxErrorBarWidth.value){
+            els.boxErrorBarWidth.value = els.boxBorderWidth.value;
+          }
+        }
         els.boxFontSize.value=c.fontSize||els.boxFontSize.value;
         if(els.boxFontSize.dataset){
           els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
@@ -6007,9 +6033,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           els.boxShowSignificance.checked = state.showSignificanceBars;
         }
         els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value;
-        els.boxErrorModeCtl.style.display=els.boxGraphType.value==='bar'?'':'none';
+        const graphTypeValue = els.boxGraphType.value;
+        if(els.boxErrorModeCtl){
+          els.boxErrorModeCtl.style.display = graphTypeValue==='bar'?'':'none';
+        }
+        if(els.boxErrorBarWidthCtl){
+          const showErrorThickness = graphTypeValue==='bar' || graphTypeValue==='strip';
+          els.boxErrorBarWidthCtl.style.display = showErrorThickness ? '' : 'none';
+        }
         if(els.boxIndividualSummaryCtl){
-          els.boxIndividualSummaryCtl.style.display = els.boxGraphType.value==='strip' ? '' : 'none';
+          els.boxIndividualSummaryCtl.style.display = graphTypeValue==='strip' ? '' : 'none';
         }
         state.fillColors=c.colors||[];
         state.borderColors=c.borderColors||[];
