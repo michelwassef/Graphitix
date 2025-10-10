@@ -23,6 +23,435 @@
   const PCA_3D_DEFAULTS={ rotationX: -0.31, rotationY: -0.48, aspectRatio: 4 / 3 };
   const MIN_VARIANCE_WEIGHT = 1e-3;
   const DEFAULT_AXIS_COLOR = '#000000';
+  const DEFAULT_TSNE_SETTINGS = Object.freeze({
+    perplexity: 30,
+    learningRate: 200,
+    iterations: 500,
+    earlyExaggeration: 12,
+    earlyIterationsFraction: 0.25
+  });
+  const DEFAULT_UMAP_SETTINGS = Object.freeze({
+    neighbors: 15,
+    minDist: 0.1,
+    learningRate: 1,
+    epochs: 400,
+    negativeSampleRate: 5
+  });
+
+  function clampNumber(value, min, max, fallback){
+    const num = Number(value);
+    if(!Number.isFinite(num)){
+      return fallback;
+    }
+    const clamped = Math.min(Math.max(num, min), max);
+    return clamped;
+  }
+
+  function zeroMeanPoints(points){
+    if(!Array.isArray(points) || !points.length){ return; }
+    const dims = points[0]?.length || 0;
+    if(!dims){ return; }
+    const means = new Array(dims).fill(0);
+    points.forEach(row => {
+      if(!row){ return; }
+      for(let d=0; d<dims; d+=1){
+        means[d] += row[d] || 0;
+      }
+    });
+    for(let d=0; d<dims; d+=1){
+      means[d] /= points.length;
+    }
+    points.forEach(row => {
+      if(!row){ return; }
+      for(let d=0; d<dims; d+=1){
+        row[d] -= means[d];
+      }
+    });
+    return means;
+  }
+
+  function computePairwiseSquaredDistances(matrix){
+    const n = Array.isArray(matrix) ? matrix.length : 0;
+    if(n === 0){ return []; }
+    const squared = new Array(n);
+    for(let i=0; i<n; i+=1){
+      squared[i] = new Float64Array(n);
+    }
+    for(let i=0; i<n; i+=1){
+      squared[i][i] = 0;
+      for(let j=i+1; j<n; j+=1){
+        let sum = 0;
+        const rowI = matrix[i];
+        const rowJ = matrix[j];
+        for(let k=0; k<rowI.length; k+=1){
+          const diff = (rowI[k] || 0) - (rowJ[k] || 0);
+          sum += diff * diff;
+        }
+        squared[i][j] = sum;
+        squared[j][i] = sum;
+      }
+    }
+    console.debug('Debug: pairwise distances computed',{ count: n });
+    return squared;
+  }
+
+  function computeTsneProbabilities(squaredDistances, perplexity){
+    const n = squaredDistances.length;
+    const targetEntropy = Math.log(Math.max(perplexity, 1));
+    const tolerance = 1e-5;
+    const maxTries = 50;
+    const conditional = new Array(n);
+    for(let i=0; i<n; i+=1){
+      const betaStats = { beta: 1, betamin: -Infinity, betamax: Infinity };
+      const thisP = new Float64Array(n);
+      let done = false;
+      let tries = 0;
+      while(!done && tries < maxTries){
+        let sumP = 0;
+        let entropy = 0;
+        for(let j=0; j<n; j+=1){
+          if(i === j){
+            thisP[j] = 0;
+            continue;
+          }
+          const val = Math.exp(-squaredDistances[i][j] * betaStats.beta);
+          thisP[j] = val;
+          sumP += val;
+        }
+        if(sumP === 0){ sumP = 1; }
+        for(let j=0; j<n; j+=1){
+          if(i === j){ continue; }
+          const p = thisP[j] / sumP;
+          entropy += squaredDistances[i][j] * p;
+        }
+        entropy = Math.log(sumP) + betaStats.beta * entropy;
+        const diff = entropy - targetEntropy;
+        if(Math.abs(diff) < tolerance){
+          done = true;
+        } else {
+          if(diff > 0){
+            betaStats.betamin = betaStats.beta;
+            if(!Number.isFinite(betaStats.betamax)){
+              betaStats.beta *= 2;
+            } else {
+              betaStats.beta = (betaStats.beta + betaStats.betamax) / 2;
+            }
+          } else {
+            betaStats.betamax = betaStats.beta;
+            if(!Number.isFinite(betaStats.betamin)){
+              betaStats.beta /= 2;
+            } else {
+              betaStats.beta = (betaStats.beta + betaStats.betamin) / 2;
+            }
+          }
+        }
+        tries += 1;
+      }
+      let sumFinal = 0;
+      for(let j=0; j<n; j+=1){
+        if(i === j){
+          thisP[j] = 0;
+        } else {
+          const val = Math.exp(-squaredDistances[i][j] * betaStats.beta);
+          thisP[j] = val;
+          sumFinal += val;
+        }
+      }
+      if(sumFinal === 0){ sumFinal = 1; }
+      const normalized = new Float64Array(n);
+      for(let j=0; j<n; j+=1){
+        normalized[j] = i === j ? 0 : thisP[j] / sumFinal;
+      }
+      conditional[i] = normalized;
+    }
+    const symmetrized = new Array(n);
+    let sumAll = 0;
+    for(let i=0; i<n; i+=1){
+      symmetrized[i] = new Float64Array(n);
+    }
+    for(let i=0; i<n; i+=1){
+      for(let j=i+1; j<n; j+=1){
+        const value = (conditional[i][j] + conditional[j][i]) / (2 * n);
+        symmetrized[i][j] = value;
+        symmetrized[j][i] = value;
+        sumAll += value * 2;
+      }
+    }
+    const normalization = sumAll > 0 ? sumAll : 1;
+    for(let i=0; i<n; i+=1){
+      for(let j=0; j<n; j+=1){
+        symmetrized[i][j] = symmetrized[i][j] / normalization;
+      }
+    }
+    console.debug('Debug: tsne probabilities computed',{ n, perplexity });
+    return symmetrized;
+  }
+
+  function computeInitialEmbedding(matrix, outputDims, SVDLib){
+    const n = Array.isArray(matrix) ? matrix.length : 0;
+    if(n === 0){ return []; }
+    const dims = Math.max(2, Math.min(outputDims || 2, matrix[0]?.length || 2));
+    if(SVDLib && typeof SVDLib.SVD === 'function'){
+      try{
+        const copy = matrix.map(row => row.slice());
+        const svd = SVDLib.SVD(copy);
+        const scores = new Array(n).fill(null).map(()=>new Array(dims).fill(0));
+        const useDims = Math.min(dims, svd.q.length);
+        for(let i=0; i<n; i+=1){
+          for(let d=0; d<useDims; d+=1){
+            scores[i][d] = svd.u[i][d] * (svd.q[d] || 1);
+          }
+        }
+        zeroMeanPoints(scores);
+        console.debug('Debug: initial embedding via PCA',{ dims: useDims });
+        return scores;
+      }catch(err){
+        console.debug('Debug: initial embedding PCA fallback',{ message: err?.message || err });
+      }
+    }
+    const randomInit = new Array(n).fill(null).map(()=>{
+      const row = new Array(dims);
+      for(let d=0; d<dims; d+=1){
+        row[d] = (Math.random() - 0.5) * 1e-3;
+      }
+      return row;
+    });
+    zeroMeanPoints(randomInit);
+    console.debug('Debug: initial embedding random',{ dims });
+    return randomInit;
+  }
+
+  function computeTsneEmbedding(matrix, options){
+    const opts = options || {};
+    const n = Array.isArray(matrix) ? matrix.length : 0;
+    const outputDims = Math.min(Math.max(opts.outputDims || 2, 2), 3);
+    if(n === 0){
+      return { embedding: [], iterations: 0, perplexity: opts.perplexity || DEFAULT_TSNE_SETTINGS.perplexity, klDivergence: 0, learningRate: opts.learningRate || DEFAULT_TSNE_SETTINGS.learningRate, earlyExaggeration: opts.earlyExaggeration || DEFAULT_TSNE_SETTINGS.earlyExaggeration };
+    }
+    const perplexity = clampNumber(opts.perplexity ?? DEFAULT_TSNE_SETTINGS.perplexity, 1, Math.max(1, n - 1), DEFAULT_TSNE_SETTINGS.perplexity);
+    const learningRate = clampNumber(opts.learningRate ?? DEFAULT_TSNE_SETTINGS.learningRate, 10, 2000, DEFAULT_TSNE_SETTINGS.learningRate);
+    const iterations = Math.round(clampNumber(opts.iterations ?? DEFAULT_TSNE_SETTINGS.iterations, 200, 3000, DEFAULT_TSNE_SETTINGS.iterations));
+    const earlyFraction = typeof opts.earlyIterations === 'number' ? opts.earlyIterations : Math.max(1, Math.round(iterations * (opts.earlyIterationsFraction || DEFAULT_TSNE_SETTINGS.earlyIterationsFraction)));
+    const earlyExaggeration = clampNumber(opts.earlyExaggeration ?? DEFAULT_TSNE_SETTINGS.earlyExaggeration, 1, 50, DEFAULT_TSNE_SETTINGS.earlyExaggeration);
+    const squaredDistances = computePairwiseSquaredDistances(matrix);
+    const probabilities = computeTsneProbabilities(squaredDistances, perplexity);
+    const initial = computeInitialEmbedding(matrix, outputDims, opts.SVDLib);
+    const embedding = new Array(n);
+    for(let i=0; i<n; i+=1){
+      embedding[i] = new Float64Array(outputDims);
+      for(let d=0; d<outputDims; d+=1){
+        embedding[i][d] = initial[i]?.[d] ?? (Math.random() - 0.5) * 1e-4;
+      }
+    }
+    zeroMeanPoints(embedding);
+    const gains = new Array(n).fill(null).map(()=>new Float64Array(outputDims).fill(1));
+    const yIncs = new Array(n).fill(null).map(()=>new Float64Array(outputDims));
+    const grads = new Array(n).fill(null).map(()=>new Float64Array(outputDims));
+    const num = new Array(n).fill(null).map(()=>new Float64Array(n));
+    let finalKl = 0;
+    for(let iter=0; iter<iterations; iter+=1){
+      let sumQ = 0;
+      for(let i=0; i<n; i+=1){
+        const Yi = embedding[i];
+        for(let j=i+1; j<n; j+=1){
+          const Yj = embedding[j];
+          let distSq = 0;
+          for(let d=0; d<outputDims; d+=1){
+            const diff = Yi[d] - Yj[d];
+            distSq += diff * diff;
+          }
+          const val = 1 / (1 + distSq);
+          num[i][j] = val;
+          num[j][i] = val;
+          sumQ += 2 * val;
+        }
+        num[i][i] = 0;
+      }
+      sumQ = Math.max(sumQ, 1e-12);
+      for(let i=0; i<n; i+=1){
+        const gradRow = grads[i];
+        for(let d=0; d<outputDims; d+=1){ gradRow[d] = 0; }
+      }
+      let kl = 0;
+      for(let i=0; i<n; i+=1){
+        for(let j=0; j<n; j+=1){
+          if(i === j){ continue; }
+          const pij = probabilities[i][j] * (iter < earlyFraction ? earlyExaggeration : 1);
+          const qijRaw = num[i][j];
+          const qij = qijRaw / sumQ;
+          const mult = 4 * (pij - qij) * qijRaw;
+          if(pij > 1e-12 && qij > 1e-12){
+            kl += pij * Math.log(pij / qij);
+          }
+          for(let d=0; d<outputDims; d+=1){
+            grads[i][d] += mult * (embedding[i][d] - embedding[j][d]);
+          }
+        }
+      }
+      finalKl = kl;
+      const momentum = iter < earlyFraction ? 0.5 : 0.8;
+      for(let i=0; i<n; i+=1){
+        for(let d=0; d<outputDims; d+=1){
+          const gradVal = grads[i][d];
+          const inc = yIncs[i][d];
+          const gain = gains[i][d];
+          const signChanged = Math.sign(gradVal) !== Math.sign(inc) && inc !== 0;
+          const newGain = signChanged ? gain + 0.2 : gain * 0.8;
+          gains[i][d] = newGain < 0.01 ? 0.01 : newGain;
+          const updatedInc = momentum * inc - learningRate * gains[i][d] * gradVal;
+          yIncs[i][d] = updatedInc;
+          embedding[i][d] += updatedInc;
+        }
+      }
+      zeroMeanPoints(embedding);
+      if(iter % 50 === 0 || iter === iterations - 1){
+        console.debug('Debug: tsne iteration',{ iteration: iter + 1, iterations, kl });
+      }
+    }
+    const finalEmbedding = embedding.map(row => Array.from(row));
+    return {
+      embedding: finalEmbedding,
+      iterations,
+      perplexity,
+      klDivergence: finalKl,
+      learningRate,
+      earlyExaggeration,
+      earlyIterations: earlyFraction
+    };
+  }
+
+  function computeSimpleUmapEmbedding(matrix, options){
+    const opts = options || {};
+    const n = Array.isArray(matrix) ? matrix.length : 0;
+    const outputDims = Math.min(Math.max(opts.outputDims || 2, 2), 3);
+    if(n === 0){
+      return { embedding: [], epochs: 0, neighbors: opts.neighbors || DEFAULT_UMAP_SETTINGS.neighbors, minDist: opts.minDist || DEFAULT_UMAP_SETTINGS.minDist, learningRate: opts.learningRate || DEFAULT_UMAP_SETTINGS.learningRate };
+    }
+    const neighbors = Math.round(clampNumber(opts.neighbors ?? DEFAULT_UMAP_SETTINGS.neighbors, 2, Math.max(2, n - 1), DEFAULT_UMAP_SETTINGS.neighbors));
+    const minDist = clampNumber(opts.minDist ?? DEFAULT_UMAP_SETTINGS.minDist, 0, 0.99, DEFAULT_UMAP_SETTINGS.minDist);
+    const learningRate = clampNumber(opts.learningRate ?? DEFAULT_UMAP_SETTINGS.learningRate, 0.01, 10, DEFAULT_UMAP_SETTINGS.learningRate);
+    const epochs = Math.round(clampNumber(opts.epochs ?? DEFAULT_UMAP_SETTINGS.epochs, 50, 5000, DEFAULT_UMAP_SETTINGS.epochs));
+    const negativeSampleRate = Math.round(clampNumber(opts.negativeSampleRate ?? DEFAULT_UMAP_SETTINGS.negativeSampleRate, 1, 50, DEFAULT_UMAP_SETTINGS.negativeSampleRate));
+    const squared = computePairwiseSquaredDistances(matrix);
+    const neighborGraph = new Array(n).fill(null).map(()=>[]);
+    for(let i=0; i<n; i+=1){
+      const candidates = [];
+      for(let j=0; j<n; j+=1){
+        if(i === j){ continue; }
+        candidates.push({ index: j, dist: Math.sqrt(Math.max(squared[i][j], 0)) });
+      }
+      candidates.sort((a,b)=>a.dist-b.dist);
+      const limit = Math.min(neighbors, candidates.length);
+      let rho = limit > 0 ? candidates[0].dist : 0;
+      const target = Math.log2(Math.max(neighbors, 2));
+      let sigma = 1;
+      let low = 0;
+      let high = Infinity;
+      for(let attempt=0; attempt<30; attempt+=1){
+        let sum = 0;
+        for(let k=0; k<limit; k+=1){
+          const d = candidates[k].dist;
+          const weight = d - rho <= 0 ? 1 : Math.exp(-(d - rho) / sigma);
+          sum += weight;
+        }
+        const diff = sum - target;
+        if(Math.abs(diff) < 1e-3){
+          break;
+        }
+        if(diff > 0){
+          high = sigma;
+          sigma = low === 0 ? sigma / 2 : (sigma + low) / 2;
+        } else {
+          low = sigma;
+          sigma = Number.isFinite(high) ? (sigma + high) / 2 : sigma * 2;
+        }
+      }
+      for(let k=0; k<limit; k+=1){
+        const cand = candidates[k];
+        const d = cand.dist;
+        const weight = d - rho <= 0 ? 1 : Math.exp(-(d - rho) / Math.max(sigma, 1e-6));
+        neighborGraph[i].push({ index: cand.index, weight });
+      }
+    }
+    const weightMatrix = new Array(n).fill(null).map(()=>new Map());
+    neighborGraph.forEach((list, i)=>{
+      list.forEach(entry => {
+        weightMatrix[i].set(entry.index, entry.weight);
+      });
+    });
+    const edges = [];
+    for(let i=0; i<n; i+=1){
+      neighborGraph[i].forEach(entry => {
+        const j = entry.index;
+        if(i >= j){ return; }
+        const rev = weightMatrix[j]?.get(i) || 0;
+        const combined = entry.weight + rev - entry.weight * rev;
+        if(combined > 1e-6){
+          edges.push({ i, j, weight: combined });
+          weightMatrix[i].set(j, combined);
+          weightMatrix[j]?.set?.(i, combined);
+        }
+      });
+    }
+    const initial = computeInitialEmbedding(matrix, outputDims, opts.SVDLib);
+    const embedding = initial.map(row => new Float64Array(row));
+    zeroMeanPoints(embedding);
+    const rand = Math.random;
+    for(let epoch=0; epoch<epochs; epoch+=1){
+      const lr = learningRate * (1 - epoch / Math.max(1, epochs));
+      for(let e=0; e<edges.length; e+=1){
+        const edge = edges[e];
+        const source = embedding[edge.i];
+        const target = embedding[edge.j];
+        let distSq = 0;
+        for(let d=0; d<outputDims; d+=1){
+          const diff = source[d] - target[d];
+          distSq += diff * diff;
+        }
+        const dist = Math.sqrt(distSq) + 1e-9;
+        const force = edge.weight * (dist - minDist);
+        const step = lr * force / dist;
+        for(let d=0; d<outputDims; d+=1){
+          const delta = step * (source[d] - target[d]);
+          source[d] -= delta;
+          target[d] += delta;
+        }
+        for(let nSample=0; nSample<negativeSampleRate; nSample+=1){
+          let negIndex = Math.floor(rand() * n);
+          if(negIndex === edge.i || negIndex === edge.j){ continue; }
+          const other = embedding[negIndex];
+          let negDistSq = 0;
+          for(let d=0; d<outputDims; d+=1){
+            const diff = source[d] - other[d];
+            negDistSq += diff * diff;
+          }
+          const repel = lr / (1 + negDistSq);
+          for(let d=0; d<outputDims; d+=1){
+            const diff = source[d] - other[d];
+            const adjust = repel * diff;
+            source[d] += adjust;
+            other[d] -= adjust;
+          }
+        }
+      }
+      if((epoch + 1) % 10 === 0){
+        zeroMeanPoints(embedding);
+      }
+      if(epoch % 50 === 0 || epoch === epochs - 1){
+        console.debug('Debug: umap epoch',{ epoch: epoch + 1, epochs });
+      }
+    }
+    zeroMeanPoints(embedding);
+    const finalEmbedding = embedding.map(row => Array.from(row));
+    return {
+      embedding: finalEmbedding,
+      epochs,
+      neighbors,
+      minDist,
+      learningRate,
+      negativeSampleRate
+    };
+  }
 
   let scheduleDrawPca = () => {};
   let lastPcaStats = null;
@@ -440,6 +869,16 @@
         pcaAxis3DControl.style.display = 'none';
       }
       const pcaMethod=$('#pcaMethod'), pcaFill=$('#pcaFill'), pcaBorder=$('#pcaBorder'), pcaBorderWidth=$('#pcaBorderWidth'), pcaDotSize=$('#pcaDotSize'), pcaAlpha=$('#pcaAlpha');
+      const pcaTsneControls=document.getElementById('pcaTsneControls');
+      const pcaTsnePerplexity=document.getElementById('pcaTsnePerplexity');
+      const pcaTsneLearningRate=document.getElementById('pcaTsneLearningRate');
+      const pcaTsneIterations=document.getElementById('pcaTsneIterations');
+      const pcaTsneExaggeration=document.getElementById('pcaTsneExaggeration');
+      const pcaUmapControls=document.getElementById('pcaUmapControls');
+      const pcaUmapNeighbors=document.getElementById('pcaUmapNeighbors');
+      const pcaUmapMinDist=document.getElementById('pcaUmapMinDist');
+      const pcaUmapLearningRate=document.getElementById('pcaUmapLearningRate');
+      const pcaUmapEpochs=document.getElementById('pcaUmapEpochs');
       const pcaAlphaVal=$('#pcaAlphaVal');
       const pcaFontSize=$('#pcaFontSize'), pcaFontSizeVal=$('#pcaFontSizeVal');
       if(pcaFontSize?.dataset){
@@ -481,6 +920,31 @@
         if(pcaAxis2DControls){
           pcaAxis2DControls.style.opacity = pcaState.axisMeta.length >= 2 ? '1' : '0.7';
         }
+      }
+      function applyMethodUiState(methodValue){
+        const methodName = (methodValue || '').toLowerCase();
+        const supports3d = methodName === 'pca' || methodName === 'mds';
+        if(pcaTsneControls){
+          pcaTsneControls.style.display = methodName === 'tsne' ? '' : 'none';
+        }
+        if(pcaUmapControls){
+          pcaUmapControls.style.display = methodName === 'umap' ? '' : 'none';
+        }
+        if(pcaViewMode){
+          const options = Array.from(pcaViewMode.options || []);
+          options.forEach(opt => {
+            if(opt.value === '3d'){
+              opt.disabled = !supports3d;
+              opt.hidden = !supports3d;
+            }
+          });
+          if(!supports3d && pcaViewMode.value !== '2d'){
+            pcaViewMode.value = '2d';
+            console.debug('Debug: pca view mode coerced to 2d',{ method: methodName });
+          }
+        }
+        applyAxisVisibility(pcaViewMode?.value || DEFAULT_VIEW_MODE);
+        console.debug('Debug: pca method UI state',{ method: methodName, supports3d });
       }
       function updateAxisSelectOptions(options){
         const meta = Array.isArray(options?.dimensionMeta) ? options.dimensionMeta : [];
@@ -660,6 +1124,7 @@
         });
       });
       applyAxisVisibility(pcaViewMode?.value || DEFAULT_VIEW_MODE);
+      applyMethodUiState(pcaMethod?.value || 'pca');
       if(pcaVarianceAxisScale){
         pcaVarianceAxisScale.checked = !!pcaState.axesVarianceScaled;
         pcaVarianceAxisScale.addEventListener('change', () => {
@@ -1041,7 +1506,11 @@
         pcaExportEigenTableBtn.addEventListener('click', handleEigenExport);
       }
       updateEigenExportVisibility(false);
-      pcaMethod.addEventListener('change',()=>{console.log('pcaMethod changed',pcaMethod.value); scheduleDrawPca();});
+      pcaMethod.addEventListener('change',()=>{
+        console.log('pcaMethod changed',pcaMethod.value);
+        applyMethodUiState(pcaMethod.value);
+        scheduleDrawPca();
+      });
       pcaFill.addEventListener('input',()=>{console.log('pcaFill changed',pcaFill.value); scheduleDrawPca();});
       pcaBorder.addEventListener('input',()=>{console.log('pcaBorder changed',pcaBorder.value); scheduleDrawPca();});
       pcaBorderWidth.addEventListener('input',()=>{console.log('pcaBorderWidth changed',pcaBorderWidth.value); scheduleDrawPca();});
@@ -1054,6 +1523,18 @@
         }
         chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
         scheduleDrawPca();
+      });
+      [pcaTsnePerplexity,pcaTsneLearningRate,pcaTsneIterations,pcaTsneExaggeration].filter(Boolean).forEach(input => {
+        input.addEventListener('input',()=>{
+          console.debug('Debug: tsne control change',{ id: input.id, value: input.value });
+          scheduleDrawPca();
+        });
+      });
+      [pcaUmapNeighbors,pcaUmapMinDist,pcaUmapLearningRate,pcaUmapEpochs].filter(Boolean).forEach(input => {
+        input.addEventListener('input',()=>{
+          console.debug('Debug: umap control change',{ id: input.id, value: input.value });
+          scheduleDrawPca();
+        });
       });
       [pcaShowGrid,pcaScale].forEach(el=>el.addEventListener('change',()=>{console.log('pca config changed',el.id); scheduleDrawPca();}));
       pcaShowFrame.addEventListener('change',()=>{console.debug('Debug: pca showFrame change',{checked:pcaShowFrame.checked}); scheduleDrawPca();});
@@ -1112,8 +1593,12 @@
       let statsMethod = null;
       let dimensionMeta = [];
 
-      const requestedViewMode = (pcaViewMode?.value || DEFAULT_VIEW_MODE).toLowerCase();
       const method = (pcaMethod.value || 'pca').toLowerCase();
+      const rawViewMode = (pcaViewMode?.value || DEFAULT_VIEW_MODE).toLowerCase();
+      const requestedViewMode = (method === 'pca' || method === 'mds') ? rawViewMode : '2d';
+      if(rawViewMode !== requestedViewMode){
+        console.debug('Debug: pca view mode adjusted for method',{ method, rawViewMode, requestedViewMode });
+      }
       const fill = pcaFill.value;
       const alpha = Number(pcaAlpha.value) || 0;
       const borderWidthRaw = Number(pcaBorderWidth.value);
@@ -1560,6 +2045,101 @@
           points3d = [];
           console.debug('Debug: mds 3d coordinates skipped', { dimsToUse, axisIndices });
         }
+      } else if (method === 'tsne') {
+        console.debug('Debug: tsne branch entered',{ nSamples });
+        const maxPerplexity = Math.max(2, nSamples - 1);
+        const minPerplexity = Math.max(1, Math.min(5, maxPerplexity));
+        const tsnePerplexity = clampNumber(pcaTsnePerplexity?.value ?? DEFAULT_TSNE_SETTINGS.perplexity, minPerplexity, maxPerplexity, DEFAULT_TSNE_SETTINGS.perplexity);
+        const tsneLearningRate = clampNumber(pcaTsneLearningRate?.value ?? DEFAULT_TSNE_SETTINGS.learningRate, 10, 2000, DEFAULT_TSNE_SETTINGS.learningRate);
+        const tsneIterations = Math.round(clampNumber(pcaTsneIterations?.value ?? DEFAULT_TSNE_SETTINGS.iterations, 200, 3000, DEFAULT_TSNE_SETTINGS.iterations));
+        const tsneExaggeration = clampNumber(pcaTsneExaggeration?.value ?? DEFAULT_TSNE_SETTINGS.earlyExaggeration, 1, 50, DEFAULT_TSNE_SETTINGS.earlyExaggeration);
+        const tsneResult = computeTsneEmbedding(matrix, {
+          outputDims: 2,
+          perplexity: tsnePerplexity,
+          learningRate: tsneLearningRate,
+          iterations: tsneIterations,
+          earlyExaggeration: tsneExaggeration,
+          SVDLib
+        });
+        dimensionMeta = [
+          { value: 1, label: 't-SNE 1', variancePercent: Number.NaN },
+          { value: 2, label: 't-SNE 2', variancePercent: Number.NaN }
+        ];
+        updateAxisSelectOptions({ dimensionMeta, viewMode: '2d', method });
+        axisIndices = axisSelectionToIndices(dimensionMeta.length);
+        pcaXLabelText = dimensionMeta[axisIndices.x]?.label || 't-SNE 1';
+        pcaYLabelText = dimensionMeta[axisIndices.y]?.label || 't-SNE 2';
+        pcaZLabelText = 't-SNE 3';
+        points = tsneResult.embedding.map((coords, idx) => ({
+          x: coords[axisIndices.x] ?? 0,
+          y: coords[axisIndices.y] ?? 0,
+          label: labels[idx],
+        }));
+        points3d = [];
+        eigenSummaryData = [];
+        screeData = [];
+        statsSummaryLines = [
+          `Samples analysed: ${nSamples}`,
+          `Perplexity: ${tsneResult.perplexity.toFixed(1)}`,
+          `Iterations: ${tsneResult.iterations}`,
+          `Final KL divergence: ${tsneResult.klDivergence.toFixed(3)}`
+        ];
+        lastPcaStats = {
+          method: 'tsne',
+          perplexity: Number(tsneResult.perplexity),
+          iterations: Number(tsneResult.iterations),
+          learningRate: Number(tsneResult.learningRate),
+          earlyExaggeration: Number(tsneResult.earlyExaggeration),
+          klDivergence: Number(tsneResult.klDivergence.toFixed(6))
+        };
+        console.debug('Debug: tsne embedding complete',{ stats: lastPcaStats, pointCount: points.length });
+      } else if (method === 'umap') {
+        console.debug('Debug: umap branch entered',{ nSamples });
+        const umapNeighbors = Math.round(clampNumber(pcaUmapNeighbors?.value ?? DEFAULT_UMAP_SETTINGS.neighbors, 2, Math.max(2, nSamples - 1), DEFAULT_UMAP_SETTINGS.neighbors));
+        const umapMinDist = clampNumber(pcaUmapMinDist?.value ?? DEFAULT_UMAP_SETTINGS.minDist, 0, 0.99, DEFAULT_UMAP_SETTINGS.minDist);
+        const umapLearningRate = clampNumber(pcaUmapLearningRate?.value ?? DEFAULT_UMAP_SETTINGS.learningRate, 0.01, 10, DEFAULT_UMAP_SETTINGS.learningRate);
+        const umapEpochs = Math.round(clampNumber(pcaUmapEpochs?.value ?? DEFAULT_UMAP_SETTINGS.epochs, 50, 5000, DEFAULT_UMAP_SETTINGS.epochs));
+        const umapResult = computeSimpleUmapEmbedding(matrix, {
+          outputDims: 2,
+          neighbors: umapNeighbors,
+          minDist: umapMinDist,
+          learningRate: umapLearningRate,
+          epochs: umapEpochs,
+          negativeSampleRate: DEFAULT_UMAP_SETTINGS.negativeSampleRate,
+          SVDLib
+        });
+        dimensionMeta = [
+          { value: 1, label: 'UMAP 1', variancePercent: Number.NaN },
+          { value: 2, label: 'UMAP 2', variancePercent: Number.NaN }
+        ];
+        updateAxisSelectOptions({ dimensionMeta, viewMode: '2d', method });
+        axisIndices = axisSelectionToIndices(dimensionMeta.length);
+        pcaXLabelText = dimensionMeta[axisIndices.x]?.label || 'UMAP 1';
+        pcaYLabelText = dimensionMeta[axisIndices.y]?.label || 'UMAP 2';
+        pcaZLabelText = 'UMAP 3';
+        points = umapResult.embedding.map((coords, idx) => ({
+          x: coords[axisIndices.x] ?? 0,
+          y: coords[axisIndices.y] ?? 0,
+          label: labels[idx],
+        }));
+        points3d = [];
+        eigenSummaryData = [];
+        screeData = [];
+        statsSummaryLines = [
+          `Samples analysed: ${nSamples}`,
+          `Neighbors: ${umapResult.neighbors}`,
+          `Epochs: ${umapResult.epochs}`,
+          `Min distance: ${umapResult.minDist.toFixed(2)}`
+        ];
+        lastPcaStats = {
+          method: 'umap',
+          neighbors: Number(umapResult.neighbors),
+          epochs: Number(umapResult.epochs),
+          minDist: Number(umapResult.minDist.toFixed(4)),
+          learningRate: Number(umapResult.learningRate),
+          negativeSampleRate: Number(umapResult.negativeSampleRate)
+        };
+        console.debug('Debug: umap embedding complete',{ stats: lastPcaStats, pointCount: points.length });
       } else {
         const svd = SVDLib.SVD(matrix);
         console.debug('pca svd result', svd);
@@ -2664,6 +3244,18 @@
             color: axisSettings.color,
             tickIntervalX: axisSettings.x?.tickInterval ?? null,
             tickIntervalY: axisSettings.y?.tickInterval ?? null
+          },
+          tsne:{
+            perplexity:pcaTsnePerplexity?.value ?? DEFAULT_TSNE_SETTINGS.perplexity,
+            learningRate:pcaTsneLearningRate?.value ?? DEFAULT_TSNE_SETTINGS.learningRate,
+            iterations:pcaTsneIterations?.value ?? DEFAULT_TSNE_SETTINGS.iterations,
+            earlyExaggeration:pcaTsneExaggeration?.value ?? DEFAULT_TSNE_SETTINGS.earlyExaggeration
+          },
+          umap:{
+            neighbors:pcaUmapNeighbors?.value ?? DEFAULT_UMAP_SETTINGS.neighbors,
+            minDist:pcaUmapMinDist?.value ?? DEFAULT_UMAP_SETTINGS.minDist,
+            learningRate:pcaUmapLearningRate?.value ?? DEFAULT_UMAP_SETTINGS.learningRate,
+            epochs:pcaUmapEpochs?.value ?? DEFAULT_UMAP_SETTINGS.epochs
           }
         },
         stats:lastPcaStats ? {
@@ -2748,6 +3340,7 @@
             pcaBorder.value=c.border||pcaBorder.value;
             pcaBorderWidth.value=c.borderWidth||pcaBorderWidth.value;
             pcaMethod.value=c.method||'pca';
+            applyMethodUiState(pcaMethod.value);
             pcaAlpha.value=c.alpha||0;
             pcaAlphaVal.textContent=pcaAlpha.value;
             pcaLabelColors=c.labelColors||{};
@@ -2790,6 +3383,20 @@
               }
             }
             applyAxisSettings(c.axis || c.axisSettings);
+            if(c.tsne){
+              if(pcaTsnePerplexity){ pcaTsnePerplexity.value = c.tsne.perplexity ?? pcaTsnePerplexity.value; }
+              if(pcaTsneLearningRate){ pcaTsneLearningRate.value = c.tsne.learningRate ?? pcaTsneLearningRate.value; }
+              if(pcaTsneIterations){ pcaTsneIterations.value = c.tsne.iterations ?? pcaTsneIterations.value; }
+              if(pcaTsneExaggeration){ pcaTsneExaggeration.value = c.tsne.earlyExaggeration ?? pcaTsneExaggeration.value; }
+              console.debug('Debug: pca tsne settings restored', c.tsne);
+            }
+            if(c.umap){
+              if(pcaUmapNeighbors){ pcaUmapNeighbors.value = c.umap.neighbors ?? pcaUmapNeighbors.value; }
+              if(pcaUmapMinDist){ pcaUmapMinDist.value = c.umap.minDist ?? pcaUmapMinDist.value; }
+              if(pcaUmapLearningRate){ pcaUmapLearningRate.value = c.umap.learningRate ?? pcaUmapLearningRate.value; }
+              if(pcaUmapEpochs){ pcaUmapEpochs.value = c.umap.epochs ?? pcaUmapEpochs.value; }
+              console.debug('Debug: pca umap settings restored', c.umap);
+            }
             if(pcaFontSize.dataset){
               pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
               console.debug('Debug: pca font size base restored',{ value: pcaFontSize.value }); // Debug: restore base from file

@@ -671,7 +671,37 @@
                   <select id="pcaMethod">
                     <option value="pca">PCA</option>
                     <option value="mds">MDS</option>
+                    <option value="tsne">t-SNE</option>
+                    <option value="umap">UMAP</option>
                   </select>
+                </label>
+              </div>
+              <div class="control" id="pcaTsneControls" style="flex-wrap:wrap; gap:6px;">
+                <label style="width:auto;">Perplexity
+                  <input type="number" id="pcaTsnePerplexity" value="30" min="5" max="100" step="1" style="width:72px;" />
+                </label>
+                <label style="width:auto;">Learning Rate
+                  <input type="number" id="pcaTsneLearningRate" value="200" min="10" max="1000" step="10" style="width:88px;" />
+                </label>
+                <label style="width:auto;">Iterations
+                  <input type="number" id="pcaTsneIterations" value="500" min="100" max="1500" step="50" style="width:88px;" />
+                </label>
+                <label style="width:auto;">Early Exaggeration
+                  <input type="number" id="pcaTsneExaggeration" value="12" min="1" max="20" step="1" style="width:72px;" />
+                </label>
+              </div>
+              <div class="control" id="pcaUmapControls" style="flex-wrap:wrap; gap:6px;">
+                <label style="width:auto;">Neighbors
+                  <input type="number" id="pcaUmapNeighbors" value="15" min="2" max="100" step="1" style="width:72px;" />
+                </label>
+                <label style="width:auto;">Min Distance
+                  <input type="number" id="pcaUmapMinDist" value="0.1" min="0" max="0.99" step="0.01" style="width:72px;" />
+                </label>
+                <label style="width:auto;">Learning Rate
+                  <input type="number" id="pcaUmapLearningRate" value="1" min="0.01" max="10" step="0.1" style="width:72px;" />
+                </label>
+                <label style="width:auto;">Epochs
+                  <input type="number" id="pcaUmapEpochs" value="400" min="50" max="2000" step="50" style="width:88px;" />
                 </label>
               </div>
             </fieldset>

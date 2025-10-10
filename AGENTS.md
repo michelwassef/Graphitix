@@ -107,11 +107,11 @@ Any new dashboard sections must adhere to the following layout style for consist
 - Label-based coloring uses dynamically generated color inputs stored in `scatterLabelColors`; `Shared.attachColorPickerNear` enables the overlay picker. Export buttons serialize the SVG.
 - Confidence/prediction interval shading with residual diagnostics is exposed through dedicated checkboxes; interval summaries and coefficient standard errors are persisted in `.graph` saves alongside regression mode selections.
 
-### PCA/MDS (`pca.js`)
-- Handsontable defaults to five columns (`Label`, `Var1`–`Var4`). Users choose PCA vs. MDS, scaling, and color encodings.
-- Uses `global.SVDJS` for PCA decomposition and `global.jStat` for statistical helpers. Computed eigenvalues/variance/stress metrics populate the stats panel.
-- Axis selects for X/Y/Z components live under `pcaState.axisSelection`; keep them unique and persisted via `getPcaGraphPayload`/`loadPcaGraphFile` when extending the module. Drag-based 3D rotation updates `pcaState.rotation` and schedules redraws through `scheduleRotationRedraw`.
-- Points render in SVG via axes computed from the first two components; legend entries respect label colors selected through color pickers.
+### PCA / MDS / t-SNE / UMAP (`pca.js`)
+- Handsontable defaults to five columns (`Label`, `Var1`–`Var4`). Users choose PCA, MDS, t-SNE, or UMAP along with scaling and color encodings.
+- PCA continues to rely on `global.SVDJS` and `global.jStat` for variance/stress metrics; the new t-SNE and UMAP branches run iterative solvers that expect perplexity/learning-rate/epoch controls to stay in sync with the sidebar inputs when the method toggles.
+- Axis selects for X/Y/Z components live under `pcaState.axisSelection`; keep them unique and persisted via `getPcaGraphPayload`/`loadPcaGraphFile`. Remember that t-SNE and UMAP are 2D-only and the view select auto-locks to 2D.
+- Drag-based 3D rotation still applies to PCA/MDS. Points render in SVG via the active axes; legend entries respect label colors selected through color pickers.
 
 ### Line Graph (`line.js`)
 - Extends the scatter palette to multiple series (default six columns). Data interpretation expects a header row followed by wide-form values.
