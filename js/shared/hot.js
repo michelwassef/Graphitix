@@ -2398,6 +2398,11 @@
     scheduleColGrowth('init');
     instance.__hotDebugLabel = debugLabel;
     instance.__hotExclusionController = exclusionController;
+    instance.__hotClearCopyHighlight = function(reason){
+      const label = reason || 'instance.__hotClearCopyHighlight';
+      clearCopyHighlightRange(label);
+    };
+    console.debug('Debug: createStandardTable clearCopyHighlight hook registered', { debugLabel });
     instance.getAnalysisData = function(options){
       return hotNS.getAnalysisData(instance, options);
     };
@@ -2715,6 +2720,23 @@
     const analysis = getAnalysisData(instance, options);
     return analysis.getRowValues(visualRow, options);
   }
+
+  hotNS.clearCopyHighlight = function(instance, reason){
+    const inst = resolveInstance(instance);
+    const label = reason || 'Shared.hot.clearCopyHighlight';
+    const debugLabel = getInstanceDebugLabel(inst);
+    if(inst && typeof inst.__hotClearCopyHighlight === 'function'){
+      inst.__hotClearCopyHighlight(label);
+      console.debug('Debug: Shared.hot.clearCopyHighlight invoked', { debugLabel, reason: label });
+      return true;
+    }
+    console.debug('Debug: Shared.hot.clearCopyHighlight skipped', {
+      debugLabel,
+      reason: label,
+      hasHandler: !!(inst && inst.__hotClearCopyHighlight)
+    });
+    return false;
+  };
 
   Shared.ensureHotWrapperStyles = ensureHotWrapperStyles;
   Shared.createEmptyData = createEmptyData;

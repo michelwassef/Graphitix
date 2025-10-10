@@ -353,86 +353,110 @@
     }
     event.preventDefault();
     event.stopPropagation();
-    let text = event.clipboardData?.getData('text/plain');
-    if(!text){
-      try{
-        const clip = global.navigator?.clipboard;
-        if(clip && typeof clip.readText === 'function'){
-          text = await clip.readText();
-          debugLog('handlePaste.fallback', { usedNavigator: true }, debugLabel);
+    let clearedHighlight = false;
+    const clearCopyHighlight = (stage)=>{
+      if(clearedHighlight){
+        return;
+      }
+      const reason = stage || 'tableImport.handlePaste';
+      let cleared = false;
+      if(Shared.hot && typeof Shared.hot.clearCopyHighlight === 'function'){
+        cleared = Shared.hot.clearCopyHighlight(hot, reason);
+      }else if(hot && typeof hot.__hotClearCopyHighlight === 'function'){
+        hot.__hotClearCopyHighlight(reason);
+        cleared = true;
+      }
+      if(cleared){
+        console.debug('Debug: tableImport.handlePaste copy highlight cleared', { debugLabel, reason });
+      }else{
+        console.debug('Debug: tableImport.handlePaste copy highlight clear skipped', { debugLabel, reason, hasHot: !!hot });
+      }
+      clearedHighlight = true;
+    };
+    try{
+      let text = event.clipboardData?.getData('text/plain');
+      if(!text){
+        try{
+          const clip = global.navigator?.clipboard;
+          if(clip && typeof clip.readText === 'function'){
+            text = await clip.readText();
+            debugLog('handlePaste.fallback', { usedNavigator: true }, debugLabel);
+          }
+        }catch(err){
+          notifyError(options, 'Failed to read clipboard text', err);
+          return null;
         }
-      }catch(err){
-        notifyError(options, 'Failed to read clipboard text', err);
+      }
+      if(!text){
+        debugLog('handlePaste.noText', {}, debugLabel);
         return null;
       }
-    }
-    if(!text){
-      debugLog('handlePaste.noText', {}, debugLabel);
-      return null;
-    }
-    const delimiter = detectDelimiter(text, options.delimiter);
-    debugLog('handlePaste.delimiter', { delimiter }, debugLabel);
-    const rows = parseDelimitedText(text, delimiter);
-    const filtered = filterRows(rows);
-    if(!filtered.length){
-      debugLog('handlePaste.filteredEmpty', { delimiter }, debugLabel);
-      return null;
-    }
-    const selection = options.selection || (hot && typeof hot.getSelectedLast === 'function' ? hot.getSelectedLast() : null);
-    const startRow = options.startRow ?? (selection ? selection[0] : 0);
-    const startCol = options.startCol ?? (selection ? selection[1] : 0);
-    const singleRowPaste = filtered.length === 1;
-    const selectionTuple = Array.isArray(selection) ? selection : null;
-    const singleRowSelection = selectionTuple ? selectionTuple[0] === selectionTuple[2] : false;
-    const shouldPreserveExisting = options.preserveExisting === true
-      || (singleRowPaste && singleRowSelection);
-    debugLog('handlePaste.rows', {
-      rows: filtered.length,
-      cols: filtered[0]?.length || 0,
-      startRow,
-      startCol,
-      preserveExisting: shouldPreserveExisting
-    }, debugLabel);
-    const processOptions = cloneOptions(options, { startRow, startCol, delimiter });
-    if(shouldPreserveExisting){
-      processOptions.preserveExisting = true;
-      console.debug('Debug: tableImport.handlePaste preserveExisting enforced', {
-        debugLabel,
+      const delimiter = detectDelimiter(text, options.delimiter);
+      debugLog('handlePaste.delimiter', { delimiter }, debugLabel);
+      const rows = parseDelimitedText(text, delimiter);
+      const filtered = filterRows(rows);
+      if(!filtered.length){
+        debugLog('handlePaste.filteredEmpty', { delimiter }, debugLabel);
+        return null;
+      }
+      const selection = options.selection || (hot && typeof hot.getSelectedLast === 'function' ? hot.getSelectedLast() : null);
+      const startRow = options.startRow ?? (selection ? selection[0] : 0);
+      const startCol = options.startCol ?? (selection ? selection[1] : 0);
+      const singleRowPaste = filtered.length === 1;
+      const selectionTuple = Array.isArray(selection) ? selection : null;
+      const singleRowSelection = selectionTuple ? selectionTuple[0] === selectionTuple[2] : false;
+      const shouldPreserveExisting = options.preserveExisting === true
+        || (singleRowPaste && singleRowSelection);
+      debugLog('handlePaste.rows', {
+        rows: filtered.length,
+        cols: filtered[0]?.length || 0,
         startRow,
         startCol,
-        rows: filtered.length,
-        cols: filtered[0]?.length || 0
-      });
-    }
-    const undoManager = Shared.undoManager;
-    const beforeSnapshot = captureHotSnapshot(hot, debugLabel);
-    const result = tableImport.processRows(filtered, hot, processOptions);
-    const afterSnapshot = captureHotSnapshot(hot, debugLabel);
-    if(result && beforeSnapshot && afterSnapshot && !snapshotsEqual(beforeSnapshot, afterSnapshot) && undoManager && typeof undoManager.record === 'function'){
-      const scope = options.scope || inferHotScope(hot, debugLabel);
-      const label = `tableImport:${debugLabel}:paste`;
-      console.debug('Debug: tableImport.handlePaste undo prepared', { debugLabel, scope, label });
-      undoManager.record({
-        label,
-        scope,
-        undo(){
-          const restored = restoreHotSnapshot(hot, beforeSnapshot, 'undo', debugLabel);
-          if(restored && typeof options.scheduleDraw === 'function'){
-            options.scheduleDraw();
+        preserveExisting: shouldPreserveExisting
+      }, debugLabel);
+      const processOptions = cloneOptions(options, { startRow, startCol, delimiter });
+      if(shouldPreserveExisting){
+        processOptions.preserveExisting = true;
+        console.debug('Debug: tableImport.handlePaste preserveExisting enforced', {
+          debugLabel,
+          startRow,
+          startCol,
+          rows: filtered.length,
+          cols: filtered[0]?.length || 0
+        });
+      }
+      const undoManager = Shared.undoManager;
+      const beforeSnapshot = captureHotSnapshot(hot, debugLabel);
+      const result = tableImport.processRows(filtered, hot, processOptions);
+      const afterSnapshot = captureHotSnapshot(hot, debugLabel);
+      if(result && beforeSnapshot && afterSnapshot && !snapshotsEqual(beforeSnapshot, afterSnapshot) && undoManager && typeof undoManager.record === 'function'){
+        const scope = options.scope || inferHotScope(hot, debugLabel);
+        const label = `tableImport:${debugLabel}:paste`;
+        console.debug('Debug: tableImport.handlePaste undo prepared', { debugLabel, scope, label });
+        undoManager.record({
+          label,
+          scope,
+          undo(){
+            const restored = restoreHotSnapshot(hot, beforeSnapshot, 'undo', debugLabel);
+            if(restored && typeof options.scheduleDraw === 'function'){
+              options.scheduleDraw();
+            }
+            return restored;
+          },
+          redo(){
+            const restored = restoreHotSnapshot(hot, afterSnapshot, 'redo', debugLabel);
+            if(restored && typeof options.scheduleDraw === 'function'){
+              options.scheduleDraw();
+            }
+            return restored;
           }
-          return restored;
-        },
-        redo(){
-          const restored = restoreHotSnapshot(hot, afterSnapshot, 'redo', debugLabel);
-          if(restored && typeof options.scheduleDraw === 'function'){
-            options.scheduleDraw();
-          }
-          return restored;
-        }
-      });
-    }else{
-      console.debug('Debug: tableImport.handlePaste undo skipped', { debugLabel, hasResult: !!result, hasBefore: !!beforeSnapshot, hasAfter: !!afterSnapshot });
+        });
+      }else{
+        console.debug('Debug: tableImport.handlePaste undo skipped', { debugLabel, hasResult: !!result, hasBefore: !!beforeSnapshot, hasAfter: !!afterSnapshot });
+      }
+      return result;
+    }finally{
+      clearCopyHighlight('tableImport.handlePaste.finally');
     }
-    return result;
   };
 })(window);
