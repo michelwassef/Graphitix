@@ -40,7 +40,7 @@
   let fontComboWrapper = null;
   let fontInput = null;
   let fontDatalist = null;
-  let fontMenuButton = null;
+  let fontMenuToggle = null;
   let fontMenuPopup = null;
   let fontMenuEmptyState = null;
   let fontMenuVisible = false;
@@ -62,6 +62,7 @@
   let placementMonitoringAttached = false;
 
   const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
+  const SCRIPT_SCALE = 0.75;
 
   function captureStyleSnapshot(node){
     if(!node){ return null; }
@@ -390,6 +391,9 @@
     if(fontInput.value !== sanitized){
       fontInput.value = sanitized;
     }
+    if(fontInput.hasAttribute('title')){
+      fontInput.removeAttribute('title');
+    }
     highlightFontMenuSelection(sanitized);
     logDebug('font input sync', {
       value: sanitized || null,
@@ -506,8 +510,11 @@
     fontMenuPopup.hidden = false;
     fontMenuPopup.classList.add('font-controls-panel__combo-menu--open');
     fontMenuVisible = true;
-    if(fontMenuButton){
-      fontMenuButton.setAttribute('aria-expanded', 'true');
+    if(fontMenuToggle){
+      fontMenuToggle.setAttribute('aria-expanded', 'true');
+    }
+    if(fontInput){
+      fontInput.setAttribute('aria-expanded', 'true');
     }
     filterFontMenuOptions(fontInput?.value || '');
     highlightFontMenuSelection(fontInput?.value || '');
@@ -541,8 +548,11 @@
     fontMenuPopup.hidden = true;
     fontMenuPopup.classList.remove('font-controls-panel__combo-menu--open');
     fontMenuVisible = false;
-    if(fontMenuButton){
-      fontMenuButton.setAttribute('aria-expanded', 'false');
+    if(fontMenuToggle){
+      fontMenuToggle.setAttribute('aria-expanded', 'false');
+    }
+    if(fontInput){
+      fontInput.setAttribute('aria-expanded', 'false');
     }
     detachFontMenuDismissWatcher();
     if(reason !== 'button-toggle'){ // keep input focus for toggle interactions
@@ -607,20 +617,29 @@
     const superscriptActive = superscriptToggle?.dataset?.active === '1';
     const sizeValue = sizeInput?.value?.trim();
     const colorValue = colorInput?.value || '#0f172a';
-    let computedSize = '';
+    let explicitSize = null;
     if(sizeValue){
       const numericSize = parseFloat(sizeValue);
       if(Number.isFinite(numericSize)){
-        computedSize = `${numericSize}px`;
+        explicitSize = numericSize;
       }
+    }
+    let basePreviewSize = explicitSize;
+    if(!Number.isFinite(basePreviewSize)){
+      const computedPreview = parseFloat(global.getComputedStyle(previewTextEl).fontSize || '');
+      basePreviewSize = Number.isFinite(computedPreview) ? computedPreview : 14;
+    }
+    const baselineMode = subscriptActive ? 'sub' : (superscriptActive ? 'super' : 'baseline');
+    let appliedSize = basePreviewSize;
+    if(baselineMode !== 'baseline'){
+      appliedSize = Math.max(1, Math.round(basePreviewSize * SCRIPT_SCALE * 100) / 100);
     }
     previewTextEl.style.fontFamily = fontFamilyRaw || '';
     previewTextEl.style.fontWeight = weightActive ? '700' : '400';
     previewTextEl.style.fontStyle = italicActive ? 'italic' : 'normal';
-    previewTextEl.style.fontSize = computedSize;
+    previewTextEl.style.fontSize = `${appliedSize}px`;
     previewTextEl.style.color = colorValue;
     previewTextEl.style.textDecoration = underlineActive ? 'underline' : 'none';
-    const baselineMode = subscriptActive ? 'sub' : (superscriptActive ? 'super' : 'baseline');
     previewTextEl.style.fontVariantPosition = baselineMode === 'baseline' ? 'normal' : baselineMode;
     previewTextEl.style.position = baselineMode === 'baseline' ? 'static' : 'relative';
     if(baselineMode === 'sub'){
@@ -630,13 +649,18 @@
     } else {
       previewTextEl.style.top = '0';
     }
+    if(baselineMode === 'baseline'){
+      previewTextEl.removeAttribute('data-baseline-shift');
+    } else {
+      previewTextEl.setAttribute('data-baseline-shift', baselineMode);
+    }
     logDebug('preview style refreshed', {
       fontFamily: fontFamilyRaw || null,
       weightActive,
       italicActive,
       underlineActive,
       baselineMode,
-      size: computedSize || null,
+      size: `${appliedSize}px`,
       color: colorValue
     });
   }
@@ -932,21 +956,25 @@
     fontInput.className = 'font-controls-panel__input font-controls-panel__input--combo';
     fontInput.placeholder = 'Match chart default or type a font';
     const datalistId = 'font-controls-defaults';
+    const menuId = 'font-controls-font-menu';
     fontInput.setAttribute('list', datalistId);
-    fontMenuButton = doc.createElement('button');
-    fontMenuButton.type = 'button';
-    fontMenuButton.className = 'font-controls-panel__combo-button';
-    fontMenuButton.setAttribute('aria-label', 'Show available fonts');
-    fontMenuButton.setAttribute('title', 'Show available fonts');
-    fontMenuButton.setAttribute('aria-haspopup', 'listbox');
-    fontMenuButton.setAttribute('aria-expanded', 'false');
+    fontInput.setAttribute('aria-haspopup', 'listbox');
+    fontInput.setAttribute('aria-expanded', 'false');
+    fontInput.setAttribute('aria-controls', menuId);
+    fontMenuToggle = doc.createElement('button');
+    fontMenuToggle.type = 'button';
+    fontMenuToggle.className = 'font-controls-panel__combo-toggle';
+    fontMenuToggle.setAttribute('aria-label', 'Show available fonts');
+    fontMenuToggle.setAttribute('aria-haspopup', 'listbox');
+    fontMenuToggle.setAttribute('aria-expanded', 'false');
+    fontMenuToggle.setAttribute('aria-controls', menuId);
     const menuIcon = doc.createElement('span');
-    menuIcon.className = 'font-controls-panel__combo-button-icon';
+    menuIcon.className = 'font-controls-panel__combo-toggle-icon';
     menuIcon.textContent = '▾';
     menuIcon.setAttribute('aria-hidden', 'true');
-    fontMenuButton.appendChild(menuIcon);
+    fontMenuToggle.appendChild(menuIcon);
     comboRow.appendChild(fontInput);
-    comboRow.appendChild(fontMenuButton);
+    comboRow.appendChild(fontMenuToggle);
     fontComboWrapper.appendChild(comboRow);
     fontDatalist = doc.createElement('datalist');
     fontDatalist.id = datalistId;
@@ -963,6 +991,7 @@
     });
     fontComboWrapper.appendChild(fontDatalist);
     fontMenuPopup = doc.createElement('div');
+    fontMenuPopup.id = menuId;
     fontMenuPopup.className = 'font-controls-panel__combo-menu';
     fontMenuPopup.setAttribute('role', 'listbox');
     fontMenuPopup.setAttribute('aria-label', 'Common fonts');
@@ -1048,7 +1077,11 @@
       count: fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option').length
     });
 
-    fontMenuButton.addEventListener('click', () => {
+    fontMenuToggle.addEventListener('mousedown', (evt) => {
+      evt.preventDefault();
+    });
+
+    fontMenuToggle.addEventListener('click', () => {
       const wasOpen = fontMenuVisible;
       toggleFontMenu('button-toggle', { focusOption: 'active' });
       if(!wasOpen){
@@ -1066,7 +1099,7 @@
       }
     });
 
-    fontMenuButton.addEventListener('keydown', (evt) => {
+    fontMenuToggle.addEventListener('keydown', (evt) => {
       if(evt.key === 'ArrowDown'){
         evt.preventDefault();
         openFontMenu('button-arrow', { focusOption: 'first' });
