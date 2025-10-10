@@ -1024,7 +1024,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .font-controls-panel__combo-toggle:focus{outline:none;box-shadow:0 0 0 2px rgba(147,197,253,0.45);background:rgba(147,197,253,0.2)}
 .font-controls-panel__combo-toggle-icon{font-size:14px;line-height:1;pointer-events:none}
 .font-controls-panel__combo-toggle[aria-expanded='true']{background:rgba(59,130,246,0.15);color:#0f172a}
-text[baseline-shift="sub"],text[baseline-shift="super"],tspan[baseline-shift="sub"],tspan[baseline-shift="super"]{font-size:0.75em !important}
+text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[baseline-shift="super"]:not([font-size]):not([style*="font-size" i]),tspan[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),tspan[baseline-shift="super"]:not([font-size]):not([style*="font-size" i]){font-size:0.75em}
 .font-controls-panel__combo-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;display:flex;flex-direction:column;background:#ffffff;border:1px solid rgba(148,163,184,0.55);border-radius:10px;box-shadow:0 12px 30px rgba(15,23,42,0.12);padding:6px 0;max-height:220px;overflow-y:auto;z-index:30}
 .font-controls-panel__combo-menu[hidden]{display:none}
 .font-controls-panel__combo-menu--open{animation:fontControlsMenuFade .16s ease-out}
