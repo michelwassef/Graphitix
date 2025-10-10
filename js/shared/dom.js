@@ -26,6 +26,8 @@
     { key: 'fontStyle', attr: 'font-style' },
     { key: 'fontSize', attr: 'font-size' },
     { key: 'fill', attr: 'fill' },
+    { key: 'textDecoration', attr: 'text-decoration' },
+    { key: 'baselineShift', attr: 'baseline-shift' },
   ];
 
   const stylesEqual = (a, b) => {
@@ -300,6 +302,8 @@
         input.style.fontSize = computedStyle?.fontSize || '14px';
         input.style.fontFamily = computedStyle?.fontFamily || 'inherit';
         input.style.fontWeight = computedStyle?.fontWeight || '600';
+        input.style.fontStyle = computedStyle?.fontStyle || 'normal';
+        input.style.textDecoration = computedStyle?.textDecoration || 'none';
         input.style.lineHeight = computedStyle?.lineHeight || '1.2';
         input.style.border = '1px solid #4a90e2';
         input.style.borderRadius = '4px';
@@ -319,6 +323,8 @@
         measureNode.style.fontSize = input.style.fontSize;
         measureNode.style.fontFamily = input.style.fontFamily;
         measureNode.style.fontWeight = input.style.fontWeight;
+        measureNode.style.fontStyle = input.style.fontStyle;
+        measureNode.style.textDecoration = input.style.textDecoration;
         measureNode.style.lineHeight = input.style.lineHeight;
         measureNode.style.pointerEvents = 'none';
         measureNode.style.left = '-9999px';
