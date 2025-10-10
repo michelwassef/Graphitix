@@ -109,10 +109,19 @@
     return Math.min(6, Math.max(0, Math.round(num)));
   }
 
+  function getCheckedRadioValue(name){
+    const checked = global.document.querySelector(`input[name="${name}"]:checked`);
+    if(checked){
+      console.debug('Debug: heatmap radio value read', { name, value: checked.value });
+      return checked.value;
+    }
+    console.debug('Debug: heatmap radio value missing', { name });
+    return null;
+  }
+
   function initControls(){
+    refs.view = $('heatmapView');
     refs.method = $('heatmapMethod');
-    refs.cluster = $('heatmapCluster');
-    refs.showDendrogram = $('heatmapShowDendrogram');
     refs.absValues = $('heatmapAbsValues');
     refs.maskLower = $('heatmapMaskLower');
     refs.showValues = $('heatmapShowValues');
@@ -125,6 +134,27 @@
     refs.labelAngle = $('heatmapLabelAngle');
     refs.fontSize = $('heatmapFontSize');
     refs.fontSizeVal = $('heatmapFontSizeVal');
+    refs.filterPresentEnable = $('heatmapFilterPresentEnable');
+    refs.filterPresentValue = $('heatmapFilterPresentValue');
+    refs.filterSdEnable = $('heatmapFilterSdEnable');
+    refs.filterSdValue = $('heatmapFilterSdValue');
+    refs.filterAbsEnable = $('heatmapFilterAbsEnable');
+    refs.filterAbsCount = $('heatmapFilterAbsCount');
+    refs.filterAbsValue = $('heatmapFilterAbsValue');
+    refs.filterRangeEnable = $('heatmapFilterRangeEnable');
+    refs.filterRangeValue = $('heatmapFilterRangeValue');
+    refs.logTransform = $('heatmapLogTransform');
+    refs.centerGenes = $('heatmapCenterGenes');
+    refs.centerArrays = $('heatmapCenterArrays');
+    refs.normalizeGenes = $('heatmapNormalizeGenes');
+    refs.normalizeArrays = $('heatmapNormalizeArrays');
+    refs.clusterGenes = $('heatmapClusterGenes');
+    refs.clusterArrays = $('heatmapClusterArrays');
+    refs.genesMetric = $('heatmapGenesMetric');
+    refs.arraysMetric = $('heatmapArraysMetric');
+    refs.linkage = $('heatmapLinkage');
+    refs.showRowDendrogram = $('heatmapShowRowDendrogram');
+    refs.showColumnDendrogram = $('heatmapShowColumnDendrogram');
     if(refs.labelAngle){
       refs.labelAngle.value = String(COLUMN_LABEL_VERTICAL_ANGLE);
       refs.labelAngle.setAttribute('disabled', 'disabled');
@@ -135,31 +165,131 @@
     }
     state.statsEl = $('heatmapStatsContent');
 
-    refs.cellSizeVal.textContent = refs.cellSize.value;
+    if(refs.cellSizeVal && refs.cellSize){
+      refs.cellSizeVal.textContent = refs.cellSize.value;
+    }
     if(refs.fontSize?.dataset){
       refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
-      console.debug('Debug: heatmap font size base initialized',{ value: refs.fontSize.value }); // Debug: initial base size
+      console.debug('Debug: heatmap font size base initialized', { value: refs.fontSize.value });
     }
-    chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
+    chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value || 12), input: refs.fontSize, manual: true });
 
     const schedule = () => state.scheduleDraw();
+
+    const updateViewControlState = () => {
+      const view = refs.view?.value || 'corr-columns';
+      const isCorrelation = view.startsWith('corr');
+      if(refs.method){
+        refs.method.disabled = !isCorrelation;
+      }
+      if(refs.absValues){
+        refs.absValues.disabled = !isCorrelation;
+        if(!isCorrelation){
+          refs.absValues.checked = false;
+        }
+      }
+      if(refs.maskLower){
+        refs.maskLower.disabled = !isCorrelation;
+        if(!isCorrelation){
+          refs.maskLower.checked = false;
+        }
+      }
+      if(refs.showValues){
+        refs.showValues.disabled = false;
+      }
+      console.debug('Debug: heatmap view state updated', { view, isCorrelation });
+    };
+
+    const registerFilter = (enableEl, valueEls = []) => {
+      if(!enableEl) return;
+      const toggle = () => {
+        const disabled = !enableEl.checked;
+        valueEls.forEach(el => {
+          if(!el) return;
+          el.disabled = disabled;
+          el.classList.toggle('disabled', disabled);
+        });
+      };
+      enableEl.addEventListener('change', () => {
+        toggle();
+        console.debug('Debug: heatmap filter toggled', { id: enableEl.id, enabled: enableEl.checked });
+        schedule();
+      });
+      valueEls.forEach(el => {
+        el?.addEventListener('input', () => {
+          console.debug('Debug: heatmap filter value changed', { id: el.id, value: el.value });
+          schedule();
+        });
+      });
+      toggle();
+    };
+
+    const registerCenter = (checkbox, radioName) => {
+      if(!checkbox) return;
+      const radios = Array.from(global.document.querySelectorAll(`input[name="${radioName}"]`));
+      const toggle = () => {
+        const disabled = !checkbox.checked;
+        radios.forEach(radio => {
+          radio.disabled = disabled;
+        });
+      };
+      checkbox.addEventListener('change', () => {
+        toggle();
+        console.debug('Debug: heatmap center toggle', { id: checkbox.id, enabled: checkbox.checked });
+        schedule();
+      });
+      radios.forEach(radio => {
+        radio.addEventListener('change', () => {
+          console.debug('Debug: heatmap center mode changed', { name: radioName, value: radio.value });
+          schedule();
+        });
+      });
+      toggle();
+    };
+
+    const registerCluster = (checkbox, select, dendrogramToggle) => {
+      if(!checkbox) return;
+      const update = () => {
+        const enabled = checkbox.checked;
+        if(select){ select.disabled = !enabled; }
+        if(dendrogramToggle){ dendrogramToggle.disabled = !enabled; }
+      };
+      checkbox.addEventListener('change', () => {
+        update();
+        console.debug('Debug: heatmap cluster toggle', { id: checkbox.id, enabled: checkbox.checked });
+        schedule();
+      });
+      select?.addEventListener('change', () => {
+        console.debug('Debug: heatmap cluster metric change', { id: select.id, value: select.value });
+        schedule();
+      });
+      dendrogramToggle?.addEventListener('change', () => {
+        console.debug('Debug: heatmap dendrogram toggle', { id: dendrogramToggle.id, checked: dendrogramToggle.checked });
+        schedule();
+      });
+      update();
+    };
+
+    refs.view?.addEventListener('change', () => {
+      updateViewControlState();
+      console.debug('Debug: heatmap view changed', { value: refs.view.value });
+      schedule();
+    });
     refs.method?.addEventListener('change', () => {
       console.debug('Debug: heatmap method changed', { value: refs.method.value });
       schedule();
     });
-    refs.cluster?.addEventListener('change', () => {
-      console.debug('Debug: heatmap cluster mode changed', { value: refs.cluster.value });
-      schedule();
-    });
-    [refs.showDendrogram, refs.absValues, refs.maskLower, refs.showValues].forEach(el => {
+    [refs.absValues, refs.maskLower, refs.showValues, refs.logTransform, refs.normalizeGenes, refs.normalizeArrays, refs.showRowDendrogram, refs.showColumnDendrogram].forEach(el => {
       el?.addEventListener('change', () => {
         console.debug('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
         schedule();
       });
     });
     refs.decimals?.addEventListener('input', () => {
-      refs.decimals.value = String(clampDecimals(refs.decimals.value));
-      console.debug('Debug: heatmap decimals changed', { value: refs.decimals.value });
+      if(refs.decimals){
+        refs.decimals.value = String(clampDecimals(refs.decimals.value));
+        console.debug('Debug: heatmap decimals changed', { value: refs.decimals.value });
+      }
       schedule();
     });
     [refs.colorNegative, refs.colorZero, refs.colorPositive].forEach(el => {
@@ -173,34 +303,43 @@
       });
     });
     refs.cellSize?.addEventListener('input', () => {
-      refs.cellSizeVal.textContent = refs.cellSize.value;
-      console.debug('Debug: heatmap cell size changed', { value: refs.cellSize.value });
+      if(refs.cellSizeVal && refs.cellSize){
+        refs.cellSizeVal.textContent = refs.cellSize.value;
+      }
+      console.debug('Debug: heatmap cell size changed', { value: refs.cellSize?.value });
+      schedule();
+    });
+    refs.fontSize?.addEventListener('input', () => {
+      if(refs.fontSize){
+        if(refs.fontSize.dataset){
+          refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+        }
+        chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
+        console.debug('Debug: heatmap font size changed', { value: refs.fontSize.value });
+      }
       schedule();
     });
     refs.labelAngle?.addEventListener('input', () => {
-      const attempted = Number(refs.labelAngle?.value);
       if(refs.labelAngle){
+        const attempted = Number(refs.labelAngle.value);
         if(attempted !== COLUMN_LABEL_VERTICAL_ANGLE){
-          console.debug('Debug: heatmap label angle input overridden', {
-            attempted,
-            enforced: COLUMN_LABEL_VERTICAL_ANGLE
-          });
-        }else{
-          console.debug('Debug: heatmap label angle input confirmed vertical', {
-            enforced: COLUMN_LABEL_VERTICAL_ANGLE
-          });
+          console.debug('Debug: heatmap label angle input overridden', { attempted, enforced: COLUMN_LABEL_VERTICAL_ANGLE });
         }
         refs.labelAngle.value = String(COLUMN_LABEL_VERTICAL_ANGLE);
       }
       schedule();
     });
-    refs.fontSize?.addEventListener('input', () => {
-      if(refs.fontSize.dataset){
-        refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
-        console.debug('Debug: heatmap font size input manual set',{ value: refs.fontSize.value }); // Debug: manual slider update
-      }
-      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
-      console.debug('Debug: heatmap font size changed', { value: refs.fontSize.value });
+
+    registerFilter(refs.filterPresentEnable, [refs.filterPresentValue]);
+    registerFilter(refs.filterSdEnable, [refs.filterSdValue]);
+    registerFilter(refs.filterAbsEnable, [refs.filterAbsCount, refs.filterAbsValue]);
+    registerFilter(refs.filterRangeEnable, [refs.filterRangeValue]);
+    registerCenter(refs.centerGenes, 'heatmapCenterGenesMode');
+    registerCenter(refs.centerArrays, 'heatmapCenterArraysMode');
+    registerCluster(refs.clusterGenes, refs.genesMetric, refs.showRowDendrogram);
+    registerCluster(refs.clusterArrays, refs.arraysMetric, refs.showColumnDendrogram);
+    refs.linkage?.addEventListener('change', () => {
+      console.debug('Debug: heatmap linkage method changed', { value: refs.linkage.value });
       schedule();
     });
 
@@ -271,6 +410,8 @@
         fileName: () => (state.fileName || 'correlation-heatmap.graph').replace(/\.graph$/i, '') || 'correlation-heatmap'
       });
     }
+
+    updateViewControlState();
   }
 
   function initFileButtons(){
@@ -295,6 +436,820 @@
     const normalized = text.replace(/,/g, '');
     const num = Number(normalized);
     return Number.isFinite(num) ? num : NaN;
+  }
+
+  function cloneMatrix(matrix){
+    return Array.isArray(matrix) ? matrix.map(row => row.slice()) : [];
+  }
+
+  function collectTableData(){
+    if(!state.hot || typeof state.hot.getData !== 'function'){
+      console.debug('Debug: heatmap collectTableData missing hot reference');
+      return null;
+    }
+    const data = state.hot.getData();
+    if(!Array.isArray(data) || data.length < 2){
+      console.debug('Debug: heatmap collectTableData insufficient rows', { length: data?.length || 0 });
+      return null;
+    }
+    const header = Array.isArray(data[0]) ? data[0] : [];
+    if(header.length < 1){
+      console.debug('Debug: heatmap collectTableData insufficient columns', { columnCount: header.length });
+      return null;
+    }
+    const bodyRows = data.slice(1).filter(row => Array.isArray(row));
+    const firstColumnHasNonNumericText = bodyRows.some(row => {
+      const cell = row[0];
+      if(cell === undefined || cell === null){ return false; }
+      const trimmed = String(cell).trim();
+      if(trimmed === ''){ return false; }
+      const numeric = parseNumber(cell);
+      return !Number.isFinite(numeric);
+    });
+    const startColumnIndex = firstColumnHasNonNumericText ? 1 : 0;
+    console.debug('Debug: heatmap collectTableData header interpretation', {
+      firstColumnHasNonNumericText,
+      startColumnIndex,
+      headerLength: header.length
+    }); // Debug: record header parsing heuristics
+    if(header.length - startColumnIndex < 1){
+      console.debug('Debug: heatmap collectTableData insufficient data columns', {
+        headerLength: header.length,
+        startColumnIndex
+      });
+      return null;
+    }
+    const rawColumnLabels = header.slice(startColumnIndex);
+    const columnLabels = [];
+    const columnMeta = [];
+    for(let colIndex = 0; colIndex < rawColumnLabels.length; colIndex += 1){
+      const label = rawColumnLabels[colIndex];
+      const clean = label !== undefined && label !== null && String(label).trim() !== ''
+        ? String(label).trim()
+        : `Column ${colIndex + 1}`;
+      columnLabels.push(clean);
+      columnMeta.push({ label: clean, originalIndex: colIndex + startColumnIndex });
+    }
+    const rowLabels = [];
+    const rowMeta = [];
+    const matrix = [];
+    let skippedRows = 0;
+    for(let rowIndex = 0; rowIndex < bodyRows.length; rowIndex += 1){
+      const row = bodyRows[rowIndex];
+      if(!Array.isArray(row)){ continue; }
+      const values = [];
+      let hasNumeric = false;
+      for(let colIndex = startColumnIndex; colIndex < header.length; colIndex += 1){
+        const value = parseNumber(row[colIndex]);
+        if(Number.isFinite(value)){
+          hasNumeric = true;
+          values.push(value);
+        }else{
+          values.push(NaN);
+        }
+      }
+      if(!hasNumeric){
+        skippedRows += 1;
+        continue;
+      }
+      const rawLabel = firstColumnHasNonNumericText ? row[0] : null;
+      const cleanLabel = firstColumnHasNonNumericText
+        ? (rawLabel !== undefined && rawLabel !== null && String(rawLabel).trim() !== ''
+          ? String(rawLabel).trim()
+          : `Row ${rowLabels.length + 1}`)
+        : `Row ${rowLabels.length + 1}`;
+      rowLabels.push(cleanLabel);
+      rowMeta.push({ label: cleanLabel, originalIndex: rowIndex });
+      matrix.push(values);
+    }
+    const keepColumns = columnLabels.map((_, colIndex) => matrix.some(row => Number.isFinite(row[colIndex])));
+    const filteredMatrix = matrix.map(() => []);
+    const filteredColumnLabels = [];
+    const filteredColumnMeta = [];
+    let removedColumns = 0;
+    keepColumns.forEach((keep, colIndex) => {
+      if(keep){
+        filteredColumnLabels.push(columnLabels[colIndex]);
+        filteredColumnMeta.push({ label: columnLabels[colIndex], originalIndex: colIndex });
+        matrix.forEach((row, rowIdx) => {
+          filteredMatrix[rowIdx].push(row[colIndex]);
+        });
+      }else{
+        removedColumns += 1;
+      }
+    });
+    console.debug('Debug: heatmap collectTableData summary', {
+      rowsInSheet: data.length - 1,
+      usableRows: filteredMatrix.length,
+      rawColumns: columnLabels.length,
+      usableColumns: filteredColumnLabels.length,
+      removedEmptyColumns: removedColumns,
+      skippedRows
+    });
+    if(filteredMatrix.length === 0 || filteredColumnLabels.length === 0){
+      return null;
+    }
+    return {
+      rowLabels,
+      columnLabels: filteredColumnLabels,
+      matrix: filteredMatrix,
+      rowMeta,
+      columnMeta: filteredColumnMeta,
+      skippedRows,
+      removedEmptyColumns: removedColumns
+    };
+  }
+
+  function computeMean(values){
+    if(!Array.isArray(values) || values.length === 0){
+      return NaN;
+    }
+    const finite = values.filter(value => Number.isFinite(value));
+    if(finite.length === 0){
+      return NaN;
+    }
+    const sum = finite.reduce((acc, value) => acc + value, 0);
+    return sum / finite.length;
+  }
+
+  function computeMedian(values){
+    if(!Array.isArray(values) || values.length === 0){
+      return NaN;
+    }
+    const finite = values.filter(value => Number.isFinite(value)).sort((a, b) => a - b);
+    if(finite.length === 0){
+      return NaN;
+    }
+    const mid = Math.floor(finite.length / 2);
+    if(finite.length % 2 === 0){
+      return (finite[mid - 1] + finite[mid]) / 2;
+    }
+    return finite[mid];
+  }
+
+  function computeStd(values){
+    if(!Array.isArray(values) || values.length === 0){
+      return NaN;
+    }
+    const finite = values.filter(value => Number.isFinite(value));
+    if(finite.length < 2){
+      return NaN;
+    }
+    const mean = computeMean(finite);
+    const variance = finite.reduce((acc, value) => acc + Math.pow(value - mean, 2), 0) / (finite.length - 1);
+    return Math.sqrt(Math.max(variance, 0));
+  }
+
+  function computeRange(values){
+    const finite = values.filter(value => Number.isFinite(value));
+    if(finite.length === 0){
+      return NaN;
+    }
+    const min = Math.min(...finite);
+    const max = Math.max(...finite);
+    return { min, max, span: max - min };
+  }
+
+  function filterRowsBySettings(matrix, rowLabels, rowMeta, filters, columnCount){
+    if(!filters){
+      return { matrix, rowLabels, rowMeta, removed: [] };
+    }
+    const keptMatrix = [];
+    const keptLabels = [];
+    const keptMeta = [];
+    const removed = [];
+    const presentThreshold = Number.isFinite(filters.presentThreshold) ? filters.presentThreshold : null;
+    const sdThreshold = Number.isFinite(filters.sdThreshold) ? filters.sdThreshold : null;
+    const absThreshold = Number.isFinite(filters.absValue) ? filters.absValue : null;
+    const absCountThreshold = Number.isFinite(filters.absCount) ? filters.absCount : null;
+    const rangeThreshold = Number.isFinite(filters.rangeThreshold) ? filters.rangeThreshold : null;
+    for(let i = 0; i < matrix.length; i += 1){
+      const row = matrix[i];
+      const values = Array.isArray(row) ? row : [];
+      const finiteValues = values.filter(value => Number.isFinite(value));
+      const percentPresent = columnCount > 0 ? (finiteValues.length / columnCount) * 100 : 0;
+      const sd = computeStd(values);
+      const rangeInfo = computeRange(values);
+      const absPassCount = Number.isFinite(absThreshold)
+        ? finiteValues.filter(value => Math.abs(value) >= absThreshold).length
+        : finiteValues.length;
+      const passesPresent = !filters.presentEnabled || presentThreshold === null || percentPresent >= presentThreshold;
+      const passesSd = !filters.sdEnabled || sdThreshold === null || (Number.isFinite(sd) && sd >= sdThreshold);
+      const passesAbs = !filters.absEnabled || absThreshold === null || absCountThreshold === null || absPassCount >= absCountThreshold;
+      const passesRange = !filters.rangeEnabled || rangeThreshold === null || (Number.isFinite(rangeInfo?.span) && rangeInfo.span >= rangeThreshold);
+      if(passesPresent && passesSd && passesAbs && passesRange){
+        keptMatrix.push(values);
+        keptLabels.push(rowLabels[i]);
+        keptMeta.push(rowMeta[i]);
+      }else{
+        removed.push({
+          label: rowLabels[i],
+          percentPresent,
+          sd,
+          absPassCount,
+          range: rangeInfo?.span
+        });
+      }
+    }
+    console.debug('Debug: heatmap filterRowsBySettings result', {
+      originalRows: matrix.length,
+      keptRows: keptMatrix.length,
+      removedRows: removed.length,
+      filters
+    });
+    return { matrix: keptMatrix, rowLabels: keptLabels, rowMeta: keptMeta, removed };
+  }
+
+  function pruneEmptyColumns(matrix, columnLabels, columnMeta){
+    if(!Array.isArray(matrix) || matrix.length === 0){
+      return { matrix, columnLabels, columnMeta, removed: 0 };
+    }
+    const columnCount = columnLabels.length;
+    const keep = Array.from({ length: columnCount }, (_, colIndex) => matrix.some(row => Number.isFinite(row[colIndex])));
+    const newMatrix = matrix.map(() => []);
+    const newLabels = [];
+    const newMeta = [];
+    let removed = 0;
+    keep.forEach((shouldKeep, colIndex) => {
+      if(shouldKeep){
+        newLabels.push(columnLabels[colIndex]);
+        newMeta.push(columnMeta[colIndex]);
+        matrix.forEach((row, rowIndex) => {
+          newMatrix[rowIndex].push(row[colIndex]);
+        });
+      }else{
+        removed += 1;
+      }
+    });
+    console.debug('Debug: heatmap pruneEmptyColumns summary', {
+      originalColumns: columnCount,
+      keptColumns: newLabels.length,
+      removed
+    });
+    return { matrix: newMatrix, columnLabels: newLabels, columnMeta: newMeta, removed };
+  }
+
+  function applyLogTransform(matrix){
+    let converted = 0;
+    let invalid = 0;
+    const log2 = value => Math.log(value) / Math.log(2);
+    for(let i = 0; i < matrix.length; i += 1){
+      for(let j = 0; j < matrix[i].length; j += 1){
+        const value = matrix[i][j];
+        if(!Number.isFinite(value)) continue;
+        if(value > 0){
+          matrix[i][j] = log2(value);
+          converted += 1;
+        }else{
+          matrix[i][j] = NaN;
+          invalid += 1;
+        }
+      }
+    }
+    console.debug('Debug: heatmap applyLogTransform complete', { converted, invalid });
+    return { converted, invalid };
+  }
+
+  function centerRows(matrix, mode){
+    let adjusted = 0;
+    for(let i = 0; i < matrix.length; i += 1){
+      const row = matrix[i];
+      const center = mode === 'median' ? computeMedian(row) : computeMean(row);
+      if(!Number.isFinite(center) || center === 0){
+        continue;
+      }
+      for(let j = 0; j < row.length; j += 1){
+        if(Number.isFinite(row[j])){
+          row[j] -= center;
+          adjusted += 1;
+        }
+      }
+    }
+    console.debug('Debug: heatmap centerRows applied', { mode, adjusted });
+    return adjusted;
+  }
+
+  function normalizeRows(matrix){
+    let normalized = 0;
+    let skipped = 0;
+    for(let i = 0; i < matrix.length; i += 1){
+      const row = matrix[i];
+      const mean = computeMean(row);
+      const std = computeStd(row);
+      if(!Number.isFinite(std) || std === 0){
+        skipped += 1;
+        continue;
+      }
+      for(let j = 0; j < row.length; j += 1){
+        if(Number.isFinite(row[j])){
+          row[j] = (row[j] - (Number.isFinite(mean) ? mean : 0)) / std;
+          normalized += 1;
+        }
+      }
+    }
+    console.debug('Debug: heatmap normalizeRows applied', { normalized, skipped });
+    return { normalized, skipped };
+  }
+
+  function centerColumns(matrix, mode){
+    if(!Array.isArray(matrix) || matrix.length === 0){
+      return 0;
+    }
+    const columnCount = matrix[0].length;
+    let adjusted = 0;
+    for(let colIndex = 0; colIndex < columnCount; colIndex += 1){
+      const columnValues = matrix.map(row => row[colIndex]);
+      const center = mode === 'median' ? computeMedian(columnValues) : computeMean(columnValues);
+      if(!Number.isFinite(center) || center === 0){
+        continue;
+      }
+      matrix.forEach((row, rowIndex) => {
+        if(Number.isFinite(row[colIndex])){
+          row[colIndex] -= center;
+          adjusted += 1;
+        }
+      });
+    }
+    console.debug('Debug: heatmap centerColumns applied', { mode, adjusted });
+    return adjusted;
+  }
+
+  function normalizeColumns(matrix){
+    if(!Array.isArray(matrix) || matrix.length === 0){
+      return { normalized: 0, skipped: 0 };
+    }
+    const columnCount = matrix[0].length;
+    let normalized = 0;
+    let skipped = 0;
+    for(let colIndex = 0; colIndex < columnCount; colIndex += 1){
+      const columnValues = matrix.map(row => row[colIndex]);
+      const mean = computeMean(columnValues);
+      const std = computeStd(columnValues);
+      if(!Number.isFinite(std) || std === 0){
+        skipped += 1;
+        continue;
+      }
+      matrix.forEach((row, rowIndex) => {
+        const value = row[colIndex];
+        if(Number.isFinite(value)){
+          row[colIndex] = (value - (Number.isFinite(mean) ? mean : 0)) / std;
+          normalized += 1;
+        }
+      });
+    }
+    console.debug('Debug: heatmap normalizeColumns applied', { normalized, skipped });
+    return { normalized, skipped };
+  }
+
+  function applyAdjustments(matrix, adjust){
+    if(!adjust){
+      return {};
+    }
+    const summary = {};
+    if(adjust.centerRowsMode){
+      summary.centerRows = centerRows(matrix, adjust.centerRowsMode);
+    }
+    if(adjust.normalizeRows){
+      summary.normalizeRows = normalizeRows(matrix);
+    }
+    if(adjust.centerColumnsMode){
+      summary.centerColumns = centerColumns(matrix, adjust.centerColumnsMode);
+    }
+    if(adjust.normalizeColumns){
+      summary.normalizeColumns = normalizeColumns(matrix);
+    }
+    console.debug('Debug: heatmap applyAdjustments summary', summary);
+    return summary;
+  }
+
+  function buildAxisItems(matrix, labels, axis){
+    if(!Array.isArray(matrix) || !Array.isArray(labels)){
+      return [];
+    }
+    if(axis === 'rows'){
+      return labels.map((label, index) => ({ label, index, vector: matrix[index] ? matrix[index].slice() : [] }));
+    }
+    if(axis === 'columns'){
+      const columnCount = labels.length;
+      const items = [];
+      for(let colIndex = 0; colIndex < columnCount; colIndex += 1){
+        const vector = matrix.map(row => row[colIndex]);
+        items.push({ label: labels[colIndex], index: colIndex, vector });
+      }
+      return items;
+    }
+    return [];
+  }
+
+  function alignVectors(vecA, vecB){
+    const length = Math.min(vecA?.length || 0, vecB?.length || 0);
+    const xs = [];
+    const ys = [];
+    for(let i = 0; i < length; i += 1){
+      const a = vecA[i];
+      const b = vecB[i];
+      if(Number.isFinite(a) && Number.isFinite(b)){
+        xs.push(a);
+        ys.push(b);
+      }
+    }
+    return { xs, ys };
+  }
+
+  function computeUncenteredCorrelation(xs, ys){
+    const n = xs.length;
+    if(n === 0){
+      return NaN;
+    }
+    let sumXY = 0;
+    let sumX2 = 0;
+    let sumY2 = 0;
+    for(let i = 0; i < n; i += 1){
+      const x = xs[i];
+      const y = ys[i];
+      sumXY += x * y;
+      sumX2 += x * x;
+      sumY2 += y * y;
+    }
+    const denom = Math.sqrt(sumX2 * sumY2);
+    if(denom === 0){
+      return NaN;
+    }
+    return sumXY / denom;
+  }
+
+  function calculateCorrelationEntry(vecA, vecB, method){
+    const { xs, ys } = alignVectors(vecA, vecB);
+    const count = xs.length;
+    if(count < 2 && method !== 'uncentered'){
+      return { corr: NaN, count };
+    }
+    let corr;
+    if(method === 'spearman'){
+      corr = computeCorrelation(xs, ys, 'spearman');
+    }else if(method === 'uncentered'){
+      corr = computeUncenteredCorrelation(xs, ys);
+    }else{
+      corr = computeCorrelation(xs, ys, 'pearson');
+    }
+    const normalized = Number.isFinite(corr) ? Math.max(-1, Math.min(1, corr)) : NaN;
+    return { corr: normalized, count };
+  }
+
+  function distanceBetweenVectors(vecA, vecB, metric){
+    const { xs, ys } = alignVectors(vecA, vecB);
+    const count = xs.length;
+    if(count === 0){
+      return { distance: 1, count: 0 };
+    }
+    if(metric === 'euclidean'){
+      let sumSq = 0;
+      for(let i = 0; i < count; i += 1){
+        const diff = xs[i] - ys[i];
+        sumSq += diff * diff;
+      }
+      const distance = Math.sqrt(sumSq / count);
+      return { distance, count };
+    }
+    const entry = calculateCorrelationEntry(xs, ys, metric === 'pearson' || metric === 'spearman' ? metric : 'uncentered');
+    const corr = entry.corr;
+    const distance = Number.isFinite(corr) ? 1 - corr : 1;
+    return { distance, count, corr };
+  }
+
+  function hierarchicalCluster(items, metric, linkage){
+    const n = Array.isArray(items) ? items.length : 0;
+    if(n === 0){
+      return { order: [], tree: null, maxDistance: 0, steps: [], baseDistances: [] };
+    }
+    if(n === 1){
+      return {
+        order: [items[0].index],
+        tree: { indices: [0], left: null, right: null, distance: 0 },
+        maxDistance: 0,
+        steps: [],
+        baseDistances: [[0]]
+      };
+    }
+    const baseDistances = Array.from({ length: n }, () => Array(n).fill(0));
+    for(let i = 0; i < n; i += 1){
+      for(let j = i + 1; j < n; j += 1){
+        const { distance } = distanceBetweenVectors(items[i].vector, items[j].vector, metric);
+        const safeDistance = Number.isFinite(distance) ? distance : 1;
+        baseDistances[i][j] = safeDistance;
+        baseDistances[j][i] = safeDistance;
+      }
+    }
+    const clusters = items.map((item, index) => ({
+      id: `leaf-${index}`,
+      indices: [index],
+      left: null,
+      right: null,
+      distance: 0,
+      centroid: null
+    }));
+    const working = clusters.slice();
+    const steps = [];
+    let maxDistance = 0;
+
+    const computeCentroidForIndices = indices => {
+      const length = items[0]?.vector?.length || 0;
+      const sums = Array.from({ length }, () => 0);
+      const counts = Array.from({ length }, () => 0);
+      indices.forEach(idx => {
+        const vector = items[idx].vector;
+        for(let i = 0; i < length; i += 1){
+          const value = vector[i];
+          if(Number.isFinite(value)){
+            sums[i] += value;
+            counts[i] += 1;
+          }
+        }
+      });
+      return sums.map((sum, idx) => counts[idx] > 0 ? sum / counts[idx] : NaN);
+    };
+
+    const getClusterCentroid = cluster => {
+      if(!cluster) return [];
+      if(!cluster.centroid){
+        cluster.centroid = computeCentroidForIndices(cluster.indices);
+      }
+      return cluster.centroid;
+    };
+
+    const linkageDistance = (clusterA, clusterB) => {
+      if(linkage === 'single' || linkage === 'complete' || linkage === 'average'){
+        let aggregate = linkage === 'complete' ? -Infinity : 0;
+        let count = 0;
+        let best = linkage === 'single' ? Infinity : null;
+        for(const idxA of clusterA.indices){
+          for(const idxB of clusterB.indices){
+            const dist = baseDistances[idxA][idxB];
+            if(!Number.isFinite(dist)) continue;
+            if(linkage === 'single'){
+              if(dist < best){ best = dist; }
+            }else if(linkage === 'complete'){
+              if(dist > aggregate){ aggregate = dist; }
+            }else{
+              aggregate += dist;
+              count += 1;
+            }
+          }
+        }
+        if(linkage === 'single'){
+          return Number.isFinite(best) ? best : 1;
+        }
+        if(linkage === 'complete'){
+          return Number.isFinite(aggregate) ? aggregate : 1;
+        }
+        return count > 0 ? aggregate / count : 1;
+      }
+      const centroidA = getClusterCentroid(clusterA);
+      const centroidB = getClusterCentroid(clusterB);
+      const { distance } = distanceBetweenVectors(centroidA, centroidB, metric);
+      return Number.isFinite(distance) ? distance : 1;
+    };
+
+    while(working.length > 1){
+      let bestI = 0;
+      let bestJ = 1;
+      let bestDistance = Infinity;
+      for(let i = 0; i < working.length; i += 1){
+        for(let j = i + 1; j < working.length; j += 1){
+          const dist = linkageDistance(working[i], working[j]);
+          if(dist < bestDistance){
+            bestDistance = dist;
+            bestI = i;
+            bestJ = j;
+          }
+        }
+      }
+      const clusterA = working[bestI];
+      const clusterB = working[bestJ];
+      const safeDistance = Number.isFinite(bestDistance) ? bestDistance : 0;
+      const merged = {
+        id: `merge-${steps.length}`,
+        indices: clusterA.indices.concat(clusterB.indices),
+        left: clusterA,
+        right: clusterB,
+        distance: safeDistance,
+        centroid: null
+      };
+      merged.centroid = linkage === 'centroid' ? computeCentroidForIndices(merged.indices) : null;
+      steps.push({ left: clusterA.indices.slice(), right: clusterB.indices.slice(), distance: safeDistance });
+      maxDistance = Math.max(maxDistance, safeDistance);
+      working.splice(bestJ, 1);
+      working.splice(bestI, 1);
+      working.push(merged);
+    }
+
+    const root = working[0];
+    const flatten = node => {
+      if(!node.left || !node.right){
+        return node.indices.slice();
+      }
+      const leftOrder = flatten(node.left);
+      const rightOrder = flatten(node.right);
+      const leftMin = Math.min(...leftOrder);
+      const rightMin = Math.min(...rightOrder);
+      return leftMin <= rightMin ? leftOrder.concat(rightOrder) : rightOrder.concat(leftOrder);
+    };
+    const orderIndices = flatten(root);
+    const order = orderIndices.map(idx => items[idx].index);
+    console.debug('Debug: heatmap hierarchicalCluster summary', {
+      itemCount: n,
+      metric,
+      linkage,
+      maxDistance,
+      steps: steps.length
+    });
+    return { order, tree: root, steps, maxDistance, baseDistances };
+  }
+
+  function collectSettings(){
+    const view = refs.view?.value || 'corr-columns';
+    const isCorrelation = view.startsWith('corr');
+    const decimals = clampDecimals(refs.decimals?.value);
+    const settings = {
+      view,
+      decimals,
+      correlationMethod: refs.method?.value || 'pearson',
+      useAbsolute: isCorrelation ? !!refs.absValues?.checked : false,
+      maskLower: isCorrelation ? !!refs.maskLower?.checked : false,
+      showValues: !!refs.showValues?.checked,
+      cellSize: Math.max(12, Number(refs.cellSize?.value) || 60),
+      fontSize: Math.max(8, Number(refs.fontSize?.value) || 12),
+      palette: {
+        negative: refs.colorNegative?.value || '#313695',
+        zero: refs.colorZero?.value || '#f7f7f7',
+        positive: refs.colorPositive?.value || '#a50026'
+      },
+      filters: {
+        presentEnabled: !!refs.filterPresentEnable?.checked,
+        presentThreshold: Number(refs.filterPresentValue?.value),
+        sdEnabled: !!refs.filterSdEnable?.checked,
+        sdThreshold: Number(refs.filterSdValue?.value),
+        absEnabled: !!refs.filterAbsEnable?.checked,
+        absCount: Number(refs.filterAbsCount?.value),
+        absValue: Number(refs.filterAbsValue?.value),
+        rangeEnabled: !!refs.filterRangeEnable?.checked,
+        rangeThreshold: Number(refs.filterRangeValue?.value)
+      },
+      adjust: {
+        logTransform: !!refs.logTransform?.checked,
+        centerRowsMode: refs.centerGenes?.checked ? (getCheckedRadioValue('heatmapCenterGenesMode') || 'mean') : null,
+        normalizeRows: !!refs.normalizeGenes?.checked,
+        centerColumnsMode: refs.centerArrays?.checked ? (getCheckedRadioValue('heatmapCenterArraysMode') || 'mean') : null,
+        normalizeColumns: !!refs.normalizeArrays?.checked
+      },
+      clustering: {
+        rows: {
+          enabled: !!refs.clusterGenes?.checked,
+          metric: refs.genesMetric?.value || 'pearson',
+          showDendrogram: !!refs.showRowDendrogram?.checked
+        },
+        columns: {
+          enabled: !!refs.clusterArrays?.checked,
+          metric: refs.arraysMetric?.value || 'pearson',
+          showDendrogram: !!refs.showColumnDendrogram?.checked
+        },
+        linkage: refs.linkage?.value || 'average'
+      }
+    };
+    console.debug('Debug: heatmap collectSettings summary', settings);
+    return settings;
+  }
+
+  function prepareProcessedData(settings){
+    const raw = collectTableData();
+    if(!raw){
+      console.debug('Debug: heatmap prepareProcessedData missing raw data');
+      return { ok: false, reason: 'no-data' };
+    }
+    let matrix = cloneMatrix(raw.matrix);
+    const logResult = settings.adjust?.logTransform ? applyLogTransform(matrix) : null;
+    const filterResult = filterRowsBySettings(matrix, raw.rowLabels, raw.rowMeta, settings.filters, raw.columnLabels.length);
+    matrix = filterResult.matrix;
+    let rowLabels = filterResult.rowLabels;
+    let rowMeta = filterResult.rowMeta;
+    let columnLabels = raw.columnLabels.slice();
+    let columnMeta = raw.columnMeta.slice();
+    let pruneResult = pruneEmptyColumns(matrix, columnLabels, columnMeta);
+    matrix = pruneResult.matrix;
+    columnLabels = pruneResult.columnLabels;
+    columnMeta = pruneResult.columnMeta;
+    if(matrix.length === 0 || columnLabels.length === 0){
+      console.debug('Debug: heatmap prepareProcessedData filtered all data', {
+        rowsRemaining: matrix.length,
+        columnsRemaining: columnLabels.length
+      });
+      return {
+        ok: false,
+        reason: 'filtered-out',
+        filterResult,
+        pruneResult
+      };
+    }
+    const adjustConfig = {
+      centerRowsMode: settings.adjust?.centerRowsMode,
+      normalizeRows: !!settings.adjust?.normalizeRows,
+      centerColumnsMode: settings.adjust?.centerColumnsMode,
+      normalizeColumns: !!settings.adjust?.normalizeColumns
+    };
+    const adjustmentSummary = applyAdjustments(matrix, adjustConfig);
+    pruneResult = pruneEmptyColumns(matrix, columnLabels, columnMeta);
+    matrix = pruneResult.matrix;
+    columnLabels = pruneResult.columnLabels;
+    columnMeta = pruneResult.columnMeta;
+    if(matrix.length === 0 || columnLabels.length === 0){
+      console.debug('Debug: heatmap prepareProcessedData removed all columns after adjustment');
+      return {
+        ok: false,
+        reason: 'adjustment-empty',
+        filterResult,
+        adjustmentSummary,
+        pruneResult
+      };
+    }
+    rowLabels = rowLabels.slice();
+    rowMeta = rowMeta.slice();
+    const finiteValues = [];
+    for(const row of matrix){
+      for(const value of row){
+        if(Number.isFinite(value)){
+          finiteValues.push(value);
+        }
+      }
+    }
+    const min = finiteValues.length ? Math.min(...finiteValues) : NaN;
+    const max = finiteValues.length ? Math.max(...finiteValues) : NaN;
+    const mean = finiteValues.length ? finiteValues.reduce((acc, value) => acc + value, 0) / finiteValues.length : NaN;
+    return {
+      ok: true,
+      matrix,
+      rowLabels,
+      columnLabels,
+      rowMeta,
+      columnMeta,
+      raw,
+      filterResult,
+      adjustmentSummary,
+      logResult,
+      stats: {
+        min,
+        max,
+        mean,
+        finiteCount: finiteValues.length,
+        initialRows: raw.rowLabels.length,
+        initialColumns: raw.columnLabels.length,
+        rowsFiltered: filterResult.removed.length,
+        columnsRemoved: raw.columnLabels.length - columnLabels.length,
+        skippedRows: raw.skippedRows,
+        logApplied: !!settings.adjust?.logTransform
+      }
+    };
+  }
+
+  function buildOrderedMatrix(matrix, rowOrder, columnOrder){
+    return rowOrder.map(rowIdx => {
+      const sourceRow = matrix[rowIdx];
+      return columnOrder.map(colIdx => sourceRow[colIdx]);
+    });
+  }
+
+  function createValueColorMapper(stats, palette){
+    const min = stats?.min;
+    const max = stats?.max;
+    if(!Number.isFinite(min) || !Number.isFinite(max) || min === max){
+      const zeroColor = rgbToCss(hexToRgb(palette.zero || '#f7f7f7'));
+      return () => zeroColor;
+    }
+    if(min < 0 && max > 0){
+      const maxAbs = Math.max(Math.abs(min), Math.abs(max)) || 1;
+      return value => {
+        if(!Number.isFinite(value)) return '#d0d0d0';
+        const normalized = value / maxAbs;
+        return colorForValue({ raw: normalized, value: normalized }, {
+          negative: hexToRgb(palette.negative || '#313695'),
+          zero: hexToRgb(palette.zero || '#f7f7f7'),
+          positive: hexToRgb(palette.positive || '#a50026')
+        }, false);
+      };
+    }
+    if(max <= 0){
+      const span = Math.abs(min - max) || Math.abs(min) || 1;
+      return value => {
+        if(!Number.isFinite(value)) return '#d0d0d0';
+        const normalized = (value - max) / (min - max || -span);
+        return mixColor(hexToRgb(palette.negative || '#313695'), hexToRgb(palette.zero || '#f7f7f7'), Math.min(1, Math.max(0, normalized)));
+      };
+    }
+    const range = max - min || 1;
+    return value => {
+      if(!Number.isFinite(value)) return '#d0d0d0';
+      const normalized = (value - min) / range;
+      return mixColor(hexToRgb(palette.zero || '#f7f7f7'), hexToRgb(palette.positive || '#a50026'), Math.min(1, Math.max(0, normalized)));
+    };
   }
 
   function computePearson(xs, ys){
@@ -516,23 +1471,26 @@
     tree,
     order,
     startX,
-    width,
-    marginTop,
+    startY,
+    length,
     cellSize,
-    maxDistance
+    maxDistance,
+    orientation = 'vertical'
   }){
     const hasBasics = doc && parent && tree && Array.isArray(order) && order.length > 0;
-    if(!hasBasics || !Number.isFinite(startX) || !Number.isFinite(width) || width <= 0){
+    if(!hasBasics || !Number.isFinite(length) || length <= 0){
       console.debug('Debug: heatmap renderDendrogram skipped', {
         hasBasics,
         startX,
-        width
+        startY,
+        length,
+        orientation
       });
       return null;
     }
     const orderIndex = new Map();
-    order.forEach((colIndex, position) => {
-      orderIndex.set(colIndex, position);
+    order.forEach((itemIndex, position) => {
+      orderIndex.set(itemIndex, position);
     });
     const safeMaxDistance = maxDistance > 0 ? maxDistance : 1;
     const group = doc.createElementNS(NS, 'g');
@@ -543,23 +1501,20 @@
     group.setAttribute('stroke-linecap', 'square');
     parent.appendChild(group);
 
-    const visit = node => {
+    const visitVertical = node => {
       if(!node){
-        return { x: startX, y: marginTop };
+        return { x: startX, y: startY };
       }
       if(!node.left || !node.right){
         const rawIndex = Array.isArray(node.indices) ? node.indices[0] : null;
         const orderPos = orderIndex.has(rawIndex) ? orderIndex.get(rawIndex) : 0;
-        if(!orderIndex.has(rawIndex)){
-          console.debug('Debug: heatmap dendrogram leaf missing order mapping', { rawIndex });
-        }
-        const y = marginTop + orderPos * cellSize + cellSize / 2;
+        const y = startY + orderPos * cellSize + cellSize / 2;
         return { x: startX, y };
       }
-      const leftPos = visit(node.left);
-      const rightPos = visit(node.right);
+      const leftPos = visitVertical(node.left);
+      const rightPos = visitVertical(node.right);
       const distance = Math.max(0, Number(node.distance) || 0);
-      const nodeX = startX + (distance / safeMaxDistance) * width;
+      const nodeX = startX + (distance / safeMaxDistance) * length;
       const nodeY = (leftPos.y + rightPos.y) / 2;
       const path = doc.createElementNS(NS, 'path');
       path.setAttribute('d', [
@@ -571,12 +1526,39 @@
       return { x: nodeX, y: nodeY };
     };
 
-    const rootPos = visit(tree);
+    const visitHorizontal = node => {
+      if(!node){
+        return { x: startX, y: startY };
+      }
+      if(!node.left || !node.right){
+        const rawIndex = Array.isArray(node.indices) ? node.indices[0] : null;
+        const orderPos = orderIndex.has(rawIndex) ? orderIndex.get(rawIndex) : 0;
+        const x = startX + orderPos * cellSize + cellSize / 2;
+        return { x, y: startY };
+      }
+      const leftPos = visitHorizontal(node.left);
+      const rightPos = visitHorizontal(node.right);
+      const distance = Math.max(0, Number(node.distance) || 0);
+      const nodeY = startY + (distance / safeMaxDistance) * length;
+      const nodeX = (leftPos.x + rightPos.x) / 2;
+      const path = doc.createElementNS(NS, 'path');
+      path.setAttribute('d', [
+        `M ${leftPos.x} ${leftPos.y} V ${nodeY}`,
+        `M ${rightPos.x} ${rightPos.y} V ${nodeY}`,
+        `M ${leftPos.x} ${nodeY} H ${rightPos.x}`
+      ].join(' '));
+      group.appendChild(path);
+      return { x: nodeX, y: nodeY };
+    };
+
+    const rootPos = orientation === 'horizontal' ? visitHorizontal(tree) : visitVertical(tree);
     console.debug('Debug: heatmap renderDendrogram complete', {
+      orientation,
       startX,
-      width,
+      startY,
+      length,
       maxDistance,
-      rootX: rootPos?.x,
+      root: rootPos,
       leafCount: order.length
     });
     return group;
@@ -682,54 +1664,557 @@
       return;
     }
     state.statsEl.textContent = '';
-    if(!stats || !stats.columnCount){
-      state.statsEl.textContent = 'Add at least two numeric columns to calculate correlations.';
+    if(!stats){
+      state.statsEl.textContent = 'Add numeric data to draw the heatmap.';
       return;
     }
-    const methodLabel = stats.method === 'spearman' ? 'Spearman (rank)' : 'Pearson (linear)';
-    appendStatRow('Columns analysed', String(stats.columnCount));
-    appendStatRow('Pairs evaluated', String(stats.pairCount));
-    appendStatRow('Method', methodLabel, { trailing: stats.useAbs ? [' (absolute values shown)'] : [] });
-    if(stats.clusterMode && stats.clusterMode !== 'none' && stats.clusterMethod){
-      const clusterMethodLabel = stats.clusterMethod === 'spearman' ? 'Spearman (rank)' : 'Pearson (linear)';
-      appendStatRow('Clustering', `Hierarchical (${clusterMethodLabel})`);
-    }
-    if(stats.strongest){
-      const magnitude = Number.isFinite(stats.strongest.magnitude)
-        ? stats.strongest.magnitude
-        : Number.isFinite(stats.strongest.abs)
-          ? stats.strongest.abs
-          : (Number.isFinite(stats.strongest.value) ? Math.abs(stats.strongest.value) : NaN);
-      const raw = Number.isFinite(stats.strongest.raw) ? stats.strongest.raw : null;
-      const count = Number.isFinite(stats.strongest.count) ? stats.strongest.count : null;
-      const details = [];
-      if(count !== null){
-        details.push(`n=${count}`);
+    if(stats.type === 'correlation'){
+      const methodLookup = {
+        pearson: 'Pearson (linear)',
+        spearman: 'Spearman (rank)',
+        uncentered: 'Correlation (uncentered)'
+      };
+      const methodLabel = methodLookup[stats.method] || stats.method || 'Pearson (linear)';
+      appendStatRow('Items analysed', String(stats.itemCount || 0));
+      appendStatRow('Pairs evaluated', String(stats.pairCount || 0));
+      appendStatRow('Method', methodLabel, { trailing: stats.useAbs ? [' (absolute values shown)'] : [] });
+      if(stats.rowClusterLabel){
+        appendStatRow('Row clustering', stats.rowClusterLabel + (stats.rowDendrogram ? ' (dendrogram)' : ''));
       }
-      if(raw !== null){
-        details.push(`raw r = ${raw.toFixed(stats.decimals)}`);
+      if(stats.columnClusterLabel && (!stats.rowClusterLabel || stats.columnClusterLabel !== stats.rowClusterLabel)){
+        appendStatRow('Column clustering', stats.columnClusterLabel + (stats.columnDendrogram ? ' (dendrogram)' : ''));
+      }else if(stats.columnDendrogram && stats.rowClusterLabel === stats.columnClusterLabel && stats.columnDendrogram !== stats.rowDendrogram){
+        appendStatRow('Column dendrogram', 'Shown');
       }
-      const detailText = details.length ? ` (${details.join(', ')})` : '';
-      const magText = Number.isFinite(magnitude) ? magnitude.toFixed(stats.decimals) : 'n/a';
-      const strongLabel = Array.isArray(stats.strongest.labels)
-        ? stats.strongest.labels.map(label => String(label)).join(' vs ')
-        : String(stats.strongest.labels || '');
-      const row = appendStatRow('Strongest |r|', strongLabel);
-      row.append(global.document.createTextNode(` = ${magText}`));
-      if(detailText){
-        row.append(global.document.createTextNode(detailText));
+      if(stats.strongest){
+        const label = Array.isArray(stats.strongest.labels)
+          ? stats.strongest.labels.join(' vs ')
+          : String(stats.strongest.labels || '');
+        const displayValue = Number.isFinite(stats.strongest.value)
+          ? stats.strongest.value
+          : Number.isFinite(stats.strongest.abs)
+            ? stats.strongest.abs
+            : Number.isFinite(stats.strongest.raw)
+              ? Math.abs(stats.strongest.raw)
+              : NaN;
+        const row = appendStatRow('Strongest |r|', label);
+        const formatted = Number.isFinite(displayValue) ? displayValue.toFixed(stats.decimals ?? 2) : 'n/a';
+        row.append(global.document.createTextNode(` = ${formatted}`));
+        const details = [];
+        if(Number.isFinite(stats.strongest.raw)){
+          details.push(`raw r = ${stats.strongest.raw.toFixed(stats.decimals ?? 2)}`);
+        }
+        if(Number.isFinite(stats.strongest.count)){
+          details.push(`n=${stats.strongest.count}`);
+        }
+        if(details.length){
+          row.append(global.document.createTextNode(` (${details.join(', ')})`));
+        }
       }
-      console.debug('Debug: heatmap stats strongest rendered', { magnitude, raw, count }); // Debug: stats rendering details
+      if(stats.mostNegative && !stats.useAbs){
+        const label = Array.isArray(stats.mostNegative.labels)
+          ? stats.mostNegative.labels.join(' vs ')
+          : String(stats.mostNegative.labels || '');
+        const row = appendStatRow('Most negative r', label);
+        const pieces = [];
+        if(Number.isFinite(stats.mostNegative.value)){
+          pieces.push(` = ${stats.mostNegative.value.toFixed(stats.decimals ?? 2)}`);
+        }
+        if(Number.isFinite(stats.mostNegative.count)){
+          pieces.push(` (n=${stats.mostNegative.count})`);
+        }
+        row.append(global.document.createTextNode(pieces.join('')));
+      }
+      return;
     }
-    if(stats.mostNegative && !stats.useAbs){
-      const negativeLabel = Array.isArray(stats.mostNegative.labels)
-        ? stats.mostNegative.labels.map(label => String(label)).join(' vs ')
-        : String(stats.mostNegative.labels || '');
-      const trailing = ` = ${stats.mostNegative.value.toFixed(stats.decimals)} (n=${stats.mostNegative.count})`;
-      const row = appendStatRow('Most negative r', negativeLabel);
-      row.append(global.document.createTextNode(trailing));
+    if(stats.type === 'values'){
+      appendStatRow('Rows', String(stats.rowCount || 0));
+      appendStatRow('Columns', String(stats.columnCount || 0));
+      if(Number.isFinite(stats.finiteCount)){
+        appendStatRow('Cells with data', String(stats.finiteCount));
+      }
+      if(Number.isFinite(stats.min)){
+        appendStatRow('Minimum', stats.min.toFixed(stats.decimals ?? 2));
+      }
+      if(Number.isFinite(stats.max)){
+        appendStatRow('Maximum', stats.max.toFixed(stats.decimals ?? 2));
+      }
+      if(Number.isFinite(stats.mean)){
+        appendStatRow('Mean', stats.mean.toFixed(stats.decimals ?? 2));
+      }
+      if(stats.logApplied !== undefined){
+        appendStatRow('Log transform', stats.logApplied ? 'Applied' : 'Not applied');
+      }
+      if(stats.rowsFiltered){
+        appendStatRow('Rows filtered', String(stats.rowsFiltered));
+      }
+      if(stats.columnsRemoved){
+        appendStatRow('Columns removed', String(stats.columnsRemoved));
+      }
+      if(stats.rowClusterLabel){
+        appendStatRow('Row clustering', stats.rowClusterLabel + (stats.rowDendrogram ? ' (dendrogram)' : ''));
+      }
+      if(stats.columnClusterLabel){
+        appendStatRow('Column clustering', stats.columnClusterLabel + (stats.columnDendrogram ? ' (dendrogram)' : ''));
+      }
+      if(stats.adjustments){
+        if(stats.adjustments.centerRows){
+          appendStatRow('Rows centered', String(stats.adjustments.centerRows));
+        }
+        if(stats.adjustments.normalizeRows && stats.adjustments.normalizeRows.normalized !== undefined){
+          appendStatRow('Rows normalized', String(stats.adjustments.normalizeRows.normalized));
+        }
+        if(stats.adjustments.centerColumns){
+          appendStatRow('Columns centered', String(stats.adjustments.centerColumns));
+        }
+        if(stats.adjustments.normalizeColumns && stats.adjustments.normalizeColumns.normalized !== undefined){
+          appendStatRow('Columns normalized', String(stats.adjustments.normalizeColumns.normalized));
+        }
+      }
+      return;
     }
-    console.debug('Debug: heatmap stats updated', { pairCount: stats.pairCount, hasStrongest: !!stats.strongest }); // Debug: stats update summary
+    if(stats.type === 'empty'){
+      state.statsEl.textContent = stats.message || 'No data available for the current configuration.';
+      return;
+    }
+    state.statsEl.textContent = 'Add numeric data to draw the heatmap.';
+  }
+
+  function drawHeatmap({
+    orderedRowLabels,
+    orderedColumnLabels,
+    orderedCells,
+    rowOrder,
+    columnOrder,
+    rowClustering,
+    columnClustering,
+    showRowDendrogram,
+    showColumnDendrogram,
+    maskLower,
+    cellSize,
+    fontSize,
+    showValues,
+    decimals,
+    colorScale
+  }){
+    const rowCount = orderedRowLabels.length;
+    const columnCount = orderedColumnLabels.length;
+    if(rowCount === 0 || columnCount === 0){
+      renderEmpty('Add numeric data to draw the heatmap.');
+      return;
+    }
+    const doc = global.document;
+    while(state.svg.firstChild){
+      state.svg.removeChild(state.svg.firstChild);
+    }
+    let marginLeft = 160;
+    let marginTop = 160;
+    let marginRight = 120;
+    let marginBottom = 120;
+    const maxRowLabelLength = orderedRowLabels.reduce((acc, label) => Math.max(acc, String(label || '').length), 0);
+    const maxColumnLabelLength = orderedColumnLabels.reduce((acc, label) => Math.max(acc, String(label || '').length), 0);
+    marginLeft = Math.max(marginLeft, Math.min(280, fontSize * (maxRowLabelLength * 0.6 + 4)));
+    marginTop = Math.max(marginTop, Math.min(260, fontSize * (maxColumnLabelLength * 0.6 + 4)));
+    const rowDendroWidth = showRowDendrogram && rowClustering?.tree ? Math.min(220, Math.max(60, Math.round(cellSize * 1.5))) : 0;
+    const columnDendroHeight = showColumnDendrogram && columnClustering?.tree ? Math.min(180, Math.max(60, Math.round(cellSize * 1.2))) : 0;
+    const dendroPadding = (rowDendroWidth || columnDendroHeight) ? Math.max(12, Math.round(cellSize * 0.3)) : Math.max(8, Math.round(cellSize * 0.2));
+    if(rowDendroWidth){
+      marginRight += rowDendroWidth + dendroPadding;
+    }
+    if(columnDendroHeight){
+      marginBottom += columnDendroHeight + dendroPadding;
+    }
+    const scaleWidth = 36;
+    const scalePadding = 24;
+    const scaleLabelGap = 48;
+    marginRight += scaleWidth + scalePadding + scaleLabelGap;
+    const heatmapWidth = columnCount * cellSize;
+    const heatmapHeight = rowCount * cellSize;
+    const totalWidth = marginLeft + heatmapWidth + marginRight;
+    const totalHeight = marginTop + heatmapHeight + marginBottom;
+    state.svg.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
+    const defs = doc.createElementNS(NS, 'defs');
+    state.svg.appendChild(defs);
+    const gradientId = `heatmap-scale-${Math.floor((global.performance?.now?.() || Date.now()) * 1000)}`;
+    const gradient = doc.createElementNS(NS, 'linearGradient');
+    gradient.setAttribute('id', gradientId);
+    gradient.setAttribute('x1', '0%');
+    gradient.setAttribute('x2', '0%');
+    gradient.setAttribute('y1', '100%');
+    gradient.setAttribute('y2', '0%');
+    (colorScale?.stops || []).forEach(stopInfo => {
+      const stop = doc.createElementNS(NS, 'stop');
+      stop.setAttribute('offset', `${stopInfo.offset}%`);
+      stop.setAttribute('stop-color', stopInfo.color);
+      gradient.appendChild(stop);
+    });
+    defs.appendChild(gradient);
+    const g = doc.createElementNS(NS, 'g');
+    state.svg.appendChild(g);
+    orderedRowLabels.forEach((label, index) => {
+      const text = doc.createElementNS(NS, 'text');
+      text.setAttribute('x', String(marginLeft - 12));
+      text.setAttribute('y', String(marginTop + index * cellSize + cellSize / 2));
+      text.setAttribute('text-anchor', 'end');
+      text.setAttribute('dominant-baseline', 'middle');
+      text.setAttribute('font-size', String(fontSize));
+      text.textContent = label;
+      markFontEditable(text, 'rowLabel', `row-label-${index}`);
+      g.appendChild(text);
+    });
+    orderedColumnLabels.forEach((label, index) => {
+      const text = doc.createElementNS(NS, 'text');
+      const x = marginLeft + index * cellSize + cellSize / 2;
+      const y = marginTop - 12;
+      text.setAttribute('x', String(x));
+      text.setAttribute('y', String(y));
+      text.setAttribute('font-size', String(fontSize));
+      text.setAttribute('text-anchor', 'start');
+      text.setAttribute('dominant-baseline', 'text-before-edge');
+      text.setAttribute('transform', `rotate(-90 ${x} ${y})`);
+      text.textContent = label;
+      markFontEditable(text, 'columnLabel', `column-label-${index}`);
+      g.appendChild(text);
+    });
+    for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+      for(let columnIndex = 0; columnIndex < columnCount; columnIndex += 1){
+        if(maskLower && columnIndex < rowIndex){
+          continue;
+        }
+        const cell = orderedCells[rowIndex]?.[columnIndex] || {};
+        const x = marginLeft + columnIndex * cellSize;
+        const y = marginTop + rowIndex * cellSize;
+        const rect = doc.createElementNS(NS, 'rect');
+        rect.setAttribute('x', String(x));
+        rect.setAttribute('y', String(y));
+        rect.setAttribute('width', String(cellSize));
+        rect.setAttribute('height', String(cellSize));
+        rect.setAttribute('stroke', '#fff');
+        rect.setAttribute('stroke-width', '1');
+        rect.setAttribute('fill', cell.fill || '#d0d0d0');
+        if(cell.title){
+          const title = doc.createElementNS(NS, 'title');
+          title.textContent = cell.title;
+          rect.appendChild(title);
+        }
+        g.appendChild(rect);
+        if(showValues && Number.isFinite(cell.value)){
+          const text = doc.createElementNS(NS, 'text');
+          text.setAttribute('x', String(x + cellSize / 2));
+          text.setAttribute('y', String(y + cellSize / 2));
+          text.setAttribute('text-anchor', 'middle');
+          text.setAttribute('dominant-baseline', 'middle');
+          text.setAttribute('font-size', String(Math.max(8, fontSize - 1)));
+          text.setAttribute('fill', textColorForBackground(cell.fill || '#d0d0d0'));
+          text.textContent = cell.value.toFixed(decimals ?? 2);
+          markFontEditable(text, 'cellValue', `cell-${rowIndex}-${columnIndex}`);
+          g.appendChild(text);
+        }
+      }
+    }
+    const scaleStartX = marginLeft + heatmapWidth + (rowDendroWidth ? rowDendroWidth + dendroPadding : 0) + scalePadding;
+    const scaleStartY = marginTop;
+    const scaleHeight = heatmapHeight;
+    const scaleGroup = doc.createElementNS(NS, 'g');
+    scaleGroup.setAttribute('class', 'heatmap-color-scale');
+    const scaleRect = doc.createElementNS(NS, 'rect');
+    scaleRect.setAttribute('x', String(scaleStartX));
+    scaleRect.setAttribute('y', String(scaleStartY));
+    scaleRect.setAttribute('width', String(scaleWidth));
+    scaleRect.setAttribute('height', String(scaleHeight));
+    scaleRect.setAttribute('fill', `url(#${gradientId})`);
+    scaleRect.setAttribute('stroke', '#333');
+    scaleRect.setAttribute('stroke-width', '1');
+    scaleGroup.appendChild(scaleRect);
+    const tickStartX = scaleStartX + scaleWidth;
+    const tickLabelX = tickStartX + Math.max(8, Math.round(scaleLabelGap * 0.4));
+    const tickLength = Math.max(6, Math.round(scaleWidth * 0.35));
+    const ticks = colorScale?.ticks || [];
+    ticks.forEach(tick => {
+      const ratio = colorScale?.valueToRatio ? Math.min(1, Math.max(0, colorScale.valueToRatio(tick.value))) : 0;
+      const y = scaleStartY + (1 - ratio) * scaleHeight;
+      const line = doc.createElementNS(NS, 'line');
+      line.setAttribute('x1', String(tickStartX));
+      line.setAttribute('x2', String(tickStartX + tickLength));
+      line.setAttribute('y1', String(y));
+      line.setAttribute('y2', String(y));
+      line.setAttribute('stroke', '#333');
+      line.setAttribute('stroke-width', '1');
+      scaleGroup.appendChild(line);
+      const tickLabel = doc.createElementNS(NS, 'text');
+      tickLabel.setAttribute('x', String(tickLabelX));
+      tickLabel.setAttribute('y', String(y));
+      tickLabel.setAttribute('dominant-baseline', 'middle');
+      tickLabel.setAttribute('font-size', String(Math.max(8, Math.round(fontSize * 0.9))));
+      tickLabel.textContent = tick.label !== undefined ? String(tick.label) : (colorScale?.tickFormatter ? colorScale.tickFormatter(tick.value) : String(tick.value));
+      markFontEditable(tickLabel, 'scaleTick', `scale-tick-${tick.value}`);
+      scaleGroup.appendChild(tickLabel);
+    });
+    g.appendChild(scaleGroup);
+    if(showRowDendrogram && rowClustering?.tree){
+      renderDendrogram({
+        doc,
+        parent: g,
+        tree: rowClustering.tree,
+        order: rowOrder,
+        startX: marginLeft + heatmapWidth + dendroPadding,
+        startY: marginTop,
+        length: rowDendroWidth,
+        cellSize,
+        maxDistance: rowClustering.maxDistance,
+        orientation: 'vertical'
+      });
+    }
+    if(showColumnDendrogram && columnClustering?.tree){
+      renderDendrogram({
+        doc,
+        parent: g,
+        tree: columnClustering.tree,
+        order: columnOrder,
+        startX: marginLeft,
+        startY: marginTop + heatmapHeight + dendroPadding,
+        length: columnDendroHeight,
+        cellSize,
+        maxDistance: columnClustering.maxDistance,
+        orientation: 'horizontal'
+      });
+    }
+    ensureGraphViewport(state.svg, { padding: Math.max(fontSize, 16), debugLabel: 'heatmap-graph' });
+    state.layout?.syncPanels?.({ skipSchedule: true });
+    console.debug('Debug: heatmap drawHeatmap complete', {
+      rows: rowCount,
+      columns: columnCount,
+      showRowDendrogram,
+      showColumnDendrogram
+    });
+  }
+
+  function renderCorrelationHeatmap(processed, settings){
+    const axis = settings.view === 'corr-columns' ? 'columns' : 'rows';
+    const labels = axis === 'columns' ? processed.columnLabels : processed.rowLabels;
+    const items = buildAxisItems(processed.matrix, labels, axis);
+    if(items.length < 2){
+      renderEmpty('Add at least two entries with numeric values to calculate correlations.');
+      updateStats(null);
+      return;
+    }
+    const matrix = Array.from({ length: items.length }, () => Array(items.length).fill(null));
+    let pairCount = 0;
+    let strongest = null;
+    let mostNegative = null;
+    for(let i = 0; i < items.length; i += 1){
+      const selfCount = items[i].vector.filter(value => Number.isFinite(value)).length;
+      matrix[i][i] = { raw: 1, display: 1, count: selfCount };
+      for(let j = i + 1; j < items.length; j += 1){
+        const entry = calculateCorrelationEntry(items[i].vector, items[j].vector, settings.correlationMethod);
+        const raw = Number.isFinite(entry.corr) ? entry.corr : NaN;
+        const display = Number.isFinite(raw) ? (settings.useAbsolute ? Math.abs(raw) : raw) : NaN;
+        matrix[i][j] = { raw, display, count: entry.count };
+        matrix[j][i] = { raw, display, count: entry.count };
+        if(Number.isFinite(raw)){
+          pairCount += 1;
+          const absValue = Math.abs(raw);
+          if(!strongest || absValue > strongest.abs){
+            strongest = {
+              labels: [items[i].label, items[j].label],
+              raw,
+              abs: absValue,
+              value: absValue,
+              count: entry.count
+            };
+          }
+          if(!mostNegative || raw < mostNegative.value){
+            mostNegative = {
+              labels: [items[i].label, items[j].label],
+              value: raw,
+              count: entry.count
+            };
+          }
+        }
+      }
+    }
+    const clusterConfig = axis === 'columns' ? settings.clustering.columns : settings.clustering.rows;
+    const positionByIndex = new Map(items.map((item, idx) => [item.index, idx]));
+    const clusterResult = clusterConfig.enabled && items.length > 1
+      ? hierarchicalCluster(items, clusterConfig.metric, settings.clustering.linkage)
+      : null;
+    const orderPositions = clusterResult
+      ? clusterResult.order.map(idx => positionByIndex.get(idx)).filter(idx => idx !== undefined)
+      : items.map((_, idx) => idx);
+    const orderedRowLabels = orderPositions.map(pos => items[pos].label);
+    const orderedCells = orderPositions.map(rowPos => orderPositions.map(colPos => {
+      const entry = matrix[rowPos][colPos];
+      const fill = entry && Number.isFinite(entry.raw)
+        ? colorForValue({ raw: entry.raw, value: entry.display }, {
+            negative: hexToRgb(settings.palette.negative || '#313695'),
+            zero: hexToRgb(settings.palette.zero || '#f7f7f7'),
+            positive: hexToRgb(settings.palette.positive || '#a50026')
+          }, settings.useAbsolute)
+        : '#d0d0d0';
+      const value = entry ? entry.display : NaN;
+      const title = entry
+        ? `${items[rowPos].label} vs ${items[colPos].label}: ${Number.isFinite(entry.display) ? entry.display.toFixed(settings.decimals ?? 2) : 'n/a'} (n=${entry.count})`
+        : '';
+      return { fill, value, title };
+    }));
+    const showRowDendrogram = !!(clusterResult && clusterConfig.showDendrogram);
+    const showColumnDendrogram = showRowDendrogram;
+    const colorScale = settings.useAbsolute
+      ? {
+          stops: [
+            { offset: 0, color: rgbToCss(hexToRgb(settings.palette.zero || '#f7f7f7')) },
+            { offset: 100, color: rgbToCss(hexToRgb(settings.palette.positive || '#a50026')) }
+          ],
+          ticks: [0, 0.25, 0.5, 0.75, 1].map(value => ({ value, label: value.toFixed(settings.decimals ?? 2) })),
+          valueToRatio: value => Math.min(1, Math.max(0, value))
+        }
+      : {
+          stops: [
+            { offset: 0, color: rgbToCss(hexToRgb(settings.palette.negative || '#313695')) },
+            { offset: 50, color: rgbToCss(hexToRgb(settings.palette.zero || '#f7f7f7')) },
+            { offset: 100, color: rgbToCss(hexToRgb(settings.palette.positive || '#a50026')) }
+          ],
+          ticks: [-1, -0.5, 0, 0.5, 1].map(value => ({ value, label: value.toFixed(settings.decimals ?? 2) })),
+          valueToRatio: value => (Math.min(1, Math.max(-1, value)) + 1) / 2
+        };
+    drawHeatmap({
+      orderedRowLabels,
+      orderedColumnLabels: orderedRowLabels,
+      orderedCells,
+      rowOrder: orderPositions.map(pos => items[pos].index),
+      columnOrder: orderPositions.map(pos => items[pos].index),
+      rowClustering: clusterResult,
+      columnClustering: clusterResult,
+      showRowDendrogram,
+      showColumnDendrogram,
+      maskLower: settings.maskLower,
+      cellSize: settings.cellSize,
+      fontSize: settings.fontSize,
+      showValues: settings.showValues,
+      decimals: settings.decimals,
+      colorScale
+    });
+    updateStats({
+      type: 'correlation',
+      itemCount: items.length,
+      pairCount,
+      method: settings.correlationMethod,
+      useAbs: settings.useAbsolute,
+      decimals: settings.decimals,
+      strongest,
+      mostNegative: settings.useAbsolute ? null : mostNegative,
+      rowClusterLabel: clusterResult && clusterConfig.enabled ? `${clusterConfig.metric} (${settings.clustering.linkage})` : null,
+      columnClusterLabel: clusterResult && clusterConfig.enabled ? `${clusterConfig.metric} (${settings.clustering.linkage})` : null,
+      rowDendrogram: showRowDendrogram,
+      columnDendrogram: showColumnDendrogram
+    });
+  }
+
+  function renderValuesHeatmap(processed, settings){
+    const rowItems = buildAxisItems(processed.matrix, processed.rowLabels, 'rows');
+    const columnItems = buildAxisItems(processed.matrix, processed.columnLabels, 'columns');
+    const rowPositionByIndex = new Map(rowItems.map((item, idx) => [item.index, idx]));
+    const columnPositionByIndex = new Map(columnItems.map((item, idx) => [item.index, idx]));
+    const rowCluster = settings.clustering.rows.enabled && rowItems.length > 1
+      ? hierarchicalCluster(rowItems, settings.clustering.rows.metric, settings.clustering.linkage)
+      : null;
+    const columnCluster = settings.clustering.columns.enabled && columnItems.length > 1
+      ? hierarchicalCluster(columnItems, settings.clustering.columns.metric, settings.clustering.linkage)
+      : null;
+    const rowOrderPositions = rowCluster
+      ? rowCluster.order.map(idx => rowPositionByIndex.get(idx)).filter(idx => idx !== undefined)
+      : rowItems.map((_, idx) => idx);
+    const columnOrderPositions = columnCluster
+      ? columnCluster.order.map(idx => columnPositionByIndex.get(idx)).filter(idx => idx !== undefined)
+      : columnItems.map((_, idx) => idx);
+    const orderedRowLabels = rowOrderPositions.map(pos => processed.rowLabels[pos]);
+    const orderedColumnLabels = columnOrderPositions.map(pos => processed.columnLabels[pos]);
+    const orderedMatrix = rowOrderPositions.map(rowPos => columnOrderPositions.map(colPos => processed.matrix[rowPos][colPos]));
+    const colorMapper = createValueColorMapper(processed.stats, settings.palette);
+    const orderedCells = orderedMatrix.map((row, rowIndex) => row.map((value, columnIndex) => {
+      const fill = colorMapper(value);
+      const title = `${orderedRowLabels[rowIndex]} vs ${orderedColumnLabels[columnIndex]}: ${Number.isFinite(value) ? value.toFixed(settings.decimals ?? 2) : 'n/a'}`;
+      return { fill, value, title };
+    }));
+    const min = processed.stats.min;
+    const max = processed.stats.max;
+    let stops;
+    if(Number.isFinite(min) && Number.isFinite(max) && min < 0 && max > 0){
+      stops = [
+        { offset: 0, color: rgbToCss(hexToRgb(settings.palette.negative || '#313695')) },
+        { offset: 50, color: rgbToCss(hexToRgb(settings.palette.zero || '#f7f7f7')) },
+        { offset: 100, color: rgbToCss(hexToRgb(settings.palette.positive || '#a50026')) }
+      ];
+    }else if(Number.isFinite(max) && max <= 0){
+      stops = [
+        { offset: 0, color: rgbToCss(hexToRgb(settings.palette.negative || '#313695')) },
+        { offset: 100, color: rgbToCss(hexToRgb(settings.palette.zero || '#f7f7f7')) }
+      ];
+    }else{
+      stops = [
+        { offset: 0, color: rgbToCss(hexToRgb(settings.palette.zero || '#f7f7f7')) },
+        { offset: 100, color: rgbToCss(hexToRgb(settings.palette.positive || '#a50026')) }
+      ];
+    }
+    const tickValues = [];
+    if(Number.isFinite(min) && Number.isFinite(max)){
+      for(let i = 0; i <= 4; i += 1){
+        const ratio = i / 4;
+        const value = min + (max - min) * ratio;
+        tickValues.push({ value, label: value.toFixed(settings.decimals ?? 2) });
+      }
+    }
+    const colorScale = {
+      stops,
+      ticks: tickValues,
+      valueToRatio: value => {
+        if(!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || min === max){
+          return 0;
+        }
+        if(min < 0 && max > 0){
+          const maxAbs = Math.max(Math.abs(min), Math.abs(max));
+          return (Math.min(maxAbs, Math.max(-maxAbs, value)) + maxAbs) / (2 * maxAbs);
+        }
+        return (value - min) / (max - min);
+      }
+    };
+    const showRowDendrogram = !!(rowCluster && settings.clustering.rows.showDendrogram);
+    const showColumnDendrogram = !!(columnCluster && settings.clustering.columns.showDendrogram);
+    drawHeatmap({
+      orderedRowLabels,
+      orderedColumnLabels,
+      orderedCells,
+      rowOrder: rowOrderPositions.map(pos => rowItems[pos].index),
+      columnOrder: columnOrderPositions.map(pos => columnItems[pos].index),
+      rowClustering: rowCluster,
+      columnClustering: columnCluster,
+      showRowDendrogram,
+      showColumnDendrogram,
+      maskLower: false,
+      cellSize: settings.cellSize,
+      fontSize: settings.fontSize,
+      showValues: settings.showValues,
+      decimals: settings.decimals,
+      colorScale
+    });
+    updateStats({
+      type: 'values',
+      rowCount: orderedRowLabels.length,
+      columnCount: orderedColumnLabels.length,
+      min,
+      max,
+      mean: processed.stats.mean,
+      decimals: settings.decimals,
+      finiteCount: processed.stats.finiteCount,
+      rowsFiltered: processed.stats.rowsFiltered,
+      columnsRemoved: processed.stats.columnsRemoved,
+      logApplied: processed.stats.logApplied,
+      rowClusterLabel: rowCluster && settings.clustering.rows.enabled ? `${settings.clustering.rows.metric} (${settings.clustering.linkage})` : null,
+      columnClusterLabel: columnCluster && settings.clustering.columns.enabled ? `${settings.clustering.columns.metric} (${settings.clustering.linkage})` : null,
+      rowDendrogram: showRowDendrogram,
+      columnDendrogram: showColumnDendrogram,
+      adjustments: processed.adjustmentSummary
+    });
   }
 
   function draw(){
@@ -738,672 +2223,164 @@
         console.debug('Debug: heatmap draw skipped - missing hot or svg');
         return;
       }
-      const data = typeof state.hot.getData === 'function' ? state.hot.getData() : [];
-      if(!Array.isArray(data) || !data.length){
-        if(refs.showDendrogram){
-          refs.showDendrogram.disabled = true;
+      const settings = collectSettings();
+      const processed = prepareProcessedData(settings);
+      if(!processed.ok){
+        const reason = processed.reason;
+        if(reason === 'no-data'){
+          renderEmpty('Add numeric data to draw the heatmap.');
+          updateStats(null);
+        }else if(reason === 'filtered-out'){
+          renderEmpty('No rows passed the current filters. Adjust your thresholds to view data.');
+          updateStats({ type: 'empty', message: 'No rows passed the current filters.' });
+        }else if(reason === 'adjustment-empty'){
+          renderEmpty('All columns were removed after adjustments. Check normalization and centering settings.');
+          updateStats({ type: 'empty', message: 'All columns were removed after adjustments.' });
         }
-        renderEmpty('Add numeric data to draw the heatmap');
-        updateStats(null);
         return;
       }
-      const header = Array.isArray(data[0]) ? data[0] : [];
-      const rows = data.slice(1);
-      const columns = header.map((label, colIndex) => {
-        const cleanLabel = (label && String(label).trim()) || `Column ${colIndex + 1}`;
-        const values = [];
-        for(let rowIndex = 0; rowIndex < rows.length; rowIndex += 1){
-          const raw = rows[rowIndex]?.[colIndex];
-          const value = parseNumber(raw);
-          if(Number.isFinite(value)){
-            values.push({ rowIndex, value });
-          }
-        }
-        return { label: cleanLabel, values, colIndex };
-      }).filter(col => col.values.length >= 2);
-
-      console.debug('Debug: heatmap column summary', { totalColumns: header.length, usable: columns.length });
-      if(columns.length < 2){
-        if(refs.showDendrogram){
-          refs.showDendrogram.disabled = true;
-        }
-        renderEmpty('Enter at least two numeric columns with multiple values.');
-        updateStats(null);
-        return;
-      }
-
-      const method = refs.method?.value || 'pearson';
-      const useAbs = !!refs.absValues?.checked;
-      const maskLower = !!refs.maskLower?.checked;
-      const showValues = !!refs.showValues?.checked;
-      const decimals = clampDecimals(refs.decimals?.value);
-      const cellSize = Math.max(12, Number(refs.cellSize?.value) || 60);
-      const requestedFontSize = Math.max(8, Number(refs.fontSize?.value) || 12);
-      const requestedLabelAngleRaw = Number(refs.labelAngle?.value);
-      const labelAngle = COLUMN_LABEL_VERTICAL_ANGLE;
-      if(refs.labelAngle && requestedLabelAngleRaw !== labelAngle){
-        refs.labelAngle.value = String(labelAngle);
-      }
-      console.debug('Debug: heatmap column label angle enforced', {
-        requested: Number.isFinite(requestedLabelAngleRaw) ? requestedLabelAngleRaw : null,
-        applied: labelAngle
-      });
-      const svgBox = state.svgBox || state.svg.closest('.svgbox');
-      if(svgBox && !state.svgBox){
-        state.svgBox = svgBox;
-      }
-      let fontInfo = null;
-      let fontSizePx = requestedFontSize;
-      if(chartStyle.computeFontInfoForSvg){
-        fontInfo = chartStyle.computeFontInfoForSvg({
-          svgBox,
-          rawSize: requestedFontSize,
-          debugLabel: 'heatmap-font-info',
-          input: refs.fontSize
-        });
-        if(Number.isFinite(fontInfo?.scaledPx)){
-          fontSizePx = fontInfo.scaledPx;
-        }
-      }else if(chartStyle.resolveScaledFontSize){
-        const rect = svgBox && typeof svgBox.getBoundingClientRect === 'function' ? svgBox.getBoundingClientRect() : null;
-        fontInfo = chartStyle.resolveScaledFontSize({
-          rawSize: requestedFontSize,
-          width: rect?.width,
-          height: rect?.height,
-          svgBox,
-          input: refs.fontSize
-        });
-        if(Number.isFinite(fontInfo?.scaledPx)){
-          fontSizePx = fontInfo.scaledPx;
-        }
-      }
-      if(chartStyle.renderFontSizeLabel){
-        chartStyle.renderFontSizeLabel({
-          element: refs.fontSizeVal,
-          fontInfo,
-          pt: fontInfo?.pt ?? requestedFontSize,
-          scaledPx: fontSizePx,
-          input: refs.fontSize
-        });
-      }
-      const palette = {
-        negative: hexToRgb(refs.colorNegative?.value || '#313695'),
-        zero: hexToRgb(refs.colorZero?.value || '#f7f7f7'),
-        positive: hexToRgb(refs.colorPositive?.value || '#a50026')
-      };
-
-      const matrix = [];
-      const stats = {
-        columnCount: columns.length,
-        pairCount: 0,
-        strongest: null,
-        mostNegative: null,
-        method,
-        useAbs,
-        decimals,
-        clusterMode: 'none',
-        clusterMethod: null,
-        clusterOrder: []
-      };
-
-      for(let i = 0; i < columns.length; i += 1){
-        matrix[i] = [];
-        for(let j = 0; j < columns.length; j += 1){
-          if(i === j){
-            matrix[i][j] = { raw: 1, value: 1, count: columns[i].values.length };
-            continue;
-          }
-          const pair = calculateColumnCorrelation(columns[i], columns[j], method);
-          const raw = Number.isFinite(pair.corr) ? pair.corr : NaN;
-          const display = Number.isFinite(raw) ? (useAbs ? Math.abs(raw) : raw) : NaN;
-          matrix[i][j] = { raw, value: display, count: pair.count };
-          if(Number.isFinite(raw)){
-            const absCorr = Math.abs(raw);
-            if(i < j){
-              stats.pairCount += 1;
-              if(!stats.strongest || absCorr > stats.strongest.abs){
-                const strongestEntry = {
-                  labels: [columns[i].label, columns[j].label],
-                  raw,
-                  magnitude: absCorr,
-                  abs: absCorr,
-                  count: pair.count,
-                  value: useAbs ? display : absCorr
-                };
-                console.debug('Debug: heatmap strongest correlation candidate', { strongestEntry }); // Debug: track strongest update
-                stats.strongest = strongestEntry;
-              }
-              if(!stats.mostNegative || raw < stats.mostNegative.value){
-                stats.mostNegative = {
-                  labels: [columns[i].label, columns[j].label],
-                  value: raw,
-                  count: pair.count
-                };
-              }
-            }
-          }
-        }
-      }
-
-      const clusterMode = refs.cluster?.value || 'none';
-      const identityOrder = columns.map((_, index) => index);
-      let order = identityOrder;
-      let clusterMethod = null;
-      let clusteringApplied = false;
-      let clusteringDetails = null;
-      if(clusterMode && clusterMode !== 'none' && columns.length > 1){
-        clusterMethod = clusterMode === 'method' ? method : clusterMode;
-        const computed = clusterColumns(columns, clusterMethod);
-        if(computed && Array.isArray(computed.order) && computed.order.length === columns.length){
-          order = computed.order;
-          clusteringApplied = true;
-          clusteringDetails = computed;
-          console.debug('Debug: heatmap clustering applied', {
-            clusterMode,
-            clusterMethod,
-            order,
-            maxDistance: computed.maxDistance
-          });
-        }else{
-          console.debug('Debug: heatmap clustering skipped due to invalid order', {
-            clusterMode,
-            clusterMethod,
-            computed
-          });
-        }
-      }
-      if(refs.showDendrogram){
-        refs.showDendrogram.disabled = !clusteringApplied;
-      }
-      const dendrogramRequested = clusteringApplied && (refs.showDendrogram ? refs.showDendrogram.checked !== false : false);
-      const shouldRenderDendrogram = dendrogramRequested && clusteringDetails?.tree;
-      if(refs.showDendrogram){
-        console.debug('Debug: heatmap dendrogram availability', {
-          enabled: !refs.showDendrogram.disabled,
-          requested: !!dendrogramRequested,
-          willRender: !!shouldRenderDendrogram
-        });
-      }
-      stats.clusterMode = clusteringApplied ? (clusterMode || 'none') : 'none';
-      stats.clusterMethod = clusteringApplied ? clusterMethod : null;
-      stats.clusterOrder = order.slice();
-      stats.showDendrogram = !!shouldRenderDendrogram;
-
-      const orderedColumns = order.map(index => columns[index]);
-      const orderedMatrix = order.map(i => order.map(j => matrix[i][j]));
-
-      while(state.svg.firstChild){
-        state.svg.removeChild(state.svg.firstChild);
-      }
-
-      const labelStrings = orderedColumns.map(col => col.label);
-      const baseMarginLeft = 140;
-      const baseMarginTop = 140;
-      let marginLeft = baseMarginLeft;
-      let marginTop = baseMarginTop;
-      let labelClearance = 0;
-      let topPaddingInfo = null;
-      if(typeof chartStyle.ensureLabelPadding === 'function'){
-        const leftSafe = chartStyle.ensureLabelPadding(marginLeft, {
-          labels: labelStrings,
-          fontSize: fontSizePx,
-          units: 'px',
-          angle: 0,
-          basePadding: Math.max(fontSizePx * 0.6, 16),
-          direction: 'horizontal',
-          debugLabel: 'heatmap-row-labels'
-        });
-        marginLeft = leftSafe.margin;
-        const topSafe = chartStyle.ensureLabelPadding(marginTop, {
-          labels: labelStrings,
-          fontSize: fontSizePx,
-          units: 'px',
-          angle: labelAngle,
-          basePadding: Math.max(fontSizePx * 0.6, 16),
-          direction: 'vertical',
-          debugLabel: 'heatmap-column-labels'
-        });
-        marginTop = topSafe.margin;
-        topPaddingInfo = topSafe.info;
-        labelClearance = Math.max(labelClearance, Math.ceil(topSafe.required || 0));
-        console.debug('Debug: heatmap margin safeguard applied', {
-          marginLeft,
-          marginTop,
-          rowRequired: leftSafe.required,
-          columnRequired: topSafe.required,
-          fontSizePx,
-          labelClearance
-        });
-      }
-      const baseTopSpacing = Math.max(fontSizePx, 16);
-      const minBaselineGap = Math.max(3, Math.round(fontSizePx * 0.25));
-      const baselineAllowance = Math.max(2, Math.round(fontSizePx * 0.15));
-      let columnLabelOffset = minBaselineGap + baselineAllowance;
-      if(topPaddingInfo){
-        const shearComponent = Math.abs(topPaddingInfo.cos || 0) * fontSizePx;
-        const downward = Math.abs(topPaddingInfo.sin || 0) * (topPaddingInfo.maxLabelWidth || 0);
-        const shearAllowance = Math.ceil(shearComponent * 0.2);
-        const tunedOffset = Math.max(columnLabelOffset, minBaselineGap + baselineAllowance + shearAllowance);
-        columnLabelOffset = tunedOffset;
-        console.debug('Debug: heatmap vertical label clearance tuned', {
-          minBaselineGap,
-          baselineAllowance,
-          shearComponent,
-          shearAllowance,
-          downward,
-          columnLabelOffset
-        });
+      if(settings.view === 'values'){
+        renderValuesHeatmap(processed, settings);
       }else{
-        console.debug('Debug: heatmap vertical label clearance default', {
-          minBaselineGap,
-          baselineAllowance,
-          columnLabelOffset
-        });
+        renderCorrelationHeatmap(processed, settings);
       }
-      const columnLabelClearance = columnLabelOffset + baseTopSpacing;
-      labelClearance = Math.max(labelClearance, columnLabelClearance);
-      console.debug('Debug: heatmap column label offset computed', {
-        columnLabelOffset,
-        labelAngle,
-        fontSizePx,
-        baseTopSpacing,
-        columnLabelClearance,
-        labelClearance
-      });
-      if(marginTop < columnLabelClearance){
-        console.debug('Debug: heatmap top margin increased for labels', {
-          previousMarginTop: marginTop,
-          columnLabelClearance,
-          columnLabelOffset,
-          fontSizePx,
-          labelClearance
-        });
-        marginTop = columnLabelClearance;
-      }
-      const baseColumnLabelOffset = columnLabelOffset;
-      const baseLabelClearance = labelClearance;
-      const marginBottom = 60;
-      let marginRight = 60;
-      let dendrogramPadding = 0;
-      let dendrogramWidth = 0;
-      if(shouldRenderDendrogram){
-        dendrogramPadding = Math.min(24, Math.max(6, Math.round(cellSize * 0.2)));
-        dendrogramWidth = Math.min(200, Math.max(60, Math.round(cellSize * 1.5)));
-        marginRight += dendrogramPadding + dendrogramWidth;
-        console.debug('Debug: heatmap dendrogram layout prepared', {
-          dendrogramPadding,
-          dendrogramWidth
-        });
-      }
-      const scalePadding = Math.min(40, Math.max(16, Math.round(cellSize * 0.3)));
-      const scaleWidth = Math.min(36, Math.max(12, Math.round(cellSize * 0.35)));
-      const scaleLabelGap = Math.max(40, Math.round((fontInfo?.scaledPx || fontSizePx || 12) * 2.4));
-      const scaleReserved = scalePadding + scaleWidth + scaleLabelGap;
-      marginRight += scaleReserved;
-      console.debug('Debug: heatmap color scale layout reserved', {
-        scalePadding,
-        scaleWidth,
-        scaleLabelGap,
-        scaleReserved
-      });
-      const totalSize = orderedColumns.length * cellSize;
-      const width = marginLeft + totalSize + marginRight;
-      let height = marginTop + totalSize + marginBottom;
-      const dendrogramStartX = shouldRenderDendrogram ? marginLeft + totalSize + dendrogramPadding : marginLeft + totalSize;
-      if(shouldRenderDendrogram){
-        console.debug('Debug: heatmap dendrogram coordinates prepared', {
-          dendrogramStartX,
-          heatmapRight: marginLeft + totalSize
-        });
-      }
-      state.svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-
-      let viewScaleInfo = chartStyle.computeViewBoxScale ? chartStyle.computeViewBoxScale({
-        svgBox: state.svgBox,
-        svg: state.svg,
-        viewBoxWidth: width,
-        viewBoxHeight: height,
-        debugLabel: 'heatmap'
-      }) : { scale: 1, scaleX: 1, scaleY: 1 };
-      let renderFontSizePx = fontSizePx;
-      if(chartStyle.adjustFontSizeForViewBox){
-        const adjusted = chartStyle.adjustFontSizeForViewBox(fontInfo || { scaledPx: fontSizePx }, viewScaleInfo, { min: 4, debugLabel: 'heatmap' });
-        if(adjusted && Number.isFinite(adjusted.fontSizePx)){
-          renderFontSizePx = adjusted.fontSizePx;
-        }
-      }else if(viewScaleInfo && Number.isFinite(viewScaleInfo.scale) && viewScaleInfo.scale > 0){
-        renderFontSizePx = fontSizePx / viewScaleInfo.scale;
-      }
-      const safeBaseFontPx = fontSizePx > 0 ? fontSizePx : (renderFontSizePx > 0 ? renderFontSizePx : 1);
-      const computeScaledLabelSpacing = scaleValue => {
-        const safeScale = Number.isFinite(scaleValue) && scaleValue > 0 ? scaleValue : 1;
-        const scaledOffset = Math.max(Math.ceil(baseColumnLabelOffset * safeScale), Math.ceil(baseColumnLabelOffset));
-        const scaledTopSpacing = Math.max(Math.ceil(baseTopSpacing * safeScale), Math.ceil(baseTopSpacing));
-        const scaledClearance = Math.max(Math.ceil(baseLabelClearance * safeScale), scaledOffset + scaledTopSpacing);
-        return { scale: safeScale, offset: scaledOffset, clearance: scaledClearance, topSpacing: scaledTopSpacing };
-      };
-      let fontScale = safeBaseFontPx > 0 ? renderFontSizePx / safeBaseFontPx : 1;
-      let scaledSpacing = computeScaledLabelSpacing(fontScale);
-      if(scaledSpacing.scale !== 1){
-        console.debug('Debug: heatmap label clearance scaled', {
-          fontScale: scaledSpacing.scale,
-          scaledOffset: scaledSpacing.offset,
-          scaledClearance: scaledSpacing.clearance,
-          scaledTopSpacing: scaledSpacing.topSpacing
-        });
-      }
-      if(marginTop < scaledSpacing.clearance){
-        console.debug('Debug: heatmap margin scaled for labels', {
-          previousMarginTop: marginTop,
-          scaledClearance: scaledSpacing.clearance
-        });
-        marginTop = scaledSpacing.clearance;
-        const previousHeight = height;
-        height = marginTop + totalSize + marginBottom;
-        if(height !== previousHeight){
-          state.svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-          if(chartStyle.computeViewBoxScale){
-            viewScaleInfo = chartStyle.computeViewBoxScale({
-              svgBox: state.svgBox,
-              svg: state.svg,
-              viewBoxWidth: width,
-              viewBoxHeight: height,
-              debugLabel: 'heatmap'
-            });
-          }
-          if(chartStyle.adjustFontSizeForViewBox){
-            const adjusted = chartStyle.adjustFontSizeForViewBox(fontInfo || { scaledPx: fontSizePx }, viewScaleInfo, { min: 4, debugLabel: 'heatmap' });
-            if(adjusted && Number.isFinite(adjusted.fontSizePx)){
-              renderFontSizePx = adjusted.fontSizePx;
-            }
-          }else if(viewScaleInfo && Number.isFinite(viewScaleInfo.scale) && viewScaleInfo.scale > 0){
-            renderFontSizePx = fontSizePx / viewScaleInfo.scale;
-          }
-          fontScale = safeBaseFontPx > 0 ? renderFontSizePx / safeBaseFontPx : 1;
-          scaledSpacing = computeScaledLabelSpacing(fontScale);
-          console.debug('Debug: heatmap label clearance recomputed', {
-            fontScale: scaledSpacing.scale,
-            scaledOffset: scaledSpacing.offset,
-            scaledClearance: scaledSpacing.clearance,
-            scaledTopSpacing: scaledSpacing.topSpacing
-          });
-          if(marginTop < scaledSpacing.clearance){
-            marginTop = scaledSpacing.clearance;
-            height = marginTop + totalSize + marginBottom;
-            state.svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-            console.debug('Debug: heatmap margin secondary scaling applied', {
-              marginTop,
-              height
-            });
-          }
-        }
-      }
-      columnLabelOffset = scaledSpacing.offset;
-      labelClearance = scaledSpacing.clearance;
-      console.debug('Debug: heatmap render font size resolved', {
-        requested: requestedFontSize,
-        scaledPx: fontSizePx,
-        renderFontSizePx,
-        viewScale: viewScaleInfo?.scale,
-        locked: fontInfo?.textLocked,
-        fontScale: scaledSpacing.scale,
-        marginTop,
-        columnLabelOffset,
-        labelClearance
-      });
-
-      const doc = global.document;
-      const defs = doc.createElementNS(NS, 'defs');
-      state.svg.appendChild(defs);
-      const g = doc.createElementNS(NS, 'g');
-      state.svg.appendChild(g);
-
-      if(shouldRenderDendrogram && clusteringDetails?.tree){
-        renderDendrogram({
-          doc,
-          parent: g,
-          tree: clusteringDetails.tree,
-          order,
-          startX: dendrogramStartX,
-          width: dendrogramWidth,
-          marginTop,
-          cellSize,
-          maxDistance: clusteringDetails.maxDistance
-        });
-      }
-
-      const gradientId = 'heatmap-scale-gradient';
-      const gradient = doc.createElementNS(NS, 'linearGradient');
-      gradient.setAttribute('id', gradientId);
-      gradient.setAttribute('x1', '0%');
-      gradient.setAttribute('x2', '0%');
-      gradient.setAttribute('y1', '100%');
-      gradient.setAttribute('y2', '0%');
-      const appendStop = (offset, color) => {
-        const stop = doc.createElementNS(NS, 'stop');
-        stop.setAttribute('offset', `${offset}%`);
-        stop.setAttribute('stop-color', color);
-        gradient.appendChild(stop);
-      };
-      if(useAbs){
-        appendStop(0, rgbToCss(palette.zero));
-        appendStop(100, rgbToCss(palette.positive));
-      }else{
-        appendStop(0, rgbToCss(palette.negative));
-        appendStop(50, rgbToCss(palette.zero));
-        appendStop(100, rgbToCss(palette.positive));
-      }
-      defs.appendChild(gradient);
-      console.debug('Debug: heatmap color scale gradient prepared', {
-        useAbs,
-        stops: gradient.children.length
-      });
-
-      const scaleX = marginLeft + totalSize + (shouldRenderDendrogram ? dendrogramPadding + dendrogramWidth : 0) + scalePadding;
-      const scaleY = marginTop;
-      const scaleHeight = totalSize;
-      const scaleGroup = doc.createElementNS(NS, 'g');
-      scaleGroup.setAttribute('class', 'heatmap-color-scale');
-      const scaleRect = doc.createElementNS(NS, 'rect');
-      scaleRect.setAttribute('x', String(scaleX));
-      scaleRect.setAttribute('y', String(scaleY));
-      scaleRect.setAttribute('width', String(scaleWidth));
-      scaleRect.setAttribute('height', String(scaleHeight));
-      scaleRect.setAttribute('fill', `url(#${gradientId})`);
-      scaleRect.setAttribute('stroke', '#333');
-      scaleRect.setAttribute('stroke-width', '1');
-      scaleGroup.appendChild(scaleRect);
-
-      const tickStartX = scaleX + scaleWidth;
-      const tickLabelX = tickStartX + Math.max(8, Math.round(scaleLabelGap * 0.4));
-      const tickLength = Math.max(6, Math.round(scaleWidth * 0.35));
-      const tickFontSize = Math.max(8, Math.round(renderFontSizePx));
-
-      const valueToY = value => {
-        if(useAbs){
-          const clamped = Math.min(1, Math.max(0, value));
-          return scaleY + (1 - clamped) * scaleHeight;
-        }
-        const clamped = Math.min(1, Math.max(-1, value));
-        const normalized = (clamped + 1) / 2;
-        return scaleY + (1 - normalized) * scaleHeight;
-      };
-      const tickValues = useAbs ? [0, 0.25, 0.5, 0.75, 1] : [-1, -0.5, 0, 0.5, 1];
-      tickValues.forEach(value => {
-        const y = valueToY(value);
-        const line = doc.createElementNS(NS, 'line');
-        line.setAttribute('x1', String(tickStartX));
-        line.setAttribute('x2', String(tickStartX + tickLength));
-        line.setAttribute('y1', String(y));
-        line.setAttribute('y2', String(y));
-        line.setAttribute('stroke', '#333');
-        line.setAttribute('stroke-width', '1');
-        scaleGroup.appendChild(line);
-        const text = doc.createElementNS(NS, 'text');
-        text.setAttribute('x', String(tickLabelX));
-        text.setAttribute('y', String(y));
-        text.setAttribute('dominant-baseline', 'middle');
-        text.setAttribute('font-size', String(tickFontSize));
-        text.textContent = value.toFixed(decimals);
-        scaleGroup.appendChild(text);
-        markFontEditable(text, 'scaleTick', 'scale-tick');
-      });
-      g.appendChild(scaleGroup);
-      console.debug('Debug: heatmap color scale rendered', {
-        tickCount: tickValues.length,
-        scaleX,
-        scaleY,
-        scaleHeight
-      });
-
-      for(let i = 0; i < orderedColumns.length; i += 1){
-        const rowLabel = doc.createElementNS(NS, 'text');
-        rowLabel.setAttribute('x', String(marginLeft - 12));
-        rowLabel.setAttribute('y', String(marginTop + i * cellSize + cellSize / 2));
-        rowLabel.setAttribute('text-anchor', 'end');
-        rowLabel.setAttribute('dominant-baseline', 'middle');
-        rowLabel.setAttribute('font-size', String(renderFontSizePx));
-        rowLabel.textContent = orderedColumns[i].label;
-        g.appendChild(rowLabel);
-        markFontEditable(rowLabel, 'rowLabel', 'row-label');
-      }
-
-      for(let j = 0; j < orderedColumns.length; j += 1){
-        const colLabel = doc.createElementNS(NS, 'text');
-        const labelX = marginLeft + j * cellSize + cellSize / 2;
-        const labelY = marginTop - columnLabelOffset;
-        colLabel.setAttribute('x', String(labelX));
-        colLabel.setAttribute('y', String(labelY));
-        colLabel.setAttribute('font-size', String(renderFontSizePx));
-        if(labelAngle > 0){
-          colLabel.setAttribute('dominant-baseline', 'text-after-edge');
-          colLabel.setAttribute('alignment-baseline', 'after-edge');
-        }else{
-          colLabel.setAttribute('dominant-baseline', 'alphabetic');
-        }
-        if(labelAngle > 0){
-          colLabel.setAttribute('transform', `rotate(${-labelAngle} ${labelX} ${labelY})`);
-          colLabel.setAttribute('text-anchor', 'start');
-          console.debug('Debug: heatmap vertical column label anchor set', {
-            columnIndex: j,
-            label: orderedColumns[j].label,
-            anchor: 'start',
-            labelX,
-            labelY,
-            columnLabelOffset
-          });
-        }else{
-          colLabel.setAttribute('text-anchor', 'middle');
-        }
-        colLabel.textContent = orderedColumns[j].label;
-        g.appendChild(colLabel);
-        markFontEditable(colLabel, 'columnLabel', 'column-label');
-      }
-
-      for(let i = 0; i < orderedColumns.length; i += 1){
-        for(let j = 0; j < orderedColumns.length; j += 1){
-          if(maskLower && j < i){
-            continue;
-          }
-          const entry = orderedMatrix[i][j];
-          const x = marginLeft + j * cellSize;
-          const y = marginTop + i * cellSize;
-          const rect = doc.createElementNS(NS, 'rect');
-          rect.setAttribute('x', String(x));
-          rect.setAttribute('y', String(y));
-          rect.setAttribute('width', String(cellSize));
-          rect.setAttribute('height', String(cellSize));
-          rect.setAttribute('stroke', '#fff');
-          rect.setAttribute('stroke-width', '1');
-          const fill = colorForValue(entry, palette, useAbs);
-          rect.setAttribute('fill', fill);
-          const title = doc.createElementNS(NS, 'title');
-          title.textContent = `${orderedColumns[i].label} vs ${orderedColumns[j].label}: ${Number.isFinite(entry.value) ? entry.value.toFixed(decimals) : 'n/a'} (n=${entry.count})`;
-          rect.appendChild(title);
-          g.appendChild(rect);
-
-          if(showValues && Number.isFinite(entry.value)){
-            const text = doc.createElementNS(NS, 'text');
-            text.setAttribute('x', String(x + cellSize / 2));
-            text.setAttribute('y', String(y + cellSize / 2));
-            text.setAttribute('text-anchor', 'middle');
-            text.setAttribute('dominant-baseline', 'middle');
-            text.setAttribute('font-size', String(renderFontSizePx));
-            text.setAttribute('fill', textColorForBackground(fill));
-            text.textContent = entry.value.toFixed(decimals);
-            g.appendChild(text);
-            markFontEditable(text, 'cellValue', 'cell-value');
-          }
-        }
-      }
-
-      updateStats(stats);
-
-      ensureGraphViewport(state.svg, { padding: Math.max(renderFontSizePx, 16), debugLabel: 'heatmap-graph' });
-      state.layout?.syncPanels?.({ skipSchedule: true });
-      console.debug('Debug: heatmap draw complete', {
-        columns: orderedColumns.length,
-        method,
-        useAbs,
-        maskLower,
-        showValues,
-        clusterMode: stats.clusterMode,
-        clusterMethod: stats.clusterMethod,
-        showDendrogram: shouldRenderDendrogram
-      });
     }catch(err){
       console.error('heatmap draw error', err);
     }
   }
-
   function getConfig(){
     return {
+      view: refs.view?.value || 'corr-columns',
       method: refs.method?.value || 'pearson',
-      cluster: refs.cluster?.value || 'none',
-      showDendrogram: refs.showDendrogram ? !!refs.showDendrogram.checked : false,
-      abs: !!refs.absValues?.checked,
+      useAbsolute: !!refs.absValues?.checked,
       maskLower: !!refs.maskLower?.checked,
       showValues: !!refs.showValues?.checked,
       decimals: clampDecimals(refs.decimals?.value),
-      colorNegative: refs.colorNegative?.value || '#313695',
-      colorZero: refs.colorZero?.value || '#f7f7f7',
-      colorPositive: refs.colorPositive?.value || '#a50026',
+      colors: {
+        negative: refs.colorNegative?.value || '#313695',
+        zero: refs.colorZero?.value || '#f7f7f7',
+        positive: refs.colorPositive?.value || '#a50026'
+      },
       cellSize: Number(refs.cellSize?.value) || 60,
-      labelAngle: COLUMN_LABEL_VERTICAL_ANGLE,
-      fontSize: Number(refs.fontSize?.value) || 12
+      fontSize: Number(refs.fontSize?.value) || 12,
+      filters: {
+        presentEnabled: !!refs.filterPresentEnable?.checked,
+        presentThreshold: Number(refs.filterPresentValue?.value),
+        sdEnabled: !!refs.filterSdEnable?.checked,
+        sdThreshold: Number(refs.filterSdValue?.value),
+        absEnabled: !!refs.filterAbsEnable?.checked,
+        absCount: Number(refs.filterAbsCount?.value),
+        absValue: Number(refs.filterAbsValue?.value),
+        rangeEnabled: !!refs.filterRangeEnable?.checked,
+        rangeThreshold: Number(refs.filterRangeValue?.value)
+      },
+      adjust: {
+        logTransform: !!refs.logTransform?.checked,
+        centerRows: refs.centerGenes?.checked ? (getCheckedRadioValue('heatmapCenterGenesMode') || 'mean') : null,
+        centerColumns: refs.centerArrays?.checked ? (getCheckedRadioValue('heatmapCenterArraysMode') || 'mean') : null,
+        normalizeRows: !!refs.normalizeGenes?.checked,
+        normalizeColumns: !!refs.normalizeArrays?.checked
+      },
+      clustering: {
+        rows: {
+          enabled: !!refs.clusterGenes?.checked,
+          metric: refs.genesMetric?.value || 'pearson',
+          showDendrogram: !!refs.showRowDendrogram?.checked
+        },
+        columns: {
+          enabled: !!refs.clusterArrays?.checked,
+          metric: refs.arraysMetric?.value || 'pearson',
+          showDendrogram: !!refs.showColumnDendrogram?.checked
+        },
+        linkage: refs.linkage?.value || 'average'
+      }
     };
   }
 
   function applyConfig(config){
     if(!config) return;
+    if(refs.view){
+      refs.view.value = config.view || 'corr-columns';
+      refs.view.dispatchEvent(new Event('change'));
+    }
     if(refs.method) refs.method.value = config.method || 'pearson';
-    if(refs.cluster) refs.cluster.value = config.cluster || 'none';
-    if(refs.showDendrogram) refs.showDendrogram.checked = config.showDendrogram !== false;
-    if(refs.absValues) refs.absValues.checked = !!config.abs;
+    if(refs.absValues) refs.absValues.checked = !!config.useAbsolute;
     if(refs.maskLower) refs.maskLower.checked = !!config.maskLower;
     if(refs.showValues) refs.showValues.checked = config.showValues !== false;
     if(refs.decimals) refs.decimals.value = String(clampDecimals(config.decimals));
-    if(refs.colorNegative) refs.colorNegative.value = config.colorNegative || '#313695';
-    if(refs.colorZero) refs.colorZero.value = config.colorZero || '#f7f7f7';
-    if(refs.colorPositive) refs.colorPositive.value = config.colorPositive || '#a50026';
+    if(refs.colorNegative) refs.colorNegative.value = config.colors?.negative || '#313695';
+    if(refs.colorZero) refs.colorZero.value = config.colors?.zero || '#f7f7f7';
+    if(refs.colorPositive) refs.colorPositive.value = config.colors?.positive || '#a50026';
     if(refs.cellSize){
       refs.cellSize.value = String(config.cellSize || 60);
-      refs.cellSizeVal.textContent = refs.cellSize.value;
-    }
-    if(refs.labelAngle){
-      const incomingAngle = Number(config.labelAngle);
-      refs.labelAngle.value = String(COLUMN_LABEL_VERTICAL_ANGLE);
-      console.debug('Debug: heatmap label angle config override', {
-        incoming: Number.isFinite(incomingAngle) ? incomingAngle : null,
-        enforced: COLUMN_LABEL_VERTICAL_ANGLE
-      });
+      if(refs.cellSizeVal){ refs.cellSizeVal.textContent = refs.cellSize.value; }
+      refs.cellSize.dispatchEvent(new Event('input'));
     }
     if(refs.fontSize){
       refs.fontSize.value = String(config.fontSize || 12);
-      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value) });
+      refs.fontSize.dispatchEvent(new Event('input'));
+    }
+    if(refs.filterPresentEnable){
+      refs.filterPresentEnable.checked = !!config.filters?.presentEnabled;
+      if(refs.filterPresentValue) refs.filterPresentValue.value = Number.isFinite(config.filters?.presentThreshold) ? config.filters.presentThreshold : 80;
+      refs.filterPresentEnable.dispatchEvent(new Event('change'));
+    }
+    if(refs.filterSdEnable){
+      refs.filterSdEnable.checked = !!config.filters?.sdEnabled;
+      if(refs.filterSdValue) refs.filterSdValue.value = Number.isFinite(config.filters?.sdThreshold) ? config.filters.sdThreshold : 0;
+      refs.filterSdEnable.dispatchEvent(new Event('change'));
+    }
+    if(refs.filterAbsEnable){
+      refs.filterAbsEnable.checked = !!config.filters?.absEnabled;
+      if(refs.filterAbsCount) refs.filterAbsCount.value = Number.isFinite(config.filters?.absCount) ? config.filters.absCount : 1;
+      if(refs.filterAbsValue) refs.filterAbsValue.value = Number.isFinite(config.filters?.absValue) ? config.filters.absValue : 0;
+      refs.filterAbsEnable.dispatchEvent(new Event('change'));
+    }
+    if(refs.filterRangeEnable){
+      refs.filterRangeEnable.checked = !!config.filters?.rangeEnabled;
+      if(refs.filterRangeValue) refs.filterRangeValue.value = Number.isFinite(config.filters?.rangeThreshold) ? config.filters.rangeThreshold : 0;
+      refs.filterRangeEnable.dispatchEvent(new Event('change'));
+    }
+    if(refs.logTransform) refs.logTransform.checked = !!config.adjust?.logTransform;
+    if(refs.centerGenes){
+      refs.centerGenes.checked = !!config.adjust?.centerRows;
+      const mode = config.adjust?.centerRows || 'mean';
+      const radio = global.document.querySelector(`input[name="heatmapCenterGenesMode"][value="${mode}"]`);
+      if(radio) radio.checked = true;
+      refs.centerGenes.dispatchEvent(new Event('change'));
+    }
+    if(refs.centerArrays){
+      refs.centerArrays.checked = !!config.adjust?.centerColumns;
+      const mode = config.adjust?.centerColumns || 'mean';
+      const radio = global.document.querySelector(`input[name="heatmapCenterArraysMode"][value="${mode}"]`);
+      if(radio) radio.checked = true;
+      refs.centerArrays.dispatchEvent(new Event('change'));
+    }
+    if(refs.normalizeGenes){
+      refs.normalizeGenes.checked = !!config.adjust?.normalizeRows;
+      refs.normalizeGenes.dispatchEvent(new Event('change'));
+    }
+    if(refs.normalizeArrays){
+      refs.normalizeArrays.checked = !!config.adjust?.normalizeColumns;
+      refs.normalizeArrays.dispatchEvent(new Event('change'));
+    }
+    if(refs.clusterGenes){
+      refs.clusterGenes.checked = !!config.clustering?.rows?.enabled;
+      if(refs.genesMetric) refs.genesMetric.value = config.clustering?.rows?.metric || 'pearson';
+      if(refs.showRowDendrogram) refs.showRowDendrogram.checked = !!config.clustering?.rows?.showDendrogram;
+      refs.clusterGenes.dispatchEvent(new Event('change'));
+    }
+    if(refs.clusterArrays){
+      refs.clusterArrays.checked = !!config.clustering?.columns?.enabled;
+      if(refs.arraysMetric) refs.arraysMetric.value = config.clustering?.columns?.metric || 'pearson';
+      if(refs.showColumnDendrogram) refs.showColumnDendrogram.checked = !!config.clustering?.columns?.showDendrogram;
+      refs.clusterArrays.dispatchEvent(new Event('change'));
+    }
+    if(refs.linkage){
+      refs.linkage.value = config.clustering?.linkage || 'average';
+      refs.linkage.dispatchEvent(new Event('change'));
     }
   }
-
   function getPayload(){
     const payload = {
       type: 'heatmap',

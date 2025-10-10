@@ -12,6 +12,7 @@ Venn is now a full browser-based data visualization and statistical analysis stu
   - [Venn Diagram Workspace](#venn-diagram-workspace)
   - [Box Plot & Statistical Testing](#box-plot--statistical-testing)
   - [Scatter Plot Explorer](#scatter-plot-explorer)
+  - [Heatmap Explorer](#heatmap-explorer)
 - [Dimensionality Reduction (PCA, MDS, t-SNE, UMAP)](#dimensionality-reduction-pca-mds-t-sne-umap)
   - [Line Graph Studio](#line-graph-studio)
 - [Classification Curves (ROC & PR)](#classification-curves-roc--pr)
@@ -110,6 +111,12 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Inspect 95% confidence and prediction interval bands with residual diagnostics (skewness, kurtosis, Jarque–Bera) using the new shading and summary toggles, all captured in `.graph` sessions.【F:index.html†L596-L636】【F:js/components/scatter.js†L1247-L1766】
 - **High-volume datasets:** Volcano and MA modes trim label bookkeeping and cap automatic annotations so tens of thousands of differential expression points stay responsive without ballooning memory usage.【F:js/components/scatter.js†L1304-L1398】【F:js/components/scatter.js†L1588-L1635】
 - **Test advisor guidance:** Answer a short set of questions to auto-select the right correlation metric, regression family, and diagnostic detail for scatter plots, keeping controls and warnings aligned with your data’s measurement scale.【F:js/components/scatter.js†L382-L842】
+
+### Heatmap Explorer
+- Toggle between correlation matrices (row- or column-wise) and raw value heatmaps using the new view selector; each mode shares the same color palette, cell sizing, and optional numeric overlays for consistent interpretation.【F:index.html†L360-L409】【F:js/components/heatmap.js†L1037-L1098】【F:js/components/heatmap.js†L1956-L2044】
+- Apply Cluster-style preprocessing filters—percent present, standard deviation, absolute value thresholds, and value range—to focus on informative genes before drawing either heatmap view.【F:index.html†L366-L402】【F:js/components/heatmap.js†L520-L596】
+- Perform log transforms, row/column centering (mean or median), and normalization directly from the Adjust Data controls, with matching summaries recorded in the statistics panel for audit trails.【F:index.html†L402-L440】【F:js/components/heatmap.js†L600-L686】【F:js/components/heatmap.js†L1721-L1748】
+- Cluster rows and columns independently with selectable Pearson, Spearman, or uncentered correlation metrics plus linkage choices, and display synchronized dendrograms along the right and bottom edges when enabled.【F:index.html†L440-L488】【F:js/components/heatmap.js†L1328-L1524】【F:js/components/heatmap.js†L1940-L2033】
 
 ### Dimensionality Reduction (PCA, MDS, t-SNE, UMAP)
 - Compute principal components, classical MDS stress maps, and non-linear t-SNE or UMAP embeddings directly in the browser using the bundled SVD routines plus new iterative solvers for stochastic neighbor embedding and manifold approximation.【F:index.html†L520-L640】【F:js/components/pca.js†L1287-L1650】【F:js/components/pca.js†L33-L257】
