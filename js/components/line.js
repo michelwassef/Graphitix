@@ -1514,6 +1514,7 @@
         fill:refs.fill?.value,
         border:refs.border?.value,
         borderWidth:refs.borderWidth?.value,
+        errorBarWidth:refs.errorBarWidth?.value ?? refs.borderWidth?.value,
         alpha:refs.alpha?.value,
         labelColors:lineLabelColors,
         showGrid:refs.showGrid?.checked,
@@ -1596,6 +1597,13 @@
         if(refs.fill && c.fill) refs.fill.value=c.fill;
         if(refs.border && c.border) refs.border.value=c.border;
         if(refs.borderWidth && c.borderWidth!=null) refs.borderWidth.value=c.borderWidth;
+        if(refs.errorBarWidth){
+          if(c.errorBarWidth!=null){
+            refs.errorBarWidth.value=c.errorBarWidth;
+          }else if(!refs.errorBarWidth.value){
+            refs.errorBarWidth.value=refs.borderWidth?.value || '1';
+          }
+        }
         if(refs.alpha){ refs.alpha.value=c.alpha||0; refs.alphaVal.textContent=refs.alpha.value; }
         lineLabelColors=c.labelColors||{};
         if(refs.showGrid) refs.showGrid.checked=!!c.showGrid;
@@ -1738,6 +1746,8 @@
       const fill=refs.fill?.value;
       const alpha=Number(refs.alpha?.value)||0;
       const borderWidthRaw=Number(refs.borderWidth?.value);
+      const errorBarWidthInput=Number(refs.errorBarWidth?.value);
+      const errorBarWidthRaw=Number.isFinite(errorBarWidthInput)?errorBarWidthInput:borderWidthRaw;
       const borderColor=refs.border?.value;
       const containerRect=refs.svgBox?.getBoundingClientRect?.();
       const fontInfo=chartStyle.resolveScaledFontSize({
@@ -1755,11 +1765,14 @@
       const dotSizeRaw=Number(refs.dotSize?.value)||0;
       const dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'line-marker', min: 0 });
       const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'line-series', min: 0 });
+      const errorBarWidthPx=chartStyle.scaleStrokeWidth(errorBarWidthRaw, styleScaleInfo, { context: 'line-errorbar', min: 0 });
       console.debug('Debug: line style scaling applied',{
         dotSizeRaw,
         dotSizePx,
         borderWidthRaw,
         borderWidthPx,
+        errorBarWidthRaw,
+        errorBarWidthPx,
         axisStrokeWidth,
         axisStrokeWidthBase,
         axisStroke,
@@ -2120,7 +2133,7 @@
       console.debug('Debug: line ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
       const colors=series.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
       const showErrorBars=replicates>1;
-      const errorStrokeWidth=chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'line-errorbar', min: 0.5 });
+      const errorStrokeWidth=errorBarWidthPx;
       const errorCapHalf=Math.max(4, dotSizePx*1.2);
       const seriesElems=[];
       series.forEach((s,i)=>{
@@ -2415,6 +2428,7 @@
     refs.fill=document.getElementById('lineFill');
     refs.border=document.getElementById('lineBorder');
     refs.borderWidth=document.getElementById('lineBorderWidth');
+    refs.errorBarWidth=document.getElementById('lineErrorBarWidth');
     refs.dotSize=document.getElementById('lineDotSize');
     refs.alpha=document.getElementById('lineAlpha');
     refs.alphaVal=document.getElementById('lineAlphaVal');
@@ -2712,6 +2726,10 @@
     refs.fill?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.border?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.borderWidth?.addEventListener('input',()=>{ scheduleLineDraw(); });
+    refs.errorBarWidth?.addEventListener('input',()=>{
+      console.debug('Debug: line errorBarWidth change',{ value: refs.errorBarWidth.value });
+      scheduleLineDraw();
+    });
     refs.dotSize?.addEventListener('input',()=>{ scheduleLineDraw(); });
     refs.alpha?.addEventListener('input',()=>{ if(refs.alphaVal) refs.alphaVal.textContent=refs.alpha.value; scheduleLineDraw(); });
     refs.fontSize?.addEventListener('input',()=>{
