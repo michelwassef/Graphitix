@@ -12,7 +12,7 @@ Venn is now a full browser-based data visualization and statistical analysis stu
   - [Venn Diagram Workspace](#venn-diagram-workspace)
   - [Box Plot & Statistical Testing](#box-plot--statistical-testing)
   - [Scatter Plot Explorer](#scatter-plot-explorer)
-  - [Dimensionality Reduction (PCA & MDS)](#dimensionality-reduction-pca--mds)
+- [Dimensionality Reduction (PCA, MDS, t-SNE, UMAP)](#dimensionality-reduction-pca-mds-t-sne-umap)
   - [Line Graph Studio](#line-graph-studio)
 - [Classification Curves (ROC & PR)](#classification-curves-roc--pr)
 - [Survival Analysis (Kaplan–Meier & Cox)](#survival-analysis-kaplanmeier--cox)
@@ -111,14 +111,11 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - **High-volume datasets:** Volcano and MA modes trim label bookkeeping and cap automatic annotations so tens of thousands of differential expression points stay responsive without ballooning memory usage.【F:js/components/scatter.js†L1304-L1398】【F:js/components/scatter.js†L1588-L1635】
 - **Test advisor guidance:** Answer a short set of questions to auto-select the right correlation metric, regression family, and diagnostic detail for scatter plots, keeping controls and warnings aligned with your data’s measurement scale.【F:js/components/scatter.js†L382-L842】
 
-### Dimensionality Reduction (PCA & MDS)
-- Compute principal components or multidimensional scaling from wide-form tables using in-browser SVD routines.【F:index.html†L520-L640】
-- Scale variables before analysis, choose point styling, and color observations by label categories using customizable palettes editable from the legend swatches.【F:index.html†L552-L616】【F:js/components/pca.js†L2304-L2334】
-- Inspect resulting eigenvalue summaries with an always-on scree plot, side-by-side variance breakdown, and downloadable eigen table directly from the statistics panel.【F:index.html†L640-L696】【F:js/components/pca.js†L620-L720】
-- Choose which principal components or MDS dimensions power each axis, then rotate PCA plots in 3D with click-and-drag gestures for richer spatial inspection.【F:index.html†L668-L704】【F:js/components/pca.js†L300-L470】【F:js/components/pca.js†L1136-L1230】
-- Toggle variance-scaled axes so 2D plots stretch proportionally to the variance captured on each component and 3D cubes elongate according to the selected PC percentages.【F:index.html†L742-L752】【F:js/components/pca.js†L1201-L1316】【F:js/components/pca.js†L1537-L1653】
-- Reveal publication-style cubic bounding boxes with multi-face grid panes, neutral edge-anchored axes, and axis-parallel PC labels so the 3D PCA view mirrors the provided reference perspective while maintaining consistent scale across components.【F:js/components/pca.js†L1384-L1713】
-- Click either axis in the 2D PCA/MDS view to launch the shared toolbar for manual tick intervals, stroke weight, and axis color adjustments that persist with the ordination state.【F:js/components/pca.js†L2284-L2363】
+### Dimensionality Reduction (PCA, MDS, t-SNE, UMAP)
+- Compute principal components, classical MDS stress maps, and non-linear t-SNE or UMAP embeddings directly in the browser using the bundled SVD routines plus new iterative solvers for stochastic neighbor embedding and manifold approximation.【F:index.html†L520-L640】【F:js/components/pca.js†L1287-L1650】【F:js/components/pca.js†L33-L257】
+- Switch algorithms from the method selector to reveal tailored controls for perplexity, learning rate, iteration counts, early exaggeration, neighbor counts, minimum distance, and training epochs so analysts can tune embeddings without leaving the sidebar.【F:index.html†L662-L702】【F:js/components/pca.js†L433-L491】【F:js/components/pca.js†L1028-L1073】
+- Review method-aware summaries—variance and scree plots for PCA, stress for MDS, KL divergence for t-SNE, and neighborhood settings for UMAP—while saved `.graph` sessions now persist every projection setting alongside existing axis and styling options.【F:js/components/pca.js†L1582-L1677】【F:js/components/pca.js†L2063-L2125】【F:js/components/pca.js†L2613-L2670】
+- Choose which dimensions power each axis, rotate PCA plots in 3D, or rely on automatic 2D locking when algorithms do not support 3D rendering so the workspace keeps projections legible across methods.【F:index.html†L668-L716】【F:js/components/pca.js†L485-L517】【F:js/components/pca.js†L1730-L2004】
 
 ### Line Graph Studio
 - Plot longitudinal or series-based data while recoloring series by clicking legend swatches, alongside dot styling and adjustable line borders.【F:index.html†L640-L712】【F:js/components/line.js†L1340-L1373】
