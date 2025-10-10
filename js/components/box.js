@@ -1740,12 +1740,12 @@
     const updateGraphTypeControls = () => {
       const graphTypeValue = els.boxGraphType.value;
       const showErrorControls = graphTypeValue === 'bar';
-      const showErrorBarThickness = graphTypeValue === 'bar' || graphTypeValue === 'strip';
+      const showErrorBarThickness = graphTypeValue === 'bar' || graphTypeValue === 'strip' || graphTypeValue === 'box' || graphTypeValue === 'notched';
       if(els.boxErrorModeCtl){
         els.boxErrorModeCtl.style.display = showErrorControls ? '' : 'none';
       }
       if(els.boxErrorBarWidthCtl){
-        els.boxErrorBarWidthCtl.style.display = showErrorBarThickness ? '' : 'none';
+        els.boxErrorBarWidthCtl.style.display = showErrorBarThickness ? 'inline-flex' : 'none';
         console.debug('Debug: box error bar thickness visibility',{ graphTypeValue, showErrorBarThickness });
       }
       const showCapsLabel = els.boxShowCaps?.closest('label');
@@ -5226,12 +5226,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             add('path',{ d, fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
             add('line',{ x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
           }
-          add('line',{ x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: borderColor, 'stroke-width': borderWidthPx });
-          add('line',{ x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': borderWidthPx });
+          add('line',{ x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          add('line',{ x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': errorBarWidthPx });
           if(showCaps){
             const cap = Math.max(6, boxW * 0.4);
-            add('line',{ x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: borderColor, 'stroke-width': borderWidthPx });
-            add('line',{ x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': borderWidthPx });
+            add('line',{ x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            add('line',{ x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': errorBarWidthPx });
           }
         }else if(graphTypeRaw === 'bar'){
           const sampleCount = t.y.length;
@@ -5624,12 +5624,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             // Debug: log the horizontal notch geometry so future tweaks keep parity with vertical boxes.
             console.debug('Debug: box horizontal notch path',{ notchLower, notchUpper, xNotchLow, xNotchHigh, yNotchTop, yNotchBottom, boxHeight: boxH, token });
           }
-          add('line',{ x1: xWMin, y1: cy, x2: left, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
-          add('line',{ x1: right, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
+          add('line',{ x1: xWMin, y1: cy, x2: left, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          add('line',{ x1: right, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
           if(showCaps){
             const cap = Math.max(6, boxH * 0.4);
-            add('line',{ x1: xWMin, y1: cy - cap / 2, x2: xWMin, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
-            add('line',{ x1: xWMax, y1: cy - cap / 2, x2: xWMax, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+            add('line',{ x1: xWMin, y1: cy - cap / 2, x2: xWMin, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            add('line',{ x1: xWMax, y1: cy - cap / 2, x2: xWMax, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
           }
         }else if(graphTypeRaw === 'bar'){
           const sampleCount = t.y.length;
@@ -6038,8 +6038,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           els.boxErrorModeCtl.style.display = graphTypeValue==='bar'?'':'none';
         }
         if(els.boxErrorBarWidthCtl){
-          const showErrorThickness = graphTypeValue==='bar' || graphTypeValue==='strip';
-          els.boxErrorBarWidthCtl.style.display = showErrorThickness ? '' : 'none';
+          const showErrorThickness = graphTypeValue==='bar' || graphTypeValue==='strip' || graphTypeValue==='box' || graphTypeValue==='notched';
+          els.boxErrorBarWidthCtl.style.display = showErrorThickness ? 'inline-flex' : 'none';
         }
         if(els.boxIndividualSummaryCtl){
           els.boxIndividualSummaryCtl.style.display = graphTypeValue==='strip' ? '' : 'none';
