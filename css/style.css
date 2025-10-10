@@ -69,6 +69,15 @@ html, body {
     pointer-events: none;
 }
 
+.handsontable .hot-copy-highlight {
+    position: absolute;
+    pointer-events: none;
+    border: 2px dotted var(--hot-copy-highlight-color, #1a73e8);
+    border-radius: 2px;
+    box-sizing: border-box;
+    z-index: 12;
+}
+
 .handsontable th.hot-header-sortable .hot-sort-button:hover,
 .handsontable th.hot-header-sortable .hot-sort-button:focus-visible {
     background: rgba(148, 163, 184, 0.2);

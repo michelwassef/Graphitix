@@ -488,10 +488,14 @@
       afterScrollVertically: userAfterScrollVertically,
       afterScrollHorizontally: userAfterScrollHorizontally,
       afterPaste: userAfterPaste,
+      afterCopy: userAfterCopy,
+      beforeKeyDown: userBeforeKeyDown,
+      beforeAutofill: userBeforeAutofill,
       beforeColumnSort: userBeforeColumnSort,
       afterColumnSort: userAfterColumnSort,
       afterGetColHeader: userAfterGetColHeader,
       afterGetRowHeader: userAfterGetRowHeader,
+      afterRender: userAfterRender,
       afterContextMenuDefaultOptions: userAfterContextMenuDefaultOptions,
       columnSorting: userColumnSorting,
       ...otherHotOptions
@@ -540,6 +544,16 @@
     console.debug('Debug: createStandardTable column enforcement', { debugLabel, requestedColCount, effectiveColCount: colCount }); // Debug: column enforcement trace
 
     let instance = null;
+
+    const copyHighlightState = {
+      overlay: null,
+      range: null,
+      color: null
+    };
+
+    const selectionState = {
+      lastRange: null
+    };
 
     const triggerSchedule = (reason, payload)=>{
       if(!scheduleFn){
@@ -646,6 +660,187 @@
         };
       }
       return baseFn;
+    };
+
+    const normalizeRange = (range)=>{
+      if(!range){
+        return null;
+      }
+      const start = range.from || range.highlight || range.start || range;
+      const end = range.to || range.end || range;
+      if(!start || !end){
+        return null;
+      }
+      const startRow = Number.isInteger(start.row) ? start.row : null;
+      const startCol = Number.isInteger(start.col) ? start.col : null;
+      const endRow = Number.isInteger(end.row) ? end.row : null;
+      const endCol = Number.isInteger(end.col) ? end.col : null;
+      if(startRow === null || startCol === null || endRow === null || endCol === null){
+        return null;
+      }
+      const rowStart = Math.min(startRow, endRow);
+      const rowEnd = Math.max(startRow, endRow);
+      const colStart = Math.min(startCol, endCol);
+      const colEnd = Math.max(startCol, endCol);
+      return { from: { row: rowStart, col: colStart }, to: { row: rowEnd, col: colEnd } };
+    };
+
+    const rangesEqual = (a, b)=>{
+      if(!a || !b){
+        return false;
+      }
+      return a.from.row === b.from.row && a.from.col === b.from.col && a.to.row === b.to.row && a.to.col === b.to.col;
+    };
+
+    const getHotRootElement = ()=>{
+      if(instance?.rootElement){
+        return instance.rootElement;
+      }
+      if(container?.classList?.contains('handsontable')){
+        return container;
+      }
+      return container?.querySelector?.('.handsontable') || null;
+    };
+
+    const applyCopyHighlightColor = ()=>{
+      if(!copyHighlightState.overlay){
+        return;
+      }
+      let color = copyHighlightState.color;
+      const root = getHotRootElement();
+      if(root && typeof global.getComputedStyle === 'function'){
+        const borderEl = root.querySelector?.('.wtBorder.current');
+        if(borderEl){
+          const computed = global.getComputedStyle(borderEl);
+          const resolvedColor = computed?.borderTopColor || computed?.borderLeftColor || computed?.borderColor;
+          if(resolvedColor && resolvedColor !== 'transparent'){
+            color = resolvedColor;
+            copyHighlightState.color = resolvedColor;
+          }
+        }
+      }
+      if(color){
+        copyHighlightState.overlay.style.borderColor = color;
+      }
+    };
+
+    const ensureCopyHighlightOverlay = ()=>{
+      if(copyHighlightState.overlay && copyHighlightState.overlay.isConnected){
+        return copyHighlightState.overlay;
+      }
+      if(typeof document === 'undefined'){
+        return null;
+      }
+      const root = getHotRootElement();
+      const hider = root?.querySelector?.('.ht_master .wtHider');
+      if(!hider){
+        console.debug('Debug: Shared.hot copyHighlight overlay unavailable', { debugLabel, hasRoot: !!root });
+        return null;
+      }
+      const overlay = document.createElement('div');
+      overlay.className = 'hot-copy-highlight';
+      overlay.style.display = 'none';
+      hider.appendChild(overlay);
+      copyHighlightState.overlay = overlay;
+      applyCopyHighlightColor();
+      console.debug('Debug: Shared.hot copyHighlight overlay created', { debugLabel });
+      return overlay;
+    };
+
+    const clearCopyHighlightRange = (reason)=>{
+      const details = {
+        debugLabel,
+        reason: reason || 'unspecified'
+      };
+      if(copyHighlightState.range || (copyHighlightState.overlay && copyHighlightState.overlay.style.display !== 'none')){
+        console.debug('Debug: Shared.hot copyHighlight cleared', details);
+      }
+      copyHighlightState.range = null;
+      if(copyHighlightState.overlay){
+        copyHighlightState.overlay.style.display = 'none';
+      }
+    };
+
+    const refreshCopyHighlightPosition = ()=>{
+      const range = copyHighlightState.range;
+      if(!range){
+        return;
+      }
+      const inst = instance;
+      if(!inst || typeof inst.getCell !== 'function'){
+        return;
+      }
+      const overlay = ensureCopyHighlightOverlay();
+      const root = getHotRootElement();
+      const hider = root?.querySelector?.('.ht_master .wtHider');
+      if(!overlay || !hider){
+        return;
+      }
+      const topLeftCell = inst.getCell(range.from.row, range.from.col, true);
+      const bottomRightCell = inst.getCell(range.to.row, range.to.col, true);
+      if(!topLeftCell || !bottomRightCell){
+        overlay.style.display = 'none';
+        console.debug('Debug: Shared.hot copyHighlight refresh skipped - missing cells', { debugLabel, range });
+        return;
+      }
+      const hiderRect = hider.getBoundingClientRect();
+      const topLeftRect = topLeftCell.getBoundingClientRect();
+      const bottomRightRect = bottomRightCell.getBoundingClientRect();
+      overlay.style.display = 'block';
+      overlay.style.left = `${topLeftRect.left - hiderRect.left}px`;
+      overlay.style.top = `${topLeftRect.top - hiderRect.top}px`;
+      overlay.style.width = `${bottomRightRect.right - topLeftRect.left}px`;
+      overlay.style.height = `${bottomRightRect.bottom - topLeftRect.top}px`;
+      applyCopyHighlightColor();
+    };
+
+    const setCopyHighlightRange = (range)=>{
+      if(!range){
+        clearCopyHighlightRange('setCopyHighlightRange:empty');
+        return;
+      }
+      copyHighlightState.range = range;
+      if(ensureCopyHighlightOverlay()){
+        refreshCopyHighlightPosition();
+        console.debug('Debug: Shared.hot copyHighlight activated', { debugLabel, range });
+      }
+    };
+
+    const parseTrailingNumber = (value)=>{
+      if(value === null || typeof value === 'undefined'){
+        return null;
+      }
+      const text = String(value);
+      const match = text.match(/^(.*?)(-?\d+)$/);
+      if(!match){
+        return null;
+      }
+      const numericText = match[2];
+      const numericValue = Number(numericText);
+      if(Number.isNaN(numericValue) || !Number.isFinite(numericValue)){
+        return null;
+      }
+      const unsignedText = numericText.startsWith('-') ? numericText.slice(1) : numericText;
+      const digits = unsignedText.length || 1;
+      const hasLeadingZeros = unsignedText.length > 1 && unsignedText.startsWith('0');
+      return {
+        prefix: match[1],
+        numericValue,
+        digits,
+        hasLeadingZeros
+      };
+    };
+
+    const formatAutofillValue = (parsed, offset)=>{
+      const value = parsed.numericValue + offset;
+      if(value < 0){
+        return `${parsed.prefix}${value}`;
+      }
+      if(parsed.hasLeadingZeros){
+        const padded = String(value).padStart(parsed.digits, '0');
+        return `${parsed.prefix}${padded}`;
+      }
+      return `${parsed.prefix}${value}`;
     };
 
     const autoGrowthDefaults = {
@@ -1318,6 +1513,27 @@
         scheduleRowGrowth('selection');
         scheduleColGrowth('selection');
       }
+      if(instance && typeof instance.getSelectedRangeLast === 'function'){
+        const selection = instance.getSelectedRangeLast();
+        const normalized = normalizeRange(selection);
+        selectionState.lastRange = normalized;
+        console.debug('Debug: Shared.hot selection updated', { debugLabel, selection: normalized });
+        if(copyHighlightState.range){
+          refreshCopyHighlightPosition();
+          if(normalized && !rangesEqual(copyHighlightState.range, normalized)){
+            console.debug('Debug: Shared.hot copyHighlight persisted across selection change', {
+              debugLabel,
+              copyRange: copyHighlightState.range,
+              newSelection: normalized
+            });
+          }
+        }
+      }else{
+        selectionState.lastRange = null;
+        if(copyHighlightState.range){
+          clearCopyHighlightRange('afterSelectionEnd:noInstance');
+        }
+      }
     };
 
     const afterScrollVerticallyBase = function(){
@@ -1325,12 +1541,18 @@
         console.debug('Debug: autoGrow afterScrollVerticallyBase invoked', { debugLabel, args: Array.from(arguments) });
         scheduleRowGrowth('afterScrollVertically');
       }
+      if(copyHighlightState.range){
+        refreshCopyHighlightPosition();
+      }
     };
 
     const afterScrollHorizontallyBase = function(){
       if(autoGrowthConfig.enabled){
         console.debug('Debug: autoGrow afterScrollHorizontallyBase invoked', { debugLabel, args: Array.from(arguments) });
         scheduleColGrowth('afterScrollHorizontally');
+      }
+      if(copyHighlightState.range){
+        refreshCopyHighlightPosition();
       }
     };
 
@@ -1740,6 +1962,13 @@
         console.debug('Debug: Shared.hot afterChange skipped loadData', { debugLabel, count: changes.length });
         return;
       }
+      if(copyHighlightState.range && source === 'CopyPaste.paste'){
+        console.debug('Debug: Shared.hot afterChange clearing copy highlight for paste', {
+          debugLabel,
+          count: changes.length
+        });
+        clearCopyHighlightRange('afterChange:paste');
+      }
       if(hasGlobalUndo && source !== 'loadData' && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
         queueUndoRegistration('change', { count: changes.length, source });
       }
@@ -1796,6 +2025,95 @@
         queueUndoRegistration('paste', { rowCount, colCount, coords });
       }
       triggerSchedule('afterPaste', { dataLength: Array.isArray(data) ? data.length : 0, coords });
+      clearCopyHighlightRange('afterPaste');
+    };
+
+    const afterCopyBase = function(_data, coords){
+      if(instance && typeof instance.getSelectedRangeLast === 'function'){
+        const selection = instance.getSelectedRangeLast();
+        const normalized = normalizeRange(selection);
+        selectionState.lastRange = normalized;
+        if(normalized){
+          setCopyHighlightRange(normalized);
+        }else{
+          clearCopyHighlightRange('afterCopy:noSelection');
+        }
+        console.debug('Debug: Shared.hot afterCopyBase processed', { debugLabel, coords, selection: normalized });
+      }else{
+        console.debug('Debug: Shared.hot afterCopyBase skipped - no selection', { debugLabel, hasInstance: !!instance });
+      }
+    };
+
+    const beforeKeyDownBase = function(event){
+      const key = event?.key || '';
+      const keyCode = typeof event?.keyCode === 'number' ? event.keyCode : null;
+      const isEnter = key === 'Enter' || key === 'NumpadEnter' || keyCode === 13;
+      if(isEnter && copyHighlightState.range){
+        console.debug('Debug: Shared.hot beforeKeyDown clearing copy highlight for Enter', {
+          debugLabel,
+          key,
+          keyCode
+        });
+        clearCopyHighlightRange('beforeKeyDown:enter');
+      }
+    };
+
+    const beforeAutofillBase = function(selectionData, selectionRange, targetRange, direction){
+      if(!Array.isArray(selectionData) || selectionData.length === 0){
+        return selectionData;
+      }
+      const normalizedSelection = normalizeRange(selectionRange);
+      const normalizedTarget = normalizeRange(targetRange);
+      if(!normalizedSelection || !normalizedTarget){
+        return selectionData;
+      }
+      const selectionHeight = normalizedSelection.to.row - normalizedSelection.from.row + 1;
+      const selectionWidth = normalizedSelection.to.col - normalizedSelection.from.col + 1;
+      const targetHeight = normalizedTarget.to.row - normalizedTarget.from.row + 1;
+      const targetWidth = normalizedTarget.to.col - normalizedTarget.from.col + 1;
+      const expands = targetHeight > selectionHeight || targetWidth > selectionWidth;
+      if(!expands){
+        return selectionData;
+      }
+      if(selectionHeight !== 1 || selectionWidth !== 1){
+        console.debug('Debug: Shared.hot beforeAutofillBase skipped - multi-cell seed', { debugLabel, selectionHeight, selectionWidth, direction });
+        return selectionData;
+      }
+      const row = selectionData[0];
+      const baseValue = Array.isArray(row) ? row[0] : row;
+      const parsed = parseTrailingNumber(baseValue);
+      const isVertical = direction === 'up' || direction === 'down';
+      const isHorizontal = direction === 'left' || direction === 'right';
+      if(!parsed || (!isVertical && !isHorizontal)){
+        console.debug('Debug: Shared.hot beforeAutofillBase skipped - unsupported seed', { debugLabel, baseValue, direction });
+        return selectionData;
+      }
+      const result = [];
+      for(let r = 0; r < targetHeight; r++){
+        const rowValues = [];
+        for(let c = 0; c < targetWidth; c++){
+          const actualRow = normalizedTarget.from.row + r;
+          const actualCol = normalizedTarget.from.col + c;
+          const offset = isVertical ? (actualRow - normalizedSelection.from.row) : (actualCol - normalizedSelection.from.col);
+          rowValues.push(formatAutofillValue(parsed, offset));
+        }
+        result.push(rowValues);
+      }
+      console.debug('Debug: Shared.hot beforeAutofillBase applied', {
+        debugLabel,
+        direction,
+        startValue: parsed.numericValue,
+        targetHeight,
+        targetWidth
+      });
+      return result;
+    };
+
+    const afterRenderBase = function(){
+      if(copyHighlightState.range){
+        refreshCopyHighlightPosition();
+        console.debug('Debug: Shared.hot afterRenderBase refreshed copy highlight', { debugLabel, range: copyHighlightState.range });
+      }
     };
 
     const afterLoadDataBase = function(_sourceData, initialLoad){
@@ -1806,6 +2124,7 @@
       if(scheduleOnLoadData || !initialLoad){
         triggerSchedule('afterLoadData');
       }
+      clearCopyHighlightRange('afterLoadData');
     };
 
     const collectSelectionDetails = ()=>{
@@ -2060,6 +2379,10 @@
       afterScrollVertically: wrapHook('afterScrollVertically', userAfterScrollVertically, afterScrollVerticallyBase),
       afterScrollHorizontally: wrapHook('afterScrollHorizontally', userAfterScrollHorizontally, afterScrollHorizontallyBase),
       afterPaste: wrapHook('afterPaste', userAfterPaste, afterPasteBase),
+      afterCopy: wrapHook('afterCopy', userAfterCopy, afterCopyBase),
+      beforeKeyDown: wrapHook('beforeKeyDown', userBeforeKeyDown, beforeKeyDownBase),
+      beforeAutofill: wrapHook('beforeAutofill', userBeforeAutofill, beforeAutofillBase),
+      afterRender: wrapHook('afterRender', userAfterRender, afterRenderBase),
       beforeColumnSort: wrapHook('beforeColumnSort', userBeforeColumnSort, beforeColumnSortBase),
       afterColumnSort: wrapHook('afterColumnSort', userAfterColumnSort, afterColumnSortBase),
       afterGetColHeader: wrapHook('afterGetColHeader', userAfterGetColHeader, afterGetColHeaderBase),
