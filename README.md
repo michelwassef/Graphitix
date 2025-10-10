@@ -41,6 +41,7 @@ Because everything runs client-side, sensitive data never leaves the browser ses
 - **Transpose paste shortcut:** Right-click any selection and choose *Paste → Transposed* to rotate clipboard data as it enters the grid—ideal when swapping rows and columns from spreadsheet tools without manually reformatting the source table.【F:js/shared/hot.js†L64-L184】【F:js/shared/hot.js†L1088-L1156】
 - **Interactive column sorting:** Ascend, descend, or reset each Handsontable column through dedicated arrow buttons embedded in every header while the grey first row stays pinned for continuous context.【F:js/shared/hot.js†L694-L889】【F:css/style.css†L24-L63】
 - **Rich styling controls:** Adjust colors, fonts, borders, opacity, grid lines, and axis limits directly beside the live plot for every visualization type.【F:index.html†L92-L153】【F:index.html†L704-L781】
+- **Shared axis toolbar:** Click the X or Y axis inside the box, scatter, line, histogram, ROC/PR, PCA/MDS, survival, or stacked proportion modules to open an overlay that adjusts tick spacing (where numeric), stroke thickness, and axis color without hunting through side panels.【F:js/components/box.js†L4892-L4910】【F:js/components/scatter.js†L1357-L1383】【F:js/components/line.js†L1859-L1910】【F:js/components/hist.js†L585-L646】【F:js/components/roc.js†L1206-L1267】【F:js/components/pca.js†L2284-L2363】【F:js/components/survival.js†L1923-L1994】【F:js/components/pie.js†L588-L676】
 - **Per-tab layout persistence:** Manual panel and canvas resizes are captured per workspace tab and restored whenever you switch, duplicate, or reload sessions, so adjusting one chart no longer forces every graph of the same type to match its dimensions.【F:js/main/session.js†L263-L318】【F:js/main/domControls.js†L73-L178】
 - **Style sync across tabs:** Copy fonts, titles, axis bounds, and appearance settings from an example graph to other open tabs with the **Match Styles** toolbar button—perfect for standardizing figures before export without re-entering data.【F:index.html†L1470-L1505】【F:js/main/styleSync.js†L1-L382】
 - **Inline text editing:** Double-click any plot title or axis label to edit it in place with an inline input overlay that mirrors the chart font, keeps the font toolbar active during edits, and automatically resizes to match your text so you can update characters while changing typography—or even apply a new font, weight, color, or size to just the selected characters—without modal prompts. The toolbar now stays visible for the full inline editing session, and PNG/SVG exports preserve every per-character font override you apply.【F:js/shared/dom.js†L23-L374】【F:js/shared/fontControls.js†L40-L1015】【F:js/shared/exporter.js†L1-L284】【F:css/style.css†L862-L883】
@@ -101,6 +102,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 ### Scatter Plot Explorer
 - Import paired or multi-series data, then adjust dot size, fill, transparency, borders, and per-label color palettes directly from the legend swatches.【F:index.html†L408-L456】【F:js/components/scatter.js†L662-L691】
 - Toggle grid lines, log-transform axes, set explicit min/max bounds, and position the origin at the lower-left or a custom coordinate.【F:index.html†L440-L488】
+- Click an axis line to launch the shared toolbar and fine-tune tick intervals, stroke weight, or axis color directly on the plot without scrolling through configuration fields.【F:js/components/scatter.js†L1346-L1390】
 - Enable Pearson or Spearman correlation statistics and display optional trend lines with fitted equations directly on the chart.【F:index.html†L488-L520】
 - Choose from linear, polynomial (quadratic/cubic), exponential, power, spline, or logistic regressions with interval shading and diagnostics persisted in saved `.graph` sessions.【F:index.html†L596-L636】【F:js/shared/regression.js†L1-L451】
 - Inspect 95% confidence and prediction interval bands with residual diagnostics (skewness, kurtosis, Jarque–Bera) using the new shading and summary toggles, all captured in `.graph` sessions.【F:index.html†L596-L636】【F:js/components/scatter.js†L1247-L1766】
@@ -114,10 +116,12 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Choose which principal components or MDS dimensions power each axis, then rotate PCA plots in 3D with click-and-drag gestures for richer spatial inspection.【F:index.html†L668-L704】【F:js/components/pca.js†L300-L470】【F:js/components/pca.js†L1136-L1230】
 - Toggle variance-scaled axes so 2D plots stretch proportionally to the variance captured on each component and 3D cubes elongate according to the selected PC percentages.【F:index.html†L742-L752】【F:js/components/pca.js†L1201-L1316】【F:js/components/pca.js†L1537-L1653】
 - Reveal publication-style cubic bounding boxes with multi-face grid panes, neutral edge-anchored axes, and axis-parallel PC labels so the 3D PCA view mirrors the provided reference perspective while maintaining consistent scale across components.【F:js/components/pca.js†L1384-L1713】
+- Click either axis in the 2D PCA/MDS view to launch the shared toolbar for manual tick intervals, stroke weight, and axis color adjustments that persist with the ordination state.【F:js/components/pca.js†L2284-L2363】
 
 ### Line Graph Studio
 - Plot longitudinal or series-based data while recoloring series by clicking legend swatches, alongside dot styling and adjustable line borders.【F:index.html†L640-L712】【F:js/components/line.js†L1340-L1373】
 - Configure linear or logarithmic axes, clamp ranges, and reposition the origin to highlight specific domains.【F:index.html†L704-L752】
+- Adjust tick spacing, thickness, and axis color from the shared axis toolbar by clicking either axis, keeping styling tweaks close to the chart canvas.【F:js/components/line.js†L1843-L1912】
 - Summarize trends by computing Pearson or Spearman correlations in the dedicated statistics block.【F:index.html†L752-L777】
 - Switch between linear, polynomial, exponential, power, spline, logistic, ARIMA, or Holt-Winters forecasting modes while reviewing interval shading, residual diagnostics, and coefficient summaries for each series.【F:index.html†L900-L937】【F:js/components/line.js†L446-L1325】【F:js/shared/regression.js†L1-L1194】
 - Forecast future observations with configurable horizons, seasonal lengths, and automatic AIC/BIC parameter tuning while exporting seasonal components and accuracy metrics alongside the SVG/PNG snapshots.【F:index.html†L909-L937】【F:js/components/line.js†L680-L1390】【F:js/shared/regression.js†L520-L1194】
@@ -128,22 +132,27 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 ### Classification Curves (ROC & PR)
 - Build ROC or precision-recall curves from model scores and labels stored in the integrated table editor.【F:index.html†L800-L848】
 - Customize series colors directly from the legend, adjust grid display and line thickness, and switch between ROC and PR modes dynamically.【F:index.html†L848-L904】【F:js/components/roc.js†L933-L963】
+- Adjust ROC/PR axis tick spacing, stroke thickness, and color directly from the shared toolbar so probability plots stay readable across saved sessions.【F:js/components/roc.js†L1206-L1267】
+- Launch the floating font toolbar directly on ROC/PR titles, axis labels, and annotations to fine-tune typography while editing curves, with adjustments reflected in exports and saved workbooks.【F:js/components/roc.js†L933-L987】【F:js/shared/fontControls.js†L40-L374】
 - Review trapezoidal AUC or average precision metrics alongside configurable statistic controls below the chart.【F:index.html†L904-L928】
 - Use the ROC/PR **Test Advisor** to pick an appropriate curve-comparison method (DeLong, bootstrap, or permutation) based on sample balance and metric type; apply the suggestion directly from the panel.【F:js/components/roc.js†L240-L424】
 
 ### Survival Analysis (Kaplan–Meier & Cox)
 - Populate a wide-form table with group, time, event, optional entry time, and any number of covariate columns directly in the survival workspace’s spreadsheet.【F:index.html†L1124-L1189】【F:js/components/survival.js†L401-L474】
 - Toggle curve display options next to the plot while managing hazard ratio visibility, Cox-model fitting, and covariate selections directly inside the statistics fieldset for a single consolidated workflow.【F:index.html†L1155-L1257】【F:js/components/survival.js†L107-L198】
+- Click the Kaplan–Meier axes to fine-tune tick spacing, stroke weight, and color via the shared axis toolbar, keeping long-term tails legible without diving into sidebar controls.【F:js/components/survival.js†L1923-L1994】
 - Fit multivariate Cox models with support for time-dependent risk sets, inspect per-predictor coefficients/intervals, and review convergence diagnostics and pairwise hazard ratios with regularized Fisher inversion for stable estimates even in small-sample examples.【F:js/components/survival.js†L735-L1074】【F:js/components/survival.js†L1500-L1677】
 - Consult the survival **Test Advisor** to decide when to rely on Kaplan–Meier summaries, add hazard ratio tables, or fit full Cox models with baseline or time-dependent covariates; recommendations flip the relevant toggles automatically.【F:js/components/survival.js†L184-L523】【F:js/components/survival.js†L1206-L1412】
 
 ### Histogram Builder
 - Generate histograms from univariate data with configurable bin counts, fill colors, border styling, and optional log-scaled Y axis.【F:index.html†L928-L1000】
+- Use the shared axis toolbar to adjust tick intervals, axis stroke weight, and color without leaving the plot, even when toggling between linear and log-scaled counts.【F:js/components/hist.js†L558-L646】
 - Apply grid overlays, set Y limits, and inspect summary statistics output beneath the visualization.【F:index.html†L1000-L1032】
 
 ### Proportion Graph & Chi² Analysis
 - Visualize categorical proportions as pie, donut, or stacked bar charts by providing category, observed, and expected columns.【F:index.html†L1032-L1088】
 - Customize slice colors by clicking legend swatches, display percentages, rotate the start angle, and export the resulting chart as PNG/SVG.【F:index.html†L1068-L1096】【F:js/components/pie.js†L470-L600】
+- Use the axis toolbar on stacked proportion charts to adjust percentage tick spacing, axis thickness, and stroke color alongside the existing legend controls.【F:js/components/pie.js†L588-L676】
 - Select observed/expected columns for the built-in Chi² goodness-of-fit test, with results shown in the statistics panel.【F:index.html†L1096-L1108】
 
 ## Statistical Analysis Toolkit
