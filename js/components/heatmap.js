@@ -918,45 +918,65 @@
   }
 
   function hierarchicalCluster(items, metric, linkage){
-    const n = Array.isArray(items) ? items.length : 0;
-    if(n === 0){
-      return { order: [], tree: null, maxDistance: 0, steps: [], baseDistances: [] };
+    const countItems = Array.isArray(items) ? items.length : 0;
+    const now = () => (global.performance && typeof global.performance.now === 'function') ? global.performance.now() : Date.now();
+    const startTime = now();
+    if(countItems === 0){
+      const emptyStore = { size: 0, values: new Float32Array(0), released: true };
+      console.debug('Debug: heatmap hierarchicalCluster skipped - no items', { metric, linkage });
+      return { order: [], tree: null, maxDistance: 0, steps: [], baseDistances: emptyStore };
     }
-    if(n === 1){
+    if(countItems === 1){
+      const singletonStore = { size: 1, values: new Float32Array(0), released: true };
+      const durationSingleton = now() - startTime;
+      console.debug('Debug: heatmap hierarchicalCluster trivial', {
+        itemCount: 1,
+        metric,
+        linkage,
+        durationMs: Number(durationSingleton.toFixed(2))
+      });
       return {
         order: [items[0].index],
         tree: { indices: [0], left: null, right: null, distance: 0 },
         maxDistance: 0,
         steps: [],
-        baseDistances: [[0]]
+        baseDistances: singletonStore
       };
     }
-    const baseDistances = Array.from({ length: n }, () => Array(n).fill(0));
-    for(let i = 0; i < n; i += 1){
-      for(let j = i + 1; j < n; j += 1){
+
+    const baseDistanceStore = {
+      size: countItems,
+      values: new Float32Array((countItems * (countItems - 1)) / 2),
+      released: false
+    };
+    const baseValues = baseDistanceStore.values;
+    const writeBaseDistance = (i, j, value) => {
+      if(i === j){ return; }
+      const idx = packedDistanceIndex(countItems, i, j);
+      if(idx >= 0){
+        baseValues[idx] = value;
+      }
+    };
+    const readBaseDistance = (i, j) => {
+      if(i === j){ return 0; }
+      const idx = packedDistanceIndex(countItems, i, j);
+      if(idx < 0){ return 0; }
+      return baseValues[idx];
+    };
+
+    for(let i = 0; i < countItems; i += 1){
+      for(let j = i + 1; j < countItems; j += 1){
         const { distance } = distanceBetweenVectors(items[i].vector, items[j].vector, metric);
         const safeDistance = Number.isFinite(distance) ? distance : 1;
-        baseDistances[i][j] = safeDistance;
-        baseDistances[j][i] = safeDistance;
+        writeBaseDistance(i, j, safeDistance);
       }
     }
-    const clusters = items.map((item, index) => ({
-      id: `leaf-${index}`,
-      indices: [index],
-      left: null,
-      right: null,
-      distance: 0,
-      centroid: null
-    }));
-    const working = clusters.slice();
-    const steps = [];
-    let maxDistance = 0;
 
     const computeCentroidForIndices = indices => {
       const length = items[0]?.vector?.length || 0;
       const sums = Array.from({ length }, () => 0);
       const counts = Array.from({ length }, () => 0);
-      indices.forEach(idx => {
+      for(const idx of indices){
         const vector = items[idx].vector;
         for(let i = 0; i < length; i += 1){
           const value = vector[i];
@@ -965,12 +985,12 @@
             counts[i] += 1;
           }
         }
-      });
+      }
       return sums.map((sum, idx) => counts[idx] > 0 ? sum / counts[idx] : NaN);
     };
 
     const getClusterCentroid = cluster => {
-      if(!cluster) return [];
+      if(!cluster){ return []; }
       if(!cluster.centroid){
         cluster.centroid = computeCentroidForIndices(cluster.indices);
       }
@@ -978,75 +998,151 @@
     };
 
     const linkageDistance = (clusterA, clusterB) => {
-      if(linkage === 'single' || linkage === 'complete' || linkage === 'average'){
-        let aggregate = linkage === 'complete' ? -Infinity : 0;
-        let count = 0;
-        let best = linkage === 'single' ? Infinity : null;
-        for(const idxA of clusterA.indices){
-          for(const idxB of clusterB.indices){
-            const dist = baseDistances[idxA][idxB];
-            if(!Number.isFinite(dist)) continue;
-            if(linkage === 'single'){
-              if(dist < best){ best = dist; }
-            }else if(linkage === 'complete'){
-              if(dist > aggregate){ aggregate = dist; }
-            }else{
-              aggregate += dist;
-              count += 1;
-            }
+      if(!clusterA || !clusterB){ return 1; }
+      const indicesA = clusterA.indices;
+      const indicesB = clusterB.indices;
+      if(linkage === 'centroid'){
+        const centroidA = getClusterCentroid(clusterA);
+        const centroidB = getClusterCentroid(clusterB);
+        const { distance } = distanceBetweenVectors(centroidA, centroidB, metric);
+        return Number.isFinite(distance) ? distance : 1;
+      }
+      let best = Infinity;
+      let worst = -Infinity;
+      let sum = 0;
+      let pairCount = 0;
+      for(const idxA of indicesA){
+        for(const idxB of indicesB){
+          const dist = readBaseDistance(idxA, idxB);
+          if(!Number.isFinite(dist)){ continue; }
+          if(linkage === 'single'){
+            if(dist < best){ best = dist; }
+          }else if(linkage === 'complete'){
+            if(dist > worst){ worst = dist; }
+          }else{
+            sum += dist;
+            pairCount += 1;
           }
         }
-        if(linkage === 'single'){
-          return Number.isFinite(best) ? best : 1;
-        }
-        if(linkage === 'complete'){
-          return Number.isFinite(aggregate) ? aggregate : 1;
-        }
-        return count > 0 ? aggregate / count : 1;
       }
-      const centroidA = getClusterCentroid(clusterA);
-      const centroidB = getClusterCentroid(clusterB);
-      const { distance } = distanceBetweenVectors(centroidA, centroidB, metric);
-      return Number.isFinite(distance) ? distance : 1;
+      if(linkage === 'single'){
+        return Number.isFinite(best) ? best : 1;
+      }
+      if(linkage === 'complete'){
+        return Number.isFinite(worst) ? worst : 1;
+      }
+      return pairCount > 0 ? sum / pairCount : 1;
     };
 
-    while(working.length > 1){
-      let bestI = 0;
-      let bestJ = 1;
-      let bestDistance = Infinity;
-      for(let i = 0; i < working.length; i += 1){
-        for(let j = i + 1; j < working.length; j += 1){
-          const dist = linkageDistance(working[i], working[j]);
-          if(dist < bestDistance){
-            bestDistance = dist;
-            bestI = i;
-            bestJ = j;
-          }
-        }
-      }
-      const clusterA = working[bestI];
-      const clusterB = working[bestJ];
-      const safeDistance = Number.isFinite(bestDistance) ? bestDistance : 0;
-      const merged = {
-        id: `merge-${steps.length}`,
-        indices: clusterA.indices.concat(clusterB.indices),
-        left: clusterA,
-        right: clusterB,
+    const clusters = items.map((item, index) => ({
+      id: index,
+      indices: [index],
+      left: null,
+      right: null,
+      distance: 0,
+      centroid: null,
+      version: 0
+    }));
+    const active = new Map();
+    clusters.forEach(cluster => {
+      active.set(cluster.id, cluster);
+    });
+    const steps = [];
+    let maxDistance = 0;
+    let nextClusterId = countItems;
+    const heap = createMinHeap((a, b) => a.distance - b.distance);
+
+    const pushCandidate = (idA, idB) => {
+      if(idA === idB){ return; }
+      const clusterA = active.get(idA);
+      const clusterB = active.get(idB);
+      if(!clusterA || !clusterB){ return; }
+      const firstId = idA < idB ? idA : idB;
+      const secondId = idA < idB ? idB : idA;
+      const distance = linkageDistance(clusterA, clusterB);
+      const safeDistance = Number.isFinite(distance) ? distance : 1;
+      heap.push({
         distance: safeDistance,
-        centroid: null
-      };
-      merged.centroid = linkage === 'centroid' ? computeCentroidForIndices(merged.indices) : null;
-      steps.push({ left: clusterA.indices.slice(), right: clusterB.indices.slice(), distance: safeDistance });
-      maxDistance = Math.max(maxDistance, safeDistance);
-      working.splice(bestJ, 1);
-      working.splice(bestI, 1);
-      working.push(merged);
+        aId: firstId,
+        bId: secondId,
+        aVersion: clusterA.version,
+        bVersion: clusterB.version
+      });
+    };
+
+    for(let i = 0; i < clusters.length; i += 1){
+      for(let j = i + 1; j < clusters.length; j += 1){
+        pushCandidate(clusters[i].id, clusters[j].id);
+      }
     }
 
-    const root = working[0];
+    const pollNextPair = () => {
+      while(heap.size() > 0){
+        const entry = heap.pop();
+        if(!entry){ continue; }
+        const clusterA = active.get(entry.aId);
+        const clusterB = active.get(entry.bId);
+        if(!clusterA || !clusterB){
+          continue;
+        }
+        if(clusterA.version !== entry.aVersion || clusterB.version !== entry.bVersion){
+          continue;
+        }
+        return { clusterA, clusterB, distance: entry.distance };
+      }
+      return null;
+    };
+
+    while(active.size > 1){
+      let nextPair = pollNextPair();
+      if(!nextPair){
+        const remaining = Array.from(active.values());
+        if(remaining.length < 2){
+          break;
+        }
+        const clusterA = remaining[0];
+        const clusterB = remaining[1];
+        const fallbackDistance = linkageDistance(clusterA, clusterB);
+        console.debug('Debug: heatmap hierarchicalCluster fallback merge', {
+          clusterA: clusterA.id,
+          clusterB: clusterB.id,
+          linkage,
+          fallbackDistance
+        });
+        nextPair = { clusterA, clusterB, distance: Number.isFinite(fallbackDistance) ? fallbackDistance : 1 };
+      }
+
+      const { clusterA, clusterB } = nextPair;
+      const mergeDistance = Number.isFinite(nextPair.distance) ? nextPair.distance : 0;
+      active.delete(clusterA.id);
+      active.delete(clusterB.id);
+      const mergedIndices = clusterA.indices.concat(clusterB.indices).sort((a, b) => a - b);
+      const mergedCluster = {
+        id: nextClusterId,
+        indices: mergedIndices,
+        left: clusterA,
+        right: clusterB,
+        distance: mergeDistance,
+        centroid: null,
+        version: 0
+      };
+      if(linkage === 'centroid'){
+        mergedCluster.centroid = computeCentroidForIndices(mergedIndices);
+      }
+      steps.push({ left: clusterA.indices.slice(), right: clusterB.indices.slice(), distance: mergeDistance });
+      maxDistance = Math.max(maxDistance, mergeDistance);
+      nextClusterId += 1;
+      active.set(mergedCluster.id, mergedCluster);
+      for(const other of active.values()){
+        if(other.id === mergedCluster.id){ continue; }
+        pushCandidate(mergedCluster.id, other.id);
+      }
+    }
+
+    const root = Array.from(active.values())[0] || null;
     const flatten = node => {
-      if(!node.left || !node.right){
-        return node.indices.slice();
+      if(!node || !node.left || !node.right){
+        return node ? node.indices.slice() : [];
       }
       const leftOrder = flatten(node.left);
       const rightOrder = flatten(node.right);
@@ -1055,15 +1151,24 @@
       return leftMin <= rightMin ? leftOrder.concat(rightOrder) : rightOrder.concat(leftOrder);
     };
     const orderIndices = flatten(root);
-    const order = orderIndices.map(idx => items[idx].index);
+    const order = orderIndices.length > 0
+      ? orderIndices.map(idx => items[idx].index)
+      : items.map(item => item.index);
+
+    baseDistanceStore.released = true;
+    baseDistanceStore.values = new Float32Array(0);
+
+    const durationMs = now() - startTime;
     console.debug('Debug: heatmap hierarchicalCluster summary', {
-      itemCount: n,
+      itemCount: countItems,
       metric,
       linkage,
       maxDistance,
-      steps: steps.length
+      steps: steps.length,
+      durationMs: Number(durationMs.toFixed(2)),
+      candidatesProcessed: steps.length + 1
     });
-    return { order, tree: root, steps, maxDistance, baseDistances };
+    return { order, tree: root, steps, maxDistance, baseDistances: baseDistanceStore };
   }
 
   function collectSettings(){
@@ -2632,6 +2737,11 @@
     };
     reader.readAsText(file);
   };
+
+  heatmap.__internals = Object.assign({}, heatmap.__internals, {
+    hierarchicalCluster,
+    distanceBetweenVectors
+  });
 
   heatmap.draw = draw;
 
