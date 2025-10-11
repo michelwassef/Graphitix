@@ -25,6 +25,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 - Preserve the shared Handsontable context menu injection that adds the *Paste → Transposed* action when extending or replacing grid menu configurations.
 - Clearly comment any debug output to facilitate removal later.
 - Suppress error bars when a series/category has only a single valid observation so plots do not render misleading caps; log the skip for debugging when you do so.
+- The Venn workspace now caches parsed list inputs and region sets (`ensureParsedLists` / `state.analysis.lastParsedLists`). Reuse those helpers for downstream analyses to avoid duplicating large gene sets in memory.
 - Follow the existing pattern of exposing features through the `window.Shared` and `window.Components` namespaces so legacy inline code continues to work.
 - When wiring new workspaces or helpers, load component bundles through `Main.components.ensureComponent` / `loadComponentBundle` so the lazy loader can cache dynamic `import()` results. Avoid adding new `<script>` tags for per-component bundles.
 - When creating Handsontable grids through `Shared.hot.createStandardTable`, keep the first (grey) row as headers by default. If a dataset has a fixed schema (such as survival analysis), set `firstRowIsHeader: false` and provide explicit `colHeaders` so the first row behaves like normal input cells.

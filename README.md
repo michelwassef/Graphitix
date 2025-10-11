@@ -90,6 +90,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Optional numeric mode accepts explicit region counts when list data is unavailable.【F:index.html†L108-L153】
 - Customize fill colors, transparency, borders, and label fonts directly adjacent to the SVG canvas, then export as PNG or SVG.【F:index.html†L108-L153】
 - Inspect individual regions via the region selector, copy their contents, and view live counts for each overlap category.【F:index.html†L129-L208】
+- **Cached parsing & reuse:** Parsed gene lists, deduplicated overlaps, and unique-value caches are stored centrally so redraws, species detection, and GO background collection reuse the same sets instead of rebuilding gigantic arrays—keeping tens of thousands of identifiers responsive even after repeated runs.【F:js/components/venn.js†L338-L603】【F:js/components/venn.js†L1789-L1842】【F:js/components/venn.js†L1200-L1352】
 - Calculate hypergeometric overlap significance using the **Total Genes** input, with results displayed inline.【F:index.html†L160-L208】
 - Launch downstream GO or STRING analyses with configurable background, categories, network type, and interaction sources, displaying charts and network exports in place.【F:index.html†L184-L232】
 
