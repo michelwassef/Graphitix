@@ -1402,8 +1402,17 @@
       const svgEl = wrapper.querySelector('svg');
       if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
       if (svgEl) {
-        svgEl.style.maxWidth = '150%';
+        svgEl.style.width = '100%';
+        svgEl.style.maxWidth = '100%';
+        svgEl.style.height = 'auto';
+        if (!svgEl.getAttribute('preserveAspectRatio')) {
+          svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        }
         state.ui.stringNetwork?.appendChild(svgEl);
+        console.debug('Debug: venn string network sizing applied', {
+          viewBox: svgEl.getAttribute('viewBox') || null,
+          widthAttr: svgEl.getAttribute('width') || null
+        }); // Debug: ensure network svg stays responsive
         if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'flex';
       } else if (state.ui.stringNetwork) {
         state.ui.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
