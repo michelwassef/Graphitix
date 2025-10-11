@@ -57,8 +57,6 @@
   let currentTarget = null;
   let currentScope = null;
   let currentKey = null;
-  let isFloating = false;
-  let floatingPlaceholder = null;
   let placementMonitoringAttached = false;
 
   const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
@@ -220,73 +218,15 @@
   }
 
   function ensurePlacementMonitoring(){
-    if(placementMonitoringAttached || !global.addEventListener){ return; }
-    const handler = (evt) => {
-      if(!panelEl || panelEl.dataset.open !== '1'){ return; }
-      updateFloatingState(evt?.type || 'event');
-    };
-    global.addEventListener('scroll', handler, { passive: true });
-    global.addEventListener('resize', handler);
+    if(placementMonitoringAttached){ return; }
     placementMonitoringAttached = true;
-    logDebug('viewport monitoring attached', { passive: true });
-  }
-
-  function enterFloatingMode(meta){
-    if(!panelEl || isFloating){ return; }
-    const doc = global.document;
-    if(activeHost){
-      const hostRect = activeHost.getBoundingClientRect();
-      if(hostRect && hostRect.height > 0){
-        activeHost.style.minHeight = `${hostRect.height}px`;
-      }
-    }
-    if(panelEl.parentElement){
-      const owner = panelEl.parentElement;
-      floatingPlaceholder = owner.ownerDocument.createComment('font-controls-floating');
-      owner.insertBefore(floatingPlaceholder, panelEl);
-      owner.removeChild(panelEl);
-    }
-    doc.body.appendChild(panelEl);
-    panelEl.classList.add('font-controls-panel--floating');
-    isFloating = true;
-    logDebug('panel floating enabled', {
-      trigger: meta?.trigger || 'enter',
-      hostVisible: meta?.hostVisible ?? null
-    });
-  }
-
-  function exitFloatingMode(meta){
-    if(!panelEl || !isFloating){ return; }
-    panelEl.classList.remove('font-controls-panel--floating');
-    if(activeHost){
-      if(floatingPlaceholder && floatingPlaceholder.parentNode === activeHost){
-        activeHost.replaceChild(panelEl, floatingPlaceholder);
-      } else {
-        activeHost.appendChild(panelEl);
-      }
-      activeHost.style.minHeight = '';
-    } else if(floatingPlaceholder && floatingPlaceholder.parentNode){
-      floatingPlaceholder.parentNode.replaceChild(panelEl, floatingPlaceholder);
-    }
-    floatingPlaceholder = null;
-    isFloating = false;
-    logDebug('panel floating disabled', {
-      trigger: meta?.trigger || 'exit',
-      hostVisible: meta?.hostVisible ?? null
-    });
+    logDebug('viewport monitoring skipped; toolbar anchored', { anchored: true });
   }
 
   function updateFloatingState(trigger){
     if(!panelEl || panelEl.dataset.open !== '1'){ return; }
-    const doc = global.document;
-    const viewportHeight = global.innerHeight || doc.documentElement?.clientHeight || 0;
-    const hostRect = activeHost?.getBoundingClientRect?.();
-    const hostVisible = !!hostRect && hostRect.height > 0 && hostRect.bottom > 0 && hostRect.top < viewportHeight;
-    if(!hostVisible || !activeHost){
-      enterFloatingMode({ trigger, hostVisible });
-    } else {
-      exitFloatingMode({ trigger, hostVisible });
-    }
+    const hostScope = activeHost?.dataset?.fontToolbarScope || null;
+    logDebug('anchored toolbar check', { trigger, hostScope });
   }
 
   function clampFontSizeDuringInput(value){
@@ -373,7 +313,7 @@
 
   function showToolbarHost(host){
     if(!host){ return; }
-    host.style.display = 'flex';
+    host.style.display = 'block';
     host.classList.add('font-toolbar-host--visible');
     logDebug('toolbar host shown', { scopeId: host.dataset?.fontToolbarScope || null });
   }

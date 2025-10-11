@@ -235,7 +235,7 @@
       if(panelEl.parentElement !== host){
         host.appendChild(panelEl);
       }
-      host.style.display = 'flex';
+      host.style.display = 'block';
       host.classList.add('font-toolbar-host--visible');
       activeHost = host;
     } else {
