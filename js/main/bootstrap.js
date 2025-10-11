@@ -31,18 +31,69 @@
   function runComponentBootstrap({ workspaces, domControls, session }) {
     const ensureDefaultPayload = (type, config) => domControls.ensureDefaultPayload(session, type, config);
     const hideWorkspaceElement = config => domControls.hideWorkspaceElement(config);
-    Object.values(workspaces).forEach(config => {
-      try {
-        if (typeof config.ensure === 'function') {
-          config.ensure();
-        }
-      } catch (err) {
-        console.error('bootstrap ensure error', { type: config.type, err });
+    const registry = Object.values(workspaces || {}).filter(Boolean);
+    if (!registry.length) {
+      console.debug('Debug: runComponentBootstrap skipped', { reason: 'no-workspaces' });
+      return;
+    }
+
+    const activeTab = typeof session?.getActiveTab === 'function' ? session.getActiveTab() : null;
+    const activeType = (activeTab && activeTab.type && !activeTab.isWelcome) ? activeTab.type : null;
+    let initialConfig = activeType && workspaces ? workspaces[activeType] : null;
+
+    if (!initialConfig) {
+      initialConfig = registry.find(entry => {
+        if (!entry?.element) return false;
+        const hiddenAttr = entry.element.hasAttribute('hidden');
+        const styleDisplay = entry.element.style?.display || '';
+        return !hiddenAttr && styleDisplay !== 'none';
+      }) || null;
+    }
+
+    if (!initialConfig) {
+      initialConfig = registry[0] || null;
+      if (initialConfig) {
+        console.debug('Debug: runComponentBootstrap default workspace selected', { type: initialConfig.type });
       }
-      ensureDefaultPayload(config.type, config);
+    }
+
+    const initializedTypes = [];
+    registry.forEach(config => {
+      if (!config) return;
+      const shouldEnsure = initialConfig && config.type === initialConfig.type;
+      if (shouldEnsure) {
+        try {
+          if (typeof config.ensure === 'function') {
+            config.ensure();
+            initializedTypes.push(config.type);
+            if (typeof domControls.markWorkspaceInitialized === 'function') {
+              domControls.markWorkspaceInitialized(config.type, { reason: 'bootstrap-active' });
+            }
+            console.debug('Debug: bootstrap ensured initial workspace', { type: config.type });
+          } else {
+            console.debug('Debug: bootstrap initial workspace missing ensure', { type: config.type });
+            if (typeof domControls.markWorkspaceInitialized === 'function') {
+              domControls.markWorkspaceInitialized(config.type, { reason: 'bootstrap-no-ensure' });
+            }
+          }
+        } catch (err) {
+          console.error('bootstrap ensure error', { type: config.type, err });
+        }
+        ensureDefaultPayload(config.type, config);
+      } else {
+        console.debug('Debug: bootstrap ensure skipped', {
+          type: config.type,
+          reason: 'not-initial-workspace'
+        });
+      }
       hideWorkspaceElement(config);
     });
-    console.debug('Debug: Main.bootstrap component bootstrap executed', { count: Object.keys(workspaces).length });
+
+    console.debug('Debug: Main.bootstrap component bootstrap executed', {
+      count: registry.length,
+      initialType: initialConfig ? initialConfig.type : null,
+      initializedTypes
+    });
   }
 
   namespace.init = function init(main) {

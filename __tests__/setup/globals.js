@@ -6,7 +6,36 @@ const { TextEncoder, TextDecoder } = require('util');
 // Console noise control: keep debug but mark clearly
 // (Developers can filter these in CI if needed)
 const origDebug = console.debug;
-console.debug = (...args) => origDebug('[test-debug]', ...args); // Debug: test wrapper for debug logs
+const origLog = console.log;
+const origWarn = console.warn;
+const origError = console.error;
+let allowDebugLogging = true;
+global.__restoreTestDebugLogs = () => { allowDebugLogging = true; };
+global.__suppressTestDebugLogs = () => { allowDebugLogging = false; };
+console.debug = (...args) => {
+  if (!allowDebugLogging) {
+    return;
+  }
+  origDebug('[test-debug]', ...args);
+}; // Debug: test wrapper for debug logs
+console.log = (...args) => {
+  if (!allowDebugLogging) {
+    return;
+  }
+  origLog(...args);
+};
+console.warn = (...args) => {
+  if (!allowDebugLogging) {
+    return;
+  }
+  origWarn(...args);
+};
+console.error = (...args) => {
+  if (!allowDebugLogging) {
+    return;
+  }
+  origError(...args);
+};
 
 // Polyfills that jsdom may not provide by default
 if (!global.TextEncoder) global.TextEncoder = TextEncoder;
