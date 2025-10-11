@@ -1331,42 +1331,111 @@
     return { corr: normalized, count };
   }
 
+  function packedDistanceIndex(size, i, j){
+    if(i === j){ return -1; }
+    let a = i;
+    let b = j;
+    if(a > b){
+      a = j;
+      b = i;
+    }
+    return (a * (2 * size - a - 1)) / 2 + (b - a - 1);
+  }
+
+  function readPackedDistance(store, i, j){
+    if(!store || typeof store.size !== 'number'){ return 0; }
+    if(i === j){ return 0; }
+    const idx = packedDistanceIndex(store.size, i, j);
+    if(idx < 0){ return 0; }
+    return store.values[idx];
+  }
+
+  function writePackedDistance(store, i, j, value){
+    if(!store || typeof store.size !== 'number' || i === j){ return; }
+    const idx = packedDistanceIndex(store.size, i, j);
+    if(idx >= 0){
+      store.values[idx] = value;
+    }
+  }
+
   function buildDistanceMatrix(columns, method){
     const n = columns.length;
-    const distances = Array.from({ length: n }, () => Array(n).fill(0));
+    if(n <= 1){
+      return { size: n, values: new Float32Array(0) };
+    }
+    const values = new Float32Array((n * (n - 1)) / 2);
+    const store = { size: n, values };
     for(let i = 0; i < n; i += 1){
       for(let j = i + 1; j < n; j += 1){
         const { corr } = calculateColumnCorrelation(columns[i], columns[j], method);
         const distance = Number.isFinite(corr) ? 1 - corr : 1;
-        distances[i][j] = distance;
-        distances[j][i] = distance;
+        writePackedDistance(store, i, j, distance);
       }
     }
-    console.debug('Debug: heatmap distance matrix prepared', { method, distances });
-    return distances;
+    console.debug('Debug: heatmap distance matrix prepared', {
+      method,
+      columnCount: n,
+      preview: Array.from(values.slice(0, Math.min(10, values.length)))
+    });
+    return store;
   }
 
-  function averageLinkageDistance(clusterA, clusterB, baseDistances){
-    let sum = 0;
-    let count = 0;
-    for(const idxA of clusterA.indices){
-      for(const idxB of clusterB.indices){
-        if(idxA === idxB) continue;
-        const dist = baseDistances[idxA]?.[idxB];
-        if(Number.isFinite(dist)){
-          sum += dist;
-          count += 1;
-        }
+  function createMinHeap(compare){
+    const data = [];
+    const swap = (i, j) => {
+      const tmp = data[i];
+      data[i] = data[j];
+      data[j] = tmp;
+    };
+    const bubbleUp = index => {
+      let i = index;
+      while(i > 0){
+        const parent = Math.floor((i - 1) / 2);
+        if(compare(data[i], data[parent]) >= 0){ break; }
+        swap(i, parent);
+        i = parent;
       }
-    }
-    if(count === 0){
-      return 1;
-    }
-    return sum / count;
+    };
+    const bubbleDown = index => {
+      let i = index;
+      while(true){
+        const left = i * 2 + 1;
+        const right = left + 1;
+        let smallest = i;
+        if(left < data.length && compare(data[left], data[smallest]) < 0){
+          smallest = left;
+        }
+        if(right < data.length && compare(data[right], data[smallest]) < 0){
+          smallest = right;
+        }
+        if(smallest === i){ break; }
+        swap(i, smallest);
+        i = smallest;
+      }
+    };
+    return {
+      push(item){
+        data.push(item);
+        bubbleUp(data.length - 1);
+      },
+      pop(){
+        if(data.length === 0){ return null; }
+        const top = data[0];
+        const last = data.pop();
+        if(data.length > 0 && last !== undefined){
+          data[0] = last;
+          bubbleDown(0);
+        }
+        return top;
+      },
+      size(){
+        return data.length;
+      }
+    };
   }
 
   function performHierarchicalClustering(baseDistances){
-    const n = Array.isArray(baseDistances) ? baseDistances.length : 0;
+    const n = Number(baseDistances?.size) || 0;
     if(n <= 0){
       console.debug('Debug: heatmap hierarchical clustering skipped - empty distance matrix');
       return { order: [], tree: null, steps: [], maxDistance: 0 };
@@ -1383,45 +1452,128 @@
       console.debug('Debug: heatmap hierarchical clustering trivial - single column');
       return { order: [0], tree: clusters[0], steps: [], maxDistance: 0 };
     }
-    const working = clusters.slice();
+
+    const active = new Map();
+    clusters.forEach(cluster => {
+      active.set(cluster.id, cluster);
+    });
+    const pairSums = new Map();
+    const heap = createMinHeap((a, b) => a.distance - b.distance);
+
+    for(let i = 0; i < n; i += 1){
+      for(let j = i + 1; j < n; j += 1){
+        const base = readPackedDistance(baseDistances, i, j);
+        const safeDistance = Number.isFinite(base) ? base : 1;
+        const key = getPairKey(i, j);
+        pairSums.set(key, safeDistance);
+        heap.push({ distance: safeDistance, aId: i, bId: j });
+      }
+    }
+
     const mergeSteps = [];
     let maxDistance = 0;
-    while(working.length > 1){
-      let bestI = 0;
-      let bestJ = 1;
-      let bestDistance = Infinity;
-      for(let i = 0; i < working.length; i += 1){
-        for(let j = i + 1; j < working.length; j += 1){
-          const dist = averageLinkageDistance(working[i], working[j], baseDistances);
-          if(dist < bestDistance){
-            bestDistance = dist;
-            bestI = i;
-            bestJ = j;
-          }
+    let nextClusterId = n;
+
+    const getPairKey = (aId, bId) => {
+      return aId < bId ? `${aId}|${bId}` : `${bId}|${aId}`;
+    };
+
+    const pollNextPair = () => {
+      while(heap.size() > 0){
+        const entry = heap.pop();
+        if(!entry){ break; }
+        if(!active.has(entry.aId) || !active.has(entry.bId)){
+          continue;
         }
+        const key = getPairKey(entry.aId, entry.bId);
+        const sum = pairSums.get(key);
+        if(!Number.isFinite(sum)){
+          continue;
+        }
+        const clusterA = active.get(entry.aId);
+        const clusterB = active.get(entry.bId);
+        const avgDistance = sum / (clusterA.size * clusterB.size);
+        return { clusterA, clusterB, sum, avgDistance, key };
       }
-      const safeDistance = Number.isFinite(bestDistance) ? bestDistance : 0;
-      const clusterA = working[bestI];
-      const clusterB = working[bestJ];
+      return null;
+    };
+
+    while(active.size > 1){
+      let next = pollNextPair();
+      if(!next){
+        const remaining = Array.from(active.values());
+        if(remaining.length < 2){
+          break;
+        }
+        const clusterA = remaining[0];
+        const clusterB = remaining[1];
+        const key = getPairKey(clusterA.id, clusterB.id);
+        const sum = pairSums.get(key) || 0;
+        const fallbackDistance = sum / (clusterA.size * clusterB.size) || 0;
+        console.debug('Debug: heatmap hierarchical clustering fallback merge', {
+          clusterA: clusterA.id,
+          clusterB: clusterB.id,
+          distance: fallbackDistance
+        });
+        next = { clusterA, clusterB, sum, avgDistance: fallbackDistance, key };
+      }
+
+      const { clusterA, clusterB, avgDistance, key } = next;
+      pairSums.delete(key);
+      active.delete(clusterA.id);
+      active.delete(clusterB.id);
+
       const merged = {
-        id: `merge-${mergeSteps.length}`,
+        id: nextClusterId,
         indices: clusterA.indices.concat(clusterB.indices),
         size: clusterA.size + clusterB.size,
         left: clusterA,
         right: clusterB,
-        distance: safeDistance
+        distance: Number.isFinite(avgDistance) ? avgDistance : 0
       };
+      nextClusterId += 1;
+      const survivors = Array.from(active.values());
+      active.set(merged.id, merged);
+
+      survivors.forEach(other => {
+        const keyA = getPairKey(clusterA.id, other.id);
+        const keyB = getPairKey(clusterB.id, other.id);
+        const sumA = pairSums.get(keyA) || 0;
+        const sumB = pairSums.get(keyB) || 0;
+        pairSums.delete(keyA);
+        pairSums.delete(keyB);
+        const combinedSum = sumA + sumB;
+        const combinedKey = getPairKey(merged.id, other.id);
+        pairSums.set(combinedKey, combinedSum);
+        const combinedDistance = combinedSum / (merged.size * other.size);
+        heap.push({
+          distance: Number.isFinite(combinedDistance) ? combinedDistance : 0,
+          aId: merged.id,
+          bId: other.id
+        });
+      });
+
       mergeSteps.push({
         left: clusterA.indices.slice(),
         right: clusterB.indices.slice(),
-        distance: safeDistance
+        distance: Number.isFinite(avgDistance) ? avgDistance : 0
       });
-      maxDistance = Math.max(maxDistance, safeDistance);
-      working.splice(bestJ, 1);
-      working.splice(bestI, 1);
-      working.push(merged);
+      maxDistance = Math.max(maxDistance, Number.isFinite(avgDistance) ? avgDistance : 0);
     }
-    const root = working[0];
+
+    const [root] = active.values();
+    if(!root){
+      console.debug('Debug: heatmap hierarchical clustering missing root', {
+        columnCount: n,
+        stepCount: mergeSteps.length
+      });
+      return {
+        order: clusters.map(cluster => cluster.id),
+        tree: null,
+        steps: mergeSteps,
+        maxDistance
+      };
+    }
     const flatten = node => {
       if(!node.left || !node.right){
         return node.indices.slice();
@@ -1433,7 +1585,11 @@
       return leftMin <= rightMin ? leftOrder.concat(rightOrder) : rightOrder.concat(leftOrder);
     };
     const order = flatten(root);
-    console.debug('Debug: heatmap hierarchical clustering merges', { steps: mergeSteps, order, maxDistance });
+    console.debug('Debug: heatmap hierarchical clustering merges', {
+      columnCount: n,
+      stepCount: mergeSteps.length,
+      maxDistance
+    });
     return { order, tree: root, steps: mergeSteps, maxDistance };
   }
 
