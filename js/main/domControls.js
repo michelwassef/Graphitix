@@ -187,56 +187,98 @@
       config.element.removeAttribute('hidden');
       config.element.style.display = '';
     }
-    try {
-      const alreadyInitialized = namespace.isWorkspaceInitialized(config.type);
-      if (!alreadyInitialized) {
-        if (typeof config.ensure === 'function') {
-          config.ensure();
-          namespace.markWorkspaceInitialized(config.type, { reason: 'tab-activation', tabId: tab.id });
-          console.debug('Debug: workspace ensure invoked', { tabId: tab.id, type: tab.type });
-        } else {
-          namespace.markWorkspaceInitialized(config.type, { reason: 'no-ensure-handler', tabId: tab.id });
-          console.debug('Debug: workspace ensure unavailable', { tabId: tab.id, type: tab.type });
-        }
-      } else {
-        console.debug('Debug: workspace ensure skipped (cached)', { tabId: tab.id, type: tab.type });
-      }
-    } catch (err) {
-      console.error('workspace ensure error', { type: tab.type, err });
-    }
-    const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
+    const alreadyInitialized = namespace.isWorkspaceInitialized(config.type);
+    const markInitialized = reason => {
+      namespace.markWorkspaceInitialized(config.type, { reason, tabId: tab.id });
+    };
     const cloneFn = session?.fastClonePayload
       ? value => session.fastClonePayload(value)
       : (session?.clonePayload ? value => session.clonePayload(value) : null);
-    if (!options.skipApply) {
-      const payload = tab.payload ? cloneFn?.(tab.payload) : cloneFn?.(defaultPayload);
-      namespace.applyWorkspacePayload(config, payload);
+
+    const applyWorkspaceState = () => {
+      const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
+      if (!options.skipApply) {
+        const payload = tab.payload ? cloneFn?.(tab.payload) : cloneFn?.(defaultPayload);
+        namespace.applyWorkspacePayload(config, payload);
+      }
+      if (typeof config.applyLayoutState === 'function') {
+        const layoutSource = tab.layoutState
+          ? cloneFn?.(tab.layoutState)
+          : (moduleState.workspaceLayoutDefaults[tab.type]
+            ? cloneFn?.(moduleState.workspaceLayoutDefaults[tab.type])
+            : null);
+        const applied = config.applyLayoutState(layoutSource, { reason: options.reason || 'workspace-view' });
+        console.debug('Debug: workspace layout applied', {
+          tabId: tab.id,
+          type: tab.type,
+          hasState: !!layoutSource,
+          applied
+        });
+      }
+      try {
+        if (typeof config.draw === 'function') {
+          config.draw();
+        }
+      } catch (err) {
+        console.error('workspace draw error', { type: tab.type, err });
+      }
+      if (workspaceState) {
+        workspaceState.lastActiveGraphId = tab.id;
+      }
+      console.debug('Debug: workspace displayed', { tabId: tab.id, type: tab.type });
+    };
+
+    let ensurePromise = null;
+    if (!alreadyInitialized) {
+      if (typeof config.ensure === 'function') {
+        try {
+          const ensureResult = config.ensure();
+          if (ensureResult && typeof ensureResult.then === 'function') {
+            ensurePromise = ensureResult.then(() => {
+              markInitialized('tab-activation');
+              console.debug('Debug: workspace ensure resolved (async)', { tabId: tab.id, type: tab.type });
+            }).catch(err => {
+              console.error('workspace ensure async error', { type: tab.type, err });
+            });
+          } else {
+            markInitialized('tab-activation');
+            console.debug('Debug: workspace ensure invoked', { tabId: tab.id, type: tab.type });
+          }
+        } catch (err) {
+          console.error('workspace ensure error', { type: tab.type, err });
+        }
+      } else {
+        markInitialized('no-ensure-handler');
+        console.debug('Debug: workspace ensure unavailable', { tabId: tab.id, type: tab.type });
+      }
+    } else {
+      console.debug('Debug: workspace ensure skipped (cached)', { tabId: tab.id, type: tab.type });
+      if (typeof config.ensure === 'function') {
+        try {
+          const maybePromise = config.ensure();
+          if (maybePromise && typeof maybePromise.then === 'function') {
+            ensurePromise = maybePromise.catch(err => {
+              console.error('workspace ensure async error', { type: tab.type, err });
+            });
+          }
+        } catch (err) {
+          console.error('workspace ensure error', { type: tab.type, err });
+        }
+      }
     }
-    if (typeof config.applyLayoutState === 'function') {
-      const layoutSource = tab.layoutState
-        ? cloneFn?.(tab.layoutState)
-        : (moduleState.workspaceLayoutDefaults[tab.type]
-          ? cloneFn?.(moduleState.workspaceLayoutDefaults[tab.type])
-          : null);
-      const applied = config.applyLayoutState(layoutSource, { reason: options.reason || 'workspace-view' });
-      console.debug('Debug: workspace layout applied', {
-        tabId: tab.id,
-        type: tab.type,
-        hasState: !!layoutSource,
-        applied
+
+    if (ensurePromise && typeof ensurePromise.then === 'function') {
+      return ensurePromise.then(() => {
+        applyWorkspaceState();
+        return config;
+      }).catch(() => {
+        applyWorkspaceState();
+        return config;
       });
     }
-    try {
-      if (typeof config.draw === 'function') {
-        config.draw();
-      }
-    } catch (err) {
-      console.error('workspace draw error', { type: tab.type, err });
-    }
-    if (workspaceState) {
-      workspaceState.lastActiveGraphId = tab.id;
-    }
-    console.debug('Debug: workspace displayed', { tabId: tab.id, type: tab.type });
+
+    applyWorkspaceState();
+    return config;
   };
 
   namespace.showGraphSelection = function showGraphSelection(params = {}) {

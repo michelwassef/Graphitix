@@ -282,7 +282,7 @@
       }
       workspaceState.pendingDuplicateSource = null;
       workspaceState.lastActiveGraphId = target.id;
-      showWorkspaceForTab(target, { skipApply: !!options.skipApplyPayload });
+      return showWorkspaceForTab(target, { skipApply: !!options.skipApplyPayload });
     }
 
     function getSessionActionsContext(getExtra = {}) {
@@ -375,7 +375,7 @@
       if (payloadCleared) {
         session.markSessionDirty('graph-payload-reset', { tabId: tab.id, previousType: priorType, nextType: type });
       }
-      showWorkspaceForTab(tab);
+      return showWorkspaceForTab(tab);
     }
 
     function handleAddTabClick() {

@@ -62,24 +62,34 @@
       if (!config) return;
       const shouldEnsure = initialConfig && config.type === initialConfig.type;
       if (shouldEnsure) {
-        try {
-          if (typeof config.ensure === 'function') {
-            config.ensure();
-            initializedTypes.push(config.type);
-            if (typeof domControls.markWorkspaceInitialized === 'function') {
-              domControls.markWorkspaceInitialized(config.type, { reason: 'bootstrap-active' });
-            }
-            console.debug('Debug: bootstrap ensured initial workspace', { type: config.type });
-          } else {
-            console.debug('Debug: bootstrap initial workspace missing ensure', { type: config.type });
-            if (typeof domControls.markWorkspaceInitialized === 'function') {
-              domControls.markWorkspaceInitialized(config.type, { reason: 'bootstrap-no-ensure' });
-            }
+        const finalizeEnsure = () => {
+          initializedTypes.push(config.type);
+          if (typeof domControls.markWorkspaceInitialized === 'function') {
+            domControls.markWorkspaceInitialized(config.type, { reason: 'bootstrap-active' });
           }
-        } catch (err) {
-          console.error('bootstrap ensure error', { type: config.type, err });
+          ensureDefaultPayload(config.type, config);
+          console.debug('Debug: bootstrap ensured initial workspace', { type: config.type });
+        };
+        if (typeof config.ensure === 'function') {
+          try {
+            const ensureResult = config.ensure();
+            if (ensureResult && typeof ensureResult.then === 'function') {
+              ensureResult.then(() => finalizeEnsure()).catch(err => {
+                console.error('bootstrap async ensure error', { type: config.type, err });
+              });
+            } else {
+              finalizeEnsure();
+            }
+          } catch (err) {
+            console.error('bootstrap ensure error', { type: config.type, err });
+          }
+        } else {
+          console.debug('Debug: bootstrap initial workspace missing ensure', { type: config.type });
+          if (typeof domControls.markWorkspaceInitialized === 'function') {
+            domControls.markWorkspaceInitialized(config.type, { reason: 'bootstrap-no-ensure' });
+          }
+          ensureDefaultPayload(config.type, config);
         }
-        ensureDefaultPayload(config.type, config);
       } else {
         console.debug('Debug: bootstrap ensure skipped', {
           type: config.type,

@@ -81,10 +81,14 @@ function ensureJStatStub(){
   return ()=>{ delete global.jStat; };
 }
 
-function activateWorkspace(type){
+async function activateWorkspace(type){
   const graphSelection = window.Main?.tabs?.handleGraphSelection;
   expect(typeof graphSelection).toBe('function');
-  graphSelection(type);
+  const result = graphSelection(type);
+  if (result && typeof result.then === 'function') {
+    await result;
+  }
+  await Promise.resolve();
 }
 
 async function flushAsyncWork(iterations = 25){
@@ -127,18 +131,10 @@ describe('UI events and example loaders', () => {
     require('../js/shared/uniprot.js');
     require('../js/shared/goAnalysis.js');
     require('../js/shared/stringAnalysis.js');
-    // Components
-    require('../js/components/heatmap.js');
-    require('../js/components/roc.js');
-    require('../js/components/survival.js');
-    require('../js/components/hist.js');
-    require('../js/components/pie.js');
-    require('../js/components/scatter.js');
-    require('../js/components/line.js');
-    require('../js/components/pca.js');
-    require('../js/components/box.js');
-    require('../js/components/venn.js');
     require('../js/main/components.js');
+    if (window.Main?.components?.preloadAllBundlesSync) {
+      window.Main.components.preloadAllBundlesSync();
+    }
     require('../js/main/session.js');
     require('../js/main/domControls.js');
     require('../js/main/sessionActions.js');
@@ -160,7 +156,7 @@ describe('UI events and example loaders', () => {
   });
 
   test('Box Plot: Load Example populates data', async () => {
-    activateWorkspace('box');
+    await activateWorkspace('box');
     const btn = document.getElementById('boxLoadExample');
     expect(btn).toBeTruthy();
     btn.click();
@@ -174,7 +170,7 @@ describe('UI events and example loaders', () => {
   });
 
   test.skip('Box Plot: assumption warnings surface for non-normal data', async () => {
-    activateWorkspace('box');
+    await activateWorkspace('box');
     const cleanupJStat = ensureJStatStub();
     try {
       const boxComponent = window.Components?.box;
@@ -232,7 +228,7 @@ describe('UI events and example loaders', () => {
   });
 
   test('Histogram: Load Example populates data', async () => {
-    activateWorkspace('hist');
+    await activateWorkspace('hist');
     const btn = document.getElementById('histLoadExample');
     expect(btn).toBeTruthy();
     btn.click();
@@ -245,7 +241,7 @@ describe('UI events and example loaders', () => {
   });
 
   test('Proportion Graph: Load Example populates data', async () => {
-    activateWorkspace('pie');
+    await activateWorkspace('pie');
     const btn = document.getElementById('pieLoadExample');
     expect(btn).toBeTruthy();
     btn.click();
@@ -261,7 +257,7 @@ describe('UI events and example loaders', () => {
   });
 
   test('Correlation Heatmap: Load Example populates data', async () => {
-    activateWorkspace('heatmap');
+    await activateWorkspace('heatmap');
     const btn = document.getElementById('heatmapLoadExample');
     expect(btn).toBeTruthy();
     btn.click();
@@ -277,7 +273,7 @@ describe('UI events and example loaders', () => {
   });
 
   test.skip('ROC: Load Example populates data', async () => {
-    activateWorkspace('roc');
+    await activateWorkspace('roc');
     const btn = document.getElementById('rocLoadExample');
     expect(btn).toBeTruthy();
     btn.click();
@@ -289,8 +285,8 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
   });
 
-  test.skip('ROC stats escape series names that look like HTML', () => {
-    activateWorkspace('roc');
+  test.skip('ROC stats escape series names that look like HTML', async () => {
+    await activateWorkspace('roc');
     const htmlName = 'Model <em>Injected</em>';
     const payload = window.Components?.roc?.getPayload?.();
     expect(payload).toBeTruthy();
@@ -328,7 +324,7 @@ describe('UI events and example loaders', () => {
   });
 
   test('Survival: Load Example populates data', async () => {
-    activateWorkspace('survival');
+    await activateWorkspace('survival');
     const btn = document.getElementById('survivalLoadExample');
     expect(btn).toBeTruthy();
     btn.click();
@@ -341,7 +337,7 @@ describe('UI events and example loaders', () => {
   });
 
   test('Survival: Cox model handles 1200 rows promptly', async () => {
-    activateWorkspace('survival');
+    await activateWorkspace('survival');
     const comp = window.Components?.survival;
     expect(comp).toBeTruthy();
     const state = comp?.__getState?.();
@@ -389,8 +385,8 @@ describe('UI events and example loaders', () => {
     expect(prepared.entryOrder.length).toBe(prepared.data.length);
   });
 
-  test('Color picker overlay opens on color input click', () => {
-    activateWorkspace('venn');
+  test('Color picker overlay opens on color input click', async () => {
+    await activateWorkspace('venn');
     const colorA = document.getElementById('colorA');
     expect(colorA).toBeTruthy();
     // Find overlay (the only color input appended directly under body with pointerEvents none)
@@ -406,8 +402,8 @@ describe('UI events and example loaders', () => {
     expect(overlay.style.display).toBe('block');
   });
 
-  test('Panel resizer drag triggers Shared.syncPanelWidths', () => {
-    activateWorkspace('box');
+  test('Panel resizer drag triggers Shared.syncPanelWidths', async () => {
+    await activateWorkspace('box');
     const resizer = document.getElementById('boxPanelResizer');
     expect(resizer).toBeTruthy();
     const syncSpy = jest.spyOn(window.Shared, 'syncPanelWidths');
@@ -425,8 +421,8 @@ describe('UI events and example loaders', () => {
     syncSpy.mockRestore();
   });
 
-  test('Venn GO analysis results persist when repopulating the same region', () => {
-    activateWorkspace('venn');
+  test('Venn GO analysis results persist when repopulating the same region', async () => {
+    await activateWorkspace('venn');
     const hooks = window.Components?.venn?.__testHooks;
     expect(hooks).toBeTruthy();
     const { state, populateRegion } = hooks;
@@ -456,8 +452,8 @@ describe('UI events and example loaders', () => {
     expect(state.ui.goResults.innerHTML).toBe('DNA repair');
   });
 
-  test('Venn STRING analysis results persist when repopulating the same region', () => {
-    activateWorkspace('venn');
+  test('Venn STRING analysis results persist when repopulating the same region', async () => {
+    await activateWorkspace('venn');
     const hooks = window.Components?.venn?.__testHooks;
     expect(hooks).toBeTruthy();
     const { state, populateRegion } = hooks;
@@ -490,7 +486,7 @@ describe('UI events and example loaders', () => {
   });
 
   test('Venn detect species button triggers manual detection and indicator', async () => {
-    activateWorkspace('venn');
+    await activateWorkspace('venn');
     const listA = document.getElementById('listA');
     const listB = document.getElementById('listB');
     const listC = document.getElementById('listC');
@@ -526,7 +522,7 @@ describe('UI events and example loaders', () => {
   });
 
   test('Venn species detection reuses cache without refetching', async () => {
-    activateWorkspace('venn');
+    await activateWorkspace('venn');
     const venn = window.Components?.venn;
     expect(venn).toBeTruthy();
     const listA = document.getElementById('listA');
@@ -557,7 +553,7 @@ describe('UI events and example loaders', () => {
   });
 
   test('Venn species detection cancels in-flight requests when superseded', async () => {
-    activateWorkspace('venn');
+    await activateWorkspace('venn');
     const venn = window.Components?.venn;
     expect(venn).toBeTruthy();
     const listA = document.getElementById('listA');
