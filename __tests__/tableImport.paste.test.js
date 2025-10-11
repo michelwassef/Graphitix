@@ -122,4 +122,75 @@ describe('Shared.tableImport incremental operations', () => {
     expect(hot.getDataAtCell(1, 1)).toBe('p11');
     expect(hot.getDataAtCell(2, 2)).toBe('p22');
   });
+
+  test('handlePaste full replace uses snapshots for small tables', async () => {
+    const hot = createHotWithData('sheetD', 2, 2);
+    const baseline = [
+      ['a1', 'a2'],
+      ['b1', 'b2']
+    ];
+    hot.loadData(baseline);
+    hot._selected = [0, 0, 1, 1];
+    const event = {
+      preventDefault: jest.fn(),
+      stopPropagation: jest.fn(),
+      clipboardData: {
+        getData: jest.fn().mockImplementation((type) => {
+          return type === 'text/plain' ? 'x1\tx2\ny1\ty2' : '';
+        })
+      }
+    };
+    const scheduleDraw = jest.fn();
+    const result = await tableImport.handlePaste(event, hot, {
+      scheduleDraw,
+      debugLabel: 'snapshotSmall'
+    });
+    expect(result).toBeTruthy();
+    expect(result.fullReplace).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('x1');
+    expect(hot.getDataAtCell(1, 1)).toBe('y2');
+    const undoOutcome = undoManager.undo();
+    expect(undoOutcome).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('a1');
+    expect(hot.getDataAtCell(1, 1)).toBe('b2');
+    const redoOutcome = undoManager.redo();
+    expect(redoOutcome).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('x1');
+    expect(hot.getDataAtCell(1, 1)).toBe('y2');
+    expect(scheduleDraw).toHaveBeenCalled();
+  });
+
+  test('handlePaste snapshot capture degrades for large tables', async () => {
+    const hot = createHotWithData('sheetE', 40, 40);
+    const previousThreshold = tableImport.snapshotCellThreshold;
+    tableImport.snapshotCellThreshold = 500; // force downgrade for test
+    hot._selected = [0, 0, 39, 39];
+    const event = {
+      preventDefault: jest.fn(),
+      stopPropagation: jest.fn(),
+      clipboardData: {
+        getData: jest.fn().mockImplementation((type) => {
+          if(type === 'text/plain'){
+            return Array.from({ length: 40 }, (_, r) => {
+              return Array.from({ length: 40 }, (_, c) => `v${r}_${c}`).join('\t');
+            }).join('\n');
+          }
+          return '';
+        })
+      }
+    };
+    const scheduleDraw = jest.fn();
+    try{
+      const result = await tableImport.handlePaste(event, hot, {
+        scheduleDraw,
+        debugLabel: 'snapshotLarge'
+      });
+      expect(result).toBeTruthy();
+      expect(result.fullReplace).toBe(true);
+      const undoOutcome = undoManager.undo();
+      expect(undoOutcome).toBe(false);
+    }finally{
+      tableImport.snapshotCellThreshold = previousThreshold;
+    }
+  });
 });

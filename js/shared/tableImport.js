@@ -4,6 +4,8 @@
   const tableImport = Shared.tableImport = Shared.tableImport || {};
 
   let xlsxLoaderPromise = null;
+  const DEFAULT_SNAPSHOT_CELL_THRESHOLD = 12000;
+  tableImport.snapshotCellThreshold = DEFAULT_SNAPSHOT_CELL_THRESHOLD;
 
   function debugLog(step, detail, debugLabel){
     const payload = Object.assign({ debugLabel: debugLabel || 'tableImport' }, detail || {});
@@ -105,6 +107,178 @@
     const { onRows, selection, ...rest } = options || {};
     return Object.assign({}, rest, extra);
   }
+
+  function normalizeArea(totalRows, totalCols, area){
+    if(!Array.isArray(area) || area.length !== 4){
+      return [0, 0, Math.max(0, totalRows - 1), Math.max(0, totalCols - 1)];
+    }
+    const [sr, sc, er, ec] = area;
+    const startRow = Math.max(0, Math.min(totalRows - 1, typeof sr === 'number' ? sr : 0));
+    const startCol = Math.max(0, Math.min(totalCols - 1, typeof sc === 'number' ? sc : 0));
+    const endRow = Math.max(startRow, Math.min(totalRows - 1, typeof er === 'number' ? er : startRow));
+    const endCol = Math.max(startCol, Math.min(totalCols - 1, typeof ec === 'number' ? ec : startCol));
+    return [startRow, startCol, endRow, endCol];
+  }
+
+  tableImport.captureHotSnapshot = function captureHotSnapshot(hot, options = {}){
+    const debugLabel = options.debugLabel || 'tableImport.snapshot';
+    if(!hot){
+      debugLog('snapshot.skip', { reason: 'noHot' }, debugLabel); // Debug: snapshot skipped - missing hot
+      return null;
+    }
+    const countRows = typeof hot.countRows === 'function' ? hot.countRows() : 0;
+    const countCols = typeof hot.countCols === 'function' ? hot.countCols() : 0;
+    if(countRows === 0 || countCols === 0){
+      debugLog('snapshot.skip', { reason: 'emptyTable', rows: countRows, cols: countCols }, debugLabel);
+      return { kind: 'empty', rows: countRows, cols: countCols };
+    }
+    const limit = typeof options.maxCells === 'number'
+      ? options.maxCells
+      : (typeof tableImport.snapshotCellThreshold === 'number'
+        ? tableImport.snapshotCellThreshold
+        : DEFAULT_SNAPSHOT_CELL_THRESHOLD);
+    const area = normalizeArea(countRows, countCols, options.area);
+    const areaRows = area[2] >= area[0] ? (area[2] - area[0] + 1) : 0;
+    const areaCols = area[3] >= area[1] ? (area[3] - area[1] + 1) : 0;
+    const areaCells = areaRows * areaCols;
+    if(limit && areaCells > limit){
+      debugLog('snapshot.degraded', {
+        rows: countRows,
+        cols: countCols,
+        area,
+        areaRows,
+        areaCols,
+        areaCells,
+        limit
+      }, debugLabel); // Debug: snapshot downgraded due to size
+      return {
+        kind: 'degraded',
+        rows: countRows,
+        cols: countCols,
+        area,
+        areaCells,
+        limit
+      };
+    }
+    let data = null;
+    if(typeof hot.getData === 'function'){
+      const raw = hot.getData(area[0], area[1], area[2], area[3]);
+      data = Array.isArray(raw) ? raw.map(row => Array.isArray(row) ? row.slice() : []) : null;
+    }else if(typeof hot.getSourceData === 'function'){
+      const source = hot.getSourceData();
+      data = [];
+      for(let r = area[0]; r <= area[2]; r += 1){
+        const row = source && source[r] ? source[r] : [];
+        data.push(row.slice(area[1], area[3] + 1));
+      }
+    }
+    if(!Array.isArray(data)){
+      debugLog('snapshot.skip', { reason: 'noDataAccessor', rows: countRows, cols: countCols }, debugLabel);
+      return null;
+    }
+    debugLog('snapshot.captured', {
+      rows: countRows,
+      cols: countCols,
+      area,
+      cellsCaptured: areaCells
+    }, debugLabel);
+    return {
+      kind: 'area',
+      rows: countRows,
+      cols: countCols,
+      area: {
+        startRow: area[0],
+        startCol: area[1],
+        endRow: area[2],
+        endCol: area[3]
+      },
+      data
+    };
+  };
+
+  tableImport.restoreHotSnapshot = function restoreHotSnapshot(hot, snapshot, options = {}){
+    const debugLabel = options.debugLabel || 'tableImport.snapshot';
+    if(!hot || !snapshot){
+      debugLog('snapshot.restore.skip', { reason: 'missingHotOrSnapshot' }, debugLabel);
+      return false;
+    }
+    if(snapshot.kind !== 'area'){
+      debugLog('snapshot.restore.unavailable', { kind: snapshot.kind || 'unknown' }, debugLabel);
+      return false;
+    }
+    const { area, data } = snapshot;
+    if(!area || !Array.isArray(data)){
+      debugLog('snapshot.restore.skip', { reason: 'invalidSnapshot' }, debugLabel);
+      return false;
+    }
+    const applySnapshot = ()=>{
+      if(typeof hot.populateFromArray === 'function'){
+        hot.populateFromArray(
+          area.startRow,
+          area.startCol,
+          data,
+          area.endRow,
+          area.endCol,
+          'overwrite',
+          'tableImport.restoreHotSnapshot'
+        );
+        return true;
+      }
+      if(typeof hot.setDataAtCell === 'function'){
+        const changeList = [];
+        for(let r = 0; r < data.length; r += 1){
+          const row = data[r] || [];
+          for(let c = 0; c < row.length; c += 1){
+            changeList.push([
+              area.startRow + r,
+              area.startCol + c,
+              row[c]
+            ]);
+          }
+        }
+        if(changeList.length){
+          hot.setDataAtCell(changeList, 'tableImport.restoreHotSnapshot');
+        }
+        return true;
+      }
+      if(typeof hot.loadData === 'function'
+        && area.startRow === 0
+        && area.startCol === 0
+        && area.endRow - area.startRow + 1 === data.length){
+        hot.loadData(data);
+        return true;
+      }
+      return false;
+    };
+    let applied = false;
+    if(typeof hot.batch === 'function'){
+      hot.batch(()=>{
+        applied = applySnapshot();
+      });
+    }else{
+      applied = applySnapshot();
+    }
+    if(!applied){
+      debugLog('snapshot.restore.failed', { reason: 'applyFailed' }, debugLabel);
+      return false;
+    }
+    if(typeof options.minRows === 'number' || typeof options.minCols === 'number'){
+      if(typeof hot.updateSettings === 'function'){
+        const payload = {};
+        if(typeof options.minRows === 'number') payload.minRows = options.minRows;
+        if(typeof options.minCols === 'number') payload.minCols = options.minCols;
+        hot.updateSettings(payload);
+      }
+    }
+    if(typeof hot.render === 'function'){
+      hot.render();
+    }
+    if(typeof options.scheduleDraw === 'function'){
+      options.scheduleDraw();
+    }
+    debugLog('snapshot.restore.applied', { area }, debugLabel);
+    return true;
+  };
 
   function inferHotScope(hot, debugLabel){
     const root = hot?.rootElement || hot?.container || null;
@@ -435,6 +609,44 @@
         });
       }
       const undoManager = Shared.undoManager;
+      const snapshotThreshold = typeof options.snapshotCellThreshold === 'number'
+        ? options.snapshotCellThreshold
+        : (typeof tableImport.snapshotCellThreshold === 'number'
+          ? tableImport.snapshotCellThreshold
+          : DEFAULT_SNAPSHOT_CELL_THRESHOLD);
+      const expectFullReplace = startRow === 0
+        && startCol === 0
+        && processOptions.preserveExisting !== true
+        && !options.selection
+        && (!options.onRows || options.onRows === tableImport.processRows);
+      let snapshotBefore = null;
+      if(expectFullReplace && hot){
+        const totalRows = typeof hot.countRows === 'function' ? hot.countRows() : filtered.length;
+        const totalCols = typeof hot.countCols === 'function' ? hot.countCols() : (filtered[0]?.length || 0);
+        if(totalRows > 0 && totalCols > 0){
+          const area = [0, 0, totalRows - 1, totalCols - 1];
+          const captured = tableImport.captureHotSnapshot(hot, {
+            area,
+            maxCells: snapshotThreshold,
+            debugLabel: `${debugLabel}.snapshotBefore`
+          });
+          if(captured && captured.kind === 'area'){
+            snapshotBefore = captured;
+          }else if(captured && captured.kind === 'degraded'){
+            console.debug('Debug: tableImport.handlePaste snapshot before degraded', {
+              debugLabel,
+              area,
+              cells: captured.areaCells,
+              limit: snapshotThreshold
+            });
+          }else{
+            console.debug('Debug: tableImport.handlePaste snapshot before unavailable', {
+              debugLabel,
+              reason: captured ? captured.kind : 'null'
+            });
+          }
+        }
+      }
       const result = tableImport.processRows(filtered, hot, processOptions);
       const changeSet = Array.isArray(result?.changes) ? result.changes : [];
       const isFullReplace = result?.fullReplace === true;
@@ -548,6 +760,70 @@
             return true;
           }
         });
+      }else if(isFullReplace && undoManager && typeof undoManager.record === 'function'){
+        const totalRowsAfter = typeof hot?.countRows === 'function' ? hot.countRows() : result?.nextMinRows || filtered.length;
+        const totalColsAfter = typeof hot?.countCols === 'function' ? hot.countCols() : (filtered[0]?.length || 0);
+        let snapshotAfter = null;
+        if(totalRowsAfter > 0 && totalColsAfter > 0){
+          const afterArea = [0, 0, totalRowsAfter - 1, totalColsAfter - 1];
+          const capturedAfter = tableImport.captureHotSnapshot(hot, {
+            area: afterArea,
+            maxCells: snapshotThreshold,
+            debugLabel: `${debugLabel}.snapshotAfter`
+          });
+          if(capturedAfter && capturedAfter.kind === 'area'){
+            snapshotAfter = capturedAfter;
+          }else if(capturedAfter && capturedAfter.kind === 'degraded'){
+            console.debug('Debug: tableImport.handlePaste snapshot after degraded', {
+              debugLabel,
+              area: afterArea,
+              cells: capturedAfter.areaCells,
+              limit: snapshotThreshold
+            });
+          }else{
+            console.debug('Debug: tableImport.handlePaste snapshot after unavailable', {
+              debugLabel,
+              reason: capturedAfter ? capturedAfter.kind : 'null'
+            });
+          }
+        }
+        if(snapshotBefore && snapshotAfter){
+          const scope = options.scope || inferHotScope(hot, debugLabel);
+          const label = `tableImport:${debugLabel}:pasteSnapshot`;
+          console.debug('Debug: tableImport.handlePaste undo prepared (snapshot)', {
+            debugLabel,
+            scope,
+            label,
+            cells: (snapshotBefore?.data?.length || 0) * (snapshotBefore?.data?.[0]?.length || 0)
+          });
+          undoManager.record({
+            label,
+            scope,
+            undo(){
+              return tableImport.restoreHotSnapshot(hot, snapshotBefore, {
+                debugLabel: `${debugLabel}.undoSnapshot`,
+                minRows: result?.previousMinRows,
+                minCols: result?.previousMinCols,
+                scheduleDraw: options.scheduleDraw
+              });
+            },
+            redo(){
+              return tableImport.restoreHotSnapshot(hot, snapshotAfter, {
+                debugLabel: `${debugLabel}.redoSnapshot`,
+                minRows: result?.nextMinRows,
+                minCols: result?.nextMinCols,
+                scheduleDraw: options.scheduleDraw
+              });
+            }
+          });
+        }else{
+          console.debug('Debug: tableImport.handlePaste snapshot undo skipped', {
+            debugLabel,
+            before: snapshotBefore ? snapshotBefore.kind : 'missing',
+            after: snapshotAfter ? snapshotAfter.kind : 'missing',
+            threshold: snapshotThreshold
+          });
+        }
       }else{
         console.debug('Debug: tableImport.handlePaste undo skipped (no diff)', {
           debugLabel,
