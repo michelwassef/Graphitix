@@ -1573,8 +1573,25 @@
       const debugStamp = Date.now();
       console.log('drawPca called', {debugStamp}); // Debug: draw invocation marker
 
-      const SVDLib = global.SVDJS;
+      let SVDLib = global.SVDJS;
       const jStatLib = global.jStat;
+
+      if ((!SVDLib || !SVDLib.SVD) && typeof Shared.lazySvd === 'function') {
+        try {
+          console.debug('Debug: pca request Shared.lazySvd'); // Debug: request SVD loader
+          SVDLib = await Shared.lazySvd();
+        } catch (err) {
+          console.error('PCA lazy SVD load failed', err);
+        }
+      }
+
+      if ((!SVDLib || !SVDLib.SVD) && global.SVDJS && global.SVDJS.SVD) {
+        SVDLib = global.SVDJS;
+      }
+
+      if (SVDLib && SVDLib.SVD) {
+        console.debug('Debug: pca svd available', { viaLazy: typeof Shared.lazySvd === 'function' }); // Debug: SVD ready for computations
+      }
 
       if (!SVDLib || !SVDLib.SVD || !jStatLib) {
         console.error('PCA dependencies missing');

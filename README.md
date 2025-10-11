@@ -194,6 +194,10 @@ Internet access is required for these external services; all other features oper
 - **Visualization libraries:** Chart.js powers many charts, D3-inspired helpers render SVG-based diagrams, and SVD-JS provides numerical routines for PCA/MDS computations.【F:index.html†L1120-L1156】
 - **Table management:** Handsontable delivers spreadsheet-like editing, while custom shared modules handle file I/O, import parsing, layout synchronization, and reusable color pickers.【F:index.html†L1120-L1156】
 
+### Lazy-loaded vendor libraries
+- Chart.js, SVD-JS, and the XLSX parser are now requested only when their workspaces need them through `Shared.lazyChart`, `Shared.lazySvd`, and `Shared.lazyXlsx` helpers. These utilities append `<script>` tags on demand so Venn GO analysis, PCA, and table import code can await the assets without forcing every dashboard load to fetch them upfront.【F:js/shared/loaders.js†L1-L53】
+- Components such as the Venn GO renderer and PCA workspace call the helpers before touching the corresponding globals, keeping initialization lighter while preserving backwards compatibility with existing debug logging and export flows.【F:js/components/venn.js†L978-L1072】【F:js/components/pca.js†L1569-L1614】【F:js/shared/tableImport.js†L61-L96】
+
 ## Development & Testing
 1. Install dependencies once if you plan to run automated tests: `npm install`.
 2. Execute the Jest test suite with `npm test` to validate UI utilities and smoke-test module initialization.【F:package.json†L6-L13】

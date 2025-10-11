@@ -62,7 +62,22 @@
 
   async function ensureXLSX(){
     if(global.XLSX){
+      debugLog('xlsx.cacheHit', {}, 'xlsx'); // Debug: reuse existing XLSX
       return global.XLSX;
+    }
+    if(typeof Shared.lazyXlsx === 'function'){
+      if(!xlsxLoaderPromise){
+        debugLog('xlsx.lazyRequest', {}, 'xlsx'); // Debug: delegate to Shared.lazyXlsx
+        xlsxLoaderPromise = Shared.lazyXlsx().then(lib => {
+          debugLog('xlsx.loaded', { via: 'shared' }, 'xlsx');
+          return lib;
+        }).catch(err => {
+          debugLog('xlsx.loadError', { message: err?.message || 'failed', via: 'shared' }, 'xlsx');
+          xlsxLoaderPromise = null;
+          throw err;
+        });
+      }
+      return xlsxLoaderPromise;
     }
     if(xlsxLoaderPromise){
       return xlsxLoaderPromise;
@@ -74,11 +89,11 @@
       const script = global.document.createElement('script');
       script.src = 'libs/xlsx.full.min.js';
       script.onload = () => {
-        debugLog('xlsx.loaded', {}, 'xlsx');
+        debugLog('xlsx.loaded', { via: 'fallback' }, 'xlsx');
         resolve(global.XLSX);
       };
       script.onerror = err => {
-        debugLog('xlsx.loadError', { message: err?.message || 'failed' }, 'xlsx');
+        debugLog('xlsx.loadError', { message: err?.message || 'failed', via: 'fallback' }, 'xlsx');
         reject(new Error('Failed to load XLSX script'));
       };
       global.document.head.appendChild(script);
