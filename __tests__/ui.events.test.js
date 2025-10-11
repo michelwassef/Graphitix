@@ -439,4 +439,126 @@ describe('UI events and example loaders', () => {
     expect(state.ui.stringResults.innerHTML).toContain('Protein binding');
     expect(state.ui.stringNetwork.innerHTML).toContain('<svg');
   });
+
+  test('Venn detect species button triggers manual detection and indicator', async () => {
+    activateWorkspace('venn');
+    const listA = document.getElementById('listA');
+    const listB = document.getElementById('listB');
+    const listC = document.getElementById('listC');
+    const detectBtn = document.getElementById('detectSpeciesBtn');
+    expect(listA && listB && listC && detectBtn).toBeTruthy();
+
+    listA.value = 'BRCA1\nTP53';
+    listB.value = 'ATM';
+    listC.value = '';
+
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn((url) => {
+      const gene = new URL(url).searchParams.get('q');
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ hits: [{ symbol: gene, taxid: '9606' }] })
+      });
+    });
+    global.fetch = fetchMock;
+
+    try {
+      detectBtn.click();
+      await flushAsyncWork();
+      await flushAsyncWork();
+
+      expect(fetchMock).toHaveBeenCalled();
+      const select = document.getElementById('speciesSelect');
+      expect(select.value).toBe('hsapiens');
+      expect(select.style.backgroundColor).toMatch(/b5d99c|rgb\(181, 217, 156\)/i);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('Venn species detection reuses cache without refetching', async () => {
+    activateWorkspace('venn');
+    const venn = window.Components?.venn;
+    expect(venn).toBeTruthy();
+    const listA = document.getElementById('listA');
+    const listB = document.getElementById('listB');
+    const listC = document.getElementById('listC');
+    listA.value = 'BRCA1';
+    listB.value = '';
+    listC.value = '';
+
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn(() => Promise.resolve({
+      ok: true,
+      json: async () => ({ hits: [{ symbol: 'BRCA1', taxid: '9606' }] })
+    }));
+    global.fetch = fetchMock;
+
+    try {
+      await venn.recognizeSpeciesFromInput({ reason: 'cache-test' });
+      await flushAsyncWork();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await venn.recognizeSpeciesFromInput({ reason: 'cache-test-repeat' });
+      await flushAsyncWork();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  test('Venn species detection cancels in-flight requests when superseded', async () => {
+    activateWorkspace('venn');
+    const venn = window.Components?.venn;
+    expect(venn).toBeTruthy();
+    const listA = document.getElementById('listA');
+    const listB = document.getElementById('listB');
+    const listC = document.getElementById('listC');
+    listA.value = 'BRCA1';
+    listB.value = '';
+    listC.value = '';
+
+    const originalFetch = global.fetch;
+    const pendingResolvers = [];
+    const fetchMock = jest.fn((url, options = {}) => new Promise((resolve, reject) => {
+      const gene = new URL(url).searchParams.get('q');
+      if (options.signal) {
+        if (options.signal.aborted) {
+          reject(new DOMException('Aborted', 'AbortError'));
+          return;
+        }
+        options.signal.addEventListener('abort', () => {
+          reject(new DOMException('Aborted', 'AbortError'));
+        }, { once: true });
+      }
+      pendingResolvers.push(() => resolve({
+        ok: true,
+        json: async () => ({ hits: [{ symbol: gene, taxid: '9606' }] })
+      }));
+    }));
+    global.fetch = fetchMock;
+
+    try {
+      const detectionState = window.Components?.venn?.__testHooks?.state.analysis.speciesDetection;
+      const fakeController = new AbortController();
+      detectionState.active = { controller: fakeController, cacheKey: 'fake-cache', reason: 'pending' };
+
+      const secondPromise = venn.recognizeSpeciesFromInput({ reason: 'second-detect' });
+      await flushAsyncWork();
+
+      expect(fakeController.signal.aborted).toBe(true);
+
+      const select = document.getElementById('speciesSelect');
+      expect(select.style.backgroundColor).toBe('');
+
+      pendingResolvers.forEach(resolver => resolver());
+
+      await secondPromise;
+
+      expect(select.value).toBe('hsapiens');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });
