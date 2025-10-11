@@ -77,16 +77,18 @@
       <section id="workspacePages" class="workspace-pages">
   <!-- Venn Diagram Section -->
   <div id="vennPage" class="workspace-page" hidden>
-    <header>
-      <h2 style="margin:0;">Area proportional Venn diagram</h2>
-      <div style="color:#555; font-size:13px;">Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div>
-    </header>
-    <div class="row" style="margin:8px 0;">
-      <button class="btn" id="openVenn">Open File</button>
-      <button class="btn" id="saveVenn">Save File</button>
-      <button class="btn" id="saveAsVenn">Save As</button>
-      <button class="btn" id="sample">Example</button>
-      <input type="file" id="vennGraphFile" accept=".graph" style="display:none;" />
+    <div class="workspace-page__topbar">
+      <header>
+        <h2>Area proportional Venn diagram</h2>
+        <div>Paste lists or enter counts, draw the Venn, inspect regions, export SVG or PNG.</div>
+      </header>
+      <div class="row workspace-page__actions">
+        <button class="btn" id="openVenn">Open File</button>
+        <button class="btn" id="saveVenn">Save File</button>
+        <button class="btn" id="saveAsVenn">Save As</button>
+        <button class="btn" id="sample">Example</button>
+        <input type="file" id="vennGraphFile" accept=".graph" style="display:none;" />
+      </div>
     </div>
     <div class="wrap">
       <div class="panel" id="vennInputPanel">
@@ -292,18 +294,20 @@
 
   <!-- Box Plot Section -->
   <div id="boxPage" class="workspace-page" hidden>
-    <header>
-      <h2 style="margin:0;">Box Plot</h2>
-      <div style="color:#555; font-size:13px;">Paste data into the table and draw a box plot.</div>
-    </header>
-    <div class="row" style="margin:8px 0;">
-      <button class="btn" id="openBox">Open File</button>
-      <button class="btn" id="boxImport">Import File</button>
-      <button class="btn" id="saveBox">Save File</button>
-      <button class="btn" id="saveAsBox">Save As</button>
-      <button class="btn" id="boxLoadExample">Load Example</button>
-      <input type="file" id="boxGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    <div class="workspace-page__topbar">
+      <header>
+        <h2>Box Plot</h2>
+        <div>Paste data into the table and draw a box plot.</div>
+      </header>
+      <div class="row workspace-page__actions">
+        <button class="btn" id="openBox">Open File</button>
+        <button class="btn" id="boxImport">Import File</button>
+        <button class="btn" id="saveBox">Save File</button>
+        <button class="btn" id="saveAsBox">Save As</button>
+        <button class="btn" id="boxLoadExample">Load Example</button>
+        <input type="file" id="boxGraphFile" accept=".graph" style="display:none;" />
+        <input type="file" id="boxFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      </div>
     </div>
     <div class="wrap">
       <div class="panel" id="boxTablePanel">
@@ -458,18 +462,20 @@
 
   <!-- Scatter Plot Section -->
   <div id="scatterPage" class="workspace-page" hidden>
-    <header>
-      <h2 style="margin:0;">Scatter Plot</h2>
-      <div style="color:#555; font-size:13px;">Paste data into the table and draw a scatter plot.</div>
-    </header>
-    <div class="row" style="margin:8px 0;">
-      <button class="btn" id="openScatter">Open File</button>
-      <button class="btn" id="scatterImport">Import File</button>
-      <button class="btn" id="saveScatter">Save File</button>
-      <button class="btn" id="saveAsScatter">Save As</button>
-      <button class="btn" id="scatterLoadExample">Load Example</button>
-      <input type="file" id="scatterGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    <div class="workspace-page__topbar">
+      <header>
+        <h2>Scatter Plot</h2>
+        <div>Paste data into the table and draw a scatter plot.</div>
+      </header>
+      <div class="row workspace-page__actions">
+        <button class="btn" id="openScatter">Open File</button>
+        <button class="btn" id="scatterImport">Import File</button>
+        <button class="btn" id="saveScatter">Save File</button>
+        <button class="btn" id="saveAsScatter">Save As</button>
+        <button class="btn" id="scatterLoadExample">Load Example</button>
+        <input type="file" id="scatterGraphFile" accept=".graph" style="display:none;" />
+        <input type="file" id="scatterFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      </div>
     </div>
     <div class="wrap">
       <div class="panel" id="scatterTablePanel">
@@ -633,18 +639,20 @@
 
   <!-- PCA Section -->
   <div id="pcaPage" class="workspace-page" hidden>
-    <header>
-      <h2 style="margin:0;">Dimensionality Reduction</h2>
-      <div style="color:#555; font-size:13px;">Paste data into the table and compute PCA or MDS.</div>
-    </header>
-    <div class="row" style="margin:8px 0;">
-      <button class="btn" id="openPca">Open File</button>
-      <button class="btn" id="pcaImport">Import File</button>
-      <button class="btn" id="savePca">Save File</button>
-      <button class="btn" id="saveAsPca">Save As</button>
-      <button class="btn" id="pcaLoadExample">Load Example</button>
-      <input type="file" id="pcaGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="pcaFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    <div class="workspace-page__topbar">
+      <header>
+        <h2>Dimensionality Reduction</h2>
+        <div>Paste data into the table and compute PCA or MDS.</div>
+      </header>
+      <div class="row workspace-page__actions">
+        <button class="btn" id="openPca">Open File</button>
+        <button class="btn" id="pcaImport">Import File</button>
+        <button class="btn" id="savePca">Save File</button>
+        <button class="btn" id="saveAsPca">Save As</button>
+        <button class="btn" id="pcaLoadExample">Load Example</button>
+        <input type="file" id="pcaGraphFile" accept=".graph" style="display:none;" />
+        <input type="file" id="pcaFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      </div>
     </div>
     <div class="wrap">
       <div class="panel" id="pcaTablePanel">
@@ -832,32 +840,34 @@
 
   <!-- Line Graph Section -->
   <div id="linePage" class="workspace-page" hidden>
-    <header>
-      <h2 style="margin:0;">Line Graph</h2>
-      <div style="color:#555; font-size:13px;">Paste data into the table and draw a line graph.</div>
-    </header>
-    <div class="row" style="margin:8px 0;">
-      <button class="btn" id="openLine">Open File</button>
-      <button class="btn" id="lineImport">Import File</button>
-      <button class="btn" id="saveLine">Save File</button>
-      <button class="btn" id="saveAsLine">Save As</button>
-      <button class="btn" id="lineLoadExample">Load Example</button>
-      <input type="file" id="lineGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="lineFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
-    </div>
-    <div class="row" style="margin:8px 0; gap:8px; align-items:center; flex-wrap:wrap;">
-      <label for="lineReplicates" style="display:flex; align-items:center; gap:6px; font-size:13px;">
-        Y replicates
-        <input type="number" id="lineReplicates" min="1" max="10" step="1" value="1" style="width:72px;" />
-      </label>
-      <label for="lineExampleSelect" style="display:flex; align-items:center; gap:6px; font-size:13px;">
-        Example data
-        <select id="lineExampleSelect" style="min-width:220px;">
-          <option value="standard">Standard (single replicate)</option>
-          <option value="replicates2">Two replicates (Control vs Treated)</option>
-          <option value="replicates3">Three replicates (Dose response)</option>
-        </select>
-      </label>
+    <div class="workspace-page__topbar">
+      <header>
+        <h2>Line Graph</h2>
+        <div>Paste data into the table and draw a line graph.</div>
+      </header>
+      <div class="row workspace-page__actions">
+        <button class="btn" id="openLine">Open File</button>
+        <button class="btn" id="lineImport">Import File</button>
+        <button class="btn" id="saveLine">Save File</button>
+        <button class="btn" id="saveAsLine">Save As</button>
+        <button class="btn" id="lineLoadExample">Load Example</button>
+        <input type="file" id="lineGraphFile" accept=".graph" style="display:none;" />
+        <input type="file" id="lineFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      </div>
+      <div class="row workspace-page__actions" style="gap:8px; align-items:center; flex-wrap:wrap;">
+        <label for="lineReplicates" style="display:flex; align-items:center; gap:6px; font-size:13px;">
+          Y replicates
+          <input type="number" id="lineReplicates" min="1" max="10" step="1" value="1" style="width:72px;" />
+        </label>
+        <label for="lineExampleSelect" style="display:flex; align-items:center; gap:6px; font-size:13px;">
+          Example data
+          <select id="lineExampleSelect" style="min-width:220px;">
+            <option value="standard">Standard (single replicate)</option>
+            <option value="replicates2">Two replicates (Control vs Treated)</option>
+            <option value="replicates3">Three replicates (Dose response)</option>
+          </select>
+        </label>
+      </div>
     </div>
     <div class="wrap">
       <div class="panel" id="lineTablePanel">
@@ -1032,18 +1042,20 @@
 
   <!-- Correlation Heatmap Section -->
   <div id="heatmapPage" class="workspace-page" hidden>
-    <header>
-      <h2 style="margin:0;">Correlation Heatmap</h2>
-      <div style="color:#555; font-size:13px;">Paste a numeric table to visualize pairwise correlations as a heatmap.</div>
-    </header>
-    <div class="row" style="margin:8px 0;">
-      <button class="btn" id="openHeatmap">Open File</button>
-      <button class="btn" id="heatmapImport">Import File</button>
-      <button class="btn" id="saveHeatmap">Save File</button>
-      <button class="btn" id="saveAsHeatmap">Save As</button>
-      <button class="btn" id="heatmapLoadExample">Load Example</button>
-      <input type="file" id="heatmapGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="heatmapFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    <div class="workspace-page__topbar">
+      <header>
+        <h2>Correlation Heatmap</h2>
+        <div>Paste a numeric table to visualize pairwise correlations as a heatmap.</div>
+      </header>
+      <div class="row workspace-page__actions">
+        <button class="btn" id="openHeatmap">Open File</button>
+        <button class="btn" id="heatmapImport">Import File</button>
+        <button class="btn" id="saveHeatmap">Save File</button>
+        <button class="btn" id="saveAsHeatmap">Save As</button>
+        <button class="btn" id="heatmapLoadExample">Load Example</button>
+        <input type="file" id="heatmapGraphFile" accept=".graph" style="display:none;" />
+        <input type="file" id="heatmapFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      </div>
     </div>
     <div class="wrap">
       <div class="panel" id="heatmapTablePanel">
@@ -1261,18 +1273,20 @@
 
   <!-- ROC Section -->
   <div id="rocPage" class="workspace-page" hidden>
-    <header>
-      <h2 style="margin:0;">Classification Curves</h2>
-      <div style="color:#555; font-size:13px;">Paste data into the table to plot Receiver Operating Characteristic (ROC) or Precision-Recall (PR) curves. The area under each curve is computed using the trapezoidal rule.</div>
-    </header>
-    <div class="row" style="margin:8px 0;">
-      <button class="btn" id="openRoc">Open File</button>
-      <button class="btn" id="rocImport">Import File</button>
-      <button class="btn" id="saveRoc">Save File</button>
-      <button class="btn" id="saveAsRoc">Save As</button>
-      <button class="btn" id="rocLoadExample">Load Example</button>
-      <input type="file" id="rocGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="rocFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    <div class="workspace-page__topbar">
+      <header>
+        <h2>Classification Curves</h2>
+        <div>Paste data into the table to plot Receiver Operating Characteristic (ROC) or Precision-Recall (PR) curves. The area under each curve is computed using the trapezoidal rule.</div>
+      </header>
+      <div class="row workspace-page__actions">
+        <button class="btn" id="openRoc">Open File</button>
+        <button class="btn" id="rocImport">Import File</button>
+        <button class="btn" id="saveRoc">Save File</button>
+        <button class="btn" id="saveAsRoc">Save As</button>
+        <button class="btn" id="rocLoadExample">Load Example</button>
+        <input type="file" id="rocGraphFile" accept=".graph" style="display:none;" />
+        <input type="file" id="rocFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      </div>
     </div>
     <div class="wrap">
       <div class="panel" id="rocTablePanel">
@@ -1343,18 +1357,20 @@
 
   <!-- Survival Section -->
   <div id="survivalPage" class="workspace-page" hidden>
-    <header>
-      <h2 style="margin:0;">Survival Analysis</h2>
-      <div style="color:#555; font-size:13px;">Paste time-to-event data to draw Kaplan–Meier survival curves.</div>
-    </header>
-    <div class="row" style="margin:8px 0;">
-      <button class="btn" id="openSurvival">Open File</button>
-      <button class="btn" id="survivalImport">Import File</button>
-      <button class="btn" id="saveSurvival">Save File</button>
-      <button class="btn" id="saveAsSurvival">Save As</button>
-      <button class="btn" id="survivalLoadExample">Load Example</button>
-      <input type="file" id="survivalGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="survivalFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    <div class="workspace-page__topbar">
+      <header>
+        <h2>Survival Analysis</h2>
+        <div>Paste time-to-event data to draw Kaplan–Meier survival curves.</div>
+      </header>
+      <div class="row workspace-page__actions">
+        <button class="btn" id="openSurvival">Open File</button>
+        <button class="btn" id="survivalImport">Import File</button>
+        <button class="btn" id="saveSurvival">Save File</button>
+        <button class="btn" id="saveAsSurvival">Save As</button>
+        <button class="btn" id="survivalLoadExample">Load Example</button>
+        <input type="file" id="survivalGraphFile" accept=".graph" style="display:none;" />
+        <input type="file" id="survivalFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      </div>
     </div>
     <div class="wrap">
       <div class="panel" id="survivalTablePanel">
@@ -1443,18 +1459,20 @@
 
   <!-- Histogram Section -->
   <div id="histPage" class="workspace-page" hidden>
-    <header>
-      <h2 style="margin:0;">Histogram</h2>
-      <div style="color:#555; font-size:13px;">Paste data into the table and draw a histogram.</div>
-    </header>
-    <div class="row" style="margin:8px 0;">
-      <button class="btn" id="openHist">Open File</button>
-      <button class="btn" id="histImport">Import File</button>
-      <button class="btn" id="saveHist">Save File</button>
-      <button class="btn" id="saveAsHist">Save As</button>
-      <button class="btn" id="histLoadExample">Load Example</button>
-      <input type="file" id="histGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="histFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    <div class="workspace-page__topbar">
+      <header>
+        <h2>Histogram</h2>
+        <div>Paste data into the table and draw a histogram.</div>
+      </header>
+      <div class="row workspace-page__actions">
+        <button class="btn" id="openHist">Open File</button>
+        <button class="btn" id="histImport">Import File</button>
+        <button class="btn" id="saveHist">Save File</button>
+        <button class="btn" id="saveAsHist">Save As</button>
+        <button class="btn" id="histLoadExample">Load Example</button>
+        <input type="file" id="histGraphFile" accept=".graph" style="display:none;" />
+        <input type="file" id="histFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      </div>
     </div>
     <div class="wrap">
       <div class="panel" id="histTablePanel">
@@ -1533,18 +1551,20 @@
 
   <!-- Proportion Graph Section -->
   <div id="piePage" class="workspace-page" hidden>
-    <header>
-      <h2 style="margin:0;">Proportion Graph</h2>
-      <div style="color:#555; font-size:13px;">Paste category, observed, and expected data into the table and draw a proportion graph. The Chi² test uses the observed and expected columns.</div>
-    </header>
-    <div class="row" style="margin:8px 0;">
-      <button class="btn" id="openPie">Open File</button>
-      <button class="btn" id="pieImport">Import File</button>
-      <button class="btn" id="savePie">Save File</button>
-      <button class="btn" id="saveAsPie">Save As</button>
-      <button class="btn" id="pieLoadExample">Load Example</button>
-      <input type="file" id="pieGraphFile" accept=".graph" style="display:none;" />
-      <input type="file" id="pieFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    <div class="workspace-page__topbar">
+      <header>
+        <h2>Proportion Graph</h2>
+        <div>Paste category, observed, and expected data into the table and draw a proportion graph. The Chi² test uses the observed and expected columns.</div>
+      </header>
+      <div class="row workspace-page__actions">
+        <button class="btn" id="openPie">Open File</button>
+        <button class="btn" id="pieImport">Import File</button>
+        <button class="btn" id="savePie">Save File</button>
+        <button class="btn" id="saveAsPie">Save As</button>
+        <button class="btn" id="pieLoadExample">Load Example</button>
+        <input type="file" id="pieGraphFile" accept=".graph" style="display:none;" />
+        <input type="file" id="pieFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+      </div>
     </div>
     <div class="wrap">
       <div class="panel" id="pieTablePanel">
