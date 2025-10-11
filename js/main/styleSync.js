@@ -542,42 +542,58 @@
       console.debug('Debug: styleSync active workspace apply skipped', { reason: 'missing-config', type: tab.type });
       return;
     }
-    try {
-      if (typeof config.ensure === 'function') {
-        config.ensure();
+    const applyAfterEnsure = () => {
+      if (state.domControls && typeof state.domControls.applyWorkspacePayload === 'function') {
+        try {
+          const cloneFn = state.session?.fastClonePayload || state.session?.clonePayload;
+          const payloadClone = cloneFn?.call(state.session, payload) || cloneValue(payload);
+          state.domControls.applyWorkspacePayload(config, payloadClone);
+        } catch (err) {
+          console.error('styleSync applyWorkspacePayload error', { type: tab.type, err });
+        }
       }
-    } catch (err) {
-      console.error('styleSync ensure error', { type: tab.type, err });
-    }
-    if (state.domControls && typeof state.domControls.applyWorkspacePayload === 'function') {
+      if (patch?.layout && typeof config.applyLayoutState === 'function') {
+        try {
+          config.applyLayoutState(layoutClone ? cloneValue(layoutClone) : tab.layoutState, { reason: 'style-sync' });
+        } catch (err) {
+          console.error('styleSync applyLayoutState error', { type: tab.type, err });
+        }
+      }
       try {
-        const cloneFn = state.session?.fastClonePayload || state.session?.clonePayload;
-        const payloadClone = cloneFn?.call(state.session, payload) || cloneValue(payload);
-        state.domControls.applyWorkspacePayload(config, payloadClone);
+        if (typeof config.draw === 'function') {
+          config.draw();
+        }
       } catch (err) {
-        console.error('styleSync applyWorkspacePayload error', { type: tab.type, err });
+        console.error('styleSync redraw error', { type: tab.type, err });
       }
-    }
-    if (patch?.layout && typeof config.applyLayoutState === 'function') {
+      if (state.previews && typeof state.previews.updateTabPreviewFromWorkspace === 'function') {
+        try {
+          state.previews.updateTabPreviewFromWorkspace(tab, config, { reason: 'style-sync', forceCapture: true });
+        } catch (err) {
+          console.error('styleSync preview update error', { type: tab.type, err });
+        }
+      }
+    };
+
+    let ensurePromise = null;
+    if (typeof config.ensure === 'function') {
       try {
-        config.applyLayoutState(layoutClone ? cloneValue(layoutClone) : tab.layoutState, { reason: 'style-sync' });
+        const ensureResult = config.ensure();
+        if (ensureResult && typeof ensureResult.then === 'function') {
+          ensurePromise = ensureResult;
+        }
       } catch (err) {
-        console.error('styleSync applyLayoutState error', { type: tab.type, err });
+        console.error('styleSync ensure error', { type: tab.type, err });
       }
     }
-    try {
-      if (typeof config.draw === 'function') {
-        config.draw();
-      }
-    } catch (err) {
-      console.error('styleSync redraw error', { type: tab.type, err });
-    }
-    if (state.previews && typeof state.previews.updateTabPreviewFromWorkspace === 'function') {
-      try {
-        state.previews.updateTabPreviewFromWorkspace(tab, config, { reason: 'style-sync', forceCapture: true });
-      } catch (err) {
-        console.error('styleSync preview update error', { type: tab.type, err });
-      }
+
+    if (ensurePromise && typeof ensurePromise.then === 'function') {
+      ensurePromise.then(() => applyAfterEnsure()).catch(err => {
+        console.error('styleSync ensure async error', { type: tab.type, err });
+        applyAfterEnsure();
+      });
+    } else {
+      applyAfterEnsure();
     }
   }
 

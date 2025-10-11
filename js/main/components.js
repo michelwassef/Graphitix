@@ -5,6 +5,116 @@
   const namespace = Main.components = Main.components || {};
   const componentLayout = Shared.componentLayout = Shared.componentLayout || {};
 
+  const isNodeLike = typeof process !== 'undefined' && !!process?.versions?.node;
+  const COMPONENT_BUNDLES = {
+    venn: { browserPath: '../components/venn.js', requirePath: '../components/venn.js' },
+    box: { browserPath: '../components/box.js', requirePath: '../components/box.js' },
+    scatter: { browserPath: '../components/scatter.js', requirePath: '../components/scatter.js' },
+    pca: { browserPath: '../components/pca.js', requirePath: '../components/pca.js' },
+    line: { browserPath: '../components/line.js', requirePath: '../components/line.js' },
+    heatmap: { browserPath: '../components/heatmap.js', requirePath: '../components/heatmap.js' },
+    roc: { browserPath: '../components/roc.js', requirePath: '../components/roc.js' },
+    survival: { browserPath: '../components/survival.js', requirePath: '../components/survival.js' },
+    hist: { browserPath: '../components/hist.js', requirePath: '../components/hist.js' },
+    pie: { browserPath: '../components/pie.js', requirePath: '../components/pie.js' }
+  };
+  const bundlePromises = new Map();
+  const cachedBundles = new Set();
+
+  function loadComponentBundle(type, options = {}) {
+    const descriptor = COMPONENT_BUNDLES[type];
+    if (!descriptor) {
+      console.debug('Debug: loadComponentBundle missing descriptor', { type });
+      return Promise.resolve(window.Components?.[type] || null);
+    }
+    const cached = bundlePromises.get(type);
+    if (cached && !options.forceReload) {
+      return cached;
+    }
+    const useRequire = options.forceRequire || (isNodeLike && typeof require === 'function');
+    if (useRequire) {
+      let component = null;
+      try {
+        require(descriptor.requirePath);
+        component = window.Components?.[type] || null;
+        console.debug('Debug: component bundle required via Node', { type, path: descriptor.requirePath, hasComponent: !!component }); // Debug: Node require path
+      } catch (err) {
+        console.error('components require bundle error', { type, err });
+        throw err;
+      }
+      if (!cachedBundles.has(type)) {
+        cachedBundles.add(type);
+        console.debug('Debug: component bundle cached', { type, hasComponent: !!component }); // Debug: cache entry established
+      } else {
+        console.debug('Debug: component bundle reuse', { type, hasComponent: !!component }); // Debug: cache reuse
+      }
+      const promise = Promise.resolve(component);
+      bundlePromises.set(type, promise);
+      return promise;
+    }
+
+    const promise = import(/* webpackIgnore: true */ descriptor.browserPath)
+      .then(module => {
+        const moduleKeys = module ? Object.keys(module) : [];
+        console.debug('Debug: component bundle imported', { type, path: descriptor.browserPath, moduleKeys }); // Debug: import keys
+        return window.Components?.[type] || null;
+      })
+      .then(component => {
+        if (!cachedBundles.has(type)) {
+          cachedBundles.add(type);
+          console.debug('Debug: component bundle cached', { type, hasComponent: !!component }); // Debug: cache entry established
+        } else {
+          console.debug('Debug: component bundle reuse', { type, hasComponent: !!component }); // Debug: cache reuse
+        }
+        return component;
+      })
+      .catch(err => {
+        bundlePromises.delete(type);
+        throw err;
+      });
+    bundlePromises.set(type, promise);
+    return promise;
+  }
+
+  function resolveComponentFromGlobal(name) {
+    return window.Components?.[name] || null;
+  }
+
+  function ensureComponent(name, options = {}) {
+    return loadComponentBundle(name, options).then(() => {
+      const component = resolveComponentFromGlobal(name);
+      if (!component) {
+        console.debug('Debug: ensureComponent missing global export', { name });
+        return null;
+      }
+      let ensureResult = null;
+      if (typeof component.ensure === 'function') {
+        ensureResult = component.ensure(options.ensureOptions);
+      } else if (typeof component.init === 'function') {
+        ensureResult = component.init(options.ensureOptions);
+      }
+      return Promise.resolve(ensureResult).then(() => {
+        console.debug('Debug: ensureComponent resolved', { name, ready: !!component.ready }); // Debug: ensure completion
+        return component;
+      });
+    });
+  }
+
+  namespace.loadComponentBundle = function loadComponentBundleForExternal(type, options) {
+    return loadComponentBundle(type, options || {});
+  };
+
+  namespace.preloadAllBundlesSync = function preloadAllBundlesSync() {
+    Object.keys(COMPONENT_BUNDLES).forEach(type => {
+      try {
+        const promise = loadComponentBundle(type, { forceRequire: true });
+        bundlePromises.set(type, promise);
+      } catch (err) {
+        console.error('components preload error', { type, err });
+      }
+    });
+  };
+
   const scheduleDrawBoxplot = Shared.debounceFrame(() => {
     if (window.Components?.box?.draw) window.Components.box.draw();
   });
@@ -40,23 +150,6 @@
     survival: scheduleDrawSurvival
   };
   console.debug('Debug: main Shared.debounceFrame schedulers ready', { schedulers: ['boxplot', 'scatter', 'pca', 'line', 'heatmap', 'hist', 'pie', 'survival'] });
-
-  function ensureComponent(name) {
-    const component = window.Components?.[name];
-    if (!component) {
-      console.debug('Debug: ensureComponent skipped', { name, reason: 'missing-component' });
-      return;
-    }
-    if (typeof component.ensure === 'function') {
-      component.ensure();
-      return;
-    }
-    if (typeof component.init === 'function') {
-      component.init();
-      return;
-    }
-    console.debug('Debug: ensureComponent no-op', { name });
-  }
 
   const WORKSPACES = {
     venn: {

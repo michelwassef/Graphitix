@@ -20,7 +20,7 @@ describe('App initialization', () => {
     }
   });
 
-  test('js/main.js runs without throwing and attaches core UI', () => {
+  test('js/main.js runs without throwing and attaches core UI', async () => {
     expect(() => {
       // Preload shared modules (mirror script order in index.html)
       require('../js/vendor.js');
@@ -44,18 +44,10 @@ describe('App initialization', () => {
       require('../js/shared/uniprot.js');
       require('../js/shared/goAnalysis.js');
       require('../js/shared/stringAnalysis.js');
-      // Components
-      require('../js/components/heatmap.js');
-      require('../js/components/roc.js');
-      require('../js/components/survival.js');
-      require('../js/components/hist.js');
-      require('../js/components/pie.js');
-      require('../js/components/scatter.js');
-      require('../js/components/line.js');
-      require('../js/components/pca.js');
-      require('../js/components/box.js');
-      require('../js/components/venn.js');
       require('../js/main/components.js');
+      if (window.Main?.components?.preloadAllBundlesSync) {
+        window.Main.components.preloadAllBundlesSync();
+      }
       require('../js/main/session.js');
       require('../js/main/domControls.js');
       require('../js/main/sessionActions.js');
@@ -96,13 +88,17 @@ describe('App initialization', () => {
       { type: 'pie', containerId: 'pieHot' }
     ];
 
-    workspaceHotTargets.forEach(target => {
+    for (const target of workspaceHotTargets) {
       const node = document.getElementById(target.containerId);
-      if (!node) return;
-      graphSelection(target.type);
+      if (!node) continue;
+      const maybePromise = graphSelection(target.type);
+      if (maybePromise && typeof maybePromise.then === 'function') {
+        await maybePromise;
+      }
+      await Promise.resolve();
       const constructed = getConstructedIds();
       expect(constructed).toContain(target.containerId);
-    });
+    }
 
     expect(typeof window.Main?.tabs?.createRenderHelpers).toBe('function');
     expect(typeof window.Main?.tabs?.createUnsavedPromptHandlers).toBe('function');
