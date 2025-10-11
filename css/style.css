@@ -1067,8 +1067,9 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .wrap { position: relative; isolation: isolate; }
 
 
-.font-toolbar-host{margin-left:12px;display:none;align-items:flex-end;justify-content:flex-start;flex:1 1 auto;min-width:260px;align-self:flex-end}
-.font-toolbar-host.font-toolbar-host--visible{display:flex;transform:translateY(-16.7px)}
+.font-toolbar-host{margin:0;display:none;justify-content:flex-start;flex:1 1 auto;min-width:260px;align-self:flex-end;position:relative;overflow:visible;height:0}
+.font-toolbar-host.font-toolbar-host--visible{display:block}
+.font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,.font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel{position:absolute;bottom:0;left:0;right:auto}
 .axis-controls-panel{display:flex;align-items:center;gap:12px;padding:6px 12px;border-radius:12px;border:1px solid rgba(148,163,184,0.45);background:#f8fafc;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;box-shadow:none}
 .axis-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:72px}
 .axis-controls-panel__summary-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#475569;font-weight:600}
