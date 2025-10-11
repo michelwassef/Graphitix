@@ -78,22 +78,270 @@
     });
   }
 
+  const nativeStructuredClone = typeof window.structuredClone === 'function'
+    ? window.structuredClone.bind(window)
+    : (typeof structuredClone === 'function' ? structuredClone : null);
+
+  function fastClonePayload(value, meta = {}) {
+    if (value === null || typeof value !== 'object') {
+      if (meta) {
+        meta.method = 'identity';
+      }
+      return value;
+    }
+    const targetType = Array.isArray(value)
+      ? 'array'
+      : (value?.constructor && value.constructor.name) || typeof value;
+    if (nativeStructuredClone) {
+      try {
+        const structuredResult = nativeStructuredClone(value);
+        if (meta) {
+          meta.method = 'structuredClone';
+          meta.type = targetType;
+        }
+        console.debug('Debug: fastClonePayload using structuredClone', { type: targetType });
+        return structuredResult;
+      } catch (err) {
+        console.debug('Debug: fastClonePayload structuredClone fallback', { type: targetType, err });
+      }
+    }
+    const state = { circular: false };
+    const clone = cloneValue(value, new WeakMap(), state);
+    if (meta) {
+      meta.method = 'fallback';
+      meta.type = targetType;
+      meta.circular = state.circular;
+    }
+    console.debug('Debug: fastClonePayload using fallback clone', {
+      type: targetType,
+      circularDetected: state.circular
+    });
+    return clone;
+  }
+
+  function cloneValue(value, seen, state) {
+    if (value === null || typeof value !== 'object') {
+      return value;
+    }
+    if (seen.has(value)) {
+      state.circular = true;
+      console.debug('Debug: fastClonePayload circular reference detected');
+      return null;
+    }
+    if (value instanceof Date) {
+      return new Date(value.getTime());
+    }
+    if (value instanceof RegExp) {
+      return new RegExp(value.source, value.flags);
+    }
+    if (value instanceof ArrayBuffer) {
+      return value.slice(0);
+    }
+    if (ArrayBuffer.isView(value)) {
+      if (typeof DataView !== 'undefined' && value instanceof DataView) {
+        const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+        return new DataView(buffer);
+      }
+      const Ctor = value.constructor;
+      try {
+        return new Ctor(value);
+      } catch (err) {
+        console.debug('Debug: fastClonePayload typed array clone fallback', {
+          type: value.constructor?.name || 'typed-array',
+          err
+        });
+        const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+        return new Ctor(buffer);
+      }
+    }
+    if (Array.isArray(value)) {
+      const result = new Array(value.length);
+      seen.set(value, result);
+      for (let i = 0; i < value.length; i++) {
+        result[i] = cloneValue(value[i], seen, state);
+      }
+      seen.delete(value);
+      return result;
+    }
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) {
+      console.debug('Debug: fastClonePayload unsupported prototype clone passthrough', {
+        type: value.constructor?.name || 'object'
+      });
+      return value;
+    }
+    const clone = {};
+    seen.set(value, clone);
+    const keys = Object.keys(value);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      clone[key] = cloneValue(value[key], seen, state);
+    }
+    seen.delete(value);
+    return clone;
+  }
+
   function clonePayload(payload) {
     if (!payload) return null;
     try {
-      return JSON.parse(JSON.stringify(payload));
+      const meta = {};
+      const cloned = fastClonePayload(payload, meta);
+      console.debug('Debug: clonePayload completed', meta);
+      return cloned;
     } catch (err) {
       console.error('clonePayload error', err);
       return null;
     }
   }
 
+  function mixHash(hash, value) {
+    return Math.imul(hash ^ value, 16777619) >>> 0;
+  }
+
+  function hashString(hash, str = '') {
+    let next = hash;
+    for (let i = 0; i < str.length; i++) {
+      next = mixHash(next, str.charCodeAt(i));
+    }
+    return mixHash(next, 0x9e);
+  }
+
+  const hashNumberFloat = new Float64Array(1);
+  const hashNumberBytes = new Uint8Array(hashNumberFloat.buffer);
+
+  function hashNumber(hash, value) {
+    if (!Number.isFinite(value)) {
+      if (Number.isNaN(value)) {
+        return mixHash(hash, 0x4f);
+      }
+      return mixHash(hash, value > 0 ? 0x4a : 0x4b);
+    }
+    if (Number.isInteger(value) && value <= 0x7fffffff && value >= -0x80000000) {
+      return mixHash(hash, value | 0);
+    }
+    hashNumberFloat[0] = value;
+    let next = hash;
+    for (let i = 0; i < hashNumberBytes.length; i++) {
+      next = mixHash(next, hashNumberBytes[i]);
+    }
+    return next;
+  }
+
+  function hashTypedArray(hash, view) {
+    const buffer = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    let next = mixHash(hash, 0x27);
+    for (let i = 0; i < buffer.length; i++) {
+      next = mixHash(next, buffer[i]);
+    }
+    next = mixHash(next, buffer.length & 0xff);
+    return mixHash(next, (view.BYTES_PER_ELEMENT || 1) & 0xff);
+  }
+
+  function hashPayloadValue(value, hash, seen) {
+    if (value === null) {
+      return mixHash(hash, 0x11);
+    }
+    const type = typeof value;
+    if (type === 'undefined') {
+      return mixHash(hash, 0x12);
+    }
+    if (type === 'boolean') {
+      return mixHash(hash, value ? 0x13 : 0x14);
+    }
+    if (type === 'number') {
+      return hashNumber(mixHash(hash, 0x15), value);
+    }
+    if (type === 'string') {
+      return hashString(mixHash(hash, 0x16), value);
+    }
+    if (type === 'bigint') {
+      return hashString(mixHash(hash, 0x17), value.toString());
+    }
+    if (type === 'symbol') {
+      return hashString(mixHash(hash, 0x18), value.description || value.toString());
+    }
+    if (type === 'function') {
+      return hashString(mixHash(hash, 0x19), value.name || 'anonymous');
+    }
+    if (seen.has(value)) {
+      return mixHash(hash, 0x1a);
+    }
+    seen.set(value, true);
+    let next = hash;
+    if (Array.isArray(value)) {
+      next = mixHash(next, 0x21);
+      for (let i = 0; i < value.length; i++) {
+        const item = value[i];
+        if (item === null) {
+          next = mixHash(next, 0x35);
+          continue;
+        }
+        const itemType = typeof item;
+        if (itemType === 'number') {
+          next = hashNumber(mixHash(next, 0x31), item);
+        } else if (itemType === 'string') {
+          next = hashString(mixHash(next, 0x32), item);
+        } else if (itemType === 'boolean') {
+          next = mixHash(next, item ? 0x33 : 0x34);
+        } else if (itemType === 'undefined') {
+          next = mixHash(next, 0x36);
+        } else {
+          next = hashPayloadValue(item, next, seen);
+        }
+      }
+      next = mixHash(next, value.length & 0xff);
+    } else if (value instanceof Date) {
+      next = hashNumber(mixHash(next, 0x22), value.getTime());
+    } else if (value instanceof RegExp) {
+      next = hashString(mixHash(next, 0x23), `${value.source}/${value.flags}`);
+    } else if (value instanceof ArrayBuffer) {
+      next = hashTypedArray(mixHash(next, 0x24), new Uint8Array(value));
+    } else if (ArrayBuffer.isView(value)) {
+      next = hashTypedArray(mixHash(next, 0x25), value);
+    } else {
+      const proto = Object.getPrototypeOf(value);
+      if (proto !== Object.prototype && proto !== null) {
+        next = hashString(mixHash(next, 0x26), proto.constructor?.name || 'custom');
+      } else {
+        next = mixHash(next, 0x28);
+      }
+      const keys = Object.keys(value).sort();
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        next = hashString(next, key);
+        next = hashPayloadValue(value[key], next, seen);
+      }
+      next = mixHash(next, keys.length & 0xff);
+    }
+    seen.delete(value);
+    return next;
+  }
+
   function serializePayloadSignature(value) {
     if (value === undefined || value === null) {
       return null;
     }
+    const isBinary = value instanceof ArrayBuffer || ArrayBuffer.isView(value);
+    if (!isBinary) {
+      try {
+        const serialized = JSON.stringify(value);
+        console.debug('Debug: serializePayloadSignature computed', {
+          method: 'json',
+          length: serialized?.length || 0
+        });
+        return serialized;
+      } catch (err) {
+        console.debug('Debug: serializePayloadSignature json fallback engaged', { err });
+      }
+    }
     try {
-      return JSON.stringify(value);
+      const hash = hashPayloadValue(value, 2166136261, new WeakMap()) >>> 0;
+      const signature = `h1:${hash.toString(16).padStart(8, '0')}`;
+      console.debug('Debug: serializePayloadSignature computed', {
+        method: isBinary ? 'hash-binary' : 'hash-fallback',
+        signature
+      });
+      return signature;
     } catch (err) {
       console.error('serializePayloadSignature error', err);
       return `error:${Date.now()}`;
@@ -521,6 +769,7 @@
   namespace.workspaceState = workspaceState;
   namespace.markSessionDirty = markSessionDirty;
   namespace.clearSessionDirty = clearSessionDirty;
+  namespace.fastClonePayload = fastClonePayload;
   namespace.clonePayload = clonePayload;
   namespace.serializePayloadSignature = serializePayloadSignature;
   namespace.assignTabPayload = assignTabPayload;

@@ -52,9 +52,10 @@
       }
       if (!dom.duplicatePrompt || !dom.duplicateEmpty) {
         console.debug('Debug: duplicate prompt unavailable, applying fallback', { type, canDuplicate });
-        if (canDuplicate && sourceTab?.payload) {
-          const clonedPayload = session.clonePayload(sourceTab.payload);
-          const clonedLayout = session.clonePayload(sourceTab.layoutState);
+        const cloneFn = session.fastClonePayload || session.clonePayload;
+        if (canDuplicate && sourceTab?.payload && typeof cloneFn === 'function') {
+          const clonedPayload = cloneFn.call(session, sourceTab.payload);
+          const clonedLayout = cloneFn.call(session, sourceTab.layoutState);
           session.assignTabPayload(tab, clonedPayload, { reason: 'duplicate-fallback-clone' });
           tab.layoutState = clonedLayout;
           tab.layoutSignature = session.serializePayloadSignature
@@ -76,12 +77,13 @@
       dom.duplicatePrompt.dataset.tabId = tab.id;
       dom.duplicatePrompt.removeAttribute('hidden');
       dom.duplicateReuse.textContent = `Reuse ${sourceTab?.title || 'source'} data`;
+      const cloneFn = session.fastClonePayload || session.clonePayload;
       dom.duplicateReuse.onclick = () => {
-        const clonedPayload = canDuplicate && sourceTab?.payload
-          ? session.clonePayload(sourceTab.payload)
+        const clonedPayload = (canDuplicate && sourceTab?.payload && typeof cloneFn === 'function')
+          ? cloneFn.call(session, sourceTab.payload)
           : null;
-        const clonedLayout = canDuplicate && sourceTab?.layoutState
-          ? session.clonePayload(sourceTab.layoutState)
+        const clonedLayout = (canDuplicate && sourceTab?.layoutState && typeof cloneFn === 'function')
+          ? cloneFn.call(session, sourceTab.layoutState)
           : null;
         if (clonedPayload) {
           session.assignTabPayload(tab, clonedPayload, { reason: 'duplicate-accept' });

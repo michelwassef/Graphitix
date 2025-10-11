@@ -110,16 +110,17 @@
     if (moduleState.workspaceDefaults[type]) {
       return moduleState.workspaceDefaults[type];
     }
-    if (!config || typeof config.getPayload !== 'function' || !session || typeof session.clonePayload !== 'function') {
+    const cloneFn = session?.fastClonePayload || session?.clonePayload;
+    if (!config || typeof config.getPayload !== 'function' || !session || typeof cloneFn !== 'function') {
       return null;
     }
     try {
       const payload = config.getPayload();
-      moduleState.workspaceDefaults[type] = session.clonePayload(payload);
+      moduleState.workspaceDefaults[type] = cloneFn.call(session, payload);
       console.debug('Debug: workspace default captured', { type, hasPayload: !!moduleState.workspaceDefaults[type] });
       if (typeof config.getLayoutState === 'function') {
         const layout = config.getLayoutState();
-        moduleState.workspaceLayoutDefaults[type] = session.clonePayload(layout);
+        moduleState.workspaceLayoutDefaults[type] = cloneFn.call(session, layout);
         console.debug('Debug: workspace layout default captured', {
           type,
           hasLayout: !!moduleState.workspaceLayoutDefaults[type]
@@ -204,15 +205,18 @@
       console.error('workspace ensure error', { type: tab.type, err });
     }
     const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
+    const cloneFn = session?.fastClonePayload
+      ? value => session.fastClonePayload(value)
+      : (session?.clonePayload ? value => session.clonePayload(value) : null);
     if (!options.skipApply) {
-      const payload = tab.payload ? session?.clonePayload?.(tab.payload) : session?.clonePayload?.(defaultPayload);
+      const payload = tab.payload ? cloneFn?.(tab.payload) : cloneFn?.(defaultPayload);
       namespace.applyWorkspacePayload(config, payload);
     }
     if (typeof config.applyLayoutState === 'function') {
       const layoutSource = tab.layoutState
-        ? session?.clonePayload?.(tab.layoutState)
+        ? cloneFn?.(tab.layoutState)
         : (moduleState.workspaceLayoutDefaults[tab.type]
-          ? session?.clonePayload?.(moduleState.workspaceLayoutDefaults[tab.type])
+          ? cloneFn?.(moduleState.workspaceLayoutDefaults[tab.type])
           : null);
       const applied = config.applyLayoutState(layoutSource, { reason: options.reason || 'workspace-view' });
       console.debug('Debug: workspace layout applied', {
