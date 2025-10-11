@@ -340,6 +340,55 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
   });
 
+  test('Survival: Cox model handles 1200 rows promptly', async () => {
+    activateWorkspace('survival');
+    const comp = window.Components?.survival;
+    expect(comp).toBeTruthy();
+    const state = comp?.__getState?.();
+    expect(state?.hot).toBeTruthy();
+
+    const bigDataset = [];
+    const rows = 1200;
+    for(let i = 0; i < rows; i += 1){
+      const group = i % 2 === 0 ? 'Control' : 'Treatment';
+      const cycle = Math.floor(i / 200);
+      const baseTime = (i % 200) / 10 + 0.5 + cycle * 0.1;
+      const event = i % 3 === 0 ? 1 : 0;
+      const entry = event ? 0 : Math.max(0, baseTime - 0.25);
+      bigDataset.push([group, Number(baseTime.toFixed(3)), event, Number(entry.toFixed(3))]);
+    }
+    state.hot.loadData(bigDataset);
+    const coxToggle = document.getElementById('survivalFitCox');
+    expect(coxToggle).toBeTruthy();
+    coxToggle.checked = true;
+    const loadedData = state.hot.getData();
+    expect(Array.isArray(loadedData)).toBe(true);
+    expect(loadedData.length).toBe(rows);
+    expect(loadedData[0][0]).toBe('Control');
+    expect(typeof loadedData[0][1]).toBe('number');
+    expect(typeof loadedData[0][2]).toBe('number');
+    const directSummary = window.Components.survival.__testHooks?.collectSeries?.();
+    expect(directSummary?.series?.length).toBeGreaterThan(1);
+    const start = Date.now();
+    window.Components.survival.draw();
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(1200);
+    const summary = state.lastSummary;
+    await flushAsyncWork();
+    expect(Array.isArray(summary?.series)).toBe(true);
+    expect(summary.series.length).toBeGreaterThan(1);
+    expect(summary?.flags?.coxEnabled).toBe(true);
+    expect(summary?.coxModel?.available).toBe(true);
+    expect(summary?.coxModel?.debug?.recordCount).toBe(rows);
+    expect(summary?.coxModel?.debug?.eventGroupCount).toBeGreaterThan(0);
+    expect(summary?.coxModel?.debug?.maxRiskCount).toBeGreaterThan(0);
+    const prepared = window.Components.survival.__testHooks?.prepareCoxData(summary);
+    expect(prepared?.available).toBe(true);
+    expect(Array.isArray(prepared?.eventsByTime)).toBe(true);
+    expect(prepared.eventsByTime.every(evt => evt && evt.riskSet === undefined)).toBe(true);
+    expect(prepared.entryOrder.length).toBe(prepared.data.length);
+  });
+
   test('Color picker overlay opens on color input click', () => {
     activateWorkspace('venn');
     const colorA = document.getElementById('colorA');

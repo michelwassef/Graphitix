@@ -25,6 +25,7 @@
     'Covariate 2',
     'Covariate 3'
   ];
+  const COX_MAX_OBSERVATIONS = 20000;
   const DEFAULT_COLORS = global.DEFAULT_SCATTER_COLORS || [
     '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00',
     '#ffff33', '#a65628', '#f781bf', '#999999'
@@ -1338,6 +1339,13 @@
     if(!data.length){
       return { available: false, message: 'No valid observations to fit Cox model.' };
     }
+    const originalCount = data.length;
+    let truncated = false;
+    if(data.length > COX_MAX_OBSERVATIONS){
+      data.length = COX_MAX_OBSERVATIONS;
+      truncated = true;
+      logDebug('cox observation cap applied', { originalCount, cappedAt: COX_MAX_OBSERVATIONS });
+    }
     data.sort((a, b) => a.time - b.time);
     const eventCount = data.reduce((sum, rec) => sum + (rec.event ? 1 : 0), 0);
     if(eventCount === 0){
@@ -1358,22 +1366,62 @@
     const sortedTimes = Array.from(groupedEvents.keys()).sort((a, b) => a - b);
     sortedTimes.forEach(timeValue => {
       const eventIndices = groupedEvents.get(timeValue) || [];
-      const riskSet = [];
-      data.forEach((candidate, candidateIndex) => {
-        if(!Number.isFinite(candidate.time)){
-          return;
-        }
-        const entryTime = Number.isFinite(candidate.entry) ? candidate.entry : 0;
-        if(entryTime <= timeValue + 1e-9 && candidate.time >= timeValue - 1e-9){
-          riskSet.push(candidateIndex);
-        }
-      });
       eventsByTime.push({
         time: timeValue,
         eventIndices,
-        riskSet,
-        eventCount: eventIndices.length
+        eventCount: eventIndices.length,
+        atRiskCount: 0
       });
+    });
+    const entryOrder = data
+      .map((obs, idx) => ({ idx, entry: Number.isFinite(obs.entry) ? obs.entry : 0, time: Number.isFinite(obs.time) ? obs.time : 0 }))
+      .sort((a, b) => {
+        if(a.entry === b.entry){
+          if(a.time === b.time){
+            return a.idx - b.idx;
+          }
+          return a.time - b.time;
+        }
+        return a.entry - b.entry;
+      })
+      .map(item => item.idx);
+    const exitOrder = data.map((_, idx) => idx);
+    let entryPointer = 0;
+    let exitPointer = 0;
+    let atRiskCount = 0;
+    let maxRiskCount = 0;
+    const epsilon = 1e-9;
+    eventsByTime.forEach(group => {
+      const timeValue = group.time;
+      while(entryPointer < entryOrder.length){
+        const candidate = data[entryOrder[entryPointer]];
+        if(!candidate){
+          entryPointer += 1;
+          continue;
+        }
+        const entryTime = Number.isFinite(candidate.entry) ? candidate.entry : 0;
+        if(entryTime <= timeValue + epsilon){
+          atRiskCount += 1;
+          entryPointer += 1;
+        } else {
+          break;
+        }
+      }
+      while(exitPointer < exitOrder.length){
+        const candidate = data[exitOrder[exitPointer]];
+        if(!candidate){
+          exitPointer += 1;
+          continue;
+        }
+        if(candidate.time < timeValue - epsilon){
+          atRiskCount = Math.max(0, atRiskCount - 1);
+          exitPointer += 1;
+          continue;
+        }
+        break;
+      }
+      group.atRiskCount = atRiskCount;
+      maxRiskCount = Math.max(maxRiskCount, atRiskCount);
     });
     logDebug('cox design prepared', {
       predictors,
@@ -1381,7 +1429,9 @@
       totalRecords: data.length,
       events: eventCount,
       extraCovariates: covariateSelections.length,
-      tieGroups: eventsByTime.length
+      tieGroups: eventsByTime.length,
+      maxRiskCount,
+      truncated
     });
     if(data.length && parseDebugCounter < 5){
       logDebug('cox design sample row', {
@@ -1395,7 +1445,11 @@
       data,
       eventCount,
       design: { predictors: designPredictors, covariateSelections },
-      eventsByTime
+      eventsByTime,
+      entryOrder,
+      exitOrder,
+      maxRiskCount,
+      truncated
     };
   }
 
@@ -1407,32 +1461,79 @@
     if(!Array.isArray(eventsByTime) || !eventsByTime.length){
       return { gradient, fisher, logLik };
     }
+    const entryOrder = Array.isArray(prepared.entryOrder) && prepared.entryOrder.length === data.length
+      ? prepared.entryOrder
+      : data.map((_, idx) => idx);
+    const exitOrder = Array.isArray(prepared.exitOrder) && prepared.exitOrder.length === data.length
+      ? prepared.exitOrder
+      : data.map((_, idx) => idx);
+    const weights = new Array(data.length);
+    const xbValues = new Array(data.length);
+    for(let i = 0; i < data.length; i += 1){
+      const obs = data[i];
+      const xb = dotProduct(obs.covariates, beta);
+      xbValues[i] = xb;
+      weights[i] = safeExp(xb);
+    }
+    let denom = 0;
+    const weightedX = new Array(predictors).fill(0);
+    const weightedXX = createZeroMatrix(predictors);
+    let entryPointer = 0;
+    let exitPointer = 0;
+    const epsilon = 1e-9;
     eventsByTime.forEach((group, idx) => {
-      const riskSet = Array.isArray(group.riskSet) ? group.riskSet : [];
       const eventIndices = Array.isArray(group.eventIndices) ? group.eventIndices : [];
-      if(!riskSet.length || !eventIndices.length){
+      if(!eventIndices.length){
         return;
       }
-      let denom = 0;
-      const weightedX = new Array(predictors).fill(0);
-      const weightedXX = createZeroMatrix(predictors);
-      riskSet.forEach(candidateIndex => {
+      const timeValue = Number.isFinite(group.time) ? group.time : 0;
+      while(entryPointer < entryOrder.length){
+        const candidateIndex = entryOrder[entryPointer];
         const obs = data[candidateIndex];
         if(!obs){
-          return;
+          entryPointer += 1;
+          continue;
         }
-        const xb = dotProduct(obs.covariates, beta);
-        const weight = safeExp(xb);
-        denom += weight;
-        for(let r = 0; r < predictors; r += 1){
-          const vr = obs.covariates[r] ?? 0;
-          weightedX[r] += vr * weight;
-          for(let c = 0; c < predictors; c += 1){
-            const vc = obs.covariates[c] ?? 0;
-            weightedXX[r][c] += vr * vc * weight;
+        const entryTime = Number.isFinite(obs.entry) ? obs.entry : 0;
+        if(entryTime <= timeValue + epsilon){
+          const weight = weights[candidateIndex];
+          denom += weight;
+          for(let r = 0; r < predictors; r += 1){
+            const vr = obs.covariates[r] ?? 0;
+            weightedX[r] += vr * weight;
+            for(let c = 0; c < predictors; c += 1){
+              const vc = obs.covariates[c] ?? 0;
+              weightedXX[r][c] += vr * vc * weight;
+            }
           }
+          entryPointer += 1;
+        } else {
+          break;
         }
-      });
+      }
+      while(exitPointer < exitOrder.length){
+        const candidateIndex = exitOrder[exitPointer];
+        const obs = data[candidateIndex];
+        if(!obs){
+          exitPointer += 1;
+          continue;
+        }
+        if(obs.time < timeValue - epsilon){
+          const weight = weights[candidateIndex];
+          denom -= weight;
+          for(let r = 0; r < predictors; r += 1){
+            const vr = obs.covariates[r] ?? 0;
+            weightedX[r] -= vr * weight;
+            for(let c = 0; c < predictors; c += 1){
+              const vc = obs.covariates[c] ?? 0;
+              weightedXX[r][c] -= vr * vc * weight;
+            }
+          }
+          exitPointer += 1;
+          continue;
+        }
+        break;
+      }
       const denomSafe = Math.max(denom, 1e-12);
       const expectedX = weightedX.map(val => val / denomSafe);
       const eventCount = group.eventCount || eventIndices.length;
@@ -1442,7 +1543,7 @@
         if(!obs){
           return;
         }
-        logLik += dotProduct(obs.covariates, beta) - Math.log(denomSafe);
+        logLik += xbValues[eventIndex] - Math.log(denomSafe);
         for(let r = 0; r < predictors; r += 1){
           observedSum[r] += obs.covariates[r] ?? 0;
         }
@@ -1457,12 +1558,35 @@
           fisher[r][c] += eventCount * varTerm;
         }
       }
+      while(exitPointer < exitOrder.length){
+        const candidateIndex = exitOrder[exitPointer];
+        const obs = data[candidateIndex];
+        if(!obs){
+          exitPointer += 1;
+          continue;
+        }
+        if(obs.time <= timeValue + epsilon){
+          const weight = weights[candidateIndex];
+          denom -= weight;
+          for(let r = 0; r < predictors; r += 1){
+            const vr = obs.covariates[r] ?? 0;
+            weightedX[r] -= vr * weight;
+            for(let c = 0; c < predictors; c += 1){
+              const vc = obs.covariates[c] ?? 0;
+              weightedXX[r][c] -= vr * vc * weight;
+            }
+          }
+          exitPointer += 1;
+          continue;
+        }
+        break;
+      }
       if(idx < 5){
-        logDebug('cox risk set evaluated', {
+        logDebug('cox risk window evaluated', {
           time: group.time,
-          riskSize: riskSet.length,
-          eventCount,
-          denom: denomSafe
+          riskCount: group.atRiskCount,
+          activeDenom: denomSafe,
+          eventCount
         });
       }
     });
@@ -1573,6 +1697,12 @@
       iterations: iterations + 1,
       converged
     };
+    const debugMetrics = {
+      recordCount: prepared.data.length,
+      eventGroupCount: Array.isArray(prepared.eventsByTime) ? prepared.eventsByTime.length : 0,
+      maxRiskCount: prepared.maxRiskCount || 0,
+      truncated: !!prepared.truncated
+    };
     const result = {
       available: true,
       baselineGroup,
@@ -1582,14 +1712,18 @@
       design: prepared.design,
       diagnostics,
       converged,
-      message: converged ? 'Cox model converged.' : 'Cox model reached iteration limit.'
+      message: converged ? 'Cox model converged.' : 'Cox model reached iteration limit.',
+      debug: debugMetrics
     };
     logDebug('cox model fitted', {
       converged,
       iterations: diagnostics.iterations,
       coefficientCount: coefficients.length,
       logLik: diagnostics.logLikelihood,
-      predictorLabels: coefficients.map(coef => coef.label)
+      predictorLabels: coefficients.map(coef => coef.label),
+      recordCount: debugMetrics.recordCount,
+      eventGroupCount: debugMetrics.eventGroupCount,
+      truncated: debugMetrics.truncated
     });
     return result;
   }
@@ -2649,4 +2783,13 @@
     }
   };
   survival.draw = drawSurvival;
+  survival.__getState = function(){
+    console.debug('Debug: survival.__getState invoked');
+    return state;
+  };
+  survival.__testHooks = Object.assign({}, survival.__testHooks, {
+    collectSeries: () => collectSeries(),
+    prepareCoxData: summary => prepareCoxData(summary),
+    evaluateCoxAt: (beta, prepared) => evaluateCoxAt(beta, prepared)
+  });
 })(window);
