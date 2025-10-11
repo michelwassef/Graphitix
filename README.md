@@ -196,6 +196,11 @@ Internet access is required for these external services; all other features oper
 4. No bundler is required—edit HTML/CSS/JS directly and reload the browser to see changes.
 5. Workspace components are lazily ensured based on the active tab. When writing tests or debugging in JSDOM, call `Main.tabs.handleGraphSelection(type)` (or otherwise activate the tab) before asserting that Handsontable grids or stats panels exist so deferred bootstraps can run.【F:js/main/bootstrap.js†L44-L93】【F:js/main/domControls.js†L64-L201】
 
+### Session persistence performance
+Session saves now rely on `Main.session.fastClonePayload`, which prefers the browser’s native `structuredClone` implementation and falls back to a typed-array aware deep copy when it is unavailable. This eliminates the previous `JSON.parse(JSON.stringify(payload))` roundtrip while still logging the cloning strategy for debugging.【F:js/main/session.js†L81-L195】
+
+`serializePayloadSignature` only stringifies the payload when JSON is efficient; otherwise it hashes typed arrays or exotic objects, so layout snapshots and preview signatures avoid redundant serialization work on large Handsontable matrices.【F:js/main/session.js†L320-L345】 A 400×400 matrix tab switch now clones in ~16.6 ms and computes a signature in ~9.1 ms, matching JSON’s performance while removing the second serialization pass entirely.【70625f†L1-L27】 When `structuredClone` is missing (older Safari or legacy embedded browsers), the helper automatically reverts to the manual deep clone path with diagnostic logs so you can spot the fallback during testing.【F:js/main/session.js†L95-L119】
+
 ## Troubleshooting & Tips
 - **Large tables:** For wide datasets, drag the panel resizers to allocate more screen real estate to the spreadsheet or chart as needed.【F:index.html†L320-L360】【F:index.html†L704-L731】
 - **Unlimited horizontal graph resizing:** Use the right-edge resize handle on any visualization canvas to extend charts as wide as needed—the shared resizer now keeps its unbounded width even after panel synchronization, so you can craft ultra-wide layouts and scroll the diagram panel horizontally when the plot exceeds the viewport.【F:js/shared/resizer.js†L389-L475】【F:js/shared/resizer.js†L1121-L1309】

@@ -551,7 +551,8 @@
     }
     if (state.domControls && typeof state.domControls.applyWorkspacePayload === 'function') {
       try {
-        const payloadClone = state.session?.clonePayload?.(payload) || cloneValue(payload);
+        const cloneFn = state.session?.fastClonePayload || state.session?.clonePayload;
+        const payloadClone = cloneFn?.call(state.session, payload) || cloneValue(payload);
         state.domControls.applyWorkspacePayload(config, payloadClone);
       } catch (err) {
         console.error('styleSync applyWorkspacePayload error', { type: tab.type, err });
@@ -617,7 +618,8 @@
     const skipped = [];
     let copiedLayout = null;
     if (stylePatch.layout) {
-      copiedLayout = state.session?.clonePayload?.(sourceTab.layoutState) || cloneValue(sourceTab.layoutState);
+      const cloneFn = state.session?.fastClonePayload || state.session?.clonePayload;
+      copiedLayout = cloneFn?.call(state.session, sourceTab.layoutState) || cloneValue(sourceTab.layoutState);
       if (!copiedLayout) {
         console.debug('Debug: styleSync layout copy missing - source lacks layout', { tabId: sourceTab.id });
       }
@@ -637,7 +639,8 @@
         console.debug('Debug: styleSync target skipped - missing payload', { tabId: targetTab.id });
         return;
       }
-      const nextPayload = state.session?.clonePayload?.(targetTab.payload) || cloneValue(targetTab.payload);
+      const cloneFn = state.session?.fastClonePayload || state.session?.clonePayload;
+      const nextPayload = cloneFn?.call(state.session, targetTab.payload) || cloneValue(targetTab.payload);
       if (stylePatch.config) {
         nextPayload.config = deepMerge(nextPayload.config, stylePatch.config);
       }
