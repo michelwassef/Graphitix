@@ -1064,187 +1064,207 @@
           <div class="config-options">
             <fieldset>
               <legend>View</legend>
-              <div class="control" style="flex-direction:column; align-items:flex-start; gap:6px;">
-                <label style="width:100%;">Heatmap type
+              <div class="heatmap-control-list">
+                <label class="heatmap-control-block">
+                  <span class="heatmap-nowrap">Heatmap type</span>
                   <select id="heatmapView">
                     <option value="values">Data values</option>
                     <option value="corr-columns" selected>Correlation (arrays)</option>
                     <option value="corr-rows">Correlation (genes)</option>
                   </select>
                 </label>
-                <label style="width:100%;">Correlation method
+                <label class="heatmap-control-block">
+                  <span class="heatmap-nowrap">Correlation method</span>
                   <select id="heatmapMethod">
                     <option value="pearson" selected>Pearson</option>
                     <option value="spearman">Spearman</option>
                   </select>
                 </label>
-                <label style="width:auto; display:flex; align-items:center; gap:6px;">
-                  <input type="checkbox" id="heatmapAbsValues" /> Use absolute correlations
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapAbsValues" />
+                  <span class="heatmap-nowrap">Use absolute correlations</span>
                 </label>
-                <label style="width:auto; display:flex; align-items:center; gap:6px;">
-                  <input type="checkbox" id="heatmapMaskLower" /> Hide lower triangle (correlation)
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapMaskLower" />
+                  <span class="heatmap-nowrap">Hide lower triangle (correlation)</span>
                 </label>
-                <label style="width:auto; display:flex; align-items:center; gap:6px;">
-                  <input type="checkbox" id="heatmapShowValues" checked /> Show cell values
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapShowValues" checked />
+                  <span class="heatmap-nowrap">Show cell values</span>
                 </label>
-                <label style="width:100%;">Decimals
-                  <input type="number" id="heatmapDecimals" value="2" min="0" max="6" style="width:80px;" />
-                </label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Filter Genes</legend>
-              <div class="control" style="flex-direction:column; align-items:flex-start; gap:8px;">
-                <label style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <input type="checkbox" id="heatmapFilterPresentEnable" />
-                  <span>% Present &gt;=</span>
-                  <input type="number" id="heatmapFilterPresentValue" value="80" min="0" max="100" step="1" style="width:70px;" />
-                </label>
-                <label style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <input type="checkbox" id="heatmapFilterSdEnable" />
-                  <span>SD (Gene Vector) &gt;=</span>
-                  <input type="number" id="heatmapFilterSdValue" value="2" step="0.1" style="width:70px;" />
-                </label>
-                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <input type="checkbox" id="heatmapFilterAbsEnable" />
-                  <span>At least</span>
-                  <input type="number" id="heatmapFilterAbsCount" value="1" min="1" step="1" style="width:60px;" />
-                  <span>observations with abs(val) &gt;=</span>
-                  <input type="number" id="heatmapFilterAbsValue" value="2" step="0.1" style="width:70px;" />
-                </div>
-                <label style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <input type="checkbox" id="heatmapFilterRangeEnable" />
-                  <span>MaxVal - MinVal &gt;=</span>
-                  <input type="number" id="heatmapFilterRangeValue" value="2" step="0.1" style="width:70px;" />
-                </label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Adjust Data</legend>
-              <div class="control" style="flex-direction:column; align-items:flex-start; gap:8px;">
-                <label style="display:flex; align-items:center; gap:6px;">
-                  <input type="checkbox" id="heatmapLogTransform" /> Log transform data
-                </label>
-                <div style="display:flex; flex-direction:column; gap:4px;">
-                  <label style="display:flex; align-items:center; gap:6px;">
-                    <input type="checkbox" id="heatmapCenterGenes" /> Center genes
-                  </label>
-                  <div style="display:flex; align-items:center; gap:12px; margin-left:24px;">
-                    <label style="display:flex; align-items:center; gap:4px;">
-                      <input type="radio" name="heatmapCenterGenesMode" value="mean" checked /> Mean
-                    </label>
-                    <label style="display:flex; align-items:center; gap:4px;">
-                      <input type="radio" name="heatmapCenterGenesMode" value="median" /> Median
-                    </label>
-                  </div>
-                </div>
-                <div style="display:flex; flex-direction:column; gap:4px;">
-                  <label style="display:flex; align-items:center; gap:6px;">
-                    <input type="checkbox" id="heatmapCenterArrays" /> Center arrays
-                  </label>
-                  <div style="display:flex; align-items:center; gap:12px; margin-left:24px;">
-                    <label style="display:flex; align-items:center; gap:4px;">
-                      <input type="radio" name="heatmapCenterArraysMode" value="mean" checked /> Mean
-                    </label>
-                    <label style="display:flex; align-items:center; gap:4px;">
-                      <input type="radio" name="heatmapCenterArraysMode" value="median" /> Median
-                    </label>
-                  </div>
-                </div>
-                <label style="display:flex; align-items:center; gap:6px;">
-                  <input type="checkbox" id="heatmapNormalizeGenes" /> Normalize genes (z-score)
-                </label>
-                <label style="display:flex; align-items:center; gap:6px;">
-                  <input type="checkbox" id="heatmapNormalizeArrays" /> Normalize arrays (z-score)
-                </label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Clustering</legend>
-              <div class="control" style="flex-direction:column; align-items:flex-start; gap:10px;">
-                <div style="display:flex; flex-direction:column; gap:6px;">
-                  <strong style="font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:#555;">Genes</strong>
-                  <label style="display:flex; align-items:center; gap:6px;">
-                    <input type="checkbox" id="heatmapClusterGenes" checked /> Cluster genes
-                  </label>
-                  <label style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                    <span>Similarity Metric</span>
-                    <select id="heatmapGenesMetric" style="min-width:180px;">
-                      <option value="pearson">Correlation (Pearson)</option>
-                      <option value="spearman">Correlation (Spearman)</option>
-                      <option value="uncentered">Correlation (Uncentered)</option>
-                      <option value="euclidean">Euclidean</option>
-                    </select>
-                  </label>
-                </div>
-                <div style="display:flex; flex-direction:column; gap:6px;">
-                  <strong style="font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:#555;">Arrays</strong>
-                  <label style="display:flex; align-items:center; gap:6px;">
-                    <input type="checkbox" id="heatmapClusterArrays" checked /> Cluster arrays
-                  </label>
-                  <label style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                    <span>Similarity Metric</span>
-                    <select id="heatmapArraysMetric" style="min-width:180px;">
-                      <option value="pearson">Correlation (Pearson)</option>
-                      <option value="spearman">Correlation (Spearman)</option>
-                      <option value="uncentered">Correlation (Uncentered)</option>
-                      <option value="euclidean">Euclidean</option>
-                    </select>
-                  </label>
-                </div>
-                <label style="width:100%;">Clustering method
-                  <select id="heatmapLinkage">
-                    <option value="average">Average linkage</option>
-                    <option value="complete">Complete linkage</option>
-                    <option value="single">Single linkage</option>
-                    <option value="centroid">Centroid linkage</option>
-                  </select>
-                </label>
-                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-                  <label style="display:flex; align-items:center; gap:6px;">
-                    <input type="checkbox" id="heatmapShowRowDendrogram" checked /> Show row dendrogram
-                  </label>
-                  <label style="display:flex; align-items:center; gap:6px;">
-                    <input type="checkbox" id="heatmapShowColumnDendrogram" checked /> Show column dendrogram
-                  </label>
+                <div class="heatmap-inline-group">
+                  <span class="heatmap-nowrap">Decimals</span>
+                  <input type="number" id="heatmapDecimals" value="2" min="0" max="6" class="heatmap-size-input" />
                 </div>
               </div>
             </fieldset>
             <fieldset>
               <legend>Colors</legend>
-              <div class="control" style="flex-direction:column; align-items:flex-start; gap:6px;">
-                <label class="color-picker" style="font-size:13px;">
-                  <span style="min-width:80px;">Negative</span>
+              <div class="heatmap-color-pickers">
+                <label class="color-picker">
+                  <span class="heatmap-nowrap">Negative</span>
                   <input type="color" id="heatmapColorNegative" value="#313695" />
                 </label>
-                <label class="color-picker" style="font-size:13px;">
-                  <span style="min-width:80px;">Neutral</span>
+                <label class="color-picker">
+                  <span class="heatmap-nowrap">Neutral</span>
                   <input type="color" id="heatmapColorZero" value="#f7f7f7" />
                 </label>
-                <label class="color-picker" style="font-size:13px;">
-                  <span style="min-width:80px;">Positive</span>
+                <label class="color-picker">
+                  <span class="heatmap-nowrap">Positive</span>
                   <input type="color" id="heatmapColorPositive" value="#a50026" />
                 </label>
               </div>
             </fieldset>
             <fieldset>
               <legend>Layout</legend>
-              <div class="control" style="flex-direction:column; align-items:flex-start; gap:6px;">
-                <label style="width:100%; display:flex; align-items:center; gap:6px;">
-                  <span style="min-width:80px;">Cell Size</span>
+              <div class="heatmap-control-list">
+                <div class="heatmap-inline-group">
+                  <span class="heatmap-nowrap">Cell Size</span>
                   <input type="range" id="heatmapCellSize" min="30" max="120" step="5" value="60" />
                   <output id="heatmapCellSizeVal">60</output>
-                </label>
-                <label style="width:100%; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                  <span style="min-width:80px;">Label Orientation</span>
-                  <input type="number" id="heatmapLabelAngle" value="90" min="90" max="90" style="width:80px;" disabled />
-                  <span style="font-size:11px; color:#666;">Vertical</span>
-                </label>
-                <label style="width:100%; display:flex; align-items:center; gap:6px;">
-                  <span style="min-width:80px;">Font Size</span>
+                </div>
+                <div class="heatmap-inline-group">
+                  <span class="heatmap-nowrap">Label Orientation</span>
+                  <input type="number" id="heatmapLabelAngle" value="90" min="90" max="90" class="heatmap-size-input" disabled />
+                  <span class="heatmap-hint">Vertical</span>
+                </div>
+                <div class="heatmap-inline-group">
+                  <span class="heatmap-nowrap">Font Size</span>
                   <input type="range" id="heatmapFontSize" min="8" max="24" step="1" value="12" />
                   <output id="heatmapFontSizeVal">12</output>
+                </div>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Filter Genes</legend>
+              <div class="heatmap-control-list">
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapFilterPresentEnable" />
+                  <span class="heatmap-nowrap">% Present &gt;=</span>
+                  <input type="number" id="heatmapFilterPresentValue" value="80" min="0" max="100" step="1" />
                 </label>
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapFilterSdEnable" />
+                  <span class="heatmap-nowrap">SD (Gene Vector) &gt;=</span>
+                  <input type="number" id="heatmapFilterSdValue" value="2" step="0.1" />
+                </label>
+                <div class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapFilterAbsEnable" />
+                  <span class="heatmap-nowrap">At least</span>
+                  <input type="number" id="heatmapFilterAbsCount" value="1" min="1" step="1" class="heatmap-count-field" />
+                  <span class="heatmap-nowrap">observations with abs(val) &gt;=</span>
+                  <input type="number" id="heatmapFilterAbsValue" value="2" step="0.1" />
+                </div>
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapFilterRangeEnable" />
+                  <span class="heatmap-nowrap">MaxVal - MinVal &gt;=</span>
+                  <input type="number" id="heatmapFilterRangeValue" value="2" step="0.1" />
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Adjust Data</legend>
+              <div class="heatmap-control-list">
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapLogTransform" />
+                  <span class="heatmap-nowrap">Log transform data</span>
+                </label>
+                <div class="heatmap-subgroup">
+                  <label class="heatmap-inline-group">
+                    <input type="checkbox" id="heatmapCenterGenes" />
+                    <span class="heatmap-nowrap">Center genes</span>
+                  </label>
+                  <div class="heatmap-inline-group heatmap-subgroup-options">
+                    <label class="heatmap-inline-group">
+                      <input type="radio" name="heatmapCenterGenesMode" value="mean" checked />
+                      <span class="heatmap-nowrap">Mean</span>
+                    </label>
+                    <label class="heatmap-inline-group">
+                      <input type="radio" name="heatmapCenterGenesMode" value="median" />
+                      <span class="heatmap-nowrap">Median</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="heatmap-subgroup">
+                  <label class="heatmap-inline-group">
+                    <input type="checkbox" id="heatmapCenterArrays" />
+                    <span class="heatmap-nowrap">Center arrays</span>
+                  </label>
+                  <div class="heatmap-inline-group heatmap-subgroup-options">
+                    <label class="heatmap-inline-group">
+                      <input type="radio" name="heatmapCenterArraysMode" value="mean" checked />
+                      <span class="heatmap-nowrap">Mean</span>
+                    </label>
+                    <label class="heatmap-inline-group">
+                      <input type="radio" name="heatmapCenterArraysMode" value="median" />
+                      <span class="heatmap-nowrap">Median</span>
+                    </label>
+                  </div>
+                </div>
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapNormalizeGenes" />
+                  <span class="heatmap-nowrap">Normalize genes (z-score)</span>
+                </label>
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapNormalizeArrays" />
+                  <span class="heatmap-nowrap">Normalize arrays (z-score)</span>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Clustering</legend>
+              <div class="heatmap-control-list">
+                <div class="heatmap-subgroup">
+                  <strong class="heatmap-subgroup-title">Genes</strong>
+                  <label class="heatmap-inline-group">
+                    <input type="checkbox" id="heatmapClusterGenes" checked />
+                    <span class="heatmap-nowrap">Cluster genes</span>
+                  </label>
+                  <div class="heatmap-inline-group">
+                    <span class="heatmap-nowrap">Similarity Metric</span>
+                    <select id="heatmapGenesMetric" class="heatmap-metric-select">
+                      <option value="pearson">Correlation (Pearson)</option>
+                      <option value="spearman">Correlation (Spearman)</option>
+                      <option value="uncentered">Correlation (Uncentered)</option>
+                      <option value="euclidean">Euclidean</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="heatmap-subgroup">
+                  <strong class="heatmap-subgroup-title">Arrays</strong>
+                  <label class="heatmap-inline-group">
+                    <input type="checkbox" id="heatmapClusterArrays" checked />
+                    <span class="heatmap-nowrap">Cluster arrays</span>
+                  </label>
+                  <div class="heatmap-inline-group">
+                    <span class="heatmap-nowrap">Similarity Metric</span>
+                    <select id="heatmapArraysMetric" class="heatmap-metric-select">
+                      <option value="pearson">Correlation (Pearson)</option>
+                      <option value="spearman">Correlation (Spearman)</option>
+                      <option value="uncentered">Correlation (Uncentered)</option>
+                      <option value="euclidean">Euclidean</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="heatmap-control-block">
+                  <span class="heatmap-nowrap">Clustering method</span>
+                  <select id="heatmapLinkage">
+                    <option value="average">Average linkage</option>
+                    <option value="complete">Complete linkage</option>
+                    <option value="single">Single linkage</option>
+                    <option value="centroid">Centroid linkage</option>
+                  </select>
+                </div>
+                <div class="heatmap-inline-group">
+                  <label class="heatmap-inline-group">
+                    <input type="checkbox" id="heatmapShowRowDendrogram" checked />
+                    <span class="heatmap-nowrap">Show row dendrogram</span>
+                  </label>
+                  <label class="heatmap-inline-group">
+                    <input type="checkbox" id="heatmapShowColumnDendrogram" checked />
+                    <span class="heatmap-nowrap">Show column dendrogram</span>
+                  </label>
+                </div>
               </div>
             </fieldset>
           </div>

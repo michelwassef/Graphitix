@@ -840,6 +840,23 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-options .control label.color-picker{width:auto;min-width:0}
 .config-options .control input[type=range]{flex:1}
 .config-options .control output{width:36px;text-align:right}
+#heatmapGraphPanel .config-options .heatmap-control-list{display:flex;flex-direction:column;align-items:flex-start;gap:8px;font-size:13px;width:100%}
+#heatmapGraphPanel .config-options .heatmap-control-block{display:flex;flex-direction:column;gap:4px;width:100%}
+#heatmapGraphPanel .config-options .heatmap-control-block select{width:100%}
+#heatmapGraphPanel .config-options .heatmap-inline-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+#heatmapGraphPanel .config-options .heatmap-inline-group>span{white-space:nowrap}
+#heatmapGraphPanel .config-options .heatmap-inline-group input[type=number]{width:70px}
+#heatmapGraphPanel .config-options .heatmap-inline-group .heatmap-count-field{width:60px}
+#heatmapGraphPanel .config-options .heatmap-size-input{width:80px}
+#heatmapGraphPanel .config-options .heatmap-inline-group input[type=range]{flex:1 1 auto;min-width:120px}
+#heatmapGraphPanel .config-options .heatmap-inline-group output{min-width:32px;text-align:right}
+#heatmapGraphPanel .config-options .heatmap-color-pickers{display:flex;flex-direction:column;gap:6px}
+#heatmapGraphPanel .config-options .heatmap-color-pickers .color-picker{font-size:13px}
+#heatmapGraphPanel .config-options .heatmap-hint{font-size:11px;color:#666}
+#heatmapGraphPanel .config-options .heatmap-subgroup{display:flex;flex-direction:column;gap:6px;align-items:flex-start;width:100%}
+#heatmapGraphPanel .config-options .heatmap-subgroup-options{margin-left:24px;gap:12px}
+#heatmapGraphPanel .config-options .heatmap-subgroup-title{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#555}
+#heatmapGraphPanel .config-options .heatmap-metric-select{min-width:180px}
 .color-picker input[type=color]{flex:0 0 var(--color-swatch-size,20px)}
 details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 @media (max-width:1000px){.wrap{grid-template-columns:1fr}#stage{height:280px}}
