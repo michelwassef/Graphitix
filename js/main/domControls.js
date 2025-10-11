@@ -7,7 +7,8 @@
   const moduleState = {
     appHeaderVisible: true,
     workspaceDefaults: {},
-    workspaceLayoutDefaults: {}
+    workspaceLayoutDefaults: {},
+    workspaceInitialized: {}
   };
 
   namespace.createDomHandles = function createDomHandles() {
@@ -45,6 +46,32 @@
     };
     console.debug('Debug: domControls.createDomHandles generated', { keys: Object.keys(handles) });
     return handles;
+  };
+
+  namespace.isWorkspaceInitialized = function isWorkspaceInitialized(type) {
+    if (!type) {
+      console.debug('Debug: workspace initialization check skipped', { type });
+      return false;
+    }
+    const initialized = moduleState.workspaceInitialized?.[type] === true;
+    console.debug('Debug: workspace initialization status', { type, initialized });
+    return initialized;
+  };
+
+  namespace.markWorkspaceInitialized = function markWorkspaceInitialized(type, meta = {}) {
+    if (!type) {
+      console.debug('Debug: workspace initialization mark skipped', { type, meta });
+      return;
+    }
+    if (!moduleState.workspaceInitialized) {
+      moduleState.workspaceInitialized = {};
+    }
+    if (moduleState.workspaceInitialized[type]) {
+      console.debug('Debug: workspace initialization mark ignored', { type, reason: 'already-initialized', meta });
+      return;
+    }
+    moduleState.workspaceInitialized[type] = true;
+    console.debug('Debug: workspace initialization recorded', { type, meta });
   };
 
   namespace.setAppHeaderVisibility = function setAppHeaderVisibility(dom, shouldShow, meta = {}) {
@@ -160,8 +187,18 @@
       config.element.style.display = '';
     }
     try {
-      if (typeof config.ensure === 'function') {
-        config.ensure();
+      const alreadyInitialized = namespace.isWorkspaceInitialized(config.type);
+      if (!alreadyInitialized) {
+        if (typeof config.ensure === 'function') {
+          config.ensure();
+          namespace.markWorkspaceInitialized(config.type, { reason: 'tab-activation', tabId: tab.id });
+          console.debug('Debug: workspace ensure invoked', { tabId: tab.id, type: tab.type });
+        } else {
+          namespace.markWorkspaceInitialized(config.type, { reason: 'no-ensure-handler', tabId: tab.id });
+          console.debug('Debug: workspace ensure unavailable', { tabId: tab.id, type: tab.type });
+        }
+      } else {
+        console.debug('Debug: workspace ensure skipped (cached)', { tabId: tab.id, type: tab.type });
       }
     } catch (err) {
       console.error('workspace ensure error', { type: tab.type, err });

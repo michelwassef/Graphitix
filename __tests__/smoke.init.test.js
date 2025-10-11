@@ -6,31 +6,60 @@
 describe('App initialization', () => {
   beforeEach(() => {
     jest.resetModules();
+    if (typeof global.__restoreTestDebugLogs === 'function') {
+      global.__restoreTestDebugLogs();
+    }
+    if (typeof global.__resetHT__ === 'function') {
+      global.__resetHT__();
+    }
+  });
+
+  afterEach(() => {
+    if (typeof global.__suppressTestDebugLogs === 'function') {
+      global.__suppressTestDebugLogs();
+    }
   });
 
   test('js/main.js runs without throwing and attaches core UI', () => {
     expect(() => {
       // Preload shared modules (mirror script order in index.html)
       require('../js/vendor.js');
+      require('../js/shared/fileIO.js');
       require('../js/shared/debounce.js');
+      require('../js/shared/undo.js');
       require('../js/shared/resizer.js');
+      require('../js/shared/dom.js');
+      require('../js/shared/exporter.js');
+      require('../js/shared/chartStyle.js');
+      require('../js/shared/graphSizing.js');
+      require('../js/shared/regression.js');
+      require('../js/shared/stats.js');
+      require('../js/shared/stats-table.js');
       require('../js/shared/colorPicker.js');
+      require('../js/shared/axisControls.js');
+      require('../js/shared/fontControls.js');
       require('../js/shared/hot.js');
       require('../js/shared/componentLayout.js');
+      require('../js/shared/tableImport.js');
+      require('../js/shared/uniprot.js');
+      require('../js/shared/goAnalysis.js');
+      require('../js/shared/stringAnalysis.js');
       // Components
-      require('../js/components/box.js');
-      require('../js/components/hist.js');
-      require('../js/components/pie.js');
       require('../js/components/heatmap.js');
-      require('../js/components/scatter.js');
-      require('../js/components/pca.js');
-      require('../js/components/line.js');
       require('../js/components/roc.js');
       require('../js/components/survival.js');
+      require('../js/components/hist.js');
+      require('../js/components/pie.js');
+      require('../js/components/scatter.js');
+      require('../js/components/line.js');
+      require('../js/components/pca.js');
+      require('../js/components/box.js');
+      require('../js/components/venn.js');
       require('../js/main/components.js');
       require('../js/main/session.js');
       require('../js/main/domControls.js');
       require('../js/main/sessionActions.js');
+      require('../js/main/styleSync.js');
       require('../js/main/tabDrag.js');
       require('../js/main/previews.js');
       require('../js/main/tabs/render.js');
@@ -48,19 +77,32 @@ describe('App initialization', () => {
     // Chart defaults should be set by main.js
     expect(global.Chart.defaults.locale).toBe('en-US');
 
-    // Handsontable instances should be constructed for major tables
-    const createdIds = (global.__HT_CALLS__ || [])
+    const getConstructedIds = () => (global.__HT_CALLS__ || [])
       .filter(c => c.type === 'construct')
       .map(c => c.containerId);
 
-    // Expect core grids to be initialized (if present in DOM)
-    const expected = ['hot', 'scatterHot', 'pcaHot', 'lineHot', 'heatmapHot', 'rocHot', 'survivalHot', 'histHot', 'pieHot'];
-    for (const id of expected) {
-      const node = document.getElementById(id);
-      if (node) {
-        expect(createdIds).toContain(id);
-      }
-    }
+    const graphSelection = window.Main?.tabs?.handleGraphSelection;
+    expect(typeof graphSelection).toBe('function');
+
+    const workspaceHotTargets = [
+      { type: 'box', containerId: 'hot' },
+      { type: 'scatter', containerId: 'scatterHot' },
+      { type: 'pca', containerId: 'pcaHot' },
+      { type: 'line', containerId: 'lineHot' },
+      { type: 'heatmap', containerId: 'heatmapHot' },
+      { type: 'roc', containerId: 'rocHot' },
+      { type: 'survival', containerId: 'survivalHot' },
+      { type: 'hist', containerId: 'histHot' },
+      { type: 'pie', containerId: 'pieHot' }
+    ];
+
+    workspaceHotTargets.forEach(target => {
+      const node = document.getElementById(target.containerId);
+      if (!node) return;
+      graphSelection(target.type);
+      const constructed = getConstructedIds();
+      expect(constructed).toContain(target.containerId);
+    });
 
     expect(typeof window.Main?.tabs?.createRenderHelpers).toBe('function');
     expect(typeof window.Main?.tabs?.createUnsavedPromptHandlers).toBe('function');

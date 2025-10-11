@@ -193,6 +193,7 @@ Internet access is required for these external services; all other features oper
 2. Execute the Jest test suite with `npm test` to validate UI utilities and smoke-test module initialization.【F:package.json†L6-L13】
 3. Static analysis and linting are not currently configured; Jest is the authoritative automated check.
 4. No bundler is required—edit HTML/CSS/JS directly and reload the browser to see changes.
+5. Workspace components are lazily ensured based on the active tab. When writing tests or debugging in JSDOM, call `Main.tabs.handleGraphSelection(type)` (or otherwise activate the tab) before asserting that Handsontable grids or stats panels exist so deferred bootstraps can run.【F:js/main/bootstrap.js†L44-L93】【F:js/main/domControls.js†L64-L201】
 
 ## Troubleshooting & Tips
 - **Large tables:** For wide datasets, drag the panel resizers to allocate more screen real estate to the spreadsheet or chart as needed.【F:index.html†L320-L360】【F:index.html†L704-L731】
