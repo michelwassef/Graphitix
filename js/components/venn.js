@@ -1402,6 +1402,34 @@
       const svgEl = wrapper.querySelector('svg');
       if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
       if (svgEl) {
+        const scopeAttr = 'data-string-network-scope';
+        const scopeToken = `scope-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        svgEl.setAttribute(scopeAttr, scopeToken);
+        const styleEls = Array.from(svgEl.querySelectorAll('style'));
+        let scopedStyles = 0;
+        const scopeSelector = `[${scopeAttr}="${scopeToken}"]`;
+        styleEls.forEach(styleEl => {
+          const original = styleEl.textContent || '';
+          if (!original.trim()) {
+            return;
+          }
+          const scoped = original.replace(/(^|})\s*([^@{}][^{}]*)\s*\{/g, (match, prefix, selector) => {
+            const trimmed = (selector || '').trim();
+            if (!trimmed) {
+              return match;
+            }
+            const parts = trimmed.split(',').map(part => part.trim()).filter(Boolean);
+            if (!parts.length) {
+              return match;
+            }
+            const rewritten = parts.map(part => `${scopeSelector} ${part}`).join(', ');
+            return `${prefix} ${rewritten} {`;
+          });
+          if (scoped !== original) {
+            styleEl.textContent = scoped;
+            scopedStyles += 1;
+          }
+        });
         svgEl.style.width = '100%';
         svgEl.style.maxWidth = '100%';
         svgEl.style.height = 'auto';
@@ -1411,8 +1439,11 @@
         state.ui.stringNetwork?.appendChild(svgEl);
         console.debug('Debug: venn string network sizing applied', {
           viewBox: svgEl.getAttribute('viewBox') || null,
-          widthAttr: svgEl.getAttribute('width') || null
-        }); // Debug: ensure network svg stays responsive
+          widthAttr: svgEl.getAttribute('width') || null,
+          scopeApplied: scopedStyles > 0,
+          scopedStyleCount: scopedStyles,
+          totalStyleCount: styleEls.length
+        }); // Debug: ensure network svg stays responsive and scoped
         if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'flex';
       } else if (state.ui.stringNetwork) {
         state.ui.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
