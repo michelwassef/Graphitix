@@ -331,6 +331,7 @@
       },
       analysis: {
         goChart: null,
+        goChartLocaleApplied: false,
         lastStringSVG: null,
         lastRegions: null,
         lastCounts: null,
@@ -974,6 +975,23 @@
     console.debug('Debug: venn clearAnalysis invoked'); // Debug: analysis outputs cleared
   }
 
+  function applyGoChartDefaults(ChartCtor) {
+    if (!ChartCtor || !ChartCtor.defaults) {
+      debugLog('goChart.defaults.skip', { hasDefaults: !!ChartCtor?.defaults }); // Debug: Chart defaults missing
+      return;
+    }
+    if (state.analysis.goChartLocaleApplied) {
+      return;
+    }
+    try {
+      ChartCtor.defaults.locale = 'en-US';
+      state.analysis.goChartLocaleApplied = true;
+      debugLog('goChart.defaults.applied', { locale: 'en-US' }); // Debug: locale configured once
+    } catch (err) {
+      console.warn('venn goChart locale apply failed', err);
+    }
+  }
+
   function renderGOChart(limit = 5) {
     if (!state.ui.goResults) return;
     if (!state.analysis.lastGOResult || !state.analysis.lastGOResult.length) {
@@ -1021,7 +1039,37 @@
       },
       locale: 'en-US'
     };
-    state.analysis.goChart = new Chart(ctx, config);
+    const instantiateChart = (ChartCtor) => {
+      if (!ChartCtor) {
+        console.error('venn GO chart missing Chart constructor');
+        if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
+        return;
+      }
+      applyGoChartDefaults(ChartCtor);
+      state.analysis.goChart = new ChartCtor(ctx, config);
+      debugLog('goChart.rendered', { bars: labels.length, limit }); // Debug: chart instantiated
+    };
+
+    if (typeof Shared.lazyChart === 'function') {
+      Shared.lazyChart()
+        .then(chartLib => {
+          const ChartCtor = chartLib?.Chart || chartLib || global.Chart;
+          instantiateChart(ChartCtor);
+        })
+        .catch(err => {
+          console.error('venn GO chart failed to load Chart.js', err);
+          if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
+        });
+      return;
+    }
+
+    if (global.Chart) {
+      instantiateChart(global.Chart);
+      return;
+    }
+
+    console.warn('Chart.js unavailable for GO chart rendering');
+    if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
   }
 
   function renderGOResults(limit = 5) {
@@ -2723,7 +2771,11 @@
       console.debug('Debug: venn post-scheduler syncPanels'); // Debug: sync panels after scheduler setup
       state.ui.syncPanels({ skipSchedule: true });
     }
-    try { Chart.defaults.locale = 'en-US'; } catch (e) { }
+    if (global.Chart && global.Chart.defaults) {
+      applyGoChartDefaults(global.Chart);
+    } else {
+      debugLog('goChart.defaults.defer', { hasChart: !!global.Chart }); // Debug: defer locale until lazy load
+    }
     const $ = global.$;
     state.ui.stage = document.getElementById('stage');
     state.ui.inputs = {
