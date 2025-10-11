@@ -883,6 +883,7 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-options .control label.color-picker{width:auto;min-width:0}
 .config-options .control input[type=range]{flex:1}
 .config-options .control output{width:36px;text-align:right}
+#heatmapGraphPanel .config-options{display:flex;flex-direction:column;gap:16px}
 #heatmapGraphPanel .config-options .heatmap-control-list{display:flex;flex-direction:column;align-items:flex-start;gap:8px;font-size:13px;width:100%}
 #heatmapGraphPanel .config-options .heatmap-control-block{display:flex;flex-direction:column;gap:4px;width:100%}
 #heatmapGraphPanel .config-options .heatmap-control-block select{width:100%}
@@ -893,12 +894,17 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 #heatmapGraphPanel .config-options .heatmap-size-input{width:80px}
 #heatmapGraphPanel .config-options .heatmap-inline-group input[type=range]{flex:1 1 auto;min-width:120px}
 #heatmapGraphPanel .config-options .heatmap-inline-group output{min-width:32px;text-align:right}
-#heatmapGraphPanel .config-options .heatmap-color-pickers{display:flex;flex-direction:column;gap:6px}
+#heatmapGraphPanel .config-options .heatmap-color-pickers{display:flex;flex-direction:column;gap:8px}
 #heatmapGraphPanel .config-options .heatmap-color-pickers .color-picker{font-size:13px}
 #heatmapGraphPanel .config-options .heatmap-hint{font-size:11px;color:#666}
 #heatmapGraphPanel .config-options .heatmap-subgroup{display:flex;flex-direction:column;gap:6px;align-items:flex-start;width:100%}
 #heatmapGraphPanel .config-options .heatmap-subgroup-options{margin-left:24px;gap:12px}
 #heatmapGraphPanel .config-options .heatmap-subgroup-title{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#555}
+#heatmapGraphPanel .heatmap-layout-colors-row{display:flex;gap:12px;align-items:stretch;flex-wrap:wrap}
+#heatmapGraphPanel .heatmap-layout-colors-row fieldset{flex:1 1 260px;min-width:220px}
+#heatmapGraphPanel .heatmap-layout-colors-row .heatmap-layout-panel{flex:1 1 320px;min-width:260px}
+#heatmapGraphPanel .heatmap-layout-colors-row .heatmap-colors-panel{flex:0 1 220px;min-width:200px;max-width:260px}
+#heatmapGraphPanel .heatmap-layout-colors-row .heatmap-color-pickers{height:100%}
 #heatmapGraphPanel .config-options .heatmap-metric-select{min-width:180px}
 .color-picker input[type=color]{flex:0 0 var(--color-swatch-size,20px)}
 details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
@@ -998,6 +1004,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #heatmapPage #heatmapGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
 #heatmapPage .diagram-area .svgbox{flex:0 0 auto}
 #heatmapPage .diagram-area .config-options{flex:0 0 auto}
+#heatmapPage .heatmap-lower-panels{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-top:16px}
+#heatmapPage .heatmap-lower-left{flex:1 1 420px;display:flex;flex-direction:column;gap:16px;min-width:280px}
+#heatmapPage .heatmap-lower-right{flex:1 1 300px;min-width:260px;display:flex;flex-direction:column}
+#heatmapPage .heatmap-lower-right fieldset{height:100%}
+#heatmapPage .heatmap-lower-left fieldset{min-height:0}
 #heatmapPage .panel{display:flex;flex-direction:column;min-width:0}
 #heatmapPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
 #heatmapPage #heatmapSvg{width:100%;height:auto;min-width:0;min-height:0;flex:1 1 auto}

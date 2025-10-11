@@ -1110,43 +1110,49 @@
                 </div>
               </div>
             </fieldset>
-            <fieldset>
-              <legend>Colors</legend>
-              <div class="heatmap-color-pickers">
-                <label class="color-picker">
-                  <span class="heatmap-nowrap">Negative</span>
-                  <input type="color" id="heatmapColorNegative" value="#313695" />
-                </label>
-                <label class="color-picker">
-                  <span class="heatmap-nowrap">Neutral</span>
-                  <input type="color" id="heatmapColorZero" value="#f7f7f7" />
-                </label>
-                <label class="color-picker">
-                  <span class="heatmap-nowrap">Positive</span>
-                  <input type="color" id="heatmapColorPositive" value="#a50026" />
-                </label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Layout</legend>
-              <div class="heatmap-control-list">
-                <div class="heatmap-inline-group">
-                  <span class="heatmap-nowrap">Cell Size</span>
-                  <input type="range" id="heatmapCellSize" min="30" max="120" step="5" value="60" />
-                  <output id="heatmapCellSizeVal">60</output>
+            <div class="heatmap-layout-colors-row">
+              <fieldset class="heatmap-layout-panel">
+                <legend>Layout</legend>
+                <div class="heatmap-control-list">
+                  <div class="heatmap-inline-group">
+                    <span class="heatmap-nowrap">Cell Size</span>
+                    <input type="range" id="heatmapCellSize" min="30" max="120" step="5" value="60" />
+                    <output id="heatmapCellSizeVal">60</output>
+                  </div>
+                  <div class="heatmap-inline-group">
+                    <span class="heatmap-nowrap">Label Orientation</span>
+                    <input type="number" id="heatmapLabelAngle" value="90" min="90" max="90" class="heatmap-size-input" disabled />
+                    <span class="heatmap-hint">Vertical</span>
+                  </div>
+                  <div class="heatmap-inline-group">
+                    <span class="heatmap-nowrap">Font Size</span>
+                    <input type="range" id="heatmapFontSize" min="8" max="24" step="1" value="12" />
+                    <output id="heatmapFontSizeVal">12</output>
+                  </div>
                 </div>
-                <div class="heatmap-inline-group">
-                  <span class="heatmap-nowrap">Label Orientation</span>
-                  <input type="number" id="heatmapLabelAngle" value="90" min="90" max="90" class="heatmap-size-input" disabled />
-                  <span class="heatmap-hint">Vertical</span>
+              </fieldset>
+              <fieldset class="heatmap-colors-panel">
+                <legend>Colors</legend>
+                <div class="heatmap-color-pickers">
+                  <label class="color-picker">
+                    <span class="heatmap-nowrap">Negative</span>
+                    <input type="color" id="heatmapColorNegative" value="#313695" />
+                  </label>
+                  <label class="color-picker">
+                    <span class="heatmap-nowrap">Neutral</span>
+                    <input type="color" id="heatmapColorZero" value="#f7f7f7" />
+                  </label>
+                  <label class="color-picker">
+                    <span class="heatmap-nowrap">Positive</span>
+                    <input type="color" id="heatmapColorPositive" value="#a50026" />
+                  </label>
                 </div>
-                <div class="heatmap-inline-group">
-                  <span class="heatmap-nowrap">Font Size</span>
-                  <input type="range" id="heatmapFontSize" min="8" max="24" step="1" value="12" />
-                  <output id="heatmapFontSizeVal">12</output>
-                </div>
-              </div>
-            </fieldset>
+              </fieldset>
+            </div>
+          </div>
+        </div>
+        <div class="heatmap-lower-panels">
+          <div class="heatmap-lower-left">
             <fieldset>
               <legend>Filter Genes</legend>
               <div class="heatmap-control-list">
@@ -1223,6 +1229,8 @@
                 </label>
               </div>
             </fieldset>
+          </div>
+          <div class="heatmap-lower-right">
             <fieldset>
               <legend>Clustering</legend>
               <div class="heatmap-control-list">
