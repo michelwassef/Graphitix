@@ -414,35 +414,82 @@
     const mapA = new Map(listA.map(o => [o.key, o.val]));
     const mapB = new Map(listB.map(o => [o.key, o.val]));
     const mapC = new Map(listC.map(o => [o.key, o.val]));
+
     const keysA = new Set(mapA.keys());
     const keysB = new Set(mapB.keys());
     const keysC = new Set(mapC.keys());
 
-    const inter = (S, T) => new Set([...S].filter(x => T.has(x)));
-    const diff = (S, T) => new Set([...S].filter(x => !T.has(x)));
-    const union = (S, T) => new Set([...S, ...T]);
+    const groupedKeys = {
+      Aonly: [],
+      Bonly: [],
+      Conly: [],
+      AB: [],
+      AC: [],
+      BC: [],
+      ABC: []
+    };
 
-    const ABCk = inter(inter(keysA, keysB), keysC);
-    const ABk = diff(inter(keysA, keysB), keysC);
-    const ACk = diff(inter(keysA, keysC), keysB);
-    const BCk = diff(inter(keysB, keysC), keysA);
-    const Aonlyk = diff(keysA, union(keysB, keysC));
-    const Bonlyk = diff(keysB, union(keysA, keysC));
-    const Conlyk = diff(keysC, union(keysA, keysB));
+    for (const key of keysA) {
+      const inB = keysB.has(key);
+      const inC = keysC.has(key);
+      if (inB && inC) {
+        groupedKeys.ABC.push(key);
+        keysB.delete(key);
+        keysC.delete(key);
+      } else if (inB) {
+        groupedKeys.AB.push(key);
+        keysB.delete(key);
+      } else if (inC) {
+        groupedKeys.AC.push(key);
+        keysC.delete(key);
+      } else {
+        groupedKeys.Aonly.push(key);
+      }
+    }
 
-    const mapVal = (keys, map) => new Set([...keys].map(k => map.get(k)));
+    for (const key of keysB) {
+      if (keysC.has(key)) {
+        groupedKeys.BC.push(key);
+        keysC.delete(key);
+      } else {
+        groupedKeys.Bonly.push(key);
+      }
+    }
+
+    for (const key of keysC) {
+      groupedKeys.Conly.push(key);
+    }
+
+    const collectValues = (map) => {
+      const out = new Set();
+      for (const value of map.values()) {
+        out.add(value);
+      }
+      return out;
+    };
+
+    const mapValuesForKeys = (keys, map) => {
+      const out = new Set();
+      for (const key of keys) {
+        const value = map.get(key);
+        if (value !== undefined) {
+          out.add(value);
+        }
+      }
+      return out;
+    };
 
     const res = {
-      A: mapVal(keysA, mapA),
-      B: mapVal(keysB, mapB),
-      C: mapVal(keysC, mapC),
-      Aonly: mapVal(Aonlyk, mapA),
-      Bonly: mapVal(Bonlyk, mapB),
-      Conly: mapVal(Conlyk, mapC),
-      AB: mapVal(ABk, mapA),
-      AC: mapVal(ACk, mapA),
-      BC: mapVal(BCk, mapB),
-      ABC: mapVal(ABCk, mapA)
+      A: collectValues(mapA),
+      B: collectValues(mapB),
+      C: collectValues(mapC),
+      Aonly: mapValuesForKeys(groupedKeys.Aonly, mapA),
+      Bonly: mapValuesForKeys(groupedKeys.Bonly, mapB),
+      Conly: mapValuesForKeys(groupedKeys.Conly, mapC),
+      AB: mapValuesForKeys(groupedKeys.AB, mapA),
+      AC: mapValuesForKeys(groupedKeys.AC, mapA),
+      BC: mapValuesForKeys(groupedKeys.BC, mapB),
+      ABC: mapValuesForKeys(groupedKeys.ABC, mapA)
     };
 
     debugLog('setsFromLists computed', {
