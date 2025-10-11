@@ -21,6 +21,7 @@ Any new dashboard sections must adhere to the following layout style for consist
 
 ## Code Guidelines
 - Include debugging code (e.g., `console.debug` or `console.log`) whenever new functionality is implemented to trace key inputs and state.
+- Use the shared debug toggle when adding verbose instrumentation: gate hot-path logs behind `Shared.isDebugEnabled()` and expose opt-in helpers via `Shared.enableDebugLogging()` / `Shared.disableDebugLogging()`.
 - Preserve the shared Handsontable context menu injection that adds the *Paste → Transposed* action when extending or replacing grid menu configurations.
 - Clearly comment any debug output to facilitate removal later.
 - Suppress error bars when a series/category has only a single valid observation so plots do not render misleading caps; log the skip for debugging when you do so.
