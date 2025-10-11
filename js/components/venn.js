@@ -335,6 +335,7 @@
         lastRegions: null,
         lastCounts: null,
         lastDrawMode: null,
+        lastParsedLists: null,
         lastGOResult: null,
         lastGOFormatted: [],
         lastGOOrganism: 'hsapiens',
@@ -410,88 +411,120 @@
     return out;
   }
 
-  function setsFromLists(listA, listB, listC) {
-    const mapA = new Map(listA.map(o => [o.key, o.val]));
-    const mapB = new Map(listB.map(o => [o.key, o.val]));
-    const mapC = new Map(listC.map(o => [o.key, o.val]));
+  function hashText(value) {
+    const source = value || '';
+    if (!source) return '0';
+    let hash = 0;
+    for (let i = 0; i < source.length; i += 1) {
+      hash = (hash * 31 + source.charCodeAt(i)) >>> 0;
+    }
+    return hash.toString(16);
+  }
 
-    const keysA = new Set(mapA.keys());
-    const keysB = new Set(mapB.keys());
-    const keysC = new Set(mapC.keys());
+  function makeListSignature(mode, cs, sources) {
+    return [
+      mode || 'auto',
+      cs ? '1' : '0',
+      sources.A.length,
+      hashText(sources.A),
+      sources.B.length,
+      hashText(sources.B),
+      sources.C.length,
+      hashText(sources.C)
+    ].join('|');
+  }
 
-    const groupedKeys = {
-      Aonly: [],
-      Bonly: [],
-      Conly: [],
-      AB: [],
-      AC: [],
-      BC: [],
-      ABC: []
+  function buildMapsFromLists(lists) {
+    return {
+      A: new Map(lists.A.map(o => [o.key, o.val])),
+      B: new Map(lists.B.map(o => [o.key, o.val])),
+      C: new Map(lists.C.map(o => [o.key, o.val]))
     };
+  }
+
+  function buildUniqueSetsFromMaps(maps) {
+    const uniqueA = new Set(maps.A.values());
+    const uniqueB = new Set(maps.B.values());
+    const uniqueC = new Set(maps.C.values());
+    const combined = new Set();
+    [uniqueA, uniqueB, uniqueC].forEach(set => {
+      set.forEach(value => combined.add(value));
+    });
+    return {
+      A: uniqueA,
+      B: uniqueB,
+      C: uniqueC,
+      combined,
+      combinedList: Array.from(combined)
+    };
+  }
+
+  function populateRegionSets(maps, existing) {
+    const regions = existing || {
+      A: new Set(),
+      B: new Set(),
+      C: new Set(),
+      Aonly: new Set(),
+      Bonly: new Set(),
+      Conly: new Set(),
+      AB: new Set(),
+      AC: new Set(),
+      BC: new Set(),
+      ABC: new Set()
+    };
+
+    Object.values(regions).forEach(set => set.clear());
+
+    maps.A.forEach(value => regions.A.add(value));
+    maps.B.forEach(value => regions.B.add(value));
+    maps.C.forEach(value => regions.C.add(value));
+
+    const keysA = new Set(maps.A.keys());
+    const keysB = new Set(maps.B.keys());
+    const keysC = new Set(maps.C.keys());
 
     for (const key of keysA) {
       const inB = keysB.has(key);
       const inC = keysC.has(key);
+      const value = maps.A.get(key);
       if (inB && inC) {
-        groupedKeys.ABC.push(key);
+        if (value !== undefined) regions.ABC.add(value);
         keysB.delete(key);
         keysC.delete(key);
       } else if (inB) {
-        groupedKeys.AB.push(key);
+        if (value !== undefined) regions.AB.add(value);
         keysB.delete(key);
       } else if (inC) {
-        groupedKeys.AC.push(key);
+        if (value !== undefined) regions.AC.add(value);
         keysC.delete(key);
-      } else {
-        groupedKeys.Aonly.push(key);
+      } else if (value !== undefined) {
+        regions.Aonly.add(value);
       }
     }
 
     for (const key of keysB) {
+      const value = maps.B.get(key);
       if (keysC.has(key)) {
-        groupedKeys.BC.push(key);
+        if (value !== undefined) regions.BC.add(value);
         keysC.delete(key);
-      } else {
-        groupedKeys.Bonly.push(key);
+      } else if (value !== undefined) {
+        regions.Bonly.add(value);
       }
     }
 
     for (const key of keysC) {
-      groupedKeys.Conly.push(key);
+      const value = maps.C.get(key);
+      if (value !== undefined) {
+        regions.Conly.add(value);
+      }
     }
 
-    const collectValues = (map) => {
-      const out = new Set();
-      for (const value of map.values()) {
-        out.add(value);
-      }
-      return out;
-    };
+    return regions;
+  }
 
-    const mapValuesForKeys = (keys, map) => {
-      const out = new Set();
-      for (const key of keys) {
-        const value = map.get(key);
-        if (value !== undefined) {
-          out.add(value);
-        }
-      }
-      return out;
-    };
-
-    const res = {
-      A: collectValues(mapA),
-      B: collectValues(mapB),
-      C: collectValues(mapC),
-      Aonly: mapValuesForKeys(groupedKeys.Aonly, mapA),
-      Bonly: mapValuesForKeys(groupedKeys.Bonly, mapB),
-      Conly: mapValuesForKeys(groupedKeys.Conly, mapC),
-      AB: mapValuesForKeys(groupedKeys.AB, mapA),
-      AC: mapValuesForKeys(groupedKeys.AC, mapA),
-      BC: mapValuesForKeys(groupedKeys.BC, mapB),
-      ABC: mapValuesForKeys(groupedKeys.ABC, mapA)
-    };
-
+  function setsFromLists(listA, listB, listC, reuseRegions) {
+    const maps = buildMapsFromLists({ A: listA, B: listB, C: listC });
+    const res = populateRegionSets(maps, reuseRegions);
     debugLog('setsFromLists computed', {
       sizes: {
         A: res.A.size,
@@ -506,8 +539,74 @@
         ABC: res.ABC.size
       }
     });
-
     return res;
+  }
+
+  function ensureParsedLists(options = {}) {
+    const inputs = ensureInputs();
+    const mode = inputs.delimiter.value;
+    const caseSensitive = inputs.caseSensitive.checked;
+    const sources = {
+      A: inputs.A.value || '',
+      B: inputs.B.value || '',
+      C: inputs.C.value || ''
+    };
+    const signature = makeListSignature(mode, caseSensitive, sources);
+    const includeRegions = options.includeRegions === true;
+    const reason = options.reason || 'unspecified';
+    let parsed = state.analysis.lastParsedLists;
+    if (parsed && parsed.signature === signature) {
+      if (includeRegions && !parsed.regions) {
+        parsed.regions = populateRegionSets(parsed.maps, parsed.regions);
+        debugLog('parsed lists region cache hydrated', { signature, reason });
+      } else {
+        debugLog('parsed lists cache hit', { signature, includeRegions, reason });
+      }
+      return parsed;
+    }
+
+    const lists = {
+      A: parseList(sources.A, caseSensitive, mode),
+      B: parseList(sources.B, caseSensitive, mode),
+      C: parseList(sources.C, caseSensitive, mode)
+    };
+    const maps = buildMapsFromLists(lists);
+    const uniques = buildUniqueSetsFromMaps(maps);
+    const regions = includeRegions ? populateRegionSets(maps, parsed?.regions) : null;
+
+    parsed = {
+      signature,
+      mode,
+      caseSensitive,
+      lists,
+      maps,
+      uniques,
+      regions
+    };
+    state.analysis.lastParsedLists = parsed;
+    debugLog('parsed lists cache refreshed', {
+      signature,
+      includeRegions,
+      counts: { A: lists.A.length, B: lists.B.length, C: lists.C.length }
+    });
+    if (regions) {
+      debugLog('parsed lists regions populated', {
+        signature,
+        sizes: {
+          A: regions.A.size,
+          B: regions.B.size,
+          C: regions.C.size,
+          Aonly: regions.Aonly.size,
+          Bonly: regions.Bonly.size,
+          Conly: regions.Conly.size,
+          AB: regions.AB.size,
+          AC: regions.AC.size,
+          BC: regions.BC.size,
+          ABC: regions.ABC.size
+        }
+      });
+    }
+    return parsed;
   }
 
   function circleIntersectionArea(r1, r2, d) {
@@ -1214,13 +1313,10 @@
   }
 
   function getAllGenes() {
-    const inputs = ensureInputs();
-    const mode = inputs.delimiter.value, cs = inputs.caseSensitive.checked;
-    const A = parseList(inputs.A.value, cs, mode).map(o => o.val);
-    const B = parseList(inputs.B.value, cs, mode).map(o => o.val);
-    const C = parseList(inputs.C.value, cs, mode).map(o => o.val);
-    const unique = [...new Set([...A, ...B, ...C])];
-    return unique;
+    const parsed = ensureParsedLists({ includeRegions: false, reason: 'getAllGenes' });
+    const unique = parsed?.uniques?.combinedList || [];
+    debugLog('getAllGenes resolved', { count: unique.length, signature: parsed?.signature });
+    return unique.slice();
   }
 
   function setSpeciesIndicator(success) {
@@ -1787,10 +1883,11 @@
   }
 
   function drawFromLists() {
+    const parsed = ensureParsedLists({ includeRegions: true, reason: 'drawFromLists' });
     const inputs = ensureInputs();
-    const mode = inputs.delimiter.value, cs = inputs.caseSensitive.checked;
-    const A = parseList(inputs.A.value, cs, mode), B = parseList(inputs.B.value, cs, mode), C = parseList(inputs.C.value, cs, mode);
-    const regions = setsFromLists(A, B, C);
+    const mode = parsed.mode;
+    const cs = parsed.caseSensitive;
+    const regions = parsed.regions || setsFromLists(parsed.lists.A, parsed.lists.B, parsed.lists.C, state.analysis.lastRegions);
     state.analysis.lastRegions = regions;
     state.analysis.lastDrawMode = 'lists';
     const counts = {
@@ -1839,7 +1936,7 @@
     fitAndDraw(L, style, labels, counts);
     if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
     scheduleSpeciesRecognition('draw-from-lists');
-    debugLog('drawFromLists complete', { mode, caseSensitive: cs, counts });
+    debugLog('drawFromLists complete', { mode, caseSensitive: cs, counts, cacheSignature: parsed.signature });
   }
 
   function drawFromNumeric() {
@@ -1939,6 +2036,7 @@
         if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.style.display = 'none';
         state.analysis.lastRegions = null;
         state.analysis.lastCounts = null;
+        state.analysis.lastParsedLists = null;
         if (state.analysis.lastSignificance) {
           state.analysis.lastSignificance = null;
           if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
@@ -2620,6 +2718,7 @@
     state.analysis.lastRegions = null;
     state.analysis.lastDrawMode = null;
     state.analysis.lastCounts = null;
+    state.analysis.lastParsedLists = null;
     state.analysis.lastRegionSignature = null;
     state.analysis.lastRegionCode = null;
     if (state.ui.regionList) state.ui.regionList.textContent = '';
