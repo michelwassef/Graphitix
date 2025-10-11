@@ -29,8 +29,11 @@
         const script = global.document.createElement('script');
         script.src = url;
         script.async = true;
-        script.dataset = script.dataset || {};
-        script.dataset.loader = name;
+        if (script.dataset) {
+          script.dataset.loader = name;
+        } else {
+          script.setAttribute('data-loader', name);
+        }
         script.onload = () => {
           const loaded = globalKey ? global[globalKey] : undefined;
           if (!loaded) {
