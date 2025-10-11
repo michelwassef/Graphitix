@@ -198,6 +198,92 @@
     return adjusted;
   };
 
+  function createLogFactorialCache(){
+    return {
+      values: [0],
+      maxComputed: 0
+    };
+  }
+
+  function ensureLogFactorialCache(cache, target){
+    const store = cache || createLogFactorialCache();
+    const maxTarget = Math.max(0, Math.floor(target));
+    if(store.maxComputed < maxTarget){
+      let running = store.values[store.maxComputed] || 0;
+      for(let i = store.maxComputed + 1; i <= maxTarget; i++){
+        running += Math.log(i);
+        store.values[i] = running;
+      }
+      store.maxComputed = maxTarget;
+      console.debug('Debug: stats.logFactCache extended',{ maxComputed: store.maxComputed }); // Debug: log factorial cache grow
+    }
+    return store;
+  }
+
+  function trimLogFactorialCache(cache, target){
+    if(!cache){
+      return null;
+    }
+    const maxTarget = Math.max(0, Math.floor(target));
+    if(cache.maxComputed > maxTarget){
+      cache.values.length = maxTarget + 1;
+      cache.maxComputed = maxTarget;
+      console.debug('Debug: stats.logFactCache trimmed',{ maxComputed: cache.maxComputed }); // Debug: log factorial cache trim
+    }
+    return cache;
+  }
+
+  function logChooseWithCache(n, k, cache){
+    if(k < 0 || k > n){
+      return -Infinity;
+    }
+    const prepared = ensureLogFactorialCache(cache, n);
+    return prepared.values[n] - prepared.values[k] - prepared.values[n - k];
+  }
+
+  function computeHypergeometricRightTail(params){
+    const {
+      populationSize,
+      successPopulation,
+      draws,
+      observedSuccesses,
+      cache
+    } = params || {};
+    const N = Math.max(0, Math.floor(populationSize || 0));
+    const K = Math.max(0, Math.floor(successPopulation || 0));
+    const n = Math.max(0, Math.floor(draws || 0));
+    const k = Math.max(0, Math.floor(observedSuccesses || 0));
+    if(!N || !n || K < 0){
+      return 0;
+    }
+    const store = ensureLogFactorialCache(cache?.logFactorial, N);
+    if(cache){
+      cache.logFactorial = store;
+    }
+    const denominator = logChooseWithCache(N, n, store);
+    if(!Number.isFinite(denominator)){
+      return 0;
+    }
+    let p = 0;
+    const maxIter = Math.min(K, n);
+    const start = Math.min(Math.max(k, 0), maxIter);
+    for(let i = start; i <= maxIter; i++){
+      const logTerm = logChooseWithCache(K, i, store) +
+        logChooseWithCache(N - K, n - i, store) -
+        denominator;
+      const term = Math.exp(logTerm);
+      p += term;
+    }
+    console.debug('Debug: stats.hypergeom right tail',{ N, K, n, k, p }); // Debug: hypergeometric right tail
+    return p;
+  }
+
+  stats.createLogFactorialCache = createLogFactorialCache;
+  stats.ensureLogFactorialCache = ensureLogFactorialCache;
+  stats.trimLogFactorialCache = trimLogFactorialCache;
+  stats.logChooseWithCache = logChooseWithCache;
+  stats.computeHypergeometricRightTail = computeHypergeometricRightTail;
+
   stats.listCorrections = function(){
     const list = Object.entries(METHOD_CONFIG).map(([value, cfg]) => ({ value, label: cfg.label }));
     console.debug('Debug: stats.listCorrections',{ methods: list.map(item => item.value) });

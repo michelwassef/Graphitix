@@ -341,6 +341,7 @@
         lastRegionSignature: null,
         lastRegionCode: null,
         lastSignificance: null,
+        significanceCache: null,
         speciesDetection: {
           cache: new Map(),
           pendingTimeoutId: null,
@@ -1066,24 +1067,18 @@
     return service.fetchFunctionAnnotation(gene, { fetch });
   }
 
-  function logFact(n) {
-    let res = 0;
-    for (let i = 2; i <= n; i++) res += Math.log(i);
-    return res;
-  }
-
-  function logChoose(n, k) {
-    if (k < 0 || k > n) return -Infinity;
-    return logFact(n) - logFact(k) - logFact(n - k);
-  }
-
-  function hypergeomPval(N, K, n, k) {
-    let p = 0;
-    for (let i = k; i <= Math.min(K, n); i++) {
-      const term = Math.exp(logChoose(K, i) + logChoose(N - K, n - i) - logChoose(N, n));
-      p += term;
+  function getSignificanceCache() {
+    if (!state.analysis.significanceCache) {
+      const statsHelpers = Shared.stats || {};
+      state.analysis.significanceCache = {
+        logFactorial: typeof statsHelpers.createLogFactorialCache === 'function'
+          ? statsHelpers.createLogFactorialCache()
+          : null,
+        lastUniverse: 0
+      };
+      console.debug('Debug: venn significance cache created'); // Debug: significance cache init
     }
-    return p;
+    return state.analysis.significanceCache;
   }
 
   function makeCountsSignature(counts) {
@@ -1104,15 +1099,80 @@
     }
     const inputs = ensureInputs();
     const labels = { A: inputs.labelA.value || 'A', B: inputs.labelB.value || 'B', C: inputs.labelC.value || 'C' };
+    const statsHelpers = Shared.stats || {};
+    const significanceCache = getSignificanceCache();
+    if (significanceCache && significanceCache.lastUniverse && total < significanceCache.lastUniverse) {
+      if (significanceCache.logFactorial && typeof statsHelpers.trimLogFactorialCache === 'function') {
+        statsHelpers.trimLogFactorialCache(significanceCache.logFactorial, total);
+        console.debug('Debug: venn significance cache trimmed', { previous: significanceCache.lastUniverse, next: total }); // Debug: trim cache
+      } else {
+        significanceCache.logFactorial = null;
+        console.debug('Debug: venn significance cache reset due to shrink'); // Debug: reset cache shrink
+      }
+    }
+    if (!significanceCache.logFactorial && typeof statsHelpers.createLogFactorialCache === 'function') {
+      significanceCache.logFactorial = statsHelpers.createLogFactorialCache();
+      console.debug('Debug: venn significance cache allocated'); // Debug: allocate cache
+    }
+    if (significanceCache.logFactorial && typeof statsHelpers.ensureLogFactorialCache === 'function') {
+      statsHelpers.ensureLogFactorialCache(significanceCache.logFactorial, total);
+      console.debug('Debug: venn significance cache ensured', { total, maxComputed: significanceCache.logFactorial.maxComputed }); // Debug: ensure cache
+    }
+    significanceCache.lastUniverse = total;
+
+    const computeHypergeom = (() => {
+      if (typeof statsHelpers.computeHypergeometricRightTail === 'function') {
+        return (successes, draws, observed) => statsHelpers.computeHypergeometricRightTail({
+          populationSize: total,
+          successPopulation: successes,
+          draws,
+          observedSuccesses: observed,
+          cache: significanceCache
+        });
+      }
+      const hypgeom = global.jStat?.hypgeom;
+      if (hypgeom && typeof hypgeom.cdf === 'function') {
+        return (successes, draws, observed) => {
+          if (observed <= 0) {
+            return 1;
+          }
+          const tail = 1 - hypgeom.cdf(observed - 1, total, successes, draws);
+          return Number.isFinite(tail) ? Math.max(0, Math.min(1, tail)) : 0;
+        };
+      }
+      console.debug('Debug: venn significance legacy hypergeom'); // Debug: fallback hypergeom start
+      return (successes, draws, observed) => {
+        let p = 0;
+        const limit = Math.min(successes, draws);
+        const denomLog = (typeof statsHelpers.logChooseWithCache === 'function' && significanceCache.logFactorial)
+          ? statsHelpers.logChooseWithCache(total, draws, significanceCache.logFactorial)
+          : null;
+        const denominator = Number.isFinite(denomLog) ? Math.exp(denomLog) : null;
+        if (!denominator || !Number.isFinite(denominator) || denominator === 0) {
+          return 0;
+        }
+        for (let i = observed; i <= limit; i++) {
+          const numerator = Math.exp(
+            (typeof statsHelpers.logChooseWithCache === 'function' && significanceCache.logFactorial)
+              ? statsHelpers.logChooseWithCache(successes, i, significanceCache.logFactorial) +
+                statsHelpers.logChooseWithCache(total - successes, draws - i, significanceCache.logFactorial)
+              : 0
+          );
+          p += numerator / denominator;
+        }
+        return Math.max(0, Math.min(1, p));
+      };
+    })();
+
     const res = [];
-    const pAB = hypergeomPval(total, state.analysis.lastCounts.nA, state.analysis.lastCounts.nB, state.analysis.lastCounts.AB + state.analysis.lastCounts.ABC);
+    const pAB = computeHypergeom(state.analysis.lastCounts.nA, state.analysis.lastCounts.nB, state.analysis.lastCounts.AB + state.analysis.lastCounts.ABC);
     res.push({ name: `${labels.A}∩${labels.B}`, p: pAB });
     if (state.analysis.lastCounts.nC > 0) {
-      const pAC = hypergeomPval(total, state.analysis.lastCounts.nA, state.analysis.lastCounts.nC, state.analysis.lastCounts.AC + state.analysis.lastCounts.ABC);
+      const pAC = computeHypergeom(state.analysis.lastCounts.nA, state.analysis.lastCounts.nC, state.analysis.lastCounts.AC + state.analysis.lastCounts.ABC);
       res.push({ name: `${labels.A}∩${labels.C}`, p: pAC });
-      const pBC = hypergeomPval(total, state.analysis.lastCounts.nB, state.analysis.lastCounts.nC, state.analysis.lastCounts.BC + state.analysis.lastCounts.ABC);
+      const pBC = computeHypergeom(state.analysis.lastCounts.nB, state.analysis.lastCounts.nC, state.analysis.lastCounts.BC + state.analysis.lastCounts.ABC);
       res.push({ name: `${labels.B}∩${labels.C}`, p: pBC });
-      const pABC = hypergeomPval(total, state.analysis.lastCounts.AB + state.analysis.lastCounts.ABC, state.analysis.lastCounts.nC, state.analysis.lastCounts.ABC);
+      const pABC = computeHypergeom(state.analysis.lastCounts.AB + state.analysis.lastCounts.ABC, state.analysis.lastCounts.nC, state.analysis.lastCounts.ABC);
       res.push({ name: `${labels.A}∩${labels.B}∩${labels.C}`, p: pABC });
     }
     const hasRenderer = Shared.statsTable && typeof Shared.statsTable.render === 'function';
