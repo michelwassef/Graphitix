@@ -2248,13 +2248,20 @@
       const hasLists = hasListContent(inputs);
       const hasNumeric = hasNumericContent(inputs);
       const hintedMode = state.analysis.lastDrawMode;
-      if (!hintedMode && !hasLists && !hasNumeric) {
+      const modePreference = (
+        (hintedMode === 'lists' && hasLists) || (hintedMode === 'numeric' && hasNumeric)
+      )
+        ? hintedMode
+        : null;
+      const mode = modePreference || (hasLists ? 'lists' : (hasNumeric ? 'numeric' : null));
+      if (!mode) {
         clearSVG();
         if (state.ui.regionList) state.ui.regionList.innerHTML = '';
         if (state.ui.copyRegionBtn) state.ui.copyRegionBtn.style.display = 'none';
         state.analysis.lastRegions = null;
         state.analysis.lastCounts = null;
         state.analysis.lastParsedLists = null;
+        state.analysis.lastDrawMode = null;
         if (state.analysis.lastSignificance) {
           state.analysis.lastSignificance = null;
           if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
@@ -2263,7 +2270,6 @@
         debugLog('refreshDiagram skipped', { reason: 'no-data', hasLists, hasNumeric });
         return;
       }
-      const mode = hintedMode || (hasLists ? 'lists' : 'numeric');
       if (mode === 'numeric') {
         drawFromNumeric();
       } else {
@@ -2888,12 +2894,6 @@
     handleGoBtnMouseLeave();
   }
 
-  function handleDrawClick() {
-    state.analysis.lastDrawMode = 'lists';
-    drawFromLists();
-    console.debug('Debug: venn handleDrawClick'); // Debug: manual draw invocation
-  }
-
   function handleUseNumericClick() {
     state.analysis.lastDrawMode = 'numeric';
     cancelPendingSpeciesDetection('manual-numeric', { abortActive: true, resetIndicator: true });
@@ -2980,7 +2980,6 @@
       { elements: state.ui.goBtn, type: 'mouseleave', handler: handleGoBtnTooltipLeave, label: 'go-tooltip-leave' },
       { elements: state.ui.goResults, type: 'click', handler: handleGoResultsClick, label: 'go-results' },
       { elements: state.ui.calcSignificanceBtn, type: 'click', handler: handleCalcSignificanceClick, label: 'significance' },
-      { selector: '#draw', type: 'click', handler: handleDrawClick, label: 'draw-btn' },
       { selector: '#useNumeric', type: 'click', handler: handleUseNumericClick, label: 'use-numeric' },
       { selector: '#openVenn', type: 'click', handler: venn.open, label: 'open-venn' },
       { selector: '#saveVenn', type: 'click', handler: venn.save, label: 'save-venn' },

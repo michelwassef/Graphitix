@@ -927,7 +927,13 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #analysisResults canvas{font-size:initial}
 #vennPage .wrap{--venn-input-default:clamp(320px,33%,420px);display:flex;align-items:stretch;gap:0}
 #vennPage #vennInputPanel{flex:0 0 var(--venn-input-default);min-width:150px;display:flex;flex-direction:column;min-height:0}
-#vennPage #vennGraphPanel{flex:1 1 calc(100% - var(--venn-input-default));min-width:150px;display:flex;flex-direction:column}
+#vennPage #vennGraphPanel{flex:1 1 auto;min-width:150px;display:flex;flex-direction:column;max-width:100%}
+#vennPage .venn-inline-controls{align-items:center;gap:12px;flex-wrap:wrap}
+#vennPage .venn-inline-checkbox{display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
+#vennPage .venn-inline-checkbox input{margin:0}
+#vennPage .venn-delimiter-group{display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
+#vennPage .venn-delimiter-group label{margin:0}
+#vennPage .venn-delimiter-group select{min-width:110px}
 #vennPage .diagram-area .svgbox{flex:0 0 auto}
 #vennPage .diagram-area .config-options{flex:0 0 auto}
 #vennPage .panel{display:flex;flex-direction:column;min-width:0}

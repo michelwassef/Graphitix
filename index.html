@@ -112,12 +112,13 @@
             <textarea id="listC"></textarea>
           </div>
         </div>
-        <div class="row" style="margin-top:6px;">
-          <label>
-            <input id="caseSensitive" type="checkbox" /> Case Sensitive
+        <div class="row venn-inline-controls" style="margin-top:6px;">
+          <label class="venn-inline-checkbox">
+            <input id="caseSensitive" type="checkbox" />
+            <span>Case Sensitive</span>
           </label>
-          <label>
-            Delimiter
+          <div class="venn-delimiter-group">
+            <label for="delimiter">Delimiter</label>
             <select id="delimiter">
               <option value="auto">Auto</option>
               <option value="newline">Newline</option>
@@ -125,8 +126,7 @@
               <option value="tab">Tab</option>
               <option value="space">Spaces</option>
             </select>
-          </label>
-          <button class="btn" id="draw">Draw Venn</button>
+          </div>
           <button class="btn" id="reset">Reset</button>
         </div>
         <details style="margin-top:8px;">
