@@ -1051,8 +1051,23 @@
       let scatterXLabelText='X';
       let scatterYLabelText='Y';
       async function drawScatter(){
+        const debugEnabled = typeof Shared.isDebugEnabled === 'function' ? Shared.isDebugEnabled() : false;
+        const debug = debugEnabled ? console.debug.bind(console) : () => {};
+        const info = debugEnabled ? console.log.bind(console) : () => {};
+        const time = debugEnabled ? console.time.bind(console) : () => {};
+        const timeEnd = debugEnabled ? console.timeEnd.bind(console) : () => {};
+        const rowSkipCounts = debugEnabled ? Object.create(null) : null;
+        const recordRowSkip = debugEnabled
+          ? (reason => {
+              rowSkipCounts[reason] = (rowSkipCounts[reason] || 0) + 1;
+            })
+          : () => {};
+        const collectProgressInterval = 5000;
+        let nextCollectProgressRow = debugEnabled ? collectProgressInterval : Number.POSITIVE_INFINITY;
+        const pointProgressInterval = 5000;
+        let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
         const token=++scatterDrawToken; // debug token for cancellation
-        console.log('drawScatter called',{token});
+        info('drawScatter called',{token});
         const fill=scatterFill.value||DEFAULT_NON_SIG_COLOR;
         const alpha=Number(scatterAlpha.value)||0;
         const borderWidthRaw=Number(scatterBorderWidth.value);
@@ -1073,7 +1088,7 @@
         const dotSizeRaw=Number(scatterDotSize.value)||3;
         const dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'scatter-point', min: 0 });
         const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'scatter-border', min: 0 });
-        console.debug('Debug: scatter style scaling applied',{
+        debug('Debug: scatter style scaling applied',{
           dotSizeRaw,
           dotSizePx,
           borderWidthRaw,
@@ -1084,7 +1099,7 @@
           styleScale: styleScaleInfo?.styleScale
         }); // Debug: scatter style scaling summary
         chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, fontInfo, input: scatterFontSize });
-        console.debug('Debug: scatter font scaling applied',{
+        debug('Debug: scatter font scaling applied',{
           input: scatterFontSize.value,
           fontSizePt: fontInfo.pt,
           baseFontPx: fontInfo.px,
@@ -1094,11 +1109,11 @@
           containerHeight: containerRect?.height
         }); // Debug: scatter font scaling summary
         const axisMetrics=chartStyle.createAxisMetrics(fs);
-        console.debug('Debug: scatter axis metrics',axisMetrics);
+        debug('Debug: scatter axis metrics',axisMetrics);
         const showGrid=scatterShowGrid.checked;
-        console.log('scatter showGrid', showGrid);
+        info('scatter showGrid', showGrid);
         const showFrame=scatterShowFrame.checked;
-        console.debug('Debug: scatter showFrame state',{showFrame});
+        debug('Debug: scatter showFrame state',{showFrame});
         let showLine=scatterShowLine.checked;
         const showIntervals = !!(scatterShowIntervals && scatterShowIntervals.checked);
         const showDiagnostics = !!(scatterShowDiagnostics && scatterShowDiagnostics.checked);
@@ -1124,27 +1139,27 @@
             scatterShowLine.checked=false;
           }
         }
-        console.debug('Debug: scatter graph type resolved',{graphType,allowLogAxes,logX,logY});
+        debug('Debug: scatter graph type resolved',{graphType,allowLogAxes,logX,logY});
         if(!allowLogAxes){
-          console.debug('Debug: scatter forcing trend line off',{graphType});
+          debug('Debug: scatter forcing trend line off',{graphType});
         }
-        console.debug('Debug: scatter regression toggles', { showLine, showIntervals, showDiagnostics });
-        console.log('drawScatter dot size', dotSizeRaw);
+        debug('Debug: scatter regression toggles', { showLine, showIntervals, showDiagnostics });
+        info('drawScatter dot size', dotSizeRaw);
         const log2fcThresholdValue=parseFloat(scatterLog2FCThreshold?.value);
         const negLogPThresholdValue=parseFloat(scatterNegLogPThreshold?.value);
         const log2fcThreshold=Number.isFinite(log2fcThresholdValue)?log2fcThresholdValue:0;
         const negLogPThreshold=Number.isFinite(negLogPThresholdValue)?negLogPThresholdValue:0;
-        console.debug('Debug: scatter threshold values',{graphType,log2fcThreshold,negLogPThreshold});
+        debug('Debug: scatter threshold values',{graphType,log2fcThreshold,negLogPThreshold});
         const method=scatterStatType.value;
         const xMinManual=parseFloat(scatterXMin.value);
         const xMaxManual=parseFloat(scatterXMax.value);
         const yMinManual=parseFloat(scatterYMin.value);
         const yMaxManual=parseFloat(scatterYMax.value);
-        console.log('scatter manual range',{xMinManual,xMaxManual,yMinManual,yMaxManual});
+        info('scatter manual range',{xMinManual,xMaxManual,yMinManual,yMaxManual});
         const originMode=scatterOriginMode.value;
         const originXInput=parseFloat(scatterOriginX.value);
         const originYInput=parseFloat(scatterOriginY.value);
-        console.log('scatter origin inputs',{originMode,originXInput,originYInput});
+        info('scatter origin inputs',{originMode,originXInput,originYInput});
         const analysis = scatterHot?.getAnalysisData?.() || Shared.hot.getAnalysisData(scatterHot);
         const rowCount = analysis.rowCount || 0;
         const colCount = analysis.colCount || 0;
@@ -1167,7 +1182,7 @@
         const xCol = extractColumn(1);
         const yCol = extractColumn(2);
         const extraCol = extractColumn(3);
-        console.log('scatter column lengths',{label:labelCol.length,x:xCol.length,y:yCol.length,extra:extraCol.length});
+        info('scatter column lengths',{label:labelCol.length,x:xCol.length,y:yCol.length,extra:extraCol.length});
         const xLabelRaw=xCol[0];
         const yLabelRaw=yCol[0];
         const extraLabelRaw=extraCol[0];
@@ -1191,7 +1206,7 @@
         let skippedRows=0;
         let significantCount=0;
         let maMissingPCount=0;
-        console.time(`scatterCollectPoints_${token}`);
+        time(`scatterCollectPoints_${token}`);
         for(let r=1;r<maxLen;r++){
           const labelValue = labelCol[r];
           const lab=labelValue ? String(labelValue).trim() : '';
@@ -1200,7 +1215,7 @@
           if(graphType==='scatter'){
             if(rawX === null || rawY === null || typeof rawX === 'undefined' || typeof rawY === 'undefined'){
               skippedRows++;
-              console.debug('Debug: scatter row skipped',{graphType,row:r,reason:'excludedCell'});
+              recordRowSkip('scatter:missingValue');
               continue;
             }
             const xv=parseFloat(rawX);
@@ -1214,12 +1229,12 @@
               if(yv>yMaxRaw) yMaxRaw=yv;
             }else{
               skippedRows++;
-              console.debug('Debug: scatter row skipped',{graphType,row:r,xv,yv});
+              recordRowSkip('scatter:nonNumeric');
             }
           }else if(graphType==='volcano'){
             if(rawX === null || rawY === null || typeof rawX === 'undefined' || typeof rawY === 'undefined'){
               skippedRows++;
-              console.debug('Debug: volcano row skipped',{row:r,reason:'excludedCell'});
+              recordRowSkip('volcano:missingValue');
               continue;
             }
             const log2fc=parseFloat(rawX);
@@ -1240,12 +1255,12 @@
               if(negLogP>yMaxRaw) yMaxRaw=negLogP;
             }else{
               skippedRows++;
-              console.debug('Debug: volcano row skipped',{row:r,log2fc,pRaw});
+              recordRowSkip('volcano:invalid');
             }
           }else{
             if(rawX === null || rawY === null || typeof rawX === 'undefined' || typeof rawY === 'undefined'){
               skippedRows++;
-              console.debug('Debug: MA row skipped',{row:r,reason:'excludedCell'});
+              recordRowSkip('ma:missingValue');
               continue;
             }
             const meanExpr=parseFloat(rawX);
@@ -1264,7 +1279,7 @@
               if(isSignificant) significantCount++;
               if(!hasPositiveP){
                 maMissingPCount++;
-                console.debug('Debug: MA missing positive p-value',{row:r,pRaw});
+                recordRowSkip('ma:missingPositiveP');
               }
               if(labelSet && lab) labelSet.add(lab);
               if(meanExpr<xMinRaw) xMinRaw=meanExpr;
@@ -1273,29 +1288,32 @@
               if(log2fcVal>yMaxRaw) yMaxRaw=log2fcVal;
             }else{
               skippedRows++;
-              console.debug('Debug: MA row skipped',{row:r,meanExpr,log2fcVal,pRaw});
+              recordRowSkip('ma:nonNumeric');
             }
           }
-          if(r%10000===0){
-            console.log('scatter collect progress',{row:r,token});
+          if(r >= nextCollectProgressRow){
+            info('scatter collect progress',{row:r,token});
+            nextCollectProgressRow += collectProgressInterval;
           }
         }
-        console.timeEnd(`scatterCollectPoints_${token}`);
-        if(skippedRows>0){
-          console.debug('Debug: scatter skipped rows summary',{graphType,skippedRows});
+        timeEnd(`scatterCollectPoints_${token}`);
+        if(debugEnabled && rowSkipCounts && Object.keys(rowSkipCounts).length){
+          debug('Debug: scatter row skip summary',{graphType,skippedRows,reasons:rowSkipCounts});
+        }else if(skippedRows>0){
+          debug('Debug: scatter skipped rows summary',{graphType,skippedRows});
         }
-        if(maMissingPCount>0){
-          console.debug('Debug: MA missing p-values summary',{count:maMissingPCount});
+        if(debugEnabled && maMissingPCount>0){
+          debug('Debug: MA missing p-values summary',{count:maMissingPCount});
         }
         const labelsUsed=labelSet?Array.from(labelSet):[];
-        console.debug('Debug: scatter label summary',{graphType:scatterCurrentGraphType,labelCount:labelsUsed.length,tracked:shouldCollectLabelSet}); // Debug: label usage summary
+        debug('Debug: scatter label summary',{graphType:scatterCurrentGraphType,labelCount:labelsUsed.length,tracked:shouldCollectLabelSet}); // Debug: label usage summary
         if(scatterCurrentGraphType==='scatter'){
           renderScatterStatsAdvisor(points);
         }else{
           renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
         }
         ensureScatterLabelColors(labelsUsed);
-        console.log('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
+        info('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
         const legendEntries=[];
         const significanceLegendNeeded=scatterCurrentGraphType!=='scatter';
         if(scatterCurrentGraphType==='scatter'){
@@ -1321,7 +1339,7 @@
               color:currentColor,
               onInput(value){
                 scatterLabelColors[labelKey]=value;
-                console.debug('Debug: scatter legend color input',{label:labelKey,color:value});
+                debug('Debug: scatter legend color input',{label:labelKey,color:value});
                 scheduleDrawScatter();
               }
             });
@@ -1329,15 +1347,15 @@
         });
         const legendGapPx=legendRenderer.entries.length?Math.max(12,Math.round(fs*0.5)):0;
         const legendWidth=legendRenderer.entries.length?legendRenderer.width+legendGapPx:0;
-        console.debug('Debug: scatter legend metrics',{legendWidth,legendGapPx,entryCount:legendRenderer.entries.length,graphType:scatterCurrentGraphType});
-        if(token!==scatterDrawToken){console.log('scatter draw cancelled after collect',{token});return;}
+        debug('Debug: scatter legend metrics',{legendWidth,legendGapPx,entryCount:legendRenderer.entries.length,graphType:scatterCurrentGraphType});
+        if(token!==scatterDrawToken){info('scatter draw cancelled after collect',{token});return;}
         const plotEl=document.getElementById('scatterPlot');
         plotEl.style.display='block';
         while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
         document.getElementById('scatterStatsResults').innerHTML='';
         if(!points.length){
           plotEl.innerHTML='<i>No valid data points to plot.</i>';
-          console.debug('Debug: scatter plot aborted due to empty dataset',{graphType});
+          debug('Debug: scatter plot aborted due to empty dataset',{graphType});
           return;
         }
         if(logX&&points.some(p=>p.x<=0)){plotEl.innerHTML='<i>Log scale requires positive X values.</i>';return;}
@@ -1350,7 +1368,7 @@
         if(originMode==='custom'){
           if(isFinite(originXInput)){
             if(logX && originXInput<=0){
-              console.log('scatter custom origin ignored for X in log scale', originXInput);
+              info('scatter custom origin ignored for X in log scale', originXInput);
             }else{
               if(originXInput<xMin) xMin=originXInput;
               if(originXInput>xMax) xMax=originXInput;
@@ -1358,17 +1376,17 @@
           }
           if(isFinite(originYInput)){
             if(logY && originYInput<=0){
-              console.log('scatter custom origin ignored for Y in log scale', originYInput);
+              info('scatter custom origin ignored for Y in log scale', originYInput);
             }else{
               if(originYInput<yMin) yMin=originYInput;
               if(originYInput>yMax) yMax=originYInput;
             }
           }
-          console.log('scatter range adjusted for custom origin',{xMin,xMax,yMin,yMax});
+          info('scatter range adjusted for custom origin',{xMin,xMax,yMin,yMax});
         }
         if(xMin===xMax) xMax=xMin+1;
         if(yMin===yMax) yMax=yMin+1;
-        console.log('scatter final raw range',{xMin,xMax,yMin,yMax});
+        info('scatter final raw range',{xMin,xMax,yMin,yMax});
         const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
         const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
         plotEl.style.position='relative';
@@ -1382,9 +1400,9 @@
         plotEl.appendChild(svg);
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
           fontControls.enableForSvg(svg,{ scopeId: 'scatter' });
-          console.debug('Debug: scatter fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
+          debug('Debug: scatter fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
         } else {
-          console.debug('Debug: scatter fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
+          debug('Debug: scatter fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
         }
         const xMinT=logX?Math.log10(xMin):xMin;
         const xMaxT=logX?Math.log10(xMax):xMax;
@@ -1394,7 +1412,7 @@
         function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(Math.max(maxTicks-1,1)),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
         let xTickTarget=chartStyle.estimateTickCount(W,{axis:'x',fallback:6});
         let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
-        console.debug('Debug: scatter initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
+        debug('Debug: scatter initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
         function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
         const tickFont=chartStyle.makeFont(fs);
         const axisLabelFont=chartStyle.makeFont(fs);
@@ -1420,10 +1438,10 @@
         const manualIntervalX = !logX ? storedManualIntervalX : null;
         const manualIntervalY = !logY ? storedManualIntervalY : null;
         if(logX && storedManualIntervalX){
-          console.debug('Debug: scatter manual interval suppressed',{ axis: 'x', reason: 'log-scale', stored: storedManualIntervalX });
+          debug('Debug: scatter manual interval suppressed',{ axis: 'x', reason: 'log-scale', stored: storedManualIntervalX });
         }
         if(logY && storedManualIntervalY){
-          console.debug('Debug: scatter manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
+          debug('Debug: scatter manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
         }
         for(let pass=0;pass<2;pass++){
           xScale=niceScale(xMinT,xMaxT,xTickTarget);
@@ -1450,7 +1468,7 @@
               xScale.max = manual.max;
               xScale.ticks = manual.ticks;
               xScale.step = manualIntervalX;
-              console.debug('Debug: scatter manual interval applied',{ axis: 'x', interval: manualIntervalX, tickCount: manual.ticks.length });
+              debug('Debug: scatter manual interval applied',{ axis: 'x', interval: manualIntervalX, tickCount: manual.ticks.length });
             }
           }
           if(isFinite(yMinManual)||isFinite(yMaxManual)){
@@ -1471,7 +1489,7 @@
               yScale.max = manualY.max;
               yScale.ticks = manualY.ticks;
               yScale.step = manualIntervalY;
-              console.debug('Debug: scatter manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
+              debug('Debug: scatter manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
             }
           }
           xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t));
@@ -1490,17 +1508,17 @@
           plotH=Math.max(20,H-margin.top-margin.bottom);
           const refinedX=chartStyle.estimateTickCount(plotW,{axis:'x',fallback:xTickTarget});
           const refinedY=chartStyle.estimateTickCount(plotH,{axis:'y',fallback:yTickTarget});
-          console.debug('Debug: scatter tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxXLabelWidth,maxYLabelWidth});
+          debug('Debug: scatter tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxXLabelWidth,maxYLabelWidth});
           if(refinedX===xTickTarget && refinedY===yTickTarget){
             break;
           }
           xTickTarget=refinedX;
           yTickTarget=refinedY;
         }
-        console.debug('Debug: scatter layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth});
+        debug('Debug: scatter layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth});
         const aspectData=scatterSvgBox?.dataset;
         const shouldLockAspect=aspectData?.resizerAspectLocked==='true';
-        console.debug('Debug: scatter aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: scatter aspect toggle decision
+        debug('Debug: scatter aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: scatter aspect toggle decision
         if(shouldLockAspect){
           const square=chartStyle.ensureSquarePlot(W,H,margin);
           margin=square.margin;
@@ -1512,9 +1530,9 @@
               aspectData.resizerAspectRatio=String(derivedRatio);
             }
           }
-          console.debug('Debug: scatter layout (locked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter square enforcement branch
+          debug('Debug: scatter layout (locked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter square enforcement branch
         }else{
-          console.debug('Debug: scatter layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter free resize branch
+          debug('Debug: scatter layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter free resize branch
         }
         const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
         const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
@@ -1522,16 +1540,16 @@
         if(showGrid){
           xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});});
           yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});});
-          console.debug('Debug: scatter grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,axisStrokeWidth});
+          debug('Debug: scatter grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,axisStrokeWidth});
         }
         let originXT,originYT;
         if(originMode==='custom'){originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);}else{originXT=xScale.min;originYT=yScale.min;}
         const clampedXT=Math.min(Math.max(originXT,xScale.min),xScale.max);
         const clampedYT=Math.min(Math.max(originYT,yScale.min),yScale.max);
-        console.log('scatter origin final',{originXT,originYT,clampedXT,clampedYT});
+        info('scatter origin final',{originXT,originYT,clampedXT,clampedYT});
         const xAxisY=y2px(clampedYT);
         const yAxisX=x2px(clampedXT);
-        console.log('scatter axes',{tickLen,xAxisY,yAxisX});
+        info('scatter axes',{tickLen,xAxisY,yAxisX});
         const xTickPositions=xScale.ticks.map(t=>x2px(t));
         const yTickPositions=yScale.ticks.map(t=>y2px(t));
         let axisXStart=xTickPositions.length?Math.min(...xTickPositions):margin.left;
@@ -1540,7 +1558,7 @@
         let axisYEnd=yTickPositions.length?Math.max(...yTickPositions):margin.top+plotH;
         if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
         if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
-        console.debug('Debug: scatter axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
+        debug('Debug: scatter axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
         const axisControlConfig = axis => ({
           axis,
           scopeId: 'scatter',
@@ -1564,9 +1582,9 @@
         if(axisControls && typeof axisControls.registerAxisElement === 'function'){
           axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
         }
-        console.debug('Debug: scatter axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
+        debug('Debug: scatter axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
         if(showFrame){
-          console.debug('Debug: scatter frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
+          debug('Debug: scatter frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
           chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
         }
         // Frame closes scatter plot using axis styling continuity
@@ -1576,9 +1594,9 @@
         chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
         let yTickFontCount=0;
         yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});
-        console.debug('Debug: scatter font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
-        console.debug('Debug: scatter ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
-        console.time(`scatterSvgDraw_${token}`);
+        debug('Debug: scatter font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
+        debug('Debug: scatter ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
+        time(`scatterSvgDraw_${token}`);
         const frag=document.createDocumentFragment();
         const labelBBox=new Map();
         let pointIndex=0;
@@ -1615,25 +1633,25 @@
               markFontEditable(labelNode,'annotation',`annotation-${labelAnnotations.length}`);
               labelAnnotations.push(labelNode);
             }else if(labelAnnotations.length === MAX_SIGNIFICANT_ANNOTATIONS){
-              console.debug('Debug: scatter annotation cap reached',{graphType:scatterCurrentGraphType,cap:MAX_SIGNIFICANT_ANNOTATIONS}); // Debug: annotation cap notice
+              debug('Debug: scatter annotation cap reached',{graphType:scatterCurrentGraphType,cap:MAX_SIGNIFICANT_ANNOTATIONS}); // Debug: annotation cap notice
             }
           }
           pointIndex++;
-          if(pointIndex%10000===0){console.log('scatter svg draw progress',{pointIndex,token});}
+          if(pointIndex >= nextPointProgress){info('scatter svg draw progress',{pointIndex,token});nextPointProgress += pointProgressInterval;}
         }
         add('g',{}).appendChild(frag);
         if(labelAnnotations.length){
           const annotationLayer=document.createElementNS(NS,'g');
           labelAnnotations.forEach(node=>annotationLayer.appendChild(node));
           svg.appendChild(annotationLayer);
-          console.debug('Debug: scatter annotations rendered',{count:labelAnnotations.length,graphType:scatterCurrentGraphType});
+          debug('Debug: scatter annotations rendered',{count:labelAnnotations.length,graphType:scatterCurrentGraphType});
         }
-        console.timeEnd(`scatterSvgDraw_${token}`);
+        timeEnd(`scatterSvgDraw_${token}`);
         if(legendRenderer.entries.length){
           const plotRight=margin.left+plotW;
           const legendX=plotRight+legendGapPx;
           legendRenderer.draw(svg,{x:legendX,y:margin.top});
-          console.debug('Debug: scatter legend rendered shared helper',{legendX,legendGapPx,entryCount:legendRenderer.entries.length});
+          debug('Debug: scatter legend rendered shared helper',{legendX,legendGapPx,entryCount:legendRenderer.entries.length});
         }
         const xAxisBase=margin.top+plotH;
         const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
@@ -1641,7 +1659,7 @@
         markFontEditable(xText,'xTitle','xTitle');
         makeEditableLocal(xText,txt=>{scatterXLabelText=txt;});
         const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
-        console.log('scatter y-axis position',yX);
+        info('scatter y-axis position',yX);
         const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         yText.textContent=scatterYLabelText;
         markFontEditable(yText,'yTitle','yTitle');
@@ -1653,7 +1671,7 @@
         if(scatterCurrentGraphType==='scatter'){
           const regressionModeValue = scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
           const stats=computeScatterStats(points,method,{ regressionMode: regressionModeValue, domain: { minX: xMin, maxX: xMax } });
-          if(token!==scatterDrawToken){console.log('scatter draw cancelled before stats',{token});return;}
+          if(token!==scatterDrawToken){info('scatter draw cancelled before stats',{token});return;}
           const regressionModel = stats.regression;
           scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(regressionModel) : null;
           if(showLine && regressionModel){
@@ -1721,7 +1739,7 @@
                 predEl.dataset.band='prediction';
                 intervalLayer.appendChild(predEl);
               }
-              console.debug('Debug: scatter interval shading rendered', {
+              debug('Debug: scatter interval shading rendered', {
                 sampleCount: intervalSamples.length,
                 hasConfidence: !!confidencePath,
                 hasPrediction: !!predictionPath
@@ -1746,9 +1764,9 @@
               const strokeWidth=chartStyle.scaleStrokeWidth(1.5, styleScaleInfo, { context: 'scatter-trend', min: 0.75 });
               const path=add('path',{d:pathCommands.join(' '),fill:'none',stroke:'#d00','stroke-width':strokeWidth});
               path.setAttribute('vector-effect','non-scaling-stroke');
-              console.debug('Debug: scatter regression path drawn',{ mode: regressionModel.mode, commandCount: pathCommands.length, strokeWidth });
+              debug('Debug: scatter regression path drawn',{ mode: regressionModel.mode, commandCount: pathCommands.length, strokeWidth });
             }else{
-              console.debug('Debug: scatter regression path skipped',{ mode: regressionModel.mode, pathCommands: pathCommands.length });
+              debug('Debug: scatter regression path skipped',{ mode: regressionModel.mode, pathCommands: pathCommands.length });
             }
             const infoLines=[];
             if(regressionModel?.summary?.equation){
@@ -1774,7 +1792,7 @@
               info.appendChild(t);
             });
           }else{
-            console.debug('Debug: scatter regression trend omitted',{ showLine, hasModel: !!regressionModel });
+            debug('Debug: scatter regression trend omitted',{ showLine, hasModel: !!regressionModel });
           }
           const resDiv=document.getElementById('scatterStatsResults');
           const rows=[];
@@ -1865,7 +1883,7 @@
               contextLabel:'scatter-correlation'
             }
           });
-          console.log('scatter stats',{ stats, regressionSummary: scatterLastRegressionSummary });
+          info('scatter stats',{ stats, regressionSummary: scatterLastRegressionSummary });
         }else{
           scatterLastRegressionSummary=null;
           const resDiv=document.getElementById('scatterStatsResults');
@@ -1903,11 +1921,11 @@
               contextLabel:'scatter-threshold'
             }
           });
-          console.debug('Debug: scatter significance summary',{graphType:scatterCurrentGraphType,significantCount,nonSigCount,log2fcThreshold,negLogPThreshold,missingP:maMissingPCount});
+          debug('Debug: scatter significance summary',{graphType:scatterCurrentGraphType,significantCount,nonSigCount,log2fcThreshold,negLogPThreshold,missingP:maMissingPCount});
         }
         ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'scatter-graph' });
         scatterLayout?.syncPanels?.({ skipSchedule: true });
-        console.log('scatter render complete with enhanced styles');
+        info('scatter render complete with enhanced styles');
       }
       scheduleDrawScatter = Shared.debounceFrame(drawScatter);
       scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());

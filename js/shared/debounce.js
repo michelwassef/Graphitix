@@ -3,11 +3,40 @@
 (function(global){
   'use strict';
   const Shared = global.Shared = global.Shared || {};
+  const debugState = Shared.__debugState || { enabled: false };
+  Shared.__debugState = debugState;
+
+  Shared.setDebugLogging = function setDebugLogging(enabled){
+    debugState.enabled = !!enabled;
+    return debugState.enabled;
+  };
+
+  Shared.enableDebugLogging = function enableDebugLogging(){
+    return Shared.setDebugLogging(true);
+  };
+
+  Shared.disableDebugLogging = function disableDebugLogging(){
+    return Shared.setDebugLogging(false);
+  };
+
+  Shared.isDebugEnabled = function isDebugEnabled(){
+    return !!debugState.enabled;
+  };
+
+  function logDebug(message, payload){
+    if(Shared.isDebugEnabled()){
+      if(typeof payload === 'undefined'){
+        console.debug(message);
+      }else{
+        console.debug(message, payload);
+      }
+    }
+  }
   Shared.debounceFrame = function debounceFrame(fn){
     if(typeof fn !== 'function'){
       console.warn('Shared.debounceFrame requires a function callback', { received: typeof fn });
       return function noopDebounce(){
-        console.debug('Debug: Shared.debounceFrame noop invoked'); // Debug: noop fallback invocation
+        logDebug('Debug: Shared.debounceFrame noop invoked'); // Debug: noop fallback invocation
       };
     }
 
@@ -36,7 +65,7 @@
         };
 
     if(!usingAnimationFrame){
-      console.debug('Debug: Shared.debounceFrame configured with timeout fallback', { label }); // Debug: fallback selection
+      logDebug('Debug: Shared.debounceFrame configured with timeout fallback', { label }); // Debug: fallback selection
     }
 
     let frameId = null;
@@ -44,14 +73,14 @@
       if(frameId !== null){
         cancel(frameId);
         frameId = null;
-        console.debug('Debug: Shared.debounceFrame cancelled pending frame', { label, argsLength: args.length }); // Debug: cancellation notice
+        logDebug('Debug: Shared.debounceFrame cancelled pending frame', { label, argsLength: args.length }); // Debug: cancellation notice
       }
       const scheduledAt = Date.now();
-      console.debug('Debug: Shared.debounceFrame scheduling callback', { label, argsLength: args.length, usingAnimationFrame, scheduledAt }); // Debug: scheduling entry
+      logDebug('Debug: Shared.debounceFrame scheduling callback', { label, argsLength: args.length, usingAnimationFrame, scheduledAt }); // Debug: scheduling entry
       const context = this;
       frameId = request(function executeDebounced(){
         frameId = null;
-        console.debug('Debug: Shared.debounceFrame executing callback', { label, scheduledAt, startedAt: Date.now() }); // Debug: execution entry
+        logDebug('Debug: Shared.debounceFrame executing callback', { label, scheduledAt, startedAt: Date.now() }); // Debug: execution entry
         try{
           fn.apply(context, args);
         }catch(err){
