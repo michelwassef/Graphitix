@@ -120,7 +120,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - Apply Cluster-style preprocessing filters—percent present, standard deviation, absolute value thresholds, and value range—to focus on informative genes before drawing either heatmap view.【F:index.html†L366-L402】【F:js/components/heatmap.js†L520-L596】
 - Perform log transforms, row/column centering (mean or median), and normalization directly from the Adjust Data controls, with matching summaries recorded in the statistics panel for audit trails.【F:index.html†L402-L440】【F:js/components/heatmap.js†L600-L686】【F:js/components/heatmap.js†L1721-L1748】
 - Cluster rows and columns independently with selectable Pearson, Spearman, or uncentered correlation metrics plus linkage choices, and display synchronized dendrograms along the right and bottom edges when enabled.【F:index.html†L440-L488】【F:js/components/heatmap.js†L1328-L1524】【F:js/components/heatmap.js†L1940-L2033】
-- **Faster dendrogram builds:** Packed Float32 distance buffers and a priority-queue merge planner reuse linkage sums so even wide (50–60 column) matrices cluster without freezing the UI, while preserving the existing debug telemetry around each merge.【F:js/components/heatmap.js†L1320-L1531】
+- **Faster dendrogram builds:** Packed Float32 distance buffers plus a min-heap merge planner update only the affected clusters, log each run’s timing, and release the scratch matrix once merges finish so wide matrices stay responsive.【F:js/components/heatmap.js†L920-L1171】
 
 ### Dimensionality Reduction (PCA, MDS, t-SNE, UMAP)
 - Compute principal components, classical MDS stress maps, and non-linear t-SNE or UMAP embeddings directly in the browser using the bundled SVD routines plus new iterative solvers for stochastic neighbor embedding and manifold approximation.【F:index.html†L520-L640】【F:js/components/pca.js†L1287-L1650】【F:js/components/pca.js†L33-L257】
@@ -195,9 +195,10 @@ Internet access is required for these external services; all other features oper
 ## Development & Testing
 1. Install dependencies once if you plan to run automated tests: `npm install`.
 2. Execute the Jest test suite with `npm test` to validate UI utilities and smoke-test module initialization.【F:package.json†L6-L13】
-3. Static analysis and linting are not currently configured; Jest is the authoritative automated check.
-4. No bundler is required—edit HTML/CSS/JS directly and reload the browser to see changes.
-5. Workspace components are lazily ensured based on the active tab. When writing tests or debugging in JSDOM, call `Main.tabs.handleGraphSelection(type)` (or otherwise activate the tab) before asserting that Handsontable grids or stats panels exist so deferred bootstraps can run.【F:js/main/bootstrap.js†L44-L93】【F:js/main/domControls.js†L64-L201】
+3. A dedicated heatmap performance guard feeds a 150×150 matrix into the hierarchical clusterer, asserts the run completes within a 1.2 s budget, and skips automatically on CI runners where timing is noisy.【F:__tests__/heatmap.cluster.performance.test.js†L1-L46】
+4. Static analysis and linting are not currently configured; Jest is the authoritative automated check.
+5. No bundler is required—edit HTML/CSS/JS directly and reload the browser to see changes.
+6. Workspace components are lazily ensured based on the active tab. When writing tests or debugging in JSDOM, call `Main.tabs.handleGraphSelection(type)` (or otherwise activate the tab) before asserting that Handsontable grids or stats panels exist so deferred bootstraps can run.【F:js/main/bootstrap.js†L44-L93】【F:js/main/domControls.js†L64-L201】
 
 ### Session persistence performance
 Session saves now rely on `Main.session.fastClonePayload`, which prefers the browser’s native `structuredClone` implementation and falls back to a typed-array aware deep copy when it is unavailable. This eliminates the previous `JSON.parse(JSON.stringify(payload))` roundtrip while still logging the cloning strategy for debugging.【F:js/main/session.js†L81-L195】
