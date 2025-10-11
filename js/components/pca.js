@@ -1573,6 +1573,13 @@
       const debugStamp = Date.now();
       console.log('drawPca called', {debugStamp}); // Debug: draw invocation marker
 
+      const method = (pcaMethod.value || 'pca').toLowerCase();
+      const rawViewMode = (pcaViewMode?.value || DEFAULT_VIEW_MODE).toLowerCase();
+      const requestedViewMode = (method === 'pca' || method === 'mds') ? rawViewMode : '2d';
+      if(rawViewMode !== requestedViewMode){
+        console.debug('Debug: pca view mode adjusted for method',{ method, rawViewMode, requestedViewMode });
+      }
+
       let SVDLib = global.SVDJS;
       const jStatLib = global.jStat;
 
@@ -1610,12 +1617,6 @@
       let statsMethod = null;
       let dimensionMeta = [];
 
-      const method = (pcaMethod.value || 'pca').toLowerCase();
-      const rawViewMode = (pcaViewMode?.value || DEFAULT_VIEW_MODE).toLowerCase();
-      const requestedViewMode = (method === 'pca' || method === 'mds') ? rawViewMode : '2d';
-      if(rawViewMode !== requestedViewMode){
-        console.debug('Debug: pca view mode adjusted for method',{ method, rawViewMode, requestedViewMode });
-      }
       const fill = pcaFill.value;
       const alpha = Number(pcaAlpha.value) || 0;
       const borderWidthRaw = Number(pcaBorderWidth.value);
