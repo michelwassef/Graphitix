@@ -863,6 +863,70 @@
     return b;
   }
 
+  function createMaxHeap(getPriority) {
+    const items = [];
+    const heap = {
+      push(value) {
+        items.push(value);
+        siftUp(items.length - 1);
+        return heap;
+      },
+      pop() {
+        if (!items.length) return undefined;
+        const top = items[0];
+        const last = items.pop();
+        if (items.length) {
+          items[0] = last;
+          siftDown(0);
+        }
+        return top;
+      },
+      peek() {
+        return items[0];
+      },
+      size() {
+        return items.length;
+      }
+    };
+
+    function siftUp(index) {
+      let i = index;
+      while (i > 0) {
+        const parent = Math.floor((i - 1) / 2);
+        if (getPriority(items[parent]) >= getPriority(items[i])) break;
+        swap(i, parent);
+        i = parent;
+      }
+    }
+
+    function siftDown(index) {
+      let i = index;
+      const length = items.length;
+      while (true) {
+        const left = 2 * i + 1;
+        const right = left + 1;
+        let largest = i;
+        if (left < length && getPriority(items[left]) > getPriority(items[largest])) {
+          largest = left;
+        }
+        if (right < length && getPriority(items[right]) > getPriority(items[largest])) {
+          largest = right;
+        }
+        if (largest === i) break;
+        swap(i, largest);
+        i = largest;
+      }
+    }
+
+    function swap(a, b) {
+      const tmp = items[a];
+      items[a] = items[b];
+      items[b] = tmp;
+    }
+
+    return heap;
+  }
+
   function _polylabelRegion(spec, bbox, tolerancePx) {
     function makeCell(x, y, h) {
       const d = _signedDistToRegion(x, y, spec);
@@ -874,19 +938,25 @@
     const h0 = size / 2;
     const nInit = 4;
     const step = size / nInit;
-    const queue = [];
+    const queue = createMaxHeap(cell => cell.max);
     function push(c) { queue.push(c); }
-    function pop() { queue.sort((a, b) => b.max - a.max); return queue.shift(); }
+    function pop() { return queue.pop(); }
+    let fallbackBest = null;
     for (let x = bbox.x1; x < bbox.x2 + 1e-6; x += step) {
       for (let y = bbox.y1; y < bbox.y2 + 1e-6; y += step) {
-        push(makeCell(x + step / 2, y + step / 2, step / 2));
+        const cell = makeCell(x + step / 2, y + step / 2, step / 2);
+        push(cell);
+        if (!fallbackBest || cell.d > fallbackBest.d) {
+          fallbackBest = cell;
+        }
       }
     }
     let best = makeCell((bbox.x1 + bbox.x2) / 2, (bbox.y1 + bbox.y2) / 2, h0);
-    if (best.d < 0) {
-      for (const c of queue) { if (c.d > best.d) best = c; }
+    if (best.d < 0 && fallbackBest && fallbackBest.d > best.d) {
+      best = fallbackBest;
     }
-    while (queue.length) {
+    console.debug('Debug: venn polylabel heap queue engaged', { initialCells: queue.size() }); // Debug: heap branch engaged
+    while (queue.size()) {
       const cell = pop();
       if (cell.d > best.d) best = cell;
       if (cell.max - best.d <= tolerancePx) continue;
