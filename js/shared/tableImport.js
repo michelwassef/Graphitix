@@ -106,75 +106,6 @@
     return Object.assign({}, rest, extra);
   }
 
-  function cloneMatrix(matrix){
-    if(!Array.isArray(matrix)) return [];
-    return matrix.map(row => Array.isArray(row) ? row.slice() : []);
-  }
-
-  function captureHotSnapshot(hot, debugLabel){
-    if(!hot) return null;
-    try{
-      const settings = typeof hot.getSettings === 'function' ? hot.getSettings() : {};
-      const minRows = typeof settings?.minRows === 'number' ? settings.minRows : (typeof hot.countRows === 'function' ? hot.countRows() : 0);
-      const minCols = typeof settings?.minCols === 'number' ? settings.minCols : (typeof hot.countCols === 'function' ? hot.countCols() : 0);
-      const data = typeof hot.getData === 'function' ? cloneMatrix(hot.getData()) : [];
-      console.debug('Debug: tableImport.snapshot.captured', { debugLabel, minRows, minCols, rows: data.length, cols: data[0]?.length || 0 });
-      return { data, minRows, minCols };
-    }catch(err){
-      console.error('tableImport snapshot capture failed', err);
-      return null;
-    }
-  }
-
-  function cloneSnapshotData(snapshot){
-    if(!snapshot) return [];
-    return cloneMatrix(snapshot.data);
-  }
-
-  function restoreHotSnapshot(hot, snapshot, reason, debugLabel){
-    if(!hot || !snapshot) return false;
-    try{
-      const payload = {
-        data: cloneSnapshotData(snapshot),
-        minRows: snapshot.minRows,
-        minCols: snapshot.minCols
-      };
-      if(typeof hot.updateSettings === 'function'){
-        hot.updateSettings(payload);
-      }else if(typeof hot.loadData === 'function'){
-        hot.loadData(payload.data);
-        if(typeof hot.updateSettings === 'function'){
-          hot.updateSettings({ minRows: snapshot.minRows, minCols: snapshot.minCols });
-        }
-      }
-      if(typeof hot.render === 'function'){
-        hot.render();
-      }
-      console.debug('Debug: tableImport.snapshot.restored', { debugLabel, reason, rows: payload.data.length, cols: payload.data[0]?.length || 0 });
-      return true;
-    }catch(err){
-      console.error('tableImport snapshot restore failed', err);
-      return false;
-    }
-  }
-
-  function snapshotsEqual(a, b){
-    if(!a || !b) return false;
-    if(a.minRows !== b.minRows || a.minCols !== b.minCols) return false;
-    const rowsA = Array.isArray(a.data) ? a.data.length : 0;
-    const rowsB = Array.isArray(b.data) ? b.data.length : 0;
-    if(rowsA !== rowsB) return false;
-    for(let r = 0; r < rowsA; r++){
-      const rowA = Array.isArray(a.data[r]) ? a.data[r] : [];
-      const rowB = Array.isArray(b.data[r]) ? b.data[r] : [];
-      if(rowA.length !== rowB.length) return false;
-      for(let c = 0; c < rowA.length; c++){
-        if(rowA[c] !== rowB[c]) return false;
-      }
-    }
-    return true;
-  }
-
   function inferHotScope(hot, debugLabel){
     const root = hot?.rootElement || hot?.container || null;
     if(root && typeof root.closest === 'function'){
@@ -212,8 +143,11 @@
     const incomingRows = filteredRows.length;
     const currentRows = typeof hot.countRows === 'function' ? hot.countRows() : filteredRows.length;
     const currentCols = typeof hot.countCols === 'function' ? hot.countCols() : incomingCols;
-    const minRows = options.minRows != null ? options.minRows : currentRows;
-    const minCols = options.minCols != null ? options.minCols : currentCols;
+    const hotSettings = typeof hot.getSettings === 'function' ? hot.getSettings() : {};
+    const previousMinRows = typeof hotSettings?.minRows === 'number' ? hotSettings.minRows : currentRows;
+    const previousMinCols = typeof hotSettings?.minCols === 'number' ? hotSettings.minCols : currentCols;
+    const minRows = options.minRows != null ? options.minRows : previousMinRows;
+    const minCols = options.minCols != null ? options.minCols : previousMinCols;
     const targetRows = Math.max(minRows, currentRows, startRow + incomingRows);
     const targetCols = Math.max(minCols, currentCols, startCol + incomingCols);
     const stats = {
@@ -234,6 +168,16 @@
       && !options.selection
       && options.preserveExisting !== true
       && (!options.onRows || options.onRows === tableImport.processRows);
+    const resultMeta = {
+      changes: [],
+      insertedRows: null,
+      insertedCols: null,
+      previousMinRows,
+      previousMinCols,
+      nextMinRows: targetRows,
+      nextMinCols: targetCols,
+      fullReplace
+    };
     let data;
     if(fullReplace){
       debugLog('processRows.fullReplace', { targetRows, targetCols, incomingRows }, debugLabel); // Debug: full replace branch
@@ -256,32 +200,97 @@
         data[r] = new Array(targetCols).fill('');
       }
     }else{
-      data = Array.from({ length: targetRows }, () => Array(targetCols).fill(''));
-      if(typeof hot.getData === 'function'){
-        const existing = hot.getData();
-        for(let r = 0; r < Math.min(existing.length, targetRows); r++){
-          const row = existing[r];
-          for(let c = 0; c < Math.min(row.length, targetCols); c++){
-            data[r][c] = row[c];
+      const extraRows = targetRows > currentRows ? targetRows - currentRows : 0;
+      const extraCols = targetCols > currentCols ? targetCols - currentCols : 0;
+      const hasAlter = typeof hot.alter === 'function';
+      const batched = typeof hot.batch === 'function';
+      const applyChanges = (changes, source)=>{
+        if(!changes.length){
+          return;
+        }
+        if(typeof hot.setDataAtCell === 'function'){
+          hot.setDataAtCell(changes, source);
+        }else if(typeof hot.populateFromArray === 'function'){
+          const minRow = changes.reduce((min, entry)=>Math.min(min, entry[0]), Number.POSITIVE_INFINITY);
+          const minCol = changes.reduce((min, entry)=>Math.min(min, entry[1]), Number.POSITIVE_INFINITY);
+          const maxRow = changes.reduce((max, entry)=>Math.max(max, entry[0]), Number.NEGATIVE_INFINITY);
+          const maxCol = changes.reduce((max, entry)=>Math.max(max, entry[1]), Number.NEGATIVE_INFINITY);
+          const blockRows = maxRow - minRow + 1;
+          const blockCols = maxCol - minCol + 1;
+          const block = Array.from({ length: blockRows }, () => Array(blockCols).fill(''));
+          changes.forEach(([rowIdx, colIdx, value]) => {
+            const r = rowIdx - minRow;
+            const c = colIdx - minCol;
+            block[r][c] = value;
+          });
+          hot.populateFromArray(minRow, minCol, block, maxRow, maxCol, 'overwrite', source);
+        }
+      };
+      const performUpdates = ()=>{
+        if(hasAlter){
+          if(extraRows > 0){
+            hot.alter('insert_row', currentRows, extraRows, 'tableImport.processRows');
+            resultMeta.insertedRows = { index: currentRows, amount: extraRows };
+          }
+          if(extraCols > 0){
+            hot.alter('insert_col', currentCols, extraCols, 'tableImport.processRows');
+            resultMeta.insertedCols = { index: currentCols, amount: extraCols };
           }
         }
-      }
-      for(let r = 0; r < incomingRows; r++){
-        const row = filteredRows[r];
-        for(let c = 0; c < row.length; c++){
-          data[startRow + r][startCol + c] = row[c];
+        const changeList = [];
+        for(let r = 0; r < incomingRows; r++){
+          const row = filteredRows[r];
+          for(let c = 0; c < row.length; c++){
+            const destRow = startRow + r;
+            const destCol = startCol + c;
+            if(destRow < 0 || destCol < 0){
+              continue;
+            }
+            const incomingValue = row[c];
+            const currentValue = typeof hot.getDataAtCell === 'function' ? hot.getDataAtCell(destRow, destCol) : null;
+            const normalizedCurrent = currentValue != null ? currentValue : '';
+            const normalizedIncoming = incomingValue != null ? incomingValue : '';
+            if(options.preserveExisting === true && normalizedCurrent !== ''){
+              continue;
+            }
+            if(normalizedCurrent === normalizedIncoming){
+              continue;
+            }
+            resultMeta.changes.push({
+              row: destRow,
+              col: destCol,
+              oldValue: normalizedCurrent,
+              newValue: normalizedIncoming
+            });
+            changeList.push([destRow, destCol, normalizedIncoming]);
+          }
         }
+        applyChanges(changeList, 'tableImport.processRows');
+      };
+      if(batched){
+        hot.batch(()=>{
+          performUpdates();
+        });
+      }else{
+        performUpdates();
+      }
+      if(typeof hot.render === 'function'){
+        hot.render();
       }
     }
     if(typeof hot.updateSettings === 'function'){
-      hot.updateSettings({ data, minRows: targetRows, minCols: targetCols });
-    }else if(typeof hot.loadData === 'function'){
+      if(fullReplace){
+        hot.updateSettings({ data, minRows: targetRows, minCols: targetCols });
+      }else{
+        hot.updateSettings({ minRows: targetRows, minCols: targetCols });
+      }
+    }else if(fullReplace && typeof hot.loadData === 'function'){
       hot.loadData(data);
     }
     if(typeof options.scheduleDraw === 'function'){
       options.scheduleDraw();
     }
-    const result = Object.assign({ rows: targetRows, cols: targetCols }, stats);
+    const result = Object.assign({ rows: targetRows, cols: targetCols }, stats, resultMeta);
     if(typeof options.onProcessed === 'function'){
       options.onProcessed(result);
     }
@@ -426,33 +435,127 @@
         });
       }
       const undoManager = Shared.undoManager;
-      const beforeSnapshot = captureHotSnapshot(hot, debugLabel);
       const result = tableImport.processRows(filtered, hot, processOptions);
-      const afterSnapshot = captureHotSnapshot(hot, debugLabel);
-      if(result && beforeSnapshot && afterSnapshot && !snapshotsEqual(beforeSnapshot, afterSnapshot) && undoManager && typeof undoManager.record === 'function'){
+      const changeSet = Array.isArray(result?.changes) ? result.changes : [];
+      const isFullReplace = result?.fullReplace === true;
+      const hasStructureChange = !isFullReplace && !!(result?.insertedRows || result?.insertedCols || (typeof result?.previousMinRows === 'number' && typeof result?.nextMinRows === 'number' && result.previousMinRows !== result.nextMinRows) || (typeof result?.previousMinCols === 'number' && typeof result?.nextMinCols === 'number' && result.previousMinCols !== result.nextMinCols));
+      if(!isFullReplace && (changeSet.length || hasStructureChange) && undoManager && typeof undoManager.record === 'function'){
         const scope = options.scope || inferHotScope(hot, debugLabel);
         const label = `tableImport:${debugLabel}:paste`;
-        console.debug('Debug: tableImport.handlePaste undo prepared', { debugLabel, scope, label });
+        console.debug('Debug: tableImport.handlePaste undo prepared (diff)', {
+          debugLabel,
+          scope,
+          label,
+          changes: changeSet.length,
+          rowsInserted: result?.insertedRows?.amount || 0,
+          colsInserted: result?.insertedCols?.amount || 0
+        });
         undoManager.record({
           label,
           scope,
           undo(){
-            const restored = restoreHotSnapshot(hot, beforeSnapshot, 'undo', debugLabel);
-            if(restored && typeof options.scheduleDraw === 'function'){
+            if(!hot){
+              return false;
+            }
+            const revertChanges = changeSet.map(cell => [cell.row, cell.col, cell.oldValue != null ? cell.oldValue : '']);
+            const rowsInserted = result?.insertedRows;
+            const colsInserted = result?.insertedCols;
+            const previousMinRows = result?.previousMinRows;
+            const previousMinCols = result?.previousMinCols;
+            const canAlter = typeof hot.alter === 'function';
+            if(typeof hot.batch === 'function'){
+              hot.batch(()=>{
+                if(revertChanges.length && typeof hot.setDataAtCell === 'function'){
+                  hot.setDataAtCell(revertChanges, 'tableImport.handlePaste.undo');
+                }
+                if(rowsInserted?.amount && canAlter){
+                  hot.alter('remove_row', rowsInserted.index, rowsInserted.amount, 'tableImport.handlePaste.undo');
+                }
+                if(colsInserted?.amount && canAlter){
+                  hot.alter('remove_col', colsInserted.index, colsInserted.amount, 'tableImport.handlePaste.undo');
+                }
+              });
+            }else{
+              if(revertChanges.length && typeof hot.setDataAtCell === 'function'){
+                hot.setDataAtCell(revertChanges, 'tableImport.handlePaste.undo');
+              }
+              if(rowsInserted?.amount && canAlter){
+                hot.alter('remove_row', rowsInserted.index, rowsInserted.amount, 'tableImport.handlePaste.undo');
+              }
+              if(colsInserted?.amount && canAlter){
+                hot.alter('remove_col', colsInserted.index, colsInserted.amount, 'tableImport.handlePaste.undo');
+              }
+            }
+            if((typeof previousMinRows === 'number' || typeof previousMinCols === 'number') && typeof hot.updateSettings === 'function'){
+              const settingsPayload = {};
+              if(typeof previousMinRows === 'number') settingsPayload.minRows = previousMinRows;
+              if(typeof previousMinCols === 'number') settingsPayload.minCols = previousMinCols;
+              hot.updateSettings(settingsPayload);
+            }
+            if(typeof hot.render === 'function'){
+              hot.render();
+            }
+            if(typeof options.scheduleDraw === 'function'){
               options.scheduleDraw();
             }
-            return restored;
+            return true;
           },
           redo(){
-            const restored = restoreHotSnapshot(hot, afterSnapshot, 'redo', debugLabel);
-            if(restored && typeof options.scheduleDraw === 'function'){
+            if(!hot){
+              return false;
+            }
+            const applyChanges = changeSet.map(cell => [cell.row, cell.col, cell.newValue != null ? cell.newValue : '']);
+            const rowsInserted = result?.insertedRows;
+            const colsInserted = result?.insertedCols;
+            const nextMinRows = result?.nextMinRows;
+            const nextMinCols = result?.nextMinCols;
+            const canAlter = typeof hot.alter === 'function';
+            if(typeof hot.batch === 'function'){
+              hot.batch(()=>{
+                if(rowsInserted?.amount && canAlter){
+                  hot.alter('insert_row', rowsInserted.index, rowsInserted.amount, 'tableImport.handlePaste.redo');
+                }
+                if(colsInserted?.amount && canAlter){
+                  hot.alter('insert_col', colsInserted.index, colsInserted.amount, 'tableImport.handlePaste.redo');
+                }
+                if(applyChanges.length && typeof hot.setDataAtCell === 'function'){
+                  hot.setDataAtCell(applyChanges, 'tableImport.handlePaste.redo');
+                }
+              });
+            }else{
+              if(rowsInserted?.amount && canAlter){
+                hot.alter('insert_row', rowsInserted.index, rowsInserted.amount, 'tableImport.handlePaste.redo');
+              }
+              if(colsInserted?.amount && canAlter){
+                hot.alter('insert_col', colsInserted.index, colsInserted.amount, 'tableImport.handlePaste.redo');
+              }
+              if(applyChanges.length && typeof hot.setDataAtCell === 'function'){
+                hot.setDataAtCell(applyChanges, 'tableImport.handlePaste.redo');
+              }
+            }
+            if((typeof nextMinRows === 'number' || typeof nextMinCols === 'number') && typeof hot.updateSettings === 'function'){
+              const settingsPayload = {};
+              if(typeof nextMinRows === 'number') settingsPayload.minRows = nextMinRows;
+              if(typeof nextMinCols === 'number') settingsPayload.minCols = nextMinCols;
+              hot.updateSettings(settingsPayload);
+            }
+            if(typeof hot.render === 'function'){
+              hot.render();
+            }
+            if(typeof options.scheduleDraw === 'function'){
               options.scheduleDraw();
             }
-            return restored;
+            return true;
           }
         });
       }else{
-        console.debug('Debug: tableImport.handlePaste undo skipped', { debugLabel, hasResult: !!result, hasBefore: !!beforeSnapshot, hasAfter: !!afterSnapshot });
+        console.debug('Debug: tableImport.handlePaste undo skipped (no diff)', {
+          debugLabel,
+          hasResult: !!result,
+          fullReplace: isFullReplace,
+          changes: changeSet.length,
+          structureChange: hasStructureChange
+        });
       }
       return result;
     }finally{

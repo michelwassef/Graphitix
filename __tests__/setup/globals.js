@@ -121,6 +121,7 @@ class HandsontableInstance {
     this._data = (opts && opts.data) || [];
     this._settings = opts || {};
     this._selected = null;
+    this.rootElement = container;
     HT_CALLS.push({ type: 'construct', containerId: container?.id, opts });
   }
   loadData(d) { this._data = d; HT_CALLS.push({ type: 'loadData', containerId: this._container?.id, rows: d?.length, firstRow: Array.isArray(d?.[0]) ? d[0] : null }); }
@@ -136,8 +137,100 @@ class HandsontableInstance {
   }
   getDataAtCol(c) { return (this._data || []).map(row => row?.[c]); }
   updateSettings({ data, minRows, minCols } = {}) {
-    if (data) this._data = data;
-    // no-op for minRows/minCols, but keep API compatible
+    if (data) {
+      this._data = data;
+    }
+    if (typeof minRows === 'number') {
+      this._settings.minRows = minRows;
+    }
+    if (typeof minCols === 'number') {
+      this._settings.minCols = minCols;
+    }
+    HT_CALLS.push({
+      type: 'updateSettings',
+      containerId: this._container?.id,
+      hasData: !!data,
+      minRows: this._settings.minRows,
+      minCols: this._settings.minCols
+    });
+  }
+  getSettings() { return Object.assign({}, this._settings); }
+  setDataAtCell(rowOrChanges, col, value, source) {
+    let entries = [];
+    if (Array.isArray(rowOrChanges)) {
+      if (Array.isArray(rowOrChanges[0])) {
+        entries = rowOrChanges;
+        source = col;
+      } else if (typeof col === 'number') {
+        entries = [[rowOrChanges, col, value]];
+      }
+    }
+    entries.forEach(([r, c, val]) => {
+      if (!Array.isArray(this._data[r])) {
+        const cols = Math.max(this.countCols(), (this._settings.minCols || 0));
+        this._data[r] = Array.from({ length: cols }, () => '');
+      }
+      if (this._data[r][c] === undefined) {
+        this._data[r][c] = '';
+      }
+      this._data[r][c] = val;
+    });
+    HT_CALLS.push({ type: 'setDataAtCell', containerId: this._container?.id, entries, source });
+  }
+  populateFromArray(row, col, input, endRow, endCol, _method, source) {
+    const rows = input || [];
+    const entries = [];
+    for (let r = 0; r < rows.length; r += 1) {
+      const srcRow = rows[r] || [];
+      for (let c = 0; c < srcRow.length; c += 1) {
+        const destRow = row + r;
+        const destCol = col + c;
+        if (!Array.isArray(this._data[destRow])) {
+          const cols = Math.max(this.countCols(), (this._settings.minCols || 0), (endCol || destCol) + 1);
+          this._data[destRow] = Array.from({ length: cols }, () => '');
+        }
+        this._data[destRow][destCol] = srcRow[c];
+        entries.push([destRow, destCol, srcRow[c]]);
+      }
+    }
+    HT_CALLS.push({ type: 'populateFromArray', containerId: this._container?.id, entries, source });
+  }
+  alter(action, index, amount = 1, source) {
+    const size = Math.max(0, amount);
+    if (action === 'insert_row') {
+      for (let i = 0; i < size; i += 1) {
+        const cols = Math.max(this.countCols(), this._settings.minCols || 0);
+        this._data.splice(index, 0, Array.from({ length: cols }, () => ''));
+      }
+    } else if (action === 'remove_row') {
+      this._data.splice(index, size);
+    } else if (action === 'insert_col') {
+      const rows = Math.max(this.countRows(), this._settings.minRows || 0);
+      for (let r = 0; r < rows; r += 1) {
+        if (!Array.isArray(this._data[r])) {
+          this._data[r] = [];
+        }
+        this._data[r].splice(index, 0, ...Array.from({ length: size }, () => ''));
+      }
+    } else if (action === 'remove_col') {
+      for (let r = 0; r < this.countRows(); r += 1) {
+        if (Array.isArray(this._data[r])) {
+          this._data[r].splice(index, size);
+        }
+      }
+    }
+    HT_CALLS.push({ type: 'alter', containerId: this._container?.id, action, index, amount: size, source });
+  }
+  batch(cb) {
+    HT_CALLS.push({ type: 'batch.start', containerId: this._container?.id });
+    try {
+      cb();
+    } finally {
+      HT_CALLS.push({ type: 'batch.end', containerId: this._container?.id });
+    }
+  }
+  render() {
+    HT_CALLS.push({ type: 'render', containerId: this._container?.id });
   }
 }
 function Handsontable(container, opts) {
