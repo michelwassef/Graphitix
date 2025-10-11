@@ -78,6 +78,7 @@ Before editing the bootstrap scripts, review how the `Main` namespace is assembl
 - **Pinned header sorting cues:** Sorting now leaves the first-row headers anchored while reordering body rows, and every column header exposes paired arrow buttons so users can explicitly choose ascending or descending order without losing context.【F:js/shared/hot.js†L694-L889】【F:css/style.css†L24-L63】
 - **Delimiter detection for lists:** The Venn workspace can parse newline, tab, comma, or space-separated entries, with an automatic mode that guesses the correct delimiter.【F:index.html†L80-L129】
 - **Numeric input mode:** Switch the Venn module to manual count entry when list data is unavailable, populating each region by hand.【F:index.html†L108-L153】
+- **Manual species detection:** Trigger batched lookups through the **Detect Species** button; cached guesses avoid repeated network work and respect cancellation when you edit lists rapidly.【F:index.html†L216-L242】【F:js/components/venn.js†L1007-L1110】
 - **Session persistence:** `.graph` files store both the table contents and all stylistic choices. Use *Open*, *Save*, and *Save As* controls to manage workbooks per module.【F:index.html†L68-L108】【F:index.html†L320-L408】
 - **Auto-incremented workspace titles:** Creating additional tabs of the same visualization now appends counters like “Scatter Plot #2” so every open workspace remains uniquely identifiable without extra renaming.【F:js/main/session.js†L90-L133】【F:js/main/tabs.js†L300-L310】
 

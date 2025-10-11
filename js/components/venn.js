@@ -19,6 +19,92 @@
     console.debug(`Debug: venn ${label}`, payload || {});
   };
 
+  function getSpeciesDetectionState() {
+    if (!state.analysis.speciesDetection) {
+      state.analysis.speciesDetection = {
+        cache: new Map(),
+        pendingTimeoutId: null,
+        pendingReason: null,
+        active: null,
+        delayMs: 1200
+      };
+      console.debug('Debug: venn species detection state created'); // Debug: detection state init
+    }
+    return state.analysis.speciesDetection;
+  }
+
+  function createAbortError(message) {
+    if (typeof DOMException === 'function') {
+      return new DOMException(message || 'Aborted', 'AbortError');
+    }
+    const error = new Error(message || 'Aborted');
+    error.name = 'AbortError';
+    return error;
+  }
+
+  function computeGeneSignature(genes) {
+    if (!genes || !genes.length) {
+      return '0:0';
+    }
+    const normalized = genes.map(g => String(g || '').trim().toUpperCase());
+    normalized.sort();
+    let hash = 0;
+    for (const gene of normalized) {
+      for (let i = 0; i < gene.length; i += 1) {
+        hash = (hash * 31 + gene.charCodeAt(i)) >>> 0;
+      }
+      hash = (hash + 31) >>> 0;
+    }
+    return `${normalized.length}:${hash.toString(16)}`;
+  }
+
+  function cancelPendingSpeciesDetection(reason, { abortActive = false, resetIndicator = false } = {}) {
+    const detection = getSpeciesDetectionState();
+    if (detection.pendingTimeoutId) {
+      clearTimeout(detection.pendingTimeoutId);
+      detection.pendingTimeoutId = null;
+      console.debug('Debug: venn species detect pending cleared', { reason }); // Debug: pending timer cleared
+    }
+    if (abortActive && detection.active?.controller) {
+      try {
+        detection.active.controller.abort(reason || 'cancelled');
+      } catch (err) { /* noop */ }
+      console.debug('Debug: venn species detect active abort requested', { reason }); // Debug: abort requested
+    }
+    if (resetIndicator) {
+      setSpeciesIndicator(null);
+    }
+  }
+
+  function scheduleSpeciesRecognition(reason = 'auto-detect') {
+    const detection = getSpeciesDetectionState();
+    const inputs = state.ui.inputs;
+    if (!inputs) {
+      return;
+    }
+    if (!hasListContent(inputs)) {
+      cancelPendingSpeciesDetection(reason, { abortActive: true, resetIndicator: true });
+      console.debug('Debug: venn species detect skipped scheduling', { reason, hasLists: false }); // Debug: schedule skipped
+      return;
+    }
+    const delay = Number.isFinite(detection.delayMs) ? detection.delayMs : 1200;
+    if (detection.pendingTimeoutId) {
+      clearTimeout(detection.pendingTimeoutId);
+    }
+    detection.pendingReason = reason;
+    detection.pendingTimeoutId = setTimeout(() => {
+      detection.pendingTimeoutId = null;
+      recognizeSpeciesFromInput({ reason: `scheduled-${reason}` }).catch(err => {
+        if (err && err.name === 'AbortError') {
+          console.debug('Debug: venn species detect schedule aborted', { reason }); // Debug: scheduled detection aborted
+        } else if (err) {
+          console.warn('venn species detection schedule error', err);
+        }
+      });
+    }, delay);
+    console.debug('Debug: venn species detect scheduled', { reason, delayMs: delay }); // Debug: detection scheduled
+  }
+
   const ensureGraphViewport = Shared.graphViewport?.createEnsurer
     ? Shared.graphViewport.createEnsurer('venn')
     : (svg, options = {}) => {
@@ -213,9 +299,10 @@
         countsUI: null,
         regionSelect: null,
         regionList: null,
-        copyRegionBtn: null,
-        goBtn: null,
-        stringBtn: null,
+      copyRegionBtn: null,
+      goBtn: null,
+      detectSpeciesBtn: null,
+      stringBtn: null,
         goResults: null,
         stringResults: null,
         stringNetwork: null,
@@ -254,6 +341,13 @@
         lastRegionSignature: null,
         lastRegionCode: null,
         lastSignificance: null,
+        speciesDetection: {
+          cache: new Map(),
+          pendingTimeoutId: null,
+          pendingReason: null,
+          active: null,
+          delayMs: 1200
+        }
       },
       persistence: {
         fileHandle: null,
@@ -1009,29 +1103,67 @@
     debugLog('calculateSignificance complete', { total, overlaps: res.length, countsSignature });
   }
 
-  async function guessSpecies(genes) {
+  async function guessSpecies(genes, options = {}) {
+    const detection = getSpeciesDetectionState();
+    const { signal, cache = detection?.cache, cacheKey } = options || {};
+    const geneList = Array.isArray(genes) ? genes : [];
+    if (cache && cacheKey && cache.has(cacheKey)) {
+      const cached = cache.get(cacheKey);
+      console.debug('Debug: venn guessSpecies cache hit', { cacheKey, geneCount: geneList.length }); // Debug: guess cache hit
+      return cached?.guess ?? null;
+    }
     const counts = { hsapiens: 0, mmusculus: 0, dmelanogaster: 0, celegans: 0 };
     const taxMap = { '9606': 'hsapiens', '10090': 'mmusculus', '7227': 'dmelanogaster', '6239': 'celegans' };
-    const sample = genes.slice(0, 20);
-    for (const g of sample) {
-      const url = `https://mygene.info/v3/query?q=${encodeURIComponent(g)}&fields=symbol,taxid&species=9606,10090,7227,6239&size=5`;
+    const sample = geneList.slice(0, 20);
+    const maxConcurrent = 4;
+    let aborted = false;
+    console.debug('Debug: venn guessSpecies cache miss', { cacheKey, geneCount: geneList.length, sampleSize: sample.length }); // Debug: guess cache miss
+
+    const fetchGene = async (rawGene) => {
+      const gene = String(rawGene || '').trim();
+      if (!gene) return;
+      if (signal?.aborted) {
+        throw createAbortError(signal.reason);
+      }
+      const url = `https://mygene.info/v3/query?q=${encodeURIComponent(gene)}&fields=symbol,taxid&species=9606,10090,7227,6239&size=5`;
       try {
-        const resp = await fetch(url);
-        if (!resp.ok) continue;
+        const resp = await fetch(url, signal ? { signal } : undefined);
+        if (!resp?.ok) return;
         const data = await resp.json();
-        const hit = data.hits?.find(h => h.symbol === g) ||
-          data.hits?.find(h => h.symbol?.toLowerCase() === g.toLowerCase()) ||
+        const hit = data.hits?.find(h => h.symbol === gene) ||
+          data.hits?.find(h => h.symbol?.toLowerCase() === gene.toLowerCase()) ||
           data.hits?.[0];
         const tax = hit?.taxid?.toString();
         const sp = taxMap[tax];
-        if (sp) counts[sp]++;
-      } catch (err) { }
+        if (sp) counts[sp] += 1;
+      } catch (err) {
+        if (err && err.name === 'AbortError') {
+          aborted = true;
+        } else {
+          console.debug('Debug: venn guessSpecies fetch error', { gene, message: err && err.message }); // Debug: fetch failure
+        }
+      }
+    };
+
+    for (let i = 0; i < sample.length; i += maxConcurrent) {
+      const chunk = sample.slice(i, i + maxConcurrent);
+      await Promise.all(chunk.map(g => fetchGene(g)));
+      if (signal?.aborted || aborted) {
+        break;
+      }
+    }
+
+    if (signal?.aborted || aborted) {
+      throw createAbortError(signal?.reason || 'cancelled');
     }
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    if (total === 0) return null;
     const [best, bestScore] = Object.entries(counts).reduce((m, e) => e[1] > m[1] ? e : m, ['', 0]);
-    if (bestScore / total < 0.6) return null;
-    return best;
+    const guess = total === 0 || (bestScore / (total || 1)) < 0.6 ? null : best;
+    if (cache && cacheKey && !cache.has(cacheKey)) {
+      cache.set(cacheKey, { guess, geneCount: geneList.length });
+      console.debug('Debug: venn guessSpecies cache stored', { cacheKey, guess }); // Debug: guess cache store
+    }
+    return guess;
   }
 
   function getAllGenes() {
@@ -1054,15 +1186,67 @@
     state.ui.speciesSelect.style.backgroundColor = color;
   }
 
-  async function recognizeSpeciesFromInput() {
+  async function recognizeSpeciesFromInput(options = {}) {
+    const reason = options?.reason || 'auto';
+    cancelPendingSpeciesDetection(reason);
+    const detection = getSpeciesDetectionState();
     const genes = getAllGenes();
-    const guess = genes.length ? await guessSpecies(genes) : null;
-    if (guess) {
-      state.ui.speciesSelect.value = guess;
-      setSpeciesIndicator(true);
-    } else {
-      state.ui.speciesSelect.value = '';
+    if (!genes.length) {
+      if (state.ui.speciesSelect) state.ui.speciesSelect.value = '';
+      setSpeciesIndicator(null);
+      detection.cache.set('0:0', { guess: null, geneCount: 0 });
+      console.debug('Debug: venn species detect skipped empty', { reason }); // Debug: detection skipped for empty input
+      return null;
+    }
+    const cacheKey = computeGeneSignature(genes);
+    if (detection.cache.has(cacheKey)) {
+      const cached = detection.cache.get(cacheKey);
+      const guess = cached?.guess || null;
+      if (state.ui.speciesSelect) state.ui.speciesSelect.value = guess || '';
+      setSpeciesIndicator(guess ? true : false);
+      console.debug('Debug: venn species cache hit', { reason, cacheKey, geneCount: genes.length, guess }); // Debug: detection cache hit
+      return guess;
+    }
+    console.debug('Debug: venn species cache miss', { reason, cacheKey, geneCount: genes.length }); // Debug: detection cache miss
+    if (detection.active?.controller) {
+      try {
+        detection.active.controller.abort('superseded');
+      } catch (err) { /* noop */ }
+    }
+    const controller = new AbortController();
+    detection.active = { controller, cacheKey, reason };
+    setSpeciesIndicator(null);
+    try {
+      const guess = await guessSpecies(genes, { signal: controller.signal, cache: detection.cache, cacheKey });
+      const entry = detection.cache.get(cacheKey) || { guess, geneCount: genes.length };
+      if (!detection.cache.has(cacheKey)) {
+        detection.cache.set(cacheKey, entry);
+      }
+      if (detection.active && detection.active.controller === controller) {
+        detection.active = null;
+        if (state.ui.speciesSelect) state.ui.speciesSelect.value = guess || '';
+        setSpeciesIndicator(guess ? true : false);
+        console.debug('Debug: venn species detect complete', { reason, cacheKey, guess }); // Debug: detection finished
+      } else {
+        console.debug('Debug: venn species detect result ignored', { reason, cacheKey }); // Debug: stale detection ignored
+      }
+      return guess || null;
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        if (detection.active && detection.active.controller === controller) {
+          detection.active = null;
+          setSpeciesIndicator(null);
+        }
+        console.debug('Debug: venn species detect aborted', { reason, cacheKey }); // Debug: detection aborted
+        throw err;
+      }
+      if (detection.active && detection.active.controller === controller) {
+        detection.active = null;
+      }
+      console.warn('venn species detection error', err);
+      if (state.ui.speciesSelect) state.ui.speciesSelect.value = '';
       setSpeciesIndicator(false);
+      return null;
     }
   }
 
@@ -1607,7 +1791,7 @@
     updateColorLabels(labels);
     fitAndDraw(L, style, labels, counts);
     if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
-    recognizeSpeciesFromInput().catch(err => { });
+    scheduleSpeciesRecognition('draw-from-lists');
     debugLog('drawFromLists complete', { mode, caseSensitive: cs, counts });
   }
 
@@ -1666,6 +1850,7 @@
     updateColorLabels(labels);
     fitAndDraw(L, style, labels, counts);
     if (state.ui.regionSelect) populateRegion(state.ui.regionSelect.value);
+    cancelPendingSpeciesDetection('draw-from-numeric', { abortActive: true, resetIndicator: true });
     debugLog('drawFromNumeric complete', { counts });
   }
 
@@ -2140,6 +2325,7 @@
       if (state.ui.speciesSelect) { state.ui.speciesSelect.value = ''; }
       setSpeciesIndicator(null);
       requestScheduledDraw(`list-input-${key}`, 'lists');
+      scheduleSpeciesRecognition(`list-input-${key}`);
       console.debug('Debug: venn listInputHandler', { key }); // Debug: list input change
     };
   }
@@ -2147,6 +2333,7 @@
   function createNumericInputHandler(key) {
     return function numericInputHandler() {
       requestScheduledDraw(`numeric-input-${key}`, 'numeric');
+      cancelPendingSpeciesDetection(`numeric-input-${key}`, { abortActive: true, resetIndicator: true });
       console.debug('Debug: venn numericInputHandler', { key }); // Debug: numeric input change
     };
   }
@@ -2282,7 +2469,9 @@
       let organism = state.ui.speciesSelect.value;
       if (!organism) {
         const allGenes = getAllGenes();
-        const guess = allGenes.length ? await guessSpecies(allGenes) : null;
+        const detection = getSpeciesDetectionState();
+        const cacheKey = computeGeneSignature(allGenes);
+        const guess = allGenes.length ? await guessSpecies(allGenes, { cache: detection.cache, cacheKey }) : null;
         if (guess) {
           state.ui.speciesSelect.value = organism = guess;
           setSpeciesIndicator(true);
@@ -2303,7 +2492,9 @@
       let organism = state.ui.speciesSelect.value;
       if (!organism) {
         const allGenes = getAllGenes();
-        const guess = allGenes.length ? await guessSpecies(allGenes) : null;
+        const detection = getSpeciesDetectionState();
+        const cacheKey = computeGeneSignature(allGenes);
+        const guess = allGenes.length ? await guessSpecies(allGenes, { cache: detection.cache, cacheKey }) : null;
         if (guess) {
           state.ui.speciesSelect.value = organism = guess;
           setSpeciesIndicator(true);
@@ -2318,6 +2509,18 @@
     } catch (err) { console.error('stringBtn error', err); }
   }
 
+  function handleDetectSpeciesClick(evt) {
+    if (evt && typeof evt.preventDefault === 'function') {
+      evt.preventDefault();
+    }
+    cancelPendingSpeciesDetection('manual-detect');
+    recognizeSpeciesFromInput({ reason: 'manual-button' }).catch(err => {
+      if (err && err.name === 'AbortError') { return; }
+      console.warn('venn manual detect error', err);
+    });
+    console.debug('Debug: venn handleDetectSpeciesClick'); // Debug: manual detect trigger
+  }
+
   function handleGoBtnTooltipLeave() {
     handleGoBtnMouseLeave();
   }
@@ -2330,6 +2533,7 @@
 
   function handleUseNumericClick() {
     state.analysis.lastDrawMode = 'numeric';
+    cancelPendingSpeciesDetection('manual-numeric', { abortActive: true, resetIndicator: true });
     drawFromNumeric();
     console.debug('Debug: venn handleUseNumericClick'); // Debug: numeric draw invocation
   }
@@ -2352,7 +2556,10 @@
     state.ui.inputs.B.value = `BRCA1\nBAP1\nRING1B\nCBX2\nHDAC1\nPAXIP1\nHUWE1`;
     state.ui.inputs.C.value = `BRCA1\nPAXIP1\nCSNK2A1\nRING1B\nKAT7`;
     state.analysis.lastDrawMode = 'lists';
+    if (state.ui.speciesSelect) state.ui.speciesSelect.value = '';
+    setSpeciesIndicator(null);
     refreshDiagram();
+    scheduleSpeciesRecognition('sample-data');
     console.debug('Debug: venn handleSampleClick'); // Debug: sample data loaded
   }
 
@@ -2380,6 +2587,11 @@
     if (state.ui.totalGenesInput) state.ui.totalGenesInput.value = '';
     if (state.ui.significanceResults) state.ui.significanceResults.innerHTML = '';
     state.analysis.lastSignificance = null;
+    cancelPendingSpeciesDetection('reset', { abortActive: true, resetIndicator: true });
+    const detection = getSpeciesDetectionState();
+    detection.active = null;
+    detection.cache.clear();
+    detection.pendingReason = null;
     debugLog('reset handler completed', { defaultLabels });
   }
 
@@ -2398,6 +2610,7 @@
       { elements: document, type: 'click', handler: handleDocumentClick, label: 'document-click' },
       { elements: state.ui.copyRegionBtn, type: 'click', handler: handleCopyRegionClick, label: 'copy-region' },
       { elements: state.ui.goBtn, type: 'click', handler: handleGoButtonClick, label: 'go-run' },
+      { elements: state.ui.detectSpeciesBtn, type: 'click', handler: handleDetectSpeciesClick, label: 'detect-species' },
       { elements: state.ui.stringBtn, type: 'click', handler: handleStringButtonClick, label: 'string-run' },
       { elements: state.ui.goBtn, type: 'mouseenter', handler: handleGoBtnMouseEnter, label: 'go-tooltip-enter' },
       { elements: state.ui.goBtn, type: 'mouseleave', handler: handleGoBtnTooltipLeave, label: 'go-tooltip-leave' },
@@ -2508,6 +2721,7 @@
     state.ui.regionList = $('#regionList');
     state.ui.copyRegionBtn = $('#copyRegionBtn');
     state.ui.goBtn = $('#goBtn');
+    state.ui.detectSpeciesBtn = $('#detectSpeciesBtn');
     state.ui.stringBtn = $('#stringBtn');
     state.ui.goResults = $('#goResults');
     state.ui.stringResults = $('#stringResults');
