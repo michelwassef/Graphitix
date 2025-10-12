@@ -9,6 +9,7 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const formControls = Shared.formControls = Shared.formControls || {};
   pie.__installed = true; // signal to legacy code to skip
   pie.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -40,6 +41,46 @@
   const PIE_DEFAULT_ROWS = 100;
   const PIE_DEFAULT_COLS = 6;
   const DEFAULT_AXIS_COLOR = '#000000';
+
+  function attachPieSelectAutoSize(select, label){
+    if(!select){ return; }
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
+    const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
+    const contextLabel = label || 'pie';
+    try{
+      if(watcher){
+        watcher(select);
+        if(debugEnabled){
+          console.debug('Debug: pie select auto-size watcher attached', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(autoSizer){
+        autoSizer(select);
+        if(debugEnabled){
+          console.debug('Debug: pie select auto-size applied without watcher', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(debugEnabled){
+        console.debug('Debug: pie select auto-size helper unavailable', {
+          id: select.id || null,
+          label: contextLabel
+        });
+      }
+    }catch(err){
+      if(debugEnabled){
+        console.debug('Debug: pie select auto-size attach error', {
+          id: select.id || null,
+          label: contextLabel,
+          error: err?.message || String(err)
+        });
+      }
+    }
+  }
 
   function createDefaultAxisSettings(){
     return {
@@ -254,6 +295,10 @@
     const pieChartType=$('#pieChartType');
     const valueColumn=$('#pieValueColumn');
     const expectedColumn=$('#pieExpectedColumn');
+    const pieAutoSizeTargets=[pieChartType,valueColumn,expectedColumn];
+    pieAutoSizeTargets.filter(Boolean).forEach(select=>{
+      attachPieSelectAutoSize(select, 'pie');
+    });
     if(pieFontSize?.dataset){
       pieFontSize.dataset.fontBasePt = String(pieFontSize.value);
       console.debug('Debug: pie font size base initialized',{ value: pieFontSize.value }); // Debug: initial base size
@@ -513,6 +558,10 @@
     for(let c=1;c<header.length;c++){ const txt=header[c]||`Column ${c+1}`; const optVal=document.createElement('option'); optVal.value=String(c); optVal.textContent=txt; if(optVal.value===prevVal) optVal.selected=true; valueColumn.appendChild(optVal); const optExp=document.createElement('option'); optExp.value=String(c); optExp.textContent=txt; if(optExp.value===prevExp) optExp.selected=true; expectedColumn.appendChild(optExp); }
     if(!prevVal && header.length>1) valueColumn.value='1';
     if(!prevExp){ const expIdx=header.findIndex((h,i)=>i>0 && String(h).trim().toLowerCase()==='expected'); if(expIdx>0) expectedColumn.value=String(expIdx); else if(header.length>2) expectedColumn.value='2'; }
+    if(typeof formControls.autoSizeSelect === 'function'){
+      formControls.autoSizeSelect(valueColumn);
+      formControls.autoSizeSelect(expectedColumn);
+    }
     console.log('updatePieColumns',{val:valueColumn.value,exp:expectedColumn.value});
   }
 

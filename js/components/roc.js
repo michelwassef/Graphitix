@@ -8,6 +8,7 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const formControls = Shared.formControls = Shared.formControls || {};
   roc.__installed = true;
   roc.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -74,6 +75,46 @@
   };
 
   const refs = {};
+
+  function attachRocSelectAutoSize(select, label){
+    if(!select){ return; }
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
+    const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
+    const contextLabel = label || 'roc';
+    try{
+      if(watcher){
+        watcher(select);
+        if(debugEnabled){
+          console.debug('Debug: roc select auto-size watcher attached', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(autoSizer){
+        autoSizer(select);
+        if(debugEnabled){
+          console.debug('Debug: roc select auto-size applied without watcher', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(debugEnabled){
+        console.debug('Debug: roc select auto-size helper unavailable', {
+          id: select.id || null,
+          label: contextLabel
+        });
+      }
+    }catch(err){
+      if(debugEnabled){
+        console.debug('Debug: roc select auto-size attach error', {
+          id: select.id || null,
+          label: contextLabel,
+          error: err?.message || String(err)
+        });
+      }
+    }
+  }
 
   function ensureAxisSettings(){
     if(!state.axisSettings || typeof state.axisSettings !== 'object'){
@@ -230,7 +271,8 @@
     refs.showFrame = document.getElementById('rocShowFrame');
     refs.fontSize = document.getElementById('rocFontSize');
     refs.fontSizeVal = document.getElementById('rocFontSizeVal');
-    refs.graphType = document.getElementById('rocGraphType');
+      refs.graphType = document.getElementById('rocGraphType');
+      attachRocSelectAutoSize(refs.graphType, 'roc');
     refs.loadExampleBtn = document.getElementById('rocLoadExample');
     refs.importBtn = document.getElementById('rocImport');
     refs.fileInput = document.getElementById('rocFile');

@@ -6,6 +6,7 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const formControls = Shared.formControls = Shared.formControls || {};
   scatter.__installed = true;
   scatter.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -38,81 +39,43 @@
 
   const DEFAULT_AXIS_COLOR = '#000000';
 
-  let scatterSelectMeasureEl = null;
-
-  function ensureScatterSelectMeasure(doc){
-    if(!doc || !doc.body){ return null; }
-    if(scatterSelectMeasureEl && scatterSelectMeasureEl.ownerDocument === doc){
-      return scatterSelectMeasureEl;
-    }
-    scatterSelectMeasureEl = doc.createElement('span');
-    scatterSelectMeasureEl.setAttribute('aria-hidden','true');
-    const style = scatterSelectMeasureEl.style;
-    style.position = 'absolute';
-    style.visibility = 'hidden';
-    style.pointerEvents = 'none';
-    style.whiteSpace = 'nowrap';
-    style.fontSize = '12px';
-    style.fontFamily = 'inherit';
-    style.fontWeight = '400';
-    style.fontStyle = 'normal';
-    style.padding = '0';
-    style.margin = '0';
-    style.maxWidth = 'none';
-    doc.body.appendChild(scatterSelectMeasureEl);
-    return scatterSelectMeasureEl;
-  }
-
-  function computeScatterSelectWidth(select){
-    if(!select){ return 0; }
-    const doc = select.ownerDocument;
-    const measure = ensureScatterSelectMeasure(doc);
-    const view = doc?.defaultView || global;
-    if(!measure || typeof view?.getComputedStyle !== 'function'){ return 0; }
-    const computed = view.getComputedStyle(select);
-    if(!computed){ return 0; }
-    measure.style.fontFamily = computed.fontFamily;
-    measure.style.fontSize = computed.fontSize;
-    measure.style.fontWeight = computed.fontWeight;
-    measure.style.fontStyle = computed.fontStyle;
-    measure.style.letterSpacing = computed.letterSpacing;
-    measure.style.textTransform = computed.textTransform;
-    let maxOptionWidth = 0;
-    const options = select.options || [];
-    if(options.length === 0){
-      measure.textContent = select.value || '';
-      maxOptionWidth = measure.offsetWidth;
-    } else {
-      for(let i = 0; i < options.length; i += 1){
-        measure.textContent = options[i].text || options[i].label || '';
-        const width = measure.offsetWidth;
-        if(width > maxOptionWidth){
-          maxOptionWidth = width;
+  function attachScatterSelectAutoSize(select, label){
+    if(!select){ return; }
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
+    const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
+    try{
+      if(watcher){
+        watcher(select);
+        if(debugEnabled){
+          console.debug('Debug: scatter select auto-size watcher attached', {
+            id: select.id || null,
+            label: label || null
+          });
         }
+      }else if(autoSizer){
+        autoSizer(select);
+        if(debugEnabled){
+          console.debug('Debug: scatter select auto-size applied without watcher', {
+            id: select.id || null,
+            label: label || null
+          });
+        }
+      }else if(debugEnabled){
+        console.debug('Debug: scatter select auto-size helper unavailable', {
+          id: select.id || null,
+          label: label || null
+        });
+      }
+    }catch(err){
+      if(debugEnabled){
+        console.debug('Debug: scatter select auto-size attach error', {
+          id: select.id || null,
+          label: label || null,
+          error: err?.message || String(err)
+        });
       }
     }
-    measure.textContent = '';
-    const paddingLeft = Number.parseFloat(computed.paddingLeft) || 0;
-    const paddingRight = Number.parseFloat(computed.paddingRight) || 0;
-    const borderLeft = Number.parseFloat(computed.borderLeftWidth) || 0;
-    const borderRight = Number.parseFloat(computed.borderRightWidth) || 0;
-    const requestedMin = Number.parseFloat(select.dataset?.minSelectWidth || '') || 0;
-    const totalWidth = maxOptionWidth + paddingLeft + paddingRight + borderLeft + borderRight + 1;
-    return Math.max(Math.ceil(totalWidth), requestedMin);
-  }
-
-  function autoSizeScatterSelect(select){
-    if(!select){ return; }
-    const preferredWidth = computeScatterSelectWidth(select);
-    if(!preferredWidth || !(preferredWidth > 0)){ return; }
-    const widthPx = `${preferredWidth}px`;
-    if(select.style.width !== widthPx){
-      select.style.width = widthPx;
-    }
-    if(select.style.minWidth !== widthPx){
-      select.style.minWidth = widthPx;
-    }
-    console.debug('Debug: scatter select autosize applied',{ id: select.id || null, width: preferredWidth });
   }
 
   function createScatterAxisSettings(){
@@ -550,17 +513,7 @@
         scatterRegressionMode
       ].filter(Boolean);
       scatterSelects.forEach(select=>{
-        autoSizeScatterSelect(select);
-        select.addEventListener('change',()=>autoSizeScatterSelect(select));
-        select.addEventListener('input',()=>autoSizeScatterSelect(select));
-        if(global.MutationObserver){
-          try{
-            const observer=new MutationObserver(()=>autoSizeScatterSelect(select));
-            observer.observe(select,{childList:true,subtree:false,characterData:false});
-          }catch(observeErr){
-            console.debug('Debug: scatter select autosize observer skipped',{ id: select.id || null, error: observeErr?.message });
-          }
-        }
+        attachScatterSelectAutoSize(select, 'scatter');
       });
       let scatterLabelColors={};
       function syncScatterGraphTypeUI(){
