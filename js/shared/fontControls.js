@@ -274,8 +274,19 @@
     if(toolbarHostMap.has(key)){
       return toolbarHostMap.get(key);
     }
-    const buttonId = scopeId ? `${scopeId}LoadExample` : null;
-    let button = buttonId ? doc.getElementById(buttonId) : null;
+    const preferredAnchorId = scopeId ? `${scopeId}FontHost` : null;
+    let button = null;
+    if(preferredAnchorId){
+      const preferredAnchor = doc.getElementById(preferredAnchorId);
+      if(preferredAnchor){
+        button = preferredAnchor;
+        logDebug('resolveToolbarHost preferred anchor match', { scopeId: key, anchorId: preferredAnchorId });
+      }
+    }
+    const buttonId = !button && scopeId ? `${scopeId}LoadExample` : null;
+    if(!button && buttonId){
+      button = doc.getElementById(buttonId);
+    }
     if(!button && scopeId){
       const fallbackIds = [];
       if(scopeId === 'venn'){ fallbackIds.push('sample'); }
@@ -311,10 +322,25 @@
     return host;
   }
 
+  function updateDockActiveState(host, shouldActivate){
+    if(!host || !host.parentElement){ return; }
+    const dock = host.parentElement;
+    if(!dock.classList || !dock.classList.contains('workspace-toolbar__dock')){ return; }
+    if(shouldActivate){
+      dock.classList.add('workspace-toolbar__dock--active');
+      return;
+    }
+    const hasVisibleHost = dock.querySelector('.font-toolbar-host.font-toolbar-host--visible');
+    if(!hasVisibleHost){
+      dock.classList.remove('workspace-toolbar__dock--active');
+    }
+  }
+
   function showToolbarHost(host){
     if(!host){ return; }
     host.style.display = 'block';
     host.classList.add('font-toolbar-host--visible');
+    updateDockActiveState(host, true);
     logDebug('toolbar host shown', { scopeId: host.dataset?.fontToolbarScope || null });
   }
 
@@ -322,6 +348,7 @@
     if(!host){ return; }
     host.classList.remove('font-toolbar-host--visible');
     host.style.display = 'none';
+    updateDockActiveState(host, false);
     logDebug('toolbar host hidden', { scopeId: host.dataset?.fontToolbarScope || null });
   }
 

@@ -17,7 +17,16 @@
       console.debug('Debug: preview capture skipped', { reason: 'no-config-element', type: config?.type || null, tabId: tab?.id || null });
       return null;
     }
-    const svg = config.element.querySelector('.svgbox svg, svg');
+    let svg = config.element.querySelector('.svgbox svg');
+    if (!svg) {
+      const tagged = config.element.querySelector('svg[data-preview-source="true"]');
+      if (tagged) {
+        svg = tagged;
+      } else {
+        const candidates = Array.from(config.element.querySelectorAll('svg'));
+        svg = candidates.find(node => !node.closest('.workspace-toolbar')) || candidates[0] || null;
+      }
+    }
     if (!svg) {
       console.debug('Debug: preview capture skipped', { reason: 'no-svg', type: config.type, tabId: tab?.id || null });
       return null;
