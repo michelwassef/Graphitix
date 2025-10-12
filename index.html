@@ -495,122 +495,138 @@
             <div class="row" id="scatterExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
           </div>
           <div class="config-options">
-            <fieldset>
+            <fieldset class="control-fieldset">
               <legend>Graph</legend>
-              <div class="control" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">Type
+              <div class="control-line">
+                <label class="control-item">
+                  <span class="control-label">Type</span>
                   <select id="scatterGraphType">
-                    <option value="scatter">Scatter Plot</option>
-                    <option value="volcano">Volcano Plot</option>
-                    <option value="ma">MA Plot</option>
+                    <option value="scatter">Scatter plot</option>
+                    <option value="volcano">Volcano plot</option>
+                    <option value="ma">Ma plot</option>
                   </select>
                 </label>
               </div>
-              <div class="control" id="scatterThresholdControls" style="flex-wrap:wrap; gap:6px; display:none;">
-                <label style="width:auto;">log<sub>2</sub>FC Threshold
-                  <input type="number" id="scatterLog2FCThreshold" value="1" step="0.1" style="width:80px;" />
+              <div class="control-line control-line--split" id="scatterThresholdControls" style="display:none;">
+                <label class="control-item">
+                  <span class="control-label">log<sub>2</sub>fc threshold</span>
+                  <input type="number" id="scatterLog2FCThreshold" value="1" step="0.1" />
                 </label>
-                <label style="width:auto;">-log<sub>10</sub>(p) Threshold
-                  <input type="number" id="scatterNegLogPThreshold" value="1.3" step="0.1" style="width:80px;" />
+                <label class="control-item">
+                  <span class="control-label">-log<sub>10</sub>(p) threshold</span>
+                  <input type="number" id="scatterNegLogPThreshold" value="1.3" step="0.1" />
                 </label>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset class="control-fieldset">
               <legend>Dots</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Size</label>
-                  <input type="number" id="scatterDotSize" value="3" min="1" max="20" style="width:60px;" />
-                </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Color</label>
+              <div class="control-line control-line--split">
+                <label class="control-item control-item--narrow">
+                  <span class="control-label">Size</span>
+                  <input type="number" id="scatterDotSize" value="3" min="1" max="20" />
+                </label>
+                <label class="control-item control-item--swatch">
+                  <span class="control-label">Color</span>
                   <input type="color" id="scatterFill" value="#377eb8" />
-                </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Transparency</label>
-                  <input type="range" id="scatterAlpha" min="0" max="1" step="0.05" value="0" />
-                  <output id="scatterAlphaVal">0</output>
-                </div>
+                </label>
+                <label class="control-item control-item--range">
+                  <span class="control-label">Transparency</span>
+                  <span class="control-range">
+                    <input type="range" id="scatterAlpha" min="0" max="1" step="0.05" value="0" />
+                    <output id="scatterAlphaVal">0</output>
+                  </span>
+                </label>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset class="control-fieldset">
               <legend>Border</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Thickness</label>
-                  <input type="number" id="scatterBorderWidth" value="0" min="0" max="10" style="width:60px;" />
-                </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Color</label>
+              <div class="control-line control-line--split">
+                <label class="control-item control-item--narrow">
+                  <span class="control-label">Thickness</span>
+                  <input type="number" id="scatterBorderWidth" value="0" min="0" max="10" />
+                </label>
+                <label class="control-item control-item--swatch">
+                  <span class="control-label">Color</span>
                   <input type="color" id="scatterBorder" value="#000000" />
-                </div>
+                </label>
               </div>
             </fieldset>
-            <fieldset>
-              <legend>Grid & Axis</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="scatterShowGrid" /> Show Grid</label>
-                <label style="width:auto;"><input type="checkbox" id="scatterShowFrame" /> Show Frame</label>
-                <label style="width:auto;">
-                  <input type="checkbox" id="scatterLogX" /> Log Scale (X)
+            <fieldset class="control-fieldset">
+              <legend>Grid &amp; axis</legend>
+              <div class="control-line control-line--checkboxes">
+                <label class="control-checkbox"><input type="checkbox" id="scatterShowGrid" /> <span>Show grid</span></label>
+                <label class="control-checkbox"><input type="checkbox" id="scatterShowFrame" /> <span>Show frame</span></label>
+                <label class="control-checkbox"><input type="checkbox" id="scatterLogX" /> <span>Log scale (x)</span></label>
+                <label class="control-checkbox"><input type="checkbox" id="scatterLogY" /> <span>Log scale (y)</span></label>
+              </div>
+              <div class="control-line control-line--split">
+                <label class="control-item control-item--narrow">
+                  <span class="control-label">X min</span>
+                  <input type="number" id="scatterXMin" />
                 </label>
-                <label style="width:auto;">
-                  <input type="checkbox" id="scatterLogY" /> Log Scale (Y)
+                <label class="control-item control-item--narrow">
+                  <span class="control-label">X max</span>
+                  <input type="number" id="scatterXMax" />
+                </label>
+                <label class="control-item control-item--narrow">
+                  <span class="control-label">Y min</span>
+                  <input type="number" id="scatterYMin" />
+                </label>
+                <label class="control-item control-item--narrow">
+                  <span class="control-label">Y max</span>
+                  <input type="number" id="scatterYMax" />
                 </label>
               </div>
-              <div class="control" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">X min <input type="number" id="scatterXMin" style="width:80px;" /></label>
-                <label style="width:auto;">X max <input type="number" id="scatterXMax" style="width:80px;" /></label>
-              </div>
-              <div class="control" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">Y min <input type="number" id="scatterYMin" style="width:80px;" /></label>
-                <label style="width:auto;">Y max <input type="number" id="scatterYMax" style="width:80px;" /></label>
-              </div>
-              <div class="control" style="flex-wrap:wrap; gap:6px;">
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Origin</label>
+              <div class="control-line control-line--split">
+                <label class="control-item control-item--select-auto">
+                  <span class="control-label">Origin</span>
                   <select id="scatterOriginMode">
-                    <option value="lower" selected>Lower Left</option>
+                    <option value="lower" selected>Lower left</option>
                     <option value="custom">Custom</option>
                   </select>
-                </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">X</label>
-                  <input type="number" id="scatterOriginX" style="width:80px;" />
-                </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <label style="width:auto;">Y</label>
-                  <input type="number" id="scatterOriginY" style="width:80px;" />
-                </div>
+                </label>
+                <label class="control-item control-item--narrow">
+                  <span class="control-label">X</span>
+                  <input type="number" id="scatterOriginX" />
+                </label>
+                <label class="control-item control-item--narrow">
+                  <span class="control-label">Y</span>
+                  <input type="number" id="scatterOriginY" />
+                </label>
               </div>
             </fieldset>
-            <fieldset>
+            <fieldset class="control-fieldset">
               <legend>Font</legend>
-              <div class="control">
-                <label>Size</label>
-                <input type="range" id="scatterFontSize" min="6" max="24" step="1" value="13" />
-                <output id="scatterFontSizeVal">13</output>
+              <div class="control-line">
+                <label class="control-item control-item--range">
+                  <span class="control-label">Size</span>
+                  <span class="control-range">
+                    <input type="range" id="scatterFontSize" min="6" max="24" step="1" value="13" />
+                    <output id="scatterFontSizeVal">13</output>
+                  </span>
+                </label>
               </div>
             </fieldset>
           </div>
         </div>
         <div id="scatterStats" style="width:100%; margin-top:12px;">
-          <fieldset>
+          <fieldset class="control-fieldset">
             <legend>Statistics</legend>
             <div id="scatterStatsAdvisor"></div>
-            <div class="control">
-              <label>Method</label>
-              <select id="scatterStatType">
-                <option value="pearson">Parametric (Pearson)</option>
-                <option value="spearman">Non-Parametric (Spearman)</option>
-              </select>
-            </div>
-            <div class="control">
-              <label>Regression
+            <div class="control-line control-line--split">
+              <label class="control-item control-item--wide">
+                <span class="control-label">Method</span>
+                <select id="scatterStatType">
+                  <option value="pearson">Parametric (pearson)</option>
+                  <option value="spearman">Non-parametric (spearman)</option>
+                </select>
+              </label>
+              <label class="control-item control-item--wide">
+                <span class="control-label">Regression</span>
                 <select id="scatterRegressionMode">
                   <option value="linear" selected>Linear</option>
-                  <option value="quadratic">Polynomial (Quadratic)</option>
-                  <option value="cubic">Polynomial (Cubic)</option>
+                  <option value="quadratic">Polynomial (quadratic)</option>
+                  <option value="cubic">Polynomial (cubic)</option>
                   <option value="exponential">Exponential</option>
                   <option value="power">Power</option>
                   <option value="spline">Spline</option>
@@ -618,18 +634,10 @@
                 </select>
               </label>
             </div>
-            <div class="control" style="flex-wrap:wrap; gap:12px;">
-              <label style="width:auto;">
-                <input type="checkbox" id="scatterShowIntervals" checked /> Show Interval Shading
-              </label>
-              <label style="width:auto;">
-                <input type="checkbox" id="scatterShowDiagnostics" /> Show Diagnostics Summary
-              </label>
-            </div>
-            <div class="control">
-              <label style="width:auto;">
-                <input type="checkbox" id="scatterShowLine" /> Trend Line & Stats on Plot
-              </label>
+            <div class="control-line control-line--checkboxes">
+              <label class="control-checkbox"><input type="checkbox" id="scatterShowIntervals" checked /> <span>Show interval shading</span></label>
+              <label class="control-checkbox"><input type="checkbox" id="scatterShowDiagnostics" /> <span>Show diagnostics summary</span></label>
+              <label class="control-checkbox"><input type="checkbox" id="scatterShowLine" /> <span>Trend line &amp; stats on plot</span></label>
             </div>
             <div id="scatterStatsResults" style="margin-top:8px;"></div>
           </fieldset>
