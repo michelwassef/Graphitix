@@ -21,6 +21,10 @@ html, body {
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
 }
 
+select {
+    border-radius: 0;
+}
+
 .handsontable th.hot-header-sortable {
     padding: 0;
     color: inherit;
@@ -807,7 +811,8 @@ body{margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;b
 label{font-size:16px;color:#333}
 textarea{width:100%;min-height:110px;background:#fff;border:1px solid #ccc;color:#000;border-radius:6px;padding:8px;resize:vertical;box-sizing:border-box}
 input[type=text],select{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:0;padding:4px;box-sizing:border-box;margin:0}
-input[type=number]{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:0;padding:4px;box-sizing:border-box;margin:0}
+input[type=number]{width:100%;background:#fff;border:1px solid #ccc;color:#000;border-radius:0;padding:4px 0 4px 6px;box-sizing:border-box;margin:0}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{margin:0}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 #significanceSection .row{align-items:flex-end}
 #significanceSection .row label{display:flex;flex-direction:column;gap:4px;flex:1}
@@ -973,6 +978,48 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
 #scatterPage .diagram-area .svgbox{flex:0 0 auto}
 #scatterPage .diagram-area .config-options{flex:0 0 auto}
+#scatterGraphPanel .config-options{background:#f7f9fd;border:1px solid #c1c8d6;padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;color:#1d2532;box-shadow:inset 0 1px 0 rgba(255,255,255,0.85);--scatter-control-number-width:48px}
+#scatterGraphPanel .config-options .control-fieldset{border:1px solid #b9c2d0;background:#fbfcff;margin:0;padding:10px 12px 12px;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.92)}
+#scatterGraphPanel .config-options .control-fieldset+ .control-fieldset{margin-top:4px}
+#scatterGraphPanel .config-options .control-fieldset legend{padding:0 6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:none;color:#131c23}
+#scatterGraphPanel .config-options .control-line{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}
+#scatterGraphPanel .config-options .control-line:first-of-type{margin-top:0}
+#scatterGraphPanel .config-options .control-line.control-line--split{column-gap:12px;row-gap:6px}
+#scatterGraphPanel .config-options .control-line.control-line--checkboxes{gap:6px 10px}
+#scatterGraphPanel .config-options .control-item{display:flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0;font-size:12px;font-weight:400;color:#1c2534}
+#scatterGraphPanel .config-options .control-item.control-item--narrow{flex:0 0 auto}
+#scatterGraphPanel .config-options .control-item.control-item--wide{flex:0 0 auto}
+#scatterGraphPanel .config-options .control-item.control-item--range{flex:1 1 200px;min-width:160px}
+#scatterGraphPanel .config-options .control-item.control-item--swatch{flex:0 0 auto}
+#scatterGraphPanel .config-options .control-item.control-item--select-auto{flex:0 0 auto}
+#scatterGraphPanel .config-options .control-label{font-size:11px;font-weight:400;text-transform:none;letter-spacing:.05em;color:#111b2c;white-space:nowrap}
+#scatterGraphPanel .config-options .control-range{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0}
+#scatterGraphPanel .config-options .control-range output{min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
+#scatterGraphPanel .config-options .control-checkbox{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #b4bccb;background:#f9fafc;font-size:11px;font-weight:400;color:#1e2633;text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+#scatterGraphPanel .config-options .control-checkbox input[type=checkbox]{margin:0}
+#scatterGraphPanel .config-options input[type=number],
+#scatterGraphPanel .config-options select,
+#scatterGraphPanel .config-options input[type=text]{height:26px;padding:2px 8px;border:1px solid #8d97a6;border-radius:0;background:#fdfefe;color:#111b29;font-size:12px;line-height:20px;min-width:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7)}
+#scatterGraphPanel .config-options input[type=number]{width:var(--scatter-control-number-width,96px);max-width:var(--scatter-control-number-width,96px);flex:0 0 var(--scatter-control-number-width,96px);padding-right:0;padding-left:8px}
+#scatterGraphPanel .config-options select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:22px;width:auto;min-width:fit-content;max-width:100%;flex:0 1 auto}
+#scatterGraphPanel .config-options .control-item.control-item--select-auto select{min-width:fit-content;width:auto}
+#scatterGraphPanel .config-options input[type=color]{height:26px;width:46px;border:1px solid #8d97a6;border-radius:0;padding:0;background:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.05)}
+#scatterGraphPanel .config-options input[type=range]{flex:1 1 auto;min-width:120px}
+#scatterGraphPanel .config-options output{width:auto}
+#scatterGraphPanel .config-options input:not([type=range]):focus,#scatterGraphPanel .config-options select:focus{outline:2px solid #1f6bff;outline-offset:-2px}
+#scatterGraphPanel .config-options input[type=range]{border:none;outline:none}
+#scatterGraphPanel .config-options input[type=range]:focus{outline:none;box-shadow:none}
+#scatterStats .control-fieldset{border:1px solid #b9c2d0;background:#fbfcff;margin:0;padding:10px 12px 12px;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.92);font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;color:#1d2532}
+#scatterStats .control-fieldset legend{padding:0 6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:none;color:#131c23}
+#scatterStats .control-fieldset .control-line{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:6px}
+#scatterStats .control-fieldset .control-line:first-of-type{margin-top:0}
+#scatterStats .control-fieldset .control-line.control-line--split{gap:10px 16px}
+#scatterStats .control-fieldset .control-item{display:flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0;font-size:12px;font-weight:400;color:#1c2534}
+#scatterStats .control-fieldset .control-label{font-size:11px;font-weight:400;text-transform:none;letter-spacing:.05em;color:#111b2c;white-space:nowrap}
+#scatterStats .control-fieldset select{height:26px;padding:2px 8px;border:1px solid #8d97a6;border-radius:0;background:#fdfefe;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:22px;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7);color:#111b29;font-size:12px;width:auto;min-width:fit-content;max-width:100%;flex:0 1 auto}
+#scatterStats .control-fieldset select:focus{outline:2px solid #1f6bff;outline-offset:-2px}
+#scatterStats .control-fieldset .control-checkbox{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #b4bccb;background:#f9fafc;font-size:11px;font-weight:400;color:#1e2633;text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+#scatterStats .control-fieldset .control-checkbox input[type=checkbox]{margin:0}
 #scatterPage .panel{display:flex;flex-direction:column;min-width:0}
 #scatterPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
 #scatterPage #scatterPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
