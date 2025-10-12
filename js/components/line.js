@@ -6,6 +6,7 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const formControls = Shared.formControls = Shared.formControls || {};
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
   line.__installed = true;
   line.ready = false;
@@ -38,6 +39,45 @@
   let lineLegendItems = [];
   let lineLegendWidth = 0;
   let lineMinSvgWidth = 0;
+
+  function attachLineSelectAutoSize(select, label){
+    if(!select){ return; }
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
+    const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
+    try{
+      if(watcher){
+        watcher(select);
+        if(debugEnabled){
+          console.debug('Debug: line select auto-size watcher attached', {
+            id: select.id || null,
+            label: label || null
+          });
+        }
+      }else if(autoSizer){
+        autoSizer(select);
+        if(debugEnabled){
+          console.debug('Debug: line select auto-size applied without watcher', {
+            id: select.id || null,
+            label: label || null
+          });
+        }
+      }else if(debugEnabled){
+        console.debug('Debug: line select auto-size helper unavailable', {
+          id: select.id || null,
+          label: label || null
+        });
+      }
+    }catch(err){
+      if(debugEnabled){
+        console.debug('Debug: line select auto-size attach error', {
+          id: select.id || null,
+          label: label || null,
+          error: err?.message || String(err)
+        });
+      }
+    }
+  }
   let lineFileHandle = null;
   let lineFileName = 'line.graph';
   let lineReplicates = LINE_MIN_REPLICATES;
@@ -2476,6 +2516,16 @@
     refs.originMode=document.getElementById('lineOriginMode');
     refs.originX=document.getElementById('lineOriginX');
     refs.originY=document.getElementById('lineOriginY');
+    const lineAutoSizeTargets=[
+      refs.exampleSelect,
+      refs.regressionMode,
+      refs.statType,
+      refs.originMode,
+      refs.forecastCriterion
+    ];
+    lineAutoSizeTargets.filter(Boolean).forEach(select=>{
+      attachLineSelectAutoSize(select, 'line');
+    });
     refs.loadExample=document.getElementById('lineLoadExample');
     refs.importBtn=document.getElementById('lineImport');
     refs.fileInput=document.getElementById('lineFile');

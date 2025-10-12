@@ -33,6 +33,7 @@ describe('Survival statistics pipeline', () => {
     require('../js/shared/colorPicker.js');
     require('../js/shared/axisControls.js');
     require('../js/shared/fontControls.js');
+    require('../js/shared/formControls.js');
     require('../js/shared/hot.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/tableImport.js');

@@ -6,6 +6,7 @@
   const heatmap = Components.heatmap = Components.heatmap || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const formControls = Shared.formControls = Shared.formControls || {};
   heatmap.__installed = true;
   heatmap.ready = false;
 
@@ -53,6 +54,46 @@
   };
 
   const refs = {};
+
+  function attachHeatmapSelectAutoSize(select, label){
+    if(!select){ return; }
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
+    const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
+    const contextLabel = label || 'heatmap';
+    try{
+      if(watcher){
+        watcher(select);
+        if(debugEnabled){
+          console.debug('Debug: heatmap select auto-size watcher attached', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(autoSizer){
+        autoSizer(select);
+        if(debugEnabled){
+          console.debug('Debug: heatmap select auto-size applied without watcher', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(debugEnabled){
+        console.debug('Debug: heatmap select auto-size helper unavailable', {
+          id: select.id || null,
+          label: contextLabel
+        });
+      }
+    }catch(err){
+      if(debugEnabled){
+        console.debug('Debug: heatmap select auto-size attach error', {
+          id: select.id || null,
+          label: contextLabel,
+          error: err?.message || String(err)
+        });
+      }
+    }
+  }
 
   const markFontEditable = (node, role, key) => {
     if(!node){ return; }
@@ -153,6 +194,16 @@
     refs.genesMetric = $('heatmapGenesMetric');
     refs.arraysMetric = $('heatmapArraysMetric');
     refs.linkage = $('heatmapLinkage');
+    const heatmapAutoSizeTargets=[
+      refs.view,
+      refs.method,
+      refs.genesMetric,
+      refs.arraysMetric,
+      refs.linkage
+    ];
+    heatmapAutoSizeTargets.filter(Boolean).forEach(select=>{
+      attachHeatmapSelectAutoSize(select, 'heatmap');
+    });
     refs.showRowDendrogram = $('heatmapShowRowDendrogram');
     refs.showColumnDendrogram = $('heatmapShowColumnDendrogram');
     if(refs.labelAngle){
