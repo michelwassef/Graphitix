@@ -889,21 +889,49 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:0;border:none;border-rad
 input[type=color]::-webkit-color-swatch{border:none;border-radius:0}
 input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .diagram-area{display:flex;gap:12px;align-items:flex-start;flex-wrap:nowrap}
-.config-options{display:flex;flex-direction:column;gap:16px;min-width:140px}
-.config-options fieldset{border:1px solid #ccc;padding:8px;margin:0;border-radius:6px;background:#fff}
-.config-options legend{font-size:14px;font-weight:600;margin-bottom:4px;padding:0 4px;margin-left:0}
-.config-options .color-pickers{display:flex;flex-direction:column;gap:8px}
-.config-options .color-pickers label{display:flex;align-items:center;gap:4px;font-size:13px}
-.config-options .control{display:flex;align-items:center;gap:6px;font-size:13px}
-.config-options .control label{width:90px}
+.config-panel,
+.config-options{background:#f7f9fd;border:1px solid #c1c8d6;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-width:var(--config-panel-min-width,140px);font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;color:#1d2532;box-shadow:inset 0 1px 0 rgba(255,255,255,0.85);--config-panel-number-width:48px;--config-panel-range-min-width:120px;--config-panel-select-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E")}
+.config-panel__fieldset,
+.config-options fieldset{border:1px solid #b9c2d0;background:#fbfcff;margin:0;padding:10px 12px 12px;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.92)}
+.config-panel__fieldset+.config-panel__fieldset,
+.config-options fieldset+fieldset{margin-top:4px}
+.config-panel__fieldset legend,
+.config-options legend{padding:0 6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:none;color:#131c23}
+.config-panel__line,
+.config-options .control{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px;font-size:12px;color:#1c2534}
+.config-panel__line:first-of-type,
+.config-options .control:first-of-type{margin-top:0}
+.config-panel__line--split{column-gap:12px;row-gap:6px}
+.config-panel__line--checkboxes{gap:6px 10px}
+.config-panel__item{display:flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0;font-size:12px;font-weight:400;color:#1c2534}
+.config-panel__item--narrow{flex:0 0 auto}
+.config-panel__item--wide{flex:0 0 auto}
+.config-panel__item--range{flex:1 1 200px;min-width:160px}
+.config-panel__item--swatch{flex:0 0 auto}
+.config-panel__item--select-auto{flex:0 0 auto}
+.config-panel__label,
+.config-options .control label{font-size:11px;font-weight:400;text-transform:none;letter-spacing:.05em;color:#111b2c;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;min-width:0}
 .config-options .control label.color-picker{width:auto;min-width:0}
-.config-options .control input[type=range]{flex:1}
-.config-options .control output{width:36px;text-align:right}
+.config-panel__range{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0}
+.config-panel__range output{min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
+.config-panel__checkbox,
+.config-options .control label:has(> input[type=checkbox]),
+.config-options .control label:has(> input[type=radio]){display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #b4bccb;background:#f9fafc;font-size:11px;font-weight:400;color:#1e2633;text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+.config-panel__checkbox input[type=checkbox],
+.config-options .control input[type=checkbox]{margin:0}
+.config-options .color-pickers{display:flex;flex-direction:column;gap:8px}
+.config-options .color-pickers label{display:flex;align-items:center;gap:6px;font-size:12px;color:#1c2534}
+.config-options .control input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px)}
+.config-options .control output{width:auto;min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
 #heatmapGraphPanel .config-options{display:flex;flex-direction:column;gap:16px}
-#heatmapGraphPanel .config-options .heatmap-control-list{display:flex;flex-direction:column;align-items:flex-start;gap:8px;font-size:13px;width:100%}
-#heatmapGraphPanel .config-options .heatmap-control-block{display:flex;flex-direction:column;gap:4px;width:100%}
+#heatmapGraphPanel .config-options .heatmap-control-list{display:flex;flex-direction:column;align-items:flex-start;gap:8px;font-size:12px;color:#1c2534;width:100%}
+#heatmapGraphPanel .config-options .heatmap-control-block{display:flex;flex-direction:column;gap:4px;width:100%;font-size:12px;color:#1c2534}
 #heatmapGraphPanel .config-options .heatmap-control-block select{width:100%}
-#heatmapGraphPanel .config-options .heatmap-inline-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+#heatmapGraphPanel .config-options .heatmap-inline-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:#1c2534}
+#heatmapGraphPanel .config-options .heatmap-inline-group>input[type=checkbox],
+#heatmapGraphPanel .config-options .heatmap-inline-group>input[type=radio]{margin:0}
+#heatmapGraphPanel .config-options .heatmap-inline-group:has(> input[type=checkbox]):not(:has(input[type=number],input[type=range],select)),
+#heatmapGraphPanel .config-options .heatmap-inline-group:has(> input[type=radio]):not(:has(input[type=number],input[type=range],select)){display:inline-flex;padding:4px 8px;border:1px solid #b4bccb;background:#f9fafc;font-size:11px;font-weight:400;letter-spacing:.04em;text-transform:none;cursor:pointer;color:#1e2633}
 #heatmapGraphPanel .config-options .heatmap-inline-group>span{white-space:nowrap}
 #heatmapGraphPanel .config-options .heatmap-inline-group input[type=number]{width:70px}
 #heatmapGraphPanel .config-options .heatmap-inline-group .heatmap-count-field{width:60px}
@@ -978,49 +1006,51 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
 #scatterPage .diagram-area .svgbox{flex:0 0 auto}
 #scatterPage .diagram-area .config-panel{flex:0 0 auto}
-.config-panel{background:#f7f9fd;border:1px solid #c1c8d6;padding:12px 14px;display:flex;flex-direction:column;gap:10px;font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;color:#1d2532;box-shadow:inset 0 1px 0 rgba(255,255,255,0.85);--config-panel-number-width:96px;--config-panel-range-min-width:120px;--config-panel-select-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E")}
-.config-panel__fieldset{border:1px solid #b9c2d0;background:#fbfcff;margin:0;padding:10px 12px 12px;border-radius:0;box-shadow:inset 0 1px 0 rgba(255,255,255,0.92)}
-.config-panel__fieldset+.config-panel__fieldset{margin-top:4px}
-.config-panel__fieldset legend{padding:0 6px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:none;color:#131c23}
-.config-panel__line{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}
-.config-panel__line:first-of-type{margin-top:0}
-.config-panel__line--split{column-gap:12px;row-gap:6px}
-.config-panel__line--checkboxes{gap:6px 10px}
-.config-panel__item{display:flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0;font-size:12px;font-weight:400;color:#1c2534}
-.config-panel__item--narrow{flex:0 0 auto}
-.config-panel__item--wide{flex:0 0 auto}
-.config-panel__item--range{flex:1 1 200px;min-width:160px}
-.config-panel__item--swatch{flex:0 0 auto}
-.config-panel__item--select-auto{flex:0 0 auto}
-.config-panel__label{font-size:11px;font-weight:400;text-transform:none;letter-spacing:.05em;color:#111b2c;white-space:nowrap}
-.config-panel__range{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0}
-.config-panel__range output{min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
-.config-panel__checkbox{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #b4bccb;background:#f9fafc;font-size:11px;font-weight:400;color:#1e2633;text-transform:none;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
-.config-panel__checkbox input[type=checkbox]{margin:0}
 .config-panel input[type=number],
 .config-panel select,
 .config-panel input[type=text],
 .config-panel__fieldset input[type=number],
 .config-panel__fieldset select,
-.config-panel__fieldset input[type=text]{height:26px;padding:2px 8px;border:1px solid #8d97a6;border-radius:0;background:#fdfefe;color:#111b29;font-size:12px;line-height:20px;min-width:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7)}
+.config-panel__fieldset input[type=text],
+.config-options input[type=number],
+.config-options select,
+.config-options input[type=text],
+.config-options fieldset input[type=number],
+.config-options fieldset select,
+.config-options fieldset input[type=text]{height:26px;padding:2px 8px;border:1px solid #8d97a6;border-radius:0;background:#fdfefe;color:#111b29;font-size:12px;line-height:20px;min-width:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7)}
 .config-panel input[type=number],
-.config-panel__fieldset input[type=number]{width:var(--config-panel-number-width,96px);max-width:var(--config-panel-number-width,96px);flex:0 0 var(--config-panel-number-width,96px);padding-right:0;padding-left:8px}
+.config-panel__fieldset input[type=number],
+.config-options input[type=number],
+.config-options fieldset input[type=number]{width:var(--config-panel-number-width,96px);max-width:var(--config-panel-number-width,96px);flex:0 0 var(--config-panel-number-width,96px);padding-right:0;padding-left:8px}
 .config-panel select,
-.config-panel__fieldset select{appearance:none;background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));background-repeat:no-repeat;background-position:right 8px center;padding-right:22px;width:auto;min-width:fit-content;max-width:100%;flex:0 1 auto}
+.config-panel__fieldset select,
+.config-options select,
+.config-options fieldset select{appearance:none;background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));background-repeat:no-repeat;background-position:right 8px center;padding-right:22px;width:auto;min-width:fit-content;max-width:100%;flex:0 1 auto}
 .config-panel__item--select-auto select{min-width:fit-content;width:auto}
 .config-panel input[type=color],
-.config-panel__fieldset input[type=color]{height:26px;width:46px;border:1px solid #8d97a6;border-radius:0;padding:0;background:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.05)}
+.config-panel__fieldset input[type=color],
+.config-options input[type=color],
+.config-options fieldset input[type=color]{height:26px;width:46px;border:1px solid #8d97a6;border-radius:0;padding:0;background:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.05)}
 .config-panel input[type=range],
-.config-panel__fieldset input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px);border:none;outline:none}
+.config-panel__fieldset input[type=range],
+.config-options input[type=range],
+.config-options fieldset input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px);border:none;outline:none}
 .config-panel output,
-.config-panel__fieldset output{width:auto}
+.config-panel__fieldset output,
+.config-options output,
+.config-options fieldset output{width:auto}
 .config-panel input:not([type=range]):focus,
 .config-panel select:focus,
 .config-panel__fieldset input:not([type=range]):focus,
-.config-panel__fieldset select:focus{outline:2px solid #1f6bff;outline-offset:-2px}
+.config-panel__fieldset select:focus,
+.config-options input:not([type=range]):focus,
+.config-options select:focus,
+.config-options fieldset input:not([type=range]):focus,
+.config-options fieldset select:focus{outline:2px solid #1f6bff;outline-offset:-2px}
 .config-panel input[type=range]:focus,
-.config-panel__fieldset input[type=range]:focus{outline:none;box-shadow:none}
-#scatterGraphPanel .config-panel{--config-panel-number-width:48px}
+.config-panel__fieldset input[type=range]:focus,
+.config-options input[type=range]:focus,
+.config-options fieldset input[type=range]:focus{outline:none;box-shadow:none}
 #scatterStats .config-panel__fieldset{font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;color:#1d2532}
 #scatterStats .config-panel__line{gap:8px 12px;margin-top:6px}
 #scatterStats .config-panel__line:first-of-type{margin-top:0}
