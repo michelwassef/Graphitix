@@ -1153,8 +1153,10 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .analysis-options strong{font-size:13px}
 #analysisResults{font-size:13px}
 #analysisResults canvas{font-size:initial}
-#vennPage .wrap{--venn-input-default:clamp(320px,33%,420px);display:flex;align-items:stretch;gap:0}
-#vennPage #vennInputPanel{flex:0 0 var(--venn-input-default);min-width:150px;display:flex;flex-direction:column;min-height:0}
+#vennPage{width:100%}
+#vennPage{width:100%;max-width:100%;display:flex;flex-direction:column;align-items:stretch}
+#vennPage .workspace-page__topbar{width:100%;max-width:100%;box-sizing:border-box}
+#vennPage .wrap{--venn-input-default:clamp(320px,33%,420px);display:flex;align-items:stretch;gap:0;flex:1 1 auto;width:100%;max-width:100%}#vennPage #vennInputPanel{flex:0 0 var(--venn-input-default);min-width:150px;display:flex;flex-direction:column;min-height:0}
 #vennPage #vennGraphPanel{flex:1 1 auto;min-width:150px;display:flex;flex-direction:column;max-width:100%}
 #vennPage .venn-inline-controls{align-items:center;gap:12px;flex-wrap:wrap}
 #vennPage .venn-inline-checkbox{display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
