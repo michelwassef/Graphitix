@@ -5,6 +5,7 @@
   const Shared = global.Shared = global.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const formControls = Shared.formControls = Shared.formControls || {};
   const Components = global.Components = global.Components || {};
   const venn = Components.venn = Components.venn || {};
   venn.__installed = true;
@@ -18,6 +19,46 @@
   const debugLog = (label, payload) => {
     console.debug(`Debug: venn ${label}`, payload || {});
   };
+
+  function attachVennSelectAutoSize(select, label){
+    if(!select){ return; }
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
+    const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
+    const contextLabel = label || 'venn';
+    try{
+      if(watcher){
+        watcher(select);
+        if(debugEnabled){
+          console.debug('Debug: venn select auto-size watcher attached', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(autoSizer){
+        autoSizer(select);
+        if(debugEnabled){
+          console.debug('Debug: venn select auto-size applied without watcher', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(debugEnabled){
+        console.debug('Debug: venn select auto-size helper unavailable', {
+          id: select.id || null,
+          label: contextLabel
+        });
+      }
+    }catch(err){
+      if(debugEnabled){
+        console.debug('Debug: venn select auto-size attach error', {
+          id: select.id || null,
+          label: contextLabel,
+          error: err?.message || String(err)
+        });
+      }
+    }
+  }
 
   function getSpeciesDetectionState() {
     if (!state.analysis.speciesDetection) {
@@ -1122,6 +1163,9 @@
       presence,
       selected: state.ui.regionSelect.value
     }); // Debug: region select visibility state snapshot
+    if(typeof formControls.autoSizeSelect === 'function'){
+      formControls.autoSizeSelect(state.ui.regionSelect);
+    }
   }
 
   function updateColorLabels(labels) {
@@ -3100,6 +3144,14 @@
     state.ui.totalGenesInput = $('#totalGenes');
     state.ui.calcSignificanceBtn = $('#calcSignificance');
     state.ui.significanceResults = $('#significanceResults');
+    const vennAutoSizeTargets = [
+      state.ui.inputs?.delimiter,
+      state.ui.regionSelect,
+      state.ui.speciesSelect
+    ];
+    vennAutoSizeTargets.filter(Boolean).forEach(select => {
+      attachVennSelectAutoSize(select, 'venn');
+    });
     state.ui.goCategoryChecks = Array.from(document.querySelectorAll('.goCategory'));
     state.ui.goOptsBtn = $('#goOptsBtn');
     state.ui.goOptions = $('#goOptions');

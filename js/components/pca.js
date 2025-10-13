@@ -6,6 +6,7 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const formControls = Shared.formControls = Shared.formControls || {};
   pca.__installed = true;
   pca.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -37,6 +38,46 @@
     epochs: 400,
     negativeSampleRate: 5
   });
+
+  function attachPcaSelectAutoSize(select, label){
+    if(!select){ return; }
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
+    const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
+    const contextLabel = label || 'pca';
+    try{
+      if(watcher){
+        watcher(select);
+        if(debugEnabled){
+          console.debug('Debug: pca select auto-size watcher attached', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(autoSizer){
+        autoSizer(select);
+        if(debugEnabled){
+          console.debug('Debug: pca select auto-size applied without watcher', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(debugEnabled){
+        console.debug('Debug: pca select auto-size helper unavailable', {
+          id: select.id || null,
+          label: contextLabel
+        });
+      }
+    }catch(err){
+      if(debugEnabled){
+        console.debug('Debug: pca select auto-size attach error', {
+          id: select.id || null,
+          label: contextLabel,
+          error: err?.message || String(err)
+        });
+      }
+    }
+  }
 
   function clampNumber(value, min, max, fallback){
     const num = Number(value);
@@ -880,6 +921,16 @@
       const pcaUmapLearningRate=document.getElementById('pcaUmapLearningRate');
       const pcaUmapEpochs=document.getElementById('pcaUmapEpochs');
       const pcaAlphaVal=$('#pcaAlphaVal');
+      const pcaAutoSizeTargets=[
+        pcaMethod,
+        pcaViewMode,
+        pcaXAxis,
+        pcaYAxis,
+        pcaZAxis
+      ];
+      pcaAutoSizeTargets.filter(Boolean).forEach(select=>{
+        attachPcaSelectAutoSize(select, 'pca');
+      });
       const pcaFontSize=$('#pcaFontSize'), pcaFontSizeVal=$('#pcaFontSizeVal');
       if(pcaFontSize?.dataset){
         pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
@@ -956,21 +1007,24 @@
           { key: 'y', element: pcaYAxis, required: 2 },
           { key: 'z', element: pcaZAxis, required: 3 }
         ];
-        axisEntries.forEach(({ key, element, required }) => {
-          if(!element){ return; }
-          element.innerHTML = '';
-          if(dimensionCount < required){
-            element.disabled = true;
-            return;
-          }
-          meta.forEach(item => {
-            const option = document.createElement('option');
-            option.value = String(item.value);
-            option.textContent = formatAxisLabel(item);
-            element.appendChild(option);
+          axisEntries.forEach(({ key, element, required }) => {
+            if(!element){ return; }
+            element.innerHTML = '';
+            if(dimensionCount < required){
+              element.disabled = true;
+              return;
+            }
+            meta.forEach(item => {
+              const option = document.createElement('option');
+              option.value = String(item.value);
+              option.textContent = formatAxisLabel(item);
+              element.appendChild(option);
+            });
+            element.disabled = false;
+            if(typeof formControls.autoSizeSelect === 'function'){
+              formControls.autoSizeSelect(element);
+            }
           });
-          element.disabled = false;
-        });
         syncAxisSelectValues();
         applyAxisVisibility(options?.viewMode || (pcaViewMode?.value || DEFAULT_VIEW_MODE));
         console.debug('Debug: pca axis options updated',{ dimensionCount, viewMode: options?.viewMode || null, selection: { ...pcaState.axisSelection } }); // Debug: axis option summary

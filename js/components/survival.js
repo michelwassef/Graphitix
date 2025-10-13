@@ -8,6 +8,7 @@
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const axisControls = Shared.axisControls = Shared.axisControls || {};
+  const formControls = Shared.formControls = Shared.formControls || {};
   const fileIO = Shared.fileIO = Shared.fileIO || {};
 
   survival.__installed = true;
@@ -25,6 +26,45 @@
     'Covariate 2',
     'Covariate 3'
   ];
+  function attachSurvivalSelectAutoSize(select, label){
+    if(!select){ return; }
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const watcher = typeof formControls.watchSelectAutoSize === 'function' ? formControls.watchSelectAutoSize : null;
+    const autoSizer = typeof formControls.autoSizeSelect === 'function' ? formControls.autoSizeSelect : null;
+    const contextLabel = label || 'survival';
+    try{
+      if(watcher){
+        watcher(select);
+        if(debugEnabled){
+          console.debug('Debug: survival select auto-size watcher attached', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(autoSizer){
+        autoSizer(select);
+        if(debugEnabled){
+          console.debug('Debug: survival select auto-size applied without watcher', {
+            id: select.id || null,
+            label: contextLabel
+          });
+        }
+      }else if(debugEnabled){
+        console.debug('Debug: survival select auto-size helper unavailable', {
+          id: select.id || null,
+          label: contextLabel
+        });
+      }
+    }catch(err){
+      if(debugEnabled){
+        console.debug('Debug: survival select auto-size attach error', {
+          id: select.id || null,
+          label: contextLabel,
+          error: err?.message || String(err)
+        });
+      }
+    }
+  }
   const COX_MAX_OBSERVATIONS = 20000;
   const DEFAULT_COLORS = global.DEFAULT_SCATTER_COLORS || [
     '#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00',
@@ -753,6 +793,7 @@
       select.appendChild(optionBaseline);
       select.appendChild(optionTime);
       select.value = settings.type === 'time' ? 'time' : 'baseline';
+      attachSurvivalSelectAutoSize(select, 'survival-covariate');
 
       checkbox.addEventListener('change', ev => {
         const idx = ev.target.dataset.columnIndex;
