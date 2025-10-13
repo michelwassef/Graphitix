@@ -38,8 +38,16 @@
       return hostCache.get(key);
     }
     let button = null;
-    const buttonId = scopeId ? `${scopeId}LoadExample` : null;
-    if(buttonId){
+    const preferredAnchorId = scopeId ? `${scopeId}FontHost` : null;
+    if(preferredAnchorId){
+      const preferredAnchor = doc.getElementById(preferredAnchorId);
+      if(preferredAnchor){
+        button = preferredAnchor;
+        logDebug('resolveToolbarHost preferred anchor match',{ scopeId: key, anchorId: preferredAnchorId });
+      }
+    }
+    const buttonId = !button && scopeId ? `${scopeId}LoadExample` : null;
+    if(!button && buttonId){
       button = doc.getElementById(buttonId);
     }
     if(!button && scopeId){
@@ -82,6 +90,20 @@
     hostCache.set(key, host);
     logDebug('host created',{ scopeId: key, buttonId });
     return host;
+  }
+
+  function updateDockActiveState(host, shouldActivate){
+    if(!host || !host.parentElement){ return; }
+    const dock = host.parentElement;
+    if(!dock.classList || !dock.classList.contains('workspace-toolbar__dock')){ return; }
+    if(shouldActivate){
+      dock.classList.add('workspace-toolbar__dock--active');
+      return;
+    }
+    const hasVisibleHost = dock.querySelector('.font-toolbar-host.font-toolbar-host--visible');
+    if(!hasVisibleHost){
+      dock.classList.remove('workspace-toolbar__dock--active');
+    }
   }
 
   function ensurePanel(){
@@ -210,6 +232,7 @@
       if(!fontPanel || fontPanel.dataset.open !== '1'){
         activeHost.classList.remove('font-toolbar-host--visible');
         activeHost.style.display = 'none';
+        updateDockActiveState(activeHost, false);
       }
     }
     logDebug('panel closed',{ reason });
@@ -237,6 +260,7 @@
       }
       host.style.display = 'block';
       host.classList.add('font-toolbar-host--visible');
+      updateDockActiveState(host, true);
       activeHost = host;
     } else {
       activeHost = null;

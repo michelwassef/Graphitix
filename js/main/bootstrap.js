@@ -4,6 +4,15 @@
   const namespace = Main.bootstrap = Main.bootstrap || {};
   console.debug('Debug: Main.bootstrap namespace initialized', { module: 'js/main/bootstrap.js' });
 
+  if(typeof require === 'function'){
+    try {
+      require('../shared/workspaceToolbar.js');
+      console.debug('Debug: Main.bootstrap workspaceToolbar required');
+    } catch(err){
+      console.debug('Debug: Main.bootstrap workspaceToolbar require failed', { err });
+    }
+  }
+
   const GRAPH_TYPES = [
     { type: 'venn', label: 'Venn Diagram', hint: 'Lists & overlap', description: 'Visualize overlaps between up to three sets with region statistics.' },
     { type: 'box', label: 'Box Plot', hint: 'Group comparisons', description: 'Compare distributions across groups with rich styling and statistical tests.' },

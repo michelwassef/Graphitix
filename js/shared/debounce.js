@@ -89,5 +89,14 @@
       });
     };
   };
+
+  if(typeof require === 'function'){
+    try {
+      require('./workspaceToolbar.js');
+      console.debug('Debug: debounce workspaceToolbar required');
+    } catch(err){
+      console.debug('Debug: debounce workspaceToolbar require failed', { err });
+    }
+  }
 })(window);
 
