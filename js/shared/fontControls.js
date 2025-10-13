@@ -1098,7 +1098,7 @@
     controlsRow.appendChild(sizeField);
 
     const colorField = doc.createElement('label');
-    colorField.className = 'font-controls-panel__field';
+    colorField.className = 'font-controls-panel__field font-controls-panel__field--color';
     const colorLabel = doc.createElement('span');
     colorLabel.className = 'font-controls-panel__field-label';
     colorLabel.textContent = 'Color';
