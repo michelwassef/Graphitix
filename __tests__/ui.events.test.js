@@ -390,8 +390,8 @@ describe('UI events and example loaders', () => {
     await activateWorkspace('venn');
     const colorA = document.getElementById('colorA');
     expect(colorA).toBeTruthy();
-    // Find overlay (the only color input appended directly under body with pointerEvents none)
-    const overlay = Array.from(document.querySelectorAll('body > input[type="color"]')).find(el => el.style.pointerEvents === 'none');
+    // Find overlay (the shared picker appended directly under body)
+    const overlay = document.querySelector('body > .shared-color-picker');
     expect(overlay).toBeTruthy();
     expect(overlay.style.display).toBe('none');
 
@@ -401,6 +401,7 @@ describe('UI events and example loaders', () => {
 
     // Overlay should be shown
     expect(overlay.style.display).toBe('block');
+    expect(overlay.dataset.visible).toBe('1');
   });
 
   test('Panel resizer drag triggers Shared.syncPanelWidths', async () => {

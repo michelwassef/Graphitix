@@ -10,7 +10,271 @@
     --graph-max-width: calc(var(--graph-default-width) * 3);
     --graph-max-height: calc(var(--graph-default-height) * 3);
     --graph-aspect-ratio: 1;
-    --color-swatch-size: 20px;
+    --color-swatch-size: 18px;
+}
+
+.shared-color-picker {
+    background: #ffffff;
+    border: 1px solid #c7ccd3;
+    border-radius: 0;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+    color: #1f2937;
+    display: none;
+    max-width: min(296px, calc(100vw - 24px));
+    min-width: 228px;
+    padding: 10px;
+    font-size: 11px;
+    line-height: 1.4;
+    background-clip: padding-box;
+}
+
+.shared-color-picker:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.28), 0 6px 18px rgba(15, 23, 42, 0.12);
+}
+
+.shared-color-picker__section {
+    margin-bottom: 12px;
+}
+
+.shared-color-picker__section:last-of-type {
+    margin-bottom: 0;
+}
+
+.shared-color-picker__section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+    color: #475569;
+}
+
+.shared-color-picker__matrix {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.shared-color-picker__swatch-row {
+    display: grid;
+    grid-template-columns: repeat(var(--columns, 10), minmax(0, 1fr));
+    gap: 3px;
+}
+
+.shared-color-picker__swatch {
+    width: var(--color-swatch-size);
+    height: var(--color-swatch-size);
+    border-radius: 0;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    background: var(--swatch-color, #ffffff);
+    cursor: pointer;
+    padding: 0;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.shared-color-picker__swatch:focus-visible,
+.shared-color-picker__swatch:hover {
+    outline: none;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.45);
+    transform: none;
+}
+
+.shared-color-picker__swatch--selected {
+    box-shadow: 0 0 0 2px rgba(30, 64, 175, 0.5);
+    transform: none;
+}
+
+.shared-color-picker__section--row .shared-color-picker__swatch {
+    width: calc(var(--color-swatch-size) + 2px);
+    height: calc(var(--color-swatch-size) + 2px);
+}
+
+.shared-color-picker__section--empty {
+    display: none;
+}
+
+.shared-color-picker__more-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.shared-color-picker__more-toggle {
+    border: none;
+    background: none;
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px;
+    border-radius: 0;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.shared-color-picker__more-toggle::after {
+    content: '';
+    border: solid currentColor;
+    border-width: 0 1px 1px 0;
+    display: inline-block;
+    padding: 3px;
+    transform: rotate(45deg);
+    transition: transform 0.2s ease;
+}
+
+.shared-color-picker__more-toggle--expanded::after {
+    transform: rotate(-135deg);
+}
+
+.shared-color-picker__more-toggle:hover,
+.shared-color-picker__more-toggle:focus-visible {
+    outline: none;
+    background: rgba(37, 99, 235, 0.08);
+    color: #1d4ed8;
+}
+
+.shared-color-picker__matrix--extended {
+    margin-top: 6px;
+}
+
+.shared-color-picker__matrix--extended[hidden] {
+    display: none;
+}
+
+.shared-color-picker__custom-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.shared-color-picker__color-input {
+    width: 44px;
+    height: 26px;
+    border: 1px solid #c7ccd3;
+    border-radius: 0;
+    padding: 0;
+    background: #ffffff;
+}
+
+.shared-color-picker__hex-input {
+    flex: 1 1 88px;
+    min-width: 88px;
+    border: 1px solid #c7ccd3;
+    border-radius: 0;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.shared-color-picker__hex-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.32);
+}
+
+.shared-color-picker__eyedropper {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 26px;
+    border: 1px solid #2563eb;
+    background: #2563eb;
+    color: #ffffff;
+    border-radius: 0;
+    padding: 0;
+    font-size: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.shared-color-picker__eyedropper:hover,
+.shared-color-picker__eyedropper:focus-visible {
+    outline: none;
+    filter: brightness(1.08);
+    transform: none;
+}
+
+.shared-color-picker__eyedropper--disabled {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+    color: #64748b;
+    cursor: not-allowed;
+    filter: none;
+    transform: none;
+}
+
+.shared-color-picker__eyedropper-icon {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+.shared-color-picker__sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+    .shared-color-picker {
+        background: #0f172a;
+        border-color: #1e293b;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+        color: #e2e8f0;
+    }
+
+    .shared-color-picker__section-title {
+        color: #cbd5f5;
+    }
+
+    .shared-color-picker__swatch {
+        border-color: rgba(148, 163, 184, 0.45);
+    }
+
+    .shared-color-picker__hex-input {
+        background: #0f172a;
+        color: #e2e8f0;
+        border-color: #334155;
+    }
+
+    .shared-color-picker__hex-input:focus {
+        border-color: #60a5fa;
+        box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.35);
+    }
+
+    .shared-color-picker__eyedropper {
+        border-color: #60a5fa;
+        background: #1d4ed8;
+    }
+
+    .shared-color-picker__eyedropper--disabled {
+        background: #1e293b;
+        border-color: #334155;
+        color: #64748b;
+    }
+
+    .shared-color-picker__more-toggle {
+        color: #60a5fa;
+    }
+
+    .shared-color-picker__more-toggle:hover,
+    .shared-color-picker__more-toggle:focus-visible {
+        background: rgba(96, 165, 250, 0.16);
+        color: #93c5fd;
+    }
 }
 
 html, body {
