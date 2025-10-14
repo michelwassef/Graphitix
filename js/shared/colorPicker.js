@@ -393,47 +393,30 @@
     hexInput.maxLength = 7;
     row.appendChild(hexInput);
 
-    let eyedropperButton = null;
-    if(typeof global.EyeDropper === 'function'){
-      eyedropperButton = documentRef.createElement('button');
-      eyedropperButton.type = 'button';
-      eyedropperButton.className = 'shared-color-picker__eyedropper';
-      eyedropperButton.setAttribute('aria-label', 'Pick a color from the screen');
-      eyedropperButton.title = 'Pick screen color';
-      const icon = documentRef.createElementNS(SVG_NS, 'svg');
-      icon.setAttribute('viewBox', '0 0 24 24');
-      icon.setAttribute('class', 'shared-color-picker__eyedropper-icon');
-      icon.setAttribute('aria-hidden', 'true');
-      const path = documentRef.createElementNS(SVG_NS, 'path');
-      path.setAttribute('d', 'M20.03 4.22a1.5 1.5 0 0 0-2.12 0l-1.77 1.77-1.13-1.13 1.77-1.77a1.5 1.5 0 0 0-1.06-2.56 1.5 1.5 0 0 0-1.06.44l-3.96 3.96a2.5 2.5 0 0 0-.66 1.08l-.38 1.18-5.85 5.85a2.1 2.1 0 0 0 0 2.97l.88.88a2.1 2.1 0 0 0 2.97 0l5.85-5.85 1.18-.38a2.5 2.5 0 0 0 1.08-.66l3.96-3.96a1.5 1.5 0 0 0 0-2.12zM8.49 17.66a1.1 1.1 0 0 1-1.56 0l-.88-.88a1.1 1.1 0 0 1 0-1.56l5.56-5.56 2.44 2.44-5.56 5.56zm6.21-7.33-2.03-2.03.27-.84 2.6-2.6 2.87 2.87-2.6 2.6-.84.27z');
-      icon.appendChild(path);
-      const srLabel = documentRef.createElement('span');
-      srLabel.className = 'shared-color-picker__sr-only';
-      srLabel.textContent = 'Pick screen color';
-      eyedropperButton.appendChild(icon);
-      eyedropperButton.appendChild(srLabel);
-      row.appendChild(eyedropperButton);
-    }else{
-      const disabledButton = documentRef.createElement('button');
-      disabledButton.type = 'button';
-      disabledButton.className = 'shared-color-picker__eyedropper shared-color-picker__eyedropper--disabled';
-      disabledButton.setAttribute('aria-label', 'Eyedropper unavailable');
-      disabledButton.title = 'Eyedropper unavailable';
-      const icon = documentRef.createElementNS(SVG_NS, 'svg');
-      icon.setAttribute('viewBox', '0 0 24 24');
-      icon.setAttribute('class', 'shared-color-picker__eyedropper-icon');
-      icon.setAttribute('aria-hidden', 'true');
-      const path = documentRef.createElementNS(SVG_NS, 'path');
-      path.setAttribute('d', 'M20.03 4.22a1.5 1.5 0 0 0-2.12 0l-1.77 1.77-1.13-1.13 1.77-1.77a1.5 1.5 0 0 0-1.06-2.56 1.5 1.5 0 0 0-1.06.44l-3.96 3.96a2.5 2.5 0 0 0-.66 1.08l-.38 1.18-5.85 5.85a2.1 2.1 0 0 0 0 2.97l.88.88a2.1 2.1 0 0 0 2.97 0l5.85-5.85 1.18-.38a2.5 2.5 0 0 0 1.08-.66l3.96-3.96a1.5 1.5 0 0 0 0-2.12zM8.49 17.66a1.1 1.1 0 0 1-1.56 0l-.88-.88a1.1 1.1 0 0 1 0-1.56l5.56-5.56 2.44 2.44-5.56 5.56zm6.21-7.33-2.03-2.03.27-.84 2.6-2.6 2.87 2.87-2.6 2.6-.84.27z');
-      icon.appendChild(path);
-      const srLabel = documentRef.createElement('span');
-      srLabel.className = 'shared-color-picker__sr-only';
-      srLabel.textContent = 'Eyedropper unavailable';
-      disabledButton.appendChild(icon);
-      disabledButton.appendChild(srLabel);
-      disabledButton.disabled = true;
-      row.appendChild(disabledButton);
+    const eyedropperButton = documentRef.createElement('button');
+    eyedropperButton.type = 'button';
+    eyedropperButton.className = 'shared-color-picker__eyedropper';
+    const supportsNativeEyeDropper = typeof global.EyeDropper === 'function';
+    eyedropperButton.dataset.mode = supportsNativeEyeDropper ? 'native' : 'fallback';
+    const eyeDropperLabel = supportsNativeEyeDropper ? 'Pick a color from the screen' : 'Open the system color picker';
+    eyedropperButton.setAttribute('aria-label', eyeDropperLabel);
+    eyedropperButton.title = supportsNativeEyeDropper ? 'Pick screen color' : 'Open system color picker';
+    if(!supportsNativeEyeDropper){
+      eyedropperButton.classList.add('shared-color-picker__eyedropper--fallback');
     }
+    const icon = documentRef.createElementNS(SVG_NS, 'svg');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('class', 'shared-color-picker__eyedropper-icon');
+    icon.setAttribute('aria-hidden', 'true');
+    const path = documentRef.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', 'M18.17 2.83a3 3 0 0 0-4.24 0l-2.2 2.2-.47-.47a1 1 0 0 0-1.41 0l-1.76 1.76a1 1 0 0 0 0 1.41l.47.47-6.5 6.5a2 2 0 0 0 0 2.83l1.42 1.42a2 2 0 0 0 2.83 0l6.5-6.5.47.47a1 1 0 0 0 1.41 0l1.76-1.76a1 1 0 0 0 0-1.41l-.47-.47 2.2-2.2a3 3 0 0 0 0-4.24zm-4.95 8.78-6.5 6.5a.5.5 0 0 1-.71 0l-1.42-1.42a.5.5 0 0 1 0-.71l6.5-6.5 2.13 2.13zm4.24-4.24-1.5 1.5-2.83-2.83 1.5-1.5a1 1 0 0 1 1.41 0l1.42 1.42a1 1 0 0 1 0 1.41z');
+    icon.appendChild(path);
+    const srLabel = documentRef.createElement('span');
+    srLabel.className = 'shared-color-picker__sr-only';
+    srLabel.textContent = eyeDropperLabel;
+    eyedropperButton.appendChild(icon);
+    eyedropperButton.appendChild(srLabel);
+    row.appendChild(eyedropperButton);
 
     section.appendChild(row);
     return { section, colorInput, hexInput, eyedropperButton };
@@ -693,7 +676,18 @@
 
   function handleEyeDropperClick(evt){
     evt.preventDefault();
-    if(typeof global.EyeDropper !== 'function'){
+    const mode = evt && evt.currentTarget && evt.currentTarget.dataset ? evt.currentTarget.dataset.mode : null;
+    if(mode === 'fallback' || typeof global.EyeDropper !== 'function'){
+      const fallbackReason = mode === 'fallback' ? 'native-unavailable' : 'missing-interface';
+      logDebug('eyedropper-fallback', { reason: fallbackReason });
+      if(overlayState.customInput){
+        try{
+          overlayState.customInput.focus({ preventScroll: true });
+        }catch(err){
+          overlayState.customInput.focus();
+        }
+        overlayState.customInput.click();
+      }
       return;
     }
     try{

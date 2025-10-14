@@ -180,34 +180,36 @@
 .shared-color-picker__eyedropper {
     flex: 0 0 auto;
     width: 32px;
-    height: 26px;
-    border: 1px solid #2563eb;
-    background: #2563eb;
-    color: #ffffff;
-    border-radius: 0;
+    height: 28px;
+    border: 1px solid #94a3b8;
+    background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+    color: #1f2937;
+    border-radius: 4px;
     padding: 0;
     font-size: 0;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.15s ease, filter 0.15s ease;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .shared-color-picker__eyedropper:hover,
 .shared-color-picker__eyedropper:focus-visible {
     outline: none;
-    filter: brightness(1.08);
-    transform: none;
+    background: linear-gradient(180deg, #eef2ff 0%, #e0e7ff 100%);
+    border-color: #4c51bf;
+    box-shadow: 0 0 0 1px rgba(76, 81, 191, 0.35);
 }
 
-.shared-color-picker__eyedropper--disabled {
-    border-color: #cbd5e1;
-    background: #f1f5f9;
-    color: #64748b;
-    cursor: not-allowed;
-    filter: none;
-    transform: none;
+.shared-color-picker__eyedropper:active {
+    background: #c7d2fe;
+    border-color: #3730a3;
+}
+
+.shared-color-picker__eyedropper--fallback {
+    border-style: dashed;
+    color: #334155;
 }
 
 .shared-color-picker__eyedropper-icon {
@@ -256,14 +258,20 @@
     }
 
     .shared-color-picker__eyedropper {
-        border-color: #60a5fa;
-        background: #1d4ed8;
+        border-color: #475569;
+        background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+        color: #f8fafc;
     }
 
-    .shared-color-picker__eyedropper--disabled {
-        background: #1e293b;
-        border-color: #334155;
-        color: #64748b;
+    .shared-color-picker__eyedropper:hover,
+    .shared-color-picker__eyedropper:focus-visible {
+        border-color: #60a5fa;
+        box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.4);
+    }
+
+    .shared-color-picker__eyedropper--fallback {
+        border-style: dashed;
+        color: #e2e8f0;
     }
 
     .shared-color-picker__more-toggle {
