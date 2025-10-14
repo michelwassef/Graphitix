@@ -64,7 +64,7 @@ describe('App initialization', () => {
     }).not.toThrow();
 
     // Color picker overlay should be injected into the body by main.js
-    const overlays = Array.from(document.querySelectorAll('body > input[type="color"]'));
+    const overlays = Array.from(document.querySelectorAll('body > .shared-color-picker'));
     expect(overlays.length).toBeGreaterThanOrEqual(1);
 
     // Chart defaults should be set by main.js
