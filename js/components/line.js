@@ -1923,10 +1923,14 @@
           }
         }
       }
-      const labelsUsed=series.map(s=>s.name);
+      const seriesWithData=series.filter(s=>s.points.some(pt=>pt));
+      if(seriesWithData.length!==series.length){
+        console.debug('Debug: line empty series filtered',{ totalSeries: series.length, renderedSeries: seriesWithData.length });
+      }
+      const labelsUsed=seriesWithData.map(s=>s.name);
       const regressionCache=new Map();
       if(global.jStat && typeof regressionTools.fitRegression==='function'){
-        series.forEach(s=>{
+        seriesWithData.forEach(s=>{
           const pts=s.points.filter(Boolean);
           if(pts.length>=3){
             try{
@@ -1952,7 +1956,7 @@
       console.debug('Debug: line legend width scaling',{legendWidth,legendScale,legendCount:legendLabels.length});
       lineLegendWidth=legendWidth;
       lineLegendItems=[];
-      if(series.every(s=>s.points.every(p=>p==null))) return;
+      if(!seriesWithData.length) return;
       if(logX && xMinRaw<=0){ refs.plot.innerHTML='<i>Log scale requires positive X values.</i>'; return; }
       if(logY && yMinRaw<=0){ refs.plot.innerHTML='<i>Log scale requires positive Y values.</i>'; return; }
       let xMin=xMinRaw,xMax=xMaxRaw,yMin=yMinRaw,yMax=yMaxRaw;
@@ -2171,12 +2175,12 @@
       yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});
       console.debug('Debug: line font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
       console.debug('Debug: line ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
-      const colors=series.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
+      const colors=seriesWithData.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
       const showErrorBars=replicates>1;
       const errorStrokeWidth=errorBarWidthPx;
       const errorCapHalf=Math.max(4, dotSizePx*1.2);
       const seriesElems=[];
-      series.forEach((s,i)=>{
+      seriesWithData.forEach((s,i)=>{
         const color=colors[i];
         if(showIntervals && s.regression?.intervals?.samples?.length){
           const intervalLayer=document.createElementNS(NS,'g');
@@ -2358,12 +2362,12 @@
         }
         seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,forecastPath:forecastPathEl});
       });
-      console.debug('Debug: line series rendered',{ showErrorBars, seriesCount: series.length });
+      console.debug('Debug: line series rendered',{ showErrorBars, seriesCount: seriesWithData.length });
       if(legendLabels.length){
         const legendGroup=document.createElementNS(NS,'g');
         const legendX=W-legendWidth+8;
         const legendY=margin.top;
-        series.forEach((s,i)=>{
+        seriesWithData.forEach((s,i)=>{
           const itemG=document.createElementNS(NS,'g');
           itemG.style.cursor='pointer';
           const y=legendY+i*(fs+4);
@@ -2413,7 +2417,7 @@
           legendGroup.appendChild(itemG);
         });
         svg.appendChild(legendGroup);
-        lineLegendItems=series.map((s,i)=>({label:s.name,color:colors[i]}));
+        lineLegendItems=seriesWithData.map((s,i)=>({label:s.name,color:colors[i]}));
       }
       const xAxisBase=margin.top+plotH;
       const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
@@ -2429,7 +2433,7 @@
       titleText.textContent=lineTitleText;
       markFontEditable(titleText,'graphTitle','graphTitle');
       makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
-      updateLineStats(series,{ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache, forecast: forecastOptions });
+      updateLineStats(seriesWithData,{ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache, forecast: forecastOptions });
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
