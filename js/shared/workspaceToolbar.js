@@ -138,7 +138,7 @@
     sectionEl.appendChild(dock);
     const caption = doc.createElement('div');
     caption.className = 'workspace-toolbar__caption';
-    caption.textContent = section.caption || 'Formatting';
+    caption.textContent = section.caption || 'Font';
     sectionEl.appendChild(caption);
     return sectionEl;
   }
@@ -269,8 +269,8 @@
     const button = (id, label, icon) => ({ id, label, icon });
     const dock = (scopeId) => ({
       type: 'dock',
-      caption: 'Formatting',
-      ariaLabel: 'Formatting controls',
+      caption: 'Font',
+      ariaLabel: 'Font controls',
       scopeId,
       hostId: `${scopeId}FontHost`,
       hint: DEFAULT_HINT

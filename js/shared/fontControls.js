@@ -45,6 +45,11 @@
   let fontMenuEmptyState = null;
   let fontMenuVisible = false;
   let fontMenuCloseHandler = null;
+  let formatButtonsRow = null;
+  let comboMeasureEl = null;
+  let widthSyncPending = false;
+  let lastKnownFormatWidth = 0;
+  let lastKnownComboWidth = 0;
   let colorInput = null;
   let boldToggle = null;
   let italicToggle = null;
@@ -217,6 +222,176 @@
     }
   }
 
+  function ensureComboMeasureElement(doc){
+    const referenceDoc = doc || global.document;
+    if(!referenceDoc){ return null; }
+    if(comboMeasureEl && comboMeasureEl.ownerDocument !== referenceDoc){
+      if(comboMeasureEl.remove){ comboMeasureEl.remove(); }
+      comboMeasureEl = null;
+    }
+    if(comboMeasureEl && comboMeasureEl.isConnected){ return comboMeasureEl; }
+    comboMeasureEl = referenceDoc.createElement('span');
+    comboMeasureEl.className = 'font-controls-panel__combo-measure';
+    comboMeasureEl.setAttribute('aria-hidden', 'true');
+    if(referenceDoc.body){ referenceDoc.body.appendChild(comboMeasureEl); }
+    logDebug('combo measure ready', {});
+    return comboMeasureEl;
+  }
+
+  function computeComboFieldWidth(){
+    if(!fontInput){ return lastKnownComboWidth || 0; }
+    const doc = fontInput.ownerDocument || global.document;
+    if(!doc){ return lastKnownComboWidth || 0; }
+    const measure = ensureComboMeasureElement(doc);
+    if(!measure){ return lastKnownComboWidth || 0; }
+    if(!measure.isConnected && doc.body){
+      doc.body.appendChild(measure);
+    }
+    const view = doc.defaultView || global;
+    const computed = typeof view.getComputedStyle === 'function' ? view.getComputedStyle(fontInput) : null;
+    if(!computed){ return lastKnownComboWidth || 0; }
+    measure.style.fontFamily = computed.fontFamily;
+    measure.style.fontSize = computed.fontSize;
+    measure.style.fontWeight = computed.fontWeight;
+    measure.style.fontStyle = computed.fontStyle;
+    measure.style.letterSpacing = computed.letterSpacing;
+    measure.style.fontVariant = computed.fontVariant;
+    measure.style.textTransform = computed.textTransform;
+    let maxTextWidth = 0;
+    const seen = new Set();
+    const recordLabel = (raw) => {
+      const label = (raw || '').trim();
+      if(!label || seen.has(label)){ return; }
+      seen.add(label);
+      measure.textContent = label;
+      const rect = measure.getBoundingClientRect();
+      if(rect.width > maxTextWidth){
+        maxTextWidth = rect.width;
+      }
+    };
+    if(fontMenuPopup){
+      const buttons = fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+      buttons.forEach(btn => recordLabel(btn.dataset?.label || btn.textContent || ''));
+    }
+    if(fontDatalist){
+      const options = fontDatalist.querySelectorAll('option');
+      options.forEach(opt => recordLabel(opt.label || opt.value || ''));
+    }
+    if(!seen.size){
+      recordLabel(fontInput.placeholder || '');
+    }
+    measure.textContent = '';
+    const paddingLeft = parseFloat(computed.paddingLeft) || 0;
+    const paddingRight = parseFloat(computed.paddingRight) || 0;
+    const borderLeft = parseFloat(computed.borderLeftWidth) || 0;
+    const borderRight = parseFloat(computed.borderRightWidth) || 0;
+    const total = maxTextWidth + paddingLeft + paddingRight + borderLeft + borderRight;
+    if(total > 0){
+      lastKnownComboWidth = Math.ceil(total);
+    }
+    logDebug('combo width measured', {
+      width: lastKnownComboWidth,
+      candidates: seen.size
+    });
+    return lastKnownComboWidth;
+  }
+
+  function resolveFormatRowWidth(){
+    if(!formatButtonsRow){ return lastKnownFormatWidth || 0; }
+    const rect = formatButtonsRow.getBoundingClientRect();
+    if(rect.width > 0){
+      lastKnownFormatWidth = Math.ceil(rect.width);
+      logDebug('format row width measured', { width: lastKnownFormatWidth });
+      return lastKnownFormatWidth;
+    }
+    const doc = formatButtonsRow.ownerDocument || global.document;
+    if(!doc){ return lastKnownFormatWidth || 0; }
+    const view = doc.defaultView || global;
+    const computed = typeof view.getComputedStyle === 'function' ? view.getComputedStyle(formatButtonsRow) : null;
+    const gap = computed ? (parseFloat(computed.gap) || 0) : 0;
+    const child = formatButtonsRow.querySelector('.font-controls-panel__format-button');
+    let buttonWidth = 0;
+    if(child){
+      const buttonRect = child.getBoundingClientRect();
+      if(buttonRect.width > 0){
+        buttonWidth = buttonRect.width;
+      } else if(computed && typeof view.getComputedStyle === 'function'){
+        const childStyle = view.getComputedStyle(child);
+        buttonWidth = parseFloat(childStyle.width) || 34;
+      } else {
+        buttonWidth = 34;
+      }
+    }
+    const count = formatButtonsRow.children ? formatButtonsRow.children.length : 0;
+    if(count && buttonWidth){
+      const computedWidth = (buttonWidth * count) + Math.max(0, count - 1) * gap;
+      lastKnownFormatWidth = Math.ceil(computedWidth);
+      logDebug('format row fallback width', {
+        width: lastKnownFormatWidth,
+        count,
+        gap,
+        buttonWidth
+      });
+    }
+    return lastKnownFormatWidth || 0;
+  }
+
+  function applyFontToolbarWidth(reason){
+    const comboWidth = computeComboFieldWidth();
+    const formatWidth = resolveFormatRowWidth();
+    const fieldWidth = Math.max(comboWidth || 0, formatWidth || 0);
+    if(fieldWidth && fontComboWrapper && fontInput){
+      const px = `${fieldWidth}px`;
+      fontComboWrapper.style.minWidth = px;
+      fontComboWrapper.style.maxWidth = px;
+      fontComboWrapper.style.width = px;
+      fontInput.style.minWidth = px;
+      fontInput.style.width = px;
+    }
+    if(panelEl && panelEl.dataset.open === '1'){ 
+      const host = panelEl.parentElement && panelEl.parentElement.classList && panelEl.parentElement.classList.contains('font-toolbar-host') ? panelEl.parentElement : activeHost;
+      if(host){
+        const rect = panelEl.getBoundingClientRect();
+        if(rect.width > 0){
+          const dock = host.closest('.workspace-toolbar__dock');
+          const widthPx = `${Math.ceil(rect.width)}px`;
+          host.style.minWidth = widthPx;
+          host.style.maxWidth = widthPx;
+          host.style.width = widthPx;
+          if(dock){
+            dock.style.minWidth = widthPx;
+            dock.style.maxWidth = widthPx;
+            dock.style.width = widthPx;
+          }
+          logDebug('toolbar dock width applied', {
+            reason,
+            panelWidth: Math.ceil(rect.width),
+            fieldWidth
+          });
+        }
+      }
+    } else {
+      logDebug('toolbar dock width skipped', {
+        reason,
+        panelOpen: panelEl ? panelEl.dataset.open : '0',
+        fieldWidth
+      });
+    }
+  }
+
+  function scheduleFontToolbarWidthSync(reason){
+    if(widthSyncPending){ return; }
+    widthSyncPending = true;
+    const scheduler = typeof global.requestAnimationFrame === 'function'
+      ? global.requestAnimationFrame.bind(global)
+      : (cb) => { return global.setTimeout(cb, 16); };
+    scheduler(() => {
+      widthSyncPending = false;
+      applyFontToolbarWidth(reason);
+    });
+    logDebug('toolbar width sync scheduled', { reason });
+  }
+
   function ensurePlacementMonitoring(){
     if(placementMonitoringAttached){ return; }
     placementMonitoringAttached = true;
@@ -348,6 +523,15 @@
     if(!host){ return; }
     host.classList.remove('font-toolbar-host--visible');
     host.style.display = 'none';
+    host.style.removeProperty('min-width');
+    host.style.removeProperty('max-width');
+    host.style.removeProperty('width');
+    const dock = host.closest('.workspace-toolbar__dock');
+    if(dock){
+      dock.style.removeProperty('min-width');
+      dock.style.removeProperty('max-width');
+      dock.style.removeProperty('width');
+    }
     updateDockActiveState(host, false);
     logDebug('toolbar host hidden', { scopeId: host.dataset?.fontToolbarScope || null });
   }
@@ -908,11 +1092,7 @@
     controlsRow.className = 'font-controls-panel__controls';
 
     const fontField = doc.createElement('label');
-    fontField.className = 'font-controls-panel__field';
-    const fontLabel = doc.createElement('span');
-    fontLabel.className = 'font-controls-panel__field-label';
-    fontLabel.textContent = 'Font family';
-    fontField.appendChild(fontLabel);
+    fontField.className = 'font-controls-panel__field font-controls-panel__field--font';
 
     fontComboWrapper = doc.createElement('div');
     fontComboWrapper.className = 'font-controls-panel__combo';
@@ -922,6 +1102,7 @@
     fontInput.type = 'text';
     fontInput.className = 'font-controls-panel__input font-controls-panel__input--combo';
     fontInput.placeholder = 'Match chart default or type a font';
+    fontInput.setAttribute('aria-label', 'Font family');
     const datalistId = 'font-controls-defaults';
     const menuId = 'font-controls-font-menu';
     fontInput.setAttribute('list', datalistId);
@@ -970,6 +1151,42 @@
     fontMenuEmptyState.hidden = true;
     fontMenuPopup.appendChild(fontMenuEmptyState);
     fontField.appendChild(fontComboWrapper);
+
+    const formatField = doc.createElement('div');
+    formatField.className = 'font-controls-panel__field font-controls-panel__field--format';
+    formatField.setAttribute('role', 'group');
+    formatField.setAttribute('aria-label', 'Text formatting');
+    formatButtonsRow = doc.createElement('div');
+    formatButtonsRow.className = 'font-controls-panel__format-buttons';
+
+    const createFormatButton = (symbol, ariaLabel, title) => {
+      const btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.className = 'font-controls-panel__format-button font-controls-panel__toggle';
+      btn.dataset.active = '0';
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('aria-label', ariaLabel);
+      btn.setAttribute('title', title);
+      btn.textContent = symbol;
+      return btn;
+    };
+
+    boldToggle = createFormatButton('B', 'Toggle bold', 'Toggle bold');
+    italicToggle = createFormatButton('I', 'Toggle italic', 'Toggle italic');
+    underlineToggle = createFormatButton('U', 'Toggle underline', 'Toggle underline');
+    underlineToggle.classList.add('font-controls-panel__format-button--underline');
+    subscriptToggle = createFormatButton('x₂', 'Toggle subscript', 'Toggle subscript');
+    subscriptToggle.classList.add('font-controls-panel__format-button--script');
+    superscriptToggle = createFormatButton('x²', 'Toggle superscript', 'Toggle superscript');
+    superscriptToggle.classList.add('font-controls-panel__format-button--script');
+
+    formatButtonsRow.appendChild(boldToggle);
+    formatButtonsRow.appendChild(italicToggle);
+    formatButtonsRow.appendChild(underlineToggle);
+    formatButtonsRow.appendChild(subscriptToggle);
+    formatButtonsRow.appendChild(superscriptToggle);
+    formatField.appendChild(formatButtonsRow);
+    fontField.appendChild(formatField);
     logDebug('font datalist initialized', { count: uniqueFonts.length });
     controlsRow.appendChild(fontField);
 
@@ -1040,6 +1257,7 @@
     });
     fontMenuEmptyState.hidden = true;
     highlightFontMenuSelection('');
+    computeComboFieldWidth();
     logDebug('font menu options created', {
       count: fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option').length
     });
@@ -1082,10 +1300,7 @@
     });
 
     const sizeField = doc.createElement('label');
-    sizeField.className = 'font-controls-panel__field';
-    const sizeLabel = doc.createElement('span');
-    sizeLabel.className = 'font-controls-panel__field-label';
-    sizeLabel.textContent = 'Font size';
+    sizeField.className = 'font-controls-panel__field font-controls-panel__field--size';
     sizeInput = doc.createElement('input');
     sizeInput.type = 'number';
     sizeInput.min = '6';
@@ -1093,62 +1308,21 @@
     sizeInput.step = '0.5';
     sizeInput.placeholder = '14';
     sizeInput.className = 'font-controls-panel__input font-controls-panel__input--number';
-    sizeField.appendChild(sizeLabel);
+    sizeInput.setAttribute('aria-label', 'Font size');
     sizeField.appendChild(sizeInput);
     controlsRow.appendChild(sizeField);
 
     const colorField = doc.createElement('label');
     colorField.className = 'font-controls-panel__field font-controls-panel__field--color';
-    const colorLabel = doc.createElement('span');
-    colorLabel.className = 'font-controls-panel__field-label';
-    colorLabel.textContent = 'Color';
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
     colorInput.className = 'font-controls-panel__color-input';
-    colorField.appendChild(colorLabel);
+    colorInput.setAttribute('aria-label', 'Font color');
     colorField.appendChild(colorInput);
     controlsRow.appendChild(colorField);
 
-    const formatField = doc.createElement('div');
-    formatField.className = 'font-controls-panel__field font-controls-panel__field--format';
-    formatField.setAttribute('role', 'group');
-    formatField.setAttribute('aria-label', 'Text formatting');
-    const formatLabel = doc.createElement('span');
-    formatLabel.className = 'font-controls-panel__field-label';
-    formatLabel.textContent = 'Format';
-    const formatRow = doc.createElement('div');
-    formatRow.className = 'font-controls-panel__format-buttons';
-
-    const createFormatButton = (symbol, ariaLabel, title) => {
-      const btn = doc.createElement('button');
-      btn.type = 'button';
-      btn.className = 'font-controls-panel__format-button font-controls-panel__toggle';
-      btn.dataset.active = '0';
-      btn.setAttribute('aria-pressed', 'false');
-      btn.setAttribute('aria-label', ariaLabel);
-      btn.setAttribute('title', title);
-      btn.textContent = symbol;
-      return btn;
-    };
-
-    boldToggle = createFormatButton('B', 'Toggle bold', 'Toggle bold');
-    italicToggle = createFormatButton('I', 'Toggle italic', 'Toggle italic');
-    underlineToggle = createFormatButton('U', 'Toggle underline', 'Toggle underline');
-    underlineToggle.classList.add('font-controls-panel__format-button--underline');
-    subscriptToggle = createFormatButton('x₂', 'Toggle subscript', 'Toggle subscript');
-    subscriptToggle.classList.add('font-controls-panel__format-button--script');
-    superscriptToggle = createFormatButton('x²', 'Toggle superscript', 'Toggle superscript');
-    superscriptToggle.classList.add('font-controls-panel__format-button--script');
-
-    formatRow.appendChild(boldToggle);
-    formatRow.appendChild(italicToggle);
-    formatRow.appendChild(underlineToggle);
-    formatRow.appendChild(subscriptToggle);
-    formatRow.appendChild(superscriptToggle);
-    formatField.appendChild(formatLabel);
-    formatField.appendChild(formatRow);
-    controlsRow.appendChild(formatField);
-    logDebug('format toggles initialized', { toggleCount: formatRow.children.length });
+    logDebug('format toggles initialized', { toggleCount: formatButtonsRow.children.length });
+    resolveFormatRowWidth();
 
     body.appendChild(controlsRow);
 
@@ -1508,6 +1682,7 @@
     syncPanelStateFromTarget();
     ensurePlacementMonitoring();
     updateFloatingState('open');
+    scheduleFontToolbarWidthSync('panel-open');
     logDebug('panel opened', {
       scope: currentScope,
       key: currentKey,
