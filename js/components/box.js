@@ -5119,17 +5119,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       console.debug('Debug: box axes stroke scaled',{ axisStrokeWidth });
       if(showFrame){
-        console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame });
+        console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
         const doc = svg.ownerDocument || global.document;
         const frameGroup = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
         if(frameGroup){
           frameGroup.setAttribute('stroke-width', axisStrokeWidth);
           frameGroup.setAttribute('fill', 'none');
           svg.appendChild(frameGroup);
-          chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, sides: ['top', 'right'] });
+          chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
           console.debug('Debug: box frame stroke scaled',{ axisStrokeWidth });
         }else{
-          chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, sides: ['top', 'right'] });
+          chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
           console.debug('Debug: box frame group fallback used');
         }
       }
@@ -5550,7 +5550,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
       }
       if(showFrame){
-        chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, sides: ['top', 'right'] });
+        console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
+        chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
       }
       const xLabel = add('text',{ x: marginLocal.left + plotWLocal / 2, y: xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.8, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
       xLabel.textContent = state.yLabelText;

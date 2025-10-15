@@ -2183,7 +2183,8 @@
     logDebug('axes stroke scaled',{ axisStrokeWidthBase, axisStrokeWidth, axisStroke });
 
     if(showFrame){
-      chartStyle.drawPlotFrame?.({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top', 'right'] });
+      logDebug('frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
+      chartStyle.drawPlotFrame?.({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
     }
 
     const xTickNodes = [];
