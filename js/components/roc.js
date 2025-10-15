@@ -1280,8 +1280,8 @@
     }
     console.debug('Debug: roc axes stroke scaled',{axisStrokeWidthBase, axisStrokeWidth, axisStroke});
     if(showFrame){
-      console.debug('Debug: roc frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
-      chartStyle.drawPlotFrame({ svg, margin, plotW: plotWidth, plotH: plotHeight, stroke: axisStroke, sides: ['top','right'] });
+      console.debug('Debug: roc frame request',{stroke:axisStroke, showFrame, axisStrokeWidth}); // Debug: frame styling inputs
+      chartStyle.drawPlotFrame({ svg, margin, plotW: plotWidth, plotH: plotHeight, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
     }
     // Frame closes ROC/PR plot area using axis styling continuity
 

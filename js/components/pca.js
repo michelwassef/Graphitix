@@ -3152,8 +3152,8 @@
       }
       console.debug('Debug: pca axes stroke scaled',{axisStrokeWidthBase, axisStrokeWidth, axisStroke});
       if(showFrame){
-        console.debug('Debug: pca frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
-        chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
+        console.debug('Debug: pca frame request',{stroke:axisStroke, showFrame, axisStrokeWidth}); // Debug: frame styling inputs
+        chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
       }
       // Frame closes PCA plot area using axis styling continuity
 

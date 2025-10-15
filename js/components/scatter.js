@@ -1633,8 +1633,8 @@
         }
         debug('Debug: scatter axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
         if(showFrame){
-          debug('Debug: scatter frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
-          chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
+          debug('Debug: scatter frame request',{stroke:axisStroke, showFrame, axisStrokeWidth}); // Debug: frame styling inputs
+          chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
         }
         // Frame closes scatter plot using axis styling continuity
         const xTickNodes=[];

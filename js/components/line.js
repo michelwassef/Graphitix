@@ -2163,8 +2163,8 @@
       }
       console.debug('Debug: line axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
       if(showFrame){
-        console.debug('Debug: line frame request',{stroke:axisStroke, showFrame}); // Debug: frame styling inputs
-        chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, sides: ['top','right'] });
+        console.debug('Debug: line frame request',{stroke:axisStroke, showFrame, axisStrokeWidth}); // Debug: frame styling inputs
+        chartStyle.drawPlotFrame({ svg, margin, plotW, plotH, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'] });
       }
       // Frame closes plot area using existing axis styling for continuity
       const xTickNodes=[];
