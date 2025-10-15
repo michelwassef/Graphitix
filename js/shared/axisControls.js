@@ -18,6 +18,22 @@
     console.debug('Debug: axisControls ' + message, payload || {});
   }
 
+  function clearHostSizing(host){
+    if(!host){ return; }
+    host.style.removeProperty('min-width');
+    host.style.removeProperty('max-width');
+    host.style.removeProperty('width');
+    const dock = typeof host.closest === 'function' ? host.closest('.workspace-toolbar__dock') : null;
+    if(dock){
+      dock.style.removeProperty('min-width');
+      dock.style.removeProperty('max-width');
+      dock.style.removeProperty('width');
+      logDebug('host sizing cleared',{ scopeId: host.dataset?.fontToolbarScope || null, hasDock: true });
+    } else {
+      logDebug('host sizing cleared',{ scopeId: host.dataset?.fontToolbarScope || null, hasDock: false });
+    }
+  }
+
   function ensureDocumentListener(){
     if(hasDocListener || !global.document){ return; }
     global.document.addEventListener('click', evt => {
@@ -130,15 +146,17 @@
 
     const tickField = doc.createElement('label');
     tickField.className = 'axis-controls-panel__field';
+    tickField.classList.add('axis-controls-panel__field--numeric');
     const tickLabel = doc.createElement('span');
     tickLabel.className = 'axis-controls-panel__field-label';
-    tickLabel.textContent = 'Tick interval';
+    tickLabel.textContent = 'Tick Interval';
     tickInput = doc.createElement('input');
     tickInput.type = 'number';
     tickInput.min = '0';
     tickInput.step = '0.1';
     tickInput.placeholder = 'Auto';
     tickInput.className = 'axis-controls-panel__input';
+    tickInput.classList.add('axis-controls-panel__input--small');
     tickField.appendChild(tickLabel);
     tickField.appendChild(tickInput);
     panelEl.appendChild(tickField);
@@ -146,9 +164,10 @@
 
     const thicknessField = doc.createElement('label');
     thicknessField.className = 'axis-controls-panel__field';
+    thicknessField.classList.add('axis-controls-panel__field--numeric');
     const thicknessLabel = doc.createElement('span');
     thicknessLabel.className = 'axis-controls-panel__field-label';
-    thicknessLabel.textContent = 'Axis thickness';
+    thicknessLabel.textContent = 'Thickness';
     thicknessInput = doc.createElement('input');
     thicknessInput.type = 'number';
     thicknessInput.min = '0.25';
@@ -156,15 +175,17 @@
     thicknessInput.step = '0.25';
     thicknessInput.placeholder = '1';
     thicknessInput.className = 'axis-controls-panel__input';
+    thicknessInput.classList.add('axis-controls-panel__input--small');
     thicknessField.appendChild(thicknessLabel);
     thicknessField.appendChild(thicknessInput);
     panelEl.appendChild(thicknessField);
 
     const colorField = doc.createElement('label');
-    colorField.className = 'axis-controls-panel__field axis-controls-panel__field--compact';
+    colorField.className = 'axis-controls-panel__field';
+    colorField.classList.add('axis-controls-panel__field--color');
     const colorLabel = doc.createElement('span');
     colorLabel.className = 'axis-controls-panel__field-label';
-    colorLabel.textContent = 'Axis color';
+    colorLabel.textContent = 'Color';
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
     colorInput.className = 'axis-controls-panel__color-input';
@@ -228,6 +249,7 @@
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
     if(activeHost){
+      activeHost.classList.remove('font-toolbar-host--axis');
       const fontPanel = activeHost.querySelector('.font-controls-panel');
       if(!fontPanel || fontPanel.dataset.open !== '1'){
         activeHost.classList.remove('font-toolbar-host--visible');
@@ -258,8 +280,10 @@
       if(panelEl.parentElement !== host){
         host.appendChild(panelEl);
       }
+      clearHostSizing(host);
       host.style.display = 'block';
       host.classList.add('font-toolbar-host--visible');
+      host.classList.add('font-toolbar-host--axis');
       updateDockActiveState(host, true);
       activeHost = host;
     } else {
