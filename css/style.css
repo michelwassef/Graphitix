@@ -1662,11 +1662,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .font-controls-panel__title{font-size:14px;font-weight:650;color:#0f172a;margin:0;letter-spacing:.02em}
 .font-controls-panel__context{font-size:13px;color:#1e293b;line-height:1.2;max-width:280px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
 .font-controls-panel__body{display:flex;align-items:stretch;gap:16px;flex:1 1 auto;min-width:0;width:100%}
-.font-controls-panel__controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);align-items:start;column-gap:16px;row-gap:8px;width:100%}
+.font-controls-panel__controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,auto);align-items:start;column-gap:16px;row-gap:4px;width:100%}
 .font-controls-panel__field{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#475569;letter-spacing:.01em;min-width:0;width:100%}
 .font-controls-panel__field--font{grid-column:1;grid-row:1/span 2}
 .font-controls-panel__field--size{grid-column:2;grid-row:1;align-items:flex-end;justify-self:end;max-width:120px}
-.font-controls-panel__field--color{grid-column:2;grid-row:2;align-items:flex-end;justify-self:end;max-width:120px}
+.font-controls-panel__field--color{grid-column:2;grid-row:2;align-items:flex-end;justify-self:end;max-width:120px;margin-top:2px}
 .font-controls-panel__field--color .font-controls-panel__color-input{align-self:stretch;width:100%}
 .font-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;letter-spacing:0.12em;text-transform:uppercase}
 .font-controls-panel__field--full{flex:1 1 160px}
@@ -1696,11 +1696,9 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .font-controls-panel__input--number::-webkit-outer-spin-button,.font-controls-panel__input--number::-webkit-inner-spin-button{appearance:none;margin:0}
 .font-controls-panel__color-input{height:34px;width:100%;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;transition:border-color .2s ease,box-shadow .2s ease;max-width:120px}
 .font-controls-panel__color-input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
-.font-controls-panel__field--format{min-width:0;width:100%;margin-top:8px}
-.font-controls-panel__format-buttons{display:flex;align-items:center;gap:6px;justify-content:flex-start}
-.font-controls-panel__format-button{width:34px;height:34px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#1e293b;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .2s ease,border-color .2s ease,background .2s ease}
-.font-controls-panel__format-button:hover{transform:translateY(-1px);border-color:rgba(59,130,246,0.6)}
-.font-controls-panel__format-button--underline{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}
+.font-controls-panel__field--format{min-width:0;width:100%;margin-top:2px}
+.font-controls-panel__format-buttons{display:flex;align-items:center;gap:4px;justify-content:flex-start}
+.font-controls-panel__format-button{width:30px;height:30px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#1e293b;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .2s ease,border-color .2s ease,background .2s ease}
 .font-controls-panel__format-button--script{font-family:'Inter','Segoe UI',sans-serif;font-weight:600;font-size:15px}
 .font-controls-panel__toggle--active{background:#1e293b;color:#f8fafc;border-color:#0f172a}
 .font-controls-panel__footer{display:none}
