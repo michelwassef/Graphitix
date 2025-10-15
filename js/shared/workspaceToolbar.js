@@ -269,8 +269,8 @@
     const button = (id, label, icon) => ({ id, label, icon });
     const dock = (scopeId) => ({
       type: 'dock',
-      caption: 'Font',
-      ariaLabel: 'Font controls',
+      caption: 'Format',
+      ariaLabel: 'Format controls',
       scopeId,
       hostId: `${scopeId}FontHost`,
       hint: DEFAULT_HINT

@@ -1162,6 +1162,15 @@ select {
     flex:0 0 auto;
     text-align:center;
 }
+.workspace-toolbar__dock--active{
+    align-items:flex-start;
+    justify-content:flex-start;
+    width:100%;
+}
+.workspace-toolbar__dock--active .font-toolbar-host{
+    align-self:stretch;
+    width:100%;
+}
 .workspace-toolbar__hint{
     margin:0;
     font-size:11px;
@@ -1172,7 +1181,7 @@ select {
 }
 .workspace-toolbar__section--dock .workspace-toolbar__caption{
     align-self:center;
-    margin-top:0;
+    margin-top:auto;
     padding-left:0;
 }
 .workspace-toolbar__dock--active .workspace-toolbar__hint{
@@ -1624,22 +1633,28 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .wrap { position: relative; isolation: isolate; }
 
 
-.font-toolbar-host{margin:0;display:none;justify-content:center;align-items:center;flex:0 0 auto;min-width:0;align-self:center;position:relative;overflow:visible;width:auto;padding:0}
+.font-toolbar-host{margin:0;display:none;justify-content:flex-start;align-items:stretch;flex:0 0 auto;min-width:0;align-self:center;position:relative;overflow:visible;width:100%;padding:0}
 .font-toolbar-host.font-toolbar-host--visible{display:flex}
-.font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,.font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel{position:static;margin:0 auto;max-width:100%}
-.axis-controls-panel{display:flex;align-items:center;gap:12px;padding:6px 12px;border-radius:12px;border:none;background:transparent;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;box-shadow:none}
+.font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,.font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel{position:static;margin:0;max-width:100%}
+.font-toolbar-host.font-toolbar-host--axis{flex:1 1 100%;justify-content:flex-start;align-self:stretch;width:calc(100% + 20px);margin-left:-10px;margin-right:-10px}
+.axis-controls-panel{display:flex;align-items:flex-start;gap:12px;padding:0;border-radius:12px;border:none;background:transparent;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
 .axis-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:72px}
 .axis-controls-panel__summary-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#475569;font-weight:600}
 .axis-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
-.axis-controls-panel__field{display:flex;flex-direction:column;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:110px}
-.axis-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:10px;text-transform:uppercase;letter-spacing:.12em}
-.axis-controls-panel__input{padding:6px 10px;font-size:13px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#0f172a;min-width:90px}
+.axis-controls-panel__field{display:flex;flex-direction:column;align-items:flex-start;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:72px;flex:0 0 auto}
+.axis-controls-panel__field--numeric{width:auto;min-width:72px}
+.axis-controls-panel__field--color{min-width:64px;width:auto;align-items:center;text-align:center}
+.axis-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:10px;text-transform:uppercase;letter-spacing:.12em;white-space:nowrap}
+.axis-controls-panel__input{padding:5px 6px;font-size:13px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#0f172a;min-width:0;width:auto;max-width:96px;text-align:center}
+.axis-controls-panel__input--small{width:40px;min-width:40px}
 .axis-controls-panel__input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
-.axis-controls-panel__color-input{height:32px;width:100px;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer}
+.axis-controls-panel__color-input{height:32px;width:64px;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;display:block;margin:0 auto}
+.axis-controls-panel__field--color .axis-controls-panel__field-label{display:block;width:100%;text-align:center}
+.axis-controls-panel__field--color .axis-controls-panel__color-input{align-self:center;margin-left:0;margin-right:0;margin-inline:auto}
 .axis-controls-panel__field[data-disabled='1']{opacity:.55}
 .axis-controls-panel__field[data-disabled='1'] .axis-controls-panel__input{pointer-events:none;cursor:not-allowed;background:rgba(241,245,249,0.8);border-color:rgba(148,163,184,0.4)}
 .axis-controls-panel__color-input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
-.axis-controls-panel__field--compact{min-width:100px}
+.axis-controls-panel__field--compact{min-width:100px;flex-direction:row;align-items:center;justify-content:center;gap:10px}
 .font-controls-panel{position:static;z-index:auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;min-width:0;max-width:100%;padding:0 12px;border-radius:14px;border:none;background:transparent;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}
 .font-controls-panel--floating{position:fixed;top:12px;left:50%;transform:translateX(-50%);right:auto;z-index:3000;width:auto;max-width:min(720px,calc(100% - 32px));box-shadow:none}
 .font-controls-panel__title-group{display:flex;flex-direction:column;gap:2px}
