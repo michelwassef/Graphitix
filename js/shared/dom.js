@@ -136,6 +136,64 @@
     return prefixStyles.concat(insertedStyles, suffixStyles);
   };
 
+  const applyPreviewStyles = (node, styleEntry = null, baseStyle = {}, fallbackColor = '#222') => {
+    if (!node || !node.style) { return; }
+    const color = styleEntry?.fill || styleEntry?.color || baseStyle.fill || baseStyle.color || fallbackColor;
+    if (color) {
+      node.style.color = color;
+    } else {
+      node.style.removeProperty('color');
+    }
+    const fontWeight = styleEntry?.fontWeight || baseStyle.fontWeight || '';
+    if (fontWeight) { node.style.fontWeight = fontWeight; } else { node.style.removeProperty('font-weight'); }
+    const fontStyle = styleEntry?.fontStyle || baseStyle.fontStyle || '';
+    if (fontStyle) { node.style.fontStyle = fontStyle; } else { node.style.removeProperty('font-style'); }
+    const textDecoration = styleEntry?.textDecoration || baseStyle.textDecoration || '';
+    if (textDecoration) { node.style.textDecoration = textDecoration; } else { node.style.removeProperty('text-decoration'); }
+    const fontFamily = styleEntry?.fontFamily || baseStyle.fontFamily || '';
+    if (fontFamily) { node.style.fontFamily = fontFamily; } else { node.style.removeProperty('font-family'); }
+    const fontSize = styleEntry?.fontSize || baseStyle.fontSize || '';
+    if (fontSize) { node.style.fontSize = fontSize; } else { node.style.removeProperty('font-size'); }
+  };
+
+  const renderStyledPreview = (container, textValue, styleMap, baseStyle = {}) => {
+    if (!container) { return; }
+    while (container.firstChild) {
+      container.removeChild(container.firstChild);
+    }
+    const doc = container.ownerDocument || global.document;
+    if (!textValue) {
+      return;
+    }
+    const fallbackColor = baseStyle.fill || baseStyle.color || '#222';
+    const hasStyles = hasStyledCharacters(styleMap);
+    if (!hasStyles) {
+      const span = doc.createElement('span');
+      applyPreviewStyles(span, null, baseStyle, fallbackColor);
+      span.textContent = textValue;
+      container.appendChild(span);
+      return;
+    }
+    let index = 0;
+    while (index < textValue.length) {
+      const styleEntry = styleMap[index];
+      let end = index + 1;
+      while (end < textValue.length && stylesEqual(styleEntry, styleMap[end])) {
+        end += 1;
+      }
+      const segmentText = textValue.slice(index, end);
+      if (segmentText.length === 0) {
+        index = end;
+        continue;
+      }
+      const span = doc.createElement('span');
+      applyPreviewStyles(span, styleEntry || null, baseStyle, fallbackColor);
+      span.textContent = segmentText;
+      container.appendChild(span);
+      index = end;
+    }
+  };
+
   const renderStyledText = (targetEl, textValue, styleMap) => {
     if (!targetEl) { return; }
     const doc = targetEl.ownerDocument || global.document;
@@ -231,6 +289,23 @@
       if (state.measure) {
         state.measure.remove();
       }
+      if (state.preview && state.preview.remove) {
+        state.preview.remove();
+        state.preview = null;
+      }
+      if (state.target && state.restoreVisibility !== undefined) {
+        try {
+          if (state.restoreVisibility === null) {
+            state.target.style.removeProperty('visibility');
+          } else {
+            state.target.style.visibility = state.restoreVisibility;
+          }
+        } catch (visibilityErr) {
+          console.error('Shared.makeEditable visibility restore error', visibilityErr);
+        }
+        state.restoreVisibility = undefined;
+        state.target = null;
+      }
       if (el && el.__inlineEditState === state) {
         try {
           delete el.__inlineEditState;
@@ -267,14 +342,21 @@
         overlay.style.display = 'inline-flex';
         overlay.style.alignItems = 'stretch';
         overlay.style.justifyContent = 'stretch';
+        overlay.style.pointerEvents = 'auto';
+        overlay.style.background = 'rgba(255,255,255,0.95)';
+        overlay.style.borderRadius = '4px';
+        overlay.style.overflow = 'hidden';
 
-        const targetWidth = Math.max(rect.width || 0, minWidth);
+        const widthPadding = Number.isFinite(options.inlineWidthPadding)
+          ? options.inlineWidthPadding
+          : 12;
+        const overlayWidth = Math.max(rect.width || 0, minWidth) + widthPadding;
         const targetHeight = Math.max(rect.height || 0, minHeight);
         const targetCenterX = rect.left + (rect.width || 0) / 2 + scrollLeft;
         const targetCenterY = rect.top + (rect.height || 0) / 2 + scrollTop;
-        overlay.style.width = `${targetWidth}px`;
+        overlay.style.width = `${overlayWidth}px`;
         overlay.style.height = `${targetHeight}px`;
-        overlay.style.left = `${targetCenterX - targetWidth / 2}px`;
+        overlay.style.left = `${targetCenterX - overlayWidth / 2}px`;
         overlay.style.top = `${targetCenterY - targetHeight / 2}px`;
 
         const input = ownerDocument.createElement(multiline ? 'textarea' : 'input');
@@ -308,9 +390,13 @@
         input.style.border = '1px solid #4a90e2';
         input.style.borderRadius = '4px';
         input.style.boxShadow = '0 0 0 2px rgba(74,144,226,0.35)';
-        input.style.padding = '0';
-        input.style.background = 'rgba(255,255,255,0.95)';
-        input.style.color = '#222';
+        input.style.padding = '0 6px';
+        input.style.background = 'transparent';
+        input.style.color = 'transparent';
+        input.style.textShadow = 'none';
+        input.style.caretColor = '#1a73e8';
+        input.style.position = 'relative';
+        input.style.zIndex = '2';
 
         overlay.appendChild(input);
         body.appendChild(overlay);
@@ -340,11 +426,16 @@
           styleMeta.styleMap
         );
 
+        const normalizedInitialStyleMap = Array.isArray(initialStyleMap)
+          ? initialStyleMap.slice()
+          : new Array(inlineInitialValue.length).fill(null);
+
         const state = {
           overlay,
           input,
           measure: measureNode,
           initialValue,
+          target: el || null,
           centerX: targetCenterX,
           centerY: targetCenterY,
           minWidth: Math.max(4, minWidth || 0),
@@ -354,12 +445,57 @@
           selection: null,
           stopDeferredCommitWatcher: null,
           inlineText: inlineInitialValue,
-          styleMap: Array.isArray(initialStyleMap)
-            ? initialStyleMap.slice()
-            : new Array(inlineInitialValue.length).fill(null),
+          styleMap: normalizedInitialStyleMap.slice(),
           usingInlineSegments: hasStyledCharacters(initialStyleMap),
           baseStyle: { ...(styleMeta.baseStyle || {}) },
+          widthPadding,
+          preview: null,
+          restoreVisibility: undefined,
+          initialText: inlineInitialValue,
+          initialStyleMap: normalizedInitialStyleMap,
         };
+
+        if (el && el.style) {
+          state.restoreVisibility = el.style.visibility || null;
+          try {
+            el.style.visibility = 'hidden';
+            logDebug('makeEditable inline target hidden', { tag: el.tagName || null });
+          } catch (hideErr) {
+            console.error('Shared.makeEditable hide target error', hideErr);
+          }
+        }
+
+        const preview = ownerDocument.createElement('div');
+        preview.className = 'inline-edit-preview';
+        preview.style.position = 'absolute';
+        preview.style.left = '0';
+        preview.style.top = '0';
+        preview.style.right = '0';
+        preview.style.bottom = '0';
+        preview.style.pointerEvents = 'none';
+        preview.style.display = 'flex';
+        preview.style.alignItems = 'center';
+        preview.style.justifyContent = (() => {
+          const anchor = el?.getAttribute?.('text-anchor');
+          if (anchor === 'end') { return 'flex-end'; }
+          if (anchor === 'middle') { return 'center'; }
+          if (anchor === 'start') { return 'flex-start'; }
+          const textAlign = computedStyle?.textAlign || 'left';
+          if (textAlign === 'right') { return 'flex-end'; }
+          if (textAlign === 'center') { return 'center'; }
+          return 'flex-start';
+        })();
+        preview.style.fontSize = input.style.fontSize;
+        preview.style.fontFamily = input.style.fontFamily;
+        preview.style.fontWeight = input.style.fontWeight;
+        preview.style.fontStyle = input.style.fontStyle;
+        preview.style.lineHeight = input.style.lineHeight;
+        preview.style.padding = '0 6px';
+        preview.style.whiteSpace = multiline ? 'pre-wrap' : 'pre';
+        preview.style.zIndex = '1';
+        overlay.appendChild(preview);
+        state.preview = preview;
+        renderStyledPreview(preview, inlineInitialValue, state.styleMap, state.baseStyle);
 
         state.usingInlineSegments = hasStyledCharacters(state.styleMap);
         if (!Array.isArray(state.styleMap)) {
@@ -380,6 +516,9 @@
           }
           state.usingInlineSegments = !forcePlain && hasStyledCharacters(state.styleMap);
           renderStyledText(el, textValue, state.styleMap);
+          if (state.preview) {
+            renderStyledPreview(state.preview, textValue, state.styleMap, state.baseStyle);
+          }
           logDebug('makeEditable inline render refresh', {
             forcePlain,
             length: textValue.length,
@@ -594,12 +733,13 @@
           }
           const nextWidth = Math.max(state.minWidth, measureRect?.width || 0);
           const nextHeight = Math.max(state.minHeight, measureRect?.height || 0);
-          overlay.style.width = `${nextWidth}px`;
+          const paddedWidth = nextWidth + (state.widthPadding || 0);
+          overlay.style.width = `${paddedWidth}px`;
           overlay.style.height = `${nextHeight}px`;
           if (multiline) {
             input.style.minHeight = `${Math.max(nextHeight, state.minHeight)}px`;
           }
-          overlay.style.left = `${state.centerX - nextWidth / 2}px`;
+          overlay.style.left = `${state.centerX - paddedWidth / 2}px`;
           overlay.style.top = `${state.centerY - nextHeight / 2}px`;
         };
 
@@ -622,6 +762,16 @@
         }
 
         function cancel(reason) {
+          if (state.target) {
+            const originalText = typeof state.initialText === 'string' ? state.initialText : (initialValue ?? '');
+            const originalMap = Array.isArray(state.initialStyleMap)
+              ? state.initialStyleMap.slice()
+              : new Array(originalText.length).fill(null);
+            renderStyledText(state.target, originalText, originalMap);
+            if (state.preview) {
+              renderStyledPreview(state.preview, originalText, originalMap, state.baseStyle);
+            }
+          }
           removeOverlay(state);
           logDebug('makeEditable cancel', { reason });
           safeCall(onEditEnd, [el, initialValue], 'Shared.makeEditable onEditEnd error');
@@ -666,6 +816,7 @@
         input.addEventListener('keydown', handleKeyDown);
         input.addEventListener('input', () => {
           state.updateInlineText(input.value ?? '');
+          state.refreshInlineRendering(false);
           syncSizeToContent();
         });
 
