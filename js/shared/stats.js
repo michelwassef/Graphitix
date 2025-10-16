@@ -198,6 +198,418 @@
     return adjusted;
   };
 
+  const CONTINUOUS_DISTRIBUTION_COLORS = {
+    normal: '#d95f02',
+    lognormal: '#1b9e77',
+    exponential: '#7570b3'
+  };
+
+  const SQRT_TWO = Math.sqrt(2);
+  const SQRT_TWO_PI = Math.sqrt(2 * Math.PI);
+
+  function erf(x){
+    const sign = x >= 0 ? 1 : -1;
+    const absX = Math.abs(x);
+    if(!Number.isFinite(absX)){ return sign; }
+    const p = 0.3275911;
+    const a1 = 0.254829592;
+    const a2 = -0.284496736;
+    const a3 = 1.421413741;
+    const a4 = -1.453152027;
+    const a5 = 1.061405429;
+    const t = 1 / (1 + p * absX);
+    const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX);
+    return sign * y;
+  }
+
+  function normalCdf(z){
+    if(!Number.isFinite(z)){ return z < 0 ? 0 : 1; }
+    return 0.5 * (1 + erf(z / SQRT_TWO));
+  }
+
+  function normalPdf(x, mean, sigma){
+    if(!Number.isFinite(x) || !Number.isFinite(mean) || !Number.isFinite(sigma) || sigma <= 0){ return 0; }
+    const z = (x - mean) / sigma;
+    return Math.exp(-0.5 * z * z) / (sigma * SQRT_TWO_PI);
+  }
+
+  function logNormalPdf(x, mu, sigma){
+    if(!Number.isFinite(x) || x <= 0 || !Number.isFinite(mu) || !Number.isFinite(sigma) || sigma <= 0){ return 0; }
+    const z = (Math.log(x) - mu) / sigma;
+    return Math.exp(-0.5 * z * z) / (x * sigma * SQRT_TWO_PI);
+  }
+
+  function logNormalCdf(x, mu, sigma){
+    if(!Number.isFinite(x) || x <= 0 || !Number.isFinite(mu) || !Number.isFinite(sigma) || sigma <= 0){ return 0; }
+    return normalCdf((Math.log(x) - mu) / sigma);
+  }
+
+  function exponentialPdf(x, lambda){
+    if(!Number.isFinite(x) || !Number.isFinite(lambda) || lambda <= 0){ return 0; }
+    if(x < 0){ return 0; }
+    return lambda * Math.exp(-lambda * x);
+  }
+
+  function exponentialCdf(x, lambda){
+    if(!Number.isFinite(x) || !Number.isFinite(lambda) || lambda <= 0){ return 0; }
+    if(x < 0){ return 0; }
+    return 1 - Math.exp(-lambda * x);
+  }
+
+  function kolmogorovPValue(d, n){
+    if(!Number.isFinite(d) || d <= 0 || !Number.isFinite(n) || n <= 0){
+      return 1;
+    }
+    const sqrtN = Math.sqrt(n);
+    const lambda = (sqrtN + 0.12 + 0.11 / sqrtN) * d;
+    let sum = 0;
+    for(let k = 1; k <= 100; k++){
+      const term = Math.exp(-2 * k * k * lambda * lambda);
+      const contribution = (k % 2 ? 1 : -1) * term;
+      sum += contribution;
+      if(term < 1e-10){
+        break;
+      }
+    }
+    const p = Math.max(0, Math.min(1, 2 * sum));
+    return p;
+  }
+
+  function andersonDarlingStatistic(sortedValues, cdf){
+    const n = Array.isArray(sortedValues) ? sortedValues.length : 0;
+    if(!n || typeof cdf !== 'function'){
+      return 0;
+    }
+    const epsilon = 1e-12;
+    let sum = 0;
+    for(let i = 0; i < n; i++){
+      const xLower = sortedValues[i];
+      const xUpper = sortedValues[n - 1 - i];
+      const Fi = clampUnit(cdf(xLower));
+      const FiClamped = Math.min(Math.max(Fi, epsilon), 1 - epsilon);
+      const FjRaw = clampUnit(cdf(xUpper));
+      const Fj = Math.min(Math.max(1 - FjRaw, epsilon), 1 - epsilon);
+      sum += (2 * (i + 1) - 1) * (Math.log(FiClamped) + Math.log(Fj));
+    }
+    return -n - (sum / n);
+  }
+
+  const AD_CRITICALS = {
+    normal: {
+      values: [0.576, 0.656, 0.787, 0.918, 1.092],
+      sigLevels: [0.15, 0.1, 0.05, 0.025, 0.01]
+    },
+    exponential: {
+      values: [0.922, 1.078, 1.341, 1.606, 1.957],
+      sigLevels: [0.15, 0.1, 0.05, 0.025, 0.01]
+    }
+  };
+
+  function adPValueNormal(adjusted){
+    const a = Math.max(0, adjusted);
+    if(a < 0.2){
+      return 1 - Math.exp(-13.436 + 101.14 * a - 223.73 * a * a);
+    }
+    if(a < 0.34){
+      return 1 - Math.exp(-8.318 + 42.796 * a - 59.938 * a * a);
+    }
+    if(a < 0.6){
+      return Math.exp(0.9177 - 4.279 * a - 1.38 * a * a);
+    }
+    const expo = 1.2937 - 5.709 * a + 0.0186 * a * a;
+    return Math.exp(Math.min(expo, 0));
+  }
+
+  function adPValueExponential(adjusted){
+    const a = Math.max(0, adjusted);
+    if(a < 0.3){
+      return 1 - Math.exp(-1.2937 + 5.709 * a - 0.0186 * a * a);
+    }
+    if(a < 0.6){
+      return Math.exp(0.9177 - 4.279 * a - 1.38 * a * a);
+    }
+    const expo = 1.2937 - 5.709 * a + 0.0186 * a * a;
+    return Math.exp(Math.min(expo, 0));
+  }
+
+  function interpolateAdPValue(value, config){
+    const thresholds = config.values;
+    const sig = config.sigLevels;
+    if(!thresholds.length){ return 1; }
+    if(value <= thresholds[0]){
+      const ratio = thresholds[0] ? value / thresholds[0] : 0;
+      const upper = 0.25;
+      const p = sig[0] + (upper - sig[0]) * (1 - ratio);
+      return clampUnit(p);
+    }
+    for(let i = 0; i < thresholds.length - 1; i++){
+      const start = thresholds[i];
+      const end = thresholds[i + 1];
+      if(value <= end){
+        const span = end - start || 1;
+        const t = (value - start) / span;
+        const p0 = sig[i];
+        const p1 = sig[i + 1];
+        return clampUnit(p0 + (p1 - p0) * t);
+      }
+    }
+    const lastThreshold = thresholds[thresholds.length - 1];
+    const lastSig = sig[sig.length - 1];
+    const tail = lastSig * Math.exp(-(value - lastThreshold));
+    return clampUnit(tail);
+  }
+
+  function andersonDarlingPValue(statistic, key, n){
+    if(!Number.isFinite(statistic) || statistic < 0 || !Number.isFinite(n) || n <= 0){
+      return 1;
+    }
+    const id = typeof key === 'string' ? key.toLowerCase() : '';
+    let adjusted = statistic;
+    if(id === 'exponential'){
+      adjusted = statistic * (1 + 0.6 / n);
+      const approx = adPValueExponential(adjusted);
+      const fallback = interpolateAdPValue(adjusted, AD_CRITICALS.exponential);
+      return clampUnit(Number.isFinite(approx) ? approx : fallback);
+    }
+    adjusted = statistic * (1 + 4 / n - 25 / (n * n));
+    const approx = adPValueNormal(adjusted);
+    const fallback = interpolateAdPValue(adjusted, AD_CRITICALS.normal);
+    return clampUnit(Number.isFinite(approx) ? approx : fallback);
+  }
+
+  const CONTINUOUS_DISTRIBUTIONS = {
+    normal: {
+      key: 'normal',
+      label: 'Normal',
+      color: CONTINUOUS_DISTRIBUTION_COLORS.normal,
+      fit(values){
+        let count = 0;
+        let sum = 0;
+        let sumSq = 0;
+        for(let i = 0; i < values.length; i++){
+          const v = values[i];
+          if(!Number.isFinite(v)){ continue; }
+          count += 1;
+          sum += v;
+          sumSq += v * v;
+        }
+        if(count < 2){
+          return { key: 'normal', label: 'Normal', valid: false, message: 'Need at least two numeric values.' };
+        }
+        const mean = sum / count;
+        const variance = Math.max(0, sumSq / count - mean * mean);
+        const sigma = Math.sqrt(variance);
+        const result = {
+          key: 'normal',
+          label: 'Normal',
+          color: CONTINUOUS_DISTRIBUTION_COLORS.normal,
+          valid: sigma > 0,
+          params: { mu: mean, sigma, variance },
+          paramOrder: ['mu', 'sigma', 'variance'],
+          warnings: [],
+          logLikelihood: Number.isFinite(variance) && variance > 0 ? (-0.5 * count * (Math.log(2 * Math.PI * variance) + 1)) : NaN
+        };
+        if(!result.valid){
+          result.message = 'Variance is zero; unable to fit a normal distribution.';
+          result.warnings.push(result.message);
+        }
+        result.pdf = x => sigma > 0 ? normalPdf(x, mean, sigma) : 0;
+        result.cdf = x => sigma > 0 ? normalCdf((x - mean) / sigma) : (x < mean ? 0 : 1);
+        return result;
+      }
+    },
+    lognormal: {
+      key: 'lognormal',
+      label: 'Log-normal',
+      color: CONTINUOUS_DISTRIBUTION_COLORS.lognormal,
+      fit(values){
+        let count = 0;
+        let logSum = 0;
+        let logSumSq = 0;
+        let invalid = 0;
+        for(let i = 0; i < values.length; i++){
+          const v = values[i];
+          if(!Number.isFinite(v) || v <= 0){
+            invalid += 1;
+            continue;
+          }
+          const logVal = Math.log(v);
+          count += 1;
+          logSum += logVal;
+          logSumSq += logVal * logVal;
+        }
+        if(count < 2){
+          return { key: 'lognormal', label: 'Log-normal', valid: false, message: 'Need at least two positive values.' };
+        }
+        const mu = logSum / count;
+        const varianceLog = Math.max(0, logSumSq / count - mu * mu);
+        const sigma = Math.sqrt(varianceLog);
+        const mean = Math.exp(mu + varianceLog / 2);
+        const median = Math.exp(mu);
+        const result = {
+          key: 'lognormal',
+          label: 'Log-normal',
+          color: CONTINUOUS_DISTRIBUTION_COLORS.lognormal,
+          valid: sigma > 0,
+          params: { mu, sigma, mean, median },
+          paramOrder: ['mu', 'sigma', 'mean', 'median'],
+          warnings: [],
+          logLikelihood: sigma > 0
+            ? (-count * (Math.log(sigma) + 0.5 * Math.log(2 * Math.PI)) - logSum - count / 2)
+            : NaN
+        };
+        if(invalid > 0){
+          result.warnings.push(`${invalid} value${invalid === 1 ? '' : 's'} ignored (non-positive).`);
+        }
+        if(!result.valid){
+          result.message = 'Log-scale variance is zero; unable to fit a log-normal distribution.';
+          result.warnings.push(result.message);
+        }
+        result.pdf = x => sigma > 0 ? logNormalPdf(x, mu, sigma) : 0;
+        result.cdf = x => sigma > 0 ? logNormalCdf(x, mu, sigma) : (x < median ? 0 : 1);
+        return result;
+      }
+    },
+    exponential: {
+      key: 'exponential',
+      label: 'Exponential',
+      color: CONTINUOUS_DISTRIBUTION_COLORS.exponential,
+      fit(values){
+        let count = 0;
+        let sum = 0;
+        let invalid = 0;
+        for(let i = 0; i < values.length; i++){
+          const v = values[i];
+          if(!Number.isFinite(v) || v < 0){
+            invalid += 1;
+            continue;
+          }
+          count += 1;
+          sum += v;
+        }
+        if(!count){
+          return { key: 'exponential', label: 'Exponential', valid: false, message: 'No non-negative values supplied.' };
+        }
+        const mean = sum / count;
+        const lambda = mean > 0 ? 1 / mean : 0;
+        const result = {
+          key: 'exponential',
+          label: 'Exponential',
+          color: CONTINUOUS_DISTRIBUTION_COLORS.exponential,
+          valid: lambda > 0,
+          params: { lambda, mean },
+          paramOrder: ['lambda', 'mean'],
+          warnings: [],
+          logLikelihood: lambda > 0 ? (count * Math.log(lambda) - lambda * sum) : NaN
+        };
+        if(invalid > 0){
+          result.warnings.push(`${invalid} value${invalid === 1 ? '' : 's'} ignored (negative or invalid).`);
+        }
+        if(!result.valid){
+          result.message = 'Mean is zero; unable to fit an exponential distribution.';
+          result.warnings.push(result.message);
+        }
+        result.pdf = x => lambda > 0 ? exponentialPdf(x, lambda) : 0;
+        result.cdf = x => lambda > 0 ? exponentialCdf(x, lambda) : (x < 0 ? 0 : 1);
+        return result;
+      }
+    }
+  };
+
+  stats.listContinuousDistributions = function listContinuousDistributions(){
+    return Object.values(CONTINUOUS_DISTRIBUTIONS).map(entry => ({
+      key: entry.key,
+      label: entry.label,
+      color: entry.color
+    }));
+  };
+
+  stats.fitDistribution = function fitDistribution(values, options){
+    const list = Array.isArray(values) ? values : [];
+    const keyRaw = options?.distribution || options?.type || options?.key || '';
+    const key = typeof keyRaw === 'string' ? keyRaw.toLowerCase() : '';
+    const def = CONTINUOUS_DISTRIBUTIONS[key];
+    if(!def){
+      console.warn('stats.fitDistribution unknown distribution',{ distribution: keyRaw });
+      return null;
+    }
+    try{
+      const result = def.fit(list);
+      return result;
+    }catch(err){
+      console.error('stats.fitDistribution error',{ distribution: key, message: err?.message });
+      return { key, label: def.label, valid: false, message: err?.message || 'Fit failed.' };
+    }
+  };
+
+  stats.goodnessOfFit = function goodnessOfFit(values, options){
+    const keyRaw = options?.distribution || options?.fit?.key || '';
+    const key = typeof keyRaw === 'string' ? keyRaw.toLowerCase() : '';
+    const def = CONTINUOUS_DISTRIBUTIONS[key];
+    if(!def){
+      console.warn('stats.goodnessOfFit unknown distribution',{ distribution: keyRaw });
+      return null;
+    }
+    const data = Array.isArray(values) ? values.filter(v => Number.isFinite(v)) : [];
+    if(!data.length){
+      return null;
+    }
+    const sorted = data.slice().sort((a,b)=>a-b);
+    const alpha = Number.isFinite(options?.alpha) && options.alpha > 0 ? options.alpha : 0.05;
+    const params = options?.params || options?.fit?.params || {};
+    const fit = options?.fit || null;
+    const pdf = typeof options?.pdf === 'function' ? options.pdf : fit?.pdf;
+    const cdfCandidate = typeof options?.cdf === 'function' ? options.cdf : fit?.cdf;
+    const cdf = typeof cdfCandidate === 'function'
+      ? cdfCandidate
+      : (key === 'normal'
+        ? (x => normalCdf((x - params.mu) / params.sigma))
+        : key === 'lognormal'
+          ? (x => logNormalCdf(x, params.mu, params.sigma))
+          : key === 'exponential'
+            ? (x => exponentialCdf(x, params.lambda))
+            : null);
+    if(typeof cdf !== 'function'){
+      console.warn('stats.goodnessOfFit missing cdf function',{ distribution: key });
+      return null;
+    }
+    const ksStat = (()=>{
+      let maxDiff = 0;
+      for(let i=0;i<sorted.length;i++){
+        const x=sorted[i];
+        const Fi = clampUnit(cdf(x));
+        const empiricalUpper = (i + 1) / sorted.length;
+        const empiricalLower = i / sorted.length;
+        const diff = Math.max(Math.abs(Fi - empiricalUpper), Math.abs(Fi - empiricalLower));
+        if(diff > maxDiff){ maxDiff = diff; }
+      }
+      return maxDiff;
+    })();
+    const ksP = kolmogorovPValue(ksStat, sorted.length);
+    const adStat = andersonDarlingStatistic(sorted, cdf);
+    const adP = andersonDarlingPValue(adStat, key, sorted.length);
+    const ksReject = ksP < alpha;
+    const adReject = adP < alpha;
+    return {
+      alpha,
+      n: sorted.length,
+      pdf: pdf || null,
+      cdf,
+      ks: {
+        statistic: ksStat,
+        pValue: ksP,
+        reject: ksReject,
+        decision: ksReject ? 'Reject H₀' : 'Fail to reject H₀'
+      },
+      ad: {
+        statistic: adStat,
+        pValue: adP,
+        reject: adReject,
+        decision: adReject ? 'Reject H₀' : 'Fail to reject H₀'
+      }
+    };
+  };
+
   function createLogFactorialCache(){
     return {
       values: [0],
