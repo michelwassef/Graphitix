@@ -293,6 +293,22 @@
         state.preview.remove();
         state.preview = null;
       }
+      if (state.safePointerdownHandler) {
+        try {
+          ownerDocument.removeEventListener('pointerdown', state.safePointerdownHandler, true);
+        } catch (removePointerErr) {
+          console.error('Shared.makeEditable safe pointer handler cleanup error', removePointerErr);
+        }
+        state.safePointerdownHandler = null;
+      }
+      if (state.safePointerdownResetTimer) {
+        try {
+          ownerWindow.clearTimeout(state.safePointerdownResetTimer);
+        } catch (timerErr) {
+          console.error('Shared.makeEditable safe pointer timer cleanup error', timerErr);
+        }
+        state.safePointerdownResetTimer = null;
+      }
       if (state.target && state.restoreVisibility !== undefined) {
         try {
           if (state.restoreVisibility === null) {
@@ -453,6 +469,11 @@
           restoreVisibility: undefined,
           initialText: inlineInitialValue,
           initialStyleMap: normalizedInitialStyleMap,
+          preventCollapsedSelectionOverwrite: false,
+          safePointerdownHandler: null,
+          pendingSafeFocus: false,
+          lastSafePointerTarget: null,
+          safePointerdownResetTimer: null,
         };
 
         if (el && el.style) {
@@ -631,6 +652,7 @@
           if (typeof node.closest === 'function') {
             if (node.closest('.inline-edit-overlay')) { return true; }
             if (node.closest('.font-controls-panel')) { return true; }
+            if (node.closest('[data-font-controls-overlay="1"]')) { return true; }
           }
           if (node.dataset && node.dataset.fontControlsOverlay === '1') {
             return true;
@@ -638,14 +660,25 @@
           return false;
         };
 
-        const rememberSelection = () => {
+        const rememberSelection = (opts) => {
           if (!input) { return; }
+          const options = (opts && typeof opts === 'object' && !Array.isArray(opts)) ? opts : {};
           try {
             const start = input.selectionStart;
             const end = input.selectionEnd;
-            if (Number.isInteger(start) && Number.isInteger(end)) {
-              state.selection = { start, end };
+            if (!Number.isInteger(start) || !Number.isInteger(end)) {
+              return;
             }
+            const isCollapsed = start === end;
+            if (options.skipCollapsed && isCollapsed) {
+              const prev = state.selection;
+              if (prev && Number.isInteger(prev.start) && Number.isInteger(prev.end) && prev.end > prev.start) {
+                logDebug('makeEditable selection collapse ignored', { start, end, reason: options.reason || 'skip-collapsed' });
+                return;
+              }
+            }
+            state.selection = { start, end };
+            logDebug('makeEditable selection stored', { start, end, collapsed: isCollapsed });
           } catch (selectionErr) {
             console.error('Shared.makeEditable selection capture error', selectionErr);
           }
@@ -695,11 +728,55 @@
             }
           }
           state.shouldRestoreSelection = false;
+          state.pendingSafeFocus = false;
+          state.lastSafePointerTarget = null;
         };
 
-        input.addEventListener('select', rememberSelection);
-        input.addEventListener('keyup', rememberSelection);
-        input.addEventListener('mouseup', rememberSelection);
+        const handleSafePointerDown = (evt) => {
+          const target = evt?.target || null;
+          if (!target || target === input || (input && input.contains(target))) {
+            return;
+          }
+          if (!isSafeFocusTarget(target)) {
+            return;
+          }
+          state.preventCollapsedSelectionOverwrite = true;
+          state.pendingSafeFocus = true;
+          state.lastSafePointerTarget = target;
+          if (state.safePointerdownResetTimer) {
+            try {
+              ownerWindow.clearTimeout(state.safePointerdownResetTimer);
+            } catch (clearErr) {
+              console.error('Shared.makeEditable safe pointer timer clear error', clearErr);
+            }
+            state.safePointerdownResetTimer = null;
+          }
+          rememberSelection({ skipCollapsed: true, reason: 'safe-pointerdown' });
+          state.shouldRestoreSelection = true;
+          startDeferredCommitWatcher();
+          ownerWindow.setTimeout(() => {
+            state.preventCollapsedSelectionOverwrite = false;
+          }, 0);
+          state.safePointerdownResetTimer = ownerWindow.setTimeout(() => {
+            state.pendingSafeFocus = false;
+            state.lastSafePointerTarget = null;
+            state.safePointerdownResetTimer = null;
+          }, 250);
+        };
+
+        try {
+          ownerDocument.addEventListener('pointerdown', handleSafePointerDown, true);
+          state.safePointerdownHandler = handleSafePointerDown;
+        } catch (safePointerErr) {
+          console.error('Shared.makeEditable safe pointer handler error', safePointerErr);
+        }
+
+        input.addEventListener('select', () => rememberSelection({
+          skipCollapsed: state.preventCollapsedSelectionOverwrite === true,
+          reason: 'select',
+        }));
+        input.addEventListener('keyup', () => rememberSelection());
+        input.addEventListener('mouseup', () => rememberSelection());
         input.addEventListener('focus', restoreSelectionIfNeeded);
 
         const fontControlsApi = (Shared && Shared.fontControls) || ownerWindow?.Shared?.fontControls || null;
@@ -778,17 +855,34 @@
         }
 
         const handleBlur = (evt) => {
+          rememberSelection({ skipCollapsed: true, reason: 'blur' });
           const relatedTarget = evt?.relatedTarget || null;
           ownerWindow.setTimeout(() => {
             if (!state.input) { return; }
             const activeAfterBlur = ownerDocument.activeElement;
-            const focusCandidate = relatedTarget || activeAfterBlur;
-            if (isSafeFocusTarget(focusCandidate)) {
-              rememberSelection();
+            const focusCandidate = relatedTarget || activeAfterBlur || state.lastSafePointerTarget || null;
+            const pendingSafe = state.pendingSafeFocus === true;
+            const isSafe = isSafeFocusTarget(focusCandidate);
+            if (pendingSafe || isSafe) {
+              rememberSelection({ skipCollapsed: true, reason: 'safe-blur' });
               state.shouldRestoreSelection = true;
               startDeferredCommitWatcher();
+              state.pendingSafeFocus = false;
+              state.lastSafePointerTarget = null;
+              if (state.safePointerdownResetTimer) {
+                try {
+                  ownerWindow.clearTimeout(state.safePointerdownResetTimer);
+                } catch (clearErr) {
+                  console.error('Shared.makeEditable safe pointer timer clear error', clearErr);
+                }
+                state.safePointerdownResetTimer = null;
+              }
               logDebug('makeEditable blur deferred', {
-                reason: focusCandidate?.dataset?.fontControlsOverlay === '1' ? 'color-picker' : 'font-controls',
+                reason: (() => {
+                  if (focusCandidate?.dataset?.fontControlsOverlay === '1') { return 'color-picker'; }
+                  if (pendingSafe && !isSafe) { return 'safe-pointerdown'; }
+                  return 'font-controls';
+                })(),
                 tag: focusCandidate?.tagName || null
               });
               return;

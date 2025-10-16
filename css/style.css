@@ -1739,6 +1739,16 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     font-family: 'Inter', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
+.inline-edit-input::selection {
+    background: rgba(74, 144, 226, 0.28);
+    color: transparent;
+}
+
+.inline-edit-input::-moz-selection {
+    background: rgba(74, 144, 226, 0.28);
+    color: transparent;
+}
+
 .inline-edit-measure {
     position: absolute;
     visibility: hidden;
