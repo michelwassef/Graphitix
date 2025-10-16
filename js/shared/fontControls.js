@@ -400,6 +400,18 @@
     logDebug('anchored toolbar check', { trigger, hostScope });
   }
 
+  function exitFloatingMode(meta){
+    if(!panelEl){ return; }
+    panelEl.classList.remove('font-controls-panel--floating');
+    panelEl.style.removeProperty('transform');
+    panelEl.style.removeProperty('left');
+    panelEl.style.removeProperty('top');
+    logDebug('floating mode exited', {
+      trigger: meta?.trigger || 'close',
+      anchored: !!activeHost
+    });
+  }
+
   function clampFontSizeDuringInput(value){
     if(value === null || typeof value === 'undefined'){ return ''; }
     const raw = String(value);
