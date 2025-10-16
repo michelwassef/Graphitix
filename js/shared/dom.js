@@ -154,6 +154,20 @@
     if (fontFamily) { node.style.fontFamily = fontFamily; } else { node.style.removeProperty('font-family'); }
     const fontSize = styleEntry?.fontSize || baseStyle.fontSize || '';
     if (fontSize) { node.style.fontSize = fontSize; } else { node.style.removeProperty('font-size'); }
+    const baselineShift = styleEntry?.baselineShift || baseStyle.baselineShift || '';
+    if (baselineShift === 'sub') {
+      node.style.position = 'relative';
+      node.style.top = '0.35em';
+      node.style.verticalAlign = 'sub';
+    } else if (baselineShift === 'super') {
+      node.style.position = 'relative';
+      node.style.top = '-0.35em';
+      node.style.verticalAlign = 'super';
+    } else {
+      node.style.removeProperty('position');
+      node.style.removeProperty('top');
+      node.style.removeProperty('vertical-align');
+    }
   };
 
   const renderStyledPreview = (container, textValue, styleMap, baseStyle = {}) => {
@@ -239,6 +253,35 @@
       }
       index = end;
     }
+  };
+
+  const syncBaseStyleAttributes = (targetEl, baseStyle) => {
+    if (!targetEl || typeof targetEl.setAttribute !== 'function') { return; }
+    const source = (baseStyle && typeof baseStyle === 'object') ? baseStyle : null;
+    const activeKeys = [];
+    for (let i = 0; i < STYLE_PROPS.length; i += 1) {
+      const prop = STYLE_PROPS[i];
+      const raw = source ? source[prop.key] : null;
+      const value = raw !== undefined && raw !== null && raw !== '' ? raw : null;
+      if (value === null) {
+        try {
+          targetEl.removeAttribute(prop.attr);
+        } catch (attrErr) {
+          console.error('Shared.makeEditable base style remove error', attrErr);
+        }
+      } else {
+        try {
+          targetEl.setAttribute(prop.attr, value);
+          activeKeys.push(prop.key);
+        } catch (attrErr) {
+          console.error('Shared.makeEditable base style apply error', attrErr);
+        }
+      }
+    }
+    logDebug('makeEditable base style synced', {
+      hasBase: !!source,
+      keys: activeKeys
+    });
   };
 
   function makeEditable(el, onChange, options = {}) {
@@ -537,6 +580,7 @@
           }
           state.usingInlineSegments = !forcePlain && hasStyledCharacters(state.styleMap);
           renderStyledText(el, textValue, state.styleMap);
+          syncBaseStyleAttributes(el, state.baseStyle);
           if (state.preview) {
             renderStyledPreview(state.preview, textValue, state.styleMap, state.baseStyle);
           }
@@ -571,34 +615,79 @@
           if (!info.hasSelection) {
             return { handled: false };
           }
-          if (info.isFullRange) {
-            return { handled: false, entire: true, range: { start: info.start, end: info.end } };
+          const keys = Object.keys(patch);
+          if (keys.length === 0) {
+            return { handled: false, entire: info.isFullRange, range: { start: info.start, end: info.end } };
           }
           const map = Array.isArray(state.styleMap)
             ? state.styleMap.slice()
             : new Array(state.inlineText.length).fill(null);
-          const keys = Object.keys(patch);
+          let changed = false;
           for (let idx = info.start; idx < info.end; idx += 1) {
-            const currentEntry = map[idx] ? { ...map[idx] } : {};
+            const existing = map[idx];
+            const currentEntry = existing ? { ...existing } : {};
             keys.forEach(key => {
               const value = patch[key];
               if (value === null || value === '' || typeof value === 'undefined') {
-                delete currentEntry[key];
-              } else {
+                if (Object.prototype.hasOwnProperty.call(currentEntry, key)) {
+                  delete currentEntry[key];
+                  changed = true;
+                }
+              } else if (currentEntry[key] !== value) {
                 currentEntry[key] = value;
+                changed = true;
               }
             });
-            map[idx] = Object.keys(currentEntry).length ? currentEntry : null;
+            const nextKeys = Object.keys(currentEntry);
+            const nextEntry = nextKeys.length ? currentEntry : null;
+            if (nextEntry === null && existing) {
+              changed = true;
+            } else if (nextEntry && !existing) {
+              changed = true;
+            } else if (nextEntry && existing) {
+              const existingKeys = Object.keys(existing);
+              if (existingKeys.length !== nextKeys.length) {
+                changed = true;
+              } else {
+                for (let i = 0; i < existingKeys.length; i += 1) {
+                  const key = existingKeys[i];
+                  if (existing[key] !== nextEntry[key]) {
+                    changed = true;
+                    break;
+                  }
+                }
+              }
+            }
+            map[idx] = nextEntry;
+          }
+          if (!changed) {
+            return { handled: false, entire: info.isFullRange, range: { start: info.start, end: info.end } };
           }
           state.styleMap = map;
           state.usingInlineSegments = hasStyledCharacters(map);
+          if (info.isFullRange && state.baseStyle && typeof state.baseStyle === 'object') {
+            keys.forEach(key => {
+              const value = patch[key];
+              if (value === null || value === '' || typeof value === 'undefined') {
+                state.baseStyle[key] = null;
+              } else {
+                state.baseStyle[key] = value;
+              }
+            });
+          }
           refreshInlineRendering(false);
           logDebug('makeEditable inline selection style applied', {
             patchKeys: keys,
             range: { start: info.start, end: info.end },
             hasStyles: state.usingInlineSegments,
+            fullRange: info.isFullRange,
           });
-          return { handled: true, partial: true, range: { start: info.start, end: info.end } };
+          return {
+            handled: true,
+            partial: !info.isFullRange,
+            entire: info.isFullRange,
+            range: { start: info.start, end: info.end },
+          };
         };
 
         const resetStyleMapToBase = () => {
@@ -829,6 +918,7 @@
             state.refreshInlineRendering(false);
           } else {
             safeCall(applyValueDelegate, [el, finalValue], 'Shared.makeEditable applyValue error');
+            syncBaseStyleAttributes(el, state.baseStyle);
           }
           removeOverlay(state);
           logDebug('makeEditable commit', { finalValue, reason, prevLength: prevText.length });
