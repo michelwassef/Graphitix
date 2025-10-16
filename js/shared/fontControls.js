@@ -188,14 +188,10 @@
         return { handled: false };
       }
       if(selectionInfo.isFullRange){
-        if(typeof inlineState.resetStyleMapToBase === 'function'){
-          inlineState.resetStyleMapToBase();
-        }
         logDebug('inline selection full range detected', {
           meta,
           length: selectionInfo.length
         });
-        return { handled: false, entire: true };
       }
     }
     if(typeof inlineState.applyStylePatchToSelection === 'function'){
