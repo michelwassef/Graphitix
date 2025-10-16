@@ -42,6 +42,124 @@
     return true;
   };
 
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  const scaleFontSizeValue = (value, scale) => {
+    if (!value) { return value; }
+    const numericScale = Number(scale);
+    if (!Number.isFinite(numericScale) || numericScale <= 0 || Math.abs(numericScale - 1) < 0.0001) {
+      return value;
+    }
+    const raw = `${value}`.trim();
+    if (!raw) { return value; }
+    const numeric = Number.parseFloat(raw);
+    if (!Number.isFinite(numeric)) { return value; }
+    const unitMatch = raw.match(/[a-z%]+$/i);
+    const unit = unitMatch ? unitMatch[0] : 'px';
+    const scaled = numeric * numericScale;
+    return `${scaled}${unit}`;
+  };
+
+  const SCRIPT_FONT_SCALE = 0.75;
+  const DEFAULT_SCRIPT_FONT_SIZE = `${SCRIPT_FONT_SCALE}em`;
+
+  const deriveScriptFontSize = (sourceSize) => {
+    const scaled = scaleFontSizeValue(sourceSize, SCRIPT_FONT_SCALE);
+    if (scaled && scaled !== sourceSize) {
+      return scaled;
+    }
+    return DEFAULT_SCRIPT_FONT_SIZE;
+  };
+
+  const SUB_BASELINE_SHIFT = 0.35;
+  const SUPER_BASELINE_SHIFT = 0.35;
+
+  const parseFontSizeValue = (value) => {
+    if (!value) { return null; }
+    const trimmed = `${value}`.trim();
+    if (!trimmed) { return null; }
+    const match = trimmed.match(/^(-?\d*\.?\d+)([a-z%]*)$/i);
+    if (!match) { return null; }
+    const numeric = Number.parseFloat(match[1]);
+    if (!Number.isFinite(numeric)) { return null; }
+    const unit = match[2] || '';
+    return { numeric, unit };
+  };
+
+  const computeFontScale = (childSize, baseSize) => {
+    const child = parseFontSizeValue(childSize);
+    const base = parseFontSizeValue(baseSize);
+    if (!child || !base) { return null; }
+    if (child.unit !== base.unit) { return null; }
+    if (Math.abs(base.numeric) < 0.0001) { return null; }
+    return child.numeric / base.numeric;
+  };
+
+  const formatEm = (value) => {
+    if (!Number.isFinite(value)) { return '0em'; }
+    const rounded = Math.round(value * 1000) / 1000;
+    return `${rounded}em`;
+  };
+
+  const scaleLineHeightValue = (value, scale) => {
+    if (!value) { return value; }
+    const numericScale = Number(scale);
+    if (!Number.isFinite(numericScale) || numericScale <= 0 || Math.abs(numericScale - 1) < 0.0001) {
+      return value;
+    }
+    const raw = `${value}`.trim();
+    if (!raw || raw === 'normal') { return value; }
+    const numeric = Number.parseFloat(raw);
+    if (!Number.isFinite(numeric)) { return value; }
+    const unitMatch = raw.match(/[a-z%]+$/i);
+    if (!unitMatch) { return value; }
+    const scaled = numeric * numericScale;
+    return `${scaled}${unitMatch[0]}`;
+  };
+
+  const computeSvgDisplayScale = (node, rect) => {
+    if (!node || node.namespaceURI !== SVG_NS) { return 1; }
+    const candidates = [];
+    let hasCtm = false;
+    try {
+      if (typeof node.getScreenCTM === 'function') {
+        const ctm = node.getScreenCTM();
+        if (ctm) {
+          const scaleX = Math.sqrt((ctm.a || 0) ** 2 + (ctm.b || 0) ** 2);
+          const scaleY = Math.sqrt((ctm.c || 0) ** 2 + (ctm.d || 0) ** 2);
+          if (Number.isFinite(scaleX) && scaleX > 0) { candidates.push(scaleX); }
+          if (Number.isFinite(scaleY) && scaleY > 0) { candidates.push(scaleY); }
+          hasCtm = true;
+        }
+      }
+    } catch (ctmErr) {
+      console.error('Shared.makeEditable screen CTM error', ctmErr);
+    }
+    if (candidates.length === 0 && rect) {
+      try {
+        if (typeof node.getBBox === 'function') {
+          const bbox = node.getBBox();
+          if (bbox) {
+            if (Number.isFinite(rect.width) && Number.isFinite(bbox.width) && bbox.width > 0) {
+              candidates.push(rect.width / bbox.width);
+            }
+            if (Number.isFinite(rect.height) && Number.isFinite(bbox.height) && bbox.height > 0) {
+              candidates.push(rect.height / bbox.height);
+            }
+          }
+        }
+      } catch (bboxErr) {
+        console.error('Shared.makeEditable bbox scale error', bboxErr);
+      }
+    }
+    const valid = candidates.filter(val => Number.isFinite(val) && val > 0);
+    if (!valid.length) { return 1; }
+    const sum = valid.reduce((acc, val) => acc + val, 0);
+    const scale = sum / valid.length;
+    logDebug('makeEditable svg scale derived', { scale, hasCtm, candidates: valid });
+    return Number.isFinite(scale) && scale > 0 ? scale : 1;
+  };
+
   const hasStyledCharacters = (styleMap) => {
     if (!Array.isArray(styleMap)) { return false; }
     for (let i = 0; i < styleMap.length; i += 1) {
@@ -136,7 +254,7 @@
     return prefixStyles.concat(insertedStyles, suffixStyles);
   };
 
-  const applyPreviewStyles = (node, styleEntry = null, baseStyle = {}, fallbackColor = '#222') => {
+  const applyPreviewStyles = (node, styleEntry = null, baseStyle = {}, fallbackColor = '#222', scale = 1) => {
     if (!node || !node.style) { return; }
     const color = styleEntry?.fill || styleEntry?.color || baseStyle.fill || baseStyle.color || fallbackColor;
     if (color) {
@@ -152,16 +270,45 @@
     if (textDecoration) { node.style.textDecoration = textDecoration; } else { node.style.removeProperty('text-decoration'); }
     const fontFamily = styleEntry?.fontFamily || baseStyle.fontFamily || '';
     if (fontFamily) { node.style.fontFamily = fontFamily; } else { node.style.removeProperty('font-family'); }
-    const fontSize = styleEntry?.fontSize || baseStyle.fontSize || '';
-    if (fontSize) { node.style.fontSize = fontSize; } else { node.style.removeProperty('font-size'); }
+    const baseFontSize = baseStyle.fontSize || '';
+    const entryFontSize = styleEntry?.fontSize || '';
     const baselineShift = styleEntry?.baselineShift || baseStyle.baselineShift || '';
+    const isScript = baselineShift === 'sub' || baselineShift === 'super';
+    let rawFontSize = entryFontSize || baseFontSize || '';
+    let scriptScaleFactor = 1;
+    if (isScript) {
+      const normalizedEntrySize = entryFontSize && entryFontSize.trim();
+      const normalizedBaseSize = baseFontSize && baseFontSize.trim();
+      if (normalizedEntrySize && normalizedBaseSize) {
+        const derivedScale = computeFontScale(normalizedEntrySize, normalizedBaseSize);
+        if (Number.isFinite(derivedScale) && derivedScale > 0) {
+          scriptScaleFactor = derivedScale;
+        } else {
+          scriptScaleFactor = SCRIPT_FONT_SCALE;
+        }
+      } else if (normalizedEntrySize) {
+        scriptScaleFactor = SCRIPT_FONT_SCALE;
+      } else if (normalizedBaseSize) {
+        scriptScaleFactor = SCRIPT_FONT_SCALE;
+        rawFontSize = deriveScriptFontSize(baseFontSize);
+      } else {
+        scriptScaleFactor = SCRIPT_FONT_SCALE;
+        rawFontSize = DEFAULT_SCRIPT_FONT_SIZE;
+      }
+    }
+    const fontSize = rawFontSize
+      ? (scaleFontSizeValue(rawFontSize, scale) || rawFontSize)
+      : '';
+    if (fontSize) { node.style.fontSize = fontSize; } else { node.style.removeProperty('font-size'); }
     if (baselineShift === 'sub') {
       node.style.position = 'relative';
-      node.style.top = '0.35em';
+      const shift = SUB_BASELINE_SHIFT / (scriptScaleFactor || 1);
+      node.style.top = formatEm(shift);
       node.style.verticalAlign = 'sub';
     } else if (baselineShift === 'super') {
       node.style.position = 'relative';
-      node.style.top = '-0.35em';
+      const shift = SUPER_BASELINE_SHIFT / (scriptScaleFactor || 1);
+      node.style.top = formatEm(-shift);
       node.style.verticalAlign = 'super';
     } else {
       node.style.removeProperty('position');
@@ -170,12 +317,13 @@
     }
   };
 
-  const renderStyledPreview = (container, textValue, styleMap, baseStyle = {}) => {
+  const renderStyledPreview = (container, textValue, styleMap, baseStyle = {}, options = {}) => {
     if (!container) { return; }
     while (container.firstChild) {
       container.removeChild(container.firstChild);
     }
     const doc = container.ownerDocument || global.document;
+    const scale = Number.isFinite(options?.scale) && options.scale > 0 ? options.scale : 1;
     if (!textValue) {
       return;
     }
@@ -183,7 +331,7 @@
     const hasStyles = hasStyledCharacters(styleMap);
     if (!hasStyles) {
       const span = doc.createElement('span');
-      applyPreviewStyles(span, null, baseStyle, fallbackColor);
+      applyPreviewStyles(span, null, baseStyle, fallbackColor, scale);
       span.textContent = textValue;
       container.appendChild(span);
       return;
@@ -201,7 +349,7 @@
         continue;
       }
       const span = doc.createElement('span');
-      applyPreviewStyles(span, styleEntry || null, baseStyle, fallbackColor);
+      applyPreviewStyles(span, styleEntry || null, baseStyle, fallbackColor, scale);
       span.textContent = segmentText;
       container.appendChild(span);
       index = end;
@@ -418,6 +566,12 @@
         overlay.style.left = `${targetCenterX - overlayWidth / 2}px`;
         overlay.style.top = `${targetCenterY - targetHeight / 2}px`;
 
+        const displayScale = computeSvgDisplayScale(el, rect);
+        logDebug('makeEditable font overlay scale', {
+          scale: displayScale,
+          isSvg: el?.namespaceURI === SVG_NS,
+        });
+
         const input = ownerDocument.createElement(multiline ? 'textarea' : 'input');
         input.className = 'inline-edit-input';
         Object.keys(inputProps || {}).forEach(key => {
@@ -440,12 +594,16 @@
         } catch (styleErr) {
           console.error('Shared.makeEditable computed style error', styleErr);
         }
-        input.style.fontSize = computedStyle?.fontSize || '14px';
+        const rawFontSize = computedStyle?.fontSize || '14px';
+        const overlayFontSize = scaleFontSizeValue(rawFontSize, displayScale) || rawFontSize || '14px';
+        const rawLineHeight = computedStyle?.lineHeight || '1.2';
+        const overlayLineHeight = scaleLineHeightValue(rawLineHeight, displayScale) || rawLineHeight || '1.2';
+        input.style.fontSize = overlayFontSize;
         input.style.fontFamily = computedStyle?.fontFamily || 'inherit';
         input.style.fontWeight = computedStyle?.fontWeight || '600';
         input.style.fontStyle = computedStyle?.fontStyle || 'normal';
         input.style.textDecoration = computedStyle?.textDecoration || 'none';
-        input.style.lineHeight = computedStyle?.lineHeight || '1.2';
+        input.style.lineHeight = overlayLineHeight;
         input.style.border = '1px solid #4a90e2';
         input.style.borderRadius = '4px';
         input.style.boxShadow = '0 0 0 2px rgba(74,144,226,0.35)';
@@ -465,12 +623,12 @@
         measureNode.style.position = 'absolute';
         measureNode.style.visibility = 'hidden';
         measureNode.style.whiteSpace = multiline ? 'pre-wrap' : 'pre';
-        measureNode.style.fontSize = input.style.fontSize;
+        measureNode.style.fontSize = overlayFontSize;
         measureNode.style.fontFamily = input.style.fontFamily;
         measureNode.style.fontWeight = input.style.fontWeight;
         measureNode.style.fontStyle = input.style.fontStyle;
         measureNode.style.textDecoration = input.style.textDecoration;
-        measureNode.style.lineHeight = input.style.lineHeight;
+        measureNode.style.lineHeight = overlayLineHeight;
         measureNode.style.pointerEvents = 'none';
         measureNode.style.left = '-9999px';
         measureNode.style.top = '-9999px';
@@ -517,6 +675,9 @@
           pendingSafeFocus: false,
           lastSafePointerTarget: null,
           safePointerdownResetTimer: null,
+          displayScale,
+          overlayFontSize,
+          overlayLineHeight,
         };
 
         if (el && el.style) {
@@ -549,17 +710,17 @@
           if (textAlign === 'center') { return 'center'; }
           return 'flex-start';
         })();
-        preview.style.fontSize = input.style.fontSize;
+        preview.style.fontSize = overlayFontSize;
         preview.style.fontFamily = input.style.fontFamily;
         preview.style.fontWeight = input.style.fontWeight;
         preview.style.fontStyle = input.style.fontStyle;
-        preview.style.lineHeight = input.style.lineHeight;
+        preview.style.lineHeight = overlayLineHeight;
         preview.style.padding = '0 6px';
         preview.style.whiteSpace = multiline ? 'pre-wrap' : 'pre';
         preview.style.zIndex = '1';
         overlay.appendChild(preview);
         state.preview = preview;
-        renderStyledPreview(preview, inlineInitialValue, state.styleMap, state.baseStyle);
+        renderStyledPreview(preview, inlineInitialValue, state.styleMap, state.baseStyle, { scale: displayScale });
 
         state.usingInlineSegments = hasStyledCharacters(state.styleMap);
         if (!Array.isArray(state.styleMap)) {
@@ -582,7 +743,7 @@
           renderStyledText(el, textValue, state.styleMap);
           syncBaseStyleAttributes(el, state.baseStyle);
           if (state.preview) {
-            renderStyledPreview(state.preview, textValue, state.styleMap, state.baseStyle);
+            renderStyledPreview(state.preview, textValue, state.styleMap, state.baseStyle, { scale: state.displayScale });
           }
           logDebug('makeEditable inline render refresh', {
             forcePlain,
@@ -936,7 +1097,7 @@
               : new Array(originalText.length).fill(null);
             renderStyledText(state.target, originalText, originalMap);
             if (state.preview) {
-              renderStyledPreview(state.preview, originalText, originalMap, state.baseStyle);
+              renderStyledPreview(state.preview, originalText, originalMap, state.baseStyle, { scale: state.displayScale });
             }
           }
           removeOverlay(state);
