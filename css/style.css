@@ -1704,6 +1704,8 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .font-controls-panel__field--format{min-width:0;width:100%;margin-top:2px}
 .font-controls-panel__format-buttons{display:flex;align-items:center;gap:4px;justify-content:flex-start}
 .font-controls-panel__format-button{width:30px;height:30px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#1e293b;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .2s ease,border-color .2s ease,background .2s ease}
+.font-controls-panel__format-button--italic{font-style:italic;font-weight:500}
+.font-controls-panel__format-button--underline{text-decoration:underline;font-weight:500}
 .font-controls-panel__format-button--script{font-family:'Inter','Segoe UI',sans-serif;font-weight:600;font-size:15px}
 .font-controls-panel__toggle--active{background:#1e293b;color:#f8fafc;border-color:#0f172a}
 .font-controls-panel__footer{display:none}

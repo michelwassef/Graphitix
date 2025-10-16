@@ -1181,6 +1181,7 @@
 
     boldToggle = createFormatButton('B', 'Toggle bold', 'Toggle bold');
     italicToggle = createFormatButton('I', 'Toggle italic', 'Toggle italic');
+    italicToggle.classList.add('font-controls-panel__format-button--italic');
     underlineToggle = createFormatButton('U', 'Toggle underline', 'Toggle underline');
     underlineToggle.classList.add('font-controls-panel__format-button--underline');
     subscriptToggle = createFormatButton('x₂', 'Toggle subscript', 'Toggle subscript');

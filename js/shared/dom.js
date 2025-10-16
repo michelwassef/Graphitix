@@ -934,6 +934,106 @@
           }
         };
 
+        const scheduleSelectionRestore = (start, end) => {
+          if (!input || typeof input.setSelectionRange !== 'function') { return; }
+          const safeStart = Number.isInteger(start) ? start : 0;
+          const safeEnd = Number.isInteger(end) ? end : safeStart;
+          ownerWindow.setTimeout(() => {
+            if (!state.input || typeof input.setSelectionRange !== 'function') { return; }
+            try {
+              input.setSelectionRange(safeStart, safeEnd);
+              logDebug('makeEditable inline shortcut selection restored', { start: safeStart, end: safeEnd });
+            } catch (selectionErr) {
+              console.error('Shared.makeEditable inline shortcut selection restore error', selectionErr);
+            }
+          }, 0);
+        };
+
+        const summarizeSelectionForProp = (propKey, matchFn) => {
+          if (typeof matchFn !== 'function') { return null; }
+          if (!state || typeof state.describeSelection !== 'function') { return null; }
+          const info = state.describeSelection();
+          if (!info || !info.hasSelection) { return null; }
+          const map = Array.isArray(state.styleMap) ? state.styleMap : [];
+          const baseValue = state.baseStyle ? state.baseStyle[propKey] : null;
+          let allActive = true;
+          for (let idx = info.start; idx < info.end; idx += 1) {
+            const entry = map[idx] || null;
+            let value = baseValue;
+            if (entry && Object.prototype.hasOwnProperty.call(entry, propKey)) {
+              value = entry[propKey];
+            }
+            if (!matchFn(value)) {
+              allActive = false;
+            }
+          }
+          return { info, allActive };
+        };
+
+        const matchBold = (value) => {
+          if (value == null) { return false; }
+          const raw = String(value).toLowerCase();
+          if (!raw) { return false; }
+          if (raw.includes('bold')) { return true; }
+          const trimmed = raw.trim();
+          return trimmed === '700' || trimmed === '800' || trimmed === '900';
+        };
+
+        const matchItalic = (value) => {
+          if (value == null) { return false; }
+          const raw = String(value).toLowerCase();
+          return raw.includes('italic');
+        };
+
+        const matchUnderline = (value) => {
+          if (value == null) { return false; }
+          const raw = String(value).toLowerCase();
+          return raw.includes('underline');
+        };
+
+        const inlineShortcutConfigs = {
+          b: { propKey: 'fontWeight', value: 'bold', match: matchBold },
+          i: { propKey: 'fontStyle', value: 'italic', match: matchItalic },
+          u: { propKey: 'textDecoration', value: 'underline', match: matchUnderline },
+        };
+
+        const applyInlineShortcutToggle = (shortcutKey) => {
+          const config = inlineShortcutConfigs[shortcutKey];
+          if (!config) { return false; }
+          if (!state || typeof state.applyStylePatchToSelection !== 'function') { return false; }
+          const summary = summarizeSelectionForProp(config.propKey, config.match);
+          if (!summary) { return false; }
+          const shouldActivate = !summary.allActive;
+          const patchValue = shouldActivate ? config.value : null;
+          const patch = { [config.propKey]: patchValue };
+          const result = state.applyStylePatchToSelection(patch);
+          let handled = !!(result && result.handled);
+          if (handled && result.entire && state.baseStyle) {
+            state.baseStyle[config.propKey] = patchValue;
+          } else if (!handled && result && result.entire && state.baseStyle) {
+            const baseActive = config.match(state.baseStyle[config.propKey]);
+            const needsUpdate = shouldActivate ? !baseActive : baseActive;
+            if (needsUpdate) {
+              state.baseStyle[config.propKey] = patchValue;
+              handled = true;
+            }
+          }
+          if (!handled) { return false; }
+          if (!result || !result.handled) {
+            state.refreshInlineRendering(false);
+          }
+          state.selection = { start: summary.info.start, end: summary.info.end };
+          state.shouldRestoreSelection = true;
+          rememberSelection({ reason: 'shortcut-applied' });
+          scheduleSelectionRestore(summary.info.start, summary.info.end);
+          logDebug('makeEditable inline shortcut applied', {
+            shortcut: shortcutKey,
+            activate: shouldActivate,
+            entire: !!(result && result.entire),
+          });
+          return true;
+        };
+
         state.stopDeferredCommitWatcher = () => {
           if (!state.deferCommitHandler) { return; }
           ownerDocument.removeEventListener('focusin', state.deferCommitHandler, true);
@@ -1144,6 +1244,17 @@
         };
         const handleKeyDown = (e) => {
           if (!e) return;
+          if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+            const key = typeof e.key === 'string' ? e.key.toLowerCase() : '';
+            if (inlineShortcutConfigs[key]) {
+              rememberSelection({ reason: 'shortcut-keydown' });
+              if (applyInlineShortcutToggle(key)) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+              }
+            }
+          }
           if (e.key === 'Enter' && (!multiline || e.ctrlKey || e.metaKey || e.shiftKey === false)) {
             e.preventDefault();
             commit(input.value, 'enter');
