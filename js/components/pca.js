@@ -4,6 +4,60 @@
   const Components = global.Components = global.Components || {};
   const pca = Components.pca = Components.pca || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const plot3d = Shared.plot3d = Shared.plot3d || {};
+  if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
+    try {
+      require('../shared/plot3d.js');
+    } catch(err) {
+      if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+        console.debug('Debug: pca component plot3d helper require failed', { message: err?.message || String(err) });
+      }
+    }
+  }
+  if(typeof plot3d.createRotationState !== 'function'){
+    plot3d.createRotationState = (defaults) => ({
+      x: Number.isFinite(defaults?.x) ? defaults.x : 0,
+      y: Number.isFinite(defaults?.y) ? defaults.y : 0
+    });
+  }
+  if(typeof plot3d.attachRotationControls !== 'function'){
+    plot3d.attachRotationControls = () => {};
+  }
+  if(typeof plot3d.rotatePoint !== 'function'){
+    plot3d.rotatePoint = (pt) => ({ x: Number(pt?.x) || 0, y: Number(pt?.y) || 0, z: Number(pt?.z) || 0 });
+  }
+  if(typeof plot3d.createProjector !== 'function'){
+    plot3d.createProjector = (options) => {
+      const width = Math.max(1, Math.floor(options?.width || 1));
+      const height = Math.max(1, Math.floor(options?.height || 1));
+      const margin = options?.margin || {};
+      const project = (pt = {}) => ({
+        x: Number(margin.left || 0),
+        y: Number(margin.top || 0),
+        depth: Number(pt.z) || 0
+      });
+      return {
+        project,
+        bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
+        scale: 1,
+        offsets: { x: Number(margin.left || 0), y: Number(margin.top || 0) },
+        plotSize: { width, height }
+      };
+    };
+  }
+  if(typeof plot3d.renderAxesAndGrid !== 'function'){
+    plot3d.renderAxesAndGrid = () => null;
+  }
+  if(typeof plot3d.applyLegendPointerGuards !== 'function'){
+    plot3d.applyLegendPointerGuards = (el) => {
+      if(el && typeof el.addEventListener === 'function'){
+        el.addEventListener('pointerdown', evt => evt?.stopPropagation?.());
+      }
+    };
+  }
+  if(typeof plot3d.isLegendPointerTarget !== 'function'){
+    plot3d.isLegendPointerTarget = () => false;
+  }
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
@@ -526,7 +580,7 @@
   const pcaState = {
     axisSelection: { x: 1, y: 2, z: 3 },
     axisMeta: [],
-    rotation: { x: PCA_3D_DEFAULTS.rotationX, y: PCA_3D_DEFAULTS.rotationY },
+    rotation: plot3d.createRotationState({ x: PCA_3D_DEFAULTS.rotationX, y: PCA_3D_DEFAULTS.rotationY }),
     rotationPending: false,
     rotationPendingLogged: false,
     axesVarianceScaled: false,
@@ -1468,122 +1522,6 @@
         pcaState.rotationPendingLogged = false;
         debugLog('Debug: pca rotation redraw scheduled');
         scheduleDrawPca();
-      }
-      function attach3dRotationControls(svgEl){
-        if(!svgEl){ return; }
-        if(svgEl.dataset.rotationControlsAttached === 'true'){
-          return;
-        }
-        svgEl.dataset.rotationControlsAttached = 'true';
-        svgEl.style.cursor = 'grab';
-        svgEl.style.touchAction = 'none';
-        svgEl.style.userSelect = 'none';
-        svgEl.style.webkitUserSelect = 'none';
-        const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0, logged: false };
-        const shouldIgnorePointer = (event) => {
-          const target = event?.target;
-          if(!target){ return false; }
-          if(target.dataset?.legendKey){
-            debugLog('Debug: pca rotation pointerdown ignored',{ reason: 'legend-swatch', tag: target.tagName });
-            return true;
-          }
-          if(typeof target.closest === 'function'){
-            const interactiveLegend = target.closest('[data-legend-key]');
-            if(interactiveLegend){
-              debugLog('Debug: pca rotation pointerdown ignored',{ reason: 'legend-ancestor', tag: target.tagName });
-              return true;
-            }
-          }
-          return false;
-        };
-        const selectionGuards = {
-          applied: false,
-          previous: null
-        };
-        const disableDocumentSelection = () => {
-          if(selectionGuards.applied){ return; }
-          const doc = svgEl.ownerDocument || global.document;
-          const body = doc?.body;
-          if(!body){ return; }
-          selectionGuards.previous = {
-            userSelect: body.style.userSelect,
-            webkitUserSelect: body.style.webkitUserSelect
-          };
-          body.style.userSelect = 'none';
-          body.style.webkitUserSelect = 'none';
-          selectionGuards.applied = true;
-          debugLog('Debug: pca rotation selection disabled');
-        };
-        const restoreDocumentSelection = () => {
-          if(!selectionGuards.applied){ return; }
-          const doc = svgEl.ownerDocument || global.document;
-          const body = doc?.body;
-          if(body){
-            body.style.userSelect = selectionGuards.previous?.userSelect || '';
-            body.style.webkitUserSelect = selectionGuards.previous?.webkitUserSelect || '';
-          }
-          selectionGuards.applied = false;
-          selectionGuards.previous = null;
-          debugLog('Debug: pca rotation selection restored');
-        };
-        svgEl.addEventListener('pointerdown', (event) => {
-          if(shouldIgnorePointer(event)){
-            return;
-          }
-          pointerState.active = true;
-          pointerState.pointerId = event.pointerId;
-          pointerState.lastX = event.clientX;
-          pointerState.lastY = event.clientY;
-          pointerState.logged = false;
-          disableDocumentSelection();
-          if(typeof event.preventDefault === 'function'){
-            event.preventDefault();
-          }
-          svgEl.setPointerCapture?.(event.pointerId);
-          svgEl.style.cursor = 'grabbing';
-          debugLog('Debug: pca rotation drag start',{ pointerId: event.pointerId });
-        });
-        svgEl.addEventListener('pointermove', (event) => {
-          if(!pointerState.active){ return; }
-          const dx = event.clientX - pointerState.lastX;
-          const dy = event.clientY - pointerState.lastY;
-          pointerState.lastX = event.clientX;
-          pointerState.lastY = event.clientY;
-          const sensitivity = 0.01;
-          const yawDelta = dx * sensitivity;
-          const pitchDelta = dy * sensitivity;
-          const pitchCos = Math.cos(pcaState.rotation.x || 0);
-          const horizontalSign = pitchCos >= 0 ? -1 : 1;
-          pcaState.rotation.y += yawDelta * horizontalSign;
-          pcaState.rotation.x -= pitchDelta;
-          const halfPi = Math.PI / 2;
-          if(pcaState.rotation.x > halfPi){ pcaState.rotation.x = halfPi; }
-          if(pcaState.rotation.x < -halfPi){ pcaState.rotation.x = -halfPi; }
-          if(pcaState.rotation.y > Math.PI){ pcaState.rotation.y -= Math.PI * 2; }
-          if(pcaState.rotation.y < -Math.PI){ pcaState.rotation.y += Math.PI * 2; }
-          if(!pointerState.logged){
-            debugLog('Debug: pca rotation updating',{ rotation: { ...pcaState.rotation } }); // Debug: first rotation update snapshot
-            pointerState.logged = true;
-          }
-          scheduleRotationRedraw();
-        });
-        const stopDrag = (event, reason) => {
-          if(!pointerState.active){ return; }
-          pointerState.active = false;
-          try{
-            if(pointerState.pointerId !== null){
-              svgEl.releasePointerCapture(pointerState.pointerId);
-            }
-          }catch(err){
-            debugLog('Debug: pca rotation pointer release error',{ message: err?.message || String(err) });
-          }
-          svgEl.style.cursor = 'grab';
-          restoreDocumentSelection();
-          debugLog('Debug: pca rotation drag end',{ reason, rotation: { ...pcaState.rotation } });
-        };
-        svgEl.addEventListener('pointerup', (event) => stopDrag(event,'pointerup'));
-        svgEl.addEventListener('pointercancel', (event) => stopDrag(event,'pointercancel'));
-        svgEl.addEventListener('pointerleave', (event) => stopDrag(event,'pointerleave'));
       }
       const axisSelectEntries = [
         { axis: 'x', element: pcaXAxis },
@@ -2921,7 +2859,12 @@
         while (svg3.firstChild) {
           svg3.removeChild(svg3.firstChild);
         }
-        attach3dRotationControls(svg3);
+        plot3d.attachRotationControls(svg3, {
+          state: pcaState.rotation,
+          onChange: () => scheduleRotationRedraw(),
+          shouldIgnorePointer: (event) => plot3d.isLegendPointerTarget(event?.target),
+          debugLabel: 'pca-3d'
+        });
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
           fontControls.enableForSvg(svg3,{ scopeId: 'pca' });
           debugLog('Debug: pca fontControls enableForSvg invoked',{ width: W3, height: H3, mode: '3d' });
@@ -2937,19 +2880,7 @@
         };
         const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
         const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
-        const rotatePoint = (pt) => {
-          const rx = pcaState.rotation.x;
-          const ry = pcaState.rotation.y;
-          const cosY = Math.cos(ry);
-          const sinY = Math.sin(ry);
-          let x1 = pt.x * cosY + pt.z * sinY;
-          let z1 = -pt.x * sinY + pt.z * cosY;
-          const cosX = Math.cos(rx);
-          const sinX = Math.sin(rx);
-          const y1 = pt.y * cosX - z1 * sinX;
-          const z2 = pt.y * sinX + z1 * cosX;
-          return { x: x1, y: y1, z: z2 };
-        };
+        const rotatePoint = (pt) => plot3d.rotatePoint(pt, pcaState.rotation);
         const rotatedPoints = points3d.map(pt => rotatePoint(pt));
         const rangeForAxis = (axisKey) => {
           const values = points3d.map(pt => pt[axisKey]);
@@ -3031,24 +2962,24 @@
           { x: axisRanges.x.min, y: axisRanges.y.max, z: axisRanges.z.max },
           { x: axisRanges.x.max, y: axisRanges.y.max, z: axisRanges.z.max }
         ];
+        const add3 = (tag, attrs, text, target) => {
+          const el = document.createElementNS(NS, tag);
+          Object.keys(attrs || {}).forEach(key => el.setAttribute(key, String(attrs[key])));
+          if(text){
+            el.textContent = text;
+          }
+          (target || svg3).appendChild(el);
+          return el;
+        };
         const rotatedCorners = allCorners.map(corner => rotatePoint(corner));
-        const allProjected = rotatedPoints.concat(rotatedCorners);
-        const minX3 = Math.min(...allProjected.map(p => p.x));
-        const maxX3 = Math.max(...allProjected.map(p => p.x));
-        const minY3 = Math.min(...allProjected.map(p => p.y));
-        const maxY3 = Math.max(...allProjected.map(p => p.y));
-        const rangeX3 = (maxX3 - minX3) || 1;
-        const rangeY3 = (maxY3 - minY3) || 1;
-        const uniformScale = Math.min(plotW3 / rangeX3, plotH3 / rangeY3);
-        const scaledWidth = rangeX3 * uniformScale;
-        const scaledHeight = rangeY3 * uniformScale;
-        const offsetX = margin3.left + (plotW3 - scaledWidth) / 2;
-        const offsetY = margin3.top + (plotH3 - scaledHeight) / 2;
-        const project3 = (pt) => ({
-          x: offsetX + (pt.x - minX3) * uniformScale,
-          y: offsetY + scaledHeight - (pt.y - minY3) * uniformScale,
-          depth: pt.z
+        const projector = plot3d.createProjector({
+          rotatedPoints,
+          rotatedCorners,
+          width: W3,
+          height: H3,
+          margin: margin3
         });
+        const project3 = (pt) => projector.project(pt);
         const axisScales = {
           x: niceScale(axisRanges.x.min, axisRanges.x.max, 5),
           y: niceScale(axisRanges.y.min, axisRanges.y.max, 5),
@@ -3060,228 +2991,30 @@
           y: clampTicks(axisScales.y.ticks, axisRanges.y),
           z: clampTicks(axisScales.z.ticks, axisRanges.z)
         };
-        const cubeCenter = { x: axisCenters.x, y: axisCenters.y, z: axisCenters.z };
-        const cubeCenter2D = project3(rotatePoint(cubeCenter));
-        const depthFor = (point) => rotatePoint(point).z;
-        const frontIsMinY = depthFor({ x: axisCenters.x, y: axisRanges.y.min, z: axisCenters.z }) >= depthFor({ x: axisCenters.x, y: axisRanges.y.max, z: axisCenters.z });
-        const frontYValue = frontIsMinY ? axisRanges.y.min : axisRanges.y.max;
-        const backYValue = frontIsMinY ? axisRanges.y.max : axisRanges.y.min;
-        const bottomZValue = axisRanges.z.min;
-        const topZValue = axisRanges.z.max;
-        const projectedCandidateLeft = project3(rotatePoint({ x: axisRanges.x.min, y: frontYValue, z: bottomZValue }));
-        const projectedCandidateRight = project3(rotatePoint({ x: axisRanges.x.max, y: frontYValue, z: bottomZValue }));
-        const leftXValue = projectedCandidateLeft.x <= projectedCandidateRight.x ? axisRanges.x.min : axisRanges.x.max;
-        const rightXValue = leftXValue === axisRanges.x.min ? axisRanges.x.max : axisRanges.x.min;
-        const add3 = (tag, attrs, text) => {
-          const el = document.createElementNS(NS, tag);
-          for (const k in attrs) {
-            el.setAttribute(k, String(attrs[k]));
-          }
-          if (text) {
-            el.textContent = text;
-          }
-          svg3.appendChild(el);
-          return el;
-        };
         const neutralAxisColor = chartStyle.AXIS_COLOR || chartStyle.TEXT_COLOR || '#333';
-        const axisDefs = [
-          {
-            key: 'x',
-            color: neutralAxisColor,
-            label: pcaXLabelText,
-            start: { x: leftXValue, y: frontYValue, z: bottomZValue },
-            end: { x: rightXValue, y: frontYValue, z: bottomZValue },
-            ticks: axisTicks.x
-          },
-          {
-            key: 'y',
-            color: neutralAxisColor,
-            label: pcaYLabelText,
-            start: { x: rightXValue, y: frontYValue, z: bottomZValue },
-            end: { x: rightXValue, y: backYValue, z: bottomZValue },
-            ticks: axisTicks.y
-          },
-          {
-            key: 'z',
-            color: neutralAxisColor,
-            label: pcaZLabelText,
-            start: { x: leftXValue, y: frontYValue, z: bottomZValue },
-            end: { x: leftXValue, y: frontYValue, z: topZValue },
-            ticks: axisTicks.z
-          }
-        ];
-        const paneGroup = svg3.ownerDocument?.createElementNS ? svg3.ownerDocument.createElementNS(NS, 'g') : null;
-        if(paneGroup){
-          paneGroup.setAttribute('fill', 'rgba(0,0,0,0.008)');
-          paneGroup.setAttribute('stroke', 'none');
-          svg3.appendChild(paneGroup);
-        }
-        const gridGroup = svg3.ownerDocument?.createElementNS ? svg3.ownerDocument.createElementNS(NS, 'g') : null;
-        if(gridGroup){
-          gridGroup.setAttribute('stroke-width', axisStrokeWidth * 0.6);
-          gridGroup.setAttribute('stroke', 'rgba(0,0,0,0.12)');
-          gridGroup.setAttribute('fill', 'none');
-          svg3.appendChild(gridGroup);
-        }
-        const appendLine = (startRot, endRot, attrs, targetGroup) => {
-          const start = project3(startRot);
-          const end = project3(endRot);
-          const line = document.createElementNS(NS, 'line');
-          line.setAttribute('x1', String(start.x));
-          line.setAttribute('y1', String(start.y));
-          line.setAttribute('x2', String(end.x));
-          line.setAttribute('y2', String(end.y));
-          Object.keys(attrs || {}).forEach(key => line.setAttribute(key, String(attrs[key])));
-          (targetGroup || svg3).appendChild(line);
-          return line;
-        };
-        if(paneGroup && showFrame){
-          const paneDefs = [
-            { key: 'bottom', corners: [0, 1, 3, 2] },
-            { key: 'top', corners: [4, 5, 7, 6] },
-            { key: 'front', corners: [0, 1, 5, 4] },
-            { key: 'back', corners: [2, 3, 7, 6] },
-            { key: 'left', corners: [0, 2, 6, 4] },
-            { key: 'right', corners: [1, 3, 7, 5] }
-          ];
-          const panePolys = paneDefs.map(def => {
-            const rotatedPane = def.corners.map(idx => rotatePoint(allCorners[idx]));
-            const projectedPane = rotatedPane.map(rot => project3(rot));
-            const avgDepth = rotatedPane.reduce((acc, rot) => acc + rot.z, 0) / rotatedPane.length;
-            return { def, projectedPane, avgDepth };
-          }).sort((a, b) => a.avgDepth - b.avgDepth);
-          const depthRange = panePolys.length ? {
-            min: Math.min(...panePolys.map(p => p.avgDepth)),
-            max: Math.max(...panePolys.map(p => p.avgDepth))
-          } : { min: 0, max: 1 };
-          const minPaneOpacity = 0.004;
-          const maxPaneOpacity = 0.012;
-          debugLog('Debug: pca 3d pane shading',{ minPaneOpacity, maxPaneOpacity }); // Debug: pane shading bounds
-          panePolys.forEach(pane => {
-            const polygon = document.createElementNS(NS, 'polygon');
-            const pointsAttr = pane.projectedPane.map(pt => `${pt.x},${pt.y}`).join(' ');
-            polygon.setAttribute('points', pointsAttr);
-            const depthRatio = depthRange.max === depthRange.min ? 0.5 : (pane.avgDepth - depthRange.min) / (depthRange.max - depthRange.min);
-            const opacity = minPaneOpacity + (1 - depthRatio) * (maxPaneOpacity - minPaneOpacity);
-            polygon.setAttribute('fill', `rgba(0,0,0,${opacity.toFixed(3)})`);
-            polygon.setAttribute('stroke', 'none');
-            paneGroup.appendChild(polygon);
-          });
-          debugLog('Debug: pca 3d panes rendered',{ count: panePolys.length });
-        }
-        if(showGrid){
-          const gridAttrs = { 'stroke-dasharray': `${Math.max(1, axisStrokeWidth * 2.5)} ${Math.max(1, axisStrokeWidth * 1.5)}` };
-          const gridTarget = gridGroup || svg3;
-          const interior = (ticks, min, max) => ticks.filter(t => t > min + 1e-9 && t < max - 1e-9);
-          const axisInterior = {
-            x: interior(axisTicks.x, axisRanges.x.min, axisRanges.x.max),
-            y: interior(axisTicks.y, axisRanges.y.min, axisRanges.y.max),
-            z: interior(axisTicks.z, axisRanges.z.min, axisRanges.z.max)
-          };
-          const planeConfigs = [
-            { axisA: 'x', axisB: 'y', fixed: { key: 'z', value: axisRanges.z.min } },
-            { axisA: 'x', axisB: 'y', fixed: { key: 'z', value: axisRanges.z.max } },
-            { axisA: 'x', axisB: 'z', fixed: { key: 'y', value: axisRanges.y.min } },
-            { axisA: 'x', axisB: 'z', fixed: { key: 'y', value: axisRanges.y.max } },
-            { axisA: 'y', axisB: 'z', fixed: { key: 'x', value: axisRanges.x.min } },
-            { axisA: 'y', axisB: 'z', fixed: { key: 'x', value: axisRanges.x.max } }
-          ];
-          const basePoint = { x: axisRanges.x.min, y: axisRanges.y.min, z: axisRanges.z.min };
-          const makePoint = (overrides) => Object.assign({}, basePoint, overrides || {});
-          planeConfigs.forEach(plane => {
-            const { axisA, axisB, fixed } = plane;
-            const fixedValue = fixed.value;
-            const startMin = makePoint({ [axisA]: axisRanges[axisA].min, [axisB]: axisRanges[axisB].min, [fixed.key]: fixedValue });
-            const endMax = makePoint({ [axisA]: axisRanges[axisA].max, [axisB]: axisRanges[axisB].max, [fixed.key]: fixedValue });
-            // Draw outline of plane to reinforce grid boundaries
-            appendLine(rotatePoint(startMin), rotatePoint(makePoint({ [axisA]: axisRanges[axisA].max, [axisB]: axisRanges[axisB].min, [fixed.key]: fixedValue })), { stroke: 'rgba(0,0,0,0.1)', 'stroke-width': axisStrokeWidth * 0.55 }, gridTarget);
-            appendLine(rotatePoint(startMin), rotatePoint(makePoint({ [axisA]: axisRanges[axisA].min, [axisB]: axisRanges[axisB].max, [fixed.key]: fixedValue })), { stroke: 'rgba(0,0,0,0.1)', 'stroke-width': axisStrokeWidth * 0.55 }, gridTarget);
-            appendLine(rotatePoint(makePoint({ [axisA]: axisRanges[axisA].max, [axisB]: axisRanges[axisB].min, [fixed.key]: fixedValue })), rotatePoint(endMax), { stroke: 'rgba(0,0,0,0.08)', 'stroke-width': axisStrokeWidth * 0.55 }, gridTarget);
-            appendLine(rotatePoint(makePoint({ [axisA]: axisRanges[axisA].min, [axisB]: axisRanges[axisB].max, [fixed.key]: fixedValue })), rotatePoint(endMax), { stroke: 'rgba(0,0,0,0.08)', 'stroke-width': axisStrokeWidth * 0.55 }, gridTarget);
-            axisInterior[axisA].forEach(aVal => {
-              appendLine(
-                rotatePoint(makePoint({ [axisA]: aVal, [axisB]: axisRanges[axisB].min, [fixed.key]: fixedValue })),
-                rotatePoint(makePoint({ [axisA]: aVal, [axisB]: axisRanges[axisB].max, [fixed.key]: fixedValue })),
-                gridAttrs,
-                gridTarget
-              );
-            });
-            axisInterior[axisB].forEach(bVal => {
-              appendLine(
-                rotatePoint(makePoint({ [axisA]: axisRanges[axisA].min, [axisB]: bVal, [fixed.key]: fixedValue })),
-                rotatePoint(makePoint({ [axisA]: axisRanges[axisA].max, [axisB]: bVal, [fixed.key]: fixedValue })),
-                gridAttrs,
-                gridTarget
-              );
-            });
-          });
-          debugLog('Debug: pca 3d grid generated',{ xTicks: axisInterior.x.length, yTicks: axisInterior.y.length, zTicks: axisInterior.z.length });
-        }
-        if(showFrame){
-          const frameTarget = gridGroup || svg3;
-          const edges = [
-            [0,1],[0,2],[1,3],[2,3],
-            [4,5],[4,6],[5,7],[6,7],
-            [0,4],[1,5],[2,6],[3,7]
-          ];
-          const frameAttrs = { stroke: 'rgba(0,0,0,0.45)', 'stroke-width': axisStrokeWidth };
-          edges.forEach(([aIdx,bIdx]) => {
-            appendLine(
-              rotatePoint(allCorners[aIdx]),
-              rotatePoint(allCorners[bIdx]),
-              frameAttrs,
-              frameTarget
-            );
-          });
-          debugLog('Debug: pca 3d frame rendered',{ edgeCount: edges.length });
-        }
-        axisDefs.forEach(def => {
-          const startRot = rotatePoint(def.start);
-          const endRot = rotatePoint(def.end);
-          const startPos = project3(startRot);
-          const endPos = project3(endRot);
-          appendLine(startRot, endRot, { stroke: def.color, 'stroke-width': axisStrokeWidth * 0.9 }, svg3);
-          const axisVector = {
-            x: def.end.x - def.start.x,
-            y: def.end.y - def.start.y,
-            z: def.end.z - def.start.z
-          };
-          const labelPointRaw = {
-            x: def.start.x + axisVector.x * 0.5,
-            y: def.start.y + axisVector.y * 0.5,
-            z: def.start.z + axisVector.z * 0.5
-          };
-          const labelRot = rotatePoint(labelPointRaw);
-          const labelBasePos = project3(labelRot);
-          const axisVec2d = { x: endPos.x - startPos.x, y: endPos.y - startPos.y };
-          const axisVecLength = Math.hypot(axisVec2d.x, axisVec2d.y) || 1;
-          const unitAxis2d = { x: axisVec2d.x / axisVecLength, y: axisVec2d.y / axisVecLength };
-          const perp2d = { x: -unitAxis2d.y, y: unitAxis2d.x };
-          const axisMid3d = {
-            x: (def.start.x + def.end.x) / 2,
-            y: (def.start.y + def.end.y) / 2,
-            z: (def.start.z + def.end.z) / 2
-          };
-          const axisMidPos = project3(rotatePoint(axisMid3d));
-          const toCenter = { x: cubeCenter2D.x - axisMidPos.x, y: cubeCenter2D.y - axisMidPos.y };
-          const perpDot = perp2d.x * toCenter.x + perp2d.y * toCenter.y;
-          const outwardPerp = perpDot > 0 ? { x: -perp2d.x, y: -perp2d.y } : perp2d;
-          const offsetMagnitude = Math.max(fs * 1.2, 12);
-          const labelPos = {
-            x: labelBasePos.x + outwardPerp.x * offsetMagnitude,
-            y: labelBasePos.y + outwardPerp.y * offsetMagnitude
-          };
-          const angleDeg = Math.atan2(endPos.y - startPos.y, endPos.x - startPos.x) * (180 / Math.PI);
-          const axisLabel = add3('text', {
-            x: labelPos.x,
-            y: labelPos.y,
-            'font-size': fs,
-            'text-anchor': 'middle',
-            'dominant-baseline': 'middle',
-            fill: chartStyle.TEXT_COLOR,
-            transform: `rotate(${angleDeg} ${labelPos.x} ${labelPos.y})`
-          }, def.label);
-          markFontEditable(axisLabel,'axis3d',def.label);
+        plot3d.renderAxesAndGrid({
+          svg: svg3,
+          project: (pt) => project3(pt),
+          rotatePoint,
+          axisRanges,
+          axisTicks,
+          axisLabels: { x: pcaXLabelText, y: pcaYLabelText, z: pcaZLabelText },
+          fontSize: fs,
+          axisStrokeWidth,
+          chartStyle,
+          showGrid,
+          showFrame,
+          showPanes: showFrame,
+          paneFill: 'rgba(0,0,0,0.008)',
+          paneOpacityRange: { min: 0.004, max: 0.012 },
+          gridColor: 'rgba(0,0,0,0.12)',
+          gridDash: [Math.max(1, axisStrokeWidth * 2.5), Math.max(1, axisStrokeWidth * 1.5)],
+          gridOutlineColors: { primary: 'rgba(0,0,0,0.1)', secondary: 'rgba(0,0,0,0.08)' },
+          frameColor: 'rgba(0,0,0,0.45)',
+          axisColor: neutralAxisColor,
+          debugLabel: 'pca-3d',
+          onAxisLabel: (el, axisKey, labelText) => { markFontEditable(el, 'axis3d', labelText); },
+          createElement: (tag, attrs, text, target) => add3(tag, attrs, text, target)
         });
         debugLog('Debug: pca 3d axis ranges',{ axisRanges, ticks: axisTicks });
         const projectedPoints = rotatedPoints.map((rot, idx) => {
@@ -3332,11 +3065,7 @@
             } else if(entry.labelValue){
               swatch3.dataset.legendLabel = entry.labelValue;
             }
-            swatch3.addEventListener('pointerdown',(evt)=>{
-              // Debug: prevent rotation drag when interacting with legend swatches
-              debugLog('Debug: pca 3d legend pointerdown intercepted',{ label: entry.label });
-              evt.stopPropagation();
-            });
+            plot3d.applyLegendPointerGuards(swatch3, { label: entry.label });
             swatch3.addEventListener('click',(evt)=>{
               if(evt){ evt.stopPropagation(); }
               handleLegendColorChange(entry, swatch3);
