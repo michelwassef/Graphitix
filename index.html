@@ -634,6 +634,24 @@
     </div>
     <div class="wrap">
       <div class="panel" id="pcaTablePanel">
+        <div class="table-format-controls">
+          <label for="pcaTableFormat" style="margin:0;">Table format</label>
+          <select id="pcaTableFormat">
+            <option value="standard" selected>Standard</option>
+            <option value="grouped">Grouped samples</option>
+          </select>
+        </div>
+        <div id="pcaGroupedControls" class="grouped-controls" style="display:none;">
+          <div class="grouped-config-row">
+            <label for="pcaGroupedReplicates">Samples per group</label>
+            <input type="number" id="pcaGroupedReplicates" min="1" max="100" step="1" value="2" />
+          </div>
+          <div id="pcaGroupedList" class="grouped-list"></div>
+          <div class="grouped-actions">
+            <button type="button" class="btn" id="pcaGroupedAdd">Add group</button>
+            <button type="button" class="btn" id="pcaGroupedRemove">Remove group</button>
+          </div>
+        </div>
         <div id="pcaHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
           <div id="pcaHot" style="width:100%; height:100%;"></div>
         </div>
