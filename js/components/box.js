@@ -22,10 +22,52 @@
   const DEFAULT_BOX_COLORS=['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'];
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
   const DEFAULT_AXIS_COLOR='#000000';
+  const SEPARATED_GROUP_GAP_MULTIPLIER = 4;
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
   const DEFAULT_CORRECTION='bonferroni';
   const ASSUMPTION_ALPHA=0.05;
+
+  function computeSeparatedCategoryUnits(groupIndices){
+    if(!Array.isArray(groupIndices) || !groupIndices.length){
+      return null;
+    }
+    const baseUnits = 1;
+    const centers = [];
+    let current = baseUnits / 2;
+    for(let idx = 0; idx < groupIndices.length; idx++){
+      centers.push(current);
+      if(idx < groupIndices.length - 1){
+        const group = Number.isFinite(groupIndices[idx]) ? groupIndices[idx] : null;
+        const nextGroup = Number.isFinite(groupIndices[idx + 1]) ? groupIndices[idx + 1] : null;
+        const sameGroup = group !== null && nextGroup !== null && group === nextGroup;
+        const gapUnits = sameGroup ? baseUnits : baseUnits * SEPARATED_GROUP_GAP_MULTIPLIER;
+        current += gapUnits;
+      }
+    }
+    const totalSpan = current + baseUnits / 2;
+    console.debug('Debug: box separated spacing units',{ categories: centers.length, totalUnits: totalSpan, gapMultiplier: SEPARATED_GROUP_GAP_MULTIPLIER });
+    return { centers, baseUnits, totalSpan };
+  }
+
+  function scaleSeparatedCategoryUnits(units, plotSize, marginStart){
+    if(!units || !Number.isFinite(plotSize) || plotSize <= 0){
+      return null;
+    }
+    const scale = plotSize / units.totalSpan;
+    const bandWidth = units.baseUnits * scale;
+    const centers = units.centers.map(unit => marginStart + unit * scale);
+    const spacing = {
+      centers,
+      bandWidth,
+      halfBand: bandWidth / 2,
+      start: centers.length ? centers[0] - bandWidth / 2 : marginStart,
+      end: centers.length ? centers[centers.length - 1] + bandWidth / 2 : marginStart + plotSize,
+      scale
+    };
+    console.debug('Debug: box separated spacing scaled',{ categories: centers.length, bandWidth, start: spacing.start, end: spacing.end });
+    return spacing;
+  }
 
   function attachBoxSelectAutoSize(select, label){
     if(!select){ return; }
@@ -4569,6 +4611,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const traces = [];
     const traceLabels = [];
     let axisLabels = [];
+    let axisGroupIndices = [];
     const groupColorAssignments = new Map();
     const resolveTraceColor = (trace, index) => {
       const rawColorIndex = isGroupedMode && Number.isInteger(trace?.groupIndex) ? trace.groupIndex : index;
@@ -4675,12 +4718,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(col.length){
           const categoryIndex = axisLabels.length;
           axisLabels.push(label);
+          axisGroupIndices.push(null);
           traceLabels.push(label);
           traces.push({ name: label, rawY: col, categoryName: label, categoryIndex, columnIndex: i });
         }
       }
       if(!axisLabels.length && traceLabels.length){
         axisLabels = traceLabels.slice();
+        axisGroupIndices = traceLabels.map(() => null);
       }
     }else{
       state.colOrder = Array.from({ length: nCols }, (_, i) => i);
@@ -4741,25 +4786,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(layoutMode === 'separated'){
         groupEntries.forEach(groupEntry => {
           groupEntry.replicates.forEach(entry => {
-            const axisLabel = `${groupEntry.groupName} – ${entry.replicateName || `Category ${axisLabels.length + 1}`}`;
+            const replicateLabel = entry.replicateName || `Category ${axisLabels.length + 1}`;
             const categoryIndex = axisLabels.length;
-            axisLabels.push(axisLabel);
+            axisLabels.push(replicateLabel);
+            axisGroupIndices.push(Number.isFinite(entry.groupIndex) ? entry.groupIndex : null);
             const trace = {
-              name: axisLabel,
+              name: replicateLabel,
               rawY: entry.rawY,
               groupName: entry.groupName,
               groupIndex: entry.groupIndex,
-              categoryName: axisLabel,
+              categoryName: replicateLabel,
               categoryIndex,
               replicateIndex: entry.replicateIndex,
               columnIndex: entry.columnIndex
             };
             traces.push(trace);
-            traceLabels.push(axisLabel);
+            traceLabels.push(replicateLabel);
           });
         });
       }else{
         axisLabels = replicateEntries.map(rep => rep.name);
+        axisGroupIndices = replicateEntries.map(() => null);
         replicateEntries.forEach((rep, catIdx) => {
           rep.traces.forEach(entry => {
             const label = `${entry.groupName} – ${rep.name}`;
@@ -4780,6 +4827,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       if(!axisLabels.length && traceLabels.length){
         axisLabels = traceLabels.slice();
+        axisGroupIndices = traceLabels.map(() => null);
       }
     }
     if(token !== state.drawToken){
@@ -5031,6 +5079,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       return { min: graphMin, max: graphMax, ticks, step };
     }
     const labelTexts = axisLabels.map((lab, i) => lab || `Category ${i + 1}`);
+    const separatedCategoryUnits = (isGroupedMode && layoutMode === 'separated' && axisLabels.length)
+      ? computeSeparatedCategoryUnits(axisGroupIndices)
+      : null;
     if(isGroupedMode && groupColorAssignments.size){
       const legendEntries = Array.from(groupColorAssignments.entries()).map(([name, colors]) => ({
         label: name,
@@ -5251,7 +5302,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       console.debug('Debug: box layout',{ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, rotate: bottomLayout.shouldRotate, yTickTarget, manualTicks: !!manualYScale });
       const axisCount = Math.max(axisLabels.length, 1);
-      const bandW = plotWLocal / axisCount;
+      let bandW = plotWLocal / axisCount;
+      const separatedSpacing = separatedCategoryUnits
+        ? scaleSeparatedCategoryUnits(separatedCategoryUnits, plotWLocal, marginLocal.left)
+        : null;
+      if(separatedSpacing && Number.isFinite(separatedSpacing.bandWidth) && separatedSpacing.bandWidth > 0){
+        bandW = separatedSpacing.bandWidth;
+      }
       const groupCountLocal = usesGroupedSpacing ? Math.max(1, groupedGroups.length) : 1;
       const clusterGap = usesGroupedSpacing ? Math.min(bandW * 0.25, 16) : 0;
       let perGroupBand = usesGroupedSpacing ? (bandW - clusterGap) / groupCountLocal : bandW;
@@ -5262,13 +5319,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const valueRange = yScale.max - yScale.min || 1;
       const y2px = v => marginLocal.top + plotHLocal * (1 - (v - yScale.min) / valueRange);
       const boxWidthForTrace = () => Math.max(6, Math.min(60, perGroupBand * 0.6));
-      const localBandWidthForTrace = () => (usesGroupedSpacing ? perGroupBand : bandW);
+      const localBandWidthForTrace = () => {
+        if(separatedSpacing){
+          return separatedSpacing.bandWidth;
+        }
+        return usesGroupedSpacing ? perGroupBand : bandW;
+      };
       const xCenter = (trace, traceIndex) => {
         if(usesGroupedSpacing){
           const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
           const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
           const left = marginLocal.left + categoryIdx * bandW + groupOffset;
           return left + (groupIdx + 0.5) * perGroupBand;
+        }
+        if(separatedSpacing){
+          const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
+          if(categoryIdx >= 0 && categoryIdx < separatedSpacing.centers.length){
+            return separatedSpacing.centers[categoryIdx];
+          }
         }
         const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
         return marginLocal.left + (categoryIdx + 0.5) * bandW;
@@ -5306,7 +5374,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         markFontEditable(txt,'yTick');
         yTickFontCount += 1;
       });
-      const xTickPositions = axisLabels.map((_, i) => marginLocal.left + (i + 0.5) * bandW);
+      const xTickPositions = separatedSpacing
+        ? separatedSpacing.centers.slice()
+        : axisLabels.map((_, i) => marginLocal.left + (i + 0.5) * bandW);
       const xIntervalSetting = getAxisTickInterval('x');
       const xInterval = Number.isFinite(xIntervalSetting) && xIntervalSetting > 1 ? Math.max(1, Math.round(xIntervalSetting)) : null;
       let axisXStart = xTickPositions.length ? Math.min(...xTickPositions) : yAxisX;
@@ -5352,7 +5422,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(xInterval && i % xInterval !== 0){
           return;
         }
-        const x = marginLocal.left + (i + 0.5) * bandW;
+        const x = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.left + (i + 0.5) * bandW;
         add('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
         const t = add('text',{ x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
@@ -5407,6 +5477,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       yText.textContent = state.yLabelText;
       markFontEditable(yText,'yTitle','yTitle');
       makeEditable(yText, txt => { state.yLabelText = txt; });
+      const stackedErrorQueue = [];
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
           console.log('boxplot draw cancelled during render loop',{ token });
@@ -5532,12 +5603,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               const errorExtents = computeStackedErrorExtents(barStartValue, mean, sd, errorMode);
               if(errorExtents){
                 const yHigh = y2px(errorExtents.highValue);
-                const yLow = y2px(errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd);
-                add('line',{ x1: cx, y1: yHigh, x2: cx, y2: yLow, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                add('line',{ x1: cx - cap / 2, y1: yHigh, x2: cx + cap / 2, y2: yHigh, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                if(errorMode === 'both'){
-                  add('line',{ x1: cx - cap / 2, y1: yLow, x2: cx + cap / 2, y2: yLow, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                }
+                const yLowValue = errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd;
+                const yLow = y2px(yLowValue);
+                stackedErrorQueue.push({
+                  cx,
+                  yHigh,
+                  yLow,
+                  cap,
+                  borderColor,
+                  showLowerCap: errorMode === 'both'
+                });
               }
             }else{
               const ySdTop = y2px(mean + sd);
@@ -5685,10 +5760,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
       }
+      if(isStackedLayout && stackedErrorQueue.length){
+        stackedErrorQueue.forEach(item => {
+          add('line',{ x1: item.cx, y1: item.yHigh, x2: item.cx, y2: item.yLow, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
+          add('line',{ x1: item.cx - item.cap / 2, y1: item.yHigh, x2: item.cx + item.cap / 2, y2: item.yHigh, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
+          if(item.showLowerCap){
+            add('line',{ x1: item.cx - item.cap / 2, y1: item.yLow, x2: item.cx + item.cap / 2, y2: item.yLow, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
+          }
+        });
+        console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'vertical' });
+      }
       const traceCenter = idx => {
         const trace = traces[idx];
         if(trace){
           return xCenter(trace, idx);
+        }
+        if(separatedSpacing && idx >= 0 && idx < separatedSpacing.centers.length){
+          return separatedSpacing.centers[idx];
         }
         return marginLocal.left + (idx + 0.5) * bandW;
       };
@@ -5730,7 +5818,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const valueRange = yScale.max - yScale.min || 1;
       const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
       const axisCount = Math.max(axisLabels.length, 1);
-      const bandH = plotHLocal / axisCount;
+      let bandH = plotHLocal / axisCount;
+      const separatedSpacing = separatedCategoryUnits
+        ? scaleSeparatedCategoryUnits(separatedCategoryUnits, plotHLocal, marginLocal.top)
+        : null;
+      if(separatedSpacing && Number.isFinite(separatedSpacing.bandWidth) && separatedSpacing.bandWidth > 0){
+        bandH = separatedSpacing.bandWidth;
+      }
       const groupCountLocal = usesGroupedSpacing ? Math.max(1, groupedGroups.length) : 1;
       const clusterGap = usesGroupedSpacing ? Math.min(bandH * 0.25, 16) : 0;
       let perGroupBand = usesGroupedSpacing ? (bandH - clusterGap) / groupCountLocal : bandH;
@@ -5739,13 +5833,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       const groupOffset = usesGroupedSpacing ? (bandH - perGroupBand * groupCountLocal) / 2 : 0;
       const boxHeightForTrace = () => Math.max(6, Math.min(60, perGroupBand * 0.6));
-      const localBandHeightForTrace = () => (usesGroupedSpacing ? perGroupBand : bandH);
+      const localBandHeightForTrace = () => {
+        if(separatedSpacing){
+          return separatedSpacing.bandWidth;
+        }
+        return usesGroupedSpacing ? perGroupBand : bandH;
+      };
       const categoryCenter = (trace, traceIndex) => {
         if(usesGroupedSpacing){
           const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
           const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
           const top = marginLocal.top + categoryIdx * bandH + groupOffset;
           return top + (groupIdx + 0.5) * perGroupBand;
+        }
+        if(separatedSpacing){
+          const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
+          if(categoryIdx >= 0 && categoryIdx < separatedSpacing.centers.length){
+            return separatedSpacing.centers[categoryIdx];
+          }
         }
         const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
         return marginLocal.top + (categoryIdx + 0.5) * bandH;
@@ -5771,7 +5876,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(yInterval && i % yInterval !== 0){
           return;
         }
-        const y = marginLocal.top + (i + 0.5) * bandH;
+        const y = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.top + (i + 0.5) * bandH;
         add('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - tickLen, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
         const t = add('text',{ x: yAxisLeft - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
@@ -5832,6 +5937,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           document.addEventListener('mouseup', onUp);
         });
       }
+      const stackedErrorQueue = [];
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
           console.log('boxplot draw cancelled during render loop',{ token });
@@ -5968,12 +6074,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               const errorExtents = computeStackedErrorExtents(barStartValue, mean, sd, errorMode);
               if(errorExtents){
                 const xHigh = valueToX(errorExtents.highValue);
-                const xLow = valueToX(errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd);
-                add('line',{ x1: xLow, y1: cy, x2: xHigh, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                add('line',{ x1: xHigh, y1: cy - cap / 2, x2: xHigh, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                if(errorMode === 'both'){
-                  add('line',{ x1: xLow, y1: cy - cap / 2, x2: xLow, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                }
+                const xLowValue = errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd;
+                const xLow = valueToX(xLowValue);
+                stackedErrorQueue.push({
+                  cy,
+                  xHigh,
+                  xLow,
+                  cap,
+                  borderColor,
+                  showLowerCap: errorMode === 'both'
+                });
               }
             }else{
               const xSdPos = valueToX(mean + sd);
@@ -6123,10 +6233,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
       }
+      if(isStackedLayout && stackedErrorQueue.length){
+        stackedErrorQueue.forEach(item => {
+          add('line',{ x1: item.xLow, y1: item.cy, x2: item.xHigh, y2: item.cy, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
+          add('line',{ x1: item.xHigh, y1: item.cy - item.cap / 2, x2: item.xHigh, y2: item.cy + item.cap / 2, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
+          if(item.showLowerCap){
+            add('line',{ x1: item.xLow, y1: item.cy - item.cap / 2, x2: item.xLow, y2: item.cy + item.cap / 2, stroke: item.borderColor, 'stroke-width': errorBarWidthPx });
+          }
+        });
+        console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'horizontal' });
+      }
       const traceCenter = idx => {
         const trace = traces[idx];
         if(trace){
           return categoryCenter(trace, idx);
+        }
+        if(separatedSpacing && idx >= 0 && idx < separatedSpacing.centers.length){
+          return separatedSpacing.centers[idx];
         }
         return marginLocal.top + (idx + 0.5) * bandH;
       };
