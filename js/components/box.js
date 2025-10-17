@@ -1205,7 +1205,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings() };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved' };
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
@@ -1382,6 +1382,15 @@
     els.boxLogScaleLabel=global.$('#boxLogScaleLabel');
     els.boxFlipAxes=global.$('#boxFlipAxes');
     els.boxGraphType=global.$('#boxGraphType');
+    els.boxLayoutModeCtl=global.$('#boxLayoutModeCtl');
+    els.boxLayoutMode=global.$('#boxLayoutMode');
+    if(els.boxLayoutMode){
+      const allowedLayouts = new Set(['interleaved','separated','stacked']);
+      const fallbackLayout = allowedLayouts.has(state.groupLayout) ? state.groupLayout : 'interleaved';
+      state.groupLayout = fallbackLayout;
+      els.boxLayoutMode.value = fallbackLayout;
+      console.debug('Debug: box layout mode initialised',{ value: fallbackLayout });
+    }
     els.boxIndividualSummaryCtl=global.$('#boxIndividualSummaryCtl');
     els.boxIndividualSummary=global.$('#boxIndividualSummary');
     if(els.boxIndividualSummary){
@@ -1404,6 +1413,7 @@
     const boxAutoSizeTargets=[
       els.boxTableFormat,
       els.boxGraphType,
+      els.boxLayoutMode,
       els.boxIndividualSummary,
       els.boxErrorMode,
       els.boxPointMode
@@ -1539,6 +1549,13 @@
     }
     if(els.groupedControls){
       els.groupedControls.style.display = state.tableFormat === 'grouped' ? '' : 'none';
+    }
+    if(els.boxLayoutModeCtl){
+      const groupedActive = state.tableFormat === 'grouped';
+      els.boxLayoutModeCtl.style.display = groupedActive ? '' : 'none';
+      if(els.boxLayoutMode){
+        els.boxLayoutMode.disabled = !groupedActive;
+      }
     }
     if(state.tableFormat === 'grouped'){
       renderGroupedList();
@@ -1818,9 +1835,43 @@
         }
         console.debug('Debug: box individual summary visibility',{ graphTypeValue, summaryVisible });
       }
+      if(els.boxLayoutModeCtl){
+        const groupedActive = state.tableFormat === 'grouped';
+        els.boxLayoutModeCtl.style.display = groupedActive ? '' : 'none';
+        if(els.boxLayoutMode){
+          els.boxLayoutMode.disabled = !groupedActive;
+          Array.from(els.boxLayoutMode.options || []).forEach(option => {
+            if(option.value === 'stacked'){
+              option.disabled = graphTypeValue !== 'bar';
+            }
+          });
+          if(graphTypeValue !== 'bar' && state.groupLayout === 'stacked'){
+            state.groupLayout = 'interleaved';
+            els.boxLayoutMode.value = 'interleaved';
+            console.debug('Debug: box layout reset to interleaved due to graph type',{ graphTypeValue });
+          }
+        }
+      }
       console.debug('Debug: box graph type controls',{ graphTypeValue, showErrorControls });
     };
     els.boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', els.boxGraphType.value); updateGraphTypeControls(); state.scheduleDraw(); });
+    if(els.boxLayoutMode){
+      els.boxLayoutMode.addEventListener('change',()=>{
+        const requested = els.boxLayoutMode.value;
+        let normalized = 'interleaved';
+        if(requested === 'separated'){ normalized = 'separated'; }
+        else if(requested === 'stacked'){ normalized = 'stacked'; }
+        if(normalized === 'stacked' && els.boxGraphType.value !== 'bar'){
+          normalized = 'interleaved';
+          els.boxLayoutMode.value = 'interleaved';
+          console.debug('Debug: box stacked layout rejected for non-bar graph',{ graphType: els.boxGraphType.value });
+        }
+        state.groupLayout = normalized;
+        console.debug('Debug: box layout mode change',{ requested, normalized });
+        state.scheduleDraw();
+      });
+    }
+    updateGraphTypeControls();
     if(els.boxIndividualSummary){
       els.boxIndividualSummary.addEventListener('change',()=>{
         const allowedSummaries = new Set(['mean','median','none']);
@@ -4560,6 +4611,22 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(isGroupedMode){
       ensureGroupedDefaults();
     }
+    let layoutMode = typeof state.groupLayout === 'string' ? state.groupLayout : 'interleaved';
+    if(layoutMode !== 'interleaved' && layoutMode !== 'separated' && layoutMode !== 'stacked'){
+      layoutMode = 'interleaved';
+    }
+    if(graphTypeRaw !== 'bar' && layoutMode === 'stacked'){
+      layoutMode = 'interleaved';
+    }
+    if(layoutMode !== state.groupLayout){
+      console.debug('Debug: box layout normalized',{ previous: state.groupLayout, applied: layoutMode, graphType: graphTypeRaw });
+      state.groupLayout = layoutMode;
+      if(els.boxLayoutMode && els.boxLayoutMode.value !== layoutMode){
+        els.boxLayoutMode.value = layoutMode;
+      }
+    }
+    const isStackedLayout = layoutMode === 'stacked';
+    const usesGroupedSpacing = isGroupedMode && layoutMode === 'interleaved';
     const groupedGroups = isGroupedMode ? state.grouped.groups.map((name, idx)=>{ const trimmed = typeof name === 'string' ? name.trim() : ''; return trimmed || `Group ${idx + 1}`; }) : [];
     const groupedReplicates = isGroupedMode ? Math.max(1, state.grouped.replicatesPerGroup) : 1;
     const analysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
@@ -4606,15 +4673,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           return;
         }
         if(col.length){
+          const categoryIndex = axisLabels.length;
+          axisLabels.push(label);
           traceLabels.push(label);
-          traces.push({ name: label, rawY: col });
+          traces.push({ name: label, rawY: col, categoryName: label, categoryIndex, columnIndex: i });
         }
       }
-      axisLabels = traceLabels.slice();
+      if(!axisLabels.length && traceLabels.length){
+        axisLabels = traceLabels.slice();
+      }
     }else{
       state.colOrder = Array.from({ length: nCols }, (_, i) => i);
+      const replicateEntries = [];
+      const groupEntries = groupedGroups.map((groupName, gIdx)=>({ groupName, groupIndex: gIdx, replicates: [] }));
       for(let repIdx = 0; repIdx < groupedReplicates; repIdx++){
-        const pendingTraces = [];
+        const replicateBucket = [];
         let categoryName = '';
         for(let gIdx = 0; gIdx < groupedGroups.length; gIdx++){
           const groupName = groupedGroups[gIdx];
@@ -4652,29 +4725,57 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             return;
           }
           if(values.length){
-            pendingTraces.push({ groupName, groupIndex: gIdx, rawY: values, columnIndex: colIndex });
+            const entry = { groupName, groupIndex: gIdx, rawY: values, columnIndex: colIndex, replicateIndex: repIdx };
+            replicateBucket.push(entry);
+            groupEntries[gIdx].replicates.push(entry);
           }
         }
-        if(!pendingTraces.length){
+        if(!replicateBucket.length){
           console.debug('Debug: grouped replicate without data',{ replicateIndex: repIdx });
           continue;
         }
-        const finalCategoryName = categoryName || `Category ${axisLabels.length + 1}`;
-        const categoryIndex = axisLabels.length;
-        axisLabels.push(finalCategoryName);
-        pendingTraces.forEach(traceInfo => {
-          const label = `${traceInfo.groupName} – ${finalCategoryName}`;
-          const trace = {
-            name: label,
-            rawY: traceInfo.rawY,
-            groupName: traceInfo.groupName,
-            groupIndex: traceInfo.groupIndex,
-            categoryName: finalCategoryName,
-            categoryIndex,
-            columnIndex: traceInfo.columnIndex
-          };
-          traces.push(trace);
-          traceLabels.push(label);
+        const finalCategoryName = categoryName || `Category ${replicateEntries.length + 1}`;
+        replicateBucket.forEach(entry => { entry.replicateName = finalCategoryName; });
+        replicateEntries.push({ name: finalCategoryName, replicateIndex: repIdx, traces: replicateBucket });
+      }
+      if(layoutMode === 'separated'){
+        groupEntries.forEach(groupEntry => {
+          groupEntry.replicates.forEach(entry => {
+            const axisLabel = `${groupEntry.groupName} – ${entry.replicateName || `Category ${axisLabels.length + 1}`}`;
+            const categoryIndex = axisLabels.length;
+            axisLabels.push(axisLabel);
+            const trace = {
+              name: axisLabel,
+              rawY: entry.rawY,
+              groupName: entry.groupName,
+              groupIndex: entry.groupIndex,
+              categoryName: axisLabel,
+              categoryIndex,
+              replicateIndex: entry.replicateIndex,
+              columnIndex: entry.columnIndex
+            };
+            traces.push(trace);
+            traceLabels.push(axisLabel);
+          });
+        });
+      }else{
+        axisLabels = replicateEntries.map(rep => rep.name);
+        replicateEntries.forEach((rep, catIdx) => {
+          rep.traces.forEach(entry => {
+            const label = `${entry.groupName} – ${rep.name}`;
+            const trace = {
+              name: label,
+              rawY: entry.rawY,
+              groupName: entry.groupName,
+              groupIndex: entry.groupIndex,
+              categoryName: rep.name,
+              categoryIndex: catIdx,
+              replicateIndex: entry.replicateIndex,
+              columnIndex: entry.columnIndex
+            };
+            traces.push(trace);
+            traceLabels.push(label);
+          });
         });
       }
       if(!axisLabels.length && traceLabels.length){
@@ -4751,36 +4852,144 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     let ymax = -Infinity;
     for(let ti = 0; ti < traces.length; ti++){
       const t = traces[ti];
-      for(let j = 0; j < t.y.length; j++){
+      const sampleCount = t.y.length;
+      let sum = 0;
+      let sumSq = 0;
+      for(let j = 0; j < sampleCount; j++){
         const v = t.y[j];
         if(v < ymin) ymin = v;
         if(v > ymax) ymax = v;
+        sum += v;
+        sumSq += v * v;
         if(j % 10000 === 0){
           console.log('boxplot range progress',{ trace: ti, row: j, token });
         }
       }
+      let mean = 0;
+      let variance = 0;
+      let sd = 0;
+      if(sampleCount){
+        mean = sum / sampleCount;
+        if(sampleCount > 1){
+          const numerator = sumSq - (sum * sum) / sampleCount;
+          variance = numerator > 0 ? numerator / (sampleCount - 1) : 0;
+          sd = Math.sqrt(Math.max(variance, 0));
+        }
+      }
+      t.__barStats = {
+        sampleCount,
+        mean,
+        variance,
+        sd,
+        hasSpread: sampleCount > 1
+      };
     }
     if(token !== state.drawToken){
       console.log('boxplot draw cancelled after range calc',{ token });
       return;
     }
     console.log('boxplot ymin/ymax',{ ymin, ymax });
-    let barErrorMin = Infinity;
-    if(graphTypeRaw === 'bar'){
-      traces.forEach(t => {
-        const sampleCount = t.y.length;
-        if(!sampleCount) return;
-        const mean = t.y.reduce((a, b) => a + b, 0) / sampleCount;
-        const hasSpread = sampleCount > 1;
-        const variance = hasSpread ? t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (sampleCount - 1) : 0;
-        const sd = hasSpread ? Math.sqrt(Math.max(variance, 0)) : 0;
-        const candidate = hasSpread ? mean - sd : mean;
-        if(!hasSpread){
-          console.debug('Debug: box skip bar extent for single value',{ trace: t.name, sampleCount, mean });
+    const computeStackedErrorExtents = (baseValue, meanValue, sdValue, mode) => {
+      if(!Number.isFinite(baseValue) || !Number.isFinite(meanValue)){
+        return null;
+      }
+      const safeSd = Number.isFinite(sdValue) && sdValue > 0 ? sdValue : 0;
+      const segmentEnd = baseValue + meanValue;
+      let highValue = segmentEnd;
+      let lowValue = segmentEnd;
+      if(meanValue >= 0){
+        highValue = Math.max(segmentEnd, baseValue + meanValue + safeSd);
+        if(mode === 'both'){
+          const proposed = baseValue + meanValue - safeSd;
+          if(proposed < baseValue){
+            console.debug('Debug: box stacked bar lower clamp',{ baseValue, mean: meanValue, sd: safeSd, proposed, clamp: baseValue });
+            lowValue = baseValue;
+          }else{
+            lowValue = Math.min(segmentEnd, proposed);
+          }
         }
-        barErrorMin = Math.min(barErrorMin, candidate);
+      }else{
+        lowValue = Math.min(segmentEnd, baseValue + meanValue - safeSd);
+        if(mode === 'both'){
+          const proposed = baseValue + meanValue + safeSd;
+          if(proposed > baseValue){
+            console.debug('Debug: box stacked bar upper clamp',{ baseValue, mean: meanValue, sd: safeSd, proposed, clamp: baseValue });
+            highValue = baseValue;
+          }else{
+            highValue = Math.max(segmentEnd, proposed);
+          }
+        }else if(mode === 'upper'){
+          const proposed = baseValue + meanValue + safeSd;
+          if(proposed > baseValue){
+            console.debug('Debug: box stacked bar upper-only clamp',{ baseValue, mean: meanValue, sd: safeSd, proposed, clamp: baseValue });
+            highValue = baseValue;
+          }else{
+            highValue = Math.max(segmentEnd, proposed);
+          }
+        }
+      }
+      if(highValue < lowValue){
+        const mid = (highValue + lowValue) / 2;
+        console.debug('Debug: box stacked bar extent swap',{ baseValue, mean: meanValue, sd: safeSd, highValue, lowValue, mode });
+        highValue = mid;
+        lowValue = mid;
+      }
+      return { highValue, lowValue, segmentEnd };
+    };
+    let barErrorMin = Infinity;
+    let barErrorMax = -Infinity;
+    if(graphTypeRaw === 'bar'){
+      const stackedPreview = isStackedLayout ? new Map() : null;
+      traces.forEach((t, traceIndex) => {
+        const stats = t.__barStats;
+        const sampleCount = stats?.sampleCount ?? t.y.length;
+        if(!sampleCount){
+          return;
+        }
+        const mean = stats?.mean ?? 0;
+        const hasSpread = !!(stats && stats.hasSpread);
+        const sd = stats?.sd ?? 0;
+        if(isStackedLayout){
+          const key = Number.isFinite(t.categoryIndex) ? t.categoryIndex : traceIndex;
+          if(!stackedPreview.has(key)){
+            stackedPreview.set(key, { pos: 0, neg: 0 });
+          }
+          const entry = stackedPreview.get(key);
+          const baseValue = mean >= 0 ? entry.pos : entry.neg;
+          const segmentEnd = baseValue + mean;
+          if(hasSpread){
+            const extents = computeStackedErrorExtents(baseValue, mean, sd, errorMode);
+            if(extents){
+              barErrorMin = Math.min(barErrorMin, extents.lowValue);
+              barErrorMax = Math.max(barErrorMax, extents.highValue);
+            }
+          }else{
+            console.debug('Debug: box stacked bar extent single value',{ trace: t.name, sampleCount, mean });
+            barErrorMin = Math.min(barErrorMin, baseValue, segmentEnd);
+            barErrorMax = Math.max(barErrorMax, baseValue, segmentEnd);
+          }
+          if(mean >= 0){
+            entry.pos = segmentEnd;
+            barErrorMax = Math.max(barErrorMax, entry.pos);
+          }else{
+            entry.neg = segmentEnd;
+            barErrorMin = Math.min(barErrorMin, entry.neg);
+          }
+        }else{
+          const lowerCandidate = hasSpread ? mean - sd : mean;
+          const upperCandidate = hasSpread ? mean + sd : mean;
+          if(!hasSpread){
+            console.debug('Debug: box skip bar extent for single value',{ trace: t.name, sampleCount, mean });
+          }
+          barErrorMin = Math.min(barErrorMin, lowerCandidate);
+          barErrorMax = Math.max(barErrorMax, upperCandidate);
+        }
       });
       if(isFinite(barErrorMin)) ymin = Math.min(ymin, barErrorMin);
+      if(isFinite(barErrorMax)) ymax = Math.max(ymax, barErrorMax);
+      if(isStackedLayout && stackedPreview){
+        console.debug('Debug: box stacked extent',{ categories: stackedPreview.size, ymin, ymax });
+      }
     }
     const userYMin = parseFloat(els.boxYMin.value);
     const userYMax = parseFloat(els.boxYMax.value);
@@ -5043,26 +5252,28 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       console.debug('Debug: box layout',{ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, rotate: bottomLayout.shouldRotate, yTickTarget, manualTicks: !!manualYScale });
       const axisCount = Math.max(axisLabels.length, 1);
       const bandW = plotWLocal / axisCount;
-      const groupCountLocal = isGroupedMode ? Math.max(1, groupedGroups.length) : 1;
-      const clusterGap = isGroupedMode ? Math.min(bandW * 0.25, 16) : 0;
-      let perGroupBand = isGroupedMode ? (bandW - clusterGap) / groupCountLocal : bandW;
+      const groupCountLocal = usesGroupedSpacing ? Math.max(1, groupedGroups.length) : 1;
+      const clusterGap = usesGroupedSpacing ? Math.min(bandW * 0.25, 16) : 0;
+      let perGroupBand = usesGroupedSpacing ? (bandW - clusterGap) / groupCountLocal : bandW;
       if(!Number.isFinite(perGroupBand) || perGroupBand <= 0){
         perGroupBand = bandW / Math.max(groupCountLocal, 1);
       }
-      const groupOffset = isGroupedMode ? (bandW - perGroupBand * groupCountLocal) / 2 : 0;
+      const groupOffset = usesGroupedSpacing ? (bandW - perGroupBand * groupCountLocal) / 2 : 0;
       const valueRange = yScale.max - yScale.min || 1;
       const y2px = v => marginLocal.top + plotHLocal * (1 - (v - yScale.min) / valueRange);
       const boxWidthForTrace = () => Math.max(6, Math.min(60, perGroupBand * 0.6));
-      const localBandWidthForTrace = () => (isGroupedMode ? perGroupBand : bandW);
+      const localBandWidthForTrace = () => (usesGroupedSpacing ? perGroupBand : bandW);
       const xCenter = (trace, traceIndex) => {
-        if(isGroupedMode){
+        if(usesGroupedSpacing){
           const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
           const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
           const left = marginLocal.left + categoryIdx * bandW + groupOffset;
           return left + (groupIdx + 0.5) * perGroupBand;
         }
-        return marginLocal.left + (traceIndex + 0.5) * bandW;
+        const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
+        return marginLocal.left + (categoryIdx + 0.5) * bandW;
       };
+      let stackOffsets = null;
       const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
       if(showGrid){
@@ -5285,25 +5496,60 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             add('line',{ x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': errorBarWidthPx });
           }
         }else if(graphTypeRaw === 'bar'){
-          const sampleCount = t.y.length;
-          const hasSpread = sampleCount > 1;
-          const variance = hasSpread ? t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (sampleCount - 1) : 0;
-          const sd = hasSpread ? Math.sqrt(Math.max(variance, 0)) : 0;
-          const yZero = y2px(0);
-          const rectY = Math.min(yMean, yZero);
-          const rectH = Math.abs(yZero - yMean);
-          add('rect',{ x: x0, y: rectY, width: boxW, height: Math.max(1, rectH), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
-          if(hasSpread){
-            const ySdTop = y2px(mean + sd);
-            const cap = Math.max(6, boxW * 0.4);
-            if(errorMode === 'both'){
-              const ySdBottom = y2px(mean - sd);
-              add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: ySdBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-              add('line',{ x1: cx - cap / 2, y1: ySdBottom, x2: cx + cap / 2, y2: ySdBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-            }else{
-              add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: yMean, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          const stats = t.__barStats;
+          const sampleCount = stats?.sampleCount ?? t.y.length;
+          const hasSpread = !!(stats && stats.hasSpread);
+          const sd = stats?.sd ?? 0;
+          let barStartValue = 0;
+          let barEndValue = mean;
+          if(isStackedLayout){
+            if(!stackOffsets){
+              stackOffsets = new Map();
             }
-            add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            const stackKey = Number.isFinite(t.categoryIndex) ? t.categoryIndex : i;
+            if(!stackOffsets.has(stackKey)){
+              stackOffsets.set(stackKey, { pos: 0, neg: 0 });
+            }
+            const entry = stackOffsets.get(stackKey);
+            if(mean >= 0){
+              barStartValue = entry.pos;
+              barEndValue = entry.pos + mean;
+              entry.pos = barEndValue;
+            }else{
+              barStartValue = entry.neg;
+              barEndValue = entry.neg + mean;
+              entry.neg = barEndValue;
+            }
+          }
+          const yStart = y2px(barStartValue);
+          const yEnd = y2px(barEndValue);
+          const rectY = Math.min(yStart, yEnd);
+          const rectH = Math.max(1, Math.abs(yStart - yEnd));
+          add('rect',{ x: x0, y: rectY, width: boxW, height: rectH, fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+          if(hasSpread){
+            const cap = Math.max(6, boxW * 0.4);
+            if(isStackedLayout){
+              const errorExtents = computeStackedErrorExtents(barStartValue, mean, sd, errorMode);
+              if(errorExtents){
+                const yHigh = y2px(errorExtents.highValue);
+                const yLow = y2px(errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd);
+                add('line',{ x1: cx, y1: yHigh, x2: cx, y2: yLow, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                add('line',{ x1: cx - cap / 2, y1: yHigh, x2: cx + cap / 2, y2: yHigh, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                if(errorMode === 'both'){
+                  add('line',{ x1: cx - cap / 2, y1: yLow, x2: cx + cap / 2, y2: yLow, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                }
+              }
+            }else{
+              const ySdTop = y2px(mean + sd);
+              if(errorMode === 'both'){
+                const ySdBottom = y2px(mean - sd);
+                add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: ySdBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                add('line',{ x1: cx - cap / 2, y1: ySdBottom, x2: cx + cap / 2, y2: ySdBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+              }else{
+                add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: yMean, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+              }
+              add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            }
           }else{
             console.debug('Debug: box bar error bar skipped for single value',{ index: i, sampleCount, mean });
           }
@@ -5485,24 +5731,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
       const axisCount = Math.max(axisLabels.length, 1);
       const bandH = plotHLocal / axisCount;
-      const groupCountLocal = isGroupedMode ? Math.max(1, groupedGroups.length) : 1;
-      const clusterGap = isGroupedMode ? Math.min(bandH * 0.25, 16) : 0;
-      let perGroupBand = isGroupedMode ? (bandH - clusterGap) / groupCountLocal : bandH;
+      const groupCountLocal = usesGroupedSpacing ? Math.max(1, groupedGroups.length) : 1;
+      const clusterGap = usesGroupedSpacing ? Math.min(bandH * 0.25, 16) : 0;
+      let perGroupBand = usesGroupedSpacing ? (bandH - clusterGap) / groupCountLocal : bandH;
       if(!Number.isFinite(perGroupBand) || perGroupBand <= 0){
         perGroupBand = bandH / Math.max(groupCountLocal, 1);
       }
-      const groupOffset = isGroupedMode ? (bandH - perGroupBand * groupCountLocal) / 2 : 0;
+      const groupOffset = usesGroupedSpacing ? (bandH - perGroupBand * groupCountLocal) / 2 : 0;
       const boxHeightForTrace = () => Math.max(6, Math.min(60, perGroupBand * 0.6));
-      const localBandHeightForTrace = () => (isGroupedMode ? perGroupBand : bandH);
+      const localBandHeightForTrace = () => (usesGroupedSpacing ? perGroupBand : bandH);
       const categoryCenter = (trace, traceIndex) => {
-        if(isGroupedMode){
+        if(usesGroupedSpacing){
           const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
           const groupIdx = Number.isFinite(trace?.groupIndex) ? trace.groupIndex : 0;
           const top = marginLocal.top + categoryIdx * bandH + groupOffset;
           return top + (groupIdx + 0.5) * perGroupBand;
         }
-        return marginLocal.top + (traceIndex + 0.5) * bandH;
+        const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
+        return marginLocal.top + (categoryIdx + 0.5) * bandH;
       };
+      let stackOffsets = null;
       if(showGrid){
         yScale.ticks.forEach(t => {
           const x = valueToX(t);
@@ -5684,25 +5932,60 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             add('line',{ x1: xWMax, y1: cy - cap / 2, x2: xWMax, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
           }
         }else if(graphTypeRaw === 'bar'){
-          const sampleCount = t.y.length;
-          const hasSpread = sampleCount > 1;
-          const variance = hasSpread ? t.y.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (sampleCount - 1) : 0;
-          const sd = hasSpread ? Math.sqrt(Math.max(variance, 0)) : 0;
-          const xZero = valueToX(0);
-          const rectX = Math.min(xMean, xZero);
-          const rectW = Math.max(1, Math.abs(xZero - xMean));
+          const stats = t.__barStats;
+          const sampleCount = stats?.sampleCount ?? t.y.length;
+          const hasSpread = !!(stats && stats.hasSpread);
+          const sd = stats?.sd ?? 0;
+          let barStartValue = 0;
+          let barEndValue = mean;
+          if(isStackedLayout){
+            if(!stackOffsets){
+              stackOffsets = new Map();
+            }
+            const stackKey = Number.isFinite(t.categoryIndex) ? t.categoryIndex : i;
+            if(!stackOffsets.has(stackKey)){
+              stackOffsets.set(stackKey, { pos: 0, neg: 0 });
+            }
+            const entry = stackOffsets.get(stackKey);
+            if(mean >= 0){
+              barStartValue = entry.pos;
+              barEndValue = entry.pos + mean;
+              entry.pos = barEndValue;
+            }else{
+              barStartValue = entry.neg;
+              barEndValue = entry.neg + mean;
+              entry.neg = barEndValue;
+            }
+          }
+          const xStart = valueToX(barStartValue);
+          const xEnd = valueToX(barEndValue);
+          const rectX = Math.min(xStart, xEnd);
+          const rectW = Math.max(1, Math.abs(xStart - xEnd));
           add('rect',{ x: rectX, y: y0, width: rectW, height: Math.max(1, boxH), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
           if(hasSpread){
-            const xSdPos = valueToX(mean + sd);
             const cap = Math.max(6, boxH * 0.4);
-            if(errorMode === 'both'){
-              const xSdNeg = valueToX(mean - sd);
-              add('line',{ x1: xSdNeg, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-              add('line',{ x1: xSdNeg, y1: cy - cap / 2, x2: xSdNeg, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            if(isStackedLayout){
+              const errorExtents = computeStackedErrorExtents(barStartValue, mean, sd, errorMode);
+              if(errorExtents){
+                const xHigh = valueToX(errorExtents.highValue);
+                const xLow = valueToX(errorMode === 'both' ? errorExtents.lowValue : errorExtents.segmentEnd);
+                add('line',{ x1: xLow, y1: cy, x2: xHigh, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                add('line',{ x1: xHigh, y1: cy - cap / 2, x2: xHigh, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                if(errorMode === 'both'){
+                  add('line',{ x1: xLow, y1: cy - cap / 2, x2: xLow, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                }
+              }
             }else{
-              add('line',{ x1: xMean, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+              const xSdPos = valueToX(mean + sd);
+              if(errorMode === 'both'){
+                const xSdNeg = valueToX(mean - sd);
+                add('line',{ x1: xSdNeg, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                add('line',{ x1: xSdNeg, y1: cy - cap / 2, x2: xSdNeg, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+              }else{
+                add('line',{ x1: xMean, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+              }
+              add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
             }
-            add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
           }else{
             console.debug('Debug: box horizontal bar error bar skipped for single value',{ index: i, sampleCount, mean });
           }
@@ -5923,6 +6206,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         showFrame:!!els.boxShowFrame?.checked,
         logScale:els.boxLogScale.checked,
         graphType:els.boxGraphType.value,
+        groupLayout: state.groupLayout,
         individualSummary: state.individualSummary,
         pointMode:els.boxPointMode.value,
         showCaps:els.boxShowCaps.checked,
@@ -6068,6 +6352,31 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
         els.boxLogScale.checked=!!c.logScale;
         els.boxGraphType.value=c.graphType||els.boxGraphType.value;
+        if(typeof c.groupLayout === 'string'){
+          const allowedLayouts = new Set(['interleaved','separated','stacked']);
+          const requestedLayout = allowedLayouts.has(c.groupLayout) ? c.groupLayout : 'interleaved';
+          state.groupLayout = requestedLayout;
+        }else if(typeof state.groupLayout !== 'string'){
+          state.groupLayout = 'interleaved';
+        }
+        if(els.boxLayoutMode){
+          let uiLayout = state.groupLayout;
+          if(uiLayout === 'stacked' && els.boxGraphType.value !== 'bar'){
+            uiLayout = 'interleaved';
+            state.groupLayout = uiLayout;
+          }
+          const allowedLayouts = new Set(['interleaved','separated','stacked']);
+          if(!allowedLayouts.has(uiLayout)){
+            uiLayout = 'interleaved';
+            state.groupLayout = uiLayout;
+          }
+          els.boxLayoutMode.value = uiLayout;
+          Array.from(els.boxLayoutMode.options || []).forEach(option => {
+            if(option.value === 'stacked'){
+              option.disabled = els.boxGraphType.value !== 'bar';
+            }
+          });
+        }
         const allowedSummaries = new Set(['mean','median','none']);
         if(typeof c.individualSummary === 'string' && allowedSummaries.has(c.individualSummary)){
           state.individualSummary = c.individualSummary;
