@@ -5,6 +5,14 @@
   const box = Components.box = Components.box || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId)
+    : null;
+  const importFontStyles = (scopeId, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+    }
+  };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   box.__installed = true;
@@ -5919,6 +5927,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         borderWidth:els.boxBorderWidth.value,
         errorBarWidth:els.boxErrorBarWidth?.value ?? els.boxBorderWidth.value,
         fontSize:els.boxFontSize.value,
+        fontStyles: (exportFontStyles('box') || undefined),
         showGrid:els.boxShowGrid.checked,
         showFrame:!!els.boxShowFrame?.checked,
         logScale:els.boxLogScale.checked,
@@ -6046,6 +6055,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           state.hot.applyExclusions?.(obj.exclusions);
         }
         const c=obj.config||{};
+        importFontStyles('box', c.fontStyles || null);
         state.titleText=c.title||state.titleText;
         state.yLabelText=c.yLabel||state.yLabelText;
         els.boxFill.value=c.fill||els.boxFill.value;

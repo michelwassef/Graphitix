@@ -65,7 +65,200 @@
   let placementMonitoringAttached = false;
 
   const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
+  const STYLE_ATTR_MAP = {
+    fontFamily: 'font-family',
+    fontWeight: 'font-weight',
+    fontStyle: 'font-style',
+    fontSize: 'font-size',
+    fill: 'fill',
+    textDecoration: 'text-decoration',
+    baselineShift: 'baseline-shift'
+  };
   const SCRIPT_SCALE = 0.75;
+
+  function sanitizeInlineStyleEntry(entry){
+    if(!entry || typeof entry !== 'object'){ return null; }
+    const sanitized = {};
+    let hasValue = false;
+    STYLE_KEYS.forEach(key => {
+      const value = entry[key];
+      if(value !== undefined && value !== null && value !== ''){
+        sanitized[key] = value;
+        hasValue = true;
+      }
+    });
+    return hasValue ? sanitized : null;
+  }
+
+  function normalizeInlineSegments(segments){
+    if(!Array.isArray(segments) || !segments.length){ return []; }
+    const normalized = [];
+    for(let i = 0; i < segments.length; i += 1){
+      const seg = segments[i];
+      if(!seg || typeof seg !== 'object'){ continue; }
+      const startRaw = Number(seg.start);
+      const endRaw = Number(seg.end);
+      const start = Number.isFinite(startRaw) && startRaw > 0 ? Math.floor(startRaw) : 0;
+      const endCandidate = Number.isFinite(endRaw) && endRaw > start ? Math.floor(endRaw) : start;
+      const styleSource = seg.style && typeof seg.style === 'object' ? seg.style : seg;
+      const style = sanitizeInlineStyleEntry(styleSource);
+      if(endCandidate > start && style){
+        normalized.push({ start, end: endCandidate, style });
+      }
+    }
+    normalized.sort((a, b) => {
+      if(a.start !== b.start){ return a.start - b.start; }
+      return a.end - b.end;
+    });
+    return normalized;
+  }
+
+  function inlineSegmentsEqual(a, b){
+    const normA = normalizeInlineSegments(a);
+    const normB = normalizeInlineSegments(b);
+    if(normA.length !== normB.length){ return false; }
+    for(let i = 0; i < normA.length; i += 1){
+      const segA = normA[i];
+      const segB = normB[i];
+      if(segA.start !== segB.start || segA.end !== segB.end){ return false; }
+      for(let j = 0; j < STYLE_KEYS.length; j += 1){
+        const key = STYLE_KEYS[j];
+        const valA = segA.style?.[key] || null;
+        const valB = segB.style?.[key] || null;
+        if(valA !== valB){ return false; }
+      }
+    }
+    return true;
+  }
+
+  function styleHasInlineSegments(style){
+    if(!style || typeof style !== 'object'){ return false; }
+    return normalizeInlineSegments(style.inlineSegments || []).length > 0;
+  }
+
+  function resetInlineSegments(node){
+    if(!node){ return; }
+    if(!node.firstChild){ return; }
+    const textValue = node.textContent || '';
+    node.textContent = textValue;
+    logDebug('resetInlineSegments', { textLength: textValue.length });
+  }
+
+  function applyInlineSegmentsToNode(node, segments){
+    if(!node){ return; }
+    const sanitized = normalizeInlineSegments(segments);
+    if(!sanitized.length){
+      resetInlineSegments(node);
+      return;
+    }
+    const textValue = node.textContent || '';
+    if(!textValue){
+      resetInlineSegments(node);
+      return;
+    }
+    const doc = node.ownerDocument || global.document;
+    if(!doc){ return; }
+    const ns = node.namespaceURI || 'http://www.w3.org/2000/svg';
+    const limit = textValue.length;
+    const frag = doc.createDocumentFragment();
+    let cursor = 0;
+    sanitized.forEach(segment => {
+      const start = Math.max(0, Math.min(segment.start, limit));
+      const end = Math.max(start, Math.min(segment.end, limit));
+      if(end <= start){ return; }
+      if(start > cursor){
+        frag.appendChild(doc.createTextNode(textValue.slice(cursor, start)));
+      }
+      const segmentText = textValue.slice(start, end);
+      const tspan = doc.createElementNS(ns, 'tspan');
+      tspan.textContent = segmentText;
+      STYLE_KEYS.forEach(key => {
+        const attr = STYLE_ATTR_MAP[key];
+        if(!attr){ return; }
+        const value = segment.style?.[key];
+        if(value !== undefined && value !== null && value !== ''){
+          tspan.setAttribute(attr, value);
+        } else {
+          tspan.removeAttribute(attr);
+        }
+      });
+      frag.appendChild(tspan);
+      cursor = end;
+    });
+    if(cursor < limit){
+      frag.appendChild(doc.createTextNode(textValue.slice(cursor)));
+    }
+    while(node.firstChild){ node.removeChild(node.firstChild); }
+    node.appendChild(frag);
+    logDebug('applyInlineSegmentsToNode', {
+      textLength: textValue.length,
+      segmentCount: sanitized.length
+    });
+  }
+
+  function inlineStylesEqual(a, b){
+    if(!a && !b){ return true; }
+    if(!a || !b){ return false; }
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if(keysA.length !== keysB.length){ return false; }
+    for(let i = 0; i < keysA.length; i += 1){
+      const key = keysA[i];
+      if(a[key] !== b[key]){ return false; }
+    }
+    return true;
+  }
+
+  function extractInlineSegmentsFromState(state){
+    if(!state || !Array.isArray(state.styleMap) || !state.styleMap.length){ return []; }
+    const textValue = typeof state.inlineText === 'string' ? state.inlineText : '';
+    if(textValue.length === 0){ return []; }
+    const sanitizedMap = state.styleMap.map(entry => sanitizeInlineStyleEntry(entry));
+    const limit = Math.min(textValue.length, sanitizedMap.length);
+    const segments = [];
+    let index = 0;
+    while(index < limit){
+      const entry = sanitizedMap[index];
+      let end = index + 1;
+      while(end < limit && inlineStylesEqual(entry, sanitizedMap[end])){
+        end += 1;
+      }
+      if(entry){
+        segments.push({ start: index, end, style: { ...entry } });
+      }
+      index = end;
+    }
+    return segments;
+  }
+
+  function captureInlineStateForNode(target, inlineState, meta){
+    if(!target || !inlineState){ return; }
+    const dataset = target.dataset || {};
+    const baseSnapshot = captureStyleSnapshot(target) || {};
+    if(inlineState.baseStyle && typeof inlineState.baseStyle === 'object'){
+      STYLE_KEYS.forEach(key => {
+        const value = inlineState.baseStyle[key];
+        if(value === undefined || value === null || value === ''){
+          if(baseSnapshot[key] !== undefined){ delete baseSnapshot[key]; }
+        } else {
+          baseSnapshot[key] = value;
+        }
+      });
+    }
+    const segments = inlineState.usingInlineSegments ? extractInlineSegmentsFromState(inlineState) : [];
+    if(segments.length){
+      baseSnapshot.inlineSegments = segments;
+    } else {
+      delete baseSnapshot.inlineSegments;
+    }
+    storeStyleForNode(target, baseSnapshot);
+    logDebug('captureInlineStateForNode', {
+      scope: dataset.fontScope || null,
+      key: dataset.fontKey || null,
+      segments: segments.length,
+      reason: meta?.reason || 'inline-change'
+    });
+  }
 
   function captureStyleSnapshot(node){
     if(!node){ return null; }
@@ -81,15 +274,40 @@
     return snapshot;
   }
 
+  function cloneStyleSnapshot(style){
+    if(!style){ return null; }
+    const clone = {};
+    let hasValue = false;
+    STYLE_KEYS.forEach(key => {
+      const value = style[key];
+      if(value !== undefined && value !== null && value !== ''){
+        clone[key] = value;
+        hasValue = true;
+      }
+    });
+    const segments = normalizeInlineSegments(style.inlineSegments || []);
+    if(segments.length){
+      clone.inlineSegments = segments.map(segment => ({
+        start: segment.start,
+        end: segment.end,
+        style: { ...segment.style }
+      }));
+      hasValue = true;
+    }
+    return hasValue ? clone : null;
+  }
+
   function stylesAreEqual(a, b){
     if(a === b){ return true; }
     const refA = a || {};
     const refB = b || {};
-    return STYLE_KEYS.every(key => {
+    const baseEqual = STYLE_KEYS.every(key => {
       const valA = refA[key] || null;
       const valB = refB[key] || null;
       return valA === valB;
     });
+    if(!baseEqual){ return false; }
+    return inlineSegmentsEqual(refA.inlineSegments, refB.inlineSegments);
   }
 
   function inferUndoScopeForNode(node){
@@ -201,7 +419,11 @@
           meta,
           patchKeys: Object.keys(patch || {})
         });
-        return { handled: true, partial: true };
+        return {
+          handled: true,
+          partial: !!result.partial,
+          entire: !!result.entire
+        };
       }
       if(result?.entire){
         return { handled: false, entire: true };
@@ -838,6 +1060,12 @@
     return `${scope}::${token}`;
   }
 
+  function sanitizeStoreToken(token){
+    if(!token){ return '__default__'; }
+    const normalized = String(token);
+    return normalized.includes('::') ? normalized.replace(/::/g, '__') : normalized;
+  }
+
   function parseColorToHex(color){
     if(!color){ return '#000000'; }
     const trimmed = String(color).trim();
@@ -896,6 +1124,8 @@
     }
     if(style.fill){
       node.setAttribute('fill', style.fill);
+    } else if(node.hasAttribute('fill')){
+      node.removeAttribute('fill');
     }
     if(style.textDecoration){
       node.setAttribute('text-decoration', style.textDecoration);
@@ -907,20 +1137,28 @@
     } else {
       node.removeAttribute('baseline-shift');
     }
+    if(styleHasInlineSegments(style)){
+      applyInlineSegmentsToNode(node, style.inlineSegments);
+    } else {
+      resetInlineSegments(node);
+    }
     logDebug('applyStyleToNode', {
       text: node?.textContent,
       scope: node?.dataset?.fontScope || null,
       key: node?.dataset?.fontKey || null,
+      hasInlineSegments: styleHasInlineSegments(style),
       style
     });
   }
 
   function isStyleEmpty(style){
     if(!style){ return true; }
-    return STYLE_KEYS.every(key => {
+    const baseEmpty = STYLE_KEYS.every(key => {
       const value = style[key];
       return value === undefined || value === null || value === '';
     });
+    if(!baseEmpty){ return false; }
+    return !styleHasInlineSegments(style);
   }
 
   function clearStyleFromNode(node){
@@ -932,6 +1170,7 @@
     node.removeAttribute('fill');
     node.removeAttribute('text-decoration');
     node.removeAttribute('baseline-shift');
+    resetInlineSegments(node);
     logDebug('clearStyleFromNode', {
       text: node?.textContent,
       scope: node?.dataset?.fontScope || null,
@@ -1017,16 +1256,91 @@
       return;
     }
     const storeKey = buildStoreKey(scope, key);
-    if(isStyleEmpty(style)){
+    const normalized = cloneStyleSnapshot(style);
+    if(!normalized){
       styleStore.delete(storeKey);
       broadcastStyle(storeKey, null, node);
       logDebug('storeStyleForNode cleared', { scope, key });
     } else {
-      const clone = Object.assign({}, style);
-      styleStore.set(storeKey, clone);
-      broadcastStyle(storeKey, clone, node);
-      logDebug('storeStyleForNode saved', { scope, key, style });
+      styleStore.set(storeKey, normalized);
+      broadcastStyle(storeKey, normalized, node);
+      logDebug('storeStyleForNode saved', {
+        scope,
+        key,
+        style: normalized,
+        hasInlineSegments: styleHasInlineSegments(normalized)
+      });
     }
+  }
+
+  function exportScopeStyles(scopeId){
+    const scope = scopeId || '__global__';
+    const prefix = `${scope}::`;
+    const payload = {};
+    let count = 0;
+    styleStore.forEach((style, storeKey) => {
+      if(!storeKey || !storeKey.startsWith(prefix)){ return; }
+      const token = storeKey.slice(prefix.length) || '__default__';
+      const snapshot = cloneStyleSnapshot(style);
+      if(!snapshot){ return; }
+      payload[token] = snapshot;
+      count += 1;
+    });
+    if(!count){
+      logDebug('exportScopeStyles skipped (empty)', { scope });
+      return null;
+    }
+    logDebug('exportScopeStyles captured', { scope, count });
+    return payload;
+  }
+
+  function importScopeStyles(scopeId, styles, options){
+    const scope = scopeId || '__global__';
+    const prefix = `${scope}::`;
+    const opts = options || {};
+    const incoming = (styles && typeof styles === 'object') ? styles : null;
+    const keep = new Set();
+    if(incoming){
+      Object.keys(incoming).forEach(key => {
+        const token = sanitizeStoreToken(key);
+        const storeKey = `${prefix}${token}`;
+        const snapshot = cloneStyleSnapshot(incoming[key]);
+        keep.add(storeKey);
+        if(snapshot){
+          styleStore.set(storeKey, snapshot);
+          if(opts.broadcast !== false){
+            broadcastStyle(storeKey, snapshot, null);
+          }
+          logDebug('importScopeStyles applied', { scope, token });
+        } else {
+          styleStore.delete(storeKey);
+          if(opts.broadcast !== false){
+            broadcastStyle(storeKey, null, null);
+          }
+          logDebug('importScopeStyles cleared empty style', { scope, token });
+        }
+      });
+    }
+    if(opts.prune !== false){
+      const stale = [];
+      styleStore.forEach((_, storeKey) => {
+        if(storeKey && storeKey.startsWith(prefix) && !keep.has(storeKey)){
+          stale.push(storeKey);
+        }
+      });
+      stale.forEach(storeKey => {
+        styleStore.delete(storeKey);
+        if(opts.broadcast !== false){
+          broadcastStyle(storeKey, null, null);
+        }
+        logDebug('importScopeStyles pruned stale style', { scope, storeKey });
+      });
+    }
+    logDebug('importScopeStyles complete', {
+      scope,
+      imported: incoming ? Object.keys(incoming).length : 0,
+      pruned: opts.prune === false ? 0 : undefined
+    });
   }
 
   function storeCurrentStyle(style){
@@ -1773,6 +2087,9 @@
   fontControls.markText = markText;
   fontControls.openForElement = openPanelForTarget;
   fontControls.applySavedStyle = applySavedStyle;
+  fontControls.captureInlineState = captureInlineStateForNode;
+  fontControls.exportScopeStyles = exportScopeStyles;
+  fontControls.importScopeStyles = importScopeStyles;
   fontControls.close = closePanel;
 
   ensurePanel();

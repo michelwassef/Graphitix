@@ -5,6 +5,14 @@
   const scatter = Components.scatter = Components.scatter || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId)
+    : null;
+  const importFontStyles = (scopeId, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+    }
+  };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   scatter.__installed = true;
@@ -2132,6 +2140,7 @@
     
       function getScatterGraphPayload(){
       const axisSettings = ensureScatterAxisSettings();
+      const fontStyles = exportFontStyles('scatter');
       return {
         type:'scatter',
         data:scatterHot.getData(),
@@ -2172,7 +2181,8 @@
               color: axisSettings.color,
               tickIntervalX: axisSettings.x?.tickInterval ?? null,
               tickIntervalY: axisSettings.y?.tickInterval ?? null
-            }
+            },
+            fontStyles: fontStyles || undefined
           }
         };
       }
@@ -2243,6 +2253,7 @@
               scatterHot.applyExclusions?.(obj.exclusions);
             }
             const c=obj.config||{};
+            importFontStyles('scatter', c.fontStyles || null);
             scatterTitleText=c.title||scatterTitleText;
             scatterXLabelText=c.xLabel||scatterXLabelText;
             scatterYLabelText=c.yLabel||scatterYLabelText;

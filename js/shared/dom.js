@@ -680,6 +680,29 @@
           overlayLineHeight,
         };
 
+        const resolveFontControlsApi = () => {
+          const sharedApi = Shared && Shared.fontControls;
+          if (sharedApi && typeof sharedApi.captureInlineState === 'function') { return sharedApi; }
+          const scopedApi = ownerWindow?.Shared?.fontControls;
+          if (scopedApi && typeof scopedApi.captureInlineState === 'function') { return scopedApi; }
+          return null;
+        };
+
+        const notifyFontControlsInlineChange = (reason, detail = {}) => {
+          const api = resolveFontControlsApi();
+          if (!api || typeof api.captureInlineState !== 'function') { return; }
+          try {
+            api.captureInlineState(el, state, { reason, ...detail });
+            logDebug('makeEditable fontControls notified', {
+              reason,
+              hasInlineSegments: !!state.usingInlineSegments,
+              range: detail.range || null
+            });
+          } catch (fontErr) {
+            console.error('Shared.makeEditable fontControls.captureInlineState error', fontErr);
+          }
+        };
+
         if (el && el.style) {
           state.restoreVisibility = el.style.visibility || null;
           try {
@@ -837,6 +860,11 @@
             });
           }
           refreshInlineRendering(false);
+          notifyFontControlsInlineChange('inline-style-patch', {
+            patchKeys: keys.slice(),
+            range: { start: info.start, end: info.end },
+            entire: info.isFullRange
+          });
           logDebug('makeEditable inline selection style applied', {
             patchKeys: keys,
             range: { start: info.start, end: info.end },
@@ -855,6 +883,10 @@
           const textValue = state.inlineText ?? '';
           state.styleMap = new Array(textValue.length).fill(null);
           refreshInlineRendering(true);
+          notifyFontControlsInlineChange('inline-style-reset', {
+            range: { start: 0, end: textValue.length },
+            entire: true
+          });
           logDebug('makeEditable inline style reset', { length: textValue.length });
         };
 
