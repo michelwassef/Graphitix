@@ -5,6 +5,14 @@
   const pca = Components.pca = Components.pca || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId)
+    : null;
+  const importFontStyles = (scopeId, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+    }
+  };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   pca.__installed = true;
@@ -3301,6 +3309,7 @@
           scale:pcaScale.checked,
           axesVarianceScaled:pcaState.axesVarianceScaled,
           fontSize:pcaFontSize.value,
+          fontStyles: (exportFontStyles('pca') || undefined),
           viewMode:pcaViewMode?.value || DEFAULT_VIEW_MODE,
           axisSelection:{
             x:pcaState.axisSelection.x,
@@ -3407,6 +3416,7 @@
               pcaHot.applyExclusions?.(obj.exclusions);
             }
             const c=obj.config||{};
+            importFontStyles('pca', c.fontStyles || null);
             pcaDotSize.value=c.dotSize||pcaDotSize.value;
             pcaFill.value=c.fill||pcaFill.value;
             pcaBorder.value=c.border||pcaBorder.value;

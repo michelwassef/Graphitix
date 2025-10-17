@@ -7,6 +7,14 @@
   const roc = Components.roc = Components.roc || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId)
+    : null;
+  const importFontStyles = (scopeId, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+    }
+  };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   roc.__installed = true;
@@ -1544,6 +1552,7 @@
         showGrid: !!refs.showGrid?.checked,
         showFrame: !!refs.showFrame?.checked,
         fontSize: refs.fontSize?.value,
+        fontStyles: exportFontStyles('roc') || undefined,
         labelColors: state.labelColors,
         graphType: refs.graphType?.value
       }
@@ -1614,6 +1623,7 @@
           state.hot?.applyExclusions?.(obj.exclusions);
         }
         const config = obj.config || {};
+        importFontStyles('roc', config.fontStyles || null);
         if(refs.borderWidth) refs.borderWidth.value = config.borderWidth || refs.borderWidth.value;
         if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
         if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;

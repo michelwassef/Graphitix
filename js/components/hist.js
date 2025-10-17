@@ -11,6 +11,14 @@
   const hist = Components.hist = Components.hist || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId)
+    : null;
+  const importFontStyles = (scopeId, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+    }
+  };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   hist.__installed = true; // signal to legacy code to skip
   hist.ready = false; // set true after successful init
@@ -523,6 +531,7 @@
         showFrame:$('#histShowFrame').checked,
         logY:$('#histLogY').checked,
         fontSize:$('#histFontSize').value,
+        fontStyles: (exportFontStyles('hist') || undefined),
         yMin:$('#histYMin').value,
         yMax:$('#histYMax').value,
         axis:{
@@ -618,6 +627,7 @@
             state.hot.applyExclusions?.(obj.exclusions);
           }
           const c=obj.config||{};
+          importFontStyles('hist', c.fontStyles || null);
           state.titleText=c.title||state.titleText;
           state.xLabelText=c.xLabel||state.xLabelText;
           state.yLabelText=c.yLabel||state.yLabelText;

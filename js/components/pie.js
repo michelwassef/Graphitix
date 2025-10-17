@@ -8,6 +8,14 @@
   const pie = Components.pie = Components.pie || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId)
+    : null;
+  const importFontStyles = (scopeId, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+    }
+  };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   pie.__installed = true; // signal to legacy code to skip
@@ -384,6 +392,7 @@
         showFrame: $('#pieShowFrame').checked,
         startAngle: $('#pieStartAngle').value,
         fontSize: $('#pieFontSize').value,
+        fontStyles: (exportFontStyles('pie') || undefined),
         valueColumn: $('#pieValueColumn').value,
         expectedColumn: $('#pieExpectedColumn').value,
         colors: state.colors,
@@ -461,6 +470,7 @@
             state.hot.applyExclusions?.(obj.exclusions);
           }
           const c=obj.config||{};
+          importFontStyles('pie', c.fontStyles || null);
           state.titleText=c.title||state.titleText;
           $('#pieChartType').value=c.chartType||$('#pieChartType').value;
           $('#pieShowPercents').checked=!!c.showPercents;
