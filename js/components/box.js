@@ -4918,6 +4918,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }else{
             highValue = Math.max(segmentEnd, proposed);
           }
+        }else if(mode === 'upper'){
+          const proposed = baseValue + meanValue + safeSd;
+          if(proposed > baseValue){
+            console.debug('Debug: box stacked bar upper-only clamp',{ baseValue, mean: meanValue, sd: safeSd, proposed, clamp: baseValue });
+            highValue = baseValue;
+          }else{
+            highValue = Math.max(segmentEnd, proposed);
+          }
         }
       }
       if(highValue < lowValue){
