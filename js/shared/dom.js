@@ -900,6 +900,12 @@
           state.styleMap = adjustStyleMapForTextChange(prevText, normalizedNext, state.styleMap);
           state.inlineText = normalizedNext;
           state.usingInlineSegments = hasStyledCharacters(state.styleMap);
+          notifyFontControlsInlineChange('inline-text-change', {
+            range: { start: 0, end: normalizedNext.length },
+            entire: true,
+            previousLength: prevText.length,
+            nextLength: normalizedNext.length,
+          });
           logDebug('makeEditable inline text updated', {
             previousLength: prevText.length,
             nextLength: normalizedNext.length,
