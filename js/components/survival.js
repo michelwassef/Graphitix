@@ -7,6 +7,14 @@
   const survival = Components.survival = Components.survival || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId)
+    : null;
+  const importFontStyles = (scopeId, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+    }
+  };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -2499,6 +2507,7 @@
         yMin: refs.yMin?.value || '',
         yMax: refs.yMax?.value || '',
         fontSize: refs.fontSize?.value || '13',
+        fontStyles: (exportFontStyles('survival') || undefined),
         xLabel: refs.xLabel?.value || '',
         yLabel: refs.yLabel?.value || '',
         covariateSettings: state.covariateSettings,
@@ -2552,6 +2561,7 @@
       refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
       logDebug('font size base restored', { value: refs.fontSize.value });
     }
+    importFontStyles('survival', config.fontStyles || null);
     if(refs.fontSizeVal){
       chartStyle.renderFontSizeLabel?.({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value), input: refs.fontSize, manual: true });
     }

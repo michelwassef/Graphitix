@@ -6,6 +6,14 @@
   const heatmap = Components.heatmap = Components.heatmap || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId)
+    : null;
+  const importFontStyles = (scopeId, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+    }
+  };
   const formControls = Shared.formControls = Shared.formControls || {};
   heatmap.__installed = true;
   heatmap.ready = false;
@@ -2575,6 +2583,7 @@
       },
       cellSize: Number(refs.cellSize?.value) || 60,
       fontSize: Number(refs.fontSize?.value) || 12,
+      fontStyles: exportFontStyles('heatmap') || undefined,
       filters: {
         presentEnabled: !!refs.filterPresentEnable?.checked,
         presentThreshold: Number(refs.filterPresentValue?.value),
@@ -2632,6 +2641,7 @@
       refs.fontSize.value = String(config.fontSize || 12);
       refs.fontSize.dispatchEvent(new Event('input'));
     }
+    importFontStyles('heatmap', config.fontStyles || null);
     if(refs.filterPresentEnable){
       refs.filterPresentEnable.checked = !!config.filters?.presentEnabled;
       if(refs.filterPresentValue) refs.filterPresentValue.value = Number.isFinite(config.filters?.presentThreshold) ? config.filters.presentThreshold : 80;

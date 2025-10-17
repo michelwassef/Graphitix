@@ -5,6 +5,14 @@
   const Shared = global.Shared = global.Shared || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId)
+    : null;
+  const importFontStyles = (scopeId, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+    }
+  };
   const formControls = Shared.formControls = Shared.formControls || {};
   const Components = global.Components = global.Components || {};
   const venn = Components.venn = Components.venn || {};
@@ -2499,7 +2507,8 @@
         opacity: inputs.opacity.value,
         borderColor: inputs.borderColor.value,
         borderWidth: inputs.borderWidth.value,
-        fontsize: inputs.fontsize.value
+        fontsize: inputs.fontsize.value,
+        fontStyles: exportFontStyles('venn') || undefined
       }
     };
     console.debug('Debug: venn.getPayload captured state', {
@@ -2598,6 +2607,7 @@
         c.nBC.value = d.nBC || 0;
         c.nABC.value = d.nABC || 0;
         const s = obj.style || {};
+        importFontStyles('venn', s.fontStyles || null);
         inputs.colorA.value = s.colorA || inputs.colorA.value;
         inputs.colorB.value = s.colorB || inputs.colorB.value;
         inputs.colorC.value = s.colorC || inputs.colorC.value;

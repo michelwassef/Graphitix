@@ -5,6 +5,14 @@
   const line = Components.line = Components.line || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scopeId)
+    : null;
+  const importFontStyles = (scopeId, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scopeId, styles, { prune: true });
+    }
+  };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
@@ -1540,6 +1548,7 @@
       }
     }
     const axisSettings = ensureLineAxisSettings();
+    const fontStyles = exportFontStyles('line');
     return {
       type:'line',
       data:lineHot.getData(),
@@ -1571,6 +1580,7 @@
         originX:refs.originX?.value,
         originY:refs.originY?.value,
         fontSize:refs.fontSize?.value,
+        fontStyles: fontStyles || undefined,
         regression:{
           mode: refs.regressionMode?.value || 'linear',
           seriesSummaries: Array.isArray(lineLastRegressionSummaries) ? lineLastRegressionSummaries : []
@@ -1599,6 +1609,7 @@
         console.debug('Debug: loadLineGraphFile payload',obj); // Debug: file load payload
         if(obj.type!=='line') throw new Error('Invalid graph type');
         const c=obj.config||{};
+        importFontStyles('line', c.fontStyles || null);
         const storedReplicates = clampLineReplicateCount(c.replicates ?? lineReplicates);
         const matrixData = Array.isArray(obj.data) ? obj.data : null;
         const storedGroupLabels = Array.isArray(c.groupLabels) ? c.groupLabels.slice() : null;
