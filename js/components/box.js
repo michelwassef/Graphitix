@@ -5349,6 +5349,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
         return marginLocal.left + (categoryIdx + 0.5) * bandW;
       };
+      const axisElements = [];
+      const registerAxisElementNode = el => {
+        if(el){
+          axisElements.push(el);
+        }
+        return el;
+      };
+      const addAxisElement = (tag, attrs) => registerAxisElementNode(add(tag, attrs));
       let stackOffsets = null;
       const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
@@ -5369,15 +5377,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       axisYStart = Math.min(axisYStart, xAxisY);
       axisYEnd = Math.max(axisYEnd, xAxisY);
       console.debug('Debug: box axis join span',{ axisYStart, axisYEnd, xAxisY, yAxisX });
-      const yAxisLine = add('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      const yAxisLine = addAxisElement('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
       }
       let yTickFontCount = 0;
       yScale.ticks.forEach((t, i) => {
         const y = y2px(t);
-        add('line',{ x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
-        const txt = add('text',{ x: yAxisX - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
+        addAxisElement('line',{ x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+        const txt = addAxisElement('text',{ x: yAxisX - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
         markFontEditable(txt,'yTick');
         yTickFontCount += 1;
@@ -5402,7 +5410,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const frameXMax = yAxisX + plotWLocal;
       axisXEnd = Math.max(axisXEnd, frameXMax);
       console.debug('Debug: box x-axis span',{ axisXStart, axisXEnd, yAxisX, frameXMax });
-      const xAxisLine = add('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      const xAxisLine = addAxisElement('line',{ x1: yAxisX, y1: xAxisY, x2: axisXEnd, y2: xAxisY, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
       }
@@ -5415,6 +5423,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           frameGroup.setAttribute('stroke-width', axisStrokeWidth);
           frameGroup.setAttribute('fill', 'none');
           svg.appendChild(frameGroup);
+          registerAxisElementNode(frameGroup);
           chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
           console.debug('Debug: box frame stroke scaled',{ axisStrokeWidth });
         }else{
@@ -5431,9 +5440,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           return;
         }
         const x = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.left + (i + 0.5) * bandW;
-        add('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+        addAxisElement('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
-        const t = add('text',{ x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
+        const t = addAxisElement('text',{ x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
         t.textContent = labelText;
         markFontEditable(t,'xTick');
         xTickFontCount += 1;
@@ -5481,7 +5490,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
       }
       const yX = marginLocal.left - (maxTickWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
-      const yText = add('text',{ x: yX, y: marginLocal.top + plotHLocal / 2, transform: `rotate(-90 ${yX} ${marginLocal.top + plotHLocal / 2})`, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
+      const yText = addAxisElement('text',{ x: yX, y: marginLocal.top + plotHLocal / 2, transform: `rotate(-90 ${yX} ${marginLocal.top + plotHLocal / 2})`, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
       yText.textContent = state.yLabelText;
       markFontEditable(yText,'yTitle','yTitle');
       makeEditable(yText, txt => { state.yLabelText = txt; });
@@ -5602,9 +5611,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           const yStart = y2px(barStartValue);
           const yEnd = y2px(barEndValue);
-          const rectY = Math.min(yStart, yEnd);
-          const rectH = Math.max(1, Math.abs(yStart - yEnd));
-          add('rect',{ x: x0, y: rectY, width: boxW, height: rectH, fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+          const rawTop = Math.min(yStart, yEnd);
+          const rawBottom = Math.max(yStart, yEnd);
+          const strokeInset = borderWidthPx > 0 ? borderWidthPx / 2 : 0;
+          let rectY = rawTop + strokeInset;
+          let rectBottom = rawBottom - strokeInset;
+          if(rectBottom < rectY){
+            const mid = (rawTop + rawBottom) / 2;
+            rectY = mid;
+            rectBottom = mid;
+          }
+          const rectH = Math.max(0, rectBottom - rectY);
+          add('rect',{
+            x: x0,
+            y: rectY,
+            width: boxW,
+            height: rectH,
+            fill: fillColor,
+            stroke: borderColor,
+            'stroke-width': borderWidthPx
+          });
+          console.debug('Debug: box bar vertical bounds adjusted',{ index: i, rawTop, rawBottom, rectY, rectBottom, strokeInset });
           if(hasSpread){
             const cap = Math.max(6, boxW * 0.4);
             if(isStackedLayout){
@@ -5778,6 +5805,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
         console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'vertical' });
       }
+      axisElements.forEach(el => {
+        const parent = el && el.parentNode;
+        if(parent && parent.lastChild !== el){
+          parent.appendChild(el);
+        }
+      });
       const traceCenter = idx => {
         const trace = traces[idx];
         if(trace){
@@ -5863,6 +5896,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
         return marginLocal.top + (categoryIdx + 0.5) * bandH;
       };
+      const axisElements = [];
+      const registerAxisElementNode = el => {
+        if(el){
+          axisElements.push(el);
+        }
+        return el;
+      };
+      const addAxisElement = (tag, attrs) => registerAxisElementNode(add(tag, attrs));
       let stackOffsets = null;
       if(showGrid){
         yScale.ticks.forEach(t => {
@@ -5873,7 +5914,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       const yAxisLeft = marginLocal.left;
       const xAxisBottom = marginLocal.top + plotHLocal;
-      const yAxisLine = add('line',{ x1: yAxisLeft, y1: marginLocal.top, x2: yAxisLeft, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      const yAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: marginLocal.top, x2: yAxisLeft, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
       }
@@ -5885,9 +5926,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           return;
         }
         const y = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.top + (i + 0.5) * bandH;
-        add('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - tickLen, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+        addAxisElement('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - tickLen, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
-        const t = add('text',{ x: yAxisLeft - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
+        const t = addAxisElement('text',{ x: yAxisLeft - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
         t.textContent = labelText;
         if(isGroupedMode){
           t.style.cursor = 'default';
@@ -5902,19 +5943,29 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       yScale.ticks.forEach(t => {
         const x = valueToX(t);
-        add('line',{ x1: x, y1: xAxisBottom, x2: x, y2: xAxisBottom + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
-        const txt = add('text',{ x, y: xAxisBottom + tickLen + tickGap, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
+        addAxisElement('line',{ x1: x, y1: xAxisBottom, x2: x, y2: xAxisBottom + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+        const txt = addAxisElement('text',{ x, y: xAxisBottom + tickLen + tickGap, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
       });
-      const xAxisLine = add('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+      const xAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
         axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
       }
       if(showFrame){
         console.debug('Debug: box frame request',{ stroke: axisStroke, showFrame, axisStrokeWidth });
-        chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
+        const doc = svg.ownerDocument || global.document;
+        const frameGroup = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
+        if(frameGroup){
+          frameGroup.setAttribute('stroke-width', axisStrokeWidth);
+          frameGroup.setAttribute('fill', 'none');
+          svg.appendChild(frameGroup);
+          registerAxisElementNode(frameGroup);
+          chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
+        }else{
+          chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
+        }
       }
-      const xLabel = add('text',{ x: marginLocal.left + plotWLocal / 2, y: xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.8, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
+      const xLabel = addAxisElement('text',{ x: marginLocal.left + plotWLocal / 2, y: xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.8, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
       xLabel.textContent = state.yLabelText;
       makeEditable(xLabel, txt => { state.yLabelText = txt; });
       function enableVerticalLabelDrag(t, idx){
@@ -6073,9 +6124,35 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           const xStart = valueToX(barStartValue);
           const xEnd = valueToX(barEndValue);
-          const rectX = Math.min(xStart, xEnd);
-          const rectW = Math.max(1, Math.abs(xStart - xEnd));
-          add('rect',{ x: rectX, y: y0, width: rectW, height: Math.max(1, boxH), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+          const rawLeft = Math.min(xStart, xEnd);
+          const rawRight = Math.max(xStart, xEnd);
+          const strokeInset = borderWidthPx > 0 ? borderWidthPx / 2 : 0;
+          let rectX = rawLeft + strokeInset;
+          let rectRight = rawRight - strokeInset;
+          if(rectRight < rectX){
+            const mid = (rawLeft + rawRight) / 2;
+            rectX = mid;
+            rectRight = mid;
+          }
+          const rectW = Math.max(0, rectRight - rectX);
+          let rectY = y0 + strokeInset;
+          let rectBottom = y1 - strokeInset;
+          if(rectBottom < rectY){
+            const midY = (y0 + y1) / 2;
+            rectY = midY;
+            rectBottom = midY;
+          }
+          const rectH = Math.max(0, rectBottom - rectY);
+          add('rect',{
+            x: rectX,
+            y: rectY,
+            width: rectW,
+            height: rectH,
+            fill: fillColor,
+            stroke: borderColor,
+            'stroke-width': borderWidthPx
+          });
+          console.debug('Debug: box bar horizontal bounds adjusted',{ index: i, rawLeft, rawRight, rectX, rectRight, strokeInset, rectY, rectBottom });
           if(hasSpread){
             const cap = Math.max(6, boxH * 0.4);
             if(isStackedLayout){
@@ -6251,6 +6328,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
         console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'horizontal' });
       }
+      axisElements.forEach(el => {
+        const parent = el && el.parentNode;
+        if(parent && parent.lastChild !== el){
+          parent.appendChild(el);
+        }
+      });
       const traceCenter = idx => {
         const trace = traces[idx];
         if(trace){
