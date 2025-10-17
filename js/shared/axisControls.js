@@ -14,6 +14,8 @@
   let activeHost = null;
   let hasDocListener = false;
 
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
   function logDebug(message, payload){
     console.debug('Debug: axisControls ' + message, payload || {});
   }
@@ -243,6 +245,88 @@
     return panelEl;
   }
 
+  function updateOverlayBounds(target, overlay, padding){
+    if(!target || !overlay || typeof target.getBBox !== 'function'){ return null; }
+    let bbox;
+    try {
+      bbox = target.getBBox();
+    } catch(err){
+      logDebug('overlay bbox failed',{ error: err && err.message });
+      return null;
+    }
+    if(!bbox || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)){ return null; }
+    const pad = Number.isFinite(padding) ? padding : 5;
+    const inflate = Math.max(2, pad);
+    const width = Math.max(1, bbox.width + inflate * 2);
+    const height = Math.max(1, bbox.height + inflate * 2);
+    overlay.setAttribute('x', String(bbox.x - inflate));
+    overlay.setAttribute('y', String(bbox.y - inflate));
+    overlay.setAttribute('width', String(width));
+    overlay.setAttribute('height', String(height));
+    return { width, height, inflate };
+  }
+
+  function ensureAxisOverlay(axisElement){
+    if(!axisElement || axisElement.__axisControlOverlay){
+      if(axisElement && axisElement.__axisControlOverlay){
+        const info = axisElement.__axisControlOverlay;
+        updateOverlayBounds(axisElement, info.element, info.padding);
+        return info;
+      }
+      return null;
+    }
+    const svg = axisElement.ownerSVGElement;
+    if(!svg || typeof svg.ownerDocument?.createElementNS !== 'function'){ return null; }
+    const overlay = svg.ownerDocument.createElementNS(SVG_NS, 'rect');
+    overlay.setAttribute('fill', 'transparent');
+    overlay.setAttribute('pointer-events', 'fill');
+    overlay.dataset.axisControl = '1';
+    overlay.style.cursor = 'pointer';
+    const parent = axisElement.parentNode;
+    if(parent && typeof parent.insertBefore === 'function'){
+      parent.insertBefore(overlay, axisElement.nextSibling);
+    } else {
+      logDebug('overlay missing parent',{ hasParent: !!parent });
+      return null;
+    }
+    const padding = 6;
+    const bounds = updateOverlayBounds(axisElement, overlay, padding);
+    const observer = typeof MutationObserver === 'function'
+      ? new MutationObserver(() => { updateOverlayBounds(axisElement, overlay, padding); })
+      : null;
+    if(observer){
+      observer.observe(axisElement, { attributes: true, attributeFilter: ['x1','y1','x2','y2','transform','x','y','width','height'] });
+    }
+    let removalObserver = null;
+    if(parent && typeof MutationObserver === 'function'){
+      removalObserver = new MutationObserver(records => {
+        for(let i = 0; i < records.length; i += 1){
+          const record = records[i];
+          if(record.type !== 'childList'){ continue; }
+          const removed = Array.from(record.removedNodes || []);
+          if(removed.includes(axisElement) || removed.includes(overlay)){
+            if(observer){ observer.disconnect(); }
+            if(removalObserver){ removalObserver.disconnect(); }
+            overlay.remove();
+            axisElement.__axisControlOverlay = null;
+            return;
+          }
+        }
+      });
+      removalObserver.observe(parent, { childList: true });
+    }
+    const overlayInfo = {
+      element: overlay,
+      observer,
+      removalObserver,
+      padding,
+      meta: bounds
+    };
+    axisElement.__axisControlOverlay = overlayInfo;
+    logDebug('axis overlay ensured',{ inflate: bounds ? bounds.inflate : null });
+    return overlayInfo;
+  }
+
   function closePanel(reason){
     if(!panelEl){ return; }
     panelEl.style.display = 'none';
@@ -340,6 +424,7 @@
     if(!element || !config){ return; }
     element.dataset.axisControl = '1';
     element.style.cursor = 'pointer';
+    const overlayInfo = ensureAxisOverlay(element);
     const handler = evt => {
       evt.preventDefault();
       evt.stopPropagation();
@@ -360,7 +445,10 @@
       });
     };
     element.addEventListener('click', handler);
-    logDebug('axis element registered',{ axis: config.axis, scopeId: config.scopeId });
+    if(overlayInfo){
+      overlayInfo.element.addEventListener('click', handler);
+    }
+    logDebug('axis element registered',{ axis: config.axis, scopeId: config.scopeId, overlay: overlayInfo ? overlayInfo.meta : null });
   }
 
   axisControls.ensurePanel = ensurePanel;
