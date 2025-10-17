@@ -22,7 +22,7 @@
   const DEFAULT_BOX_COLORS=['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'];
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
   const DEFAULT_AXIS_COLOR='#000000';
-  const SEPARATED_GROUP_GAP_MULTIPLIER = 4;
+  const SEPARATED_GROUP_GAP_MULTIPLIER = 1.5;
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
   const DEFAULT_CORRECTION='bonferroni';
