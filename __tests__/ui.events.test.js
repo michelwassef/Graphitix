@@ -273,6 +273,16 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
   });
 
+  test('Surface Plot: Load Example populates data', async () => {
+    await activateWorkspace('surface');
+    const btn = document.getElementById('surfaceLoadExample');
+    expect(btn).toBeTruthy();
+    btn.click();
+    await flushAsyncWork();
+    const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'surfaceHot');
+    expect(loads.length).toBeGreaterThan(0);
+  });
+
   test.skip('ROC: Load Example populates data', async () => {
     await activateWorkspace('roc');
     const btn = document.getElementById('rocLoadExample');

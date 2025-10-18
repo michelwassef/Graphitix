@@ -13,6 +13,7 @@
     pca: { browserPath: '../components/pca.js', requirePath: '../components/pca.js' },
     line: { browserPath: '../components/line.js', requirePath: '../components/line.js' },
     heatmap: { browserPath: '../components/heatmap.js', requirePath: '../components/heatmap.js' },
+    surface: { browserPath: '../components/surface.js', requirePath: '../components/surface.js' },
     roc: { browserPath: '../components/roc.js', requirePath: '../components/roc.js' },
     survival: { browserPath: '../components/survival.js', requirePath: '../components/survival.js' },
     hist: { browserPath: '../components/hist.js', requirePath: '../components/hist.js' },
@@ -130,6 +131,9 @@
   const scheduleDrawHeatmap = Shared.debounceFrame(() => {
     if (window.Components?.heatmap?.draw) window.Components.heatmap.draw();
   });
+  const scheduleDrawSurface = Shared.debounceFrame(() => {
+    if (window.Components?.surface?.draw) window.Components.surface.draw();
+  });
   const scheduleDrawHist = Shared.debounceFrame(() => {
     if (window.Components?.hist?.draw) window.Components.hist.draw();
   });
@@ -218,6 +222,17 @@
       getLayoutState: () => componentLayout.captureStateFor?.('heatmap'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('heatmap', state, options || {})
     },
+    surface: {
+      type: 'surface',
+      tabLabel: 'Surface Plot',
+      element: document.getElementById('surfacePage'),
+      ensure: () => ensureComponent('surface'),
+      draw: () => scheduleDrawSurface(),
+      getPayload: () => window.Components?.surface?.getPayload?.(),
+      loadFromFile: blob => window.Components?.surface?.loadFromFile?.(blob),
+      getLayoutState: () => componentLayout.captureStateFor?.('surface'),
+      applyLayoutState: (state, options) => componentLayout.applyStateFor?.('surface', state, options || {})
+    },
     roc: {
       type: 'roc',
       tabLabel: 'ROC / PR',
@@ -270,6 +285,7 @@
   namespace.scheduleDrawPca = scheduleDrawPca;
   namespace.scheduleDrawLine = scheduleDrawLine;
   namespace.scheduleDrawHeatmap = scheduleDrawHeatmap;
+  namespace.scheduleDrawSurface = scheduleDrawSurface;
   namespace.scheduleDrawHist = scheduleDrawHist;
   namespace.scheduleDrawPie = scheduleDrawPie;
   namespace.scheduleDrawSurvival = scheduleDrawSurvival;

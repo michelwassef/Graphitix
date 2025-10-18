@@ -1,0 +1,1141 @@
+(function(global){
+  'use strict';
+  const Shared = global.Shared = global.Shared || {};
+  const Components = global.Components = global.Components || {};
+  const surface = Components.surface = Components.surface || {};
+  const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
+  const plot3d = Shared.plot3d = Shared.plot3d || {};
+  const hotNS = Shared.hot = Shared.hot || {};
+  const componentLayout = Shared.componentLayout = Shared.componentLayout || {};
+  const fileIO = Shared.fileIO = Shared.fileIO || {};
+  const tableImport = Shared.tableImport = Shared.tableImport || {};
+  const exporter = Shared.exporter = Shared.exporter || {};
+  const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const exportFontStyles = scope => (fontControls && typeof fontControls.exportScopeStyles === 'function')
+    ? fontControls.exportScopeStyles(scope)
+    : null;
+  const importFontStyles = (scope, styles) => {
+    if(fontControls && typeof fontControls.importScopeStyles === 'function'){
+      fontControls.importScopeStyles(scope, styles, { prune: true });
+    }
+  };
+
+  surface.__installed = true;
+  surface.ready = false;
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const DEFAULT_ROWS = 80;
+  const DEFAULT_COLS = 3;
+  const DEFAULT_FILE_NAME = 'surface.graph';
+  const DEFAULT_ROTATION = { x: -0.6, y: 0.9 };
+
+  const COLOR_RAMPS = Object.freeze({
+    viridis: { label: 'Viridis', stops: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] },
+    plasma: { label: 'Plasma', stops: ['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921'] },
+    magma: { label: 'Magma', stops: ['#0c081b', '#2a115b', '#5c1f78', '#933d6c', '#c75b54', '#f48834', '#fbf671'] },
+    turbo: { label: 'Turbo', stops: ['#30123b', '#4145ab', '#2f9df4', '#43ecb0', '#fde54c', '#f45f2a', '#821529'] },
+    bluered: { label: 'Blue-Red', stops: ['#1f77b4', '#6baed6', '#c7e9ff', '#fee0d2', '#fcbba1', '#ef3b2c'] }
+  });
+
+  const INTERPOLATION_OPTIONS = Object.freeze({
+    grid: { label: 'Grid (rectangular)' },
+    scatter: { label: 'Points only' }
+  });
+
+  const state = {
+    hot: null,
+    layout: null,
+    svg: null,
+    svgBox: null,
+    statsEl: null,
+    messageEl: null,
+    exportContainer: null,
+    axisSelects: { x: null, y: null, z: null },
+    controls: {},
+    axisMap: { x: 0, y: 1, z: 2 },
+    settings: {
+      colorRamp: 'viridis',
+      interpolation: 'grid',
+      fontSize: 13,
+      axisStroke: 1.2,
+      axisColor: '#3b3b3b',
+      showGrid: true,
+      showFrame: true,
+      showPoints: false,
+      showLegend: true
+    },
+    labels: { title: 'Surface Plot', x: 'X', y: 'Y', z: 'Z' },
+    rotation: typeof plot3d.createRotationState === 'function'
+      ? plot3d.createRotationState(DEFAULT_ROTATION)
+      : { x: DEFAULT_ROTATION.x, y: DEFAULT_ROTATION.y },
+    scheduleDraw: () => {},
+    fileName: DEFAULT_FILE_NAME,
+    fileHandle: null
+  };
+
+  function debugLog(message, payload){
+    if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+      return;
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      console.debug(message, payload || {});
+    }
+  }
+
+  function hexToRgb(hex){
+    if(typeof hex !== 'string'){ return { r: 0, g: 0, b: 0 }; }
+    const normalized = hex.replace('#', '');
+    if(normalized.length === 3){
+      const r = parseInt(normalized[0] + normalized[0], 16);
+      const g = parseInt(normalized[1] + normalized[1], 16);
+      const b = parseInt(normalized[2] + normalized[2], 16);
+      return { r, g, b };
+    }
+    const parsed = parseInt(normalized, 16);
+    if(Number.isNaN(parsed)){
+      return { r: 0, g: 0, b: 0 };
+    }
+    return {
+      r: (parsed >> 16) & 255,
+      g: (parsed >> 8) & 255,
+      b: parsed & 255
+    };
+  }
+
+  function mixColor(a, b, t){
+    const ratio = Math.min(1, Math.max(0, t));
+    return {
+      r: Math.round(a.r + (b.r - a.r) * ratio),
+      g: Math.round(a.g + (b.g - a.g) * ratio),
+      b: Math.round(a.b + (b.b - a.b) * ratio)
+    };
+  }
+
+  function colorScaleFactory(min, max, rampKey){
+    const ramp = COLOR_RAMPS[rampKey] || COLOR_RAMPS.viridis;
+    const stops = Array.isArray(ramp.stops) && ramp.stops.length ? ramp.stops : COLOR_RAMPS.viridis.stops;
+    const rgbStops = stops.map(hex => hexToRgb(hex));
+    const span = max - min;
+    return (value) => {
+      if(!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || span === 0){
+        const mid = rgbStops[Math.floor(rgbStops.length / 2)] || { r: 128, g: 128, b: 128 };
+        return `rgb(${mid.r},${mid.g},${mid.b})`;
+      }
+      const normalized = (value - min) / span;
+      const scaled = Math.min(rgbStops.length - 1, Math.max(0, normalized * (rgbStops.length - 1)));
+      const idx = Math.floor(scaled);
+      const frac = scaled - idx;
+      const a = rgbStops[idx] || rgbStops[0];
+      const b = rgbStops[Math.min(idx + 1, rgbStops.length - 1)] || rgbStops[rgbStops.length - 1];
+      const mixed = mixColor(a, b, frac);
+      return `rgb(${mixed.r},${mixed.g},${mixed.b})`;
+    };
+  }
+
+  function niceNum(range, round){
+    if(range === 0){ return 0; }
+    const exponent = Math.floor(Math.log10(Math.abs(range)));
+    const fraction = range / Math.pow(10, exponent);
+    let niceFraction;
+    if(round){
+      if(fraction < 1.5){ niceFraction = 1; }
+      else if(fraction < 3){ niceFraction = 2; }
+      else if(fraction < 7){ niceFraction = 5; }
+      else { niceFraction = 10; }
+    } else {
+      if(fraction <= 1){ niceFraction = 1; }
+      else if(fraction <= 2){ niceFraction = 2; }
+      else if(fraction <= 5){ niceFraction = 5; }
+      else { niceFraction = 10; }
+    }
+    return niceFraction * Math.pow(10, exponent);
+  }
+
+  function niceScale(min, max, maxTicks){
+    if(!Number.isFinite(min) || !Number.isFinite(max) || min === max){
+      const base = Number.isFinite(min) ? Math.abs(min) : 1;
+      const pad = Math.max(base * 0.5, 1);
+      return {
+        min: min - pad,
+        max: max + pad,
+        step: pad,
+        ticks: [min - pad, min, max + pad]
+      };
+    }
+    const range = niceNum(max - min, false);
+    const step = niceNum(range / Math.max(maxTicks - 1, 1), true);
+    const graphMin = Math.floor(min / step) * step;
+    const graphMax = Math.ceil(max / step) * step;
+    const ticks = [];
+    for(let tick = graphMin; tick <= graphMax + step * 0.5; tick += step){
+      ticks.push(Number(tick.toFixed(6)));
+    }
+    return { min: graphMin, max: graphMax, step, ticks };
+  }
+
+  function formatNumber(value){
+    if(!Number.isFinite(value)){
+      return 'n/a';
+    }
+    const abs = Math.abs(value);
+    if(abs >= 1e4 || abs < 1e-3){
+      return value.toExponential(2);
+    }
+    return value.toFixed(2);
+  }
+
+  function cacheDom(){
+    const doc = global.document;
+    if(!doc){ return; }
+    state.svg = doc.getElementById('surfaceSvg') || state.svg;
+    state.svgBox = state.layout?.elements?.svgBox || doc.querySelector('#surfaceGraphPanel .svgbox') || state.svgBox;
+    state.statsEl = doc.getElementById('surfaceStatsSummary') || state.statsEl;
+    state.messageEl = doc.getElementById('surfaceMessage') || state.messageEl;
+    state.exportContainer = doc.getElementById('surfaceExportControls') || state.exportContainer;
+    state.axisSelects.x = doc.getElementById('surfaceXAxis') || state.axisSelects.x;
+    state.axisSelects.y = doc.getElementById('surfaceYAxis') || state.axisSelects.y;
+    state.axisSelects.z = doc.getElementById('surfaceZAxis') || state.axisSelects.z;
+    state.controls.colorRamp = doc.getElementById('surfaceColorRamp') || state.controls.colorRamp;
+    state.controls.interpolation = doc.getElementById('surfaceInterpolation') || state.controls.interpolation;
+    state.controls.fontSize = doc.getElementById('surfaceFontSize') || state.controls.fontSize;
+    state.controls.fontSizeVal = doc.getElementById('surfaceFontSizeVal') || state.controls.fontSizeVal;
+    state.controls.axisStroke = doc.getElementById('surfaceAxisStroke') || state.controls.axisStroke;
+    state.controls.axisStrokeVal = doc.getElementById('surfaceAxisStrokeVal') || state.controls.axisStrokeVal;
+    state.controls.axisColor = doc.getElementById('surfaceAxisColor') || state.controls.axisColor;
+    state.controls.showGrid = doc.getElementById('surfaceShowGrid') || state.controls.showGrid;
+    state.controls.showFrame = doc.getElementById('surfaceShowFrame') || state.controls.showFrame;
+    state.controls.showPoints = doc.getElementById('surfaceShowPoints') || state.controls.showPoints;
+    state.controls.showLegend = doc.getElementById('surfaceShowLegend') || state.controls.showLegend;
+    state.controls.title = doc.getElementById('surfaceTitle') || state.controls.title;
+    state.controls.xLabel = doc.getElementById('surfaceXLabel') || state.controls.xLabel;
+    state.controls.yLabel = doc.getElementById('surfaceYLabel') || state.controls.yLabel;
+    state.controls.zLabel = doc.getElementById('surfaceZLabel') || state.controls.zLabel;
+    state.controls.loadExample = doc.getElementById('surfaceLoadExample') || state.controls.loadExample;
+    state.controls.importBtn = doc.getElementById('surfaceImport') || state.controls.importBtn;
+    state.controls.importFile = doc.getElementById('surfaceFile') || state.controls.importFile;
+    state.controls.graphFileInput = doc.getElementById('surfaceGraphFile') || state.controls.graphFileInput;
+  }
+
+  function updateAxisOptions(){
+    const hot = state.hot;
+    if(!hot){ return; }
+    const columns = typeof hot.countCols === 'function' ? hot.countCols() : (hot.getData?.()[0]?.length || DEFAULT_COLS);
+    const headers = [];
+    for(let col = 0; col < columns; col += 1){
+      let header = null;
+      if(typeof hot.getColHeader === 'function'){
+        try {
+          header = hot.getColHeader(col);
+        } catch(err){
+          header = null;
+        }
+      }
+      headers.push(header && header !== col ? header : `Column ${col + 1}`);
+    }
+    ['x', 'y', 'z'].forEach((axis, idx) => {
+      const select = state.axisSelects[axis];
+      if(!select){ return; }
+      const previous = state.axisMap[axis];
+      while(select.firstChild){ select.removeChild(select.firstChild); }
+      headers.forEach((label, colIndex) => {
+        const option = global.document.createElement('option');
+        option.value = String(colIndex);
+        option.textContent = label;
+        if(previous === colIndex || (previous === undefined && colIndex === idx)){
+          option.selected = true;
+          state.axisMap[axis] = colIndex;
+        }
+        select.appendChild(option);
+      });
+      if(headers.length === 0){
+        state.axisMap[axis] = 0;
+      } else if(state.axisMap[axis] >= headers.length){
+        state.axisMap[axis] = headers.length - 1;
+        select.value = String(state.axisMap[axis]);
+      }
+    });
+    debugLog('Debug: surface axis options refreshed', {
+      columns,
+      axisMap: Object.assign({}, state.axisMap)
+    });
+  }
+  function getSelectedColumns(){
+    const maxCol = state.hot && typeof state.hot.countCols === 'function' ? state.hot.countCols() - 1 : DEFAULT_COLS - 1;
+    return {
+      x: Math.min(Math.max(0, Number(state.axisMap.x) || 0), maxCol),
+      y: Math.min(Math.max(0, Number(state.axisMap.y) || 1), maxCol),
+      z: Math.min(Math.max(0, Number(state.axisMap.z) || 2), maxCol)
+    };
+  }
+
+  function initHot(){
+    if(state.hot){ return state.hot; }
+    const container = global.document && global.document.getElementById('surfaceHot');
+    if(!container){
+      console.warn('surface initHot missing container');
+      return null;
+    }
+    const overrides = {
+      firstRowIsHeader: false,
+      colHeaders: ['X', 'Y', 'Z'],
+      columns: [
+        { type: 'numeric', numericFormat: { pattern: '0[.]0000' } },
+        { type: 'numeric', numericFormat: { pattern: '0[.]0000' } },
+        { type: 'numeric', numericFormat: { pattern: '0[.]0000' } }
+      ],
+      minRows: DEFAULT_ROWS,
+      minCols: DEFAULT_COLS,
+      maxCols: 6,
+      afterChange: (changes, source) => {
+        if(source === 'loadData'){ return; }
+        updateAxisOptions();
+        state.scheduleDraw();
+      },
+      afterLoadData: () => {
+        updateAxisOptions();
+        state.scheduleDraw();
+      }
+    };
+    state.hot = typeof hotNS.createStandardTable === 'function'
+      ? hotNS.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), overrides)
+      : null;
+    if(state.hot && typeof state.hot.addHook === 'function'){
+      state.hot.addHook('afterCreateCol', updateAxisOptions);
+      state.hot.addHook('afterRemoveCol', updateAxisOptions);
+      state.hot.addHook('afterColumnMove', updateAxisOptions);
+    }
+    debugLog('Debug: surface Handsontable initialized', { hasHot: !!state.hot });
+    return state.hot;
+  }
+
+  function parseSurfaceTable(){
+    const hot = state.hot;
+    if(!hot || typeof hot.getData !== 'function'){
+      return { points: [], faces: [], ranges: null, stats: { skipped: 0 } };
+    }
+    const data = hot.getData();
+    if(!Array.isArray(data) || !data.length){
+      return { points: [], faces: [], ranges: null, stats: { skipped: 0 } };
+    }
+    const cols = getSelectedColumns();
+    const xValues = new Set();
+    const yValues = new Set();
+    const pointMap = new Map();
+    const points = [];
+    let skipped = 0;
+    let zMin = Infinity;
+    let zMax = -Infinity;
+    for(let rowIndex = 0; rowIndex < data.length; rowIndex += 1){
+      const row = data[rowIndex];
+      if(!row){ continue; }
+      const x = Number(row[cols.x]);
+      const y = Number(row[cols.y]);
+      const z = Number(row[cols.z]);
+      if(!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)){
+        skipped += 1;
+        continue;
+      }
+      const key = `${x}|${y}`;
+      if(pointMap.has(key)){
+        pointMap.get(key).z = z;
+        zMin = Math.min(zMin, z);
+        zMax = Math.max(zMax, z);
+        continue;
+      }
+      const point = { x, y, z };
+      pointMap.set(key, point);
+      points.push(point);
+      xValues.add(x);
+      yValues.add(y);
+      zMin = Math.min(zMin, z);
+      zMax = Math.max(zMax, z);
+    }
+    const xArray = Array.from(xValues).sort((a, b) => a - b);
+    const yArray = Array.from(yValues).sort((a, b) => a - b);
+    const xIndex = new Map();
+    const yIndex = new Map();
+    xArray.forEach((value, idx) => xIndex.set(value, idx));
+    yArray.forEach((value, idx) => yIndex.set(value, idx));
+    const matrix = new Array(yArray.length);
+    for(let yi = 0; yi < yArray.length; yi += 1){
+      matrix[yi] = new Array(xArray.length).fill(null);
+    }
+    pointMap.forEach(point => {
+      const xi = xIndex.get(point.x);
+      const yi = yIndex.get(point.y);
+      if(xi === undefined || yi === undefined){ return; }
+      matrix[yi][xi] = point;
+    });
+    const faces = [];
+    if(xArray.length >= 2 && yArray.length >= 2){
+      for(let yi = 0; yi < yArray.length - 1; yi += 1){
+        for(let xi = 0; xi < xArray.length - 1; xi += 1){
+          const v00 = matrix[yi][xi];
+          const v10 = matrix[yi][xi + 1];
+          const v01 = matrix[yi + 1][xi];
+          const v11 = matrix[yi + 1][xi + 1];
+          if(!v00 || !v10 || !v01 || !v11){
+            continue;
+          }
+          faces.push({ vertices: [v00, v10, v01], value: (v00.z + v10.z + v01.z) / 3 });
+          faces.push({ vertices: [v11, v01, v10], value: (v11.z + v01.z + v10.z) / 3 });
+        }
+      }
+    }
+    const ranges = {
+      x: { min: xArray.length ? xArray[0] : 0, max: xArray.length ? xArray[xArray.length - 1] : 0 },
+      y: { min: yArray.length ? yArray[0] : 0, max: yArray.length ? yArray[yArray.length - 1] : 0 },
+      z: { min: zMin, max: zMax }
+    };
+    const expectedCells = Math.max(0, (xArray.length - 1) * (yArray.length - 1));
+    const actualCells = Math.max(0, Math.round(faces.length / 2));
+    const stats = {
+      vertexCount: points.length,
+      faceCount: faces.length,
+      gridColumns: xArray.length,
+      gridRows: yArray.length,
+      gridCells: actualCells,
+      gridExpected: expectedCells,
+      gridComplete: actualCells > 0 && actualCells === expectedCells,
+      skipped,
+      zMin,
+      zMax
+    };
+    for(let yi = 0; yi < matrix.length; yi += 1){
+      matrix[yi] = null;
+    }
+    debugLog('Debug: surface parsed data', stats);
+    return { points, faces, xArray, yArray, ranges, stats };
+  }
+
+  function displayMessage(text){
+    if(!state.messageEl){ return; }
+    if(text){
+      state.messageEl.textContent = text;
+      state.messageEl.hidden = false;
+    } else {
+      state.messageEl.textContent = '';
+      state.messageEl.hidden = true;
+    }
+  }
+
+  function updateStats(info){
+    const container = state.statsEl;
+    if(!container){ return; }
+    while(container.firstChild){ container.removeChild(container.firstChild); }
+    const entries = [];
+    if(info && info.vertexCount){
+      entries.push({ label: 'Vertices', value: String(info.vertexCount) });
+    }
+    if(info && info.faceCount){
+      entries.push({ label: 'Faces', value: String(info.faceCount) });
+    }
+    if(info && Number.isFinite(info.zMin) && Number.isFinite(info.zMax)){
+      entries.push({ label: 'Z range', value: `${formatNumber(info.zMin)} – ${formatNumber(info.zMax)}` });
+    }
+    if(info && info.gridColumns && info.gridRows){
+      const status = info.gridExpected ? (info.gridComplete ? 'complete' : 'partial') : 'insufficient';
+      entries.push({ label: 'Grid', value: `${info.gridColumns} × ${info.gridRows} (${status})` });
+    }
+    if(info && info.skipped){
+      entries.push({ label: 'Skipped rows', value: String(info.skipped) });
+    }
+    if(!entries.length){
+      entries.push({ label: 'Status', value: 'Enter numeric X, Y, Z columns to generate the surface.' });
+    }
+    entries.forEach(entry => {
+      const row = global.document.createElement('span');
+      const label = global.document.createElement('strong');
+      label.textContent = `${entry.label}:`;
+      const value = global.document.createElement('span');
+      value.textContent = entry.value;
+      row.appendChild(label);
+      row.appendChild(value);
+      container.appendChild(row);
+    });
+  }
+  function ensureAxisRange(range){
+    if(!range){ return { min: -1, max: 1 }; }
+    let min = Number(range.min);
+    let max = Number(range.max);
+    if(!Number.isFinite(min) || !Number.isFinite(max)){
+      return { min: -1, max: 1 };
+    }
+    if(min === max){
+      const pad = Math.max(Math.abs(min) || 1, 1);
+      min -= pad;
+      max += pad;
+    }
+    return { min, max };
+  }
+
+  function renderLegend(svg, options){
+    if(!svg || !options){ return; }
+    const doc = svg.ownerDocument || global.document;
+    const targetLayer = options.layer && options.layer.ownerDocument === doc && options.layer.nodeType === 1 ? options.layer : svg;
+    let defs = svg.querySelector('defs');
+    if(!defs){
+      defs = doc.createElementNS(NS, 'defs');
+      svg.insertBefore(defs, svg.firstChild || null);
+    }
+    const gradientId = 'surfaceGradientScale';
+    let gradient = defs.querySelector(`#${gradientId}`);
+    if(!gradient){
+      gradient = doc.createElementNS(NS, 'linearGradient');
+      gradient.id = gradientId;
+      gradient.setAttribute('x1', '0%');
+      gradient.setAttribute('y1', '0%');
+      gradient.setAttribute('x2', '100%');
+      gradient.setAttribute('y2', '0%');
+      defs.appendChild(gradient);
+    }
+    while(gradient.firstChild){ gradient.removeChild(gradient.firstChild); }
+    const ramp = COLOR_RAMPS[options.colorRamp] || COLOR_RAMPS.viridis;
+    const stops = Array.isArray(ramp.stops) && ramp.stops.length ? ramp.stops : COLOR_RAMPS.viridis.stops;
+    const stopCount = Math.max(1, stops.length - 1);
+    stops.forEach((hex, index) => {
+      const stop = doc.createElementNS(NS, 'stop');
+      stop.setAttribute('offset', `${(index / stopCount) * 100}%`);
+      stop.setAttribute('stop-color', hex);
+      gradient.appendChild(stop);
+    });
+    let legend = svg.querySelector('g.surface-legend');
+    if(!legend){
+      legend = doc.createElementNS(NS, 'g');
+      legend.setAttribute('class', 'surface-legend');
+    } else if(legend.parentNode !== targetLayer){
+      legend.parentNode.removeChild(legend);
+    }
+    targetLayer.appendChild(legend);
+    while(legend.firstChild){ legend.removeChild(legend.firstChild); }
+    const barWidth = 110;
+    const barHeight = Math.max(18, options.fontSize * 0.9);
+    const legendX = options.width - options.margin.right + 12;
+    const legendY = options.margin.top;
+    legend.setAttribute('transform', `translate(${legendX},${legendY})`);
+    const rect = doc.createElementNS(NS, 'rect');
+    rect.setAttribute('width', barWidth);
+    rect.setAttribute('height', barHeight);
+    rect.setAttribute('fill', `url(#${gradientId})`);
+    rect.setAttribute('stroke', '#cbd5e1');
+    rect.setAttribute('stroke-width', Math.max(0.6, options.fontSize * 0.04));
+    legend.appendChild(rect);
+    const minText = doc.createElementNS(NS, 'text');
+    minText.setAttribute('x', 0);
+    minText.setAttribute('y', barHeight + options.fontSize * 0.9);
+    minText.setAttribute('font-size', Math.max(9, options.fontSize * 0.75));
+    minText.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
+    minText.textContent = formatNumber(options.min);
+    legend.appendChild(minText);
+    const maxText = doc.createElementNS(NS, 'text');
+    maxText.setAttribute('x', barWidth);
+    maxText.setAttribute('y', barHeight + options.fontSize * 0.9);
+    maxText.setAttribute('font-size', Math.max(9, options.fontSize * 0.75));
+    maxText.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
+    maxText.setAttribute('text-anchor', 'end');
+    maxText.textContent = formatNumber(options.max);
+    legend.appendChild(maxText);
+  }
+
+  function removeLegend(svg){
+    const legend = svg && svg.querySelector('g.surface-legend');
+    if(legend && legend.parentNode){
+      legend.parentNode.removeChild(legend);
+    }
+  }
+
+  function applySettingsToControls(){
+    if(state.controls.colorRamp){ state.controls.colorRamp.value = state.settings.colorRamp; }
+    if(state.controls.interpolation){ state.controls.interpolation.value = state.settings.interpolation; }
+    if(state.controls.fontSize){ state.controls.fontSize.value = String(state.settings.fontSize); }
+    if(state.controls.fontSize && chartStyle.renderFontSizeLabel){
+      chartStyle.renderFontSizeLabel({ element: state.controls.fontSizeVal, pt: Number(state.settings.fontSize), input: state.controls.fontSize });
+    }
+    if(state.controls.axisStroke){
+      state.controls.axisStroke.value = String(state.settings.axisStroke);
+      if(state.controls.axisStrokeVal){ state.controls.axisStrokeVal.textContent = Number(state.settings.axisStroke).toFixed(2); }
+    }
+    if(state.controls.axisColor){ state.controls.axisColor.value = state.settings.axisColor; }
+    if(state.controls.showGrid){ state.controls.showGrid.checked = !!state.settings.showGrid; }
+    if(state.controls.showFrame){ state.controls.showFrame.checked = !!state.settings.showFrame; }
+    if(state.controls.showPoints){ state.controls.showPoints.checked = !!state.settings.showPoints; }
+    if(state.controls.showLegend){ state.controls.showLegend.checked = !!state.settings.showLegend; }
+    if(state.controls.title){ state.controls.title.value = state.labels.title; }
+    if(state.controls.xLabel){ state.controls.xLabel.value = state.labels.x; }
+    if(state.controls.yLabel){ state.controls.yLabel.value = state.labels.y; }
+    if(state.controls.zLabel){ state.controls.zLabel.value = state.labels.z; }
+  }
+
+  function buildExampleDataset(){
+    const rows = [];
+    const xs = [];
+    const ys = [];
+    for(let x = -3; x <= 3.0001; x += 0.6){
+      xs.push(Number(x.toFixed(2)));
+    }
+    for(let y = -3; y <= 3.0001; y += 0.6){
+      ys.push(Number(y.toFixed(2)));
+    }
+    for(let yi = 0; yi < ys.length; yi += 1){
+      const y = ys[yi];
+      for(let xi = 0; xi < xs.length; xi += 1){
+        const x = xs[xi];
+        const peakNorth = Math.exp(-((x - 1.2) * (x - 1.2) + (y + 0.8) * (y + 0.8)) * 1.4);
+        const peakSouth = Math.exp(-((x + 1.0) * (x + 1.0) + (y - 1.5) * (y - 1.5)) * 2.1);
+        const valleyCenter = Math.exp(-((x + 0.2) * (x + 0.2) + (y + 0.1) * (y + 0.1)) * 3.2);
+        const ridge = 0.35 * Math.sin(x * 2.3) * Math.cos(y * 1.8);
+        const z = peakNorth * 5.0 + peakSouth * 3.5 - valleyCenter * 6.0 + ridge * 2.0;
+        rows.push([x, y, Number(z.toFixed(3))]);
+      }
+    }
+    return rows;
+  }
+
+  function initControls(){
+    cacheDom();
+    applySettingsToControls();
+    const colorRampSelect = state.controls.colorRamp;
+    if(colorRampSelect){
+      colorRampSelect.addEventListener('change', () => {
+        const value = colorRampSelect.value;
+        state.settings.colorRamp = COLOR_RAMPS[value] ? value : 'viridis';
+        debugLog('Debug: surface color ramp updated', { value: state.settings.colorRamp });
+        state.scheduleDraw();
+      });
+    }
+    const interpolationSelect = state.controls.interpolation;
+    if(interpolationSelect){
+      interpolationSelect.addEventListener('change', () => {
+        const value = interpolationSelect.value;
+        state.settings.interpolation = INTERPOLATION_OPTIONS[value] ? value : 'grid';
+        debugLog('Debug: surface interpolation updated', { value: state.settings.interpolation });
+        state.scheduleDraw();
+      });
+    }
+    if(state.controls.fontSize){
+      state.controls.fontSize.addEventListener('input', () => {
+        state.settings.fontSize = Number(state.controls.fontSize.value) || 13;
+        if(chartStyle.renderFontSizeLabel){
+          chartStyle.renderFontSizeLabel({ element: state.controls.fontSizeVal, pt: state.settings.fontSize, input: state.controls.fontSize, manual: true });
+        }
+        state.scheduleDraw();
+      });
+    }
+    if(state.controls.axisStroke){
+      state.controls.axisStroke.addEventListener('input', () => {
+        state.settings.axisStroke = Number(state.controls.axisStroke.value) || 1.2;
+        if(state.controls.axisStrokeVal){ state.controls.axisStrokeVal.textContent = Number(state.settings.axisStroke).toFixed(2); }
+        state.scheduleDraw();
+      });
+    }
+    if(state.controls.axisColor){
+      if(typeof Shared.attachColorPickerNear === 'function'){
+        Shared.attachColorPickerNear(state.controls.axisColor);
+      }
+      state.controls.axisColor.addEventListener('input', () => {
+        state.settings.axisColor = state.controls.axisColor.value || '#3b3b3b';
+        state.scheduleDraw();
+      });
+    }
+    ['showGrid', 'showFrame', 'showPoints', 'showLegend'].forEach(key => {
+      const control = state.controls[key];
+      if(!control){ return; }
+      control.addEventListener('change', () => {
+        state.settings[key] = !!control.checked;
+        state.scheduleDraw();
+      });
+    });
+    if(state.controls.title){
+      state.controls.title.addEventListener('input', () => {
+        state.labels.title = state.controls.title.value || 'Surface Plot';
+        state.scheduleDraw();
+      });
+    }
+    if(state.controls.xLabel){
+      state.controls.xLabel.addEventListener('input', () => {
+        state.labels.x = state.controls.xLabel.value || 'X';
+        state.scheduleDraw();
+      });
+    }
+    if(state.controls.yLabel){
+      state.controls.yLabel.addEventListener('input', () => {
+        state.labels.y = state.controls.yLabel.value || 'Y';
+        state.scheduleDraw();
+      });
+    }
+    if(state.controls.zLabel){
+      state.controls.zLabel.addEventListener('input', () => {
+        state.labels.z = state.controls.zLabel.value || 'Z';
+        state.scheduleDraw();
+      });
+    }
+    ['x', 'y', 'z'].forEach(axis => {
+      const select = state.axisSelects[axis];
+      if(!select){ return; }
+      select.addEventListener('change', () => {
+        state.axisMap[axis] = Number(select.value) || state.axisMap[axis];
+        state.scheduleDraw();
+      });
+    });
+    if(state.controls.loadExample){
+      state.controls.loadExample.addEventListener('click', () => {
+        const example = buildExampleDataset();
+        if(state.hot && typeof state.hot.loadData === 'function'){
+          state.hot.loadData(example);
+          debugLog('Debug: surface example dataset loaded', { rows: example.length });
+          updateAxisOptions();
+          state.scheduleDraw();
+        }
+      });
+    }
+    if(state.controls.importBtn && state.controls.importFile){
+      state.controls.importBtn.addEventListener('click', () => {
+        state.controls.importFile.value = '';
+        state.controls.importFile.click();
+      });
+      state.controls.importFile.addEventListener('change', () => {
+        if(!tableImport || typeof tableImport.openFile !== 'function'){
+          console.warn('surface import skipped: tableImport unavailable');
+          return;
+        }
+        tableImport.openFile(state.controls.importFile, {
+          hot: state.hot,
+          minCols: 3,
+          minRows: 5,
+          scheduleDraw: state.scheduleDraw,
+          debugLabel: 'surface',
+          onProcessed: info => {
+            debugLog('Debug: surface data imported', info);
+            updateAxisOptions();
+          }
+        });
+      });
+    }
+    if(exporter && typeof exporter.mountSvgControls === 'function'){
+      exporter.mountSvgControls({
+        container: '#surfaceExportControls',
+        svgSelector: '#surfaceSvg',
+        fileName: 'surface-plot',
+        contextLabel: 'surface-export'
+      });
+    }
+    const saveBtn = global.document.getElementById('saveSurface');
+    if(saveBtn){
+      saveBtn.addEventListener('click', () => surface.save());
+    }
+    const saveAsBtn = global.document.getElementById('saveAsSurface');
+    if(saveAsBtn){
+      saveAsBtn.addEventListener('click', () => surface.saveAs());
+    }
+    const openBtn = global.document.getElementById('openSurface');
+    if(openBtn){
+      openBtn.addEventListener('click', () => surface.open());
+    }
+  }
+  function draw(){
+    drawSurface();
+  }
+
+  function drawSurface(){
+    cacheDom();
+    const svg = state.svg;
+    const svgBox = state.svgBox;
+    if(!svg || !svgBox){
+      debugLog('Debug: surface draw skipped', { reason: 'missing-svg' });
+      return;
+    }
+    const parsed = parseSurfaceTable();
+    if(!parsed.points.length){
+      while(svg.firstChild){ svg.removeChild(svg.firstChild); }
+      displayMessage('Add at least three rows of numeric X, Y, Z values to render a surface.');
+      updateStats(parsed.stats);
+      removeLegend(svg);
+      return;
+    }
+    displayMessage('');
+    const boxRect = svgBox.getBoundingClientRect ? svgBox.getBoundingClientRect() : { width: svg.clientWidth || 640, height: svg.clientHeight || 420 };
+    const width = Math.max(280, Math.floor(boxRect.width || svg.clientWidth || 640));
+    const height = Math.max(240, Math.floor(boxRect.height || svg.clientHeight || 420));
+    svg.setAttribute('width', String(width));
+    svg.setAttribute('height', String(height));
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('font-family', chartStyle.FONT_FAMILY || 'Segoe UI, sans-serif');
+    if(typeof chartStyle.applySvgDefaults === 'function'){
+      chartStyle.applySvgDefaults(svg);
+    }
+    if(fontControls && typeof fontControls.enableForSvg === 'function'){
+      fontControls.enableForSvg(svg, { scopeId: 'surface' });
+    }
+    while(svg.firstChild){ svg.removeChild(svg.firstChild); }
+    const doc = svg.ownerDocument || global.document;
+    const backgroundLayer = doc.createElementNS(NS, 'g');
+    backgroundLayer.setAttribute('class', 'surface-layer surface-layer-background');
+    svg.appendChild(backgroundLayer);
+    const geometryLayer = doc.createElementNS(NS, 'g');
+    geometryLayer.setAttribute('class', 'surface-layer surface-layer-geometry');
+    svg.appendChild(geometryLayer);
+    const axisLayer = doc.createElementNS(NS, 'g');
+    axisLayer.setAttribute('class', 'surface-layer surface-layer-axes');
+    svg.appendChild(axisLayer);
+    const fontInfo = typeof chartStyle.resolveScaledFontSize === 'function'
+      ? chartStyle.resolveScaledFontSize({ rawSize: state.settings.fontSize, width, height, svgBox: state.svgBox, input: state.controls.fontSize })
+      : { scaledPx: state.settings.fontSize, scaleInfo: null };
+    if(state.controls.fontSize && chartStyle.renderFontSizeLabel){
+      chartStyle.renderFontSizeLabel({ element: state.controls.fontSizeVal, fontInfo, input: state.controls.fontSize });
+    }
+    const fs = fontInfo.scaledPx || state.settings.fontSize;
+    const axisStrokeWidth = typeof chartStyle.scaleStrokeWidth === 'function'
+      ? chartStyle.scaleStrokeWidth(state.settings.axisStroke, fontInfo.scaleInfo, { context: 'surface-axis', min: 0.4 })
+      : state.settings.axisStroke;
+    const margin = {
+      top: Math.max(fs * 3.2, 42),
+      right: Math.max(fs * 6.5, state.settings.showLegend ? 140 : 60),
+      bottom: Math.max(fs * 3.4, 44),
+      left: Math.max(fs * 3.6, 58)
+    };
+    const plotWidth = Math.max(40, width - margin.left - margin.right);
+    const plotHeight = Math.max(40, height - margin.top - margin.bottom);
+    const ranges = {
+      x: ensureAxisRange(parsed.ranges?.x),
+      y: ensureAxisRange(parsed.ranges?.y),
+      z: ensureAxisRange(parsed.ranges?.z)
+    };
+    const rotatePoint = typeof plot3d.rotatePoint === 'function'
+      ? (pt) => plot3d.rotatePoint(pt, state.rotation)
+      : (pt) => ({ x: pt.x, y: pt.y, z: pt.z });
+    const corners = [
+      { x: ranges.x.min, y: ranges.y.min, z: ranges.z.min },
+      { x: ranges.x.max, y: ranges.y.min, z: ranges.z.min },
+      { x: ranges.x.min, y: ranges.y.max, z: ranges.z.min },
+      { x: ranges.x.max, y: ranges.y.max, z: ranges.z.min },
+      { x: ranges.x.min, y: ranges.y.min, z: ranges.z.max },
+      { x: ranges.x.max, y: ranges.y.min, z: ranges.z.max },
+      { x: ranges.x.min, y: ranges.y.max, z: ranges.z.max },
+      { x: ranges.x.max, y: ranges.y.max, z: ranges.z.max }
+    ];
+    const rotatedCorners = corners.map(rotatePoint);
+    const rotatedPoints = parsed.points.map(rotatePoint);
+    let projector = null;
+    if(typeof plot3d.createProjector === 'function'){
+      projector = plot3d.createProjector({
+        rotatedPoints: rotatedPoints.concat(rotatedCorners),
+        rotatedCorners,
+        width,
+        height,
+        margin
+      });
+    } else {
+      projector = {
+        project(pt){
+          return {
+            x: margin.left + ((pt.x - ranges.x.min) / (ranges.x.max - ranges.x.min || 1)) * plotWidth,
+            y: margin.top + plotHeight - ((pt.y - ranges.y.min) / (ranges.y.max - ranges.y.min || 1)) * plotHeight,
+            depth: pt.z
+          };
+        }
+      };
+    }
+    const projectRotated = (rot) => projector.project(rot);
+    if(svg && typeof plot3d.attachRotationControls === 'function'){
+      plot3d.attachRotationControls(svg, {
+        state: state.rotation,
+        onChange: () => state.scheduleDraw(),
+        debugLabel: 'surface-plot',
+        shouldIgnorePointer: (event) => typeof plot3d.isLegendPointerTarget === 'function' && plot3d.isLegendPointerTarget(event?.target)
+      });
+    }
+    const tickTargetX = typeof chartStyle.estimateTickCount === 'function' ? chartStyle.estimateTickCount(plotWidth, { axis: 'x', fallback: 6 }) : 6;
+    const tickTargetY = typeof chartStyle.estimateTickCount === 'function' ? chartStyle.estimateTickCount(plotHeight, { axis: 'y', fallback: 6 }) : 6;
+    const tickTargetZ = typeof chartStyle.estimateTickCount === 'function' ? chartStyle.estimateTickCount(Math.max(plotWidth, plotHeight), { axis: 'z', fallback: 6 }) : 6;
+    const scaleX = niceScale(ranges.x.min, ranges.x.max, tickTargetX);
+    const scaleY = niceScale(ranges.y.min, ranges.y.max, tickTargetY);
+    const scaleZ = niceScale(ranges.z.min, ranges.z.max, tickTargetZ);
+    const clampTicks = (ticks, range) => ticks.filter(value => value >= range.min - 1e-9 && value <= range.max + 1e-9);
+    const axisTicks = {
+      x: clampTicks(scaleX.ticks, ranges.x),
+      y: clampTicks(scaleY.ticks, ranges.y),
+      z: clampTicks(scaleZ.ticks, ranges.z)
+    };
+    if(typeof plot3d.renderAxesAndGrid === 'function'){
+      plot3d.renderAxesAndGrid({
+        svg: axisLayer,
+        project: projectRotated,
+        rotatePoint,
+        axisRanges: ranges,
+        axisTicks,
+        axisLabels: { x: state.labels.x, y: state.labels.y, z: state.labels.z },
+        fontSize: fs,
+        axisStrokeWidth,
+        chartStyle,
+        showGrid: state.settings.showGrid,
+        showFrame: state.settings.showFrame,
+        showPanes: state.settings.showFrame,
+        axisColor: state.settings.axisColor,
+        debugLabel: 'surface-axes',
+        paneTarget: backgroundLayer,
+        gridTarget: backgroundLayer,
+        axisTarget: axisLayer,
+        labelTarget: axisLayer
+      });
+    }
+    const colorFor = colorScaleFactory(parsed.stats.zMin, parsed.stats.zMax, state.settings.colorRamp);
+    const effectiveMode = (state.settings.interpolation === 'grid' && parsed.faces.length)
+      ? 'grid'
+      : (parsed.faces.length ? state.settings.interpolation : 'scatter');
+    if(parsed.faces.length && effectiveMode === 'grid'){
+      const faceGroup = doc.createElementNS(NS, 'g');
+      faceGroup.setAttribute('class', 'surface-faces');
+      const projectedFaces = parsed.faces.map(face => {
+        const rotated = face.vertices.map(rotatePoint);
+        const projected = rotated.map(projectRotated);
+        const depth = rotated.reduce((sum, value) => sum + value.z, 0) / rotated.length;
+        return { projected, depth, value: face.value };
+      }).sort((a, b) => a.depth - b.depth);
+      projectedFaces.forEach(face => {
+        const polygon = doc.createElementNS(NS, 'polygon');
+        polygon.setAttribute('points', face.projected.map(pt => `${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' '));
+        polygon.setAttribute('fill', colorFor(face.value));
+        polygon.setAttribute('fill-opacity', 0.95);
+        polygon.setAttribute('stroke', 'rgba(0,0,0,0.25)');
+        polygon.setAttribute('stroke-width', Math.max(axisStrokeWidth * 0.6, 0.6));
+        faceGroup.appendChild(polygon);
+      });
+      geometryLayer.appendChild(faceGroup);
+    }
+    if(state.settings.showPoints || effectiveMode !== 'grid'){
+      const pointGroup = doc.createElementNS(NS, 'g');
+      pointGroup.setAttribute('class', 'surface-points');
+      const projectedPoints = parsed.points.map(point => {
+        const rotated = rotatePoint(point);
+        const projected = projectRotated(rotated);
+        return { x: projected.x, y: projected.y, depth: rotated.z, value: point.z };
+      }).sort((a, b) => a.depth - b.depth);
+      const radius = Math.max(2.5, Math.min(6, Math.sqrt(Math.max(plotWidth * plotHeight / Math.max(projectedPoints.length * 45, 1), 4))));
+      projectedPoints.forEach(entry => {
+        const circle = doc.createElementNS(NS, 'circle');
+        circle.setAttribute('cx', entry.x);
+        circle.setAttribute('cy', entry.y);
+        circle.setAttribute('r', radius);
+        circle.setAttribute('fill', colorFor(entry.value));
+        circle.setAttribute('stroke', 'rgba(0,0,0,0.25)');
+        circle.setAttribute('stroke-width', Math.max(axisStrokeWidth * 0.4, 0.4));
+        circle.setAttribute('opacity', effectiveMode === 'grid' ? 0.78 : 0.95);
+        pointGroup.appendChild(circle);
+      });
+      geometryLayer.appendChild(pointGroup);
+    }
+    const title = doc.createElementNS(NS, 'text');
+    title.setAttribute('x', margin.left + plotWidth / 2);
+    title.setAttribute('y', Math.max(fs, margin.top * 0.55));
+    title.setAttribute('text-anchor', 'middle');
+    title.setAttribute('font-size', fs);
+    title.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
+    title.textContent = state.labels.title;
+    svg.appendChild(title);
+    if(state.settings.showLegend && Number.isFinite(parsed.stats.zMin) && Number.isFinite(parsed.stats.zMax) && parsed.stats.zMin !== parsed.stats.zMax){
+      renderLegend(svg, { min: parsed.stats.zMin, max: parsed.stats.zMax, colorRamp: state.settings.colorRamp, width, margin, fontSize: fs, layer: axisLayer });
+    } else {
+      removeLegend(svg);
+    }
+    updateStats(parsed.stats);
+    debugLog('Debug: surface draw complete', {
+      mode: effectiveMode,
+      points: parsed.points.length,
+      faces: parsed.faces.length
+    });
+  }
+
+  surface.draw = draw;
+
+  surface.init = function init(){
+    if(surface.ready){
+      debugLog('Debug: surface.init skipped', { reason: 'ready' });
+      return;
+    }
+    cacheDom();
+    state.scheduleDraw = () => {};
+    state.layout = componentLayout && typeof componentLayout.createStandardPanels === 'function'
+      ? componentLayout.createStandardPanels({
+        componentName: 'surface',
+        selectors: {
+          tablePanel: '#surfaceTablePanel',
+          graphPanel: '#surfaceGraphPanel',
+          panelResizer: '#surfacePanelResizer',
+          hotWrapper: '#surfaceHotWrapper',
+          hotContainer: '#surfaceHot',
+          svgBox: () => global.document.querySelector('#surfaceGraphPanel .svgbox'),
+          resizeTarget: () => global.document.querySelector('#surfaceGraphPanel .svgbox')
+        },
+        scheduleDraw: state.scheduleDraw
+      })
+      : null;
+    if(state.layout && typeof state.layout.setScheduleDraw === 'function'){
+      state.layout.setScheduleDraw(state.scheduleDraw);
+    }
+    if(state.layout && state.layout.elements && state.layout.elements.svgBox){
+      state.svgBox = state.layout.elements.svgBox;
+    }
+    if(state.layout && typeof state.layout.syncPanels === 'function'){
+      state.layout.syncPanels();
+    }
+    cacheDom();
+    initHot();
+    initControls();
+    state.scheduleDraw = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(draw)
+      : (() => setTimeout(draw, 16));
+    if(state.layout && typeof state.layout.setScheduleDraw === 'function'){
+      state.layout.setScheduleDraw(state.scheduleDraw);
+    }
+    if(state.layout && typeof state.layout.syncPanels === 'function'){
+      state.layout.syncPanels();
+    }
+    updateAxisOptions();
+    surface.ready = true;
+    state.scheduleDraw();
+  };
+
+  surface.ensure = function ensure(){
+    if(!surface.ready){ surface.init(); }
+  };
+
+  function getPayload(){
+    if(!state.hot || typeof state.hot.getData !== 'function'){
+      return { type: 'surface', data: [] };
+    }
+    const payload = {
+      type: 'surface',
+      data: state.hot.getData(),
+      exclusions: state.hot.exportExclusions ? state.hot.exportExclusions() : (Shared.hot && typeof Shared.hot.exportExclusions === 'function' ? Shared.hot.exportExclusions(state.hot) : undefined),
+      config: {
+        axisMap: Object.assign({}, state.axisMap),
+        settings: Object.assign({}, state.settings),
+        labels: Object.assign({}, state.labels),
+        rotation: { x: state.rotation.x, y: state.rotation.y },
+        fontStyles: exportFontStyles ? exportFontStyles('surface') : undefined
+      }
+    };
+    debugLog('Debug: surface payload captured', { rows: payload.data.length });
+    return payload;
+  }
+
+  surface.getPayload = getPayload;
+
+  surface.save = async function save(){
+    if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
+      console.error('surface.save missing Shared.fileIO.saveGraphFile');
+      return;
+    }
+    const result = await fileIO.saveGraphFile({
+      context: 'surface',
+      fileHandle: state.fileHandle,
+      getPayload,
+      fileName: state.fileName,
+      downloadFileName: state.fileName,
+      setFileHandle: handle => { state.fileHandle = handle; },
+      setFileName: name => { state.fileName = name; }
+    });
+    debugLog('Debug: surface save result', result);
+  };
+
+  surface.saveAs = async function saveAs(){
+    if(!fileIO || typeof fileIO.saveGraphFileAs !== 'function'){
+      console.error('surface.saveAs missing Shared.fileIO.saveGraphFileAs');
+      return;
+    }
+    const result = await fileIO.saveGraphFileAs({
+      context: 'surface',
+      getPayload,
+      fileName: state.fileName,
+      downloadFileName: state.fileName,
+      setFileHandle: handle => { state.fileHandle = handle; },
+      setFileName: name => { state.fileName = name; }
+    });
+    debugLog('Debug: surface saveAs result', result);
+  };
+
+  surface.open = async function open(){
+    if(!fileIO || typeof fileIO.openGraphFile !== 'function'){
+      console.error('surface.open missing Shared.fileIO.openGraphFile');
+      return;
+    }
+    const result = await fileIO.openGraphFile({
+      context: 'surface',
+      setFileHandle: handle => { state.fileHandle = handle; },
+      setFileName: name => { state.fileName = name; },
+      loadFromFile: blob => surface.loadFromFile(blob),
+      triggerInput: () => {
+        if(state.controls.graphFileInput){
+          state.controls.graphFileInput.value = '';
+          state.controls.graphFileInput.click();
+        }
+      }
+    });
+    debugLog('Debug: surface open result', result);
+  };
+
+  surface.loadFromFile = function loadFromFile(file){
+    const processPayload = (obj) => {
+      if(!obj || obj.type !== 'surface'){
+        throw new Error('Invalid graph type');
+      }
+      if(state.hot && typeof state.hot.loadData === 'function'){
+        state.hot.loadData(obj.data || []);
+      }
+      if(obj.exclusions && state.hot && typeof state.hot.applyExclusions === 'function'){
+        state.hot.applyExclusions(obj.exclusions);
+      }
+      const config = obj.config || {};
+      if(config.axisMap){
+        state.axisMap = Object.assign({}, state.axisMap, config.axisMap);
+      }
+      if(config.settings){
+        state.settings = Object.assign({}, state.settings, config.settings);
+      }
+      if(config.labels){
+        state.labels = Object.assign({}, state.labels, config.labels);
+      }
+      if(config.rotation){
+        state.rotation.x = Number(config.rotation.x) || state.rotation.x;
+        state.rotation.y = Number(config.rotation.y) || state.rotation.y;
+      }
+      if(config.fontStyles){
+        importFontStyles('surface', config.fontStyles);
+      }
+      applySettingsToControls();
+      updateAxisOptions();
+      state.scheduleDraw();
+    };
+    if(file instanceof Blob){
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const parsed = JSON.parse(event.target.result);
+          processPayload(parsed);
+        } catch(err){
+          console.error('surface load parse error', err);
+        }
+      };
+      reader.readAsText(file);
+      return;
+    }
+    if(typeof file === 'string'){
+      try {
+        processPayload(JSON.parse(file));
+      } catch(err){
+        console.error('surface load string parse error', err);
+      }
+      return;
+    }
+    if(file && typeof file === 'object'){
+      processPayload(file);
+    }
+  };
+
+  surface.__getState = () => state;
+
+  if(typeof module !== 'undefined' && module.exports){
+    module.exports = surface;
+  }
+
+})(window);
