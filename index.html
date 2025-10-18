@@ -51,6 +51,11 @@
               <h3 class="graph-card__title">Correlation Heatmap</h3>
               <p class="graph-card__description">Cluster correlation matrices and tune color ramps, labels, and dendrograms.</p>
             </button>
+            <button type="button" class="graph-card" data-graph-type="surface" role="listitem">
+              <span class="graph-card__hint">3D Surface</span>
+              <h3 class="graph-card__title">Surface Plot</h3>
+              <p class="graph-card__description">Render rotating 3D surfaces with customizable color ramps.</p>
+            </button>
             <button type="button" class="graph-card" data-graph-type="roc" role="listitem">
               <span class="graph-card__hint">ROC / PR</span>
               <h3 class="graph-card__title">Classification Curves</h3>
@@ -829,6 +834,131 @@
                 </div>
               </div>
             </fieldset>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="surfacePage" class="workspace-page" hidden>
+    <div class="workspace-page__topbar" data-toolbar="surface">
+      <div data-toolbar-root></div>
+      <input type="file" id="surfaceGraphFile" accept=".graph" style="display:none;" />
+      <input type="file" id="surfaceFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
+    </div>
+    <div class="wrap">
+      <div class="panel" id="surfaceTablePanel">
+        <div id="surfaceHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
+          <div id="surfaceHot" style="width:100%; height:100%;"></div>
+        </div>
+      </div>
+      <div id="surfacePanelResizer" class="panel-resizer" aria-hidden="true"></div>
+      <div class="panel" id="surfaceGraphPanel">
+        <div class="diagram-area">
+          <div class="svgbox">
+            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+            <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
+            <svg id="surfaceSvg" viewBox="0 0 640 420" xmlns="http://www.w3.org/2000/svg" aria-label="Surface plot"></svg>
+            <div id="surfaceMessage" class="surface-message" role="status" aria-live="polite" hidden></div>
+            <div class="row" id="surfaceExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          </div>
+          <div class="config-options">
+            <fieldset>
+              <legend>Data Interpretation</legend>
+              <div class="control">
+                <label style="width:auto;">
+                  X Column
+                  <select id="surfaceXAxis"></select>
+                </label>
+              </div>
+              <div class="control">
+                <label style="width:auto;">
+                  Y Column
+                  <select id="surfaceYAxis"></select>
+                </label>
+              </div>
+              <div class="control">
+                <label style="width:auto;">
+                  Z Column
+                  <select id="surfaceZAxis"></select>
+                </label>
+              </div>
+              <div class="control">
+                <label style="width:auto;">
+                  Interpolation
+                  <select id="surfaceInterpolation">
+                    <option value="grid">Grid (rectangular)</option>
+                    <option value="scatter">Points only</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Color Ramp</legend>
+              <div class="control">
+                <label style="width:auto;">
+                  Palette
+                  <select id="surfaceColorRamp">
+                    <option value="viridis">Viridis</option>
+                    <option value="plasma">Plasma</option>
+                    <option value="magma">Magma</option>
+                    <option value="turbo">Turbo</option>
+                    <option value="bluered">Blue-Red</option>
+                  </select>
+                </label>
+              </div>
+              <div class="control" style="flex-wrap:wrap;">
+                <label style="width:auto;"><input type="checkbox" id="surfaceShowLegend" checked /> Show Legend</label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Rendering</legend>
+              <div class="control">
+                <label>Font Size</label>
+                <input type="range" id="surfaceFontSize" min="8" max="24" step="1" value="13" />
+                <output id="surfaceFontSizeVal">13</output>
+              </div>
+              <div class="control">
+                <label>Axis Thickness</label>
+                <input type="range" id="surfaceAxisStroke" min="0.5" max="4" step="0.25" value="1.2" />
+                <output id="surfaceAxisStrokeVal">1.2</output>
+              </div>
+              <div class="control" style="flex-wrap:wrap;">
+                <label style="width:auto;">Axis Color</label>
+                <input type="color" id="surfaceAxisColor" value="#3b3b3b" />
+              </div>
+              <div class="control" style="flex-wrap:wrap;">
+                <label style="width:auto;"><input type="checkbox" id="surfaceShowGrid" checked /> Show Grid</label>
+                <label style="width:auto;"><input type="checkbox" id="surfaceShowFrame" checked /> Show Frame</label>
+                <label style="width:auto;"><input type="checkbox" id="surfaceShowPoints" /> Show Points</label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Labels</legend>
+              <div class="control" style="flex-direction:column; align-items:flex-start;">
+                <label for="surfaceTitle">Title</label>
+                <input type="text" id="surfaceTitle" value="Surface Plot" />
+              </div>
+              <div class="control" style="flex-direction:column; align-items:flex-start;">
+                <label for="surfaceXLabel">X Label</label>
+                <input type="text" id="surfaceXLabel" value="X" />
+              </div>
+              <div class="control" style="flex-direction:column; align-items:flex-start;">
+                <label for="surfaceYLabel">Y Label</label>
+                <input type="text" id="surfaceYLabel" value="Y" />
+              </div>
+              <div class="control" style="flex-direction:column; align-items:flex-start;">
+                <label for="surfaceZLabel">Z Label</label>
+                <input type="text" id="surfaceZLabel" value="Z" />
+              </div>
+            </fieldset>
+          </div>
+        </div>
+        <div id="surfaceStats" class="surface-stats">
+          <fieldset>
+            <legend>Summary</legend>
+            <div id="surfaceStatsSummary" class="stats-summary"></div>
+          </fieldset>
         </div>
       </div>
     </div>

@@ -288,6 +288,10 @@
     const frameColor = cfg.frameColor || 'rgba(0,0,0,0.45)';
     const onAxisLabel = typeof cfg.onAxisLabel === 'function' ? cfg.onAxisLabel : null;
     const debugLabel = cfg.debugLabel || 'plot3d';
+    const paneTarget = cfg.paneTarget || svg;
+    const gridTarget = cfg.gridTarget || svg;
+    const axisTarget = cfg.axisTarget || svg;
+    const labelTarget = cfg.labelTarget || axisTarget || svg;
     const createElement = cfg.createElement || function(tag, attrs, text, target){
       const el = (svg.ownerDocument || global.document).createElementNS(NS, tag);
       if(attrs){
@@ -300,7 +304,7 @@
       if(text){
         el.textContent = text;
       }
-      (target || svg).appendChild(el);
+      (target || labelTarget || svg).appendChild(el);
       return el;
     };
     const rotatePoint = rotatePointFn || function(pt){ return plot3d.rotatePoint(pt, cfg.rotation); };
@@ -362,7 +366,7 @@
     if(paneGroup){
       paneGroup.setAttribute('fill', paneFill);
       paneGroup.setAttribute('stroke', 'none');
-      svg.appendChild(paneGroup);
+      (paneTarget || svg).appendChild(paneGroup);
     }
     const gridGroup = (showGrid || showFrame) && doc ? doc.createElementNS(NS, 'g') : null;
     if(gridGroup){
@@ -372,7 +376,7 @@
         gridGroup.setAttribute('stroke-dasharray', gridDash.join(' '));
       }
       gridGroup.setAttribute('stroke-width', axisStrokeWidth * 0.6);
-      svg.appendChild(gridGroup);
+      (gridTarget || svg).appendChild(gridGroup);
     }
     const appendLine = (startRot, endRot, attrs, target) => {
       const start = project(startRot);
@@ -389,7 +393,7 @@
           }
         }
       }
-      (target || svg).appendChild(line);
+      (target || axisTarget || svg).appendChild(line);
       return line;
     };
     if(paneGroup && showPanes){
@@ -506,7 +510,7 @@
       ];
       for(let i=0;i<edges.length;i+=1){
         const pair = edges[i];
-        appendLine(rotatePoint(allCorners[pair[0]]), rotatePoint(allCorners[pair[1]]), { stroke: frameColor, 'stroke-width': axisStrokeWidth }, gridGroup || svg);
+        appendLine(rotatePoint(allCorners[pair[0]]), rotatePoint(allCorners[pair[1]]), { stroke: frameColor, 'stroke-width': axisStrokeWidth }, axisTarget || gridGroup || svg);
       }
       debugLog('Debug: plot3d frame rendered', { label: debugLabel, edgeCount: edges.length });
     }
@@ -516,7 +520,7 @@
       const endRot = rotatePoint(def.end);
       const startPos = project(startRot);
       const endPos = project(endRot);
-      appendLine(startRot, endRot, { stroke: def.color, 'stroke-width': axisStrokeWidth * 0.9 }, svg);
+      appendLine(startRot, endRot, { stroke: def.color, 'stroke-width': axisStrokeWidth * 0.9 }, axisTarget);
       const axisVector = {
         x: def.end.x - def.start.x,
         y: def.end.y - def.start.y,

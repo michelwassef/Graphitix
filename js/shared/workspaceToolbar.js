@@ -453,6 +453,31 @@
           dock('heatmap')
         ]
       },
+      surface: {
+        ariaLabel: 'Surface plot actions',
+        sections: [
+          {
+            type: 'buttons',
+            caption: 'File',
+            ariaLabel: 'File actions',
+            buttons: [
+              button('openSurface', 'Open', 'open'),
+              button('surfaceImport', 'Import', 'import'),
+              button('saveSurface', 'Save', 'save'),
+              button('saveAsSurface', 'Save As', 'saveAs')
+            ]
+          },
+          {
+            type: 'buttons',
+            caption: 'Data',
+            ariaLabel: 'Dataset helpers',
+            buttons: [
+              button('surfaceLoadExample', 'Load Example', 'example')
+            ]
+          },
+          dock('surface')
+        ]
+      },
       roc: {
         ariaLabel: 'ROC and PR curve actions',
         sections: [

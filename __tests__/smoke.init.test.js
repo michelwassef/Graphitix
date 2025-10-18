@@ -83,6 +83,7 @@ describe('App initialization', () => {
       { type: 'pca', containerId: 'pcaHot' },
       { type: 'line', containerId: 'lineHot' },
       { type: 'heatmap', containerId: 'heatmapHot' },
+      { type: 'surface', containerId: 'surfaceHot' },
       { type: 'roc', containerId: 'rocHot' },
       { type: 'survival', containerId: 'survivalHot' },
       { type: 'hist', containerId: 'histHot' },
