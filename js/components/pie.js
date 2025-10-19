@@ -625,6 +625,17 @@
       const svgWidth=Math.max(50,Math.floor(plotEl.clientWidth||50)-state.legendWidth);
       const svgHeight=Math.max(50,Math.floor(plotEl.clientHeight||50));
       const svg=document.createElementNS(NS,'svg'); svg.setAttribute('id','pieSvg'); svg.setAttribute('width',String(svgWidth)); svg.setAttribute('height',String(svgHeight)); svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`); svg.setAttribute('font-family',chartStyle.FONT_FAMILY); chartStyle.applySvgDefaults(svg); plotEl.appendChild(svg);
+      const doc = svg.ownerDocument || global.document;
+      const barLayer = doc?.createElementNS ? doc.createElementNS(NS,'g') : null;
+      const axisLayer = doc?.createElementNS ? doc.createElementNS(NS,'g') : null;
+      if(barLayer){
+        barLayer.dataset.layer = 'pie-data';
+        svg.appendChild(barLayer);
+      }
+      if(axisLayer){
+        axisLayer.dataset.layer = 'pie-axis';
+        svg.appendChild(axisLayer);
+      }
       if(fontControls && typeof fontControls.enableForSvg === 'function'){
         fontControls.enableForSvg(svg,{ scopeId: 'pie' });
         console.debug('Debug: pie fontControls enableForSvg invoked',{ width: svgWidth, height: svgHeight }); // Debug: font panel binding
@@ -662,6 +673,8 @@
       const tickLen=axisMetrics.tickLength;
       const tickGap=axisMetrics.tickLabelGap;
       const axis=document.createElementNS(NS,'g');
+      const axisHost = axisLayer || svg;
+      axisHost.appendChild(axis);
       const yAxis=document.createElementNS(NS,'line'); yAxis.setAttribute('x1',margin.left); yAxis.setAttribute('y1',margin.top); yAxis.setAttribute('x2',margin.left); yAxis.setAttribute('y2',margin.top+chartHeight); yAxis.setAttribute('stroke',axisStroke); yAxis.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(yAxis);
       const xAxis=document.createElementNS(NS,'line'); xAxis.setAttribute('x1',margin.left); xAxis.setAttribute('y1',margin.top+chartHeight); xAxis.setAttribute('x2',margin.left+chartWidth); xAxis.setAttribute('y2',margin.top+chartHeight); xAxis.setAttribute('stroke',axisStroke); xAxis.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(xAxis);
       const axisControlConfig = axisName => ({
@@ -682,7 +695,7 @@
         axisControls.registerAxisElement(yAxis, axisControlConfig('y'));
       }
       let stackedYTickCount = 0;
-      percentTicks.forEach(t=>{ const y=margin.top+chartHeight-(chartHeight*t/100); const tick=document.createElementNS(NS,'line'); tick.setAttribute('x1',margin.left-tickLen); tick.setAttribute('y1',y); tick.setAttribute('x2',margin.left); tick.setAttribute('y2',y); tick.setAttribute('stroke',axisStroke); tick.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(tick); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',margin.left-(tickLen+tickGap)); txt.setAttribute('y',y); txt.setAttribute('text-anchor','end'); txt.setAttribute('dominant-baseline','middle'); txt.setAttribute('font-size',fs); txt.textContent=`${Number.isInteger(t)?t:t.toFixed(1)}%`; markFontEditable(txt,'yTick'); stackedYTickCount+=1; axis.appendChild(txt);}); const yTitleX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5); const yTitle=document.createElementNS(NS,'text'); yTitle.setAttribute('x',yTitleX); yTitle.setAttribute('y',margin.top+chartHeight/2); yTitle.setAttribute('text-anchor','middle'); yTitle.setAttribute('transform',`rotate(-90 ${yTitleX} ${margin.top+chartHeight/2})`); yTitle.setAttribute('font-size',fs); yTitle.textContent=yTitleText; markFontEditable(yTitle,'yTitle','yTitle'); axis.appendChild(yTitle); svg.appendChild(axis);
+      percentTicks.forEach(t=>{ const y=margin.top+chartHeight-(chartHeight*t/100); const tick=document.createElementNS(NS,'line'); tick.setAttribute('x1',margin.left-tickLen); tick.setAttribute('y1',y); tick.setAttribute('x2',margin.left); tick.setAttribute('y2',y); tick.setAttribute('stroke',axisStroke); tick.setAttribute('stroke-width',axisStrokeWidth); axis.appendChild(tick); const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',margin.left-(tickLen+tickGap)); txt.setAttribute('y',y); txt.setAttribute('text-anchor','end'); txt.setAttribute('dominant-baseline','middle'); txt.setAttribute('font-size',fs); txt.textContent=`${Number.isInteger(t)?t:t.toFixed(1)}%`; markFontEditable(txt,'yTick'); stackedYTickCount+=1; axis.appendChild(txt);}); const yTitleX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5); const yTitle=document.createElementNS(NS,'text'); yTitle.setAttribute('x',yTitleX); yTitle.setAttribute('y',margin.top+chartHeight/2); yTitle.setAttribute('text-anchor','middle'); yTitle.setAttribute('transform',`rotate(-90 ${yTitleX} ${margin.top+chartHeight/2})`); yTitle.setAttribute('font-size',fs); yTitle.textContent=yTitleText; markFontEditable(yTitle,'yTitle','yTitle'); axis.appendChild(yTitle);
       if(showFrame){
         console.debug('Debug: pie frame request',{stroke:axisStroke, showFrame, axisStrokeWidth}); // Debug: frame styling inputs
         chartStyle.drawPlotFrame({ svg, margin, plotW: chartWidth, plotH: chartHeight, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top','right'], group: axis });
@@ -697,7 +710,7 @@
       console.debug('Debug: stacked bar layout metrics',{svgWidth,svgHeight,chartWidth,chartHeight,barCount:barHeaders.length,barWidth,barGap,fontScale});
       const palette = getDefaultPalette();
       let stackedXTickCount = 0;
-      barHeaders.forEach((bh,j)=>{ let y=margin.top+chartHeight; const total=segmentValues.reduce((s,row)=>s+(row[j]||0),0); segmentLabels.forEach((lab,i)=>{ const val=segmentValues[i][j]||0; const frac=total?val/total:0; const h=chartHeight*frac; y-=h; const rect=document.createElementNS(NS,'rect'); rect.setAttribute('x',margin.left+barGap+j*(barWidth+barGap)); rect.setAttribute('y',y); rect.setAttribute('width',barWidth); rect.setAttribute('height',h); const fillColor = state.colors[lab] || palette[i % palette.length]; rect.setAttribute('fill', fillColor); svg.appendChild(rect); if(showPerc && frac>0){ const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',margin.left+barGap+j*(barWidth+barGap)+barWidth/2); txt.setAttribute('y',y+h/2); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size',fs); txt.textContent=(frac*100).toFixed(1)+'%'; markFontEditable(txt,'annotation',`stacked-annotation-${j}-${i}`); svg.appendChild(txt);} }); const lbl=document.createElementNS(NS,'text'); const lx=margin.left+barGap+j*(barWidth+barGap)+barWidth/2; const ly=margin.top+chartHeight+tickLen+tickGap; lbl.setAttribute('x',lx); lbl.setAttribute('y',ly); lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('font-size',fs); lbl.setAttribute('dominant-baseline','hanging'); lbl.textContent=bh; markFontEditable(lbl,'xTick'); stackedXTickCount+=1; svg.appendChild(lbl); xLabels.push(lbl); });
+      barHeaders.forEach((bh,j)=>{ let y=margin.top+chartHeight; const total=segmentValues.reduce((s,row)=>s+(row[j]||0),0); segmentLabels.forEach((lab,i)=>{ const val=segmentValues[i][j]||0; const frac=total?val/total:0; const h=chartHeight*frac; y-=h; const rect=document.createElementNS(NS,'rect'); rect.setAttribute('x',margin.left+barGap+j*(barWidth+barGap)); rect.setAttribute('y',y); rect.setAttribute('width',barWidth); rect.setAttribute('height',h); const fillColor = state.colors[lab] || palette[i % palette.length]; rect.setAttribute('fill', fillColor); (barLayer||svg).appendChild(rect); if(showPerc && frac>0){ const txt=document.createElementNS(NS,'text'); txt.setAttribute('x',margin.left+barGap+j*(barWidth+barGap)+barWidth/2); txt.setAttribute('y',y+h/2); txt.setAttribute('text-anchor','middle'); txt.setAttribute('font-size',fs); txt.textContent=(frac*100).toFixed(1)+'%'; markFontEditable(txt,'annotation',`stacked-annotation-${j}-${i}`); (barLayer||svg).appendChild(txt);} }); const lbl=document.createElementNS(NS,'text'); const lx=margin.left+barGap+j*(barWidth+barGap)+barWidth/2; const ly=margin.top+chartHeight+tickLen+tickGap; lbl.setAttribute('x',lx); lbl.setAttribute('y',ly); lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('font-size',fs); lbl.setAttribute('dominant-baseline','hanging'); lbl.textContent=bh; markFontEditable(lbl,'xTick'); stackedXTickCount+=1; (axisLayer||svg).appendChild(lbl); xLabels.push(lbl); });
       console.debug('Debug: pie stacked font tick binding',{ stackedXTickCount, stackedYTickCount }); // Debug: stacked font binding counts
       chartStyle.applyLabelOrientation(xLabels,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
       const legendGap=Math.max(4,Math.round(6*fontScale));
@@ -739,6 +752,9 @@
         legendMarkerSize,
         legendGap
       });
+      if(axis.parentNode !== (axisLayer || svg)){
+        (axisLayer || svg).appendChild(axis);
+      }
       // Title inline (editable)
       const title=document.createElementNS(NS,'text'); title.setAttribute('x',margin.left+chartWidth/2); title.setAttribute('y',margin.top/2); title.setAttribute('text-anchor','middle'); title.setAttribute('font-size',fs); title.textContent=state.titleText; markFontEditable(title,'graphTitle','graphTitle'); if(global.makeEditable) makeEditable(title,txt=>{state.titleText=txt;}); svg.appendChild(title);
       ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
