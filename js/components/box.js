@@ -4898,6 +4898,22 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
     chartStyle.applySvgDefaults(svg);
     els.plotDiv.appendChild(svg);
+    const doc = svg.ownerDocument || global.document;
+    const gridLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
+    const dataLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
+    const axisLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
+    if(gridLayer){
+      gridLayer.dataset.layer = 'box-grid';
+      svg.appendChild(gridLayer);
+    }
+    if(dataLayer){
+      dataLayer.dataset.layer = 'box-data';
+      svg.appendChild(dataLayer);
+    }
+    if(axisLayer){
+      axisLayer.dataset.layer = 'box-axis';
+      svg.appendChild(axisLayer);
+    }
     if(fontControls && typeof fontControls.enableForSvg === 'function'){
       fontControls.enableForSvg(svg,{ scopeId: 'box' });
       console.debug('Debug: box fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
@@ -5114,14 +5130,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     function formatTick(v){
       return v.toLocaleString('en-US',{ maximumFractionDigits: 2, useGrouping: false });
     }
-    function add(tag, attrs){
+    const appendToLayer = (layer, tag, attrs) => {
+      const target = layer || dataLayer || svg;
       const el = document.createElementNS(NS, tag);
       for(const [k, v] of Object.entries(attrs)){
         el.setAttribute(k, String(v));
       }
-      svg.appendChild(el);
+      target.appendChild(el);
       return el;
-    }
+    };
+    const add = (tag, attrs) => appendToLayer(dataLayer || svg, tag, attrs);
+    const addGrid = (tag, attrs) => appendToLayer(gridLayer || svg, tag, attrs);
     function percentile(sorted, p){
       if(!sorted.length) return NaN;
       const pos = (sorted.length - 1) * p;
@@ -5349,21 +5368,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
         return marginLocal.left + (categoryIdx + 0.5) * bandW;
       };
-      const axisElements = [];
-      const registerAxisElementNode = el => {
-        if(el){
-          axisElements.push(el);
-        }
-        return el;
-      };
-      const addAxisElement = (tag, attrs) => registerAxisElementNode(add(tag, attrs));
+      const addAxisElement = (tag, attrs) => appendToLayer(axisLayer || svg, tag, attrs);
       let stackOffsets = null;
       const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
       if(showGrid){
         yScale.ticks.forEach(t => {
           const y = y2px(t);
-          add('line',{ x1: yAxisX, y1: y, x2: yAxisX + plotWLocal, y2: y, stroke: '#ddd', 'stroke-width': gridStrokeWidth });
+          addGrid('line',{ x1: yAxisX, y1: y, x2: yAxisX + plotWLocal, y2: y, stroke: '#ddd', 'stroke-width': gridStrokeWidth });
         });
         console.debug('Debug: box grid stroke scaled',{ horizontal: yScale.ticks.length, gridStrokeWidth });
       }
@@ -5422,12 +5434,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(frameGroup){
           frameGroup.setAttribute('stroke-width', axisStrokeWidth);
           frameGroup.setAttribute('fill', 'none');
-          svg.appendChild(frameGroup);
-          registerAxisElementNode(frameGroup);
+          (axisLayer || svg).appendChild(frameGroup);
           chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
           console.debug('Debug: box frame stroke scaled',{ axisStrokeWidth });
         }else{
-          chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
+          chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'], group: axisLayer || svg });
           console.debug('Debug: box frame group fallback used');
         }
       }
@@ -5805,12 +5816,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
         console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'vertical' });
       }
-      axisElements.forEach(el => {
-        const parent = el && el.parentNode;
-        if(parent && parent.lastChild !== el){
-          parent.appendChild(el);
-        }
-      });
       const traceCenter = idx => {
         const trace = traces[idx];
         if(trace){
@@ -5896,19 +5901,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
         return marginLocal.top + (categoryIdx + 0.5) * bandH;
       };
-      const axisElements = [];
-      const registerAxisElementNode = el => {
-        if(el){
-          axisElements.push(el);
-        }
-        return el;
-      };
-      const addAxisElement = (tag, attrs) => registerAxisElementNode(add(tag, attrs));
+      const addAxisElement = (tag, attrs) => appendToLayer(axisLayer || svg, tag, attrs);
       let stackOffsets = null;
       if(showGrid){
         yScale.ticks.forEach(t => {
           const x = valueToX(t);
-          add('line',{ x1: x, y1: marginLocal.top, x2: x, y2: marginLocal.top + plotHLocal, stroke: '#ddd', 'stroke-width': gridStrokeWidth });
+          addGrid('line',{ x1: x, y1: marginLocal.top, x2: x, y2: marginLocal.top + plotHLocal, stroke: '#ddd', 'stroke-width': gridStrokeWidth });
         });
         console.debug('Debug: box grid stroke scaled',{ vertical: yScale.ticks.length, gridStrokeWidth });
       }
@@ -5958,11 +5956,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(frameGroup){
           frameGroup.setAttribute('stroke-width', axisStrokeWidth);
           frameGroup.setAttribute('fill', 'none');
-          svg.appendChild(frameGroup);
-          registerAxisElementNode(frameGroup);
+          (axisLayer || svg).appendChild(frameGroup);
           chartStyle.drawPlotFrame({ svg, group: frameGroup, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
         }else{
-          chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'] });
+          chartStyle.drawPlotFrame({ svg, margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, stroke: axisStroke, strokeWidth: axisStrokeWidth, sides: ['top', 'right'], group: axisLayer || svg });
         }
       }
       const xLabel = addAxisElement('text',{ x: marginLocal.left + plotWLocal / 2, y: xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.8, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
@@ -6328,12 +6325,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
         console.debug('Debug: box stacked error overlay',{ count: stackedErrorQueue.length, orientation: 'horizontal' });
       }
-      axisElements.forEach(el => {
-        const parent = el && el.parentNode;
-        if(parent && parent.lastChild !== el){
-          parent.appendChild(el);
-        }
-      });
       const traceCenter = idx => {
         const trace = traces[idx];
         if(trace){
