@@ -12,6 +12,13 @@
   const MIN_DEFAULT_SIZE = 320;
   const FALLBACK_VIEWPORT_WIDTH = 960;
   const COLOR_SWATCH_SIZE = 20;
+  const LEGEND_LAYOUT_CONSTANTS = Object.freeze({
+    gapScale: 0.55,
+    minGapPx: 12,
+    guardPaddingPx: 24,
+    basePlotMinWidth: 320
+  });
+  chartStyle.LEGEND_LAYOUT_CONSTANTS = LEGEND_LAYOUT_CONSTANTS;
 
   function normalizeSwatchSize(candidate){
     const parsed = Number(candidate);
@@ -1228,6 +1235,7 @@
     let maxLabelWidth = 0;
     normalizedEntries.forEach(entry => {
       const width = chartStyle.measureText(entry.label, fontForMeasure);
+      entry.labelWidth = Number.isFinite(width) ? width : 0;
       if(Number.isFinite(width) && width > maxLabelWidth){
         maxLabelWidth = width;
       }
@@ -1244,7 +1252,8 @@
       swatchGap,
       minWidth,
       width,
-      height
+      height,
+      maxLabelWidth
     };
     console.debug('Debug: chartStyle.createLegendRenderer metrics', debugSummary);
     const renderer = {
@@ -1257,6 +1266,8 @@
       swatchSize,
       swatchGap,
       baselineOffset,
+      minWidth,
+      maxLabelWidth,
       draw(svg, position){
         if(!svg || typeof svg.appendChild !== 'function'){
           console.warn('chartStyle.createLegendRenderer.draw skipped: invalid svg target');
@@ -1330,6 +1341,43 @@
       }
     };
     return renderer;
+  };
+
+  chartStyle.computeLegendLayout = function computeLegendLayout(options){
+    const opts = options || {};
+    const renderer = chartStyle.createLegendRenderer({
+      entries: opts.entries,
+      fontSize: opts.fontSize,
+      strokeWidth: opts.strokeWidth,
+      swatchSize: opts.swatchSize,
+      swatchGap: opts.swatchGap,
+      rowGap: opts.rowGap,
+      minWidth: opts.minWidth,
+      baselineOffset: opts.baselineOffset,
+      onSwatchClick: opts.onSwatchClick
+    });
+    const entryCount = renderer.entries.length;
+    const fontSize = renderer.fontSize;
+    const gapScale = Number.isFinite(opts.gapScale) ? opts.gapScale : LEGEND_LAYOUT_CONSTANTS.gapScale;
+    const minGapPx = Number.isFinite(opts.minGapPx) ? opts.minGapPx : LEGEND_LAYOUT_CONSTANTS.minGapPx;
+    const legendGapPx = entryCount ? Math.max(minGapPx, Math.round(fontSize * gapScale)) : 0;
+    const legendWidthForMargin = entryCount ? renderer.width + legendGapPx : 0;
+    const guardPaddingPx = Number.isFinite(opts.guardPaddingPx)
+      ? Math.max(0, opts.guardPaddingPx)
+      : LEGEND_LAYOUT_CONSTANTS.guardPaddingPx;
+    const basePlotWidth = Number.isFinite(opts.basePlotWidth)
+      ? Math.max(0, opts.basePlotWidth)
+      : LEGEND_LAYOUT_CONSTANTS.basePlotMinWidth;
+    const minSvgWidth = entryCount ? basePlotWidth + legendWidthForMargin + guardPaddingPx : basePlotWidth;
+    console.debug('Debug: chartStyle.computeLegendLayout',{ entryCount, legendGapPx, legendWidthForMargin, minSvgWidth, basePlotWidth, guardPaddingPx });
+    return {
+      renderer,
+      legendGapPx,
+      legendWidthForMargin,
+      minSvgWidth,
+      basePlotWidth,
+      guardPaddingPx
+    };
   };
 
   chartStyle.drawPlotFrame = function drawPlotFrame(options){

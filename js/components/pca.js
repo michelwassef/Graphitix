@@ -2842,11 +2842,18 @@
           });
         });
       }
-      const legendWidth = legendEntries.length ? Math.max(60, Math.round(120 * fontScale)) : 0;
-      debugLog('Debug: pca legend width scaling',{
+      const legendMeasureEntries = legendEntries.map(entry => ({
+        label: entry.label,
+        fill: entry.color,
+        key: entry.key,
+        editable: true
+      }));
+      const legendLayout = chartStyle.computeLegendLayout({ entries: legendMeasureEntries, fontSize: fs, strokeWidth: borderWidthPx });
+      const legendWidth = legendLayout.legendWidthForMargin;
+      debugLog('Debug: pca legend layout metrics',{
         legendWidth,
-        legendScale:fontScale,
-        legendCount:legendEntries.length
+        legendGap: legendLayout.legendGapPx,
+        legendCount: legendLayout.renderer.entries.length
       });
 
       const plotEl = document.getElementById('pcaPlot');
@@ -3117,10 +3124,10 @@
             opacity: 1 - alpha
           });
         });
-        const legendX3=W3-legendWidth+Math.max(6,Math.round(8*fontScale));
-        const legendSpacing3=Math.max(4,Math.round(fs*0.5));
-        const legendMarkerSize3=Math.max(10,Math.round(12*fontScale));
-        const legendTextOffset3=legendMarkerSize3+Math.max(6,Math.round(8*fontScale));
+        const legendX3=margin3.left+plotW3+legendLayout.legendGapPx;
+        const legendSpacing3=Math.max(legendLayout.renderer.rowGap, Math.round(fs*0.35));
+        const legendMarkerSize3=legendLayout.renderer.swatchSize;
+        const legendTextOffset3=legendMarkerSize3+legendLayout.renderer.swatchGap;
         legendEntries.forEach((entry, i) => {
           const itemY = margin3.top + i * (legendMarkerSize3 + legendSpacing3);
           const swatch3 = drawShape(add3, entry.shape || 'circle', {
@@ -3558,10 +3565,10 @@
         });
       });
 
-      const legendX=W-legendWidth+Math.max(6,Math.round(8*fontScale));
-      const legendSpacing=Math.max(4,Math.round(fs*0.5));
-      const legendMarkerSize=Math.max(10,Math.round(12*fontScale));
-      const legendTextOffset=legendMarkerSize+Math.max(6,Math.round(8*fontScale));
+      const legendX=margin.left+plotW+legendLayout.legendGapPx;
+      const legendSpacing=Math.max(legendLayout.renderer.rowGap, Math.round(fs*0.35));
+      const legendMarkerSize=legendLayout.renderer.swatchSize;
+      const legendTextOffset=legendMarkerSize+legendLayout.renderer.swatchGap;
       debugLog('Debug: pca legend layout',{
         legendX,
         legendSpacing,

@@ -1139,11 +1139,37 @@
       console.debug('Debug: roc fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font toolbar missing
     }
 
-    const legendWidth = legendLabels.length ? Math.max(60, Math.round(120 * fontScale)) : 0;
-    console.debug('Debug: roc legend width scaling',{
+    const legendEntries = legendLabels.map((label, index) => ({
+      label,
+      fill: state.labelColors[label] || DEFAULT_SCATTER_COLORS[index % DEFAULT_SCATTER_COLORS.length],
+      key: label,
+      editable: true
+    }));
+    const legendLayout = chartStyle.computeLegendLayout({
+      entries: legendEntries,
+      fontSize,
+      strokeWidth: borderWidthPx,
+      onSwatchClick: ({ entry, swatch, event }) => {
+        const labelKey = entry?.key || entry?.label;
+        if(!labelKey || !swatch){ return; }
+        if(event){ event.stopPropagation(); }
+        const currentColor = state.labelColors[labelKey] || entry.fill;
+        Shared.openColorPicker({
+          anchor: swatch,
+          color: currentColor,
+          onInput(value){
+            state.labelColors[labelKey] = value;
+            console.debug('Debug: ROC legend color input',{ label: labelKey, color: value });
+            state.scheduleDraw?.();
+          }
+        });
+      }
+    });
+    const legendWidth = legendLayout.legendWidthForMargin;
+    console.debug('Debug: roc legend layout metrics',{
       legendWidth,
-      legendScale:fontScale,
-      legendCount:legendLabels.length
+      legendGap: legendLayout.legendGapPx,
+      legendCount: legendLayout.renderer.entries.length
     });
     const buildTicks = (count) => {
       const steps = Math.max(count - 1, 1);
@@ -1440,47 +1466,19 @@
       add('path', {d: path, fill: 'none', stroke: color, 'stroke-width': borderWidthPx});
     });
 
-    const legendMargin=Math.max(6,Math.round(8*fontScale));
-    const legendMarkerSize=Math.max(10,Math.round(12*fontScale));
-    const legendSpacing=Math.max(4,Math.round(fontSize*0.5));
-    const legendTextOffset=legendMarkerSize+Math.max(6,Math.round(8*fontScale));
-    const legendX = width - legendWidth + legendMargin;
-    console.debug('Debug: roc legend layout',{
-      legendX,
-      legendMargin,
-      legendMarkerSize,
-      legendSpacing,
-      legendTextOffset
-    });
-    legendLabels.forEach((label, index) => {
-      const baseY = margin.top + legendMargin + index * (legendMarkerSize + legendSpacing);
-      const color = state.labelColors[label] || DEFAULT_SCATTER_COLORS[index % DEFAULT_SCATTER_COLORS.length];
-      const swatch = add('rect', {x: legendX, y: baseY, width: legendMarkerSize, height: legendMarkerSize, fill: color});
-      if(swatch){
-        swatch.style.cursor = 'pointer';
-        swatch.dataset.legendKey = label;
-        swatch.addEventListener('click',(evt)=>{
-          if(evt){ evt.stopPropagation(); }
-          const currentColor = state.labelColors[label] || color;
-          Shared.openColorPicker({
-            anchor: swatch,
-            color: currentColor,
-            onInput(value){
-              state.labelColors[label] = value;
-              console.debug('Debug: ROC legend color input',{label,color:value});
-              state.scheduleDraw?.();
-            }
-          });
+    const legendRenderer = legendLayout.renderer;
+    if(legendRenderer.entries.length){
+      const legendX = margin.left + plotWidth + legendLayout.legendGapPx;
+      const legendGroup = legendRenderer.draw(svg,{ x: legendX, y: margin.top + legendRenderer.baselineOffset });
+      if(legendGroup){
+        const textNodes = legendGroup.querySelectorAll('text');
+        legendRenderer.entries.forEach((entry, index) => {
+          const textNode = textNodes[index];
+          if(!textNode){ return; }
+          markFontEditable(textNode,'legend',`legend-${index}`);
         });
       }
-      add('text', {
-        x: legendX + legendTextOffset,
-        y: baseY + legendMarkerSize / 2,
-        'font-size': fontSize,
-        'dominant-baseline': 'middle',
-        fill: chartStyle.TEXT_COLOR
-      }, label, { role: 'legend', key: `legend-${index}` });
-    });
+    }
 
     if(refs.statsResults){
       refs.statsResults.textContent = '';
