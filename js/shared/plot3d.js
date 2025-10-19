@@ -66,6 +66,51 @@
     return false;
   };
 
+  plot3d.isInteractivePointerTarget = function(target){
+    if(!target){ return false; }
+    if(plot3d.isLegendPointerTarget(target)){
+      debugLog('Debug: plot3d pointer target bypass', { reason: 'legend', tag: target.tagName || null });
+      return true;
+    }
+    const dataset = target.dataset || {};
+    if(dataset.fontEditable === '1'){
+      debugLog('Debug: plot3d pointer target bypass', { reason: 'font-editable', tag: target.tagName || null });
+      return true;
+    }
+    if(dataset.inlineEditable === '1'){
+      debugLog('Debug: plot3d pointer target bypass', { reason: 'inline-editable', tag: target.tagName || null });
+      return true;
+    }
+    const hasContentEditable = typeof target.getAttribute === 'function' && String(target.getAttribute('contenteditable') || '').toLowerCase() === 'true';
+    if(hasContentEditable){
+      debugLog('Debug: plot3d pointer target bypass', { reason: 'contenteditable', tag: target.tagName || null });
+      return true;
+    }
+    const classList = target.classList || null;
+    if(classList && (classList.contains('inline-edit-overlay') || classList.contains('inline-edit-input') || classList.contains('inline-edit-measure'))){
+      debugLog('Debug: plot3d pointer target bypass', { reason: 'inline-editor-class', tag: target.tagName || null });
+      return true;
+    }
+    if(typeof target.closest === 'function'){
+      const selectors = [
+        '[data-font-editable="1"]',
+        '[data-inline-editable="1"]',
+        '.inline-edit-overlay',
+        '.inline-edit-input',
+        '.inline-edit-measure',
+        '[contenteditable="true"]'
+      ];
+      for(let i = 0; i < selectors.length; i += 1){
+        const sel = selectors[i];
+        if(target.closest(sel)){
+          debugLog('Debug: plot3d pointer target bypass', { reason: sel, tag: target.tagName || null });
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   plot3d.applyLegendPointerGuards = function(element, options){
     if(!element){ return; }
     const label = options && options.label ? options.label : null;
@@ -85,7 +130,7 @@
     const shouldIgnorePointer = typeof opts.shouldIgnorePointer === 'function'
       ? opts.shouldIgnorePointer
       : function(event){
-        return plot3d.isLegendPointerTarget(event && event.target);
+        return plot3d.isInteractivePointerTarget(event && event.target);
       };
     const label = opts.debugLabel || 'plot3d-rotation';
     const onChange = typeof opts.onChange === 'function' ? opts.onChange : null;
