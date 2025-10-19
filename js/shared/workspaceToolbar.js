@@ -420,7 +420,8 @@
                 options: [
                   { value: 'standard', label: 'Standard (single replicate)', selected: true },
                   { value: 'replicates2', label: 'Two replicates (Control vs Treated)' },
-                  { value: 'replicates3', label: 'Three replicates (Dose response)' }
+                  { value: 'replicates3', label: 'Three replicates (Dose response)' },
+                  { value: 'longLegend', label: 'Long legend stress test' }
                 ]
               }
             ]

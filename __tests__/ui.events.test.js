@@ -170,6 +170,31 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
   });
 
+  test('Line Graph: long legend reserves measured width', async () => {
+    await activateWorkspace('line');
+    const select = document.getElementById('lineExampleSelect');
+    expect(select).toBeTruthy();
+    select.value = 'longLegend';
+    select.dispatchEvent(new Event('change'));
+    const loadBtn = document.getElementById('lineLoadExample');
+    expect(loadBtn).toBeTruthy();
+    loadBtn.click();
+    await flushAsyncWork(40);
+    const lineState = window.Components?.line?.__getState?.();
+    expect(lineState).toBeTruthy();
+    const layout = lineState.legendLayout;
+    expect(layout).toBeTruthy();
+    expect(layout.entryCount).toBeGreaterThan(0);
+    const widths = layout.entries.map(entry => Number(entry.labelWidth || 0));
+    expect(widths.every(width => width > 0)).toBe(true);
+    const maxLabelWidth = Math.max(...widths);
+    const expectedRendererWidth = Math.max(Number(layout.minWidth || 0), Number(layout.swatchSize || 0) + Number(layout.swatchGap || 0) + maxLabelWidth);
+    expect(Math.abs(Number(layout.rendererWidth || 0) - expectedRendererWidth)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(Number(lineState.legendWidth || 0) - (Number(layout.rendererWidth || 0) + Number(layout.legendGapPx || 0)))).toBeLessThanOrEqual(1.5);
+    expect(Number(lineState.legendGuardWidth || 0)).toBeGreaterThanOrEqual(Number(layout.minSvgWidth || 0));
+    expect(lineState.legendItems[0]?.label || '').toContain('Multi-Year');
+  });
+
   test.skip('Box Plot: assumption warnings surface for non-normal data', async () => {
     await activateWorkspace('box');
     const cleanupJStat = ensureJStatStub();

@@ -47,6 +47,24 @@
   let lineLegendItems = [];
   let lineLegendWidth = 0;
   let lineMinSvgWidth = 0;
+  let lineLegendLayoutInfo = {
+    entryCount: 0,
+    rendererWidth: 0,
+    legendWidthForMargin: 0,
+    legendGapPx: 0,
+    minSvgWidth: chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320,
+    basePlotWidth: chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320,
+    guardPaddingPx: chartStyle.LEGEND_LAYOUT_CONSTANTS?.guardPaddingPx || 24,
+    swatchSize: 0,
+    swatchGap: 0,
+    rowGap: 0,
+    rowHeight: 0,
+    fontSize: 12,
+    minWidth: 0,
+    maxLabelWidth: 0,
+    entries: []
+  };
+  let lineLegendGuardWidth = chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320;
 
   function attachLineSelectAutoSize(select, label){
     if(!select){ return; }
@@ -193,6 +211,32 @@
     if(typeof scheduleLineDraw === 'function'){
       scheduleLineDraw();
     }
+  }
+
+  function applyLineLegendGuardWidth(requiredWidth){
+    const normalized = Number.isFinite(requiredWidth) ? Math.max(0, Math.round(requiredWidth)) : 0;
+    const changed = normalized !== lineLegendGuardWidth;
+    lineLegendGuardWidth = normalized;
+    if(!lineLayout){
+      if(changed){
+        console.debug('Debug: line legend guard pending layout',{ requiredWidth: normalized });
+      }
+      return;
+    }
+    if(!changed){
+      return;
+    }
+    try{
+      lineLayout.updateMinSvgWidth?.(normalized);
+    }catch(err){
+      console.error('line legend guard update error', err);
+    }
+    try{
+      lineLayout.syncPanels?.({ skipSchedule: true, reason: 'legend-guard' });
+    }catch(err){
+      console.error('line legend guard sync error', err);
+    }
+    console.debug('Debug: line legend guard width applied',{ requiredWidth: normalized });
   }
 
   function applyLineAxisSettings(settings){
@@ -1961,12 +2005,50 @@
         });
       }
       ensureLineLabelColors(labelsUsed);
-      const legendLabels=labelsUsed;
-      const legendScale = styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
-      const legendWidth=legendLabels.length?Math.max(60, Math.round(120*legendScale)):0;
-      console.debug('Debug: line legend width scaling',{legendWidth,legendScale,legendCount:legendLabels.length});
-      lineLegendWidth=legendWidth;
-      lineLegendItems=[];
+      const colors=seriesWithData.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
+      const legendEntries=seriesWithData.map((s,i)=>({ label:s.name, fill:colors[i], key:s.name, editable:true }));
+      const legendLayout=chartStyle.computeLegendLayout({
+        entries:legendEntries,
+        fontSize:fs,
+        strokeWidth:borderWidthPx,
+        onSwatchClick:({ entry, swatch, event })=>{
+          const legendKey=entry?.key || entry?.label;
+          if(!legendKey || !swatch){ return; }
+          if(event){ event.stopPropagation(); }
+          const currentColor=lineLabelColors[legendKey]||entry.fill;
+          Shared.openColorPicker({
+            anchor: swatch,
+            color: currentColor,
+            onInput(value){
+              lineLabelColors[legendKey]=value;
+              console.debug('Debug: line legend color input',{label:legendKey,color:value});
+              scheduleLineDraw();
+            }
+          });
+        }
+      });
+      lineLegendWidth=legendLayout.legendWidthForMargin;
+      lineLegendItems=legendEntries.map(item=>({label:item.label,color:item.fill}));
+      lineLegendLayoutInfo={
+        entryCount: legendLayout.renderer.entries.length,
+        rendererWidth: legendLayout.renderer.width,
+        legendWidthForMargin: legendLayout.legendWidthForMargin,
+        legendGapPx: legendLayout.legendGapPx,
+        minSvgWidth: legendLayout.minSvgWidth,
+        basePlotWidth: legendLayout.basePlotWidth,
+        guardPaddingPx: legendLayout.guardPaddingPx,
+        swatchSize: legendLayout.renderer.swatchSize,
+        swatchGap: legendLayout.renderer.swatchGap,
+        rowGap: legendLayout.renderer.rowGap,
+        rowHeight: legendLayout.renderer.rowHeight,
+        fontSize: legendLayout.renderer.fontSize,
+        minWidth: legendLayout.renderer.minWidth,
+        maxLabelWidth: legendLayout.renderer.maxLabelWidth,
+        entries: legendLayout.renderer.entries.map(entry=>({ label: entry.label, key: entry.key, labelWidth: entry.labelWidth }))
+      };
+      applyLineLegendGuardWidth(legendLayout.minSvgWidth);
+      console.debug('Debug: line legend layout metrics',{ legendWidth: lineLegendWidth, legendGap: legendLayout.legendGapPx, entryCount: legendLayout.renderer.entries.length, minSvgWidth: legendLayout.minSvgWidth, guardWidth: lineLegendGuardWidth });
+      const legendWidth=lineLegendWidth;
       if(!seriesWithData.length) return;
       if(logX && xMinRaw<=0){ refs.plot.innerHTML='<i>Log scale requires positive X values.</i>'; return; }
       if(logY && yMinRaw<=0){ refs.plot.innerHTML='<i>Log scale requires positive Y values.</i>'; return; }
@@ -2186,7 +2268,6 @@
       yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTick(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});
       console.debug('Debug: line font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
       console.debug('Debug: line ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
-      const colors=seriesWithData.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
       const showErrorBars=replicates>1;
       const errorStrokeWidth=errorBarWidthPx;
       const errorCapHalf=Math.max(4, dotSizePx*1.2);
@@ -2374,61 +2455,34 @@
         seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,forecastPath:forecastPathEl});
       });
       console.debug('Debug: line series rendered',{ showErrorBars, seriesCount: seriesWithData.length });
-      if(legendLabels.length){
-        const legendGroup=document.createElementNS(NS,'g');
-        const legendX=W-legendWidth+8;
-        const legendY=margin.top;
-        seriesWithData.forEach((s,i)=>{
-          const itemG=document.createElementNS(NS,'g');
-          itemG.style.cursor='pointer';
-          const y=legendY+i*(fs+4);
-          const sw=document.createElementNS(NS,'rect');
-          sw.setAttribute('x',legendX);
-          sw.setAttribute('y',y-fs+4);
-          sw.setAttribute('width',12);
-          sw.setAttribute('height',12);
-          sw.setAttribute('fill',colors[i]);
-          sw.style.cursor='pointer';
-          sw.addEventListener('click',(evt)=>{
-            if(evt){ evt.stopPropagation(); }
-            const seriesName=s.name;
-            const currentColor=lineLabelColors[seriesName]||colors[i];
-            Shared.openColorPicker({
-              anchor: sw,
-              color: currentColor,
-              onInput(value){
-                lineLabelColors[seriesName]=value;
-                console.debug('Debug: line legend color input',{label:seriesName,color:value});
-                scheduleLineDraw();
-              }
-            });
+      const toggleSeriesVisibility=index=>{
+        const target=seriesElems[index];
+        if(!target){ return; }
+        const currentlyVisible=target.path.style.display!=='none';
+        const nextDisplay=currentlyVisible?'none':'inline';
+        target.path.style.display=nextDisplay;
+        target.mGroup.style.display=nextDisplay;
+        if(target.errorGroup){
+          target.errorGroup.style.display=nextDisplay;
+        }
+        if(target.forecastPath){
+          target.forecastPath.style.display=nextDisplay;
+        }
+      };
+      const legendRenderer=legendLayout.renderer;
+      if(legendRenderer.entries.length){
+        const legendX=margin.left+plotW+legendLayout.legendGapPx;
+        const legendGroup=legendRenderer.draw(svg,{x:legendX,y:margin.top+legendRenderer.baselineOffset});
+        if(legendGroup){
+          const textNodes=legendGroup.querySelectorAll('text');
+          legendRenderer.entries.forEach((entry,index)=>{
+            const textNode=textNodes[index];
+            if(!textNode){ return; }
+            markFontEditable(textNode,'legend',`legend-${index}`);
+            textNode.style.cursor='pointer';
+            textNode.addEventListener('click',()=>toggleSeriesVisibility(index));
           });
-          itemG.appendChild(sw);
-          const t=document.createElementNS(NS,'text');
-          t.setAttribute('x',legendX+16);
-          t.setAttribute('y',y);
-          t.setAttribute('font-size',fs);
-          t.setAttribute('fill',chartStyle.TEXT_COLOR);
-          t.textContent=s.name;
-          markFontEditable(t,'legend',`legend-${i}`);
-          itemG.appendChild(t);
-          itemG.addEventListener('click',()=>{
-            const vis=seriesElems[i].path.style.display!=='none';
-            seriesElems[i].path.style.display=vis?'none':'inline';
-            seriesElems[i].mGroup.style.display=vis?'none':'inline';
-            const errGroup=seriesElems[i].errorGroup;
-            if(errGroup){
-              errGroup.style.display=vis?'none':'inline';
-            }
-            const fPath=seriesElems[i].forecastPath;
-            if(fPath){
-              fPath.style.display=vis?'none':'inline';
-            }
-          });
-          legendGroup.appendChild(itemG);
-        });
-        svg.appendChild(legendGroup);
-        lineLegendItems=seriesWithData.map((s,i)=>({label:s.name,color:colors[i]}));
+        }
       }
       const xAxisBase=margin.top+plotH;
       const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
@@ -2721,6 +2775,23 @@
           [72,88,86,87,95,97,96],
           [96,105,104,106,112,113,111]
         ]
+      },
+      longLegend:{
+        replicates:1,
+        seriesCount:3,
+        data:[
+          ['Month','North Region with Multi-Year Baseline Comparison','South Region with Multi-Year Baseline and Extended Reporting Horizon','International Expansion Pilot Cohort for 2025 Launch'],
+          [1,120,108,92],
+          [2,134,118,95],
+          [3,142,126,99],
+          [4,155,132,104],
+          [5,163,141,110],
+          [6,171,149,117],
+          [7,178,156,123],
+          [8,184,162,129],
+          [9,191,168,133],
+          [10,197,173,138]
+        ]
       }
     };
 
@@ -2863,6 +2934,40 @@
   line.buildExportSvg = buildLineExportSvg;
   line.getHot = () => lineHot;
   line.updateStats = updateLineStats;
+  line.__getState = function(){
+    console.debug('Debug: line.__getState invoked');
+    return {
+      hot: lineHot,
+      layout: lineLayout,
+      legendItems: lineLegendItems.slice(),
+      legendWidth: lineLegendWidth,
+      legendLayout: {
+        entryCount: lineLegendLayoutInfo.entryCount,
+        rendererWidth: lineLegendLayoutInfo.rendererWidth,
+        legendWidthForMargin: lineLegendLayoutInfo.legendWidthForMargin,
+        legendGapPx: lineLegendLayoutInfo.legendGapPx,
+        minSvgWidth: lineLegendLayoutInfo.minSvgWidth,
+        basePlotWidth: lineLegendLayoutInfo.basePlotWidth,
+        guardPaddingPx: lineLegendLayoutInfo.guardPaddingPx,
+        swatchSize: lineLegendLayoutInfo.swatchSize,
+        swatchGap: lineLegendLayoutInfo.swatchGap,
+        rowGap: lineLegendLayoutInfo.rowGap,
+        rowHeight: lineLegendLayoutInfo.rowHeight,
+        fontSize: lineLegendLayoutInfo.fontSize,
+        minWidth: lineLegendLayoutInfo.minWidth,
+        maxLabelWidth: lineLegendLayoutInfo.maxLabelWidth,
+        entries: lineLegendLayoutInfo.entries.map(entry=>({
+          label: entry.label,
+          key: entry.key,
+          labelWidth: entry.labelWidth
+        }))
+      },
+      legendGuardWidth: lineLegendGuardWidth,
+      minSvgWidth: lineMinSvgWidth,
+      labelColors: { ...lineLabelColors },
+      scheduleDraw: scheduleLineDraw
+    };
+  };
 
 })(window);
 
