@@ -42,6 +42,8 @@
     scatter: { label: 'Points only' }
   });
 
+  const DEFAULT_AXIS_LABELS = Object.freeze({ x: 'X', y: 'Y', z: 'Z' });
+
   const state = {
     hot: null,
     layout: null,
@@ -64,13 +66,36 @@
       showPoints: false,
       showLegend: true
     },
-    labels: { title: 'Surface Plot', x: 'X', y: 'Y', z: 'Z' },
+    labels: { title: 'Surface Plot', x: DEFAULT_AXIS_LABELS.x, y: DEFAULT_AXIS_LABELS.y, z: DEFAULT_AXIS_LABELS.z },
     rotation: typeof plot3d.createRotationState === 'function'
       ? plot3d.createRotationState(DEFAULT_ROTATION)
       : { x: DEFAULT_ROTATION.x, y: DEFAULT_ROTATION.y },
     scheduleDraw: () => {},
     fileName: DEFAULT_FILE_NAME,
     fileHandle: null
+  };
+
+  const makeEditableHelper = (node, onChange, options) => {
+    const fn = Shared.makeEditable || global.makeEditable;
+    if(typeof fn === 'function'){
+      return fn(node, onChange, options);
+    }
+    console.warn('surface component makeEditable fallback missing');
+    return undefined;
+  };
+
+  const markFontEditable = (node, role, key) => {
+    if(!node){ return; }
+    const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
+    if(fontControls && typeof fontControls.markText === 'function'){
+      fontControls.markText(node, { scopeId: 'surface', role, key });
+    } else if(node.dataset){
+      node.dataset.fontEditable = '1';
+      node.dataset.fontScope = 'surface';
+      if(role){ node.dataset.fontRole = role; }
+      if(key || role){ node.dataset.fontKey = key || role; }
+    }
+    debugLog('Debug: surface markFontEditable', payload);
   };
 
   function debugLog(message, payload){
@@ -206,10 +231,6 @@
     state.controls.showFrame = doc.getElementById('surfaceShowFrame') || state.controls.showFrame;
     state.controls.showPoints = doc.getElementById('surfaceShowPoints') || state.controls.showPoints;
     state.controls.showLegend = doc.getElementById('surfaceShowLegend') || state.controls.showLegend;
-    state.controls.title = doc.getElementById('surfaceTitle') || state.controls.title;
-    state.controls.xLabel = doc.getElementById('surfaceXLabel') || state.controls.xLabel;
-    state.controls.yLabel = doc.getElementById('surfaceYLabel') || state.controls.yLabel;
-    state.controls.zLabel = doc.getElementById('surfaceZLabel') || state.controls.zLabel;
     state.controls.loadExample = doc.getElementById('surfaceLoadExample') || state.controls.loadExample;
     state.controls.importBtn = doc.getElementById('surfaceImport') || state.controls.importBtn;
     state.controls.importFile = doc.getElementById('surfaceFile') || state.controls.importFile;
@@ -221,16 +242,12 @@
     if(!hot){ return; }
     const columns = typeof hot.countCols === 'function' ? hot.countCols() : (hot.getData?.()[0]?.length || DEFAULT_COLS);
     const headers = [];
+    const data = typeof hot.getData === 'function' ? hot.getData() : [];
+    const headerRow = Array.isArray(data?.[0]) ? data[0] : [];
     for(let col = 0; col < columns; col += 1){
-      let header = null;
-      if(typeof hot.getColHeader === 'function'){
-        try {
-          header = hot.getColHeader(col);
-        } catch(err){
-          header = null;
-        }
-      }
-      headers.push(header && header !== col ? header : `Column ${col + 1}`);
+      const value = headerRow[col];
+      const normalized = value != null ? String(value).trim() : '';
+      headers.push(normalized || `Column ${col + 1}`);
     }
     ['x', 'y', 'z'].forEach((axis, idx) => {
       const select = state.axisSelects[axis];
@@ -254,11 +271,70 @@
         select.value = String(state.axisMap[axis]);
       }
     });
+    updateAxisLabelsFromHeaders();
     debugLog('Debug: surface axis options refreshed', {
       columns,
       axisMap: Object.assign({}, state.axisMap)
     });
   }
+
+  function getHeaderLabelForColumn(colIndex){
+    if(!state.hot || typeof colIndex !== 'number' || colIndex < 0){
+      return '';
+    }
+    const data = typeof state.hot.getData === 'function' ? state.hot.getData() : [];
+    const headerRow = Array.isArray(data?.[0]) ? data[0] : [];
+    const value = headerRow[colIndex];
+    return value != null ? String(value).trim() : '';
+  }
+
+  function updateAxisLabelsFromHeaders(){
+    const selected = getSelectedColumns();
+    ['x', 'y', 'z'].forEach(axis => {
+      const header = getHeaderLabelForColumn(selected[axis]);
+      state.labels[axis] = header || DEFAULT_AXIS_LABELS[axis];
+    });
+  }
+
+  function ensureHeaderRowFromConfig(config){
+    if(!state.hot || typeof state.hot.getData !== 'function'){
+      return;
+    }
+    const data = state.hot.getData();
+    if(!Array.isArray(data) || !data.length){
+      return;
+    }
+    const isHeaderTextual = (row) => Array.isArray(row) && row.some(cell => {
+      if(cell == null || cell === ''){ return false; }
+      const str = String(cell).trim();
+      if(!str){ return false; }
+      const numeric = Number(str);
+      return Number.isNaN(numeric);
+    });
+    let headerRow = Array.isArray(data[0]) ? data[0] : [];
+    if(!isHeaderTextual(headerRow)){
+      if(typeof state.hot.alter === 'function'){
+        state.hot.alter('insert_row', 0, 1, 'surface-header-migrate');
+      }
+      const refreshed = state.hot.getData();
+      headerRow = Array.isArray(refreshed?.[0]) ? refreshed[0] : [];
+    }
+    const labelConfig = config?.labels || {};
+    const axisMap = Object.assign({}, state.axisMap);
+    ['x', 'y', 'z'].forEach(axis => {
+      const idx = Number(axisMap[axis]);
+      if(!Number.isInteger(idx) || idx < 0){ return; }
+      const desiredRaw = labelConfig[axis];
+      const desired = desiredRaw != null && String(desiredRaw).trim()
+        ? String(desiredRaw).trim()
+        : DEFAULT_AXIS_LABELS[axis];
+      const current = getHeaderLabelForColumn(idx);
+      if(current !== desired && typeof state.hot.setDataAtCell === 'function'){
+        state.hot.setDataAtCell(0, idx, desired, 'surface-header-sync');
+      }
+    });
+  }
+
   function getSelectedColumns(){
     const maxCol = state.hot && typeof state.hot.countCols === 'function' ? state.hot.countCols() - 1 : DEFAULT_COLS - 1;
     return {
@@ -275,9 +351,16 @@
       console.warn('surface initHot missing container');
       return null;
     }
+    const baseData = typeof Shared.createEmptyData === 'function'
+      ? Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS)
+      : null;
+    if(baseData && baseData[0]){
+      baseData[0][0] = DEFAULT_AXIS_LABELS.x;
+      baseData[0][1] = DEFAULT_AXIS_LABELS.y;
+      baseData[0][2] = DEFAULT_AXIS_LABELS.z;
+    }
     const overrides = {
-      firstRowIsHeader: false,
-      colHeaders: ['X', 'Y', 'Z'],
+      data: baseData,
       columns: [
         { type: 'numeric', numericFormat: { pattern: '0[.]0000' } },
         { type: 'numeric', numericFormat: { pattern: '0[.]0000' } },
@@ -325,7 +408,16 @@
     let skipped = 0;
     let zMin = Infinity;
     let zMax = -Infinity;
-    for(let rowIndex = 0; rowIndex < data.length; rowIndex += 1){
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const headerLooksText = headerRow.some(cell => {
+      if(cell == null || cell === ''){ return false; }
+      const str = String(cell).trim();
+      if(!str){ return false; }
+      const num = Number(str);
+      return Number.isNaN(num);
+    });
+    const startRow = headerLooksText ? 1 : 0;
+    for(let rowIndex = startRow; rowIndex < data.length; rowIndex += 1){
       const row = data[rowIndex];
       if(!row){ continue; }
       const x = Number(row[cols.x]);
@@ -560,14 +652,10 @@
     if(state.controls.showFrame){ state.controls.showFrame.checked = !!state.settings.showFrame; }
     if(state.controls.showPoints){ state.controls.showPoints.checked = !!state.settings.showPoints; }
     if(state.controls.showLegend){ state.controls.showLegend.checked = !!state.settings.showLegend; }
-    if(state.controls.title){ state.controls.title.value = state.labels.title; }
-    if(state.controls.xLabel){ state.controls.xLabel.value = state.labels.x; }
-    if(state.controls.yLabel){ state.controls.yLabel.value = state.labels.y; }
-    if(state.controls.zLabel){ state.controls.zLabel.value = state.labels.z; }
   }
 
   function buildExampleDataset(){
-    const rows = [];
+    const rows = [[DEFAULT_AXIS_LABELS.x, DEFAULT_AXIS_LABELS.y, DEFAULT_AXIS_LABELS.z]];
     const xs = [];
     const ys = [];
     for(let x = -3; x <= 3.0001; x += 0.6){
@@ -645,30 +733,6 @@
         state.scheduleDraw();
       });
     });
-    if(state.controls.title){
-      state.controls.title.addEventListener('input', () => {
-        state.labels.title = state.controls.title.value || 'Surface Plot';
-        state.scheduleDraw();
-      });
-    }
-    if(state.controls.xLabel){
-      state.controls.xLabel.addEventListener('input', () => {
-        state.labels.x = state.controls.xLabel.value || 'X';
-        state.scheduleDraw();
-      });
-    }
-    if(state.controls.yLabel){
-      state.controls.yLabel.addEventListener('input', () => {
-        state.labels.y = state.controls.yLabel.value || 'Y';
-        state.scheduleDraw();
-      });
-    }
-    if(state.controls.zLabel){
-      state.controls.zLabel.addEventListener('input', () => {
-        state.labels.z = state.controls.zLabel.value || 'Z';
-        state.scheduleDraw();
-      });
-    }
     ['x', 'y', 'z'].forEach(axis => {
       const select = state.axisSelects[axis];
       if(!select){ return; }
@@ -752,6 +816,7 @@
       removeLegend(svg);
       return;
     }
+    updateAxisLabelsFromHeaders();
     displayMessage('');
     const boxRect = svgBox.getBoundingClientRect ? svgBox.getBoundingClientRect() : { width: svg.clientWidth || 640, height: svg.clientHeight || 420 };
     const width = Math.max(280, Math.floor(boxRect.width || svg.clientWidth || 640));
@@ -841,7 +906,12 @@
         state: state.rotation,
         onChange: () => state.scheduleDraw(),
         debugLabel: 'surface-plot',
-        shouldIgnorePointer: (event) => typeof plot3d.isLegendPointerTarget === 'function' && plot3d.isLegendPointerTarget(event?.target)
+        shouldIgnorePointer: (event) => {
+          if(typeof plot3d.isInteractivePointerTarget === 'function'){
+            return plot3d.isInteractivePointerTarget(event?.target);
+          }
+          return typeof plot3d.isLegendPointerTarget === 'function' && plot3d.isLegendPointerTarget(event?.target);
+        }
       });
     }
     const tickTargetX = typeof chartStyle.estimateTickCount === 'function' ? chartStyle.estimateTickCount(plotWidth, { axis: 'x', fallback: 6 }) : 6;
@@ -875,7 +945,27 @@
         paneTarget: backgroundLayer,
         gridTarget: backgroundLayer,
         axisTarget: axisLayer,
-        labelTarget: axisLayer
+        labelTarget: axisLayer,
+        onAxisLabel: (el, axisKey) => {
+          if(!el){ return; }
+          const role = axisKey ? `${axisKey}Title` : 'axisTitle';
+          markFontEditable(el, role, role);
+          makeEditableHelper(el, text => {
+            const trimmed = text != null ? String(text).trim() : '';
+            const resolved = trimmed || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
+            state.labels[axisKey] = resolved;
+            if(state.hot && typeof state.hot.setDataAtCell === 'function'){
+              const columns = getSelectedColumns();
+              const targetCol = columns[axisKey];
+              if(Number.isInteger(targetCol)){
+                const current = getHeaderLabelForColumn(targetCol);
+                if(current !== resolved){
+                  state.hot.setDataAtCell(0, targetCol, resolved, 'surface-axis-inline');
+                }
+              }
+            }
+          }, { scopeId: 'surface', key: role });
+        }
       });
     }
     const colorFor = colorScaleFactory(parsed.stats.zMin, parsed.stats.zMax, state.settings.colorRamp);
@@ -931,6 +1021,11 @@
     title.setAttribute('font-size', fs);
     title.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
     title.textContent = state.labels.title;
+    markFontEditable(title, 'graphTitle', 'graphTitle');
+    makeEditableHelper(title, text => {
+      const trimmed = text != null ? String(text).trim() : '';
+      state.labels.title = trimmed || 'Surface Plot';
+    }, { scopeId: 'surface', key: 'graphTitle' });
     svg.appendChild(title);
     if(state.settings.showLegend && Number.isFinite(parsed.stats.zMin) && Number.isFinite(parsed.stats.zMax) && parsed.stats.zMin !== parsed.stats.zMax){
       renderLegend(svg, { min: parsed.stats.zMin, max: parsed.stats.zMax, colorRamp: state.settings.colorRamp, width, margin, fontSize: fs, layer: axisLayer });
@@ -1095,6 +1190,7 @@
       if(config.labels){
         state.labels = Object.assign({}, state.labels, config.labels);
       }
+      ensureHeaderRowFromConfig(config);
       if(config.rotation){
         state.rotation.x = Number(config.rotation.x) || state.rotation.x;
         state.rotation.y = Number(config.rotation.y) || state.rotation.y;

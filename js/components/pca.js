@@ -58,6 +58,9 @@
   if(typeof plot3d.isLegendPointerTarget !== 'function'){
     plot3d.isLegendPointerTarget = () => false;
   }
+  if(typeof plot3d.isInteractivePointerTarget !== 'function'){
+    plot3d.isInteractivePointerTarget = (target) => plot3d.isLegendPointerTarget(target);
+  }
   const fontControls = Shared.fontControls = Shared.fontControls || {};
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
@@ -110,6 +113,17 @@
   ]);
   const GROUP_SHAPE_DEFAULTS = GROUP_SHAPE_OPTIONS.map(opt => opt.value);
   const GROUP_SHAPE_VALUES = new Set(GROUP_SHAPE_DEFAULTS);
+  const PCA_DEFAULT_TITLES = Object.freeze({
+    pca: 'PCA Plot',
+    mds: 'MDS Plot',
+    tsne: 't-SNE Plot',
+    umap: 'UMAP Plot'
+  });
+
+  function getDefaultTitleForMethod(method){
+    const key = typeof method === 'string' ? method.toLowerCase() : '';
+    return PCA_DEFAULT_TITLES[key] || 'Dimension Reduction Plot';
+  }
 
   function debugLog(){
     if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
@@ -591,7 +605,9 @@
       groups: ['Group 1', 'Group 2'],
       colors: [],
       shapes: []
-    }
+    },
+    labels: { title: getDefaultTitleForMethod('pca') },
+    lastMethod: 'pca'
   };
 
   function createDefaultAxisSettings(){
@@ -1309,6 +1325,15 @@
           scheduleDrawPca?.();
         });
       }
+
+      const makeEditableHelper = (node, onChange, options) => {
+        const fn = Shared.makeEditable || global.makeEditable;
+        if(typeof fn === 'function'){
+          return fn(node, onChange, options);
+        }
+        console.warn('pca makeEditable unavailable');
+        return undefined;
+      };
 
       const markFontEditable = (node, role, key) => {
         if (!node) { return; }
@@ -2036,6 +2061,40 @@
       console.log('drawPca called', {debugStamp}); // Debug: draw invocation marker
 
       const method = (pcaMethod.value || 'pca').toLowerCase();
+      const previousMethod = typeof pcaState.lastMethod === 'string' ? pcaState.lastMethod : 'pca';
+      if(!pcaState.labels || typeof pcaState.labels !== 'object'){
+        pcaState.labels = { title: getDefaultTitleForMethod(method) };
+      }
+      const methodChanged = previousMethod !== method;
+      if(methodChanged){
+        const previousDefaultTitle = getDefaultTitleForMethod(previousMethod);
+        const currentTitle = (pcaState.labels.title || '').trim();
+        if(!currentTitle || currentTitle === previousDefaultTitle){
+          pcaState.labels.title = getDefaultTitleForMethod(method);
+          debugLog('Debug: pca title default adjusted',{ previousMethod, method });
+        }
+      }
+      pcaState.lastMethod = method;
+      let pcaTitleText = (pcaState.labels.title || '').trim();
+      if(!pcaTitleText){
+        pcaTitleText = getDefaultTitleForMethod(method);
+      }
+      const commitTitleChange = (value, reason) => {
+        const trimmed = (value || '').trim();
+        const fallbackTitle = getDefaultTitleForMethod(method);
+        const nextTitle = trimmed || fallbackTitle;
+        if(!pcaState.labels || typeof pcaState.labels !== 'object'){
+          pcaState.labels = { title: nextTitle };
+        }
+        if(pcaState.labels.title !== nextTitle){
+          pcaState.labels.title = nextTitle;
+          debugLog('Debug: pca title updated',{ title: nextTitle, reason: reason || 'inline-edit' });
+          if(typeof scheduleDrawPca === 'function'){
+            scheduleDrawPca();
+          }
+        }
+        return nextTitle;
+      };
       const rawViewMode = (pcaViewMode?.value || DEFAULT_VIEW_MODE).toLowerCase();
       const requestedViewMode = (method === 'pca' || method === 'mds') ? rawViewMode : '2d';
       if(rawViewMode !== requestedViewMode){
@@ -2862,7 +2921,12 @@
         plot3d.attachRotationControls(svg3, {
           state: pcaState.rotation,
           onChange: () => scheduleRotationRedraw(),
-          shouldIgnorePointer: (event) => plot3d.isLegendPointerTarget(event?.target),
+          shouldIgnorePointer: (event) => {
+            if(typeof plot3d.isInteractivePointerTarget === 'function'){
+              return plot3d.isInteractivePointerTarget(event?.target);
+            }
+            return plot3d.isLegendPointerTarget(event?.target);
+          },
           debugLabel: 'pca-3d'
         });
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
@@ -3016,6 +3080,17 @@
           onAxisLabel: (el, axisKey, labelText) => { markFontEditable(el, 'axis3d', labelText); },
           createElement: (tag, attrs, text, target) => add3(tag, attrs, text, target)
         });
+        const titleY3 = Math.max(fs, margin3.top * 0.5);
+        const title3d = add3('text', {
+          x: margin3.left + plotW3 / 2,
+          y: titleY3,
+          'text-anchor': 'middle',
+          'font-size': fs,
+          fill: chartStyle.TEXT_COLOR,
+        }, pcaTitleText);
+        markFontEditable(title3d, 'graphTitle', 'graphTitle');
+        makeEditableHelper(title3d, text => commitTitleChange(text, '3d-title'));
+        debugLog('Debug: pca title rendered', { mode: '3d', text: pcaTitleText });
         debugLog('Debug: pca 3d axis ranges',{ axisRanges, ticks: axisTicks });
         const projectedPoints = rotatedPoints.map((rot, idx) => {
           const base = project3(rot);
@@ -3454,6 +3529,17 @@
       }, pcaYLabelText);
       markFontEditable(yAxisText,'yTitle','yTitle');
 
+      const titleText = add('text', {
+        x: margin.left + plotW / 2,
+        y: Math.max(fs, margin.top * 0.5),
+        'font-size': fs,
+        'text-anchor': 'middle',
+        fill: chartStyle.TEXT_COLOR,
+      }, pcaTitleText);
+      markFontEditable(titleText,'graphTitle','graphTitle');
+      makeEditableHelper(titleText, text => commitTitleChange(text, '2d-title'));
+      debugLog('Debug: pca title rendered', { mode: '2d', text: pcaTitleText });
+
       points.forEach((pt) => {
         const cx = x2px(pt.x);
         const cy = y2px(pt.y);
@@ -3555,6 +3641,11 @@
           axesVarianceScaled:pcaState.axesVarianceScaled,
           fontSize:pcaFontSize.value,
           fontStyles: (exportFontStyles('pca') || undefined),
+          labels: {
+            title: (pcaState.labels && typeof pcaState.labels.title === 'string')
+              ? pcaState.labels.title
+              : getDefaultTitleForMethod(pcaState.lastMethod || 'pca')
+          },
           viewMode:pcaViewMode?.value || DEFAULT_VIEW_MODE,
           axisSelection:{
             x:pcaState.axisSelection.x,
@@ -3667,6 +3758,18 @@
             pcaBorder.value=c.border||pcaBorder.value;
             pcaBorderWidth.value=c.borderWidth||pcaBorderWidth.value;
             pcaMethod.value=c.method||'pca';
+            if(!pcaState.labels || typeof pcaState.labels !== 'object'){
+              pcaState.labels = { title: getDefaultTitleForMethod(pcaMethod.value) };
+            }
+            if(c.labels && typeof c.labels === 'object'){
+              const restoredTitle = typeof c.labels.title === 'string' ? c.labels.title : '';
+              const fallbackTitle = getDefaultTitleForMethod(pcaMethod.value);
+              pcaState.labels.title = restoredTitle && restoredTitle.trim() ? restoredTitle : fallbackTitle;
+              debugLog('Debug: pca title restored',{ title: pcaState.labels.title });
+            } else if(!pcaState.labels.title || !pcaState.labels.title.trim()){
+              pcaState.labels.title = getDefaultTitleForMethod(pcaMethod.value);
+            }
+            pcaState.lastMethod = (pcaMethod.value || 'pca').toLowerCase();
             applyMethodUiState(pcaMethod.value);
             pcaAlpha.value=c.alpha||0;
             pcaAlphaVal.textContent=pcaAlpha.value;
