@@ -956,7 +956,8 @@
     function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
     function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(Math.max(maxTicks-1,1)),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
     const bins=Math.max(1,Math.floor(Number(histBins.value)||10));
-    const yMinManual=parseFloat(histYMin.value), yMaxManual=parseFloat(histYMax.value);
+    const manualYMin = parseFloat(histYMin.value);
+    const manualYMax = parseFloat(histYMax.value);
     const logY=histLogY.checked;
     const storedManualIntervalX = getAxisTickInterval('x');
     const storedManualIntervalY = getAxisTickInterval('y');
@@ -1042,11 +1043,11 @@
       values.forEach(v=>{let idx=Math.floor((v-xScale.min)/binWidth); if(idx<0)idx=0; if(idx>=bins)idx=bins-1; counts[idx]++;});
       yMin=0;
       yMax=Math.max(...counts);
-      if(isFinite(yMinManual)) yMin=yMinManual;
-      if(isFinite(yMaxManual)) yMax=yMaxManual;
+      if(isFinite(manualYMin)) yMin=manualYMin;
+      if(isFinite(manualYMax)) yMax=manualYMax;
       if(logY && yMin<=0) yMin=0.1;
       if(yMax===yMin) yMax=yMin+1;
-      if(distributionFits.length && !isFinite(yMaxManual) && (includePdf || includeCdf)){
+      if(distributionFits.length && !isFinite(manualYMax) && (includePdf || includeCdf)){
         const metrics = computeOverlayMetrics(distributionFits, {
           xMin: xScale.min,
           xMax: xScale.max,
@@ -1067,9 +1068,9 @@
       yMinT=logY?Math.log10(yMin):yMin;
       yMaxT=logY?Math.log10(yMax):yMax;
       yScale=niceScale(yMinT,yMaxT,yTickTarget);
-      if(isFinite(yMinManual)) yScale.min=yMinT;
-      if(isFinite(yMaxManual)) yScale.max=yMaxT;
-      if(isFinite(yMinManual)||isFinite(yMaxManual)){
+      if(isFinite(manualYMin)) yScale.min=yMinT;
+      if(isFinite(manualYMax)) yScale.max=yMaxT;
+      if(isFinite(manualYMin)||isFinite(manualYMax)){
         const manualTicks=[];
         for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step; v<=yScale.max+1e-9; v+=yScale.step) manualTicks.push(v);
         yScale.ticks=manualTicks;
@@ -1205,7 +1206,7 @@
       const sampleCount = values.length;
       const effectiveBinWidth = binWidth || ((xScale.max - xScale.min) || 1);
       const sampleSteps = Math.min(240, Math.max(32, Math.round(plotW)));
-      const yLowerBound = Number.isFinite(yMinManual) ? Math.max(0, yMinManual) : Math.max(0, yMin);
+      const yLowerBound = Number.isFinite(manualYMin) ? Math.max(0, manualYMin) : Math.max(0, yMin);
       const logLowerBound = logY ? Math.max(yLowerBound, 1e-6) : yLowerBound;
       const toDomainY = value => {
         if(logY){
