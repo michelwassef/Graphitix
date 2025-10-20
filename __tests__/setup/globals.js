@@ -197,21 +197,43 @@ class HandsontableInstance {
   }
   alter(action, index, amount = 1, source) {
     const size = Math.max(0, amount);
-    if (action === 'insert_row') {
-      for (let i = 0; i < size; i += 1) {
-        const cols = Math.max(this.countCols(), this._settings.minCols || 0);
-        this._data.splice(index, 0, Array.from({ length: cols }, () => ''));
-      }
-    } else if (action === 'remove_row') {
-      this._data.splice(index, size);
-    } else if (action === 'insert_col') {
+    const insertRowAt = (position) => {
+      const cols = Math.max(this.countCols(), this._settings.minCols || 0);
+      this._data.splice(position, 0, Array.from({ length: cols }, () => ''));
+    };
+    const insertColAt = (position) => {
       const rows = Math.max(this.countRows(), this._settings.minRows || 0);
       for (let r = 0; r < rows; r += 1) {
         if (!Array.isArray(this._data[r])) {
           this._data[r] = [];
         }
-        this._data[r].splice(index, 0, ...Array.from({ length: size }, () => ''));
+        this._data[r].splice(position, 0, ...Array.from({ length: size }, () => ''));
       }
+    };
+    if (action === 'insert_row') {
+      for (let i = 0; i < size; i += 1) {
+        insertRowAt(index);
+      }
+    } else if (action === 'insert_row_above') {
+      const position = Math.max(0, index);
+      for (let i = 0; i < size; i += 1) {
+        insertRowAt(position);
+      }
+    } else if (action === 'insert_row_below') {
+      const position = Math.min(Math.max(0, index) + 1, this._data.length);
+      for (let i = 0; i < size; i += 1) {
+        insertRowAt(position);
+      }
+    } else if (action === 'remove_row') {
+      this._data.splice(index, size);
+    } else if (action === 'insert_col') {
+      insertColAt(index);
+    } else if (action === 'insert_col_start') {
+      insertColAt(0);
+    } else if (action === 'insert_col_end') {
+      const baseCols = Math.max(this.countCols(), this._settings.minCols || 0);
+      const position = Math.max(0, Math.min(baseCols, Math.max(0, index) + 1));
+      insertColAt(position);
     } else if (action === 'remove_col') {
       for (let r = 0; r < this.countRows(); r += 1) {
         if (Array.isArray(this._data[r])) {

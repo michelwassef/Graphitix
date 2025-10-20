@@ -306,6 +306,58 @@
     return root?.id || debugLabel;
   }
 
+  function resolveRowAppendAction(currentRows){
+    if(!(currentRows > 0)){
+      return { action: 'insert_row_above', index: 0, removeIndex: 0 };
+    }
+    return { action: 'insert_row_below', index: currentRows - 1, removeIndex: currentRows };
+  }
+
+  function resolveColAppendAction(currentCols){
+    if(!(currentCols > 0)){
+      return { action: 'insert_col_start', index: 0, removeIndex: 0 };
+    }
+    return { action: 'insert_col_end', index: currentCols - 1, removeIndex: currentCols };
+  }
+
+  function resolveRowInsertFromMeta(meta){
+    if(!meta){
+      return null;
+    }
+    if(meta.action && typeof meta.index === 'number'){
+      return { action: meta.action, index: meta.index };
+    }
+    const removeIndex = typeof meta.removeIndex === 'number'
+      ? meta.removeIndex
+      : (typeof meta.index === 'number' ? meta.index : null);
+    if(removeIndex == null){
+      return null;
+    }
+    if(removeIndex <= 0){
+      return { action: 'insert_row_above', index: 0 };
+    }
+    return { action: 'insert_row_below', index: removeIndex - 1 };
+  }
+
+  function resolveColInsertFromMeta(meta){
+    if(!meta){
+      return null;
+    }
+    if(meta.action && typeof meta.index === 'number'){
+      return { action: meta.action, index: meta.index };
+    }
+    const removeIndex = typeof meta.removeIndex === 'number'
+      ? meta.removeIndex
+      : (typeof meta.index === 'number' ? meta.index : null);
+    if(removeIndex == null){
+      return null;
+    }
+    if(removeIndex <= 0){
+      return { action: 'insert_col_start', index: 0 };
+    }
+    return { action: 'insert_col_end', index: removeIndex - 1 };
+  }
+
   tableImport.processRows = function processRows(rows, hot, options = {}){
     const debugLabel = options.debugLabel || 'tableImport';
     if(!rows || !rows.length){
@@ -418,12 +470,26 @@
       const performUpdates = ()=>{
         if(hasAlter){
           if(extraRows > 0){
-            hot.alter('insert_row', currentRows, extraRows, 'tableImport.processRows');
-            resultMeta.insertedRows = { index: currentRows, amount: extraRows };
+            const rowAction = resolveRowAppendAction(currentRows);
+            debugLog('processRows.extendRows', { action: rowAction.action, index: rowAction.index, amount: extraRows }, debugLabel);
+            hot.alter(rowAction.action, rowAction.index, extraRows, 'tableImport.processRows');
+            resultMeta.insertedRows = {
+              action: rowAction.action,
+              index: rowAction.index,
+              amount: extraRows,
+              removeIndex: rowAction.removeIndex
+            };
           }
           if(extraCols > 0){
-            hot.alter('insert_col', currentCols, extraCols, 'tableImport.processRows');
-            resultMeta.insertedCols = { index: currentCols, amount: extraCols };
+            const colAction = resolveColAppendAction(currentCols);
+            debugLog('processRows.extendCols', { action: colAction.action, index: colAction.index, amount: extraCols }, debugLabel);
+            hot.alter(colAction.action, colAction.index, extraCols, 'tableImport.processRows');
+            resultMeta.insertedCols = {
+              action: colAction.action,
+              index: colAction.index,
+              amount: extraCols,
+              removeIndex: colAction.removeIndex
+            };
           }
         }
         const changeList = [];
@@ -696,10 +762,20 @@
                   hot.setDataAtCell(revertChanges, 'tableImport.handlePaste.undo');
                 }
                 if(rowsInserted?.amount && canAlter){
-                  hot.alter('remove_row', rowsInserted.index, rowsInserted.amount, 'tableImport.handlePaste.undo');
+                  const removeIndex = typeof rowsInserted.removeIndex === 'number'
+                    ? rowsInserted.removeIndex
+                    : rowsInserted.index;
+                  if(typeof removeIndex === 'number'){
+                    hot.alter('remove_row', removeIndex, rowsInserted.amount, 'tableImport.handlePaste.undo');
+                  }
                 }
                 if(colsInserted?.amount && canAlter){
-                  hot.alter('remove_col', colsInserted.index, colsInserted.amount, 'tableImport.handlePaste.undo');
+                  const removeIndex = typeof colsInserted.removeIndex === 'number'
+                    ? colsInserted.removeIndex
+                    : colsInserted.index;
+                  if(typeof removeIndex === 'number'){
+                    hot.alter('remove_col', removeIndex, colsInserted.amount, 'tableImport.handlePaste.undo');
+                  }
                 }
               });
             }else{
@@ -707,10 +783,20 @@
                 hot.setDataAtCell(revertChanges, 'tableImport.handlePaste.undo');
               }
               if(rowsInserted?.amount && canAlter){
-                hot.alter('remove_row', rowsInserted.index, rowsInserted.amount, 'tableImport.handlePaste.undo');
+                const removeIndex = typeof rowsInserted.removeIndex === 'number'
+                  ? rowsInserted.removeIndex
+                  : rowsInserted.index;
+                if(typeof removeIndex === 'number'){
+                  hot.alter('remove_row', removeIndex, rowsInserted.amount, 'tableImport.handlePaste.undo');
+                }
               }
               if(colsInserted?.amount && canAlter){
-                hot.alter('remove_col', colsInserted.index, colsInserted.amount, 'tableImport.handlePaste.undo');
+                const removeIndex = typeof colsInserted.removeIndex === 'number'
+                  ? colsInserted.removeIndex
+                  : colsInserted.index;
+                if(typeof removeIndex === 'number'){
+                  hot.alter('remove_col', removeIndex, colsInserted.amount, 'tableImport.handlePaste.undo');
+                }
               }
             }
             if((typeof previousMinRows === 'number' || typeof previousMinCols === 'number') && typeof hot.updateSettings === 'function'){
@@ -740,10 +826,16 @@
             if(typeof hot.batch === 'function'){
               hot.batch(()=>{
                 if(rowsInserted?.amount && canAlter){
-                  hot.alter('insert_row', rowsInserted.index, rowsInserted.amount, 'tableImport.handlePaste.redo');
+                  const action = resolveRowInsertFromMeta(rowsInserted);
+                  if(action){
+                    hot.alter(action.action, action.index, rowsInserted.amount, 'tableImport.handlePaste.redo');
+                  }
                 }
                 if(colsInserted?.amount && canAlter){
-                  hot.alter('insert_col', colsInserted.index, colsInserted.amount, 'tableImport.handlePaste.redo');
+                  const action = resolveColInsertFromMeta(colsInserted);
+                  if(action){
+                    hot.alter(action.action, action.index, colsInserted.amount, 'tableImport.handlePaste.redo');
+                  }
                 }
                 if(applyChanges.length && typeof hot.setDataAtCell === 'function'){
                   hot.setDataAtCell(applyChanges, 'tableImport.handlePaste.redo');
@@ -751,10 +843,16 @@
               });
             }else{
               if(rowsInserted?.amount && canAlter){
-                hot.alter('insert_row', rowsInserted.index, rowsInserted.amount, 'tableImport.handlePaste.redo');
+                const action = resolveRowInsertFromMeta(rowsInserted);
+                if(action){
+                  hot.alter(action.action, action.index, rowsInserted.amount, 'tableImport.handlePaste.redo');
+                }
               }
               if(colsInserted?.amount && canAlter){
-                hot.alter('insert_col', colsInserted.index, colsInserted.amount, 'tableImport.handlePaste.redo');
+                const action = resolveColInsertFromMeta(colsInserted);
+                if(action){
+                  hot.alter(action.action, action.index, colsInserted.amount, 'tableImport.handlePaste.redo');
+                }
               }
               if(applyChanges.length && typeof hot.setDataAtCell === 'function'){
                 hot.setDataAtCell(applyChanges, 'tableImport.handlePaste.redo');

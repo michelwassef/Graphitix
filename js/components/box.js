@@ -1782,7 +1782,11 @@
     const targetCols = Math.max(0, groupsCount * replicates);
     const currentCols = state.hot.countCols();
     if(targetCols > currentCols){
-      state.hot.alter('insert_col', currentCols, targetCols - currentCols);
+      const extra = targetCols - currentCols;
+      const action = currentCols > 0 ? 'insert_col_end' : 'insert_col_start';
+      const index = currentCols > 0 ? currentCols - 1 : 0;
+      console.debug('Debug: adjustColumnsForGrouped inserting cols', { extra, action, index, currentCols, targetCols });
+      state.hot.alter(action, index, extra);
     }else if(targetCols < currentCols){
       state.hot.alter('remove_col', targetCols, currentCols - targetCols);
     }

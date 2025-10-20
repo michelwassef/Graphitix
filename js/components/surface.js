@@ -314,7 +314,7 @@
     let headerRow = Array.isArray(data[0]) ? data[0] : [];
     if(!isHeaderTextual(headerRow)){
       if(typeof state.hot.alter === 'function'){
-        state.hot.alter('insert_row', 0, 1, 'surface-header-migrate');
+        state.hot.alter('insert_row_above', 0, 1, 'surface-header-migrate');
       }
       const refreshed = state.hot.getData();
       headerRow = Array.isArray(refreshed?.[0]) ? refreshed[0] : [];
