@@ -5452,8 +5452,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           const v = parseFloat(rawValue);
           if(!isNaN(v)) col.push(v);
-          if(r % 10000 === 0){
-            console.log('boxplot collect progress',{ col: i, row: r, token });
+          if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
+            console.debug('boxplot collect progress',{ component: 'box', col: i, row: r, token });
           }
         }
         console.timeEnd(`boxColCollect_${i}_${token}`);
@@ -5506,8 +5506,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
             const v = parseFloat(rawValue);
             if(!isNaN(v)) values.push(v);
-            if(r % 10000 === 0){
-              console.log('boxplot collect progress',{ col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
+            if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
+              console.debug('boxplot collect progress',{ component: 'box', col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
             }
           }
           console.timeEnd(`boxColCollect_${colIndex}_${token}`);
@@ -5672,8 +5672,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(v > ymax) ymax = v;
         sum += v;
         sumSq += v * v;
-        if(j % 10000 === 0){
-          console.log('boxplot range progress',{ trace: ti, row: j, token });
+        if(j % 10000 === 0 && Shared.isDebugEnabled?.()){
+          console.debug('boxplot range progress',{ component: 'box', trace: ti, row: j, token });
         }
       }
       let mean = 0;
@@ -6263,7 +6263,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               const moved = state.colOrder.splice(idx, 1)[0];
               state.colOrder.splice(targetIdx, 0, moved);
             }
-            console.log('boxplot label drag end',{ from: idx, to: targetIdx, orientation: 'horizontal-axis' });
+            if(Shared.isDebugEnabled?.()){
+              console.log('boxplot label drag end',{ component: 'box', from: idx, to: targetIdx, orientation: 'horizontal-axis' });
+            }
             state.scheduleDraw();
           };
           document.addEventListener('mousemove', onMove);
@@ -6308,7 +6310,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           valIdx++;
           if(valIdx % 10000 === 0){
-            console.log('boxplot fence progress',{ index: i, valIdx, token });
+            if(Shared.isDebugEnabled?.()){
+              console.debug('boxplot fence progress',{ component: 'box', index: i, valIdx, token });
+            }
           }
         }
         if(wMin === Infinity){
@@ -6543,8 +6547,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               c.setAttribute('stroke', borderColor);
               frag.appendChild(c);
               ptIdx++;
-              if(ptIdx % 10000 === 0){
-                console.log('boxplot outlier progress',{ index: i, ptIdx, token });
+              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token });
               }
             }
           }else{
@@ -6567,8 +6571,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               }
               frag.appendChild(c);
               ptIdx++;
-              if(ptIdx % 10000 === 0){
-                console.log('boxplot point progress',{ index: i, ptIdx, token });
+              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token });
               }
             }
           }
@@ -6756,7 +6760,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               const moved = state.colOrder.splice(idx, 1)[0];
               state.colOrder.splice(targetIdx, 0, moved);
             }
-            console.log('boxplot label drag end',{ from: idx, to: targetIdx, orientation: 'vertical-axis' });
+            if(Shared.isDebugEnabled?.()){
+              console.log('boxplot label drag end',{ component: 'box', from: idx, to: targetIdx, orientation: 'vertical-axis' });
+            }
             state.scheduleDraw();
           };
           document.addEventListener('mousemove', onMove);
@@ -6796,7 +6802,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           valIdx++;
           if(valIdx % 10000 === 0){
-            console.log('boxplot fence progress',{ index: i, valIdx, token, orientation: 'horizontal' });
+            if(Shared.isDebugEnabled?.()){
+              console.debug('boxplot fence progress',{ component: 'box', index: i, valIdx, token, orientation: 'horizontal' });
+            }
           }
         }
         if(wMin === Infinity){
@@ -7052,8 +7060,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               c.setAttribute('stroke', borderColor);
               frag.appendChild(c);
               ptIdx++;
-              if(ptIdx % 10000 === 0){
-                console.log('boxplot outlier progress',{ index: i, ptIdx, token, orientation: 'horizontal' });
+              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
               }
             }
           }else{
@@ -7076,8 +7084,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               }
               frag.appendChild(c);
               ptIdx++;
-              if(ptIdx % 10000 === 0){
-                console.log('boxplot point progress',{ index: i, ptIdx, token, orientation: 'horizontal' });
+              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
               }
             }
           }
