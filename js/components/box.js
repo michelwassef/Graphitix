@@ -2297,12 +2297,162 @@
   function p2stars(p){ return p<0.0001?'****':p<0.001?'***':p<0.01?'**':p<0.05?'*':'ns'; }
   function formatP(p){ return p.toLocaleString('en-US',{maximumSignificantDigits:6}); }
   const mean=arr=>arr.reduce((s,v)=>s+v,0)/arr.length;
-  function tTest(a,b){ const na=a.length, nb=b.length; const ma=mean(a), mb=mean(b); const va=a.reduce((s,v)=>s+Math.pow(v-ma,2),0)/(na-1||1); const vb=b.reduce((s,v)=>s+Math.pow(v-mb,2),0)/(nb-1||1); const se=Math.sqrt(va/na+vb/nb); const t=(ma-mb)/se; const df=Math.pow(va/na+vb/nb,2)/(Math.pow(va/na,2)/(na-1||1)+Math.pow(vb/nb,2)/(nb-1||1)); const p=2*(1-global.jStat.studentt.cdf(Math.abs(t),df)); return {t,df,p}; }
-  function tTestPaired(a,b){ const diffs=a.map((v,i)=>v-b[i]).filter(v=>!isNaN(v)); const n=diffs.length; const md=mean(diffs); const sd=Math.sqrt(diffs.reduce((s,v)=>s+Math.pow(v-md,2),0)/(n-1||1)); const t=md/(sd/Math.sqrt(n)); const p=2*(1-global.jStat.studentt.cdf(Math.abs(t),n-1)); return {t,df:n-1,p}; }
+  const missingDistributionWarnings=Object.create(null);
+  function warnDistributionUnavailable(distribution,context){
+    if(missingDistributionWarnings[distribution]){
+      return;
+    }
+    missingDistributionWarnings[distribution]=true;
+    const debugEnabled=typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled();
+    if(debugEnabled){
+      console.warn('Debug: box stats distribution unavailable',{ distribution, helper:context?.helper||null, hasJStat:!!global.jStat });
+    }else{
+      console.warn(`Box plot statistics unavailable: ${distribution} CDF missing.`);
+    }
+  }
+  function createUnavailableStatResult(base,message){
+    return { available:false, message, ...base };
+  }
+  function tTest(a,b){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
+      ? jStatLib.studentt.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('student-t',{ helper:'tTest' });
+      return createUnavailableStatResult({ t:NaN, df:NaN, p:NaN },'Student-t distribution unavailable.');
+    }
+    const na=a.length, nb=b.length;
+    const ma=mean(a), mb=mean(b);
+    const va=a.reduce((s,v)=>s+Math.pow(v-ma,2),0)/(na-1||1);
+    const vb=b.reduce((s,v)=>s+Math.pow(v-mb,2),0)/(nb-1||1);
+    const se=Math.sqrt(va/na+vb/nb);
+    const t=(ma-mb)/se;
+    const df=Math.pow(va/na+vb/nb,2)/(Math.pow(va/na,2)/(na-1||1)+Math.pow(vb/nb,2)/(nb-1||1));
+    const p=2*(1-cdf(Math.abs(t),df));
+    return {t,df,p};
+  }
+  function tTestPaired(a,b){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
+      ? jStatLib.studentt.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('student-t',{ helper:'tTestPaired' });
+      return createUnavailableStatResult({ t:NaN, df:NaN, p:NaN },'Student-t distribution unavailable.');
+    }
+    const diffs=a.map((v,i)=>v-b[i]).filter(v=>!isNaN(v));
+    const n=diffs.length;
+    const md=mean(diffs);
+    const sd=Math.sqrt(diffs.reduce((s,v)=>s+Math.pow(v-md,2),0)/(n-1||1));
+    const t=md/(sd/Math.sqrt(n));
+    const p=2*(1-cdf(Math.abs(t),n-1));
+    return {t,df:n-1,p};
+  }
   function rankArray(arr){ const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v); const ranks=new Array(arr.length); let i=0; while(i<sorted.length){ let j=i; while(j<sorted.length && sorted[j].v===sorted[i].v) j++; const avg=(i+j-1)/2+1; for(let k=i;k<j;k++) ranks[sorted[k].i]=avg; i=j; } return ranks; }
-  function mannWhitney(a,b){ const all=[...a.map(v=>({v,g:0})),...b.map(v=>({v,g:1}))]; all.sort((x,y)=>x.v-y.v); let rank=1; for(let i=0;i<all.length;i++){ let j=i; while(j<all.length && all[j].v===all[i].v) j++; const avg=(rank+(j-1))/2; for(let k=i;k<j;k++) all[k].rank=avg; rank=j+1; } const Ra=all.filter(o=>o.g===0).reduce((s,o)=>s+o.rank,0); const Rb=all.filter(o=>o.g===1).reduce((s,o)=>s+o.rank,0); const na=a.length, nb=b.length; const Ua=Ra-na*(na+1)/2; const Ub=Rb-nb*(nb+1)/2; const U=Math.min(Ua,Ub); const mu=na*nb/2; const sigma=Math.sqrt(na*nb*(na+nb+1)/12); const z=(U-mu)/sigma; const p=2*(1-global.jStat.normal.cdf(Math.abs(z),0,1)); return {U,z,p}; }
-  function wilcoxonSignedRank(a,b){ const diffs=a.map((v,i)=>v-b[i]).filter(v=>v!==0); const abs=diffs.map(Math.abs); const ranks=rankArray(abs); let Wpos=0,Wneg=0; ranks.forEach((rk,i)=>{ if(diffs[i]>0) Wpos+=rk; else Wneg+=rk; }); const W=Math.min(Wpos,Wneg); const nEff=ranks.length; const mu=nEff*(nEff+1)/4; const sigma=Math.sqrt(nEff*(nEff+1)*(2*nEff+1)/24); const z=(W-mu)/sigma; const p=2*(1-global.jStat.normal.cdf(Math.abs(z),0,1)); return {W,z,p}; }
-  function anova(groups){ const k=groups.length; const n=groups.reduce((s,g)=>s+g.length,0); const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n; let ssBetween=0, ssWithin=0; groups.forEach(g=>{ const m=mean(g); ssBetween+=g.length*Math.pow(m-grand,2); ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0); }); const dfBetween=k-1; const dfWithin=n-k; const msBetween=ssBetween/dfBetween; const msWithin=ssWithin/dfWithin; const F=msBetween/msWithin; const p=1-global.jStat.centralF.cdf(F,dfBetween,dfWithin); return {F,p,dfBetween,dfWithin}; }
+  function mannWhitney(a,b){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
+      ? jStatLib.normal.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('normal',{ helper:'mannWhitney' });
+      return createUnavailableStatResult({ U:NaN, z:NaN, p:NaN },'Normal distribution unavailable.');
+    }
+    const all=[...a.map(v=>({v,g:0})),...b.map(v=>({v,g:1}))];
+    all.sort((x,y)=>x.v-y.v);
+    let rank=1;
+    for(let idx=0;idx<all.length;idx++){
+      let j=idx;
+      while(j<all.length && all[j].v===all[idx].v){ j++; }
+      const avg=(rank+(j-1))/2;
+      for(let k=idx;k<j;k++){ all[k].rank=avg; }
+      rank=j+1;
+    }
+    const Ra=all.filter(o=>o.g===0).reduce((s,o)=>s+o.rank,0);
+    const Rb=all.filter(o=>o.g===1).reduce((s,o)=>s+o.rank,0);
+    const na=a.length, nb=b.length;
+    const Ua=Ra-na*(na+1)/2;
+    const Ub=Rb-nb*(nb+1)/2;
+    const U=Math.min(Ua,Ub);
+    const mu=na*nb/2;
+    const sigma=Math.sqrt(na*nb*(na+nb+1)/12);
+    const z=(U-mu)/sigma;
+    const p=2*(1-cdf(Math.abs(z),0,1));
+    return {U,z,p};
+  }
+  function wilcoxonSignedRank(a,b){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
+      ? jStatLib.normal.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('normal',{ helper:'wilcoxonSignedRank' });
+      return createUnavailableStatResult({ W:NaN, z:NaN, p:NaN },'Normal distribution unavailable.');
+    }
+    const diffs=a.map((v,i)=>v-b[i]).filter(v=>v!==0);
+    const abs=diffs.map(Math.abs);
+    const ranks=rankArray(abs);
+    let Wpos=0,Wneg=0;
+    ranks.forEach((rk,i)=>{ if(diffs[i]>0) Wpos+=rk; else Wneg+=rk; });
+    const W=Math.min(Wpos,Wneg);
+    const nEff=ranks.length;
+    const mu=nEff*(nEff+1)/4;
+    const sigma=Math.sqrt(nEff*(nEff+1)*(2*nEff+1)/24);
+    const z=(W-mu)/sigma;
+    const p=2*(1-cdf(Math.abs(z),0,1));
+    return {W,z,p};
+  }
+  function anova(groups){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.centralF && typeof jStatLib.centralF.cdf==='function'
+      ? jStatLib.centralF.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('central-F',{ helper:'anova' });
+      return createUnavailableStatResult({ F:NaN, p:NaN, dfBetween:NaN, dfWithin:NaN },'F distribution unavailable.');
+    }
+    const k=groups.length;
+    const n=groups.reduce((s,g)=>s+g.length,0);
+    const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n;
+    let ssBetween=0;
+    let ssWithin=0;
+    groups.forEach(g=>{
+      const m=mean(g);
+      ssBetween+=g.length*Math.pow(m-grand,2);
+      ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0);
+    });
+    const dfBetween=k-1;
+    const dfWithin=n-k;
+    const msBetween=ssBetween/dfBetween;
+    const msWithin=ssWithin/dfWithin;
+    const F=msBetween/msWithin;
+    const p=1-cdf(F,dfBetween,dfWithin);
+    return {F,p,dfBetween,dfWithin};
+  }
+  function kruskalWallis(groups){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.chisquare && typeof jStatLib.chisquare.cdf==='function'
+      ? jStatLib.chisquare.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('chi-square',{ helper:'kruskalWallis' });
+      return createUnavailableStatResult({ H:NaN, p:NaN },'Chi-square distribution unavailable.');
+    }
+    const n=groups.reduce((s,g)=>s+g.length,0);
+    const all=groups.flat();
+    const ranks=rankArray(all);
+    let idx=0;
+    const R=groups.map(g=>{
+      const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0);
+      idx+=g.length;
+      return r;
+    });
+    const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1);
+    const df=groups.length-1;
+    const p=1-cdf(H,df);
+    return {H,p};
+  }
   function computeWelchAnova(groups){
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
     const counts=cleaned.map(group=>group.length);
@@ -2356,7 +2506,6 @@
       footnote:`Welch ANOVA (df₁ = ${df1}, df₂ ≈ ${Number.isFinite(df2)?df2.toFixed(2):'∞'})`
     };
   }
-  function kruskalWallis(groups){ const n=groups.reduce((s,g)=>s+g.length,0); const all=groups.flat(); const ranks=rankArray(all); let idx=0; const R=groups.map(g=>{ const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0); idx+=g.length; return r; }); const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1); const df=groups.length-1; const p=1-global.jStat.chisquare.cdf(H,df); return {H,p}; }
 
   function normalQuantile(p){
     const clipped=Math.min(Math.max(p,Number.EPSILON),1-Number.EPSILON);
@@ -7464,5 +7613,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     console.debug('Debug: box.__getState invoked');
     return state;
   };
+  box.__testHooks = Object.assign({}, box.__testHooks, {
+    tTest:(a,b)=>tTest(a,b),
+    tTestPaired:(a,b)=>tTestPaired(a,b),
+    mannWhitney:(a,b)=>mannWhitney(a,b),
+    wilcoxonSignedRank:(a,b)=>wilcoxonSignedRank(a,b),
+    anova:groups=>anova(groups),
+    kruskalWallis:groups=>kruskalWallis(groups)
+  });
 })(window);
 
