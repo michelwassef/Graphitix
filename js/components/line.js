@@ -244,6 +244,217 @@
   }); // Debug: group label state bootstrap
 
   const refs = {};
+  let lineTooltipEl = null;
+
+  function lineDebug(label, payload){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(err){
+      // ignore toggle errors and log by default
+    }
+    console.debug(label, payload);
+  }
+
+  function ensureLineTooltipHost(tooltip, doc){
+    if(!tooltip){ return null; }
+    const documentRef = doc || tooltip.ownerDocument || global.document;
+    if(!documentRef){ return tooltip; }
+    const parent = tooltip.parentElement;
+    if(!parent){ return tooltip; }
+    let needsDetach = false;
+    if(typeof tooltip.closest === 'function'){
+      const hiddenAncestor = tooltip.closest('[hidden]');
+      if(hiddenAncestor && hiddenAncestor !== tooltip){
+        needsDetach = true;
+      }
+    }
+    if(!needsDetach){
+      try{
+        const view = documentRef.defaultView;
+        if(view && typeof view.getComputedStyle === 'function'){
+          const parentDisplay = view.getComputedStyle(parent).display;
+          if(parentDisplay === 'none'){
+            needsDetach = true;
+          }
+        }else if(typeof parent.style?.display === 'string' && parent.style.display === 'none'){
+          needsDetach = true;
+        }
+      }catch(err){
+        lineDebug('Debug: line tooltip host inspection error',{ error: err?.message || String(err) });
+      }
+    }
+    const host = documentRef.body || documentRef.documentElement;
+    if(needsDetach && host && parent !== host){
+      host.appendChild(tooltip);
+      lineDebug('Debug: line tooltip host realigned',{ previousParent: parent.id || parent.className || parent.tagName || null });
+    }
+    return tooltip;
+  }
+
+  function getLineTooltipElement(){
+    if(lineTooltipEl && lineTooltipEl.isConnected){
+      return lineTooltipEl;
+    }
+    const doc = global.document;
+    const tooltip = refs.tooltip || doc?.getElementById?.('tooltip') || null;
+    if(tooltip){
+      ensureLineTooltipHost(tooltip, doc);
+      lineTooltipEl = tooltip;
+      refs.tooltip = tooltip;
+    }
+    return lineTooltipEl;
+  }
+
+  function formatLineTooltipNumber(value){
+    if(value === null || value === undefined){ return 'n/a'; }
+    if(typeof value === 'number'){
+      if(!Number.isFinite(value)){ return String(value); }
+      return value.toLocaleString('en-US',{ maximumSignificantDigits: 6 });
+    }
+    const numeric = Number(value);
+    if(Number.isFinite(numeric)){
+      return numeric.toLocaleString('en-US',{ maximumSignificantDigits: 6 });
+    }
+    return String(value);
+  }
+
+  function updateLineTooltipContent(tooltip, seriesName, pt){
+    if(!tooltip || !pt){ return false; }
+    const doc = tooltip.ownerDocument || global.document;
+    tooltip.textContent = '';
+    tooltip.style.fontSize = '12px';
+    tooltip.style.columnCount = 1;
+    tooltip.style.columnWidth = 'auto';
+    tooltip.style.columnGap = '0';
+    tooltip.style.maxWidth = '320px';
+    tooltip.style.maxHeight = 'none';
+    tooltip.style.width = 'auto';
+    tooltip.style.height = 'auto';
+    tooltip.style.whiteSpace = 'normal';
+    tooltip.style.overflow = 'visible';
+    const fragment = doc.createDocumentFragment();
+    const appendRow = (text, bold) => {
+      if(!text){ return; }
+      const row = doc.createElement('div');
+      if(bold){ row.style.fontWeight = '600'; }
+      row.textContent = text;
+      fragment.appendChild(row);
+    };
+    if(seriesName){
+      appendRow(seriesName, true);
+    }
+    appendRow(`X: ${formatLineTooltipNumber(pt.x)}`);
+    appendRow(`Y: ${formatLineTooltipNumber(pt.y)}`);
+    if(Array.isArray(pt.replicates) && pt.replicates.length){
+      const values = pt.replicates.map(formatLineTooltipNumber).join(', ');
+      appendRow(`Replicates (${pt.replicates.length}): ${values}`);
+    }
+    if(Number.isFinite(pt.lower)){
+      appendRow(`Lower: ${formatLineTooltipNumber(pt.lower)}`);
+    }
+    if(Number.isFinite(pt.upper)){
+      appendRow(`Upper: ${formatLineTooltipNumber(pt.upper)}`);
+    }
+    if(Array.isArray(pt.replicates) && pt.replicates.length > 1 && Number.isFinite(pt.stdev)){
+      appendRow(`Std Dev: ${formatLineTooltipNumber(pt.stdev)}`);
+    }
+    if(!fragment.childNodes.length){
+      return false;
+    }
+    tooltip.appendChild(fragment);
+    return true;
+  }
+
+  function getEventPagePosition(evt){
+    const win = global.window;
+    const scrollX = win?.scrollX ?? win?.pageXOffset ?? global.document?.documentElement?.scrollLeft ?? 0;
+    const scrollY = win?.scrollY ?? win?.pageYOffset ?? global.document?.documentElement?.scrollTop ?? 0;
+    const pageX = typeof evt?.pageX === 'number' ? evt.pageX : ((evt?.clientX || 0) + scrollX);
+    const pageY = typeof evt?.pageY === 'number' ? evt.pageY : ((evt?.clientY || 0) + scrollY);
+    return { x: pageX, y: pageY };
+  }
+
+  function positionLineTooltipAt(tooltip, pageX, pageY){
+    if(!tooltip){ return; }
+    const win = global.window;
+    const offset = 12;
+    let left = pageX + offset;
+    let top = pageY + offset;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    const rect = tooltip.getBoundingClientRect();
+    const scrollX = win?.scrollX ?? win?.pageXOffset ?? global.document?.documentElement?.scrollLeft ?? 0;
+    const scrollY = win?.scrollY ?? win?.pageYOffset ?? global.document?.documentElement?.scrollTop ?? 0;
+    const maxX = scrollX + (win?.innerWidth ?? rect.width) - 8;
+    const maxY = scrollY + (win?.innerHeight ?? rect.height) - 8;
+    if(rect.right > maxX){
+      left = Math.max(scrollX + 8, maxX - rect.width);
+    }
+    if(rect.bottom > maxY){
+      top = Math.max(scrollY + 8, maxY - rect.height);
+    }
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function hideLineTooltip(reason){
+    const tooltip = getLineTooltipElement();
+    if(!tooltip){ return; }
+    const wasVisible = tooltip.style.display !== 'none';
+    tooltip.style.display = 'none';
+    tooltip.textContent = '';
+    tooltip.style.width = 'auto';
+    tooltip.style.height = 'auto';
+    if(wasVisible){
+      lineDebug('Debug: line tooltip hide',{ reason });
+    }
+  }
+
+  function showLineTooltip(seriesName, pt, evt){
+    const tooltip = getLineTooltipElement();
+    if(!tooltip){ return; }
+    if(!updateLineTooltipContent(tooltip, seriesName, pt)){ return; }
+    tooltip.style.display = 'block';
+    const pos = getEventPagePosition(evt);
+    positionLineTooltipAt(tooltip, pos.x, pos.y);
+    lineDebug('Debug: line tooltip show',{
+      series: seriesName || null,
+      x: pt?.x ?? null,
+      y: pt?.y ?? null,
+      replicates: Array.isArray(pt?.replicates) ? pt.replicates.length : 0
+    });
+  }
+
+  function handleLineMarkerEnter(evt){
+    const data = evt?.currentTarget?.__linePointData;
+    if(!data || !data.point){ return; }
+    showLineTooltip(data.seriesName, data.point, evt);
+  }
+
+  function handleLineMarkerMove(evt){
+    const tooltip = getLineTooltipElement();
+    if(!tooltip || tooltip.style.display === 'none'){ return; }
+    const pos = getEventPagePosition(evt);
+    positionLineTooltipAt(tooltip, pos.x, pos.y);
+  }
+
+  function handleLineMarkerLeave(){
+    hideLineTooltip('marker-leave');
+  }
+
+  function handleLinePlotMouseLeave(){
+    hideLineTooltip('plot-leave');
+  }
+
+  function attachLineMarkerTooltip(el, seriesEntry, pt){
+    if(!el || !pt){ return; }
+    el.__linePointData = { seriesName: seriesEntry?.name || '', point: pt };
+    el.addEventListener('mouseenter', handleLineMarkerEnter);
+    el.addEventListener('mousemove', handleLineMarkerMove);
+    el.addEventListener('mouseleave', handleLineMarkerLeave);
+  }
   console.debug('Debug: line replicates initialized', {
     lineReplicates,
     min: LINE_MIN_REPLICATES,
@@ -1792,6 +2003,7 @@
     try{
       const debugStamp=Date.now();
       console.debug('Debug: drawLine start',{debugStamp}); // Debug: draw entry
+      hideLineTooltip('redraw-start');
       if(!lineHot || !refs.plot) return;
       lineLastRegressionSummaries = [];
       const fill=refs.fill?.value;
@@ -2012,6 +2224,7 @@
       svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
       chartStyle.applySvgDefaults(svg);
       plotEl.appendChild(svg);
+      svg.addEventListener('mouseleave', handleLinePlotMouseLeave);
       if(fontControls && typeof fontControls.enableForSvg === 'function'){
         fontControls.enableForSvg(svg,{ scopeId: 'line' });
         console.debug('Debug: line fontControls enableForSvg invoked',{ width: W, height: H }); // Debug: font panel binding
@@ -2300,6 +2513,7 @@
               c.setAttribute('r',dotSizePx);
               c.setAttribute('fill',lineLabelColors[s.name]||fill);
               c.setAttribute('fill-opacity',1-alpha);
+              attachLineMarkerTooltip(c, s, pt);
               markerFrag.appendChild(c);
             }
           } else {
@@ -2467,6 +2681,7 @@
     refs.hotContainer=document.getElementById('lineHot');
     refs.hotWrapper=document.getElementById('lineHotWrapper');
     refs.plot=document.getElementById('linePlot');
+    refs.tooltip=document.getElementById('tooltip');
     refs.statType=document.getElementById('lineStatType');
     refs.statsResults=document.getElementById('lineStatsResults');
     refs.regressionMode=document.getElementById('lineRegressionMode');
@@ -2784,6 +2999,7 @@
       if(!container){
         console.debug('Debug: line resizer container missing', { hasContainer: !!container });
       }
+      refs.plot.addEventListener('mouseleave', handleLinePlotMouseLeave);
     }
 
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
