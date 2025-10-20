@@ -476,8 +476,16 @@
       label:'Tukey HSD',
       shortLabel:'Tukey',
       tooltip:'Parametric Tukey Honestly Significant Difference using the studentized range distribution (unpaired, ≥3 groups).',
-      applies:context=>context && context.mode!=='custom' && context.test==='parametric' && !context.paired && context.groupCount>=3,
+      applies:context=>context && context.mode!=='custom' && context.test==='parametric' && context.variant!=='welch' && !context.paired && context.groupCount>=3,
       summary:context=>`Tukey HSD on ${context?.groupCount || 0} groups (family-wise adjusted).`
+    },
+    gamesHowell:{
+      value:'gamesHowell',
+      label:'Games–Howell',
+      shortLabel:'Games–Howell',
+      tooltip:'Games–Howell post-hoc test using Welch-standardized differences (unpaired, ≥3 groups, unequal variances).',
+      applies:context=>context && context.mode!=='custom' && context.test==='parametric' && !context.paired && context.groupCount>=3 && (context.variant==='welch' || context.varianceConcern===true),
+      summary:context=>`Games–Howell comparisons across ${context?.groupCount || 0} groups with Welch-standardized SE.`
     },
     dunn:{
       value:'dunn',
@@ -488,7 +496,7 @@
       summary:context=>`Dunn's rank-based post-hoc across ${context?.groupCount || 0} groups.`
     }
   };
-  const POST_HOC_ORDER=['standard','tukey','dunn'];
+  const POST_HOC_ORDER=['standard','tukey','gamesHowell','dunn'];
   function listPostHocOptions(){
     return POST_HOC_ORDER.map(key=>({
       value:key,
@@ -507,19 +515,26 @@
     }
   }
   function ensureValidPostHoc(method,context){
+    const ctx=context||{};
     const requested=(typeof method==='string'?method:'').toLowerCase();
-    if(requested && isPostHocSupported(requested,context)){
+    if(requested && isPostHocSupported(requested,ctx)){
       return requested;
     }
+    if(ctx.variant==='welch' && isPostHocSupported('gamesHowell',ctx)){
+      if(requested && requested!=='gamesHowell'){
+        console.debug('Debug: box postHoc welch fallback',{ requested, fallback:'gamesHowell', context:ctx });
+      }
+      return 'gamesHowell';
+    }
     for(const key of POST_HOC_ORDER){
-      if(isPostHocSupported(key,context)){
+      if(isPostHocSupported(key,ctx)){
         if(requested && requested!==key){
-          console.debug('Debug: box postHoc fallback',{ requested, fallback:key, context });
+          console.debug('Debug: box postHoc fallback',{ requested, fallback:key, context:ctx });
         }
         return key;
       }
     }
-    console.debug('Debug: box postHoc default to standard',{ requested, context });
+    console.debug('Debug: box postHoc default to standard',{ requested, context:ctx });
     return 'standard';
   }
   function getPostHocSummary(method,context){
@@ -740,6 +755,7 @@
     let postHocLabel='';
     const rationale=[];
     const warnings=[];
+    let recommendationVariant='classic';
 
     if(groupsAnswer==='two'){
       if(paired){
@@ -791,12 +807,13 @@
       }else{
         if(distributionAnswer==='normal'){
           if(equalVarianceAnswer==='no'){
-            statsTest='nonparametric';
-            primaryLabel='Kruskal–Wallis test';
-            postHoc='dunn';
-            postHocLabel='Follow up with Dunn post-hoc comparisons (rank-based).';
-            rationale.push('Substantial variance differences undermine ANOVA; Kruskal–Wallis is variance-robust.');
-            warnings.push('Welch ANOVA handles unequal variances but is not available here; consider transformations or heteroscedastic methods.');
+            statsTest='parametric';
+            primaryLabel='Welch ANOVA';
+            postHoc='gamesHowell';
+            postHocLabel='Use Games–Howell for unequal-variance pairwise comparisons.';
+            recommendationVariant='welch';
+            rationale.push('Welch ANOVA tolerates unequal variances while retaining parametric power.');
+            rationale.push('Games–Howell post-hoc controls family-wise error without assuming equal variances.');
           }else{
             statsTest='parametric';
             primaryLabel='ANOVA';
@@ -826,7 +843,7 @@
     if(Array.isArray(sampleSizes) && sampleSizes.some(n=>n>0 && n<3) && groupsAnswer!=='two'){
       warnings.push('Some groups have fewer than 3 observations; post-hoc comparisons may have limited power.');
     }
-    if(assumptionDiagnostics?.recommendNonParametric && statsTest==='parametric'){
+    if(assumptionDiagnostics?.recommendNonParametric && statsTest==='parametric' && recommendationVariant!=='welch'){
       warnings.push('Recent assumption diagnostics flagged issues with parametric assumptions.');
     }
 
@@ -854,7 +871,8 @@
       detail:{
         primaryLabel,
         postHocLabel
-      }
+      },
+      parametricVariant:recommendationVariant
     };
   }
 
@@ -1009,6 +1027,67 @@
       footnote:`Tukey HSD adjusted via studentized range (df = ${base.dfWithin})`,
       counts:base.counts,
       means:base.means
+    };
+  }
+  function computeGamesHowellComparisons(groups,labels){
+    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
+    const counts=cleaned.map(group=>group.length);
+    const k=cleaned.length;
+    if(k<2){
+      return { ok:false, message:'Games–Howell requires at least two groups.' };
+    }
+    if(counts.some(n=>n<2)){
+      return { ok:false, message:'Games–Howell needs ≥2 observations per group.' };
+    }
+    const means=cleaned.map(group=>group.reduce((sum,val)=>sum+val,0)/group.length);
+    const variances=cleaned.map((group,idx)=>{
+      const m=means[idx];
+      const sumSq=group.reduce((sum,val)=>sum+Math.pow(val-m,2),0);
+      const denom=Math.max(group.length-1,1);
+      const variance=sumSq/denom;
+      return variance>0?variance:Number.EPSILON;
+    });
+    const pairs=[];
+    for(let i=0;i<k;i++){
+      for(let j=i+1;j<k;j++){
+        const ni=counts[i];
+        const nj=counts[j];
+        const varI=variances[i];
+        const varJ=variances[j];
+        const se2=varI/ni+varJ/nj;
+        const se=Math.sqrt(se2>0?se2:Number.EPSILON);
+        const diff=means[i]-means[j];
+        const q=Math.abs(diff)/se;
+        const denom=(Math.pow(varI/ni,2)/(ni-1))+(Math.pow(varJ/nj,2)/(nj-1));
+        const df=denom>0?Math.pow(se2,2)/denom:Number.POSITIVE_INFINITY;
+        const cdf=studentizedRangeCDF(q,k,df);
+        const p=Math.max(0,Math.min(1,1-cdf));
+        pairs.push({
+          i,
+          j,
+          diff,
+          se,
+          q,
+          p,
+          pAdj:p,
+          df,
+          ni,
+          nj,
+          varI,
+          varJ,
+          labelA:labels?.[i],
+          labelB:labels?.[j]
+        });
+      }
+    }
+    console.debug('Debug: box computeGamesHowell summary',{ pairCount:pairs.length, k, variances:variances.map(v=>Number.isFinite(v)?Number(v.toFixed(4)):v) });
+    return {
+      ok:pairs.length>0,
+      pairs,
+      means,
+      counts,
+      variances,
+      footnote:'Games–Howell adjusted via studentized range (Welch df per pair)'
     };
   }
   function computeDunnComparisons(groups,labels){
@@ -1255,7 +1334,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved' };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved' };
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
@@ -1379,6 +1458,14 @@
       noteEl.dataset.method='tukey';
       noteEl.dataset.correctionLabel='Tukey HSD';
       console.debug('Debug: box updateStatsCorrectionSummary tukey',{ count:safeCount });
+      return;
+    }
+    if(state.statsPostHoc==='gamesHowell'){
+      const detail=safeCount>0?`${safeCount} comparison${safeCount===1?'':'s'}`:'awaiting data';
+      noteEl.textContent=`Post-hoc: Games–Howell (${detail}, Welch-adjusted).`;
+      noteEl.dataset.method='gamesHowell';
+      noteEl.dataset.correctionLabel='Games–Howell';
+      console.debug('Debug: box updateStatsCorrectionSummary gamesHowell',{ count:safeCount });
       return;
     }
     const meta=resolveCorrectionMeta(state.statsCorrection,safeCount);
@@ -1988,7 +2075,60 @@
   function rankArray(arr){ const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v); const ranks=new Array(arr.length); let i=0; while(i<sorted.length){ let j=i; while(j<sorted.length && sorted[j].v===sorted[i].v) j++; const avg=(i+j-1)/2+1; for(let k=i;k<j;k++) ranks[sorted[k].i]=avg; i=j; } return ranks; }
   function mannWhitney(a,b){ const all=[...a.map(v=>({v,g:0})),...b.map(v=>({v,g:1}))]; all.sort((x,y)=>x.v-y.v); let rank=1; for(let i=0;i<all.length;i++){ let j=i; while(j<all.length && all[j].v===all[i].v) j++; const avg=(rank+(j-1))/2; for(let k=i;k<j;k++) all[k].rank=avg; rank=j+1; } const Ra=all.filter(o=>o.g===0).reduce((s,o)=>s+o.rank,0); const Rb=all.filter(o=>o.g===1).reduce((s,o)=>s+o.rank,0); const na=a.length, nb=b.length; const Ua=Ra-na*(na+1)/2; const Ub=Rb-nb*(nb+1)/2; const U=Math.min(Ua,Ub); const mu=na*nb/2; const sigma=Math.sqrt(na*nb*(na+nb+1)/12); const z=(U-mu)/sigma; const p=2*(1-global.jStat.normal.cdf(Math.abs(z),0,1)); return {U,z,p}; }
   function wilcoxonSignedRank(a,b){ const diffs=a.map((v,i)=>v-b[i]).filter(v=>v!==0); const abs=diffs.map(Math.abs); const ranks=rankArray(abs); let Wpos=0,Wneg=0; ranks.forEach((rk,i)=>{ if(diffs[i]>0) Wpos+=rk; else Wneg+=rk; }); const W=Math.min(Wpos,Wneg); const nEff=ranks.length; const mu=nEff*(nEff+1)/4; const sigma=Math.sqrt(nEff*(nEff+1)*(2*nEff+1)/24); const z=(W-mu)/sigma; const p=2*(1-global.jStat.normal.cdf(Math.abs(z),0,1)); return {W,z,p}; }
-  function anova(groups){ const k=groups.length; const n=groups.reduce((s,g)=>s+g.length,0); const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n; let ssBetween=0, ssWithin=0; groups.forEach(g=>{ const m=mean(g); ssBetween+=g.length*Math.pow(m-grand,2); ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0); }); const dfBetween=k-1; const dfWithin=n-k; const msBetween=ssBetween/dfBetween; const msWithin=ssWithin/dfWithin; const F=msBetween/msWithin; const p=1-global.jStat.centralF.cdf(F,dfBetween,dfWithin); return {F,p}; }
+  function anova(groups){ const k=groups.length; const n=groups.reduce((s,g)=>s+g.length,0); const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n; let ssBetween=0, ssWithin=0; groups.forEach(g=>{ const m=mean(g); ssBetween+=g.length*Math.pow(m-grand,2); ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0); }); const dfBetween=k-1; const dfWithin=n-k; const msBetween=ssBetween/dfBetween; const msWithin=ssWithin/dfWithin; const F=msBetween/msWithin; const p=1-global.jStat.centralF.cdf(F,dfBetween,dfWithin); return {F,p,dfBetween,dfWithin}; }
+  function computeWelchAnova(groups){
+    const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
+    const counts=cleaned.map(group=>group.length);
+    const k=cleaned.length;
+    if(k<2){
+      return { ok:false, message:'Welch ANOVA requires at least two groups.' };
+    }
+    if(counts.some(n=>n<2)){
+      return { ok:false, message:'Welch ANOVA needs at least two observations per group.' };
+    }
+    const means=cleaned.map(group=>group.reduce((sum,val)=>sum+val,0)/group.length);
+    const variances=cleaned.map((group,idx)=>{
+      const m=means[idx];
+      const sumSq=group.reduce((sum,val)=>sum+Math.pow(val-m,2),0);
+      const denom=Math.max(group.length-1,1);
+      const variance=sumSq/denom;
+      return variance>0?variance:Number.EPSILON;
+    });
+    const weights=variances.map((variance,idx)=>counts[idx]/variance);
+    const weightSum=weights.reduce((sum,val)=>sum+val,0);
+    if(!Number.isFinite(weightSum) || weightSum<=0){
+      return { ok:false, message:'Unable to normalize Welch weights (degenerate variances).' };
+    }
+    const meanWeighted=weights.reduce((sum,val,idx)=>sum+val*means[idx],0)/weightSum;
+    let between=0;
+    let sumTerm=0;
+    for(let idx=0;idx<k;idx++){
+      const meanDiff=means[idx]-meanWeighted;
+      between+=weights[idx]*meanDiff*meanDiff;
+      const weightFrac=weights[idx]/weightSum;
+      sumTerm+=Math.pow(1-weightFrac,2)/Math.max(counts[idx]-1,1);
+    }
+    const df1=k-1;
+    const numerator=between/Math.max(df1,1);
+    const correctionDenom=Math.pow(k,2)-1;
+    const correction=correctionDenom!==0?1+(2*(k-2)/correctionDenom)*sumTerm:1;
+    const F=correction>0?numerator/correction:NaN;
+    const df2Den=3*sumTerm;
+    const df2=df2Den>0?(Math.pow(k,2)-1)/df2Den:Number.POSITIVE_INFINITY;
+    const p=Number.isFinite(F)?1-fcdf(F,df1,df2):1;
+    console.debug('Debug: box welchAnova',{ k, df1, df2, F, p, weightSum, sumTerm });
+    return {
+      ok:Number.isFinite(F) && Number.isFinite(df2) && df2>0,
+      F,
+      p,
+      df1,
+      df2,
+      means,
+      counts,
+      variances,
+      footnote:`Welch ANOVA (df₁ = ${df1}, df₂ ≈ ${Number.isFinite(df2)?df2.toFixed(2):'∞'})`
+    };
+  }
   function kruskalWallis(groups){ const n=groups.reduce((s,g)=>s+g.length,0); const all=groups.flat(); const ranks=rankArray(all); let idx=0; const R=groups.map(g=>{ const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0); idx+=g.length; return r; }); const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1); const df=groups.length-1; const p=1-global.jStat.chisquare.cdf(H,df); return {H,p}; }
 
   function normalQuantile(p){
@@ -2198,6 +2338,7 @@
       warnings:[]
     };
     const failReasons=[];
+    let normalityFailures=0;
     groups.forEach((group,idx)=>{
       const label=labels[idx] || `Group ${idx + 1}`;
       const dagostino=computeDagostino(group);
@@ -2211,17 +2352,22 @@
       if(dagostino && dagostino.passed===false){
         const formatted=Number.isFinite(dagostino.pValue)?formatP(dagostino.pValue):'—';
         failReasons.push(`${label} failed normality (p = ${formatted})`);
+        normalityFailures++;
       }
     });
     const variance=computeVarianceDiagnostics(groups,labels);
     diagnostics.variance=variance;
+    const varianceConcern=variance && variance.passed===false;
     if(variance && variance.passed===false){
       const formatted=Number.isFinite(variance.pValue)?formatP(variance.pValue):'—';
       failReasons.push(`Variance equality violated (p = ${formatted})`);
     }
     diagnostics.warnings=failReasons;
-    diagnostics.recommendNonParametric=failReasons.length>0;
-    console.debug('Debug: box assumption diagnostics',{ failCount: failReasons.length, variancePassed: variance?.passed });
+    diagnostics.normalityFailures=normalityFailures;
+    diagnostics.varianceConcern=!!varianceConcern;
+    diagnostics.recommendWelch=!!varianceConcern && normalityFailures===0;
+    diagnostics.recommendNonParametric=normalityFailures>0;
+    console.debug('Debug: box assumption diagnostics',{ failCount: failReasons.length, variancePassed: variance?.passed, normalityFailures, recommendWelch: diagnostics.recommendWelch });
     return diagnostics;
   }
 
@@ -2403,6 +2549,17 @@
       });
       section.appendChild(warningList);
     }
+    if(diagnostics.appliedVariant==='welch'){
+      const info=document.createElement('div');
+      info.className='assumption-info';
+      info.textContent='Welch ANOVA with Games–Howell post-hoc applied to address unequal variances.';
+      section.appendChild(info);
+    } else if(diagnostics.recommendWelch){
+      const info=document.createElement('div');
+      info.className='assumption-info';
+      info.textContent='Welch ANOVA is available to handle unequal variances without switching to non-parametric tests.';
+      section.appendChild(info);
+    }
     container.appendChild(section);
   }
 
@@ -2414,6 +2571,11 @@
       normalityMethod:diag.normalityMethod,
       varianceMethod:diag.variance?.method || null,
       alpha:diag.alpha,
+      normalityFailures:Number.isFinite(diag.normalityFailures)?diag.normalityFailures:0,
+      varianceConcern:!!diag.varianceConcern,
+      recommendWelch:!!diag.recommendWelch,
+      appliedVariant:diag.appliedVariant || null,
+      appliedTest:diag.appliedTest || null,
       groups:diag.groups.map(g=>({
         label:g.label,
         size:g.size,
@@ -3154,8 +3316,14 @@
         answers.distribution='normal';
       }
     }
-    if(answers.equalVariance===undefined && (context.groupCount||0)>=3){
-      answers.equalVariance='unsure';
+    if((context.groupCount||0)>=3){
+      if(context.assumptions?.varianceConcern){
+        if(answers.equalVariance!=='yes'){
+          answers.equalVariance='no';
+        }
+      }else if(answers.equalVariance===undefined){
+        answers.equalVariance='unsure';
+      }
     }
     return answers;
   }
@@ -3362,11 +3530,18 @@
           groupCount: context.groupCount
         };
         state.statsPostHoc=ensureValidPostHoc(recommendation.postHoc,postHocContext);
+        if(recommendation.statsTest==='parametric'){
+          const variantCandidate=recommendation.parametricVariant==='welch'?'welch':'classic';
+          state.statsParametricVariant=variantCandidate;
+        }else{
+          state.statsParametricVariant='nonparametric';
+        }
         advisorState.lastApplied={ ...recommendation };
         console.debug('Debug: box statsAdvisor applied',{
           statsTest: state.statsTest,
           statsPaired: state.statsPaired,
           statsPostHoc: state.statsPostHoc,
+          statsVariant: state.statsParametricVariant,
           answers:{ ...answers }
         });
         renderStatsControls(traces);
@@ -3411,11 +3586,34 @@
     console.debug('Debug: box statsEffectNonParametric normalized',{ before:state.statsEffectNonParametric, after:normalizedNonParamEffect });
     state.statsEffectNonParametric=normalizedNonParamEffect;
   }
+  const varianceConcern=state.assumptionDiagnostics?.varianceConcern===true;
+  const normalityFailures=Number.isFinite(state.assumptionDiagnostics?.normalityFailures)
+    ? state.assumptionDiagnostics.normalityFailures
+    : 0;
+  let desiredVariant=state.statsParametricVariant;
+  if(state.statsTest!=='parametric'){
+    desiredVariant='nonparametric';
+  }else if(state.statsPaired){
+    desiredVariant='classic';
+  }else{
+    const comparisonCount=Array.isArray(traces)?traces.length:0;
+    if(comparisonCount>=3 && varianceConcern && normalityFailures===0){
+      desiredVariant='welch';
+    }else{
+      desiredVariant='classic';
+    }
+  }
+  if(desiredVariant!==state.statsParametricVariant){
+    console.debug('Debug: box statsParametricVariant adjusted',{ before:state.statsParametricVariant, after:desiredVariant, varianceConcern, normalityFailures });
+    state.statsParametricVariant=desiredVariant;
+  }
   const postHocContext={
     mode: state.statsMode,
     test: state.statsTest,
     paired: state.statsPaired,
-    groupCount: Array.isArray(traces)?traces.length:0
+    groupCount: Array.isArray(traces)?traces.length:0,
+    variant: state.statsParametricVariant,
+    varianceConcern
   };
   const normalizedPostHoc=ensureValidPostHoc(state.statsPostHoc,postHocContext);
   if(normalizedPostHoc!==state.statsPostHoc){
@@ -3544,9 +3742,13 @@
     updateStatsCorrectionSummary(0);
     state.scheduleDraw();
   });
-  correctionSel.disabled=state.statsPostHoc==='tukey';
-  if(correctionSel.disabled){
+  correctionSel.disabled=state.statsPostHoc==='tukey' || state.statsPostHoc==='gamesHowell';
+  if(state.statsPostHoc==='tukey'){
     correctionSel.title='Tukey HSD already adjusts for multiple comparisons.';
+  }else if(state.statsPostHoc==='gamesHowell'){
+    correctionSel.title='Games–Howell already incorporates unequal-variance adjustment.';
+  }else{
+    correctionSel.removeAttribute('title');
   }
   optionWrap.appendChild(correctionLabel);
   optionWrap.appendChild(correctionSel);
@@ -4032,7 +4234,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         console.debug('Debug: box assumptions auto-switch',{ warnings: assumptionDiagnostics.warnings });
         renderStatsControls(traces);
       }
+      const varianceConcern=assumptionDiagnostics.varianceConcern===true;
+      const normalityFailures=Number.isFinite(assumptionDiagnostics.normalityFailures)
+        ? assumptionDiagnostics.normalityFailures
+        : 0;
+      let variant=state.statsParametricVariant;
+      if(state.statsTest!=='parametric'){
+        variant='nonparametric';
+      }else if(state.statsPaired){
+        variant='classic';
+      }else if(indices.length>=3 && varianceConcern && normalityFailures===0){
+        variant='welch';
+      }else{
+        variant='classic';
+      }
+      if(variant!==state.statsParametricVariant){
+        console.debug('Debug: box computeStats variant update',{ before:state.statsParametricVariant, after:variant, varianceConcern, normalityFailures });
+        state.statsParametricVariant=variant;
+        renderStatsControls(traces);
+      }
       assumptionDiagnostics.appliedTest=state.statsTest;
+      assumptionDiagnostics.appliedVariant=variant;
     }
     // Custom pairs mode
     if(state.statsMode==='custom'){
@@ -4119,8 +4341,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       return;
     }
     const param=state.statsTest==='parametric';
+    const paramVariant=param?state.statsParametricVariant:'nonparametric';
     const pairTest=param?(state.statsPaired?tTestPaired:tTest):(state.statsPaired?wilcoxonSignedRank:mannWhitney);
-    const overallTest=param?anova:kruskalWallis;
     const paramEffectMeta=resolveEffectOptionMeta('parametric',state.statsEffectParametric);
     const nonParamEffectMeta=resolveEffectOptionMeta('nonparametric',state.statsEffectNonParametric);
     const effectFootnotes=buildEffectFootnotes(paramEffectMeta,nonParamEffectMeta);
@@ -4179,13 +4401,43 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       return;
     }
     // Multi-group
-    let overall=null; if(!state.statsPaired){ overall=overallTest(groups); }
+    let overall=null;
+    const overallFootnotes=[];
+    if(!state.statsPaired){
+      if(param){
+        if(paramVariant==='welch'){
+          const welch=computeWelchAnova(groups);
+          if(welch.ok){
+            overall={ method:'welch', F:welch.F, p:welch.p, df1:welch.df1, df2:welch.df2, footnote:welch.footnote };
+            if(welch.footnote){ overallFootnotes.push(welch.footnote); }
+          }else{
+            console.debug('Debug: box welchAnova unavailable', welch);
+          }
+        }
+        if(!overall){
+          const classic=anova(groups);
+          if(classic){
+            overall={ method:'anova', F:classic.F, p:classic.p, df1:classic.dfBetween, df2:classic.dfWithin };
+          }
+        }
+      }else{
+        const kw=kruskalWallis(groups);
+        overall={ method:'kruskal', H:kw.H, p:kw.p, df:groups.length-1 };
+      }
+    }
     const maxVal=Math.max(...indices.map(i=>Math.max(...traces[i].y)));
     const xs=indices.map(i=>categoryCenter(i));
     let pairs=[];
     let referenceLabel=null;
     let methodFootnotes=[];
-    const postHocMode=ensureValidPostHoc(state.statsPostHoc,{ mode: state.statsMode, test: param?'parametric':'nonparametric', paired: state.statsPaired, groupCount: indices.length });
+    const postHocMode=ensureValidPostHoc(state.statsPostHoc,{
+      mode: state.statsMode,
+      test: param?'parametric':'nonparametric',
+      paired: state.statsPaired,
+      groupCount: indices.length,
+      variant: paramVariant,
+      varianceConcern: state.assumptionDiagnostics?.varianceConcern===true
+    });
     if(postHocMode!==state.statsPostHoc){
       console.debug('Debug: box computeStats postHoc normalized',{ before:state.statsPostHoc, after:postHocMode });
       state.statsPostHoc=postHocMode;
@@ -4226,6 +4478,41 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           };
         });
         updateStatsCorrectionSummary(pairs.length);
+      }else if(postHocMode==='gamesHowell'){
+        const gh=computeGamesHowellComparisons(groups,labels);
+        if(!gh.ok){
+          setResultsMessage(gh.message || 'Unable to compute Games–Howell comparisons.');
+          updateStatsCorrectionSummary(0);
+          return;
+        }
+        methodFootnotes.push(gh.footnote);
+        pairs=gh.pairs.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          return {
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.p,
+            adjP:pr.pAdj,
+            stat:pr.q,
+            statName:'q',
+            df:pr.df,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:'gamesHowell'
+          };
+        });
+        updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunn'){
         const dunn=computeDunnComparisons(groups,labels);
         if(!dunn.ok){
@@ -4259,7 +4546,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             method:'dunn'
           };
         });
-        if(pairs.length){
+        if(pairs.length && postHocMode!=='gamesHowell'){
           const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
           adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
         }
@@ -4297,7 +4584,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             });
           }
         }
-        if(pairs.length){
+        if(pairs.length && postHocMode!=='gamesHowell'){
           const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
           adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
         }
@@ -4343,6 +4630,42 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           };
         });
         updateStatsCorrectionSummary(pairs.length);
+      }else if(postHocMode==='gamesHowell'){
+        const gh=computeGamesHowellComparisons(groups,labels);
+        if(!gh.ok){
+          setResultsMessage(gh.message || 'Unable to compute Games–Howell comparisons.');
+          updateStatsCorrectionSummary(0);
+          return;
+        }
+        methodFootnotes.push(gh.footnote);
+        const filtered=gh.pairs.filter(pr=>pr.i===refIdx || pr.j===refIdx);
+        pairs=filtered.map(pr=>{
+          const ai=indices[pr.i];
+          const bi=indices[pr.j];
+          const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
+          const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
+          const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
+          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          return {
+            a:pr.i,
+            b:pr.j,
+            ai,
+            bi,
+            p:pr.p,
+            adjP:pr.pAdj,
+            stat:pr.q,
+            statName:'q',
+            df:pr.df,
+            labelA:labels[pr.i],
+            labelB:labels[pr.j],
+            effects:effectMetrics,
+            effectParametric:formattedParamEffect,
+            effectNonParametric:formattedNonParamEffect,
+            rangeMax,
+            method:'gamesHowell'
+          };
+        });
+        updateStatsCorrectionSummary(pairs.length);
       }else if(postHocMode==='dunn'){
         const dunn=computeDunnComparisons(groups,labels);
         if(!dunn.ok){
@@ -4377,7 +4700,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             method:'dunn'
           };
         });
-        if(pairs.length){
+        if(pairs.length && postHocMode!=='gamesHowell'){
           const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
           adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
         }
@@ -4412,7 +4735,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             method:'standard'
           });
         });
-        if(pairs.length){
+        if(pairs.length && postHocMode!=='gamesHowell'){
           const adjusted=applyPValueCorrection(pairs.map(pr=>pr.p), state.statsCorrection);
           adjusted.forEach((adj, idx)=>{ pairs[idx].adjP=adj; });
         }
@@ -4423,6 +4746,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       let correctionMeta;
       if(postHocMode==='tukey'){
         correctionMeta={ key:'tukey', label:'Tukey HSD', shortLabel:'Tukey HSD', footnote:null };
+      }else if(postHocMode==='gamesHowell'){
+        correctionMeta={ key:'gamesHowell', label:'Games–Howell', shortLabel:'Games–Howell', footnote:null };
       }else{
         correctionMeta=resolveCorrectionMeta(state.statsCorrection,pairs.length);
       }
@@ -4433,15 +4758,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       methodFootnotes.forEach(note=>{ if(note){ footnotes.push(note); } });
       let appendForPairs=false;
       if(!state.statsPaired && overall){
-        const overallStatName=param?'F':'H';
+        const overallLabel=overall.method==='welch'
+          ? 'Welch ANOVA'
+          : overall.method==='anova'
+            ? 'ANOVA'
+            : 'Kruskal-Wallis';
+        const overallStatName=overall.method==='kruskal'?'H':'F';
+        const statValue=overall.method==='kruskal'?overall.H:overall.F;
         const overallRows=[
-          { metric:'Overall test', value:param?'ANOVA':'Kruskal-Wallis' },
-          { metric:overallStatName, value:overall[overallStatName].toFixed(4) }
+          { metric:'Overall test', value:overallLabel },
+          { metric:overallStatName, value:Number.isFinite(statValue)?statValue.toFixed(4):'—' }
         ];
-        if(param){
-          overallRows.push({ metric:'df', value:`${groups.length-1},${groups.reduce((s,g)=>s+g.length,0)-groups.length}` });
-        }else{
-          overallRows.push({ metric:'df', value:String(groups.length-1) });
+        if(overall.method==='welch' || overall.method==='anova'){
+          const dfLabel=overall.method==='welch'
+            ? `df = ${overall.df1}, ${Number.isFinite(overall.df2)?overall.df2.toFixed(2):'∞'}`
+            : `${groups.length-1},${groups.reduce((s,g)=>s+g.length,0)-groups.length}`;
+          overallRows.push({ metric:'df', value:dfLabel });
+        }else if(overall?.df!=null){
+          overallRows.push({ metric:'df', value:String(overall.df) });
         }
         overallRows.push({ metric:'P value', value:formatP(overall.p) });
         renderTableModel({
@@ -4451,6 +4785,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             {key:'value',label:'Value',align:'left',index:1}
           ],
           rows:overallRows,
+          footnotes:overallFootnotes.slice(),
           options:{
             fileName:'box-overall-test',
             contextLabel:'box-overall'
@@ -4461,7 +4796,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const pairRows=pairs.map(pr=>({
         comparison:`${pr.labelA ?? labels[pr.a]} vs ${pr.labelB ?? labels[pr.b]}`,
         statistic:`${pr.statName} = ${pr.stat.toFixed(4)}`,
-        df:pr.df!=null?pr.df:'—',
+        df:Number.isFinite(pr.df)?pr.df.toFixed(2):(pr.df===Infinity?'∞':'—'),
         padj:formatP(pr.adjP),
         effectParametric:pr.effectParametric,
         effectNonParametric:pr.effectNonParametric
@@ -4472,7 +4807,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       effectFootnotes.forEach(note=>footnotes.push(note));
       const pLabel=postHocMode==='tukey'
         ? 'P (Tukey HSD)'
-        : `P (adj, ${correctionMeta.shortLabel})`;
+        : postHocMode==='gamesHowell'
+          ? 'P (Games–Howell)'
+          : `P (adj, ${correctionMeta.shortLabel})`;
       renderTableModel({
         caption: state.statsMode==='reference' ? 'Comparisons vs reference' : 'Pairwise comparisons',
         columns:[
@@ -6446,6 +6783,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           correction: state.statsCorrection,
           effectParametric: state.statsEffectParametric,
           effectNonParametric: state.statsEffectNonParametric,
+          parametricVariant: state.statsParametricVariant,
           groupedAnalysis: state.groupedStats?.analysis,
           selectedColumns,
           assumptions: serializeAssumptions(state.assumptionDiagnostics)
@@ -6462,6 +6800,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       statsCorrection: payload.config.stats?.correction,
       effectParametric: payload.config.stats?.effectParametric,
       effectNonParametric: payload.config.stats?.effectNonParametric,
+      parametricVariant: payload.config.stats?.parametricVariant,
       statsSelection: payload.config.stats?.selectedColumns?.length || 0,
       assumptionWarnings: payload.config.stats?.assumptions?.warnings?.length || 0
     });
@@ -6673,6 +7012,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         state.statsCorrection=ensureValidCorrectionValue(statsConfig.correction || state.statsCorrection);
         state.statsEffectParametric=ensureValidEffectOption('parametric',statsConfig.effectParametric || state.statsEffectParametric);
         state.statsEffectNonParametric=ensureValidEffectOption('nonparametric',statsConfig.effectNonParametric || state.statsEffectNonParametric);
+        const variantCandidate=typeof statsConfig.parametricVariant==='string'?statsConfig.parametricVariant:'classic';
+        const allowedVariants=new Set(['classic','welch','nonparametric']);
+        state.statsParametricVariant=allowedVariants.has(variantCandidate)?variantCandidate:'classic';
+        if(state.statsTest!=='parametric'){
+          state.statsParametricVariant='nonparametric';
+        }
         const candidateRef=Number(statsConfig.referenceIndex);
         const maxIndex=labelCount>0?labelCount-1:-1;
         if(Number.isInteger(candidateRef) && candidateRef>=0 && (maxIndex>=0?candidateRef<=maxIndex:true)){
@@ -6707,7 +7052,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           mode: state.statsMode,
           test: state.statsTest,
           paired: state.statsPaired,
-          groupCount: state.selectedCols.size || labels.filter(l=>l!=null && l!=='').length
+          groupCount: state.selectedCols.size || labels.filter(l=>l!=null && l!=='').length,
+          variant: state.statsParametricVariant,
+          varianceConcern: !!statsConfig.assumptions?.varianceConcern
         };
         const restoredPostHoc=ensureValidPostHoc(statsConfig.postHoc || state.statsPostHoc,postHocContextOnLoad);
         if(restoredPostHoc!==state.statsPostHoc){
