@@ -418,6 +418,21 @@
                   <option value="upper">Upper Only</option>
                 </select>
               </div>
+              <div class="control" id="boxViolinBandwidthCtl" style="display:none; flex-wrap:wrap; align-items:center; gap:8px;">
+                <label>Violin Bandwidth</label>
+                <input type="range" id="boxViolinBandwidth" min="0.05" max="5" step="0.05" value="1" />
+                <input type="number" id="boxViolinBandwidthValue" min="0.01" step="0.01" value="1" style="width:70px;" />
+                <output id="boxViolinBandwidthVal" style="min-width:48px;">1.00</output>
+                <label style="width:auto; display:flex; align-items:center; gap:4px;">
+                  <input type="checkbox" id="boxViolinBandwidthAuto" checked /> Auto
+                </label>
+              </div>
+              <div class="control" id="boxViolinSamplesCtl" style="display:none; flex-wrap:wrap; align-items:center; gap:8px;">
+                <label>Density Samples</label>
+                <input type="range" id="boxViolinSamples" min="8" max="512" step="8" value="80" />
+                <input type="number" id="boxViolinSamplesValue" min="8" max="2048" step="1" value="80" style="width:70px;" />
+                <output id="boxViolinSamplesVal" style="min-width:40px;">80</output>
+              </div>
             </fieldset>
             <fieldset>
               <legend>Points</legend>

@@ -30,6 +30,10 @@
   const DEFAULT_BOX_COLORS=['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'];
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
   const DEFAULT_AXIS_COLOR='#000000';
+  const DEFAULT_VIOLIN_BANDWIDTH=1;
+  const DEFAULT_VIOLIN_SAMPLE_COUNT=80;
+  const VIOLIN_SAMPLE_MIN=8;
+  const VIOLIN_SAMPLE_MAX=2048;
   const SEPARATED_GROUP_GAP_MULTIPLIER = 1.5;
   const ANN_BASE_OFFSET=25;
   const ANN_LEVEL_GAP=25;
@@ -1334,7 +1338,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved' };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT } };
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
@@ -1442,7 +1446,121 @@
       state.scheduleDraw();
     }
   }
+
+  function clampViolinSampleCount(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return DEFAULT_VIOLIN_SAMPLE_COUNT;
+    }
+    const rounded = Math.round(numeric);
+    if(rounded < VIOLIN_SAMPLE_MIN){
+      return VIOLIN_SAMPLE_MIN;
+    }
+    if(rounded > VIOLIN_SAMPLE_MAX){
+      return VIOLIN_SAMPLE_MAX;
+    }
+    return rounded;
+  }
+
+  function ensureViolinState(){
+    if(!state.violin || typeof state.violin !== 'object'){
+      state.violin = {
+        autoBandwidth: true,
+        bandwidth: null,
+        sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT,
+        lastUsedBandwidth: null,
+        lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT
+      };
+      return state.violin;
+    }
+    state.violin.autoBandwidth = state.violin.autoBandwidth === false ? false : true;
+    const manualValue = Number(state.violin.bandwidth);
+    if(Number.isFinite(manualValue) && manualValue > 0){
+      state.violin.bandwidth = manualValue;
+    }else{
+      state.violin.bandwidth = null;
+    }
+    state.violin.sampleCount = clampViolinSampleCount(state.violin.sampleCount);
+    const lastSample = clampViolinSampleCount(state.violin.lastSampleCount || state.violin.sampleCount);
+    state.violin.lastSampleCount = lastSample;
+    const lastBandwidth = Number(state.violin.lastUsedBandwidth);
+    state.violin.lastUsedBandwidth = Number.isFinite(lastBandwidth) && lastBandwidth > 0 ? lastBandwidth : null;
+    return state.violin;
+  }
   const els = {};
+
+  function updateViolinBandwidthDisplays(value){
+    const resolved = Number.isFinite(value) && value > 0 ? value : DEFAULT_VIOLIN_BANDWIDTH;
+    if(els.violinBandwidthValue){
+      els.violinBandwidthValue.value = String(resolved);
+    }
+    if(els.violinBandwidthVal){
+      els.violinBandwidthVal.textContent = resolved.toLocaleString('en-US',{ maximumFractionDigits: 3 });
+    }
+    if(els.violinBandwidth){
+      let sliderValue = resolved;
+      const sliderMin = Number(els.violinBandwidth.min);
+      const sliderMax = Number(els.violinBandwidth.max);
+      if(Number.isFinite(sliderMin) && sliderValue < sliderMin){
+        sliderValue = sliderMin;
+      }
+      if(Number.isFinite(sliderMax) && sliderValue > sliderMax){
+        sliderValue = sliderMax;
+      }
+      els.violinBandwidth.value = String(sliderValue);
+    }
+  }
+
+  function updateViolinSampleDisplays(value){
+    const sampleValue = clampViolinSampleCount(value);
+    if(els.violinSamplesValue){
+      els.violinSamplesValue.value = String(sampleValue);
+    }
+    if(els.violinSamplesVal){
+      els.violinSamplesVal.textContent = String(sampleValue);
+    }
+    if(els.violinSamples){
+      let sliderValue = sampleValue;
+      const sliderMin = Number(els.violinSamples.min);
+      const sliderMax = Number(els.violinSamples.max);
+      if(Number.isFinite(sliderMin) && sliderValue < sliderMin){
+        sliderValue = sliderMin;
+      }
+      if(Number.isFinite(sliderMax) && sliderValue > sliderMax){
+        sliderValue = sliderMax;
+      }
+      els.violinSamples.value = String(sliderValue);
+    }
+  }
+
+  function refreshViolinControlAvailability(){
+    const violinState = ensureViolinState();
+    const auto = violinState.autoBandwidth !== false;
+    if(els.violinBandwidth){
+      els.violinBandwidth.disabled = auto;
+    }
+    if(els.violinBandwidthValue){
+      els.violinBandwidthValue.disabled = auto;
+    }
+  }
+
+  function syncViolinControlsFromState(){
+    const violinState = ensureViolinState();
+    if(els.violinBandwidthAuto){
+      els.violinBandwidthAuto.checked = violinState.autoBandwidth !== false;
+    }
+    const manualCandidate = violinState.autoBandwidth === false && Number.isFinite(violinState.bandwidth) && violinState.bandwidth > 0
+      ? violinState.bandwidth
+      : (Number.isFinite(violinState.lastUsedBandwidth) && violinState.lastUsedBandwidth > 0
+        ? violinState.lastUsedBandwidth
+        : DEFAULT_VIOLIN_BANDWIDTH);
+    updateViolinBandwidthDisplays(manualCandidate);
+    if(violinState.autoBandwidth === false && (!Number.isFinite(violinState.bandwidth) || violinState.bandwidth <= 0)){
+      violinState.bandwidth = manualCandidate;
+    }
+    updateViolinSampleDisplays(violinState.sampleCount);
+    refreshViolinControlAvailability();
+  }
 
   function updateStatsCorrectionSummary(count){
     const noteEl=global.document.getElementById('statsCorrectionNote');
@@ -1504,6 +1622,15 @@
     els.boxErrorBarWidthCtl=global.$('#boxErrorBarWidthCtl');
     els.boxFontSize=global.$('#boxFontSize');
     els.boxFontSizeVal=global.$('#boxFontSizeVal');
+    els.violinBandwidthCtl=global.$('#boxViolinBandwidthCtl');
+    els.violinBandwidth=global.$('#boxViolinBandwidth');
+    els.violinBandwidthValue=global.$('#boxViolinBandwidthValue');
+    els.violinBandwidthVal=global.$('#boxViolinBandwidthVal');
+    els.violinBandwidthAuto=global.$('#boxViolinBandwidthAuto');
+    els.violinSamplesCtl=global.$('#boxViolinSamplesCtl');
+    els.violinSamples=global.$('#boxViolinSamples');
+    els.violinSamplesValue=global.$('#boxViolinSamplesValue');
+    els.violinSamplesVal=global.$('#boxViolinSamplesVal');
     if (typeof chartStyle.renderFontSizeLabel === 'function') {
       if(els.boxFontSize?.dataset){
         els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
@@ -1886,6 +2013,8 @@
     console.debug('Debug: updateBoxColorPickers applied',{ labelsCount: labels.length, grouped, fillColors: [...state.fillColors], borderColors: [...state.borderColors] });
   }
   function initUI(){
+    ensureViolinState();
+    syncViolinControlsFromState();
     if(els.tableFormat){
       els.tableFormat.addEventListener('change', e=>{
         console.debug('Debug: tableFormat select change',{ value: e.target.value });
@@ -1931,6 +2060,89 @@
     els.boxColorUnified.addEventListener('change',toggleColorMode);
     els.boxColorIndividual.addEventListener('change',toggleColorMode);
     toggleColorMode();
+    const applyViolinBandwidthChange = value => {
+      const violinState = ensureViolinState();
+      const numeric = Number(value);
+      if(!Number.isFinite(numeric) || numeric <= 0){
+        syncViolinControlsFromState();
+        return false;
+      }
+      updateViolinBandwidthDisplays(numeric);
+      if(violinState.autoBandwidth === false){
+        if(violinState.bandwidth !== numeric){
+          violinState.bandwidth = numeric;
+          state.scheduleDraw();
+        }
+      }
+      return true;
+    };
+    if(els.violinBandwidth){
+      els.violinBandwidth.addEventListener('input',()=>{
+        applyViolinBandwidthChange(els.violinBandwidth.value);
+      });
+    }
+    if(els.violinBandwidthValue){
+      const handleBandwidthInput = ()=>{
+        applyViolinBandwidthChange(els.violinBandwidthValue.value);
+      };
+      els.violinBandwidthValue.addEventListener('change',handleBandwidthInput);
+      els.violinBandwidthValue.addEventListener('blur',handleBandwidthInput);
+      els.violinBandwidthValue.addEventListener('input',()=>{
+        const numeric = Number(els.violinBandwidthValue.value);
+        if(Number.isFinite(numeric) && numeric > 0){
+          updateViolinBandwidthDisplays(numeric);
+        }
+      });
+    }
+    if(els.violinBandwidthAuto){
+      els.violinBandwidthAuto.addEventListener('change',()=>{
+        const violinState = ensureViolinState();
+        violinState.autoBandwidth = !!els.violinBandwidthAuto.checked;
+        if(violinState.autoBandwidth){
+          violinState.bandwidth = null;
+        }else{
+          let manual = Number(els.violinBandwidthValue?.value);
+          if(!Number.isFinite(manual) || manual <= 0){
+            manual = Number(violinState.lastUsedBandwidth);
+          }
+          if(!Number.isFinite(manual) || manual <= 0){
+            manual = DEFAULT_VIOLIN_BANDWIDTH;
+          }
+          violinState.bandwidth = manual;
+        }
+        syncViolinControlsFromState();
+        state.scheduleDraw();
+      });
+    }
+    const applyViolinSampleChange = value => {
+      const violinState = ensureViolinState();
+      const numeric = clampViolinSampleCount(value);
+      const changed = violinState.sampleCount !== numeric;
+      violinState.sampleCount = numeric;
+      violinState.lastSampleCount = numeric;
+      updateViolinSampleDisplays(numeric);
+      if(changed){
+        state.scheduleDraw();
+      }
+    };
+    if(els.violinSamples){
+      els.violinSamples.addEventListener('input',()=>{
+        applyViolinSampleChange(els.violinSamples.value);
+      });
+    }
+    if(els.violinSamplesValue){
+      const handleSampleInput = ()=>{
+        applyViolinSampleChange(els.violinSamplesValue.value);
+      };
+      els.violinSamplesValue.addEventListener('change',handleSampleInput);
+      els.violinSamplesValue.addEventListener('blur',handleSampleInput);
+      els.violinSamplesValue.addEventListener('input',()=>{
+        const numeric = Number(els.violinSamplesValue.value);
+        if(Number.isFinite(numeric) && els.violinSamplesVal){
+          els.violinSamplesVal.textContent = String(clampViolinSampleCount(numeric));
+        }
+      });
+    }
     els.boxFontSize.addEventListener('input',()=>{
       if(els.boxFontSize.dataset){
         els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
@@ -1946,6 +2158,16 @@
       const graphTypeValue = els.boxGraphType.value;
       const showErrorControls = graphTypeValue === 'bar';
       const showErrorBarThickness = graphTypeValue === 'bar' || graphTypeValue === 'strip' || graphTypeValue === 'box' || graphTypeValue === 'notched';
+      const isViolin = graphTypeValue === 'violin';
+      if(els.violinBandwidthCtl){
+        els.violinBandwidthCtl.style.display = isViolin ? '' : 'none';
+      }
+      if(els.violinSamplesCtl){
+        els.violinSamplesCtl.style.display = isViolin ? '' : 'none';
+      }
+      if(isViolin){
+        syncViolinControlsFromState();
+      }
       if(els.boxErrorModeCtl){
         els.boxErrorModeCtl.style.display = showErrorControls ? '' : 'none';
       }
@@ -1991,6 +2213,7 @@
       }
       console.debug('Debug: box graph type controls',{ graphTypeValue, showErrorControls });
     };
+    els.updateGraphTypeControls = updateGraphTypeControls;
     els.boxGraphType.addEventListener('change',()=>{ console.log('boxGraphType changed', els.boxGraphType.value); updateGraphTypeControls(); state.scheduleDraw(); });
     if(els.boxLayoutMode){
       els.boxLayoutMode.addEventListener('change',()=>{
@@ -3392,6 +3615,7 @@
     return questions;
   }
   function renderStatsAdvisor(traces,controls,providedContext){
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const advisorState=getAdvisorState();
     const context=providedContext || buildAdvisorContext(traces);
     const answers=ensureAdvisorDefaults(context);
@@ -3452,6 +3676,26 @@
       const msg=document.createElement('div');
       msg.textContent=recommendation.message || 'Answer the advisor questions to receive a recommendation.';
       summary.appendChild(msg);
+    }
+    if(els.boxGraphType?.value === 'violin'){
+      const violinState = ensureViolinState();
+      const sampleCount = violinState.lastSampleCount || violinState.sampleCount;
+      const bandwidthSource = Number.isFinite(violinState.lastUsedBandwidth) && violinState.lastUsedBandwidth > 0
+        ? violinState.lastUsedBandwidth
+        : violinState.bandwidth;
+      const smoothingNote=document.createElement('div');
+      smoothingNote.className='stats-advisor__hint';
+      const modeLabel = violinState.autoBandwidth === false ? 'Manual' : 'Auto';
+      const bandwidthText = Number.isFinite(bandwidthSource) && bandwidthSource > 0
+        ? bandwidthSource.toLocaleString('en-US',{ maximumFractionDigits: 3 })
+        : 'not yet estimated';
+      smoothingNote.textContent=`Violin smoothing: ${modeLabel} bandwidth (${bandwidthText}) with ${sampleCount} samples.`;
+      summary.appendChild(smoothingNote);
+      if(debugEnabled){
+        console.debug('Debug: box stats advisor smoothing note',{ mode: modeLabel.toLowerCase(), bandwidth: bandwidthSource, samples: sampleCount });
+      }
+    }else if(debugEnabled){
+      console.debug('Debug: box stats advisor smoothing note skipped',{ graphType: els.boxGraphType?.value });
     }
     container.appendChild(summary);
 
@@ -4860,6 +5104,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   function draw(){
     const token = ++state.drawToken;
     console.log('boxplot draw start',{token});
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const violinState = ensureViolinState();
     const colorMode = els.boxColorUnified.checked ? 'unified' : 'individual';
     const defaultFill = els.boxFill.value;
     const defaultBorder = els.boxBorder.value;
@@ -4927,6 +5173,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     console.debug('Debug: box showFrame state',{ showFrame });
     const logScale = els.boxLogScale.checked;
     const graphTypeRaw = els.boxGraphType.value;
+    if(debugEnabled && graphTypeRaw === 'violin'){
+      console.debug('Debug: box violin draw settings',{ auto: violinState.autoBandwidth !== false, manualBandwidth: violinState.bandwidth, sampleCount: violinState.sampleCount });
+    }
     const isIndividualValues = graphTypeRaw === 'strip';
     let individualSummaryMode = 'none';
     if(isIndividualValues){
@@ -5497,13 +5746,40 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const bandwidth = 0.9 * scale * Math.pow(n, -0.2);
       const fallback = (sorted[n - 1] - sorted[0]) / (Math.sqrt(n) || 1) || 1;
       const resolved = Number.isFinite(bandwidth) && bandwidth > 0 ? bandwidth : fallback;
-      console.debug('Debug: box violin bandwidth',{ n, sigma, iqr: iqrVal, scale, bandwidth, fallback, resolved });
+      console.debug('Debug: box violin auto bandwidth',{ n, sigma, iqr: iqrVal, scale, bandwidth, fallback, resolved });
       return resolved;
     }
+    function resolveViolinBandwidth(sorted){
+      const violinState = ensureViolinState();
+      const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+      if(violinState.autoBandwidth === false){
+        const manual = Number(violinState.bandwidth);
+        if(Number.isFinite(manual) && manual > 0){
+          violinState.lastUsedBandwidth = manual;
+          if(debugEnabled){
+            console.debug('Debug: box violin bandwidth resolved manual',{ bandwidth: manual });
+          }
+          return manual;
+        }
+        if(debugEnabled){
+          console.debug('Debug: box violin bandwidth manual fallback',{ bandwidth: violinState.bandwidth });
+        }
+      }
+      const auto = estimateBandwidth(sorted);
+      violinState.lastUsedBandwidth = auto;
+      if(debugEnabled){
+        console.debug('Debug: box violin bandwidth resolved auto',{ bandwidth: auto });
+      }
+      return auto;
+    }
     function computeDensity(sorted, minVal, maxVal, sampleCount){
-      const count = sampleCount || 64;
+      const violinState = ensureViolinState();
+      const requestedCount = Number(sampleCount);
+      const count = clampViolinSampleCount(Number.isFinite(requestedCount) && requestedCount > 0 ? requestedCount : violinState.sampleCount);
+      violinState.sampleCount = clampViolinSampleCount(violinState.sampleCount);
+      violinState.lastSampleCount = count;
       if(!sorted.length){
-        return { positions: [], densities: [], bandwidth: 1 };
+        return { positions: [], densities: [], bandwidth: resolveViolinBandwidth(sorted) };
       }
       let domainMin = Math.min(minVal, sorted[0]);
       let domainMax = Math.max(maxVal, sorted[sorted.length - 1]);
@@ -5515,7 +5791,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         domainMin -= 0.5;
         domainMax += 0.5;
       }
-      const bandwidth = estimateBandwidth(sorted);
+      const bandwidth = resolveViolinBandwidth(sorted);
       const positions = [];
       const densities = [];
       const step = (domainMax - domainMin) / Math.max(count - 1, 1);
@@ -5532,7 +5808,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         densities.push(density);
       }
       const peak = densities.length ? densities.reduce((max, d) => (d > max ? d : max), 0) : 0;
-      console.debug('Debug: box violin density',{ bandwidth, domainMin, domainMax, sampleCount: count, peak });
+      const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+      if(debugEnabled){
+        const mode = violinState.autoBandwidth === false && Number.isFinite(violinState.bandwidth) && violinState.bandwidth > 0 ? 'manual' : 'auto';
+        console.debug('Debug: box violin density',{ bandwidth, domainMin, domainMax, sampleCount: count, peak, mode });
+      }
       return { positions, densities, bandwidth };
     }
     const annotationStyle = {
@@ -6012,7 +6292,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             console.debug('Debug: box bar error bar skipped for single value',{ index: i, sampleCount, mean });
           }
         }else if(graphTypeRaw === 'violin'){
-          const densityInfo = computeDensity(vals, yScale.min, yScale.max, 80);
+          const densityInfo = computeDensity(vals, yScale.min, yScale.max, violinState.sampleCount);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
           const halfWidth = Math.max(6, Math.min(80, localBand * 0.45));
           const pathParts = [];
@@ -6519,7 +6799,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             console.debug('Debug: box horizontal bar error bar skipped for single value',{ index: i, sampleCount, mean });
           }
         }else if(graphTypeRaw === 'violin'){
-          const densityInfo = computeDensity(vals, yScale.min, yScale.max, 80);
+          const densityInfo = computeDensity(vals, yScale.min, yScale.max, violinState.sampleCount);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
           const halfHeight = Math.max(6, Math.min(80, localBand * 0.45));
           const pathParts = [];
@@ -6730,6 +7010,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       .filter(idx => Number.isInteger(idx));
     selectedColumns.sort((a,b)=>a-b);
     const axisSnapshot = ensureAxisSettings();
+    const violinState = ensureViolinState();
     const payload = {
       type:'box',
       version:3,
@@ -6764,6 +7045,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         grouped: {
           replicatesPerGroup: state.grouped?.replicatesPerGroup,
           groups: Array.isArray(state.grouped?.groups) ? [...state.grouped.groups] : []
+        },
+        violin: {
+          autoBandwidth: violinState.autoBandwidth !== false,
+          bandwidth: violinState.autoBandwidth === false && Number.isFinite(violinState.bandwidth) && violinState.bandwidth > 0
+            ? violinState.bandwidth
+            : null,
+          sampleCount: violinState.sampleCount
         },
         axis: {
           strokeWidth: axisSnapshot.strokeWidth,
@@ -6802,7 +7090,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       effectNonParametric: payload.config.stats?.effectNonParametric,
       parametricVariant: payload.config.stats?.parametricVariant,
       statsSelection: payload.config.stats?.selectedColumns?.length || 0,
-      assumptionWarnings: payload.config.stats?.assumptions?.warnings?.length || 0
+      assumptionWarnings: payload.config.stats?.assumptions?.warnings?.length || 0,
+      violinAuto: payload.config.violin?.autoBandwidth,
+      violinBandwidth: payload.config.violin?.bandwidth,
+      violinSamples: payload.config.violin?.sampleCount
     });
     return payload;
   }
@@ -6898,6 +7189,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
         els.boxLogScale.checked=!!c.logScale;
         els.boxGraphType.value=c.graphType||els.boxGraphType.value;
+        const violinConfig = c.violin || {};
+        const violinState = ensureViolinState();
+        violinState.autoBandwidth = violinConfig.autoBandwidth === false ? false : true;
+        if(violinState.autoBandwidth){
+          violinState.bandwidth = null;
+        }else{
+          const manualCandidate = Number(violinConfig.bandwidth);
+          violinState.bandwidth = Number.isFinite(manualCandidate) && manualCandidate > 0 ? manualCandidate : null;
+        }
+        const restoredSamples = clampViolinSampleCount(violinConfig.sampleCount ?? violinState.sampleCount);
+        violinState.sampleCount = restoredSamples;
+        violinState.lastSampleCount = restoredSamples;
+        violinState.lastUsedBandwidth = violinState.bandwidth && violinState.bandwidth > 0 ? violinState.bandwidth : null;
+        syncViolinControlsFromState();
+        if(typeof els.updateGraphTypeControls === 'function'){
+          els.updateGraphTypeControls();
+        }
         if(typeof c.groupLayout === 'string'){
           const allowedLayouts = new Set(['interleaved','separated','stacked']);
           const requestedLayout = allowedLayouts.has(c.groupLayout) ? c.groupLayout : 'interleaved';
