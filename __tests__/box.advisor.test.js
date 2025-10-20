@@ -22,7 +22,7 @@ describe('Box plot statistics advisor', () => {
     expect(Array.isArray(recommendation.rationale)).toBe(true);
   });
 
-  test('recommends Kruskal-Wallis when variances differ across groups', () => {
+  test('recommends Welch ANOVA when variances differ across groups', () => {
     const box = ensureBoxModule();
     const recommendation = box.getAdvisorRecommendation({
       groups: 'threePlus',
@@ -34,10 +34,11 @@ describe('Box plot statistics advisor', () => {
       sampleSizes: [5, 6, 5, 7]
     });
     expect(recommendation.ready).toBe(true);
-    expect(recommendation.statsTest).toBe('nonparametric');
-    expect(recommendation.postHoc).toBe('dunn');
-    expect(recommendation.summary).toMatch(/Kruskal/);
-    expect(recommendation.warnings.some(text => /Welch/i.test(text))).toBe(true);
+    expect(recommendation.statsTest).toBe('parametric');
+    expect(recommendation.parametricVariant).toBe('welch');
+    expect(recommendation.postHoc).toBe('gamesHowell');
+    expect(recommendation.summary).toMatch(/Welch ANOVA/i);
+    expect(recommendation.summary).toMatch(/Games–Howell/i);
   });
 
   test('flags missing inputs until the user answers required questions', () => {
