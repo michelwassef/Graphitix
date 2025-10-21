@@ -47,6 +47,221 @@
 
   const DEFAULT_AXIS_COLOR = '#000000';
 
+  const scatterRefs = {};
+  let scatterTooltipEl = null;
+
+  function scatterDebug(label, payload){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(err){
+      // ignore toggle errors and log by default
+    }
+    console.debug(label, payload);
+  }
+
+  function ensureScatterTooltipHost(tooltip, doc){
+    if(!tooltip){ return null; }
+    const documentRef = doc || tooltip.ownerDocument || global.document;
+    if(!documentRef){ return tooltip; }
+    const parent = tooltip.parentElement;
+    if(!parent){ return tooltip; }
+    let needsDetach = false;
+    if(typeof tooltip.closest === 'function'){
+      const hiddenAncestor = tooltip.closest('[hidden]');
+      if(hiddenAncestor && hiddenAncestor !== tooltip){
+        needsDetach = true;
+      }
+    }
+    if(!needsDetach){
+      try{
+        const view = documentRef.defaultView;
+        if(view && typeof view.getComputedStyle === 'function'){
+          const parentDisplay = view.getComputedStyle(parent).display;
+          if(parentDisplay === 'none'){
+            needsDetach = true;
+          }
+        }else if(typeof parent.style?.display === 'string' && parent.style.display === 'none'){
+          needsDetach = true;
+        }
+      }catch(err){
+        scatterDebug('Debug: scatter tooltip host inspection error',{ error: err?.message || String(err) });
+      }
+    }
+    const host = documentRef.body || documentRef.documentElement;
+    if(needsDetach && host && parent !== host){
+      host.appendChild(tooltip);
+      scatterDebug('Debug: scatter tooltip host realigned',{ previousParent: parent.id || parent.className || parent.tagName || null });
+    }
+    return tooltip;
+  }
+
+  function getScatterTooltipElement(){
+    if(scatterTooltipEl && scatterTooltipEl.isConnected){
+      return scatterTooltipEl;
+    }
+    const doc = global.document;
+    const tooltip = scatterRefs.tooltip || doc?.getElementById?.('tooltip') || null;
+    if(tooltip){
+      ensureScatterTooltipHost(tooltip, doc);
+      scatterTooltipEl = tooltip;
+      scatterRefs.tooltip = tooltip;
+    }
+    return scatterTooltipEl;
+  }
+
+  function formatScatterTooltipNumber(value){
+    if(value === null || value === undefined){ return 'n/a'; }
+    if(typeof value === 'number'){
+      if(!Number.isFinite(value)){ return String(value); }
+      return value.toLocaleString('en-US',{ maximumSignificantDigits: 6 });
+    }
+    const numeric = Number(value);
+    if(Number.isFinite(numeric)){
+      return numeric.toLocaleString('en-US',{ maximumSignificantDigits: 6 });
+    }
+    return String(value);
+  }
+
+  function updateScatterTooltipContent(tooltip, data){
+    if(!tooltip || !data){ return false; }
+    const doc = tooltip.ownerDocument || global.document;
+    tooltip.textContent = '';
+    tooltip.style.fontSize = '12px';
+    tooltip.style.columnCount = 1;
+    tooltip.style.columnWidth = 'auto';
+    tooltip.style.columnGap = '0';
+    tooltip.style.maxWidth = '320px';
+    tooltip.style.maxHeight = 'none';
+    tooltip.style.width = 'auto';
+    tooltip.style.height = 'auto';
+    tooltip.style.whiteSpace = 'normal';
+    tooltip.style.overflow = 'visible';
+    const fragment = doc.createDocumentFragment();
+    const appendRow = (text, bold) => {
+      if(!text){ return; }
+      const row = doc.createElement('div');
+      if(bold){ row.style.fontWeight = '600'; }
+      row.textContent = text;
+      fragment.appendChild(row);
+    };
+    if(data.label){
+      appendRow(data.label, true);
+    }
+    appendRow(`X: ${formatScatterTooltipNumber(data.x)}`);
+    appendRow(`Y: ${formatScatterTooltipNumber(data.y)}`);
+    if(data.logXValue !== undefined && data.logXValue !== data.x){
+      appendRow(`Log X: ${formatScatterTooltipNumber(data.logXValue)}`);
+    }
+    if(data.logYValue !== undefined && data.logYValue !== data.y){
+      appendRow(`Log Y: ${formatScatterTooltipNumber(data.logYValue)}`);
+    }
+    if(typeof data.series === 'string' && data.series){
+      appendRow(`Series: ${data.series}`);
+    }
+    if(data.graphType && data.graphType !== 'scatter'){
+      appendRow(`Graph: ${data.graphType.toUpperCase()}`);
+      if(typeof data.isSignificant === 'boolean'){
+        appendRow(`Significant: ${data.isSignificant ? 'Yes' : 'No'}`);
+      }
+    }
+    if(!fragment.childNodes.length){
+      return false;
+    }
+    tooltip.appendChild(fragment);
+    return true;
+  }
+
+  function getScatterEventPagePosition(evt){
+    const win = global.window;
+    const scrollX = win?.scrollX ?? win?.pageXOffset ?? global.document?.documentElement?.scrollLeft ?? 0;
+    const scrollY = win?.scrollY ?? win?.pageYOffset ?? global.document?.documentElement?.scrollTop ?? 0;
+    const pageX = typeof evt?.pageX === 'number' ? evt.pageX : ((evt?.clientX || 0) + scrollX);
+    const pageY = typeof evt?.pageY === 'number' ? evt.pageY : ((evt?.clientY || 0) + scrollY);
+    return { x: pageX, y: pageY };
+  }
+
+  function positionScatterTooltipAt(tooltip, pageX, pageY){
+    if(!tooltip){ return; }
+    const win = global.window;
+    const offset = 12;
+    let left = pageX + offset;
+    let top = pageY + offset;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    const rect = tooltip.getBoundingClientRect();
+    const scrollX = win?.scrollX ?? win?.pageXOffset ?? global.document?.documentElement?.scrollLeft ?? 0;
+    const scrollY = win?.scrollY ?? win?.pageYOffset ?? global.document?.documentElement?.scrollTop ?? 0;
+    const maxX = scrollX + (win?.innerWidth ?? rect.width) - 8;
+    const maxY = scrollY + (win?.innerHeight ?? rect.height) - 8;
+    if(rect.right > maxX){
+      left = Math.max(scrollX + 8, maxX - rect.width);
+    }
+    if(rect.bottom > maxY){
+      top = Math.max(scrollY + 8, maxY - rect.height);
+    }
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function hideScatterTooltip(reason){
+    const tooltip = getScatterTooltipElement();
+    if(!tooltip){ return; }
+    const wasVisible = tooltip.style.display !== 'none';
+    tooltip.style.display = 'none';
+    tooltip.textContent = '';
+    tooltip.style.width = 'auto';
+    tooltip.style.height = 'auto';
+    if(wasVisible){
+      scatterDebug('Debug: scatter tooltip hide',{ reason });
+    }
+  }
+
+  function showScatterTooltip(data, evt){
+    const tooltip = getScatterTooltipElement();
+    if(!tooltip){ return; }
+    if(!updateScatterTooltipContent(tooltip, data)){ return; }
+    tooltip.style.display = 'block';
+    const pos = getScatterEventPagePosition(evt);
+    positionScatterTooltipAt(tooltip, pos.x, pos.y);
+    scatterDebug('Debug: scatter tooltip show',{
+      label: data?.label || null,
+      x: data?.x ?? null,
+      y: data?.y ?? null,
+      graphType: data?.graphType || null
+    });
+  }
+
+  function handleScatterPointEnter(evt){
+    const data = evt?.currentTarget?.__scatterPointData;
+    if(!data){ return; }
+    showScatterTooltip(data, evt);
+  }
+
+  function handleScatterPointMove(evt){
+    const tooltip = getScatterTooltipElement();
+    if(!tooltip || tooltip.style.display === 'none'){ return; }
+    const pos = getScatterEventPagePosition(evt);
+    positionScatterTooltipAt(tooltip, pos.x, pos.y);
+  }
+
+  function handleScatterPointLeave(){
+    hideScatterTooltip('point-leave');
+  }
+
+  function handleScatterPlotMouseLeave(){
+    hideScatterTooltip('plot-leave');
+  }
+
+  function attachScatterPointTooltip(el, data){
+    if(!el || !data){ return; }
+    el.__scatterPointData = data;
+    el.addEventListener('mouseenter', handleScatterPointEnter);
+    el.addEventListener('mousemove', handleScatterPointMove);
+    el.addEventListener('mouseleave', handleScatterPointLeave);
+  }
+
   function attachScatterSelectAutoSize(select, label){
     if(!select){ return; }
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -1125,6 +1340,7 @@
         let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
         const token=++scatterDrawToken; // debug token for cancellation
         info('drawScatter called',{token});
+        hideScatterTooltip('draw-start');
         const fill=scatterFill.value||DEFAULT_NON_SIG_COLOR;
         const alpha=Number(scatterAlpha.value)||0;
         const borderWidthRaw=Number(scatterBorderWidth.value);
@@ -1454,6 +1670,7 @@
         svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
         svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
         chartStyle.applySvgDefaults(svg);
+        svg.addEventListener('mouseleave', handleScatterPlotMouseLeave);
         plotEl.appendChild(svg);
         if(fontControls && typeof fontControls.enableForSvg === 'function'){
           fontControls.enableForSvg(svg,{ scopeId: 'scatter' });
@@ -1677,6 +1894,15 @@
           bbox.maxX=Math.max(bbox.maxX,cxVal+dotSizePx);
           bbox.minY=Math.min(bbox.minY,cyVal-dotSizePx);
           bbox.maxY=Math.max(bbox.maxY,cyVal+dotSizePx);
+          attachScatterPointTooltip(c, {
+            label: p.label || '',
+            x: p.x,
+            y: p.y,
+            logXValue: logX ? xv : undefined,
+            logYValue: logY ? yv : undefined,
+            graphType: scatterCurrentGraphType,
+            isSignificant: typeof p.isSignificant === 'boolean' ? p.isSignificant : undefined
+          });
           frag.appendChild(c);
           if(scatterCurrentGraphType!=='scatter' && p.isSignificant && p.label){
             if(labelAnnotations.length < MAX_SIGNIFICANT_ANNOTATIONS){

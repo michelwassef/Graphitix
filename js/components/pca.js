@@ -125,6 +125,222 @@
     return PCA_DEFAULT_TITLES[key] || 'Dimension Reduction Plot';
   }
 
+  const pcaRefs = {};
+  let pcaTooltipEl = null;
+
+  function pcaTooltipDebug(label, payload){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(err){
+      // ignore toggle errors and log by default
+    }
+    debugLog(label, payload);
+  }
+
+  function ensurePcaTooltipHost(tooltip, doc){
+    if(!tooltip){ return null; }
+    const documentRef = doc || tooltip.ownerDocument || global.document;
+    if(!documentRef){ return tooltip; }
+    const parent = tooltip.parentElement;
+    if(!parent){ return tooltip; }
+    let needsDetach = false;
+    if(typeof tooltip.closest === 'function'){
+      const hiddenAncestor = tooltip.closest('[hidden]');
+      if(hiddenAncestor && hiddenAncestor !== tooltip){
+        needsDetach = true;
+      }
+    }
+    if(!needsDetach){
+      try{
+        const view = documentRef.defaultView;
+        if(view && typeof view.getComputedStyle === 'function'){
+          const parentDisplay = view.getComputedStyle(parent).display;
+          if(parentDisplay === 'none'){
+            needsDetach = true;
+          }
+        }else if(typeof parent.style?.display === 'string' && parent.style.display === 'none'){
+          needsDetach = true;
+        }
+      }catch(err){
+        pcaTooltipDebug('Debug: pca tooltip host inspection error',{ error: err?.message || String(err) });
+      }
+    }
+    const host = documentRef.body || documentRef.documentElement;
+    if(needsDetach && host && parent !== host){
+      host.appendChild(tooltip);
+      pcaTooltipDebug('Debug: pca tooltip host realigned',{ previousParent: parent.id || parent.className || parent.tagName || null });
+    }
+    return tooltip;
+  }
+
+  function getPcaTooltipElement(){
+    if(pcaTooltipEl && pcaTooltipEl.isConnected){
+      return pcaTooltipEl;
+    }
+    const doc = global.document;
+    const tooltip = pcaRefs.tooltip || doc?.getElementById?.('tooltip') || null;
+    if(tooltip){
+      ensurePcaTooltipHost(tooltip, doc);
+      pcaTooltipEl = tooltip;
+      pcaRefs.tooltip = tooltip;
+    }
+    return pcaTooltipEl;
+  }
+
+  function formatPcaTooltipNumber(value){
+    if(value === null || value === undefined){ return 'n/a'; }
+    if(typeof value === 'number'){
+      if(!Number.isFinite(value)){ return String(value); }
+      return value.toLocaleString('en-US',{ maximumSignificantDigits: 6 });
+    }
+    const numeric = Number(value);
+    if(Number.isFinite(numeric)){
+      return numeric.toLocaleString('en-US',{ maximumSignificantDigits: 6 });
+    }
+    return String(value);
+  }
+
+  function updatePcaTooltipContent(tooltip, data){
+    if(!tooltip || !data){ return false; }
+    const doc = tooltip.ownerDocument || global.document;
+    tooltip.textContent = '';
+    tooltip.style.fontSize = '12px';
+    tooltip.style.columnCount = 1;
+    tooltip.style.columnWidth = 'auto';
+    tooltip.style.columnGap = '0';
+    tooltip.style.maxWidth = '320px';
+    tooltip.style.maxHeight = 'none';
+    tooltip.style.width = 'auto';
+    tooltip.style.height = 'auto';
+    tooltip.style.whiteSpace = 'normal';
+    tooltip.style.overflow = 'visible';
+    const fragment = doc.createDocumentFragment();
+    const appendRow = (text, bold) => {
+      if(!text){ return; }
+      const row = doc.createElement('div');
+      if(bold){ row.style.fontWeight = '600'; }
+      row.textContent = text;
+      fragment.appendChild(row);
+    };
+    if(data.label){
+      appendRow(data.label, true);
+    }
+    if(data.groupName){
+      appendRow(`Group: ${data.groupName}`);
+    }
+    if(data.x !== undefined){
+      appendRow(`${data.xLabel || 'X'}: ${formatPcaTooltipNumber(data.x)}`);
+    }
+    if(data.y !== undefined){
+      appendRow(`${data.yLabel || 'Y'}: ${formatPcaTooltipNumber(data.y)}`);
+    }
+    if(data.z !== undefined){
+      appendRow(`${data.zLabel || 'Z'}: ${formatPcaTooltipNumber(data.z)}`);
+    }
+    if(Number.isFinite(data.depth)){
+      appendRow(`Depth: ${formatPcaTooltipNumber(data.depth)}`);
+    }
+    if(Number.isInteger(data.index)){
+      appendRow(`Index: ${data.index + 1}`);
+    }
+    if(!fragment.childNodes.length){
+      return false;
+    }
+    tooltip.appendChild(fragment);
+    return true;
+  }
+
+  function getPcaEventPagePosition(evt){
+    const win = global.window;
+    const scrollX = win?.scrollX ?? win?.pageXOffset ?? global.document?.documentElement?.scrollLeft ?? 0;
+    const scrollY = win?.scrollY ?? win?.pageYOffset ?? global.document?.documentElement?.scrollTop ?? 0;
+    const pageX = typeof evt?.pageX === 'number' ? evt.pageX : ((evt?.clientX || 0) + scrollX);
+    const pageY = typeof evt?.pageY === 'number' ? evt.pageY : ((evt?.clientY || 0) + scrollY);
+    return { x: pageX, y: pageY };
+  }
+
+  function positionPcaTooltipAt(tooltip, pageX, pageY){
+    if(!tooltip){ return; }
+    const win = global.window;
+    const offset = 12;
+    let left = pageX + offset;
+    let top = pageY + offset;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    const rect = tooltip.getBoundingClientRect();
+    const scrollX = win?.scrollX ?? win?.pageXOffset ?? global.document?.documentElement?.scrollLeft ?? 0;
+    const scrollY = win?.scrollY ?? win?.pageYOffset ?? global.document?.documentElement?.scrollTop ?? 0;
+    const maxX = scrollX + (win?.innerWidth ?? rect.width) - 8;
+    const maxY = scrollY + (win?.innerHeight ?? rect.height) - 8;
+    if(rect.right > maxX){
+      left = Math.max(scrollX + 8, maxX - rect.width);
+    }
+    if(rect.bottom > maxY){
+      top = Math.max(scrollY + 8, maxY - rect.height);
+    }
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function hidePcaTooltip(reason){
+    const tooltip = getPcaTooltipElement();
+    if(!tooltip){ return; }
+    const wasVisible = tooltip.style.display !== 'none';
+    tooltip.style.display = 'none';
+    tooltip.textContent = '';
+    tooltip.style.width = 'auto';
+    tooltip.style.height = 'auto';
+    if(wasVisible){
+      pcaTooltipDebug('Debug: pca tooltip hide',{ reason });
+    }
+  }
+
+  function showPcaTooltip(data, evt){
+    const tooltip = getPcaTooltipElement();
+    if(!tooltip){ return; }
+    if(!updatePcaTooltipContent(tooltip, data)){ return; }
+    tooltip.style.display = 'block';
+    const pos = getPcaEventPagePosition(evt);
+    positionPcaTooltipAt(tooltip, pos.x, pos.y);
+    pcaTooltipDebug('Debug: pca tooltip show',{
+      label: data?.label || null,
+      x: data?.x ?? null,
+      y: data?.y ?? null,
+      z: data?.z ?? null
+    });
+  }
+
+  function handlePcaPointEnter(evt){
+    const data = evt?.currentTarget?.__pcaPointData;
+    if(!data){ return; }
+    showPcaTooltip(data, evt);
+  }
+
+  function handlePcaPointMove(evt){
+    const tooltip = getPcaTooltipElement();
+    if(!tooltip || tooltip.style.display === 'none'){ return; }
+    const pos = getPcaEventPagePosition(evt);
+    positionPcaTooltipAt(tooltip, pos.x, pos.y);
+  }
+
+  function handlePcaPointLeave(){
+    hidePcaTooltip('point-leave');
+  }
+
+  function handlePcaPlotMouseLeave(){
+    hidePcaTooltip('plot-leave');
+  }
+
+  function attachPcaPointTooltip(el, data){
+    if(!el || !data){ return; }
+    el.__pcaPointData = data;
+    el.addEventListener('mouseenter', handlePcaPointEnter);
+    el.addEventListener('mousemove', handlePcaPointMove);
+    el.addEventListener('mouseleave', handlePcaPointLeave);
+  }
+
   function debugLog(){
     if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
       return;
@@ -2059,6 +2275,7 @@
       pcaState.rotationPendingLogged = false;
       const debugStamp = Date.now();
       console.log('drawPca called', {debugStamp}); // Debug: draw invocation marker
+      hidePcaTooltip('draw-start');
 
       const method = (pcaMethod.value || 'pca').toLowerCase();
       const previousMethod = typeof pcaState.lastMethod === 'string' ? pcaState.lastMethod : 'pca';
@@ -2914,7 +3131,10 @@
         const svg3 = reuse3dSvg ? existingSvg : document.createElementNS(NS, 'svg');
         if(!reuse3dSvg){
           svg3.setAttribute('id', 'pcaSvg');
+          svg3.addEventListener('mouseleave', handlePcaPlotMouseLeave);
           plotEl.appendChild(svg3);
+        } else {
+          svg3.addEventListener('mouseleave', handlePcaPlotMouseLeave);
         }
         svg3.setAttribute('width', String(W3));
         svg3.setAttribute('height', String(H3));
@@ -3106,7 +3326,8 @@
             y: base.y,
             depth: base.depth,
             label: points3d[idx].label,
-            index: points3d[idx].index
+            index: points3d[idx].index,
+            original: points3d[idx]
           };
         }).sort((a,b)=>a.depth-b.depth);
         projectedPoints.forEach(pt => {
@@ -3114,7 +3335,7 @@
           const style = (groupMeta && Number.isInteger(assignment)) ? groupMeta.styleByIndex?.[assignment] : null;
           const color = style?.color || (pt.label ? (pcaLabelColors[pt.label] || DEFAULT_SCATTER_COLORS[0]) : fill);
           const shape = style?.shape || 'circle';
-          drawShape(add3, shape, {
+          const pointNode = drawShape(add3, shape, {
             cx: pt.x,
             cy: pt.y,
             radius: dotSizePx,
@@ -3123,6 +3344,24 @@
             strokeWidth: borderWidthPx,
             opacity: 1 - alpha
           });
+          if(pointNode){
+            const groupLabel3d = Number.isInteger(assignment)
+              ? (style?.label || groupMeta?.entries?.[assignment]?.label || '')
+              : (style?.label || '');
+            const original = pt.original || {};
+            attachPcaPointTooltip(pointNode, {
+              label: pt.label || '',
+              groupName: groupLabel3d,
+              x: original.x,
+              y: original.y,
+              z: original.z,
+              xLabel: pcaXLabelText,
+              yLabel: pcaYLabelText,
+              zLabel: pcaZLabelText,
+              depth: pt.depth,
+              index: pt.index
+            });
+          }
         });
         const legendX3=margin3.left+plotW3+legendLayout.legendGapPx;
         const legendSpacing3=Math.max(legendLayout.renderer.rowGap, Math.round(fs*0.35));
@@ -3212,6 +3451,7 @@
       svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
       svg.dataset.viewMode = effectiveViewMode;
       chartStyle.applySvgDefaults(svg);
+      svg.addEventListener('mouseleave', handlePcaPlotMouseLeave);
       plotEl.appendChild(svg);
       if(fontControls && typeof fontControls.enableForSvg === 'function'){
         fontControls.enableForSvg(svg,{ scopeId: 'pca' });
@@ -3554,7 +3794,7 @@
         const style = (groupMeta && Number.isInteger(assignment)) ? groupMeta.styleByIndex?.[assignment] : null;
         const color = style?.color || (pt.label ? (pcaLabelColors[pt.label] || DEFAULT_SCATTER_COLORS[0]) : fill);
         const shape = style?.shape || 'circle';
-        drawShape(add, shape, {
+        const pointNode = drawShape(add, shape, {
           cx,
           cy,
           radius: dotSizePx,
@@ -3563,6 +3803,20 @@
           strokeWidth: borderWidthPx,
           opacity: 1 - alpha,
         });
+        if(pointNode){
+          const groupLabel = Number.isInteger(assignment)
+            ? (style?.label || groupMeta?.entries?.[assignment]?.label || '')
+            : (style?.label || '');
+          attachPcaPointTooltip(pointNode, {
+            label: pt.label || '',
+            groupName: groupLabel,
+            x: pt.x,
+            y: pt.y,
+            xLabel: pcaXLabelText,
+            yLabel: pcaYLabelText,
+            index: pt.index
+          });
+        }
       });
 
       const legendX=margin.left+plotW+legendLayout.legendGapPx;
