@@ -52,6 +52,221 @@
     return WHISKER_RULE_META[rule] || WHISKER_RULE_META[DEFAULT_WHISKER_RULE];
   }
 
+  const boxRefs = {};
+  let boxTooltipEl = null;
+
+  function boxDebug(label, payload){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(err){
+      // ignore toggle errors and log by default
+    }
+    console.debug(label, payload);
+  }
+
+  function ensureBoxTooltipHost(tooltip, doc){
+    if(!tooltip){ return null; }
+    const documentRef = doc || tooltip.ownerDocument || global.document;
+    if(!documentRef){ return tooltip; }
+    const parent = tooltip.parentElement;
+    if(!parent){ return tooltip; }
+    let needsDetach = false;
+    if(typeof tooltip.closest === 'function'){
+      const hiddenAncestor = tooltip.closest('[hidden]');
+      if(hiddenAncestor && hiddenAncestor !== tooltip){
+        needsDetach = true;
+      }
+    }
+    if(!needsDetach){
+      try{
+        const view = documentRef.defaultView;
+        if(view && typeof view.getComputedStyle === 'function'){
+          const parentDisplay = view.getComputedStyle(parent).display;
+          if(parentDisplay === 'none'){
+            needsDetach = true;
+          }
+        }else if(typeof parent.style?.display === 'string' && parent.style.display === 'none'){
+          needsDetach = true;
+        }
+      }catch(err){
+        boxDebug('Debug: box tooltip host inspection error',{ error: err?.message || String(err) });
+      }
+    }
+    const host = documentRef.body || documentRef.documentElement;
+    if(needsDetach && host && parent !== host){
+      host.appendChild(tooltip);
+      boxDebug('Debug: box tooltip host realigned',{ previousParent: parent.id || parent.className || parent.tagName || null });
+    }
+    return tooltip;
+  }
+
+  function getBoxTooltipElement(){
+    if(boxTooltipEl && boxTooltipEl.isConnected){
+      return boxTooltipEl;
+    }
+    const doc = global.document;
+    const tooltip = boxRefs.tooltip || doc?.getElementById?.('tooltip') || null;
+    if(tooltip){
+      ensureBoxTooltipHost(tooltip, doc);
+      boxTooltipEl = tooltip;
+      boxRefs.tooltip = tooltip;
+    }
+    return boxTooltipEl;
+  }
+
+  function formatBoxTooltipNumber(value){
+    if(value === null || value === undefined){ return 'n/a'; }
+    if(typeof value === 'number'){
+      if(!Number.isFinite(value)){ return String(value); }
+      return value.toLocaleString('en-US',{ maximumSignificantDigits: 6 });
+    }
+    const numeric = Number(value);
+    if(Number.isFinite(numeric)){
+      return numeric.toLocaleString('en-US',{ maximumSignificantDigits: 6 });
+    }
+    return String(value);
+  }
+
+  function updateBoxTooltipContent(tooltip, data){
+    if(!tooltip || !data){ return false; }
+    const doc = tooltip.ownerDocument || global.document;
+    tooltip.textContent = '';
+    tooltip.style.fontSize = '12px';
+    tooltip.style.columnCount = 1;
+    tooltip.style.columnWidth = 'auto';
+    tooltip.style.columnGap = '0';
+    tooltip.style.maxWidth = '320px';
+    tooltip.style.maxHeight = 'none';
+    tooltip.style.width = 'auto';
+    tooltip.style.height = 'auto';
+    tooltip.style.whiteSpace = 'normal';
+    tooltip.style.overflow = 'visible';
+    const fragment = doc.createDocumentFragment();
+    const appendRow = (text, bold) => {
+      if(!text){ return; }
+      const row = doc.createElement('div');
+      if(bold){ row.style.fontWeight = '600'; }
+      row.textContent = text;
+      fragment.appendChild(row);
+    };
+    if(data.seriesName){
+      appendRow(data.seriesName, true);
+    }
+    if(data.categoryName && data.categoryName !== data.seriesName){
+      appendRow(`Category: ${data.categoryName}`);
+    }
+    if(data.groupName && data.groupName !== data.seriesName){
+      appendRow(`Group: ${data.groupName}`);
+    }
+    if(typeof data.label === 'string' && data.label){
+      appendRow(`Label: ${data.label}`);
+    }
+    if(Number.isInteger(data.index)){
+      appendRow(`Point #${data.index + 1}`);
+    }
+    if(data.value !== undefined){
+      appendRow(`Value: ${formatBoxTooltipNumber(data.value)}`);
+    }
+    if(Number.isFinite(data.rawValue) && data.rawValue !== data.value){
+      appendRow(`Raw: ${formatBoxTooltipNumber(data.rawValue)}`);
+    }
+    if(!fragment.childNodes.length){
+      return false;
+    }
+    tooltip.appendChild(fragment);
+    return true;
+  }
+
+  function getBoxEventPagePosition(evt){
+    const win = global.window;
+    const scrollX = win?.scrollX ?? win?.pageXOffset ?? global.document?.documentElement?.scrollLeft ?? 0;
+    const scrollY = win?.scrollY ?? win?.pageYOffset ?? global.document?.documentElement?.scrollTop ?? 0;
+    const pageX = typeof evt?.pageX === 'number' ? evt.pageX : ((evt?.clientX || 0) + scrollX);
+    const pageY = typeof evt?.pageY === 'number' ? evt.pageY : ((evt?.clientY || 0) + scrollY);
+    return { x: pageX, y: pageY };
+  }
+
+  function positionBoxTooltipAt(tooltip, pageX, pageY){
+    if(!tooltip){ return; }
+    const win = global.window;
+    const offset = 12;
+    let left = pageX + offset;
+    let top = pageY + offset;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    const rect = tooltip.getBoundingClientRect();
+    const scrollX = win?.scrollX ?? win?.pageXOffset ?? global.document?.documentElement?.scrollLeft ?? 0;
+    const scrollY = win?.scrollY ?? win?.pageYOffset ?? global.document?.documentElement?.scrollTop ?? 0;
+    const maxX = scrollX + (win?.innerWidth ?? rect.width) - 8;
+    const maxY = scrollY + (win?.innerHeight ?? rect.height) - 8;
+    if(rect.right > maxX){
+      left = Math.max(scrollX + 8, maxX - rect.width);
+    }
+    if(rect.bottom > maxY){
+      top = Math.max(scrollY + 8, maxY - rect.height);
+    }
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function hideBoxTooltip(reason){
+    const tooltip = getBoxTooltipElement();
+    if(!tooltip){ return; }
+    const wasVisible = tooltip.style.display !== 'none';
+    tooltip.style.display = 'none';
+    tooltip.textContent = '';
+    tooltip.style.width = 'auto';
+    tooltip.style.height = 'auto';
+    if(wasVisible){
+      boxDebug('Debug: box tooltip hide',{ reason });
+    }
+  }
+
+  function showBoxTooltip(data, evt){
+    const tooltip = getBoxTooltipElement();
+    if(!tooltip){ return; }
+    if(!updateBoxTooltipContent(tooltip, data)){ return; }
+    tooltip.style.display = 'block';
+    const pos = getBoxEventPagePosition(evt);
+    positionBoxTooltipAt(tooltip, pos.x, pos.y);
+    boxDebug('Debug: box tooltip show',{
+      series: data?.seriesName || null,
+      category: data?.categoryName || null,
+      value: data?.value ?? null
+    });
+  }
+
+  function handleBoxPointEnter(evt){
+    const data = evt?.currentTarget?.__boxPointData;
+    if(!data){ return; }
+    showBoxTooltip(data, evt);
+  }
+
+  function handleBoxPointMove(evt){
+    const tooltip = getBoxTooltipElement();
+    if(!tooltip || tooltip.style.display === 'none'){ return; }
+    const pos = getBoxEventPagePosition(evt);
+    positionBoxTooltipAt(tooltip, pos.x, pos.y);
+  }
+
+  function handleBoxPointLeave(){
+    hideBoxTooltip('point-leave');
+  }
+
+  function handleBoxPlotMouseLeave(){
+    hideBoxTooltip('plot-leave');
+  }
+
+  function attachBoxPointTooltip(el, data){
+    if(!el || !data){ return; }
+    el.__boxPointData = data;
+    el.addEventListener('mouseenter', handleBoxPointEnter);
+    el.addEventListener('mousemove', handleBoxPointMove);
+    el.addEventListener('mouseleave', handleBoxPointLeave);
+  }
+
   function clampWhiskerMultiplier(value){
     const numeric=Number(value);
     if(!Number.isFinite(numeric) || numeric<=0){
@@ -5444,6 +5659,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   function draw(){
     const token = ++state.drawToken;
     console.log('boxplot draw start',{token});
+    hideBoxTooltip('draw-start');
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     ensureWhiskerState();
     const whiskerRuleCurrent = state.whiskerRule;
@@ -5834,6 +6050,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('font-family', chartStyle.FONT_FAMILY);
     chartStyle.applySvgDefaults(svg);
+    svg.addEventListener('mouseleave', handleBoxPlotMouseLeave);
     els.plotDiv.appendChild(svg);
     const doc = svg.ownerDocument || global.document;
     const gridLayer = doc?.createElementNS ? doc.createElementNS(NS, 'g') : null;
@@ -6484,6 +6701,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const t = traces[i];
         const vals = [...t.y].sort((a, b) => a - b);
         if(!vals.length) continue;
+        const tooltipSeriesName = t?.name || `Trace ${i + 1}`;
+        const tooltipCategoryName = t?.categoryName || axisLabels?.[i] || tooltipSeriesName;
+        const tooltipGroupName = t?.groupName || null;
         const cx = xCenter(t, i);
         const localBand = localBandWidthForTrace();
         const boxW = Math.max(6, Math.min(60, localBand * 0.6));
@@ -6699,6 +6919,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             circle.setAttribute('fill', fillColor);
             circle.setAttribute('stroke', borderColor);
             circle.setAttribute('fill-opacity', 0.7);
+            attachBoxPointTooltip(circle, {
+              seriesName: tooltipSeriesName,
+              categoryName: tooltipCategoryName,
+              groupName: tooltipGroupName,
+              value: entry.raw,
+              rawValue: entry.raw,
+              index: entry.index
+            });
             frag.appendChild(circle);
           });
           const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
@@ -6754,6 +6982,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               c.setAttribute('fill', fillColor);
               c.setAttribute('stroke', borderColor);
               annotateWithTitle(c, outlierAnnotation);
+              attachBoxPointTooltip(c, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: v,
+                rawValue: v,
+                index: ptIdx
+              });
               frag.appendChild(c);
               ptIdx++;
               if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
@@ -6778,6 +7014,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               if(pointMode === 'overlay'){
                 c.setAttribute('fill-opacity', 0.6);
               }
+              attachBoxPointTooltip(c, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: v,
+                rawValue: v,
+                index: ptIdx
+              });
               frag.appendChild(c);
               ptIdx++;
               if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
@@ -6987,6 +7231,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const t = traces[i];
         const vals = [...t.y].sort((a, b) => a - b);
         if(!vals.length) continue;
+        const tooltipSeriesName = t?.name || `Trace ${i + 1}`;
+        const tooltipCategoryName = t?.categoryName || axisLabels?.[i] || tooltipSeriesName;
+        const tooltipGroupName = t?.groupName || null;
         const cy = categoryCenter(t, i);
         const localBand = localBandHeightForTrace();
         const boxH = Math.max(6, Math.min(60, localBand * 0.6));
@@ -7221,6 +7468,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             circle.setAttribute('fill', fillColor);
             circle.setAttribute('stroke', borderColor);
             circle.setAttribute('fill-opacity', 0.7);
+            attachBoxPointTooltip(circle, {
+              seriesName: tooltipSeriesName,
+              categoryName: tooltipCategoryName,
+              groupName: tooltipGroupName,
+              value: entry.raw,
+              rawValue: entry.raw,
+              index: entry.index
+            });
             frag.appendChild(circle);
           });
           const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
@@ -7278,6 +7533,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               c.setAttribute('fill', fillColor);
               c.setAttribute('stroke', borderColor);
               annotateWithTitle(c, outlierAnnotation);
+              attachBoxPointTooltip(c, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: v,
+                rawValue: v,
+                index: ptIdx
+              });
               frag.appendChild(c);
               ptIdx++;
               if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
@@ -7302,6 +7565,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               if(pointMode === 'overlay'){
                 c.setAttribute('fill-opacity', 0.6);
               }
+              attachBoxPointTooltip(c, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: v,
+                rawValue: v,
+                index: ptIdx
+              });
               frag.appendChild(c);
               ptIdx++;
               if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
