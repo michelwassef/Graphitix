@@ -2844,6 +2844,148 @@
     refs.originMode=document.getElementById('lineOriginMode');
     refs.originX=document.getElementById('lineOriginX');
     refs.originY=document.getElementById('lineOriginY');
+    let lineLogWarningEl=null;
+    const lineDebugEnabled=()=>typeof Shared.isDebugEnabled==='function'&&Shared.isDebugEnabled();
+    function ensureLineLogWarningElement(){
+      if(lineLogWarningEl&&lineLogWarningEl.isConnected){
+        return lineLogWarningEl;
+      }
+      const host=refs.logY?.closest('fieldset')||refs.logX?.closest('fieldset');
+      if(!host){
+        if(lineDebugEnabled()){
+          console.debug('Debug: line log warning host unavailable');
+        }
+        return null;
+      }
+      const el=global.document.createElement('div');
+      el.className='config-panel__warning';
+      el.setAttribute('role','alert');
+      el.setAttribute('aria-live','polite');
+      el.hidden=true;
+      host.appendChild(el);
+      lineLogWarningEl=el;
+      if(lineDebugEnabled()){
+        console.debug('Debug: line log warning element created');
+      }
+      return lineLogWarningEl;
+    }
+    function showLineLogWarning(message){
+      const el=ensureLineLogWarningElement();
+      if(!el){
+        return;
+      }
+      el.textContent=message;
+      el.hidden=false;
+      if(lineDebugEnabled()){
+        console.debug('Debug: line log warning shown',{ message });
+      }
+    }
+    function clearLineLogWarning(){
+      if(!lineLogWarningEl){
+        return;
+      }
+      lineLogWarningEl.textContent='';
+      lineLogWarningEl.hidden=true;
+      if(lineDebugEnabled()){
+        console.debug('Debug: line log warning cleared');
+      }
+    }
+    function validateLineLogAxis(axis){
+      const axisLabel=axis==='x'?'X':'Y';
+      const minInput=axis==='x'?refs.xMin:refs.yMin;
+      const maxInput=axis==='x'?refs.xMax:refs.yMax;
+      const originInput=axis==='x'?refs.originX:refs.originY;
+      const manualMin=parseFloat(minInput?.value);
+      if(Number.isFinite(manualMin)&&manualMin<=0){
+        const message=`Cannot enable log scale on the ${axisLabel} axis because the minimum value (${manualMin}) is not positive.`;
+        if(lineDebugEnabled()){
+          console.debug('Debug: line log axis blocked by manual minimum',{ axis, value: manualMin });
+        }
+        return{allowed:false,reason:'axis-limit',value:manualMin,message};
+      }
+      const manualMax=parseFloat(maxInput?.value);
+      if(Number.isFinite(manualMax)&&manualMax<=0){
+        const message=`Cannot enable log scale on the ${axisLabel} axis because the maximum value (${manualMax}) is not positive.`;
+        if(lineDebugEnabled()){
+          console.debug('Debug: line log axis blocked by manual maximum',{ axis, value: manualMax });
+        }
+        return{allowed:false,reason:'axis-limit',value:manualMax,message};
+      }
+      const originModeValue=refs.originMode?.value;
+      if(originModeValue==='custom'){
+        const originVal=parseFloat(originInput?.value);
+        if(Number.isFinite(originVal)&&originVal<=0){
+          const message=`Cannot enable log scale on the ${axisLabel} axis because the custom origin (${originVal}) is not positive.`;
+          if(lineDebugEnabled()){
+            console.debug('Debug: line log axis blocked by custom origin',{ axis, value: originVal });
+          }
+          return{allowed:false,reason:'origin',value:originVal,message};
+        }
+      }
+      const analysis=lineHot?.getAnalysisData?.()||Shared.hot.getAnalysisData(lineHot);
+      const dataMatrix=analysis?.data||[];
+      const rowCount=analysis?.rowCount||dataMatrix.length;
+      const colCount=analysis?.colCount||(dataMatrix[0]?.length||0);
+      if(!rowCount||!colCount){
+        if(lineDebugEnabled()){
+          console.debug('Debug: line log axis validation skipped (empty data)',{ axis, rowCount, colCount });
+        }
+        return{allowed:true};
+      }
+      const header=Array.isArray(dataMatrix[0])?dataMatrix[0]:[];
+      let xIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='x');
+      if(xIndex<0){
+        xIndex=0;
+      }
+      if(analysis.isColumnExcluded?.(xIndex)){
+        if(lineDebugEnabled()){
+          console.debug('Debug: line log axis validation skipped because X column is excluded',{ axis, xIndex });
+        }
+        if(axis==='x'){
+          return{allowed:false,reason:'excluded',message:'Restore the X axis column before enabling log scale.'};
+        }
+      }
+      for(let r=1;r<rowCount;r+=1){
+        if(analysis.isRowExcluded?.(r)){
+          continue;
+        }
+        const row=dataMatrix[r]||[];
+        if(axis==='x'){
+          const value=parseFloat(row[xIndex]);
+          if(Number.isFinite(value)&&value<=0){
+            const formatted=value===0?'0':value.toPrecision(4);
+            const message=`Cannot enable log scale on the X axis because data includes ${formatted} at row ${r+1}.`;
+            if(lineDebugEnabled()){
+              console.debug('Debug: line log axis blocked by X data',{ row:r, value });
+            }
+            return{allowed:false,reason:'data',value,message};
+          }
+        }else{
+          for(let c=0;c<colCount;c+=1){
+            if(c===xIndex||analysis.isColumnExcluded?.(c)){
+              continue;
+            }
+            const cell=row[c];
+            if(cell===null||typeof cell==='undefined'||cell===''){
+              continue;
+            }
+            const value=parseFloat(cell);
+            if(Number.isFinite(value)&&value<=0){
+              const formatted=value===0?'0':value.toPrecision(4);
+              const message=`Cannot enable log scale on the Y axis because data includes ${formatted} at row ${r+1}.`;
+              if(lineDebugEnabled()){
+                console.debug('Debug: line log axis blocked by Y data',{ row:r, col:c, value });
+              }
+              return{allowed:false,reason:'data',value,message};
+            }
+          }
+        }
+      }
+      if(lineDebugEnabled()){
+        console.debug('Debug: line log axis validation passed',{ axis });
+      }
+      return{allowed:true};
+    }
     const lineAutoSizeTargets=[
       refs.exampleSelect,
       refs.regressionMode,
@@ -3140,8 +3282,28 @@
     });
     refs.showGrid?.addEventListener('change',()=>{ console.debug('Debug: line showGrid change',{checked:refs.showGrid.checked}); scheduleLineDraw(); });
     refs.showFrame?.addEventListener('change',()=>{ console.debug('Debug: line showFrame change',{checked:refs.showFrame.checked}); scheduleLineDraw(); });
-    refs.logX?.addEventListener('change',()=>{ scheduleLineDraw(); });
-    refs.logY?.addEventListener('change',()=>{ scheduleLineDraw(); });
+    const handleLineLogToggle=(axis,checkbox)=>{
+      checkbox?.addEventListener('change',()=>{
+        const enabling=!!checkbox.checked;
+        if(enabling){
+          const validation=validateLineLogAxis(axis);
+          if(!validation.allowed){
+            checkbox.checked=false;
+            const warningMessage=validation.message||`Cannot enable log scale on the ${axis==='x'?'X':'Y'} axis while non-positive values are present.`;
+            showLineLogWarning(warningMessage);
+            console.warn('line log axis blocked',{ axis, reason: validation.reason, value: validation.value });
+            return;
+          }
+          clearLineLogWarning();
+        }else{
+          clearLineLogWarning();
+        }
+        console.debug('Debug: line log toggle change',{ id: checkbox.id, checked: checkbox.checked });
+        scheduleLineDraw();
+      });
+    };
+    handleLineLogToggle('x',refs.logX);
+    handleLineLogToggle('y',refs.logY);
     [refs.xMin,refs.xMax,refs.yMin,refs.yMax,refs.originMode,refs.originX,refs.originY].forEach(el=>{
       el?.addEventListener('input',()=>{ scheduleLineDraw(); });
     });
