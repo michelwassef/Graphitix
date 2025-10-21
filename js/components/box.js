@@ -39,6 +39,115 @@
   const ANN_LEVEL_GAP=25;
   const DEFAULT_CORRECTION='bonferroni';
   const ASSUMPTION_ALPHA=0.05;
+  const DEFAULT_WHISKER_RULE='iqr15';
+  const DEFAULT_WHISKER_MULTIPLIER=1.5;
+  const WHISKER_RULE_META=Object.freeze({
+    iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
+    iqr3:{ key:'iqr3', mode:'iqr', multiplier:3, label:'3×IQR' },
+    sd:{ key:'sd', mode:'sd', multiplier:1, label:'Mean ± SD' },
+    custom:{ key:'custom', mode:'iqr', multiplier:null, label:'Custom multiplier' }
+  });
+
+  function resolveWhiskerMeta(rule){
+    return WHISKER_RULE_META[rule] || WHISKER_RULE_META[DEFAULT_WHISKER_RULE];
+  }
+
+  function clampWhiskerMultiplier(value){
+    const numeric=Number(value);
+    if(!Number.isFinite(numeric) || numeric<=0){
+      return DEFAULT_WHISKER_MULTIPLIER;
+    }
+    return Math.max(0.1, numeric);
+  }
+
+  function formatWhiskerAnnotation(meta,multiplier){
+    if(!meta || meta.key===DEFAULT_WHISKER_RULE){
+      return null;
+    }
+    const resolvedMultiplier=Number.isFinite(multiplier)?multiplier:(meta.multiplier??DEFAULT_WHISKER_MULTIPLIER);
+    if(meta.mode==='sd'){
+      return `Whiskers use mean ± ${resolvedMultiplier.toLocaleString('en-US',{ maximumFractionDigits:2 })} SD.`;
+    }
+    if(meta.key==='custom'){
+      return `Whiskers use custom ${resolvedMultiplier.toLocaleString('en-US',{ maximumFractionDigits:2 })}×IQR fences.`;
+    }
+    return `${resolvedMultiplier.toLocaleString('en-US',{ maximumFractionDigits:2 })}×IQR whiskers applied.`;
+  }
+
+  function computeWhiskerFences(context){
+    const { q1, q3, iqr, mean, sd, rule, customMultiplier, debugEnabled, meta: metaInput } = context || {};
+    const meta=metaInput || resolveWhiskerMeta(rule);
+    let lowerFence=q1;
+    let upperFence=q3;
+    let multiplierUsed=meta.multiplier;
+    if(meta.mode==='sd'){
+      const deviation=(Number.isFinite(sd)?sd:0)*(meta.multiplier||1);
+      multiplierUsed=meta.multiplier||1;
+      lowerFence=(Number.isFinite(mean)?mean:0)-deviation;
+      upperFence=(Number.isFinite(mean)?mean:0)+deviation;
+    }else{
+      const multiplier=meta.multiplier!=null?meta.multiplier:clampWhiskerMultiplier(customMultiplier);
+      const spread=Number.isFinite(iqr)?iqr:0;
+      lowerFence=(Number.isFinite(q1)?q1:0)-multiplier*spread;
+      upperFence=(Number.isFinite(q3)?q3:0)+multiplier*spread;
+      multiplierUsed=multiplier;
+    }
+    if(debugEnabled){
+      console.debug('Debug: box whisker fences resolved',{ rule: meta.key, lowerFence, upperFence, multiplierUsed });
+    }
+    const annotation=formatWhiskerAnnotation(meta,multiplierUsed);
+    return { lowerFence, upperFence, meta, multiplierUsed, annotation };
+  }
+
+  function resolveWhiskerExtents(sortedValues, fences, options){
+    const values = Array.isArray(sortedValues) ? sortedValues : [];
+    const lowerFence = fences?.lowerFence;
+    const upperFence = fences?.upperFence;
+    const q1 = fences?.q1;
+    const q3 = fences?.q3;
+    const debugEnabled = !!options?.debugEnabled;
+    const label = options?.label || 'trace';
+    const orientation = options?.orientation || 'vertical';
+    const token = options?.token;
+    const outliers = [];
+    let wMin = Infinity;
+    let wMax = -Infinity;
+    let iterCount = 0;
+    for(const v of values){
+      if(v < lowerFence || v > upperFence){
+        outliers.push(v);
+      }else{
+        if(v < wMin) wMin = v;
+        if(v > wMax) wMax = v;
+      }
+      iterCount += 1;
+      if(debugEnabled && iterCount % 10000 === 0){
+        console.debug('Debug: box whisker iterate',{ label, orientation, iterCount, lowerFence, upperFence, token });
+      }
+    }
+    const fallbackMinSource = Number.isFinite(lowerFence)
+      ? lowerFence
+      : (values.length ? values[0] : (Number.isFinite(q1) ? q1 : 0));
+    const fallbackMaxSource = Number.isFinite(upperFence)
+      ? upperFence
+      : (values.length ? values[values.length - 1] : (Number.isFinite(q3) ? q3 : fallbackMinSource));
+    const fallbackApplied = !Number.isFinite(wMin) || !Number.isFinite(wMax);
+    if(!Number.isFinite(wMin)){
+      wMin = fallbackMinSource;
+    }
+    if(!Number.isFinite(wMax)){
+      wMax = fallbackMaxSource;
+    }
+    if(wMin > wMax){
+      const mid = (wMin + wMax) / 2;
+      wMin = mid;
+      wMax = mid;
+    }
+    if(debugEnabled){
+      console.debug('Debug: box whisker extents',{ label, orientation, wMin, wMax, outlierCount: outliers.length, fallbackApplied, token });
+    }
+    return { wMin, wMax, outliers };
+  }
 
   function computeSeparatedCategoryUnits(groupIndices){
     if(!Array.isArray(groupIndices) || !groupIndices.length){
@@ -1338,7 +1447,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT } };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER };
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
@@ -1645,6 +1754,9 @@
     els.boxLogScale=global.$('#boxLogScale');
     els.boxLogScaleLabel=global.$('#boxLogScaleLabel');
     els.boxFlipAxes=global.$('#boxFlipAxes');
+    els.boxWhiskerRule=global.$('#boxWhiskerRule');
+    els.boxWhiskerCustom=global.$('#boxWhiskerCustomMultiplier');
+    els.boxWhiskerCustomLabel=global.$('#boxWhiskerCustomLabel');
     els.boxGraphType=global.$('#boxGraphType');
     els.boxLayoutModeCtl=global.$('#boxLayoutModeCtl');
     els.boxLayoutMode=global.$('#boxLayoutMode');
@@ -1674,17 +1786,52 @@
     els.boxColorPerBox=global.$('#boxColorPerBox');
     els.boxYMin=global.$('#boxYMin');
     els.boxYMax=global.$('#boxYMax');
+    ensureWhiskerState();
+    if(els.boxWhiskerRule){
+      els.boxWhiskerRule.value = state.whiskerRule;
+    }
+    if(els.boxWhiskerCustom){
+      els.boxWhiskerCustom.value = String(state.whiskerCustomMultiplier);
+    }
+    syncWhiskerControlsFromState();
     const boxAutoSizeTargets=[
       els.boxTableFormat,
       els.boxGraphType,
       els.boxLayoutMode,
       els.boxIndividualSummary,
       els.boxErrorMode,
-      els.boxPointMode
+      els.boxPointMode,
+      els.boxWhiskerRule
     ];
     boxAutoSizeTargets.filter(Boolean).forEach(select=>{
       attachBoxSelectAutoSize(select, 'box');
     });
+  }
+
+  function ensureWhiskerState(ruleCandidate){
+    const meta=resolveWhiskerMeta(ruleCandidate || state.whiskerRule);
+    state.whiskerRule=meta.key;
+    state.whiskerCustomMultiplier=clampWhiskerMultiplier(state.whiskerCustomMultiplier);
+    return meta;
+  }
+
+  function syncWhiskerControlsFromState(){
+    const debugActive=typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled();
+    ensureWhiskerState();
+    if(els.boxWhiskerRule && els.boxWhiskerRule.value!==state.whiskerRule){
+      els.boxWhiskerRule.value=state.whiskerRule;
+    }
+    const showCustom=state.whiskerRule==='custom';
+    if(els.boxWhiskerCustomLabel){
+      els.boxWhiskerCustomLabel.style.display=showCustom?'':'none';
+    }
+    if(els.boxWhiskerCustom){
+      els.boxWhiskerCustom.value=String(state.whiskerCustomMultiplier);
+      els.boxWhiskerCustom.disabled=!showCustom;
+    }
+    if(debugActive){
+      console.debug('Debug: box whisker controls synced',{ rule: state.whiskerRule, multiplier: state.whiskerCustomMultiplier });
+    }
   }
 
   // PART: INIT_TABLE
@@ -1916,7 +2063,20 @@
     });
   
     const loadExampleBtn=global.$('#boxLoadExample'), importBtn=global.$('#boxImport'), fileInput=global.$('#boxFile');
-    const exampleSingle=[['Control','Treatment A','Treatment B'],[12,15,14],[14,17,15],[11,14,13],[13,16,16],[15,18,18],[16,19,17],[14,16,15],[13,15,14],[12,14,13],[15,17,16]];
+    const exampleSingle=[
+      ['Control','Treatment A','Treatment B'],
+      [12,15,14],
+      [14,17,15],
+      [11,14,13],
+      [13,16,16],
+      [15,18,18],
+      [16,19,17],
+      [14,16,15],
+      [13,15,14],
+      [12,14,13],
+      [15,17,16],
+      [17,20,21]
+    ];
     const exampleGrouped=[['Wild type','Knock-out A','Knock-out B','Wild type','Knock-out A','Knock-out B'],[23,24,21,67,29,65],[21,23,25,79,31,69],[19,25,27,98,32,71],[22,26,24,88,30,67]];
     console.debug('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
     loadExampleBtn.addEventListener('click',()=>{
@@ -2236,6 +2396,33 @@
       });
     }
     updateGraphTypeControls();
+    if(els.boxWhiskerRule){
+      els.boxWhiskerRule.addEventListener('change',()=>{
+        const meta=ensureWhiskerState(els.boxWhiskerRule.value);
+        state.whiskerRule=meta.key;
+        syncWhiskerControlsFromState();
+        if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
+          console.debug('Debug: box whisker rule change',{ rule: state.whiskerRule });
+        }
+        state.scheduleDraw();
+      });
+    }
+    if(els.boxWhiskerCustom){
+      const handleCustomMultiplier=()=>{
+        const next=clampWhiskerMultiplier(els.boxWhiskerCustom.value);
+        const changed=state.whiskerCustomMultiplier!==next;
+        state.whiskerCustomMultiplier=next;
+        els.boxWhiskerCustom.value=String(next);
+        if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
+          console.debug('Debug: box whisker multiplier change',{ rule: state.whiskerRule, multiplier: next });
+        }
+        if(changed && state.whiskerRule==='custom'){
+          state.scheduleDraw();
+        }
+      };
+      els.boxWhiskerCustom.addEventListener('change',handleCustomMultiplier);
+      els.boxWhiskerCustom.addEventListener('blur',handleCustomMultiplier);
+    }
     if(els.boxIndividualSummary){
       els.boxIndividualSummary.addEventListener('change',()=>{
         const allowedSummaries = new Set(['mean','median','none']);
@@ -2297,12 +2484,162 @@
   function p2stars(p){ return p<0.0001?'****':p<0.001?'***':p<0.01?'**':p<0.05?'*':'ns'; }
   function formatP(p){ return p.toLocaleString('en-US',{maximumSignificantDigits:6}); }
   const mean=arr=>arr.reduce((s,v)=>s+v,0)/arr.length;
-  function tTest(a,b){ const na=a.length, nb=b.length; const ma=mean(a), mb=mean(b); const va=a.reduce((s,v)=>s+Math.pow(v-ma,2),0)/(na-1||1); const vb=b.reduce((s,v)=>s+Math.pow(v-mb,2),0)/(nb-1||1); const se=Math.sqrt(va/na+vb/nb); const t=(ma-mb)/se; const df=Math.pow(va/na+vb/nb,2)/(Math.pow(va/na,2)/(na-1||1)+Math.pow(vb/nb,2)/(nb-1||1)); const p=2*(1-global.jStat.studentt.cdf(Math.abs(t),df)); return {t,df,p}; }
-  function tTestPaired(a,b){ const diffs=a.map((v,i)=>v-b[i]).filter(v=>!isNaN(v)); const n=diffs.length; const md=mean(diffs); const sd=Math.sqrt(diffs.reduce((s,v)=>s+Math.pow(v-md,2),0)/(n-1||1)); const t=md/(sd/Math.sqrt(n)); const p=2*(1-global.jStat.studentt.cdf(Math.abs(t),n-1)); return {t,df:n-1,p}; }
+  const missingDistributionWarnings=Object.create(null);
+  function warnDistributionUnavailable(distribution,context){
+    if(missingDistributionWarnings[distribution]){
+      return;
+    }
+    missingDistributionWarnings[distribution]=true;
+    const debugEnabled=typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled();
+    if(debugEnabled){
+      console.warn('Debug: box stats distribution unavailable',{ distribution, helper:context?.helper||null, hasJStat:!!global.jStat });
+    }else{
+      console.warn(`Box plot statistics unavailable: ${distribution} CDF missing.`);
+    }
+  }
+  function createUnavailableStatResult(base,message){
+    return { available:false, message, ...base };
+  }
+  function tTest(a,b){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
+      ? jStatLib.studentt.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('student-t',{ helper:'tTest' });
+      return createUnavailableStatResult({ t:NaN, df:NaN, p:NaN },'Student-t distribution unavailable.');
+    }
+    const na=a.length, nb=b.length;
+    const ma=mean(a), mb=mean(b);
+    const va=a.reduce((s,v)=>s+Math.pow(v-ma,2),0)/(na-1||1);
+    const vb=b.reduce((s,v)=>s+Math.pow(v-mb,2),0)/(nb-1||1);
+    const se=Math.sqrt(va/na+vb/nb);
+    const t=(ma-mb)/se;
+    const df=Math.pow(va/na+vb/nb,2)/(Math.pow(va/na,2)/(na-1||1)+Math.pow(vb/nb,2)/(nb-1||1));
+    const p=2*(1-cdf(Math.abs(t),df));
+    return {t,df,p};
+  }
+  function tTestPaired(a,b){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.studentt && typeof jStatLib.studentt.cdf==='function'
+      ? jStatLib.studentt.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('student-t',{ helper:'tTestPaired' });
+      return createUnavailableStatResult({ t:NaN, df:NaN, p:NaN },'Student-t distribution unavailable.');
+    }
+    const diffs=a.map((v,i)=>v-b[i]).filter(v=>!isNaN(v));
+    const n=diffs.length;
+    const md=mean(diffs);
+    const sd=Math.sqrt(diffs.reduce((s,v)=>s+Math.pow(v-md,2),0)/(n-1||1));
+    const t=md/(sd/Math.sqrt(n));
+    const p=2*(1-cdf(Math.abs(t),n-1));
+    return {t,df:n-1,p};
+  }
   function rankArray(arr){ const sorted=arr.map((v,i)=>({v,i})).sort((a,b)=>a.v-b.v); const ranks=new Array(arr.length); let i=0; while(i<sorted.length){ let j=i; while(j<sorted.length && sorted[j].v===sorted[i].v) j++; const avg=(i+j-1)/2+1; for(let k=i;k<j;k++) ranks[sorted[k].i]=avg; i=j; } return ranks; }
-  function mannWhitney(a,b){ const all=[...a.map(v=>({v,g:0})),...b.map(v=>({v,g:1}))]; all.sort((x,y)=>x.v-y.v); let rank=1; for(let i=0;i<all.length;i++){ let j=i; while(j<all.length && all[j].v===all[i].v) j++; const avg=(rank+(j-1))/2; for(let k=i;k<j;k++) all[k].rank=avg; rank=j+1; } const Ra=all.filter(o=>o.g===0).reduce((s,o)=>s+o.rank,0); const Rb=all.filter(o=>o.g===1).reduce((s,o)=>s+o.rank,0); const na=a.length, nb=b.length; const Ua=Ra-na*(na+1)/2; const Ub=Rb-nb*(nb+1)/2; const U=Math.min(Ua,Ub); const mu=na*nb/2; const sigma=Math.sqrt(na*nb*(na+nb+1)/12); const z=(U-mu)/sigma; const p=2*(1-global.jStat.normal.cdf(Math.abs(z),0,1)); return {U,z,p}; }
-  function wilcoxonSignedRank(a,b){ const diffs=a.map((v,i)=>v-b[i]).filter(v=>v!==0); const abs=diffs.map(Math.abs); const ranks=rankArray(abs); let Wpos=0,Wneg=0; ranks.forEach((rk,i)=>{ if(diffs[i]>0) Wpos+=rk; else Wneg+=rk; }); const W=Math.min(Wpos,Wneg); const nEff=ranks.length; const mu=nEff*(nEff+1)/4; const sigma=Math.sqrt(nEff*(nEff+1)*(2*nEff+1)/24); const z=(W-mu)/sigma; const p=2*(1-global.jStat.normal.cdf(Math.abs(z),0,1)); return {W,z,p}; }
-  function anova(groups){ const k=groups.length; const n=groups.reduce((s,g)=>s+g.length,0); const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n; let ssBetween=0, ssWithin=0; groups.forEach(g=>{ const m=mean(g); ssBetween+=g.length*Math.pow(m-grand,2); ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0); }); const dfBetween=k-1; const dfWithin=n-k; const msBetween=ssBetween/dfBetween; const msWithin=ssWithin/dfWithin; const F=msBetween/msWithin; const p=1-global.jStat.centralF.cdf(F,dfBetween,dfWithin); return {F,p,dfBetween,dfWithin}; }
+  function mannWhitney(a,b){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
+      ? jStatLib.normal.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('normal',{ helper:'mannWhitney' });
+      return createUnavailableStatResult({ U:NaN, z:NaN, p:NaN },'Normal distribution unavailable.');
+    }
+    const all=[...a.map(v=>({v,g:0})),...b.map(v=>({v,g:1}))];
+    all.sort((x,y)=>x.v-y.v);
+    let rank=1;
+    for(let idx=0;idx<all.length;idx++){
+      let j=idx;
+      while(j<all.length && all[j].v===all[idx].v){ j++; }
+      const avg=(rank+(j-1))/2;
+      for(let k=idx;k<j;k++){ all[k].rank=avg; }
+      rank=j+1;
+    }
+    const Ra=all.filter(o=>o.g===0).reduce((s,o)=>s+o.rank,0);
+    const Rb=all.filter(o=>o.g===1).reduce((s,o)=>s+o.rank,0);
+    const na=a.length, nb=b.length;
+    const Ua=Ra-na*(na+1)/2;
+    const Ub=Rb-nb*(nb+1)/2;
+    const U=Math.min(Ua,Ub);
+    const mu=na*nb/2;
+    const sigma=Math.sqrt(na*nb*(na+nb+1)/12);
+    const z=(U-mu)/sigma;
+    const p=2*(1-cdf(Math.abs(z),0,1));
+    return {U,z,p};
+  }
+  function wilcoxonSignedRank(a,b){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.normal && typeof jStatLib.normal.cdf==='function'
+      ? jStatLib.normal.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('normal',{ helper:'wilcoxonSignedRank' });
+      return createUnavailableStatResult({ W:NaN, z:NaN, p:NaN },'Normal distribution unavailable.');
+    }
+    const diffs=a.map((v,i)=>v-b[i]).filter(v=>v!==0);
+    const abs=diffs.map(Math.abs);
+    const ranks=rankArray(abs);
+    let Wpos=0,Wneg=0;
+    ranks.forEach((rk,i)=>{ if(diffs[i]>0) Wpos+=rk; else Wneg+=rk; });
+    const W=Math.min(Wpos,Wneg);
+    const nEff=ranks.length;
+    const mu=nEff*(nEff+1)/4;
+    const sigma=Math.sqrt(nEff*(nEff+1)*(2*nEff+1)/24);
+    const z=(W-mu)/sigma;
+    const p=2*(1-cdf(Math.abs(z),0,1));
+    return {W,z,p};
+  }
+  function anova(groups){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.centralF && typeof jStatLib.centralF.cdf==='function'
+      ? jStatLib.centralF.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('central-F',{ helper:'anova' });
+      return createUnavailableStatResult({ F:NaN, p:NaN, dfBetween:NaN, dfWithin:NaN },'F distribution unavailable.');
+    }
+    const k=groups.length;
+    const n=groups.reduce((s,g)=>s+g.length,0);
+    const grand=groups.reduce((s,g)=>s+mean(g)*g.length,0)/n;
+    let ssBetween=0;
+    let ssWithin=0;
+    groups.forEach(g=>{
+      const m=mean(g);
+      ssBetween+=g.length*Math.pow(m-grand,2);
+      ssWithin+=g.reduce((s,v)=>s+Math.pow(v-m,2),0);
+    });
+    const dfBetween=k-1;
+    const dfWithin=n-k;
+    const msBetween=ssBetween/dfBetween;
+    const msWithin=ssWithin/dfWithin;
+    const F=msBetween/msWithin;
+    const p=1-cdf(F,dfBetween,dfWithin);
+    return {F,p,dfBetween,dfWithin};
+  }
+  function kruskalWallis(groups){
+    const jStatLib=global.jStat;
+    const cdf=jStatLib && jStatLib.chisquare && typeof jStatLib.chisquare.cdf==='function'
+      ? jStatLib.chisquare.cdf
+      : null;
+    if(!cdf){
+      warnDistributionUnavailable('chi-square',{ helper:'kruskalWallis' });
+      return createUnavailableStatResult({ H:NaN, p:NaN },'Chi-square distribution unavailable.');
+    }
+    const n=groups.reduce((s,g)=>s+g.length,0);
+    const all=groups.flat();
+    const ranks=rankArray(all);
+    let idx=0;
+    const R=groups.map(g=>{
+      const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0);
+      idx+=g.length;
+      return r;
+    });
+    const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1);
+    const df=groups.length-1;
+    const p=1-cdf(H,df);
+    return {H,p};
+  }
   function computeWelchAnova(groups){
     const cleaned=(Array.isArray(groups)?groups:[]).map(group=>group.filter(Number.isFinite));
     const counts=cleaned.map(group=>group.length);
@@ -2356,7 +2693,6 @@
       footnote:`Welch ANOVA (df₁ = ${df1}, df₂ ≈ ${Number.isFinite(df2)?df2.toFixed(2):'∞'})`
     };
   }
-  function kruskalWallis(groups){ const n=groups.reduce((s,g)=>s+g.length,0); const all=groups.flat(); const ranks=rankArray(all); let idx=0; const R=groups.map(g=>{ const r=ranks.slice(idx, idx+g.length).reduce((a,b)=>a+b,0); idx+=g.length; return r; }); const H=(12/(n*(n+1)))*R.reduce((sum,ri,i)=>sum+Math.pow(ri,2)/groups[i].length,0)-3*(n+1); const df=groups.length-1; const p=1-global.jStat.chisquare.cdf(H,df); return {H,p}; }
 
   function normalQuantile(p){
     const clipped=Math.min(Math.max(p,Number.EPSILON),1-Number.EPSILON);
@@ -5109,6 +5445,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const token = ++state.drawToken;
     console.log('boxplot draw start',{token});
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    ensureWhiskerState();
+    const whiskerRuleCurrent = state.whiskerRule;
+    const whiskerCustomValue = state.whiskerCustomMultiplier;
+    const whiskerMetaGlobal = resolveWhiskerMeta(whiskerRuleCurrent);
+    const whiskerNeedsSd = whiskerMetaGlobal.mode === 'sd';
+    const annotateWithTitle = (node,text)=>{
+      if(!node || !text){ return; }
+      const title=document.createElementNS(NS,'title');
+      title.textContent=text;
+      node.appendChild(title);
+    };
     const violinState = ensureViolinState();
     const colorMode = els.boxColorUnified.checked ? 'unified' : 'individual';
     const defaultFill = els.boxFill.value;
@@ -5303,8 +5650,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           const v = parseFloat(rawValue);
           if(!isNaN(v)) col.push(v);
-          if(r % 10000 === 0){
-            console.log('boxplot collect progress',{ col: i, row: r, token });
+          if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
+            console.debug('boxplot collect progress',{ component: 'box', col: i, row: r, token });
           }
         }
         console.timeEnd(`boxColCollect_${i}_${token}`);
@@ -5357,8 +5704,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
             const v = parseFloat(rawValue);
             if(!isNaN(v)) values.push(v);
-            if(r % 10000 === 0){
-              console.log('boxplot collect progress',{ col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
+            if(r % 10000 === 0 && Shared.isDebugEnabled?.()){
+              console.debug('boxplot collect progress',{ component: 'box', col: colIndex, row: r, token, groupIndex: gIdx, replicate: repIdx });
             }
           }
           console.timeEnd(`boxColCollect_${colIndex}_${token}`);
@@ -5523,8 +5870,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(v > ymax) ymax = v;
         sum += v;
         sumSq += v * v;
-        if(j % 10000 === 0){
-          console.log('boxplot range progress',{ trace: ti, row: j, token });
+        if(j % 10000 === 0 && Shared.isDebugEnabled?.()){
+          console.debug('boxplot range progress',{ component: 'box', trace: ti, row: j, token });
         }
       }
       let mean = 0;
@@ -6114,7 +6461,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               const moved = state.colOrder.splice(idx, 1)[0];
               state.colOrder.splice(targetIdx, 0, moved);
             }
-            console.log('boxplot label drag end',{ from: idx, to: targetIdx, orientation: 'horizontal-axis' });
+            if(Shared.isDebugEnabled?.()){
+              console.log('boxplot label drag end',{ component: 'box', from: idx, to: targetIdx, orientation: 'horizontal-axis' });
+            }
             state.scheduleDraw();
           };
           document.addEventListener('mousemove', onMove);
@@ -6144,28 +6493,33 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const med = percentile(vals, 0.5);
         const q3 = percentile(vals, 0.75);
         const iqr = q3 - q1;
-        const lowerFence = q1 - 1.5 * iqr;
-        const upperFence = q3 + 1.5 * iqr;
-        const outliers = [];
-        let wMin = Infinity;
-        let wMax = -Infinity;
-        let valIdx = 0;
-        for(const v of vals){
-          if(v < lowerFence || v > upperFence){
-            outliers.push(v);
-          }else{
-            if(v < wMin) wMin = v;
-            if(v > wMax) wMax = v;
-          }
-          valIdx++;
-          if(valIdx % 10000 === 0){
-            console.log('boxplot fence progress',{ index: i, valIdx, token });
-          }
+        const sampleCount = t.y.length;
+        const mean = sampleCount ? t.y.reduce((acc, v) => acc + v, 0) / sampleCount : 0;
+        let sdForRule = 0;
+        if(whiskerNeedsSd && sampleCount > 1){
+          const variance = t.y.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (sampleCount - 1);
+          sdForRule = Math.sqrt(Math.max(variance, 0));
         }
-        if(wMin === Infinity){
-          wMin = vals[0];
-          wMax = vals[vals.length - 1];
-        }
+        const whiskerInfo = computeWhiskerFences({
+          q1,
+          q3,
+          iqr,
+          mean,
+          sd: sdForRule,
+          rule: whiskerRuleCurrent,
+          customMultiplier: whiskerCustomValue,
+          debugEnabled,
+          meta: whiskerMetaGlobal
+        });
+        const lowerFence = whiskerInfo.lowerFence;
+        const upperFence = whiskerInfo.upperFence;
+        const whiskerAnnotation = whiskerInfo.annotation;
+        const outlierAnnotation = whiskerAnnotation ? `${whiskerAnnotation} Outlier.` : null;
+        const whiskerExtents = resolveWhiskerExtents(vals,
+          { lowerFence, upperFence, q1, q3 },
+          { debugEnabled, label: t?.name || `Trace ${i + 1}`, orientation: 'vertical', token }
+        );
+        const { wMin, wMax, outliers } = whiskerExtents;
         const yQ1 = y2px(q1);
         const yMed = y2px(med);
         const yQ3 = y2px(q3);
@@ -6173,12 +6527,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const yWMax = y2px(wMax);
         const fillColor = t.fillColor || resolveTraceColor(t, i).fillColor;
         const borderColor = t.borderColor || resolveTraceColor(t, i).borderColor;
-        const mean = t.y.reduce((acc, v) => acc + v, 0) / t.y.length;
         const yMean = y2px(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           if(graphTypeRaw === 'box'){
-            add('rect',{ x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
-            add('line',{ x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const boxRect = add('rect',{ x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+            annotateWithTitle(boxRect, whiskerAnnotation);
+            const medianLine = add('line',{ x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
+            annotateWithTitle(medianLine, whiskerAnnotation);
           }else{
             const notchSpan = 1.57 * (iqr) / Math.sqrt(vals.length);
             let notchLower = Math.max(q1, med - notchSpan);
@@ -6205,19 +6560,25 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               `L ${x0} ${yNU}`,
               'Z'
             ].join(' ');
-            add('path',{ d, fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
-            add('line',{ x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const notchPath = add('path',{ d, fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+            annotateWithTitle(notchPath, whiskerAnnotation);
+            const notchMedian = add('line',{ x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
+            annotateWithTitle(notchMedian, whiskerAnnotation);
           }
-          add('line',{ x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-          add('line',{ x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          const whiskerUpperLine = add('line',{ x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          annotateWithTitle(whiskerUpperLine, whiskerAnnotation);
+          const whiskerLowerLine = add('line',{ x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          annotateWithTitle(whiskerLowerLine, whiskerAnnotation);
           if(showCaps){
             const cap = Math.max(6, boxW * 0.4);
-            add('line',{ x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-            add('line',{ x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            const capTop = add('line',{ x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            annotateWithTitle(capTop, whiskerAnnotation);
+            const capBottom = add('line',{ x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            annotateWithTitle(capBottom, whiskerAnnotation);
           }
         }else if(graphTypeRaw === 'bar'){
           const stats = t.__barStats;
-          const sampleCount = stats?.sampleCount ?? t.y.length;
+          const sampleCountBar = stats?.sampleCount ?? sampleCount;
           const hasSpread = !!(stats && stats.hasSpread);
           const sd = stats?.sd ?? 0;
           let barStartValue = 0;
@@ -6293,7 +6654,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': errorBarWidthPx });
             }
           }else{
-            console.debug('Debug: box bar error bar skipped for single value',{ index: i, sampleCount, mean });
+            console.debug('Debug: box bar error bar skipped for single value',{ index: i, sampleCount: sampleCountBar, mean });
           }
         }else if(graphTypeRaw === 'violin'){
           const densityInfo = computeDensity(vals, yScale.min, yScale.max, violinState.sampleCount);
@@ -6392,10 +6753,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               c.setAttribute('r', pointRadius);
               c.setAttribute('fill', fillColor);
               c.setAttribute('stroke', borderColor);
+              annotateWithTitle(c, outlierAnnotation);
               frag.appendChild(c);
               ptIdx++;
-              if(ptIdx % 10000 === 0){
-                console.log('boxplot outlier progress',{ index: i, ptIdx, token });
+              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token });
               }
             }
           }else{
@@ -6418,8 +6780,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               }
               frag.appendChild(c);
               ptIdx++;
-              if(ptIdx % 10000 === 0){
-                console.log('boxplot point progress',{ index: i, ptIdx, token });
+              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token });
               }
             }
           }
@@ -6607,7 +6969,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               const moved = state.colOrder.splice(idx, 1)[0];
               state.colOrder.splice(targetIdx, 0, moved);
             }
-            console.log('boxplot label drag end',{ from: idx, to: targetIdx, orientation: 'vertical-axis' });
+            if(Shared.isDebugEnabled?.()){
+              console.log('boxplot label drag end',{ component: 'box', from: idx, to: targetIdx, orientation: 'vertical-axis' });
+            }
             state.scheduleDraw();
           };
           document.addEventListener('mousemove', onMove);
@@ -6632,28 +6996,33 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const med = percentile(vals, 0.5);
         const q3 = percentile(vals, 0.75);
         const iqr = q3 - q1;
-        const lowerFence = q1 - 1.5 * iqr;
-        const upperFence = q3 + 1.5 * iqr;
-        const outliers = [];
-        let wMin = Infinity;
-        let wMax = -Infinity;
-        let valIdx = 0;
-        for(const v of vals){
-          if(v < lowerFence || v > upperFence){
-            outliers.push(v);
-          }else{
-            if(v < wMin) wMin = v;
-            if(v > wMax) wMax = v;
-          }
-          valIdx++;
-          if(valIdx % 10000 === 0){
-            console.log('boxplot fence progress',{ index: i, valIdx, token, orientation: 'horizontal' });
-          }
+        const sampleCount = t.y.length;
+        const mean = sampleCount ? t.y.reduce((acc, v) => acc + v, 0) / sampleCount : 0;
+        let sdForRule = 0;
+        if(whiskerNeedsSd && sampleCount > 1){
+          const variance = t.y.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (sampleCount - 1);
+          sdForRule = Math.sqrt(Math.max(variance, 0));
         }
-        if(wMin === Infinity){
-          wMin = vals[0];
-          wMax = vals[vals.length - 1];
-        }
+        const whiskerInfo = computeWhiskerFences({
+          q1,
+          q3,
+          iqr,
+          mean,
+          sd: sdForRule,
+          rule: whiskerRuleCurrent,
+          customMultiplier: whiskerCustomValue,
+          debugEnabled,
+          meta: whiskerMetaGlobal
+        });
+        const lowerFence = whiskerInfo.lowerFence;
+        const upperFence = whiskerInfo.upperFence;
+        const whiskerAnnotation = whiskerInfo.annotation;
+        const outlierAnnotation = whiskerAnnotation ? `${whiskerAnnotation} Outlier.` : null;
+        const whiskerExtents = resolveWhiskerExtents(vals,
+          { lowerFence, upperFence, q1, q3 },
+          { debugEnabled, label: t?.name || `Trace ${i + 1}`, orientation: 'horizontal', token }
+        );
+        const { wMin, wMax, outliers } = whiskerExtents;
         const xQ1 = valueToX(q1);
         const xMed = valueToX(med);
         const xQ3 = valueToX(q3);
@@ -6661,14 +7030,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const xWMax = valueToX(wMax);
         const fillColor = t.fillColor || resolveTraceColor(t, i).fillColor;
         const borderColor = t.borderColor || resolveTraceColor(t, i).borderColor;
-        const mean = t.y.reduce((acc, v) => acc + v, 0) / t.y.length;
         const xMean = valueToX(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           const left = Math.min(xQ1, xQ3);
           const right = Math.max(xQ1, xQ3);
           if(graphTypeRaw === 'box'){
-            add('rect',{ x: left, y: y0, width: Math.max(1, right - left), height: Math.max(1, boxH), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
-            add('line',{ x1: xMed, y1: y0, x2: xMed, y2: y1, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const boxRect = add('rect',{ x: left, y: y0, width: Math.max(1, right - left), height: Math.max(1, boxH), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+            annotateWithTitle(boxRect, whiskerAnnotation);
+            const medianLine = add('line',{ x1: xMed, y1: y0, x2: xMed, y2: y1, stroke: borderColor, 'stroke-width': borderWidthPx });
+            annotateWithTitle(medianLine, whiskerAnnotation);
           }else{
             const notchSpan = 1.57 * (iqr) / Math.sqrt(vals.length);
             let notchLower = Math.max(q1, med - notchSpan);
@@ -6702,21 +7072,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               `L ${left} ${y1}`,
               'Z'
             ].join(' ');
-            add('path',{ d, fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
-            add('line',{ x1: xMed, y1: yNotchTop, x2: xMed, y2: yNotchBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const notchPath = add('path',{ d, fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+            annotateWithTitle(notchPath, whiskerAnnotation);
+            const notchMedian = add('line',{ x1: xMed, y1: yNotchTop, x2: xMed, y2: yNotchBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+            annotateWithTitle(notchMedian, whiskerAnnotation);
             // Debug: log the horizontal notch geometry so future tweaks keep parity with vertical boxes.
             console.debug('Debug: box horizontal notch path',{ notchLower, notchUpper, xNotchLow, xNotchHigh, yNotchTop, yNotchBottom, boxHeight: boxH, token });
           }
-          add('line',{ x1: xWMin, y1: cy, x2: left, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-          add('line',{ x1: right, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          const whiskerLeft = add('line',{ x1: xWMin, y1: cy, x2: left, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          annotateWithTitle(whiskerLeft, whiskerAnnotation);
+          const whiskerRight = add('line',{ x1: right, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          annotateWithTitle(whiskerRight, whiskerAnnotation);
           if(showCaps){
             const cap = Math.max(6, boxH * 0.4);
-            add('line',{ x1: xWMin, y1: cy - cap / 2, x2: xWMin, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-            add('line',{ x1: xWMax, y1: cy - cap / 2, x2: xWMax, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            const capLeft = add('line',{ x1: xWMin, y1: cy - cap / 2, x2: xWMin, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            annotateWithTitle(capLeft, whiskerAnnotation);
+            const capRight = add('line',{ x1: xWMax, y1: cy - cap / 2, x2: xWMax, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            annotateWithTitle(capRight, whiskerAnnotation);
           }
         }else if(graphTypeRaw === 'bar'){
           const stats = t.__barStats;
-          const sampleCount = stats?.sampleCount ?? t.y.length;
+          const sampleCountBar = stats?.sampleCount ?? sampleCount;
           const hasSpread = !!(stats && stats.hasSpread);
           const sd = stats?.sd ?? 0;
           let barStartValue = 0;
@@ -6800,7 +7176,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
             }
           }else{
-            console.debug('Debug: box horizontal bar error bar skipped for single value',{ index: i, sampleCount, mean });
+            console.debug('Debug: box horizontal bar error bar skipped for single value',{ index: i, sampleCount: sampleCountBar, mean });
           }
         }else if(graphTypeRaw === 'violin'){
           const densityInfo = computeDensity(vals, yScale.min, yScale.max, violinState.sampleCount);
@@ -6901,10 +7277,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               c.setAttribute('r', pointRadius);
               c.setAttribute('fill', fillColor);
               c.setAttribute('stroke', borderColor);
+              annotateWithTitle(c, outlierAnnotation);
               frag.appendChild(c);
               ptIdx++;
-              if(ptIdx % 10000 === 0){
-                console.log('boxplot outlier progress',{ index: i, ptIdx, token, orientation: 'horizontal' });
+              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
               }
             }
           }else{
@@ -6927,8 +7304,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               }
               frag.appendChild(c);
               ptIdx++;
-              if(ptIdx % 10000 === 0){
-                console.log('boxplot point progress',{ index: i, ptIdx, token, orientation: 'horizontal' });
+              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
               }
             }
           }
@@ -7015,9 +7392,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     selectedColumns.sort((a,b)=>a-b);
     const axisSnapshot = ensureAxisSettings();
     const violinState = ensureViolinState();
+    ensureWhiskerState();
     const payload = {
       type:'box',
-      version:3,
+      version:4,
       data: state.hot.getData(),
       exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
       config: {
@@ -7049,6 +7427,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         grouped: {
           replicatesPerGroup: state.grouped?.replicatesPerGroup,
           groups: Array.isArray(state.grouped?.groups) ? [...state.grouped.groups] : []
+        },
+        whisker: {
+          rule: state.whiskerRule,
+          customMultiplier: state.whiskerCustomMultiplier
         },
         violin: {
           autoBandwidth: violinState.autoBandwidth !== false,
@@ -7097,7 +7479,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       assumptionWarnings: payload.config.stats?.assumptions?.warnings?.length || 0,
       violinAuto: payload.config.violin?.autoBandwidth,
       violinBandwidth: payload.config.violin?.bandwidth,
-      violinSamples: payload.config.violin?.sampleCount
+      violinSamples: payload.config.violin?.sampleCount,
+      whiskerRule: payload.config.whisker?.rule,
+      whiskerMultiplier: payload.config.whisker?.customMultiplier
     });
     return payload;
   }
@@ -7252,6 +7636,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           els.boxShowSignificance.checked = state.showSignificanceBars;
         }
         els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value;
+        if(c.whisker){
+          if(c.whisker.customMultiplier != null){
+            state.whiskerCustomMultiplier = clampWhiskerMultiplier(c.whisker.customMultiplier);
+          }
+          const meta = ensureWhiskerState(c.whisker.rule);
+          state.whiskerRule = meta.key;
+        }else{
+          ensureWhiskerState();
+        }
+        syncWhiskerControlsFromState();
+        if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
+          console.debug('Debug: box whisker config restored',{ rule: state.whiskerRule, multiplier: state.whiskerCustomMultiplier });
+        }
         const graphTypeValue = els.boxGraphType.value;
         if(els.boxErrorModeCtl){
           els.boxErrorModeCtl.style.display = graphTypeValue==='bar'?'':'none';
@@ -7464,5 +7861,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     console.debug('Debug: box.__getState invoked');
     return state;
   };
+  box.__testHooks = Object.assign({}, box.__testHooks, {
+    tTest:(a,b)=>tTest(a,b),
+    tTestPaired:(a,b)=>tTestPaired(a,b),
+    mannWhitney:(a,b)=>mannWhitney(a,b),
+    wilcoxonSignedRank:(a,b)=>wilcoxonSignedRank(a,b),
+    anova:groups=>anova(groups),
+    kruskalWallis:groups=>kruskalWallis(groups),
+    computeWhiskerFences:ctx=>computeWhiskerFences(ctx),
+    resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options)
+  });
 })(window);
 
