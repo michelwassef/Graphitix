@@ -387,6 +387,19 @@
                   <option value="violin">Violin Plot</option>
                 </select>
               </div>
+              <div class="control" id="boxWhiskerRuleCtl" style="flex-wrap:wrap;">
+                <label for="boxWhiskerRule">Whisker Rule</label>
+                <select id="boxWhiskerRule">
+                  <option value="iqr15">1.5×IQR (Tukey)</option>
+                  <option value="iqr3">3×IQR</option>
+                  <option value="sd">Mean ± SD</option>
+                  <option value="custom">Custom multiplier</option>
+                </select>
+                <label id="boxWhiskerCustomLabel" class="whisker-custom-input" style="display:none;">
+                  Multiplier
+                  <input type="number" id="boxWhiskerCustomMultiplier" min="0.1" step="0.1" value="1.5" />
+                </label>
+              </div>
               <div class="control" id="boxLayoutModeCtl" style="display:none;">
                 <label>View</label>
                 <select id="boxLayoutMode">

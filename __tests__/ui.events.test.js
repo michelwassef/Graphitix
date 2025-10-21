@@ -170,6 +170,66 @@ describe('UI events and example loaders', () => {
     await flushAsyncWork();
   });
 
+  test('Box Plot: whisker rule selection persists to payload', async () => {
+    await activateWorkspace('box');
+    await flushAsyncWork();
+    const ruleSelect = document.getElementById('boxWhiskerRule');
+    const customInput = document.getElementById('boxWhiskerCustomMultiplier');
+    expect(ruleSelect).toBeTruthy();
+    expect(customInput).toBeTruthy();
+    ruleSelect.value = 'custom';
+    ruleSelect.dispatchEvent(new Event('change'));
+    customInput.value = '2.75';
+    customInput.dispatchEvent(new Event('change'));
+    await flushAsyncWork();
+    const stateSnapshot = window.Components?.box?.__getState?.();
+    const payload = window.Components?.box?.getPayload?.();
+    expect(stateSnapshot?.whiskerRule).toBe('custom');
+    expect(payload?.config?.whisker?.rule).toBe('custom');
+    expect(payload?.config?.whisker?.customMultiplier).toBeCloseTo(2.75);
+  });
+
+  test('Box Plot: whisker extents respond to multiplier changes', async () => {
+    await activateWorkspace('box');
+    await flushAsyncWork();
+    const hooks = window.Components?.box?.__testHooks;
+    expect(hooks?.computeWhiskerFences).toBeInstanceOf(Function);
+    expect(hooks?.resolveWhiskerExtents).toBeInstanceOf(Function);
+    const values = [10, 30, 50, 70, 90, 180];
+    const sorted = [...values].sort((a, b) => a - b);
+    const percentile = p => {
+      const pos = (sorted.length - 1) * p;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      const next = sorted[base + 1] !== undefined ? sorted[base + 1] : sorted[base];
+      return sorted[base] + rest * (next - sorted[base]);
+    };
+    const q1 = percentile(0.25);
+    const q3 = percentile(0.75);
+    const iqr = q3 - q1;
+    const mean = values.reduce((acc, v) => acc + v, 0) / values.length;
+    const variance = values.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (values.length - 1);
+    const sd = Math.sqrt(Math.max(variance, 0));
+    const tukeyFences = hooks.computeWhiskerFences({ q1, q3, iqr, mean, sd, rule: 'iqr15' });
+    const tukeyExtents = hooks.resolveWhiskerExtents(sorted, {
+      lowerFence: tukeyFences.lowerFence,
+      upperFence: tukeyFences.upperFence,
+      q1,
+      q3
+    });
+    expect(tukeyExtents.outliers).toContain(180);
+    expect(tukeyExtents.wMax).toBeLessThan(180);
+    const iqr3Fences = hooks.computeWhiskerFences({ q1, q3, iqr, mean, sd, rule: 'iqr3' });
+    const iqr3Extents = hooks.resolveWhiskerExtents(sorted, {
+      lowerFence: iqr3Fences.lowerFence,
+      upperFence: iqr3Fences.upperFence,
+      q1,
+      q3
+    });
+    expect(iqr3Extents.outliers).not.toContain(180);
+    expect(iqr3Extents.wMax).toBeCloseTo(180);
+  });
+
   test('Line Graph: long legend reserves measured width', async () => {
     await activateWorkspace('line');
     const select = document.getElementById('lineExampleSelect');
