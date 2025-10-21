@@ -44,26 +44,29 @@
   let lineXLabelText = 'X';
   let lineYLabelText = 'Y';
   let lineLabelColors = {};
+  function createDefaultLineLegendLayoutInfo(){
+    return {
+      entryCount: 0,
+      rendererWidth: 0,
+      legendWidthForMargin: 0,
+      legendGapPx: 0,
+      minSvgWidth: chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320,
+      basePlotWidth: chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320,
+      guardPaddingPx: chartStyle.LEGEND_LAYOUT_CONSTANTS?.guardPaddingPx || 24,
+      swatchSize: 0,
+      swatchGap: 0,
+      rowGap: 0,
+      rowHeight: 0,
+      fontSize: 12,
+      minWidth: 0,
+      maxLabelWidth: 0,
+      entries: []
+    };
+  }
   let lineLegendItems = [];
   let lineLegendWidth = 0;
   let lineMinSvgWidth = 0;
-  let lineLegendLayoutInfo = {
-    entryCount: 0,
-    rendererWidth: 0,
-    legendWidthForMargin: 0,
-    legendGapPx: 0,
-    minSvgWidth: chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320,
-    basePlotWidth: chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320,
-    guardPaddingPx: chartStyle.LEGEND_LAYOUT_CONSTANTS?.guardPaddingPx || 24,
-    swatchSize: 0,
-    swatchGap: 0,
-    rowGap: 0,
-    rowHeight: 0,
-    fontSize: 12,
-    minWidth: 0,
-    maxLabelWidth: 0,
-    entries: []
-  };
+  let lineLegendLayoutInfo = createDefaultLineLegendLayoutInfo();
   let lineLegendGuardWidth = chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320;
 
   function attachLineSelectAutoSize(select, label){
@@ -237,6 +240,30 @@
       console.error('line legend guard sync error', err);
     }
     console.debug('Debug: line legend guard width applied',{ requiredWidth: normalized });
+  }
+
+  function resetLineRenderState(reason, options = {}){
+    if(refs.plot){
+      refs.plot.innerHTML = '';
+      if(options.message){
+        if(options.allowHtml){
+          refs.plot.innerHTML = options.message;
+        }else{
+          refs.plot.textContent = options.message;
+        }
+      }
+      refs.plot.style.display = 'block';
+    }
+    if(options.clearStats !== false && refs.statsResults){
+      refs.statsResults.textContent = '';
+    }
+    if(options.resetLegend !== false){
+      lineLegendItems = [];
+      lineLegendWidth = 0;
+      lineLegendLayoutInfo = createDefaultLineLegendLayoutInfo();
+      applyLineLegendGuardWidth(lineLegendLayoutInfo.minSvgWidth);
+    }
+    console.debug('Debug: line render state reset',{ reason, hasMessage: !!options.message });
   }
 
   function applyLineAxisSettings(settings){
@@ -2126,7 +2153,13 @@
       const originXInput=parseFloat(refs.originX?.value);
       const originYInput=parseFloat(refs.originY?.value);
       const data=lineHot.getData();
-      if(!Array.isArray(data) || !data.length) return;
+      const regressionCache=new Map();
+      const statsContext={ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache, forecast: forecastOptions };
+      if(!Array.isArray(data) || !data.length){
+        resetLineRenderState('no-data-matrix');
+        updateLineStats([], statsContext);
+        return;
+      }
       const header=Array.isArray(data[0])?data[0]:[];
       let xIndex=header.findIndex(h=>String(h).trim().toLowerCase()==='x');
       if(xIndex<0) xIndex=0;
@@ -2194,8 +2227,22 @@
       if(seriesWithData.length!==series.length){
         console.debug('Debug: line empty series filtered',{ totalSeries: series.length, renderedSeries: seriesWithData.length });
       }
+      if(!seriesWithData.length){
+        resetLineRenderState('no-valid-series');
+        updateLineStats([], statsContext);
+        return;
+      }
+      if(logX && xMinRaw<=0){
+        resetLineRenderState('log-x-nonpositive',{ message: '<i>Log scale requires positive X values.</i>', allowHtml: true });
+        updateLineStats([], statsContext);
+        return;
+      }
+      if(logY && yMinRaw<=0){
+        resetLineRenderState('log-y-nonpositive',{ message: '<i>Log scale requires positive Y values.</i>', allowHtml: true });
+        updateLineStats([], statsContext);
+        return;
+      }
       const labelsUsed=seriesWithData.map(s=>s.name);
-      const regressionCache=new Map();
       if(global.jStat && typeof regressionTools.fitRegression==='function'){
         seriesWithData.forEach(s=>{
           const pts=s.points.filter(Boolean);
@@ -2261,9 +2308,6 @@
       applyLineLegendGuardWidth(legendLayout.minSvgWidth);
       console.debug('Debug: line legend layout metrics',{ legendWidth: lineLegendWidth, legendGap: legendLayout.legendGapPx, entryCount: legendLayout.renderer.entries.length, minSvgWidth: legendLayout.minSvgWidth, guardWidth: lineLegendGuardWidth });
       const legendWidth=lineLegendWidth;
-      if(!seriesWithData.length) return;
-      if(logX && xMinRaw<=0){ refs.plot.innerHTML='<i>Log scale requires positive X values.</i>'; return; }
-      if(logY && yMinRaw<=0){ refs.plot.innerHTML='<i>Log scale requires positive Y values.</i>'; return; }
       let xMin=xMinRaw,xMax=xMaxRaw,yMin=yMinRaw,yMax=yMaxRaw;
       if(isFinite(xMinManual)) xMin=xMinManual;
       if(isFinite(xMaxManual)) xMax=xMaxManual;
@@ -2712,7 +2756,7 @@
       titleText.textContent=lineTitleText;
       markFontEditable(titleText,'graphTitle','graphTitle');
       makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
-      updateLineStats(seriesWithData,{ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache, forecast: forecastOptions });
+      updateLineStats(seriesWithData, statsContext);
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
