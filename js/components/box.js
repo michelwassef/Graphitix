@@ -1812,6 +1812,145 @@
     return state.violin;
   }
   const els = {};
+  let boxLogWarningEl = null;
+  const boxDebugEnabled = () => typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+
+  function ensureBoxLogWarningElement(){
+    if(boxLogWarningEl && boxLogWarningEl.isConnected){
+      return boxLogWarningEl;
+    }
+    const host = els.boxLogScale?.closest('fieldset') || els.boxLogScale?.parentElement;
+    if(!host){
+      if(boxDebugEnabled()){
+        console.debug('Debug: box log warning host unavailable');
+      }
+      return null;
+    }
+    const el = global.document.createElement('div');
+    el.className = 'config-panel__warning';
+    el.setAttribute('role', 'alert');
+    el.setAttribute('aria-live', 'polite');
+    el.hidden = true;
+    host.appendChild(el);
+    boxLogWarningEl = el;
+    if(boxDebugEnabled()){
+      console.debug('Debug: box log warning element created');
+    }
+    return boxLogWarningEl;
+  }
+
+  function showBoxLogWarning(message){
+    const el = ensureBoxLogWarningElement();
+    if(!el){
+      return;
+    }
+    el.textContent = message;
+    el.hidden = false;
+    if(boxDebugEnabled()){
+      console.debug('Debug: box log warning shown', { message });
+    }
+  }
+
+  function clearBoxLogWarning(){
+    if(!boxLogWarningEl){
+      return;
+    }
+    boxLogWarningEl.textContent = '';
+    boxLogWarningEl.hidden = true;
+    if(boxDebugEnabled()){
+      console.debug('Debug: box log warning cleared');
+    }
+  }
+
+  function validateBoxLogScale(){
+    const axisLabel = els.boxFlipAxes?.checked ? 'Values' : 'Y';
+    const manualMin = parseFloat(els.boxYMin?.value);
+    if(Number.isFinite(manualMin) && manualMin <= 0){
+      const message = `Cannot enable log scale because the ${axisLabel} minimum (${manualMin}) is not positive.`;
+      if(boxDebugEnabled()){
+        console.debug('Debug: box log scale blocked by manual minimum', { value: manualMin, axisLabel });
+      }
+      return { allowed: false, reason: 'axis-limit', value: manualMin, message };
+    }
+    const manualMax = parseFloat(els.boxYMax?.value);
+    if(Number.isFinite(manualMax) && manualMax <= 0){
+      const message = `Cannot enable log scale because the ${axisLabel} maximum (${manualMax}) is not positive.`;
+      if(boxDebugEnabled()){
+        console.debug('Debug: box log scale blocked by manual maximum', { value: manualMax, axisLabel });
+      }
+      return { allowed: false, reason: 'axis-limit', value: manualMax, message };
+    }
+    const analysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
+    const dataMatrix = analysis?.data || [];
+    const rowCount = analysis?.rowCount || dataMatrix.length;
+    const colCount = analysis?.colCount || (dataMatrix[0]?.length || 0);
+    if(!rowCount || !colCount){
+      if(boxDebugEnabled()){
+        console.debug('Debug: box log scale validation skipped (empty data)', { rowCount, colCount });
+      }
+      return { allowed: true };
+    }
+    for(let c = 0; c < colCount; c += 1){
+      if(analysis.isColumnExcluded?.(c)){
+        continue;
+      }
+      const headerCell = dataMatrix?.[0]?.[c];
+      const columnLabel = (headerCell && String(headerCell).trim()) || `Column ${c + 1}`;
+      for(let r = 1; r < rowCount; r += 1){
+        if(analysis.isRowExcluded?.(r) || analysis.isCellExcluded?.(r, c)){
+          continue;
+        }
+        const raw = dataMatrix?.[r]?.[c];
+        if(raw === null || typeof raw === 'undefined' || raw === ''){
+          continue;
+        }
+        const value = parseFloat(raw);
+        if(Number.isFinite(value) && value <= 0){
+          const formatted = value === 0 ? '0' : value.toPrecision(4);
+          const message = `Cannot enable log scale because ${axisLabel} data in "${columnLabel}" includes ${formatted} at row ${r + 1}.`;
+          if(boxDebugEnabled()){
+            console.debug('Debug: box log scale blocked by data', { column: c, row: r, value, columnLabel });
+          }
+          return { allowed: false, reason: 'data', value, message };
+        }
+      }
+    }
+    if(boxDebugEnabled()){
+      console.debug('Debug: box log scale validation passed');
+    }
+    return { allowed: true };
+  }
+
+  function applyBoxLogScaleValidationFailure(validation, context){
+    if(!validation || validation.allowed !== false){
+      return;
+    }
+    if(els.boxLogScale){
+      els.boxLogScale.checked = false;
+    }
+    const warningMessage = validation.message || 'Cannot enable log scale while non-positive values are present in the data.';
+    showBoxLogWarning(warningMessage);
+    if(boxDebugEnabled()){
+      console.debug('Debug: box log scale auto-disabled', { context, reason: validation.reason, value: validation.value });
+    }
+  }
+
+  function revalidateActiveBoxLogScale(context){
+    if(!els.boxLogScale?.checked){
+      return true;
+    }
+    const validation = validateBoxLogScale();
+    if(!validation.allowed){
+      applyBoxLogScaleValidationFailure(validation, context);
+      console.warn('box log scale disabled', { context, reason: validation.reason, value: validation.value });
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+      return false;
+    }
+    clearBoxLogWarning();
+    return true;
+  }
 
   function updateViolinBandwidthDisplays(value){
     const resolved = Number.isFinite(value) && value > 0 ? value : DEFAULT_VIOLIN_BANDWIDTH;
@@ -1968,6 +2107,7 @@
     els.boxShowFrame=global.$('#boxShowFrame');
     els.boxLogScale=global.$('#boxLogScale');
     els.boxLogScaleLabel=global.$('#boxLogScaleLabel');
+    clearBoxLogWarning();
     els.boxFlipAxes=global.$('#boxFlipAxes');
     els.boxWhiskerRule=global.$('#boxWhiskerRule');
     els.boxWhiskerCustom=global.$('#boxWhiskerCustomMultiplier');
@@ -2254,6 +2394,7 @@
         afterChange(changes, source){
           if(!changes || source === 'loadData') return;
           console.log('boxplot afterChange', { count: changes.length, source });
+          revalidateActiveBoxLogScale('data-edit');
         },
         afterCreateCol(){
           state.selectedCols.clear();
@@ -2532,7 +2673,22 @@
     });
     els.boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', els.boxShowGrid.checked); state.scheduleDraw(); });
     els.boxShowFrame?.addEventListener('change',()=>{ console.debug('Debug: box showFrame change',{checked:els.boxShowFrame.checked}); state.scheduleDraw(); });
-    els.boxLogScale.addEventListener('change',()=>{ console.log('boxLogScale changed', els.boxLogScale.checked); state.scheduleDraw(); });
+    els.boxLogScale.addEventListener('change',()=>{
+      const enabling=!!els.boxLogScale.checked;
+      if(enabling){
+        const validation=validateBoxLogScale();
+        if(!validation.allowed){
+          applyBoxLogScaleValidationFailure(validation,'toggle');
+          console.warn('box log scale blocked',{ reason: validation.reason, value: validation.value });
+          return;
+        }
+        clearBoxLogWarning();
+      }else{
+        clearBoxLogWarning();
+      }
+      console.log('boxLogScale changed', els.boxLogScale.checked);
+      state.scheduleDraw();
+    });
     const updateGraphTypeControls = () => {
       const graphTypeValue = els.boxGraphType.value;
       const showErrorControls = graphTypeValue === 'bar';
@@ -2658,8 +2814,29 @@
       });
     }
     els.boxErrorMode.addEventListener('change',()=>{ console.log('boxErrorMode changed', els.boxErrorMode.value); state.scheduleDraw(); });
-    els.boxYMin.addEventListener('input',()=>{ console.log('boxYMin changed', els.boxYMin.value); state.scheduleDraw(); });
-    els.boxYMax.addEventListener('input',()=>{ console.log('boxYMax changed', els.boxYMax.value); state.scheduleDraw(); });
+    const handleBoxAxisLimitInput=(event)=>{
+      const target=event?.target;
+      if(target===els.boxYMin){
+        console.log('boxYMin changed', els.boxYMin.value);
+        if(!revalidateActiveBoxLogScale('axis-min-input')){
+          return;
+        }
+      }else if(target===els.boxYMax){
+        console.log('boxYMax changed', els.boxYMax.value);
+        if(!revalidateActiveBoxLogScale('axis-max-input')){
+          return;
+        }
+      }
+      if(!els.boxLogScale?.checked){
+        const validation=validateBoxLogScale();
+        if(validation.allowed){
+          clearBoxLogWarning();
+        }
+      }
+      state.scheduleDraw();
+    };
+    els.boxYMin.addEventListener('input',handleBoxAxisLimitInput);
+    els.boxYMax.addEventListener('input',handleBoxAxisLimitInput);
     if(els.boxFlipAxes){
       state.flipAxes = !!els.boxFlipAxes.checked;
       els.boxFlipAxes.addEventListener('change',()=>{

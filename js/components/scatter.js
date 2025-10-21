@@ -738,11 +738,131 @@
       scatterSelects.forEach(select=>{
         attachScatterSelectAutoSize(select, 'scatter');
       });
+      let scatterLogWarningEl=null;
+      const scatterDebugEnabled=()=>typeof Shared.isDebugEnabled==='function'&&Shared.isDebugEnabled();
+      function ensureScatterLogWarningElement(){
+        if(scatterLogWarningEl&&scatterLogWarningEl.isConnected){
+          return scatterLogWarningEl;
+        }
+        const host=(scatterLogY?.closest('.config-panel__fieldset'))||(scatterLogX?.closest('fieldset'));
+        if(!host){
+          if(scatterDebugEnabled()){
+            console.debug('Debug: scatter log warning host unavailable');
+          }
+          return null;
+        }
+        const el=global.document.createElement('div');
+        el.className='config-panel__warning';
+        el.setAttribute('role','alert');
+        el.setAttribute('aria-live','polite');
+        el.hidden=true;
+        host.appendChild(el);
+        scatterLogWarningEl=el;
+        if(scatterDebugEnabled()){
+          console.debug('Debug: scatter log warning element created');
+        }
+        return scatterLogWarningEl;
+      }
+      function showScatterLogWarning(message){
+        const el=ensureScatterLogWarningElement();
+        if(!el){
+          return;
+        }
+        el.textContent=message;
+        el.hidden=false;
+        if(scatterDebugEnabled()){
+          console.debug('Debug: scatter log warning shown',{ message });
+        }
+      }
+      function clearScatterLogWarning(){
+        if(!scatterLogWarningEl){
+          return;
+        }
+        scatterLogWarningEl.textContent='';
+        scatterLogWarningEl.hidden=true;
+        if(scatterDebugEnabled()){
+          console.debug('Debug: scatter log warning cleared');
+        }
+      }
+      function validateScatterLogAxis(axis){
+        const axisLabel=axis==='x'?'X':'Y';
+        const minInput=axis==='x'?scatterXMin:scatterYMin;
+        const maxInput=axis==='x'?scatterXMax:scatterYMax;
+        const originInput=axis==='x'?scatterOriginX:scatterOriginY;
+        const manualMin=parseFloat(minInput?.value);
+        if(Number.isFinite(manualMin)&&manualMin<=0){
+          const message=`Cannot enable log scale on the ${axisLabel} axis because the minimum value (${manualMin}) is not positive.`;
+          if(scatterDebugEnabled()){
+            console.debug('Debug: scatter log axis blocked by manual minimum',{ axis, value: manualMin });
+          }
+          return{allowed:false,reason:'axis-limit',value:manualMin,message};
+        }
+        const manualMax=parseFloat(maxInput?.value);
+        if(Number.isFinite(manualMax)&&manualMax<=0){
+          const message=`Cannot enable log scale on the ${axisLabel} axis because the maximum value (${manualMax}) is not positive.`;
+          if(scatterDebugEnabled()){
+            console.debug('Debug: scatter log axis blocked by manual maximum',{ axis, value: manualMax });
+          }
+          return{allowed:false,reason:'axis-limit',value:manualMax,message};
+        }
+        const originModeValue=scatterOriginMode?.value;
+        if(originModeValue==='custom'){
+          const originVal=parseFloat(originInput?.value);
+          if(Number.isFinite(originVal)&&originVal<=0){
+            const message=`Cannot enable log scale on the ${axisLabel} axis because the custom origin (${originVal}) is not positive.`;
+            if(scatterDebugEnabled()){
+              console.debug('Debug: scatter log axis blocked by custom origin',{ axis, value: originVal });
+            }
+            return{allowed:false,reason:'origin',value:originVal,message};
+          }
+        }
+        const analysis=scatterHot?.getAnalysisData?.()||Shared.hot.getAnalysisData(scatterHot);
+        const colIndex=axis==='x'?1:2;
+        const rowCount=analysis?.rowCount||0;
+        const colCount=analysis?.colCount||0;
+        if(!analysis||colIndex>=colCount){
+          if(scatterDebugEnabled()){
+            console.debug('Debug: scatter log axis validation skipped due to missing analysis',{ axis, hasAnalysis:!!analysis,colIndex,colCount });
+          }
+          return{allowed:true};
+        }
+        if(analysis.isColumnExcluded?.(colIndex)){
+          if(scatterDebugEnabled()){
+            console.debug('Debug: scatter log axis validation skipped because column is excluded',{ axis, colIndex });
+          }
+          return{allowed:false,reason:'excluded',message:`Restore the ${axisLabel} axis column before enabling log scale.`};
+        }
+        for(let r=1;r<rowCount;r+=1){
+          if(analysis.isRowExcluded?.(r)){
+            continue;
+          }
+          const raw=analysis.data?.[r]?.[colIndex];
+          if(raw===null||typeof raw==='undefined'||raw===''){
+            continue;
+          }
+          const value=parseFloat(raw);
+          if(Number.isFinite(value)&&value<=0){
+            const formatted=value===0?'0':value.toPrecision(4);
+            const message=`Cannot enable log scale on the ${axisLabel} axis because data includes ${formatted} at row ${r+1}.`;
+            if(scatterDebugEnabled()){
+              console.debug('Debug: scatter log axis blocked by data',{ axis, row:r, value });
+            }
+            return{allowed:false,reason:'data',value,message};
+          }
+        }
+        if(scatterDebugEnabled()){
+          console.debug('Debug: scatter log axis validation passed',{ axis });
+        }
+        return{allowed:true};
+      }
       let scatterLabelColors={};
       function syncScatterGraphTypeUI(){
         const type=scatterGraphTypeSelect?.value || 'scatter';
         scatterCurrentGraphType=type;
         const showThresholds=type!=='scatter';
+        if(showThresholds){
+          clearScatterLogWarning();
+        }
         if(scatterThresholdControls){
           scatterThresholdControls.style.display=showThresholds?'':'none';
         }
@@ -1278,11 +1398,33 @@
         chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
         scheduleDrawScatter();
       });
-      [scatterShowGrid,scatterLogX,scatterLogY,scatterStatType,scatterOriginMode,scatterShowLine,scatterShowIntervals,scatterShowDiagnostics]
+      [scatterShowGrid,scatterStatType,scatterOriginMode,scatterShowLine,scatterShowIntervals,scatterShowDiagnostics]
         .forEach(el=>el&&el.addEventListener('change',()=>{
           console.debug('Debug: scatter config changed', { id: el.id, checked: el.checked, value: el.value });
           scheduleDrawScatter();
         }));
+      const handleScatterLogToggle=(axis,checkbox)=>{
+        checkbox?.addEventListener('change',()=>{
+          const enabling=!!checkbox.checked;
+          if(enabling){
+            const validation=validateScatterLogAxis(axis);
+            if(!validation.allowed){
+              checkbox.checked=false;
+              const warningMessage=validation.message||`Cannot enable log scale on the ${axis==='x'?'X':'Y'} axis while non-positive values are present.`;
+              showScatterLogWarning(warningMessage);
+              console.warn('scatter log axis blocked',{ axis, reason: validation.reason, value: validation.value });
+              return;
+            }
+            clearScatterLogWarning();
+          }else{
+            clearScatterLogWarning();
+          }
+          console.debug('Debug: scatter log toggle change',{ id: checkbox.id, checked: checkbox.checked });
+          scheduleDrawScatter();
+        });
+      };
+      handleScatterLogToggle('x',scatterLogX);
+      handleScatterLogToggle('y',scatterLogY);
       if(scatterRegressionMode){
         scatterRegressionMode.addEventListener('change',()=>{
           console.debug('Debug: scatter regression mode change',{ value: scatterRegressionMode.value });
