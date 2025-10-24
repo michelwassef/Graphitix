@@ -203,9 +203,7 @@
       pointerState.lastY = event.clientY;
       const yawDelta = dx * (opts.rotationScale || 0.01);
       const pitchDelta = dy * (opts.rotationScale || 0.01);
-      const pitchCos = Math.cos(state.x || 0);
-      const horizontalSign = pitchCos >= 0 ? -1 : 1;
-      state.y += yawDelta * horizontalSign;
+      state.y -= yawDelta;
       state.x -= pitchDelta;
       plot3d.normalizeRotation(state);
       debugLog('Debug: plot3d rotation updated', { label, rotation: { x: state.x, y: state.y } });
