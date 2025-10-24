@@ -6706,7 +6706,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       const groupOffset = usesGroupedSpacing ? (bandW - perGroupBand * groupCountLocal) / 2 : 0;
       const valueRange = yScale.max - yScale.min || 1;
-      const y2px = v => marginLocal.top + plotHLocal * (1 - (v - yScale.min) / valueRange);
+      const clampToScale = v => {
+        if(!Number.isFinite(v)){ return yScale.min; }
+        if(v < yScale.min){
+          if(typeof Shared !== 'undefined' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: box value clamped below axis',{ value: v, min: yScale.min });
+          }
+          return yScale.min;
+        }
+        if(v > yScale.max){
+          if(typeof Shared !== 'undefined' && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: box value clamped above axis',{ value: v, max: yScale.max });
+          }
+          return yScale.max;
+        }
+        return v;
+      };
+      const y2px = v => {
+        const safeV = clampToScale(v);
+        return marginLocal.top + plotHLocal * (1 - (safeV - yScale.min) / valueRange);
+      };
       const boxWidthForTrace = () => Math.max(6, Math.min(60, perGroupBand * 0.6));
       const localBandWidthForTrace = () => {
         if(separatedSpacing){

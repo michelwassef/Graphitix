@@ -1660,7 +1660,6 @@
       }
       chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
       const pcaShowGrid=$('#pcaShowGrid');
-      const pcaXMin=$('#pcaXMin'), pcaXMax=$('#pcaXMax'), pcaYMin=$('#pcaYMin'), pcaYMax=$('#pcaYMax');
       const pcaShowFrame=$('#pcaShowFrame');
       const pcaVarianceAxisScale=$('#pcaVarianceAxisScale');
       const pcaScale=$('#pcaScale');
@@ -2198,7 +2197,6 @@
       });
       [pcaShowGrid,pcaScale].forEach(el=>el.addEventListener('change',()=>{console.log('pca config changed',el.id); scheduleDrawPca();}));
       pcaShowFrame.addEventListener('change',()=>{debugLog('Debug: pca showFrame change',{checked:pcaShowFrame.checked}); scheduleDrawPca();});
-      [pcaXMin,pcaXMax,pcaYMin,pcaYMax].forEach(el=>el.addEventListener('input',()=>{console.log('pca axis input',el.id,el.value); scheduleDrawPca();}));
       function ensurePcaLabelColors(labels, groupMeta){
         const labelArray = Array.isArray(labels) ? labels : [];
         if(groupMeta && groupMeta.assignments){
@@ -2439,19 +2437,8 @@
       const showFrame = pcaShowFrame.checked;
       debugLog('Debug: pca showFrame state',{showFrame});
       const dotSize = dotSizeRaw; // retain original reference for downstream logs
-      const xMinManual = parseFloat(pcaXMin.value);
-      const xMaxManual = parseFloat(pcaXMax.value);
-      const yMinManual = parseFloat(pcaYMin.value);
-      const yMaxManual = parseFloat(pcaYMax.value);
       const scaleVars = pcaScale.checked;
-
-      console.log('pca manual range', {
-        xMinManual,
-        xMaxManual,
-        yMinManual,
-        yMaxManual,
-        scaleVars,
-      });
+      debugLog('Debug: pca axis range auto',{ scaleVars });
 
       const data = pcaHot.getData();
       const headerRow = Array.isArray(data[0]) ? data[0] : [];
@@ -3429,15 +3416,10 @@
       let yMin = yMinRaw;
       let yMax = yMaxRaw;
 
-      if (isFinite(xMinManual)) xMin = xMinManual;
-      if (isFinite(xMaxManual)) xMax = xMaxManual;
-      if (isFinite(yMinManual)) yMin = yMinManual;
-      if (isFinite(yMaxManual)) yMax = yMaxManual;
-
       if (xMin === xMax) xMax = xMin + 1;
       if (yMin === yMax) yMax = yMin + 1;
 
-      console.log('pca final raw range', {xMin, xMax, yMin, yMax});
+      debugLog('Debug: pca axis range resolved',{ xMin, xMax, yMin, yMax });
 
       const W = Math.max(50, Math.floor(plotEl.clientWidth || 50));
       const H = Math.max(40, Math.floor(plotEl.clientHeight || 40));
@@ -3518,10 +3500,6 @@
       for(let pass=0;pass<2;pass++){
         xScale = niceScale(xMin, xMax, xTickTarget);
         yScale = niceScale(yMin, yMax, yTickTarget);
-        if (isFinite(xMinManual)) xScale.min = xMin;
-        if (isFinite(xMaxManual)) xScale.max = xMax;
-        if (isFinite(yMinManual)) yScale.min = yMin;
-        if (isFinite(yMaxManual)) yScale.max = yMax;
         if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
           const manualX = buildManualTicks(xScale.min, xScale.max, manualIntervalX);
           if(manualX){
@@ -3894,10 +3872,6 @@
           labelColors:pcaLabelColors,
           showGrid:pcaShowGrid.checked,
           showFrame:pcaShowFrame.checked,
-          xMin:pcaXMin.value,
-          xMax:pcaXMax.value,
-          yMin:pcaYMin.value,
-          yMax:pcaYMax.value,
           scale:pcaScale.checked,
           axesVarianceScaled:pcaState.axesVarianceScaled,
           fontSize:pcaFontSize.value,
@@ -4048,10 +4022,6 @@
             setPcaTableFormat(restoredTableFormat);
             pcaShowGrid.checked=!!c.showGrid;
             pcaShowFrame.checked=!!c.showFrame;
-            pcaXMin.value=c.xMin||'';
-            pcaXMax.value=c.xMax||'';
-            pcaYMin.value=c.yMin||'';
-            pcaYMax.value=c.yMax||'';
             pcaScale.checked=!!c.scale;
             if(pcaVarianceAxisScale){
               pcaVarianceAxisScale.checked = !!c.axesVarianceScaled;

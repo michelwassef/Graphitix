@@ -2223,7 +2223,7 @@
           }
         }
       }
-      const seriesWithData=series.filter(s=>s.points.some(pt=>pt));
+      let seriesWithData=series.filter(s=>s.points.some(pt=>pt));
       if(seriesWithData.length!==series.length){
         console.debug('Debug: line empty series filtered',{ totalSeries: series.length, renderedSeries: seriesWithData.length });
       }
@@ -2242,8 +2242,33 @@
         updateLineStats([], statsContext);
         return;
       }
-      const labelsUsed=seriesWithData.map(s=>s.name);
-      if(global.jStat && typeof regressionTools.fitRegression==='function'){
+      const filterPointByRange = (pt, range) => {
+        if(!pt){ return null; }
+        if(pt.x < range.xMin || pt.x > range.xMax || pt.y < range.yMin || pt.y > range.yMax){
+          return null;
+        }
+        return pt;
+      };
+      const clipSeriesToRange = (inputSeries, range) => {
+        const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+        const clipped = [];
+        inputSeries.forEach(s => {
+          const originalCount = s.points.filter(Boolean).length;
+          const clippedPoints = s.points.map(pt => filterPointByRange(pt, range));
+          const visibleCount = clippedPoints.filter(Boolean).length;
+          if(originalCount !== visibleCount){
+            console.debug('Debug: line filtered points outside axis',{ series: s.name, removed: originalCount - visibleCount, range });
+          }
+          if(visibleCount > 0){
+            clipped.push({ ...s, points: clippedPoints });
+          }else if(debugEnabled){
+            console.debug('Debug: line dropped series after range clipping',{ series: s.name, range });
+          }
+        });
+        return clipped;
+      };
+        const labelsUsed=seriesWithData.map(s=>s.name);
+        if(global.jStat && typeof regressionTools.fitRegression==='function'){
         seriesWithData.forEach(s=>{
           const pts=s.points.filter(Boolean);
           if(pts.length>=3){
@@ -2313,29 +2338,37 @@
       if(isFinite(xMaxManual)) xMax=xMaxManual;
       if(isFinite(yMinManual)) yMin=yMinManual;
       if(isFinite(yMaxManual)) yMax=yMaxManual;
-      if(originMode==='custom'){
-        if(isFinite(originXInput)){
-          if(!(logX && originXInput<=0)){
-            if(originXInput<xMin) xMin=originXInput;
-            if(originXInput>xMax) xMax=originXInput;
+        if(originMode==='custom'){
+          if(isFinite(originXInput)){
+            if(!(logX && originXInput<=0)){
+              if(originXInput<xMin) xMin=originXInput;
+              if(originXInput>xMax) xMax=originXInput;
           }
         }
         if(isFinite(originYInput)){
           if(!(logY && originYInput<=0)){
             if(originYInput<yMin) yMin=originYInput;
             if(originYInput>yMax) yMax=originYInput;
+            }
           }
         }
-      }
-      if(xMin===xMax) xMax=xMin+1;
-      if(yMin===yMax) yMax=yMin+1;
-      if(regressionCache.size){
-        series.forEach(s=>{
-          if(s.regression){
-            s.regression.domain = { minX: xMin, maxX: xMax };
-          }
-        });
-      }
+        const rangeForClipping = { xMin, xMax, yMin, yMax };
+        seriesWithData = clipSeriesToRange(seriesWithData, rangeForClipping);
+        if(!seriesWithData.length){
+          resetLineRenderState('no-valid-series-after-clipping');
+          updateLineStats([], statsContext);
+          console.debug('Debug: line plot aborted due to clipping',{ range: rangeForClipping });
+          return;
+        }
+        if(xMin===xMax) xMax=xMin+1;
+        if(yMin===yMax) yMax=yMin+1;
+        if(regressionCache.size){
+          seriesWithData.forEach(s=>{
+            if(s.regression){
+              s.regression.domain = { minX: xMin, maxX: xMax };
+            }
+          });
+        }
       const plotEl=refs.plot;
       plotEl.style.display='block';
       while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
@@ -2459,8 +2492,14 @@
         yTickTarget=refinedY;
       }
       console.debug('Debug: line layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth});
-      const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
-      const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
+      const x2px=v=>{
+        const safeV = Math.min(Math.max(v, xScale.min), xScale.max);
+        return margin.left+plotW*(safeV-xScale.min)/(xScale.max-xScale.min);
+      };
+      const y2px=v=>{
+        const safeV = Math.min(Math.max(v, yScale.min), yScale.max);
+        return margin.top+plotH*(1-(safeV-yScale.min)/(yScale.max-yScale.min));
+      };
       function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
       if(showGrid){
         xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});});
@@ -2481,10 +2520,14 @@
       const yAxisX=x2px(clampedXT);
       const xTickPositions=xScale.ticks.map(t=>x2px(t));
       const yTickPositions=yScale.ticks.map(t=>y2px(t));
-      let axisXStart=xTickPositions.length?Math.min(...xTickPositions):margin.left;
-      let axisXEnd=xTickPositions.length?Math.max(...xTickPositions):margin.left+plotW;
-      let axisYStart=yTickPositions.length?Math.min(...yTickPositions):margin.top;
-      let axisYEnd=yTickPositions.length?Math.max(...yTickPositions):margin.top+plotH;
+      const axisXMinPos=x2px(Number.isFinite(xScale.min)?xScale.min:xMinT);
+      const axisXMaxPos=x2px(Number.isFinite(xScale.max)?xScale.max:xMaxT);
+      const axisYMinPos=y2px(Number.isFinite(yScale.min)?yScale.min:yMinT);
+      const axisYMaxPos=y2px(Number.isFinite(yScale.max)?yScale.max:yMaxT);
+      let axisXStart=xTickPositions.length?Math.min(...xTickPositions,axisXMinPos):axisXMinPos;
+      let axisXEnd=xTickPositions.length?Math.max(...xTickPositions,axisXMaxPos):axisXMaxPos;
+      let axisYStart=yTickPositions.length?Math.min(...yTickPositions,axisYMinPos):axisYMinPos;
+      let axisYEnd=yTickPositions.length?Math.max(...yTickPositions,axisYMaxPos):axisYMaxPos;
       if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
       if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
       console.debug('Debug: line axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
@@ -2535,7 +2578,10 @@
           const intervalLayer=document.createElementNS(NS,'g');
           intervalLayer.setAttribute('data-layer',`interval-${i}`);
           svg.appendChild(intervalLayer);
-          const intervalSamples=s.regression.intervals.samples.slice().sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
+          const intervalSamples=s.regression.intervals.samples
+            .slice()
+            .filter(sample=>Number.isFinite(sample?.x) && sample.x>=xMin && sample.x<=xMax)
+            .sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
           const buildIntervalPath=(lowerKey,upperKey)=>{
             const upper=[];
             const lower=[];
@@ -2544,6 +2590,7 @@
               const upperRaw=sample?.[upperKey];
               const lowerRaw=sample?.[lowerKey];
               if(!Number.isFinite(xRaw) || !Number.isFinite(upperRaw) || !Number.isFinite(lowerRaw)) return;
+              if(xRaw<xMin || xRaw>xMax) return;
               if(logX && xRaw<=0) return;
               if(logY && (upperRaw<=0 || lowerRaw<=0)) return;
               const xVal=logX?Math.log10(xRaw):xRaw;
@@ -2603,7 +2650,7 @@
             const replicateCount=Number.isInteger(pt?.replicateCount)?pt.replicateCount:(Array.isArray(pt?.replicates)?pt.replicates.length:0);
             const canShowError=showErrorBars && replicateCount>1 && errorGroup && Number.isFinite(pt.lower) && Number.isFinite(pt.upper) && pt.upper>=pt.lower;
             if(!canShowError && showErrorBars && replicateCount<=1){
-              console.debug('Debug: line error bar suppressed for single value',{ series:series[s].name, x:pt.x, replicateCount });
+              console.debug('Debug: line error bar suppressed for single value',{ series:s.name, x:pt.x, replicateCount });
             }
             if(canShowError){
               const lowerVal=logY?(pt.lower>0?Math.log10(pt.lower):null):pt.lower;
@@ -2656,7 +2703,9 @@
         let forecastPathEl=null;
         const forecastPointsRaw = Array.isArray(s.regression?.forecast?.points) ? s.regression.forecast.points.slice() : null;
         if(forecastPointsRaw && forecastPointsRaw.length){
-          const sortedForecast = forecastPointsRaw.filter(pt=>pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)).sort((a,b)=>a.x-b.x);
+          const sortedForecast = forecastPointsRaw
+            .filter(pt=>pt && Number.isFinite(pt.x) && Number.isFinite(pt.y) && pt.x>=xMin && pt.x<=xMax && pt.y>=yMin && pt.y<=yMax)
+            .sort((a,b)=>a.x-b.x);
           if(sortedForecast.length){
             let forecastStr='';
             let forecastStarted=false;
