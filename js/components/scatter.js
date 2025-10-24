@@ -1613,10 +1613,13 @@
           scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
         }
         const maxLen=rowCount;
-        const points=[];
+        let points=[];
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
         const labelSet=shouldCollectLabelSet ? new Set() : null;
         const labelAnnotations=[];
+        let legendRenderer=null;
+        let legendGapPx=0;
+        let legendWidth=0;
         let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
         let skippedRows=0;
         let significantCount=0;
@@ -1722,47 +1725,12 @@
         }
         const labelsUsed=labelSet?Array.from(labelSet):[];
         debug('Debug: scatter label summary',{graphType:scatterCurrentGraphType,labelCount:labelsUsed.length,tracked:shouldCollectLabelSet}); // Debug: label usage summary
-        if(scatterCurrentGraphType==='scatter'){
-          renderScatterStatsAdvisor(points);
-        }else{
+        if(scatterCurrentGraphType!=='scatter'){
           renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
         }
         ensureScatterLabelColors(labelsUsed);
         info('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
-        const legendEntries=[];
         const significanceLegendNeeded=scatterCurrentGraphType!=='scatter';
-        if(scatterCurrentGraphType==='scatter'){
-          labelsUsed.forEach(labelName=>{
-            legendEntries.push({label:labelName,fill:scatterLabelColors[labelName]||fill,key:labelName,editable:true});
-          });
-        }else if(significanceLegendNeeded){
-          legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
-          legendEntries.push({label:'Not significant',fill});
-        }
-        const legendRenderer=chartStyle.createLegendRenderer({
-          entries:legendEntries,
-          fontSize:fs,
-          onSwatchClick:({ entry, event, swatch })=>{
-            const labelKey=entry?.key;
-            if(!labelKey){
-              return;
-            }
-            if(event){ event.stopPropagation(); }
-            const currentColor=scatterLabelColors[labelKey]||entry.fill;
-            Shared.openColorPicker({
-              anchor:swatch,
-              color:currentColor,
-              onInput(value){
-                scatterLabelColors[labelKey]=value;
-                debug('Debug: scatter legend color input',{label:labelKey,color:value});
-                scheduleDrawScatter();
-              }
-            });
-          }
-        });
-        const legendGapPx=legendRenderer.entries.length?Math.max(12,Math.round(fs*0.5)):0;
-        const legendWidth=legendRenderer.entries.length?legendRenderer.width+legendGapPx:0;
-        debug('Debug: scatter legend metrics',{legendWidth,legendGapPx,entryCount:legendRenderer.entries.length,graphType:scatterCurrentGraphType});
         if(token!==scatterDrawToken){info('scatter draw cancelled after collect',{token});return;}
         const plotEl=document.getElementById('scatterPlot');
         plotEl.style.display='block';
@@ -1799,6 +1767,61 @@
           }
           info('scatter range adjusted for custom origin',{xMin,xMax,yMin,yMax});
         }
+        const pointsInRange=points.filter(p=>p.x>=xMin&&p.x<=xMax&&p.y>=yMin&&p.y<=yMax);
+        const removedForRange=points.length-pointsInRange.length;
+        if(removedForRange>0){
+          debug('Debug: scatter filtered points outside axis',{removed:removedForRange,xMin,xMax,yMin,yMax});
+        }
+        if(!pointsInRange.length){
+          if(scatterCurrentGraphType==='scatter'){
+            renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
+          }
+          plotEl.innerHTML='<i>No points fall within the specified axis range.</i>';
+          debug('Debug: scatter plot aborted due to range filter',{range:{xMin,xMax,yMin,yMax}});
+          return;
+        }
+        if(scatterCurrentGraphType==='scatter'){
+          renderScatterStatsAdvisor(pointsInRange);
+        }else{
+          significantCount=pointsInRange.reduce((acc,p)=>acc+(p.isSignificant?1:0),0);
+        }
+        const visibleLabels = shouldCollectLabelSet
+          ? Array.from(new Set(pointsInRange.map(p=>p.label).filter(Boolean)))
+          : [];
+        const legendEntries=[];
+        if(scatterCurrentGraphType==='scatter'){
+          visibleLabels.forEach(labelName=>{
+            legendEntries.push({label:labelName,fill:scatterLabelColors[labelName]||fill,key:labelName,editable:true});
+          });
+        }else if(significanceLegendNeeded){
+          legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
+          legendEntries.push({label:'Not significant',fill});
+        }
+        legendRenderer=chartStyle.createLegendRenderer({
+          entries:legendEntries,
+          fontSize:fs,
+          onSwatchClick:({ entry, event, swatch })=>{
+            const labelKey=entry?.key;
+            if(!labelKey){
+              return;
+            }
+            if(event){ event.stopPropagation(); }
+            const currentColor=scatterLabelColors[labelKey]||entry.fill;
+            Shared.openColorPicker({
+              anchor:swatch,
+              color:currentColor,
+              onInput(value){
+                scatterLabelColors[labelKey]=value;
+                debug('Debug: scatter legend color input',{label:labelKey,color:value});
+                scheduleDrawScatter();
+              }
+            });
+          }
+        });
+        legendGapPx=legendRenderer.entries.length?Math.max(12,Math.round(fs*0.5)):0;
+        legendWidth=legendRenderer.entries.length?legendRenderer.width+legendGapPx:0;
+        debug('Debug: scatter legend metrics',{legendWidth,legendGapPx,entryCount:legendRenderer.entries.length,graphType:scatterCurrentGraphType});
+        points = pointsInRange;
         if(xMin===xMax) xMax=xMin+1;
         if(yMin===yMax) yMax=yMin+1;
         info('scatter final raw range',{xMin,xMax,yMin,yMax});
@@ -1968,12 +1991,16 @@
         info('scatter axes',{tickLen,xAxisY,yAxisX});
         const xTickPositions=xScale.ticks.map(t=>x2px(t));
         const yTickPositions=yScale.ticks.map(t=>y2px(t));
-        let axisXStart=xTickPositions.length?Math.min(...xTickPositions):margin.left;
-        let axisXEnd=xTickPositions.length?Math.max(...xTickPositions):margin.left+plotW;
-        let axisYStart=yTickPositions.length?Math.min(...yTickPositions):margin.top;
-        let axisYEnd=yTickPositions.length?Math.max(...yTickPositions):margin.top+plotH;
-        if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
-        if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
+        const axisXMinPos=x2px(Number.isFinite(xScale.min)?xScale.min:xMinT);
+        const axisXMaxPos=x2px(Number.isFinite(xScale.max)?xScale.max:xMaxT);
+        const axisYMinPos=y2px(Number.isFinite(yScale.min)?yScale.min:yMinT);
+        const axisYMaxPos=y2px(Number.isFinite(yScale.max)?yScale.max:yMaxT);
+        let axisXStart=xTickPositions.length?Math.min(...xTickPositions,axisXMinPos):axisXMinPos;
+        let axisXEnd=xTickPositions.length?Math.max(...xTickPositions,axisXMaxPos):axisXMaxPos;
+        let axisYStart=yTickPositions.length?Math.min(...yTickPositions,axisYMinPos):axisYMinPos;
+        let axisYEnd=yTickPositions.length?Math.max(...yTickPositions,axisYMaxPos):axisYMaxPos;
+        if(axisXStart===axisXEnd){axisXStart=axisXMinPos;axisXEnd=axisXMaxPos;}
+        if(axisYStart===axisYEnd){axisYStart=axisYMinPos;axisYEnd=axisYMaxPos;}
         debug('Debug: scatter axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
         const axisControlConfig = axis => ({
           axis,

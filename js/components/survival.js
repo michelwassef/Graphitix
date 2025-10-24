@@ -284,8 +284,6 @@
     refs.showGrid = $('#survivalShowGrid');
     refs.showFrame = $('#survivalShowFrame');
     refs.timeMax = $('#survivalTimeMax');
-    refs.yMin = $('#survivalYMin');
-    refs.yMax = $('#survivalYMax');
     refs.xLabel = $('#survivalXLabel');
     refs.yLabel = $('#survivalYLabel');
     refs.fontSize = $('#survivalFontSize');
@@ -2041,15 +2039,9 @@
     let xMax = Number.isFinite(manualXMax) && manualXMax > 0 ? manualXMax : autoXMax * 1.05;
     xMax = Math.max(xMax, autoXMax || 1);
     const xMin = 0;
-    const manualYMin = Number.parseFloat(refs.yMin?.value);
-    const manualYMax = Number.parseFloat(refs.yMax?.value);
-    let yMin = Number.isFinite(manualYMin) ? manualYMin : 0;
-    let yMax = Number.isFinite(manualYMax) ? manualYMax : 1;
-    if(yMax <= yMin){
-      yMax = yMin + 1;
-    }
-    yMin = Math.max(Math.min(yMin, yMax - 0.01), -0.2);
-    yMax = Math.max(yMax, yMin + 0.01);
+    const yMin = 0;
+    const yMax = 1;
+    logDebug('axis range auto',{ yMin, yMax });
 
     const xTickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(width, { axis: 'x', fallback: 6 }) : 6;
     const yTickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(height, { axis: 'y', fallback: 6 }) : 6;
@@ -2504,8 +2496,6 @@
         showGrid: !!refs.showGrid?.checked,
         showFrame: !!refs.showFrame?.checked,
         timeMax: refs.timeMax?.value || '',
-        yMin: refs.yMin?.value || '',
-        yMax: refs.yMax?.value || '',
         fontSize: refs.fontSize?.value || '13',
         fontStyles: (exportFontStyles('survival') || undefined),
         xLabel: refs.xLabel?.value || '',
@@ -2554,8 +2544,6 @@
     if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
     if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
     if(refs.timeMax) refs.timeMax.value = config.timeMax || '';
-    if(refs.yMin) refs.yMin.value = config.yMin || '';
-    if(refs.yMax) refs.yMax.value = config.yMax || '';
     if(refs.fontSize) refs.fontSize.value = config.fontSize || '13';
     if(refs.fontSize && refs.fontSize.dataset){
       refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
@@ -2687,7 +2675,7 @@
       renderSurvivalStatsAdvisor(state.lastSummary || { series: [], covariateColumns: state.covariateColumns });
       schedule();
     });
-    [refs.timeMax, refs.yMin, refs.yMax, refs.xLabel, refs.yLabel].forEach(input => {
+    [refs.timeMax, refs.xLabel, refs.yLabel].forEach(input => {
       input?.addEventListener('input', () => {
         logDebug('control input', { id: input.id, value: input.value });
         schedule();
