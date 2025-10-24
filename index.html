@@ -509,7 +509,7 @@
           <div class="config-panel">
             <fieldset class="config-panel__fieldset">
               <legend>Graph</legend>
-              <div class="config-panel__line">
+              <div class="config-panel__line config-panel__line--split">
                 <label class="config-panel__item">
                   <span class="config-panel__label">Type</span>
                   <select id="scatterGraphType">
@@ -518,6 +518,7 @@
                     <option value="ma">Ma plot</option>
                   </select>
                 </label>
+                <label class="config-panel__checkbox config-panel__checkbox--inline"><input type="checkbox" id="scatterShowLegend" checked /> <span>Show legend</span></label>
               </div>
               <div class="config-panel__line config-panel__line--split" id="scatterThresholdControls" style="display:none;">
                 <label class="config-panel__item">
