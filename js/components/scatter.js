@@ -616,6 +616,8 @@
           afterChange(changes,source){
             if(!changes||source==='loadData') return;
             console.log('scatter afterChange', {count:changes.length, source});
+            revalidateActiveScatterLogAxis('x','data-edit');
+            revalidateActiveScatterLogAxis('y','data-edit');
           },
           afterUndo(){
             console.log('scatter undo');
@@ -783,6 +785,35 @@
         if(scatterDebugEnabled()){
           console.debug('Debug: scatter log warning cleared');
         }
+      }
+      function applyScatterLogValidationFailure(axis, validation, context){
+        if(!validation || validation.allowed !== false){
+          return;
+        }
+        const checkbox = axis === 'x' ? scatterLogX : scatterLogY;
+        if(checkbox){
+          checkbox.checked = false;
+        }
+        const warningMessage = validation.message || `Cannot enable log scale on the ${axis === 'x' ? 'X' : 'Y'} axis while non-positive values are present.`;
+        showScatterLogWarning(warningMessage);
+        if(scatterDebugEnabled()){
+          console.debug('Debug: scatter log axis auto-disabled',{ axis, context, reason: validation.reason, value: validation.value });
+        }
+        scheduleDrawScatter();
+      }
+      function revalidateActiveScatterLogAxis(axis, context){
+        const checkbox = axis === 'x' ? scatterLogX : scatterLogY;
+        if(!checkbox?.checked){
+          return true;
+        }
+        const validation = validateScatterLogAxis(axis);
+        if(!validation.allowed){
+          applyScatterLogValidationFailure(axis, validation, context);
+          console.warn('scatter log axis disabled',{ axis, context, reason: validation.reason, value: validation.value });
+          return false;
+        }
+        clearScatterLogWarning();
+        return true;
       }
       function validateScatterLogAxis(axis){
         const axisLabel=axis==='x'?'X':'Y';
@@ -1401,6 +1432,13 @@
       [scatterShowGrid,scatterStatType,scatterOriginMode,scatterShowLine,scatterShowIntervals,scatterShowDiagnostics]
         .forEach(el=>el&&el.addEventListener('change',()=>{
           console.debug('Debug: scatter config changed', { id: el.id, checked: el.checked, value: el.value });
+          if(el===scatterOriginMode){
+            const xOk=revalidateActiveScatterLogAxis('x','origin-mode-change');
+            const yOk=revalidateActiveScatterLogAxis('y','origin-mode-change');
+            if(!xOk||!yOk){
+              return;
+            }
+          }
           scheduleDrawScatter();
         }));
       const handleScatterLogToggle=(axis,checkbox)=>{
@@ -1432,7 +1470,29 @@
         });
       }
       scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleDrawScatter();});
-      [scatterXMin,scatterXMax,scatterYMin,scatterYMax,scatterOriginX,scatterOriginY].forEach(el=>el.addEventListener('input',()=>{console.log('scatter axis input', el.id, el.value); scheduleDrawScatter();}));
+      const scatterAxisInputs=[
+        { el: scatterXMin, axis: 'x', context: 'axis-min-input', logLabel: 'scatterXMin changed' },
+        { el: scatterXMax, axis: 'x', context: 'axis-max-input', logLabel: 'scatterXMax changed' },
+        { el: scatterYMin, axis: 'y', context: 'axis-min-input', logLabel: 'scatterYMin changed' },
+        { el: scatterYMax, axis: 'y', context: 'axis-max-input', logLabel: 'scatterYMax changed' },
+        { el: scatterOriginX, axis: 'x', context: 'origin-input', logLabel: 'scatterOriginX changed' },
+        { el: scatterOriginY, axis: 'y', context: 'origin-input', logLabel: 'scatterOriginY changed' }
+      ];
+      scatterAxisInputs.forEach(({el,axis,context,logLabel})=>{
+        if(!el){
+          return;
+        }
+        el.addEventListener('input',()=>{
+          console.log(logLabel, el.value);
+          if(!revalidateActiveScatterLogAxis(axis,context)){
+            return;
+          }
+          if(!scatterLogX?.checked && !scatterLogY?.checked){
+            clearScatterLogWarning();
+          }
+          scheduleDrawScatter();
+        });
+      });
       syncScatterGraphTypeUI();
 
       function ensureScatterLabelColors(labels){

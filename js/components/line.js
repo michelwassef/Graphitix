@@ -2939,6 +2939,35 @@
         console.debug('Debug: line log warning cleared');
       }
     }
+    function applyLineLogValidationFailure(axis, validation, context){
+      if(!validation || validation.allowed !== false){
+        return;
+      }
+      const checkbox = axis === 'x' ? refs.logX : refs.logY;
+      if(checkbox){
+        checkbox.checked = false;
+      }
+      const warningMessage = validation.message || `Cannot enable log scale on the ${axis === 'x' ? 'X' : 'Y'} axis while non-positive values are present.`;
+      showLineLogWarning(warningMessage);
+      if(lineDebugEnabled()){
+        console.debug('Debug: line log axis auto-disabled',{ axis, context, reason: validation.reason, value: validation.value });
+      }
+      scheduleLineDraw();
+    }
+    function revalidateActiveLineLogAxis(axis, context){
+      const checkbox = axis === 'x' ? refs.logX : refs.logY;
+      if(!checkbox?.checked){
+        return true;
+      }
+      const validation = validateLineLogAxis(axis);
+      if(!validation.allowed){
+        applyLineLogValidationFailure(axis, validation, context);
+        console.warn('line log axis disabled',{ axis, context, reason: validation.reason, value: validation.value });
+        return false;
+      }
+      clearLineLogWarning();
+      return true;
+    }
     function validateLineLogAxis(axis){
       const axisLabel=axis==='x'?'X':'Y';
       const minInput=axis==='x'?refs.xMin:refs.yMin;
@@ -3143,6 +3172,8 @@
         afterChange(changes, source){
           if(changes && source !== 'loadData'){
             console.debug('Debug: line afterChange', { count: changes.length, source });
+            revalidateActiveLineLogAxis('x','data-edit');
+            revalidateActiveLineLogAxis('y','data-edit');
           }
         },
         afterCreateRow(){
@@ -3353,9 +3384,40 @@
     };
     handleLineLogToggle('x',refs.logX);
     handleLineLogToggle('y',refs.logY);
-    [refs.xMin,refs.xMax,refs.yMin,refs.yMax,refs.originMode,refs.originX,refs.originY].forEach(el=>{
-      el?.addEventListener('input',()=>{ scheduleLineDraw(); });
+    const lineAxisInputs=[
+      { el: refs.xMin, axis: 'x', context: 'axis-min-input', logLabel: 'lineXMin changed' },
+      { el: refs.xMax, axis: 'x', context: 'axis-max-input', logLabel: 'lineXMax changed' },
+      { el: refs.yMin, axis: 'y', context: 'axis-min-input', logLabel: 'lineYMin changed' },
+      { el: refs.yMax, axis: 'y', context: 'axis-max-input', logLabel: 'lineYMax changed' },
+      { el: refs.originX, axis: 'x', context: 'origin-input', logLabel: 'lineOriginX changed' },
+      { el: refs.originY, axis: 'y', context: 'origin-input', logLabel: 'lineOriginY changed' }
+    ];
+    lineAxisInputs.forEach(({el,axis,context,logLabel})=>{
+      if(!el){
+        return;
+      }
+      el.addEventListener('input',()=>{
+        console.log(logLabel, el.value);
+        if(!revalidateActiveLineLogAxis(axis,context)){
+          return;
+        }
+        if(!refs.logX?.checked && !refs.logY?.checked){
+          clearLineLogWarning();
+        }
+        scheduleLineDraw();
+      });
     });
+    if(refs.originMode){
+      refs.originMode.addEventListener('change',()=>{
+        console.debug('Debug: line originMode change',{ value: refs.originMode.value });
+        const xOk=revalidateActiveLineLogAxis('x','origin-mode-change');
+        const yOk=revalidateActiveLineLogAxis('y','origin-mode-change');
+        if(!xOk||!yOk){
+          return;
+        }
+        scheduleLineDraw();
+      });
+    }
     refs.statType?.addEventListener('change',()=>{ scheduleLineDraw(); });
     refs.showIntervals?.addEventListener('change',e=>{ console.debug('Debug: line showIntervals change',{checked:e.target.checked}); scheduleLineDraw(); });
     refs.showDiagnostics?.addEventListener('change',e=>{ console.debug('Debug: line showDiagnostics change',{checked:e.target.checked}); scheduleLineDraw(); });
