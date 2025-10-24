@@ -49,6 +49,12 @@
 
   const scatterRefs = {};
   let scatterTooltipEl = null;
+  const EMPTY_LEGEND_RENDERER = Object.freeze({
+    entries: Object.freeze([]),
+    width: 0,
+    height: 0,
+    draw(){ /* noop legend renderer when hidden */ }
+  });
 
   function scatterDebug(label, payload){
     try{
@@ -727,6 +733,7 @@
       }
       chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
       const scatterShowGrid=$('#scatterShowGrid'), scatterShowFrame=$('#scatterShowFrame'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
+      const scatterShowLegend=$('#scatterShowLegend');
       const scatterXMin=$('#scatterXMin'), scatterXMax=$('#scatterXMax'), scatterYMin=$('#scatterYMin'), scatterYMax=$('#scatterYMax');
       const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
       const scatterStatType=$('#scatterStatType');
@@ -1470,6 +1477,12 @@
         });
       }
       scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleDrawScatter();});
+      if(scatterShowLegend){
+        scatterShowLegend.addEventListener('change',()=>{
+          console.debug('Debug: scatter showLegend change',{checked:scatterShowLegend.checked});
+          scheduleDrawScatter();
+        });
+      }
       const scatterAxisInputs=[
         { el: scatterXMin, axis: 'x', context: 'axis-min-input', logLabel: 'scatterXMin changed' },
         { el: scatterXMax, axis: 'x', context: 'axis-max-input', logLabel: 'scatterXMax changed' },
@@ -1589,6 +1602,8 @@
         info('scatter showGrid', showGrid);
         const showFrame=scatterShowFrame.checked;
         debug('Debug: scatter showFrame state',{showFrame});
+        const showLegend = scatterShowLegend ? scatterShowLegend.checked : true;
+        debug('Debug: scatter legend toggle state',{ showLegend });
         let showLine=scatterShowLine.checked;
         const showIntervals = !!(scatterShowIntervals && scatterShowIntervals.checked);
         const showDiagnostics = !!(scatterShowDiagnostics && scatterShowDiagnostics.checked);
@@ -1677,7 +1692,7 @@
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
         const labelSet=shouldCollectLabelSet ? new Set() : null;
         const labelAnnotations=[];
-        let legendRenderer=null;
+        let legendRenderer=EMPTY_LEGEND_RENDERER;
         let legendGapPx=0;
         let legendWidth=0;
         let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
@@ -1848,39 +1863,46 @@
         const visibleLabels = shouldCollectLabelSet
           ? Array.from(new Set(pointsInRange.map(p=>p.label).filter(Boolean)))
           : [];
-        const legendEntries=[];
-        if(scatterCurrentGraphType==='scatter'){
-          visibleLabels.forEach(labelName=>{
-            legendEntries.push({label:labelName,fill:scatterLabelColors[labelName]||fill,key:labelName,editable:true});
-          });
-        }else if(significanceLegendNeeded){
-          legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
-          legendEntries.push({label:'Not significant',fill});
-        }
-        legendRenderer=chartStyle.createLegendRenderer({
-          entries:legendEntries,
-          fontSize:fs,
-          onSwatchClick:({ entry, event, swatch })=>{
-            const labelKey=entry?.key;
-            if(!labelKey){
-              return;
-            }
-            if(event){ event.stopPropagation(); }
-            const currentColor=scatterLabelColors[labelKey]||entry.fill;
-            Shared.openColorPicker({
-              anchor:swatch,
-              color:currentColor,
-              onInput(value){
-                scatterLabelColors[labelKey]=value;
-                debug('Debug: scatter legend color input',{label:labelKey,color:value});
-                scheduleDrawScatter();
-              }
+        if(showLegend){
+          const legendEntries=[];
+          if(scatterCurrentGraphType==='scatter'){
+            visibleLabels.forEach(labelName=>{
+              legendEntries.push({label:labelName,fill:scatterLabelColors[labelName]||fill,key:labelName,editable:true});
             });
+          }else if(significanceLegendNeeded){
+            legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
+            legendEntries.push({label:'Not significant',fill});
           }
-        });
-        legendGapPx=legendRenderer.entries.length?Math.max(12,Math.round(fs*0.5)):0;
-        legendWidth=legendRenderer.entries.length?legendRenderer.width+legendGapPx:0;
-        debug('Debug: scatter legend metrics',{legendWidth,legendGapPx,entryCount:legendRenderer.entries.length,graphType:scatterCurrentGraphType});
+          legendRenderer=chartStyle.createLegendRenderer({
+            entries:legendEntries,
+            fontSize:fs,
+            onSwatchClick:({ entry, event, swatch })=>{
+              const labelKey=entry?.key;
+              if(!labelKey){
+                return;
+              }
+              if(event){ event.stopPropagation(); }
+              const currentColor=scatterLabelColors[labelKey]||entry.fill;
+              Shared.openColorPicker({
+                anchor:swatch,
+                color:currentColor,
+                onInput(value){
+                  scatterLabelColors[labelKey]=value;
+                  debug('Debug: scatter legend color input',{label:labelKey,color:value});
+                  scheduleDrawScatter();
+                }
+              });
+            }
+          });
+          legendGapPx=legendRenderer.entries.length?Math.max(12,Math.round(fs*0.5)):0;
+          legendWidth=legendRenderer.entries.length?legendRenderer.width+legendGapPx:0;
+        }else{
+          legendRenderer=EMPTY_LEGEND_RENDERER;
+          legendGapPx=0;
+          legendWidth=0;
+          debug('Debug: scatter legend hidden via toggle',{graphType:scatterCurrentGraphType});
+        }
+        debug('Debug: scatter legend metrics',{legendWidth,legendGapPx,entryCount:legendRenderer.entries.length,graphType:scatterCurrentGraphType,showLegend});
         points = pointsInRange;
         if(xMin===xMax) xMax=xMin+1;
         if(yMin===yMax) yMax=yMin+1;
@@ -2612,6 +2634,7 @@
             labelColors:scatterLabelColors,
             showGrid:scatterShowGrid.checked,
             showFrame:scatterShowFrame.checked,
+            showLegend:scatterShowLegend ? scatterShowLegend.checked : true,
             logX:scatterLogX.checked,
             logY:scatterLogY.checked,
             xMin:scatterXMin.value,
@@ -2721,6 +2744,9 @@
             scatterLabelColors=c.labelColors||{};
             scatterShowGrid.checked=!!c.showGrid;
             scatterShowFrame.checked=!!c.showFrame;
+            if(scatterShowLegend){
+              scatterShowLegend.checked = c.showLegend !== false;
+            }
             scatterLogX.checked=!!c.logX;
             scatterLogY.checked=!!c.logY;
             scatterXMin.value=c.xMin||'';
