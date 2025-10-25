@@ -43,6 +43,7 @@ describe('PCA view controls', () => {
     require('../js/shared/debounce.js');
     require('../js/shared/resizer.js');
     require('../js/shared/colorPicker.js');
+    require('../js/shared/editHighlight.js');
     require('../js/shared/hot.js');
     require('../js/shared/componentLayout.js');
     require('../js/shared/chartStyle.js');

@@ -1784,3 +1784,31 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     visibility: hidden;
     white-space: pre;
 }
+
+.graph-edit-highlight--text,
+.graph-edit-highlight--axis {
+    transition: filter 0.12s ease-in-out, stroke 0.12s ease-in-out;
+}
+
+.graph-edit-highlight--text {
+    stroke: #ff9800;
+    stroke-width: 1.6;
+    paint-order: stroke fill;
+    filter: drop-shadow(0 0 0.75px rgba(255, 152, 0, 0.45)) drop-shadow(0 0 4px rgba(255, 152, 0, 0.55));
+}
+
+.graph-edit-highlight--axis {
+    stroke: #ff9800;
+    stroke-width: 2.5;
+    filter: drop-shadow(0 0 2px rgba(255, 152, 0, 0.4)) drop-shadow(0 0 5px rgba(255, 152, 0, 0.5));
+}
+
+.graph-edit-highlight--axis-overlay {
+    stroke: rgba(255, 152, 0, 0.85);
+    stroke-width: 2;
+    fill: rgba(255, 152, 0, 0.12);
+    rx: 3;
+    ry: 3;
+    pointer-events: auto;
+    transition: stroke 0.12s ease-in-out, fill 0.12s ease-in-out;
+}

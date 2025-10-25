@@ -1934,6 +1934,15 @@
     if(colorInput){
       colorInput.__fontControlsAvoidRect = null;
     }
+    try {
+      const editHighlight = Shared.editHighlight;
+      if(editHighlight && typeof editHighlight.clearText === 'function'){
+        editHighlight.clearText(reason || 'close');
+        logDebug('text highlight cleared via close', { reason });
+      }
+    } catch(highlightErr){
+      console.error('fontControls.closePanel highlight error', highlightErr);
+    }
     currentTarget = null;
     currentScope = null;
     currentKey = null;
@@ -1955,6 +1964,15 @@
     currentTarget = target;
     currentScope = options?.scopeId || target.dataset?.fontScope || null;
     currentKey = options?.key || target.dataset?.fontKey || null;
+    try {
+      const editHighlight = Shared.editHighlight;
+      if(editHighlight && typeof editHighlight.highlightText === 'function'){
+        editHighlight.highlightText(target);
+        logDebug('text highlight requested', { scope: currentScope, key: currentKey });
+      }
+    } catch(highlightErr){
+      console.error('fontControls.openPanelForTarget highlight error', highlightErr);
+    }
     if(!panelEl){ return; }
     const host = resolveToolbarHost(currentScope);
     if(host){
