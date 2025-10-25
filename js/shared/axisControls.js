@@ -341,6 +341,15 @@
         updateDockActiveState(activeHost, false);
       }
     }
+    try {
+      const editHighlight = Shared.editHighlight;
+      if(editHighlight && typeof editHighlight.clearAxis === 'function'){
+        editHighlight.clearAxis(reason || 'close');
+        logDebug('axis highlight cleared via close', { reason });
+      }
+    } catch(highlightErr){
+      console.error('axisControls closePanel highlight error', highlightErr);
+    }
     logDebug('panel closed',{ reason });
     activeConfig = null;
     activeHost = null;
@@ -429,6 +438,15 @@
       evt.preventDefault();
       evt.stopPropagation();
       logDebug('axis clicked',{ axis: config.axis, scopeId: config.scopeId });
+      try {
+        const editHighlight = Shared.editHighlight;
+        if(editHighlight && typeof editHighlight.highlightAxis === 'function'){
+          editHighlight.highlightAxis(element, { overlay: overlayInfo ? overlayInfo.element : null });
+          logDebug('axis highlight requested',{ axis: config.axis, scopeId: config.scopeId });
+        }
+      } catch(highlightErr){
+        console.error('axisControls registerAxisElement highlight error', highlightErr);
+      }
       openPanel({
         axis: config.axis,
         scopeId: config.scopeId,
