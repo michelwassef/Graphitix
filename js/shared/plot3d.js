@@ -217,8 +217,8 @@
       const scale = opts.rotationScale || 0.01;
       const yawDelta = dx * scale * yawSign;
       const pitchDelta = dy * scale;
-      state.y -= yawDelta;
-      state.x -= pitchDelta;
+      state.y += yawDelta;
+      state.x += pitchDelta;
       plot3d.normalizeRotation(state);
       const updatedYawSign = getOrientationSign(state.x);
       if(updatedYawSign !== pointerState.orientationSign){
@@ -565,6 +565,59 @@
       debugLog('Debug: plot3d grid rendered', { label: debugLabel });
     }
     if(showFrame){
+      const rotatedCornerCache = new Array(allCorners.length);
+      const projectedCornerCache = new Array(allCorners.length);
+      if(typeof project === 'function'){
+        for(let idx = 0; idx < allCorners.length; idx += 1){
+          const rotCorner = rotatePoint(allCorners[idx]);
+          rotatedCornerCache[idx] = rotCorner;
+          projectedCornerCache[idx] = project(rotCorner);
+        }
+      }
+      const hullEdgeKeys = new Set();
+      if(projectedCornerCache.length){
+        const points2d = [];
+        for(let idx = 0; idx < projectedCornerCache.length; idx += 1){
+          const pt = projectedCornerCache[idx];
+          if(pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)){
+            points2d.push({ x: pt.x, y: pt.y, index: idx });
+          }
+        }
+        if(points2d.length >= 2){
+          const sorted = points2d.slice().sort((a, b) => {
+            if(a.x === b.x){ return a.y - b.y; }
+            return a.x - b.x;
+          });
+          const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+          const lower = [];
+          for(let i = 0; i < sorted.length; i += 1){
+            const p = sorted[i];
+            while(lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0){
+              lower.pop();
+            }
+            lower.push(p);
+          }
+          const upper = [];
+          for(let i = sorted.length - 1; i >= 0; i -= 1){
+            const p = sorted[i];
+            while(upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0){
+              upper.pop();
+            }
+            upper.push(p);
+          }
+          if(lower.length){ lower.pop(); }
+          if(upper.length){ upper.pop(); }
+          const hullPoints = lower.concat(upper);
+          for(let i = 0; i < hullPoints.length; i += 1){
+            const a = hullPoints[i];
+            const b = hullPoints[(i + 1) % hullPoints.length];
+            if(!a || !b || a.index === b.index){ continue; }
+            const key = a.index < b.index ? `${a.index}-${b.index}` : `${b.index}-${a.index}`;
+            hullEdgeKeys.add(key);
+          }
+          debugLog('Debug: plot3d silhouette edges computed', { label: debugLabel, hullEdgeCount: hullEdgeKeys.size });
+        }
+      }
       const edges = [
         [0, 1], [0, 2], [1, 3], [2, 3],
         [4, 5], [4, 6], [5, 7], [6, 7],
@@ -577,13 +630,17 @@
       const backDash = Array.isArray(cfg.frameBackDash) ? cfg.frameBackDash : [6, 4];
       const centerDepth = rotatePoint(cubeCenter).z || 0;
       let frontCount = 0;
-      let backCount = 0;
+      let occludedCount = 0;
+      let silhouetteCount = 0;
       for(let i=0;i<edges.length;i+=1){
         const pair = edges[i];
-        const startRot = rotatePoint(allCorners[pair[0]]);
-        const endRot = rotatePoint(allCorners[pair[1]]);
+        const startRot = rotatedCornerCache[pair[0]] || rotatePoint(allCorners[pair[0]]);
+        const endRot = rotatedCornerCache[pair[1]] || rotatePoint(allCorners[pair[1]]);
         const depthAvg = ((startRot.z || 0) + (endRot.z || 0)) / 2;
-        const isFrontEdge = depthAvg >= centerDepth;
+        const edgeKey = pair[0] < pair[1] ? `${pair[0]}-${pair[1]}` : `${pair[1]}-${pair[0]}`;
+        const isSilhouetteEdge = hullEdgeKeys.has(edgeKey);
+        const isOccludedEdge = depthAvg < centerDepth && !isSilhouetteEdge;
+        const isFrontEdge = !isOccludedEdge;
         const attrs = {
           stroke: frameColor,
           'stroke-width': isFrontEdge ? frontWidth : backWidth,
@@ -600,7 +657,10 @@
           if(backDash && backDash.length){
             attrs['stroke-dasharray'] = backDash.join(' ');
           }
-          backCount += 1;
+          occludedCount += 1;
+        }
+        if(isSilhouetteEdge){
+          silhouetteCount += 1;
         }
         if(isFrontEdge){
           frontCount += 1;
@@ -611,7 +671,8 @@
         label: debugLabel,
         edgeCount: edges.length,
         frontEdges: frontCount,
-        backEdges: backCount,
+        occludedEdges: occludedCount,
+        silhouetteEdges: silhouetteCount,
         centerDepth
       });
     }
