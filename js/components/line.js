@@ -1685,12 +1685,16 @@
       const row = doc.createElement('div');
       row.className = 'grouped-row';
       row.dataset.groupIndex = String(idx);
+      const inputId = `line-group-name-${idx}`;
       const labelEl = doc.createElement('label');
       labelEl.textContent = `Group ${idx + 1}`;
+      labelEl.setAttribute('for', inputId);
       row.appendChild(labelEl);
       const input = doc.createElement('input');
       input.type = 'text';
       input.value = storedLabel || '';
+      input.id = inputId;
+      input.setAttribute('aria-label', `Display name for Group ${idx + 1}`);
       input.addEventListener('change', e => {
         updateLineSeriesGroupLabel(idx, e.target.value);
         e.target.value = lineSeriesGroupLabels[idx] || '';
