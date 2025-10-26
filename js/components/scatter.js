@@ -573,6 +573,42 @@
       const scatterPanelResizer=document.getElementById('scatterPanelResizer');
       let scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
       const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-options');
+      const scatterShowLegend=$('#scatterShowLegend');
+      const scatterLegendControl=scatterShowLegend?.closest('label')||null;
+      const ensureScatterLegendTrayPlacement=()=>{
+        if(!scatterLegendControl){
+          return;
+        }
+        const hostBox=scatterSvgBox||scatterGraphPanel?.querySelector?.('.svgbox');
+        if(!hostBox){
+          return;
+        }
+        let tray=hostBox.querySelector('.resizer-control-tray');
+        if(!tray){
+          const doc=hostBox.ownerDocument||global.document;
+          if(doc){
+            tray=doc.createElement('div');
+            tray.className='resizer-control-tray';
+            hostBox.appendChild(tray);
+            console.debug('Debug: scatter legend tray fallback created',{ trayChildren: tray.childElementCount });
+          }
+        }
+        if(!tray){
+          return;
+        }
+        if(scatterLegendControl.parentNode!==tray){
+          tray.appendChild(scatterLegendControl);
+          console.debug('Debug: scatter legend control moved',{ trayChildren: tray.childElementCount });
+        }
+        scatterLegendControl.classList.remove('config-panel__checkbox','config-panel__checkbox--inline');
+        scatterLegendControl.classList.add('resizer-legend-control');
+        if(!scatterLegendControl.title){
+          scatterLegendControl.title='Toggle legend visibility';
+        }
+        if(scatterLegendControl.dataset){
+          scatterLegendControl.dataset.scatterLegendTray='true';
+        }
+      };
       const scatterLayout = Shared.componentLayout?.createStandardPanels({
         componentName: 'scatter',
         selectors: {
@@ -597,6 +633,29 @@
       }
       scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
       scatterLayout?.syncPanels?.();
+      if(scatterLegendControl){
+        ensureScatterLegendTrayPlacement();
+        const scheduleLegendPlacement=typeof Shared.debounceFrame==='function'
+          ? Shared.debounceFrame(()=>ensureScatterLegendTrayPlacement())
+          : null;
+        if(scheduleLegendPlacement){
+          scheduleLegendPlacement();
+        }else if(typeof global.requestAnimationFrame==='function'){
+          global.requestAnimationFrame(()=>ensureScatterLegendTrayPlacement());
+        }
+        if(scatterLayout && typeof scatterLayout.updateSvgBox==='function'){
+          const originalUpdateSvgBox=scatterLayout.updateSvgBox.bind(scatterLayout);
+          scatterLayout.updateSvgBox=node=>{
+            originalUpdateSvgBox(node);
+            if(node){
+              scatterSvgBox=node;
+            }else if(scatterLayout.elements?.svgBox){
+              scatterSvgBox=scatterLayout.elements.svgBox;
+            }
+            ensureScatterLegendTrayPlacement();
+          };
+        }
+      }
       console.debug('Debug: scatter initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
       if(typeof Shared.hot?.createStandardTable !== 'function'){
         console.error('scatter initHot missing Shared.hot.createStandardTable');
@@ -733,7 +792,6 @@
       }
       chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
       const scatterShowGrid=$('#scatterShowGrid'), scatterShowFrame=$('#scatterShowFrame'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
-      const scatterShowLegend=$('#scatterShowLegend');
       const scatterXMin=$('#scatterXMin'), scatterXMax=$('#scatterXMax'), scatterYMin=$('#scatterYMin'), scatterYMax=$('#scatterYMax');
       const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
       const scatterStatType=$('#scatterStatType');

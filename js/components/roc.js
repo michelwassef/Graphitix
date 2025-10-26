@@ -83,6 +83,20 @@
   };
 
   const refs = {};
+  let rocLegendControl = null;
+
+  function ensureRocLegendControlPlacement(){
+    if(!rocLegendControl || !refs.svgBox){
+      return;
+    }
+    if(Shared.resizer && typeof Shared.resizer.ensureLegendControlPlacement === 'function'){
+      Shared.resizer.ensureLegendControlPlacement({
+        svgBox: refs.svgBox,
+        control: rocLegendControl,
+        debugLabel: 'roc-legend'
+      });
+    }
+  }
 
   function attachRocSelectAutoSize(select, label){
     if(!select){ return; }
@@ -279,6 +293,14 @@
     refs.showFrame = document.getElementById('rocShowFrame');
     refs.fontSize = document.getElementById('rocFontSize');
     refs.fontSizeVal = document.getElementById('rocFontSizeVal');
+    refs.showLegend = document.getElementById('rocShowLegend');
+    if(refs.showLegend){
+      const legendHost = refs.showLegend.closest('label');
+      if(legendHost){
+        rocLegendControl = legendHost;
+        ensureRocLegendControlPlacement();
+      }
+    }
       refs.graphType = document.getElementById('rocGraphType');
       attachRocSelectAutoSize(refs.graphType, 'roc');
     refs.loadExampleBtn = document.getElementById('rocLoadExample');
@@ -1139,12 +1161,15 @@
       console.debug('Debug: roc fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font toolbar missing
     }
 
-    const legendEntries = legendLabels.map((label, index) => ({
+    ensureRocLegendControlPlacement();
+    const showLegend = !refs.showLegend || !!refs.showLegend.checked;
+    console.debug('Debug: roc showLegend state',{ showLegend });
+    const legendEntries = showLegend ? legendLabels.map((label, index) => ({
       label,
       fill: state.labelColors[label] || DEFAULT_SCATTER_COLORS[index % DEFAULT_SCATTER_COLORS.length],
       key: label,
       editable: true
-    }));
+    })) : [];
     const legendLayout = chartStyle.computeLegendLayout({
       entries: legendEntries,
       fontSize,
@@ -1165,11 +1190,14 @@
         });
       }
     });
-    const legendWidth = legendLayout.legendWidthForMargin;
+    const legendRenderer = legendLayout.renderer || { entries: [], rowGap: 0, swatchSize: 0, swatchGap: 0, baselineOffset: 0 };
+    const legendVisible = showLegend && legendRenderer.entries.length > 0;
+    const legendWidth = legendVisible ? legendLayout.legendWidthForMargin : 0;
     console.debug('Debug: roc legend layout metrics',{
       legendWidth,
       legendGap: legendLayout.legendGapPx,
-      legendCount: legendLayout.renderer.entries.length
+      legendCount: legendRenderer.entries.length,
+      legendVisible
     });
     const buildTicks = (count) => {
       const steps = Math.max(count - 1, 1);
@@ -1466,10 +1494,9 @@
       add('path', {d: path, fill: 'none', stroke: color, 'stroke-width': borderWidthPx});
     });
 
-    const legendRenderer = legendLayout.renderer;
-    if(legendRenderer.entries.length){
+    if(legendVisible){
       const legendX = margin.left + plotWidth + legendLayout.legendGapPx;
-      const legendGroup = legendRenderer.draw(svg,{ x: legendX, y: margin.top + legendRenderer.baselineOffset });
+      const legendGroup = legendRenderer.draw(svg,{ x: legendX, y: margin.top + (legendRenderer.baselineOffset || 0) });
       if(legendGroup){
         const textNodes = legendGroup.querySelectorAll('text');
         legendRenderer.entries.forEach((entry, index) => {
@@ -1478,6 +1505,8 @@
           markFontEditable(textNode,'legend',`legend-${index}`);
         });
       }
+    }else{
+      console.debug('Debug: roc legend skipped',{ legendVisible, entryCount: legendRenderer.entries.length });
     }
 
     if(refs.statsResults){
@@ -1549,6 +1578,7 @@
         borderWidth: refs.borderWidth?.value,
         showGrid: !!refs.showGrid?.checked,
         showFrame: !!refs.showFrame?.checked,
+        showLegend: refs.showLegend ? !!refs.showLegend.checked : true,
         fontSize: refs.fontSize?.value,
         fontStyles: exportFontStyles('roc') || undefined,
         labelColors: state.labelColors,
@@ -1625,6 +1655,10 @@
         if(refs.borderWidth) refs.borderWidth.value = config.borderWidth || refs.borderWidth.value;
         if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
         if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
+        if(refs.showLegend){
+          refs.showLegend.checked = config.showLegend !== false;
+          ensureRocLegendControlPlacement();
+        }
         if(refs.fontSize) refs.fontSize.value = config.fontSize || refs.fontSize.value;
         updateFontSizeLabel();
         state.labelColors = config.labelColors || {};
@@ -1697,6 +1731,13 @@
     refs.borderWidth?.addEventListener('input', () => state.scheduleDraw?.());
     refs.showGrid?.addEventListener('change', () => state.scheduleDraw?.());
     refs.showFrame?.addEventListener('change', () => { console.debug('Debug: roc showFrame change',{checked:refs.showFrame.checked}); state.scheduleDraw?.(); });
+    if(refs.showLegend){
+      refs.showLegend.addEventListener('change', () => {
+        console.debug('Debug: roc showLegend change',{checked:refs.showLegend.checked});
+        ensureRocLegendControlPlacement();
+        state.scheduleDraw?.();
+      });
+    }
     refs.graphType?.addEventListener('change', () => {
       renderStatsControls();
       state.scheduleDraw?.();
@@ -1733,12 +1774,22 @@
       resizableBoxOptions: {
         onResize: () => {
           console.debug('Debug: roc layout onResize schedule trigger');
+          ensureRocLegendControlPlacement();
           state.scheduleDraw?.();
         }
       }
     });
     if(state.layout?.elements?.svgBox){
       refs.svgBox = state.layout.elements.svgBox;
+      ensureRocLegendControlPlacement();
+    }
+    const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(() => ensureRocLegendControlPlacement())
+      : null;
+    if(scheduleLegendPlacement){
+      scheduleLegendPlacement();
+    }else if(typeof global.requestAnimationFrame === 'function'){
+      global.requestAnimationFrame(() => ensureRocLegendControlPlacement());
     }
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();

@@ -44,6 +44,7 @@
   let lineXLabelText = 'X';
   let lineYLabelText = 'Y';
   let lineLabelColors = {};
+  let lineLegendControl = null;
   function createDefaultLineLegendLayoutInfo(){
     return {
       entryCount: 0,
@@ -240,6 +241,19 @@
       console.error('line legend guard sync error', err);
     }
     console.debug('Debug: line legend guard width applied',{ requiredWidth: normalized });
+  }
+
+  function ensureLineLegendControlPlacement(){
+    if(!lineLegendControl || !refs.svgBox){
+      return;
+    }
+    if(Shared.resizer && typeof Shared.resizer.ensureLegendControlPlacement === 'function'){
+      Shared.resizer.ensureLegendControlPlacement({
+        svgBox: refs.svgBox,
+        control: lineLegendControl,
+        debugLabel: 'line-legend'
+      });
+    }
   }
 
   function resetLineRenderState(reason, options = {}){
@@ -1850,6 +1864,7 @@
         labelColors:lineLabelColors,
         showGrid:refs.showGrid?.checked,
         showFrame:refs.showFrame?.checked,
+        showLegend:refs.showLegend ? !!refs.showLegend.checked : true,
         logX:refs.logX?.checked,
         logY:refs.logY?.checked,
         showIntervals:refs.showIntervals?.checked,
@@ -1941,6 +1956,7 @@
         lineLabelColors=c.labelColors||{};
         if(refs.showGrid) refs.showGrid.checked=!!c.showGrid;
         if(refs.showFrame) refs.showFrame.checked=!!c.showFrame;
+        if(refs.showLegend) refs.showLegend.checked=c.showLegend !== false;
         if(refs.logX) refs.logX.checked=!!c.logX;
         if(refs.logY) refs.logY.checked=!!c.logY;
         if(refs.showIntervals) refs.showIntervals.checked=!!c.showIntervals;
@@ -1989,6 +2005,7 @@
         updateForecastVisibility();
         lineLastRegressionSummaries = Array.isArray(c.regression?.seriesSummaries) ? c.regression.seriesSummaries.slice() : [];
         ensureLineLabelColors(Object.keys(lineLabelColors));
+        ensureLineLegendControlPlacement();
         scheduleLineDraw();
       }catch(err){ console.error('loadLineGraph error',err); }
     };
@@ -2127,6 +2144,9 @@
       const showGrid=!!refs.showGrid?.checked;
       const showFrame=!!refs.showFrame?.checked;
       console.debug('Debug: line showFrame state',{showFrame});
+      ensureLineLegendControlPlacement();
+      const showLegend=refs.showLegend ? !!refs.showLegend.checked : true;
+      console.debug('Debug: line showLegend state',{showLegend});
       const logX=!!refs.logX?.checked;
       const logY=!!refs.logY?.checked;
       const storedManualIntervalX = getLineAxisTickInterval('x');
@@ -2292,7 +2312,7 @@
       const colors=seriesWithData.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
       const legendEntries=seriesWithData.map((s,i)=>({ label:s.name, fill:colors[i], key:s.name, editable:true }));
       const legendLayout=chartStyle.computeLegendLayout({
-        entries:legendEntries,
+        entries:showLegend ? legendEntries : [],
         fontSize:fs,
         strokeWidth:borderWidthPx,
         onSwatchClick:({ entry, swatch, event })=>{
@@ -2312,7 +2332,7 @@
         }
       });
       lineLegendWidth=legendLayout.legendWidthForMargin;
-      lineLegendItems=legendEntries.map(item=>({label:item.label,color:item.fill}));
+      lineLegendItems=showLegend ? legendEntries.map(item=>({label:item.label,color:item.fill})) : [];
       lineLegendLayoutInfo={
         entryCount: legendLayout.renderer.entries.length,
         rendererWidth: legendLayout.renderer.width,
@@ -2777,7 +2797,7 @@
         }
       };
       const legendRenderer=legendLayout.renderer;
-      if(legendRenderer.entries.length){
+      if(showLegend && legendRenderer.entries.length){
         const legendX=margin.left+plotW+legendLayout.legendGapPx;
         const legendGroup=legendRenderer.draw(svg,{x:legendX,y:margin.top+legendRenderer.baselineOffset});
         if(legendGroup){
@@ -2834,6 +2854,13 @@
     refs.regressionMode=document.getElementById('lineRegressionMode');
     refs.showIntervals=document.getElementById('lineShowIntervals');
     refs.showDiagnostics=document.getElementById('lineShowDiagnostics');
+    refs.showLegend=document.getElementById('lineShowLegend');
+    if(refs.showLegend){
+      const legendHost=refs.showLegend.closest('label');
+      if(legendHost){
+        lineLegendControl=legendHost;
+      }
+    }
     renderLineStatsAdvisor([], { showIntervals: !!refs.showIntervals?.checked, showDiagnostics: !!refs.showDiagnostics?.checked });
     refs.forecastFieldset=document.getElementById('lineForecastControls');
     refs.forecastHorizon=document.getElementById('lineForecastHorizon');
@@ -3142,6 +3169,15 @@
     }
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
     lineLayout?.syncPanels?.();
+    ensureLineLegendControlPlacement();
+    const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(()=>ensureLineLegendControlPlacement())
+      : null;
+    if(scheduleLegendPlacement){
+      scheduleLegendPlacement();
+    }else if(typeof global.requestAnimationFrame === 'function'){
+      global.requestAnimationFrame(()=>ensureLineLegendControlPlacement());
+    }
 
     console.debug('Debug: line initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
     if(typeof Shared.hot?.createStandardTable !== 'function'){
@@ -3421,6 +3457,11 @@
     refs.statType?.addEventListener('change',()=>{ scheduleLineDraw(); });
     refs.showIntervals?.addEventListener('change',e=>{ console.debug('Debug: line showIntervals change',{checked:e.target.checked}); scheduleLineDraw(); });
     refs.showDiagnostics?.addEventListener('change',e=>{ console.debug('Debug: line showDiagnostics change',{checked:e.target.checked}); scheduleLineDraw(); });
+    refs.showLegend?.addEventListener('change',e=>{
+      console.debug('Debug: line showLegend change',{checked:e.target.checked});
+      ensureLineLegendControlPlacement();
+      scheduleLineDraw();
+    });
 
     if (Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function') {
       Shared.exporter.mountSvgControls({
@@ -3474,6 +3515,7 @@
       layout: lineLayout,
       legendItems: lineLegendItems.slice(),
       legendWidth: lineLegendWidth,
+      showLegend: refs.showLegend ? !!refs.showLegend.checked : true,
       legendLayout: {
         entryCount: lineLegendLayoutInfo.entryCount,
         rendererWidth: lineLegendLayoutInfo.rendererWidth,

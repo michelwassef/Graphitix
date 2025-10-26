@@ -238,6 +238,20 @@
   }
 
   const refs = {};
+  let survivalLegendControl = null;
+
+  function ensureSurvivalLegendControlPlacement(){
+    if(!survivalLegendControl || !refs.svgBox){
+      return;
+    }
+    if(Shared.resizer && typeof Shared.resizer.ensureLegendControlPlacement === 'function'){
+      Shared.resizer.ensureLegendControlPlacement({
+        svgBox: refs.svgBox,
+        control: survivalLegendControl,
+        debugLabel: 'survival-legend'
+      });
+    }
+  }
 
   let parseDebugCounter = 0;
 
@@ -288,6 +302,14 @@
     refs.yLabel = $('#survivalYLabel');
     refs.fontSize = $('#survivalFontSize');
     refs.fontSizeVal = $('#survivalFontSizeVal');
+    refs.showLegend = $('#survivalShowLegend');
+    if(refs.showLegend){
+      const legendHost = refs.showLegend.closest('label');
+      if(legendHost){
+        survivalLegendControl = legendHost;
+        ensureSurvivalLegendControlPlacement();
+      }
+    }
     refs.loadExampleBtn = $('#survivalLoadExample');
     refs.importBtn = $('#survivalImport');
     refs.fileInput = $('#survivalFile');
@@ -1994,11 +2016,15 @@
     const axisLabelFont = chartStyle.makeFont ? chartStyle.makeFont(fs) : `${fs}px sans-serif`;
     const yTitleWidthBase = chartStyle.measureText ? chartStyle.measureText(yLabelText, axisLabelFont) : fs * yLabelText.length * 0.6;
 
-    const legendEntries = summary.series.map((group, index) => {
+    ensureSurvivalLegendControlPlacement();
+    const showLegend = !refs.showLegend || !!refs.showLegend.checked;
+    logDebug('legend state resolved', { showLegend, groupCount: summary.series.length });
+
+    const legendEntries = showLegend ? summary.series.map((group, index) => {
       const color = state.labelColors[group.name] || DEFAULT_COLORS[index % DEFAULT_COLORS.length];
       const textWidth = chartStyle.measureText ? chartStyle.measureText(group.name, axisLabelFont) : fs * group.name.length * 0.6;
       return { name: group.name, color, width: textWidth + fs * 2.5 };
-    });
+    }) : [];
     const legendWidth = legendEntries.length ? Math.max(...legendEntries.map(entry => entry.width)) : 0;
 
     const niceNum = (range, round) => {
@@ -2299,7 +2325,7 @@
       }
     });
 
-    if(legendEntries.length){
+    if(showLegend && legendEntries.length){
       const legendGroup = document.createElementNS(NS, 'g');
       const legendX = margin.left + plotW + 12;
       const legendY = margin.top;
@@ -2326,6 +2352,8 @@
         legendGroup.appendChild(row);
       });
       svg.appendChild(legendGroup);
+    }else{
+      logDebug('legend skipped', { showLegend, entryCount: legendEntries.length });
     }
 
     updateStats({ ...summary, series: groupsForDraw });
@@ -2495,6 +2523,7 @@
         fitCoxModel: !!refs.fitCoxModel?.checked,
         showGrid: !!refs.showGrid?.checked,
         showFrame: !!refs.showFrame?.checked,
+        showLegend: refs.showLegend ? !!refs.showLegend.checked : true,
         timeMax: refs.timeMax?.value || '',
         fontSize: refs.fontSize?.value || '13',
         fontStyles: (exportFontStyles('survival') || undefined),
@@ -2543,6 +2572,10 @@
     if(refs.fitCoxModel) refs.fitCoxModel.checked = config.fitCoxModel !== false;
     if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
     if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
+    if(refs.showLegend){
+      refs.showLegend.checked = config.showLegend !== false;
+      ensureSurvivalLegendControlPlacement();
+    }
     if(refs.timeMax) refs.timeMax.value = config.timeMax || '';
     if(refs.fontSize) refs.fontSize.value = config.fontSize || '13';
     if(refs.fontSize && refs.fontSize.dataset){
@@ -2675,6 +2708,12 @@
       renderSurvivalStatsAdvisor(state.lastSummary || { series: [], covariateColumns: state.covariateColumns });
       schedule();
     });
+    refs.showLegend?.addEventListener('change', () => {
+      console.debug('Debug: survival control toggle', { id: refs.showLegend.id, checked: refs.showLegend.checked });
+      logDebug('control toggled', { id: refs.showLegend.id, checked: refs.showLegend.checked });
+      ensureSurvivalLegendControlPlacement();
+      schedule();
+    });
     [refs.timeMax, refs.xLabel, refs.yLabel].forEach(input => {
       input?.addEventListener('input', () => {
         logDebug('control input', { id: input.id, value: input.value });
@@ -2798,6 +2837,15 @@
     });
     if(state.layout?.elements?.svgBox){
       refs.svgBox = state.layout.elements.svgBox;
+      ensureSurvivalLegendControlPlacement();
+    }
+    const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(() => ensureSurvivalLegendControlPlacement())
+      : null;
+    if(scheduleLegendPlacement){
+      scheduleLegendPlacement();
+    }else if(typeof global.requestAnimationFrame === 'function'){
+      global.requestAnimationFrame(() => ensureSurvivalLegendControlPlacement());
     }
     initHot();
     initControls();
