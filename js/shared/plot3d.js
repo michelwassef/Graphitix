@@ -12,9 +12,21 @@
     }
   }
 
-  const HALF_PI = Math.PI / 2;
   const TAU = Math.PI * 2;
   const NS = 'http://www.w3.org/2000/svg';
+
+  function wrapAngle(angle){
+    if(!Number.isFinite(angle)){ return 0; }
+    let wrapped = angle;
+    while(wrapped <= -Math.PI){ wrapped += TAU; }
+    while(wrapped > Math.PI){ wrapped -= TAU; }
+    return wrapped;
+  }
+
+  function getOrientationSign(rotationX){
+    const cosX = Math.cos(rotationX || 0);
+    return cosX >= 0 ? 1 : -1;
+  }
 
   plot3d.createRotationState = function(defaults){
     const state = {
@@ -27,6 +39,7 @@
     if(defaults && Number.isFinite(defaults.y)){
       state.y = defaults.y;
     }
+    plot3d.normalizeRotation(state);
     return state;
   };
 
@@ -46,10 +59,8 @@
 
   plot3d.normalizeRotation = function(rotation){
     if(!rotation){ return; }
-    if(rotation.x > HALF_PI){ rotation.x = HALF_PI; }
-    if(rotation.x < -HALF_PI){ rotation.x = -HALF_PI; }
-    while(rotation.y > Math.PI){ rotation.y -= TAU; }
-    while(rotation.y < -Math.PI){ rotation.y += TAU; }
+    rotation.x = wrapAngle(rotation.x || 0);
+    rotation.y = wrapAngle(rotation.y || 0);
   };
 
   plot3d.isLegendPointerTarget = function(target){
@@ -141,7 +152,7 @@
     svgEl.style.touchAction = 'none';
     svgEl.style.userSelect = 'none';
     svgEl.style.webkitUserSelect = 'none';
-    const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0 };
+    const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0, orientationSign: getOrientationSign(state.x) };
     const selectionGuards = { applied: false, previous: null };
     const disableSelection = () => {
       if(selectionGuards.applied){ return; }
@@ -182,6 +193,7 @@
       pointerState.pointerId = event.pointerId;
       pointerState.lastX = event.clientX;
       pointerState.lastY = event.clientY;
+      pointerState.orientationSign = getOrientationSign(state.x);
       svgEl.setPointerCapture(event.pointerId);
       svgEl.style.cursor = 'grabbing';
       disableSelection();
@@ -201,11 +213,18 @@
       const dy = event.clientY - pointerState.lastY;
       pointerState.lastX = event.clientX;
       pointerState.lastY = event.clientY;
-      const yawDelta = dx * (opts.rotationScale || 0.01);
-      const pitchDelta = dy * (opts.rotationScale || 0.01);
+      const yawSign = pointerState.orientationSign || getOrientationSign(state.x);
+      const scale = opts.rotationScale || 0.01;
+      const yawDelta = dx * scale * yawSign;
+      const pitchDelta = dy * scale;
       state.y -= yawDelta;
       state.x -= pitchDelta;
       plot3d.normalizeRotation(state);
+      const updatedYawSign = getOrientationSign(state.x);
+      if(updatedYawSign !== pointerState.orientationSign){
+        pointerState.orientationSign = updatedYawSign;
+        debugLog('Debug: plot3d rotation drag yaw orientation updated', { label, orientation: updatedYawSign });
+      }
       debugLog('Debug: plot3d rotation updated', { label, rotation: { x: state.x, y: state.y } });
       if(onChange){
         try {
@@ -551,11 +570,50 @@
         [4, 5], [4, 6], [5, 7], [6, 7],
         [0, 4], [1, 5], [2, 6], [3, 7]
       ];
+      const frontWidth = Number.isFinite(cfg.frameFrontWidth) ? cfg.frameFrontWidth : axisStrokeWidth;
+      const backWidth = Number.isFinite(cfg.frameBackWidth) ? cfg.frameBackWidth : axisStrokeWidth * 0.85;
+      const frontOpacity = Number.isFinite(cfg.frameFrontOpacity) ? cfg.frameFrontOpacity : 1;
+      const backOpacity = Number.isFinite(cfg.frameBackOpacity) ? cfg.frameBackOpacity : 0.32;
+      const backDash = Array.isArray(cfg.frameBackDash) ? cfg.frameBackDash : [6, 4];
+      const centerDepth = rotatePoint(cubeCenter).z || 0;
+      let frontCount = 0;
+      let backCount = 0;
       for(let i=0;i<edges.length;i+=1){
         const pair = edges[i];
-        appendLine(rotatePoint(allCorners[pair[0]]), rotatePoint(allCorners[pair[1]]), { stroke: frameColor, 'stroke-width': axisStrokeWidth }, axisTarget || gridGroup || svg);
+        const startRot = rotatePoint(allCorners[pair[0]]);
+        const endRot = rotatePoint(allCorners[pair[1]]);
+        const depthAvg = ((startRot.z || 0) + (endRot.z || 0)) / 2;
+        const isFrontEdge = depthAvg >= centerDepth;
+        const attrs = {
+          stroke: frameColor,
+          'stroke-width': isFrontEdge ? frontWidth : backWidth,
+          'data-frame-edge': isFrontEdge ? 'front' : 'back'
+        };
+        if(isFrontEdge){
+          if(Number.isFinite(frontOpacity) && frontOpacity < 1){
+            attrs['stroke-opacity'] = frontOpacity;
+          }
+        } else {
+          if(Number.isFinite(backOpacity)){
+            attrs['stroke-opacity'] = backOpacity;
+          }
+          if(backDash && backDash.length){
+            attrs['stroke-dasharray'] = backDash.join(' ');
+          }
+          backCount += 1;
+        }
+        if(isFrontEdge){
+          frontCount += 1;
+        }
+        appendLine(startRot, endRot, attrs, axisTarget || gridGroup || svg);
       }
-      debugLog('Debug: plot3d frame rendered', { label: debugLabel, edgeCount: edges.length });
+      debugLog('Debug: plot3d frame rendered', {
+        label: debugLabel,
+        edgeCount: edges.length,
+        frontEdges: frontCount,
+        backEdges: backCount,
+        centerDepth
+      });
     }
     for(let i=0;i<axisDefs.length;i+=1){
       const def = axisDefs[i];
