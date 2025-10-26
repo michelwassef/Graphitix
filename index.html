@@ -365,6 +365,7 @@
               <div class="control" style="flex-wrap:wrap;">
                 <label style="width:auto;"><input type="checkbox" id="boxShowGrid" /> Show Horizontal Grid</label>
                 <label style="width:auto;"><input type="checkbox" id="boxShowFrame" /> Show Frame</label>
+                <label style="width:auto;"><input type="checkbox" id="boxShowLegend" checked /> Show legend</label>
                 <label style="width:auto;">
                   <input type="checkbox" id="boxLogScale" /> <span id="boxLogScaleLabel">Log Scale (Y)</span>
                 </label>
@@ -509,7 +510,7 @@
           <div class="config-panel">
             <fieldset class="config-panel__fieldset">
               <legend>Graph</legend>
-              <div class="config-panel__line config-panel__line--split">
+              <div class="config-panel__line">
                 <label class="config-panel__item">
                   <span class="config-panel__label">Type</span>
                   <select id="scatterGraphType">
@@ -810,6 +811,7 @@
               <div class="control" style="flex-wrap:wrap;">
                 <label style="width:auto;"><input type="checkbox" id="pcaShowGrid" /> Show Grid</label>
                 <label style="width:auto;"><input type="checkbox" id="pcaShowFrame" checked /> Show Frame</label>
+                <label style="width:auto;"><input type="checkbox" id="pcaShowLegend" checked /> Show legend</label>
                 <label style="width:auto;"><input type="checkbox" id="pcaVarianceAxisScale" /> Variance-scaled axes</label>
               </div>
             </fieldset>
@@ -1031,6 +1033,7 @@
               <div class="control" style="flex-wrap:wrap;">
                 <label style="width:auto;"><input type="checkbox" id="lineShowGrid" /> Show Grid</label>
                 <label style="width:auto;"><input type="checkbox" id="lineShowFrame" /> Show Frame</label>
+                <label style="width:auto;"><input type="checkbox" id="lineShowLegend" checked /> Show legend</label>
                 <label style="width:auto;">
                   <input type="checkbox" id="lineLogX" /> Log Scale (X)
                 </label>
@@ -1444,6 +1447,7 @@
               <div class="control" style="flex-wrap:wrap;">
                 <label style="width:auto;"><input type="checkbox" id="rocShowGrid" /> Show Grid</label>
                 <label style="width:auto;"><input type="checkbox" id="rocShowFrame" /> Show Frame</label>
+                <label style="width:auto;"><input type="checkbox" id="rocShowLegend" checked /> Show legend</label>
               </div>
             </fieldset>
             <fieldset>
@@ -1511,6 +1515,7 @@
               <div class="control" style="flex-wrap:wrap;">
                 <label style="width:auto;"><input type="checkbox" id="survivalShowGrid" /> Show Grid</label>
                 <label style="width:auto;"><input type="checkbox" id="survivalShowFrame" /> Show Frame</label>
+                <label style="width:auto;"><input type="checkbox" id="survivalShowLegend" checked /> Show legend</label>
               </div>
               <div class="control" style="flex-wrap:wrap; gap:6px;">
                 <label style="width:auto;">Time Max <input type="number" id="survivalTimeMax" step="0.1" /></label>
@@ -1684,6 +1689,7 @@
                 </label>
                 <label style="width:auto;"><input type="checkbox" id="pieShowPercents" /> Show Percentages</label>
                 <label style="width:auto;"><input type="checkbox" id="pieShowFrame" /> Show Frame</label>
+                <label style="width:auto;"><input type="checkbox" id="pieShowLegend" checked /> Show legend</label>
                 <label style="width:auto;">
                   Start Angle <input type="number" id="pieStartAngle" value="0" />
                 </label>

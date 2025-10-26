@@ -205,6 +205,42 @@
     };
   };
 
+  resizerNamespace.ensureLegendControlPlacement = function ensureLegendControlPlacement(options){
+    const opts = options || {};
+    const svgBox = opts.svgBox;
+    const control = opts.control;
+    if(!svgBox || !control){
+      return null;
+    }
+    const doc = svgBox.ownerDocument || global.document;
+    let tray = svgBox.querySelector('.resizer-control-tray');
+    if(!tray && doc){
+      tray = doc.createElement('div');
+      tray.className = 'resizer-control-tray';
+      svgBox.appendChild(tray);
+      console.debug('Debug: resizer ensureLegendControlPlacement tray created', {
+        label: opts.debugLabel || null,
+        trayChildren: tray.childElementCount
+      });
+    }
+    if(!tray){
+      return null;
+    }
+    if(control.parentNode !== tray){
+      tray.appendChild(control);
+      console.debug('Debug: resizer ensureLegendControlPlacement control moved', {
+        label: opts.debugLabel || null,
+        trayChildren: tray.childElementCount
+      });
+    }
+    control.classList.remove('config-panel__checkbox', 'config-panel__checkbox--inline');
+    control.classList.add('resizer-legend-control');
+    if(!control.title){
+      control.title = opts.title || 'Toggle legend visibility';
+    }
+    return tray;
+  };
+
   function resolveSquareSize(label){
     const style = Shared.chartStyle || {};
     const widthCandidate = Number(style.DEFAULT_WIDTH);

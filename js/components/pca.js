@@ -127,6 +127,22 @@
 
   const pcaRefs = {};
   let pcaTooltipEl = null;
+  let pcaLegendControl = null;
+  let pcaShowLegendInput = null;
+  let pcaSvgBoxRef = null;
+
+  function ensurePcaLegendControlPlacement(){
+    if(!pcaLegendControl || !pcaSvgBoxRef){
+      return;
+    }
+    if(Shared.resizer && typeof Shared.resizer.ensureLegendControlPlacement === 'function'){
+      Shared.resizer.ensureLegendControlPlacement({
+        svgBox: pcaSvgBoxRef,
+        control: pcaLegendControl,
+        debugLabel: 'pca-legend'
+      });
+    }
+  }
 
   function pcaTooltipDebug(label, payload){
     try{
@@ -1130,6 +1146,16 @@
       if(pcaLayout?.elements?.svgBox){
         pcaSvgBox = pcaLayout.elements.svgBox;
       }
+      pcaSvgBoxRef = pcaSvgBox;
+      ensurePcaLegendControlPlacement();
+      const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
+        ? Shared.debounceFrame(()=>ensurePcaLegendControlPlacement())
+        : null;
+      if(scheduleLegendPlacement){
+        scheduleLegendPlacement();
+      }else if(typeof global.requestAnimationFrame === 'function'){
+        global.requestAnimationFrame(()=>ensurePcaLegendControlPlacement());
+      }
       pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
       pcaLayout?.syncPanels?.();
       debugLog('Debug: pca initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
@@ -1661,6 +1687,20 @@
       chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
       const pcaShowGrid=$('#pcaShowGrid');
       const pcaShowFrame=$('#pcaShowFrame');
+      const pcaShowLegend=document.getElementById('pcaShowLegend');
+      if(pcaShowLegend){
+        pcaShowLegendInput = pcaShowLegend;
+        const legendHost=pcaShowLegend.closest('label');
+        if(legendHost){
+          pcaLegendControl=legendHost;
+          ensurePcaLegendControlPlacement();
+        }
+        pcaShowLegend.addEventListener('change',()=>{
+          debugLog('Debug: pca showLegend change',{checked:pcaShowLegend.checked});
+          ensurePcaLegendControlPlacement();
+          scheduleDrawPca();
+        });
+      }
       const pcaVarianceAxisScale=$('#pcaVarianceAxisScale');
       const pcaScale=$('#pcaScale');
       const pcaStatsResults=document.getElementById('pcaStatsResults');
@@ -2274,6 +2314,9 @@
       const debugStamp = Date.now();
       console.log('drawPca called', {debugStamp}); // Debug: draw invocation marker
       hidePcaTooltip('draw-start');
+      ensurePcaLegendControlPlacement();
+      const showLegend = !pcaShowLegendInput || !!pcaShowLegendInput.checked;
+      debugLog('Debug: pca showLegend state',{ showLegend });
 
       const method = (pcaMethod.value || 'pca').toLowerCase();
       const previousMethod = typeof pcaState.lastMethod === 'string' ? pcaState.lastMethod : 'pca';
@@ -3021,30 +3064,32 @@
       const axisVarianceInfo = resolveAxisVarianceInfo(axisIndices, dimensionMeta);
 
       const legendEntries = [];
-      if(groupMeta && Array.isArray(groupMeta.entries)){
-        groupMeta.entries.forEach(entry => {
-          legendEntries.push({
-            key: entry.key,
-            label: entry.label,
-            color: entry.color,
-            shape: entry.shape,
-            groupIndex: entry.index
+      if(showLegend){
+        if(groupMeta && Array.isArray(groupMeta.entries)){
+          groupMeta.entries.forEach(entry => {
+            legendEntries.push({
+              key: entry.key,
+              label: entry.label,
+              color: entry.color,
+              shape: entry.shape,
+              groupIndex: entry.index
+            });
           });
-        });
-      } else {
-        const seenLabels = new Set();
-        labels.forEach(lab => {
-          if(!lab || seenLabels.has(lab)){ return; }
-          seenLabels.add(lab);
-          legendEntries.push({
-            key: `label-${lab}`,
-            label: lab,
-            color: pcaLabelColors[lab] || DEFAULT_SCATTER_COLORS[legendEntries.length % DEFAULT_SCATTER_COLORS.length],
-            shape: 'circle',
-            labelValue: lab,
-            groupIndex: null
+        } else {
+          const seenLabels = new Set();
+          labels.forEach(lab => {
+            if(!lab || seenLabels.has(lab)){ return; }
+            seenLabels.add(lab);
+            legendEntries.push({
+              key: `label-${lab}`,
+              label: lab,
+              color: pcaLabelColors[lab] || DEFAULT_SCATTER_COLORS[legendEntries.length % DEFAULT_SCATTER_COLORS.length],
+              shape: 'circle',
+              labelValue: lab,
+              groupIndex: null
+            });
           });
-        });
+        }
       }
       const legendMeasureEntries = legendEntries.map(entry => ({
         label: entry.label,
@@ -3053,11 +3098,14 @@
         editable: true
       }));
       const legendLayout = chartStyle.computeLegendLayout({ entries: legendMeasureEntries, fontSize: fs, strokeWidth: borderWidthPx });
-      const legendWidth = legendLayout.legendWidthForMargin;
+      const legendRenderer = legendLayout.renderer || { entries: [], rowGap: 0, swatchSize: 0, swatchGap: 0, baselineOffset: 0 };
+      const legendVisible = showLegend && legendRenderer.entries.length > 0;
+      const legendWidth = legendVisible ? legendLayout.legendWidthForMargin : 0;
       debugLog('Debug: pca legend layout metrics',{
         legendWidth,
         legendGap: legendLayout.legendGapPx,
-        legendCount: legendLayout.renderer.entries.length
+        legendCount: legendRenderer.entries.length,
+        legendVisible
       });
 
       const plotEl = document.getElementById('pcaPlot');
@@ -3149,7 +3197,8 @@
         } else {
           debugLog('Debug: pca fontControls enableForSvg missing',{ hasFontControls: !!fontControls, mode: '3d' });
         }
-        const legendMargin = legendWidth + Math.max(fs * 2.25, 28);
+        const baseLegendMargin = Math.max(fs * 2.25, 28);
+        const legendMargin = legendVisible ? legendWidth + baseLegendMargin : baseLegendMargin;
         const margin3 = {
           top: Math.max(fs * 3.2, 36),
           right: legendMargin,
@@ -3350,44 +3399,48 @@
             });
           }
         });
-        const legendX3=margin3.left+plotW3+legendLayout.legendGapPx;
-        const legendSpacing3=Math.max(legendLayout.renderer.rowGap, Math.round(fs*0.35));
-        const legendMarkerSize3=legendLayout.renderer.swatchSize;
-        const legendTextOffset3=legendMarkerSize3+legendLayout.renderer.swatchGap;
-        legendEntries.forEach((entry, i) => {
-          const itemY = margin3.top + i * (legendMarkerSize3 + legendSpacing3);
-          const swatch3 = drawShape(add3, entry.shape || 'circle', {
-            cx: legendX3 + legendMarkerSize3 / 2,
-            cy: itemY + legendMarkerSize3 / 2,
-            radius: legendMarkerSize3 / 2,
-            fill: entry.color,
-            stroke: borderColor,
-            strokeWidth: 0,
-            opacity: 1
-          });
-          if(swatch3){
-            swatch3.style.cursor = 'pointer';
-            swatch3.dataset.legendKey = entry.key;
-            if(Number.isInteger(entry.groupIndex)){
-              swatch3.dataset.legendGroupIndex = String(entry.groupIndex);
-            } else if(entry.labelValue){
-              swatch3.dataset.legendLabel = entry.labelValue;
-            }
-            plot3d.applyLegendPointerGuards(swatch3, { label: entry.label });
-            swatch3.addEventListener('click',(evt)=>{
-              if(evt){ evt.stopPropagation(); }
-              handleLegendColorChange(entry, swatch3);
+        if(legendVisible){
+          const legendX3=margin3.left+plotW3+legendLayout.legendGapPx;
+          const legendSpacing3=Math.max(legendRenderer.rowGap || 0, Math.round(fs*0.35));
+          const legendMarkerSize3=legendRenderer.swatchSize || Math.max(Math.round(fs*0.6), 10);
+          const legendTextOffset3=legendMarkerSize3+(legendRenderer.swatchGap || Math.max(Math.round(fs*0.2), 6));
+          legendEntries.forEach((entry, i) => {
+            const itemY = margin3.top + i * (legendMarkerSize3 + legendSpacing3);
+            const swatch3 = drawShape(add3, entry.shape || 'circle', {
+              cx: legendX3 + legendMarkerSize3 / 2,
+              cy: itemY + legendMarkerSize3 / 2,
+              radius: legendMarkerSize3 / 2,
+              fill: entry.color,
+              stroke: borderColor,
+              strokeWidth: 0,
+              opacity: 1
             });
-          }
-          const legendText = add3('text', {
-            x: legendX3 + legendTextOffset3,
-            y: itemY + legendMarkerSize3 / 2,
-            'font-size': fs,
-            'dominant-baseline': 'middle',
-            fill: chartStyle.TEXT_COLOR,
-          }, entry.label);
-          markFontEditable(legendText,'legend',`legend-${i}`);
-        });
+            if(swatch3){
+              swatch3.style.cursor = 'pointer';
+              swatch3.dataset.legendKey = entry.key;
+              if(Number.isInteger(entry.groupIndex)){
+                swatch3.dataset.legendGroupIndex = String(entry.groupIndex);
+              } else if(entry.labelValue){
+                swatch3.dataset.legendLabel = entry.labelValue;
+              }
+              plot3d.applyLegendPointerGuards(swatch3, { label: entry.label });
+              swatch3.addEventListener('click',(evt)=>{
+                if(evt){ evt.stopPropagation(); }
+                handleLegendColorChange(entry, swatch3);
+              });
+            }
+            const legendText = add3('text', {
+              x: legendX3 + legendTextOffset3,
+              y: itemY + legendMarkerSize3 / 2,
+              'font-size': fs,
+              'dominant-baseline': 'middle',
+              fill: chartStyle.TEXT_COLOR,
+            }, entry.label);
+            markFontEditable(legendText,'legend',`legend-${i}`);
+          });
+        } else {
+          debugLog('Debug: pca legend skipped',{ mode: '3d', legendVisible, entryCount: legendEntries.length });
+        }
         debugLog('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisRanges });
         ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'pca-3d-graph' });
         pcaLayout?.syncPanels?.({ skipSchedule: true });
@@ -3797,49 +3850,54 @@
         }
       });
 
-      const legendX=margin.left+plotW+legendLayout.legendGapPx;
-      const legendSpacing=Math.max(legendLayout.renderer.rowGap, Math.round(fs*0.35));
-      const legendMarkerSize=legendLayout.renderer.swatchSize;
-      const legendTextOffset=legendMarkerSize+legendLayout.renderer.swatchGap;
-      debugLog('Debug: pca legend layout',{
-        legendX,
-        legendSpacing,
-        legendMarkerSize,
-        legendTextOffset
-      });
-      legendEntries.forEach((entry, i) => {
-        const itemY = margin.top + i * (legendMarkerSize + legendSpacing);
-        const marker = drawShape(add, entry.shape || 'circle', {
-          cx: legendX + legendMarkerSize / 2,
-          cy: itemY + legendMarkerSize / 2,
-          radius: legendMarkerSize / 2,
-          fill: entry.color,
-          stroke: borderColor,
-          strokeWidth: 0,
-          opacity: 1
+      if(legendVisible){
+        const legendX=margin.left+plotW+legendLayout.legendGapPx;
+        const legendSpacing=Math.max(legendRenderer.rowGap || 0, Math.round(fs*0.35));
+        const legendMarkerSize=legendRenderer.swatchSize || Math.max(Math.round(fs*0.6), 10);
+        const legendTextOffset=legendMarkerSize+(legendRenderer.swatchGap || Math.max(Math.round(fs*0.2), 6));
+        debugLog('Debug: pca legend layout',{
+          legendX,
+          legendSpacing,
+          legendMarkerSize,
+          legendTextOffset,
+          legendVisible
         });
-        if(marker){
-          marker.style.cursor = 'pointer';
-          marker.dataset.legendKey = entry.key;
-          if(Number.isInteger(entry.groupIndex)){
-            marker.dataset.legendGroupIndex = String(entry.groupIndex);
-          } else if(entry.labelValue){
-            marker.dataset.legendLabel = entry.labelValue;
-          }
-          marker.addEventListener('click',(evt)=>{
-            if(evt){ evt.stopPropagation(); }
-            handleLegendColorChange(entry, marker);
+        legendEntries.forEach((entry, i) => {
+          const itemY = margin.top + i * (legendMarkerSize + legendSpacing);
+          const marker = drawShape(add, entry.shape || 'circle', {
+            cx: legendX + legendMarkerSize / 2,
+            cy: itemY + legendMarkerSize / 2,
+            radius: legendMarkerSize / 2,
+            fill: entry.color,
+            stroke: borderColor,
+            strokeWidth: 0,
+            opacity: 1
           });
-        }
-        const legendText = add('text', {
-          x: legendX + legendTextOffset,
-          y: itemY + legendMarkerSize / 2,
-          'font-size': fs,
-          'dominant-baseline': 'middle',
-          fill: chartStyle.TEXT_COLOR,
-        }, entry.label);
-        markFontEditable(legendText,'legend',`legend-${i}`);
-      });
+          if(marker){
+            marker.style.cursor = 'pointer';
+            marker.dataset.legendKey = entry.key;
+            if(Number.isInteger(entry.groupIndex)){
+              marker.dataset.legendGroupIndex = String(entry.groupIndex);
+            } else if(entry.labelValue){
+              marker.dataset.legendLabel = entry.labelValue;
+            }
+            marker.addEventListener('click',(evt)=>{
+              if(evt){ evt.stopPropagation(); }
+              handleLegendColorChange(entry, marker);
+            });
+          }
+          const legendText = add('text', {
+            x: legendX + legendTextOffset,
+            y: itemY + legendMarkerSize / 2,
+            'font-size': fs,
+            'dominant-baseline': 'middle',
+            fill: chartStyle.TEXT_COLOR,
+          }, entry.label);
+          markFontEditable(legendText,'legend',`legend-${i}`);
+        });
+      }else{
+        debugLog('Debug: pca legend skipped',{ mode: '2d', legendVisible, entryCount: legendEntries.length });
+      }
 
       console.debug('pca render complete', {
         pointCount: points.length,
@@ -3872,6 +3930,7 @@
           labelColors:pcaLabelColors,
           showGrid:pcaShowGrid.checked,
           showFrame:pcaShowFrame.checked,
+          showLegend: pcaShowLegendInput ? !!pcaShowLegendInput.checked : true,
           scale:pcaScale.checked,
           axesVarianceScaled:pcaState.axesVarianceScaled,
           fontSize:pcaFontSize.value,
@@ -4022,6 +4081,10 @@
             setPcaTableFormat(restoredTableFormat);
             pcaShowGrid.checked=!!c.showGrid;
             pcaShowFrame.checked=!!c.showFrame;
+            if(pcaShowLegendInput){
+              pcaShowLegendInput.checked = c.showLegend !== false;
+              ensurePcaLegendControlPlacement();
+            }
             pcaScale.checked=!!c.scale;
             if(pcaVarianceAxisScale){
               pcaVarianceAxisScale.checked = !!c.axesVarianceScaled;

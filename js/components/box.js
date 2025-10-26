@@ -54,7 +54,7 @@
 
   const boxRefs = {};
   let boxTooltipEl = null;
-
+  
   function boxDebug(label, payload){
     try{
       if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
@@ -1812,6 +1812,20 @@
     return state.violin;
   }
   const els = {};
+  let boxLegendControl = null;
+
+  function ensureBoxLegendControlPlacement(){
+    if(!boxLegendControl || !els.svgBox){
+      return;
+    }
+    if(Shared.resizer && typeof Shared.resizer.ensureLegendControlPlacement === 'function'){
+      Shared.resizer.ensureLegendControlPlacement({
+        svgBox: els.svgBox,
+        control: boxLegendControl,
+        debugLabel: 'box-legend'
+      });
+    }
+  }
   let boxLogWarningEl = null;
   const boxDebugEnabled = () => typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
 
@@ -2105,6 +2119,13 @@
     }
     els.boxShowGrid=global.$('#boxShowGrid');
     els.boxShowFrame=global.$('#boxShowFrame');
+    els.boxShowLegend=global.$('#boxShowLegend');
+    if(els.boxShowLegend){
+      const legendHost=els.boxShowLegend.closest('label');
+      if(legendHost){
+        boxLegendControl=legendHost;
+      }
+    }
     els.boxLogScale=global.$('#boxLogScale');
     els.boxLogScaleLabel=global.$('#boxLogScaleLabel');
     clearBoxLogWarning();
@@ -2138,6 +2159,7 @@
     }
     els.boxErrorMode=global.$('#boxErrorMode');
     els.boxErrorModeCtl=global.$('#boxErrorModeCtl');
+    ensureBoxLegendControlPlacement();
     els.boxColorPerBox=global.$('#boxColorPerBox');
     els.boxYMin=global.$('#boxYMin');
     els.boxYMax=global.$('#boxYMax');
@@ -2673,6 +2695,11 @@
     });
     els.boxShowGrid.addEventListener('change',()=>{ console.log('boxShowGrid changed', els.boxShowGrid.checked); state.scheduleDraw(); });
     els.boxShowFrame?.addEventListener('change',()=>{ console.debug('Debug: box showFrame change',{checked:els.boxShowFrame.checked}); state.scheduleDraw(); });
+    els.boxShowLegend?.addEventListener('change',()=>{
+      console.debug('Debug: box showLegend change',{checked:els.boxShowLegend.checked});
+      ensureBoxLegendControlPlacement();
+      state.scheduleDraw();
+    });
     els.boxLogScale.addEventListener('change',()=>{
       const enabling=!!els.boxLogScale.checked;
       if(enabling){
@@ -5915,6 +5942,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const showGrid = els.boxShowGrid.checked;
     const showFrame = !!els.boxShowFrame?.checked;
     console.debug('Debug: box showFrame state',{ showFrame });
+    ensureBoxLegendControlPlacement();
+    const showLegend = !els.boxShowLegend || !!els.boxShowLegend.checked;
+    console.debug('Debug: box showLegend state',{ showLegend });
     const logScale = els.boxLogScale.checked;
     const graphTypeRaw = els.boxGraphType.value;
     if(debugEnabled && graphTypeRaw === 'violin'){
@@ -6437,7 +6467,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const separatedCategoryUnits = (isGroupedMode && layoutMode === 'separated' && axisLabels.length)
       ? computeSeparatedCategoryUnits(axisGroupIndices)
       : null;
-    if(isGroupedMode && groupColorAssignments.size){
+    if(isGroupedMode && groupColorAssignments.size && showLegend){
       const legendEntries = Array.from(groupColorAssignments.entries()).map(([name, colors]) => ({
         label: name,
         fill: colors.fill,
@@ -6451,12 +6481,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       });
       legendGapPx = legendRenderer.entries.length ? Math.max(12, Math.round(fs * 0.5)) : 0;
       legendWidthForMargin = legendRenderer.entries.length ? legendRenderer.width + legendGapPx : 0;
-      console.debug('Debug: box legend metrics',{ legendWidthForMargin, legendGapPx, entryCount: legendRenderer.entries.length });
+      console.debug('Debug: box legend metrics',{ legendWidthForMargin, legendGapPx, entryCount: legendRenderer.entries.length, showLegend });
     }else{
       legendRenderer = chartStyle.createLegendRenderer({ entries: [], fontSize: fs, strokeWidth: borderWidthPx });
       legendGapPx = 0;
       legendWidthForMargin = 0;
-      console.debug('Debug: box legend disabled',{ grouped: isGroupedMode, groupCount: groupColorAssignments.size });
+      console.debug('Debug: box legend disabled',{ grouped: isGroupedMode, groupCount: groupColorAssignments.size, showLegend });
     }
     function formatTick(v){
       return v.toLocaleString('en-US',{ maximumFractionDigits: 2, useGrouping: false });
@@ -7824,7 +7854,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     titleText.textContent = state.titleText;
     markFontEditable(titleText,'graphTitle','graphTitle');
     makeEditable(titleText, txt => { state.titleText = txt; });
-    if(legendRenderer.entries.length){
+    if(showLegend && legendRenderer.entries.length){
       const plotRight = orientationResult.margin.left + orientationResult.plotW;
       const legendX = plotRight + legendGapPx;
       legendRenderer.draw(svg, { x: legendX, y: orientationResult.margin.top });
@@ -7877,6 +7907,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         fontStyles: (exportFontStyles('box') || undefined),
         showGrid:els.boxShowGrid.checked,
         showFrame:!!els.boxShowFrame?.checked,
+        showLegend:els.boxShowLegend ? !!els.boxShowLegend.checked : true,
         logScale:els.boxLogScale.checked,
         graphType:els.boxGraphType.value,
         groupLayout: state.groupLayout,
@@ -8042,6 +8073,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
         els.boxShowGrid.checked=!!c.showGrid;
         if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
+        if(els.boxShowLegend) els.boxShowLegend.checked=c.showLegend !== false;
         els.boxLogScale.checked=!!c.logScale;
         els.boxGraphType.value=c.graphType||els.boxGraphType.value;
         const violinConfig = c.violin || {};
@@ -8274,6 +8306,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           : labels;
         console.debug('Debug: box restore color labels',{ tableFormat: state.tableFormat, labelCount: colorPickerRestoreLabels.length });
         if(els.boxColorIndividual.checked){ updateBoxColorPickers(colorPickerRestoreLabels, { grouped: state.tableFormat === 'grouped' }); } else { els.boxColorPerBox.innerHTML=''; }
+        ensureBoxLegendControlPlacement();
         state.scheduleDraw();
       }catch(err){
         console.error('loadBoxGraph error',err);
@@ -8310,6 +8343,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();
+    ensureBoxLegendControlPlacement();
+    const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(()=>ensureBoxLegendControlPlacement())
+      : null;
+    if(scheduleLegendPlacement){
+      scheduleLegendPlacement();
+    }else if(typeof global.requestAnimationFrame === 'function'){
+      global.requestAnimationFrame(()=>ensureBoxLegendControlPlacement());
+    }
     if (typeof initHot === 'function') initHot();
     if (typeof initUI === 'function') initUI();
     state.scheduleDraw = Shared.debounceFrame(draw);

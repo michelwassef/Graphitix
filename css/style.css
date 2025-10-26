@@ -1347,7 +1347,9 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .svgbox .resizer-corner{right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,rgba(0,0,0,0.06),rgba(0,0,0,0));border-radius:2px}
 .svgbox .resizer-control-tray{position:absolute;top:8px;left:8px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;z-index:210}
 .svgbox .resizer-control-tray .resizer-aspect-control,
-.svgbox .resizer-control-tray .resizer-textlock-control{display:flex;align-items:center;gap:4px;font-size:12px;background:rgba(255,255,255,0.85);padding:2px 6px;border-radius:4px;color:#333;box-shadow:0 1px 3px rgba(0,0,0,0.15)}
+.svgbox .resizer-control-tray .resizer-textlock-control,
+.svgbox .resizer-control-tray .resizer-legend-control{display:flex;align-items:center;gap:4px;font-size:12px;background:rgba(255,255,255,0.85);padding:2px 6px;border-radius:4px;color:#333;box-shadow:0 1px 3px rgba(0,0,0,0.15)}
+.svgbox .resizer-control-tray .resizer-legend-control input[type=checkbox]{margin:0}
 .svgbox .resizer-aspect-control input[type="checkbox"],
 .svgbox .resizer-textlock-control input[type="checkbox"]{margin:0}
 .svgbox .resizer-aspect-text,
