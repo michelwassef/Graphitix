@@ -398,34 +398,6 @@
               button('lineLoadExample', 'Load Example', 'example')
             ]
           },
-          {
-            type: 'form',
-            caption: 'Series',
-            ariaLabel: 'Series configuration',
-            controls: [
-              {
-                type: 'input',
-                inputType: 'number',
-                id: 'lineReplicates',
-                label: 'Y replicates',
-                value: '1',
-                classes: ['workspace-toolbar__input--compact'],
-                attributes: { min: '1', max: '10', step: '1' }
-              },
-              {
-                type: 'select',
-                id: 'lineExampleSelect',
-                label: 'Example data',
-                classes: ['workspace-toolbar__input--select'],
-                options: [
-                  { value: 'standard', label: 'Standard (single replicate)', selected: true },
-                  { value: 'replicates2', label: 'Two replicates (Control vs Treated)' },
-                  { value: 'replicates3', label: 'Three replicates (Dose response)' },
-                  { value: 'longLegend', label: 'Long legend stress test' }
-                ]
-              }
-            ]
-          },
           dock('line')
         ]
       },

@@ -1466,19 +1466,19 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #boxPage .panel{display:flex;flex-direction:column;min-width:0}
 #boxPage .panel-resizer{width:8px;margin:0 4px;cursor:col-resize;background:#ddd}
 #boxPage #boxPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
-#boxPage .table-format-controls,#pcaPage .table-format-controls{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
-#boxPage .grouped-controls,#pcaPage .grouped-controls{display:flex;flex-direction:column;gap:8px;margin-bottom:8px;background:#f8f9fa;border:1px solid #d0d5dd;border-radius:6px;padding:8px}
-#boxPage .grouped-config-row,#pcaPage .grouped-config-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-#boxPage .grouped-config-row label,#pcaPage .grouped-config-row label{font-weight:600}
-#boxPage .grouped-list,#pcaPage .grouped-list{display:flex;flex-direction:column;gap:6px}
-#boxPage .grouped-row,#pcaPage .grouped-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-#boxPage .grouped-row label,#pcaPage .grouped-row label{min-width:70px;font-weight:500}
-#boxPage .grouped-row input[type="text"],#pcaPage .grouped-row input[type="text"]{flex:1 1 auto;min-width:0;padding:4px 6px;border:1px solid #ccc;border-radius:4px}
-#boxPage .grouped-row button.grouped-remove,#pcaPage .grouped-row button.grouped-remove{background:transparent;border:1px solid #ccc;color:#555;border-radius:4px;padding:4px 6px;cursor:pointer}
-#boxPage .grouped-row button.grouped-remove:hover,#pcaPage .grouped-row button.grouped-remove:hover{background:#f0f0f0}
-#boxPage .grouped-actions,#pcaPage .grouped-actions{display:flex;gap:8px;flex-wrap:wrap}
-#pcaPage .grouped-row input[type="color"]{width:36px;height:32px;padding:0;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer}
-#pcaPage .grouped-row select{min-width:110px;padding:4px 6px;border:1px solid #ccc;border-radius:4px}
+#boxPage .table-format-controls,#pcaPage .table-format-controls,#linePage .table-format-controls{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+#boxPage .grouped-controls,#pcaPage .grouped-controls,#linePage .grouped-controls{display:flex;flex-direction:column;gap:8px;margin-bottom:8px;background:#f8f9fa;border:1px solid #d0d5dd;border-radius:6px;padding:8px}
+#boxPage .grouped-config-row,#pcaPage .grouped-config-row,#linePage .grouped-config-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#boxPage .grouped-config-row label,#pcaPage .grouped-config-row label,#linePage .grouped-config-row label{font-weight:600}
+#boxPage .grouped-list,#pcaPage .grouped-list,#linePage .grouped-list{display:flex;flex-direction:column;gap:6px}
+#boxPage .grouped-row,#pcaPage .grouped-row,#linePage .grouped-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#boxPage .grouped-row label,#pcaPage .grouped-row label,#linePage .grouped-row label{min-width:70px;font-weight:500}
+#boxPage .grouped-row input[type="text"],#pcaPage .grouped-row input[type="text"],#linePage .grouped-row input[type="text"]{flex:1 1 auto;min-width:0;padding:4px 6px;border:1px solid #ccc;border-radius:4px}
+#boxPage .grouped-row button.grouped-remove,#pcaPage .grouped-row button.grouped-remove,#linePage .grouped-row button.grouped-remove{background:transparent;border:1px solid #ccc;color:#555;border-radius:4px;padding:4px 6px;cursor:pointer}
+#boxPage .grouped-row button.grouped-remove:hover,#pcaPage .grouped-row button.grouped-remove:hover,#linePage .grouped-row button.grouped-remove:hover{background:#f0f0f0}
+#boxPage .grouped-actions,#pcaPage .grouped-actions,#linePage .grouped-actions{display:flex;gap:8px;flex-wrap:wrap}
+#pcaPage .grouped-row input[type="color"],#linePage .grouped-row input[type="color"]{width:36px;height:32px;padding:0;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer}
+#pcaPage .grouped-row select,#linePage .grouped-row select{min-width:110px;padding:4px 6px;border:1px solid #ccc;border-radius:4px}
 @media (max-width:1000px){#boxPage .wrap{grid-template-columns:1fr}}
 #scatterPage .wrap{display:flex;align-items:stretch;gap:0}
 #scatterPage #scatterTablePanel{flex:1 1 33%;min-width:150px}
