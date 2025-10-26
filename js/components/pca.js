@@ -1249,11 +1249,15 @@
           const row = global.document.createElement('div');
           row.className = 'grouped-row';
           row.dataset.groupIndex = String(idx);
+          const inputId = `pca-group-name-${idx}`;
           const label = global.document.createElement('label');
           label.textContent = `Group ${idx + 1}`;
+          label.setAttribute('for', inputId);
           const input = global.document.createElement('input');
           input.type = 'text';
           input.value = name;
+          input.id = inputId;
+          input.setAttribute('aria-label', `Display name for Group ${idx + 1}`);
           input.addEventListener('input', e=>{
             pcaState.grouped.groups[idx] = e.target.value;
             debugLog('Debug: pca grouped name updated',{ index: idx, value: e.target.value });
