@@ -37,6 +37,15 @@
   const MAX_FORECAST_HORIZON = 120;
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+  const LINE_GROUP_SHAPE_OPTIONS = Object.freeze([
+    { value: 'circle', label: 'Circle' },
+    { value: 'square', label: 'Square' },
+    { value: 'triangle', label: 'Triangle' },
+    { value: 'diamond', label: 'Diamond' },
+    { value: 'cross', label: 'Cross' }
+  ]);
+  const LINE_GROUP_SHAPE_DEFAULTS = LINE_GROUP_SHAPE_OPTIONS.map(opt => opt.value);
+  const LINE_GROUP_SHAPE_VALUES = new Set(LINE_GROUP_SHAPE_DEFAULTS);
 
   let scheduleLineDraw = () => {};
   let lineHot = null;
@@ -111,8 +120,10 @@
   let lineFileHandle = null;
   let lineFileName = 'line.graph';
   let lineReplicates = LINE_MIN_REPLICATES;
+  let lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, LINE_MIN_REPLICATES + 1));
   let lineLayout = null;
   let lineSeriesGroupLabels = [];
+  let lineGroupShapes = [];
   let lineLastRegressionSummaries = [];
   let lineForecastOptions = {
     horizon: DEFAULT_FORECAST_HORIZON,
@@ -1230,6 +1241,129 @@
     return lastUsed;
   }
 
+  function sanitizeLineGroupShape(value, index){
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if(LINE_GROUP_SHAPE_VALUES.has(raw)){
+      return raw;
+    }
+    const safeIndex = Number.isInteger(index) ? index : 0;
+    return LINE_GROUP_SHAPE_DEFAULTS[safeIndex % LINE_GROUP_SHAPE_DEFAULTS.length];
+  }
+
+  function ensureLineGroupShapeCapacity(count){
+    const safeCount = Math.max(0, count | 0);
+    const nextShapes = new Array(safeCount);
+    for(let i=0;i<safeCount;i+=1){
+      const existing = Array.isArray(lineGroupShapes) ? lineGroupShapes[i] : undefined;
+      nextShapes[i] = sanitizeLineGroupShape(existing, i);
+    }
+    lineGroupShapes = nextShapes;
+    return lineGroupShapes;
+  }
+
+  function getLineGroupShape(index){
+    const safeIndex = Number.isInteger(index) ? index : 0;
+    const shapes = ensureLineGroupShapeCapacity(Math.max(Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0, safeIndex + 1));
+    const resolved = sanitizeLineGroupShape(shapes[safeIndex], safeIndex);
+    if(shapes[safeIndex] !== resolved){
+      shapes[safeIndex] = resolved;
+      lineGroupShapes = shapes;
+    }
+    return resolved;
+  }
+
+  function createLineMarkerShape(doc, shape, options){
+    if(!doc){
+      return null;
+    }
+    const normalized = sanitizeLineGroupShape(shape, Number(options?.index) || 0);
+    const radiusRaw = Number(options?.radius);
+    const radius = Number.isFinite(radiusRaw) && radiusRaw > 0 ? radiusRaw : 1;
+    const cx = Number(options?.cx) || 0;
+    const cy = Number(options?.cy) || 0;
+    const fill = options?.fill ?? '#000000';
+    const stroke = options?.stroke ?? fill;
+    const strokeWidthRaw = Number(options?.strokeWidth);
+    const strokeWidth = Number.isFinite(strokeWidthRaw) && strokeWidthRaw > 0 ? strokeWidthRaw : 0;
+    const fillOpacity = Number.isFinite(options?.fillOpacity) ? options.fillOpacity : 1;
+    const strokeOpacity = Number.isFinite(options?.strokeOpacity) ? options.strokeOpacity : fillOpacity;
+    const create = (tag, attrs) => {
+      const el = doc.createElementNS(NS, tag);
+      Object.keys(attrs).forEach(key => {
+        if(attrs[key] != null){
+          el.setAttribute(key, String(attrs[key]));
+        }
+      });
+      return el;
+    };
+    if(normalized === 'square'){
+      const size = Math.max(radius * 2, 2);
+      const half = size / 2;
+      return create('rect', {
+        x: cx - half,
+        y: cy - half,
+        width: size,
+        height: size,
+        fill,
+        'fill-opacity': fillOpacity,
+        stroke: strokeWidth > 0 ? stroke : 'none',
+        'stroke-width': strokeWidth,
+        'stroke-opacity': strokeOpacity
+      });
+    }
+    if(normalized === 'triangle'){
+      const size = Math.max(radius * 2, 2);
+      const half = size / 2;
+      const path = `M ${cx} ${cy - half} L ${cx + half} ${cy + half} L ${cx - half} ${cy + half} Z`;
+      return create('path', {
+        d: path,
+        fill,
+        'fill-opacity': fillOpacity,
+        stroke: strokeWidth > 0 ? stroke : 'none',
+        'stroke-width': strokeWidth,
+        'stroke-opacity': strokeOpacity
+      });
+    }
+    if(normalized === 'diamond'){
+      const size = Math.max(radius * 2, 2);
+      const half = size / 2;
+      const path = `M ${cx} ${cy - half} L ${cx + half} ${cy} L ${cx} ${cy + half} L ${cx - half} ${cy} Z`;
+      return create('path', {
+        d: path,
+        fill,
+        'fill-opacity': fillOpacity,
+        stroke: strokeWidth > 0 ? stroke : 'none',
+        'stroke-width': strokeWidth,
+        'stroke-opacity': strokeOpacity
+      });
+    }
+    if(normalized === 'cross'){
+      const size = Math.max(radius * 2, 2);
+      const half = size / 2;
+      const bar = Math.max(size / 3, 2);
+      const halfBar = bar / 2;
+      const path = `M ${cx - halfBar} ${cy - half} L ${cx + halfBar} ${cy - half} L ${cx + halfBar} ${cy - halfBar} L ${cx + half} ${cy - halfBar} L ${cx + half} ${cy + halfBar} L ${cx + halfBar} ${cy + halfBar} L ${cx + halfBar} ${cy + half} L ${cx - halfBar} ${cy + half} L ${cx - halfBar} ${cy + halfBar} L ${cx - half} ${cy + halfBar} L ${cx - half} ${cy - halfBar} L ${cx - halfBar} ${cy - halfBar} Z`;
+      return create('path', {
+        d: path,
+        fill,
+        'fill-opacity': fillOpacity,
+        stroke: strokeWidth > 0 ? stroke : 'none',
+        'stroke-width': strokeWidth,
+        'stroke-opacity': strokeOpacity
+      });
+    }
+    return create('circle', {
+      cx,
+      cy,
+      r: radius,
+      fill,
+      'fill-opacity': fillOpacity,
+      stroke: strokeWidth > 0 ? stroke : 'none',
+      'stroke-width': strokeWidth,
+      'stroke-opacity': strokeOpacity
+    });
+  }
+
   function buildLineReplicateMatrix(matrix, sourceReplicates, targetReplicates, options){
     const sourceCount = clampLineReplicateCount(sourceReplicates);
     const targetCount = clampLineReplicateCount(targetReplicates);
@@ -1279,11 +1413,23 @@
       nextGroupLabels[s] = resolved || `Series ${s+1}`;
     }
     lineSeriesGroupLabels = nextGroupLabels;
+    const storedShapes = Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [];
+    const overrideShapes = Array.isArray(options?.groupShapes) ? options.groupShapes : null;
+    const nextShapes = new Array(seriesCount);
+    for(let s=0;s<seriesCount;s+=1){
+      let candidateShape = overrideShapes?.[s];
+      if(candidateShape == null && storedShapes[s] != null){
+        candidateShape = storedShapes[s];
+      }
+      nextShapes[s] = sanitizeLineGroupShape(candidateShape, s);
+    }
+    lineGroupShapes = nextShapes;
     console.debug('Debug: line group labels synchronized', {
       shouldResetGroupLabels,
       preserveExistingLabels,
       overrideCount: overrideLabels?.length || 0,
-      resolved: lineSeriesGroupLabels.slice()
+      resolved: lineSeriesGroupLabels.slice(),
+      shapes: lineGroupShapes.slice()
     }); // Debug: group label sync trace
     const newHeader = new Array(targetCols).fill('');
     newHeader[0] = headerRow[0] && String(headerRow[0]).trim() ? headerRow[0] : 'X';
@@ -1449,6 +1595,9 @@
       resolved
     });
     updateLineNestedHeaders();
+    if(lineReplicates > LINE_MIN_REPLICATES){
+      renderLineGroupedList();
+    }
     scheduleLineDraw();
   }
 
@@ -1465,19 +1614,216 @@
       preserveGroupLabels: options?.preserveGroupLabels
     });
     lineReplicates = normalized;
+    if(lineReplicates > LINE_MIN_REPLICATES){
+      lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
+    }
     if(refs.replicatesInput){
       refs.replicatesInput.value = String(lineReplicates);
     }
+    updateLineReplicateModeControls();
     if(lineHot){
       lineHot.loadData(structure.data);
       updateLineNestedHeaders(structure);
     }
     console.debug('Debug: applyLineReplicateChange',{ requested:newCount, normalized, sourceReplicates, seriesCount: structure.seriesCount, targetCols: structure.targetCols, shouldResetLabels });
+    if(lineReplicates > LINE_MIN_REPLICATES){
+      renderLineGroupedList();
+    }else if(refs.groupedList){
+      refs.groupedList.innerHTML = '';
+    }
     if(!options?.skipDraw){
       scheduleLineDraw();
     }
     return structure;
   }
+
+  function updateLineReplicateModeControls(modeOverride){
+    const mode = modeOverride || (lineReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single');
+    if(refs.replicateMode && refs.replicateMode.value !== mode){
+      refs.replicateMode.value = mode;
+    }
+    if(refs.replicatesContainer){
+      if(mode === 'grouped'){
+        refs.replicatesContainer.style.display = '';
+        refs.replicatesContainer.setAttribute('aria-hidden', 'false');
+      }else{
+        refs.replicatesContainer.style.display = 'none';
+        refs.replicatesContainer.setAttribute('aria-hidden', 'true');
+      }
+    }
+    if(refs.replicatesInput){
+      refs.replicatesInput.disabled = mode !== 'grouped';
+    }
+    if(refs.groupedAdd){
+      refs.groupedAdd.disabled = mode !== 'grouped';
+    }
+    if(refs.groupedRemove){
+      refs.groupedRemove.disabled = mode !== 'grouped';
+    }
+    if(mode === 'grouped'){
+      renderLineGroupedList();
+    }
+  }
+
+  function renderLineGroupedList(){
+    if(!refs.groupedList){
+      return;
+    }
+    if(lineReplicates <= LINE_MIN_REPLICATES){
+      refs.groupedList.innerHTML = '';
+      return;
+    }
+    const doc = global.document;
+    if(!doc){
+      return;
+    }
+    const labels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    ensureLineLabelColors(labels);
+    ensureLineGroupShapeCapacity(labels.length);
+    refs.groupedList.innerHTML = '';
+    labels.forEach((storedLabel, idx) => {
+      const row = doc.createElement('div');
+      row.className = 'grouped-row';
+      row.dataset.groupIndex = String(idx);
+      const labelEl = doc.createElement('label');
+      labelEl.textContent = `Group ${idx + 1}`;
+      row.appendChild(labelEl);
+      const input = doc.createElement('input');
+      input.type = 'text';
+      input.value = storedLabel || '';
+      input.addEventListener('change', e => {
+        updateLineSeriesGroupLabel(idx, e.target.value);
+        e.target.value = lineSeriesGroupLabels[idx] || '';
+        renderLineGroupedList();
+      });
+      row.appendChild(input);
+      const labelKey = lineSeriesGroupLabels[idx] || `Series ${idx + 1}`;
+      const defaultColor = DEFAULT_SCATTER_COLORS[idx % DEFAULT_SCATTER_COLORS.length];
+      const existingColor = lineLabelColors[labelKey];
+      const resolvedColor = typeof existingColor === 'string' && existingColor ? existingColor : defaultColor;
+      lineLabelColors[labelKey] = resolvedColor;
+      const colorInput = doc.createElement('input');
+      colorInput.type = 'color';
+      colorInput.value = resolvedColor;
+      colorInput.dataset.groupIndex = String(idx);
+      colorInput.setAttribute('aria-label', `Color for ${labelKey}`);
+      colorInput.addEventListener('input', e => {
+        const targetLabel = lineSeriesGroupLabels[idx] || `Series ${idx + 1}`;
+        const value = typeof e.target.value === 'string' && e.target.value ? e.target.value : defaultColor;
+        lineLabelColors[targetLabel] = value;
+        console.debug('Debug: line grouped color updated',{ index: idx, color: value, label: targetLabel });
+        scheduleLineDraw();
+      });
+      if(typeof Shared.attachColorPickerNear === 'function'){
+        Shared.attachColorPickerNear(colorInput);
+      }
+      row.appendChild(colorInput);
+      const shapeSelect = doc.createElement('select');
+      shapeSelect.dataset.groupIndex = String(idx);
+      shapeSelect.setAttribute('aria-label', `Marker shape for ${labelKey}`);
+      LINE_GROUP_SHAPE_OPTIONS.forEach(opt => {
+        const option = doc.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        shapeSelect.appendChild(option);
+      });
+      const currentShape = getLineGroupShape(idx);
+      shapeSelect.value = currentShape;
+      shapeSelect.addEventListener('change', e => {
+        const sanitized = sanitizeLineGroupShape(e.target.value, idx);
+        lineGroupShapes[idx] = sanitized;
+        if(e.target.value !== sanitized){
+          e.target.value = sanitized;
+        }
+        console.debug('Debug: line grouped shape updated',{ index: idx, shape: sanitized });
+        scheduleLineDraw();
+      });
+      attachLineSelectAutoSize(shapeSelect, `line-group-shape-${idx}`);
+      row.appendChild(shapeSelect);
+      const removeBtn = doc.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'grouped-remove';
+      removeBtn.textContent = '×';
+      removeBtn.disabled = labels.length <= 1;
+      removeBtn.addEventListener('click', () => {
+        removeLineGroupAt(idx);
+      });
+      row.appendChild(removeBtn);
+      refs.groupedList.appendChild(row);
+    });
+    if(refs.replicatesInput){
+      refs.replicatesInput.value = String(lineReplicates);
+    }
+    console.debug('Debug: line grouped list rendered',{ groups: labels.length });
+  }
+
+  function addLineGroup(){
+    if(lineReplicates <= LINE_MIN_REPLICATES){
+      console.debug('Debug: line grouped add skipped',{ reason: 'single-mode' });
+      return;
+    }
+    const labels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    const nextIndex = labels.length;
+    const nextLabel = `Series ${nextIndex + 1}`;
+    labels.push(nextLabel);
+    const shapes = Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [];
+    shapes.push(LINE_GROUP_SHAPE_DEFAULTS[nextIndex % LINE_GROUP_SHAPE_DEFAULTS.length]);
+    console.debug('Debug: line grouped add',{ nextIndex, label: nextLabel });
+    applyLineReplicateChange(lineReplicates, {
+      sourceReplicates: lineReplicates,
+      skipDraw: true,
+      minSeriesCount: labels.length,
+      groupLabels: labels,
+      groupShapes: shapes,
+      resetGroupLabels: true
+    });
+    renderLineGroupedList();
+    scheduleLineDraw();
+  }
+
+  function removeLineGroupAt(index){
+    if(lineReplicates <= LINE_MIN_REPLICATES){
+      console.debug('Debug: line grouped remove blocked',{ index, reason: 'single-mode' });
+      return;
+    }
+    const labels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    if(labels.length <= 1 || !Number.isInteger(index) || index < 0 || index >= labels.length){
+      console.debug('Debug: line grouped remove blocked',{ index, length: labels.length });
+      return;
+    }
+    const replicates = Math.max(lineReplicates, LINE_MIN_REPLICATES);
+    const matrix = lineHot ? lineHot.getData() : [];
+    const start = 1 + index * replicates;
+    const end = start + replicates;
+    const trimmed = Array.isArray(matrix)
+      ? matrix.map(row => {
+        if(!Array.isArray(row)){
+          return [];
+        }
+        const prefix = row.slice(0, start);
+        const suffix = row.slice(end);
+        return prefix.concat(suffix);
+      })
+      : [];
+    labels.splice(index, 1);
+    const shapes = Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [];
+    if(shapes.length > index){
+      shapes.splice(index, 1);
+    }
+    console.debug('Debug: line grouped remove',{ index, remaining: labels.length });
+    applyLineReplicateChange(lineReplicates, {
+      dataOverride: trimmed,
+      sourceReplicates: lineReplicates,
+      skipDraw: true,
+      minSeriesCount: Math.max(labels.length, 1),
+      groupLabels: labels,
+      groupShapes: shapes,
+      resetGroupLabels: true
+    });
+    renderLineGroupedList();
+    scheduleLineDraw();
+  }
+
 
   function ensureLineLabelColors(labels){
     const labelSet = new Set(labels);
@@ -1855,6 +2201,7 @@
         yLabel:lineYLabelText,
         replicates: lineReplicates,
         groupLabels: Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [],
+        groupShapes: Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [],
         dotSize:refs.dotSize?.value,
         fill:refs.fill?.value,
         border:refs.border?.value,
@@ -1910,9 +2257,14 @@
         const storedReplicates = clampLineReplicateCount(c.replicates ?? lineReplicates);
         const matrixData = Array.isArray(obj.data) ? obj.data : null;
         const storedGroupLabels = Array.isArray(c.groupLabels) ? c.groupLabels.slice() : null;
+        const storedGroupShapes = Array.isArray(c.groupShapes) ? c.groupShapes.slice() : null;
         if(storedGroupLabels){
           lineSeriesGroupLabels = storedGroupLabels.slice();
           console.debug('Debug: line group labels restored from file', { labels: storedGroupLabels });
+        }
+        if(storedGroupShapes){
+          lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+          console.debug('Debug: line group shapes restored from file', { shapes: lineGroupShapes.slice() });
         }
         const inferredSeries = matrixData && Array.isArray(matrixData[0]) ? Math.max(1, Math.ceil(((matrixData[0].length || 1) - 1) / Math.max(storedReplicates, 1))) : undefined;
         if(lineHot && matrixData){
@@ -1922,6 +2274,7 @@
             skipDraw: true,
             minSeriesCount: inferredSeries,
             groupLabels: storedGroupLabels || lineSeriesGroupLabels,
+            groupShapes: storedGroupShapes || lineGroupShapes,
             resetGroupLabels: storedGroupLabels ? true : undefined
           });
           if(obj.exclusions){
@@ -1931,6 +2284,13 @@
           lineReplicates = storedReplicates;
           if(refs.replicatesInput){
             refs.replicatesInput.value = String(lineReplicates);
+          }
+          if(lineReplicates > LINE_MIN_REPLICATES){
+            lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
+          }
+          updateLineReplicateModeControls();
+          if(storedGroupShapes){
+            lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
           }
         }
         if(!lineHot && obj.exclusions){
@@ -2186,6 +2546,7 @@
       lineXLabelText=(header[xIndex]&&String(header[xIndex]).trim())||'X';
       const replicates=Math.max(LINE_MIN_REPLICATES,lineReplicates);
       const totalSeries=Math.max(0,Math.floor((header.length-1)/replicates));
+      ensureLineGroupShapeCapacity(totalSeries);
       const series=[];
       for(let s=0;s<totalSeries;s++){
         const baseIdx=1+s*replicates;
@@ -2197,7 +2558,8 @@
         if(!lineSeriesGroupLabels[s] && resolvedName){
           lineSeriesGroupLabels[s] = resolvedName;
         }
-        series.push({name:resolvedName,baseName,points:[]});
+        const shape = getLineGroupShape(s);
+        series.push({name:resolvedName,baseName,points:[],shape});
       }
       console.debug('Debug: line series names resolved',{ seriesNames: series.map(s=>s.name), totalSeries });
       let xMinRaw=Infinity,xMaxRaw=-Infinity,yMinRaw=Infinity,yMaxRaw=-Infinity;
@@ -2310,6 +2672,13 @@
       }
       ensureLineLabelColors(labelsUsed);
       const colors=seriesWithData.map((s,i)=>lineLabelColors[s.name]||borderColor||DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length]);
+      const seriesShapes = seriesWithData.map((s,i)=>{
+        const baseIndex = series.indexOf(s);
+        const fallbackIndex = baseIndex >= 0 ? baseIndex : i;
+        const resolvedShape = sanitizeLineGroupShape(s.shape, fallbackIndex);
+        s.shape = resolvedShape;
+        return resolvedShape;
+      });
       const legendEntries=seriesWithData.map((s,i)=>({ label:s.name, fill:colors[i], key:s.name, editable:true }));
       const legendLayout=chartStyle.computeLegendLayout({
         entries:showLegend ? legendEntries : [],
@@ -2699,14 +3068,21 @@
               }
             }
             if(dotSizeRaw>0){
-              const c=document.createElementNS(NS,'circle');
-              c.setAttribute('cx',px);
-              c.setAttribute('cy',py);
-              c.setAttribute('r',dotSizePx);
-              c.setAttribute('fill',lineLabelColors[s.name]||fill);
-              c.setAttribute('fill-opacity',1-alpha);
-              attachLineMarkerTooltip(c, s, pt);
-              markerFrag.appendChild(c);
+              const markerShape = seriesShapes[i] || s.shape || 'circle';
+              const marker=createLineMarkerShape(document, markerShape, {
+                index: i,
+                radius: dotSizePx,
+                cx: px,
+                cy: py,
+                fill: lineLabelColors[s.name] || fill,
+                fillOpacity: 1 - alpha,
+                strokeWidth: 0,
+                strokeOpacity: 1 - alpha
+              });
+              if(marker){
+                attachLineMarkerTooltip(marker, s, pt);
+                markerFrag.appendChild(marker);
+              }
             }
           } else {
             started=false;
@@ -2867,7 +3243,12 @@
     refs.forecastSeasonLength=document.getElementById('lineForecastSeasonLength');
     refs.forecastAuto=document.getElementById('lineForecastAuto');
     refs.forecastCriterion=document.getElementById('lineForecastCriterion');
+    refs.replicateMode=document.getElementById('lineTableFormat');
+    refs.replicatesContainer=document.getElementById('lineGroupedControls');
     refs.replicatesInput=document.getElementById('lineReplicates');
+    refs.groupedList=document.getElementById('lineGroupedList');
+    refs.groupedAdd=document.getElementById('lineGroupedAdd');
+    refs.groupedRemove=document.getElementById('lineGroupedRemove');
     refs.exampleSelect=document.getElementById('lineExampleSelect');
     refs.fill=document.getElementById('lineFill');
     refs.border=document.getElementById('lineBorder');
@@ -2894,9 +3275,48 @@
           applyLineReplicateChange(resolved);
         }else{
           refs.replicatesInput.value = String(lineReplicates);
+          updateLineReplicateModeControls();
         }
       });
     }
+    if(refs.groupedAdd){
+      refs.groupedAdd.addEventListener('click',()=>{
+        console.debug('Debug: line grouped add button');
+        addLineGroup();
+      });
+    }
+    if(refs.groupedRemove){
+      refs.groupedRemove.addEventListener('click',()=>{
+        const length = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0;
+        const targetIndex = length > 0 ? length - 1 : -1;
+        console.debug('Debug: line grouped remove button',{ length, targetIndex });
+        if(targetIndex >= 0){
+          removeLineGroupAt(targetIndex);
+        }
+      });
+    }
+    if(refs.replicateMode){
+      refs.replicateMode.addEventListener('change',e=>{
+        const nextMode = e.target.value === 'grouped' ? 'grouped' : 'single';
+        console.debug('Debug: line replicate mode change',{ mode: nextMode });
+        if(nextMode === 'single'){
+          if(lineReplicates > LINE_MIN_REPLICATES){
+            lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
+            applyLineReplicateChange(LINE_MIN_REPLICATES);
+          }else{
+            updateLineReplicateModeControls(nextMode);
+          }
+        }else{
+          const target = lineReplicates > LINE_MIN_REPLICATES ? lineReplicates : lineLastGroupedReplicateCount;
+          if(target !== lineReplicates){
+            applyLineReplicateChange(target);
+          }else{
+            updateLineReplicateModeControls(nextMode);
+          }
+        }
+      });
+    }
+    updateLineReplicateModeControls();
     if(refs.exampleSelect){
       refs.exampleSelect.addEventListener('change',e=>{
         console.debug('Debug: line example select change',{ value: e.target.value });
@@ -3251,6 +3671,8 @@
       standard:{
         replicates:1,
         seriesCount:5,
+        groupLabels:['North','South','East','West','Central'],
+        groupShapes:LINE_GROUP_SHAPE_DEFAULTS.slice(0,5),
         data:[
           ['Month','North','South','East','West','Central'],
           [1,120,110,95,80,105],
@@ -3270,6 +3692,8 @@
       replicates2:{
         replicates:2,
         seriesCount:2,
+        groupLabels:['Control','Treated'],
+        groupShapes:LINE_GROUP_SHAPE_DEFAULTS.slice(0,2),
         data:[
           ['Hours','Control Rep 1','Control Rep 2','Treated Rep 1','Treated Rep 2'],
           [0,40,42,45,44],
@@ -3284,6 +3708,8 @@
       replicates3:{
         replicates:3,
         seriesCount:2,
+        groupLabels:['Control','Treated'],
+        groupShapes:LINE_GROUP_SHAPE_DEFAULTS.slice(0,2),
         data:[
           ['Hours','Control Rep 1','Control Rep 2','Control Rep 3','Treated Rep 1','Treated Rep 2','Treated Rep 3'],
           [0,45,43,47,50,48,49],
@@ -3296,6 +3722,12 @@
       longLegend:{
         replicates:1,
         seriesCount:3,
+        groupLabels:[
+          'North Region with Multi-Year Baseline Comparison',
+          'South Region with Multi-Year Baseline and Extended Reporting Horizon',
+          'International Expansion Pilot Cohort for 2025 Launch'
+        ],
+        groupShapes:LINE_GROUP_SHAPE_DEFAULTS.slice(0,3),
         data:[
           ['Month','North Region with Multi-Year Baseline Comparison','South Region with Multi-Year Baseline and Extended Reporting Horizon','International Expansion Pilot Cohort for 2025 Launch'],
           [1,120,108,92],
@@ -3315,7 +3747,14 @@
     refs.loadExample?.addEventListener('click',()=>{
       const key=refs.exampleSelect?.value||'standard';
       const example=lineExamples[key]||lineExamples.standard;
-      applyLineReplicateChange(example.replicates,{ dataOverride: example.data, sourceReplicates: example.replicates, skipDraw: true, minSeriesCount: example.seriesCount });
+      applyLineReplicateChange(example.replicates,{
+        dataOverride: example.data,
+        sourceReplicates: example.replicates,
+        skipDraw: true,
+        minSeriesCount: example.seriesCount,
+        groupLabels: example.groupLabels,
+        groupShapes: example.groupShapes
+      });
       console.debug('Debug: line example loaded',{ key, replicates: example.replicates });
       scheduleLineDraw();
     });
