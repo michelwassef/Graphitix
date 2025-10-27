@@ -3253,7 +3253,6 @@
     refs.groupedList=document.getElementById('lineGroupedList');
     refs.groupedAdd=document.getElementById('lineGroupedAdd');
     refs.groupedRemove=document.getElementById('lineGroupedRemove');
-    refs.exampleSelect=document.getElementById('lineExampleSelect');
     refs.fill=document.getElementById('lineFill');
     refs.border=document.getElementById('lineBorder');
     refs.borderWidth=document.getElementById('lineBorderWidth');
@@ -3321,11 +3320,6 @@
       });
     }
     updateLineReplicateModeControls();
-    if(refs.exampleSelect){
-      refs.exampleSelect.addEventListener('change',e=>{
-        console.debug('Debug: line example select change',{ value: e.target.value });
-      });
-    }
     if(refs.regressionMode){
       refs.regressionMode.addEventListener('change',e=>{
         console.debug('Debug: line regression mode change',{ value: e.target.value });
@@ -3516,7 +3510,6 @@
       return{allowed:true};
     }
     const lineAutoSizeTargets=[
-      refs.exampleSelect,
       refs.regressionMode,
       refs.statType,
       refs.originMode,
@@ -3693,23 +3686,7 @@
           [12,190,150,135,132,158]
         ]
       },
-      replicates2:{
-        replicates:2,
-        seriesCount:2,
-        groupLabels:['Control','Treated'],
-        groupShapes:LINE_GROUP_SHAPE_DEFAULTS.slice(0,2),
-        data:[
-          ['Hours','Control Rep 1','Control Rep 2','Treated Rep 1','Treated Rep 2'],
-          [0,40,42,45,44],
-          [12,52,54,60,59],
-          [24,65,63,72,74],
-          [36,75,78,85,87],
-          [48,82,84,94,95],
-          [60,90,92,103,104],
-          [72,96,98,110,112]
-        ]
-      },
-      replicates3:{
+      groupedDoseResponse:{
         replicates:3,
         seriesCount:2,
         groupLabels:['Control','Treated'],
@@ -3722,34 +3699,12 @@
           [72,88,86,87,95,97,96],
           [96,105,104,106,112,113,111]
         ]
-      },
-      longLegend:{
-        replicates:1,
-        seriesCount:3,
-        groupLabels:[
-          'North Region with Multi-Year Baseline Comparison',
-          'South Region with Multi-Year Baseline and Extended Reporting Horizon',
-          'International Expansion Pilot Cohort for 2025 Launch'
-        ],
-        groupShapes:LINE_GROUP_SHAPE_DEFAULTS.slice(0,3),
-        data:[
-          ['Month','North Region with Multi-Year Baseline Comparison','South Region with Multi-Year Baseline and Extended Reporting Horizon','International Expansion Pilot Cohort for 2025 Launch'],
-          [1,120,108,92],
-          [2,134,118,95],
-          [3,142,126,99],
-          [4,155,132,104],
-          [5,163,141,110],
-          [6,171,149,117],
-          [7,178,156,123],
-          [8,184,162,129],
-          [9,191,168,133],
-          [10,197,173,138]
-        ]
       }
     };
 
     refs.loadExample?.addEventListener('click',()=>{
-      const key=refs.exampleSelect?.value||'standard';
+      const isGroupedMode = refs.replicateMode?.value === 'grouped';
+      const key = isGroupedMode ? 'groupedDoseResponse' : 'standard';
       const example=lineExamples[key]||lineExamples.standard;
       applyLineReplicateChange(example.replicates,{
         dataOverride: example.data,
@@ -3759,7 +3714,7 @@
         groupLabels: example.groupLabels,
         groupShapes: example.groupShapes
       });
-      console.debug('Debug: line example loaded',{ key, replicates: example.replicates });
+      console.debug('Debug: line example loaded',{ key, replicates: example.replicates, mode: isGroupedMode ? 'grouped' : 'single' });
       scheduleLineDraw();
     });
     refs.importBtn?.addEventListener('click',()=>{ if(refs.fileInput){ refs.fileInput.value=''; refs.fileInput.click(); } });
