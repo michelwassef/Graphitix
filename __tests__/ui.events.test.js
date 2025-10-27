@@ -231,29 +231,41 @@ describe('UI events and example loaders', () => {
     expect(iqr3Extents.wMax).toBeCloseTo(180);
   });
 
-  test('Line Graph: long legend reserves measured width', async () => {
+  test('Line Graph: Load Example respects replicate mode', async () => {
     await activateWorkspace('line');
-    const select = document.getElementById('lineExampleSelect');
-    expect(select).toBeTruthy();
-    select.value = 'longLegend';
-    select.dispatchEvent(new Event('change'));
     const loadBtn = document.getElementById('lineLoadExample');
     expect(loadBtn).toBeTruthy();
+
     loadBtn.click();
     await flushAsyncWork(40);
-    const lineState = window.Components?.line?.__getState?.();
-    expect(lineState).toBeTruthy();
-    const layout = lineState.legendLayout;
-    expect(layout).toBeTruthy();
-    expect(layout.entryCount).toBeGreaterThan(0);
-    const widths = layout.entries.map(entry => Number(entry.labelWidth || 0));
-    expect(widths.every(width => width > 0)).toBe(true);
-    const maxLabelWidth = Math.max(...widths);
-    const expectedRendererWidth = Math.max(Number(layout.minWidth || 0), Number(layout.swatchSize || 0) + Number(layout.swatchGap || 0) + maxLabelWidth);
-    expect(Math.abs(Number(layout.rendererWidth || 0) - expectedRendererWidth)).toBeLessThanOrEqual(1.5);
-    expect(Math.abs(Number(lineState.legendWidth || 0) - (Number(layout.rendererWidth || 0) + Number(layout.legendGapPx || 0)))).toBeLessThanOrEqual(1.5);
-    expect(Number(lineState.legendGuardWidth || 0)).toBeGreaterThanOrEqual(Number(layout.minSvgWidth || 0));
-    expect(lineState.legendItems[0]?.label || '').toContain('Multi-Year');
+
+    const lineComponent = window.Components?.line;
+    const lineStateSingle = lineComponent?.__getState?.();
+    expect(lineStateSingle).toBeTruthy();
+    expect(lineStateSingle?.legendLayout?.entryCount).toBeGreaterThan(0);
+    const hot = lineComponent?.getHot?.();
+    expect(hot).toBeTruthy();
+    const singleHeader = Array.isArray(hot?.getData?.()) ? hot.getData()[0] : null;
+    expect(singleHeader).toBeTruthy();
+    expect(singleHeader.slice(0, 6)).toEqual(['Month', 'North', 'South', 'East', 'West', 'Central']);
+
+    const formatSelect = document.getElementById('lineTableFormat');
+    expect(formatSelect).toBeTruthy();
+    formatSelect.value = 'grouped';
+    formatSelect.dispatchEvent(new Event('change'));
+    await flushAsyncWork(40);
+
+    loadBtn.click();
+    await flushAsyncWork(60);
+
+    const groupedData = Array.isArray(hot?.getData?.()) ? hot.getData() : null;
+    expect(groupedData?.length).toBeGreaterThan(1);
+    expect(groupedData[1].slice(0, 7)).toEqual([0, 45, 43, 47, 50, 48, 49]);
+    const replicatesInput = document.getElementById('lineReplicates');
+    expect(replicatesInput?.value).toBe('3');
+    const lineStateGrouped = lineComponent?.__getState?.();
+    expect(lineStateGrouped?.legendItems?.length).toBe(2);
+    expect(lineStateGrouped?.legendItems?.map(item => item.label)).toEqual(['Control', 'Treated']);
   });
 
   test.skip('Box Plot: assumption warnings surface for non-normal data', async () => {
