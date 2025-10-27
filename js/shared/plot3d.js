@@ -714,15 +714,33 @@
         y: labelBasePos.y + outwardPerp.y * offsetMagnitude
       };
       const angleDeg = Math.atan2(endPos.y - startPos.y, endPos.x - startPos.x) * (180 / Math.PI);
-      const axisLabelEl = createElement('text', {
+      let readableAngle = angleDeg;
+      if(readableAngle > 90 || readableAngle < -90){
+        readableAngle += readableAngle > 0 ? -180 : 180;
+      }
+      const axisLabelAttrs = {
         x: labelPos.x,
         y: labelPos.y,
         'font-size': fontSize,
         'text-anchor': 'middle',
         'dominant-baseline': 'middle',
         fill: chartStyle.TEXT_COLOR || '#333',
-        transform: `rotate(${angleDeg} ${labelPos.x} ${labelPos.y})`
-      }, def.label, svg);
+        transform: `rotate(${readableAngle} ${labelPos.x} ${labelPos.y})`,
+        'data-axis-label': '1',
+        'data-axis-key': def.key,
+        'data-axis-angle': String(readableAngle)
+      };
+      if(readableAngle !== angleDeg){
+        axisLabelAttrs['data-axis-flipped'] = '1';
+      }
+      const axisLabelEl = createElement('text', axisLabelAttrs, def.label, svg);
+      debugLog('Debug: plot3d axis label orientation', {
+        label: debugLabel,
+        axis: def.key,
+        rawAngle: angleDeg,
+        appliedAngle: readableAngle,
+        flipped: readableAngle !== angleDeg
+      });
       if(onAxisLabel){
         try {
           onAxisLabel(axisLabelEl, def.key, def.label);
