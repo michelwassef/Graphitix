@@ -3105,11 +3105,16 @@
       const legendRenderer = legendLayout.renderer || { entries: [], rowGap: 0, swatchSize: 0, swatchGap: 0, baselineOffset: 0 };
       const legendVisible = showLegend && legendRenderer.entries.length > 0;
       const legendWidth = legendVisible ? legendLayout.legendWidthForMargin : 0;
+      const legendAxisGap = Math.max(fs * 0.9, 18);
+      const appliedLegendAxisGap = legendVisible ? legendAxisGap : 0;
+      const effectiveLegendWidth = legendWidth + appliedLegendAxisGap;
       debugLog('Debug: pca legend layout metrics',{
         legendWidth,
         legendGap: legendLayout.legendGapPx,
         legendCount: legendRenderer.entries.length,
-        legendVisible
+        legendVisible,
+        legendAxisGap,
+        appliedLegendAxisGap
       });
 
       const plotEl = document.getElementById('pcaPlot');
@@ -3202,7 +3207,7 @@
           debugLog('Debug: pca fontControls enableForSvg missing',{ hasFontControls: !!fontControls, mode: '3d' });
         }
         const baseLegendMargin = Math.max(fs * 2.25, 28);
-        const legendMargin = legendVisible ? legendWidth + baseLegendMargin : baseLegendMargin;
+        const legendMargin = legendVisible ? legendWidth + appliedLegendAxisGap + baseLegendMargin : baseLegendMargin;
         const margin3 = {
           top: Math.max(fs * 3.2, 36),
           right: legendMargin,
@@ -3347,6 +3352,33 @@
           onAxisLabel: (el, axisKey, labelText) => { markFontEditable(el, 'axis3d', labelText); },
           createElement: (tag, attrs, text, target) => add3(tag, attrs, text, target)
         });
+        const axisLabelBounds = [];
+        let contentRightBound = margin3.left + plotW3;
+        if(typeof svg3.querySelectorAll === 'function'){
+          const axisLabelNodes = svg3.querySelectorAll('[data-axis-label]');
+          for(let idx = 0; idx < axisLabelNodes.length; idx += 1){
+            const node = axisLabelNodes[idx];
+            if(!node || typeof node.getBBox !== 'function'){ continue; }
+            try {
+              const bbox = node.getBBox();
+              const bboxValid = Number.isFinite(bbox?.x) && Number.isFinite(bbox?.width)
+                && Number.isFinite(bbox?.y) && Number.isFinite(bbox?.height);
+              if(!bboxValid){ continue; }
+              axisLabelBounds.push({
+                x: bbox.x,
+                y: bbox.y,
+                width: bbox.width,
+                height: bbox.height
+              });
+              const right = bbox.x + bbox.width;
+              if(Number.isFinite(right)){
+                contentRightBound = Math.max(contentRightBound, right);
+              }
+            } catch(err){
+              debugLog('Debug: pca axis label bbox error',{ message: err && err.message });
+            }
+          }
+        }
         const titleY3 = Math.max(fs, margin3.top * 0.5);
         const title3d = add3('text', {
           x: margin3.left + plotW3 / 2,
@@ -3370,6 +3402,7 @@
             original: points3d[idx]
           };
         }).sort((a,b)=>a.depth-b.depth);
+        let maxPointRight = contentRightBound;
         projectedPoints.forEach(pt => {
           const assignment = (groupMeta && Number.isInteger(pt.index)) ? groupMeta.assignments[pt.index] : null;
           const style = (groupMeta && Number.isInteger(assignment)) ? groupMeta.styleByIndex?.[assignment] : null;
@@ -3385,6 +3418,7 @@
             opacity: 1 - alpha
           });
           if(pointNode){
+            pointNode.dataset.plotPoint = '1';
             const groupLabel3d = Number.isInteger(assignment)
               ? (style?.label || groupMeta?.entries?.[assignment]?.label || '')
               : (style?.label || '');
@@ -3402,14 +3436,99 @@
               index: pt.index
             });
           }
+          const approxRight = pt.x + dotSizePx + borderWidthPx;
+          if(Number.isFinite(approxRight)){
+            maxPointRight = Math.max(maxPointRight, approxRight);
+          }
         });
+        contentRightBound = Math.max(contentRightBound, maxPointRight);
         if(legendVisible){
-          const legendX3=margin3.left+plotW3+legendLayout.legendGapPx;
-          const legendSpacing3=Math.max(legendRenderer.rowGap || 0, Math.round(fs*0.35));
-          const legendMarkerSize3=legendRenderer.swatchSize || Math.max(Math.round(fs*0.6), 10);
-          const legendTextOffset3=legendMarkerSize3+(legendRenderer.swatchGap || Math.max(Math.round(fs*0.2), 6));
+          const horizontalBase = margin3.left + plotW3 + legendLayout.legendGapPx + appliedLegendAxisGap;
+          const legendSpacing3 = Math.max(legendRenderer.rowGap || 0, Math.round(fs*0.35));
+          const legendMarkerSize3 = legendRenderer.swatchSize || Math.max(Math.round(fs*0.6), 10);
+          const legendTextOffset3 = legendMarkerSize3 + (legendRenderer.swatchGap || Math.max(Math.round(fs*0.2), 6));
+          const legendHeight = legendEntries.length
+            ? legendEntries.length * legendMarkerSize3 + (legendEntries.length - 1) * legendSpacing3
+            : 0;
+          const horizontalPadding = Math.max(fs * 0.6, 12) + appliedLegendAxisGap;
+          let legendX3 = Math.max(horizontalBase, contentRightBound + horizontalPadding);
+          const safeRightPad = Math.max(fs * 0.6, 12);
+          const maxLegendX = W3 - safeRightPad - legendWidth;
+          if(maxLegendX < horizontalBase){
+            debugLog('Debug: pca legend width constraint',{ mode: '3d', horizontalBase, maxLegendX, safeRightPad });
+          }
+          if(legendX3 > maxLegendX){
+            const previousX = legendX3;
+            legendX3 = Math.max(horizontalBase, maxLegendX);
+            debugLog('Debug: pca legend horizontal clamped',{ mode: '3d', previousX, legendX3, maxLegendX });
+          }
+          const baseLegendY = margin3.top;
+          const legendBottomLimit = Math.max(baseLegendY, H3 - margin3.bottom - legendHeight);
+          const verticalPadding = Math.max(fs * 0.45, 8);
+          const candidates = [baseLegendY];
+          if(axisLabelBounds.length){
+            for(let idx = 0; idx < axisLabelBounds.length; idx += 1){
+              const bounds = axisLabelBounds[idx];
+              const below = bounds.y + bounds.height + verticalPadding;
+              const above = bounds.y - legendHeight - verticalPadding;
+              if(below <= legendBottomLimit){
+                candidates.push(below);
+              }
+              if(above >= baseLegendY){
+                candidates.push(above);
+              }
+            }
+          }
+          if(legendBottomLimit !== baseLegendY){
+            candidates.push(legendBottomLimit);
+          }
+          const candidatePositions = [];
+          for(let idx = 0; idx < candidates.length; idx += 1){
+            const candidate = candidates[idx];
+            const clamped = Math.min(Math.max(candidate, baseLegendY), legendBottomLimit);
+            let duplicate = false;
+            for(let j = 0; j < candidatePositions.length; j += 1){
+              if(Math.abs(candidatePositions[j] - clamped) < 0.5){
+                duplicate = true;
+                break;
+              }
+            }
+            if(!duplicate){
+              candidatePositions.push(clamped);
+            }
+          }
+          candidatePositions.sort((a, b) => Math.abs(a - baseLegendY) - Math.abs(b - baseLegendY));
+          const intersectsAxis = (rect) => {
+            for(let idx = 0; idx < axisLabelBounds.length; idx += 1){
+              const bounds = axisLabelBounds[idx];
+              const horizontalOverlap = rect.x < bounds.x + bounds.width + horizontalPadding
+                && rect.x + rect.width > bounds.x - horizontalPadding;
+              const verticalOverlap = rect.y < bounds.y + bounds.height + verticalPadding
+                && rect.y + rect.height > bounds.y - verticalPadding;
+              if(horizontalOverlap && verticalOverlap){
+                return true;
+              }
+            }
+            return false;
+          };
+          let legendStartY = baseLegendY;
+          for(let idx = 0; idx < candidatePositions.length; idx += 1){
+            const candidateY = candidatePositions[idx];
+            const legendRect = { x: legendX3, y: candidateY, width: legendWidth, height: legendHeight };
+            if(!intersectsAxis(legendRect)){
+              legendStartY = candidateY;
+              break;
+            }
+          }
+          debugLog('Debug: pca legend placement resolved',{
+            mode: '3d',
+            legendX: legendX3,
+            legendY: legendStartY,
+            legendHeight,
+            axisLabels: axisLabelBounds.length
+          });
           legendEntries.forEach((entry, i) => {
-            const itemY = margin3.top + i * (legendMarkerSize3 + legendSpacing3);
+            const itemY = legendStartY + i * (legendMarkerSize3 + legendSpacing3);
             const swatch3 = drawShape(add3, entry.shape || 'circle', {
               cx: legendX3 + legendMarkerSize3 / 2,
               cy: itemY + legendMarkerSize3 / 2,
@@ -3538,7 +3657,7 @@
       const yTitleWidthBase = chartStyle.measureText(pcaYLabelText, axisLabelFont);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
-      let margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth, maxYLabelWidth: 0, yTitleWidth: yTitleWidthBase, axisMetrics});
+      let margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth: effectiveLegendWidth, maxYLabelWidth: 0, yTitleWidth: yTitleWidthBase, axisMetrics});
       margin.left = Math.max(margin.left, fs * 0.5);
       let plotW = Math.max(20, W - margin.left - margin.right);
       let plotH = Math.max(20, H - margin.top - margin.bottom);
@@ -3581,7 +3700,7 @@
         maxYLabelWidth = Math.max(...yLabelWidths, 0);
         const xLabelWidths = xTickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
         maxXLabelWidth = Math.max(...xLabelWidths, 0);
-        margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth, maxYLabelWidth, yTitleWidth: yTitleWidthBase, axisMetrics});
+        margin = chartStyle.computeBaseMargins({fontSize: fs, legendWidth: effectiveLegendWidth, maxYLabelWidth, yTitleWidth: yTitleWidthBase, axisMetrics});
         margin.left = Math.max(margin.left, maxYLabelWidth + tickLen + tickGap + fs * 0.5);
         plotW = Math.max(20, W - margin.left - margin.right);
         plotH = Math.max(20, H - margin.top - margin.bottom);
@@ -3855,7 +3974,7 @@
       });
 
       if(legendVisible){
-        const legendX=margin.left+plotW+legendLayout.legendGapPx;
+        const legendX=margin.left+plotW+legendLayout.legendGapPx+appliedLegendAxisGap;
         const legendSpacing=Math.max(legendRenderer.rowGap || 0, Math.round(fs*0.35));
         const legendMarkerSize=legendRenderer.swatchSize || Math.max(Math.round(fs*0.6), 10);
         const legendTextOffset=legendMarkerSize+(legendRenderer.swatchGap || Math.max(Math.round(fs*0.2), 6));
@@ -3864,7 +3983,8 @@
           legendSpacing,
           legendMarkerSize,
           legendTextOffset,
-          legendVisible
+          legendVisible,
+          appliedLegendAxisGap
         });
         legendEntries.forEach((entry, i) => {
           const itemY = margin.top + i * (legendMarkerSize + legendSpacing);
