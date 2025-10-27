@@ -3212,7 +3212,7 @@
         const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
         const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
         const rotatePoint = (pt) => plot3d.rotatePoint(pt, pcaState.rotation);
-        const rotatedPoints = points3d.map(pt => rotatePoint(pt));
+        let renderPoints3d = points3d;
         const rangeForAxis = (axisKey) => {
           const values = points3d.map(pt => pt[axisKey]);
           let min = Math.min(...values);
@@ -3245,6 +3245,8 @@
           y: axisRanges.y.max - axisRanges.y.min,
           z: axisRanges.z.max - axisRanges.z.min
         };
+        const axisCentersOriginal = { ...axisCenters };
+        const axisScaleFactors = { x: 1, y: 1, z: 1 };
         const variance3dActive = pcaState.axesVarianceScaled && axisVarianceInfo && axisVarianceInfo.normalized.x != null && axisVarianceInfo.normalized.y != null && axisVarianceInfo.normalized.z != null;
         if(variance3dActive){
           const baseSpan = Math.max(originalSpans3d.x, originalSpans3d.y, originalSpans3d.z, 1);
@@ -3254,17 +3256,30 @@
               return;
             }
             const desiredSpan = baseSpan * Math.max(normalizedWeight, MIN_VARIANCE_WEIGHT);
-            const span = Math.max(desiredSpan, originalSpans3d[axisKey] || desiredSpan);
-            const half = span / 2;
+            const safeOriginalSpan = Math.max(Math.abs(originalSpans3d[axisKey]) || 0, MIN_VARIANCE_WEIGHT);
+            axisScaleFactors[axisKey] = desiredSpan / safeOriginalSpan;
+            const half = desiredSpan / 2;
             axisRanges[axisKey] = {
-              min: axisCenters[axisKey] - half,
-              max: axisCenters[axisKey] + half
+              min: axisCentersOriginal[axisKey] - half,
+              max: axisCentersOriginal[axisKey] + half
             };
           });
+          renderPoints3d = points3d.map(pt => ({
+            x: axisCentersOriginal.x + (pt.x - axisCentersOriginal.x) * axisScaleFactors.x,
+            y: axisCentersOriginal.y + (pt.y - axisCentersOriginal.y) * axisScaleFactors.y,
+            z: axisCentersOriginal.z + (pt.z - axisCentersOriginal.z) * axisScaleFactors.z,
+            label: pt.label,
+            index: pt.index
+          }));
           debugLog('Debug: pca variance axis spans applied (3d)', {
             normalized: axisVarianceInfo.normalized,
             baseSpan,
-            axisRanges
+            axisRanges,
+            scaleFactors: axisScaleFactors
+          });
+          debugLog('Debug: pca variance point scaling applied (3d)', {
+            scaleFactors: axisScaleFactors,
+            centers: axisCentersOriginal
           });
         } else {
           const maxSpan = Math.max(originalSpans3d.x, originalSpans3d.y, originalSpans3d.z, 1);
@@ -3303,6 +3318,7 @@
           return el;
         };
         const rotatedCorners = allCorners.map(corner => rotatePoint(corner));
+        const rotatedPoints = renderPoints3d.map(pt => rotatePoint(pt));
         const projector = plot3d.createProjector({
           rotatedPoints,
           rotatedCorners,
@@ -3365,8 +3381,8 @@
             x: base.x,
             y: base.y,
             depth: base.depth,
-            label: points3d[idx].label,
-            index: points3d[idx].index,
+            label: renderPoints3d[idx].label,
+            index: renderPoints3d[idx].index,
             original: points3d[idx]
           };
         }).sort((a,b)=>a.depth-b.depth);
