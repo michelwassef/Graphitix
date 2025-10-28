@@ -50,6 +50,71 @@
     color: #475569;
 }
 
+.shared-color-picker__section--shapes {
+    margin-bottom: 10px;
+}
+
+.shared-color-picker__shape-list {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+
+.shared-color-picker__shape-option {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid #c7ccd3;
+    border-radius: 6px;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.shared-color-picker__shape-option:hover,
+.shared-color-picker__shape-option:focus-within {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
+}
+
+.shared-color-picker__shape-option--selected {
+    border-color: #1d4ed8;
+    background: #e0ecff;
+    box-shadow: 0 0 0 1px rgba(29, 78, 216, 0.32);
+}
+
+.shared-color-picker__shape-input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.shared-color-picker__shape-swatch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    color: #1f2937;
+}
+
+.shared-color-picker__shape-option--selected .shared-color-picker__shape-swatch {
+    color: #1d4ed8;
+}
+
+.shared-color-picker__shape-icon {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+
 .shared-color-picker__matrix {
     display: flex;
     flex-direction: column;

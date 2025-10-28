@@ -1281,6 +1281,7 @@
           }
           const shapeSelect = global.document.createElement('select');
           shapeSelect.dataset.groupIndex = String(idx);
+          shapeSelect.dataset.shapeControl = '1';
           shapeSelect.setAttribute('aria-label', `Marker shape for ${name || `Group ${idx + 1}`}`);
           GROUP_SHAPE_OPTIONS.forEach(opt=>{
             const option = global.document.createElement('option');
@@ -1418,6 +1419,15 @@
         const target = pcaEls.groupedList.querySelector(selector);
         if(target && typeof color === 'string'){
           target.value = color;
+        }
+      }
+
+      function updateGroupedShapeInput(groupIndex, shape){
+        if(!pcaEls.groupedList){ return; }
+        const selector = `select[data-group-index="${groupIndex}"][data-shape-control="1"]`;
+        const target = pcaEls.groupedList.querySelector(selector);
+        if(target){
+          target.value = shape;
         }
       }
 
@@ -2283,9 +2293,28 @@
       function handleLegendColorChange(entry, anchor){
         if(typeof Shared.openColorPicker !== 'function'){ return; }
         const initialColor = entry.color;
+        let shapePicker = null;
+        if(Number.isInteger(entry.groupIndex)){
+          const groupIndex = entry.groupIndex;
+          ensurePcaGroupedDefaults();
+          const currentShape = sanitizeGroupShape(pcaState.grouped.shapes?.[groupIndex], groupIndex);
+          pcaState.grouped.shapes[groupIndex] = currentShape;
+          shapePicker = {
+            value: currentShape,
+            options: GROUP_SHAPE_OPTIONS,
+            onChange(nextShape){
+              const sanitized = sanitizeGroupShape(nextShape, groupIndex);
+              pcaState.grouped.shapes[groupIndex] = sanitized;
+              updateGroupedShapeInput(groupIndex, sanitized);
+              debugLog('Debug: pca legend group shape change',{ groupIndex, shape: sanitized });
+              scheduleDrawPca?.();
+            }
+          };
+        }
         Shared.openColorPicker({
           anchor,
           color: initialColor,
+          shapePicker,
           onInput(value){
             const resolved = typeof value === 'string' && value ? value : initialColor;
             if(Number.isInteger(entry.groupIndex)){

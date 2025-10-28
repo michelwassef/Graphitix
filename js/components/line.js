@@ -1698,6 +1698,17 @@
     }
   }
 
+  function updateLineGroupShapeSelect(index, shape){
+    if(!refs.groupedList){
+      return;
+    }
+    const selector = `select[data-group-index="${index}"][data-shape-control="1"]`;
+    const target = refs.groupedList.querySelector(selector);
+    if(target){
+      target.value = shape;
+    }
+  }
+
   function renderLineGroupedList(){
     if(!refs.groupedList){
       return;
@@ -1757,6 +1768,7 @@
       row.appendChild(colorInput);
       const shapeSelect = doc.createElement('select');
       shapeSelect.dataset.groupIndex = String(idx);
+      shapeSelect.dataset.shapeControl = '1';
       shapeSelect.setAttribute('aria-label', `Marker shape for ${labelKey}`);
       LINE_GROUP_SHAPE_OPTIONS.forEach(opt => {
         const option = doc.createElement('option');
@@ -2728,19 +2740,50 @@
         s.shape = resolvedShape;
         return resolvedShape;
       });
-      const legendEntries=seriesWithData.map((s,i)=>({ label:s.name, fill:colors[i], key:s.name, editable:true }));
+      const legendEntries=seriesWithData.map((s,i)=>({
+        label:s.name,
+        fill:colors[i],
+        key:s.name,
+        editable:true,
+        shape: seriesShapes[i],
+        seriesIndex: (()=>{ const idx = series.indexOf(s); return Number.isInteger(idx) && idx >= 0 ? idx : i; })()
+      }));
       const legendLayout=chartStyle.computeLegendLayout({
         entries:showLegend ? legendEntries : [],
         fontSize:fs,
         strokeWidth:borderWidthPx,
-        onSwatchClick:({ entry, swatch, event })=>{
+        onSwatchClick:({ entry, swatch, event, index })=>{
           const legendKey=entry?.key || entry?.label;
           if(!legendKey || !swatch){ return; }
           if(event){ event.stopPropagation(); }
           const currentColor=lineLabelColors[legendKey]||entry.fill;
+          const seriesIndex=Number.isInteger(entry.seriesIndex) && entry.seriesIndex >= 0
+            ? entry.seriesIndex
+            : (Number.isInteger(index) ? index : -1);
+          const initialShape=Number.isInteger(seriesIndex) && seriesIndex >= 0
+            ? getLineGroupShape(seriesIndex)
+            : null;
           Shared.openColorPicker({
             anchor: swatch,
             color: currentColor,
+            shapePicker: Number.isInteger(seriesIndex) && seriesIndex >= 0 ? {
+              value: initialShape,
+              options: LINE_GROUP_SHAPE_OPTIONS,
+              onChange(nextShape){
+                const sanitized = sanitizeLineGroupShape(nextShape, seriesIndex);
+                const shapes = ensureLineGroupShapeCapacity(Math.max(series.length, seriesIndex + 1));
+                if(shapes[seriesIndex] !== sanitized){
+                  shapes[seriesIndex] = sanitized;
+                  lineGroupShapes = shapes;
+                }
+                if(Array.isArray(series) && series[seriesIndex]){
+                  series[seriesIndex].shape = sanitized;
+                }
+                updateLineGroupShapeSelect(seriesIndex, sanitized);
+                console.debug('Debug: line legend shape change',{ index: seriesIndex, shape: sanitized, label: legendKey });
+                scheduleLineDraw();
+              }
+            } : null,
             onInput(value){
               lineLabelColors[legendKey]=value;
               console.debug('Debug: line legend color input',{label:legendKey,color:value});

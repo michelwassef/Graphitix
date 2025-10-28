@@ -37,6 +37,16 @@
     ma: { title: 'MA plot' }
   };
 
+  const SCATTER_SHAPE_OPTIONS = Object.freeze([
+    { value: 'circle', label: 'Circle' },
+    { value: 'square', label: 'Square' },
+    { value: 'triangle', label: 'Triangle' },
+    { value: 'diamond', label: 'Diamond' },
+    { value: 'cross', label: 'Cross' }
+  ]);
+  const SCATTER_SHAPE_DEFAULTS = SCATTER_SHAPE_OPTIONS.map(opt => opt.value);
+  const SCATTER_SHAPE_VALUES = new Set(SCATTER_SHAPE_DEFAULTS);
+
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
   const regressionDebugNamespace = 'scatter-regression';
   const jStatLib = global.jStat;
@@ -952,6 +962,7 @@
         return{allowed:true};
       }
       let scatterLabelColors={};
+      let scatterLabelShapes={};
       function syncScatterGraphTypeUI(){
         const type=scatterGraphTypeSelect?.value || 'scatter';
         scatterCurrentGraphType=type;
@@ -1585,6 +1596,116 @@
         });
         console.debug('Debug: ensureScatterLabelColors sync complete',{count:Object.keys(scatterLabelColors).length});
       }
+
+      function sanitizeScatterLabelShape(value, index){
+        if(SCATTER_SHAPE_VALUES.has(value)){
+          return value;
+        }
+        const safeIndex = Number.isInteger(index) ? index : 0;
+        return SCATTER_SHAPE_DEFAULTS[safeIndex % SCATTER_SHAPE_DEFAULTS.length];
+      }
+
+      function ensureScatterLabelShapes(labels){
+        if(scatterCurrentGraphType!=='scatter'){
+          scatterLabelShapes = {};
+          return;
+        }
+        const labelSet = new Set(labels);
+        labels.forEach((lab, idx)=>{
+          if(!lab){ return; }
+          const sanitized = sanitizeScatterLabelShape(scatterLabelShapes[lab], idx);
+          scatterLabelShapes[lab] = sanitized;
+        });
+        Object.keys(scatterLabelShapes).forEach(existing=>{
+          if(!labelSet.has(existing)){
+            delete scatterLabelShapes[existing];
+          }
+        });
+        scatterDebug('Debug: ensureScatterLabelShapes sync complete',{count:Object.keys(scatterLabelShapes).length});
+      }
+
+      function createScatterMarkerElement(shape, options){
+        const doc = global.document;
+        if(!doc){ return null; }
+        const normalized = SCATTER_SHAPE_VALUES.has(shape) ? shape : 'circle';
+        const radius = Math.max(0, Number(options?.radius) || 0);
+        const cx = Number(options?.cx) || 0;
+        const cy = Number(options?.cy) || 0;
+        const fill = options?.fill ?? '#000000';
+        const stroke = options?.stroke ?? null;
+        const strokeWidthRaw = Number(options?.strokeWidth);
+        const strokeWidth = Number.isFinite(strokeWidthRaw) && strokeWidthRaw > 0 ? strokeWidthRaw : 0;
+        const fillOpacityRaw = Number(options?.fillOpacity);
+        const fillOpacity = Number.isFinite(fillOpacityRaw) ? Math.min(Math.max(fillOpacityRaw, 0), 1) : 1;
+        const strokeOpacityRaw = Number(options?.strokeOpacity);
+        const strokeOpacity = Number.isFinite(strokeOpacityRaw) ? Math.min(Math.max(strokeOpacityRaw, 0), 1) : fillOpacity;
+        const applyCommonAttributes = (node) => {
+          if(!node){ return null; }
+          node.setAttribute('fill', fill);
+          if(fillOpacity !== 1){
+            node.setAttribute('fill-opacity', String(fillOpacity));
+          }
+          if(stroke && strokeWidth > 0){
+            node.setAttribute('stroke', stroke);
+            node.setAttribute('stroke-width', String(strokeWidth));
+            if(strokeOpacity !== 1){
+              node.setAttribute('stroke-opacity', String(strokeOpacity));
+            }
+          }else if(stroke){
+            node.setAttribute('stroke', stroke);
+            node.setAttribute('stroke-width', '0');
+            if(strokeOpacity !== 1){
+              node.setAttribute('stroke-opacity', String(strokeOpacity));
+            }
+          }
+          return node;
+        };
+        if(normalized === 'square'){
+          const size = Math.max(radius * 2, 2);
+          const half = size / 2;
+          const rect = doc.createElementNS(NS, 'rect');
+          rect.setAttribute('x', String(cx - half));
+          rect.setAttribute('y', String(cy - half));
+          rect.setAttribute('width', String(size));
+          rect.setAttribute('height', String(size));
+          return applyCommonAttributes(rect);
+        }
+        if(normalized === 'triangle'){
+          const size = Math.max(radius * 2, 2);
+          const half = size / 2;
+          const path = doc.createElementNS(NS, 'path');
+          const d = `M ${cx} ${cy - half} L ${cx + half} ${cy + half} L ${cx - half} ${cy + half} Z`;
+          path.setAttribute('d', d);
+          return applyCommonAttributes(path);
+        }
+        if(normalized === 'diamond'){
+          const size = Math.max(radius * 2, 2);
+          const half = size / 2;
+          const path = doc.createElementNS(NS, 'path');
+          const d = `M ${cx} ${cy - half} L ${cx + half} ${cy} L ${cx} ${cy + half} L ${cx - half} ${cy} Z`;
+          path.setAttribute('d', d);
+          return applyCommonAttributes(path);
+        }
+        if(normalized === 'cross'){
+          const size = Math.max(radius * 2, 2);
+          const half = size / 2;
+          const bar = Math.max(size / 3, 2);
+          const halfBar = bar / 2;
+          const top = cy - half;
+          const bottom = cy + half;
+          const left = cx - half;
+          const right = cx + half;
+          const path = doc.createElementNS(NS, 'path');
+          const d = `M ${cx - halfBar} ${top} H ${cx + halfBar} V ${cy - halfBar} H ${right} V ${cy + halfBar} H ${cx + halfBar} V ${bottom} H ${cx - halfBar} V ${cy + halfBar} H ${left} V ${cy - halfBar} H ${cx - halfBar} Z`;
+          path.setAttribute('d', d);
+          return applyCommonAttributes(path);
+        }
+        const circle = doc.createElementNS(NS, 'circle');
+        circle.setAttribute('cx', String(cx));
+        circle.setAttribute('cy', String(cy));
+        circle.setAttribute('r', String(radius));
+        return applyCommonAttributes(circle);
+      }
     
       const scatterPlotDiv=document.getElementById('scatterPlot');
       const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
@@ -1862,6 +1983,14 @@
           renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
         }
         ensureScatterLabelColors(labelsUsed);
+        ensureScatterLabelShapes(labelsUsed);
+        const labelShapeLookup=new Map();
+        labelsUsed.forEach((lab, idx)=>{
+          if(!lab){ return; }
+          const sanitized = sanitizeScatterLabelShape(scatterLabelShapes[lab], idx);
+          scatterLabelShapes[lab] = sanitized;
+          labelShapeLookup.set(lab, sanitized);
+        });
         info('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
         const significanceLegendNeeded=scatterCurrentGraphType!=='scatter';
         if(token!==scatterDrawToken){info('scatter draw cancelled after collect',{token});return;}
@@ -1924,8 +2053,17 @@
         if(showLegend){
           const legendEntries=[];
           if(scatterCurrentGraphType==='scatter'){
-            visibleLabels.forEach(labelName=>{
-              legendEntries.push({label:labelName,fill:scatterLabelColors[labelName]||fill,key:labelName,editable:true});
+            visibleLabels.forEach((labelName, labelIndex)=>{
+              const shapeValue = sanitizeScatterLabelShape(scatterLabelShapes[labelName], labelIndex);
+              scatterLabelShapes[labelName] = shapeValue;
+              legendEntries.push({
+                label:labelName,
+                fill:scatterLabelColors[labelName]||fill,
+                key:labelName,
+                editable:true,
+                shape: shapeValue,
+                labelIndex
+              });
             });
           }else if(significanceLegendNeeded){
             legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
@@ -1934,16 +2072,29 @@
           legendRenderer=chartStyle.createLegendRenderer({
             entries:legendEntries,
             fontSize:fs,
-            onSwatchClick:({ entry, event, swatch })=>{
+            onSwatchClick:({ entry, event, swatch, index })=>{
               const labelKey=entry?.key;
               if(!labelKey){
                 return;
               }
               if(event){ event.stopPropagation(); }
               const currentColor=scatterLabelColors[labelKey]||entry.fill;
+              const labelIndex = Number.isInteger(entry?.labelIndex) ? entry.labelIndex : (Number.isInteger(index) ? index : visibleLabels.indexOf(labelKey));
+              const currentShape = sanitizeScatterLabelShape(scatterLabelShapes[labelKey], labelIndex);
+              scatterLabelShapes[labelKey] = currentShape;
               Shared.openColorPicker({
                 anchor:swatch,
                 color:currentColor,
+                shapePicker: scatterCurrentGraphType==='scatter' ? {
+                  value: currentShape,
+                  options: SCATTER_SHAPE_OPTIONS,
+                  onChange(nextShape){
+                    const sanitized = sanitizeScatterLabelShape(nextShape, labelIndex);
+                    scatterLabelShapes[labelKey] = sanitized;
+                    debug('Debug: scatter legend shape change',{ label: labelKey, shape: sanitized, index: labelIndex });
+                    scheduleDrawScatter();
+                  }
+                } : null,
                 onInput(value){
                   scatterLabelColors[labelKey]=value;
                   debug('Debug: scatter legend color input',{label:labelKey,color:value});
@@ -2186,24 +2337,34 @@
         for(const p of points){
           const xv=logX?Math.log10(p.x):p.x;
           const yv=logY?Math.log10(p.y):p.y;
-          const c=document.createElementNS(NS,'circle');
-          c.setAttribute('cx',x2px(xv));
-          c.setAttribute('cy',y2px(yv));
-          c.setAttribute('r',dotSizePx);
+          const cxVal=x2px(xv);
+          const cyVal=y2px(yv);
           const color=scatterCurrentGraphType==='scatter'
             ? (scatterLabelColors[p.label]||fill)
             : (p.isSignificant?SIGNIFICANT_COLOR:fill);
-          c.setAttribute('fill',color);
-          c.setAttribute('fill-opacity',1-alpha);
-          if(borderWidthPx>0){c.setAttribute('stroke',borderColor);c.setAttribute('stroke-width',borderWidthPx);c.setAttribute('stroke-opacity',1-alpha);}
-          const cxVal=x2px(xv), cyVal=y2px(yv);
+          const markerShape = scatterCurrentGraphType==='scatter'
+            ? (labelShapeLookup.get(p.label) || 'circle')
+            : 'circle';
+          const marker = createScatterMarkerElement(markerShape, {
+            cx: cxVal,
+            cy: cyVal,
+            radius: dotSizePx,
+            fill: color,
+            stroke: borderWidthPx>0 ? borderColor : null,
+            strokeWidth: borderWidthPx>0 ? borderWidthPx : 0,
+            fillOpacity: 1 - alpha,
+            strokeOpacity: 1 - alpha
+          });
+          if(!marker){
+            continue;
+          }
           let bbox=labelBBox.get(p.label||'__none');
           if(!bbox){bbox={minX:Infinity,maxX:-Infinity,minY:Infinity,maxY:-Infinity}; labelBBox.set(p.label||'__none',bbox);}
           bbox.minX=Math.min(bbox.minX,cxVal-dotSizePx);
           bbox.maxX=Math.max(bbox.maxX,cxVal+dotSizePx);
           bbox.minY=Math.min(bbox.minY,cyVal-dotSizePx);
           bbox.maxY=Math.max(bbox.maxY,cyVal+dotSizePx);
-          attachScatterPointTooltip(c, {
+          attachScatterPointTooltip(marker, {
             label: p.label || '',
             x: p.x,
             y: p.y,
@@ -2212,7 +2373,7 @@
             graphType: scatterCurrentGraphType,
             isSignificant: typeof p.isSignificant === 'boolean' ? p.isSignificant : undefined
           });
-          frag.appendChild(c);
+          frag.appendChild(marker);
           if(scatterCurrentGraphType!=='scatter' && p.isSignificant && p.label){
             if(labelAnnotations.length < MAX_SIGNIFICANT_ANNOTATIONS){
               const labelNode=document.createElementNS(NS,'text');
@@ -2690,6 +2851,7 @@
             borderWidth:scatterBorderWidth.value,
             alpha:scatterAlpha.value,
             labelColors:scatterLabelColors,
+            labelShapes:scatterLabelShapes,
             showGrid:scatterShowGrid.checked,
             showFrame:scatterShowFrame.checked,
             showLegend:scatterShowLegend ? scatterShowLegend.checked : true,
@@ -2800,6 +2962,7 @@
             scatterAlpha.value=c.alpha||0;
             scatterAlphaVal.textContent=scatterAlpha.value;
             scatterLabelColors=c.labelColors||{};
+            scatterLabelShapes=c.labelShapes||{};
             scatterShowGrid.checked=!!c.showGrid;
             scatterShowFrame.checked=!!c.showFrame;
             if(scatterShowLegend){

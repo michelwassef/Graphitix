@@ -91,7 +91,13 @@
     hexInput: null,
     lastSelectedSwatch: null,
     moreToggle: null,
-    moreMatrix: null
+    moreMatrix: null,
+    shapeSection: null,
+    shapeContainer: null,
+    shapeOptions: null,
+    shapeValue: null,
+    shapeOnChange: null,
+    shapeAllowed: null
   };
 
   function isDebugEnabled(){
@@ -422,6 +428,208 @@
     return { section, colorInput, hexInput, eyedropperButton };
   }
 
+  let shapeGroupIdCounter = 0;
+
+  function createShapePreview(shape){
+    const svg = documentRef.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('class', 'shared-color-picker__shape-icon');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const normalized = typeof shape === 'string' ? shape.toLowerCase() : '';
+    const center = 12;
+    const radius = 7;
+    if(normalized === 'square'){
+      const rect = documentRef.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('x', String(center - radius));
+      rect.setAttribute('y', String(center - radius));
+      rect.setAttribute('width', String(radius * 2));
+      rect.setAttribute('height', String(radius * 2));
+      rect.setAttribute('fill', 'currentColor');
+      svg.appendChild(rect);
+      return svg;
+    }
+    if(normalized === 'triangle'){
+      const path = documentRef.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', `M ${center} ${center - radius} L ${center + radius} ${center + radius} L ${center - radius} ${center + radius} Z`);
+      path.setAttribute('fill', 'currentColor');
+      svg.appendChild(path);
+      return svg;
+    }
+    if(normalized === 'diamond'){
+      const path = documentRef.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', `M ${center} ${center - radius} L ${center + radius} ${center} L ${center} ${center + radius} L ${center - radius} ${center} Z`);
+      path.setAttribute('fill', 'currentColor');
+      svg.appendChild(path);
+      return svg;
+    }
+    if(normalized === 'cross'){
+      const size = radius * 2;
+      const half = size / 2;
+      const bar = Math.max(Math.round(size / 3), 4);
+      const halfBar = bar / 2;
+      const top = center - half;
+      const bottom = center + half;
+      const left = center - half;
+      const right = center + half;
+      const path = documentRef.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', `M ${center - halfBar} ${top} H ${center + halfBar} V ${center - halfBar} H ${right} V ${center + halfBar} H ${center + halfBar} V ${bottom} H ${center - halfBar} V ${center + halfBar} H ${left} V ${center - halfBar} H ${center - halfBar} Z`);
+      path.setAttribute('fill', 'currentColor');
+      svg.appendChild(path);
+      return svg;
+    }
+    const circle = documentRef.createElementNS(SVG_NS, 'circle');
+    circle.setAttribute('cx', String(center));
+    circle.setAttribute('cy', String(center));
+    circle.setAttribute('r', String(radius));
+    circle.setAttribute('fill', 'currentColor');
+    svg.appendChild(circle);
+    return svg;
+  }
+
+  function createShapeSection(){
+    const section = documentRef.createElement('section');
+    section.className = 'shared-color-picker__section shared-color-picker__section--shapes';
+    section.hidden = true;
+    section.setAttribute('aria-hidden', 'true');
+    const title = documentRef.createElement('div');
+    title.className = 'shared-color-picker__section-title';
+    title.textContent = 'Marker shape';
+    section.appendChild(title);
+    const optionsRow = documentRef.createElement('div');
+    optionsRow.className = 'shared-color-picker__shape-list';
+    optionsRow.setAttribute('role', 'radiogroup');
+    optionsRow.setAttribute('aria-label', 'Marker shape');
+    section.appendChild(optionsRow);
+    return { section, container: optionsRow };
+  }
+
+  function setActiveShapeValue(value, { trigger = true } = {}){
+    const optionRefs = overlayState.shapeOptions;
+    if(!Array.isArray(optionRefs) || !optionRefs.length){
+      return null;
+    }
+    const allowed = overlayState.shapeAllowed;
+    let normalized = null;
+    if(allowed && allowed.has(value)){
+      normalized = value;
+    }else if(allowed && allowed.size){
+      const first = optionRefs[0];
+      normalized = first ? first.value : null;
+    }else{
+      normalized = value;
+    }
+    if(!normalized){
+      return null;
+    }
+    if(overlayState.shapeValue === normalized){
+      return normalized;
+    }
+    overlayState.shapeValue = normalized;
+    for(let i = 0; i < optionRefs.length; i += 1){
+      const ref = optionRefs[i];
+      const isSelected = ref.value === normalized;
+      if(ref.element){
+        ref.element.classList.toggle('shared-color-picker__shape-option--selected', isSelected);
+      }
+      if(ref.input){
+        ref.input.checked = isSelected;
+      }
+    }
+    if(trigger && typeof overlayState.shapeOnChange === 'function'){
+      try{
+        overlayState.shapeOnChange(normalized);
+      }catch(err){
+        console.warn('colorPicker shape change handler error', err);
+      }
+    }
+    logDebug('shape-change', { value: normalized, trigger });
+    scheduleReposition();
+    return normalized;
+  }
+
+  function renderShapePicker(config){
+    const section = overlayState.shapeSection;
+    const container = overlayState.shapeContainer;
+    overlayState.shapeOptions = null;
+    overlayState.shapeValue = null;
+    overlayState.shapeOnChange = null;
+    overlayState.shapeAllowed = null;
+    if(!section || !container){
+      return;
+    }
+    while(container.firstChild){
+      container.removeChild(container.firstChild);
+    }
+    if(!config || !Array.isArray(config.options) || !config.options.length){
+      section.hidden = true;
+      section.setAttribute('aria-hidden', 'true');
+      logDebug('shape-hidden', { reason: 'no-config' });
+      return;
+    }
+    const options = [];
+    const allowed = new Set();
+    for(let i = 0; i < config.options.length; i += 1){
+      const raw = config.options[i];
+      const value = typeof raw === 'string' ? raw : (raw && typeof raw.value === 'string' ? raw.value : null);
+      if(!value || allowed.has(value)){
+        continue;
+      }
+      const label = typeof raw === 'object' && raw && typeof raw.label === 'string' && raw.label
+        ? raw.label
+        : value;
+      options.push({ value, label });
+      allowed.add(value);
+    }
+    if(!options.length){
+      section.hidden = true;
+      section.setAttribute('aria-hidden', 'true');
+      logDebug('shape-hidden', { reason: 'no-options' });
+      return;
+    }
+    overlayState.shapeAllowed = allowed;
+    overlayState.shapeOnChange = typeof config.onChange === 'function' ? config.onChange : null;
+    const fallbackValue = options[0].value;
+    const providedValue = typeof config.value === 'string' ? config.value : null;
+    const initialValue = providedValue && allowed.has(providedValue) ? providedValue : fallbackValue;
+    const groupName = `shared-color-picker-shapes-${shapeGroupIdCounter += 1}`;
+    const optionRefs = [];
+    for(let i = 0; i < options.length; i += 1){
+      const opt = options[i];
+      const labelEl = documentRef.createElement('label');
+      labelEl.className = 'shared-color-picker__shape-option';
+      labelEl.dataset.shapeValue = opt.value;
+      const input = documentRef.createElement('input');
+      input.type = 'radio';
+      input.name = groupName;
+      input.value = opt.value;
+      input.className = 'shared-color-picker__shape-input';
+      input.setAttribute('aria-label', opt.label);
+      const swatch = documentRef.createElement('span');
+      swatch.className = 'shared-color-picker__shape-swatch';
+      swatch.appendChild(createShapePreview(opt.value));
+      const srLabel = documentRef.createElement('span');
+      srLabel.className = 'shared-color-picker__sr-only';
+      srLabel.textContent = opt.label;
+      labelEl.appendChild(input);
+      labelEl.appendChild(swatch);
+      labelEl.appendChild(srLabel);
+      input.addEventListener('change', () => {
+        if(input.checked){
+          logDebug('shape-input', { value: opt.value });
+          setActiveShapeValue(opt.value);
+        }
+      });
+      container.appendChild(labelEl);
+      optionRefs.push({ value: opt.value, element: labelEl, input });
+    }
+    overlayState.shapeOptions = optionRefs;
+    section.hidden = false;
+    section.setAttribute('aria-hidden', 'false');
+    setActiveShapeValue(initialValue, { trigger: false });
+    logDebug('shape-render', { count: optionRefs.length, value: initialValue });
+  }
+
   function handleMoreToggle(evt){
     evt.preventDefault();
     toggleMoreFill();
@@ -457,6 +665,11 @@
     overlay.style.zIndex = '1000';
     overlay.style.display = 'none';
     overlay.style.pointerEvents = 'none';
+
+    const shapeSection = createShapeSection();
+    overlayState.shapeSection = shapeSection.section;
+    overlayState.shapeContainer = shapeSection.container;
+    overlay.appendChild(shapeSection.section);
 
     const standardSection = createPaletteRowSection('Standard Colors', STANDARD_COLORS);
     overlay.appendChild(standardSection);
@@ -735,6 +948,14 @@
     }
     logDebug('overlay-closed', { reason });
     overlayState.anchor = null;
+    overlayState.shapeOptions = null;
+    overlayState.shapeValue = null;
+    overlayState.shapeOnChange = null;
+    overlayState.shapeAllowed = null;
+    if(overlayState.shapeSection){
+      overlayState.shapeSection.hidden = true;
+      overlayState.shapeSection.setAttribute('aria-hidden', 'true');
+    }
   }
 
   Shared.openColorPicker = function openColorPicker(options){
@@ -746,6 +967,8 @@
     }
     const initialColor = normalizeHex(opts.color) || overlayState.activeColor || '#000000';
     overlayState.anchor = opts.anchor || opts.element || null;
+
+    renderShapePicker(opts.shapePicker);
 
     if(opts.target && (typeof opts.target.onOverlayInput === 'function' || typeof opts.target.onOverlayChange === 'function')){
       ov.targetEl = opts.target;
