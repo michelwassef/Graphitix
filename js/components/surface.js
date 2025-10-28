@@ -968,6 +968,30 @@
         }
       });
     }
+    const axisLabelBounds = [];
+    if(axisLayer && typeof axisLayer.querySelectorAll === 'function'){
+      const axisNodes = axisLayer.querySelectorAll('[data-axis-label]');
+      for(let idx = 0; idx < axisNodes.length; idx += 1){
+        const node = axisNodes[idx];
+        if(!node || typeof node.getBBox !== 'function'){ continue; }
+        try {
+          const bbox = node.getBBox();
+          const valid = Number.isFinite(bbox?.x) && Number.isFinite(bbox?.y)
+            && Number.isFinite(bbox?.width) && Number.isFinite(bbox?.height);
+          if(!valid){ continue; }
+          axisLabelBounds.push({
+            x: bbox.x,
+            y: bbox.y,
+            width: bbox.width,
+            height: bbox.height
+          });
+        } catch(err){
+          debugLog('Debug: surface axis label bbox error', {
+            message: err?.message || String(err)
+          });
+        }
+      }
+    }
     const colorFor = colorScaleFactory(parsed.stats.zMin, parsed.stats.zMax, state.settings.colorRamp);
     const effectiveMode = (state.settings.interpolation === 'grid' && parsed.faces.length)
       ? 'grid'
@@ -1016,7 +1040,8 @@
     }
     const title = doc.createElementNS(NS, 'text');
     title.setAttribute('x', margin.left + plotWidth / 2);
-    title.setAttribute('y', Math.max(fs, margin.top * 0.55));
+    const titleBaseY = Math.max(fs, margin.top * 0.55);
+    title.setAttribute('y', titleBaseY);
     title.setAttribute('text-anchor', 'middle');
     title.setAttribute('font-size', fs);
     title.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
@@ -1026,7 +1051,51 @@
       const trimmed = text != null ? String(text).trim() : '';
       state.labels.title = trimmed || 'Surface Plot';
     }, { scopeId: 'surface', key: 'graphTitle' });
+    title.setAttribute('data-graph-title', '1');
     svg.appendChild(title);
+    if(axisLabelBounds.length && typeof title.getBBox === 'function'){
+      try {
+        const padding = Math.max(fs * 0.45, 10);
+        const minAxisTop = axisLabelBounds.reduce((min, bounds) => (
+          Number.isFinite(bounds?.y) ? Math.min(min, bounds.y) : min
+        ), Number.POSITIVE_INFINITY);
+        if(Number.isFinite(minAxisTop)){
+          let titleBox = title.getBBox();
+          const desiredBottom = minAxisTop - padding;
+          if(Number.isFinite(desiredBottom)){
+            const currentBottom = titleBox.y + titleBox.height;
+            if(currentBottom > desiredBottom){
+              const baseY = Number(title.getAttribute('y')) || titleBaseY;
+              const shift = desiredBottom - currentBottom;
+              const minTitleY = Math.max(fs * 0.5, 0);
+              const nextY = Math.max(minTitleY, baseY + shift);
+              title.setAttribute('y', nextY);
+              titleBox = title.getBBox();
+              const adjustedBottom = titleBox.y + titleBox.height;
+              if(adjustedBottom > desiredBottom){
+                const correction = desiredBottom - adjustedBottom;
+                const correctedY = Math.max(minTitleY, nextY + correction);
+                if(correctedY !== nextY){
+                  title.setAttribute('y', correctedY);
+                  titleBox = title.getBBox();
+                }
+              }
+              debugLog('Debug: surface title vertical adjusted', {
+                previousY: baseY,
+                adjustedY: Number(title.getAttribute('y')) || baseY,
+                desiredBottom,
+                padding,
+                minAxisTop
+              });
+            }
+          }
+        }
+      } catch(err){
+        debugLog('Debug: surface title bbox adjust error', {
+          message: err?.message || String(err)
+        });
+      }
+    }
     if(state.settings.showLegend && Number.isFinite(parsed.stats.zMin) && Number.isFinite(parsed.stats.zMax) && parsed.stats.zMin !== parsed.stats.zMax){
       renderLegend(svg, { min: parsed.stats.zMin, max: parsed.stats.zMax, colorRamp: state.settings.colorRamp, width, margin, fontSize: fs, layer: axisLayer });
     } else {

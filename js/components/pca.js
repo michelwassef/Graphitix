@@ -3405,6 +3405,54 @@
         }, pcaTitleText);
         markFontEditable(title3d, 'graphTitle', 'graphTitle');
         makeEditableHelper(title3d, text => commitTitleChange(text, '3d-title'));
+        if(typeof title3d.setAttribute === 'function'){
+          title3d.setAttribute('data-graph-title', '1');
+        }
+        if(typeof title3d.getBBox === 'function' && axisLabelBounds.length){
+          try {
+            const titlePadding = Math.max(fs * 0.45, 10);
+            const minAxisTop = axisLabelBounds.reduce((min, bounds) => (
+              Number.isFinite(bounds?.y) ? Math.min(min, bounds.y) : min
+            ), Number.POSITIVE_INFINITY);
+            if(Number.isFinite(minAxisTop)){
+              const baseY = Number(title3d.getAttribute('y')) || titleY3;
+              let titleBox = title3d.getBBox();
+              const desiredBottom = minAxisTop - titlePadding;
+              if(Number.isFinite(desiredBottom)){
+                const currentBottom = titleBox.y + titleBox.height;
+                if(currentBottom > desiredBottom){
+                  const shift = desiredBottom - currentBottom;
+                  const minTitleY = Math.max(fs * 0.5, 0);
+                  const nextY = Math.max(minTitleY, baseY + shift);
+                  title3d.setAttribute('y', nextY);
+                  titleBox = title3d.getBBox();
+                  const adjustedBottom = titleBox.y + titleBox.height;
+                  if(adjustedBottom > desiredBottom){
+                    const correction = desiredBottom - adjustedBottom;
+                    const correctedY = Math.max(minTitleY, nextY + correction);
+                    if(correctedY !== nextY){
+                      title3d.setAttribute('y', correctedY);
+                      titleBox = title3d.getBBox();
+                    }
+                  }
+                  debugLog('Debug: pca title vertical adjusted', {
+                    mode: '3d',
+                    previousY: baseY,
+                    adjustedY: Number(title3d.getAttribute('y')) || baseY,
+                    desiredBottom,
+                    titlePadding,
+                    minAxisTop
+                  });
+                }
+              }
+            }
+          } catch(err){
+            debugLog('Debug: pca title bbox adjust error', {
+              mode: '3d',
+              message: err?.message || String(err)
+            });
+          }
+        }
         debugLog('Debug: pca title rendered', { mode: '3d', text: pcaTitleText });
         debugLog('Debug: pca 3d axis ranges',{ axisRanges, ticks: axisTicks });
         const projectedPoints = rotatedPoints.map((rot, idx) => {
