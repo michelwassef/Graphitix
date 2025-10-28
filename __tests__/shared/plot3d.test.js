@@ -27,19 +27,24 @@ describe('Shared.plot3d helper', () => {
     expect(rotated.x).toBeLessThanOrEqual(1);
   });
 
-  it('keeps horizontal drag direction consistent when upside down', () => {
+  it('applies orientation-aware yaw and pitch updates while dragging', () => {
     const { plot3d } = global.Shared;
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setPointerCapture = () => {};
     svg.releasePointerCapture = () => {};
-    const state = plot3d.createRotationState({ x: Math.PI * 0.6, y: 0 });
-    plot3d.attachRotationControls(svg, { state, rotationScale: 0.01, debugLabel: 'test-drag' });
+    const initialRotationX = Math.PI * 0.6;
+    const rotationScale = 0.01;
+    const state = plot3d.createRotationState({ x: initialRotationX, y: 0 });
+    plot3d.attachRotationControls(svg, { state, rotationScale, debugLabel: 'test-drag' });
     svg.dispatchEvent(createPointerEvent('pointerdown', { pointerId: 1, clientX: 0, clientY: 0 }));
-    svg.dispatchEvent(createPointerEvent('pointermove', { pointerId: 1, clientX: 10, clientY: 0 }));
-    expect(state.y).toBeGreaterThan(0);
+    const firstDx = 10;
+    svg.dispatchEvent(createPointerEvent('pointermove', { pointerId: 1, clientX: firstDx, clientY: 0 }));
+    const expectedYawSign = Math.cos(initialRotationX) >= 0 ? 1 : -1;
+    expect(state.y).toBeCloseTo(firstDx * rotationScale * expectedYawSign);
     const beforeVertical = state.x;
-    svg.dispatchEvent(createPointerEvent('pointermove', { pointerId: 1, clientX: 10, clientY: -10 }));
-    expect(state.x).toBeGreaterThan(beforeVertical);
+    const dy = -10;
+    svg.dispatchEvent(createPointerEvent('pointermove', { pointerId: 1, clientX: firstDx, clientY: dy }));
+    expect(state.x).toBeCloseTo(beforeVertical + dy * rotationScale);
   });
 
   it('projects rotated points within expected bounds', () => {
