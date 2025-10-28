@@ -424,6 +424,67 @@
       }
     ];
     const doc = svg.ownerDocument || global.document;
+    const rotatedCornerCache = new Array(allCorners.length);
+    const projectedCornerCache = new Array(allCorners.length);
+    if(typeof project === 'function'){
+      for(let idx = 0; idx < allCorners.length; idx += 1){
+        const corner = allCorners[idx];
+        const rotated = rotatePoint(corner);
+        rotatedCornerCache[idx] = rotated;
+        projectedCornerCache[idx] = project(rotated);
+      }
+    }
+    const hullEdgeKeys = new Set();
+    if(projectedCornerCache.length){
+      const points2d = [];
+      for(let idx = 0; idx < projectedCornerCache.length; idx += 1){
+        const pt = projectedCornerCache[idx];
+        if(pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)){
+          points2d.push({ x: pt.x, y: pt.y, index: idx });
+        }
+      }
+      if(points2d.length >= 2){
+        const sorted = points2d.slice().sort((a, b) => {
+          if(a.x === b.x){ return a.y - b.y; }
+          return a.x - b.x;
+        });
+        const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+        const lower = [];
+        for(let i = 0; i < sorted.length; i += 1){
+          const p = sorted[i];
+          while(lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0){
+            lower.pop();
+          }
+          lower.push(p);
+        }
+        const upper = [];
+        for(let i = sorted.length - 1; i >= 0; i -= 1){
+          const p = sorted[i];
+          while(upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0){
+            upper.pop();
+          }
+          upper.push(p);
+        }
+        if(lower.length){ lower.pop(); }
+        if(upper.length){ upper.pop(); }
+        const hullPoints = lower.concat(upper);
+        for(let i = 0; i < hullPoints.length; i += 1){
+          const a = hullPoints[i];
+          const b = hullPoints[(i + 1) % hullPoints.length];
+          if(!a || !b || a.index === b.index){ continue; }
+          const key = a.index < b.index ? `${a.index}-${b.index}` : `${b.index}-${a.index}`;
+          hullEdgeKeys.add(key);
+        }
+        debugLog('Debug: plot3d silhouette edges computed', { label: debugLabel, hullEdgeCount: hullEdgeKeys.size });
+      }
+    }
+    const centerDepth = rotatePoint(cubeCenter).z || 0;
+    const frameEdgeLines = new Map();
+    const frontWidth = Number.isFinite(cfg.frameFrontWidth) ? cfg.frameFrontWidth : axisStrokeWidth;
+    const backWidth = Number.isFinite(cfg.frameBackWidth) ? cfg.frameBackWidth : axisStrokeWidth * 0.85;
+    const frontOpacity = Number.isFinite(cfg.frameFrontOpacity) ? cfg.frameFrontOpacity : 1;
+    const backOpacity = Number.isFinite(cfg.frameBackOpacity) ? cfg.frameBackOpacity : 0.32;
+    const backDash = Array.isArray(cfg.frameBackDash) ? cfg.frameBackDash : [6, 4];
     const paneGroup = showPanes && doc ? doc.createElementNS(NS, 'g') : null;
     if(paneGroup){
       paneGroup.setAttribute('fill', paneFill);
@@ -565,70 +626,11 @@
       debugLog('Debug: plot3d grid rendered', { label: debugLabel });
     }
     if(showFrame){
-      const rotatedCornerCache = new Array(allCorners.length);
-      const projectedCornerCache = new Array(allCorners.length);
-      if(typeof project === 'function'){
-        for(let idx = 0; idx < allCorners.length; idx += 1){
-          const rotCorner = rotatePoint(allCorners[idx]);
-          rotatedCornerCache[idx] = rotCorner;
-          projectedCornerCache[idx] = project(rotCorner);
-        }
-      }
-      const hullEdgeKeys = new Set();
-      if(projectedCornerCache.length){
-        const points2d = [];
-        for(let idx = 0; idx < projectedCornerCache.length; idx += 1){
-          const pt = projectedCornerCache[idx];
-          if(pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)){
-            points2d.push({ x: pt.x, y: pt.y, index: idx });
-          }
-        }
-        if(points2d.length >= 2){
-          const sorted = points2d.slice().sort((a, b) => {
-            if(a.x === b.x){ return a.y - b.y; }
-            return a.x - b.x;
-          });
-          const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-          const lower = [];
-          for(let i = 0; i < sorted.length; i += 1){
-            const p = sorted[i];
-            while(lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0){
-              lower.pop();
-            }
-            lower.push(p);
-          }
-          const upper = [];
-          for(let i = sorted.length - 1; i >= 0; i -= 1){
-            const p = sorted[i];
-            while(upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0){
-              upper.pop();
-            }
-            upper.push(p);
-          }
-          if(lower.length){ lower.pop(); }
-          if(upper.length){ upper.pop(); }
-          const hullPoints = lower.concat(upper);
-          for(let i = 0; i < hullPoints.length; i += 1){
-            const a = hullPoints[i];
-            const b = hullPoints[(i + 1) % hullPoints.length];
-            if(!a || !b || a.index === b.index){ continue; }
-            const key = a.index < b.index ? `${a.index}-${b.index}` : `${b.index}-${a.index}`;
-            hullEdgeKeys.add(key);
-          }
-          debugLog('Debug: plot3d silhouette edges computed', { label: debugLabel, hullEdgeCount: hullEdgeKeys.size });
-        }
-      }
       const edges = [
         [0, 1], [0, 2], [1, 3], [2, 3],
         [4, 5], [4, 6], [5, 7], [6, 7],
         [0, 4], [1, 5], [2, 6], [3, 7]
       ];
-      const frontWidth = Number.isFinite(cfg.frameFrontWidth) ? cfg.frameFrontWidth : axisStrokeWidth;
-      const backWidth = Number.isFinite(cfg.frameBackWidth) ? cfg.frameBackWidth : axisStrokeWidth * 0.85;
-      const frontOpacity = Number.isFinite(cfg.frameFrontOpacity) ? cfg.frameFrontOpacity : 1;
-      const backOpacity = Number.isFinite(cfg.frameBackOpacity) ? cfg.frameBackOpacity : 0.32;
-      const backDash = Array.isArray(cfg.frameBackDash) ? cfg.frameBackDash : [6, 4];
-      const centerDepth = rotatePoint(cubeCenter).z || 0;
       let frontCount = 0;
       let occludedCount = 0;
       let silhouetteCount = 0;
@@ -665,7 +667,8 @@
         if(isFrontEdge){
           frontCount += 1;
         }
-        appendLine(startRot, endRot, attrs, axisTarget || gridGroup || svg);
+        const line = appendLine(startRot, endRot, attrs, axisTarget || gridGroup || svg);
+        frameEdgeLines.set(edgeKey, line);
       }
       debugLog('Debug: plot3d frame rendered', {
         label: debugLabel,
@@ -676,13 +679,53 @@
         centerDepth
       });
     }
+    const matchCornerIndex = (point) => {
+      if(!point){ return null; }
+      const EPS = 1e-6;
+      for(let idx = 0; idx < allCorners.length; idx += 1){
+        const corner = allCorners[idx];
+        if(Math.abs((corner.x || 0) - (point.x || 0)) <= EPS
+          && Math.abs((corner.y || 0) - (point.y || 0)) <= EPS
+          && Math.abs((corner.z || 0) - (point.z || 0)) <= EPS){
+          return idx;
+        }
+      }
+      return null;
+    };
     for(let i=0;i<axisDefs.length;i+=1){
       const def = axisDefs[i];
       const startRot = rotatePoint(def.start);
       const endRot = rotatePoint(def.end);
       const startPos = project(startRot);
       const endPos = project(endRot);
-      appendLine(startRot, endRot, { stroke: def.color, 'stroke-width': axisStrokeWidth * 0.9 }, axisTarget);
+      const startIdx = matchCornerIndex(def.start);
+      const endIdx = matchCornerIndex(def.end);
+      const edgeKey = (startIdx != null && endIdx != null)
+        ? (startIdx < endIdx ? `${startIdx}-${endIdx}` : `${endIdx}-${startIdx}`)
+        : null;
+      const isSilhouetteAxis = edgeKey ? hullEdgeKeys.has(edgeKey) : false;
+      const depthAvg = ((startRot.z || 0) + (endRot.z || 0)) / 2;
+      const isOccludedAxis = depthAvg < centerDepth && !isSilhouetteAxis;
+      const axisStroke = showFrame ? frameColor : def.color;
+      const axisFrontWidth = showFrame ? frontWidth : axisStrokeWidth * 0.9;
+      const axisBackWidth = showFrame ? backWidth : axisStrokeWidth * 0.9;
+      const axisAttrs = {
+        stroke: axisStroke,
+        'stroke-width': isOccludedAxis ? axisBackWidth : axisFrontWidth
+      };
+      if(isOccludedAxis){
+        if(backDash && backDash.length){
+          axisAttrs['stroke-dasharray'] = backDash.join(' ');
+        }
+        if(Number.isFinite(backOpacity)){
+          axisAttrs['stroke-opacity'] = backOpacity;
+        }
+      } else if(showFrame && Number.isFinite(frontOpacity) && frontOpacity < 1){
+        axisAttrs['stroke-opacity'] = frontOpacity;
+      }
+      if(!(showFrame && edgeKey && frameEdgeLines.has(edgeKey))){
+        appendLine(startRot, endRot, axisAttrs, axisTarget);
+      }
       const axisVector = {
         x: def.end.x - def.start.x,
         y: def.end.y - def.start.y,

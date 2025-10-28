@@ -575,12 +575,12 @@
     if(!gradient){
       gradient = doc.createElementNS(NS, 'linearGradient');
       gradient.id = gradientId;
-      gradient.setAttribute('x1', '0%');
-      gradient.setAttribute('y1', '0%');
-      gradient.setAttribute('x2', '100%');
-      gradient.setAttribute('y2', '0%');
       defs.appendChild(gradient);
     }
+    gradient.setAttribute('x1', '0%');
+    gradient.setAttribute('y1', '100%');
+    gradient.setAttribute('x2', '0%');
+    gradient.setAttribute('y2', '0%');
     while(gradient.firstChild){ gradient.removeChild(gradient.firstChild); }
     const ramp = COLOR_RAMPS[options.colorRamp] || COLOR_RAMPS.viridis;
     const stops = Array.isArray(ramp.stops) && ramp.stops.length ? ramp.stops : COLOR_RAMPS.viridis.stops;
@@ -600,8 +600,18 @@
     }
     targetLayer.appendChild(legend);
     while(legend.firstChild){ legend.removeChild(legend.firstChild); }
-    const barWidth = 110;
-    const barHeight = Math.max(18, options.fontSize * 0.9);
+    const marginTop = Number.isFinite(options?.margin?.top) ? options.margin.top : 0;
+    const marginBottom = Number.isFinite(options?.margin?.bottom) ? options.margin.bottom : 0;
+    const rawHeight = Number.isFinite(options?.height)
+      ? options.height - marginTop - marginBottom
+      : NaN;
+    const fallbackBarHeight = Math.max(120, options.fontSize * 6);
+    let barHeight = fallbackBarHeight;
+    if(Number.isFinite(rawHeight) && rawHeight > 0){
+      barHeight = Math.min(fallbackBarHeight, rawHeight);
+    }
+    barHeight = Math.max(60, barHeight);
+    const barWidth = Math.max(14, options.fontSize * 0.8);
     const legendX = options.width - options.margin.right + 12;
     const legendY = options.margin.top;
     legend.setAttribute('transform', `translate(${legendX},${legendY})`);
@@ -613,18 +623,22 @@
     rect.setAttribute('stroke-width', Math.max(0.6, options.fontSize * 0.04));
     legend.appendChild(rect);
     const minText = doc.createElementNS(NS, 'text');
-    minText.setAttribute('x', 0);
-    minText.setAttribute('y', barHeight + options.fontSize * 0.9);
-    minText.setAttribute('font-size', Math.max(9, options.fontSize * 0.75));
+    const legendFontSize = Math.max(9, options.fontSize * 0.75);
+    const labelOffset = Math.max(10, legendFontSize * 0.9);
+    minText.setAttribute('x', barWidth / 2);
+    minText.setAttribute('y', barHeight + labelOffset);
+    minText.setAttribute('font-size', legendFontSize);
     minText.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
+    minText.setAttribute('text-anchor', 'middle');
     minText.textContent = formatNumber(options.min);
     legend.appendChild(minText);
     const maxText = doc.createElementNS(NS, 'text');
-    maxText.setAttribute('x', barWidth);
-    maxText.setAttribute('y', barHeight + options.fontSize * 0.9);
-    maxText.setAttribute('font-size', Math.max(9, options.fontSize * 0.75));
+    maxText.setAttribute('x', barWidth / 2);
+    maxText.setAttribute('y', -Math.max(6, legendFontSize * 0.4));
+    maxText.setAttribute('font-size', legendFontSize);
     maxText.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
-    maxText.setAttribute('text-anchor', 'end');
+    maxText.setAttribute('text-anchor', 'middle');
+    maxText.setAttribute('dominant-baseline', 'baseline');
     maxText.textContent = formatNumber(options.max);
     legend.appendChild(maxText);
   }
