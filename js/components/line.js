@@ -46,6 +46,8 @@
   ]);
   const LINE_GROUP_SHAPE_DEFAULTS = LINE_GROUP_SHAPE_OPTIONS.map(opt => opt.value);
   const LINE_GROUP_SHAPE_VALUES = new Set(LINE_GROUP_SHAPE_DEFAULTS);
+  const LINE_DISPLAY_MODE_OPTIONS = Object.freeze(['line','area']);
+  let lineDisplayMode = 'line';
 
   let scheduleLineDraw = () => {};
   let lineHot = null;
@@ -116,6 +118,37 @@
         });
       }
     }
+  }
+  function sanitizeLineDisplayMode(mode){
+    return LINE_DISPLAY_MODE_OPTIONS.includes(mode) ? mode : 'line';
+  }
+
+  function resolveLineAreaBaselineValue({ yMin, yMax, logY }){
+    let min = Number.isFinite(yMin) ? yMin : null;
+    let max = Number.isFinite(yMax) ? yMax : null;
+    if(min == null && max == null){
+      return 0;
+    }
+    if(min == null){
+      min = max;
+    }
+    if(max == null){
+      max = min;
+    }
+    if(logY){
+      const positiveFloor = min > 0 ? min : (max > 0 ? Math.max(min, Math.min(max, 1e-6)) : 1);
+      return positiveFloor > 0 ? positiveFloor : 1;
+    }
+    if(min <= 0 && max >= 0){
+      return 0;
+    }
+    if(min > 0){
+      return min;
+    }
+    if(max < 0){
+      return max;
+    }
+    return min;
   }
   let lineFileHandle = null;
   let lineFileName = 'line.graph';
@@ -2213,6 +2246,7 @@
         errorBarWidth:refs.errorBarWidth?.value ?? refs.borderWidth?.value,
         alpha:refs.alpha?.value,
         labelColors:lineLabelColors,
+        displayMode: sanitizeLineDisplayMode(refs.displayMode?.value ?? lineDisplayMode),
         showGrid:refs.showGrid?.checked,
         showFrame:refs.showFrame?.checked,
         showLegend:refs.showLegend ? !!refs.showLegend.checked : true,
@@ -2317,6 +2351,11 @@
           }
         }
         if(refs.alpha){ refs.alpha.value=c.alpha||0; refs.alphaVal.textContent=refs.alpha.value; }
+        const restoredDisplayMode = sanitizeLineDisplayMode(c.displayMode);
+        if(refs.displayMode){
+          refs.displayMode.value = restoredDisplayMode;
+        }
+        lineDisplayMode = restoredDisplayMode;
         lineLabelColors=c.labelColors||{};
         if(refs.showGrid) refs.showGrid.checked=!!c.showGrid;
         if(refs.showFrame) refs.showFrame.checked=!!c.showFrame;
@@ -2513,6 +2552,12 @@
       console.debug('Debug: line showLegend state',{showLegend});
       const logX=!!refs.logX?.checked;
       const logY=!!refs.logY?.checked;
+      const displayModeCurrent = sanitizeLineDisplayMode(refs.displayMode?.value ?? lineDisplayMode);
+      if(displayModeCurrent !== lineDisplayMode){
+        lineDisplayMode = displayModeCurrent;
+      }
+      const isAreaMode = displayModeCurrent === 'area';
+      console.debug('Debug: line display mode',{ mode: displayModeCurrent });
       const storedManualIntervalX = getLineAxisTickInterval('x');
       const storedManualIntervalY = getLineAxisTickInterval('y');
       const manualIntervalX = !logX ? storedManualIntervalX : null;
@@ -2753,6 +2798,9 @@
           console.debug('Debug: line plot aborted due to clipping',{ range: rangeForClipping });
           return;
         }
+      let areaBaselineValue = null;
+      let areaBaselineTransformed = null;
+      const areaFillOpacity = isAreaMode ? Math.max(0, Math.min(1, (1 - alpha) * 0.35)) : 0;
         if(xMin===xMax) xMax=xMin+1;
         if(yMin===yMax) yMax=yMin+1;
         if(regressionCache.size){
@@ -2909,6 +2957,33 @@
       }
       const clampedXT=Math.min(Math.max(originXT,xScale.min),xScale.max);
       const clampedYT=Math.min(Math.max(originYT,yScale.min),yScale.max);
+      if(isAreaMode){
+        const axisMinTransformed = Number.isFinite(yScale.min) ? yScale.min : yMinT;
+        const axisMaxTransformed = Number.isFinite(yScale.max) ? yScale.max : yMaxT;
+        const axisMinDomain = logY ? Math.pow(10, axisMinTransformed) : axisMinTransformed;
+        const axisMaxDomain = logY ? Math.pow(10, axisMaxTransformed) : axisMaxTransformed;
+        const baselineTransformedCandidate = Number.isFinite(clampedYT) ? clampedYT : axisMinTransformed;
+        let baselineDomain = logY ? Math.pow(10, baselineTransformedCandidate) : baselineTransformedCandidate;
+        if(!Number.isFinite(baselineDomain)){
+          baselineDomain = resolveLineAreaBaselineValue({ yMin: axisMinDomain, yMax: axisMaxDomain, logY });
+        }
+        if(!Number.isFinite(baselineDomain)){
+          baselineDomain = axisMinDomain;
+        }
+        baselineDomain = Math.min(Math.max(baselineDomain, axisMinDomain), axisMaxDomain);
+        if(logY && baselineDomain <= 0){
+          const positiveAxisMin = axisMinDomain > 0 ? axisMinDomain : null;
+          const positiveAxisMax = axisMaxDomain > 0 ? axisMaxDomain : null;
+          const fallbackPositive = positiveAxisMin || positiveAxisMax || 1;
+          baselineDomain = Math.max(Math.min(fallbackPositive, 1), 1e-6);
+        }
+        areaBaselineValue = baselineDomain;
+        areaBaselineTransformed = logY ? Math.log10(areaBaselineValue) : areaBaselineValue;
+      }
+      const areaBaselinePx = (isAreaMode && Number.isFinite(areaBaselineTransformed)) ? y2px(areaBaselineTransformed) : null;
+      if(isAreaMode){
+        console.debug('Debug: line area baseline resolved',{ baselineValue: areaBaselineValue, baselinePx: areaBaselinePx });
+      }
       const xAxisY=y2px(clampedYT);
       const yAxisX=x2px(clampedXT);
       const xTickPositions=xScale.ticks.map(t=>x2px(t));
@@ -3022,8 +3097,8 @@
           }
           console.debug('Debug: line interval shading rendered',{ series: s.name, hasConfidence: !!confidencePath, hasPrediction: !!predictionPath });
         }
-        let pathStr='';
-        let started=false;
+        const segments=[];
+        let currentSegment=null;
         const markerFrag=document.createDocumentFragment();
         const errorGroup=showErrorBars?document.createElementNS(NS,'g'):null;
         if(errorGroup){
@@ -3039,7 +3114,15 @@
             const yv=logY?Math.log10(pt.y):pt.y;
             const px=x2px(xv);
             const py=y2px(yv);
-            if(!started){pathStr+=`M${px} ${py}`; started=true;} else {pathStr+=`L${px} ${py}`;}
+            if(!currentSegment){
+              currentSegment={ commands: [`M${px} ${py}`], firstX: px, lastX: px };
+            }else{
+              currentSegment.commands.push(`L${px} ${py}`);
+              currentSegment.lastX = px;
+            }
+            if(currentSegment){
+              currentSegment.lastX = px;
+            }
             const replicateCount=Number.isInteger(pt?.replicateCount)?pt.replicateCount:(Array.isArray(pt?.replicates)?pt.replicates.length:0);
             const canShowError=showErrorBars && replicateCount>1 && errorGroup && Number.isFinite(pt.lower) && Number.isFinite(pt.upper) && pt.upper>=pt.lower;
             if(!canShowError && showErrorBars && replicateCount<=1){
@@ -3089,15 +3172,55 @@
               }
             }
           } else {
-            started=false;
+            if(currentSegment){
+              segments.push(currentSegment);
+              currentSegment=null;
+            }
           }
         });
+        if(currentSegment){
+          segments.push(currentSegment);
+          currentSegment=null;
+        }
+        const strokeCommands=[];
+        const fillCommands=[];
+        segments.forEach(seg=>{
+          seg.commands.forEach(cmd=>strokeCommands.push(cmd));
+          if(isAreaMode && Number.isFinite(areaBaselinePx)){
+            seg.commands.forEach(cmd=>fillCommands.push(cmd));
+            fillCommands.push(`L${seg.lastX} ${areaBaselinePx}`);
+            fillCommands.push(`L${seg.firstX} ${areaBaselinePx}`);
+            fillCommands.push('Z');
+          }
+        });
+        const pathStr=strokeCommands.join('');
         let attachedErrorGroup=null;
+        let areaPathEl=null;
+        if(fillCommands.length && areaFillOpacity > 0){
+          const areaPathStr=fillCommands.join('');
+          areaPathEl=document.createElementNS(NS,'path');
+          areaPathEl.setAttribute('d',areaPathStr);
+          areaPathEl.setAttribute('fill',color);
+          areaPathEl.setAttribute('fill-opacity',String(areaFillOpacity));
+          areaPathEl.setAttribute('stroke','none');
+          areaPathEl.dataset.series=s.name;
+          areaPathEl.dataset.renderMode='area-fill';
+          areaPathEl.style.pointerEvents='none';
+          svg.appendChild(areaPathEl);
+        }
         if(errorGroup && errorGroup.childNodes.length){
           svg.appendChild(errorGroup);
           attachedErrorGroup=errorGroup;
         }
-        const path=add('path',{d:pathStr,fill:'none',stroke:color,'stroke-width':borderWidthPx,'stroke-opacity':1-alpha});
+        const pathAttrs={
+          d:pathStr,
+          stroke:color,
+          'stroke-width':borderWidthPx,
+          'stroke-opacity':1-alpha,
+          fill:'none'
+        };
+        pathAttrs['data-render-mode']=displayModeCurrent;
+        const path=add('path',pathAttrs);
         const mGroup=add('g',{});
         mGroup.appendChild(markerFrag);
         let forecastPathEl=null;
@@ -3159,7 +3282,7 @@
             }
           }
         }
-        seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,forecastPath:forecastPathEl});
+        seriesElems.push({path,mGroup,errorGroup:attachedErrorGroup,forecastPath:forecastPathEl,areaPath:areaPathEl});
       });
       console.debug('Debug: line series rendered',{ showErrorBars, seriesCount: seriesWithData.length });
       const toggleSeriesVisibility=index=>{
@@ -3174,6 +3297,9 @@
         }
         if(target.forecastPath){
           target.forecastPath.style.display=nextDisplay;
+        }
+        if(target.areaPath){
+          target.areaPath.style.display=nextDisplay;
         }
       };
       const legendRenderer=legendLayout.renderer;
@@ -3258,6 +3384,7 @@
     refs.borderWidth=document.getElementById('lineBorderWidth');
     refs.errorBarWidth=document.getElementById('lineErrorBarWidth');
     refs.dotSize=document.getElementById('lineDotSize');
+    refs.displayMode=document.getElementById('lineDisplayMode');
     refs.alpha=document.getElementById('lineAlpha');
     refs.alphaVal=document.getElementById('lineAlphaVal');
     refs.fontSize=document.getElementById('lineFontSize');
@@ -3268,6 +3395,18 @@
         console.debug('Debug: line font size base initialized',{ value: refs.fontSize.value }); // Debug: initial base size
       }
       chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
+    }
+    if(refs.displayMode){
+      lineDisplayMode = sanitizeLineDisplayMode(refs.displayMode.value);
+      refs.displayMode.value = lineDisplayMode;
+      refs.displayMode.addEventListener('change',e=>{
+        const nextMode = sanitizeLineDisplayMode(e.target.value);
+        if(nextMode !== lineDisplayMode){
+          lineDisplayMode = nextMode;
+          console.debug('Debug: line display mode change',{ mode: lineDisplayMode });
+          scheduleLineDraw();
+        }
+      });
     }
     if(refs.replicatesInput){
       refs.replicatesInput.value = String(lineReplicates);
@@ -3938,6 +4077,7 @@
       legendGuardWidth: lineLegendGuardWidth,
       minSvgWidth: lineMinSvgWidth,
       labelColors: { ...lineLabelColors },
+      displayMode: lineDisplayMode,
       scheduleDraw: scheduleLineDraw
     };
   };
