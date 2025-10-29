@@ -56,6 +56,25 @@
   let lineYLabelText = 'Y';
   let lineLabelColors = {};
   let lineLegendControl = null;
+  const lineUndoManager = Shared.undoManager || null;
+  function recordLineChange(label, previous, next, apply){
+    if(!lineUndoManager || typeof lineUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(typeof apply !== 'function'){
+      return;
+    }
+    lineUndoManager.recordStateChange({
+      label,
+      scope: 'lineGraphPanel',
+      from: previous,
+      to: next,
+      apply(value){
+        apply(value);
+        return true;
+      }
+    });
+  }
   function createDefaultLineLegendLayoutInfo(){
     return {
       entryCount: 0,
@@ -2763,31 +2782,73 @@
           const initialShape=Number.isInteger(seriesIndex) && seriesIndex >= 0
             ? getLineGroupShape(seriesIndex)
             : null;
+          const applyLegendColor=value=>{
+            const nextValue=value!=null?String(value):'';
+            const previousValue=lineLabelColors[legendKey] || '';
+            if(nextValue){
+              if(previousValue===nextValue){
+                return true;
+              }
+              lineLabelColors[legendKey]=nextValue;
+            }else if(previousValue){
+              delete lineLabelColors[legendKey];
+            }else{
+              return true;
+            }
+            scheduleLineDraw();
+            return true;
+          };
+          const applyLegendShape=value=>{
+            if(!Number.isInteger(seriesIndex) || seriesIndex < 0){
+              return true;
+            }
+            const sanitized = sanitizeLineGroupShape(value, seriesIndex);
+            const shapes = ensureLineGroupShapeCapacity(Math.max(series.length, seriesIndex + 1));
+            if(shapes[seriesIndex] === sanitized){
+              return true;
+            }
+            shapes[seriesIndex] = sanitized;
+            lineGroupShapes = shapes;
+            if(Array.isArray(series) && series[seriesIndex]){
+              series[seriesIndex].shape = sanitized;
+            }
+            updateLineGroupShapeSelect(seriesIndex, sanitized);
+            scheduleLineDraw();
+            return true;
+          };
+          let previousColor = currentColor;
+          let previousShape = Number.isInteger(seriesIndex) && seriesIndex >= 0
+            ? sanitizeLineGroupShape(initialShape, seriesIndex)
+            : null;
           Shared.openColorPicker({
             anchor: swatch,
             color: currentColor,
             shapePicker: Number.isInteger(seriesIndex) && seriesIndex >= 0 ? {
-              value: initialShape,
+              value: previousShape,
               options: LINE_GROUP_SHAPE_OPTIONS,
               onChange(nextShape){
                 const sanitized = sanitizeLineGroupShape(nextShape, seriesIndex);
-                const shapes = ensureLineGroupShapeCapacity(Math.max(series.length, seriesIndex + 1));
-                if(shapes[seriesIndex] !== sanitized){
-                  shapes[seriesIndex] = sanitized;
-                  lineGroupShapes = shapes;
+                if(sanitized===previousShape){
+                  return;
                 }
-                if(Array.isArray(series) && series[seriesIndex]){
-                  series[seriesIndex].shape = sanitized;
-                }
-                updateLineGroupShapeSelect(seriesIndex, sanitized);
+                applyLegendShape(sanitized);
+                recordLineChange(`line:legend-shape:${legendKey}`,previousShape,sanitized,applyLegendShape);
+                previousShape=sanitized;
                 console.debug('Debug: line legend shape change',{ index: seriesIndex, shape: sanitized, label: legendKey });
-                scheduleLineDraw();
               }
             } : null,
             onInput(value){
-              lineLabelColors[legendKey]=value;
+              applyLegendColor(value);
               console.debug('Debug: line legend color input',{label:legendKey,color:value});
-              scheduleLineDraw();
+            },
+            onChange(value){
+              const nextValue=value!=null?String(value):'';
+              if(nextValue===previousColor){
+                return;
+              }
+              applyLegendColor(nextValue);
+              recordLineChange(`line:legend-color:${legendKey}`,previousColor,nextValue,applyLegendColor);
+              previousColor=nextValue;
             }
           });
         }
@@ -3364,16 +3425,64 @@
       const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       xText.textContent=lineXLabelText;
       markFontEditable(xText,'xTitle','xTitle');
-      makeEditableHelper(xText,txt=>{lineXLabelText=txt;});
+      const applyLineXLabel=value=>{
+        const nextValue=value!=null?String(value):'';
+        lineXLabelText=nextValue;
+        if(xText.textContent!==nextValue){
+          xText.textContent=nextValue;
+        }
+        scheduleLineDraw();
+      };
+      makeEditableHelper(xText,txt=>{
+        const previous=lineXLabelText!=null?String(lineXLabelText):'';
+        const nextValue=txt!=null?String(txt):'';
+        if(previous===nextValue){
+          return;
+        }
+        applyLineXLabel(nextValue);
+        recordLineChange('line:x-label',previous,nextValue,applyLineXLabel);
+      });
       const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
       const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       yText.textContent=lineYLabelText;
       markFontEditable(yText,'yTitle','yTitle');
-      makeEditableHelper(yText,txt=>{lineYLabelText=txt;});
+      const applyLineYLabel=value=>{
+        const nextValue=value!=null?String(value):'';
+        lineYLabelText=nextValue;
+        if(yText.textContent!==nextValue){
+          yText.textContent=nextValue;
+        }
+        scheduleLineDraw();
+      };
+      makeEditableHelper(yText,txt=>{
+        const previous=lineYLabelText!=null?String(lineYLabelText):'';
+        const nextValue=txt!=null?String(txt):'';
+        if(previous===nextValue){
+          return;
+        }
+        applyLineYLabel(nextValue);
+        recordLineChange('line:y-label',previous,nextValue,applyLineYLabel);
+      });
       const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       titleText.textContent=lineTitleText;
       markFontEditable(titleText,'graphTitle','graphTitle');
-      makeEditableHelper(titleText,txt=>{lineTitleText=txt;});
+      const applyLineTitle=value=>{
+        const nextValue=value!=null?String(value):'';
+        lineTitleText=nextValue;
+        if(titleText.textContent!==nextValue){
+          titleText.textContent=nextValue;
+        }
+        scheduleLineDraw();
+      };
+      makeEditableHelper(titleText,txt=>{
+        const previous=lineTitleText!=null?String(lineTitleText):'';
+        const nextValue=txt!=null?String(txt):'';
+        if(previous===nextValue){
+          return;
+        }
+        applyLineTitle(nextValue);
+        recordLineChange('line:title',previous,nextValue,applyLineTitle);
+      });
       updateLineStats(seriesWithData, statsContext);
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });

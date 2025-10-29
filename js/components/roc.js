@@ -75,6 +75,42 @@
     fileName: 'roc.graph',
     axisSettings: createDefaultAxisSettings()
   };
+  const rocUndoManager = Shared.undoManager || null;
+  function recordRocChange(label, previous, next, apply){
+    if(!rocUndoManager || typeof rocUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(typeof apply !== 'function'){
+      return;
+    }
+    rocUndoManager.recordStateChange({
+      label,
+      scope: 'rocGraphPanel',
+      from: previous,
+      to: next,
+      apply(value){
+        apply(value);
+        return true;
+      }
+    });
+  }
+
+  function applyRocLabelColor(label, value){
+    const nextValue = value != null ? String(value) : '';
+    const previousValue = state.labelColors[label] || '';
+    if(nextValue){
+      if(previousValue === nextValue){
+        return true;
+      }
+      state.labelColors[label] = nextValue;
+    }else if(previousValue){
+      delete state.labelColors[label];
+    }else{
+      return true;
+    }
+    state.scheduleDraw?.();
+    return true;
+  }
   const rocAdvisorState={
     open:false,
     answers:{},
@@ -1179,13 +1215,23 @@
         if(!labelKey || !swatch){ return; }
         if(event){ event.stopPropagation(); }
         const currentColor = state.labelColors[labelKey] || entry.fill;
+        let previousColor = currentColor;
         Shared.openColorPicker({
           anchor: swatch,
           color: currentColor,
           onInput(value){
-            state.labelColors[labelKey] = value;
+            previousColor = typeof value === 'string' && value ? value : previousColor;
+            applyRocLabelColor(labelKey, value);
             console.debug('Debug: ROC legend color input',{ label: labelKey, color: value });
-            state.scheduleDraw?.();
+          },
+          onChange(value){
+            const nextValue = typeof value === 'string' && value ? value : previousColor;
+            if(nextValue === previousColor){
+              return;
+            }
+            applyRocLabelColor(labelKey, nextValue);
+            recordRocChange(`roc:legend-color:${labelKey}`, previousColor, nextValue, val => applyRocLabelColor(labelKey, val));
+            previousColor = nextValue;
           }
         });
       }

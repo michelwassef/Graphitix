@@ -74,6 +74,25 @@
     fileName: DEFAULT_FILE_NAME,
     fileHandle: null
   };
+  const surfaceUndoManager = Shared.undoManager || null;
+  function recordSurfaceChange(label, previous, next, apply){
+    if(!surfaceUndoManager || typeof surfaceUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(typeof apply !== 'function'){
+      return;
+    }
+    surfaceUndoManager.recordStateChange({
+      label,
+      scope: 'surfaceGraphPanel',
+      from: previous,
+      to: next,
+      apply(value){
+        apply(value);
+        return true;
+      }
+    });
+  }
 
   const makeEditableHelper = (node, onChange, options) => {
     const fn = Shared.makeEditable || global.makeEditable;
@@ -964,8 +983,8 @@
           if(!el){ return; }
           const role = axisKey ? `${axisKey}Title` : 'axisTitle';
           markFontEditable(el, role, role);
-          makeEditableHelper(el, text => {
-            const trimmed = text != null ? String(text).trim() : '';
+          const applyAxisLabel = value => {
+            const trimmed = value != null ? String(value).trim() : '';
             const resolved = trimmed || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
             state.labels[axisKey] = resolved;
             if(state.hot && typeof state.hot.setDataAtCell === 'function'){
@@ -978,6 +997,19 @@
                 }
               }
             }
+            state.scheduleDraw?.();
+            if(el.textContent !== resolved){
+              el.textContent = resolved;
+            }
+            return resolved;
+          };
+          makeEditableHelper(el, text => {
+            const previous = state.labels[axisKey] || DEFAULT_AXIS_LABELS[axisKey] || DEFAULT_AXIS_LABELS.x;
+            const nextValue = applyAxisLabel(text);
+            if(previous === nextValue){
+              return;
+            }
+            recordSurfaceChange(`surface:${axisKey}-label`, previous, nextValue, val => { applyAxisLabel(val); return true; });
           }, { scopeId: 'surface', key: role });
         }
       });
@@ -1061,9 +1093,23 @@
     title.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
     title.textContent = state.labels.title;
     markFontEditable(title, 'graphTitle', 'graphTitle');
+    const applySurfaceTitle = value => {
+      const trimmed = value != null ? String(value).trim() : '';
+      const resolved = trimmed || 'Surface Plot';
+      state.labels.title = resolved;
+      if(title.textContent !== resolved){
+        title.textContent = resolved;
+      }
+      state.scheduleDraw?.();
+      return resolved;
+    };
     makeEditableHelper(title, text => {
-      const trimmed = text != null ? String(text).trim() : '';
-      state.labels.title = trimmed || 'Surface Plot';
+      const previous = state.labels.title || 'Surface Plot';
+      const nextValue = applySurfaceTitle(text);
+      if(previous === nextValue){
+        return;
+      }
+      recordSurfaceChange('surface:title', previous, nextValue, val => { applySurfaceTitle(val); return true; });
     }, { scopeId: 'surface', key: 'graphTitle' });
     title.setAttribute('data-graph-title', '1');
     svg.appendChild(title);

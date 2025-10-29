@@ -963,6 +963,25 @@
       }
       let scatterLabelColors={};
       let scatterLabelShapes={};
+      const scatterUndoManager = Shared.undoManager || null;
+      function recordScatterChange(label, previous, next, apply){
+        if(!scatterUndoManager || typeof scatterUndoManager.recordStateChange !== 'function'){
+          return;
+        }
+        if(typeof apply !== 'function'){
+          return;
+        }
+        scatterUndoManager.recordStateChange({
+          label,
+          scope: 'scatterGraphPanel',
+          from: previous,
+          to: next,
+          apply(value){
+            apply(value);
+            return true;
+          }
+        });
+      }
       function syncScatterGraphTypeUI(){
         const type=scatterGraphTypeSelect?.value || 'scatter';
         scatterCurrentGraphType=type;
@@ -2082,6 +2101,33 @@
               const labelIndex = Number.isInteger(entry?.labelIndex) ? entry.labelIndex : (Number.isInteger(index) ? index : visibleLabels.indexOf(labelKey));
               const currentShape = sanitizeScatterLabelShape(scatterLabelShapes[labelKey], labelIndex);
               scatterLabelShapes[labelKey] = currentShape;
+              const applyLegendColor=value=>{
+                const nextValue=value!=null?String(value):'';
+                const previousValue=scatterLabelColors[labelKey] || '';
+                if(nextValue){
+                  if(previousValue===nextValue){
+                    return true;
+                  }
+                  scatterLabelColors[labelKey]=nextValue;
+                }else if(previousValue){
+                  delete scatterLabelColors[labelKey];
+                }else{
+                  return true;
+                }
+                scheduleDrawScatter();
+                return true;
+              };
+              const applyLegendShape=value=>{
+                const sanitizedValue=sanitizeScatterLabelShape(value, labelIndex);
+                if(sanitizeScatterLabelShape(scatterLabelShapes[labelKey], labelIndex)===sanitizedValue){
+                  return true;
+                }
+                scatterLabelShapes[labelKey]=sanitizedValue;
+                scheduleDrawScatter();
+                return true;
+              };
+              let previousColor=currentColor;
+              let previousShape=currentShape;
               Shared.openColorPicker({
                 anchor:swatch,
                 color:currentColor,
@@ -2090,15 +2136,27 @@
                   options: SCATTER_SHAPE_OPTIONS,
                   onChange(nextShape){
                     const sanitized = sanitizeScatterLabelShape(nextShape, labelIndex);
-                    scatterLabelShapes[labelKey] = sanitized;
+                    if(sanitized===previousShape){
+                      return;
+                    }
+                    applyLegendShape(sanitized);
+                    recordScatterChange(`scatter:legend-shape:${labelKey}`,previousShape,sanitized,applyLegendShape);
+                    previousShape=sanitized;
                     debug('Debug: scatter legend shape change',{ label: labelKey, shape: sanitized, index: labelIndex });
-                    scheduleDrawScatter();
                   }
                 } : null,
                 onInput(value){
-                  scatterLabelColors[labelKey]=value;
+                  applyLegendColor(value);
                   debug('Debug: scatter legend color input',{label:labelKey,color:value});
-                  scheduleDrawScatter();
+                },
+                onChange(value){
+                  const nextValue=value!=null?String(value):'';
+                  if(nextValue===previousColor){
+                    return;
+                  }
+                  applyLegendColor(nextValue);
+                  recordScatterChange(`scatter:legend-color:${labelKey}`,previousColor,nextValue,applyLegendColor);
+                  previousColor=nextValue;
                 }
               });
             }
@@ -2410,17 +2468,65 @@
         const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         xText.textContent=scatterXLabelText;
         markFontEditable(xText,'xTitle','xTitle');
-        makeEditableLocal(xText,txt=>{scatterXLabelText=txt;});
+        const applyScatterXLabel=value=>{
+          const nextValue=value!=null?String(value):'';
+          scatterXLabelText=nextValue;
+          if(xText.textContent!==nextValue){
+            xText.textContent=nextValue;
+          }
+          scheduleDrawScatter();
+        };
+        makeEditableLocal(xText,txt=>{
+          const previous=scatterXLabelText!=null?String(scatterXLabelText):'';
+          const nextValue=txt!=null?String(txt):'';
+          if(previous===nextValue){
+            return;
+          }
+          applyScatterXLabel(nextValue);
+          recordScatterChange('scatter:x-label',previous,nextValue,applyScatterXLabel);
+        });
         const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
         info('scatter y-axis position',yX);
         const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         yText.textContent=scatterYLabelText;
         markFontEditable(yText,'yTitle','yTitle');
-        makeEditableLocal(yText,txt=>{scatterYLabelText=txt;});
+        const applyScatterYLabel=value=>{
+          const nextValue=value!=null?String(value):'';
+          scatterYLabelText=nextValue;
+          if(yText.textContent!==nextValue){
+            yText.textContent=nextValue;
+          }
+          scheduleDrawScatter();
+        };
+        makeEditableLocal(yText,txt=>{
+          const previous=scatterYLabelText!=null?String(scatterYLabelText):'';
+          const nextValue=txt!=null?String(txt):'';
+          if(previous===nextValue){
+            return;
+          }
+          applyScatterYLabel(nextValue);
+          recordScatterChange('scatter:y-label',previous,nextValue,applyScatterYLabel);
+        });
         const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         titleText.textContent=scatterTitleText;
         markFontEditable(titleText,'graphTitle','graphTitle');
-        makeEditableLocal(titleText,txt=>{scatterTitleText=txt;});
+        const applyScatterTitle=value=>{
+          const nextValue=value!=null?String(value):'';
+          scatterTitleText=nextValue;
+          if(titleText.textContent!==nextValue){
+            titleText.textContent=nextValue;
+          }
+          scheduleDrawScatter();
+        };
+        makeEditableLocal(titleText,txt=>{
+          const previous=scatterTitleText!=null?String(scatterTitleText):'';
+          const nextValue=txt!=null?String(txt):'';
+          if(previous===nextValue){
+            return;
+          }
+          applyScatterTitle(nextValue);
+          recordScatterChange('scatter:title',previous,nextValue,applyScatterTitle);
+        });
         if(scatterCurrentGraphType==='scatter'){
           const regressionModeValue = scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
           const stats=computeScatterStats(points,method,{ regressionMode: regressionModeValue, domain: { minX: xMin, maxX: xMax } });

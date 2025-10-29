@@ -13,6 +13,156 @@
   let activeConfig = null;
   let activeHost = null;
   let hasDocListener = false;
+  let applyingFromUndo = false;
+
+  function getUndoManager(){
+    const manager = global.Shared?.undoManager;
+    if(manager && typeof manager.recordStateChange === 'function'){
+      return manager;
+    }
+    return null;
+  }
+
+  function configsMatch(a, b){
+    if(!a || !b){ return false; }
+    const axisA = a.axis || '';
+    const axisB = b.axis || '';
+    if(axisA !== axisB){ return false; }
+    const scopeA = a.scopeId || '';
+    const scopeB = b.scopeId || '';
+    return scopeA === scopeB;
+  }
+
+  function sanitizeTickValue(value){
+    if(value === null || value === undefined || value === ''){ return null; }
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric) || numeric <= 0){ return null; }
+    return numeric;
+  }
+
+  function sanitizeThicknessValue(value){
+    if(value === null || value === undefined || value === ''){ return null; }
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric) || numeric <= 0){ return null; }
+    return numeric;
+  }
+
+  function sanitizeColorState(value){
+    if(typeof value !== 'string'){ return null; }
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  function normalizeColorForCompare(value){
+    const sanitized = sanitizeColorState(value);
+    return sanitized ? sanitized.toLowerCase() : '';
+  }
+
+  function toColorInputValue(value){
+    const sanitized = sanitizeColorState(value);
+    if(!sanitized){ return '#000000'; }
+    const normalized = sanitized.toLowerCase();
+    if(/^#([0-9a-f]{6})$/.test(normalized)){
+      return normalized;
+    }
+    if(/^#([0-9a-f]{3})$/.test(normalized)){
+      const hex = normalized.slice(1);
+      return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+    }
+    return '#000000';
+  }
+
+  function getUndoScope(config){
+    if(!config){ return null; }
+    if(typeof config.undoScope === 'string' && config.undoScope){
+      return config.undoScope;
+    }
+    if(typeof config.scopeId === 'string' && config.scopeId){
+      return `${config.scopeId}GraphPanel`;
+    }
+    return null;
+  }
+
+  function updatePanelInputs(config){
+    if(!panelEl || !config || !tickInput || !thicknessInput || !colorInput){ return; }
+    const axisName = config.axis === 'y' ? 'Y axis' : 'X axis';
+    if(axisLabelEl){
+      axisLabelEl.textContent = axisName;
+    }
+    const tickSupported = config.isTickIntervalEnabled
+      ? !!config.isTickIntervalEnabled(config.axis)
+      : true;
+    const tickDisabledMessage = config.getTickIntervalDisabledMessage
+      ? config.getTickIntervalDisabledMessage(config.axis)
+      : (config.tickIntervalDisabledMessage || 'Tick interval available only for numeric axes.');
+    if(tickSupported){
+      if(config.axis === 'x'){
+        tickInput.step = '1';
+        tickInput.min = '1';
+      }else{
+        tickInput.step = '0.1';
+        tickInput.min = '0';
+      }
+      tickInput.disabled = false;
+      tickInput.placeholder = config.tickPlaceholder || 'Auto';
+      tickInput.title = '';
+      if(tickFieldEl){ tickFieldEl.dataset.disabled = '0'; }
+      const tickValueRaw = config.getTickInterval ? config.getTickInterval(config.axis) : null;
+      const tickValue = sanitizeTickValue(tickValueRaw);
+      tickInput.value = tickValue === null ? '' : String(tickValue);
+    }else{
+      tickInput.disabled = true;
+      tickInput.value = '';
+      tickInput.placeholder = 'Not available';
+      tickInput.title = tickDisabledMessage || '';
+      if(tickFieldEl){ tickFieldEl.dataset.disabled = '1'; }
+      logDebug('tick interval disabled',{ axis: config.axis, scopeId: config.scopeId, reason: tickDisabledMessage });
+    }
+    const thicknessValueRaw = config.getThickness ? config.getThickness() : null;
+    const thicknessValue = sanitizeThicknessValue(thicknessValueRaw);
+    thicknessInput.value = thicknessValue === null ? '' : String(thicknessValue);
+    const colorValueRaw = config.getColor ? config.getColor() : null;
+    colorInput.value = toColorInputValue(colorValueRaw);
+  }
+
+  function syncPanelInputsFromConfig(config){
+    if(!panelEl || panelEl.dataset.open !== '1'){ return; }
+    if(!configsMatch(activeConfig, config)){ return; }
+    updatePanelInputs(activeConfig);
+  }
+
+  function recordAxisStateChange(config, type, previousValue, nextValue, applyFn, equals){
+    const manager = getUndoManager();
+    if(!manager){ return; }
+    const compare = typeof equals === 'function'
+      ? equals
+      : ((a, b) => (a === b) || (a === null && b === null));
+    if(compare(previousValue, nextValue)){ return; }
+    const parts = ['axis'];
+    if(config?.scopeId){ parts.push(config.scopeId); }
+    if(config?.axis){ parts.push(config.axis); }
+    parts.push(type);
+    const label = parts.filter(Boolean).join(':');
+    manager.recordStateChange({
+      label,
+      scope: getUndoScope(config),
+      from: previousValue,
+      to: nextValue,
+      equals: compare,
+      apply(value){
+        applyingFromUndo = true;
+        try{
+          if(typeof applyFn === 'function'){
+            applyFn(value);
+          }
+        }finally{
+          applyingFromUndo = false;
+        }
+        syncPanelInputsFromConfig(config);
+        return true;
+      }
+    });
+  }
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -159,6 +309,7 @@
     tickInput.placeholder = 'Auto';
     tickInput.className = 'axis-controls-panel__input';
     tickInput.classList.add('axis-controls-panel__input--small');
+    tickInput.setAttribute('data-undo-ignore','1');
     tickField.appendChild(tickLabel);
     tickField.appendChild(tickInput);
     panelEl.appendChild(tickField);
@@ -178,6 +329,7 @@
     thicknessInput.placeholder = '1';
     thicknessInput.className = 'axis-controls-panel__input';
     thicknessInput.classList.add('axis-controls-panel__input--small');
+    thicknessInput.setAttribute('data-undo-ignore','1');
     thicknessField.appendChild(thicknessLabel);
     thicknessField.appendChild(thicknessInput);
     panelEl.appendChild(thicknessField);
@@ -191,6 +343,7 @@
     colorInput = doc.createElement('input');
     colorInput.type = 'color';
     colorInput.className = 'axis-controls-panel__color-input';
+    colorInput.setAttribute('data-undo-ignore','1');
     colorField.appendChild(colorLabel);
     colorField.appendChild(colorInput);
     panelEl.appendChild(colorField);
@@ -200,44 +353,82 @@
     }
 
     tickInput.addEventListener('change', () => {
+      if(applyingFromUndo){ return; }
       if(!activeConfig || tickInput.disabled){ return; }
+      const config = activeConfig;
       const raw = tickInput.value;
-      const value = raw === '' ? null : Number(raw);
-      logDebug('tick interval change',{ raw, value, axis: activeConfig.axis });
-      if(activeConfig.onTickIntervalChange){
-        activeConfig.onTickIntervalChange(value, activeConfig.axis);
+      const previousValue = sanitizeTickValue(config.getTickInterval ? config.getTickInterval(config.axis) : null);
+      const requestedValue = sanitizeTickValue(raw);
+      logDebug('tick interval change',{ raw, value: requestedValue, axis: config.axis });
+      if(config.onTickIntervalChange){
+        config.onTickIntervalChange(requestedValue, config.axis);
       }
-      const nextValue = activeConfig.getTickInterval ? activeConfig.getTickInterval(activeConfig.axis) : null;
-      if(nextValue === null || typeof nextValue === 'undefined' || Number.isNaN(nextValue)){
-        tickInput.value = '';
-      } else {
-        tickInput.value = String(nextValue);
-      }
+      const nextValue = sanitizeTickValue(config.getTickInterval ? config.getTickInterval(config.axis) : null);
+      syncPanelInputsFromConfig(config);
+      recordAxisStateChange(
+        config,
+        'tick',
+        previousValue,
+        nextValue,
+        value => {
+          if(config.onTickIntervalChange){
+            config.onTickIntervalChange(value, config.axis);
+          }
+        }
+      );
     });
 
     thicknessInput.addEventListener('change', () => {
+      if(applyingFromUndo){ return; }
       if(!activeConfig){ return; }
+      const config = activeConfig;
       const raw = thicknessInput.value;
-      const numeric = raw === '' ? null : Number(raw);
-      logDebug('thickness change',{ raw, numeric });
-      if(activeConfig.onThicknessChange){
-        activeConfig.onThicknessChange(numeric);
+      const previousValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
+      const requestedValue = sanitizeThicknessValue(raw);
+      logDebug('thickness change',{ raw, numeric: requestedValue });
+      if(config.onThicknessChange){
+        config.onThicknessChange(requestedValue);
       }
-      const nextThickness = activeConfig.getThickness ? activeConfig.getThickness() : null;
-      if(nextThickness === null || typeof nextThickness === 'undefined' || Number.isNaN(nextThickness)){
-        thicknessInput.value = '';
-      } else {
-        thicknessInput.value = String(nextThickness);
-      }
+      const nextValue = sanitizeThicknessValue(config.getThickness ? config.getThickness() : null);
+      syncPanelInputsFromConfig(config);
+      recordAxisStateChange(
+        config,
+        'thickness',
+        previousValue,
+        nextValue,
+        value => {
+          if(config.onThicknessChange){
+            config.onThicknessChange(value);
+          }
+        }
+      );
     });
 
     colorInput.addEventListener('input', () => {
+      if(applyingFromUndo){ return; }
       if(!activeConfig){ return; }
-      const value = colorInput.value || null;
-      logDebug('color change',{ value });
-      if(activeConfig.onColorChange){
-        activeConfig.onColorChange(value);
+      const config = activeConfig;
+      const previousValue = sanitizeColorState(config.getColor ? config.getColor() : null);
+      const raw = colorInput.value || null;
+      const requestedValue = sanitizeColorState(raw);
+      logDebug('color change',{ value: requestedValue });
+      if(config.onColorChange){
+        config.onColorChange(requestedValue);
       }
+      const nextValue = sanitizeColorState(config.getColor ? config.getColor() : null);
+      syncPanelInputsFromConfig(config);
+      recordAxisStateChange(
+        config,
+        'color',
+        previousValue,
+        nextValue,
+        value => {
+          if(config.onColorChange){
+            config.onColorChange(value);
+          }
+        },
+        (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
+      );
     });
 
     ensureDocumentListener();
@@ -383,46 +574,7 @@
       activeHost = null;
       logDebug('host unavailable for open',{ scopeId: config.scopeId });
     }
-    const axisName = config.axis === 'y' ? 'Y axis' : 'X axis';
-    axisLabelEl.textContent = axisName;
-    const tickSupported = config.isTickIntervalEnabled ? !!config.isTickIntervalEnabled(config.axis) : true;
-    const tickDisabledMessage = config.getTickIntervalDisabledMessage
-      ? config.getTickIntervalDisabledMessage(config.axis)
-      : (config.tickIntervalDisabledMessage || 'Tick interval available only for numeric axes.');
-    if(tickSupported){
-      if(config.axis === 'x'){
-        tickInput.step = '1';
-        tickInput.min = '1';
-      } else {
-        tickInput.step = '0.1';
-        tickInput.min = '0';
-      }
-      tickInput.disabled = false;
-      tickInput.placeholder = config.tickPlaceholder || 'Auto';
-      tickInput.title = '';
-      if(tickFieldEl){ tickFieldEl.dataset.disabled = '0'; }
-      const tickValue = config.getTickInterval ? config.getTickInterval(config.axis) : null;
-      if(tickValue === null || typeof tickValue === 'undefined' || tickValue === ''){
-        tickInput.value = '';
-      } else {
-        tickInput.value = String(tickValue);
-      }
-    } else {
-      tickInput.disabled = true;
-      tickInput.value = '';
-      tickInput.placeholder = 'Not available';
-      tickInput.title = tickDisabledMessage || '';
-      if(tickFieldEl){ tickFieldEl.dataset.disabled = '1'; }
-      logDebug('tick interval disabled',{ axis: config.axis, scopeId: config.scopeId, reason: tickDisabledMessage });
-    }
-    const thicknessValue = config.getThickness ? config.getThickness() : null;
-    if(thicknessValue === null || typeof thicknessValue === 'undefined' || Number.isNaN(thicknessValue)){
-      thicknessInput.value = '';
-    } else {
-      thicknessInput.value = String(thicknessValue);
-    }
-    const colorValue = config.getColor ? config.getColor() : null;
-    colorInput.value = colorValue || '#000000';
+    updatePanelInputs(config);
     panelEl.style.display = 'flex';
     panelEl.hidden = false;
     panelEl.dataset.open = '1';
