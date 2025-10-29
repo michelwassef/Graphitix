@@ -841,6 +841,53 @@
     labels: { title: getDefaultTitleForMethod('pca') },
     lastMethod: 'pca'
   };
+  const pcaUndoManager = Shared.undoManager || null;
+  function recordPcaChange(label, previous, next, apply){
+    if(!pcaUndoManager || typeof pcaUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(typeof apply !== 'function'){
+      return;
+    }
+    pcaUndoManager.recordStateChange({
+      label,
+      scope: 'pcaGraphPanel',
+      from: previous,
+      to: next,
+      apply(value){
+      apply(value);
+      return true;
+    }
+  });
+  }
+
+  function applyPcaTitleValue(node, value){
+    const nextValue = value != null ? String(value) : '';
+    pcaState.labels = pcaState.labels || {};
+    pcaState.labels.title = nextValue;
+    if(node && node.textContent !== nextValue){
+      node.textContent = nextValue;
+    }
+    scheduleDrawPca();
+  }
+
+  function applyPcaGroupColor(index, value){
+    const nextValue = value != null ? String(value) : '';
+    const colors = Array.isArray(pcaState.grouped?.colors) ? pcaState.grouped.colors : (pcaState.grouped.colors = []);
+    const previousValue = colors[index] || '';
+    if(nextValue){
+      if(previousValue === nextValue){
+        return true;
+      }
+      colors[index] = nextValue;
+    }else if(previousValue){
+      colors[index] = '';
+    }else{
+      return true;
+    }
+    scheduleDrawPca();
+    return true;
+  }
 
   function createDefaultAxisSettings(){
     return {
@@ -2206,6 +2253,22 @@
         }
       }
       let pcaLabelColors={};
+      const applyPcaLabelColor = (label, value) => {
+        const nextValue = value != null ? String(value) : '';
+        const previousValue = pcaLabelColors[label] || '';
+        if(nextValue){
+          if(previousValue === nextValue){
+            return true;
+          }
+          pcaLabelColors[label] = nextValue;
+        }else if(previousValue){
+          delete pcaLabelColors[label];
+        }else{
+          return true;
+        }
+        scheduleDrawPca?.();
+        return true;
+      };
       pcaAlphaVal.textContent=pcaAlpha.value;
       if(pcaViewMode){
         pcaViewMode.addEventListener('change',()=>{
@@ -2294,38 +2357,74 @@
         if(typeof Shared.openColorPicker !== 'function'){ return; }
         const initialColor = entry.color;
         let shapePicker = null;
+        let previousShape = null;
         if(Number.isInteger(entry.groupIndex)){
           const groupIndex = entry.groupIndex;
           ensurePcaGroupedDefaults();
           const currentShape = sanitizeGroupShape(pcaState.grouped.shapes?.[groupIndex], groupIndex);
           pcaState.grouped.shapes[groupIndex] = currentShape;
+          previousShape = currentShape;
+          const applyGroupShape = (shapeValue) => {
+            const sanitized = sanitizeGroupShape(shapeValue, groupIndex);
+            if(pcaState.grouped.shapes[groupIndex] === sanitized){
+              return true;
+            }
+            pcaState.grouped.shapes[groupIndex] = sanitized;
+            updateGroupedShapeInput(groupIndex, sanitized);
+            scheduleDrawPca?.();
+            return true;
+          };
           shapePicker = {
             value: currentShape,
             options: GROUP_SHAPE_OPTIONS,
             onChange(nextShape){
               const sanitized = sanitizeGroupShape(nextShape, groupIndex);
-              pcaState.grouped.shapes[groupIndex] = sanitized;
-              updateGroupedShapeInput(groupIndex, sanitized);
+              if(sanitized===previousShape){
+                return;
+              }
+              applyGroupShape(sanitized);
+              recordPcaChange(`pca:group-shape:${groupIndex}`, previousShape, sanitized, value => applyGroupShape(value));
+              previousShape = sanitized;
               debugLog('Debug: pca legend group shape change',{ groupIndex, shape: sanitized });
-              scheduleDrawPca?.();
             }
           };
         }
+        const applyLegendColor = (colorValue) => {
+          if(Number.isInteger(entry.groupIndex)){
+            const resolved = typeof colorValue === 'string' && colorValue ? colorValue : initialColor;
+            const index = entry.groupIndex;
+            applyPcaGroupColor(index, resolved);
+            updateGroupedColorInput(index, resolved);
+            debugLog('Debug: pca legend group color input',{ groupIndex: index, color: resolved });
+            return resolved;
+          }
+          if(entry.labelValue){
+            const resolved = typeof colorValue === 'string' && colorValue ? colorValue : initialColor;
+            applyPcaLabelColor(entry.labelValue, resolved);
+            debugLog('Debug: pca legend label color input',{ label: entry.labelValue, color: resolved });
+            return resolved;
+          }
+          scheduleDrawPca?.();
+          return typeof colorValue === 'string' && colorValue ? colorValue : initialColor;
+        };
+        let previousColor = initialColor;
         Shared.openColorPicker({
           anchor,
           color: initialColor,
           shapePicker,
           onInput(value){
-            const resolved = typeof value === 'string' && value ? value : initialColor;
-            if(Number.isInteger(entry.groupIndex)){
-              pcaState.grouped.colors[entry.groupIndex] = resolved;
-              updateGroupedColorInput(entry.groupIndex, resolved);
-              debugLog('Debug: pca legend group color input',{ groupIndex: entry.groupIndex, color: resolved });
-            } else if(entry.labelValue){
-              pcaLabelColors[entry.labelValue] = resolved;
-              debugLog('Debug: pca legend label color input',{ label: entry.labelValue, color: resolved });
+            previousColor = applyLegendColor(value);
+          },
+          onChange(value){
+            const nextValue = applyLegendColor(value);
+            if(nextValue === previousColor){
+              return;
             }
-            scheduleDrawPca?.();
+            recordPcaChange(`pca:legend-color:${entry.groupIndex != null ? entry.groupIndex : entry.labelValue || 'label'}`, previousColor, nextValue, val => {
+              applyLegendColor(val);
+              return true;
+            });
+            previousColor = nextValue;
           }
         });
       }
@@ -2377,13 +2476,17 @@
         if(!pcaState.labels || typeof pcaState.labels !== 'object'){
           pcaState.labels = { title: nextTitle };
         }
-        if(pcaState.labels.title !== nextTitle){
-          pcaState.labels.title = nextTitle;
-          debugLog('Debug: pca title updated',{ title: nextTitle, reason: reason || 'inline-edit' });
-          if(typeof scheduleDrawPca === 'function'){
-            scheduleDrawPca();
-          }
+        const previousTitle = pcaState.labels.title || fallbackTitle;
+        if(previousTitle === nextTitle){
+          return nextTitle;
         }
+        const applyTitle = (titleValue) => {
+          applyPcaTitleValue(null, titleValue);
+          return true;
+        };
+        applyTitle(nextTitle);
+        debugLog('Debug: pca title updated',{ title: nextTitle, reason: reason || 'inline-edit' });
+        recordPcaChange('pca:title', previousTitle, nextTitle, applyTitle);
         return nextTitle;
       };
       const rawViewMode = (pcaViewMode?.value || DEFAULT_VIEW_MODE).toLowerCase();

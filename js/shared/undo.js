@@ -3,11 +3,27 @@
   const Shared = global.Shared = global.Shared || {};
   const undoNamespace = Shared.undoManager = Shared.undoManager || {};
   if(undoNamespace.__installed){
-    console.debug('Debug: Shared.undoManager already installed');
+    undoDebug('Debug: Shared.undoManager already installed');
     return;
   }
   undoNamespace.__installed = true;
 
+  function undoDebug(message, payload){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(err){
+      // ignore toggle errors and log by default
+    }
+    if(arguments.length === 1){
+      console.debug(message);
+    }else{
+      console.debug(message, payload);
+    }
+  }
+
+  const STACK_LIMIT = 60;
   let stack = [];
   let pointer = -1;
   let applying = false;
@@ -96,7 +112,7 @@
       }else{
         el.value = state.value != null ? state.value : '';
       }
-      console.debug('Debug: undo applyState', { label: describeElement(el), reason, state });
+      undoDebug('Debug: undo applyState', { label: describeElement(el), reason, state });
       dispatchSyntheticEvent(el);
     }catch(err){
       console.error('Shared.undoManager applyState error', err);
@@ -113,7 +129,12 @@
     stack = stack.slice(0, pointer + 1);
     stack.push(entry);
     pointer = stack.length - 1;
-    console.debug('Debug: undo stack record', {
+    if(STACK_LIMIT > 0 && stack.length > STACK_LIMIT){
+      const removeCount = stack.length - STACK_LIMIT;
+      stack.splice(0, removeCount);
+      pointer = Math.max(-1, pointer - removeCount);
+    }
+    undoDebug('Debug: undo stack record', {
       label: entry.label,
       scope: entry.scope || null,
       length: stack.length,
@@ -126,9 +147,35 @@
     return recordAction(entry);
   };
 
+  undoNamespace.recordStateChange = function recordStateChange(opts){
+    if(!opts){
+      return false;
+    }
+    const apply = typeof opts.apply === 'function' ? opts.apply : null;
+    if(!apply){
+      return false;
+    }
+    const equals = typeof opts.equals === 'function' ? opts.equals : ((a, b) => a === b);
+    const before = opts.from;
+    const after = opts.to;
+    if(equals(before, after)){
+      return false;
+    }
+    const element = opts.element || null;
+    const label = opts.label || (element ? `state:${describeElement(element)}` : 'state-change');
+    const scope = opts.scope || (element ? inferScope(element) : null);
+    const entry = {
+      label,
+      scope,
+      undo: () => apply(before, 'undo'),
+      redo: () => apply(after, 'redo')
+    };
+    return recordAction(entry);
+  };
+
   undoNamespace.undo = function undo(){
     if(pointer < 0){
-      console.debug('Debug: undo stack empty on undo');
+      undoDebug('Debug: undo stack empty on undo');
       return false;
     }
     const currentIndex = pointer;
@@ -136,7 +183,7 @@
     pointer -= 1;
     let result = true;
     try{
-      console.debug('Debug: undo executing', { label: entry.label, pointer });
+      undoDebug('Debug: undo executing', { label: entry.label, pointer });
       result = entry.undo();
     }catch(err){
       console.error('Shared.undoManager undo error', err);
@@ -144,7 +191,7 @@
     }
     if(result === false){
       pointer = currentIndex;
-      console.debug('Debug: undo entry reported failure', { label: entry.label, pointer });
+      undoDebug('Debug: undo entry reported failure', { label: entry.label, pointer });
       return false;
     }
     return true;
@@ -152,7 +199,7 @@
 
   undoNamespace.redo = function redo(){
     if(pointer + 1 >= stack.length){
-      console.debug('Debug: undo stack empty on redo');
+      undoDebug('Debug: undo stack empty on redo');
       return false;
     }
     const previousPointer = pointer;
@@ -161,10 +208,10 @@
     let result = true;
     try{
       if(typeof entry.redo === 'function'){
-        console.debug('Debug: undo executing redo', { label: entry.label, pointer });
+        undoDebug('Debug: undo executing redo', { label: entry.label, pointer });
         result = entry.redo();
       }else if(typeof entry.undo === 'function'){
-        console.debug('Debug: undo fallback redo using undo()', { label: entry.label, pointer });
+        undoDebug('Debug: undo fallback redo using undo()', { label: entry.label, pointer });
         result = entry.undo();
       }
     }catch(err){
@@ -173,7 +220,7 @@
     }
     if(result === false){
       pointer = previousPointer;
-      console.debug('Debug: redo entry reported failure', { label: entry.label, pointer });
+      undoDebug('Debug: redo entry reported failure', { label: entry.label, pointer });
       return false;
     }
     return true;
@@ -182,7 +229,7 @@
   undoNamespace.clear = function clear(){
     stack = [];
     pointer = -1;
-    console.debug('Debug: undo stack cleared');
+    undoDebug('Debug: undo stack cleared');
   };
 
   function shouldTrackElement(el){
@@ -199,7 +246,7 @@
     if(!shouldTrackElement(el)) return;
     const state = readState(el);
     lastStates.set(el, state);
-    console.debug('Debug: undo stored initial state', { label: describeElement(el), state });
+    undoDebug('Debug: undo stored initial state', { label: describeElement(el), state });
   }
 
   function onFocusIn(event){
@@ -258,7 +305,7 @@
     if(handled){
       event.preventDefault();
     }else if(key === 'z' && allowNativeUndo(event.target)){
-      console.debug('Debug: native undo allowed to proceed');
+      undoDebug('Debug: native undo allowed to proceed');
     }
   }
 
@@ -267,7 +314,7 @@
     doc.addEventListener('focusin', onFocusIn, true);
     doc.addEventListener('change', handleChange, true);
     doc.addEventListener('keydown', handleKeydown, true);
-    console.debug('Debug: Shared.undoManager listeners attached');
+    undoDebug('Debug: Shared.undoManager listeners attached');
   }
 
 })(typeof window !== 'undefined' ? window : globalThis);

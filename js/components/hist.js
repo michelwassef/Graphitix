@@ -128,6 +128,25 @@
       showCdf: null
     }
   };
+  const histUndoManager = Shared.undoManager || null;
+  function recordHistChange(label, previous, next, apply){
+    if(!histUndoManager || typeof histUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(typeof apply !== 'function'){
+      return;
+    }
+    histUndoManager.recordStateChange({
+      label,
+      scope: 'histGraphPanel',
+      from: previous,
+      to: next,
+      apply(value){
+        apply(value);
+        return true;
+      }
+    });
+  }
 
   function ensureAxisSettings(){
     if(!state.axisSettings || typeof state.axisSettings !== 'object'){
@@ -1270,10 +1289,79 @@
       }
     }
     const xAxisBase=margin.top+plotH;
-    const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); xText.textContent=state.xLabelText; markFontEditable(xText,'xTitle','xTitle'); if(global.makeEditable) makeEditable(xText,txt=>{state.xLabelText=txt;});
+    const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    xText.textContent=state.xLabelText;
+    markFontEditable(xText,'xTitle','xTitle');
+    const applyHistXLabel=value=>{
+      const nextValue=value!=null?String(value):'';
+      state.xLabelText=nextValue;
+      if(xText.textContent!==nextValue){
+        xText.textContent=nextValue;
+      }
+      if(typeof state.scheduleDraw==='function'){
+        state.scheduleDraw();
+      }
+    };
+    if(global.makeEditable){
+      makeEditable(xText,txt=>{
+        const previous=state.xLabelText!=null?String(state.xLabelText):'';
+        const nextValue=txt!=null?String(txt):'';
+        if(previous===nextValue){
+          return;
+        }
+        applyHistXLabel(nextValue);
+        recordHistChange('hist:x-label',previous,nextValue,applyHistXLabel);
+      });
+    }
     const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
-    const yText=add('text',{x:yX,y:margin.top+plotH/2,'dominant-baseline':'middle',transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); yText.textContent=state.yLabelText; markFontEditable(yText,'yTitle','yTitle'); if(global.makeEditable) makeEditable(yText,txt=>{state.yLabelText=txt;});
-    const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR}); titleText.textContent=state.titleText; markFontEditable(titleText,'graphTitle','graphTitle'); if(global.makeEditable) makeEditable(titleText,txt=>{state.titleText=txt;});
+    const yText=add('text',{x:yX,y:margin.top+plotH/2,'dominant-baseline':'middle',transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    yText.textContent=state.yLabelText;
+    markFontEditable(yText,'yTitle','yTitle');
+    const applyHistYLabel=value=>{
+      const nextValue=value!=null?String(value):'';
+      state.yLabelText=nextValue;
+      if(yText.textContent!==nextValue){
+        yText.textContent=nextValue;
+      }
+      if(typeof state.scheduleDraw==='function'){
+        state.scheduleDraw();
+      }
+    };
+    if(global.makeEditable){
+      makeEditable(yText,txt=>{
+        const previous=state.yLabelText!=null?String(state.yLabelText):'';
+        const nextValue=txt!=null?String(txt):'';
+        if(previous===nextValue){
+          return;
+        }
+        applyHistYLabel(nextValue);
+        recordHistChange('hist:y-label',previous,nextValue,applyHistYLabel);
+      });
+    }
+    const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    titleText.textContent=state.titleText;
+    markFontEditable(titleText,'graphTitle','graphTitle');
+    const applyHistTitle=value=>{
+      const nextValue=value!=null?String(value):'';
+      state.titleText=nextValue;
+      if(titleText.textContent!==nextValue){
+        titleText.textContent=nextValue;
+      }
+      if(typeof state.scheduleDraw==='function'){
+        state.scheduleDraw();
+      }
+    };
+    if(global.makeEditable){
+      makeEditable(titleText,txt=>{
+        const previous=state.titleText!=null?String(state.titleText):'';
+        const nextValue=txt!=null?String(txt):'';
+        if(previous===nextValue){
+          return;
+        }
+        applyHistTitle(nextValue);
+        recordHistChange('hist:title',previous,nextValue,applyHistTitle);
+      });
+    }
     ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'hist-graph' });
     // Update stats panel
     const distributionSummaries = [];

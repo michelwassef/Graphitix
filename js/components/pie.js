@@ -218,6 +218,55 @@
     minSvgWidth: 0,
     axisSettings: createDefaultAxisSettings()
   };
+  const pieUndoManager = Shared.undoManager || null;
+  function recordPieChange(label, previous, next, apply){
+    if(!pieUndoManager || typeof pieUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(typeof apply !== 'function'){
+      return;
+    }
+    pieUndoManager.recordStateChange({
+      label,
+      scope: 'pieGraphPanel',
+      from: previous,
+      to: next,
+      apply(value){
+      apply(value);
+      return true;
+    }
+  });
+  }
+
+  function applyPieTitleValue(node, value){
+    const nextValue = value != null ? String(value) : '';
+    state.titleText = nextValue;
+    if(node && node.textContent !== nextValue){
+      node.textContent = nextValue;
+    }
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function applyPieColorValue(label, value){
+    const nextValue = value != null ? String(value) : '';
+    const previousValue = state.colors[label] || '';
+    if(nextValue){
+      if(previousValue === nextValue){
+        return true;
+      }
+      state.colors[label] = nextValue;
+    }else if(previousValue){
+      delete state.colors[label];
+    }else{
+      return true;
+    }
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+    return true;
+  }
 
   let pieLegendControl = null;
 
@@ -878,13 +927,22 @@
           swatch.addEventListener('click',(evt)=>{
             if(evt){ evt.stopPropagation(); }
             const currentColor=state.colors[lab] || palette[i % palette.length];
+            let previousColor=currentColor;
             Shared.openColorPicker({
               anchor: swatch,
               color: currentColor,
               onInput(value){
-                state.colors[lab]=value;
+                applyPieColorValue(lab,value);
                 console.debug('Debug: pie stacked legend color input',{label:lab,color:value});
-                state.scheduleDraw?.();
+              },
+              onChange(value){
+                const nextValue=value!=null?String(value):'';
+                if(nextValue===previousColor){
+                  return;
+                }
+                applyPieColorValue(lab,nextValue);
+                recordPieChange(`pie:legend-color:${lab}`,previousColor,nextValue,val=>applyPieColorValue(lab,val));
+                previousColor=nextValue;
               }
             });
           });
@@ -912,7 +970,17 @@
       title.setAttribute('font-size',fs);
       title.textContent=state.titleText;
       markFontEditable(title,'graphTitle','graphTitle');
-      if(global.makeEditable){ makeEditable(title,txt=>{state.titleText=txt;}); }
+      if(global.makeEditable){
+        makeEditable(title,txt=>{
+          const previous=state.titleText!=null?String(state.titleText):'';
+          const nextValue=txt!=null?String(txt):'';
+          if(previous===nextValue){
+            return;
+          }
+          applyPieTitleValue(title,nextValue);
+          recordPieChange('pie:title',previous,nextValue,value=>applyPieTitleValue(title,value));
+        });
+      }
       svg.appendChild(title);
       ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
       const vi=(parseInt($('#pieValueColumn').value||'1',10)-1);
@@ -1071,13 +1139,22 @@
         swatch.addEventListener('click',(evt)=>{
           if(evt){ evt.stopPropagation(); }
           const currentColor=state.colors[lab] || fillColor;
+          let previousColor=currentColor;
           Shared.openColorPicker({
             anchor: swatch,
             color: currentColor,
             onInput(value){
-              state.colors[lab]=value;
+              applyPieColorValue(lab,value);
               console.debug('Debug: pie legend color input',{label:lab,color:value});
-              state.scheduleDraw?.();
+            },
+            onChange(value){
+              const nextValue=value!=null?String(value):'';
+              if(nextValue===previousColor){
+                return;
+              }
+              applyPieColorValue(lab,nextValue);
+              recordPieChange(`pie:legend-color:${lab}`,previousColor,nextValue,val=>applyPieColorValue(lab,val));
+              previousColor=nextValue;
             }
           });
         });
@@ -1102,7 +1179,17 @@
     title.setAttribute('font-size',fs);
     title.textContent=state.titleText;
     markFontEditable(title,'graphTitle','graphTitle');
-    if(global.makeEditable){ makeEditable(title,txt=>{state.titleText=txt;}); }
+    if(global.makeEditable){
+      makeEditable(title,txt=>{
+        const previous=state.titleText!=null?String(state.titleText):'';
+        const nextValue=txt!=null?String(txt):'';
+        if(previous===nextValue){
+          return;
+        }
+        applyPieTitleValue(title,nextValue);
+        recordPieChange('pie:title',previous,nextValue,value=>applyPieTitleValue(title,value));
+      });
+    }
     svg.appendChild(title);
     const axisStrokeWidthBase = getAxisStrokeWidthBase();
     const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0.25 });

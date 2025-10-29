@@ -1663,6 +1663,25 @@
   }
   // Local state and element cache
   const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER };
+  const boxUndoManager = Shared.undoManager || null;
+  function recordBoxChange(label, previous, next, apply){
+    if(!boxUndoManager || typeof boxUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(typeof apply !== 'function'){
+      return;
+    }
+    boxUndoManager.recordStateChange({
+      label,
+      scope: 'boxGraphPanel',
+      from: previous,
+      to: next,
+      apply(value){
+        apply(value);
+        return true;
+      }
+    });
+  }
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
@@ -6917,7 +6936,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const yText = addAxisElement('text',{ x: yX, y: marginLocal.top + plotHLocal / 2, transform: `rotate(-90 ${yX} ${marginLocal.top + plotHLocal / 2})`, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
       yText.textContent = state.yLabelText;
       markFontEditable(yText,'yTitle','yTitle');
-      makeEditable(yText, txt => { state.yLabelText = txt; });
+      const applyBoxYLabel = value => {
+        const nextValue = value != null ? String(value) : '';
+        state.yLabelText = nextValue;
+        if(yText.textContent !== nextValue){
+          yText.textContent = nextValue;
+        }
+        state.scheduleDraw();
+      };
+      makeEditable(yText, txt => {
+        const previous = state.yLabelText != null ? String(state.yLabelText) : '';
+        const nextValue = txt != null ? String(txt) : '';
+        if(previous === nextValue){
+          return;
+        }
+        applyBoxYLabel(nextValue);
+        recordBoxChange('box:y-label', previous, nextValue, applyBoxYLabel);
+      });
       const stackedErrorQueue = [];
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
@@ -7417,7 +7452,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       const xLabel = addAxisElement('text',{ x: marginLocal.left + plotWLocal / 2, y: xAxisBottom + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.8, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
       xLabel.textContent = state.yLabelText;
-      makeEditable(xLabel, txt => { state.yLabelText = txt; });
+      const applyBoxXLabel = value => {
+        const nextValue = value != null ? String(value) : '';
+        state.yLabelText = nextValue;
+        if(xLabel.textContent !== nextValue){
+          xLabel.textContent = nextValue;
+        }
+        state.scheduleDraw();
+      };
+      makeEditable(xLabel, txt => {
+        const previous = state.yLabelText != null ? String(state.yLabelText) : '';
+        const nextValue = txt != null ? String(txt) : '';
+        if(previous === nextValue){
+          return;
+        }
+        applyBoxXLabel(nextValue);
+        recordBoxChange('box:x-label', previous, nextValue, applyBoxXLabel);
+      });
       function enableVerticalLabelDrag(t, idx){
         if(isGroupedMode){
           return;
@@ -7853,7 +7904,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const titleText = add('text',{ x: orientationResult.titleX, y: orientationResult.titleY, 'text-anchor': 'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR });
     titleText.textContent = state.titleText;
     markFontEditable(titleText,'graphTitle','graphTitle');
-    makeEditable(titleText, txt => { state.titleText = txt; });
+    const applyBoxTitle = value => {
+      const nextValue = value != null ? String(value) : '';
+      state.titleText = nextValue;
+      if(titleText.textContent !== nextValue){
+        titleText.textContent = nextValue;
+      }
+      state.scheduleDraw();
+    };
+    makeEditable(titleText, txt => {
+      const previous = state.titleText != null ? String(state.titleText) : '';
+      const nextValue = txt != null ? String(txt) : '';
+      if(previous === nextValue){
+        return;
+      }
+      applyBoxTitle(nextValue);
+      recordBoxChange('box:title', previous, nextValue, applyBoxTitle);
+    });
     if(showLegend && legendRenderer.entries.length){
       const plotRight = orientationResult.margin.left + orientationResult.plotW;
       const legendX = plotRight + legendGapPx;
