@@ -97,7 +97,8 @@
     shapeOptions: null,
     shapeValue: null,
     shapeOnChange: null,
-    shapeAllowed: null
+    shapeAllowed: null,
+    closeOnSelect: false
   };
 
   function isDebugEnabled(){
@@ -723,6 +724,9 @@
       return;
     }
     const rect = anchorEl.getBoundingClientRect();
+    if(!rect || (rect.width === 0 && rect.height === 0)){
+      return;
+    }
     const docEl = documentRef.documentElement;
     const scrollX = global.pageXOffset || docEl?.scrollLeft || 0;
     const scrollY = global.pageYOffset || docEl?.scrollTop || 0;
@@ -926,7 +930,9 @@
     if(final){
       dispatchChange(normalized, { source });
       addRecentColor(normalized);
-      closeOverlay('selection');
+      if(overlayState.closeOnSelect){
+        closeOverlay('selection');
+      }
     }
   }
 
@@ -952,6 +958,7 @@
     overlayState.shapeValue = null;
     overlayState.shapeOnChange = null;
     overlayState.shapeAllowed = null;
+    overlayState.closeOnSelect = false;
     if(overlayState.shapeSection){
       overlayState.shapeSection.hidden = true;
       overlayState.shapeSection.setAttribute('aria-hidden', 'true');
@@ -969,6 +976,7 @@
     overlayState.anchor = opts.anchor || opts.element || null;
 
     renderShapePicker(opts.shapePicker);
+    overlayState.closeOnSelect = opts && typeof opts.closeOnSelect === 'boolean' ? opts.closeOnSelect : false;
 
     if(opts.target && (typeof opts.target.onOverlayInput === 'function' || typeof opts.target.onOverlayChange === 'function')){
       ov.targetEl = opts.target;
