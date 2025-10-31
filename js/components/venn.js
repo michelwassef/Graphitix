@@ -410,6 +410,267 @@
 
   const state = createInitialState();
 
+  const vennUndoManager = Shared.undoManager || null;
+  const vennUndoDrafts = new WeakMap();
+
+  function prepareVennUndo(target, label) {
+    if (!target || !vennUndoManager) {
+      return null;
+    }
+    if (vennUndoDrafts.has(target)) {
+      const draft = vennUndoDrafts.get(target);
+      if (label && !draft.label) {
+        draft.label = label;
+      }
+      return draft;
+    }
+    const previous = captureVennSnapshot();
+    if (!previous) {
+      return null;
+    }
+    const draft = { previous, label: label || null };
+    vennUndoDrafts.set(target, draft);
+    return draft;
+  }
+
+  function commitVennUndo(target, label) {
+    if (!target || !vennUndoManager) {
+      return;
+    }
+    const draft = vennUndoDrafts.get(target);
+    if (!draft || !draft.previous) {
+      return;
+    }
+    vennUndoDrafts.delete(target);
+    const next = captureVennSnapshot();
+    const entryLabel = label || draft.label || 'venn:change';
+    recordVennChange(entryLabel, draft.previous, next);
+  }
+
+  function discardVennUndo(target) {
+    if (!target) {
+      return;
+    }
+    vennUndoDrafts.delete(target);
+  }
+
+  function attachUndoLifecycle(targets, label) {
+    resolveBindingTargets(targets).forEach(target => {
+      if (!target) {
+        return;
+      }
+      const prepare = () => prepareVennUndo(target, label);
+      target.addEventListener('beforeinput', prepare);
+      target.addEventListener('pointerdown', prepare);
+      target.addEventListener('keydown', prepare);
+      target.addEventListener('focus', prepare);
+      target.addEventListener('blur', () => discardVennUndo(target));
+    });
+  }
+
+  function cloneFontStyles(styles){
+    if(!styles || typeof styles !== 'object'){
+      return null;
+    }
+    try{
+      return JSON.parse(JSON.stringify(styles));
+    }catch(err){
+      const copy = {};
+      Object.keys(styles).forEach(key => {
+        copy[key] = styles[key];
+      });
+      return copy;
+    }
+  }
+
+  function cloneVennPayload(payload){
+    if(!payload) return null;
+    const data = payload.data ? { ...payload.data } : {};
+    const style = payload.style ? { ...payload.style } : {};
+    if(style.fontStyles){
+      style.fontStyles = cloneFontStyles(style.fontStyles);
+    }
+    return {
+      type: payload.type || 'venn',
+      data,
+      style
+    };
+  }
+
+  function captureVennSnapshot(){
+    const payload = getVennGraphPayload?.();
+    if(!payload){
+      return null;
+    }
+    const snapshot = {
+      payload: cloneVennPayload(payload),
+      lastDrawMode: state.analysis.lastDrawMode || null,
+      speciesValue: state.ui.speciesSelect ? state.ui.speciesSelect.value || '' : '',
+      speciesIndicator: state.ui.speciesSelect ? state.ui.speciesSelect.style?.backgroundColor || '' : '',
+      totalGenes: state.ui.totalGenesInput ? state.ui.totalGenesInput.value || '' : '',
+      significanceHtml: state.ui.significanceResults ? state.ui.significanceResults.innerHTML || '' : '',
+      lastSignificance: state.analysis.lastSignificance ? { ...state.analysis.lastSignificance } : null,
+      regionSelectValue: state.ui.regionSelect ? state.ui.regionSelect.value || '' : '',
+      fileName: state.persistence.fileName || 'venn.graph',
+      fileHandle: state.persistence.fileHandle || null
+    };
+    return snapshot;
+  }
+
+  function applyVennSnapshot(snapshot){
+    const inputs = state.ui.inputs;
+    if(!inputs || !snapshot || !snapshot.payload){
+      return false;
+    }
+    cancelPendingSpeciesDetection('undo-apply', { abortActive: true, resetIndicator: false });
+    const data = snapshot.payload.data || {};
+    const counts = inputs.counts || {};
+    inputs.labelA.value = data.labelA != null ? String(data.labelA) : '';
+    inputs.labelB.value = data.labelB != null ? String(data.labelB) : '';
+    inputs.labelC.value = data.labelC != null ? String(data.labelC) : '';
+    inputs.A.value = data.listA != null ? String(data.listA) : '';
+    inputs.B.value = data.listB != null ? String(data.listB) : '';
+    inputs.C.value = data.listC != null ? String(data.listC) : '';
+    if(counts.nA) counts.nA.value = data.nA != null ? String(data.nA) : '';
+    if(counts.nB) counts.nB.value = data.nB != null ? String(data.nB) : '';
+    if(counts.nC) counts.nC.value = data.nC != null ? String(data.nC) : '';
+    if(counts.nAB) counts.nAB.value = data.nAB != null ? String(data.nAB) : '';
+    if(counts.nAC) counts.nAC.value = data.nAC != null ? String(data.nAC) : '';
+    if(counts.nBC) counts.nBC.value = data.nBC != null ? String(data.nBC) : '';
+    if(counts.nABC) counts.nABC.value = data.nABC != null ? String(data.nABC) : '';
+    const style = snapshot.payload.style || {};
+    importFontStyles('venn', style.fontStyles || null);
+    if(style.colorA != null && inputs.colorA){ inputs.colorA.value = style.colorA; }
+    if(style.colorB != null && inputs.colorB){ inputs.colorB.value = style.colorB; }
+    if(style.colorC != null && inputs.colorC){ inputs.colorC.value = style.colorC; }
+    if(style.opacity != null && inputs.opacity){ inputs.opacity.value = style.opacity; }
+    if(inputs.opacityVal){ inputs.opacityVal.textContent = inputs.opacity.value; }
+    if(style.borderColor != null && inputs.borderColor){ inputs.borderColor.value = style.borderColor; }
+    if(style.borderWidth != null && inputs.borderWidth){ inputs.borderWidth.value = style.borderWidth; }
+    if(inputs.borderWidthVal){ inputs.borderWidthVal.textContent = inputs.borderWidth.value; }
+    const fontBase = (style.fontsize !== undefined && style.fontsize !== null)
+      ? style.fontsize
+      : inputs.fontsize?.dataset?.fontBasePt || inputs.fontsize?.value;
+    if(inputs.fontsize){
+      if(inputs.fontsize.dataset && fontBase !== undefined){
+        inputs.fontsize.dataset.fontBasePt = String(fontBase);
+      }
+      const fontInfo = resolveFontInfo(fontBase);
+      inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
+      chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
+    }
+    state.analysis.lastDrawMode = snapshot.lastDrawMode || null;
+    state.analysis.lastSignificance = snapshot.lastSignificance ? { ...snapshot.lastSignificance } : null;
+    if(state.ui.significanceResults){
+      state.ui.significanceResults.innerHTML = snapshot.significanceHtml || '';
+    }
+    if(state.ui.speciesSelect){
+      state.ui.speciesSelect.value = snapshot.speciesValue || '';
+      state.ui.speciesSelect.style.backgroundColor = snapshot.speciesIndicator || '';
+    }
+    if(state.ui.totalGenesInput){
+      state.ui.totalGenesInput.value = snapshot.totalGenes || '';
+    }
+    if(state.ui.regionSelect){
+      const targetValue = snapshot.regionSelectValue || '';
+      if(targetValue){
+        state.ui.regionSelect.value = targetValue;
+      }
+    }
+    state.persistence.fileName = snapshot.fileName || state.persistence.fileName;
+    state.persistence.fileHandle = snapshot.fileHandle || null;
+    refreshDiagram();
+    if(state.ui.regionSelect){
+      const targetValue = snapshot.regionSelectValue || '';
+      if(targetValue){
+        state.ui.regionSelect.value = targetValue;
+        populateRegion(targetValue);
+      } else {
+        populateRegion(state.ui.regionSelect.value);
+      }
+    }
+    if(state.ui.significanceResults){
+      state.ui.significanceResults.innerHTML = snapshot.significanceHtml || '';
+    }
+    state.analysis.lastSignificance = snapshot.lastSignificance ? { ...snapshot.lastSignificance } : null;
+    if(state.ui.speciesSelect){
+      state.ui.speciesSelect.value = snapshot.speciesValue || '';
+      state.ui.speciesSelect.style.backgroundColor = snapshot.speciesIndicator || '';
+    }
+    return true;
+  }
+
+  function normalizeValue(value){
+    return value == null ? '' : String(value);
+  }
+
+  function vennSnapshotsEqual(a, b){
+    if(a === b) return true;
+    if(!a || !b) return false;
+    const dataKeys = ['labelA','labelB','labelC','listA','listB','listC','nA','nB','nC','nAB','nAC','nBC','nABC'];
+    const dataA = a.payload?.data || {};
+    const dataB = b.payload?.data || {};
+    for(const key of dataKeys){
+      if(normalizeValue(dataA[key]) !== normalizeValue(dataB[key])){
+        return false;
+      }
+    }
+    const styleKeys = ['colorA','colorB','colorC','opacity','fontsize','borderColor','borderWidth'];
+    const styleA = a.payload?.style || {};
+    const styleB = b.payload?.style || {};
+    for(const key of styleKeys){
+      if(normalizeValue(styleA[key]) !== normalizeValue(styleB[key])){
+        return false;
+      }
+    }
+    const fontStylesA = styleA.fontStyles || null;
+    const fontStylesB = styleB.fontStyles || null;
+    if(fontStylesA || fontStylesB){
+      const strA = JSON.stringify(fontStylesA || {});
+      const strB = JSON.stringify(fontStylesB || {});
+      if(strA !== strB){
+        return false;
+      }
+    }
+    if(normalizeValue(a.lastDrawMode) !== normalizeValue(b.lastDrawMode)) return false;
+    if(normalizeValue(a.speciesValue) !== normalizeValue(b.speciesValue)) return false;
+    if(normalizeValue(a.speciesIndicator) !== normalizeValue(b.speciesIndicator)) return false;
+    if(normalizeValue(a.totalGenes) !== normalizeValue(b.totalGenes)) return false;
+    if(normalizeValue(a.significanceHtml) !== normalizeValue(b.significanceHtml)) return false;
+    if(normalizeValue(a.regionSelectValue) !== normalizeValue(b.regionSelectValue)) return false;
+    if(normalizeValue(a.fileName) !== normalizeValue(b.fileName)) return false;
+    if(a.fileHandle !== b.fileHandle) return false;
+    const sigA = a.lastSignificance || null;
+    const sigB = b.lastSignificance || null;
+    if(sigA || sigB){
+      if(normalizeValue(sigA?.countsSignature) !== normalizeValue(sigB?.countsSignature)) return false;
+      if(normalizeValue(sigA?.total) !== normalizeValue(sigB?.total)) return false;
+    }
+    return true;
+  }
+
+  function recordVennChange(label, previous, next){
+    if(!vennUndoManager || typeof vennUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(!previous || !next){
+      return;
+    }
+    if(vennSnapshotsEqual(previous, next)){
+      return;
+    }
+    vennUndoManager.recordStateChange({
+      label,
+      scope: 'vennInputPanel',
+      from: previous,
+      to: next,
+      equals: vennSnapshotsEqual,
+      apply(value){
+        return applyVennSnapshot(value);
+      }
+    });
+  }
+
   const DEFAULT_STAGE_WIDTH = 500;
   const DEFAULT_STAGE_HEIGHT = 340;
   const DEFAULT_STAGE_RATIO = DEFAULT_STAGE_WIDTH / DEFAULT_STAGE_HEIGHT;
@@ -2566,11 +2827,12 @@
       console.error('openVennFile missing fileIO.openGraphFile');
       return;
     }
+    const previous = captureVennSnapshot();
     const result = await fileIO.openGraphFile({
       context: 'venn',
       setFileHandle: handle => { state.persistence.fileHandle = handle; },
       setFileName: name => { state.persistence.fileName = name; },
-      loadFromFile: file => venn.loadFromFile(file),
+      loadFromFile: file => venn.loadFromFile(file, { undo: { previous } }),
       triggerInput: () => {
         const input = document.getElementById('vennGraphFile');
         if (input) {
@@ -2582,13 +2844,17 @@
     console.debug('Debug: venn.open result', result);
   };
 
-  venn.loadFromFile = function (file) {
+  venn.loadFromFile = function (file, options = {}) {
+    const undoPrevious = options?.undo?.previous || captureVennSnapshot();
     const reader = new FileReader();
     reader.onload = e => {
       try {
         const obj = JSON.parse(e.target.result);
         console.log('loadVennGraph', obj);
         if (obj.type !== 'venn') throw new Error('Invalid graph type');
+        if (file && typeof file.name === 'string') {
+          state.persistence.fileName = file.name;
+        }
         const inputs = state.ui.inputs;
         if (!inputs) return;
         const d = obj.data || {};
@@ -2628,6 +2894,8 @@
           console.debug('Debug: venn loadFromFile font fallback', { fontInfo });
         }
         refreshDiagram();
+        const next = captureVennSnapshot();
+        recordVennChange('venn:load-file', undoPrevious, next);
       } catch (err) { console.error('loadVennGraph error', err); }
     };
     reader.readAsText(file);
@@ -2640,14 +2908,19 @@
     console.debug('Debug: venn handlePlainPaste', { length: text.length }); // Debug: normalized paste text length
   }
 
-  function handleOpacityInput() {
+  function handleOpacityInput(event) {
+    const target = event?.currentTarget || state.ui.inputs.opacity;
     state.ui.inputs.opacityVal.textContent = state.ui.inputs.opacity.value;
     refreshDiagram();
     saveStylePrefs();
     console.debug('Debug: venn handleOpacityInput', { value: state.ui.inputs.opacity.value }); // Debug: opacity slider change
+    commitVennUndo(target, 'venn:opacity');
+    if (target) {
+      prepareVennUndo(target, 'venn:opacity');
+    }
   }
 
-  function handleFontsizeInput() {
+  function handleFontsizeInput(event) {
     const raw = state.ui.inputs.fontsize.value;
     if (state.ui.inputs.fontsize.dataset) {
       state.ui.inputs.fontsize.dataset.fontBasePt = String(raw);
@@ -2659,29 +2932,45 @@
     console.debug('Debug: venn fontsize slider change', { raw, fontInfo });
     refreshDiagram();
     saveStylePrefs();
+    const target = event?.currentTarget || state.ui.inputs.fontsize;
+    commitVennUndo(target, 'venn:fontsize');
+    if (target) {
+      prepareVennUndo(target, 'venn:fontsize');
+    }
   }
 
-  function handleColorInput() {
+  function handleColorInput(event) {
     refreshDiagram();
     saveStylePrefs();
     console.debug('Debug: venn handleColorInput'); // Debug: color change trigger
+    const target = event?.currentTarget || null;
+    const label = target?.id ? `venn:${target.id}` : 'venn:color';
+    if (target) {
+      commitVennUndo(target, label);
+    }
   }
 
-  function handleBorderColorInput() {
+  function handleBorderColorInput(event) {
     refreshDiagram();
     saveStylePrefs();
     console.debug('Debug: venn handleBorderColorInput'); // Debug: border color update
+    commitVennUndo(event?.currentTarget || state.ui.inputs.borderColor, 'venn:border-color');
   }
 
-  function handleBorderWidthInput() {
+  function handleBorderWidthInput(event) {
+    const target = event?.currentTarget || state.ui.inputs.borderWidth;
     state.ui.inputs.borderWidthVal.textContent = state.ui.inputs.borderWidth.value;
     refreshDiagram();
     saveStylePrefs();
     console.debug('Debug: venn handleBorderWidthInput', { value: state.ui.inputs.borderWidth.value }); // Debug: border width change
+    commitVennUndo(target, 'venn:border-width');
+    if (target) {
+      prepareVennUndo(target, 'venn:border-width');
+    }
   }
 
   function createLabelInputHandler(id) {
-    return function labelInputHandler() {
+    return function labelInputHandler(event) {
       const labels = {
         A: state.ui.inputs.labelA.value || 'A',
         B: state.ui.inputs.labelB.value || 'B',
@@ -2692,17 +2981,21 @@
       updateCountLabels(labels);
       requestScheduledDraw(`label-input-${id}`);
       console.debug('Debug: venn labelInputHandler', { id, labels }); // Debug: label input change
+      const target = event?.currentTarget || state.ui.inputs[id];
+      commitVennUndo(target, `venn:label-${id}`);
     };
   }
 
-  function handleCaseSensitiveChange() {
+  function handleCaseSensitiveChange(event) {
     requestScheduledDraw('case-sensitive-toggle', 'lists');
     console.debug('Debug: venn handleCaseSensitiveChange'); // Debug: case sensitivity toggle
+    commitVennUndo(event?.currentTarget || state.ui.inputs.caseSensitive, 'venn:case-sensitive');
   }
 
-  function handleDelimiterChange() {
+  function handleDelimiterChange(event) {
     requestScheduledDraw('delimiter-change', 'lists');
     console.debug('Debug: venn handleDelimiterChange'); // Debug: delimiter change
+    commitVennUndo(event?.currentTarget || state.ui.inputs.delimiter, 'venn:delimiter');
   }
 
   function initializeLabelState() {
@@ -2744,20 +3037,24 @@
   }
 
   function createListInputHandler(key) {
-    return function listInputHandler() {
+    return function listInputHandler(event) {
       if (state.ui.speciesSelect) { state.ui.speciesSelect.value = ''; }
       setSpeciesIndicator(null);
       requestScheduledDraw(`list-input-${key}`, 'lists');
       scheduleSpeciesRecognition(`list-input-${key}`);
       console.debug('Debug: venn listInputHandler', { key }); // Debug: list input change
+      const target = event?.currentTarget || state.ui.inputs[key];
+      commitVennUndo(target, `venn:list-${key}`);
     };
   }
 
   function createNumericInputHandler(key) {
-    return function numericInputHandler() {
+    return function numericInputHandler(event) {
       requestScheduledDraw(`numeric-input-${key}`, 'numeric');
       cancelPendingSpeciesDetection(`numeric-input-${key}`, { abortActive: true, resetIndicator: true });
       console.debug('Debug: venn numericInputHandler', { key }); // Debug: numeric input change
+      const target = event?.currentTarget || state.ui.inputs.counts[key];
+      commitVennUndo(target, `venn:numeric-${key}`);
     };
   }
 
@@ -2958,14 +3255,16 @@
   function handleGraphFileChange(e) {
     const f = e.target.files[0];
     if (f) {
+      const previous = captureVennSnapshot();
       state.persistence.fileName = f.name;
       state.persistence.fileHandle = null;
-      venn.loadFromFile(f);
+      venn.loadFromFile(f, { undo: { previous } });
       console.debug('Debug: venn handleGraphFileChange', { fileName: f.name }); // Debug: graph file change
     }
   }
 
   function handleSampleClick() {
+    const previous = captureVennSnapshot();
     state.ui.inputs.labelA.value = 'Transcriptomic';
     state.ui.inputs.labelB.value = 'Proteomic';
     state.ui.inputs.labelC.value = 'Phospho';
@@ -2977,10 +3276,13 @@
     setSpeciesIndicator(null);
     refreshDiagram();
     scheduleSpeciesRecognition('sample-data');
+    const next = captureVennSnapshot();
+    recordVennChange('venn:sample-data', previous, next);
     console.debug('Debug: venn handleSampleClick'); // Debug: sample data loaded
   }
 
   function handleResetClick() {
+    const previous = captureVennSnapshot();
     console.debug('Debug: venn reset handler invoked');
     state.ui.inputs.A.value = '';
     state.ui.inputs.B.value = '';
@@ -3011,6 +3313,8 @@
     detection.cache.clear();
     detection.pendingReason = null;
     debugLog('reset handler completed', { defaultLabels });
+    const next = captureVennSnapshot();
+    recordVennChange('venn:reset', previous, next);
   }
 
   function registerEventHandlers() {
@@ -3042,6 +3346,25 @@
       { selector: '#sample', type: 'click', handler: handleSampleClick, label: 'sample' },
       { selector: '#reset', type: 'click', handler: handleResetClick, label: 'reset' }
     ]);
+
+    attachUndoLifecycle(inputs.A, 'venn:list-A');
+    attachUndoLifecycle(inputs.B, 'venn:list-B');
+    attachUndoLifecycle(inputs.C, 'venn:list-C');
+    attachUndoLifecycle(inputs.labelA, 'venn:label-labelA');
+    attachUndoLifecycle(inputs.labelB, 'venn:label-labelB');
+    attachUndoLifecycle(inputs.labelC, 'venn:label-labelC');
+    Object.entries(inputs.counts).forEach(([key, el]) => {
+      attachUndoLifecycle(el, `venn:numeric-${key}`);
+    });
+    attachUndoLifecycle(inputs.opacity, 'venn:opacity');
+    attachUndoLifecycle(inputs.fontsize, 'venn:fontsize');
+    attachUndoLifecycle(inputs.borderWidth, 'venn:border-width');
+    attachUndoLifecycle(inputs.borderColor, 'venn:border-color');
+    attachUndoLifecycle(inputs.colorA, 'venn:colorA');
+    attachUndoLifecycle(inputs.colorB, 'venn:colorB');
+    attachUndoLifecycle(inputs.colorC, 'venn:colorC');
+    attachUndoLifecycle(inputs.caseSensitive, 'venn:case-sensitive');
+    attachUndoLifecycle(inputs.delimiter, 'venn:delimiter');
 
     ['labelA', 'labelB', 'labelC'].forEach(id => {
       bindEventHandlers([{ elements: inputs[id], type: 'input', handler: createLabelInputHandler(id), label: `${id}-input` }]);
