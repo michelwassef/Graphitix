@@ -27,6 +27,7 @@
   let stack = [];
   let pointer = -1;
   let applying = false;
+  const listeners = new Set();
 
   const lastStates = new WeakMap();
 
@@ -122,6 +123,28 @@
     }
   }
 
+  function getStateSnapshot(reason){
+    return {
+      canUndo: pointer >= 0,
+      canRedo: pointer + 1 < stack.length,
+      reason: reason || 'state'
+    };
+  }
+
+  function notifyChange(reason){
+    if(!listeners.size){
+      return;
+    }
+    const snapshot = getStateSnapshot(reason);
+    listeners.forEach(listener => {
+      try {
+        listener(snapshot);
+      } catch(err){
+        console.error('Shared.undoManager listener error', err);
+      }
+    });
+  }
+
   function recordAction(entry){
     if(!entry || typeof entry.undo !== 'function'){
       return false;
@@ -140,6 +163,7 @@
       length: stack.length,
       pointer
     });
+    notifyChange('record');
     return true;
   }
 
@@ -194,6 +218,7 @@
       undoDebug('Debug: undo entry reported failure', { label: entry.label, pointer });
       return false;
     }
+    notifyChange('undo');
     return true;
   };
 
@@ -223,6 +248,7 @@
       undoDebug('Debug: redo entry reported failure', { label: entry.label, pointer });
       return false;
     }
+    notifyChange('redo');
     return true;
   };
 
@@ -230,6 +256,7 @@
     stack = [];
     pointer = -1;
     undoDebug('Debug: undo stack cleared');
+    notifyChange('clear');
   };
 
   function shouldTrackElement(el){
@@ -316,5 +343,28 @@
     doc.addEventListener('keydown', handleKeydown, true);
     undoDebug('Debug: Shared.undoManager listeners attached');
   }
+
+  undoNamespace.canUndo = function canUndo(){
+    return pointer >= 0;
+  };
+
+  undoNamespace.canRedo = function canRedo(){
+    return pointer + 1 < stack.length;
+  };
+
+  undoNamespace.onChange = function onChange(listener){
+    if(typeof listener !== 'function'){
+      return function noop(){ };
+    }
+    listeners.add(listener);
+    try {
+      listener(getStateSnapshot('subscribe'));
+    } catch(err){
+      console.error('Shared.undoManager listener error', err);
+    }
+    return function unsubscribe(){
+      listeners.delete(listener);
+    };
+  };
 
 })(typeof window !== 'undefined' ? window : globalThis);
