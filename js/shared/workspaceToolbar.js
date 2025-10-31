@@ -9,12 +9,17 @@
     import: 'M5 4a2 2 0 0 0-2 2v3h2V6h14v4h2V6a2 2 0 0 0-2-2H5Zm7 4.75a.75.75 0 0 0-.75.75v4.19l-1.47-1.47-1.06 1.06 3 3a.75.75 0 0 0 1.06 0l3-3-1.06-1.06-1.47 1.47V9.5a.75.75 0 0 0-.75-.75ZM4 17v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1h-2v1H6v-1H4Z',
     save: 'M5.75 3A1.75 1.75 0 0 0 4 4.75v14.5A1.75 1.75 0 0 0 5.75 21h12.5A1.75 1.75 0 0 0 20 19.25V8.06a1.75 1.75 0 0 0-.51-1.24l-2.31-2.31A1.75 1.75 0 0 0 15.94 4H5.75Zm1.75 1.5h8.19l2.06 2.06V8H14a1 1 0 0 1-1-1V4.5H7.5V7a.5.5 0 0 1-.5.5H5.5V4.75A.75.75 0 0 1 6.25 4h1.25v.5ZM6 9.5h12v9.75a.75.75 0 0 1-.75.75H6.75a.75.75 0 0 1-.75-.75V9.5Zm3 3.25v4.5h6v-4.5H9Z',
     saveAs: 'M5.75 3A1.75 1.75 0 0 0 4 4.75v14.5A1.75 1.75 0 0 0 5.75 21h12.5A1.75 1.75 0 0 0 20 19.25V8.06a1.75 1.75 0 0 0-.51-1.24l-2.31-2.31A1.75 1.75 0 0 0 15.94 4H5.75ZM6 9.5h12v9.75a.75.75 0 0 1-.75.75H6.75a.75.75 0 0 1-.75-.75V9.5Zm9-5v3a1 1 0 0 0 1 1h3v-.44a.75.75 0 0 0-.22-.53L16.47 4.22a.75.75 0 0 0-.53-.22H15Zm-3.75 8a.75.75 0 0 1 .75.75V14h1.75a.75.75 0 0 1 0 1.5H12V17.25a.75.75 0 0 1-1.5 0V15.5H8.75a.75.75 0 0 1 0-1.5H10V12.25a.75.75 0 0 1 .75-.75Z',
-    example: 'M12 4a4 4 0 0 0-4 4H5.5a.5.5 0 0 0-.35.85l3 3a.5.5 0 0 0 .7 0l3-3A.5.5 0 0 0 11.5 8H9.5a2.5 2.5 0 1 1 2.5 2.5h-.5v2h.5a4.5 4.5 0 1 0-4.36-6H9a3 3 0 1 1 3 3h-.5v2.5a.5.5 0 0 0 .85.35l3-3a.5.5 0 0 0 0-.7l-3-3a.5.5 0 0 0-.85.35V8A4 4 0 0 0 12 4Zm-6 12h12v2H6v-2Z'
+    example: 'M12 4a4 4 0 0 0-4 4H5.5a.5.5 0 0 0-.35.85l3 3a.5.5 0 0 0 .7 0l3-3A.5.5 0 0 0 11.5 8H9.5a2.5 2.5 0 1 1 2.5 2.5h-.5v2h.5a4.5 4.5 0 1 0-4.36-6H9a3 3 0 1 1 3 3h-.5v2.5a.5.5 0 0 0 .85.35l3-3a.5.5 0 0 0 0-.7l-3-3a.5.5 0 0 0-.85.35V8A4 4 0 0 0 12 4Zm-6 12h12v2H6v-2Z',
+    undo: 'M7.75 7.53 3.53 11.75a.75.75 0 0 0 0 1.06l4.22 4.22.7-.7-3-3H13a5 5 0 1 1 0 10 .75.75 0 0 0 0 1.5 6.5 6.5 0 1 0 0-13H5.45l3 3 .7-.7-3.4-3.4-1-.98Z',
+    redo: 'M16.25 7.53 20.47 11.75a.75.75 0 0 1 0 1.06l-4.22 4.22-.7-.7 3-3H11a5 5 0 1 0 0 10 .75.75 0 0 1 0 1.5 6.5 6.5 0 1 1 0-13h6.55l-3-3 .7-.7Z'
   });
 
   const DEFAULT_HINT = 'Select chart text or an axis to reveal typography and tick options.';
   const NS = 'http://www.w3.org/2000/svg';
   const toolbarConfigs = new Map();
+  const UNDO_BUTTON_SELECTOR = 'button[data-undo-command="undo"]';
+  const REDO_BUTTON_SELECTOR = 'button[data-undo-command="redo"]';
+  let undoSubscriptionCleanup = null;
 
   function logDebug(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -47,6 +52,16 @@
     if(config.id){ button.id = config.id; }
     const ariaLabel = config.ariaLabel || config.label || null;
     if(ariaLabel){ button.setAttribute('aria-label', ariaLabel); }
+    if(config.title){ button.title = config.title; }
+    if(config.disabled){ button.disabled = true; }
+    if(config.dataset){
+      Object.keys(config.dataset).forEach(key => {
+        const value = config.dataset[key];
+        if(value !== undefined && value !== null){
+          button.dataset[key] = String(value);
+        }
+      });
+    }
 
     const iconWrap = doc.createElement('span');
     iconWrap.className = 'workspace-toolbar__icon';
@@ -214,6 +229,57 @@
     return toolbar;
   }
 
+  function getUndoManager(){
+    return Shared.undoManager || null;
+  }
+
+  function syncUndoButtonsAvailability(state){
+    if(!doc){ return; }
+    const manager = getUndoManager();
+    let canUndo = false;
+    let canRedo = false;
+    if(state && typeof state.canUndo === 'boolean' && typeof state.canRedo === 'boolean'){
+      canUndo = state.canUndo;
+      canRedo = state.canRedo;
+    }else if(manager){
+      if(typeof manager.canUndo === 'function'){ canUndo = !!manager.canUndo(); }
+      if(typeof manager.canRedo === 'function'){ canRedo = !!manager.canRedo(); }
+    }
+    doc.querySelectorAll(UNDO_BUTTON_SELECTOR).forEach(btn => {
+      btn.disabled = !canUndo;
+    });
+    doc.querySelectorAll(REDO_BUTTON_SELECTOR).forEach(btn => {
+      btn.disabled = !canRedo;
+    });
+  }
+
+  function ensureUndoSubscription(){
+    if(undoSubscriptionCleanup){ return; }
+    const manager = getUndoManager();
+    if(!manager || typeof manager.onChange !== 'function'){ return; }
+    undoSubscriptionCleanup = manager.onChange(snapshot => {
+      syncUndoButtonsAvailability(snapshot || null);
+    });
+  }
+
+  function handleUndoCommandClick(event){
+    if(!doc){ return; }
+    const trigger = event.target.closest('[data-undo-command]');
+    if(!trigger){ return; }
+    const manager = getUndoManager();
+    if(!manager){ return; }
+    const command = trigger.dataset.undoCommand;
+    let handler = null;
+    if(command === 'undo'){ handler = manager.undo; }
+    if(command === 'redo'){ handler = manager.redo; }
+    if(typeof handler !== 'function'){ return; }
+    if(trigger.disabled){ return; }
+    event.preventDefault();
+    const result = handler.call(manager);
+    if(result === false){ return; }
+    syncUndoButtonsAvailability();
+  }
+
   function renderToolbarForElement(container){
     if(!container || !doc){ return; }
     const key = container.dataset?.toolbar || '';
@@ -242,12 +308,16 @@
     }
     container.dataset.toolbarRendered = '1';
     logDebug('rendered toolbar', { key });
+    ensureUndoSubscription();
+    syncUndoButtonsAvailability();
   }
 
   function renderAllToolbars(){
     if(!doc){ return; }
     const containers = doc.querySelectorAll('.workspace-page__topbar[data-toolbar]');
     containers.forEach(renderToolbarForElement);
+    ensureUndoSubscription();
+    syncUndoButtonsAvailability();
   }
 
   function registerToolbar(key, config){
@@ -266,7 +336,27 @@
   workspaceToolbar.renderForElement = renderToolbarForElement;
 
   if(doc){
-    const button = (id, label, icon) => ({ id, label, icon });
+    const button = (id, label, icon, options) => Object.assign({ id, label, icon }, options || {});
+    const capitalize = (value) => value ? value.charAt(0).toUpperCase() + value.slice(1) : '';
+    const history = (key) => ({
+      type: 'buttons',
+      caption: 'History',
+      ariaLabel: 'Undo and redo actions',
+      buttons: [
+        button(`undo${capitalize(key)}`, 'Undo', 'undo', {
+          ariaLabel: 'Undo last change',
+          title: 'Undo (Ctrl+Z)',
+          dataset: { undoCommand: 'undo' },
+          disabled: true
+        }),
+        button(`redo${capitalize(key)}`, 'Redo', 'redo', {
+          ariaLabel: 'Redo last change',
+          title: 'Redo (Ctrl+Shift+Z or Ctrl+Y)',
+          dataset: { undoCommand: 'redo' },
+          disabled: true
+        })
+      ]
+    });
     const dock = (scopeId) => ({
       type: 'dock',
       caption: 'Format',
@@ -290,6 +380,7 @@
               button('saveAsVenn', 'Save As', 'saveAs')
             ]
           },
+          history('venn'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -315,6 +406,7 @@
               button('saveAsBox', 'Save As', 'saveAs')
             ]
           },
+          history('box'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -340,6 +432,7 @@
               button('saveAsScatter', 'Save As', 'saveAs')
             ]
           },
+          history('scatter'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -365,6 +458,7 @@
               button('saveAsPca', 'Save As', 'saveAs')
             ]
           },
+          history('pca'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -390,6 +484,7 @@
               button('saveAsLine', 'Save As', 'saveAs')
             ]
           },
+          history('line'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -415,6 +510,7 @@
               button('saveAsHeatmap', 'Save As', 'saveAs')
             ]
           },
+          history('heatmap'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -440,6 +536,7 @@
               button('saveAsSurface', 'Save As', 'saveAs')
             ]
           },
+          history('surface'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -465,6 +562,7 @@
               button('saveAsRoc', 'Save As', 'saveAs')
             ]
           },
+          history('roc'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -490,6 +588,7 @@
               button('saveAsSurvival', 'Save As', 'saveAs')
             ]
           },
+          history('survival'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -515,6 +614,7 @@
               button('saveAsHist', 'Save As', 'saveAs')
             ]
           },
+          history('hist'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -540,6 +640,7 @@
               button('saveAsPie', 'Save As', 'saveAs')
             ]
           },
+          history('pie'),
           {
             type: 'buttons',
             caption: 'Data',
@@ -558,10 +659,18 @@
     });
 
     renderAllToolbars();
+    ensureUndoSubscription();
+    syncUndoButtonsAvailability();
     if(doc.readyState === 'loading'){
       doc.addEventListener('DOMContentLoaded', () => {
         renderAllToolbars();
+        ensureUndoSubscription();
+        syncUndoButtonsAvailability();
       }, { once: true });
+    }
+
+    if(doc){
+      doc.addEventListener('click', handleUndoCommandClick, true);
     }
   }
 })(window);

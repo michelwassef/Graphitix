@@ -1187,6 +1187,17 @@ select {
 .workspace-toolbar__button:active{
     background:#d1d5db;
 }
+.workspace-toolbar__button:disabled{
+    background:#dbe4f2;
+    color:#94a3b8;
+    cursor:not-allowed;
+}
+.workspace-toolbar__button:disabled .workspace-toolbar__icon svg{
+    fill:#94a3b8;
+}
+.workspace-toolbar__button:disabled .workspace-toolbar__label{
+    color:#94a3b8;
+}
 .workspace-toolbar__icon{
     display:inline-flex;
     width:28px;
