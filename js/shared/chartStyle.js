@@ -987,6 +987,243 @@
     return rotate;
   };
 
+  function axisTicksDebug(label, payload){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(err){
+      // Ignore debug toggle lookup failures and log by default
+    }
+    console.debug(label, payload);
+  }
+
+  function normalizePrecision(value){
+    if(!Number.isFinite(value)){
+      return value;
+    }
+    return Number.parseFloat(value.toPrecision(12));
+  }
+
+  function clampTickTarget(value){
+    if(!Number.isFinite(value)){
+      return 6;
+    }
+    const rounded = Math.round(value);
+    return Math.max(5, Math.min(8, rounded));
+  }
+
+  function selectTickStep(span, targetCount, manualSpan){
+    const safeSpan = Number.isFinite(span) && span > 0 ? span : 1;
+    const safeTarget = Number.isFinite(targetCount) && targetCount > 1 ? targetCount : 6;
+    const approxStep = safeSpan / Math.max(safeTarget - 1, 1);
+    let baseExp = Math.floor(Math.log10(Math.abs(approxStep)));
+    if(!Number.isFinite(baseExp)){
+      baseExp = 0;
+    }
+    const multipliers = [1, 2, 2.5, 5, 10];
+    let best = null;
+    const manualSpanFinite = Number.isFinite(manualSpan) && manualSpan > 0;
+    for(let exp = baseExp - 1; exp <= baseExp + 1; exp += 1){
+      const pow = Math.pow(10, exp);
+      for(let i = 0; i < multipliers.length; i += 1){
+        const step = multipliers[i] * pow;
+        if(!Number.isFinite(step) || step <= 0){
+          continue;
+        }
+        const tickEstimate = Math.ceil(safeSpan / step) + 1;
+        const tickCount = Math.max(2, tickEstimate);
+        const diffScore = Math.abs(tickCount - safeTarget);
+        const rangePenalty = (tickCount < 5 || tickCount > 8) ? 2 : 0;
+        let manualPenalty = 0;
+        if(manualSpanFinite){
+          const multiples = manualSpan / step;
+          const nearest = Math.round(multiples);
+          manualPenalty = Math.min(Math.abs(multiples - nearest), 0.5);
+        }
+        const score = diffScore + rangePenalty + manualPenalty;
+        if(!best || score < best.score - 1e-9 || (Math.abs(score - best.score) <= 1e-9 && step < best.step)){
+          best = { step, score };
+        }
+      }
+    }
+    if(best){
+      return best.step;
+    }
+    const fallbackStep = multipliers[0] * Math.pow(10, baseExp);
+    return Number.isFinite(fallbackStep) && fallbackStep > 0 ? fallbackStep : 1;
+  }
+
+  function buildAxisScale(options){
+    const {
+      dataMin,
+      dataMax,
+      manualMin,
+      manualMax,
+      targetTickCount,
+      fixedStep
+    } = options || {};
+    const manualMinFinite = Number.isFinite(manualMin);
+    const manualMaxFinite = Number.isFinite(manualMax);
+    let normalizedManualMin = manualMinFinite ? manualMin : NaN;
+    let normalizedManualMax = manualMaxFinite ? manualMax : NaN;
+    if(manualMinFinite && manualMaxFinite && normalizedManualMax < normalizedManualMin){
+      const swap = normalizedManualMin;
+      normalizedManualMin = normalizedManualMax;
+      normalizedManualMax = swap;
+    }
+    const dataMinFinite = Number.isFinite(dataMin);
+    const dataMaxFinite = Number.isFinite(dataMax);
+    let normalizedDataMin = dataMinFinite ? dataMin : NaN;
+    let normalizedDataMax = dataMaxFinite ? dataMax : NaN;
+    if(dataMinFinite && dataMaxFinite && normalizedDataMax < normalizedDataMin){
+      const swap = normalizedDataMin;
+      normalizedDataMin = normalizedDataMax;
+      normalizedDataMax = swap;
+    }
+    const baseLowerCandidates = [];
+    const baseUpperCandidates = [];
+    if(Number.isFinite(normalizedDataMin)){ baseLowerCandidates.push(normalizedDataMin); }
+    if(Number.isFinite(normalizedDataMax)){ baseUpperCandidates.push(normalizedDataMax); }
+    if(manualMinFinite){ baseLowerCandidates.push(normalizedManualMin); }
+    if(manualMaxFinite){ baseUpperCandidates.push(normalizedManualMax); }
+    let baseLower = baseLowerCandidates.length ? Math.min(...baseLowerCandidates) : 0;
+    let baseUpper = baseUpperCandidates.length ? Math.max(...baseUpperCandidates) : (baseLower + 1);
+    if(!Number.isFinite(baseUpper) || baseUpper <= baseLower){
+      const offset = Math.max(Math.abs(baseLower), 1);
+      baseUpper = baseLower + offset;
+    }
+    const requiredLower = manualMinFinite ? normalizedManualMin : baseLower;
+    const requiredUpper = manualMaxFinite ? normalizedManualMax : baseUpper;
+    const spanCandidates = [];
+    if(Number.isFinite(normalizedDataMin) && Number.isFinite(normalizedDataMax)){
+      spanCandidates.push(Math.abs(normalizedDataMax - normalizedDataMin));
+    }
+    spanCandidates.push(Math.abs(requiredUpper - requiredLower));
+    const span = Math.max(...spanCandidates.filter(v => Number.isFinite(v) && v > 0), 1);
+    const manualSpan = manualMinFinite && manualMaxFinite
+      ? Math.abs(normalizedManualMax - normalizedManualMin)
+      : NaN;
+    const step = Number.isFinite(fixedStep) && fixedStep > 0
+      ? fixedStep
+      : selectTickStep(span, clampTickTarget(targetTickCount), manualSpan);
+    const tolerance = Math.max(Math.abs(step) * 1e-9, 1e-9);
+    const ticks = [];
+    const maxGuard = 8192;
+    if(manualMinFinite){
+      let current = normalizedManualMin;
+      let guard = 0;
+      while(current <= requiredUpper + tolerance && guard < maxGuard){
+        ticks.push(normalizePrecision(current));
+        current += step;
+        guard += 1;
+      }
+      if(ticks.length){
+        const last = ticks[ticks.length - 1];
+        if(last < requiredUpper - tolerance){
+          ticks.push(normalizePrecision(last + step));
+        }
+      }
+      if(manualMaxFinite && ticks.length){
+        const lastIdx = ticks.length - 1;
+        if(Math.abs(ticks[lastIdx] - normalizedManualMax) <= tolerance){
+          ticks[lastIdx] = normalizePrecision(normalizedManualMax);
+        }
+      }
+    }else if(manualMaxFinite){
+      let current = normalizedManualMax;
+      let guard = 0;
+      while(current >= requiredLower - tolerance && guard < maxGuard){
+        ticks.unshift(normalizePrecision(current));
+        current -= step;
+        guard += 1;
+      }
+      if(ticks.length){
+        if(ticks[0] > requiredLower + tolerance){
+          ticks.unshift(normalizePrecision(ticks[0] - step));
+        }
+        const lastIdx = ticks.length - 1;
+        ticks[lastIdx] = normalizePrecision(normalizedManualMax);
+      }
+    }else{
+      const baseStartReference = Number.isFinite(normalizedDataMin) ? normalizedDataMin : requiredLower;
+      let start = Math.floor(baseStartReference / step) * step;
+      if(!Number.isFinite(start)){
+        start = baseStartReference;
+      }
+      let current = start;
+      let guard = 0;
+      while(current <= requiredUpper + tolerance && guard < maxGuard){
+        ticks.push(normalizePrecision(current));
+        current += step;
+        guard += 1;
+      }
+      if(ticks.length){
+        const last = ticks[ticks.length - 1];
+        if(last < requiredUpper - tolerance){
+          ticks.push(normalizePrecision(last + step));
+        }
+        if(ticks[0] > requiredLower + tolerance){
+          ticks.unshift(normalizePrecision(ticks[0] - step));
+        }
+      }
+    }
+    if(!ticks.length){
+      ticks.push(normalizePrecision(requiredLower));
+    }
+    if(ticks.length === 1){
+      ticks.push(normalizePrecision(ticks[0] + step));
+    }
+    ticks.sort((a, b) => a - b);
+    if(manualMinFinite){
+      ticks[0] = normalizePrecision(normalizedManualMin);
+    }else if(ticks[0] > requiredLower + tolerance){
+      ticks.unshift(normalizePrecision(ticks[0] - step));
+    }
+    const lastTick = ticks[ticks.length - 1];
+    if(manualMaxFinite){
+      if(Math.abs(lastTick - normalizedManualMax) <= tolerance){
+        ticks[ticks.length - 1] = normalizePrecision(normalizedManualMax);
+      }else if(lastTick < normalizedManualMax - tolerance){
+        ticks.push(normalizePrecision(lastTick + step));
+        ticks[ticks.length - 1] = normalizePrecision(ticks[ticks.length - 1]);
+      }
+    }else if(lastTick < requiredUpper - tolerance){
+      ticks.push(normalizePrecision(lastTick + step));
+    }
+    if(ticks.length === 1){
+      ticks.push(normalizePrecision(ticks[0] + step));
+    }
+    ticks.sort((a, b) => a - b);
+    const cleanTicks = ticks.filter(v => Number.isFinite(v)).map(normalizePrecision);
+    const minTick = cleanTicks[0];
+    const maxTick = cleanTicks[cleanTicks.length - 1];
+    const finalMin = Number.isFinite(minTick) ? minTick : requiredLower;
+    const finalMax = Number.isFinite(maxTick) ? maxTick : requiredUpper;
+    axisTicksDebug('Debug: chartStyle.axisTicks scale computed',{
+      dataMin,
+      dataMax,
+      manualMin: manualMinFinite ? normalizedManualMin : null,
+      manualMax: manualMaxFinite ? normalizedManualMax : null,
+      step,
+      tickCount: cleanTicks.length,
+      min: finalMin,
+      max: finalMax
+    });
+    return {
+      min: finalMin,
+      max: finalMax,
+      ticks: cleanTicks,
+      step
+    };
+  }
+
+  chartStyle.axisTicks = Object.freeze({
+    clampTickTarget,
+    selectStep: selectTickStep,
+    buildScale: buildAxisScale
+  });
+
   chartStyle.computeLabelPadding = function computeLabelPadding(options){
     const opts = options || {};
     const labels = Array.isArray(opts.labels) ? opts.labels.map(label => label == null ? '' : String(label)) : [];

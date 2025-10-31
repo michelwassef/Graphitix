@@ -425,27 +425,38 @@
     console.debug('Debug: scatter axis settings applied',{ settings: scatterAxisSettings });
   }
 
-  function buildScatterManualTicks(min, max, interval){
-    if(!Number.isFinite(interval) || interval <= 0){ return null; }
-    if(!Number.isFinite(min) || !Number.isFinite(max)){ return null; }
-    if(min === max){
-      max = min + interval;
+  function clampScatterTickTarget(value){
+    const axisTicks = chartStyle.axisTicks;
+    if(axisTicks && typeof axisTicks.clampTickTarget === 'function'){
+      return axisTicks.clampTickTarget(value);
     }
-    const graphMin = Math.floor(min / interval) * interval;
-    const graphMax = Math.ceil(max / interval) * interval;
-    const ticks = [];
-    let current = graphMin;
-    let guard = 0;
-    while(current <= graphMax + interval * 0.25 && guard < 1000){
-      ticks.push(Number.parseFloat(current.toPrecision(12)));
-      current += interval;
-      guard += 1;
+    if(!Number.isFinite(value)){
+      return 6;
     }
-    if(!ticks.length){
-      ticks.push(Number.parseFloat(graphMin.toPrecision(12)));
+    const rounded = Math.round(value);
+    return Math.max(5, Math.min(8, rounded));
+  }
+
+  function buildScatterScale(options){
+    const axisTicks = chartStyle.axisTicks;
+    if(axisTicks && typeof axisTicks.buildScale === 'function'){
+      const scale = axisTicks.buildScale(options);
+      scatterDebug('Debug: scatter scale computed', {
+        ...options,
+        tickCount: Array.isArray(scale?.ticks) ? scale.ticks.length : null,
+        step: scale?.step,
+        min: scale?.min,
+        max: scale?.max
+      });
+      return scale;
     }
-    console.debug('Debug: scatter manual ticks computed',{ interval, tickCount: ticks.length, min: graphMin, max: graphMax });
-    return { min: graphMin, max: graphMax, ticks };
+    scatterDebug('Debug: scatter scale fallback invoked', { reason: 'missing axis tick helpers' });
+    return {
+      min: Number.isFinite(options?.manualMin) ? options.manualMin : Number(options?.dataMin) || 0,
+      max: Number.isFinite(options?.manualMax) ? options.manualMax : Number(options?.dataMax) || 1,
+      ticks: [Number(options?.manualMin) || 0, Number(options?.manualMax) || 1],
+      step: Number(options?.fixedStep) || 1
+    };
   }
 
   let scheduleDrawScatter=null;
@@ -2196,10 +2207,11 @@
         const xMaxT=logX?Math.log10(xMax):xMax;
         const yMinT=logY?Math.log10(yMin):yMin;
         const yMaxT=logY?Math.log10(yMax):yMax;
-        function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
-        function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(Math.max(maxTicks-1,1)),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
-        let xTickTarget=chartStyle.estimateTickCount(W,{axis:'x',fallback:6});
-        let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
+        const tickBaseSpacing=Math.max(48,Math.round(fs*3.2));
+        const xTickEstimateOptions={axis:'x',fallback:6,baseSpacing:tickBaseSpacing,min:4};
+        const yTickEstimateOptions={axis:'y',fallback:6,baseSpacing:tickBaseSpacing,min:4};
+        let xTickTarget=clampScatterTickTarget(chartStyle.estimateTickCount(W,xTickEstimateOptions));
+        let yTickTarget=clampScatterTickTarget(chartStyle.estimateTickCount(H,yTickEstimateOptions));
         debug('Debug: scatter initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
         function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
         const tickFont=chartStyle.makeFont(fs);
@@ -2215,12 +2227,6 @@
         margin.bottom=bottomLayout.bottom;
         plotW=Math.max(20,W-margin.left-margin.right);
         plotH=Math.max(20,H-margin.top-margin.bottom);
-        let xScale=niceScale(xMinT,xMaxT,xTickTarget);
-        let yScale=niceScale(yMinT,yMaxT,yTickTarget);
-        let xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t));
-        let yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
-        let maxYLabelWidth=0;
-        let maxXLabelWidth=0;
         const storedManualIntervalX = getScatterAxisTickInterval('x');
         const storedManualIntervalY = getScatterAxisTickInterval('y');
         const manualIntervalX = !logX ? storedManualIntervalX : null;
@@ -2231,55 +2237,43 @@
         if(logY && storedManualIntervalY){
           debug('Debug: scatter manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
         }
+        let xScale=buildScatterScale({
+          dataMin:xMinT,
+          dataMax:xMaxT,
+          manualMin:Number.isFinite(xMinManual)?xMinT:NaN,
+          manualMax:Number.isFinite(xMaxManual)?xMaxT:NaN,
+          targetTickCount:xTickTarget,
+          fixedStep:Number.isFinite(manualIntervalX)&&manualIntervalX>0?manualIntervalX:null
+        });
+        let yScale=buildScatterScale({
+          dataMin:yMinT,
+          dataMax:yMaxT,
+          manualMin:Number.isFinite(yMinManual)?yMinT:NaN,
+          manualMax:Number.isFinite(yMaxManual)?yMaxT:NaN,
+          targetTickCount:yTickTarget,
+          fixedStep:Number.isFinite(manualIntervalY)&&manualIntervalY>0?manualIntervalY:null
+        });
+        let xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t));
+        let yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
+        let maxYLabelWidth=0;
+        let maxXLabelWidth=0;
         for(let pass=0;pass<2;pass++){
-          xScale=niceScale(xMinT,xMaxT,xTickTarget);
-          yScale=niceScale(yMinT,yMaxT,yTickTarget);
-          if(isFinite(xMinManual)) xScale.min=xMinT;
-          if(isFinite(xMaxManual)) xScale.max=xMaxT;
-          if(isFinite(yMinManual)) yScale.min=yMinT;
-          if(isFinite(yMaxManual)) yScale.max=yMaxT;
-          if(isFinite(xMinManual)||isFinite(xMaxManual)){
-            const manualXTicks=[];
-            for(let v=Math.ceil(xScale.min/xScale.step)*xScale.step;v<=xScale.max+1e-9;v+=xScale.step){
-              manualXTicks.push(v);
-            }
-            xScale.ticks=manualXTicks;
-          }
-          if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
-            const manual = buildScatterManualTicks(
-              Number.isFinite(xScale.min) ? xScale.min : xMinT,
-              Number.isFinite(xScale.max) ? xScale.max : xMaxT,
-              manualIntervalX
-            );
-            if(manual){
-              xScale.min = manual.min;
-              xScale.max = manual.max;
-              xScale.ticks = manual.ticks;
-              xScale.step = manualIntervalX;
-              debug('Debug: scatter manual interval applied',{ axis: 'x', interval: manualIntervalX, tickCount: manual.ticks.length });
-            }
-          }
-          if(isFinite(yMinManual)||isFinite(yMaxManual)){
-            const manualYTicks=[];
-            for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step;v<=yScale.max+1e-9;v+=yScale.step){
-              manualYTicks.push(v);
-            }
-            yScale.ticks=manualYTicks;
-          }
-          if(Number.isFinite(manualIntervalY) && manualIntervalY > 0){
-            const manualY = buildScatterManualTicks(
-              Number.isFinite(yScale.min) ? yScale.min : yMinT,
-              Number.isFinite(yScale.max) ? yScale.max : yMaxT,
-              manualIntervalY
-            );
-            if(manualY){
-              yScale.min = manualY.min;
-              yScale.max = manualY.max;
-              yScale.ticks = manualY.ticks;
-              yScale.step = manualIntervalY;
-              debug('Debug: scatter manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
-            }
-          }
+          xScale=buildScatterScale({
+            dataMin:xMinT,
+            dataMax:xMaxT,
+            manualMin:Number.isFinite(xMinManual)?xMinT:NaN,
+            manualMax:Number.isFinite(xMaxManual)?xMaxT:NaN,
+            targetTickCount:xTickTarget,
+            fixedStep:Number.isFinite(manualIntervalX)&&manualIntervalX>0?manualIntervalX:null
+          });
+          yScale=buildScatterScale({
+            dataMin:yMinT,
+            dataMax:yMaxT,
+            manualMin:Number.isFinite(yMinManual)?yMinT:NaN,
+            manualMax:Number.isFinite(yMaxManual)?yMaxT:NaN,
+            targetTickCount:yTickTarget,
+            fixedStep:Number.isFinite(manualIntervalY)&&manualIntervalY>0?manualIntervalY:null
+          });
           xTickLabels=xScale.ticks.map(t=>formatTick(logX?Math.pow(10,t):t));
           yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
           const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
@@ -2294,8 +2288,8 @@
           margin.bottom=bottomLayout.bottom;
           plotW=Math.max(20,W-margin.left-margin.right);
           plotH=Math.max(20,H-margin.top-margin.bottom);
-          const refinedX=chartStyle.estimateTickCount(plotW,{axis:'x',fallback:xTickTarget});
-          const refinedY=chartStyle.estimateTickCount(plotH,{axis:'y',fallback:yTickTarget});
+          const refinedX=clampScatterTickTarget(chartStyle.estimateTickCount(plotW,{...xTickEstimateOptions,fallback:xTickTarget}));
+          const refinedY=clampScatterTickTarget(chartStyle.estimateTickCount(plotH,{...yTickEstimateOptions,fallback:yTickTarget}));
           debug('Debug: scatter tick target evaluation',{pass,plotW,plotH,xTickTarget,refinedX,yTickTarget,refinedY,maxXLabelWidth,maxYLabelWidth});
           if(refinedX===xTickTarget && refinedY===yTickTarget){
             break;

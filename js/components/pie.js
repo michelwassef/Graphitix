@@ -188,23 +188,6 @@
     console.debug('Debug: pie axis settings applied',{ settings: state.axisSettings });
   }
 
-  function buildManualPercentTicks(interval){
-    if(!Number.isFinite(interval) || interval <= 0){ return null; }
-    const ticks = [];
-    let current = 0;
-    let guard = 0;
-    while(current <= 100 + interval * 0.25 && guard < 1000){
-      ticks.push(Number.parseFloat(current.toFixed(6)));
-      current += interval;
-      guard += 1;
-    }
-    if(ticks[ticks.length - 1] !== 100){
-      ticks.push(100);
-    }
-    console.debug('Debug: pie manual percent ticks',{ interval, tickCount: ticks.length });
-    return ticks;
-  }
-
   let state = {
     hot: null,
     scheduleDraw: null,
@@ -774,7 +757,25 @@
       const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0.25});
       const axisStroke = axisSettings.color || '#000';
       const manualIntervalY = getAxisTickInterval('y');
-      const percentTicks = Number.isFinite(manualIntervalY) && manualIntervalY > 0 ? buildManualPercentTicks(manualIntervalY) :[0,25,50,75,100];
+      const axisTickTools = chartStyle.axisTicks || null;
+      const buildAxisScale = opts => {
+        if(axisTickTools && typeof axisTickTools.buildScale === 'function'){
+          return axisTickTools.buildScale(opts);
+        }
+        const min = Number.isFinite(opts?.manualMin) ? opts.manualMin : Number(opts?.dataMin) || 0;
+        const max = Number.isFinite(opts?.manualMax) ? opts.manualMax : Number(opts?.dataMax) || min + 1;
+        return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
+      };
+      const yTickTarget = chartStyle.estimateTickCount(svgHeight, { axis: 'y', fallback: 6 });
+      const percentScale = buildAxisScale({
+        dataMin: 0,
+        dataMax: 100,
+        manualMin: 0,
+        manualMax: 100,
+        targetTickCount: yTickTarget,
+        fixedStep: Number.isFinite(manualIntervalY) && manualIntervalY > 0 ? manualIntervalY : undefined
+      });
+      const percentTicks = percentScale.ticks.map(t => Math.max(0, Math.min(100, t)));
       let legend=null;
       if(stackedLegendVisible){
         legend=document.createElement('div');
