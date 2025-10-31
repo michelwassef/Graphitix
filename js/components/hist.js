@@ -949,8 +949,15 @@
     }
     const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
     const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
-    function niceNum(range,round){const exp=Math.floor(Math.log10(range));const f=range/Math.pow(10,exp);let nf;if(round){if(f<1.5)nf=1;else if(f<3)nf=2;else if(f<7)nf=5;else nf=10;}else{if(f<=1)nf=1;else if(f<=2)nf=2;else if(f<=5)nf=5;else nf=10;}return nf*Math.pow(10,exp);}
-    function niceScale(min,max,maxTicks){const range=niceNum(max-min,false);const step=niceNum(range/(Math.max(maxTicks-1,1)),true);const graphMin=Math.floor(min/step)*step;const graphMax=Math.ceil(max/step)*step;const ticks=[];for(let v=graphMin;v<=graphMax+1e-9;v+=step)ticks.push(v);return{min:graphMin,max:graphMax,ticks,step};}
+    const axisTickTools = chartStyle.axisTicks || null;
+    const buildAxisScale = opts => {
+      if(axisTickTools && typeof axisTickTools.buildScale === 'function'){
+        return axisTickTools.buildScale(opts);
+      }
+      const min = Number.isFinite(opts?.manualMin) ? opts.manualMin : Number(opts?.dataMin) || 0;
+      const max = Number.isFinite(opts?.manualMax) ? opts.manualMax : Number(opts?.dataMax) || min + 1;
+      return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
+    };
     const bins=Math.max(1,Math.floor(Number(histBins.value)||10));
     const logY=histLogY.checked;
     const storedManualIntervalX = getAxisTickInterval('x');
@@ -1019,8 +1026,8 @@
     margin.bottom=bottomLayout.bottom;
     plotW=Math.max(20,W-margin.left-margin.right);
     plotH=Math.max(20,H-margin.top-margin.bottom);
-    let xScale=niceScale(xMin,xMax,xTickTarget);
-    let yScale=niceScale(0,1,yTickTarget);
+    let xScale=buildAxisScale({ dataMin: xMin, dataMax: xMax, targetTickCount: xTickTarget });
+    let yScale=buildAxisScale({ dataMin: 0, dataMax: 1, targetTickCount: yTickTarget, manualMin: 0 });
     let xTickLabels=[];
     let yTickLabels=[];
     let counts=[];
@@ -1031,7 +1038,7 @@
     let yMaxT=0;
     let maxYLabelWidth = 0;
     for(let pass=0;pass<2;pass++){
-      xScale=niceScale(xMin,xMax,xTickTarget);
+      xScale=buildAxisScale({ dataMin: xMin, dataMax: xMax, targetTickCount: xTickTarget });
       binWidth=(xScale.max-xScale.min)/bins || 1;
       counts=new Array(bins).fill(0);
       values.forEach(v=>{let idx=Math.floor((v-xScale.min)/binWidth); if(idx<0)idx=0; if(idx>=bins)idx=bins-1; counts[idx]++;});
@@ -1068,7 +1075,7 @@
       }
       yMinT=logY?Math.log10(yMin):yMin;
       yMaxT=logY?Math.log10(yMax):yMax;
-      yScale=niceScale(yMinT,yMaxT,yTickTarget);
+      yScale=buildAxisScale({ dataMin: yMinT, dataMax: yMaxT, targetTickCount: yTickTarget, manualMin: logY ? Math.log10(yMin) : yMin, manualMax: logY ? Math.log10(yMax) : yMax });
       console.debug('Debug: hist axis auto range',{ yMin, yMax, logY });
       if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
         const manualX = buildManualTicks(

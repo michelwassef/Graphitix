@@ -2027,37 +2027,14 @@
     }) : [];
     const legendWidth = legendEntries.length ? Math.max(...legendEntries.map(entry => entry.width)) : 0;
 
-    const niceNum = (range, round) => {
-      const exponent = Math.floor(Math.log10(range));
-      const fraction = range / Math.pow(10, exponent);
-      let niceFraction;
-      if(round){
-        if(fraction < 1.5) niceFraction = 1;
-        else if(fraction < 3) niceFraction = 2;
-        else if(fraction < 7) niceFraction = 5;
-        else niceFraction = 10;
-      } else {
-        if(fraction <= 1) niceFraction = 1;
-        else if(fraction <= 2) niceFraction = 2;
-        else if(fraction <= 5) niceFraction = 5;
-        else niceFraction = 10;
+    const axisTickTools = chartStyle.axisTicks || null;
+    const buildAxisScale = opts => {
+      if(axisTickTools && typeof axisTickTools.buildScale === 'function'){
+        return axisTickTools.buildScale(opts);
       }
-      return niceFraction * Math.pow(10, exponent);
-    };
-
-    const niceScale = (min, max, maxTicks) => {
-      if(min === max){
-        max = min + 1;
-      }
-      const range = niceNum(max - min, false);
-      const step = niceNum(range / Math.max(maxTicks - 1, 1), true);
-      const scaledMin = Math.floor(min / step) * step;
-      const scaledMax = Math.ceil(max / step) * step;
-      const ticks = [];
-      for(let v = scaledMin; v <= scaledMax + 1e-9; v += step){
-        ticks.push(Number(v.toFixed(10)));
-      }
-      return { min: scaledMin, max: scaledMax, step, ticks };
+      const min = Number.isFinite(opts?.manualMin) ? opts.manualMin : Number(opts?.dataMin) || 0;
+      const max = Number.isFinite(opts?.manualMax) ? opts.manualMax : Number(opts?.dataMax) || min + 1;
+      return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
     };
 
     const autoXMax = summary.maxTime > 0 ? summary.maxTime : 1;
@@ -2102,8 +2079,20 @@
     for(let pass = 0; pass < 2; pass += 1){
       plotW = Math.max(20, width - margin.left - margin.right);
       plotH = Math.max(20, height - margin.top - margin.bottom);
-      xScale = niceScale(xMin, xMax, xTickTarget);
-      yScale = niceScale(yMin, yMax, yTickTarget);
+      xScale = buildAxisScale({
+        dataMin: xMin,
+        dataMax: xMax,
+        manualMin: 0,
+        manualMax: Number.isFinite(manualXMax) && manualXMax > 0 ? manualXMax : null,
+        targetTickCount: xTickTarget
+      });
+      yScale = buildAxisScale({
+        dataMin: yMin,
+        dataMax: yMax,
+        manualMin: 0,
+        manualMax: 1,
+        targetTickCount: yTickTarget
+      });
       if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
         const manualX = buildManualTicks(xScale.min, xScale.max, manualIntervalX);
         if(manualX){
