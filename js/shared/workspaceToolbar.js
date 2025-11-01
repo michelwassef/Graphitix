@@ -5,13 +5,129 @@
   const doc = global.document;
 
   const ICON_PATHS = Object.freeze({
-    open: 'M4.75 5a1.75 1.75 0 0 0-1.75 1.75v11.5A1.75 1.75 0 0 0 4.75 20h14.5A1.75 1.75 0 0 0 21 18.25v-7.5A1.75 1.75 0 0 0 19.25 9h-6.69l-1.72-2.29A1.5 1.5 0 0 0 9.86 6H4.75Z',
+    open: {
+      viewBox: '0 0 24 24',
+      elements: [
+        {
+          tag: 'path',
+          attrs: {
+            fill: 'currentColor',
+            d: 'M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8z'
+          }
+        }
+      ]
+    },
     import: 'M5 4a2 2 0 0 0-2 2v3h2V6h14v4h2V6a2 2 0 0 0-2-2H5Zm7 4.75a.75.75 0 0 0-.75.75v4.19l-1.47-1.47-1.06 1.06 3 3a.75.75 0 0 0 1.06 0l3-3-1.06-1.06-1.47 1.47V9.5a.75.75 0 0 0-.75-.75ZM4 17v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1h-2v1H6v-1H4Z',
-    save: 'M5.75 3A1.75 1.75 0 0 0 4 4.75v14.5A1.75 1.75 0 0 0 5.75 21h12.5A1.75 1.75 0 0 0 20 19.25V8.06a1.75 1.75 0 0 0-.51-1.24l-2.31-2.31A1.75 1.75 0 0 0 15.94 4H5.75Zm1.75 1.5h8.19l2.06 2.06V8H14a1 1 0 0 1-1-1V4.5H7.5V7a.5.5 0 0 1-.5.5H5.5V4.75A.75.75 0 0 1 6.25 4h1.25v.5ZM6 9.5h12v9.75a.75.75 0 0 1-.75.75H6.75a.75.75 0 0 1-.75-.75V9.5Zm3 3.25v4.5h6v-4.5H9Z',
-    saveAs: 'M5.75 3A1.75 1.75 0 0 0 4 4.75v14.5A1.75 1.75 0 0 0 5.75 21h12.5A1.75 1.75 0 0 0 20 19.25V8.06a1.75 1.75 0 0 0-.51-1.24l-2.31-2.31A1.75 1.75 0 0 0 15.94 4H5.75ZM6 9.5h12v9.75a.75.75 0 0 1-.75.75H6.75a.75.75 0 0 1-.75-.75V9.5Zm9-5v3a1 1 0 0 0 1 1h3v-.44a.75.75 0 0 0-.22-.53L16.47 4.22a.75.75 0 0 0-.53-.22H15Zm-3.75 8a.75.75 0 0 1 .75.75V14h1.75a.75.75 0 0 1 0 1.5H12V17.25a.75.75 0 0 1-1.5 0V15.5H8.75a.75.75 0 0 1 0-1.5H10V12.25a.75.75 0 0 1 .75-.75Z',
-    example: 'M12 4a4 4 0 0 0-4 4H5.5a.5.5 0 0 0-.35.85l3 3a.5.5 0 0 0 .7 0l3-3A.5.5 0 0 0 11.5 8H9.5a2.5 2.5 0 1 1 2.5 2.5h-.5v2h.5a4.5 4.5 0 1 0-4.36-6H9a3 3 0 1 1 3 3h-.5v2.5a.5.5 0 0 0 .85.35l3-3a.5.5 0 0 0 0-.7l-3-3a.5.5 0 0 0-.85.35V8A4 4 0 0 0 12 4Zm-6 12h12v2H6v-2Z',
-    undo: 'M7.75 7.53 3.53 11.75a.75.75 0 0 0 0 1.06l4.22 4.22.7-.7-3-3H13a5 5 0 1 1 0 10 .75.75 0 0 0 0 1.5 6.5 6.5 0 1 0 0-13H5.45l3 3 .7-.7-3.4-3.4-1-.98Z',
-    redo: 'M16.25 7.53 20.47 11.75a.75.75 0 0 1 0 1.06l-4.22 4.22-.7-.7 3-3H11a5 5 0 1 0 0 10 .75.75 0 0 1 0 1.5 6.5 6.5 0 1 1 0-13h6.55l-3-3 .7-.7Z'
+    save: {
+      viewBox: '0 0 24 24',
+      elements: [
+        {
+          tag: 'path',
+          attrs: {
+            fill: 'currentColor',
+            d: 'M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V7zm2 16H5V5h11.17L19 7.83zm-7-7c-1.66 0-3 1.34-3 3s1.34 3 3 3s3-1.34 3-3s-1.34-3-3-3M6 6h9v4H6z'
+          }
+        }
+      ]
+    },
+    saveAs: {
+      viewBox: '0 0 24 24',
+      elements: [
+        {
+          tag: 'path',
+          attrs: {
+            fill: 'currentColor',
+            d: 'M21 12.4V7l-4-4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7.4l2-2H5V5h11.17L19 7.83v6.57zM15 15c0 1.66-1.34 3-3 3s-3-1.34-3-3s1.34-3 3-3s3 1.34 3 3M6 6h9v4H6zm13.99 10.25l1.77 1.77L16.77 23H15v-1.77zm3.26.26l-.85.85l-1.77-1.77l.85-.85c.2-.2.51-.2.71 0l1.06 1.06c.2.2.2.52 0 .71'
+          }
+        }
+      ]
+    },
+    example: {
+      viewBox: '0 0 32 32',
+      elements: [
+        {
+          tag: 'path',
+          attrs: {
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+            'stroke-width': '2',
+            d: 'M16 22V5'
+          }
+        },
+        {
+          tag: 'path',
+          attrs: {
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+            'stroke-width': '2',
+            d: 'M9 16l7 7l7-7'
+          }
+        },
+        {
+          tag: 'path',
+          attrs: {
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+            'stroke-width': '2',
+            d: 'M9 27h14'
+          }
+        }
+      ]
+    },
+    undo: {
+      viewBox: '0 0 24 24',
+      elements: [
+        {
+          tag: 'g',
+          attrs: {
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+            'stroke-width': '2'
+          },
+          children: [
+            { tag: 'path', attrs: { d: 'M9 14L4 9l5-5' } },
+            {
+              tag: 'path',
+              attrs: {
+                d: 'M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11'
+              }
+            }
+          ]
+        }
+      ]
+    },
+    redo: {
+      viewBox: '0 0 24 24',
+      elements: [
+        {
+          tag: 'g',
+          attrs: {
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+            'stroke-width': '2'
+          },
+          children: [
+            { tag: 'path', attrs: { d: 'm15 14l5-5l-5-5' } },
+            {
+              tag: 'path',
+              attrs: {
+                d: 'M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13'
+              }
+            }
+          ]
+        }
+      ]
+    }
   });
 
   const DEFAULT_HINT = 'Select chart text or an axis to reveal typography and tick options.';
@@ -27,20 +143,46 @@
     }
   }
 
+  function appendSvgChildren(parent, elements){
+    if(!Array.isArray(elements)){ return; }
+    elements.forEach(elementSpec => {
+      if(!elementSpec || typeof elementSpec !== 'object'){ return; }
+      const tagName = elementSpec.tag || 'path';
+      const child = doc.createElementNS(NS, tagName);
+      const attrs = elementSpec.attrs || {};
+      Object.keys(attrs).forEach(attr => {
+        child.setAttribute(attr, attrs[attr]);
+      });
+      if(Array.isArray(elementSpec.children) && elementSpec.children.length){
+        appendSvgChildren(child, elementSpec.children);
+      }
+      parent.appendChild(child);
+    });
+  }
+
   function createSvgIcon(iconKey){
     if(!doc){ return null; }
-    const pathDef = ICON_PATHS[iconKey];
-    if(!pathDef){
+    const spec = ICON_PATHS[iconKey];
+    if(!spec){
       logDebug('missing icon', { iconKey });
       return null;
     }
     const svg = doc.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
     svg.setAttribute('focusable', 'false');
     svg.setAttribute('data-icon', 'toolbar');
-    const path = doc.createElementNS(NS, 'path');
-    path.setAttribute('d', pathDef);
-    svg.appendChild(path);
+
+    if(typeof spec === 'string'){
+      svg.setAttribute('viewBox', '0 0 24 24');
+      const path = doc.createElementNS(NS, 'path');
+      path.setAttribute('d', spec);
+      svg.appendChild(path);
+      return svg;
+    }
+
+    const viewBox = spec.viewBox || '0 0 24 24';
+    svg.setAttribute('viewBox', viewBox);
+    const elements = Array.isArray(spec.elements) ? spec.elements : [];
+    appendSvgChildren(svg, elements);
     return svg;
   }
 
