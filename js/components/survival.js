@@ -313,8 +313,8 @@
     refs.loadExampleBtn = $('#survivalLoadExample');
     refs.importBtn = $('#survivalImport');
     refs.fileInput = $('#survivalFile');
-    refs.openBtn = $('#openSurvival');
-    refs.saveBtn = $('#saveSurvival');
+    refs.openBtn = $('#openSurvivalGraph');
+    refs.saveBtn = $('#saveSurvivalGraph');
     refs.saveAsBtn = $('#saveAsSurvival');
     refs.graphFileInput = $('#survivalGraphFile');
     refs.exportContainer = $('#survivalExportControls');

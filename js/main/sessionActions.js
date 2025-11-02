@@ -4,6 +4,121 @@
   const Main = window.Main = window.Main || {};
   const namespace = Main.sessionActions = Main.sessionActions || {};
 
+  function hasActiveTabData(context){
+    const session = context?.session;
+    if(!session || typeof session.getActiveTab !== 'function' || typeof session.tabHasTableData !== 'function'){
+      return false;
+    }
+    const active = session.getActiveTab();
+    if(!active){
+      return false;
+    }
+    return !!session.tabHasTableData(active);
+  }
+
+  function clearSessionTransfer(context, transfer){
+    const state = context?.workspaceState;
+    const active = transfer || state?.pendingSessionTransfer || null;
+    if(active && active.useNewWindow && active.windowRef && !active.windowRef.closed){
+      try {
+        active.windowRef.close();
+      } catch (err) {
+        console.error('session transfer window close error', err);
+      }
+    }
+    if(state){
+      state.pendingSessionTransfer = null;
+    }
+  }
+
+  function prepareSessionTransfer(context, options = {}){
+    const state = context?.workspaceState;
+    if(state){
+      state.pendingSessionTransfer = null;
+    }
+    if(!options.openInNewWindowIfDirty){
+      return null;
+    }
+    if(!hasActiveTabData(context)){
+      return null;
+    }
+    const win = window;
+    if(!win || typeof win.open !== 'function' || !win.localStorage){
+      return null;
+    }
+    const newWindow = win.open('', '_blank');
+    if(!newWindow){
+      return null;
+    }
+    const transfer = { useNewWindow: true, windowRef: newWindow, used: false, key: null };
+    if(state){
+      state.pendingSessionTransfer = transfer;
+    }
+    return transfer;
+  }
+
+  function getSessionTransfer(context){
+    return context?.workspaceState?.pendingSessionTransfer || null;
+  }
+
+  async function routeSessionFile(context, file, meta = {}){
+    const {
+      session,
+      withSessionContext,
+      hideDuplicatePrompt,
+      renderTabs,
+      activateTab,
+      showGraphSelection
+    } = context || {};
+    if(!session || typeof session.loadWorkspaceSessionBlob !== 'function' || typeof withSessionContext !== 'function'){
+      return null;
+    }
+    const transfer = meta.transfer || getSessionTransfer(context);
+    const fileName = meta.fileName || file?.name || '';
+    if(transfer && transfer.useNewWindow && transfer.windowRef && !transfer.windowRef.closed){
+      try {
+        const text = typeof file?.text === 'function' ? await file.text() : null;
+        if(typeof text === 'string' && text.length){
+          const win = window;
+          if(win && win.localStorage){
+            const key = `sessionTransfer:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+            win.localStorage.setItem(key, JSON.stringify({ data: text, fileName }));
+            transfer.key = key;
+            transfer.used = true;
+            const url = new URL(win.location.href);
+            url.searchParams.set('sessionTransferKey', key);
+            transfer.windowRef.location = url.toString();
+            transfer.windowRef.focus?.();
+            transfer.windowRef = null;
+            return { status: 'routed', key };
+          }
+        }
+      } catch (err) {
+        console.error('session transfer route error', err);
+        if(transfer?.key){
+          try { window.localStorage?.removeItem(transfer.key); } catch (cleanupErr) {
+            console.error('session transfer cleanup error', cleanupErr);
+          }
+        }
+        if(transfer && transfer.windowRef && !transfer.windowRef.closed){
+          transfer.windowRef.close();
+          transfer.windowRef = null;
+        }
+      }
+    }
+    const loadOptions = withSessionContext({
+      reason: meta.reason || 'session-load',
+      fileHandle: meta.fileHandle || null,
+      fileName,
+      hideDuplicatePrompt,
+      renderTabs,
+      activateTab,
+      showGraphSelection
+    });
+    await session.loadWorkspaceSessionBlob(file, loadOptions);
+    return { status: 'loaded' };
+  }
+
   namespace.handleSessionSaveClick = async function handleSessionSaveClick(context) {
     const { Shared, session, workspaceState, sessionFileTypes, withSessionContext } = context || {};
     if (!Shared?.fileIO || typeof Shared.fileIO.saveGraphFile !== 'function') {
@@ -36,7 +151,7 @@
     }
   };
 
-  namespace.handleSessionLoadClick = async function handleSessionLoadClick(context) {
+  namespace.handleSessionLoadClick = async function handleSessionLoadClick(context, options = {}) {
     const {
       Shared,
       session,
@@ -49,6 +164,7 @@
       activateTab,
       showGraphSelection
     } = context || {};
+    const transfer = prepareSessionTransfer(context, options);
     if (!Shared?.fileIO || typeof Shared.fileIO.openGraphFile !== 'function') {
       console.warn('Session load fallback to input: missing Shared.fileIO.openGraphFile');
       dom?.sessionFileInput?.click?.();
@@ -70,18 +186,18 @@
           console.debug('Debug: session load filename captured', { name: workspaceState.sessionFileName });
         },
         fileTypes: sessionFileTypes,
-        loadFromFile: file => session.loadWorkspaceSessionBlob(
-          file,
-          withSessionContext({
+        loadFromFile: async file => {
+          await routeSessionFile(context, file, {
             reason: 'session-load-picker',
             fileHandle: lastHandle,
             fileName: file?.name || lastName,
             hideDuplicatePrompt,
             renderTabs,
             activateTab,
-            showGraphSelection
-          })
-        ),
+            showGraphSelection,
+            transfer
+          });
+        },
         triggerInput: () => {
           console.debug('Debug: session load fallback trigger', {});
           lastHandle = null;
@@ -90,8 +206,16 @@
         }
       });
       console.debug('Debug: session load picker result', { status: result?.status, via: result?.via });
+      if (transfer && transfer.useNewWindow && transfer.windowRef && !transfer.used) {
+        transfer.windowRef.close();
+      }
     } catch (err) {
       console.error('handleSessionLoadClick error', err);
+      if (transfer && transfer.useNewWindow && transfer.windowRef && !transfer.windowRef.closed) {
+        transfer.windowRef.close();
+      }
+    } finally {
+      clearSessionTransfer(context, transfer);
     }
   };
 
@@ -109,21 +233,24 @@
       name: workspaceState.sessionFileName,
       size: file.size
     });
-    session.loadWorkspaceSessionBlob(
-      file,
-      withSessionContext({
-        reason: 'session-load-input',
-        fileHandle: null,
-        fileName: workspaceState.sessionFileName,
-        hideDuplicatePrompt,
-        renderTabs,
-        activateTab,
-        showGraphSelection
-      })
-    ).finally(() => {
+    const transfer = getSessionTransfer(context);
+    const loadPromise = routeSessionFile(context, file, {
+      reason: 'session-load-input',
+      fileHandle: null,
+      fileName: workspaceState.sessionFileName,
+      hideDuplicatePrompt,
+      renderTabs,
+      activateTab,
+      showGraphSelection,
+      transfer
+    });
+    loadPromise.catch(err => {
+      console.error('session load input error', err);
+    }).finally(() => {
       if (input) {
         input.value = '';
       }
+      clearSessionTransfer(context, transfer);
     });
   };
 

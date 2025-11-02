@@ -736,8 +736,8 @@
       reader.readAsText(file);
     };
     // Wire buttons
-    document.getElementById('openHist').addEventListener('click', hist.open);
-    document.getElementById('saveHist').addEventListener('click', hist.save);
+    document.getElementById('openHistGraph')?.addEventListener('click', hist.open);
+    document.getElementById('saveHistGraph')?.addEventListener('click', hist.save);
     document.getElementById('saveAsHist').addEventListener('click', hist.saveAs);
     document.getElementById('histGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; hist.loadFromFile(f); }});
   }

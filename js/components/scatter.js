@@ -3124,8 +3124,8 @@
       }else{
         console.debug('Debug: scatter export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: scatter export fallback
       }
-      document.getElementById('openScatter').addEventListener('click',openScatterFile);
-      document.getElementById('saveScatter').addEventListener('click',saveScatterFile);
+      document.getElementById('openScatterGraph')?.addEventListener('click',openScatterFile);
+      document.getElementById('saveScatterGraph')?.addEventListener('click',saveScatterFile);
       document.getElementById('saveAsScatter').addEventListener('click',saveAsScatterFile);
       document.getElementById('scatterGraphFile').addEventListener('change',e=>{
         const f=e.target.files[0];

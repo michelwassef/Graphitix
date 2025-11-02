@@ -342,8 +342,8 @@
     refs.loadExampleBtn = document.getElementById('rocLoadExample');
     refs.importBtn = document.getElementById('rocImport');
     refs.fileInput = document.getElementById('rocFile');
-    refs.openBtn = document.getElementById('openRoc');
-    refs.saveBtn = document.getElementById('saveRoc');
+    refs.openBtn = document.getElementById('openRocGraph');
+    refs.saveBtn = document.getElementById('saveRocGraph');
     refs.saveAsBtn = document.getElementById('saveAsRoc');
     refs.graphFileInput = document.getElementById('rocGraphFile');
     return !!(refs.tablePanel && refs.graphPanel && refs.hotContainer && refs.plotDiv);

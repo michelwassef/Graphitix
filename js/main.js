@@ -262,8 +262,8 @@
     await MainSessionActions.handleSessionSaveClick(getSessionActionsContext());
   }
 
-  async function handleSessionLoadClick() {
-    await MainSessionActions.handleSessionLoadClick(getSessionActionsContext());
+  async function handleSessionLoadClick(options) {
+    await MainSessionActions.handleSessionLoadClick(getSessionActionsContext(), options);
   }
 
   function handleSessionInputChange(event) {
@@ -274,11 +274,96 @@
     return MainSessionActions.shouldWarnBeforeUnload(getSessionActionsContext());
   }
 
+  async function consumeTransferredSessionIfAvailable() {
+    const win = window;
+    if (!win || !win.localStorage) {
+      return;
+    }
+    let url;
+    try {
+      url = new URL(win.location.href);
+    } catch (err) {
+      console.error('session transfer URL parse error', err);
+      return;
+    }
+    const transferKey = url.searchParams.get('sessionTransferKey');
+    if (!transferKey) {
+      return;
+    }
+    url.searchParams.delete('sessionTransferKey');
+    try {
+      win.history.replaceState({}, document.title, url.toString());
+    } catch (err) {
+      console.error('session transfer history update error', err);
+    }
+    let stored = null;
+    try {
+      stored = win.localStorage.getItem(transferKey);
+    } catch (err) {
+      console.error('session transfer storage read error', err);
+    }
+    if (!stored) {
+      return;
+    }
+    const context = getSessionActionsContext();
+    try {
+      const parsed = JSON.parse(stored);
+      const data = typeof parsed === 'string' ? parsed : parsed?.data;
+      const fileName = parsed?.fileName || 'workspace.session';
+      win.localStorage.removeItem(transferKey);
+      if (!data) {
+        return;
+      }
+      const BlobCtor = win.Blob || Blob;
+      const blob = new BlobCtor([data], { type: 'application/json' });
+      await MainSession.loadWorkspaceSessionBlob(blob, withSessionContext({
+        reason: 'session-transfer',
+        fileHandle: null,
+        fileName,
+        hideDuplicatePrompt: context.hideDuplicatePrompt,
+        renderTabs: context.renderTabs,
+        activateTab: context.activateTab,
+        showGraphSelection: context.showGraphSelection
+      }));
+    } catch (err) {
+      console.error('session transfer consume error', err);
+      try {
+        win.localStorage.removeItem(transferKey);
+      } catch (cleanupErr) {
+        console.error('session transfer cleanup error', cleanupErr);
+      }
+    }
+  }
+
   initializeWorkspace({
     onSessionSaveClick: handleSessionSaveClick,
     onSessionLoadClick: handleSessionLoadClick,
     onSessionInputChange: handleSessionInputChange,
     onMatchStylesClick: styleSyncApi?.handleMatchStylesClick
+  });
+
+  void consumeTransferredSessionIfAvailable();
+
+  document.addEventListener('click', event => {
+    const sessionButton = event.target.closest('[data-session-action]');
+    if (sessionButton) {
+      event.preventDefault();
+      const action = sessionButton.dataset.sessionAction;
+      if (action === 'save') {
+        void handleSessionSaveClick();
+      } else if (action === 'open') {
+        const policy = sessionButton.dataset.sessionActionNewWindow;
+        void handleSessionLoadClick({ openInNewWindowIfDirty: policy === 'dirty' });
+      }
+      return;
+    }
+    const styleSyncTrigger = event.target.closest('[data-style-sync-trigger]');
+    if (styleSyncTrigger) {
+      event.preventDefault();
+      if (styleSyncApi?.handleMatchStylesClick) {
+        styleSyncApi.handleMatchStylesClick();
+      }
+    }
   });
 
   window.addEventListener('beforeunload', event => {

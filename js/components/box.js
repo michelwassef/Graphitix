@@ -2912,8 +2912,8 @@
     } else {
       console.debug('Debug: box export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: box export fallback
     }
-    global.$('#openBox').addEventListener('click', box.open);
-    global.$('#saveBox').addEventListener('click', box.save);
+    global.$('#openBoxGraph')?.addEventListener('click', box.open);
+    global.$('#saveBoxGraph')?.addEventListener('click', box.save);
     global.$('#saveAsBox').addEventListener('click', box.saveAs);
     global.$('#boxGraphFile').addEventListener('change', e=>{ const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; box.loadFromFile(f); } });
   }

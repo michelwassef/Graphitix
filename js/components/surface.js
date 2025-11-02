@@ -816,7 +816,7 @@
         contextLabel: 'surface-export'
       });
     }
-    const saveBtn = global.document.getElementById('saveSurface');
+    const saveBtn = global.document.getElementById('saveSurfaceGraph');
     if(saveBtn){
       saveBtn.addEventListener('click', () => surface.save());
     }
@@ -824,7 +824,7 @@
     if(saveAsBtn){
       saveAsBtn.addEventListener('click', () => surface.saveAs());
     }
-    const openBtn = global.document.getElementById('openSurface');
+    const openBtn = global.document.getElementById('openSurfaceGraph');
     if(openBtn){
       openBtn.addEventListener('click', () => surface.open());
     }

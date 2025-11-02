@@ -3823,8 +3823,8 @@
     refs.loadExample=document.getElementById('lineLoadExample');
     refs.importBtn=document.getElementById('lineImport');
     refs.fileInput=document.getElementById('lineFile');
-    refs.openBtn=document.getElementById('openLine');
-    refs.saveBtn=document.getElementById('saveLine');
+    refs.openBtn=document.getElementById('openLineGraph');
+    refs.saveBtn=document.getElementById('saveLineGraph');
     refs.saveAsBtn=document.getElementById('saveAsLine');
     refs.graphFileInput=document.getElementById('lineGraphFile');
 

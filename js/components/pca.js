@@ -4483,8 +4483,8 @@
       } else {
         debugLog('Debug: pca export controls unavailable', { hasExporter: !!Shared.exporter }); // Debug: pca export fallback
       }
-      document.getElementById('openPca').addEventListener('click',openPcaFile);
-      document.getElementById('savePca').addEventListener('click',savePcaFile);
+      document.getElementById('openPcaGraph')?.addEventListener('click',openPcaFile);
+      document.getElementById('savePcaGraph')?.addEventListener('click',savePcaFile);
       document.getElementById('saveAsPca').addEventListener('click',saveAsPcaFile);
       document.getElementById('pcaGraphFile').addEventListener('change',e=>{ const f=e.target.files[0]; if(f){ pcaFileName=f.name; pcaFileHandle=null; loadPcaGraphFile(f); } });
     

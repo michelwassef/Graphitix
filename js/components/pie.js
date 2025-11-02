@@ -559,8 +559,8 @@
       };
       reader.readAsText(file);
     };
-    document.getElementById('openPie').addEventListener('click',pie.open);
-    document.getElementById('savePie').addEventListener('click',pie.save);
+    document.getElementById('openPieGraph')?.addEventListener('click',pie.open);
+    document.getElementById('savePieGraph')?.addEventListener('click',pie.save);
     document.getElementById('saveAsPie').addEventListener('click',pie.saveAs);
     document.getElementById('pieGraphFile').addEventListener('change',e=>{const f=e.target.files[0]; if(f){ state.fileName=f.name; state.fileHandle=null; pie.loadFromFile(f); }});
   }

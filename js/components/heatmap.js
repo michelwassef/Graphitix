@@ -474,8 +474,8 @@
   }
 
   function initFileButtons(){
-    $('openHeatmap')?.addEventListener('click', () => heatmap.open());
-    $('saveHeatmap')?.addEventListener('click', () => heatmap.save());
+    $('openHeatmapGraph')?.addEventListener('click', () => heatmap.open());
+    $('saveHeatmapGraph')?.addEventListener('click', () => heatmap.save());
     $('saveAsHeatmap')?.addEventListener('click', () => heatmap.saveAs());
     $('heatmapGraphFile')?.addEventListener('change', event => {
       const file = event.target.files && event.target.files[0];

@@ -127,6 +127,18 @@
           ]
         }
       ]
+    },
+    matchStyles: {
+      viewBox: '0 0 32 32',
+      elements: [
+        {
+          tag: 'path',
+          attrs: {
+            fill: 'currentColor',
+            d: 'M27.87 4.423c.131.284.352.508.644.635l1.215.527a.453.453 0 0 1 0 .83l-1.205.527a1.22 1.22 0 0 0-.643.635l-.954 2.167c-.17.341-.683.341-.854 0l-.954-2.167a1.26 1.26 0 0 0-.643-.635l-1.205-.527a.453.453 0 0 1 0-.83l1.205-.527a1.22 1.22 0 0 0 .643-.635l.954-2.167c.17-.341.683-.341.854 0zm-11.887.742a.9.9 0 0 0 .458.438l.864.36c.26.117.26.457 0 .574l-.864.36a.85.85 0 0 0-.458.438l-.676 1.49c-.125.233-.49.233-.614 0l-.676-1.49a.9.9 0 0 0-.458-.438l-.864-.36a.309.309 0 0 1 0-.574l.864-.36a.85.85 0 0 0 .458-.438l.676-1.49c.125-.233.49-.233.614 0zM4 26l-1.662 1.627a1.146 1.146 0 0 0 0 1.625l.41.41c.44.452 1.17.452 1.61-.01L6 28.007l-.003-.003L20 14l1.674-1.667c.435-.445.435-1.24 0-1.675l-.33-.331C20.9 9.89 20 10 19.5 10.5zm21.95-9.702a.95.95 0 0 1-.46-.48l-.685-1.622c-.128-.261-.492-.261-.61 0l-.685 1.623a.95.95 0 0 1-.46.479l-.857.392c-.257.13-.257.5 0 .62l.856.392a.95.95 0 0 1 .46.48l.686 1.622c.128.261.492.261.61 0l.685-1.622a.95.95 0 0 1 .46-.48l.857-.392c.257-.13.257-.5 0-.62zM12 14a1 1 0 1 0 0-2a1 1 0 0 0 0 2m18-1a1 1 0 1 1-2 0a1 1 0 0 1 2 0M19 4a1 1 0 1 0 0-2a1 1 0 0 0 0 2m1 17a1 1 0 1 1-2 0a1 1 0 0 1 2 0'
+          }
+        }
+      ]
     }
   });
 
@@ -135,7 +147,11 @@
   const toolbarConfigs = new Map();
   const UNDO_BUTTON_SELECTOR = 'button[data-undo-command="undo"]';
   const REDO_BUTTON_SELECTOR = 'button[data-undo-command="redo"]';
+  const MENU_WRAPPER_SELECTOR = '.workspace-toolbar__menu';
+  const MENU_TRIGGER_SELECTOR = '.workspace-toolbar__button[data-menu-id]';
+  const MENU_OPEN_CLASS = 'workspace-toolbar__menu--open';
   let undoSubscriptionCleanup = null;
+  let menuHandlersBound = false;
 
   function logDebug(message, payload){
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
@@ -191,6 +207,9 @@
     const button = doc.createElement('button');
     button.type = 'button';
     button.className = 'workspace-toolbar__button';
+    if(Array.isArray(config.classes) && config.classes.length){
+      button.className += ' ' + config.classes.filter(Boolean).join(' ');
+    }
     if(config.id){ button.id = config.id; }
     const ariaLabel = config.ariaLabel || config.label || null;
     if(ariaLabel){ button.setAttribute('aria-label', ariaLabel); }
@@ -217,6 +236,151 @@
     button.appendChild(label);
 
     return button;
+  }
+
+  function createMenuButton(config){
+    if(!config || !doc){ return null; }
+    const menuId = config.id || `menu-${Math.random().toString(36).slice(2)}`;
+    const wrapper = doc.createElement('div');
+    wrapper.className = 'workspace-toolbar__menu';
+    wrapper.dataset.menuId = menuId;
+    const triggerConfig = Object.assign({}, config, {
+      classes: (config.classes || []).concat('workspace-toolbar__button--menu')
+    });
+    const trigger = createButton(triggerConfig);
+    if(trigger){
+      trigger.dataset.menuId = menuId;
+      trigger.setAttribute('aria-haspopup', 'true');
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.setAttribute('data-menu-id', menuId);
+      wrapper.appendChild(trigger);
+    }
+    const list = doc.createElement('div');
+    list.className = 'workspace-toolbar__menu-list';
+    list.setAttribute('role', 'menu');
+    list.id = `${menuId}Menu`;
+    (config.menuItems || []).forEach(item => {
+      if(!item){ return; }
+      const option = doc.createElement('button');
+      option.type = 'button';
+      option.className = 'workspace-toolbar__menu-item';
+      option.setAttribute('role', 'menuitem');
+      if(item.id){ option.id = item.id; }
+      if(item.label){ option.textContent = item.label; }
+      if(item.title){ option.title = item.title; }
+      const itemAria = item.ariaLabel || null;
+      if(itemAria){ option.setAttribute('aria-label', itemAria); }
+      if(item.dataset){
+        Object.keys(item.dataset).forEach(key => {
+          const value = item.dataset[key];
+          if(value !== undefined && value !== null){
+            option.dataset[key] = String(value);
+          }
+        });
+      }
+      list.appendChild(option);
+    });
+    if(list.children.length){
+      if(trigger){
+        trigger.setAttribute('aria-controls', list.id);
+      }
+      wrapper.appendChild(list);
+    }
+    return wrapper;
+  }
+
+  function getMenuWrapper(trigger){
+    if(!trigger){ return null; }
+    return trigger.closest(MENU_WRAPPER_SELECTOR);
+  }
+
+  function closeMenu(wrapper){
+    if(!wrapper){ return; }
+    wrapper.classList.remove(MENU_OPEN_CLASS);
+    const trigger = wrapper.querySelector(MENU_TRIGGER_SELECTOR);
+    if(trigger){ trigger.setAttribute('aria-expanded', 'false'); }
+  }
+
+  function closeAllMenus(except){
+    if(!doc){ return; }
+    doc.querySelectorAll(`${MENU_WRAPPER_SELECTOR}.${MENU_OPEN_CLASS}`).forEach(wrapper => {
+      if(wrapper !== except){
+        closeMenu(wrapper);
+      }
+    });
+  }
+
+  function openMenu(trigger){
+    if(!trigger){ return; }
+    const wrapper = getMenuWrapper(trigger);
+    if(!wrapper){ return; }
+    closeAllMenus(wrapper);
+    wrapper.classList.add(MENU_OPEN_CLASS);
+    trigger.setAttribute('aria-expanded', 'true');
+  }
+
+  function toggleMenu(trigger){
+    if(!trigger){ return; }
+    const wrapper = getMenuWrapper(trigger);
+    if(!wrapper){ return; }
+    if(wrapper.classList.contains(MENU_OPEN_CLASS)){
+      closeMenu(wrapper);
+    } else {
+      openMenu(trigger);
+    }
+  }
+
+  function handleToolbarMenuClick(event){
+    if(!doc){ return; }
+    const trigger = event.target.closest('.workspace-toolbar__button--menu');
+    if(trigger){
+      event.preventDefault();
+      toggleMenu(trigger);
+      return;
+    }
+    const menuItem = event.target.closest('.workspace-toolbar__menu-item');
+    if(menuItem){
+      closeAllMenus();
+      return;
+    }
+    if(!event.target.closest(MENU_WRAPPER_SELECTOR)){
+      closeAllMenus();
+    }
+  }
+
+  function handleToolbarMenuKeydown(event){
+    if(!doc){ return; }
+    if(event.key === 'Escape'){
+      closeAllMenus();
+      return;
+    }
+    const trigger = event.target.closest('.workspace-toolbar__button--menu');
+    if(trigger && (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown')){
+      event.preventDefault();
+      openMenu(trigger);
+    }
+    if(event.key === 'Tab'){
+      global.setTimeout?.(() => {
+        if(!doc.activeElement || !doc.activeElement.closest(MENU_WRAPPER_SELECTOR)){
+          closeAllMenus();
+        }
+      }, 0);
+    }
+  }
+
+  function handleToolbarMenuFocus(event){
+    if(!event?.target){ return; }
+    if(!event.target.closest(MENU_WRAPPER_SELECTOR)){
+      closeAllMenus();
+    }
+  }
+
+  function ensureMenuHandlers(){
+    if(menuHandlersBound || !doc){ return; }
+    doc.addEventListener('click', handleToolbarMenuClick);
+    doc.addEventListener('keydown', handleToolbarMenuKeydown, true);
+    doc.addEventListener('focusin', handleToolbarMenuFocus);
+    menuHandlersBound = true;
   }
 
   function createFormControl(control){
@@ -306,11 +470,16 @@
     sectionEl.className = 'workspace-toolbar__section';
     sectionEl.setAttribute('role', 'group');
     if(section.ariaLabel){ sectionEl.setAttribute('aria-label', section.ariaLabel); }
+    if(section.align === 'end'){
+      sectionEl.classList.add('workspace-toolbar__section--align-end');
+    }
 
     const buttonsWrap = doc.createElement('div');
     buttonsWrap.className = 'workspace-toolbar__buttons';
     (section.buttons || []).forEach(buttonConfig => {
-      const button = createButton(buttonConfig);
+      if(!buttonConfig){ return; }
+      const isMenu = Array.isArray(buttonConfig.menuItems) && buttonConfig.menuItems.length > 0;
+      const button = isMenu ? createMenuButton(buttonConfig) : createButton(buttonConfig);
       if(button){ buttonsWrap.appendChild(button); }
     });
     sectionEl.appendChild(buttonsWrap);
@@ -436,6 +605,7 @@
       logDebug('render skipped', { key, reason: 'already-rendered' });
       return;
     }
+    ensureMenuHandlers();
     const toolbar = buildToolbar(config);
     if(!toolbar){ return; }
     if(placeholder){
@@ -458,6 +628,7 @@
     if(!doc){ return; }
     const containers = doc.querySelectorAll('.workspace-page__topbar[data-toolbar]');
     containers.forEach(renderToolbarForElement);
+    closeAllMenus();
     ensureUndoSubscription();
     syncUndoButtonsAvailability();
   }
@@ -508,6 +679,45 @@
       hint: DEFAULT_HINT
     });
 
+    const openMenuItems = (key) => [
+      {
+        id: `open${capitalize(key)}Graph`,
+        label: 'Open Graph (.graph)'
+      },
+      {
+        id: `open${capitalize(key)}Session`,
+        label: 'Load Session (.session)',
+        dataset: { sessionAction: 'open', sessionActionNewWindow: 'dirty' },
+        ariaLabel: 'Load a saved session in a new window when needed'
+      }
+    ];
+
+    const saveMenuItems = (key) => [
+      {
+        id: `save${capitalize(key)}Graph`,
+        label: 'Save Graph (.graph)'
+      },
+      {
+        id: `save${capitalize(key)}Session`,
+        label: 'Save Session (.session)',
+        dataset: { sessionAction: 'save' },
+        ariaLabel: 'Save the current workspace session'
+      }
+    ];
+
+    const buildMatchStylesSection = () => ({
+      type: 'buttons',
+      ariaLabel: 'Style synchronization',
+      align: 'end',
+      caption: '',
+      buttons: [
+        button(null, 'Match Styles', 'matchStyles', {
+          ariaLabel: 'Match styles across open graphs',
+          dataset: { styleSyncTrigger: '1' }
+        })
+      ]
+    });
+
     const TOOLBAR_DATA = {
       venn: {
         ariaLabel: 'Venn diagram actions',
@@ -517,8 +727,8 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openVenn', 'Open', 'open'),
-              button('saveVenn', 'Save', 'save'),
+              button('openVenn', 'Open', 'open', { menuItems: openMenuItems('Venn') }),
+              button('saveVenn', 'Save', 'save', { menuItems: saveMenuItems('Venn') }),
               button('saveAsVenn', 'Save As', 'saveAs')
             ]
           },
@@ -531,7 +741,8 @@
               button('sample', 'Load Example', 'example')
             ]
           },
-          dock('venn')
+          dock('venn'),
+          buildMatchStylesSection()
         ]
       },
       box: {
@@ -542,9 +753,9 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openBox', 'Open', 'open'),
+              button('openBox', 'Open', 'open', { menuItems: openMenuItems('Box') }),
               button('boxImport', 'Import', 'import'),
-              button('saveBox', 'Save', 'save'),
+              button('saveBox', 'Save', 'save', { menuItems: saveMenuItems('Box') }),
               button('saveAsBox', 'Save As', 'saveAs')
             ]
           },
@@ -557,7 +768,8 @@
               button('boxLoadExample', 'Load Example', 'example')
             ]
           },
-          dock('box')
+          dock('box'),
+          buildMatchStylesSection()
         ]
       },
       scatter: {
@@ -568,9 +780,9 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openScatter', 'Open', 'open'),
+              button('openScatter', 'Open', 'open', { menuItems: openMenuItems('Scatter') }),
               button('scatterImport', 'Import', 'import'),
-              button('saveScatter', 'Save', 'save'),
+              button('saveScatter', 'Save', 'save', { menuItems: saveMenuItems('Scatter') }),
               button('saveAsScatter', 'Save As', 'saveAs')
             ]
           },
@@ -583,7 +795,8 @@
               button('scatterLoadExample', 'Load Example', 'example')
             ]
           },
-          dock('scatter')
+          dock('scatter'),
+          buildMatchStylesSection()
         ]
       },
       pca: {
@@ -594,9 +807,9 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openPca', 'Open', 'open'),
+              button('openPca', 'Open', 'open', { menuItems: openMenuItems('Pca') }),
               button('pcaImport', 'Import', 'import'),
-              button('savePca', 'Save', 'save'),
+              button('savePca', 'Save', 'save', { menuItems: saveMenuItems('Pca') }),
               button('saveAsPca', 'Save As', 'saveAs')
             ]
           },
@@ -609,7 +822,8 @@
               button('pcaLoadExample', 'Load Example', 'example')
             ]
           },
-          dock('pca')
+          dock('pca'),
+          buildMatchStylesSection()
         ]
       },
       line: {
@@ -620,9 +834,9 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openLine', 'Open', 'open'),
+              button('openLine', 'Open', 'open', { menuItems: openMenuItems('Line') }),
               button('lineImport', 'Import', 'import'),
-              button('saveLine', 'Save', 'save'),
+              button('saveLine', 'Save', 'save', { menuItems: saveMenuItems('Line') }),
               button('saveAsLine', 'Save As', 'saveAs')
             ]
           },
@@ -635,7 +849,8 @@
               button('lineLoadExample', 'Load Example', 'example')
             ]
           },
-          dock('line')
+          dock('line'),
+          buildMatchStylesSection()
         ]
       },
       heatmap: {
@@ -646,9 +861,9 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openHeatmap', 'Open', 'open'),
+              button('openHeatmap', 'Open', 'open', { menuItems: openMenuItems('Heatmap') }),
               button('heatmapImport', 'Import', 'import'),
-              button('saveHeatmap', 'Save', 'save'),
+              button('saveHeatmap', 'Save', 'save', { menuItems: saveMenuItems('Heatmap') }),
               button('saveAsHeatmap', 'Save As', 'saveAs')
             ]
           },
@@ -661,7 +876,8 @@
               button('heatmapLoadExample', 'Load Example', 'example')
             ]
           },
-          dock('heatmap')
+          dock('heatmap'),
+          buildMatchStylesSection()
         ]
       },
       surface: {
@@ -672,9 +888,9 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openSurface', 'Open', 'open'),
+              button('openSurface', 'Open', 'open', { menuItems: openMenuItems('Surface') }),
               button('surfaceImport', 'Import', 'import'),
-              button('saveSurface', 'Save', 'save'),
+              button('saveSurface', 'Save', 'save', { menuItems: saveMenuItems('Surface') }),
               button('saveAsSurface', 'Save As', 'saveAs')
             ]
           },
@@ -687,7 +903,8 @@
               button('surfaceLoadExample', 'Load Example', 'example')
             ]
           },
-          dock('surface')
+          dock('surface'),
+          buildMatchStylesSection()
         ]
       },
       roc: {
@@ -698,9 +915,9 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openRoc', 'Open', 'open'),
+              button('openRoc', 'Open', 'open', { menuItems: openMenuItems('Roc') }),
               button('rocImport', 'Import', 'import'),
-              button('saveRoc', 'Save', 'save'),
+              button('saveRoc', 'Save', 'save', { menuItems: saveMenuItems('Roc') }),
               button('saveAsRoc', 'Save As', 'saveAs')
             ]
           },
@@ -713,7 +930,8 @@
               button('rocLoadExample', 'Load Example', 'example')
             ]
           },
-          dock('roc')
+          dock('roc'),
+          buildMatchStylesSection()
         ]
       },
       survival: {
@@ -724,9 +942,9 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openSurvival', 'Open', 'open'),
+              button('openSurvival', 'Open', 'open', { menuItems: openMenuItems('Survival') }),
               button('survivalImport', 'Import', 'import'),
-              button('saveSurvival', 'Save', 'save'),
+              button('saveSurvival', 'Save', 'save', { menuItems: saveMenuItems('Survival') }),
               button('saveAsSurvival', 'Save As', 'saveAs')
             ]
           },
@@ -739,7 +957,8 @@
               button('survivalLoadExample', 'Load Example', 'example')
             ]
           },
-          dock('survival')
+          dock('survival'),
+          buildMatchStylesSection()
         ]
       },
       hist: {
@@ -750,9 +969,9 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openHist', 'Open', 'open'),
+              button('openHist', 'Open', 'open', { menuItems: openMenuItems('Hist') }),
               button('histImport', 'Import', 'import'),
-              button('saveHist', 'Save', 'save'),
+              button('saveHist', 'Save', 'save', { menuItems: saveMenuItems('Hist') }),
               button('saveAsHist', 'Save As', 'saveAs')
             ]
           },
@@ -765,7 +984,8 @@
               button('histLoadExample', 'Load Example', 'example')
             ]
           },
-          dock('hist')
+          dock('hist'),
+          buildMatchStylesSection()
         ]
       },
       pie: {
@@ -776,9 +996,9 @@
             caption: 'File',
             ariaLabel: 'File actions',
             buttons: [
-              button('openPie', 'Open', 'open'),
+              button('openPie', 'Open', 'open', { menuItems: openMenuItems('Pie') }),
               button('pieImport', 'Import', 'import'),
-              button('savePie', 'Save', 'save'),
+              button('savePie', 'Save', 'save', { menuItems: saveMenuItems('Pie') }),
               button('saveAsPie', 'Save As', 'saveAs')
             ]
           },
@@ -791,7 +1011,8 @@
               button('pieLoadExample', 'Load Example', 'example')
             ]
           },
-          dock('pie')
+          dock('pie'),
+          buildMatchStylesSection()
         ]
       }
     };
