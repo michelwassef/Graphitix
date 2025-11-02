@@ -1141,9 +1141,6 @@ select {
     position:relative;
     min-height:0;
 }
-.workspace-toolbar__section--align-end{
-    margin-left:auto;
-}
 .workspace-toolbar__section--dock{
     flex:0 0 auto;
     align-items:center;
