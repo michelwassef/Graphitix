@@ -440,6 +440,18 @@
               </div>
             </fieldset>
             <fieldset>
+              <legend>Points</legend>
+              <div class="control">
+                <label>Display</label>
+                <select id="boxPointMode">
+                  <option value="none" selected>None</option>
+                  <option value="overlay">Overlay</option>
+                  <option value="side">Side</option>
+                  <option value="outliers">Outliers</option>
+                </select>
+              </div>
+            </fieldset>
+            <fieldset>
               <legend>Colors</legend>
               <div class="control" style="gap:8px;">
                 <label style="width:auto; display:flex; align-items:center; gap:4px;">
@@ -474,26 +486,14 @@
                 <label style="width:auto;"><input type="checkbox" id="boxShowGrid" /> Show Horizontal Grid</label>
                 <label style="width:auto;"><input type="checkbox" id="boxShowFrame" /> Show Frame</label>
                 <label style="width:auto;"><input type="checkbox" id="boxShowLegend" checked /> Show legend</label>
+                <label style="width:auto;"><input type="checkbox" id="boxFlipAxes" /> Flip Axes</label>
+              </div>
+              <div class="control" style="flex-wrap:wrap; gap:6px; align-items:center;">
                 <label style="width:auto;">
                   <input type="checkbox" id="boxLogScale" /> <span id="boxLogScaleLabel">Log Scale (Y)</span>
                 </label>
-                <label style="width:auto;"><input type="checkbox" id="boxFlipAxes" /> Flip Axes</label>
-              </div>
-              <div class="control" style="flex-wrap:wrap; gap:6px;">
                 <label style="width:auto;">Y min <input type="number" id="boxYMin" /></label>
                 <label style="width:auto;">Y max <input type="number" id="boxYMax" /></label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Points</legend>
-              <div class="control">
-                <label>Display</label>
-                <select id="boxPointMode">
-                  <option value="none" selected>None</option>
-                  <option value="overlay">Overlay</option>
-                  <option value="side">Side</option>
-                  <option value="outliers">Outliers</option>
-                </select>
               </div>
             </fieldset>
             <fieldset>
