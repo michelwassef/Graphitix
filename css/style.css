@@ -555,6 +555,38 @@ select {
     line-height: 1.6;
 }
 
+.welcome-panel__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.welcome-panel__menu .workspace-toolbar__button {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 10px 18px;
+    font-size: 15px;
+}
+
+.welcome-panel__menu .workspace-toolbar__icon {
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+}
+
+.welcome-panel__menu .workspace-toolbar__icon svg {
+    width: 22px;
+    height: 22px;
+}
+
+.welcome-panel__menu .workspace-toolbar__label {
+    font-weight: 600;
+}
+
 .selection-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

@@ -23,6 +23,7 @@
       sessionLoadBtn: document.getElementById('loadWorkspaceSession'),
       matchStylesBtn: document.getElementById('matchWorkspaceStyles'),
       sessionFileInput: document.getElementById('workspaceSessionInput'),
+      welcomeGraphInput: document.getElementById('welcomeGraphFileInput'),
       duplicatePrompt: document.getElementById('duplicatePrompt'),
       duplicateTitle: document.getElementById('duplicatePromptTitle'),
       duplicateMessage: document.getElementById('duplicatePromptMessage'),
