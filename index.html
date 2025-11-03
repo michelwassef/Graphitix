@@ -368,51 +368,6 @@
           </div>
           <div class="config-options">
             <fieldset>
-              <legend>Colors</legend>
-              <div class="control" style="gap:8px;">
-                <label style="width:auto; display:flex; align-items:center; gap:4px;">
-                  <input type="radio" name="boxColorMode" id="boxColorUnified" checked /> Unified
-                </label>
-                <label style="width:auto; display:flex; align-items:center; gap:4px;">
-                  <input type="radio" name="boxColorMode" id="boxColorIndividual" /> Individual
-                </label>
-              </div>
-              <div id="boxUnifiedColors" class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;">Fill</label>
-                <input type="color" id="boxFill" value="#4472c4" />
-                <label style="width:auto;">Border</label>
-                <input type="color" id="boxBorder" value="#000000" />
-              </div>
-              <div id="boxColorPerBox" class="color-pickers"></div>
-            </fieldset>
-            <fieldset>
-              <legend>Border</legend>
-              <div class="control" style="flex-wrap:wrap; gap:8px; align-items:center;">
-                <label style="width:auto;">Thickness</label>
-                <input type="number" id="boxBorderWidth" value="2" min="0" max="10" />
-                <div id="boxErrorBarWidthCtl" style="display:none; align-items:center; gap:6px;">
-                  <label style="width:auto;">Error Bar Thickness</label>
-                  <input type="number" id="boxErrorBarWidth" value="2" min="0" max="10" />
-                </div>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Grid & Axis</legend>
-              <div class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;"><input type="checkbox" id="boxShowGrid" /> Show Horizontal Grid</label>
-                <label style="width:auto;"><input type="checkbox" id="boxShowFrame" /> Show Frame</label>
-                <label style="width:auto;"><input type="checkbox" id="boxShowLegend" checked /> Show legend</label>
-                <label style="width:auto;">
-                  <input type="checkbox" id="boxLogScale" /> <span id="boxLogScaleLabel">Log Scale (Y)</span>
-                </label>
-                <label style="width:auto;"><input type="checkbox" id="boxFlipAxes" /> Flip Axes</label>
-              </div>
-              <div class="control" style="flex-wrap:wrap; gap:6px;">
-                <label style="width:auto;">Y min <input type="number" id="boxYMin" /></label>
-                <label style="width:auto;">Y max <input type="number" id="boxYMax" /></label>
-              </div>
-            </fieldset>
-            <fieldset>
               <legend>Graph</legend>
               <div class="control">
                 <label>Type</label>
@@ -482,6 +437,51 @@
                 <input type="range" id="boxViolinSamples" min="8" max="512" step="8" value="80" />
                 <input type="number" id="boxViolinSamplesValue" min="8" max="2048" step="1" value="80" style="width:70px;" />
                 <output id="boxViolinSamplesVal" style="min-width:40px;">80</output>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Colors</legend>
+              <div class="control" style="gap:8px;">
+                <label style="width:auto; display:flex; align-items:center; gap:4px;">
+                  <input type="radio" name="boxColorMode" id="boxColorUnified" checked /> Unified
+                </label>
+                <label style="width:auto; display:flex; align-items:center; gap:4px;">
+                  <input type="radio" name="boxColorMode" id="boxColorIndividual" /> Individual
+                </label>
+              </div>
+              <div id="boxUnifiedColors" class="control" style="flex-wrap:wrap;">
+                <label style="width:auto;">Fill</label>
+                <input type="color" id="boxFill" value="#4472c4" />
+                <label style="width:auto;">Border</label>
+                <input type="color" id="boxBorder" value="#000000" />
+              </div>
+              <div id="boxColorPerBox" class="color-pickers"></div>
+            </fieldset>
+            <fieldset>
+              <legend>Border</legend>
+              <div class="control" style="flex-wrap:wrap; gap:8px; align-items:center;">
+                <label style="width:auto;">Thickness</label>
+                <input type="number" id="boxBorderWidth" value="2" min="0" max="10" />
+                <div id="boxErrorBarWidthCtl" style="display:none; align-items:center; gap:6px;">
+                  <label style="width:auto;">Error Bar Thickness</label>
+                  <input type="number" id="boxErrorBarWidth" value="2" min="0" max="10" />
+                </div>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Grid & Axis</legend>
+              <div class="control" style="flex-wrap:wrap;">
+                <label style="width:auto;"><input type="checkbox" id="boxShowGrid" /> Show Horizontal Grid</label>
+                <label style="width:auto;"><input type="checkbox" id="boxShowFrame" /> Show Frame</label>
+                <label style="width:auto;"><input type="checkbox" id="boxShowLegend" checked /> Show legend</label>
+                <label style="width:auto;">
+                  <input type="checkbox" id="boxLogScale" /> <span id="boxLogScaleLabel">Log Scale (Y)</span>
+                </label>
+                <label style="width:auto;"><input type="checkbox" id="boxFlipAxes" /> Flip Axes</label>
+              </div>
+              <div class="control" style="flex-wrap:wrap; gap:6px;">
+                <label style="width:auto;">Y min <input type="number" id="boxYMin" /></label>
+                <label style="width:auto;">Y max <input type="number" id="boxYMax" /></label>
               </div>
             </fieldset>
             <fieldset>
