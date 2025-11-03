@@ -83,9 +83,13 @@
   const MainSessionActions = bootstrap.sessionActions;
   const MainTabDrag = bootstrap.tabDrag;
   const WORKSPACES = bootstrap.workspaces;
+  const GRAPH_TYPES = bootstrap.graphTypes || [];
   const dom = bootstrap.dom;
   const workspaceState = bootstrap.workspaceState;
   const withSessionContext = bootstrap.withSessionContext;
+  const GRAPH_FILE_TYPES = [
+    { description: 'Workspace Graph', accept: { 'application/json': ['.graph', '.json'] } }
+  ];
 
   const requiredSessionHelpers = [
     'getActiveTab',
@@ -270,6 +274,158 @@
     MainSessionActions.handleSessionInputChange(getSessionActionsContext(), event);
   }
 
+  function deriveGraphTitle(fileName, type) {
+    const trimmed = (fileName || '').replace(/\.[^/.]+$/, '').trim();
+    if (trimmed) {
+      return trimmed;
+    }
+    const info = GRAPH_TYPES.find(entry => entry.type === type);
+    return info ? info.label : '';
+  }
+
+  function extractGraphLayout(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return null;
+    }
+    if (payload.layoutState && typeof payload.layoutState === 'object') {
+      return payload.layoutState;
+    }
+    if (payload.layout && typeof payload.layout === 'object') {
+      return payload.layout;
+    }
+    return null;
+  }
+
+  async function importGraphFileFromWelcome(file, meta = {}) {
+    if (!file) {
+      console.debug('Debug: welcome graph import skipped', { reason: 'no-file' });
+      return false;
+    }
+    let text;
+    try {
+      text = await file.text();
+    } catch (err) {
+      console.error('welcome graph read error', err);
+      return false;
+    }
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch (err) {
+      console.error('welcome graph parse error', err);
+      return false;
+    } finally {
+      text = null;
+    }
+    const rawType = typeof payload?.type === 'string' ? payload.type.trim() : '';
+    const type = rawType.toLowerCase();
+    if (!type) {
+      console.warn('welcome graph missing type', { fileName: meta.fileName || file.name || null });
+      return false;
+    }
+    if (!WORKSPACES || !WORKSPACES[type]) {
+      console.warn('welcome graph unknown type', { type });
+      return false;
+    }
+    tabsManager.handleGraphSelection(type);
+    const activeTab = tabsManager.getActiveTab();
+    if (!activeTab || activeTab.type !== type) {
+      console.error('welcome graph active tab mismatch', { requested: type, active: activeTab ? activeTab.type : null });
+      return false;
+    }
+    const baseTitle = deriveGraphTitle(meta.fileName || file.name || '', type);
+    if (baseTitle) {
+      const uniqueTitle = MainSession.generateUniqueTabTitle(baseTitle, { excludeTabId: activeTab.id });
+      if (uniqueTitle !== activeTab.title) {
+        const previousTitle = activeTab.title;
+        activeTab.title = uniqueTitle;
+        MainSession.markSessionDirty('tab-title-updated', { tabId: activeTab.id, previousTitle, nextTitle: uniqueTitle });
+      }
+    }
+    const layoutState = extractGraphLayout(payload);
+    if (layoutState) {
+      activeTab.layoutState = layoutState;
+      activeTab.layoutSignature = MainSession.serializePayloadSignature(layoutState);
+    } else {
+      activeTab.layoutState = null;
+      activeTab.layoutSignature = MainSession.serializePayloadSignature(null);
+    }
+    MainSession.assignTabPayload(activeTab, payload, { reason: 'welcome-graph-load' });
+    MainSession.markSessionDirty('welcome-graph-load', { tabId: activeTab.id, type });
+    tabsManager.renderTabs();
+    const workspaceConfig = WORKSPACES[type];
+    try {
+      if (typeof workspaceConfig.loadFromPayload === 'function') {
+        workspaceConfig.loadFromPayload(payload);
+      } else if (typeof workspaceConfig.loadFromFile === 'function') {
+        workspaceConfig.loadFromFile(file);
+      }
+      if (typeof workspaceConfig.draw === 'function') {
+        workspaceConfig.draw();
+      }
+    } catch (err) {
+      console.error('welcome graph apply error', { type, err });
+    }
+    console.debug('Debug: welcome graph imported', { type, tabId: activeTab.id });
+    return true;
+  }
+
+  async function handleWelcomeGraphOpen() {
+    const context = getSessionActionsContext();
+    const shared = context.Shared;
+    if (!shared?.fileIO || typeof shared.fileIO.openGraphFile !== 'function') {
+      console.warn('Welcome graph picker unavailable: missing Shared.fileIO.openGraphFile');
+      if (dom?.welcomeGraphInput) {
+        dom.welcomeGraphInput.value = '';
+        dom.welcomeGraphInput.click();
+      }
+      return;
+    }
+    let pendingHandle = null;
+    let pendingName = '';
+    try {
+      const result = await shared.fileIO.openGraphFile({
+        context: 'welcome-graph',
+        fileTypes: GRAPH_FILE_TYPES,
+        setFileHandle: handle => { pendingHandle = handle || null; },
+        setFileName: name => { pendingName = name || ''; },
+        loadFromFile: async selectedFile => {
+          await importGraphFileFromWelcome(selectedFile, {
+            fileHandle: pendingHandle,
+            fileName: selectedFile?.name || pendingName
+          });
+        },
+        triggerInput: () => {
+          pendingHandle = null;
+          pendingName = '';
+          if (dom?.welcomeGraphInput) {
+            dom.welcomeGraphInput.value = '';
+            dom.welcomeGraphInput.click();
+          }
+        }
+      });
+      console.debug('Debug: welcome graph picker result', { status: result?.status, via: result?.via });
+    } catch (err) {
+      console.error('handleWelcomeGraphOpen error', err);
+    }
+  }
+
+  function handleWelcomeGraphInputChange(event) {
+    const input = event?.target;
+    const file = input?.files && input.files[0];
+    if (!file) {
+      console.debug('Debug: welcome graph input change without file');
+      return;
+    }
+    void importGraphFileFromWelcome(file, { fileName: file.name }).catch(err => {
+      console.error('welcome graph input import error', err);
+    }).finally(() => {
+      if (input) {
+        input.value = '';
+      }
+    });
+  }
+
   function shouldWarnBeforeUnload() {
     return MainSessionActions.shouldWarnBeforeUnload(getSessionActionsContext());
   }
@@ -339,7 +495,8 @@
     onSessionSaveClick: handleSessionSaveClick,
     onSessionLoadClick: handleSessionLoadClick,
     onSessionInputChange: handleSessionInputChange,
-    onMatchStylesClick: styleSyncApi?.handleMatchStylesClick
+    onMatchStylesClick: styleSyncApi?.handleMatchStylesClick,
+    onWelcomeGraphInputChange: handleWelcomeGraphInputChange
   });
 
   void consumeTransferredSessionIfAvailable();
@@ -355,6 +512,12 @@
         const policy = sessionButton.dataset.sessionActionNewWindow;
         void handleSessionLoadClick({ openInNewWindowIfDirty: policy === 'dirty' });
       }
+      return;
+    }
+    const welcomeGraphItem = event.target.closest('#welcomeOpenGraph');
+    if (welcomeGraphItem) {
+      event.preventDefault();
+      void handleWelcomeGraphOpen();
       return;
     }
     const styleSyncTrigger = event.target.closest('[data-style-sync-trigger]');

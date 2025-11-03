@@ -12,7 +12,6 @@
     <header id="appHeader" class="app-header">
       <div class="app-header__content">
         <h1 class="app-header__title">Graph &amp; Statistics Workbench</h1>
-        <p class="app-header__subtitle">Choose the type of graph you would like to build.</p>
       </div>
     </header>
     <main id="workspaceMain">
@@ -20,6 +19,41 @@
         <div class="welcome-panel">
           <h2 class="welcome-panel__title">What would you like to visualize?</h2>
           <p class="welcome-panel__body">Pick a visualization below to open its workspace. You can add more tabs later and reuse the data you have already prepared.</p>
+          <div class="welcome-panel__actions">
+            <div class="workspace-toolbar__menu welcome-panel__menu" data-menu-id="welcome-open">
+              <button
+                type="button"
+                class="workspace-toolbar__button workspace-toolbar__button--menu"
+                id="welcomeOpenButton"
+                aria-haspopup="true"
+                aria-expanded="false"
+                data-menu-id="welcome-open"
+                aria-controls="welcomeOpenMenu"
+              >
+                <span class="workspace-toolbar__icon">
+                  <svg focusable="false" data-icon="toolbar" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="currentColor" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8z" />
+                  </svg>
+                </span>
+                <span class="workspace-toolbar__label">Open file</span>
+              </button>
+              <div class="workspace-toolbar__menu-list" role="menu" id="welcomeOpenMenu">
+                <button type="button" class="workspace-toolbar__menu-item" role="menuitem" id="welcomeOpenGraph">Open Graph (.graph)</button>
+                <button
+                  type="button"
+                  class="workspace-toolbar__menu-item"
+                  role="menuitem"
+                  id="welcomeOpenSession"
+                  data-session-action="open"
+                  data-session-action-new-window="dirty"
+                  aria-label="Load a saved session in a new window when needed"
+                >
+                  Load Session (.session)
+                </button>
+              </div>
+            </div>
+            <input type="file" id="welcomeGraphFileInput" accept=".graph,.json" style="display:none;" />
+          </div>
           <div id="graphSelectionGrid" class="selection-grid" role="list">
             <button type="button" class="graph-card" data-graph-type="venn" role="listitem">
               <span class="graph-card__hint">Lists &amp; overlap</span>

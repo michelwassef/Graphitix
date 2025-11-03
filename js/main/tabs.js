@@ -475,6 +475,9 @@
       if (dom.sessionFileInput && typeof callbacks.onSessionInputChange === 'function') {
         dom.sessionFileInput.addEventListener('change', callbacks.onSessionInputChange);
       }
+      if (dom.welcomeGraphInput && typeof callbacks.onWelcomeGraphInputChange === 'function') {
+        dom.welcomeGraphInput.addEventListener('change', callbacks.onWelcomeGraphInputChange);
+      }
       bindUnsavedPromptHandlers();
       console.debug('Debug: workspace UI initialized via Main.tabs', { welcomeTabId: welcomeTab.id });
       return welcomeTab;
