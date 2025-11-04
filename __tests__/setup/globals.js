@@ -9,9 +9,19 @@ const origDebug = console.debug;
 const origLog = console.log;
 const origWarn = console.warn;
 const origError = console.error;
-let allowDebugLogging = true;
-global.__restoreTestDebugLogs = () => { allowDebugLogging = true; };
+const origTime = console.time;
+const origTimeEnd = console.timeEnd;
+let debugLoggingDefault = process.env.TEST_DEBUG_LOGS === '1';
+let allowDebugLogging = debugLoggingDefault;
+global.__restoreTestDebugLogs = () => {
+  allowDebugLogging = debugLoggingDefault;
+  return allowDebugLogging;
+};
 global.__suppressTestDebugLogs = () => { allowDebugLogging = false; };
+global.__setTestDebugLoggingDefault = (value) => {
+  debugLoggingDefault = !!value;
+  allowDebugLogging = debugLoggingDefault;
+};
 console.debug = (...args) => {
   if (!allowDebugLogging) {
     return;
@@ -36,18 +46,54 @@ console.error = (...args) => {
   }
   origError(...args);
 };
+console.time = (label) => {
+  if (!allowDebugLogging) {
+    return;
+  }
+  origTime(label);
+};
+console.timeEnd = (label) => {
+  if (!allowDebugLogging) {
+    return;
+  }
+  origTimeEnd(label);
+};
 
 // Polyfills that jsdom may not provide by default
 if (!global.TextEncoder) global.TextEncoder = TextEncoder;
 if (!global.TextDecoder) global.TextDecoder = TextDecoder;
 
-// requestAnimationFrame/cancelAnimationFrame - immediate flush
-if (!global.requestAnimationFrame) {
-  global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-}
-if (!global.cancelAnimationFrame) {
-  global.cancelAnimationFrame = (id) => clearTimeout(id);
-}
+// requestAnimationFrame/cancelAnimationFrame - fast microtask implementation
+(() => {
+  const now = () => (global.performance && typeof global.performance.now === 'function'
+    ? global.performance.now()
+    : Date.now());
+  let rafId = 0;
+  const scheduled = new Map();
+  const schedule = (cb) => setTimeout(cb, 0);
+  const fastRaf = (cb) => {
+    const id = ++rafId;
+    const handle = schedule(() => {
+      scheduled.delete(id);
+      try {
+        cb(now());
+      } catch (err) {
+        origError('requestAnimationFrame callback error', err);
+      }
+    });
+    scheduled.set(id, handle);
+    return id;
+  };
+  const fastCancel = (id) => {
+    const handle = scheduled.get(id);
+    if (handle !== undefined) {
+      clearTimeout(handle);
+      scheduled.delete(id);
+    }
+  };
+  global.requestAnimationFrame = fastRaf;
+  global.cancelAnimationFrame = fastCancel;
+})();
 
 // ResizeObserver minimal stub
 class RO {
