@@ -1210,11 +1210,12 @@
         console.error('pca initHot missing Shared.hot.createStandardTable');
         return;
       }
-      const pcaData=Shared.createEmptyData(DEFAULT_ROWS,DEFAULT_COLS);
-      if(pcaData.length){
-        pcaData[0]=['Variable','A','B','C','D','E','F','G','H'];
-        debugLog('Debug: pca default header initialized for label columns', { header: pcaData[0] });
-      }
+      const pcaData = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
+      // Do not prefill any headers - let the user paste their own.
+      // First row stays empty by default so column names never appear automatically.
+      debugLog('Debug: pca default header suppressed - awaiting user paste', {
+        rows: pcaData.length, cols: pcaData[0]?.length || 0
+      });
       let pcaScheduleProxyCount = 0;
       const scheduleDrawPcaProxy = () => {
         pcaScheduleProxyCount += 1;
@@ -3046,18 +3047,48 @@
         };
         console.debug('Debug: umap embedding complete',{ stats: lastPcaStats, pointCount: points.length });
       } else {
-        const svd = SVDLib.SVD(matrix);
-        console.debug('pca svd result', svd);
+        // Ensure SVD works even if samples < features
+        const transpose2D = (m) => {
+          const rows = m.length | 0;
+          const cols = rows ? (m[0].length | 0) : 0;
+          const t = Array.from({ length: cols }, () => new Array(rows));
+          for (let r = 0; r < rows; r++) {
+            const row = m[r];
+            for (let c = 0; c < cols; c++) {
+              t[c][r] = row[c];
+            }
+          }
+          return t;
+        };
 
-        const scores = [];
+        let matrixForSvd = matrix;
+        let useFactor = 'u'; // when SVD is done on X directly, scores = U * S
+        if (nSamples < nFeatures) {
+          // Use SVD(X^T) so that m >= n for the library
+          // For SVD(X^T) = V * S * U^T, the sample scores are V * S
+          matrixForSvd = transpose2D(matrix);
+          useFactor = 'v';
+          debugLog('Debug: PCA SVD uses transposed matrix to satisfy m>=n', {
+            nSamples, nFeatures, svdOn: 'X^T'
+          });
+        } else {
+          debugLog('Debug: PCA SVD uses direct matrix X', { nSamples, nFeatures, svdOn: 'X' });
+        }
+
+        const svd = SVDLib.SVD(matrixForSvd);
+        console.debug('pca svd result', { q: svd?.q, u_shape: svd?.u?.length + 'x' + (svd?.u?.[0]?.length || 0), v_shape: svd?.v?.length + 'x' + (svd?.v?.[0]?.length || 0) });
+
+        const scores = new Array(nSamples);
         for (let i = 0; i < nSamples; i++) {
-          scores[i] = [];
+          const row = scores[i] = [];
           for (let k = 0; k < svd.q.length; k++) {
-            scores[i][k] = svd.u[i][k] * svd.q[k];
+            // Pick U or V depending on whether we SVD’d X or X^T
+            const basis = (useFactor === 'u' ? svd.u : svd.v);
+            const coeff = (basis?.[i]?.[k] ?? 0);
+            row[k] = coeff * svd.q[k];
           }
         }
-        console.debug('pca scores', scores);
-
+        console.debug('pca scores', { n: scores.length, dims: svd.q.length, sample0: scores[0] });
         const variances = svd.q.map((s) => (s * s) / (nSamples - 1));
         const totalVar = variances.reduce((a, b) => a + b, 0);
         const safeTotal = totalVar > 0 ? totalVar : 1;
