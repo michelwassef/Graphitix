@@ -132,6 +132,54 @@
     return parts.length ? parts : null;
   }
 
+  function isTransparentColor(value) {
+    if (!value) return true;
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized) return true;
+    if (TRANSPARENT_VALUES.has(normalized)) return true;
+    if (normalized === 'none' || normalized === 'initial') return true;
+    return false;
+  }
+
+  function removeAxisInteractionHandles(svgNode) {
+    if (!svgNode || !svgNode.querySelectorAll) {
+      return 0;
+    }
+    const candidates = svgNode.querySelectorAll('[data-axis-control="1"]');
+    let removed = 0;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const node = candidates[i];
+      if (!node || typeof node.tagName !== 'string') {
+        continue;
+      }
+      const tag = node.tagName.toLowerCase();
+      if (tag !== 'rect') {
+        continue;
+      }
+      const fillAttr = node.getAttribute('fill');
+      const styleFill = node.style ? node.style.fill : null;
+      const pointerEvents = (node.getAttribute('pointer-events') || '').toLowerCase();
+      const stroke = node.getAttribute('stroke') || (node.style ? node.style.stroke : null);
+      const opacityRaw = node.getAttribute('opacity');
+      const styleOpacity = node.style ? node.style.opacity : null;
+      const opacitySource = styleOpacity != null && styleOpacity !== '' ? styleOpacity : opacityRaw;
+      const hasOpacity = opacitySource != null && opacitySource !== '';
+      const opacityValue = hasOpacity ? Number.parseFloat(opacitySource) : null;
+      const transparent = isTransparentColor(styleFill || fillAttr)
+        && (!hasOpacity || (Number.isFinite(opacityValue) ? opacityValue <= 0 : true));
+      const pointerMatch = pointerEvents === 'fill' || pointerEvents === 'all' || pointerEvents === 'visiblefill' || pointerEvents === 'visiblepainted';
+      const isOverlay = pointerMatch && (!stroke || isTransparentColor(stroke)) && transparent;
+      if (!isOverlay) {
+        continue;
+      }
+      if (typeof node.remove === 'function') {
+        node.remove();
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
   function applyStyleString(target, styleString) {
     if (!styleString || typeof styleString !== 'string') {
       return;
@@ -2068,36 +2116,6 @@
     return null;
   };
 
-  const ensureUnitlessNumber = value => {
-    if (value === undefined || value === null) return null;
-    let trimmed = String(value).trim();
-    if (!trimmed) return null;
-    let lower = trimmed.toLowerCase();
-    if (lower.endsWith('!important')) {
-      lower = lower.replace(/!important$/, '').trim();
-      trimmed = trimmed.slice(0, trimmed.toLowerCase().lastIndexOf('!important')).trim();
-    }
-    let normalizedSource = trimmed;
-    if (lower.endsWith('px')) {
-      normalizedSource = trimmed.slice(0, lower.lastIndexOf('px')).trim();
-    }
-    if (!normalizedSource) {
-      return null;
-    }
-    if (!NUMERIC_VALUE_RE.test(normalizedSource)) {
-      return null;
-    }
-    const num = Number.parseFloat(normalizedSource);
-    if (!Number.isFinite(num)) {
-      return null;
-    }
-    const normalized = num === 0 ? '0' : String(num);
-    if (normalized !== trimmed) {
-      console.debug('Debug: exporter ensureUnitlessNumber', { original: value, normalized }); // Debug: unitless stroke normalization trace
-    }
-    return normalized;
-  };
-
   function deriveElementStyle(element, parentStyle) {
     const style = parentStyle ? { ...parentStyle } : null;
     const overrides = {};
@@ -2191,58 +2209,6 @@
     return true;
   }
 
-  function applyNumericAttrUnitless(node, attr, counters, counterKey) {
-    if (!node?.getAttribute || !node?.setAttribute) return false;
-    const raw = node.getAttribute(attr);
-    if (raw === null || raw === undefined) return false;
-    const normalized = ensureUnitlessNumber(raw);
-    if (!normalized || normalized === raw) return false;
-    node.setAttribute(attr, normalized);
-    if (counters && counterKey) {
-      counters[counterKey] = (counters[counterKey] || 0) + 1;
-    }
-    console.debug('Debug: exporter unitless attr applied', { attr, original: raw, normalized }); // Debug: attr unitless conversion trace
-    return true;
-  }
-
-  function normalizeStyleProperty(node, propertyName, transform) {
-    if (!node?.getAttribute || !node?.setAttribute) {
-      return { changed: false, found: false };
-    }
-    const styleAttr = node.getAttribute('style');
-    if (!styleAttr) return { changed: false, found: false };
-    const parts = styleAttr.split(';');
-    if (!parts.length) return { changed: false, found: false };
-    const lowerProp = String(propertyName || '').toLowerCase();
-    let changed = false;
-    let found = false;
-    const nextParts = [];
-    parts.forEach(part => {
-      const trimmed = part.trim();
-      if (!trimmed) return;
-      const colonIndex = trimmed.indexOf(':');
-      if (colonIndex === -1) {
-        nextParts.push(trimmed);
-        return;
-      }
-      const key = trimmed.slice(0, colonIndex).trim();
-      let value = trimmed.slice(colonIndex + 1).trim();
-      if (key.toLowerCase() === lowerProp) {
-        found = true;
-        const nextValue = transform(value);
-        if (nextValue && nextValue !== value) {
-          value = nextValue;
-          changed = true;
-        }
-      }
-      nextParts.push(`${key}: ${value}`);
-    });
-    if (changed) {
-      node.setAttribute('style', nextParts.join('; '));
-    }
-    return { changed, found };
-  }
-
   function hasExplicitFontFamily(node) {
     if (!node || typeof node.getAttribute !== 'function') {
       return false;
@@ -2290,30 +2256,15 @@
       return null;
     }
     const counters = {
+      namespaceAdded: 0,
       rootFontApplied: false,
-      rootStyleFontApplied: 0,
       textFontApplied: 0,
-      fontAttrApplied: 0,
-      styleFontFamilyNormalized: 0,
-      fontSizeAttrNormalized: 0,
-      fontSizeStyleNormalized: 0,
-      strokeWidthAttrNormalized: 0,
-      strokeWidthStyleNormalized: 0,
       widthAttrNormalized: 0,
       heightAttrNormalized: 0,
-      namespaceAdded: 0
+      axisHandlesRemoved: 0
     };
     try {
       const defaultFont = getDefaultFontFamily();
-      if (defaultFont && svgNode.setAttribute) {
-        if (applyFontFamilyAttr(svgNode, defaultFont)) {
-          counters.rootFontApplied = true;
-        }
-        const rootStyle = normalizeStyleProperty(svgNode, 'font-family', () => defaultFont);
-        if (rootStyle.changed) {
-          counters.rootStyleFontApplied += 1;
-        }
-      }
       if (svgNode.setAttribute) {
         if (!svgNode.getAttribute('xmlns')) {
           svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
@@ -2323,70 +2274,27 @@
           svgNode.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
           counters.namespaceAdded += 1;
         }
+        if (defaultFont && applyFontFamilyAttr(svgNode, defaultFont)) {
+          counters.rootFontApplied = true;
+        }
       }
+
       applyNumericAttrWithPx(svgNode, 'width', counters, 'widthAttrNormalized');
       applyNumericAttrWithPx(svgNode, 'height', counters, 'heightAttrNormalized');
 
       const textNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('text, tspan, textPath') : [];
-      textNodes.forEach(node => {
-        applyFontFamilyAttr(node, defaultFont, counters, 'textFontApplied');
-      });
-
-      const fontAttrNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('[font-family]') : [];
-      fontAttrNodes.forEach(node => {
-        if (node === svgNode) return;
-        applyFontFamilyAttr(node, defaultFont, counters, 'fontAttrApplied');
-      });
-
-      const styleNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('[style]') : [];
-      styleNodes.forEach(node => {
-        const styleFont = normalizeStyleProperty(node, 'font-family', value => {
-          const trimmed = typeof value === 'string' ? value.trim() : '';
-          if (trimmed) {
-            return trimmed;
-          }
-          if (hasExplicitFontFamily(node)) {
-            return value;
-          }
-          return defaultFont;
+      if (defaultFont) {
+        textNodes.forEach(node => {
+          applyFontFamilyAttr(node, defaultFont, counters, 'textFontApplied');
         });
-        if (styleFont.changed) {
-          counters.styleFontFamilyNormalized += 1;
-        }
-        const styleSize = normalizeStyleProperty(node, 'font-size', value => ensurePxValue(value) || value);
-        if (styleSize.changed) {
-          counters.fontSizeStyleNormalized += 1;
-        }
-        const styleStroke = normalizeStyleProperty(node, 'stroke-width', value => {
-          const normalized = ensureUnitlessNumber(value);
-          if (normalized && normalized !== value) {
-            console.debug('Debug: exporter style stroke normalized', { original: value, normalized }); // Debug: style stroke normalization trace
-          }
-          return normalized || value;
-        });
-        if (styleStroke.changed) {
-          counters.strokeWidthStyleNormalized += 1;
-        }
-      });
+      }
 
-      const fontSizeAttrNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('[font-size]') : [];
-      fontSizeAttrNodes.forEach(node => {
-        applyNumericAttrWithPx(node, 'font-size', counters, 'fontSizeAttrNormalized');
-      });
-
-      const strokeAttrNodes = svgNode.querySelectorAll ? svgNode.querySelectorAll('[stroke-width]') : [];
-      strokeAttrNodes.forEach(node => {
-        applyNumericAttrUnitless(node, 'stroke-width', counters, 'strokeWidthAttrNormalized');
-      });
+      counters.axisHandlesRemoved = removeAxisInteractionHandles(svgNode);
 
       logDebug('prepareSvgForExport applied', {
         contextLabel,
         defaultFont,
         textNodeCount: textNodes.length,
-        fontAttrNodeCount: fontAttrNodes.length,
-        styleNodeCount: styleNodes.length,
-        strokeAttrNodeCount: strokeAttrNodes.length,
-        fontSizeAttrNodeCount: fontSizeAttrNodes.length,
         counters
       });
     } catch (err) {
@@ -2459,7 +2367,7 @@
   
   // Groups all drawable children into a single <g> so paste into Inkscape keeps them together.
   // Keeps <defs>, <title>, <desc> at the top level, and wraps everything else.
-  // Adds a neutral transform and non-scaling-stroke at the group level for extra stability.
+  // Keeps the grouping lightweight so stroke widths render identically between preview and export.
   function groupNodeForPaste(svgEl, opts = {}) {
     if (!svgEl || typeof svgEl.querySelectorAll !== 'function') return { grouped: false, moved: 0 };
     // Opt-out flag if you ever want to disable this quickly.
@@ -2476,10 +2384,6 @@
 
     const g = svgEl.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('id', 'export-group');
-    // Belt and suspenders for Inkscape paste behavior
-    g.setAttribute('vector-effect', 'non-scaling-stroke');
-    g.setAttribute('shape-rendering', 'geometricPrecision');
-    g.setAttribute('transform', 'matrix(1 0 0 1 0 0)');
 
     let moved = 0;
     // Move every child except defs/title/desc into the group, preserving order
