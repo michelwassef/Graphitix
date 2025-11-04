@@ -2655,22 +2655,22 @@
         numericColIndices,
       });
 
-      const featureHeaderLabels = numericColIndices.map((colIndex, idx) => {
+      const conditionLabels = numericColIndices.map((colIndex, idx) => {
         const headerVal = headerRow[colIndex];
         const headerText = headerVal == null ? '' : String(headerVal).trim();
-        return headerText || `Var ${idx + 1}`;
+        return headerText || `Condition ${idx + 1}`;
       });
-      let featureLabels = featureHeaderLabels.slice();
-
-      const labels = [];
-      const matrixRaw = [];
-      const rowLabelsOriginal = [];
+      const labels = conditionLabels.slice();
+      const matrixByCondition = Array.from({ length: conditionLabels.length }, () => []);
+      const featureLabelsAccumulator = [];
 
       for (let r = 1; r < data.length; r++) {
         const row = data[r];
         if (!row) continue;
 
         const lab = row[0] ? String(row[0]).trim() : '';
+        const featureIndex = featureLabelsAccumulator.length;
+        const resolvedFeatureLabel = lab || `Var ${featureIndex + 1}`;
         const vals = [];
         let rowValid = true;
 
@@ -2692,74 +2692,50 @@
         }
 
         if (rowValid && vals.length) {
-          labels.push(lab);
-          matrixRaw.push(vals);
-          rowLabelsOriginal.push(lab || `Row ${rowLabelsOriginal.length + 1}`);
+          featureLabelsAccumulator.push(resolvedFeatureLabel);
+          for (let i = 0; i < vals.length; i++) {
+            matrixByCondition[i].push(vals[i]);
+          }
         }
       }
 
-      console.log('pca collected', {
-        rows: matrixRaw.length,
-        cols: matrixRaw[0]?.length,
+      if (numericColIndices.length < 2) {
+        pcaPlotDiv.innerHTML = '<i>At least two condition columns required.</i>';
+        resetStatsPanel();
+        updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
+        return;
+      }
+
+      const matrix = matrixByCondition;
+      let featureLabels = featureLabelsAccumulator;
+
+      debugLog('Debug: pca dataset summary', {
+        conditionCount: labels.length,
+        featureCount: featureLabels.length,
       });
 
-      if (matrixRaw.length && matrixRaw[0]?.length !== numericColIndices.length) {
-        debugLog('Debug: pca matrix width mismatch', {
-          expected: numericColIndices.length,
-          actual: matrixRaw[0]?.length,
-        });
-      }
-
-      if (numericColIndices.length < 2) {
-        pcaPlotDiv.innerHTML = '<i>At least two numeric variable columns required.</i>';
+      if (labels.length < 2) {
+        pcaPlotDiv.innerHTML = '<i>At least two conditions required.</i>';
         resetStatsPanel();
         updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
         return;
       }
 
-      if (matrixRaw.length < 2 || matrixRaw[0].length < 2) {
-        pcaPlotDiv.innerHTML = '<i>At least two samples and two variables required.</i>';
+      if (featureLabels.length < 2 || !matrix[0] || matrix[0].length < 2) {
+        pcaPlotDiv.innerHTML = '<i>At least two variables required.</i>';
         resetStatsPanel();
         updateAxisSelectOptions({ dimensionMeta: [], viewMode: requestedViewMode, method });
         return;
       }
 
-      let matrix = matrixRaw.map(row => row.slice());
-      if (matrix.length && matrix[0]) {
-        if (matrix.length < matrix[0].length) {
-          const columnLabels = numericColIndices.map((colIndex, idx) => {
-            const headerVal = headerRow[colIndex];
-            const headerText = headerVal == null ? '' : String(headerVal).trim();
-            return headerText || `Sample ${idx + 1}`;
+      for (let i = 0; i < matrix.length; i++) {
+        if (matrix[i].length !== featureLabels.length) {
+          debugLog('Debug: pca condition vector length mismatch', {
+            conditionIndex: i,
+            expected: featureLabels.length,
+            actual: matrix[i].length,
           });
-          if (matrix[0].length === columnLabels.length) {
-            const transposed = matrix[0].map((_, colIdx) => matrix.map((row) => row[colIdx]));
-            debugLog('Debug: pca auto transpose applied for column headers as labels', {
-              originalSamples: matrix.length,
-              originalFeatures: matrix[0].length,
-              columnLabels,
-            });
-            matrix = transposed;
-            labels.length = 0;
-            for (let i = 0; i < columnLabels.length; i++) {
-              labels.push(columnLabels[i]);
-            }
-            if(rowLabelsOriginal.length === matrix[0]?.length){
-              featureLabels = rowLabelsOriginal.map((lab, idx) => lab || `Var ${idx + 1}`);
-              debugLog('Debug: pca feature labels derived from rows',{ featureLabels });
-            }else{
-              debugLog('Debug: pca feature label row mismatch',{ rowLabelCount: rowLabelsOriginal.length, featureCount: matrix[0]?.length });
-            }
-            debugLog('Debug: pca matrix dimensions after transpose', {
-              newSamples: matrix.length,
-              newFeatures: matrix[0]?.length,
-            });
-          } else {
-            debugLog('Debug: pca transpose skipped due to mismatch', {
-              matrixCols: matrix[0]?.length,
-              columnLabelCount: columnLabels.length,
-            });
-          }
+          matrix[i].length = featureLabels.length;
         }
       }
       statsMethod = method;
@@ -3151,7 +3127,9 @@
         if(svd.v && Array.isArray(svd.v)){
           const componentCount = Array.isArray(svd.v[0]) ? Math.min(svd.v[0].length, svd.q.length) : Math.min(svd.v.length, svd.q.length);
           loadingsComponents = componentCount;
-          const safeFeatureLabels = featureLabels.length ? featureLabels : featureHeaderLabels;
+          const safeFeatureLabels = featureLabels.length
+            ? featureLabels
+            : Array.from({ length: matrix[0]?.length || 0 }, (_, idx) => `Var ${idx + 1}`);
           loadingsRows = safeFeatureLabels.map((label, featureIdx) => {
             const values = [];
             for(let compIdx = 0; compIdx < componentCount; compIdx += 1){
