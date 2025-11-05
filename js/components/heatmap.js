@@ -1944,6 +1944,13 @@
       state.svg.removeChild(state.svg.firstChild);
     }
     state.svg.setAttribute('viewBox', '0 0 400 200');
+
+    // Try to respect a lock flag on the svg box (if your layout sets it), else default to stretch
+    const lock = (state.svg?.closest('.svgbox')?.dataset?.lockRatio === '1') ||
+                 (state.svg?.closest('.svgbox')?.dataset?.lock === '1');
+    state.svg.setAttribute('preserveAspectRatio', lock ? 'xMidYMid meet' : 'none');
+    console.debug('Debug: heatmap empty viewBox set', { lock, preserveAspectRatio: state.svg.getAttribute('preserveAspectRatio') });
+
     const text = global.document.createElementNS(NS, 'text');
     text.setAttribute('x', '200');
     text.setAttribute('y', '100');
@@ -2153,7 +2160,21 @@
     const totalWidth = marginLeft + heatmapWidth + marginRight;
     const totalHeight = marginTop + heatmapHeight + marginBottom;
     state.svg.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
+
+    // Try to respect a lock flag on the svg box (if your layout sets it), else default to stretch
+    const lock = (state.svg?.closest('.svgbox')?.dataset?.lockRatio === '1') ||
+                 (state.svg?.closest('.svgbox')?.dataset?.lock === '1');
+    state.svg.setAttribute('preserveAspectRatio', lock ? 'xMidYMid meet' : 'none');
+    console.debug('Debug: heatmap graph viewBox set', {
+      lock,
+      totalWidth,
+      totalHeight,
+      preserveAspectRatio: state.svg.getAttribute('preserveAspectRatio')
+    });
+
     const defs = doc.createElementNS(NS, 'defs');
+    
+    
     state.svg.appendChild(defs);
     const gradientId = `heatmap-scale-${Math.floor((global.performance?.now?.() || Date.now()) * 1000)}`;
     const gradient = doc.createElementNS(NS, 'linearGradient');
