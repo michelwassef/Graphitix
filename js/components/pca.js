@@ -3076,19 +3076,58 @@
         }
 
         const svd = SVDLib.SVD(matrixForSvd);
-        console.debug('pca svd result', { q: svd?.q, u_shape: svd?.u?.length + 'x' + (svd?.u?.[0]?.length || 0), v_shape: svd?.v?.length + 'x' + (svd?.v?.[0]?.length || 0) });
+        console.debug('pca svd result', {
+          q: svd?.q,
+          u_shape: svd?.u?.length + 'x' + (svd?.u?.[0]?.length || 0),
+          v_shape: svd?.v?.length + 'x' + (svd?.v?.[0]?.length || 0)
+        });
 
+        // --- Ensure singular values are sorted in descending order ---
+        const qRaw = Array.isArray(svd.q) ? svd.q.slice() : [];
+        const order = qRaw
+          .map((val, idx) => [Number(val) || 0, idx])
+          .sort((a, b) => b[0] - a[0])   // descending by singular value
+          .map(pair => pair[1]);
+
+        if (order.length && order.some((idx, pos) => idx !== pos)) {
+          console.debug('Debug: reordering SVD components by descending singular value', {
+            original_q: qRaw,
+            sorted_q: order.map(i => qRaw[i]),
+            order
+          });
+        }
+
+        const reorderColumns = (mat, perm) => {
+          if (!Array.isArray(mat) || !mat.length) return mat;
+          // each row is an array of component coefficients; reorder by column index
+          return mat.map(row => perm.map(i => row[i]));
+        };
+
+        // Apply reordering consistently to singular values and left/right vectors
+        svd.q = order.map(i => qRaw[i]);
+        svd.u = reorderColumns(svd.u, order);
+        svd.v = reorderColumns(svd.v, order);
+
+        console.debug('pca svd sorted', {
+          q_sorted: svd.q,
+          u_shape: svd?.u?.length + 'x' + (svd?.u?.[0]?.length || 0),
+          v_shape: svd?.v?.length + 'x' + (svd?.v?.[0]?.length || 0)
+        });
+
+        // Build sample scores. Basis selection follows existing logic:
+        // when we SVD'd X directly use svd.u; when we SVD'd X^T use svd.v (so useFactor stays valid).
         const scores = new Array(nSamples);
         for (let i = 0; i < nSamples; i++) {
           const row = scores[i] = [];
           for (let k = 0; k < svd.q.length; k++) {
-            // Pick U or V depending on whether we SVD’d X or X^T
             const basis = (useFactor === 'u' ? svd.u : svd.v);
             const coeff = (basis?.[i]?.[k] ?? 0);
             row[k] = coeff * svd.q[k];
           }
         }
         console.debug('pca scores', { n: scores.length, dims: svd.q.length, sample0: scores[0] });
+
+        // Explained variances per component (uses original sample count)
         const variances = svd.q.map((s) => (s * s) / (nSamples - 1));
         const totalVar = variances.reduce((a, b) => a + b, 0);
         const safeTotal = totalVar > 0 ? totalVar : 1;
