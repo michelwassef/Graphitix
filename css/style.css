@@ -1493,7 +1493,7 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .stats-advisor__reset{background:transparent;border:1px solid #cbd5e1;color:#1e293b}
 .stats-advisor__reset:hover,.stats-advisor__reset:focus-visible{background:#f1f5f9}
 #goOptsBtn,#stringOptsBtn{font-size:12px;padding:4px 6px}
-.svgbox{background:#ffffff;border:1px solid #ddd;border-radius:8px;padding:40px 14px 14px;margin:8px 0;box-shadow:0 1px 4px rgba(0,0,0,0.08);position:relative;display:flex;flex-direction:column;min-width:var(--graph-min-width,192px);min-height:var(--graph-min-height,126px);width:min(100%,var(--graph-default-width,640px));height:auto;max-width:var(--graph-max-width,1920px);max-height:var(--graph-max-height,1260px);box-sizing:border-box;overflow:visible;flex:0 0 auto;aspect-ratio:var(--graph-aspect-ratio,1)}
+.svgbox{background:#ffffff;border:1px solid #ddd;border-radius:8px;padding:40px 14px 14px;margin:0 0 8px;box-shadow:0 1px 4px rgba(0,0,0,0.08);position:relative;display:flex;flex-direction:column;min-width:var(--graph-min-width,192px);min-height:var(--graph-min-height,126px);width:min(100%,var(--graph-default-width,640px));height:auto;max-width:var(--graph-max-width,1920px);max-height:var(--graph-max-height,1260px);box-sizing:border-box;overflow:visible;flex:0 0 auto;aspect-ratio:var(--graph-aspect-ratio,1)}
 .svgbox .resizer{position:absolute;z-index:40;background:rgba(0,0,0,0);touch-action:none}
 .svgbox .resizer-vertical{top:0;right:0;width:12px;height:100%;cursor:ew-resize}
 .svgbox .resizer-horizontal{bottom:0;left:0;height:12px;width:100%;cursor:ns-resize}
