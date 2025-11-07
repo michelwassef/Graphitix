@@ -1135,7 +1135,7 @@ select {
     background:#f1f4f8;
     padding:6px 8px 0;
     border-bottom:1px solid rgba(71,85,105,0.4);
-    box-shadow:0 6px 16px rgba(15,23,42,0.08);
+    box-shadow:0 2px 5px rgba(15,23,42,0.08);
     box-sizing:border-box;
     width:100%;
 }
