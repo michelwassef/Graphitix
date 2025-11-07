@@ -1133,7 +1133,7 @@ select {
     flex-direction:column;
     gap:4px;
     background:#f1f4f8;
-    padding:6px 16px 0;
+    padding:6px 8px 0;
     border-bottom:1px solid rgba(71,85,105,0.4);
     box-shadow:0 6px 16px rgba(15,23,42,0.08);
     box-sizing:border-box;
@@ -1159,15 +1159,15 @@ select {
     margin:0;
     display:flex;
     align-items:stretch;
-    gap:16px;
+    gap:8px;
     flex-wrap:wrap;
 }
 .workspace-toolbar__section{
     display:flex;
     flex-direction:column;
     align-items:center;
-    gap:6px;
-    padding:4px 10px 6px;
+    gap:4px;
+    padding:4px 8px 6px;
     background:linear-gradient(180deg, rgba(255,255,255,0.75) 0%, rgba(226,232,240,0.25) 100%);
     border-radius:12px;
     border:none;
@@ -1183,18 +1183,18 @@ select {
 .workspace-toolbar__section::after{
     content:"";
     position:absolute;
-    top:6px;
-    right:-8px;
-    bottom:6px;
+    top:8px;
+    right:-4px;
+    bottom:8px;
     width:1px;
-    background:linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(148,163,184,0.65) 60%, rgba(255,255,255,0.2) 100%);
+    background:linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(148,163,184,0.5) 60%, rgba(255,255,255,0.2) 100%);
 }
 .workspace-toolbar__section:last-of-type::after{
     display:none;
 }
 .workspace-toolbar__buttons{
     display:flex;
-    gap:10px;
+    gap:4px;
 }
 .workspace-toolbar__menu{
     position:relative;
@@ -1205,12 +1205,12 @@ select {
     display:flex;
     flex-direction:column;
     align-items:center;
-    gap:4px;
-    min-width:76px;
-    padding:6px 12px 8px;
+    gap:2px;
+    min-width:64px;
+    padding:4px 8px 6px;
     border:none;
     border-radius:6px;
-    background:#e2e8f0;
+    background:transparent;
     color:#0f172a;
     cursor:pointer;
     box-shadow:none;
@@ -1228,10 +1228,10 @@ select {
     outline-offset:2px;
 }
 .workspace-toolbar__button:hover{
-    background:#f1f5f9;
+    background:rgba(15,23,42,0.08);
 }
 .workspace-toolbar__button:active{
-    background:#d1d5db;
+    background:rgba(15,23,42,0.16);
 }
 .workspace-toolbar__button:disabled{
     background:#dbe4f2;
@@ -1246,8 +1246,8 @@ select {
 }
 .workspace-toolbar__icon{
     display:inline-flex;
-    width:28px;
-    height:28px;
+    width:24px;
+    height:24px;
     align-items:center;
     justify-content:center;
     padding:4px;
