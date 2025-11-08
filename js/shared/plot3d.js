@@ -23,21 +23,141 @@
     return wrapped;
   }
 
-  function getOrientationSign(rotationX){
-    const cosX = Math.cos(rotationX || 0);
-    return cosX >= 0 ? 1 : -1;
+  function clamp(value, min, max){
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function createQuaternion(x, y, z){
+    const qx = axisAngleQuaternion(1, 0, 0, x || 0);
+    const qy = axisAngleQuaternion(0, 1, 0, y || 0);
+    const qz = axisAngleQuaternion(0, 0, 1, z || 0);
+    return normalizeQuaternion(multiplyQuaternions(qz, multiplyQuaternions(qx, qy)));
+  }
+
+  function axisAngleQuaternion(ax, ay, az, angle){
+    const half = (angle || 0) / 2;
+    const sinHalf = Math.sin(half);
+    const length = Math.hypot(ax, ay, az) || 1;
+    const normX = ax / length;
+    const normY = ay / length;
+    const normZ = az / length;
+    return {
+      w: Math.cos(half),
+      x: normX * sinHalf,
+      y: normY * sinHalf,
+      z: normZ * sinHalf
+    };
+  }
+
+  function multiplyQuaternions(a, b){
+    return {
+      w: (a.w * b.w) - (a.x * b.x) - (a.y * b.y) - (a.z * b.z),
+      x: (a.w * b.x) + (a.x * b.w) + (a.y * b.z) - (a.z * b.y),
+      y: (a.w * b.y) - (a.x * b.z) + (a.y * b.w) + (a.z * b.x),
+      z: (a.w * b.z) + (a.x * b.y) - (a.y * b.x) + (a.z * b.w)
+    };
+  }
+
+  function normalizeQuaternion(quat){
+    if(!quat){ return { w: 1, x: 0, y: 0, z: 0 }; }
+    const mag = Math.hypot(quat.w, quat.x, quat.y, quat.z) || 1;
+    if(Math.abs(mag - 1) < 1e-9){ return quat; }
+    quat.w /= mag;
+    quat.x /= mag;
+    quat.y /= mag;
+    quat.z /= mag;
+    return quat;
+  }
+
+  function quaternionRotateVector(quat, point){
+    const q = normalizeQuaternion(quat);
+    const px = point?.x || 0;
+    const py = point?.y || 0;
+    const pz = point?.z || 0;
+    const xx = q.x * q.x;
+    const yy = q.y * q.y;
+    const zz = q.z * q.z;
+    const xy = q.x * q.y;
+    const xz = q.x * q.z;
+    const yz = q.y * q.z;
+    const wx = q.w * q.x;
+    const wy = q.w * q.y;
+    const wz = q.w * q.z;
+    return {
+      x: (1 - 2 * (yy + zz)) * px + 2 * (xy - wz) * py + 2 * (xz + wy) * pz,
+      y: 2 * (xy + wz) * px + (1 - 2 * (xx + zz)) * py + 2 * (yz - wx) * pz,
+      z: 2 * (xz - wy) * px + 2 * (yz + wx) * py + (1 - 2 * (xx + yy)) * pz
+    };
+  }
+
+  function ensureQuaternion(rotation){
+    if(!rotation){ return { w: 1, x: 0, y: 0, z: 0 }; }
+    if(rotation.quaternion){
+      return normalizeQuaternion(rotation.quaternion);
+    }
+    const q = createQuaternion(rotation.x || 0, rotation.y || 0, rotation.z || 0);
+    rotation.quaternion = q;
+    return q;
+  }
+
+  function updateEulerFromQuaternion(rotation){
+    const quat = ensureQuaternion(rotation);
+    const xx = quat.x * quat.x;
+    const yy = quat.y * quat.y;
+    const zz = quat.z * quat.z;
+    const xy = quat.x * quat.y;
+    const xz = quat.x * quat.z;
+    const yz = quat.y * quat.z;
+    const wx = quat.w * quat.x;
+    const wy = quat.w * quat.y;
+    const wz = quat.w * quat.z;
+
+    const m00 = 1 - 2 * (yy + zz);
+    const m01 = 2 * (xy - wz);
+    const m02 = 2 * (xz + wy);
+    const m10 = 2 * (xy + wz);
+    const m11 = 1 - 2 * (xx + zz);
+    const m12 = 2 * (yz - wx);
+    const m20 = 2 * (xz - wy);
+    const m21 = 2 * (yz + wx);
+    const m22 = 1 - 2 * (xx + yy);
+
+    const xAngle = Math.asin(clamp(m21, -1, 1));
+    const cosX = Math.cos(xAngle);
+    let yAngle;
+    let zAngle;
+    if(Math.abs(cosX) < 1e-6){
+      // Gimbal lock: derive from alternate rows
+      yAngle = 0;
+      zAngle = Math.atan2(-m10, m00);
+    } else {
+      const sinY = -m20 / cosX;
+      const cosY = m22 / cosX;
+      yAngle = Math.atan2(sinY, cosY);
+      const sinZ = -m01 / cosX;
+      const cosZ = m11 / cosX;
+      zAngle = Math.atan2(sinZ, cosZ);
+    }
+    rotation.x = wrapAngle(xAngle);
+    rotation.y = wrapAngle(yAngle);
+    rotation.z = wrapAngle(zAngle);
   }
 
   plot3d.createRotationState = function(defaults){
     const state = {
-      x: 0,
-      y: 0
+      x: Number.isFinite(defaults?.x) ? defaults.x : 0,
+      y: Number.isFinite(defaults?.y) ? defaults.y : 0,
+      z: Number.isFinite(defaults?.z) ? defaults.z : 0,
+      quaternion: null
     };
-    if(defaults && Number.isFinite(defaults.x)){
-      state.x = defaults.x;
+    if(defaults && defaults.quaternion){
+      const q = defaults.quaternion;
+      if([q.w, q.x, q.y, q.z].every((val) => Number.isFinite(val))){
+        state.quaternion = normalizeQuaternion({ w: q.w, x: q.x, y: q.y, z: q.z });
+      }
     }
-    if(defaults && Number.isFinite(defaults.y)){
-      state.y = defaults.y;
+    if(!state.quaternion){
+      state.quaternion = createQuaternion(state.x, state.y, state.z);
     }
     plot3d.normalizeRotation(state);
     return state;
@@ -45,22 +165,14 @@
 
   plot3d.rotatePoint = function(point, rotation){
     if(!point){ return { x: 0, y: 0, z: 0 }; }
-    const rot = rotation || { x: 0, y: 0 };
-    const cosY = Math.cos(rot.y || 0);
-    const sinY = Math.sin(rot.y || 0);
-    const cosX = Math.cos(rot.x || 0);
-    const sinX = Math.sin(rot.x || 0);
-    const x1 = (point.x || 0) * cosY + (point.z || 0) * sinY;
-    const z1 = -(point.x || 0) * sinY + (point.z || 0) * cosY;
-    const y1 = (point.y || 0) * cosX - z1 * sinX;
-    const z2 = (point.y || 0) * sinX + z1 * cosX;
-    return { x: x1, y: y1, z: z2 };
+    const quat = ensureQuaternion(rotation);
+    return quaternionRotateVector(quat, point);
   };
 
   plot3d.normalizeRotation = function(rotation){
     if(!rotation){ return; }
-    rotation.x = wrapAngle(rotation.x || 0);
-    rotation.y = wrapAngle(rotation.y || 0);
+    ensureQuaternion(rotation);
+    updateEulerFromQuaternion(rotation);
   };
 
   plot3d.isLegendPointerTarget = function(target){
@@ -152,7 +264,7 @@
     svgEl.style.touchAction = 'none';
     svgEl.style.userSelect = 'none';
     svgEl.style.webkitUserSelect = 'none';
-    const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0, orientationSign: getOrientationSign(state.x) };
+    const pointerState = { active: false, pointerId: null, lastX: 0, lastY: 0 };
     const selectionGuards = { applied: false, previous: null };
     const disableSelection = () => {
       if(selectionGuards.applied){ return; }
@@ -193,7 +305,6 @@
       pointerState.pointerId = event.pointerId;
       pointerState.lastX = event.clientX;
       pointerState.lastY = event.clientY;
-      pointerState.orientationSign = getOrientationSign(state.x);
       svgEl.setPointerCapture(event.pointerId);
       svgEl.style.cursor = 'grabbing';
       disableSelection();
@@ -213,19 +324,19 @@
       const dy = event.clientY - pointerState.lastY;
       pointerState.lastX = event.clientX;
       pointerState.lastY = event.clientY;
-      const yawSign = pointerState.orientationSign || getOrientationSign(state.x);
       const scale = opts.rotationScale || 0.01;
-      const yawDelta = dx * scale * yawSign;
-      const pitchDelta = dy * scale;
-      state.y += yawDelta;
-      state.x += pitchDelta;
-      plot3d.normalizeRotation(state);
-      const updatedYawSign = getOrientationSign(state.x);
-      if(updatedYawSign !== pointerState.orientationSign){
-        pointerState.orientationSign = updatedYawSign;
-        debugLog('Debug: plot3d rotation drag yaw orientation updated', { label, orientation: updatedYawSign });
+      const yawAngle = dx * scale;
+      const pitchAngle = dy * scale;
+      if(yawAngle === 0 && pitchAngle === 0){
+        return;
       }
-      debugLog('Debug: plot3d rotation updated', { label, rotation: { x: state.x, y: state.y } });
+      const yawQuat = axisAngleQuaternion(0, 1, 0, yawAngle);
+      const pitchQuat = axisAngleQuaternion(1, 0, 0, pitchAngle);
+      const deltaQuat = normalizeQuaternion(multiplyQuaternions(yawQuat, pitchQuat));
+      const currentQuat = ensureQuaternion(state);
+      state.quaternion = normalizeQuaternion(multiplyQuaternions(deltaQuat, currentQuat));
+      plot3d.normalizeRotation(state);
+      debugLog('Debug: plot3d rotation updated', { label, rotation: { x: state.x, y: state.y, z: state.z } });
       if(onChange){
         try {
           onChange(event, state);
@@ -248,7 +359,11 @@
         debugLog('Debug: plot3d rotation pointer capture release error', { label, message: err && err.message });
       }
       restoreSelection();
-      debugLog('Debug: plot3d rotation drag end', { label, reason: reason || 'unknown', rotation: { x: state.x, y: state.y } });
+      debugLog('Debug: plot3d rotation drag end', {
+        label,
+        reason: reason || 'unknown',
+        rotation: { x: state.x, y: state.y, z: state.z }
+      });
       if(onEnd){
         try {
           onEnd(event, state);

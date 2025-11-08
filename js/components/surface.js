@@ -1235,7 +1235,17 @@
         axisMap: Object.assign({}, state.axisMap),
         settings: Object.assign({}, state.settings),
         labels: Object.assign({}, state.labels),
-        rotation: { x: state.rotation.x, y: state.rotation.y },
+        rotation: {
+          x: state.rotation.x,
+          y: state.rotation.y,
+          z: state.rotation.z,
+          quaternion: state.rotation.quaternion ? {
+            w: state.rotation.quaternion.w,
+            x: state.rotation.quaternion.x,
+            y: state.rotation.quaternion.y,
+            z: state.rotation.quaternion.z
+          } : null
+        },
         fontStyles: exportFontStyles ? exportFontStyles('surface') : undefined
       }
     };
@@ -1321,8 +1331,16 @@
       }
       ensureHeaderRowFromConfig(config);
       if(config.rotation){
-        state.rotation.x = Number(config.rotation.x) || state.rotation.x;
-        state.rotation.y = Number(config.rotation.y) || state.rotation.y;
+        const restored = plot3d.createRotationState(config.rotation);
+        state.rotation.x = restored.x;
+        state.rotation.y = restored.y;
+        state.rotation.z = restored.z;
+        state.rotation.quaternion = {
+          w: restored.quaternion.w,
+          x: restored.quaternion.x,
+          y: restored.quaternion.y,
+          z: restored.quaternion.z
+        };
       }
       if(config.fontStyles){
         importFontStyles('surface', config.fontStyles);

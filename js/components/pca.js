@@ -2430,9 +2430,12 @@
         });
       }
       const pcaPlotDiv=document.getElementById('pcaPlot');
-      pcaPlotDiv.style.background='none';
-      global.DEBUG_PCA=true;
-      if(global.DEBUG_PCA) console.log('pcaPlot background set to transparent');
+      pcaPlotDiv.style.background='#ffffff';
+      const debugEnabled = typeof Shared?.isDebugEnabled === 'function' ? Shared.isDebugEnabled() : global.DEBUG_PCA === true;
+      global.DEBUG_PCA = debugEnabled;
+      if(debugEnabled){
+        console.debug('Debug: pcaPlot background set to white for svgbox consistency');
+      }
       const pcaContainer=pcaPlotDiv.closest('.svgbox')||pcaPlotDiv.parentElement;
       if(!pcaContainer){
         debugLog('Debug: pca resizer container missing', { hasContainer: !!pcaContainer });
@@ -4316,7 +4319,14 @@
           },
           rotation:{
             x:pcaState.rotation.x,
-            y:pcaState.rotation.y
+            y:pcaState.rotation.y,
+            z:pcaState.rotation.z,
+            quaternion: pcaState.rotation.quaternion ? {
+              w: pcaState.rotation.quaternion.w,
+              x: pcaState.rotation.quaternion.x,
+              y: pcaState.rotation.quaternion.y,
+              z: pcaState.rotation.quaternion.z
+            } : null
           },
           axis:{
             strokeWidth: axisSettings.strokeWidth,
@@ -4478,12 +4488,23 @@
               }
             }
             if(c.rotation){
-              const rot = c.rotation;
-              if(rot && typeof rot === 'object'){
-                if(Number.isFinite(Number(rot.x))){ pcaState.rotation.x = Number(rot.x); }
-                if(Number.isFinite(Number(rot.y))){ pcaState.rotation.y = Number(rot.y); }
-                debugLog('Debug: pca rotation restored',{ rotation: { ...pcaState.rotation } });
-              }
+              const restored = plot3d.createRotationState(c.rotation);
+              pcaState.rotation.x = restored.x;
+              pcaState.rotation.y = restored.y;
+              pcaState.rotation.z = restored.z;
+              pcaState.rotation.quaternion = {
+                w: restored.quaternion.w,
+                x: restored.quaternion.x,
+                y: restored.quaternion.y,
+                z: restored.quaternion.z
+              };
+              debugLog('Debug: pca rotation restored', {
+                rotation: {
+                  x: pcaState.rotation.x,
+                  y: pcaState.rotation.y,
+                  z: pcaState.rotation.z
+                }
+              });
             }
             applyAxisSettings(c.axis || c.axisSettings);
             if(c.tsne){

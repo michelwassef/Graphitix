@@ -16,18 +16,18 @@ describe('Shared.plot3d helper', () => {
   it('creates, normalizes, and rotates using rotation state', () => {
     const { plot3d } = global.Shared;
     const state = plot3d.createRotationState({ x: 1, y: 2 });
-    expect(state).toEqual({ x: 1, y: 2 });
-    state.x = Math.PI;
-    state.y = 4 * Math.PI;
+    const target = plot3d.createRotationState({ x: Math.PI, y: 4 * Math.PI, z: -3 * Math.PI });
+    state.quaternion = { ...target.quaternion };
     plot3d.normalizeRotation(state);
-    expect(state.x).toBeCloseTo(Math.PI);
-    expect(state.y).toBeCloseTo(0, 10);
-    const rotated = plot3d.rotatePoint({ x: 1, y: 0, z: 0 }, state);
-    expect(rotated.z).toBeCloseTo(0, 10);
-    expect(rotated.x).toBeLessThanOrEqual(1);
+    const source = { x: 1, y: 2, z: 3 };
+    const rotatedState = plot3d.rotatePoint(source, state);
+    const rotatedTarget = plot3d.rotatePoint(source, target);
+    expect(rotatedState.x).toBeCloseTo(rotatedTarget.x, 10);
+    expect(rotatedState.y).toBeCloseTo(rotatedTarget.y, 10);
+    expect(rotatedState.z).toBeCloseTo(rotatedTarget.z, 10);
   });
 
-  it('applies orientation-aware yaw and pitch updates while dragging', () => {
+  it('applies screen-space yaw and pitch updates while dragging', () => {
     const { plot3d } = global.Shared;
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setPointerCapture = () => {};
@@ -39,12 +39,33 @@ describe('Shared.plot3d helper', () => {
     svg.dispatchEvent(createPointerEvent('pointerdown', { pointerId: 1, clientX: 0, clientY: 0 }));
     const firstDx = 10;
     svg.dispatchEvent(createPointerEvent('pointermove', { pointerId: 1, clientX: firstDx, clientY: 0 }));
-    const expectedYawSign = Math.cos(initialRotationX) >= 0 ? 1 : -1;
-    expect(state.y).toBeCloseTo(firstDx * rotationScale * expectedYawSign);
+    expect(state.y).toBeGreaterThan(0);
     const beforeVertical = state.x;
     const dy = -10;
     svg.dispatchEvent(createPointerEvent('pointermove', { pointerId: 1, clientX: firstDx, clientY: dy }));
-    expect(state.x).toBeCloseTo(beforeVertical + dy * rotationScale);
+    const deltaPitch = state.x - beforeVertical;
+    expect(Math.abs(deltaPitch)).toBeGreaterThan(0.05);
+  });
+
+  it('keeps horizontal rotation responsive after steep pitch', () => {
+    const { plot3d } = global.Shared;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setPointerCapture = () => {};
+    svg.releasePointerCapture = () => {};
+    const rotationScale = 0.02;
+    const state = plot3d.createRotationState();
+    plot3d.attachRotationControls(svg, { state, rotationScale, debugLabel: 'steep-drag' });
+    svg.dispatchEvent(createPointerEvent('pointerdown', { pointerId: 7, clientX: 0, clientY: 0 }));
+    const pitchDy = Math.PI / rotationScale / 2;
+    svg.dispatchEvent(createPointerEvent('pointermove', { pointerId: 7, clientX: 0, clientY: pitchDy }));
+    const beforeQuat = { ...state.quaternion };
+    svg.dispatchEvent(createPointerEvent('pointermove', { pointerId: 7, clientX: 40, clientY: pitchDy }));
+    const dot =
+      beforeQuat.w * state.quaternion.w +
+      beforeQuat.x * state.quaternion.x +
+      beforeQuat.y * state.quaternion.y +
+      beforeQuat.z * state.quaternion.z;
+    expect(Math.abs(dot)).toBeLessThan(0.99);
   });
 
   it('projects rotated points within expected bounds', () => {
