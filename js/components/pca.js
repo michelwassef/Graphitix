@@ -1655,6 +1655,7 @@
         }
       };
       document.getElementById('pcaLoadExample').addEventListener('click',()=>{
+        const selectedFormat = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
         const pcaExample=[
           ['Variable','A','B','C','D','E','F','G','H'],
           ['Var1',1,2,3,2,10,20,30,20],
@@ -1672,7 +1673,7 @@
           shapes: GROUP_SHAPE_DEFAULTS.slice(0,4)
         };
         ensurePcaGroupedDefaults();
-        setPcaTableFormat('grouped');
+        setPcaTableFormat(selectedFormat);
         scheduleDrawPca();
       });
       const pcaImportBtn=document.getElementById('pcaImport');
