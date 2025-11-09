@@ -15,6 +15,43 @@
   };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
+  const plot3d = Shared.plot3d = Shared.plot3d || {};
+  if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
+    try {
+      require('../shared/plot3d.js');
+    }catch(err){
+      console.debug('Debug: scatter component plot3d helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  if(typeof plot3d.createRotationState !== 'function'){
+    plot3d.createRotationState = (defaults) => ({
+      x: Number.isFinite(defaults?.x) ? defaults.x : 0,
+      y: Number.isFinite(defaults?.y) ? defaults.y : 0,
+      z: Number.isFinite(defaults?.z) ? defaults.z : 0,
+      quaternion: null
+    });
+  }
+  if(typeof plot3d.rotatePoint !== 'function'){
+    plot3d.rotatePoint = (pt) => ({ x: Number(pt?.x) || 0, y: Number(pt?.y) || 0, z: Number(pt?.z) || 0 });
+  }
+  if(typeof plot3d.attachRotationControls !== 'function'){
+    plot3d.attachRotationControls = () => {};
+  }
+  if(typeof plot3d.renderAxesAndGrid !== 'function'){
+    plot3d.renderAxesAndGrid = () => null;
+  }
+  if(typeof plot3d.createProjector !== 'function'){
+    plot3d.createProjector = () => ({ project: () => ({ x: 0, y: 0, depth: 0 }), bounds: {}, scale: 1, offsets: { x: 0, y: 0 }, plotSize: { width: 1, height: 1 } });
+  }
+  if(typeof plot3d.applyLegendPointerGuards !== 'function'){
+    plot3d.applyLegendPointerGuards = () => {};
+  }
+  if(typeof plot3d.isLegendPointerTarget !== 'function'){
+    plot3d.isLegendPointerTarget = () => false;
+  }
+  if(typeof plot3d.isInteractivePointerTarget !== 'function'){
+    plot3d.isInteractivePointerTarget = target => plot3d.isLegendPointerTarget(target);
+  }
   scatter.__installed = true;
   scatter.ready = false;
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -46,6 +83,18 @@
   ]);
   const SCATTER_SHAPE_DEFAULTS = SCATTER_SHAPE_OPTIONS.map(opt => opt.value);
   const SCATTER_SHAPE_VALUES = new Set(SCATTER_SHAPE_DEFAULTS);
+  const SCATTER_3D_DEFAULTS = Object.freeze({ rotationX: -0.31, rotationY: -0.48, aspectRatio: 4 / 3 });
+
+  const scatterState = {
+    viewMode: '2d',
+    rotation: plot3d.createRotationState({ x: SCATTER_3D_DEFAULTS.rotationX, y: SCATTER_3D_DEFAULTS.rotationY }),
+    rotationPending: false,
+    rotationPendingLogged: false,
+    supports3d: false
+  };
+  if(typeof plot3d.normalizeRotation === 'function'){
+    plot3d.normalizeRotation(scatterState.rotation);
+  }
 
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
   const regressionDebugNamespace = 'scatter-regression';
@@ -167,6 +216,9 @@
     }
     appendRow(`X: ${formatScatterTooltipNumber(data.x)}`);
     appendRow(`Y: ${formatScatterTooltipNumber(data.y)}`);
+    if(data.z !== undefined){
+      appendRow(`Z: ${formatScatterTooltipNumber(data.z)}`);
+    }
     if(data.logXValue !== undefined && data.logXValue !== data.x){
       appendRow(`Log X: ${formatScatterTooltipNumber(data.logXValue)}`);
     }
@@ -817,8 +869,10 @@
       const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
       const scatterStatType=$('#scatterStatType');
       const scatterRegressionMode=$('#scatterRegressionMode');
+      const scatterViewMode=$('#scatterViewMode');
       const scatterSelects=[
         scatterGraphTypeSelect,
+        scatterViewMode,
         scatterOriginMode,
         scatterStatType,
         scatterRegressionMode
@@ -826,6 +880,88 @@
       scatterSelects.forEach(select=>{
         attachScatterSelectAutoSize(select, 'scatter');
       });
+      function updateScatterViewModeOptionVisibility(){
+        if(!scatterViewMode){
+          return;
+        }
+        const option3d = scatterViewMode.querySelector('option[value="3d"]');
+        if(option3d){
+          option3d.disabled = !scatterState.supports3d;
+          option3d.hidden = !scatterState.supports3d;
+        }
+        scatterViewMode.disabled = scatterCurrentGraphType !== 'scatter';
+      }
+      function applyScatterViewMode(mode, options = {}){
+        const allow3d = options.allow3d !== false && scatterState.supports3d;
+        const forceUpdate = options.forceUpdate === true;
+        const skipSchedule = options.skipSchedule === true;
+        let normalized = mode === '3d' ? '3d' : '2d';
+        if(normalized === '3d' && !allow3d){
+          normalized = '2d';
+        }
+        const changed = forceUpdate || scatterState.viewMode !== normalized;
+        scatterState.viewMode = normalized;
+        if(scatterViewMode && scatterViewMode.value !== normalized){
+          scatterViewMode.value = normalized;
+        }
+        const disableLog = normalized === '3d' || scatterCurrentGraphType !== 'scatter';
+        [scatterLogX, scatterLogY].forEach(cb => {
+          if(!cb){ return; }
+          cb.disabled = disableLog;
+          if(disableLog && cb.checked){
+            cb.checked = false;
+          }
+        });
+        const disableRegression = normalized === '3d' || scatterCurrentGraphType !== 'scatter';
+        if(scatterShowLine){
+          scatterShowLine.disabled = disableRegression;
+          if(disableRegression && scatterShowLine.checked){
+            scatterShowLine.checked = false;
+          }
+        }
+        if(scatterShowIntervals){
+          scatterShowIntervals.disabled = disableRegression;
+          if(disableRegression && scatterShowIntervals.checked){
+            scatterShowIntervals.checked = false;
+          }
+        }
+        if(scatterShowDiagnostics){
+          scatterShowDiagnostics.disabled = disableRegression;
+          if(disableRegression && scatterShowDiagnostics.checked){
+            scatterShowDiagnostics.checked = false;
+          }
+        }
+        updateScatterViewModeOptionVisibility();
+        if(changed && !skipSchedule){
+          scheduleDrawScatter();
+        }
+        return normalized;
+      }
+      function scheduleScatterRotationRedraw(){
+        if(scatterState.rotationPending){
+          if(!scatterState.rotationPendingLogged && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: scatter rotation redraw skipped',{ reason: 'pending' });
+          }
+          scatterState.rotationPendingLogged = true;
+          return;
+        }
+        scatterState.rotationPending = true;
+        scatterState.rotationPendingLogged = false;
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: scatter rotation redraw scheduled');
+        }
+        scheduleDrawScatter();
+      }
+      if(scatterViewMode){
+        scatterViewMode.value = scatterState.viewMode;
+        scatterViewMode.addEventListener('change', () => {
+          const next = scatterViewMode.value === '3d' ? '3d' : '2d';
+          const applied = applyScatterViewMode(next, { allow3d: scatterState.supports3d });
+          if(applied !== next){
+            scatterViewMode.value = applied;
+          }
+        });
+      }
       let scatterLogWarningEl=null;
       const scatterDebugEnabled=()=>typeof Shared.isDebugEnabled==='function'&&Shared.isDebugEnabled();
       function ensureScatterLogWarningElement(){
@@ -1041,6 +1177,15 @@
       }
       renderScatterStatsAdvisor(null, buildScatterAdvisorContext([]));
       console.debug('Debug: syncScatterGraphTypeUI complete',{type,showThresholds});
+        if(scatterViewMode){
+          if(type !== 'scatter'){
+            scatterState.supports3d = false;
+            applyScatterViewMode('2d', { allow3d: false, skipSchedule: true, forceUpdate: true });
+          } else {
+            updateScatterViewModeOptionVisibility();
+            applyScatterViewMode(scatterState.viewMode, { skipSchedule: true, forceUpdate: true });
+          }
+        }
     }
 
       function buildScatterAdvisorContext(points, overrides){
@@ -1746,6 +1891,7 @@
       let scatterTitleText='Scatter plot';
       let scatterXLabelText='X';
       let scatterYLabelText='Y';
+      let scatterZLabelText='Z';
       async function drawScatter(){
         const debugEnabled = typeof Shared.isDebugEnabled === 'function' ? Shared.isDebugEnabled() : false;
         const debug = debugEnabled ? console.debug.bind(console) : () => {};
@@ -1764,6 +1910,8 @@
         let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
         const token=++scatterDrawToken; // debug token for cancellation
         info('drawScatter called',{token});
+        scatterState.rotationPending = false;
+        scatterState.rotationPendingLogged = false;
         hideScatterTooltip('draw-start');
         const fill=scatterFill.value||DEFAULT_NON_SIG_COLOR;
         const alpha=Number(scatterAlpha.value)||0;
@@ -1895,6 +2043,8 @@
         }else{
           scatterXLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
           scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
+          const zHeader = extraLabelRaw && String(extraLabelRaw).trim();
+          scatterZLabelText = zHeader || 'Z';
         }
         const maxLen=rowCount;
         let points=[];
@@ -1908,6 +2058,12 @@
         let skippedRows=0;
         let significantCount=0;
         let maMissingPCount=0;
+        const hasZColumn = colCount > 3;
+        const scatter3dCandidates = [];
+        let scatter3dEligible = graphType === 'scatter' && hasZColumn;
+        let scatter3dMissingZ = 0;
+        let scatter3dInvalidZ = 0;
+        let zMinRaw=Infinity, zMaxRaw=-Infinity;
         time(`scatterCollectPoints_${token}`);
         for(let r=1;r<maxLen;r++){
           const labelValue = labelCol[r];
@@ -1922,8 +2078,25 @@
             }
             const xv=parseFloat(rawX);
             const yv=parseFloat(rawY);
+            const rawZ = hasZColumn ? extraCol[r] : undefined;
+            const hasZValue = hasZColumn && rawZ !== null && typeof rawZ !== 'undefined' && rawZ !== '';
+            const zv = hasZValue ? Number(rawZ) : NaN;
             if(!Number.isNaN(xv) && Number.isFinite(xv) && !Number.isNaN(yv) && Number.isFinite(yv)){
-              points.push({x:xv,y:yv,label:lab});
+              const pointRecord = {x:xv,y:yv,label:lab};
+              if(hasZValue && Number.isFinite(zv)){
+                pointRecord.z = zv;
+                scatter3dCandidates.push({ x: xv, y: yv, z: zv, label: lab, index: scatter3dCandidates.length });
+                if(zv<zMinRaw) zMinRaw=zv;
+                if(zv>zMaxRaw) zMaxRaw=zv;
+              }else if(hasZValue){
+                scatter3dEligible = false;
+                scatter3dInvalidZ += 1;
+                recordRowSkip('scatter3d:nonNumericZ');
+              }else{
+                scatter3dEligible = false;
+                scatter3dMissingZ += 1;
+              }
+              points.push(pointRecord);
               if(labelSet && lab) labelSet.add(lab);
               if(xv<xMinRaw) xMinRaw=xv;
               if(xv>xMaxRaw) xMaxRaw=xv;
@@ -2006,6 +2179,15 @@
         }
         if(debugEnabled && maMissingPCount>0){
           debug('Debug: MA missing p-values summary',{count:maMissingPCount});
+        }
+        if(scatterCurrentGraphType==='scatter'){
+          debug('Debug: scatter 3d candidate summary',{
+            hasZColumn,
+            eligible: scatter3dEligible,
+            candidateCount: scatter3dCandidates.length,
+            missingZ: scatter3dMissingZ,
+            invalidZ: scatter3dInvalidZ
+          });
         }
         const labelsUsed=labelSet?Array.from(labelSet):[];
         debug('Debug: scatter label summary',{graphType:scatterCurrentGraphType,labelCount:labelsUsed.length,tracked:shouldCollectLabelSet}); // Debug: label usage summary
@@ -2185,6 +2367,271 @@
         if(xMin===xMax) xMax=xMin+1;
         if(yMin===yMax) yMax=yMin+1;
         info('scatter final raw range',{xMin,xMax,yMin,yMax});
+        let points3dInRange = [];
+        if(scatterCurrentGraphType==='scatter' && scatter3dCandidates.length){
+          points3dInRange = scatter3dCandidates.filter(pt => pt.x>=xMin && pt.x<=xMax && pt.y>=yMin && pt.y<=yMax);
+        }
+        let supports3d = scatterCurrentGraphType==='scatter' && scatter3dEligible && scatter3dCandidates.length>=3 && points3dInRange.length>=3;
+        scatterState.supports3d = supports3d;
+        updateScatterViewModeOptionVisibility();
+        const effectiveViewMode = applyScatterViewMode(scatterState.viewMode, { allow3d: supports3d, skipSchedule: true, forceUpdate: true });
+        if(scatterViewMode && scatterViewMode.value !== effectiveViewMode){
+          scatterViewMode.value = effectiveViewMode;
+        }
+        if(supports3d && effectiveViewMode === '3d'){
+          scatterState.rotationPending = false;
+          scatterState.rotationPendingLogged = false;
+          if(typeof plot3d.normalizeRotation === 'function'){
+            plot3d.normalizeRotation(scatterState.rotation);
+          }
+          const targetAspect = Number.isFinite(SCATTER_3D_DEFAULTS.aspectRatio) && SCATTER_3D_DEFAULTS.aspectRatio > 0 ? SCATTER_3D_DEFAULTS.aspectRatio : (4/3);
+          const fallbackWidth = 420;
+          const fallbackHeight = Math.round(fallbackWidth / targetAspect);
+          const bounds = typeof plotEl.getBoundingClientRect === 'function' ? plotEl.getBoundingClientRect() : { width: 0, height: 0 };
+          const availableWidth = Math.floor(bounds.width || plotEl.clientWidth || 0);
+          const availableHeight = Math.floor(bounds.height || plotEl.clientHeight || 0);
+          let W3 = availableWidth > 0 ? availableWidth : fallbackWidth;
+          let H3 = Math.round(W3 / targetAspect);
+          if(availableHeight > 0 && H3 > availableHeight){
+            H3 = Math.max(1, availableHeight);
+            W3 = Math.max(1, Math.round(H3 * targetAspect));
+            if(availableWidth > 0 && W3 > availableWidth){
+              W3 = Math.max(1, availableWidth);
+              H3 = Math.max(1, Math.round(W3 / targetAspect));
+            }
+          }
+          if(W3 <= 0 || H3 <= 0){
+            W3 = fallbackWidth;
+            H3 = fallbackHeight;
+          }
+          plotEl.style.position='relative';
+          plotEl.style.aspectRatio = `${W3} / ${H3}`;
+          plotEl.style.padding = plotEl.style.padding || '12px';
+          const svg3=document.createElementNS(NS,'svg');
+          svg3.setAttribute('id','scatterSvg');
+          svg3.setAttribute('width',String(W3));
+          svg3.setAttribute('height',String(H3));
+          svg3.setAttribute('viewBox',`0 0 ${W3} ${H3}`);
+          svg3.setAttribute('font-family',chartStyle.FONT_FAMILY);
+          svg3.dataset.viewMode = '3d';
+          chartStyle.applySvgDefaults(svg3);
+          svg3.addEventListener('mouseleave', handleScatterPlotMouseLeave);
+          plotEl.appendChild(svg3);
+          plot3d.attachRotationControls(svg3, {
+            state: scatterState.rotation,
+            onChange: () => scheduleScatterRotationRedraw(),
+            shouldIgnorePointer: (event) => {
+              if(typeof plot3d.isInteractivePointerTarget === 'function'){
+                return plot3d.isInteractivePointerTarget(event?.target);
+              }
+              return plot3d.isLegendPointerTarget(event?.target);
+            },
+            debugLabel: 'scatter-3d'
+          });
+          if(fontControls && typeof fontControls.enableForSvg === 'function'){
+            fontControls.enableForSvg(svg3,{ scopeId: 'scatter' });
+          }
+          const baseLegendMargin = Math.max(fs * 2.25, 28);
+          const legendMargin = legendRenderer.entries.length ? legendWidth + legendGapPx + baseLegendMargin : baseLegendMargin;
+          const margin3 = {
+            top: Math.max(fs * 3.2, 36),
+            right: legendMargin,
+            bottom: Math.max(fs * 3.2, 40),
+            left: Math.max(fs * 3.2, 40)
+          };
+          const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
+          const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
+          const dataBounds = { xMin: Infinity, xMax: -Infinity, yMin: Infinity, yMax: -Infinity, zMin: Infinity, zMax: -Infinity };
+          points3dInRange.forEach(pt => {
+            if(pt.x<dataBounds.xMin) dataBounds.xMin=pt.x;
+            if(pt.x>dataBounds.xMax) dataBounds.xMax=pt.x;
+            if(pt.y<dataBounds.yMin) dataBounds.yMin=pt.y;
+            if(pt.y>dataBounds.yMax) dataBounds.yMax=pt.y;
+            if(pt.z<dataBounds.zMin) dataBounds.zMin=pt.z;
+            if(pt.z>dataBounds.zMax) dataBounds.zMax=pt.z;
+          });
+          if(!Number.isFinite(dataBounds.xMin)){ dataBounds.xMin = xMin; }
+          if(!Number.isFinite(dataBounds.xMax)){ dataBounds.xMax = xMax; }
+          if(!Number.isFinite(dataBounds.yMin)){ dataBounds.yMin = yMin; }
+          if(!Number.isFinite(dataBounds.yMax)){ dataBounds.yMax = yMax; }
+          if(!Number.isFinite(dataBounds.zMin) || !Number.isFinite(dataBounds.zMax)){
+            dataBounds.zMin = Math.min(-1, zMinRaw);
+            dataBounds.zMax = Math.max(1, zMaxRaw);
+          }
+          if(dataBounds.zMin === dataBounds.zMax){
+            const pad = Math.abs(dataBounds.zMin) || 1;
+            dataBounds.zMin -= pad;
+            dataBounds.zMax += pad;
+          }
+          const baseTickEstimate3d = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(Math.max(plotW3, plotH3), { fallback: 6 }) : 6;
+          const tickTarget3d = clampScatterTickTarget(baseTickEstimate3d || 6);
+          const xScale3d = buildScatterScale({
+            dataMin: dataBounds.xMin,
+            dataMax: dataBounds.xMax,
+            manualMin: Number.isFinite(xMinManual) ? xMinManual : NaN,
+            manualMax: Number.isFinite(xMaxManual) ? xMaxManual : NaN,
+            targetTickCount: tickTarget3d
+          });
+          const yScale3d = buildScatterScale({
+            dataMin: dataBounds.yMin,
+            dataMax: dataBounds.yMax,
+            manualMin: Number.isFinite(yMinManual) ? yMinManual : NaN,
+            manualMax: Number.isFinite(yMaxManual) ? yMaxManual : NaN,
+            targetTickCount: tickTarget3d
+          });
+          const zScale3d = buildScatterScale({
+            dataMin: dataBounds.zMin,
+            dataMax: dataBounds.zMax,
+            targetTickCount: tickTarget3d
+          });
+          const axisRanges3d = {
+            x: { min: Number.isFinite(xScale3d.min) ? xScale3d.min : dataBounds.xMin, max: Number.isFinite(xScale3d.max) ? xScale3d.max : dataBounds.xMax },
+            y: { min: Number.isFinite(yScale3d.min) ? yScale3d.min : dataBounds.yMin, max: Number.isFinite(yScale3d.max) ? yScale3d.max : dataBounds.yMax },
+            z: { min: Number.isFinite(zScale3d.min) ? zScale3d.min : dataBounds.zMin, max: Number.isFinite(zScale3d.max) ? zScale3d.max : dataBounds.zMax }
+          };
+          const allCorners = [
+            { x: axisRanges3d.x.min, y: axisRanges3d.y.min, z: axisRanges3d.z.min },
+            { x: axisRanges3d.x.max, y: axisRanges3d.y.min, z: axisRanges3d.z.min },
+            { x: axisRanges3d.x.min, y: axisRanges3d.y.max, z: axisRanges3d.z.min },
+            { x: axisRanges3d.x.max, y: axisRanges3d.y.max, z: axisRanges3d.z.min },
+            { x: axisRanges3d.x.min, y: axisRanges3d.y.min, z: axisRanges3d.z.max },
+            { x: axisRanges3d.x.max, y: axisRanges3d.y.min, z: axisRanges3d.z.max },
+            { x: axisRanges3d.x.min, y: axisRanges3d.y.max, z: axisRanges3d.z.max },
+            { x: axisRanges3d.x.max, y: axisRanges3d.y.max, z: axisRanges3d.z.max }
+          ];
+          const rotatePoint = (pt) => plot3d.rotatePoint(pt, scatterState.rotation);
+          const rotatedCorners = allCorners.map(corner => rotatePoint(corner));
+          const rotatedPoints = points3dInRange.map(pt => rotatePoint(pt));
+          const projector = plot3d.createProjector({
+            rotatedPoints,
+            rotatedCorners,
+            width: W3,
+            height: H3,
+            margin: margin3
+          });
+          const projectedPoints = points3dInRange.map((pt, idx) => {
+            const rotated = rotatedPoints[idx];
+            const projected = projector.project(rotated);
+            return { original: pt, rotated, projected };
+          });
+          const sortedPoints = projectedPoints.map((entry, idx) => {
+            const pt = entry.original;
+            const projected = entry.projected;
+            return {
+              index: idx,
+              projected,
+              label: pt.label,
+              color: scatterLabelColors[pt.label] || fill,
+              shape: labelShapeLookup.get(pt.label) || 'circle',
+              data: pt
+            };
+          }).sort((a, b) => (a.projected.depth || 0) - (b.projected.depth || 0));
+          const add3 = (tag, attrs, text) => {
+            const el = document.createElementNS(NS, tag);
+            Object.keys(attrs || {}).forEach(key => el.setAttribute(key, String(attrs[key])));
+            if(text){ el.textContent = text; }
+            svg3.appendChild(el);
+            return el;
+          };
+          const axisTicks3d = {
+            x: Array.isArray(xScale3d.ticks) ? xScale3d.ticks : [],
+            y: Array.isArray(yScale3d.ticks) ? yScale3d.ticks : [],
+            z: Array.isArray(zScale3d.ticks) ? zScale3d.ticks : []
+          };
+          plot3d.renderAxesAndGrid({
+            svg: svg3,
+            project: projector.project,
+            rotatePoint,
+            axisRanges: axisRanges3d,
+            axisTicks: axisTicks3d,
+            axisLabels: { x: scatterXLabelText, y: scatterYLabelText, z: scatterZLabelText },
+            fontSize: fs,
+            axisStrokeWidth,
+            chartStyle,
+            showGrid,
+            showFrame,
+            debugLabel: 'scatter-3d',
+            onAxisLabel: (node, axisKey) => {
+              if(!node){ return; }
+              const role = axisKey === 'z' ? 'zTitle' : (axisKey === 'y' ? 'yTitle' : 'xTitle');
+              const changeLabel = (value) => {
+                const nextValue = value != null ? String(value) : '';
+                if(axisKey === 'x'){ scatterXLabelText = nextValue; }
+                else if(axisKey === 'y'){ scatterYLabelText = nextValue; }
+                else { scatterZLabelText = nextValue; }
+                if(node.textContent !== nextValue){ node.textContent = nextValue; }
+                scheduleDrawScatter();
+              };
+              markFontEditable(node, role, role);
+              makeEditableLocal(node, text => {
+                const previous = axisKey === 'x' ? (scatterXLabelText ?? '') : (axisKey === 'y' ? (scatterYLabelText ?? '') : (scatterZLabelText ?? ''));
+                const nextValue = text != null ? String(text) : '';
+                if(previous === nextValue){
+                  return;
+                }
+                changeLabel(nextValue);
+                recordScatterChange(`scatter:${axisKey}-label`, previous, nextValue, changeLabel);
+              });
+            }
+          });
+          const pointLayer = document.createElementNS(NS,'g');
+          svg3.appendChild(pointLayer);
+          sortedPoints.forEach(entry => {
+            const marker = createScatterMarkerElement(entry.shape, {
+              cx: entry.projected.x,
+              cy: entry.projected.y,
+              radius: dotSizePx,
+              fill: entry.color,
+              stroke: borderWidthPx>0 ? borderColor : null,
+              strokeWidth: borderWidthPx>0 ? borderWidthPx : 0,
+              fillOpacity: 1 - alpha,
+              strokeOpacity: 1 - alpha
+            });
+            if(!marker){ return; }
+            pointLayer.appendChild(marker);
+            attachScatterPointTooltip(marker, {
+              label: entry.data.label || '',
+              x: entry.data.x,
+              y: entry.data.y,
+              z: entry.data.z,
+              graphType: 'scatter'
+            });
+          });
+          if(legendRenderer.entries.length){
+            const legendX3 = margin3.left + plotW3;
+            const legendY3 = margin3.top;
+            const legendGroup = legendRenderer.draw(svg3,{ x: legendX3, y: legendY3 });
+            if(legendGroup && typeof legendGroup.querySelectorAll === 'function'){
+              const interactiveNodes = legendGroup.querySelectorAll('[data-legend-key]');
+              interactiveNodes.forEach(node => {
+                plot3d.applyLegendPointerGuards(node, { label: node.dataset.legendKey || null });
+              });
+            }
+          }
+          const title3d = add3('text',{ x: margin3.left + plotW3 / 2, y: Math.max(margin3.top * 0.4, fs * 1.6), 'text-anchor':'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR }, scatterTitleText);
+          markFontEditable(title3d,'graphTitle','graphTitle');
+          const applyScatterTitle3d=value=>{
+            const nextValue=value!=null?String(value):'';
+            scatterTitleText=nextValue;
+            if(title3d.textContent!==nextValue){
+              title3d.textContent=nextValue;
+            }
+            scheduleDrawScatter();
+          };
+          makeEditableLocal(title3d,txt=>{
+            const previous=scatterTitleText!=null?String(scatterTitleText):'';
+            const nextValue=txt!=null?String(txt):'';
+            if(previous===nextValue){
+              return;
+            }
+            applyScatterTitle3d(nextValue);
+            recordScatterChange('scatter:title',previous,nextValue,applyScatterTitle3d);
+          });
+          ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph' });
+          return;
+        }
+        plotEl.style.aspectRatio='';
+        plotEl.style.padding='';
         const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
         const H=Math.max(40,Math.floor(plotEl.clientHeight||40));
         plotEl.style.position='relative';
@@ -2945,6 +3392,7 @@
           title:scatterTitleText,
             xLabel:scatterXLabelText,
             yLabel:scatterYLabelText,
+            zLabel:scatterZLabelText,
             dotSize:scatterDotSize.value,
             fill:scatterFill.value,
             border:scatterBorder.value,
@@ -2980,7 +3428,19 @@
               tickIntervalX: axisSettings.x?.tickInterval ?? null,
               tickIntervalY: axisSettings.y?.tickInterval ?? null
             },
-            fontStyles: fontStyles || undefined
+            fontStyles: fontStyles || undefined,
+            viewMode: scatterState.viewMode,
+            rotation: scatterState.rotation ? {
+              x: scatterState.rotation.x,
+              y: scatterState.rotation.y,
+              z: scatterState.rotation.z,
+              quaternion: scatterState.rotation.quaternion ? {
+                w: scatterState.rotation.quaternion.w,
+                x: scatterState.rotation.quaternion.x,
+                y: scatterState.rotation.quaternion.y,
+                z: scatterState.rotation.quaternion.z
+              } : null
+            } : null
           }
         };
       }
@@ -3055,6 +3515,7 @@
             scatterTitleText=c.title||scatterTitleText;
             scatterXLabelText=c.xLabel||scatterXLabelText;
             scatterYLabelText=c.yLabel||scatterYLabelText;
+            scatterZLabelText=c.zLabel||scatterZLabelText;
             scatterDotSize.value=c.dotSize||scatterDotSize.value;
             scatterFill.value=c.fill||scatterFill.value;
             scatterBorder.value=c.border||scatterBorder.value;
@@ -3097,6 +3558,22 @@
               scatterRegressionMode.value=c.regression.mode;
             }
             scatterLastRegressionSummary = c.regression?.summary || null;
+            if(c.rotation){
+              scatterState.rotation = plot3d.createRotationState(c.rotation);
+              if(typeof plot3d.normalizeRotation === 'function'){
+                plot3d.normalizeRotation(scatterState.rotation);
+              }
+            } else {
+              scatterState.rotation = plot3d.createRotationState({ x: SCATTER_3D_DEFAULTS.rotationX, y: SCATTER_3D_DEFAULTS.rotationY });
+              if(typeof plot3d.normalizeRotation === 'function'){
+                plot3d.normalizeRotation(scatterState.rotation);
+              }
+            }
+            scatterState.supports3d = false;
+            if(typeof c.viewMode === 'string'){
+              const storedMode = c.viewMode.toLowerCase() === '3d' ? '3d' : '2d';
+              applyScatterViewMode(storedMode, { allow3d: false, skipSchedule: true, forceUpdate: true });
+            }
             if(c.axis){
               applyScatterAxisSettings({
                 strokeWidth: c.axis.strokeWidth,
