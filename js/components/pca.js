@@ -2513,12 +2513,11 @@
         });
       }
       const pcaPlotDiv=document.getElementById('pcaPlot');
-      pcaPlotDiv.style.background='#ffffff';
+      if(pcaPlotDiv?.style){
+        pcaPlotDiv.style.removeProperty('background');
+      }
       const debugEnabled = typeof Shared?.isDebugEnabled === 'function' ? Shared.isDebugEnabled() : global.DEBUG_PCA === true;
       global.DEBUG_PCA = debugEnabled;
-      if(debugEnabled){
-        console.debug('Debug: pcaPlot background set to white for svgbox consistency');
-      }
       const pcaContainer=pcaPlotDiv.closest('.svgbox')||pcaPlotDiv.parentElement;
       if(!pcaContainer){
         debugLog('Debug: pca resizer container missing', { hasContainer: !!pcaContainer });
