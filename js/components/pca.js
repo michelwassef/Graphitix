@@ -903,8 +903,11 @@
     if(GROUP_SHAPE_VALUES.has(raw)){
       return raw;
     }
-    const fallback = GROUP_SHAPE_DEFAULTS[index % GROUP_SHAPE_DEFAULTS.length];
-    return fallback;
+    const fallbackIndex = Number.isFinite(index) ? index : 0;
+    const defaultShape = GROUP_SHAPE_DEFAULTS.length
+      ? GROUP_SHAPE_DEFAULTS[Math.abs(fallbackIndex) % GROUP_SHAPE_DEFAULTS.length]
+      : 'circle';
+    return defaultShape || 'circle';
   }
 
   function ensureAxisSettings(){
@@ -2255,6 +2258,7 @@
         }
       }
       let pcaLabelColors={};
+      let pcaLabelShapes={};
       const applyPcaLabelColor = (label, value) => {
         const nextValue = value != null ? String(value) : '';
         const previousValue = pcaLabelColors[label] || '';
@@ -2265,6 +2269,24 @@
           pcaLabelColors[label] = nextValue;
         }else if(previousValue){
           delete pcaLabelColors[label];
+        }else{
+          return true;
+        }
+        scheduleDrawPca?.();
+        return true;
+      };
+      const applyPcaLabelShape = (label, value, fallbackIndex = 0) => {
+        const previousValue = pcaLabelShapes[label] || '';
+        const sanitized = typeof value === 'string' && value
+          ? sanitizeGroupShape(value, fallbackIndex)
+          : '';
+        if(sanitized){
+          if(previousValue === sanitized){
+            return true;
+          }
+          pcaLabelShapes[label] = sanitized;
+        }else if(previousValue){
+          delete pcaLabelShapes[label];
         }else{
           return true;
         }
@@ -2316,7 +2338,7 @@
       });
       [pcaShowGrid,pcaScale].forEach(el=>el.addEventListener('change',()=>{console.log('pca config changed',el.id); scheduleDrawPca();}));
       pcaShowFrame.addEventListener('change',()=>{debugLog('Debug: pca showFrame change',{checked:pcaShowFrame.checked}); scheduleDrawPca();});
-      function ensurePcaLabelColors(labels, groupMeta){
+      function ensurePcaLabelStyles(labels, groupMeta){
         const labelArray = Array.isArray(labels) ? labels : [];
         if(groupMeta && groupMeta.assignments){
           const assigned = new Set();
@@ -2325,8 +2347,13 @@
             const groupIndex = groupMeta.assignments[idx];
             if(Number.isInteger(groupIndex) && groupIndex >= 0){
               const style = groupMeta.styleByIndex?.[groupIndex];
-              if(style && style.color){
-                pcaLabelColors[lab] = style.color;
+              if(style){
+                if(style.color){
+                  pcaLabelColors[lab] = style.color;
+                }
+                if(style.shape){
+                  pcaLabelShapes[lab] = style.shape;
+                }
                 assigned.add(lab);
               }
             }
@@ -2336,14 +2363,38 @@
               delete pcaLabelColors[existing];
             }
           });
-          debugLog('Debug: ensurePcaLabelColors sync complete',{count:Object.keys(pcaLabelColors).length, grouped:true});
+          Object.keys(pcaLabelShapes).forEach(existing=>{
+            if(!assigned.has(existing)){
+              delete pcaLabelShapes[existing];
+            }
+          });
+          debugLog('Debug: ensurePcaLabelStyles sync complete',{
+            colors:Object.keys(pcaLabelColors).length,
+            shapes:Object.keys(pcaLabelShapes).length,
+            grouped:true
+          });
           return;
         }
-        const labelSet = new Set(labelArray);
+        const labelSet = new Set();
         labelArray.forEach((lab,i)=>{
+          if(!lab){ return; }
+          labelSet.add(lab);
           if(!pcaLabelColors[lab]){
             pcaLabelColors[lab]=DEFAULT_SCATTER_COLORS[i%DEFAULT_SCATTER_COLORS.length];
             debugLog('Debug: pca default label color applied',{label:lab,color:pcaLabelColors[lab]});
+          }
+          const currentShape = pcaLabelShapes[lab];
+          if(currentShape){
+            const sanitized = sanitizeGroupShape(currentShape, i);
+            if(sanitized !== currentShape){
+              pcaLabelShapes[lab] = sanitized;
+            }
+          }else{
+            const defaultShape = GROUP_SHAPE_DEFAULTS.length
+              ? GROUP_SHAPE_DEFAULTS[i%GROUP_SHAPE_DEFAULTS.length]
+              : 'circle';
+            pcaLabelShapes[lab] = sanitizeGroupShape(defaultShape, i);
+            debugLog('Debug: pca default label shape applied',{label:lab,shape:pcaLabelShapes[lab]});
           }
         });
         Object.keys(pcaLabelColors).forEach(existing=>{
@@ -2352,7 +2403,17 @@
             delete pcaLabelColors[existing];
           }
         });
-        debugLog('Debug: ensurePcaLabelColors sync complete',{count:Object.keys(pcaLabelColors).length, grouped:false});
+        Object.keys(pcaLabelShapes).forEach(existing=>{
+          if(!labelSet.has(existing)){
+            debugLog('Debug: pca label shape pruned',{label:existing});
+            delete pcaLabelShapes[existing];
+          }
+        });
+        debugLog('Debug: ensurePcaLabelStyles sync complete',{
+          colors:Object.keys(pcaLabelColors).length,
+          shapes:Object.keys(pcaLabelShapes).length,
+          grouped:false
+        });
       }
 
       function handleLegendColorChange(entry, anchor){
@@ -2388,6 +2449,27 @@
               recordPcaChange(`pca:group-shape:${groupIndex}`, previousShape, sanitized, value => applyGroupShape(value));
               previousShape = sanitized;
               debugLog('Debug: pca legend group shape change',{ groupIndex, shape: sanitized });
+            }
+          };
+        }else if(entry.labelValue){
+          const labelKey = entry.labelValue;
+          const labelIndex = Number.isInteger(entry.labelIndex) ? entry.labelIndex : 0;
+          const currentShape = sanitizeGroupShape(pcaLabelShapes[labelKey] || 'circle', labelIndex);
+          pcaLabelShapes[labelKey] = currentShape;
+          previousShape = currentShape;
+          const applyLabelShape = (shapeValue) => applyPcaLabelShape(labelKey, shapeValue, labelIndex);
+          shapePicker = {
+            value: currentShape,
+            options: GROUP_SHAPE_OPTIONS,
+            onChange(nextShape){
+              const sanitized = sanitizeGroupShape(nextShape, labelIndex);
+              if(sanitized===previousShape){
+                return;
+              }
+              applyLabelShape(sanitized);
+              recordPcaChange(`pca:label-shape:${labelKey}`, previousShape, sanitized, value => applyLabelShape(value));
+              previousShape = sanitized;
+              debugLog('Debug: pca legend label shape change',{ label: labelKey, shape: sanitized });
             }
           };
         }
@@ -3240,7 +3322,7 @@
         });
       }
 
-      ensurePcaLabelColors(labels, groupMeta);
+      ensurePcaLabelStyles(labels, groupMeta);
 
       let effectiveViewMode = requestedViewMode;
       if(effectiveViewMode === '3d' && !points3d.length){
@@ -3265,15 +3347,17 @@
           });
         } else {
           const seenLabels = new Set();
-          labels.forEach(lab => {
+          labels.forEach((lab, labelIndex) => {
             if(!lab || seenLabels.has(lab)){ return; }
             seenLabels.add(lab);
+            const shape = pcaLabelShapes[lab] || 'circle';
             legendEntries.push({
               key: `label-${lab}`,
               label: lab,
               color: pcaLabelColors[lab] || DEFAULT_SCATTER_COLORS[legendEntries.length % DEFAULT_SCATTER_COLORS.length],
-              shape: 'circle',
+              shape,
               labelValue: lab,
+              labelIndex,
               groupIndex: null
             });
           });
@@ -3655,7 +3739,8 @@
           const assignment = (groupMeta && Number.isInteger(pt.index)) ? groupMeta.assignments[pt.index] : null;
           const style = (groupMeta && Number.isInteger(assignment)) ? groupMeta.styleByIndex?.[assignment] : null;
           const color = style?.color || (pt.label ? (pcaLabelColors[pt.label] || DEFAULT_SCATTER_COLORS[0]) : fill);
-          const shape = style?.shape || 'circle';
+          const labelShape = pt.label ? pcaLabelShapes[pt.label] : null;
+          const shape = style?.shape || labelShape || 'circle';
           const pointNode = drawShape(add3, shape, {
             cx: pt.x,
             cy: pt.y,
@@ -4195,7 +4280,8 @@
         const assignment = (groupMeta && Number.isInteger(pt.index)) ? groupMeta.assignments[pt.index] : null;
         const style = (groupMeta && Number.isInteger(assignment)) ? groupMeta.styleByIndex?.[assignment] : null;
         const color = style?.color || (pt.label ? (pcaLabelColors[pt.label] || DEFAULT_SCATTER_COLORS[0]) : fill);
-        const shape = style?.shape || 'circle';
+        const labelShape = pt.label ? pcaLabelShapes[pt.label] : null;
+        const shape = style?.shape || labelShape || 'circle';
         const pointNode = drawShape(add, shape, {
           cx,
           cy,
@@ -4300,6 +4386,7 @@
           } : null,
           alpha:pcaAlpha.value,
           labelColors:pcaLabelColors,
+          labelShapes:pcaLabelShapes,
           showGrid:pcaShowGrid.checked,
           showFrame:pcaShowFrame.checked,
           showLegend: pcaShowLegendInput ? !!pcaShowLegendInput.checked : true,
@@ -4447,6 +4534,7 @@
             pcaAlpha.value=c.alpha||0;
             pcaAlphaVal.textContent=pcaAlpha.value;
             pcaLabelColors=c.labelColors||{};
+            pcaLabelShapes=c.labelShapes||{};
             if(c.grouped && typeof c.grouped === 'object'){
               pcaState.grouped = {
                 replicatesPerGroup: c.grouped.replicatesPerGroup,
