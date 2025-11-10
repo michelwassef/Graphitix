@@ -90,7 +90,8 @@
     rotation: plot3d.createRotationState({ x: SCATTER_3D_DEFAULTS.rotationX, y: SCATTER_3D_DEFAULTS.rotationY }),
     rotationPending: false,
     rotationPendingLogged: false,
-    supports3d: false
+    supports3d: false,
+    supportsBubble: false
   };
   if(typeof plot3d.normalizeRotation === 'function'){
     plot3d.normalizeRotation(scatterState.rotation);
@@ -218,6 +219,9 @@
     appendRow(`Y: ${formatScatterTooltipNumber(data.y)}`);
     if(data.z !== undefined){
       appendRow(`Z: ${formatScatterTooltipNumber(data.z)}`);
+    }
+    if(data.size !== undefined){
+      appendRow(`Size: ${formatScatterTooltipNumber(data.size)}`);
     }
     if(data.logXValue !== undefined && data.logXValue !== data.x){
       appendRow(`Log X: ${formatScatterTooltipNumber(data.logXValue)}`);
@@ -889,14 +893,25 @@
           option3d.disabled = !scatterState.supports3d;
           option3d.hidden = !scatterState.supports3d;
         }
+        const optionBubble = scatterViewMode.querySelector('option[value="bubble"]');
+        const bubbleUnavailable = scatterCurrentGraphType !== 'scatter' || !scatterState.supportsBubble;
+        if(optionBubble){
+          optionBubble.disabled = bubbleUnavailable;
+          optionBubble.hidden = bubbleUnavailable;
+        }
         scatterViewMode.disabled = scatterCurrentGraphType !== 'scatter';
       }
       function applyScatterViewMode(mode, options = {}){
         const allow3d = options.allow3d !== false && scatterState.supports3d;
+        const allowBubble = options.allowBubble !== false && scatterState.supportsBubble && scatterCurrentGraphType === 'scatter';
         const forceUpdate = options.forceUpdate === true;
         const skipSchedule = options.skipSchedule === true;
-        let normalized = mode === '3d' ? '3d' : '2d';
-        if(normalized === '3d' && !allow3d){
+        let normalized = '2d';
+        if(mode === '3d'){
+          normalized = allow3d ? '3d' : '2d';
+        }else if(mode === 'bubble'){
+          normalized = allowBubble ? 'bubble' : '2d';
+        }else{
           normalized = '2d';
         }
         const changed = forceUpdate || scatterState.viewMode !== normalized;
@@ -955,8 +970,9 @@
       if(scatterViewMode){
         scatterViewMode.value = scatterState.viewMode;
         scatterViewMode.addEventListener('change', () => {
-          const next = scatterViewMode.value === '3d' ? '3d' : '2d';
-          const applied = applyScatterViewMode(next, { allow3d: scatterState.supports3d });
+          const requested = scatterViewMode.value;
+          const next = requested === '3d' ? '3d' : (requested === 'bubble' ? 'bubble' : '2d');
+          const applied = applyScatterViewMode(next, { allow3d: scatterState.supports3d, allowBubble: scatterState.supportsBubble });
           if(applied !== next){
             scatterViewMode.value = applied;
           }
@@ -1180,10 +1196,11 @@
         if(scatterViewMode){
           if(type !== 'scatter'){
             scatterState.supports3d = false;
-            applyScatterViewMode('2d', { allow3d: false, skipSchedule: true, forceUpdate: true });
+            scatterState.supportsBubble = false;
+            applyScatterViewMode('2d', { allow3d: false, allowBubble: false, skipSchedule: true, forceUpdate: true });
           } else {
             updateScatterViewModeOptionVisibility();
-            applyScatterViewMode(scatterState.viewMode, { skipSchedule: true, forceUpdate: true });
+            applyScatterViewMode(scatterState.viewMode, { skipSchedule: true, forceUpdate: true, allowBubble: scatterState.supportsBubble });
           }
         }
     }
@@ -2064,6 +2081,12 @@
         let scatter3dMissingZ = 0;
         let scatter3dInvalidZ = 0;
         let zMinRaw=Infinity, zMaxRaw=-Infinity;
+        let bubbleEligible = graphType === 'scatter' && hasZColumn;
+        let bubbleValidCount = 0;
+        let bubbleInvalidCount = 0;
+        let bubbleMissingCount = 0;
+        let bubbleMinRaw = Infinity;
+        let bubbleMaxRaw = -Infinity;
         time(`scatterCollectPoints_${token}`);
         for(let r=1;r<maxLen;r++){
           const labelValue = labelCol[r];
@@ -2085,16 +2108,29 @@
               const pointRecord = {x:xv,y:yv,label:lab};
               if(hasZValue && Number.isFinite(zv)){
                 pointRecord.z = zv;
+                pointRecord.bubbleValue = zv;
                 scatter3dCandidates.push({ x: xv, y: yv, z: zv, label: lab, index: scatter3dCandidates.length });
                 if(zv<zMinRaw) zMinRaw=zv;
                 if(zv>zMaxRaw) zMaxRaw=zv;
+                if(zv<bubbleMinRaw) bubbleMinRaw = zv;
+                if(zv>bubbleMaxRaw) bubbleMaxRaw = zv;
+                bubbleValidCount += 1;
               }else if(hasZValue){
                 scatter3dEligible = false;
                 scatter3dInvalidZ += 1;
                 recordRowSkip('scatter3d:nonNumericZ');
+                bubbleEligible = false;
+                bubbleInvalidCount += 1;
               }else{
                 scatter3dEligible = false;
                 scatter3dMissingZ += 1;
+                if(hasZColumn){
+                  bubbleEligible = false;
+                  bubbleMissingCount += 1;
+                }
+              }
+              if(!hasZValue && hasZColumn){
+                pointRecord.bubbleValue = NaN;
               }
               points.push(pointRecord);
               if(labelSet && lab) labelSet.add(lab);
@@ -2187,6 +2223,15 @@
             candidateCount: scatter3dCandidates.length,
             missingZ: scatter3dMissingZ,
             invalidZ: scatter3dInvalidZ
+          });
+          debug('Debug: scatter bubble candidate summary',{
+            hasZColumn,
+            eligible: bubbleEligible,
+            validCount: bubbleValidCount,
+            invalidCount: bubbleInvalidCount,
+            missingCount: bubbleMissingCount,
+            min: bubbleMinRaw,
+            max: bubbleMaxRaw
           });
         }
         const labelsUsed=labelSet?Array.from(labelSet):[];
@@ -2324,7 +2369,7 @@
               Shared.openColorPicker({
                 anchor:swatch,
                 color:currentColor,
-                shapePicker: scatterCurrentGraphType==='scatter' ? {
+                shapePicker: scatterCurrentGraphType==='scatter' && scatterState.viewMode !== 'bubble' ? {
                   value: currentShape,
                   options: SCATTER_SHAPE_OPTIONS,
                   onChange(nextShape){
@@ -2372,9 +2417,24 @@
           points3dInRange = scatter3dCandidates.filter(pt => pt.x>=xMin && pt.x<=xMax && pt.y>=yMin && pt.y<=yMax);
         }
         let supports3d = scatterCurrentGraphType==='scatter' && scatter3dEligible && scatter3dCandidates.length>=3 && points3dInRange.length>=3;
+        let supportsBubble = false;
+        if(scatterCurrentGraphType==='scatter' && bubbleEligible){
+          let bubbleValidInRange = 0;
+          let bubbleMissingInRange = 0;
+          for(let i = 0; i < pointsInRange.length; i += 1){
+            const candidate = pointsInRange[i];
+            if(Number.isFinite(candidate?.bubbleValue)){
+              bubbleValidInRange += 1;
+            }else{
+              bubbleMissingInRange += 1;
+            }
+          }
+          supportsBubble = bubbleValidInRange > 0 && bubbleMissingInRange === 0;
+        }
         scatterState.supports3d = supports3d;
+        scatterState.supportsBubble = supportsBubble;
         updateScatterViewModeOptionVisibility();
-        const effectiveViewMode = applyScatterViewMode(scatterState.viewMode, { allow3d: supports3d, skipSchedule: true, forceUpdate: true });
+        const effectiveViewMode = applyScatterViewMode(scatterState.viewMode, { allow3d: supports3d, allowBubble: supportsBubble, skipSchedule: true, forceUpdate: true });
         if(scatterViewMode && scatterViewMode.value !== effectiveViewMode){
           scatterViewMode.value = effectiveViewMode;
         }
@@ -2833,6 +2893,8 @@
         const frag=document.createDocumentFragment();
         const labelBBox=new Map();
         let pointIndex=0;
+        const isBubbleView = scatterCurrentGraphType==='scatter' && scatterState.viewMode === 'bubble';
+        const resolveBubbleRadius = isBubbleView ? createBubbleRadiusScaler(points, dotSizePx) : null;
         for(const p of points){
           const xv=logX?Math.log10(p.x):p.x;
           const yv=logY?Math.log10(p.y):p.y;
@@ -2841,13 +2903,16 @@
           const color=scatterCurrentGraphType==='scatter'
             ? (scatterLabelColors[p.label]||fill)
             : (p.isSignificant?SIGNIFICANT_COLOR:fill);
-          const markerShape = scatterCurrentGraphType==='scatter'
+          const markerShape = isBubbleView ? 'circle' : (scatterCurrentGraphType==='scatter'
             ? (labelShapeLookup.get(p.label) || 'circle')
-            : 'circle';
+            : 'circle');
+          const markerRadius = isBubbleView && resolveBubbleRadius
+            ? resolveBubbleRadius(p)
+            : dotSizePx;
           const marker = createScatterMarkerElement(markerShape, {
             cx: cxVal,
             cy: cyVal,
-            radius: dotSizePx,
+            radius: markerRadius,
             fill: color,
             stroke: borderWidthPx>0 ? borderColor : null,
             strokeWidth: borderWidthPx>0 ? borderWidthPx : 0,
@@ -2859,10 +2924,11 @@
           }
           let bbox=labelBBox.get(p.label||'__none');
           if(!bbox){bbox={minX:Infinity,maxX:-Infinity,minY:Infinity,maxY:-Infinity}; labelBBox.set(p.label||'__none',bbox);}
-          bbox.minX=Math.min(bbox.minX,cxVal-dotSizePx);
-          bbox.maxX=Math.max(bbox.maxX,cxVal+dotSizePx);
-          bbox.minY=Math.min(bbox.minY,cyVal-dotSizePx);
-          bbox.maxY=Math.max(bbox.maxY,cyVal+dotSizePx);
+          const bboxRadius = markerRadius;
+          bbox.minX=Math.min(bbox.minX,cxVal-bboxRadius);
+          bbox.maxX=Math.max(bbox.maxX,cxVal+bboxRadius);
+          bbox.minY=Math.min(bbox.minY,cyVal-bboxRadius);
+          bbox.maxY=Math.max(bbox.maxY,cyVal+bboxRadius);
           attachScatterPointTooltip(marker, {
             label: p.label || '',
             x: p.x,
@@ -2870,7 +2936,8 @@
             logXValue: logX ? xv : undefined,
             logYValue: logY ? yv : undefined,
             graphType: scatterCurrentGraphType,
-            isSignificant: typeof p.isSignificant === 'boolean' ? p.isSignificant : undefined
+            isSignificant: typeof p.isSignificant === 'boolean' ? p.isSignificant : undefined,
+            size: isBubbleView ? p.bubbleValue : undefined
           });
           frag.appendChild(marker);
           if(scatterCurrentGraphType!=='scatter' && p.isSignificant && p.label){
@@ -3007,8 +3074,46 @@
                   lowerPoints.push({ x: x2px(xVal), y: y2px(lowerVal) });
                 });
                 if(upperPoints.length < 2 || lowerPoints.length < 2){
-                  return null;
-                }
+        return null;
+      }
+
+      function createBubbleRadiusScaler(points, baseRadius){
+        const safeBase = Math.max(1, Number(baseRadius) || 1);
+        let minValue = Infinity;
+        let maxValue = -Infinity;
+        let count = 0;
+        if(Array.isArray(points)){
+          for(let i = 0; i < points.length; i += 1){
+            const point = points[i];
+            if(!point){ continue; }
+            const raw = point.bubbleValue;
+            const magnitude = Math.abs(Number(raw));
+            if(!Number.isFinite(magnitude)){ continue; }
+            if(magnitude < minValue){ minValue = magnitude; }
+            if(magnitude > maxValue){ maxValue = magnitude; }
+            count += 1;
+          }
+        }
+        const minRadius = Math.max(1, safeBase * 0.6);
+        const maxRadius = Math.max(minRadius + 1, safeBase * 2.8);
+        if(count === 0){
+          const fallback = Math.max(minRadius, Math.min(maxRadius, safeBase));
+          return () => fallback;
+        }
+        if(maxValue <= minValue){
+          const radius = Math.max(minRadius, Math.min(maxRadius, safeBase));
+          return () => radius;
+        }
+        return point => {
+          const value = Math.abs(Number(point?.bubbleValue));
+          if(!Number.isFinite(value)){
+            return minRadius;
+          }
+          const ratio = (value - minValue) / (maxValue - minValue);
+          const clamped = Math.min(Math.max(ratio, 0), 1);
+          return minRadius + (maxRadius - minRadius) * clamped;
+        };
+      }
                 const commands=[];
                 upperPoints.forEach((pt, idx)=>{
                   commands.push(`${idx?'L':'M'}${pt.x},${pt.y}`);
@@ -3571,8 +3676,15 @@
             }
             scatterState.supports3d = false;
             if(typeof c.viewMode === 'string'){
-              const storedMode = c.viewMode.toLowerCase() === '3d' ? '3d' : '2d';
-              applyScatterViewMode(storedMode, { allow3d: false, skipSchedule: true, forceUpdate: true });
+              const normalizedMode = String(c.viewMode).toLowerCase();
+              let storedMode = '2d';
+              if(normalizedMode === '3d'){
+                storedMode = '3d';
+              }else if(normalizedMode === 'bubble'){
+                storedMode = 'bubble';
+              }
+              scatterState.supportsBubble = false;
+              applyScatterViewMode(storedMode, { allow3d: false, allowBubble: false, skipSchedule: true, forceUpdate: true });
             }
             if(c.axis){
               applyScatterAxisSettings({
