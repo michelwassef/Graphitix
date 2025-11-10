@@ -783,6 +783,28 @@
           ['Cat',4.8,24,''],
           ['Dog',24,55,'']
         ],
+        scatter3d:[
+          ['Label','X Value','Y Value','Z Value'],
+          ['Orion',2.5,18,4.5],
+          ['Lyra',6.2,25,9.1],
+          ['Cygnus',4.1,14,6.8],
+          ['Andromeda',8.6,32,12.4],
+          ['Cassiopeia',5.4,28,10.2],
+          ['Phoenix',7.9,20,7.3],
+          ['Delphinus',3.2,12,3.9],
+          ['Vela',9.4,36,13.6]
+        ],
+        scatterBubble:[
+          ['Label','X Value','Y Value','Bubble Size'],
+          ['Comet A',1.8,12,25],
+          ['Comet B',4.2,18,40],
+          ['Comet C',2.5,22,55],
+          ['Comet D',5.7,28,70],
+          ['Comet E',3.9,16,35],
+          ['Comet F',6.4,24,90],
+          ['Comet G',4.8,30,65],
+          ['Comet H',7.1,26,80]
+        ],
         volcano:[
           ['Gene','log2FoldChange','pValue',''],
           ['GeneA',1.6,0.0005,''],
@@ -808,12 +830,22 @@
       if(global.DEBUG_SCATTER) console.log('scatter example dataset map', scatterExamples);
       document.getElementById('scatterLoadExample').addEventListener('click',()=>{
         const type=scatterGraphTypeSelect?.value || 'scatter';
-        const dataset=scatterExamples[type] || scatterExamples.scatter;
+        const rawViewMode = type==='scatter' ? (scatterViewMode && typeof scatterViewMode.value === 'string' ? scatterViewMode.value : null) : null;
+        const viewMode = type==='scatter' ? (rawViewMode || scatterState.viewMode || '2d') : '2d';
+        const normalizedMode = typeof viewMode === 'string' ? viewMode.toLowerCase() : '2d';
+        let dataset;
+        if(type==='scatter' && normalizedMode==='3d'){
+          dataset = scatterExamples.scatter3d;
+        }else if(type==='scatter' && normalizedMode==='bubble'){
+          dataset = scatterExamples.scatterBubble;
+        }else{
+          dataset = scatterExamples[type] || scatterExamples.scatter;
+        }
         scatterHot.loadData(dataset);
         if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()==='#377eb8'){
           scatterFill.value=DEFAULT_NON_SIG_COLOR;
         }
-        console.log('scatter example loaded',{type,rows:dataset.length});
+        console.log('scatter example loaded',{type,viewMode,rows:dataset.length});
         syncScatterGraphTypeUI();
         scheduleDrawScatter();
       });
