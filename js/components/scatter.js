@@ -1930,6 +1930,44 @@
         circle.setAttribute('r', String(radius));
         return applyCommonAttributes(circle);
       }
+
+      function createBubbleRadiusScaler(points, baseRadius){
+        const safeBase = Math.max(1, Number(baseRadius) || 1);
+        let minValue = Infinity;
+        let maxValue = -Infinity;
+        let count = 0;
+        if(Array.isArray(points)){
+          for(let i = 0; i < points.length; i += 1){
+            const point = points[i];
+            if(!point){ continue; }
+            const raw = point.bubbleValue;
+            const magnitude = Math.abs(Number(raw));
+            if(!Number.isFinite(magnitude)){ continue; }
+            if(magnitude < minValue){ minValue = magnitude; }
+            if(magnitude > maxValue){ maxValue = magnitude; }
+            count += 1;
+          }
+        }
+        const minRadius = Math.max(1, safeBase * 0.6);
+        const maxRadius = Math.max(minRadius + 1, safeBase * 2.8);
+        if(count === 0){
+          const fallback = Math.max(minRadius, Math.min(maxRadius, safeBase));
+          return () => fallback;
+        }
+        if(maxValue <= minValue){
+          const radius = Math.max(minRadius, Math.min(maxRadius, safeBase));
+          return () => radius;
+        }
+        return point => {
+          const value = Math.abs(Number(point?.bubbleValue));
+          if(!Number.isFinite(value)){
+            return minRadius;
+          }
+          const ratio = (value - minValue) / (maxValue - minValue);
+          const clamped = Math.min(Math.max(ratio, 0), 1);
+          return minRadius + (maxRadius - minRadius) * clamped;
+        };
+      }
     
       const scatterPlotDiv=document.getElementById('scatterPlot');
       const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
@@ -3106,46 +3144,8 @@
                   lowerPoints.push({ x: x2px(xVal), y: y2px(lowerVal) });
                 });
                 if(upperPoints.length < 2 || lowerPoints.length < 2){
-        return null;
-      }
-
-      function createBubbleRadiusScaler(points, baseRadius){
-        const safeBase = Math.max(1, Number(baseRadius) || 1);
-        let minValue = Infinity;
-        let maxValue = -Infinity;
-        let count = 0;
-        if(Array.isArray(points)){
-          for(let i = 0; i < points.length; i += 1){
-            const point = points[i];
-            if(!point){ continue; }
-            const raw = point.bubbleValue;
-            const magnitude = Math.abs(Number(raw));
-            if(!Number.isFinite(magnitude)){ continue; }
-            if(magnitude < minValue){ minValue = magnitude; }
-            if(magnitude > maxValue){ maxValue = magnitude; }
-            count += 1;
-          }
-        }
-        const minRadius = Math.max(1, safeBase * 0.6);
-        const maxRadius = Math.max(minRadius + 1, safeBase * 2.8);
-        if(count === 0){
-          const fallback = Math.max(minRadius, Math.min(maxRadius, safeBase));
-          return () => fallback;
-        }
-        if(maxValue <= minValue){
-          const radius = Math.max(minRadius, Math.min(maxRadius, safeBase));
-          return () => radius;
-        }
-        return point => {
-          const value = Math.abs(Number(point?.bubbleValue));
-          if(!Number.isFinite(value)){
-            return minRadius;
-          }
-          const ratio = (value - minValue) / (maxValue - minValue);
-          const clamped = Math.min(Math.max(ratio, 0), 1);
-          return minRadius + (maxRadius - minRadius) * clamped;
-        };
-      }
+                  return null;
+                }
                 const commands=[];
                 upperPoints.forEach((pt, idx)=>{
                   commands.push(`${idx?'L':'M'}${pt.x},${pt.y}`);
