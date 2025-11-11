@@ -2168,6 +2168,7 @@
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
         const labelSet=shouldCollectLabelSet ? new Set() : null;
         const labelAnnotations=[];
+        let legendLayout=null;
         let legendRenderer=EMPTY_LEGEND_RENDERER;
         let legendGapPx=0;
         let legendWidth=0;
@@ -2428,6 +2429,7 @@
         const visibleLabels = shouldCollectLabelSet
           ? Array.from(new Set(pointsInRange.map(p=>p.label).filter(Boolean)))
           : [];
+        legendLayout = null;
         if(showLegend){
           const legendEntries=[];
           if(scatterCurrentGraphType==='scatter'){
@@ -2447,9 +2449,10 @@
             legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
             legendEntries.push({label:'Not significant',fill});
           }
-          legendRenderer=chartStyle.createLegendRenderer({
+          legendLayout = chartStyle.computeLegendLayout({
             entries:legendEntries,
             fontSize:fs,
+            strokeWidth:borderWidthPx,
             onSwatchClick:({ entry, event, swatch, index })=>{
               const labelKey=entry?.key;
               if(!labelKey){
@@ -2520,15 +2523,18 @@
               });
             }
           });
-          legendGapPx=legendRenderer.entries.length?Math.max(12,Math.round(fs*0.5)):0;
-          legendWidth=legendRenderer.entries.length?legendRenderer.width+legendGapPx:0;
+          legendRenderer=legendLayout.renderer || EMPTY_LEGEND_RENDERER;
+          legendGapPx=legendLayout.legendGapPx || 0;
+          legendWidth=legendLayout.legendWidthForMargin || 0;
         }else{
+          legendLayout = null;
           legendRenderer=EMPTY_LEGEND_RENDERER;
           legendGapPx=0;
           legendWidth=0;
           debug('Debug: scatter legend hidden via toggle',{graphType:scatterCurrentGraphType});
         }
-        debug('Debug: scatter legend metrics',{legendWidth,legendGapPx,entryCount:legendRenderer.entries.length,graphType:scatterCurrentGraphType,showLegend});
+        const legendVisible = showLegend && legendRenderer.entries.length > 0;
+        debug('Debug: scatter legend metrics',{legendWidth,legendGapPx,entryCount:legendRenderer.entries.length,graphType:scatterCurrentGraphType,showLegend,legendVisible});
         points = pointsInRange;
         if(xMin===xMax) xMax=xMin+1;
         if(yMin===yMax) yMax=yMin+1;
@@ -2639,8 +2645,11 @@
           if(fontControls && typeof fontControls.enableForSvg === 'function'){
             fontControls.enableForSvg(svg3,{ scopeId: 'scatter' });
           }
+          const legendAxisGap = Math.max(fs * 0.9, 18);
+          const appliedLegendAxisGap = legendVisible ? legendAxisGap : 0;
+          const legendGapFor3d = legendLayout?.legendGapPx ?? legendGapPx;
           const baseLegendMargin = Math.max(fs * 2.25, 28);
-          const legendMargin = legendRenderer.entries.length ? legendWidth + legendGapPx + baseLegendMargin : baseLegendMargin;
+          const legendMargin = legendVisible ? legendWidth + appliedLegendAxisGap + baseLegendMargin : baseLegendMargin;
           const margin3 = {
             top: Math.max(fs * 3.2, 36),
             right: legendMargin,
@@ -2782,8 +2791,29 @@
               });
             }
           });
+          const axisLabelBounds=[];
+          let contentRightBound=margin3.left+plotW3;
+          if(typeof svg3.querySelectorAll === 'function'){
+            const axisLabelNodes=svg3.querySelectorAll('[data-axis-label]');
+            axisLabelNodes.forEach(node=>{
+              if(!node || typeof node.getBBox !== 'function'){ return; }
+              try{
+                const bbox=node.getBBox();
+                const valid=Number.isFinite(bbox?.x) && Number.isFinite(bbox?.y) && Number.isFinite(bbox?.width) && Number.isFinite(bbox?.height);
+                if(!valid){ return; }
+                axisLabelBounds.push({ x:bbox.x, y:bbox.y, width:bbox.width, height:bbox.height });
+                const rightEdge=bbox.x + bbox.width;
+                if(Number.isFinite(rightEdge)){
+                  contentRightBound=Math.max(contentRightBound,rightEdge);
+                }
+              }catch(err){
+                scatterDebug('Debug: scatter axis label bbox error',{ message: err?.message || String(err) });
+              }
+            });
+          }
           const pointLayer = document.createElementNS(NS,'g');
           svg3.appendChild(pointLayer);
+          let maxPointRight=contentRightBound;
           sortedPoints.forEach(entry => {
             const marker = createScatterMarkerElement(entry.shape, {
               cx: entry.projected.x,
@@ -2804,15 +2834,76 @@
               z: entry.data.z,
               graphType: 'scatter'
             });
+            const approxRight = entry.projected?.x + dotSizePx + (borderWidthPx>0 ? borderWidthPx : 0);
+            if(Number.isFinite(approxRight)){
+              maxPointRight = Math.max(maxPointRight, approxRight);
+            }
           });
-          if(legendRenderer.entries.length){
-            const legendX3 = margin3.left + plotW3;
-            const legendY3 = margin3.top;
-            const legendGroup = legendRenderer.draw(svg3,{ x: legendX3, y: legendY3 });
+          contentRightBound=Math.max(contentRightBound,maxPointRight);
+          if(legendVisible){
+            const legendContentWidth=Math.max(legendRenderer.width || 0,0);
+            const legendContentHeight=Math.max(legendRenderer.height || 0,0);
+            const horizontalBase=margin3.left+plotW3+legendGapFor3d+appliedLegendAxisGap;
+            const horizontalPadding=Math.max(fs*0.6,12)+appliedLegendAxisGap;
+            let legendX3=Math.max(horizontalBase,contentRightBound+horizontalPadding);
+            const safeRightPad=Math.max(fs*0.6,12);
+            const widthForClamp=Math.max(legendContentWidth,legendWidth);
+            const maxLegendX=W3-safeRightPad-widthForClamp;
+            if(widthForClamp>0 && legendX3>maxLegendX){
+              const previousX=legendX3;
+              legendX3=Math.max(horizontalBase,maxLegendX);
+              scatterDebug('Debug: scatter legend horizontal clamped',{ previousX, legendX3, maxLegendX });
+            }
+            const baseLegendY=margin3.top;
+            const legendHeight=legendContentHeight;
+            const legendBottomLimit=Math.max(baseLegendY,H3-margin3.bottom-legendHeight);
+            const verticalPadding=Math.max(fs*0.45,8);
+            const candidates=[baseLegendY];
+            axisLabelBounds.forEach(bounds=>{
+              const below=bounds.y + bounds.height + verticalPadding;
+              const above=bounds.y - legendHeight - verticalPadding;
+              if(below<=legendBottomLimit){ candidates.push(below); }
+              if(above>=baseLegendY){ candidates.push(above); }
+            });
+            if(legendBottomLimit!==baseLegendY){
+              candidates.push(legendBottomLimit);
+            }
+            const candidatePositions=[];
+            candidates.forEach(candidate=>{
+              const clamped=Math.min(Math.max(candidate,baseLegendY),legendBottomLimit);
+              if(!candidatePositions.some(existing=>Math.abs(existing-clamped)<0.5)){
+                candidatePositions.push(clamped);
+              }
+            });
+            candidatePositions.sort((a,b)=>Math.abs(a-baseLegendY)-Math.abs(b-baseLegendY));
+            const intersectsAxis=(rect)=>{
+              for(let idx=0;idx<axisLabelBounds.length;idx+=1){
+                const bounds=axisLabelBounds[idx];
+                const horizontalOverlap=rect.x < bounds.x + bounds.width + horizontalPadding
+                  && rect.x + rect.width > bounds.x - horizontalPadding;
+                const verticalOverlap=rect.y < bounds.y + bounds.height + verticalPadding
+                  && rect.y + rect.height > bounds.y - verticalPadding;
+                if(horizontalOverlap && verticalOverlap){
+                  return true;
+                }
+              }
+              return false;
+            };
+            let legendStartY=baseLegendY;
+            for(let idx=0;idx<candidatePositions.length;idx+=1){
+              const candidateY=candidatePositions[idx];
+              const legendRect={ x:legendX3, y:candidateY, width:legendContentWidth || widthForClamp, height:legendHeight };
+              if(!intersectsAxis(legendRect)){
+                legendStartY=candidateY;
+                break;
+              }
+            }
+            scatterDebug('Debug: scatter legend placement resolved',{ legendX: legendX3, legendY: legendStartY, legendHeight, axisLabels: axisLabelBounds.length });
+            const legendGroup=legendRenderer.draw(svg3,{ x:legendX3, y:legendStartY });
             if(legendGroup && typeof legendGroup.querySelectorAll === 'function'){
-              const interactiveNodes = legendGroup.querySelectorAll('[data-legend-key]');
-              interactiveNodes.forEach(node => {
-                plot3d.applyLegendPointerGuards(node, { label: node.dataset.legendKey || null });
+              const interactiveNodes=legendGroup.querySelectorAll('[data-legend-key]');
+              interactiveNodes.forEach(node=>{
+                plot3d.applyLegendPointerGuards(node,{ label: node.dataset.legendKey || null });
               });
             }
           }
@@ -3116,7 +3207,7 @@
           debug('Debug: scatter annotations rendered',{count:labelAnnotations.length,graphType:scatterCurrentGraphType});
         }
         timeEnd(`scatterSvgDraw_${token}`);
-        if(legendRenderer.entries.length){
+        if(legendVisible){
           const plotRight=margin.left+plotW;
           const legendX=plotRight+legendGapPx;
           legendRenderer.draw(svg,{x:legendX,y:margin.top});
