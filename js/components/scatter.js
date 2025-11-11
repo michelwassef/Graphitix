@@ -923,13 +923,11 @@
         const option3d = scatterViewMode.querySelector('option[value="3d"]');
         if(option3d){
           option3d.disabled = !scatterState.supports3d;
-          option3d.hidden = !scatterState.supports3d;
         }
         const optionBubble = scatterViewMode.querySelector('option[value="bubble"]');
         const bubbleUnavailable = scatterCurrentGraphType !== 'scatter' || !scatterState.supportsBubble;
         if(optionBubble){
           optionBubble.disabled = bubbleUnavailable;
-          optionBubble.hidden = bubbleUnavailable;
         }
         scatterViewMode.disabled = scatterCurrentGraphType !== 'scatter';
       }
@@ -2323,15 +2321,36 @@
         if(token!==scatterDrawToken){info('scatter draw cancelled after collect',{token});return;}
         const plotEl=document.getElementById('scatterPlot');
         plotEl.style.display='block';
-        while(plotEl.firstChild) plotEl.removeChild(plotEl.firstChild);
+        const clearScatterPlot=()=>{
+          if(!plotEl){
+            return;
+          }
+          while(plotEl.firstChild){
+            plotEl.removeChild(plotEl.firstChild);
+          }
+        };
+        const renderScatterNotice=(message)=>{
+          plotEl.style.aspectRatio='';
+          plotEl.style.padding='';
+          clearScatterPlot();
+          const notice=document.createElement('i');
+          notice.textContent=message;
+          plotEl.appendChild(notice);
+        };
         document.getElementById('scatterStatsResults').innerHTML='';
         if(!points.length){
-          plotEl.innerHTML='<i>No valid data points to plot.</i>';
+          renderScatterNotice('No valid data points to plot.');
           debug('Debug: scatter plot aborted due to empty dataset',{graphType});
           return;
         }
-        if(logX&&points.some(p=>p.x<=0)){plotEl.innerHTML='<i>Log scale requires positive X values.</i>';return;}
-        if(logY&&points.some(p=>p.y<=0)){plotEl.innerHTML='<i>Log scale requires positive Y values.</i>';return;}
+        if(logX&&points.some(p=>p.x<=0)){
+          renderScatterNotice('Log scale requires positive X values.');
+          return;
+        }
+        if(logY&&points.some(p=>p.y<=0)){
+          renderScatterNotice('Log scale requires positive Y values.');
+          return;
+        }
         let xMin=xMinRaw, xMax=xMaxRaw, yMin=yMinRaw, yMax=yMaxRaw;
         if(isFinite(xMinManual)) xMin=xMinManual;
         if(isFinite(xMaxManual)) xMax=xMaxManual;
@@ -2365,7 +2384,7 @@
           if(scatterCurrentGraphType==='scatter'){
             renderScatterStatsAdvisor([], buildScatterAdvisorContext([]));
           }
-          plotEl.innerHTML='<i>No points fall within the specified axis range.</i>';
+          renderScatterNotice('No points fall within the specified axis range.');
           debug('Debug: scatter plot aborted due to range filter',{range:{xMin,xMax,yMin,yMax}});
           return;
         }
@@ -2508,6 +2527,11 @@
         if(scatterViewMode && scatterViewMode.value !== effectiveViewMode){
           scatterViewMode.value = effectiveViewMode;
         }
+        const existingScatterSvg = plotEl.querySelector('#scatterSvg');
+        const reuse3dSvg = supports3d && effectiveViewMode === '3d' && existingScatterSvg && existingScatterSvg.dataset.viewMode === '3d';
+        if(!reuse3dSvg){
+          clearScatterPlot();
+        }
         if(supports3d && effectiveViewMode === '3d'){
           scatterState.rotationPending = false;
           scatterState.rotationPendingLogged = false;
@@ -2537,16 +2561,24 @@
           plotEl.style.position='relative';
           plotEl.style.aspectRatio = `${W3} / ${H3}`;
           plotEl.style.padding = plotEl.style.padding || '12px';
-          const svg3=document.createElementNS(NS,'svg');
-          svg3.setAttribute('id','scatterSvg');
+          const svg3 = reuse3dSvg ? existingScatterSvg : document.createElementNS(NS,'svg');
+          if(!svg3){
+            return;
+          }
+          if(!reuse3dSvg){
+            svg3.setAttribute('id','scatterSvg');
+            plotEl.appendChild(svg3);
+          }
           svg3.setAttribute('width',String(W3));
           svg3.setAttribute('height',String(H3));
           svg3.setAttribute('viewBox',`0 0 ${W3} ${H3}`);
           svg3.setAttribute('font-family',chartStyle.FONT_FAMILY);
           svg3.dataset.viewMode = '3d';
           chartStyle.applySvgDefaults(svg3);
+          while(svg3.firstChild){
+            svg3.removeChild(svg3.firstChild);
+          }
           svg3.addEventListener('mouseleave', handleScatterPlotMouseLeave);
-          plotEl.appendChild(svg3);
           plot3d.attachRotationControls(svg3, {
             state: scatterState.rotation,
             onChange: () => scheduleScatterRotationRedraw(),
@@ -2760,6 +2792,7 @@
           ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph' });
           return;
         }
+        clearScatterPlot();
         plotEl.style.aspectRatio='';
         plotEl.style.padding='';
         const W=Math.max(50,Math.floor(plotEl.clientWidth||50));
@@ -2771,6 +2804,7 @@
         svg.setAttribute('height',String(H));
         svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
         svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
+        svg.dataset.viewMode='2d';
         chartStyle.applySvgDefaults(svg);
         svg.addEventListener('mouseleave', handleScatterPlotMouseLeave);
         plotEl.appendChild(svg);
