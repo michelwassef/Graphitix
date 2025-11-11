@@ -87,6 +87,7 @@
 
   const scatterState = {
     viewMode: '2d',
+    requestedViewMode: '2d',
     rotation: plot3d.createRotationState({ x: SCATTER_3D_DEFAULTS.rotationX, y: SCATTER_3D_DEFAULTS.rotationY }),
     rotationPending: false,
     rotationPendingLogged: false,
@@ -831,7 +832,9 @@
       document.getElementById('scatterLoadExample').addEventListener('click',()=>{
         const type=scatterGraphTypeSelect?.value || 'scatter';
         const rawViewMode = type==='scatter' ? (scatterViewMode && typeof scatterViewMode.value === 'string' ? scatterViewMode.value : null) : null;
-        const viewMode = type==='scatter' ? (rawViewMode || scatterState.viewMode || '2d') : '2d';
+        const viewMode = type==='scatter'
+          ? (rawViewMode || scatterState.requestedViewMode || scatterState.viewMode || '2d')
+          : '2d';
         const normalizedMode = typeof viewMode === 'string' ? viewMode.toLowerCase() : '2d';
         let dataset;
         if(type==='scatter' && normalizedMode==='3d'){
@@ -936,10 +939,17 @@
         const allowBubble = options.allowBubble !== false && scatterState.supportsBubble && scatterCurrentGraphType === 'scatter';
         const forceUpdate = options.forceUpdate === true;
         const skipSchedule = options.skipSchedule === true;
+        const persistRequest = options.persistRequest === true;
+        const requested = typeof mode === 'string'
+          ? mode.toLowerCase()
+          : (scatterState.requestedViewMode || scatterState.viewMode || '2d');
+        if(persistRequest || !scatterState.requestedViewMode){
+          scatterState.requestedViewMode = requested;
+        }
         let normalized = '2d';
-        if(mode === '3d'){
+        if(requested === '3d'){
           normalized = allow3d ? '3d' : '2d';
-        }else if(mode === 'bubble'){
+        }else if(requested === 'bubble'){
           normalized = allowBubble ? 'bubble' : '2d';
         }else{
           normalized = '2d';
@@ -1002,7 +1012,11 @@
         scatterViewMode.addEventListener('change', () => {
           const requested = scatterViewMode.value;
           const next = requested === '3d' ? '3d' : (requested === 'bubble' ? 'bubble' : '2d');
-          const applied = applyScatterViewMode(next, { allow3d: scatterState.supports3d, allowBubble: scatterState.supportsBubble });
+          const applied = applyScatterViewMode(next, {
+            allow3d: scatterState.supports3d,
+            allowBubble: scatterState.supportsBubble,
+            persistRequest: true
+          });
           if(applied !== next){
             scatterViewMode.value = applied;
           }
@@ -1230,7 +1244,12 @@
             applyScatterViewMode('2d', { allow3d: false, allowBubble: false, skipSchedule: true, forceUpdate: true });
           } else {
             updateScatterViewModeOptionVisibility();
-            applyScatterViewMode(scatterState.viewMode, { skipSchedule: true, forceUpdate: true, allowBubble: scatterState.supportsBubble });
+            const targetMode = scatterState.requestedViewMode || scatterState.viewMode || '2d';
+            applyScatterViewMode(targetMode, {
+              skipSchedule: true,
+              forceUpdate: true,
+              allowBubble: scatterState.supportsBubble
+            });
           }
         }
     }
@@ -2523,7 +2542,8 @@
         scatterState.supports3d = supports3d;
         scatterState.supportsBubble = supportsBubble;
         updateScatterViewModeOptionVisibility();
-        const effectiveViewMode = applyScatterViewMode(scatterState.viewMode, { allow3d: supports3d, allowBubble: supportsBubble, skipSchedule: true, forceUpdate: true });
+        const desiredViewMode = scatterState.requestedViewMode || scatterState.viewMode || '2d';
+        const effectiveViewMode = applyScatterViewMode(desiredViewMode, { allow3d: supports3d, allowBubble: supportsBubble, skipSchedule: true, forceUpdate: true });
         if(scatterViewMode && scatterViewMode.value !== effectiveViewMode){
           scatterViewMode.value = effectiveViewMode;
         }
@@ -3600,7 +3620,7 @@
               tickIntervalY: axisSettings.y?.tickInterval ?? null
             },
             fontStyles: fontStyles || undefined,
-            viewMode: scatterState.viewMode,
+            viewMode: scatterState.requestedViewMode || scatterState.viewMode,
             rotation: scatterState.rotation ? {
               x: scatterState.rotation.x,
               y: scatterState.rotation.y,
@@ -3750,7 +3770,13 @@
                 storedMode = 'bubble';
               }
               scatterState.supportsBubble = false;
-              applyScatterViewMode(storedMode, { allow3d: false, allowBubble: false, skipSchedule: true, forceUpdate: true });
+              applyScatterViewMode(storedMode, {
+                allow3d: false,
+                allowBubble: false,
+                skipSchedule: true,
+                forceUpdate: true,
+                persistRequest: true
+              });
             }
             if(c.axis){
               applyScatterAxisSettings({
