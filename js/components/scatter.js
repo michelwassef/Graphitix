@@ -990,6 +990,9 @@
             scatterShowDiagnostics.checked = false;
           }
         }
+        if(normalized === '3d' && scatterShowFrame && !scatterShowFrame.checked){
+          scatterShowFrame.checked = true;
+        }
         updateScatterViewModeOptionVisibility();
         if(changed && !skipSchedule){
           scheduleDrawScatter();
