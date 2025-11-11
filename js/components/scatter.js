@@ -925,39 +925,43 @@
         }
         const option3d = scatterViewMode.querySelector('option[value="3d"]');
         if(option3d){
-          option3d.disabled = !scatterState.supports3d;
+          option3d.disabled = false;
         }
         const optionBubble = scatterViewMode.querySelector('option[value="bubble"]');
-        const bubbleUnavailable = scatterCurrentGraphType !== 'scatter' || !scatterState.supportsBubble;
         if(optionBubble){
-          optionBubble.disabled = bubbleUnavailable;
+          optionBubble.disabled = false;
         }
         scatterViewMode.disabled = scatterCurrentGraphType !== 'scatter';
       }
       function applyScatterViewMode(mode, options = {}){
-        const allow3d = options.allow3d !== false && scatterState.supports3d;
-        const allowBubble = options.allowBubble !== false && scatterState.supportsBubble && scatterCurrentGraphType === 'scatter';
+        const graphAllowsAdvanced = scatterCurrentGraphType === 'scatter';
+        const allow3d = options.allow3d !== false && graphAllowsAdvanced;
+        const allowBubble = options.allowBubble !== false && graphAllowsAdvanced;
         const forceUpdate = options.forceUpdate === true;
         const skipSchedule = options.skipSchedule === true;
         const persistRequest = options.persistRequest === true;
-        const requested = typeof mode === 'string'
+        let requested = typeof mode === 'string'
           ? mode.toLowerCase()
           : (scatterState.requestedViewMode || scatterState.viewMode || '2d');
+        if(requested !== '3d' && requested !== 'bubble'){
+          requested = '2d';
+        }
         if(persistRequest || !scatterState.requestedViewMode){
           scatterState.requestedViewMode = requested;
         }
-        let normalized = '2d';
-        if(requested === '3d'){
-          normalized = allow3d ? '3d' : '2d';
-        }else if(requested === 'bubble'){
-          normalized = allowBubble ? 'bubble' : '2d';
-        }else{
+        let normalized = requested;
+        if(normalized === '3d' && !allow3d){
+          normalized = '2d';
+        }else if(normalized === 'bubble' && !allowBubble){
           normalized = '2d';
         }
         const changed = forceUpdate || scatterState.viewMode !== normalized;
         scatterState.viewMode = normalized;
-        if(scatterViewMode && scatterViewMode.value !== normalized){
-          scatterViewMode.value = normalized;
+        if(scatterViewMode){
+          const displayValue = scatterState.requestedViewMode || normalized;
+          if(scatterViewMode.value !== displayValue){
+            scatterViewMode.value = displayValue;
+          }
         }
         const disableLog = normalized === '3d' || scatterCurrentGraphType !== 'scatter';
         [scatterLogX, scatterLogY].forEach(cb => {
@@ -1013,8 +1017,8 @@
           const requested = scatterViewMode.value;
           const next = requested === '3d' ? '3d' : (requested === 'bubble' ? 'bubble' : '2d');
           const applied = applyScatterViewMode(next, {
-            allow3d: scatterState.supports3d,
-            allowBubble: scatterState.supportsBubble,
+            allow3d: scatterCurrentGraphType === 'scatter',
+            allowBubble: scatterCurrentGraphType === 'scatter',
             persistRequest: true
           });
           if(applied !== next){
@@ -1248,7 +1252,9 @@
             applyScatterViewMode(targetMode, {
               skipSchedule: true,
               forceUpdate: true,
-              allowBubble: scatterState.supportsBubble
+              allow3d: true,
+              allowBubble: true,
+              persistRequest: true
             });
           }
         }
@@ -2543,9 +2549,22 @@
         scatterState.supportsBubble = supportsBubble;
         updateScatterViewModeOptionVisibility();
         const desiredViewMode = scatterState.requestedViewMode || scatterState.viewMode || '2d';
-        const effectiveViewMode = applyScatterViewMode(desiredViewMode, { allow3d: supports3d, allowBubble: supportsBubble, skipSchedule: true, forceUpdate: true });
-        if(scatterViewMode && scatterViewMode.value !== effectiveViewMode){
-          scatterViewMode.value = effectiveViewMode;
+        const allowAdvanced = scatterCurrentGraphType === 'scatter';
+        const effectiveViewMode = applyScatterViewMode(desiredViewMode, {
+          allow3d: allowAdvanced,
+          allowBubble: allowAdvanced,
+          skipSchedule: true,
+          forceUpdate: true
+        });
+        if(effectiveViewMode === '3d' && !supports3d){
+          renderScatterNotice('3D scatter view requires numeric X, Y, and Z values (with at least three complete rows). Add a Z column to continue.');
+          debug('Debug: scatter 3d view pending dataset',{ supports3d, candidateCount: scatter3dCandidates.length, pointsInRange: points3dInRange.length });
+          return;
+        }
+        if(effectiveViewMode === 'bubble' && !supportsBubble){
+          renderScatterNotice('Bubble view requires numeric X, Y, and bubble columns with non-missing values for every visible row.');
+          debug('Debug: scatter bubble view pending dataset',{ supportsBubble, bubbleEligible, bubbleCandidates: pointsInRange.length });
+          return;
         }
         const existingScatterSvg = plotEl.querySelector('#scatterSvg');
         const reuse3dSvg = supports3d && effectiveViewMode === '3d' && existingScatterSvg && existingScatterSvg.dataset.viewMode === '3d';
@@ -3771,8 +3790,8 @@
               }
               scatterState.supportsBubble = false;
               applyScatterViewMode(storedMode, {
-                allow3d: false,
-                allowBubble: false,
+                allow3d: true,
+                allowBubble: true,
                 skipSchedule: true,
                 forceUpdate: true,
                 persistRequest: true
