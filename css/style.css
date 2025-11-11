@@ -1246,11 +1246,11 @@ select {
 }
 .workspace-toolbar__icon{
     display:inline-flex;
-    width:22px;
-    height:22px;
+    width:28px;
+    height:28px;
     align-items:center;
     justify-content:center;
-    padding:3px;
+    padding:4px;
     border-radius:6px;
     background:transparent;
     border:none;
