@@ -1207,8 +1207,8 @@
         if(scatterThresholdControls){
           scatterThresholdControls.style.display=showThresholds?'':'none';
         }
-        if(scatterViewFieldset){
-          scatterViewFieldset.style.display = type === 'scatter' ? '' : 'none';
+        if(scatterViewControls){
+          scatterViewControls.style.display = type === 'scatter' ? '' : 'none';
         }
         [scatterLogX,scatterLogY].forEach(el=>{
           if(!el) return;

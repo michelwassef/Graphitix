@@ -546,13 +546,21 @@
           <div class="config-panel">
             <fieldset class="config-panel__fieldset">
               <legend>Graph</legend>
-              <div class="config-panel__line">
-                <label class="config-panel__item">
+              <div class="config-panel__line config-panel__line--separated">
+                <label class="config-panel__item config-panel__item--select-auto">
                   <span class="config-panel__label">Type</span>
                   <select id="scatterGraphType">
                     <option value="scatter">Scatter plot</option>
                     <option value="volcano">Volcano plot</option>
                     <option value="ma">Ma plot</option>
+                  </select>
+                </label>
+                <label class="config-panel__item config-panel__item--select-auto" id="scatterViewControls" style="display:none;">
+                  <span class="config-panel__label">Plot view</span>
+                  <select id="scatterViewMode">
+                    <option value="2d">2D</option>
+                    <option value="bubble">Bubble</option>
+                    <option value="3d">3D</option>
                   </select>
                 </label>
                 <label class="config-panel__checkbox config-panel__checkbox--inline"><input type="checkbox" id="scatterShowLegend" checked /> <span>Show legend</span></label>
@@ -565,19 +573,6 @@
                 <label class="config-panel__item">
                   <span class="config-panel__label">-log<sub>10</sub>(p) threshold</span>
                   <input type="number" id="scatterNegLogPThreshold" value="1.3" step="0.1" />
-                </label>
-              </div>
-            </fieldset>
-            <fieldset class="config-panel__fieldset">
-              <legend>View</legend>
-              <div class="config-panel__line config-panel__line--split">
-                <label class="config-panel__item config-panel__item--select-auto">
-                  <span class="config-panel__label">Plot view</span>
-                  <select id="scatterViewMode">
-                    <option value="2d">2D</option>
-                    <option value="bubble">Bubble</option>
-                    <option value="3d">3D</option>
-                  </select>
                 </label>
               </div>
             </fieldset>
