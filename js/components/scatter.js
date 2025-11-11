@@ -909,6 +909,7 @@
       const scatterStatType=$('#scatterStatType');
       const scatterRegressionMode=$('#scatterRegressionMode');
       const scatterViewMode=$('#scatterViewMode');
+      const scatterViewControls=$('#scatterViewControls');
       const scatterSelects=[
         scatterGraphTypeSelect,
         scatterViewMode,
@@ -1205,6 +1206,9 @@
         }
         if(scatterThresholdControls){
           scatterThresholdControls.style.display=showThresholds?'':'none';
+        }
+        if(scatterViewFieldset){
+          scatterViewFieldset.style.display = type === 'scatter' ? '' : 'none';
         }
         [scatterLogX,scatterLogY].forEach(el=>{
           if(!el) return;
