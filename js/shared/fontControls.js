@@ -27,6 +27,10 @@
     'Symbol'
   ];
 
+  const PRESET_FONT_SIZES = [
+    8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72
+  ];
+
   const styleStore = new Map();
   const svgRegistry = new WeakSet();
   const svgScopeMap = new WeakMap();
@@ -45,6 +49,11 @@
   let fontMenuEmptyState = null;
   let fontMenuVisible = false;
   let fontMenuCloseHandler = null;
+  let sizeComboWrapper = null;
+  let sizeMenuToggle = null;
+  let sizeMenuPopup = null;
+  let sizeMenuVisible = false;
+  let sizeMenuCloseHandler = null;
   let formatButtonsRow = null;
   let comboMeasureEl = null;
   let widthSyncPending = false;
@@ -656,14 +665,19 @@
     return result;
   }
 
-  function normalizeFontSizeValue(value, meta){
+  function formatFontSizeToken(value){
     if(value === null || typeof value === 'undefined'){ return ''; }
     const trimmed = String(value).trim();
     if(!trimmed){ return ''; }
     const numeric = parseFloat(trimmed);
     if(!Number.isFinite(numeric)){ return trimmed; }
     const rounded = Math.round(numeric * 100) / 100;
-    const fixed = rounded.toFixed(2).replace(/\.00$/, '').replace(/(\.\d*?)0+$/, '$1');
+    return rounded.toFixed(2).replace(/\.00$/, '').replace(/(\.\d*?)0+$/, '$1');
+  }
+
+  function normalizeFontSizeValue(value, meta){
+    const fixed = formatFontSizeToken(value);
+    if(!fixed){ return ''; }
     logDebug('font size normalized', {
       raw: value,
       rounded: fixed,
@@ -949,6 +963,138 @@
       closeFontMenu(trigger || 'toggle');
     } else {
       openFontMenu(trigger || 'toggle', meta);
+    }
+  }
+
+  function detachSizeMenuDismissWatcher(){
+    if(!sizeMenuCloseHandler || !global.document){ return; }
+    global.document.removeEventListener('pointerdown', sizeMenuCloseHandler, true);
+    sizeMenuCloseHandler = null;
+  }
+
+  function attachSizeMenuDismissWatcher(){
+    if(sizeMenuCloseHandler || !global.document || !sizeComboWrapper){ return; }
+    const doc = global.document;
+    sizeMenuCloseHandler = (evt) => {
+      if(!sizeMenuVisible){ return; }
+      const target = evt.target;
+      if(sizeComboWrapper.contains(target)){ return; }
+      closeSizeMenu('outside');
+    };
+    doc.addEventListener('pointerdown', sizeMenuCloseHandler, true);
+  }
+
+  function getVisibleSizeOptions(){
+    if(!sizeMenuPopup){ return []; }
+    const nodes = sizeMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+    return Array.from(nodes).filter(node => node.dataset.hidden !== '1' && !node.hidden);
+  }
+
+  function focusRelativeSizeOption(current, delta){
+    if(!sizeMenuPopup){ return; }
+    const visible = getVisibleSizeOptions();
+    if(!visible.length){ return; }
+    const index = visible.indexOf(current);
+    if(index === -1){
+      const first = delta > 0 ? visible[0] : visible[visible.length - 1];
+      if(first){ first.focus(); }
+      return;
+    }
+    const nextIndex = Math.min(Math.max(0, index + delta), visible.length - 1);
+    visible[nextIndex].focus();
+  }
+
+  function focusFirstSizeOption(){
+    const visible = getVisibleSizeOptions();
+    if(visible.length){
+      visible[0].focus();
+    }
+  }
+
+  function focusLastSizeOption(){
+    const visible = getVisibleSizeOptions();
+    if(visible.length){
+      visible[visible.length - 1].focus();
+    }
+  }
+
+  function highlightSizeMenuSelection(value){
+    if(!sizeMenuPopup){ return; }
+    const normalized = formatFontSizeToken(value);
+    const options = sizeMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+    options.forEach(option => {
+      const optionValue = option.dataset.value || '';
+      const isActive = normalized && optionValue && formatFontSizeToken(optionValue) === normalized;
+      option.classList.toggle('font-controls-panel__combo-option--active', isActive);
+      option.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      if(isActive && sizeMenuVisible && typeof option.scrollIntoView === 'function'){
+        option.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    });
+  }
+
+  function openSizeMenu(trigger, meta){
+    if(!sizeMenuPopup || sizeMenuVisible){ return; }
+    sizeMenuPopup.hidden = false;
+    sizeMenuPopup.classList.add('font-controls-panel__combo-menu--open');
+    sizeMenuVisible = true;
+    if(sizeMenuToggle){
+      sizeMenuToggle.setAttribute('aria-expanded', 'true');
+    }
+    if(sizeInput){
+      sizeInput.setAttribute('aria-expanded', 'true');
+    }
+    highlightSizeMenuSelection(sizeInput?.value || '');
+    attachSizeMenuDismissWatcher();
+    const focusMode = meta?.focusOption || null;
+    if(focusMode){
+      const focusTask = () => {
+        if(focusMode === 'first'){
+          focusFirstSizeOption();
+        } else if(focusMode === 'last'){
+          focusLastSizeOption();
+        } else if(focusMode === 'active'){
+          const active = sizeMenuPopup.querySelector('.font-controls-panel__combo-option--active');
+          if(active){
+            active.focus();
+          } else {
+            focusFirstSizeOption();
+          }
+        }
+      };
+      setTimeout(focusTask, 0);
+    }
+    logDebug('size menu opened', {
+      trigger: trigger || 'unknown',
+      focusMode
+    });
+  }
+
+  function closeSizeMenu(reason){
+    if(!sizeMenuPopup || !sizeMenuVisible){ return; }
+    sizeMenuPopup.hidden = true;
+    sizeMenuPopup.classList.remove('font-controls-panel__combo-menu--open');
+    sizeMenuVisible = false;
+    if(sizeMenuToggle){
+      sizeMenuToggle.setAttribute('aria-expanded', 'false');
+    }
+    if(sizeInput){
+      sizeInput.setAttribute('aria-expanded', 'false');
+    }
+    detachSizeMenuDismissWatcher();
+    if(reason !== 'button-toggle'){
+      highlightSizeMenuSelection(sizeInput?.value || '');
+    }
+    logDebug('size menu closed', {
+      reason: reason || 'unknown'
+    });
+  }
+
+  function toggleSizeMenu(trigger, meta){
+    if(sizeMenuVisible){
+      closeSizeMenu(trigger || 'toggle');
+    } else {
+      openSizeMenu(trigger || 'toggle', meta);
     }
   }
 
@@ -1366,6 +1512,7 @@
     if(sizeInput){
       const sizeNum = parseFloat(String(attrSize).replace(/px$/, ''));
       sizeInput.value = Number.isFinite(sizeNum) ? normalizeFontSizeValue(sizeNum, { source: 'target-sync' }) : '';
+      highlightSizeMenuSelection(sizeInput.value || '');
     }
     const boldActive = /bold|700|800|900/.test(String(attrWeight));
     setToggleState(boldToggle, boldActive);
@@ -1624,16 +1771,153 @@
 
     const sizeField = doc.createElement('label');
     sizeField.className = 'font-controls-panel__field font-controls-panel__field--size';
+
+    sizeComboWrapper = doc.createElement('div');
+    sizeComboWrapper.className = 'font-controls-panel__combo font-controls-panel__combo--size';
+    const sizeComboRow = doc.createElement('div');
+    sizeComboRow.className = 'font-controls-panel__combo-row';
+
     sizeInput = doc.createElement('input');
     sizeInput.type = 'number';
     sizeInput.min = '6';
     sizeInput.max = '96';
     sizeInput.step = '0.5';
     sizeInput.placeholder = '14';
-    sizeInput.className = 'font-controls-panel__input font-controls-panel__input--number';
+    sizeInput.className = 'font-controls-panel__input font-controls-panel__input--combo font-controls-panel__input--number font-controls-panel__input--size';
     sizeInput.setAttribute('aria-label', 'Font size');
-    sizeField.appendChild(sizeInput);
+    sizeInput.setAttribute('aria-haspopup', 'listbox');
+    sizeInput.setAttribute('aria-expanded', 'false');
+    const sizeMenuId = 'font-controls-size-menu';
+    sizeInput.setAttribute('aria-controls', sizeMenuId);
+
+    sizeComboRow.appendChild(sizeInput);
+
+    sizeMenuToggle = doc.createElement('button');
+    sizeMenuToggle.type = 'button';
+    sizeMenuToggle.className = 'font-controls-panel__combo-toggle';
+    sizeMenuToggle.setAttribute('aria-label', 'Show preset font sizes');
+    sizeMenuToggle.setAttribute('aria-haspopup', 'listbox');
+    sizeMenuToggle.setAttribute('aria-expanded', 'false');
+    sizeMenuToggle.setAttribute('aria-controls', sizeMenuId);
+    const sizeMenuIcon = doc.createElement('span');
+    sizeMenuIcon.className = 'font-controls-panel__combo-toggle-icon';
+    sizeMenuIcon.textContent = '▾';
+    sizeMenuIcon.setAttribute('aria-hidden', 'true');
+    sizeMenuToggle.appendChild(sizeMenuIcon);
+    sizeComboRow.appendChild(sizeMenuToggle);
+
+    sizeComboWrapper.appendChild(sizeComboRow);
+
+    sizeMenuPopup = doc.createElement('div');
+    sizeMenuPopup.id = sizeMenuId;
+    sizeMenuPopup.className = 'font-controls-panel__combo-menu';
+    sizeMenuPopup.setAttribute('role', 'listbox');
+    sizeMenuPopup.setAttribute('aria-label', 'Common font sizes');
+    sizeMenuPopup.hidden = true;
+    sizeComboWrapper.appendChild(sizeMenuPopup);
+
+    function createSizeMenuOption(value){
+      const normalizedValue = formatFontSizeToken(value);
+      const optionBtn = doc.createElement('button');
+      optionBtn.type = 'button';
+      optionBtn.className = 'font-controls-panel__combo-option';
+      optionBtn.dataset.value = normalizedValue;
+      optionBtn.dataset.label = normalizedValue;
+      optionBtn.textContent = normalizedValue;
+      optionBtn.setAttribute('role', 'option');
+      optionBtn.setAttribute('tabindex', '-1');
+      optionBtn.addEventListener('mousedown', (evt) => {
+        evt.preventDefault();
+      });
+      optionBtn.addEventListener('click', () => {
+        if(!sizeInput){ return; }
+        sizeInput.value = normalizedValue;
+        applySizeValueChange({ source: 'menu-select' });
+        closeSizeMenu('menu-select');
+        try {
+          sizeInput.focus({ preventScroll: true });
+        } catch(focusErr){
+          sizeInput.focus();
+        }
+      });
+      optionBtn.addEventListener('keydown', (evt) => {
+        if(evt.key === 'ArrowDown'){
+          evt.preventDefault();
+          focusRelativeSizeOption(optionBtn, 1);
+        } else if(evt.key === 'ArrowUp'){
+          evt.preventDefault();
+          focusRelativeSizeOption(optionBtn, -1);
+        } else if(evt.key === 'Home'){
+          evt.preventDefault();
+          focusFirstSizeOption();
+        } else if(evt.key === 'End'){
+          evt.preventDefault();
+          focusLastSizeOption();
+        } else if(evt.key === 'Escape'){
+          if(sizeMenuVisible){
+            evt.preventDefault();
+            closeSizeMenu('menu-escape');
+            if(sizeInput){
+              try {
+                sizeInput.focus({ preventScroll: true });
+              } catch(focusErr){
+                sizeInput.focus();
+              }
+            }
+          }
+        } else if(evt.key === ' ' || evt.key === 'Enter'){
+          evt.preventDefault();
+          optionBtn.click();
+        }
+      });
+      return optionBtn;
+    }
+
+    PRESET_FONT_SIZES.forEach(sizeValue => {
+      const optionBtn = createSizeMenuOption(sizeValue);
+      sizeMenuPopup.appendChild(optionBtn);
+    });
+    sizeField.appendChild(sizeComboWrapper);
     controlsRow.appendChild(sizeField);
+
+    sizeMenuToggle.addEventListener('mousedown', (evt) => {
+      evt.preventDefault();
+    });
+
+    sizeMenuToggle.addEventListener('click', () => {
+      const wasOpen = sizeMenuVisible;
+      toggleSizeMenu('button-toggle', { focusOption: 'active' });
+      if(!wasOpen){
+        if(sizeInput){
+          try {
+            sizeInput.focus({ preventScroll: true });
+          } catch(focusErr){
+            sizeInput.focus();
+          }
+        }
+      } else if(sizeInput){
+        try {
+          sizeInput.focus({ preventScroll: true });
+        } catch(focusErr){
+          sizeInput.focus();
+        }
+      }
+    });
+
+    sizeMenuToggle.addEventListener('keydown', (evt) => {
+      if(evt.key === 'ArrowDown'){
+        evt.preventDefault();
+        openSizeMenu('button-arrow', { focusOption: 'first' });
+      } else if(evt.key === 'ArrowUp'){
+        evt.preventDefault();
+        openSizeMenu('button-arrow', { focusOption: 'last' });
+      } else if(evt.key === 'Escape'){
+        if(sizeMenuVisible){
+          evt.preventDefault();
+          closeSizeMenu('button-escape');
+        }
+      }
+    });
 
     const colorField = doc.createElement('label');
     colorField.className = 'font-controls-panel__field font-controls-panel__field--color';
@@ -1769,11 +2053,12 @@
       logDebug('colorInput input', { value: val, text: currentTarget.textContent });
     });
 
-    sizeInput.addEventListener('change', () => {
-      if(!currentTarget) return;
+    function applySizeValueChange(meta){
+      if(!currentTarget || !sizeInput){ return; }
       const prevStyle = captureStyleSnapshot(currentTarget);
-      const normalized = normalizeFontSizeValue(sizeInput.value, { source: 'change' });
+      const normalized = normalizeFontSizeValue(sizeInput.value, { source: meta?.source || 'change' });
       sizeInput.value = normalized;
+      highlightSizeMenuSelection(normalized);
       const raw = normalized.trim();
       let val = null;
       if(raw){
@@ -1783,7 +2068,7 @@
         }
       }
       const inlineResult = handleInlineSelectionPatch({ fontSize: val }, {
-        source: 'size-change',
+        source: meta?.source || 'size-change',
         action: 'font-size'
       });
       if(inlineResult.handled){
@@ -1810,6 +2095,10 @@
       updatePreviewFromInputs();
       recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'font-size' });
       logDebug('sizeInput change', { value: raw, applied: nextStyle?.fontSize || null, text: currentTarget.textContent });
+    }
+
+    sizeInput.addEventListener('change', () => {
+      applySizeValueChange({ source: 'change' });
     });
 
     sizeInput.addEventListener('input', () => {
@@ -1818,6 +2107,7 @@
       if(clamped !== currentValue){
         sizeInput.value = clamped;
       }
+      highlightSizeMenuSelection(sizeInput.value);
       updatePreviewFromInputs();
       logDebug('sizeInput input preview', { value: sizeInput.value });
     });
@@ -1922,6 +2212,7 @@
       return;
     }
     closeFontMenu('panel-close');
+    closeSizeMenu('panel-close');
     panelEl.style.display = 'none';
     panelEl.dataset.open = '0';
     panelEl.setAttribute('aria-hidden', 'true');
