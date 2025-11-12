@@ -1859,32 +1859,35 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .font-controls-panel__field--color .font-controls-panel__color-input{align-self:stretch;width:100%}
 .font-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;letter-spacing:0.12em;text-transform:uppercase}
 .font-controls-panel__field--full{flex:1 1 160px}
-.font-controls-panel__input{padding:7px 10px;font-size:13px;border-radius:0;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#0f172a;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease;min-width:0;width:100%}
+.font-controls-panel__input{padding:2px 8px;font-size:12px;line-height:20px;border-radius:0;border:1px solid #8d97a6;background:#fdfefe;color:#111b29;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease;min-width:0;width:100%;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7);height:26px}
 .font-controls-panel__input:focus{outline:none;border-color:rgba(59,130,246,0.8);background:#fff;box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
 .font-controls-panel__input--number{appearance:textfield;width:100%;max-width:120px}
-.font-controls-panel__input--combo{width:100%;padding-right:34px;flex:1 1 auto;min-width:0}
+.font-controls-panel__input--combo{width:100%;padding-right:24px;flex:1 1 auto;min-width:0;border:none;background:transparent;box-shadow:none;height:100%}
 .font-controls-panel__input--combo::-webkit-calendar-picker-indicator{display:none !important}
 .font-controls-panel__input--combo::-webkit-list-button{display:none !important}
-.font-controls-panel__combo{display:flex;flex-direction:column;gap:6px;min-width:0;position:relative}
-.font-controls-panel__combo-row{display:flex;align-items:center;gap:6px;position:relative;border-radius:0}
-.font-controls-panel__combo-toggle{position:absolute;top:50%;right:6px;transform:translateY(-50%);border:none;background:transparent;color:#0f172a;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;width:28px;height:calc(100% - 8px);border-radius:6px;transition:color .2s ease,background .2s ease,box-shadow .2s ease}
-.font-controls-panel__combo-toggle:hover{background:rgba(148,163,184,0.18)}
-.font-controls-panel__combo-toggle:focus{outline:none;box-shadow:0 0 0 2px rgba(147,197,253,0.45);background:rgba(147,197,253,0.2)}
-.font-controls-panel__combo-toggle-icon{font-size:14px;line-height:1;pointer-events:none}
-.font-controls-panel__combo-toggle[aria-expanded='true']{background:rgba(59,130,246,0.15);color:#0f172a}
+.font-controls-panel__combo{display:flex;flex-direction:column;gap:0;min-width:0;position:relative;border:1px solid #8d97a6;background:#fdfefe;border-radius:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7);height:26px}
+.font-controls-panel__combo:focus-within{outline:2px solid #1f6bff;outline-offset:-2px;border-color:#1f6bff}
+.font-controls-panel__combo-row{display:flex;align-items:center;gap:0;position:relative;border-radius:0;height:100%}
+.font-controls-panel__combo-row .font-controls-panel__input{border:none;height:100%;padding:2px 8px;font-size:12px}
+.font-controls-panel__combo-toggle{position:absolute;top:0;right:0;transform:none;border:none;background:#fdfefe;color:#111b29;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;width:24px;height:100%;border-left:1px solid #b4bbc7;border-radius:0;font-size:0}
+.font-controls-panel__combo-toggle::after{content:'';width:10px;height:6px;background-image:var(--config-panel-select-icon,url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23131c23' d='M0 0h10L5 6z'/%3E%3C/svg%3E"));background-repeat:no-repeat;background-position:center;display:block}
+.font-controls-panel__combo-toggle:hover{background:#edf2ff}
+.font-controls-panel__combo-toggle:focus{outline:none;box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
+.font-controls-panel__combo-toggle[aria-expanded='true']{background:#dfe6ff}
 .font-controls-panel__combo-measure{position:absolute;visibility:hidden;pointer-events:none;white-space:nowrap;left:-9999px;top:-9999px}
 text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[baseline-shift="super"]:not([font-size]):not([style*="font-size" i]),tspan[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),tspan[baseline-shift="super"]:not([font-size]):not([style*="font-size" i]){font-size:0.75em}
-.font-controls-panel__combo-menu{position:absolute;top:calc(100% - 1px);left:0;right:0;display:flex;flex-direction:column;background:#ffffff;border:1px solid rgba(148,163,184,0.55);border-radius:0;box-shadow:0 12px 30px rgba(15,23,42,0.12);padding:6px 0;max-height:220px;overflow-y:auto;z-index:30}
+.font-controls-panel__combo-menu{position:absolute;top:calc(100% - 1px);left:-1px;right:-1px;display:flex;flex-direction:column;background:#ffffff;border:1px solid #8d97a6;border-radius:0;box-shadow:0 12px 20px rgba(15,23,42,0.16);padding:0;max-height:220px;overflow-y:auto;z-index:30}
 .font-controls-panel__combo-menu[hidden]{display:none}
 .font-controls-panel__combo-menu--open{animation:fontControlsMenuFade .16s ease-out}
-.font-controls-panel__combo-option{appearance:none;border:none;background:transparent;color:#0f172a;font-size:13px;padding:8px 12px;text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:flex-start;gap:8px;transition:background .18s ease,color .18s ease}
-.font-controls-panel__combo-option:hover,.font-controls-panel__combo-option:focus{background:rgba(148,163,184,0.16);outline:none}
-.font-controls-panel__combo-option--active{background:rgba(59,130,246,0.18);color:#0f172a;font-weight:600}
+.font-controls-panel__combo-option{appearance:none;border:none;background:#fff;color:#111b29;font-size:12px;padding:4px 10px;text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:flex-start;gap:8px;transition:background .12s ease,color .12s ease;min-height:26px}
+.font-controls-panel__combo-option + .font-controls-panel__combo-option{border-top:1px solid rgba(17,27,41,0.06)}
+.font-controls-panel__combo-option:hover,.font-controls-panel__combo-option:focus{background:#e7ecfb;outline:none}
+.font-controls-panel__combo-option--active{background:#1f6bff;color:#fff;font-weight:600}
 .font-controls-panel__combo-empty{padding:10px 12px;font-size:12px;color:#475569;display:flex;align-items:center;justify-content:flex-start}
 .font-controls-panel__combo--size{max-width:96px}
 .font-controls-panel__combo--size .font-controls-panel__combo-row{gap:0;min-width:82px;max-width:92px}
 .font-controls-panel__combo--size .font-controls-panel__input--combo{padding-right:34px}
-.font-controls-panel__input--size{text-align:center;width:58px;min-width:58px;padding:6px 6px;font-size:13px;font-weight:600;color:#111827;letter-spacing:0.01em;font-variant-numeric:tabular-nums}
+.font-controls-panel__input--size{text-align:center;width:58px;min-width:58px;padding:6px 6px;font-size:13px;font-weight:600;color:#111827;letter-spacing:0.01em;font-variant-numeric:tabular-nums;border:none;background:transparent}
 @keyframes fontControlsMenuFade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 .font-controls-panel__input--number::-webkit-outer-spin-button,.font-controls-panel__input--number::-webkit-inner-spin-button{appearance:none;margin:0}
 .font-controls-panel__color-input{height:34px;width:100%;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;transition:border-color .2s ease,box-shadow .2s ease;max-width:120px}
