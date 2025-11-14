@@ -1010,6 +1010,9 @@
   }
 
   function formatPValue(value){
+    if(typeof Shared?.formatPValue === 'function'){
+      return Shared.formatPValue(value);
+    }
     if(typeof global.formatP === 'function'){
       return global.formatP(value);
     }

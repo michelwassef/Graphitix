@@ -55,6 +55,77 @@
     }
   };
 
+  const DEFAULT_PVALUE_SIG_DIGITS = 6;
+  const DEFAULT_PVALUE_SCI_THRESHOLD = 1e-3;
+
+  function statsDebugEnabled(){
+    return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+  }
+
+  function clampSignificantDigits(value){
+    const coerced = Math.floor(Number(value));
+    if(Number.isFinite(coerced) && coerced >= 1 && coerced <= 15){
+      return coerced;
+    }
+    return DEFAULT_PVALUE_SIG_DIGITS;
+  }
+
+  function normalizeExponentText(value){
+    if(typeof value !== 'string'){
+      return value;
+    }
+    let result = value.replace('E', 'e');
+    result = result.replace(/e\+/, 'e');
+    result = result.replace(/e([+-])0+(\d+)/, (_, sign, digits) => `e${sign}${digits}`);
+    return result;
+  }
+
+  function finalizeNumberString(value){
+    if(typeof value !== 'string'){
+      return value;
+    }
+    let result = value;
+    if(!/[eE]/.test(result) && result.includes('.')){
+      result = result.replace(/0+$/, '').replace(/\.$/, '');
+      if(result === ''){
+        result = '0';
+      }
+    }
+    return normalizeExponentText(result);
+  }
+
+  function sharedFormatPValue(value, options){
+    const num = Number(value);
+    if(!Number.isFinite(num)){
+      return String(value);
+    }
+    if(num === 0){
+      return '0';
+    }
+    const digits = clampSignificantDigits(options?.significantDigits);
+    const fractionalDigits = Math.max(0, digits - 1);
+    const threshold = Number.isFinite(options?.scientificThreshold) && options.scientificThreshold > 0
+      ? options.scientificThreshold
+      : DEFAULT_PVALUE_SCI_THRESHOLD;
+    const forceScientific = options?.forceScientific === true;
+    const decimals = Number.isInteger(options?.decimals) && options.decimals >= 0 ? options.decimals : null;
+    let formatted;
+    if(forceScientific || Math.abs(num) < threshold){
+      formatted = num.toExponential(fractionalDigits);
+    }else if(decimals !== null){
+      formatted = num.toFixed(decimals);
+    }else{
+      formatted = num.toPrecision(digits);
+    }
+    const result = finalizeNumberString(formatted);
+    if(statsDebugEnabled()){
+      console.debug('Debug: Shared.formatPValue',{ input: value, formatted: result, options });
+    }
+    return result;
+  }
+
+  Shared.formatPValue = sharedFormatPValue;
+
   function sanitizeP(value){
     const num = Number(value);
     if(!Number.isFinite(num) || num < 0){

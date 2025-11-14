@@ -598,7 +598,13 @@
       if(global.jStat && global.jStat.chisquare && typeof global.jStat.chisquare.cdf === 'function'){
         p = 1-global.jStat.chisquare.cdf(chi2,df);
       }
-      const formatP=(val)=>{ if(!isFinite(val)) return String(val); if(val<0.0001) return val.toExponential(2); return val.toFixed(4); };
+      const formatP=(val)=>{
+        if(!isFinite(val)) return String(val);
+        if(typeof Shared?.formatPValue === 'function'){
+          return Shared.formatPValue(val);
+        }
+        return Number(val).toExponential(5);
+      };
       const hasRenderer=Shared.statsTable && typeof Shared.statsTable.render==='function';
       const rows=[
         {metric:'Chi²',value:chi2.toFixed(4)},

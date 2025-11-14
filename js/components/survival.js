@@ -1921,10 +1921,10 @@
     if(!Number.isFinite(value)){
       return 'n/a';
     }
-    if(value < 1e-4){
-      return value.toExponential(2);
+    if(typeof Shared?.formatPValue === 'function'){
+      return Shared.formatPValue(value);
     }
-    return value.toLocaleString('en-US', { maximumSignificantDigits: 4 });
+    return value.toExponential(5);
   }
 
   function autoResizeSvgHelper(svg){

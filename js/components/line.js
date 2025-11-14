@@ -665,10 +665,11 @@
   function formatP(p){
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
     if(!Number.isFinite(p)) return p>0?'Infinity':'-Infinity';
+    if(typeof Shared?.formatPValue === 'function'){
+      return Shared.formatPValue(p);
+    }
     if(p === 0) return '0';
-    const formatted = p.toLocaleString('en-US',{maximumSignificantDigits:6});
-    console.debug('Debug: line.formatP',{input:p,formatted}); // Debug: trace formatting
-    return formatted;
+    return Number(p).toExponential(5);
   }
 
   const formatMetricValue = (value, digits = 4) => Number.isFinite(value) ? value.toFixed(digits) : 'n/a';

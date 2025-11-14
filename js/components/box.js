@@ -2920,7 +2920,15 @@
 
   // PART: STATS
   function p2stars(p){ return p<0.0001?'****':p<0.001?'***':p<0.01?'**':p<0.05?'*':'ns'; }
-  function formatP(p){ return p.toLocaleString('en-US',{maximumSignificantDigits:6}); }
+  function formatP(value, options){
+    if(typeof Shared?.formatPValue === 'function'){
+      return Shared.formatPValue(value, options);
+    }
+    if(!Number.isFinite(value)){
+      return String(value);
+    }
+    return Number(value).toExponential(5);
+  }
   const mean=arr=>arr.reduce((s,v)=>s+v,0)/arr.length;
   const missingDistributionWarnings=Object.create(null);
   function warnDistributionUnavailable(distribution,context){

@@ -28,6 +28,16 @@
     console.debug(`Debug: venn ${label}`, payload || {});
   };
 
+  const formatSharedPValue = value => {
+    if(typeof Shared?.formatPValue === 'function'){
+      return Shared.formatPValue(value);
+    }
+    if(!Number.isFinite(value)){
+      return 'n/a';
+    }
+    return Number(value).toExponential(5);
+  };
+
   function attachVennSelectAutoSize(select, label){
     if(!select){ return; }
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -1564,7 +1574,7 @@
     const items = state.analysis.lastGOResult.slice(0, limit).map(r => {
       const term = r.term_name || r.name || 'unknown term';
       const src = r.source || 'unknown source';
-      return `<div>${term} [${src}] (p=${Number(r.p_value).toExponential(2)})</div>`;
+      return `<div>${term} [${src}] (p=${formatSharedPValue(r.p_value)})</div>`;
     }).join('');
     const fullUrl = `https://biit.cs.ut.ee/gprofiler/gost?organism=${state.analysis.lastGOOrganism}&query=${encodeURIComponent(state.analysis.lastGOFormatted.join('\n'))}`;
     const link = `<div><a href="${fullUrl}" target="_blank" rel="noopener">View full GO analysis</a>${
@@ -1708,7 +1718,7 @@
     const hasRenderer = Shared.statsTable && typeof Shared.statsTable.render === 'function';
     const rows = res.map(r => ({
       overlap: r.name,
-      pvalue: r.p.toExponential(2),
+      pvalue: formatSharedPValue(r.p),
       significant: r.p < 0.05 ? 'yes' : 'no'
     }));
     if (hasRenderer) {
@@ -2046,7 +2056,7 @@
       if (enrichment.items.length) {
         const items = enrichment.items.slice(0, 5).map(r => {
           const desc = r.termDescription || r.description || 'unknown term';
-          return '<div>' + desc + ' (FDR=' + Number(r.fdr).toExponential(2) + ')</div>';
+          return '<div>' + desc + ' (FDR=' + formatSharedPValue(r.fdr) + ')</div>';
         }).join('');
         if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<strong>STRING enrichment</strong>' + items;
       } else if (state.ui.stringResults) {
