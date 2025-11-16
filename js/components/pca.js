@@ -5081,6 +5081,54 @@
       }, pcaXLabelText);
       markFontEditable(xAxisText,'xTitle','xTitle');
 
+      if(xTickNodes.length){
+        const svgRect = typeof svg?.getBoundingClientRect === 'function' ? svg.getBoundingClientRect() : null;
+        const measureBottom = (node) => {
+          if(!node){ return null; }
+          if(svgRect && typeof node.getBoundingClientRect === 'function'){
+            const rect = node.getBoundingClientRect();
+            if(rect && Number.isFinite(rect.bottom)){
+              return rect.bottom - (svgRect?.top || 0);
+            }
+          }
+          if(typeof node.getBBox === 'function'){
+            const box = node.getBBox();
+            return box.y + box.height;
+          }
+          return null;
+        };
+        const measureTop = (node) => {
+          if(!node){ return null; }
+          if(svgRect && typeof node.getBoundingClientRect === 'function'){
+            const rect = node.getBoundingClientRect();
+            if(rect && Number.isFinite(rect.top)){
+              return rect.top - (svgRect?.top || 0);
+            }
+          }
+          if(typeof node.getBBox === 'function'){
+            const box = node.getBBox();
+            return box.y;
+          }
+          return null;
+        };
+        let maxTickBottom = -Infinity;
+        xTickNodes.forEach(node => {
+          const bottom = measureBottom(node);
+          if(Number.isFinite(bottom) && bottom > maxTickBottom){
+            maxTickBottom = bottom;
+          }
+        });
+        const titleTop = measureTop(xAxisText);
+        const desiredGap = axisMetrics?.axisTitleGap ?? Math.max(4, Math.round(fs * 0.75));
+        const requiredTop = Number.isFinite(maxTickBottom) ? maxTickBottom + desiredGap : null;
+        if(Number.isFinite(requiredTop) && Number.isFinite(titleTop) && requiredTop > titleTop){
+          const currentY = Number(xAxisText.getAttribute('y')) || (margin.top + plotH + bottomLayout.titleOffset);
+          const shift = requiredTop - titleTop;
+          xAxisText.setAttribute('y', currentY + shift);
+          debugLog('Debug: pca x-axis title shifted to avoid tick overlap', { shift, maxTickBottom, titleTop });
+        }
+      }
+
       const yLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
       const yAxisText = add('text', {
         x: yLabelX,
