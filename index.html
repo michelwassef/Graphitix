@@ -863,11 +863,16 @@
             </fieldset>
             <fieldset>
               <legend>Data</legend>
-              <div class="control" style="flex-wrap:wrap;">
+              <div class="control" style="flex-wrap:wrap; gap:6px; align-items:center;">
                 <label style="width:auto;">
                   <input type="checkbox" id="pcaScale" /> Scale Variables
                 </label>
+                <label style="width:auto;">
+                  <input type="checkbox" id="pcaLiveUpdate" checked /> Live update plot
+                </label>
+                <button type="button" class="btn" id="pcaRenderButton" disabled>Update Plot</button>
               </div>
+              <p id="pcaAutoDrawNotice" style="margin:6px 0 0; font-size:12px; color:#444;" hidden aria-live="polite"></p>
             </fieldset>
             <fieldset>
               <legend>Font</legend>
