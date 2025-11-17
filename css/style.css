@@ -1702,11 +1702,15 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #pcaPage #pcaTablePanel{flex:1 1 33%;min-width:150px}
 #pcaPage #pcaGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
 #pcaPage .diagram-area .svgbox{flex:0 0 auto}
+#pcaPage .diagram-area .pca-plot-stack{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#pcaPage .pca-plot-stack .svgbox{flex:1 1 auto}
 #pcaPage .diagram-area .config-options{flex:0 1 360px;max-width:360px}
 #pcaPage .panel{display:flex;flex-direction:column;min-width:0}
 #pcaPage .panel-resizer{width:4px;margin:0;cursor:col-resize;background:#c9ccd2}
 #pcaPage #pcaPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 #pcaPage .svgbox{background:#ffffff}
+#pcaPage #pcaRenderRow{display:flex;align-items:flex-start;gap:10px;margin-top:0;width:100%;flex-wrap:wrap}
+#pcaPage .pca-auto-draw-notice{margin:0;font-size:12px;color:#444;line-height:1.35;flex:1 1 260px;min-width:240px}
 #surfacePage .wrap{display:flex;align-items:stretch;gap:0}
 #surfacePage .panel{display:flex;flex-direction:column;min-width:0}
 #surfacePage #surfaceTablePanel{flex:1 1 33%;min-width:180px}

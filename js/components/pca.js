@@ -136,6 +136,7 @@
   let pcaShowLegendInput = null;
   let pcaSvgBoxRef = null;
   let pcaLiveUpdateToggle = null;
+  let pcaRenderRowEl = null;
   let pcaRenderButtonEl = null;
   let pcaAutoDrawNoticeEl = null;
   let pcaHotInstance = null;
@@ -980,18 +981,25 @@
     if(pcaLiveUpdateToggle && pcaLiveUpdateToggle.checked !== !!pcaState.autoDrawEnabled){
       pcaLiveUpdateToggle.checked = !!pcaState.autoDrawEnabled;
     }
+    const manualMode = !pcaState.autoDrawEnabled;
+    const pendingWhileAuto = !manualMode && !!pcaState.drawPending;
+    const shouldShowRenderRow = manualMode || pendingWhileAuto;
+    if(pcaRenderRowEl && pcaRenderRowEl.hidden === shouldShowRenderRow){
+      pcaRenderRowEl.hidden = !shouldShowRenderRow;
+    }
     if(pcaRenderButtonEl){
-      const manualMode = !pcaState.autoDrawEnabled;
       const shouldDisable = !manualMode && !pcaState.drawPending;
       if(pcaRenderButtonEl.disabled !== shouldDisable){
         pcaRenderButtonEl.disabled = shouldDisable;
       }
+      if(pcaRenderButtonEl.hidden === shouldShowRenderRow){
+        pcaRenderButtonEl.hidden = !shouldShowRenderRow;
+      }
     }
     if(pcaAutoDrawNoticeEl){
       let text = '';
-      let hidden = true;
-      if(!pcaState.autoDrawEnabled){
-        hidden = false;
+      let hidden = !shouldShowRenderRow;
+      if(!hidden && manualMode){
         const reason = pcaState.autoDrawReason?.type || 'manual';
         if(reason === 'threshold'){
           const rows = pcaState.autoDrawReason?.rows;
@@ -1008,14 +1016,9 @@
         if(pcaState.fastPointMode){
           text += ' Fast rendering mode is active; point tooltips are disabled to improve performance.';
         }
-      }else if(pcaState.fastPointMode){
+      }else if(!hidden && pendingWhileAuto){
         hidden = false;
-        text = 'Fast rendering mode is active for this dataset; point tooltips are disabled to improve performance.';
-      }else if(pcaState.autoDrawLockedByThreshold && pcaState.autoDrawUserOverride === 'on'){
-        hidden = false;
-        const rows = pcaState.lastAutoDrawEvaluation?.totalRows;
-        const summary = Number.isFinite(rows) ? ` (${rows.toLocaleString()} rows)` : '';
-        text = `Live updates remain enabled for a large dataset${summary}. Expect slower responsiveness.`;
+        text = 'Changes are waiting to be rendered. Use Update Plot to redraw immediately.';
       }
       if(!hidden && pcaAutoDrawNoticeEl.textContent !== text){
         pcaAutoDrawNoticeEl.textContent = text;
@@ -1656,6 +1659,7 @@
         groupedRemove: document.getElementById('pcaGroupedRemove')
       };
       pcaLiveUpdateToggle = document.getElementById('pcaLiveUpdate');
+      pcaRenderRowEl = document.getElementById('pcaRenderRow');
       pcaRenderButtonEl = document.getElementById('pcaRenderButton');
       pcaAutoDrawNoticeEl = document.getElementById('pcaAutoDrawNotice');
       if(pcaAutoDrawNoticeEl && !pcaAutoDrawNoticeEl.getAttribute('aria-live')){

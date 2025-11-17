@@ -740,12 +740,18 @@
       <div id="pcaPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" style="align-items:center;" id="pcaGraphPanel">
         <div class="diagram-area">
-          <div class="svgbox">
-            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
-            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
-            <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-            <div id="pcaPlot" style="width:100%; height:100%;"></div>
-            <div class="row" id="pcaExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          <div class="pca-plot-stack">
+            <div class="svgbox">
+              <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+              <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+              <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+              <div id="pcaPlot" style="width:100%; height:100%;"></div>
+              <div class="row" id="pcaExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            </div>
+            <div id="pcaRenderRow" class="pca-render-row" hidden>
+              <button type="button" class="btn" id="pcaRenderButton" disabled>Update Plot</button>
+              <p id="pcaAutoDrawNotice" class="pca-auto-draw-notice" hidden aria-live="polite"></p>
+            </div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -870,9 +876,7 @@
                 <label style="width:auto;">
                   <input type="checkbox" id="pcaLiveUpdate" checked /> Live update plot
                 </label>
-                <button type="button" class="btn" id="pcaRenderButton" disabled>Update Plot</button>
               </div>
-              <p id="pcaAutoDrawNotice" style="margin:6px 0 0; font-size:12px; color:#444;" hidden aria-live="polite"></p>
             </fieldset>
             <fieldset>
               <legend>Font</legend>
