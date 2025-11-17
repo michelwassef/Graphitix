@@ -2576,10 +2576,22 @@
           pcaScreeContainer.style.maxWidth = `${Math.max(width, 0)}px`;
         }
         const height = 220;
-        const margin = { top: 24, right: 24, bottom: 40, left: 54 };
+        const margin = { top: 32, right: 32, bottom: 60, left: 90 };
+        const axisTickFontSize = 10;
+        const axisTitleFontSize = 11;
+        const legendFontSize = 9;
         const plotWidth = Math.max(20, width - margin.left - margin.right);
         const plotHeight = Math.max(20, height - margin.top - margin.bottom);
         const maxPct = Math.max(...data.map(item => Number(item.variancePercent) || 0), 1);
+        const cumulativePercents = [];
+        let cumulativeTotal = 0;
+        data.forEach(item => {
+          const pct = Number(item.variancePercent) || 0;
+          cumulativeTotal += pct;
+          cumulativePercents.push(Math.min(cumulativeTotal, 100));
+        });
+        const maxCumulative = Math.max(...cumulativePercents, 0);
+        const yAxisMax = Math.max(maxPct, maxCumulative, 1);
         const svg = document.createElementNS(NS, 'svg');
         svg.setAttribute('class', 'scree-chart');
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -2610,8 +2622,8 @@
         svg.appendChild(xAxis);
         const tickCount = 4;
         for(let i=0;i<=tickCount;i+=1){
-          const pct = (maxPct / tickCount) * i;
-          const y = margin.top + plotHeight - (plotHeight * (pct / maxPct));
+          const pct = (yAxisMax / tickCount) * i;
+          const y = margin.top + plotHeight - (plotHeight * (pct / yAxisMax));
           const grid = document.createElementNS(NS, 'line');
           grid.setAttribute('x1', String(margin.left));
           grid.setAttribute('x2', String(margin.left + plotWidth));
@@ -2626,6 +2638,7 @@
           label.setAttribute('text-anchor', 'end');
           label.setAttribute('dominant-baseline', 'middle');
           label.setAttribute('fill', axisColor);
+          label.setAttribute('font-size', `${axisTickFontSize}px`);
           label.textContent = `${pct.toFixed(1)}%`;
           svg.appendChild(label);
         }
@@ -2635,7 +2648,11 @@
         });
         const yPositions = data.map(item => {
           const pct = Number(item.variancePercent) || 0;
-          const scaled = margin.top + plotHeight - (plotHeight * (pct / maxPct));
+          const scaled = margin.top + plotHeight - (plotHeight * (pct / yAxisMax));
+          return scaled;
+        });
+        const cumulativePositions = cumulativePercents.map(pct => {
+          const scaled = margin.top + plotHeight - (plotHeight * (pct / yAxisMax));
           return scaled;
         });
         const path = document.createElementNS(NS, 'path');
@@ -2646,9 +2663,30 @@
         path.setAttribute('stroke', pointColor);
         path.setAttribute('stroke-width', '2');
         svg.appendChild(path);
+        const cumulativeColor = '#4daf4a';
+        if(cumulativePositions.length){
+          const cumulativePath = document.createElementNS(NS, 'path');
+          const cumulativeD = xPositions.map((x, idx) => `${idx===0?'M':'L'}${x} ${cumulativePositions[idx]}`).join(' ');
+          cumulativePath.setAttribute('d', cumulativeD);
+          cumulativePath.setAttribute('fill', 'none');
+          cumulativePath.setAttribute('stroke', cumulativeColor);
+          cumulativePath.setAttribute('stroke-width', '2');
+          cumulativePath.setAttribute('stroke-dasharray', '6 4');
+          svg.appendChild(cumulativePath);
+        }
+        const xAxisTickLength = 6;
         data.forEach((item, idx) => {
           const cx = xPositions[idx];
           const cy = yPositions[idx];
+          const tick = document.createElementNS(NS, 'line');
+          const tickBaseY = margin.top + plotHeight;
+          tick.setAttribute('x1', String(cx));
+          tick.setAttribute('x2', String(cx));
+          tick.setAttribute('y1', String(tickBaseY));
+          tick.setAttribute('y2', String(tickBaseY + xAxisTickLength));
+          tick.setAttribute('stroke', axisColor);
+          tick.setAttribute('stroke-width', '1');
+          svg.appendChild(tick);
           const circle = document.createElementNS(NS, 'circle');
           circle.setAttribute('cx', String(cx));
           circle.setAttribute('cy', String(cy));
@@ -2662,11 +2700,78 @@
           label.setAttribute('y', String(margin.top + plotHeight + 18));
           label.setAttribute('text-anchor', 'middle');
           label.setAttribute('fill', axisColor);
-          label.textContent = `PC${item.component}`;
+          label.setAttribute('font-size', `${axisTickFontSize}px`);
+          label.textContent = `${Number(item.component) || (idx + 1)}`;
           svg.appendChild(label);
         });
+        if(cumulativePositions.length){
+          cumulativePositions.forEach((cy, idx) => {
+            const cx = xPositions[idx];
+            const circle = document.createElementNS(NS, 'circle');
+            circle.setAttribute('cx', String(cx));
+            circle.setAttribute('cy', String(cy));
+            circle.setAttribute('r', '3');
+            circle.setAttribute('fill', '#ffffff');
+            circle.setAttribute('stroke', cumulativeColor);
+            circle.setAttribute('stroke-width', '1.5');
+            svg.appendChild(circle);
+          });
+        }
+        const yAxisTitle = document.createElementNS(NS, 'text');
+        const yAxisTitleOffset = 42;
+        const yAxisTitleX = margin.left - yAxisTitleOffset;
+        const yAxisTitleY = margin.top + plotHeight / 2;
+        yAxisTitle.setAttribute('x', String(yAxisTitleX));
+        yAxisTitle.setAttribute('y', String(yAxisTitleY));
+        yAxisTitle.setAttribute('text-anchor', 'middle');
+        yAxisTitle.setAttribute('fill', axisColor);
+        yAxisTitle.setAttribute('transform', `rotate(-90 ${yAxisTitleX} ${yAxisTitleY})`);
+        yAxisTitle.setAttribute('font-size', `${axisTitleFontSize}px`);
+        yAxisTitle.textContent = '% of explained variance';
+        svg.appendChild(yAxisTitle);
+        const xAxisTitle = document.createElementNS(NS, 'text');
+        xAxisTitle.setAttribute('x', String(margin.left + (plotWidth / 2)));
+        const xAxisTitleOffset = 32;
+        xAxisTitle.setAttribute('y', String(margin.top + plotHeight + xAxisTitleOffset));
+        xAxisTitle.setAttribute('text-anchor', 'middle');
+        xAxisTitle.setAttribute('fill', axisColor);
+        xAxisTitle.setAttribute('font-size', `${axisTitleFontSize}px`);
+        xAxisTitle.textContent = 'Component number';
+        svg.appendChild(xAxisTitle);
+        const legendEntries = [
+          { label: 'Explained variance', color: pointColor, strokeDash: '' },
+          { label: 'Cumulative variance', color: cumulativeColor, strokeDash: '6 4' }
+        ];
+        const legendLineHeight = 14;
+        const legendHeight = legendEntries.length * legendLineHeight;
+        const legendGroup = document.createElementNS(NS, 'g');
+        const legendX = Math.max(margin.left + 16, margin.left + plotWidth - 120);
+        const legendY = Math.max(margin.top + 8, margin.top + (plotHeight / 2) - (legendHeight / 2));
+        legendEntries.forEach((entry, idx) => {
+          const lineY = legendY + (idx * legendLineHeight);
+          const sampleLine = document.createElementNS(NS, 'line');
+          sampleLine.setAttribute('x1', String(legendX));
+          sampleLine.setAttribute('x2', String(legendX + 32));
+          sampleLine.setAttribute('y1', String(lineY));
+          sampleLine.setAttribute('y2', String(lineY));
+          sampleLine.setAttribute('stroke', entry.color);
+          sampleLine.setAttribute('stroke-width', '2');
+          if(entry.strokeDash){
+            sampleLine.setAttribute('stroke-dasharray', entry.strokeDash);
+          }
+          legendGroup.appendChild(sampleLine);
+          const legendLabel = document.createElementNS(NS, 'text');
+          legendLabel.setAttribute('x', String(legendX + 40));
+          legendLabel.setAttribute('y', String(lineY));
+          legendLabel.setAttribute('dominant-baseline', 'middle');
+          legendLabel.setAttribute('fill', axisColor);
+          legendLabel.setAttribute('font-size', `${legendFontSize}px`);
+          legendLabel.textContent = entry.label;
+          legendGroup.appendChild(legendLabel);
+        });
+        svg.appendChild(legendGroup);
         pcaScreeContainer.appendChild(svg);
-        debugLog('Debug: pca scree chart rendered',{ count: data.length, maxPct, width, height, drawingBoxWidth, containerWidth });
+        debugLog('Debug: pca scree chart rendered',{ count: data.length, maxPct: yAxisMax, width, height, drawingBoxWidth, containerWidth });
         updateScreeVarianceRowVisibility();
       }
       function renderVarianceSummary(options){
