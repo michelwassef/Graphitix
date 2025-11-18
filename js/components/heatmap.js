@@ -1917,14 +1917,31 @@
     if(!entry || !Number.isFinite(entry.raw) || !Number.isFinite(entry.value)){
       return '#d0d0d0';
     }
+
+    let color;
+
     if(useAbs){
-      return mixColor(palette.zero, palette.positive, Math.abs(entry.raw));
+      // Same behavior as before for absolute mode
+      color = mixColor(palette.zero, palette.positive, Math.abs(entry.raw));
+    } else if(entry.raw >= 0){
+      // Positive values: zero -> positive
+      color = mixColor(palette.zero, palette.positive, entry.raw);
+    } else {
+      // Negative values: zero -> negative (fixed direction)
+      const t = Math.abs(entry.raw);
+      color = mixColor(palette.zero, palette.negative, t);
     }
-    if(entry.raw >= 0){
-      return mixColor(palette.zero, palette.positive, entry.raw);
-    }
-    return mixColor(palette.negative, palette.zero, Math.abs(entry.raw));
+
+    // Debug log to check mapping
+    console.debug('Debug: colorForValue', {
+      raw: entry.raw,
+      useAbs,
+      color
+    });
+
+    return color;
   }
+
 
   function textColorForBackground(fill){
     const rgb = hexToRgb(fill.startsWith('#') ? fill : (() => {
