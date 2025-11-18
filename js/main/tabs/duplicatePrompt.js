@@ -8,6 +8,7 @@
     const dom = options.dom;
     const workspaceState = options.workspaceState;
     const session = options.session;
+    const workspaces = options.workspaces || {};
     const renderTabs = typeof options.renderTabs === 'function' ? options.renderTabs : () => {};
     const showWorkspaceForTab = typeof options.showWorkspaceForTab === 'function' ? options.showWorkspaceForTab : () => {};
     const showGraphSelection = typeof options.showGraphSelection === 'function' ? options.showGraphSelection : () => {};
@@ -33,6 +34,19 @@
       if (dom.duplicateCancel) dom.duplicateCancel.onclick = null;
     }
 
+    function getEmptyWorkspacePayload(type) {
+      const config = workspaces?.[type];
+      if (!config || typeof config.createEmptyPayload !== 'function') {
+        return null;
+      }
+      try {
+        return config.createEmptyPayload();
+      } catch (err) {
+        console.error('duplicate prompt empty payload error', { type, err });
+        return null;
+      }
+    }
+
     function showDuplicateDecision({ tab, type, sourceTab, canDuplicate }) {
       if (!canDuplicate) {
         console.debug('Debug: duplicate prompt bypassed', {
@@ -41,7 +55,8 @@
           hasSource: !!sourceTab
         });
         if (tab) {
-          session.assignTabPayload(tab, null, { reason: 'duplicate-bypass-clear' });
+          const emptyPayload = getEmptyWorkspacePayload(type);
+          session.assignTabPayload(tab, emptyPayload, { reason: 'duplicate-bypass-clear' });
           tab.layoutState = null;
           tab.layoutSignature = null;
         }
@@ -62,7 +77,8 @@
             ? session.serializePayloadSignature(clonedLayout)
             : null;
         } else {
-          session.assignTabPayload(tab, null, { reason: 'duplicate-fallback-empty' });
+          const emptyPayload = getEmptyWorkspacePayload(type);
+          session.assignTabPayload(tab, emptyPayload, { reason: 'duplicate-fallback-empty' });
           tab.layoutState = null;
           tab.layoutSignature = null;
         }
@@ -97,7 +113,8 @@
         session.markSessionDirty('duplicate-accepted', { tabId: tab.id, sourceId: sourceTab?.id || null, type });
       };
       dom.duplicateEmpty.onclick = () => {
-        session.assignTabPayload(tab, null, { reason: 'duplicate-empty' });
+        const emptyPayload = getEmptyWorkspacePayload(type);
+        session.assignTabPayload(tab, emptyPayload, { reason: 'duplicate-empty' });
         tab.layoutState = null;
         tab.layoutSignature = null;
         hideDuplicatePrompt();

@@ -1261,6 +1261,27 @@
     viewDirty: true
   };
   pcaState.scheduleDraw = (opts) => scheduleDrawPca(opts);
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('pca cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getPcaGraphPayload !== 'function'){
+      return;
+    }
+    const snapshot = getPcaGraphPayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
   function nowMs(){
     try{
       if(typeof global.performance === 'object' && typeof global.performance.now === 'function'){
@@ -5552,130 +5573,147 @@
         });
         console.debug('Debug: openPcaFile result', result);
       }
+      function applyPcaPayload(obj, meta = {}){
+        if(!obj || typeof obj !== 'object'){
+          console.error('pca payload missing or invalid', { meta });
+          return false;
+        }
+        if(obj.type && obj.type !== 'pca'){
+          console.error('Invalid graph type for pca payload', { type: obj.type, meta });
+          return false;
+        }
+        const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
+        if(pcaHot && typeof pcaHot.loadData === 'function'){
+          pcaHot.loadData(dataMatrix);
+          if(obj.exclusions){
+            pcaHot.applyExclusions?.(obj.exclusions);
+          }
+        }
+        const c=obj.config||{};
+        importFontStyles('pca', c.fontStyles || null);
+        pcaDotSize.value=c.dotSize||pcaDotSize.value;
+        pcaFill.value=c.fill||pcaFill.value;
+        pcaBorder.value=c.border||pcaBorder.value;
+        pcaBorderWidth.value=c.borderWidth||pcaBorderWidth.value;
+        pcaMethod.value=c.method||'pca';
+        if(!pcaState.labels || typeof pcaState.labels !== 'object'){
+          pcaState.labels = { title: getDefaultTitleForMethod(pcaMethod.value) };
+        }
+        if(c.labels && typeof c.labels === 'object'){
+          const restoredTitle = typeof c.labels.title === 'string' ? c.labels.title : '';
+          const fallbackTitle = getDefaultTitleForMethod(pcaMethod.value);
+          pcaState.labels.title = restoredTitle && restoredTitle.trim() ? restoredTitle : fallbackTitle;
+          debugLog('Debug: pca title restored',{ title: pcaState.labels.title });
+        } else if(!pcaState.labels.title || !pcaState.labels.title.trim()){
+          pcaState.labels.title = getDefaultTitleForMethod(pcaMethod.value);
+        }
+        pcaState.lastMethod = (pcaMethod.value || 'pca').toLowerCase();
+        applyMethodUiState(pcaMethod.value);
+        pcaAlpha.value=c.alpha||0;
+        pcaAlphaVal.textContent=pcaAlpha.value;
+        pcaLabelColors=c.labelColors||{};
+        pcaLabelShapes=c.labelShapes||{};
+        if(c.grouped && typeof c.grouped === 'object'){
+          pcaState.grouped = {
+            replicatesPerGroup: c.grouped.replicatesPerGroup,
+            groups: Array.isArray(c.grouped.groups) ? [...c.grouped.groups] : [],
+            colors: Array.isArray(c.grouped.colors) ? [...c.grouped.colors] : [],
+            shapes: Array.isArray(c.grouped.shapes) ? [...c.grouped.shapes] : []
+          };
+        }
+        ensurePcaGroupedDefaults();
+        const restoredTableFormat = typeof c.tableFormat === 'string' ? c.tableFormat : pcaState.tableFormat;
+        setPcaTableFormat(restoredTableFormat);
+        pcaShowGrid.checked=!!c.showGrid;
+        pcaShowFrame.checked=!!c.showFrame;
+        if(pcaShowLegendInput){
+          pcaShowLegendInput.checked = c.showLegend !== false;
+          ensurePcaLegendControlPlacement();
+        }
+        pcaScale.checked=!!c.scale;
+        if(pcaVarianceAxisScale){
+          pcaVarianceAxisScale.checked = !!c.axesVarianceScaled;
+        }
+        pcaState.axesVarianceScaled = !!c.axesVarianceScaled;
+        pcaFontSize.value=c.fontSize||pcaFontSize.value;
+        if(pcaViewMode){
+          const restoredView = c.viewMode || DEFAULT_VIEW_MODE;
+          pcaViewMode.value = restoredView;
+          pcaViewMode.dispatchEvent(new Event('change'));
+          debugLog('Debug: pca view mode restored',{ restoredView });
+        }
+        if(c.axisSelection){
+          const sel = c.axisSelection;
+          if(sel && typeof sel === 'object'){
+            const before = { ...pcaState.axisSelection };
+            if(Number.isFinite(Number(sel.x))){ pcaState.axisSelection.x = Number(sel.x); }
+            if(Number.isFinite(Number(sel.y))){ pcaState.axisSelection.y = Number(sel.y); }
+            if(Number.isFinite(Number(sel.z))){ pcaState.axisSelection.z = Number(sel.z); }
+            sanitizeAxisSelection(pcaState.axisMeta.length);
+            syncAxisSelectValues();
+            debugLog('Debug: pca axis selection restored',{ before, after: { ...pcaState.axisSelection } });
+          }
+        }
+        if(c.rotation){
+          const restored = plot3d.createRotationState(c.rotation);
+          pcaState.rotation.x = restored.x;
+          pcaState.rotation.y = restored.y;
+          pcaState.rotation.z = restored.z;
+          pcaState.rotation.quaternion = {
+            w: restored.quaternion.w,
+            x: restored.quaternion.x,
+            y: restored.quaternion.y,
+            z: restored.quaternion.z
+          };
+          debugLog('Debug: pca rotation restored', {
+            rotation: {
+              x: pcaState.rotation.x,
+              y: pcaState.rotation.y,
+              z: pcaState.rotation.z
+            }
+          });
+        }
+        applyAxisSettings(c.axis || c.axisSettings);
+        if(c.tsne){
+          if(pcaTsnePerplexity){ pcaTsnePerplexity.value = c.tsne.perplexity ?? pcaTsnePerplexity.value; }
+          if(pcaTsneLearningRate){ pcaTsneLearningRate.value = c.tsne.learningRate ?? pcaTsneLearningRate.value; }
+          if(pcaTsneIterations){ pcaTsneIterations.value = c.tsne.iterations ?? pcaTsneIterations.value; }
+          if(pcaTsneExaggeration){ pcaTsneExaggeration.value = c.tsne.earlyExaggeration ?? pcaTsneExaggeration.value; }
+          debugLog('Debug: pca tsne settings restored', c.tsne);
+        }
+        if(c.umap){
+          if(pcaUmapNeighbors){ pcaUmapNeighbors.value = c.umap.neighbors ?? pcaUmapNeighbors.value; }
+          if(pcaUmapMinDist){ pcaUmapMinDist.value = c.umap.minDist ?? pcaUmapMinDist.value; }
+          if(pcaUmapLearningRate){ pcaUmapLearningRate.value = c.umap.learningRate ?? pcaUmapLearningRate.value; }
+          if(pcaUmapEpochs){ pcaUmapEpochs.value = c.umap.epochs ?? pcaUmapEpochs.value; }
+          debugLog('Debug: pca umap settings restored', c.umap);
+        }
+        if(pcaFontSize.dataset){
+          pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
+          debugLog('Debug: pca font size base restored',{ value: pcaFontSize.value });
+        }
+        chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
+        if(c.stats){
+          lastPcaStats = c.stats;
+          debugLog('Debug: pca stats restored from payload',{
+            hasEigenSummary: Array.isArray(c.stats?.eigenSummary) && c.stats.eigenSummary.length > 0,
+            hasScree: Array.isArray(c.stats?.scree) && c.stats.scree.length > 0,
+            method: c.stats?.method || null
+          });
+        }
+        scheduleDrawPca();
+        debugLog('Debug: pca payload applied',{ source: meta.source || 'unknown', rows: dataMatrix.length });
+        return true;
+      }
+
       function loadPcaGraphFile(file){
         const reader=new FileReader();
         reader.onload=e=>{
           try{
             const obj=JSON.parse(e.target.result);
-            console.log('loadPcaGraph',obj);
-            if(obj.type!=='pca') throw new Error('Invalid graph type');
-            pcaHot.loadData(obj.data||[]);
-            if(obj.exclusions){
-              pcaHot.applyExclusions?.(obj.exclusions);
+            if(!applyPcaPayload(obj, { source: 'file' })){
+              console.warn('pca payload rejected from file', { hasType: !!obj?.type });
             }
-            const c=obj.config||{};
-            importFontStyles('pca', c.fontStyles || null);
-            pcaDotSize.value=c.dotSize||pcaDotSize.value;
-            pcaFill.value=c.fill||pcaFill.value;
-            pcaBorder.value=c.border||pcaBorder.value;
-            pcaBorderWidth.value=c.borderWidth||pcaBorderWidth.value;
-            pcaMethod.value=c.method||'pca';
-            if(!pcaState.labels || typeof pcaState.labels !== 'object'){
-              pcaState.labels = { title: getDefaultTitleForMethod(pcaMethod.value) };
-            }
-            if(c.labels && typeof c.labels === 'object'){
-              const restoredTitle = typeof c.labels.title === 'string' ? c.labels.title : '';
-              const fallbackTitle = getDefaultTitleForMethod(pcaMethod.value);
-              pcaState.labels.title = restoredTitle && restoredTitle.trim() ? restoredTitle : fallbackTitle;
-              debugLog('Debug: pca title restored',{ title: pcaState.labels.title });
-            } else if(!pcaState.labels.title || !pcaState.labels.title.trim()){
-              pcaState.labels.title = getDefaultTitleForMethod(pcaMethod.value);
-            }
-            pcaState.lastMethod = (pcaMethod.value || 'pca').toLowerCase();
-            applyMethodUiState(pcaMethod.value);
-            pcaAlpha.value=c.alpha||0;
-            pcaAlphaVal.textContent=pcaAlpha.value;
-            pcaLabelColors=c.labelColors||{};
-            pcaLabelShapes=c.labelShapes||{};
-            if(c.grouped && typeof c.grouped === 'object'){
-              pcaState.grouped = {
-                replicatesPerGroup: c.grouped.replicatesPerGroup,
-                groups: Array.isArray(c.grouped.groups) ? [...c.grouped.groups] : [],
-                colors: Array.isArray(c.grouped.colors) ? [...c.grouped.colors] : [],
-                shapes: Array.isArray(c.grouped.shapes) ? [...c.grouped.shapes] : []
-              };
-            }
-            ensurePcaGroupedDefaults();
-            const restoredTableFormat = typeof c.tableFormat === 'string' ? c.tableFormat : pcaState.tableFormat;
-            setPcaTableFormat(restoredTableFormat);
-            pcaShowGrid.checked=!!c.showGrid;
-            pcaShowFrame.checked=!!c.showFrame;
-            if(pcaShowLegendInput){
-              pcaShowLegendInput.checked = c.showLegend !== false;
-              ensurePcaLegendControlPlacement();
-            }
-            pcaScale.checked=!!c.scale;
-            if(pcaVarianceAxisScale){
-              pcaVarianceAxisScale.checked = !!c.axesVarianceScaled;
-            }
-            pcaState.axesVarianceScaled = !!c.axesVarianceScaled;
-            pcaFontSize.value=c.fontSize||pcaFontSize.value;
-            if(pcaViewMode){
-              const restoredView = (c.viewMode || DEFAULT_VIEW_MODE);
-              pcaViewMode.value = restoredView;
-              pcaViewMode.dispatchEvent(new Event('change'));
-              debugLog('Debug: pca view mode restored',{ restoredView });
-            }
-            if(c.axisSelection){
-              const sel = c.axisSelection;
-              if(sel && typeof sel === 'object'){
-                const before = { ...pcaState.axisSelection };
-                if(Number.isFinite(Number(sel.x))){ pcaState.axisSelection.x = Number(sel.x); }
-                if(Number.isFinite(Number(sel.y))){ pcaState.axisSelection.y = Number(sel.y); }
-                if(Number.isFinite(Number(sel.z))){ pcaState.axisSelection.z = Number(sel.z); }
-                sanitizeAxisSelection(pcaState.axisMeta.length);
-                syncAxisSelectValues();
-                debugLog('Debug: pca axis selection restored',{ before, after: { ...pcaState.axisSelection } });
-              }
-            }
-            if(c.rotation){
-              const restored = plot3d.createRotationState(c.rotation);
-              pcaState.rotation.x = restored.x;
-              pcaState.rotation.y = restored.y;
-              pcaState.rotation.z = restored.z;
-              pcaState.rotation.quaternion = {
-                w: restored.quaternion.w,
-                x: restored.quaternion.x,
-                y: restored.quaternion.y,
-                z: restored.quaternion.z
-              };
-              debugLog('Debug: pca rotation restored', {
-                rotation: {
-                  x: pcaState.rotation.x,
-                  y: pcaState.rotation.y,
-                  z: pcaState.rotation.z
-                }
-              });
-            }
-            applyAxisSettings(c.axis || c.axisSettings);
-            if(c.tsne){
-              if(pcaTsnePerplexity){ pcaTsnePerplexity.value = c.tsne.perplexity ?? pcaTsnePerplexity.value; }
-              if(pcaTsneLearningRate){ pcaTsneLearningRate.value = c.tsne.learningRate ?? pcaTsneLearningRate.value; }
-              if(pcaTsneIterations){ pcaTsneIterations.value = c.tsne.iterations ?? pcaTsneIterations.value; }
-              if(pcaTsneExaggeration){ pcaTsneExaggeration.value = c.tsne.earlyExaggeration ?? pcaTsneExaggeration.value; }
-              debugLog('Debug: pca tsne settings restored', c.tsne);
-            }
-            if(c.umap){
-              if(pcaUmapNeighbors){ pcaUmapNeighbors.value = c.umap.neighbors ?? pcaUmapNeighbors.value; }
-              if(pcaUmapMinDist){ pcaUmapMinDist.value = c.umap.minDist ?? pcaUmapMinDist.value; }
-              if(pcaUmapLearningRate){ pcaUmapLearningRate.value = c.umap.learningRate ?? pcaUmapLearningRate.value; }
-              if(pcaUmapEpochs){ pcaUmapEpochs.value = c.umap.epochs ?? pcaUmapEpochs.value; }
-              debugLog('Debug: pca umap settings restored', c.umap);
-            }
-            if(pcaFontSize.dataset){
-              pcaFontSize.dataset.fontBasePt = String(pcaFontSize.value);
-              debugLog('Debug: pca font size base restored',{ value: pcaFontSize.value }); // Debug: restore base from file
-            }
-            chartStyle.renderFontSizeLabel({ element: pcaFontSizeVal, pt: Number(pcaFontSize.value), input: pcaFontSize, manual: true });
-            if(c.stats){
-              lastPcaStats = c.stats;
-              debugLog('Debug: pca stats restored from file',{
-                hasEigenSummary: Array.isArray(c.stats?.eigenSummary) && c.stats.eigenSummary.length > 0,
-                hasScree: Array.isArray(c.stats?.scree) && c.stats.scree.length > 0,
-                method: c.stats?.method || null
-              });
-            }
-            scheduleDrawPca();
           }catch(err){
             console.error('loadPcaGraph error',err);
           }
@@ -5705,10 +5743,40 @@
     pca.saveAs = saveAsPcaFile;
     pca.open = openPcaFile;
     pca.loadFromFile = loadPcaGraphFile;
+    pca.loadFromPayload = function loadPcaFromPayload(payload){
+      if(!applyPcaPayload(payload, { source: 'payload' })){
+        console.warn('pca payload application failed', { source: 'payload' });
+      }
+    };
     pca.getPayload = getPcaGraphPayload;
+    pca.createEmptyPayload = function createEmptyPcaPayload(){
+      pca.ensure();
+      ensureEmptyPayloadTemplate();
+      const payload = cloneSimple(emptyPayloadTemplate) || { type: 'pca', config: {} };
+      payload.type = 'pca';
+      const createEmpty = Shared.createEmptyData;
+      const emptyData = typeof createEmpty === 'function'
+        ? createEmpty(DEFAULT_ROWS, DEFAULT_COLS)
+        : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+      payload.data = emptyData;
+      payload.exclusions = [];
+      payload.stats = null;
+      if(payload.config){
+        payload.config.labels = { title: getDefaultTitleForMethod('pca') };
+        payload.config.axisSelection = { x: 1, y: 2, z: 3 };
+        payload.config.rotation = {
+          x: 0,
+          y: 0,
+          z: 0,
+          quaternion: { w: 1, x: 0, y: 0, z: 0 }
+        };
+      }
+      return payload;
+    };
     pca.serialize = serializeSvg;
     pca.getHotInstance = () => pcaHotInstance;
     pca.__state = pcaState;
+    ensureEmptyPayloadTemplate();
     pca.ready = true;
     console.debug('Debug: Components.pca.setup complete');
   }

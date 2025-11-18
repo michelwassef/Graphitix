@@ -26,6 +26,27 @@
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 80;
   const DEFAULT_COLS = 3;
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('surface cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getSurfacePayload !== 'function'){
+      return;
+    }
+    const snapshot = getSurfacePayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
   const DEFAULT_FILE_NAME = 'surface.graph';
   const DEFAULT_ROTATION = { x: -0.6, y: 0.9 };
 
@@ -1215,6 +1236,7 @@
       state.layout.syncPanels();
     }
     updateAxisOptions();
+    ensureEmptyPayloadTemplate();
     surface.ready = true;
     state.scheduleDraw();
   };
@@ -1222,6 +1244,54 @@
   surface.ensure = function ensure(){
     if(!surface.ready){ surface.init(); }
   };
+
+  function applySurfacePayload(payload, meta){
+    const source = meta?.source || 'unknown';
+    if(!payload || payload.type !== 'surface'){
+      debugLog('Debug: surface payload rejected', { source, hasType: !!payload?.type });
+      return false;
+    }
+    const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
+    if(state.hot && typeof state.hot.loadData === 'function'){
+      state.hot.loadData(dataMatrix);
+      if(payload.exclusions && typeof state.hot.applyExclusions === 'function'){
+        state.hot.applyExclusions(payload.exclusions);
+      }
+    }
+    const config = payload.config || {};
+    if(config.axisMap && typeof config.axisMap === 'object'){
+      state.axisMap = Object.assign({}, state.axisMap, config.axisMap);
+    }
+    if(config.settings && typeof config.settings === 'object'){
+      state.settings = Object.assign({}, state.settings, config.settings);
+    }
+    if(config.labels && typeof config.labels === 'object'){
+      state.labels = Object.assign({}, state.labels, config.labels);
+    }
+    ensureHeaderRowFromConfig(config);
+    if(config.rotation && typeof plot3d.createRotationState === 'function'){
+      const restored = plot3d.createRotationState(config.rotation);
+      state.rotation.x = restored.x;
+      state.rotation.y = restored.y;
+      state.rotation.z = restored.z;
+      state.rotation.quaternion = restored.quaternion ? {
+        w: restored.quaternion.w,
+        x: restored.quaternion.x,
+        y: restored.quaternion.y,
+        z: restored.quaternion.z
+      } : state.rotation.quaternion;
+    }
+    if(config.fontStyles){
+      importFontStyles('surface', config.fontStyles);
+    }
+    applySettingsToControls();
+    updateAxisOptions();
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+    debugLog('Debug: surface payload applied', { source, rows: dataMatrix.length });
+    return true;
+  }
 
   function getPayload(){
     if(!state.hot || typeof state.hot.getData !== 'function'){
@@ -1254,6 +1324,19 @@
   }
 
   surface.getPayload = getPayload;
+  surface.createEmptyPayload = function createEmptySurfacePayload(){
+    surface.ensure();
+    ensureEmptyPayloadTemplate();
+    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'surface', config: {} };
+    payload.type = 'surface';
+    const createEmpty = Shared.createEmptyData;
+    const emptyData = typeof createEmpty === 'function'
+      ? createEmpty(DEFAULT_ROWS, DEFAULT_COLS)
+      : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+    payload.data = emptyData;
+    payload.exclusions = [];
+    return payload;
+  };
 
   surface.save = async function save(){
     if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
@@ -1309,52 +1392,15 @@
   };
 
   surface.loadFromFile = function loadFromFile(file){
-    const processPayload = (obj) => {
-      if(!obj || obj.type !== 'surface'){
-        throw new Error('Invalid graph type');
-      }
-      if(state.hot && typeof state.hot.loadData === 'function'){
-        state.hot.loadData(obj.data || []);
-      }
-      if(obj.exclusions && state.hot && typeof state.hot.applyExclusions === 'function'){
-        state.hot.applyExclusions(obj.exclusions);
-      }
-      const config = obj.config || {};
-      if(config.axisMap){
-        state.axisMap = Object.assign({}, state.axisMap, config.axisMap);
-      }
-      if(config.settings){
-        state.settings = Object.assign({}, state.settings, config.settings);
-      }
-      if(config.labels){
-        state.labels = Object.assign({}, state.labels, config.labels);
-      }
-      ensureHeaderRowFromConfig(config);
-      if(config.rotation){
-        const restored = plot3d.createRotationState(config.rotation);
-        state.rotation.x = restored.x;
-        state.rotation.y = restored.y;
-        state.rotation.z = restored.z;
-        state.rotation.quaternion = {
-          w: restored.quaternion.w,
-          x: restored.quaternion.x,
-          y: restored.quaternion.y,
-          z: restored.quaternion.z
-        };
-      }
-      if(config.fontStyles){
-        importFontStyles('surface', config.fontStyles);
-      }
-      applySettingsToControls();
-      updateAxisOptions();
-      state.scheduleDraw();
-    };
+    const apply = payload => applySurfacePayload(payload, { source: 'file' });
     if(file instanceof Blob){
       const reader = new FileReader();
       reader.onload = (event) => {
         try {
           const parsed = JSON.parse(event.target.result);
-          processPayload(parsed);
+          if(!apply(parsed)){
+            console.warn('surface payload rejected from file', { hasType: !!parsed?.type });
+          }
         } catch(err){
           console.error('surface load parse error', err);
         }
@@ -1364,14 +1410,23 @@
     }
     if(typeof file === 'string'){
       try {
-        processPayload(JSON.parse(file));
+        const parsed = JSON.parse(file);
+        if(!apply(parsed)){
+          console.warn('surface payload rejected from string');
+        }
       } catch(err){
         console.error('surface load string parse error', err);
       }
       return;
     }
     if(file && typeof file === 'object'){
-      processPayload(file);
+      apply(file);
+    }
+  };
+
+  surface.loadFromPayload = function loadFromPayload(payload){
+    if(!applySurfacePayload(payload, { source: 'payload' })){
+      console.warn('surface payload application failed', { source: 'payload' });
     }
   };
 

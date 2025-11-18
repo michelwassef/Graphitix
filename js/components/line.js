@@ -29,6 +29,27 @@
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 100;
   const LINE_DEFAULT_COLS = 6;
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('line cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getLineGraphPayload !== 'function'){
+      return;
+    }
+    const snapshot = getLineGraphPayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
   const LINE_DEFAULT_SERIES_COUNT = 5;
   const LINE_MIN_REPLICATES = 1;
   const LINE_MAX_REPLICATES = 10;
@@ -2315,133 +2336,153 @@
     };
   }
 
+  function applyLineGraphPayload(obj, meta = {}){
+    if(!obj || typeof obj !== 'object'){
+      console.error('line payload missing or invalid', { meta });
+      return false;
+    }
+    if(obj.type && obj.type !== 'line'){
+      console.error('Invalid line payload type', { type: obj.type, meta });
+      return false;
+    }
+    console.debug('Debug: applyLineGraphPayload payload', obj);
+    const c=obj.config||{};
+    importFontStyles('line', c.fontStyles || null);
+    const storedReplicates = clampLineReplicateCount(c.replicates ?? lineReplicates);
+    const matrixData = Array.isArray(obj.data) ? obj.data : null;
+    const storedGroupLabels = Array.isArray(c.groupLabels) ? c.groupLabels.slice() : null;
+    const storedGroupShapes = Array.isArray(c.groupShapes) ? c.groupShapes.slice() : null;
+    if(storedGroupLabels){
+      lineSeriesGroupLabels = storedGroupLabels.slice();
+      console.debug('Debug: line group labels restored from payload', { labels: storedGroupLabels });
+    }
+    if(storedGroupShapes){
+      lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+      console.debug('Debug: line group shapes restored from payload', { shapes: lineGroupShapes.slice() });
+    }
+    const inferredSeries = matrixData && Array.isArray(matrixData[0]) ? Math.max(1, Math.ceil(((matrixData[0].length || 1) - 1) / Math.max(storedReplicates, 1))) : undefined;
+    if(lineHot && matrixData){
+      applyLineReplicateChange(storedReplicates, {
+        dataOverride: matrixData,
+        sourceReplicates: storedReplicates,
+        skipDraw: true,
+        minSeriesCount: inferredSeries,
+        groupLabels: storedGroupLabels || lineSeriesGroupLabels,
+        groupShapes: storedGroupShapes || lineGroupShapes,
+        resetGroupLabels: storedGroupLabels ? true : undefined
+      });
+      if(obj.exclusions){
+        lineHot.applyExclusions?.(obj.exclusions);
+      }
+    }else{
+      lineReplicates = storedReplicates;
+      if(refs.replicatesInput){
+        refs.replicatesInput.value = String(lineReplicates);
+      }
+      if(lineReplicates > LINE_MIN_REPLICATES){
+        lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
+      }
+      updateLineReplicateModeControls();
+      if(storedGroupShapes){
+        lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+      }
+    }
+    if(!lineHot && obj.exclusions){
+      console.debug('Debug: line exclusions deferred until hot ready');
+    }else if(lineHot && obj.exclusions && matrixData == null){
+      lineHot.applyExclusions?.(obj.exclusions);
+    }
+    lineTitleText=c.title||lineTitleText;
+    lineXLabelText=c.xLabel||lineXLabelText;
+    lineYLabelText=c.yLabel||lineYLabelText;
+    if(refs.dotSize && c.dotSize!=null) refs.dotSize.value=c.dotSize;
+    if(refs.fill && c.fill) refs.fill.value=c.fill;
+    if(refs.border && c.border) refs.border.value=c.border;
+    if(refs.borderWidth && c.borderWidth!=null) refs.borderWidth.value=c.borderWidth;
+    if(refs.errorBarWidth){
+      if(c.errorBarWidth!=null){
+        refs.errorBarWidth.value=c.errorBarWidth;
+      }else if(!refs.errorBarWidth.value){
+        refs.errorBarWidth.value=refs.borderWidth?.value || '1';
+      }
+    }
+    if(refs.alpha){
+      refs.alpha.value=c.alpha||0;
+      if(refs.alphaVal){
+        refs.alphaVal.textContent=refs.alpha.value;
+      }
+    }
+    const restoredDisplayMode = sanitizeLineDisplayMode(c.displayMode);
+    if(refs.displayMode){
+      refs.displayMode.value = restoredDisplayMode;
+    }
+    lineDisplayMode = restoredDisplayMode;
+    lineLabelColors=c.labelColors||{};
+    if(refs.showGrid) refs.showGrid.checked=!!c.showGrid;
+    if(refs.showFrame) refs.showFrame.checked=!!c.showFrame;
+    if(refs.showLegend) refs.showLegend.checked=c.showLegend !== false;
+    if(refs.logX) refs.logX.checked=!!c.logX;
+    if(refs.logY) refs.logY.checked=!!c.logY;
+    if(refs.showIntervals) refs.showIntervals.checked=!!c.showIntervals;
+    if(refs.showDiagnostics) refs.showDiagnostics.checked=!!c.showDiagnostics;
+    if(refs.xMin) refs.xMin.value=c.xMin||'';
+    if(refs.xMax) refs.xMax.value=c.xMax||'';
+    if(refs.yMin) refs.yMin.value=c.yMin||'';
+    if(refs.yMax) refs.yMax.value=c.yMax||'';
+    if(refs.originMode && c.originMode) refs.originMode.value=c.originMode;
+    if(refs.originX) refs.originX.value=c.originX||'';
+    if(refs.originY) refs.originY.value=c.originY||'';
+    if(refs.fontSize){
+      refs.fontSize.value=c.fontSize||refs.fontSize.value;
+      if(refs.fontSize.dataset){
+        refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
+        console.debug('Debug: line font size base restored',{ value: refs.fontSize.value });
+      }
+      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
+    }
+    if(c.axis){
+      applyLineAxisSettings({
+        strokeWidth: c.axis.strokeWidth,
+        color: c.axis.color,
+        tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
+        tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null
+      });
+      console.debug('Debug: line axis settings restored',{ axis: ensureLineAxisSettings() });
+    }
+    if(refs.regressionMode && c.regression?.mode){
+      refs.regressionMode.value = c.regression.mode;
+    }
+    if(c.forecast){
+      const restoredForecast = {
+        horizon: clampForecastHorizon(c.forecast.horizon ?? lineForecastOptions.horizon),
+        seasonLength: clampSeasonLength(c.forecast.seasonLength ?? lineForecastOptions.seasonLength),
+        autoTune: c.forecast.autoTune != null ? !!c.forecast.autoTune : lineForecastOptions.autoTune,
+        criterion: c.forecast.criterion === 'aic' ? 'aic' : 'bic'
+      };
+      lineForecastOptions = restoredForecast;
+      if(refs.forecastHorizon) refs.forecastHorizon.value = String(restoredForecast.horizon);
+      if(refs.forecastSeasonLength) refs.forecastSeasonLength.value = String(restoredForecast.seasonLength);
+      if(refs.forecastAuto) refs.forecastAuto.checked = !!restoredForecast.autoTune;
+      if(refs.forecastCriterion) refs.forecastCriterion.value = restoredForecast.criterion;
+    }
+    resolveForecastOptions({ syncInputs: true });
+    updateForecastVisibility();
+    lineLastRegressionSummaries = Array.isArray(c.regression?.seriesSummaries) ? c.regression.seriesSummaries.slice() : [];
+    ensureLineLabelColors(Object.keys(lineLabelColors));
+    ensureLineLegendControlPlacement();
+    scheduleLineDraw();
+    console.debug('Debug: line payload applied', { source: meta.source || 'unknown', hasData: !!matrixData });
+    return true;
+  }
+
   function loadLineGraphFile(file){
     const reader=new FileReader();
     reader.onload=e=>{
       try{
         const obj=JSON.parse(e.target.result);
-        console.debug('Debug: loadLineGraphFile payload',obj); // Debug: file load payload
-        if(obj.type!=='line') throw new Error('Invalid graph type');
-        const c=obj.config||{};
-        importFontStyles('line', c.fontStyles || null);
-        const storedReplicates = clampLineReplicateCount(c.replicates ?? lineReplicates);
-        const matrixData = Array.isArray(obj.data) ? obj.data : null;
-        const storedGroupLabels = Array.isArray(c.groupLabels) ? c.groupLabels.slice() : null;
-        const storedGroupShapes = Array.isArray(c.groupShapes) ? c.groupShapes.slice() : null;
-        if(storedGroupLabels){
-          lineSeriesGroupLabels = storedGroupLabels.slice();
-          console.debug('Debug: line group labels restored from file', { labels: storedGroupLabels });
+        if(!applyLineGraphPayload(obj, { source: 'file' })){
+          console.warn('line payload rejected from file', { hasType: !!obj?.type });
         }
-        if(storedGroupShapes){
-          lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
-          console.debug('Debug: line group shapes restored from file', { shapes: lineGroupShapes.slice() });
-        }
-        const inferredSeries = matrixData && Array.isArray(matrixData[0]) ? Math.max(1, Math.ceil(((matrixData[0].length || 1) - 1) / Math.max(storedReplicates, 1))) : undefined;
-        if(lineHot && matrixData){
-          applyLineReplicateChange(storedReplicates, {
-            dataOverride: matrixData,
-            sourceReplicates: storedReplicates,
-            skipDraw: true,
-            minSeriesCount: inferredSeries,
-            groupLabels: storedGroupLabels || lineSeriesGroupLabels,
-            groupShapes: storedGroupShapes || lineGroupShapes,
-            resetGroupLabels: storedGroupLabels ? true : undefined
-          });
-          if(obj.exclusions){
-            lineHot.applyExclusions?.(obj.exclusions);
-          }
-        }else{
-          lineReplicates = storedReplicates;
-          if(refs.replicatesInput){
-            refs.replicatesInput.value = String(lineReplicates);
-          }
-          if(lineReplicates > LINE_MIN_REPLICATES){
-            lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
-          }
-          updateLineReplicateModeControls();
-          if(storedGroupShapes){
-            lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
-          }
-        }
-        if(!lineHot && obj.exclusions){
-          console.debug('Debug: line exclusions deferred until hot ready');
-        }else if(lineHot && obj.exclusions && matrixData == null){
-          lineHot.applyExclusions?.(obj.exclusions);
-        }
-        lineTitleText=c.title||lineTitleText;
-        lineXLabelText=c.xLabel||lineXLabelText;
-        lineYLabelText=c.yLabel||lineYLabelText;
-        if(refs.dotSize && c.dotSize!=null) refs.dotSize.value=c.dotSize;
-        if(refs.fill && c.fill) refs.fill.value=c.fill;
-        if(refs.border && c.border) refs.border.value=c.border;
-        if(refs.borderWidth && c.borderWidth!=null) refs.borderWidth.value=c.borderWidth;
-        if(refs.errorBarWidth){
-          if(c.errorBarWidth!=null){
-            refs.errorBarWidth.value=c.errorBarWidth;
-          }else if(!refs.errorBarWidth.value){
-            refs.errorBarWidth.value=refs.borderWidth?.value || '1';
-          }
-        }
-        if(refs.alpha){ refs.alpha.value=c.alpha||0; refs.alphaVal.textContent=refs.alpha.value; }
-        const restoredDisplayMode = sanitizeLineDisplayMode(c.displayMode);
-        if(refs.displayMode){
-          refs.displayMode.value = restoredDisplayMode;
-        }
-        lineDisplayMode = restoredDisplayMode;
-        lineLabelColors=c.labelColors||{};
-        if(refs.showGrid) refs.showGrid.checked=!!c.showGrid;
-        if(refs.showFrame) refs.showFrame.checked=!!c.showFrame;
-        if(refs.showLegend) refs.showLegend.checked=c.showLegend !== false;
-        if(refs.logX) refs.logX.checked=!!c.logX;
-        if(refs.logY) refs.logY.checked=!!c.logY;
-        if(refs.showIntervals) refs.showIntervals.checked=!!c.showIntervals;
-        if(refs.showDiagnostics) refs.showDiagnostics.checked=!!c.showDiagnostics;
-        if(refs.xMin) refs.xMin.value=c.xMin||'';
-        if(refs.xMax) refs.xMax.value=c.xMax||'';
-        if(refs.yMin) refs.yMin.value=c.yMin||'';
-        if(refs.yMax) refs.yMax.value=c.yMax||'';
-        if(refs.originMode && c.originMode) refs.originMode.value=c.originMode;
-        if(refs.originX) refs.originX.value=c.originX||'';
-        if(refs.originY) refs.originY.value=c.originY||'';
-        if(refs.fontSize){
-          refs.fontSize.value=c.fontSize||refs.fontSize.value;
-          if(refs.fontSize.dataset){
-            refs.fontSize.dataset.fontBasePt = String(refs.fontSize.value);
-            console.debug('Debug: line font size base restored',{ value: refs.fontSize.value }); // Debug: restore base size
-          }
-          chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
-        }
-        if(c.axis){
-          applyLineAxisSettings({
-            strokeWidth: c.axis.strokeWidth,
-            color: c.axis.color,
-            tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
-            tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null
-          });
-          console.debug('Debug: line axis settings restored',{ axis: ensureLineAxisSettings() });
-        }
-        if(refs.regressionMode && c.regression?.mode){
-          refs.regressionMode.value = c.regression.mode;
-        }
-        if(c.forecast){
-          const restoredForecast = {
-            horizon: clampForecastHorizon(c.forecast.horizon ?? lineForecastOptions.horizon),
-            seasonLength: clampSeasonLength(c.forecast.seasonLength ?? lineForecastOptions.seasonLength),
-            autoTune: c.forecast.autoTune != null ? !!c.forecast.autoTune : lineForecastOptions.autoTune,
-            criterion: c.forecast.criterion === 'aic' ? 'aic' : 'bic'
-          };
-          lineForecastOptions = restoredForecast;
-          if(refs.forecastHorizon) refs.forecastHorizon.value = String(restoredForecast.horizon);
-          if(refs.forecastSeasonLength) refs.forecastSeasonLength.value = String(restoredForecast.seasonLength);
-          if(refs.forecastAuto) refs.forecastAuto.checked = !!restoredForecast.autoTune;
-          if(refs.forecastCriterion) refs.forecastCriterion.value = restoredForecast.criterion;
-        }
-        resolveForecastOptions({ syncInputs: true });
-        updateForecastVisibility();
-        lineLastRegressionSummaries = Array.isArray(c.regression?.seriesSummaries) ? c.regression.seriesSummaries.slice() : [];
-        ensureLineLabelColors(Object.keys(lineLabelColors));
-        ensureLineLegendControlPlacement();
-        scheduleLineDraw();
       }catch(err){ console.error('loadLineGraph error',err); }
     };
     reader.readAsText(file);
@@ -4191,6 +4232,7 @@
     scheduleLineDraw = Shared.debounceFrame(drawLine);
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
     console.debug('Debug: line scheduleLineDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    ensureEmptyPayloadTemplate();
     line.ready = true;
     scheduleLineDraw();
     console.debug('Debug: Components.line.setup complete'); // Debug: setup complete
@@ -4205,7 +4247,29 @@
   line.saveAs = saveAsLineFile;
   line.open = openLineFile;
   line.loadFromFile = loadLineGraphFile;
+  line.loadFromPayload = function loadLineGraphFromPayload(payload){
+    if(!applyLineGraphPayload(payload, { source: 'payload' })){
+      console.warn('line payload application failed', { source: 'payload' });
+    }
+  };
   line.getPayload = getLineGraphPayload;
+  line.createEmptyPayload = function createEmptyLinePayload(){
+    line.ensure();
+    ensureEmptyPayloadTemplate();
+    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'line', config: {} };
+    payload.type = 'line';
+    const createEmpty = Shared.createEmptyData;
+    const emptyData = typeof createEmpty === 'function'
+      ? createEmpty(DEFAULT_ROWS, LINE_DEFAULT_COLS)
+      : Array.from({ length: DEFAULT_ROWS }, () => Array(LINE_DEFAULT_COLS).fill(''));
+    payload.data = emptyData;
+    payload.exclusions = [];
+    payload.series = Array.isArray(payload.series) ? [] : [];
+    if(payload.config){
+      payload.config.series = Array.isArray(payload.config.series) ? [] : [];
+    }
+    return payload;
+  };
   line.buildExportSvg = buildLineExportSvg;
   line.getHot = () => lineHot;
   line.updateStats = updateLineStats;

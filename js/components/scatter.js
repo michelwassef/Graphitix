@@ -94,6 +94,27 @@
     supports3d: false,
     supportsBubble: false
   };
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('scatter cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getScatterGraphPayload !== 'function'){
+      return;
+    }
+    const snapshot = getScatterGraphPayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
   if(typeof plot3d.normalizeRotation === 'function'){
     plot3d.normalizeRotation(scatterState.rotation);
   }
@@ -3808,105 +3829,122 @@
         });
         console.debug('Debug: openScatterFile result', result);
       }
+      function applyScatterPayload(obj, meta = {}){
+        if(!obj || typeof obj !== 'object'){
+          console.error('scatter payload missing or invalid', { meta });
+          return false;
+        }
+        if(obj.type && obj.type !== 'scatter'){
+          console.error('Invalid scatter payload type', { type: obj.type, meta });
+          return false;
+        }
+        const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
+        if(scatterHot && typeof scatterHot.loadData === 'function'){
+          scatterHot.loadData(dataMatrix);
+          if(obj.exclusions){
+            scatterHot.applyExclusions?.(obj.exclusions);
+          }
+        }
+        const c=obj.config||{};
+        importFontStyles('scatter', c.fontStyles || null);
+        scatterTitleText=c.title||scatterTitleText;
+        scatterXLabelText=c.xLabel||scatterXLabelText;
+        scatterYLabelText=c.yLabel||scatterYLabelText;
+        scatterZLabelText=c.zLabel||scatterZLabelText;
+        scatterDotSize.value=c.dotSize||scatterDotSize.value;
+        scatterFill.value=c.fill||scatterFill.value;
+        scatterBorder.value=c.border||scatterBorder.value;
+        scatterBorderWidth.value=c.borderWidth||scatterBorderWidth.value;
+        scatterAlpha.value=c.alpha||0;
+        scatterAlphaVal.textContent=scatterAlpha.value;
+        scatterLabelColors=c.labelColors||{};
+        scatterLabelShapes=c.labelShapes||{};
+        scatterShowGrid.checked=!!c.showGrid;
+        scatterShowFrame.checked=!!c.showFrame;
+        if(scatterShowLegend){
+          scatterShowLegend.checked = c.showLegend !== false;
+        }
+        scatterLogX.checked=!!c.logX;
+        scatterLogY.checked=!!c.logY;
+        scatterXMin.value=c.xMin||'';
+        scatterXMax.value=c.xMax||'';
+        scatterYMin.value=c.yMin||'';
+        scatterYMax.value=c.yMax||'';
+        scatterOriginMode.value=c.originMode||scatterOriginMode.value;
+        scatterOriginX.value=c.originX||'';
+        scatterOriginY.value=c.originY||'';
+        scatterShowLine.checked=!!c.showLine;
+        if(scatterShowIntervals){
+          scatterShowIntervals.checked=!!c.showIntervals;
+        }
+        if(scatterShowDiagnostics){
+          scatterShowDiagnostics.checked=!!c.showDiagnostics;
+        }
+        if(scatterGraphTypeSelect && c.graphType){
+          scatterGraphTypeSelect.value=c.graphType;
+        }
+        if(scatterLog2FCThreshold && c.log2fcThreshold!==undefined){
+          scatterLog2FCThreshold.value=c.log2fcThreshold;
+        }
+        if(scatterNegLogPThreshold && c.negLogPThreshold!==undefined){
+          scatterNegLogPThreshold.value=c.negLogPThreshold;
+        }
+        if(scatterRegressionMode && c.regression?.mode){
+          scatterRegressionMode.value=c.regression.mode;
+        }
+        scatterLastRegressionSummary = c.regression?.summary || null;
+        if(c.rotation){
+          scatterState.rotation = plot3d.createRotationState(c.rotation);
+          if(typeof plot3d.normalizeRotation === 'function'){
+            plot3d.normalizeRotation(scatterState.rotation);
+          }
+        } else {
+          scatterState.rotation = plot3d.createRotationState({ x: SCATTER_3D_DEFAULTS.rotationX, y: SCATTER_3D_DEFAULTS.rotationY });
+          if(typeof plot3d.normalizeRotation === 'function'){
+            plot3d.normalizeRotation(scatterState.rotation);
+          }
+        }
+        scatterState.supports3d = false;
+        if(typeof c.viewMode === 'string'){
+          const normalizedMode = String(c.viewMode).toLowerCase();
+          let storedMode = '2d';
+          if(normalizedMode === '3d'){
+            storedMode = '3d';
+          }else if(normalizedMode === 'bubble'){
+            storedMode = 'bubble';
+          }
+          scatterState.supportsBubble = false;
+          applyScatterViewMode(storedMode, {
+            allow3d: true,
+            allowBubble: true,
+            skipSchedule: true,
+            forceUpdate: true,
+            persistRequest: true
+          });
+        }
+        if(c.axis){
+          applyScatterAxisSettings({
+            strokeWidth: c.axis.strokeWidth,
+            color: c.axis.color,
+            tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
+            tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null
+          });
+          console.debug('Debug: scatter axis settings restored',{ axis: ensureScatterAxisSettings() });
+        }
+        syncScatterGraphTypeUI();
+        scheduleDrawScatter();
+        scatterDebug('Debug: scatter payload applied', { source: meta.source || 'unknown', rows: dataMatrix.length });
+        return true;
+      }
+
       function loadScatterGraphFile(file){
         const reader=new FileReader();
         reader.onload=e=>{
           try{
             const obj=JSON.parse(e.target.result);
-            console.log('loadScatterGraph',obj);
-            if(obj.type!=='scatter') throw new Error('Invalid graph type');
-            scatterHot.loadData(obj.data||[]);
-            if(obj.exclusions){
-              scatterHot.applyExclusions?.(obj.exclusions);
+            if(!applyScatterPayload(obj, { source: 'file' })){
+              console.warn('scatter payload rejected from file', { hasType: !!obj?.type });
             }
-            const c=obj.config||{};
-            importFontStyles('scatter', c.fontStyles || null);
-            scatterTitleText=c.title||scatterTitleText;
-            scatterXLabelText=c.xLabel||scatterXLabelText;
-            scatterYLabelText=c.yLabel||scatterYLabelText;
-            scatterZLabelText=c.zLabel||scatterZLabelText;
-            scatterDotSize.value=c.dotSize||scatterDotSize.value;
-            scatterFill.value=c.fill||scatterFill.value;
-            scatterBorder.value=c.border||scatterBorder.value;
-            scatterBorderWidth.value=c.borderWidth||scatterBorderWidth.value;
-            scatterAlpha.value=c.alpha||0;
-            scatterAlphaVal.textContent=scatterAlpha.value;
-            scatterLabelColors=c.labelColors||{};
-            scatterLabelShapes=c.labelShapes||{};
-            scatterShowGrid.checked=!!c.showGrid;
-            scatterShowFrame.checked=!!c.showFrame;
-            if(scatterShowLegend){
-              scatterShowLegend.checked = c.showLegend !== false;
-            }
-            scatterLogX.checked=!!c.logX;
-            scatterLogY.checked=!!c.logY;
-            scatterXMin.value=c.xMin||'';
-            scatterXMax.value=c.xMax||'';
-            scatterYMin.value=c.yMin||'';
-            scatterYMax.value=c.yMax||'';
-            scatterOriginMode.value=c.originMode||scatterOriginMode.value;
-            scatterOriginX.value=c.originX||'';
-            scatterOriginY.value=c.originY||'';
-            scatterShowLine.checked=!!c.showLine;
-            if(scatterShowIntervals){
-              scatterShowIntervals.checked=!!c.showIntervals;
-            }
-            if(scatterShowDiagnostics){
-              scatterShowDiagnostics.checked=!!c.showDiagnostics;
-            }
-            if(scatterGraphTypeSelect && c.graphType){
-              scatterGraphTypeSelect.value=c.graphType;
-            }
-            if(scatterLog2FCThreshold && c.log2fcThreshold!==undefined){
-              scatterLog2FCThreshold.value=c.log2fcThreshold;
-            }
-            if(scatterNegLogPThreshold && c.negLogPThreshold!==undefined){
-              scatterNegLogPThreshold.value=c.negLogPThreshold;
-            }
-            if(scatterRegressionMode && c.regression?.mode){
-              scatterRegressionMode.value=c.regression.mode;
-            }
-            scatterLastRegressionSummary = c.regression?.summary || null;
-            if(c.rotation){
-              scatterState.rotation = plot3d.createRotationState(c.rotation);
-              if(typeof plot3d.normalizeRotation === 'function'){
-                plot3d.normalizeRotation(scatterState.rotation);
-              }
-            } else {
-              scatterState.rotation = plot3d.createRotationState({ x: SCATTER_3D_DEFAULTS.rotationX, y: SCATTER_3D_DEFAULTS.rotationY });
-              if(typeof plot3d.normalizeRotation === 'function'){
-                plot3d.normalizeRotation(scatterState.rotation);
-              }
-            }
-            scatterState.supports3d = false;
-            if(typeof c.viewMode === 'string'){
-              const normalizedMode = String(c.viewMode).toLowerCase();
-              let storedMode = '2d';
-              if(normalizedMode === '3d'){
-                storedMode = '3d';
-              }else if(normalizedMode === 'bubble'){
-                storedMode = 'bubble';
-              }
-              scatterState.supportsBubble = false;
-              applyScatterViewMode(storedMode, {
-                allow3d: true,
-                allowBubble: true,
-                skipSchedule: true,
-                forceUpdate: true,
-                persistRequest: true
-              });
-            }
-            if(c.axis){
-              applyScatterAxisSettings({
-                strokeWidth: c.axis.strokeWidth,
-                color: c.axis.color,
-                tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
-                tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null
-              });
-              console.debug('Debug: scatter axis settings restored',{ axis: ensureScatterAxisSettings() });
-            }
-            syncScatterGraphTypeUI();
-            scheduleDrawScatter();
           }catch(err){console.error('loadScatterGraph error',err);}
         };
         reader.readAsText(file);
@@ -3939,8 +3977,29 @@
     scatter.saveAs = saveAsScatterFile;
     scatter.open = openScatterFile;
     scatter.loadFromFile = loadScatterGraphFile;
+    scatter.loadFromPayload = function loadScatterFromPayload(payload){
+      if(!applyScatterPayload(payload, { source: 'payload' })){
+        console.warn('scatter payload application failed', { source: 'payload' });
+      }
+    };
     scatter.getPayload = getScatterGraphPayload;
+    scatter.createEmptyPayload = function createEmptyScatterPayload(){
+      scatter.ensure();
+      ensureEmptyPayloadTemplate();
+      const payload = cloneSimple(emptyPayloadTemplate) || { type: 'scatter', config: {} };
+      payload.type = 'scatter';
+      const createEmpty = Shared.createEmptyData;
+      const emptyData = typeof createEmpty === 'function'
+        ? createEmpty(DEFAULT_ROWS, DEFAULT_COLS)
+        : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+      payload.data = emptyData;
+      payload.exclusions = [];
+      payload.series = Array.isArray(payload.series) ? [] : [];
+      payload.stats = null;
+      return payload;
+    };
     scatter.serialize = serializeSvg;
+    ensureEmptyPayloadTemplate();
     scatter.ready = true;
     console.debug('Debug: Components.scatter.setup complete');
   }

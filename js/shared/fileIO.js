@@ -3,6 +3,7 @@
 
   const Shared = global.Shared = global.Shared || {};
   const fileIO = Shared.fileIO = Shared.fileIO || {};
+  const payloadBlobMap = new WeakMap();
 
   const DEFAULT_FILE_TYPES = [{description: 'Graph Files', accept: {'application/json': ['.graph']}}];
 
@@ -20,6 +21,23 @@
     }
     return DEFAULT_FILE_TYPES;
   }
+
+  function registerPayloadBlob(blob, payload){
+    if(!blob) return;
+    payloadBlobMap.set(blob, { value: payload, hasValue: true });
+  }
+
+  function consumePayloadBlob(blob){
+    if(!blob) return null;
+    const entry = payloadBlobMap.get(blob);
+    if(entry){
+      payloadBlobMap.delete(blob);
+      return entry;
+    }
+    return null;
+  }
+
+  fileIO.registerPayloadBlob = registerPayloadBlob;
 
   function ensureSetter(setter, value){
     if(typeof setter === 'function'){
@@ -252,6 +270,46 @@
     console.warn('fileIO.openGraphFile no picker or trigger', { context });
     return { status: 'error', via: 'none', error: new Error('No file picker or trigger available') };
   };
+
+  (function installPayloadAwareReader(){
+    const Reader = global.FileReader;
+    if(!Reader || Reader.prototype?.__vennPayloadPatch){
+      return;
+    }
+    const originalReadAsText = Reader.prototype.readAsText;
+    if(typeof originalReadAsText !== 'function'){
+      return;
+    }
+    Reader.prototype.readAsText = function patchedReadAsText(blob, encoding){
+      const entry = consumePayloadBlob(blob);
+      if(entry){
+        let serialized = '';
+        try{
+          serialized = typeof entry.value === 'string' ? entry.value : JSON.stringify(entry.value);
+        }catch(err){
+          console.error('fileIO.payloadReader serialization error', err);
+        }
+        this.result = serialized;
+        debug('payloadReader.apply', { length: serialized.length });
+        try{
+          if(typeof this.onload === 'function'){
+            this.onload({ target: this });
+          }
+        }catch(handlerErr){
+          console.error('fileIO.payloadReader onload error', handlerErr);
+        }
+        return;
+      }
+      return originalReadAsText.call(this, blob, encoding);
+    };
+    Object.defineProperty(Reader.prototype, '__vennPayloadPatch', {
+      value: true,
+      configurable: false,
+      enumerable: false,
+      writable: false
+    });
+    debug('payloadReader.installed', { patched: true });
+  })();
 
   // Expose helpers for legacy callers expecting globals
   global.downloadJSON = fileIO.downloadJSON;

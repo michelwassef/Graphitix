@@ -24,6 +24,27 @@
 
   const DEFAULT_ROWS = 100;
   const SURVIVAL_DEFAULT_COLS = 7;
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('survival cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getPayload !== 'function'){
+      return;
+    }
+    const snapshot = getPayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
   const BASE_COLUMN_COUNT = 4; // group, time, event, entry time
   const SURVIVAL_COL_HEADERS = [
     'Group',
@@ -2540,6 +2561,41 @@
     return payload;
   }
   survival.getPayload = getGraphPayload;
+  survival.createEmptyPayload = function createEmptySurvivalPayload(){
+    survival.ensure();
+    ensureEmptyPayloadTemplate();
+    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'survival', config: {} };
+    payload.type = 'survival';
+    const createEmpty = Shared.createEmptyData;
+    const emptyData = typeof createEmpty === 'function'
+      ? createEmpty(DEFAULT_ROWS, SURVIVAL_DEFAULT_COLS)
+      : Array.from({ length: DEFAULT_ROWS }, () => Array(SURVIVAL_DEFAULT_COLS).fill(''));
+    payload.data = emptyData;
+    payload.exclusions = [];
+    payload.stats = null;
+    return payload;
+  };
+
+  function applySurvivalPayload(payload, meta){
+    const source = meta?.source || 'unknown';
+    if(!payload || payload.type !== 'survival'){
+      logDebug('payload rejected', { source, hasType: !!payload?.type });
+      return false;
+    }
+    if(Array.isArray(payload.data) && state.hot){
+      state.hot.loadData(payload.data);
+      if(payload.exclusions){
+        state.hot.applyExclusions?.(payload.exclusions);
+      }
+    }
+    applyConfig(payload.config);
+    state.lastStats = payload.stats || null;
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+    logDebug('payload applied', { source, rows: payload.data?.length || 0, hasStats: !!payload.stats });
+    return true;
+  }
 
   function applyConfig(config){
     if(!config){
@@ -2588,33 +2644,43 @@
   }
 
   function loadFromFile(file){
-    const reader = new FileReader();
-    reader.onload = event => {
-      try {
-        const payload = JSON.parse(event.target.result);
-        if(payload?.type !== 'survival'){
-          throw new Error('Invalid survival graph payload');
-        }
-        if(Array.isArray(payload.data) && state.hot){
-          state.hot.loadData(payload.data);
-          if(payload.exclusions){
-            state.hot.applyExclusions?.(payload.exclusions);
+    const apply = payload => applySurvivalPayload(payload, { source: 'file' });
+    if(file instanceof Blob){
+      const reader = new FileReader();
+      reader.onload = event => {
+        try {
+          const parsed = JSON.parse(event.target.result);
+          if(!apply(parsed)){
+            logDebug('payload rejected from file', { source: 'file', hasType: !!parsed?.type });
           }
+        } catch (error){
+          console.error('Failed to load survival graph', error);
         }
-        applyConfig(payload.config);
-        state.lastStats = payload.stats || null;
-        logDebug('stats restored from file', { hasStats: !!payload.stats });
-        if(state.scheduleDraw){
-          state.scheduleDraw();
+      };
+      reader.readAsText(file);
+      return;
+    }
+    if(typeof file === 'string'){
+      try {
+        const parsed = JSON.parse(file);
+        if(!apply(parsed)){
+          logDebug('payload rejected from string', { source: 'string' });
         }
-        logDebug('file loaded', { rows: payload.data?.length });
       } catch (error){
-        console.error('Failed to load survival graph', error);
+        console.error('Failed to load survival graph from string', error);
       }
-    };
-    reader.readAsText(file);
+      return;
+    }
+    if(file && typeof file === 'object'){
+      apply(file);
+    }
   }
   survival.loadFromFile = loadFromFile;
+  survival.loadFromPayload = function loadFromPayload(payload){
+    if(!applySurvivalPayload(payload, { source: 'payload' })){
+      logDebug('payload rejected from Main payload', { source: 'payload' });
+    }
+  };
 
   async function saveFile(){
     const payload = getGraphPayload();
@@ -2847,6 +2913,7 @@
       covariateColumns: state.covariateColumns || [],
       logRank: { available: false }
     });
+    ensureEmptyPayloadTemplate();
     survival.ready = true;
     state.scheduleDraw?.();
     logDebug('component initialized', { ready: survival.ready });

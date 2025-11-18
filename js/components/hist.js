@@ -5,6 +5,27 @@
   const NS='http://www.w3.org/2000/svg';
   const HIST_DEFAULT_ROWS=100;
   const HIST_DEFAULT_COLS=1;
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('hist cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getPayload !== 'function'){
+      return;
+    }
+    const snapshot = getPayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
 
@@ -564,7 +585,7 @@
           alpha:state.distributionSettings.alpha
         }
       };
-      const payload = {
+    const payload = {
         type:'hist',
         data: state.hot.getData(),
         exclusions: state.hot?.exportExclusions?.() || Shared.hot.exportExclusions(state.hot),
@@ -577,7 +598,109 @@
       });
       return payload;
     }
+    function applyHistPayload(payload, meta){
+      const source = meta?.source || 'unknown';
+      if(!payload || payload.type !== 'hist'){
+        console.warn('hist payload rejected', { source, hasType: !!payload?.type });
+        return false;
+      }
+      const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
+      if(state.hot && typeof state.hot.loadData === 'function'){
+        state.hot.loadData(dataMatrix);
+        if(payload.exclusions && typeof state.hot.applyExclusions === 'function'){
+          state.hot.applyExclusions(payload.exclusions);
+        }
+      }
+      const config = payload.config || {};
+      importFontStyles('hist', config.fontStyles || null);
+      state.titleText = config.title || state.titleText;
+      state.xLabelText = config.xLabel || state.xLabelText;
+      state.yLabelText = config.yLabel || state.yLabelText;
+      const histFillInput = document.getElementById('histFill');
+      if(histFillInput){ histFillInput.value = config.fill || histFillInput.value; }
+      const histBorderInput = document.getElementById('histBorder');
+      if(histBorderInput){ histBorderInput.value = config.border || histBorderInput.value; }
+      const histBorderWidthInput = document.getElementById('histBorderWidth');
+      if(histBorderWidthInput){ histBorderWidthInput.value = config.borderWidth || histBorderWidthInput.value; }
+      const histBinsInput = document.getElementById('histBins');
+      if(histBinsInput){ histBinsInput.value = config.bins || histBinsInput.value; }
+      const histShowGridInput = document.getElementById('histShowGrid');
+      if(histShowGridInput){ histShowGridInput.checked = !!config.showGrid; }
+      const histShowFrameInput = document.getElementById('histShowFrame');
+      if(histShowFrameInput){ histShowFrameInput.checked = config.showFrame !== false; }
+      const histLogYInput = document.getElementById('histLogY');
+      if(histLogYInput){ histLogYInput.checked = !!config.logY; }
+      const histFontInput = document.getElementById('histFontSize');
+      const histFontSizeVal = document.getElementById('histFontSizeVal');
+      if(histFontInput){
+        histFontInput.value = config.fontSize || histFontInput.value;
+        if(histFontInput.dataset){
+          histFontInput.dataset.fontBasePt = String(histFontInput.value);
+          console.debug('Debug: hist font size base restored',{ value: histFontInput.value });
+        }
+        chartStyle.renderFontSizeLabel({ element: histFontSizeVal, pt: Number(histFontInput.value), input: histFontInput, manual: true });
+      }
+      const axisConfig = config.axis || config.axisSettings;
+      if(axisConfig){
+        applyAxisSettings({
+          strokeWidth: axisConfig.strokeWidth,
+          color: axisConfig.color,
+          tickIntervalX: axisConfig.tickIntervalX ?? axisConfig.xTickInterval ?? axisConfig?.x?.tickInterval ?? null,
+          tickIntervalY: axisConfig.tickIntervalY ?? axisConfig.yTickInterval ?? axisConfig?.y?.tickInterval ?? null
+        });
+        console.debug('Debug: hist axis settings restored',{ axis: ensureAxisSettings() });
+      }
+      if(!Array.isArray(state.distributionOptions) || !state.distributionOptions.length){
+        state.distributionOptions = getDistributionOptions();
+      }
+      const defaultSelections = mergeDistributionSelections({}, state.distributionOptions);
+      if(config.distributions){
+        const selections = { ...defaultSelections };
+        const selectedKeys = Array.isArray(config.distributions.selected) ? config.distributions.selected : [];
+        Object.keys(selections).forEach(key => {
+          selections[key] = selectedKeys.includes(key);
+        });
+        state.distributionSettings.selections = selections;
+        state.distributionSettings.showPdf = config.distributions.showPdf !== undefined ? !!config.distributions.showPdf : state.distributionSettings.showPdf;
+        state.distributionSettings.showCdf = config.distributions.showCdf !== undefined ? !!config.distributions.showCdf : state.distributionSettings.showCdf;
+        const alphaCandidate = Number(config.distributions.alpha);
+        if(Number.isFinite(alphaCandidate) && alphaCandidate > 0){
+          state.distributionSettings.alpha = alphaCandidate;
+        }
+      } else {
+        state.distributionSettings.selections = mergeDistributionSelections(defaultSelections, state.distributionOptions);
+      }
+      if(state.distributionInputs?.checkboxes){
+        Object.entries(state.distributionInputs.checkboxes).forEach(([key,input]) => {
+          if(input){ input.checked = !!state.distributionSettings.selections[key]; }
+        });
+      }
+      if(state.distributionInputs?.showPdf){
+        state.distributionInputs.showPdf.checked = !!state.distributionSettings.showPdf;
+      }
+      if(state.distributionInputs?.showCdf){
+        state.distributionInputs.showCdf.checked = !!state.distributionSettings.showCdf;
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+      console.debug('Debug: hist payload applied', { source, rows: dataMatrix.length });
+      return true;
+    }
     hist.getPayload = getPayload;
+    hist.createEmptyPayload = function createEmptyHistPayload(){
+      hist.ensure();
+      ensureEmptyPayloadTemplate();
+      const payload = cloneSimple(emptyPayloadTemplate) || { type: 'hist', config: {} };
+      payload.type = 'hist';
+      const createEmpty = Shared.createEmptyData;
+      const emptyData = typeof createEmpty === 'function'
+        ? createEmpty(HIST_DEFAULT_ROWS, HIST_DEFAULT_COLS)
+        : Array.from({ length: HIST_DEFAULT_ROWS }, () => Array(HIST_DEFAULT_COLS).fill(''));
+      payload.data = emptyData;
+      payload.exclusions = [];
+      return payload;
+    };
     hist.save = async function(){
       console.debug('Debug: hist.save invoked', { hasHandle: !!state.fileHandle });
       if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
@@ -633,107 +756,41 @@
       console.debug('Debug: hist.open result', result);
     };
     hist.loadFromFile = function(file){
-      const reader=new FileReader();
-      reader.onload=e=>{
+      const apply = payload => applyHistPayload(payload, { source: 'file' });
+      if(file instanceof Blob){
+        const reader=new FileReader();
+        reader.onload=e=>{
+          try{
+            const obj=JSON.parse(e.target.result);
+            if(!apply(obj)){
+              console.warn('hist payload rejected from file', { hasType: !!obj?.type });
+            }
+          }catch(err){
+            console.error('loadHistGraph error',err);
+          }
+        };
+        reader.readAsText(file);
+        return;
+      }
+      if(typeof file === 'string'){
         try{
-          const obj=JSON.parse(e.target.result);
-          console.log('loadHistGraph',obj);
-          if(obj.type!=='hist') throw new Error('Invalid graph type');
-          state.hot.loadData(obj.data||[]);
-          if(obj.exclusions){
-            state.hot.applyExclusions?.(obj.exclusions);
+          const parsed = JSON.parse(file);
+          if(!apply(parsed)){
+            console.warn('hist payload rejected from string');
           }
-          const c=obj.config||{};
-          importFontStyles('hist', c.fontStyles || null);
-          state.titleText=c.title||state.titleText;
-          state.xLabelText=c.xLabel||state.xLabelText;
-          state.yLabelText=c.yLabel||state.yLabelText;
-          $('#histFill').value=c.fill||$('#histFill').value;
-          $('#histBorder').value=c.border||$('#histBorder').value;
-          $('#histBorderWidth').value=c.borderWidth||$('#histBorderWidth').value;
-          $('#histBins').value=c.bins||$('#histBins').value;
-          $('#histShowGrid').checked=!!c.showGrid;
-          $('#histLogY').checked=!!c.logY;
-          const histFontInput=$('#histFontSize');
-          histFontInput.value=c.fontSize||histFontInput.value;
-          if(histFontInput.dataset){
-            histFontInput.dataset.fontBasePt = String(histFontInput.value);
-            console.debug('Debug: hist font size base restored',{ value: histFontInput.value }); // Debug: restore base from file
-          }
-          chartStyle.renderFontSizeLabel({ element: $('#histFontSizeVal'), pt: Number(histFontInput.value), input: histFontInput, manual: true });
-          if(c.axis){
-            applyAxisSettings({
-              strokeWidth: c.axis.strokeWidth,
-              color: c.axis.color,
-              tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
-              tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null
-            });
-            console.debug('Debug: hist axis settings restored',{ axis: ensureAxisSettings() });
-          }
-          if(!Array.isArray(state.distributionOptions) || !state.distributionOptions.length){
-            state.distributionOptions = getDistributionOptions();
-          }
-          const defaultSelections = mergeDistributionSelections({}, state.distributionOptions);
-          if(c.distributions){
-            const selections = { ...defaultSelections };
-            const selectedKeys = Array.isArray(c.distributions.selected) ? c.distributions.selected : [];
-            Object.keys(selections).forEach(key => {
-              selections[key] = selectedKeys.includes(key);
-            });
-            state.distributionSettings.selections = selections;
-            state.distributionSettings.showPdf = c.distributions.showPdf !== undefined ? !!c.distributions.showPdf : state.distributionSettings.showPdf;
-            state.distributionSettings.showCdf = c.distributions.showCdf !== undefined ? !!c.distributions.showCdf : state.distributionSettings.showCdf;
-            const alphaCandidate = Number(c.distributions.alpha);
-            if(Number.isFinite(alphaCandidate) && alphaCandidate > 0){
-              state.distributionSettings.alpha = alphaCandidate;
-            }
-            if(state.distributionInputs?.checkboxes){
-              Object.entries(state.distributionInputs.checkboxes).forEach(([key,input])=>{
-                if(input){
-                  input.checked = !!state.distributionSettings.selections[key];
-                }
-              });
-            }
-            if(state.distributionInputs?.showPdf){
-              state.distributionInputs.showPdf.checked = !!state.distributionSettings.showPdf;
-            }
-            if(state.distributionInputs?.showCdf){
-              state.distributionInputs.showCdf.checked = !!state.distributionSettings.showCdf;
-            }
-            console.debug('Debug: hist distributions restored',{
-              selections: selectedKeys,
-              showPdf: state.distributionSettings.showPdf,
-              showCdf: state.distributionSettings.showCdf,
-              alpha: state.distributionSettings.alpha
-            });
-          } else {
-            state.distributionSettings.selections = mergeDistributionSelections(defaultSelections, state.distributionOptions);
-            if(state.distributionInputs?.checkboxes){
-              Object.entries(state.distributionInputs.checkboxes).forEach(([key,input])=>{
-                if(input){
-                  input.checked = !!state.distributionSettings.selections[key];
-                }
-              });
-            }
-            if(state.distributionInputs?.showPdf){
-              state.distributionInputs.showPdf.checked = !!state.distributionSettings.showPdf;
-            }
-            if(state.distributionInputs?.showCdf){
-              state.distributionInputs.showCdf.checked = !!state.distributionSettings.showCdf;
-            }
-            console.debug('Debug: hist distributions restored defaults',{
-              selections: state.distributionSettings.selections,
-              showPdf: state.distributionSettings.showPdf,
-              showCdf: state.distributionSettings.showCdf,
-              alpha: state.distributionSettings.alpha
-            });
-          }
-          state.scheduleDraw();
         }catch(err){
-          console.error('loadHistGraph error',err);
+          console.error('loadHistGraph string parse error',err);
         }
-      };
-      reader.readAsText(file);
+        return;
+      }
+      if(file && typeof file === 'object'){
+        apply(file);
+      }
+    };
+    hist.loadFromPayload = function loadFromPayload(payload){
+      if(!applyHistPayload(payload, { source: 'payload' })){
+        console.warn('hist payload application failed', { source: 'payload' });
+      }
     };
     // Wire buttons
     document.getElementById('openHistGraph')?.addEventListener('click', hist.open);
@@ -1264,6 +1321,7 @@
     state.scheduleDraw = Shared.debounceFrame(draw);
     console.debug('Debug: hist scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    ensureEmptyPayloadTemplate();
     hist.ready = true;
   };
 

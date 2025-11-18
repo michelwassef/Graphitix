@@ -47,6 +47,27 @@
 
   const DEFAULT_ROWS = 100;
   const ROC_DEFAULT_COLS = 3;
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('roc cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getPayload !== 'function'){
+      return;
+    }
+    const snapshot = getPayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
@@ -1649,6 +1670,58 @@
     return payload;
   }
   roc.getPayload = getPayload;
+  roc.createEmptyPayload = function createEmptyRocPayload(){
+    roc.ensure();
+    ensureEmptyPayloadTemplate();
+    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'roc', config: {} };
+    payload.type = 'roc';
+    const createEmpty = Shared.createEmptyData;
+    const emptyData = typeof createEmpty === 'function'
+      ? createEmpty(DEFAULT_ROWS, ROC_DEFAULT_COLS)
+      : Array.from({ length: DEFAULT_ROWS }, () => Array(ROC_DEFAULT_COLS).fill(''));
+    payload.data = emptyData;
+    payload.exclusions = [];
+    payload.stats = null;
+    return payload;
+  };
+
+  function applyRocPayload(payload, meta){
+    const source = meta?.source || 'unknown';
+    if(!payload || payload.type !== 'roc'){
+      console.warn('roc payload rejected', { source, hasType: !!payload?.type });
+      return false;
+    }
+    const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
+    if(state.hot && typeof state.hot.loadData === 'function'){
+      state.hot.loadData(dataMatrix);
+      if(payload.exclusions && typeof state.hot.applyExclusions === 'function'){
+        state.hot.applyExclusions(payload.exclusions);
+      }
+    }
+    const config = payload.config || {};
+    importFontStyles('roc', config.fontStyles || null);
+    if(refs.borderWidth) refs.borderWidth.value = config.borderWidth || refs.borderWidth.value;
+    if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
+    if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
+    if(refs.showLegend){
+      refs.showLegend.checked = config.showLegend !== false;
+      ensureRocLegendControlPlacement();
+    }
+    if(refs.fontSize) refs.fontSize.value = config.fontSize || refs.fontSize.value;
+    updateFontSizeLabel();
+    state.labelColors = config.labelColors || {};
+    if(refs.graphType) refs.graphType.value = config.graphType || refs.graphType.value;
+    const axisConfig = config.axis || config.axisSettings;
+    if(axisConfig){
+      applyAxisSettings(axisConfig);
+    }
+    renderStatsControls();
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+    console.debug('Debug: roc payload applied', { source, rows: dataMatrix.length, graphType: refs.graphType?.value });
+    return true;
+  }
 
   async function saveFile(){
     const payload = getPayload();
@@ -1688,38 +1761,36 @@
   }
 
   function loadFromFile(file){
-    const reader = new FileReader();
-    reader.onload = event => {
+    const apply = payload => applyRocPayload(payload, { source: 'file' });
+    if(file instanceof Blob){
+      const reader = new FileReader();
+      reader.onload = event => {
+        try{
+          const obj = JSON.parse(event.target.result);
+          if(!apply(obj)){
+            console.warn('roc payload rejected from file', { hasType: !!obj?.type });
+          }
+        }catch(err){
+          console.error('loadRocGraph error', err);
+        }
+      };
+      reader.readAsText(file);
+      return;
+    }
+    if(typeof file === 'string'){
       try{
-        const obj = JSON.parse(event.target.result);
-        if(obj.type !== 'roc'){
-          throw new Error('Invalid graph type');
+        const parsed = JSON.parse(file);
+        if(!apply(parsed)){
+          console.warn('roc payload rejected from string');
         }
-        state.hot?.loadData(obj.data || []);
-        if(obj.exclusions){
-          state.hot?.applyExclusions?.(obj.exclusions);
-        }
-        const config = obj.config || {};
-        importFontStyles('roc', config.fontStyles || null);
-        if(refs.borderWidth) refs.borderWidth.value = config.borderWidth || refs.borderWidth.value;
-        if(refs.showGrid) refs.showGrid.checked = !!config.showGrid;
-        if(refs.showFrame) refs.showFrame.checked = !!config.showFrame;
-        if(refs.showLegend){
-          refs.showLegend.checked = config.showLegend !== false;
-          ensureRocLegendControlPlacement();
-        }
-        if(refs.fontSize) refs.fontSize.value = config.fontSize || refs.fontSize.value;
-        updateFontSizeLabel();
-        state.labelColors = config.labelColors || {};
-        if(refs.graphType) refs.graphType.value = config.graphType || refs.graphType.value;
-        applyAxisSettings(config.axis || config.axisSettings);
-        renderStatsControls();
-        state.scheduleDraw?.();
       }catch(err){
-        console.error('loadRocGraph error', err);
+        console.error('loadRocGraph string parse error', err);
       }
-    };
-    reader.readAsText(file);
+      return;
+    }
+    if(file && typeof file === 'object'){
+      apply(file);
+    }
   }
 
   async function openFile(){
@@ -1847,6 +1918,7 @@
     initExampleAndImport();
     initExportsAndFiles();
     state.scheduleDraw?.();
+    ensureEmptyPayloadTemplate();
     roc.ready = true;
     console.debug('Debug: ROC component initialized');
     global.scheduleDrawRoc = () => state.scheduleDraw?.();
@@ -1859,6 +1931,11 @@
   roc.saveAs = saveFileAs;
   roc.open = openFile;
   roc.loadFromFile = loadFromFile;
+  roc.loadFromPayload = function loadFromPayload(payload){
+    if(!applyRocPayload(payload, { source: 'payload' })){
+      console.warn('roc payload application failed', { source: 'payload' });
+    }
+  };
 })(window);
 
 

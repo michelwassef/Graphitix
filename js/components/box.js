@@ -1663,6 +1663,27 @@
   }
   // Local state and element cache
   const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER };
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('box cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getPayload !== 'function'){
+      return;
+    }
+    const snapshot = getPayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
   const boxUndoManager = Shared.undoManager || null;
   function recordBoxChange(label, previous, next, apply){
     if(!boxUndoManager || typeof boxUndoManager.recordStateChange !== 'function'){
@@ -8062,6 +8083,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     return payload;
   }
   box.getPayload = getPayload;
+  box.createEmptyPayload = function createEmptyBoxPayload(){
+    box.ensure();
+    ensureEmptyPayloadTemplate();
+    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'box', config: {} };
+    payload.type = 'box';
+    const createEmpty = Shared.createEmptyData;
+    const emptyData = typeof createEmpty === 'function'
+      ? createEmpty(DEFAULT_ROWS, DEFAULT_COLS)
+      : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+    payload.data = emptyData;
+    payload.exclusions = [];
+    if(payload.config){
+      payload.config.stats = payload.config.stats || {};
+      payload.config.stats.selectedColumns = [];
+      payload.config.stats.pairsText = '';
+    }
+    return payload;
+  };
   box.save = async function(){
     console.debug('Debug: box.save invoked', { hasHandle: !!state.fileHandle });
     if(!fileIO || typeof fileIO.saveGraphFile !== 'function'){
@@ -8116,281 +8155,301 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     });
     console.debug('Debug: box.open result', result);
   };
+  function applyBoxPayload(obj, meta = {}){
+    if(!obj || typeof obj !== 'object'){
+      console.error('box payload missing or invalid', { meta });
+      return false;
+    }
+    const version=Number.isFinite(obj?.version)?Number(obj.version):Number(obj?.version)||Number(obj?.configVersion)||1;
+    console.debug('Debug: box.applyPayload version parse',{ version, hasStats:!!obj?.config?.stats, hasEffectOptions:!!obj?.config?.stats?.effectParametric });
+    if(obj.type && obj.type!=='box'){
+      console.error('Invalid graph type for box payload', { type: obj.type, meta });
+      return false;
+    }
+    state.hot.loadData(obj.data||[]);
+    if(obj.exclusions){
+      state.hot.applyExclusions?.(obj.exclusions);
+    }
+    const c=obj.config||{};
+    importFontStyles('box', c.fontStyles || null);
+    state.titleText=c.title||state.titleText;
+    state.yLabelText=c.yLabel||state.yLabelText;
+    els.boxFill.value=c.fill||els.boxFill.value;
+    els.boxBorder.value=c.border||els.boxBorder.value;
+    els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value;
+    if(els.boxErrorBarWidth){
+      if(c.errorBarWidth != null){
+        els.boxErrorBarWidth.value = c.errorBarWidth;
+      }else if(!els.boxErrorBarWidth.value){
+        els.boxErrorBarWidth.value = els.boxBorderWidth.value;
+      }
+    }
+    els.boxFontSize.value=c.fontSize||els.boxFontSize.value;
+    if(els.boxFontSize.dataset){
+      els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
+      console.debug('Debug: box font size base restored',{ value: els.boxFontSize.value });
+    }
+    chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
+    els.boxShowGrid.checked=!!c.showGrid;
+    if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
+    if(els.boxShowLegend) els.boxShowLegend.checked=c.showLegend !== false;
+    els.boxLogScale.checked=!!c.logScale;
+    els.boxGraphType.value=c.graphType||els.boxGraphType.value;
+    const violinConfig = c.violin || {};
+    const violinState = ensureViolinState();
+    violinState.autoBandwidth = violinConfig.autoBandwidth === false ? false : true;
+    if(violinState.autoBandwidth){
+      violinState.bandwidth = null;
+    }else{
+      const manualCandidate = Number(violinConfig.bandwidth);
+      violinState.bandwidth = Number.isFinite(manualCandidate) && manualCandidate > 0 ? manualCandidate : null;
+    }
+    const restoredSamples = clampViolinSampleCount(violinConfig.sampleCount ?? violinState.sampleCount);
+    violinState.sampleCount = restoredSamples;
+    violinState.lastSampleCount = restoredSamples;
+    violinState.lastUsedBandwidth = violinState.bandwidth && violinState.bandwidth > 0 ? violinState.bandwidth : null;
+    syncViolinControlsFromState();
+    if(typeof els.updateGraphTypeControls === 'function'){
+      els.updateGraphTypeControls();
+    }
+    if(typeof c.groupLayout === 'string'){
+      const allowedLayouts = new Set(['interleaved','separated','stacked']);
+      const requestedLayout = allowedLayouts.has(c.groupLayout) ? c.groupLayout : 'interleaved';
+      state.groupLayout = requestedLayout;
+    }else if(typeof state.groupLayout !== 'string'){
+      state.groupLayout = 'interleaved';
+    }
+    if(els.boxLayoutMode){
+      let uiLayout = state.groupLayout;
+      if(uiLayout === 'stacked' && els.boxGraphType.value !== 'bar'){
+        uiLayout = 'interleaved';
+        state.groupLayout = uiLayout;
+      }
+      const allowedLayouts = new Set(['interleaved','separated','stacked']);
+      if(!allowedLayouts.has(uiLayout)){
+        uiLayout = 'interleaved';
+        state.groupLayout = uiLayout;
+      }
+      els.boxLayoutMode.value = uiLayout;
+      Array.from(els.boxLayoutMode.options || []).forEach(option => {
+        if(option.value === 'stacked'){
+          option.disabled = els.boxGraphType.value !== 'bar';
+        }
+      });
+    }
+    const allowedSummaries = new Set(['mean','median','none']);
+    if(typeof c.individualSummary === 'string' && allowedSummaries.has(c.individualSummary)){
+      state.individualSummary = c.individualSummary;
+    }else if(!allowedSummaries.has(state.individualSummary)){
+      state.individualSummary = 'mean';
+    }
+    if(els.boxIndividualSummary){
+      const summaryValue = allowedSummaries.has(state.individualSummary) ? state.individualSummary : 'mean';
+      els.boxIndividualSummary.value = summaryValue;
+    }
+    els.boxPointMode.value=c.pointMode||els.boxPointMode.value;
+    els.boxShowCaps.checked=!!c.showCaps;
+    state.showSignificanceBars = !!c.showSignificanceBars;
+    if(els.boxShowSignificance){
+      els.boxShowSignificance.checked = state.showSignificanceBars;
+    }
+    els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value;
+    if(c.whisker){
+      if(c.whisker.customMultiplier != null){
+        state.whiskerCustomMultiplier = clampWhiskerMultiplier(c.whisker.customMultiplier);
+      }
+      const metaWhisker = ensureWhiskerState(c.whisker.rule);
+      state.whiskerRule = metaWhisker.key;
+    }else{
+      ensureWhiskerState();
+    }
+    syncWhiskerControlsFromState();
+    if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
+      console.debug('Debug: box whisker config restored',{ rule: state.whiskerRule, multiplier: state.whiskerCustomMultiplier });
+    }
+    const graphTypeValue = els.boxGraphType.value;
+    if(els.boxErrorModeCtl){
+      els.boxErrorModeCtl.style.display = graphTypeValue==='bar'?'':'none';
+    }
+    if(els.boxErrorBarWidthCtl){
+      const showErrorThickness = graphTypeValue==='bar' || graphTypeValue==='strip' || graphTypeValue==='box' || graphTypeValue==='notched';
+      els.boxErrorBarWidthCtl.style.display = showErrorThickness ? 'inline-flex' : 'none';
+    }
+    if(els.boxIndividualSummaryCtl){
+      els.boxIndividualSummaryCtl.style.display = graphTypeValue==='strip' ? '' : 'none';
+    }
+    state.fillColors=c.colors||[];
+    state.borderColors=c.borderColors||[];
+    if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; }
+    toggleColorMode();
+    const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
+    if(c.grouped && typeof c.grouped === 'object'){
+      const groupCfg = c.grouped;
+      const repValue = Number(groupCfg.replicatesPerGroup);
+      if(Number.isFinite(repValue) && repValue >= 1){
+        state.grouped.replicatesPerGroup = Math.round(repValue);
+      }
+      if(Array.isArray(groupCfg.groups) && groupCfg.groups.length){
+        state.grouped.groups = groupCfg.groups.map((name, idx)=>{
+          const trimmed = typeof name === 'string' ? name.trim() : '';
+          return trimmed || `Group ${idx + 1}`;
+        });
+      }
+    }
+    setTableFormat(restoredFormat, { skipColorSwitch: true, skipDraw: true });
+    els.boxYMin.value=c.yMin||'';
+    els.boxYMax.value=c.yMax||'';
+    state.flipAxes=!!c.flipAxes;
+    if(els.boxFlipAxes){ els.boxFlipAxes.checked=state.flipAxes; }
+    if(c.axis && typeof c.axis === 'object'){
+      const axisCfg = c.axis;
+      const axisState = ensureAxisSettings();
+      if(axisCfg.strokeWidth !== undefined){
+        const numeric = Number(axisCfg.strokeWidth);
+        axisState.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+      }
+      if(typeof axisCfg.color === 'string' && axisCfg.color.trim()){
+        axisState.color = axisCfg.color;
+      } else {
+        axisState.color = DEFAULT_AXIS_COLOR;
+      }
+      const tickCfg = axisCfg.tickInterval || {};
+      const tickX = tickCfg.x;
+      const tickY = tickCfg.y;
+      axisState.x.tickInterval = Number.isFinite(Number(tickX)) && Number(tickX) > 0 ? Math.max(1, Math.round(Number(tickX))) : null;
+      axisState.y.tickInterval = Number.isFinite(Number(tickY)) && Number(tickY) > 0 ? Number(tickY) : null;
+      console.debug('Debug: box axis settings restored from payload',{
+        strokeWidth: axisState.strokeWidth,
+        color: axisState.color,
+        tickIntervalX: axisState.x.tickInterval,
+        tickIntervalY: axisState.y.tickInterval
+      });
+    } else {
+      state.axisSettings = createDefaultAxisSettings();
+      console.debug('Debug: box axis settings reset to default from payload');
+    }
+    const statsAnalysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
+    const labels=(statsAnalysis.data?.[0] || []).map(value=>value === null ? '' : value);
+    const labelCount=labels.length;
+    const statsConfig=c.stats||{};
+    state.statsTest=statsConfig.test==='nonparametric'?'nonparametric':'parametric';
+    state.statsPaired=!!statsConfig.paired;
+    const allowedModes=new Set(['all','reference','custom']);
+    state.statsMode=allowedModes.has(statsConfig.mode)?statsConfig.mode:'all';
+    state.statsCorrection=ensureValidCorrectionValue(statsConfig.correction || state.statsCorrection);
+    state.statsEffectParametric=ensureValidEffectOption('parametric',statsConfig.effectParametric || state.statsEffectParametric);
+    state.statsEffectNonParametric=ensureValidEffectOption('nonparametric',statsConfig.effectNonParametric || state.statsEffectNonParametric);
+    const variantCandidate=typeof statsConfig.parametricVariant==='string'?statsConfig.parametricVariant:'classic';
+    const allowedVariants=new Set(['classic','welch','nonparametric']);
+    state.statsParametricVariant=allowedVariants.has(variantCandidate)?variantCandidate:'classic';
+    if(state.statsTest!=='parametric'){
+      state.statsParametricVariant='nonparametric';
+    }
+    const candidateRef=Number(statsConfig.referenceIndex);
+    const maxIndex=labelCount>0?labelCount-1:-1;
+    if(Number.isInteger(candidateRef) && candidateRef>=0 && (maxIndex>=0?candidateRef<=maxIndex:true)){
+      state.statsRef=candidateRef;
+    }else if(maxIndex>=0 && state.statsRef>maxIndex){
+      state.statsRef=maxIndex;
+    }else if(!Number.isInteger(state.statsRef) || state.statsRef<0){
+      state.statsRef=0;
+    }
+    if(typeof statsConfig.pairsText==='string'){
+      state.statsPairsText=statsConfig.pairsText;
+    }else if(typeof state.statsPairsText!=='string'){
+      state.statsPairsText='';
+    }
+    ensureGroupedStatsDefaults();
+    const allowedGroupedAnalyses=new Set(['twoWayAnova','twoWayMixed','threeWayAnova','threeWayMixed','rowTTests']);
+    if(typeof statsConfig.groupedAnalysis==='string' && allowedGroupedAnalyses.has(statsConfig.groupedAnalysis)){
+      state.groupedStats.analysis=statsConfig.groupedAnalysis;
+    }else if(!allowedGroupedAnalyses.has(state.groupedStats.analysis)){
+      state.groupedStats.analysis='twoWayAnova';
+    }
+    const selectedFromFile=Array.isArray(statsConfig.selectedColumns)
+      ? statsConfig.selectedColumns
+          .map(idx=>Number(idx))
+          .filter(idx=>Number.isInteger(idx) && idx>=0 && (maxIndex>=0?idx<=maxIndex:true))
+      : [];
+    state.selectedCols=new Set(selectedFromFile);
+    if(state.statsMode==='reference' && !state.selectedCols.has(state.statsRef)){
+      state.selectedCols.add(state.statsRef);
+    }
+    const postHocContextOnLoad={
+      mode: state.statsMode,
+      test: state.statsTest,
+      paired: state.statsPaired,
+      groupCount: state.selectedCols.size || labels.filter(l=>l!=null && l!=='').length,
+      variant: state.statsParametricVariant,
+      varianceConcern: !!statsConfig.assumptions?.varianceConcern
+    };
+    const restoredPostHoc=ensureValidPostHoc(statsConfig.postHoc || state.statsPostHoc,postHocContextOnLoad);
+    if(restoredPostHoc!==state.statsPostHoc){
+      console.debug('Debug: box statsPostHoc restored',{ before:state.statsPostHoc, after:restoredPostHoc, context:postHocContextOnLoad });
+      state.statsPostHoc=restoredPostHoc;
+    }
+    state.statsCustomPairs=[];
+    if(statsConfig.assumptions){
+      const restoredAssumptions={
+        ...statsConfig.assumptions,
+        groups:Array.isArray(statsConfig.assumptions.groups)
+          ? statsConfig.assumptions.groups.map(group=>({ ...group }))
+          : [],
+        variance:statsConfig.assumptions.variance
+          ? { ...statsConfig.assumptions.variance }
+          : null,
+        warnings:Array.isArray(statsConfig.assumptions.warnings)
+          ? statsConfig.assumptions.warnings.slice()
+          : []
+      };
+      state.assumptionDiagnostics=restoredAssumptions;
+      console.debug('Debug: box assumption diagnostics restored',{ warningCount: restoredAssumptions.warnings.length });
+    }else{
+      state.assumptionDiagnostics=null;
+      console.debug('Debug: box assumption diagnostics cleared on load');
+    }
+    console.debug('Debug: box stats config restored', {
+      statsTest: state.statsTest,
+      statsMode: state.statsMode,
+      statsPaired: state.statsPaired,
+      statsRef: state.statsRef,
+      statsPostHoc: state.statsPostHoc,
+      statsCorrection: state.statsCorrection,
+      statsEffectParametric: state.statsEffectParametric,
+      statsEffectNonParametric: state.statsEffectNonParametric,
+      selectedCount: state.selectedCols.size,
+      hasPairsText: !!state.statsPairsText
+    });
+    const colorPickerRestoreLabels = state.tableFormat === 'grouped'
+      ? (ensureGroupedDefaults(), state.grouped.groups.map((name, idx)=>{ const trimmed = typeof name === 'string' ? name.trim() : ''; return trimmed || `Group ${idx + 1}`; }))
+      : labels;
+    console.debug('Debug: box restore color labels',{ tableFormat: state.tableFormat, labelCount: colorPickerRestoreLabels.length });
+    if(els.boxColorIndividual.checked){ updateBoxColorPickers(colorPickerRestoreLabels, { grouped: state.tableFormat === 'grouped' }); } else { els.boxColorPerBox.innerHTML=''; }
+    ensureBoxLegendControlPlacement();
+    state.scheduleDraw();
+    console.debug('Debug: box payload applied', { source: meta.source || 'unknown', rows: obj.data?.length || 0 });
+    return true;
+  }
+
   box.loadFromFile = function(file){
     const reader=new FileReader();
     reader.onload=e=>{
       try{
         const obj=JSON.parse(e.target.result);
-        const version=Number.isFinite(obj?.version)?Number(obj.version):Number(obj?.version)||Number(obj?.configVersion)||1;
-        console.log('loadBoxGraph',obj);
-        console.debug('Debug: box.loadFromFile version parse',{ version, hasStats:!!obj?.config?.stats, hasEffectOptions:!!obj?.config?.stats?.effectParametric });
-        if(obj.type!=='box') throw new Error('Invalid graph type');
-        state.hot.loadData(obj.data||[]);
-        if(obj.exclusions){
-          state.hot.applyExclusions?.(obj.exclusions);
+        if(!applyBoxPayload(obj, { source: 'file' })){
+          console.warn('box payload rejected from file', { hasType: !!obj?.type });
         }
-        const c=obj.config||{};
-        importFontStyles('box', c.fontStyles || null);
-        state.titleText=c.title||state.titleText;
-        state.yLabelText=c.yLabel||state.yLabelText;
-        els.boxFill.value=c.fill||els.boxFill.value;
-        els.boxBorder.value=c.border||els.boxBorder.value;
-        els.boxBorderWidth.value=c.borderWidth||els.boxBorderWidth.value;
-        if(els.boxErrorBarWidth){
-          if(c.errorBarWidth != null){
-            els.boxErrorBarWidth.value = c.errorBarWidth;
-          }else if(!els.boxErrorBarWidth.value){
-            els.boxErrorBarWidth.value = els.boxBorderWidth.value;
-          }
-        }
-        els.boxFontSize.value=c.fontSize||els.boxFontSize.value;
-        if(els.boxFontSize.dataset){
-          els.boxFontSize.dataset.fontBasePt = String(els.boxFontSize.value);
-          console.debug('Debug: box font size base restored',{ value: els.boxFontSize.value }); // Debug: restore base from file
-        }
-        chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: Number(els.boxFontSize.value), input: els.boxFontSize, manual: true });
-        els.boxShowGrid.checked=!!c.showGrid;
-        if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
-        if(els.boxShowLegend) els.boxShowLegend.checked=c.showLegend !== false;
-        els.boxLogScale.checked=!!c.logScale;
-        els.boxGraphType.value=c.graphType||els.boxGraphType.value;
-        const violinConfig = c.violin || {};
-        const violinState = ensureViolinState();
-        violinState.autoBandwidth = violinConfig.autoBandwidth === false ? false : true;
-        if(violinState.autoBandwidth){
-          violinState.bandwidth = null;
-        }else{
-          const manualCandidate = Number(violinConfig.bandwidth);
-          violinState.bandwidth = Number.isFinite(manualCandidate) && manualCandidate > 0 ? manualCandidate : null;
-        }
-        const restoredSamples = clampViolinSampleCount(violinConfig.sampleCount ?? violinState.sampleCount);
-        violinState.sampleCount = restoredSamples;
-        violinState.lastSampleCount = restoredSamples;
-        violinState.lastUsedBandwidth = violinState.bandwidth && violinState.bandwidth > 0 ? violinState.bandwidth : null;
-        syncViolinControlsFromState();
-        if(typeof els.updateGraphTypeControls === 'function'){
-          els.updateGraphTypeControls();
-        }
-        if(typeof c.groupLayout === 'string'){
-          const allowedLayouts = new Set(['interleaved','separated','stacked']);
-          const requestedLayout = allowedLayouts.has(c.groupLayout) ? c.groupLayout : 'interleaved';
-          state.groupLayout = requestedLayout;
-        }else if(typeof state.groupLayout !== 'string'){
-          state.groupLayout = 'interleaved';
-        }
-        if(els.boxLayoutMode){
-          let uiLayout = state.groupLayout;
-          if(uiLayout === 'stacked' && els.boxGraphType.value !== 'bar'){
-            uiLayout = 'interleaved';
-            state.groupLayout = uiLayout;
-          }
-          const allowedLayouts = new Set(['interleaved','separated','stacked']);
-          if(!allowedLayouts.has(uiLayout)){
-            uiLayout = 'interleaved';
-            state.groupLayout = uiLayout;
-          }
-          els.boxLayoutMode.value = uiLayout;
-          Array.from(els.boxLayoutMode.options || []).forEach(option => {
-            if(option.value === 'stacked'){
-              option.disabled = els.boxGraphType.value !== 'bar';
-            }
-          });
-        }
-        const allowedSummaries = new Set(['mean','median','none']);
-        if(typeof c.individualSummary === 'string' && allowedSummaries.has(c.individualSummary)){
-          state.individualSummary = c.individualSummary;
-        }else if(!allowedSummaries.has(state.individualSummary)){
-          state.individualSummary = 'mean';
-        }
-        if(els.boxIndividualSummary){
-          const summaryValue = allowedSummaries.has(state.individualSummary) ? state.individualSummary : 'mean';
-          els.boxIndividualSummary.value = summaryValue;
-        }
-        els.boxPointMode.value=c.pointMode||els.boxPointMode.value;
-        els.boxShowCaps.checked=!!c.showCaps;
-        state.showSignificanceBars = !!c.showSignificanceBars;
-        if(els.boxShowSignificance){
-          els.boxShowSignificance.checked = state.showSignificanceBars;
-        }
-        els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value;
-        if(c.whisker){
-          if(c.whisker.customMultiplier != null){
-            state.whiskerCustomMultiplier = clampWhiskerMultiplier(c.whisker.customMultiplier);
-          }
-          const meta = ensureWhiskerState(c.whisker.rule);
-          state.whiskerRule = meta.key;
-        }else{
-          ensureWhiskerState();
-        }
-        syncWhiskerControlsFromState();
-        if(typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled()){
-          console.debug('Debug: box whisker config restored',{ rule: state.whiskerRule, multiplier: state.whiskerCustomMultiplier });
-        }
-        const graphTypeValue = els.boxGraphType.value;
-        if(els.boxErrorModeCtl){
-          els.boxErrorModeCtl.style.display = graphTypeValue==='bar'?'':'none';
-        }
-        if(els.boxErrorBarWidthCtl){
-          const showErrorThickness = graphTypeValue==='bar' || graphTypeValue==='strip' || graphTypeValue==='box' || graphTypeValue==='notched';
-          els.boxErrorBarWidthCtl.style.display = showErrorThickness ? 'inline-flex' : 'none';
-        }
-        if(els.boxIndividualSummaryCtl){
-          els.boxIndividualSummaryCtl.style.display = graphTypeValue==='strip' ? '' : 'none';
-        }
-        state.fillColors=c.colors||[];
-        state.borderColors=c.borderColors||[];
-        if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; }
-        toggleColorMode();
-        const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
-        if(c.grouped && typeof c.grouped === 'object'){
-          const groupCfg = c.grouped;
-          const repValue = Number(groupCfg.replicatesPerGroup);
-          if(Number.isFinite(repValue) && repValue >= 1){
-            state.grouped.replicatesPerGroup = Math.round(repValue);
-          }
-          if(Array.isArray(groupCfg.groups) && groupCfg.groups.length){
-            state.grouped.groups = groupCfg.groups.map((name, idx)=>{
-              const trimmed = typeof name === 'string' ? name.trim() : '';
-              return trimmed || `Group ${idx + 1}`;
-            });
-          }
-        }
-        setTableFormat(restoredFormat, { skipColorSwitch: true, skipDraw: true });
-        els.boxYMin.value=c.yMin||'';
-        els.boxYMax.value=c.yMax||'';
-        state.flipAxes=!!c.flipAxes;
-        if(els.boxFlipAxes){ els.boxFlipAxes.checked=state.flipAxes; }
-        if(c.axis && typeof c.axis === 'object'){
-          const axisCfg = c.axis;
-          const axisState = ensureAxisSettings();
-          if(axisCfg.strokeWidth !== undefined){
-            const numeric = Number(axisCfg.strokeWidth);
-            axisState.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
-          }
-          if(typeof axisCfg.color === 'string' && axisCfg.color.trim()){
-            axisState.color = axisCfg.color;
-          } else {
-            axisState.color = DEFAULT_AXIS_COLOR;
-          }
-          const tickCfg = axisCfg.tickInterval || {};
-          const tickX = tickCfg.x;
-          const tickY = tickCfg.y;
-          axisState.x.tickInterval = Number.isFinite(Number(tickX)) && Number(tickX) > 0 ? Math.max(1, Math.round(Number(tickX))) : null;
-          axisState.y.tickInterval = Number.isFinite(Number(tickY)) && Number(tickY) > 0 ? Number(tickY) : null;
-          console.debug('Debug: box axis settings restored from file',{
-            strokeWidth: axisState.strokeWidth,
-            color: axisState.color,
-            tickIntervalX: axisState.x.tickInterval,
-            tickIntervalY: axisState.y.tickInterval
-          });
-        } else {
-          state.axisSettings = createDefaultAxisSettings();
-          console.debug('Debug: box axis settings reset to default from file');
-        }
-        const statsAnalysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
-        const labels=(statsAnalysis.data?.[0] || []).map(value=>value === null ? '' : value);
-        const labelCount=labels.length;
-        const statsConfig=c.stats||{};
-        state.statsTest=statsConfig.test==='nonparametric'?'nonparametric':'parametric';
-        state.statsPaired=!!statsConfig.paired;
-        const allowedModes=new Set(['all','reference','custom']);
-        state.statsMode=allowedModes.has(statsConfig.mode)?statsConfig.mode:'all';
-        state.statsCorrection=ensureValidCorrectionValue(statsConfig.correction || state.statsCorrection);
-        state.statsEffectParametric=ensureValidEffectOption('parametric',statsConfig.effectParametric || state.statsEffectParametric);
-        state.statsEffectNonParametric=ensureValidEffectOption('nonparametric',statsConfig.effectNonParametric || state.statsEffectNonParametric);
-        const variantCandidate=typeof statsConfig.parametricVariant==='string'?statsConfig.parametricVariant:'classic';
-        const allowedVariants=new Set(['classic','welch','nonparametric']);
-        state.statsParametricVariant=allowedVariants.has(variantCandidate)?variantCandidate:'classic';
-        if(state.statsTest!=='parametric'){
-          state.statsParametricVariant='nonparametric';
-        }
-        const candidateRef=Number(statsConfig.referenceIndex);
-        const maxIndex=labelCount>0?labelCount-1:-1;
-        if(Number.isInteger(candidateRef) && candidateRef>=0 && (maxIndex>=0?candidateRef<=maxIndex:true)){
-          state.statsRef=candidateRef;
-        }else if(maxIndex>=0 && state.statsRef>maxIndex){
-          state.statsRef=maxIndex;
-        }else if(!Number.isInteger(state.statsRef) || state.statsRef<0){
-          state.statsRef=0;
-        }
-        if(typeof statsConfig.pairsText==='string'){
-          state.statsPairsText=statsConfig.pairsText;
-        }else if(typeof state.statsPairsText!=='string'){
-          state.statsPairsText='';
-        }
-        ensureGroupedStatsDefaults();
-        const allowedGroupedAnalyses=new Set(['twoWayAnova','twoWayMixed','threeWayAnova','threeWayMixed','rowTTests']);
-        if(typeof statsConfig.groupedAnalysis==='string' && allowedGroupedAnalyses.has(statsConfig.groupedAnalysis)){
-          state.groupedStats.analysis=statsConfig.groupedAnalysis;
-        }else if(!allowedGroupedAnalyses.has(state.groupedStats.analysis)){
-          state.groupedStats.analysis='twoWayAnova';
-        }
-        const selectedFromFile=Array.isArray(statsConfig.selectedColumns)
-          ? statsConfig.selectedColumns
-              .map(idx=>Number(idx))
-              .filter(idx=>Number.isInteger(idx) && idx>=0 && (maxIndex>=0?idx<=maxIndex:true))
-          : [];
-        state.selectedCols=new Set(selectedFromFile);
-        if(state.statsMode==='reference' && !state.selectedCols.has(state.statsRef)){
-          state.selectedCols.add(state.statsRef);
-        }
-        const postHocContextOnLoad={
-          mode: state.statsMode,
-          test: state.statsTest,
-          paired: state.statsPaired,
-          groupCount: state.selectedCols.size || labels.filter(l=>l!=null && l!=='').length,
-          variant: state.statsParametricVariant,
-          varianceConcern: !!statsConfig.assumptions?.varianceConcern
-        };
-        const restoredPostHoc=ensureValidPostHoc(statsConfig.postHoc || state.statsPostHoc,postHocContextOnLoad);
-        if(restoredPostHoc!==state.statsPostHoc){
-          console.debug('Debug: box statsPostHoc restored',{ before:state.statsPostHoc, after:restoredPostHoc, context:postHocContextOnLoad });
-          state.statsPostHoc=restoredPostHoc;
-        }
-        state.statsCustomPairs=[];
-        if(statsConfig.assumptions){
-          const restoredAssumptions={
-            ...statsConfig.assumptions,
-            groups:Array.isArray(statsConfig.assumptions.groups)
-              ? statsConfig.assumptions.groups.map(group=>({ ...group }))
-              : [],
-            variance:statsConfig.assumptions.variance
-              ? { ...statsConfig.assumptions.variance }
-              : null,
-            warnings:Array.isArray(statsConfig.assumptions.warnings)
-              ? statsConfig.assumptions.warnings.slice()
-              : []
-          };
-          state.assumptionDiagnostics=restoredAssumptions;
-          console.debug('Debug: box assumption diagnostics restored',{ warningCount: restoredAssumptions.warnings.length });
-        }else{
-          state.assumptionDiagnostics=null;
-          console.debug('Debug: box assumption diagnostics cleared on load');
-        }
-        console.debug('Debug: box stats config restored', {
-          statsTest: state.statsTest,
-          statsMode: state.statsMode,
-          statsPaired: state.statsPaired,
-          statsRef: state.statsRef,
-          statsPostHoc: state.statsPostHoc,
-          statsCorrection: state.statsCorrection,
-          statsEffectParametric: state.statsEffectParametric,
-          statsEffectNonParametric: state.statsEffectNonParametric,
-          selectedCount: state.selectedCols.size,
-          hasPairsText: !!state.statsPairsText
-        });
-        const colorPickerRestoreLabels = state.tableFormat === 'grouped'
-          ? (ensureGroupedDefaults(), state.grouped.groups.map((name, idx)=>{ const trimmed = typeof name === 'string' ? name.trim() : ''; return trimmed || `Group ${idx + 1}`; }))
-          : labels;
-        console.debug('Debug: box restore color labels',{ tableFormat: state.tableFormat, labelCount: colorPickerRestoreLabels.length });
-        if(els.boxColorIndividual.checked){ updateBoxColorPickers(colorPickerRestoreLabels, { grouped: state.tableFormat === 'grouped' }); } else { els.boxColorPerBox.innerHTML=''; }
-        ensureBoxLegendControlPlacement();
-        state.scheduleDraw();
       }catch(err){
         console.error('loadBoxGraph error',err);
       }
     };
     reader.readAsText(file);
+  };
+
+  box.loadFromPayload = function loadBoxFromPayload(payload){
+    if(!applyBoxPayload(payload, { source: 'payload' })){
+      console.warn('box payload application failed', { source: 'payload' });
+    }
   };
 
   box.init = function init(){
@@ -8435,6 +8494,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.scheduleDraw = Shared.debounceFrame(draw);
     console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    ensureEmptyPayloadTemplate();
     box.ready = true;
     try{ state.scheduleDraw(); } catch(e){ console.error('box init initial draw error', e); }
   };

@@ -135,13 +135,21 @@
   };
 
   namespace.applyWorkspacePayload = function applyWorkspacePayload(config, payload) {
-    if (!config || !payload) {
-      console.debug('Debug: applyWorkspacePayload skipped', { hasConfig: !!config, hasPayload: !!payload });
+    if (!config || payload === undefined) {
+      console.debug('Debug: applyWorkspacePayload skipped', { hasConfig: !!config, hasPayload: payload !== undefined });
       return;
     }
+    const label = config.type || 'workspace';
     if (typeof config.loadFromPayload === 'function') {
-      config.loadFromPayload(payload);
-      console.debug('Debug: workspace payload applied via custom handler', { type: config.type });
+      try {
+        const result = config.loadFromPayload(payload);
+        if (result && typeof result.then === 'function') {
+          result.catch(err => console.error('applyWorkspacePayload async error', { type: label, err }));
+        }
+        console.debug('Debug: workspace payload applied via custom handler', { type: label });
+      } catch (err) {
+        console.error('applyWorkspacePayload custom handler error', { type: label, err });
+      }
       return;
     }
     if (typeof config.loadFromFile === 'function') {
@@ -149,14 +157,17 @@
         const serialized = JSON.stringify(payload);
         const BlobCtor = window.Blob || Blob;
         const blob = new BlobCtor([serialized], { type: 'application/json' });
+        if (Shared.fileIO?.registerPayloadBlob) {
+          Shared.fileIO.registerPayloadBlob(blob, payload);
+        }
         config.loadFromFile(blob);
-        console.debug('Debug: workspace payload applied via blob', { type: config.type, length: serialized.length });
+        console.debug('Debug: workspace payload applied via blob', { type: label, length: serialized.length });
       } catch (err) {
-        console.error('applyWorkspacePayload error', { type: config.type, err });
+        console.error('applyWorkspacePayload error', { type: label, err });
       }
       return;
     }
-    console.warn('Workspace payload application unavailable', { type: config.type });
+    console.warn('Workspace payload application unavailable', { type: label });
   };
 
   namespace.showWorkspaceForTab = function showWorkspaceForTab(params) {

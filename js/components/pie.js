@@ -48,6 +48,27 @@
 
   const PIE_DEFAULT_ROWS = 100;
   const PIE_DEFAULT_COLS = 6;
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('pie cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getPayload !== 'function'){
+      return;
+    }
+    const snapshot = getPayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
   const DEFAULT_AXIS_COLOR = '#000000';
 
   function attachPieSelectAutoSize(select, label){
@@ -350,7 +371,7 @@
     const pieChartType=$('#pieChartType');
     const valueColumn=$('#pieValueColumn');
     const expectedColumn=$('#pieExpectedColumn');
-    const pieShowLegend=document.getElementById('pieShowLegend');
+    const pieShowLegendInput=document.getElementById('pieShowLegend');
     const pieAutoSizeTargets=[pieChartType,valueColumn,expectedColumn];
     pieAutoSizeTargets.filter(Boolean).forEach(select=>{
       attachPieSelectAutoSize(select, 'pie');
@@ -368,14 +389,14 @@
         chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontSize.value), input: pieFontSize, manual: true });
       }
       state.scheduleDraw(); }));
-    if(pieShowLegend){
-      const legendHost=pieShowLegend.closest('label');
+    if(pieShowLegendInput){
+      const legendHost=pieShowLegendInput.closest('label');
       if(legendHost){
         pieLegendControl=legendHost;
         ensurePieLegendControlPlacement();
       }
-      pieShowLegend.addEventListener('change',()=>{
-        console.debug('Debug: pie showLegend change',{checked:pieShowLegend.checked});
+      pieShowLegendInput.addEventListener('change',()=>{
+        console.debug('Debug: pie showLegend change',{checked:pieShowLegendInput.checked});
         ensurePieLegendControlPlacement();
         state.scheduleDraw();
       });
@@ -443,6 +464,72 @@
       return payload;
     }
     pie.getPayload = getPayload;
+    pie.createEmptyPayload = function createEmptyPiePayload(){
+      pie.ensure();
+      ensureEmptyPayloadTemplate();
+      const payload = cloneSimple(emptyPayloadTemplate) || { type: 'pie', config: {} };
+      payload.type = 'pie';
+      const createEmpty = Shared.createEmptyData;
+      const emptyData = typeof createEmpty === 'function'
+        ? createEmpty(PIE_DEFAULT_ROWS, PIE_DEFAULT_COLS)
+        : Array.from({ length: PIE_DEFAULT_ROWS }, () => Array(PIE_DEFAULT_COLS).fill(''));
+      payload.data = emptyData;
+      payload.exclusions = [];
+      return payload;
+    };
+    function applyPiePayload(payload, meta){
+      const source = meta?.source || 'unknown';
+      if(!payload || payload.type !== 'pie'){
+        console.warn('pie payload rejected', { source, hasType: !!payload?.type });
+        return false;
+      }
+      const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
+      if(state.hot && typeof state.hot.loadData === 'function'){
+        state.hot.loadData(dataMatrix);
+        if(payload.exclusions && typeof state.hot.applyExclusions === 'function'){
+          state.hot.applyExclusions(payload.exclusions);
+        }
+      }
+      const config = payload.config || {};
+      importFontStyles('pie', config.fontStyles || null);
+      state.titleText = config.title || state.titleText;
+      const chartTypeInput = document.getElementById('pieChartType');
+      if(chartTypeInput){ chartTypeInput.value = config.chartType || chartTypeInput.value; }
+      const showPercentsInput = document.getElementById('pieShowPercents');
+      if(showPercentsInput){ showPercentsInput.checked = !!config.showPercents; }
+      const showFrameInput = document.getElementById('pieShowFrame');
+      if(showFrameInput){ showFrameInput.checked = !!config.showFrame; }
+      if(pieShowLegendInput){
+        pieShowLegendInput.checked = config.showLegend !== false;
+        ensurePieLegendControlPlacement();
+      }
+      const startAngleInput = document.getElementById('pieStartAngle');
+      if(startAngleInput){ startAngleInput.value = config.startAngle || startAngleInput.value; }
+      const pieFontInput = document.getElementById('pieFontSize');
+      const pieFontSizeVal = document.getElementById('pieFontSizeVal');
+      if(pieFontInput){
+        pieFontInput.value = config.fontSize || pieFontInput.value;
+        if(pieFontInput.dataset){
+          pieFontInput.dataset.fontBasePt = String(pieFontInput.value);
+          console.debug('Debug: pie font size base restored',{ value: pieFontInput.value });
+        }
+        chartStyle.renderFontSizeLabel({ element: pieFontSizeVal, pt: Number(pieFontInput.value), input: pieFontInput, manual: true });
+      }
+      const valueColumnInput = document.getElementById('pieValueColumn');
+      if(valueColumnInput){ valueColumnInput.value = config.valueColumn || valueColumnInput.value; }
+      const expectedColumnInput = document.getElementById('pieExpectedColumn');
+      if(expectedColumnInput){ expectedColumnInput.value = config.expectedColumn || expectedColumnInput.value; }
+      state.colors = config.colors || state.colors;
+      const axisConfig = config.axis || config.axisSettings;
+      if(axisConfig){
+        applyAxisSettings(axisConfig);
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+      console.debug('Debug: pie payload applied', { source, rows: dataMatrix.length });
+      return true;
+    }
     function collectConfig(){
       const axisSettings = ensureAxisSettings();
       return {
@@ -520,44 +607,41 @@
       console.debug('Debug: pie.open result', result);
     };
     pie.loadFromFile = function(file){
-      const reader=new FileReader();
-      reader.onload=e=>{
+      const apply = payload => applyPiePayload(payload, { source: 'file' });
+      if(file instanceof Blob){
+        const reader=new FileReader();
+        reader.onload=e=>{
+          try{
+            const obj=JSON.parse(e.target.result);
+            if(!apply(obj)){
+              console.warn('pie payload rejected from file', { hasType: !!obj?.type });
+            }
+          }catch(err){
+            console.error('loadPieGraph error',err);
+          }
+        };
+        reader.readAsText(file);
+        return;
+      }
+      if(typeof file === 'string'){
         try{
-          const obj=JSON.parse(e.target.result);
-          console.log('loadPieGraph',obj);
-          if(obj.type!=='pie') throw new Error('Invalid graph type');
-          state.hot.loadData(obj.data||[]);
-          if(obj.exclusions){
-            state.hot.applyExclusions?.(obj.exclusions);
+          const parsed = JSON.parse(file);
+          if(!apply(parsed)){
+            console.warn('pie payload rejected from string');
           }
-          const c=obj.config||{};
-          importFontStyles('pie', c.fontStyles || null);
-          state.titleText=c.title||state.titleText;
-          $('#pieChartType').value=c.chartType||$('#pieChartType').value;
-          $('#pieShowPercents').checked=!!c.showPercents;
-          $('#pieShowFrame').checked=!!c.showFrame;
-          if(pieShowLegendInput){
-            pieShowLegendInput.checked=c.showLegend !== false;
-            ensurePieLegendControlPlacement();
-          }
-          $('#pieStartAngle').value=c.startAngle||$('#pieStartAngle').value;
-          const pieFontInput=$('#pieFontSize');
-          pieFontInput.value=c.fontSize||pieFontInput.value;
-          if(pieFontInput.dataset){
-            pieFontInput.dataset.fontBasePt = String(pieFontInput.value);
-            console.debug('Debug: pie font size base restored',{ value: pieFontInput.value }); // Debug: restore base from file
-          }
-          chartStyle.renderFontSizeLabel({ element: $('#pieFontSizeVal'), pt: Number(pieFontInput.value), input: pieFontInput, manual: true });
-          $('#pieValueColumn').value=c.valueColumn||$('#pieValueColumn').value;
-          $('#pieExpectedColumn').value=c.expectedColumn||$('#pieExpectedColumn').value;
-          state.colors=c.colors||state.colors;
-          applyAxisSettings(c.axis || c.axisSettings);
-          state.scheduleDraw();
         }catch(err){
-          console.error('loadPieGraph error',err);
+          console.error('loadPieGraph string parse error',err);
         }
-      };
-      reader.readAsText(file);
+        return;
+      }
+      if(file && typeof file === 'object'){
+        apply(file);
+      }
+    };
+    pie.loadFromPayload = function loadFromPayload(payload){
+      if(!applyPiePayload(payload, { source: 'payload' })){
+        console.warn('pie payload application failed', { source: 'payload' });
+      }
     };
     document.getElementById('openPieGraph')?.addEventListener('click',pie.open);
     document.getElementById('savePieGraph')?.addEventListener('click',pie.save);
@@ -1248,6 +1332,7 @@
     state.scheduleDraw = Shared.debounceFrame(draw);
     console.debug('Debug: pie scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    ensureEmptyPayloadTemplate();
     pie.ready = true;
   };
 

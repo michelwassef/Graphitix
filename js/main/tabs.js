@@ -162,6 +162,7 @@
       dom,
       workspaceState,
       session,
+      workspaces,
       renderTabs: () => renderTabs(),
       showWorkspaceForTab: (tab, options) => showWorkspaceForTab(tab, options),
       showGraphSelection: opts => showGraphSelection(opts || {}),

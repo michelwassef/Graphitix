@@ -419,6 +419,27 @@
   }
 
   const state = createInitialState();
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('venn cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getVennGraphPayload !== 'function'){
+      return;
+    }
+    const snapshot = getVennGraphPayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
 
   const vennUndoManager = Shared.undoManager || null;
   const vennUndoDrafts = new WeakMap();
@@ -2791,6 +2812,29 @@
     return payload;
   }
   venn.getPayload = getVennGraphPayload;
+  venn.createEmptyPayload = function createEmptyVennPayload(){
+    ensureReady();
+    ensureEmptyPayloadTemplate();
+    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'venn' };
+    payload.type = 'venn';
+    payload.data = {
+      labelA: '',
+      labelB: '',
+      labelC: '',
+      listA: '',
+      listB: '',
+      listC: '',
+      nA: 0,
+      nB: 0,
+      nC: 0,
+      nAB: 0,
+      nAC: 0,
+      nBC: 0,
+      nABC: 0
+    };
+    payload.style = payload.style || {};
+    return payload;
+  };
 
   venn.save = async function () {
     const payload = getVennGraphPayload();
@@ -2854,61 +2898,89 @@
     console.debug('Debug: venn.open result', result);
   };
 
+  function applyVennPayload(obj, meta = {}){
+    if(!obj || typeof obj !== 'object'){
+      console.error('venn payload missing or invalid', { meta });
+      return false;
+    }
+    if(obj.type && obj.type !== 'venn'){
+      console.error('Invalid graph type for venn payload', { type: obj.type, meta });
+      return false;
+    }
+    const inputs = state.ui.inputs;
+    if(!inputs){
+      console.warn('venn payload application skipped - inputs unavailable');
+      return false;
+    }
+    const d = obj.data || {};
+    inputs.labelA.value = d.labelA || '';
+    inputs.labelB.value = d.labelB || '';
+    inputs.labelC.value = d.labelC || '';
+    inputs.A.value = d.listA || '';
+    inputs.B.value = d.listB || '';
+    inputs.C.value = d.listC || '';
+    const c = inputs.counts;
+    c.nA.value = d.nA || 0;
+    c.nB.value = d.nB || 0;
+    c.nC.value = d.nC || 0;
+    c.nAB.value = d.nAB || 0;
+    c.nAC.value = d.nAC || 0;
+    c.nBC.value = d.nBC || 0;
+    c.nABC.value = d.nABC || 0;
+    const s = obj.style || {};
+    importFontStyles('venn', s.fontStyles || null);
+    inputs.colorA.value = s.colorA || inputs.colorA.value;
+    inputs.colorB.value = s.colorB || inputs.colorB.value;
+    inputs.colorC.value = s.colorC || inputs.colorC.value;
+    inputs.opacity.value = s.opacity || inputs.opacity.value;
+    inputs.opacityVal.textContent = inputs.opacity.value;
+    inputs.borderColor.value = s.borderColor || inputs.borderColor.value;
+    inputs.borderWidth.value = s.borderWidth || inputs.borderWidth.value;
+    inputs.borderWidthVal.textContent = inputs.borderWidth.value;
+    if (s.fontsize) {
+      const fontInfo = resolveFontInfo(s.fontsize);
+      inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
+      chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
+      console.debug('Debug: venn payload font applied', { saved: s.fontsize, fontInfo });
+    } else {
+      const fontInfo = resolveFontInfo(inputs.fontsize.value);
+      inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
+      chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
+      console.debug('Debug: venn payload font fallback', { fontInfo });
+    }
+    refreshDiagram();
+    if(meta.recordUndo !== false){
+      const undoPrevious = meta.undoPrevious || captureVennSnapshot();
+      const next = captureVennSnapshot();
+      recordVennChange(meta.undoLabel || 'venn:load-file', undoPrevious, next);
+    }
+    debugLog('Debug: venn payload applied', { source: meta.source || 'unknown' });
+    return true;
+  }
+
   venn.loadFromFile = function (file, options = {}) {
     const undoPrevious = options?.undo?.previous || captureVennSnapshot();
     const reader = new FileReader();
     reader.onload = e => {
       try {
         const obj = JSON.parse(e.target.result);
-        console.log('loadVennGraph', obj);
-        if (obj.type !== 'venn') throw new Error('Invalid graph type');
         if (file && typeof file.name === 'string') {
           state.persistence.fileName = file.name;
         }
-        const inputs = state.ui.inputs;
-        if (!inputs) return;
-        const d = obj.data || {};
-        inputs.labelA.value = d.labelA || '';
-        inputs.labelB.value = d.labelB || '';
-        inputs.labelC.value = d.labelC || '';
-        inputs.A.value = d.listA || '';
-        inputs.B.value = d.listB || '';
-        inputs.C.value = d.listC || '';
-        const c = inputs.counts;
-        c.nA.value = d.nA || 0;
-        c.nB.value = d.nB || 0;
-        c.nC.value = d.nC || 0;
-        c.nAB.value = d.nAB || 0;
-        c.nAC.value = d.nAC || 0;
-        c.nBC.value = d.nBC || 0;
-        c.nABC.value = d.nABC || 0;
-        const s = obj.style || {};
-        importFontStyles('venn', s.fontStyles || null);
-        inputs.colorA.value = s.colorA || inputs.colorA.value;
-        inputs.colorB.value = s.colorB || inputs.colorB.value;
-        inputs.colorC.value = s.colorC || inputs.colorC.value;
-        inputs.opacity.value = s.opacity || inputs.opacity.value;
-        inputs.opacityVal.textContent = inputs.opacity.value;
-        inputs.borderColor.value = s.borderColor || inputs.borderColor.value;
-        inputs.borderWidth.value = s.borderWidth || inputs.borderWidth.value;
-        inputs.borderWidthVal.textContent = inputs.borderWidth.value;
-        if (s.fontsize) {
-          const fontInfo = resolveFontInfo(s.fontsize);
-          inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
-          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-          console.debug('Debug: venn loadFromFile font applied', { saved: s.fontsize, fontInfo });
-        } else {
-          const fontInfo = resolveFontInfo(inputs.fontsize.value);
-          inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
-          chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
-          console.debug('Debug: venn loadFromFile font fallback', { fontInfo });
+        if(!applyVennPayload(obj, { source: 'file', undoPrevious, recordUndo: true, undoLabel: 'venn:load-file' })){
+          console.warn('venn payload rejected from file', { hasType: !!obj?.type });
         }
-        refreshDiagram();
-        const next = captureVennSnapshot();
-        recordVennChange('venn:load-file', undoPrevious, next);
       } catch (err) { console.error('loadVennGraph error', err); }
     };
     reader.readAsText(file);
+  };
+
+  venn.loadFromPayload = function loadVennFromPayload(payload, options = {}){
+    const undoPrevious = options?.undo?.previous;
+    const recordUndo = options?.recordUndo ?? false;
+    if(!applyVennPayload(payload, { source: 'payload', undoPrevious, recordUndo, undoLabel: options?.undoLabel })){
+      console.warn('venn payload application failed', { source: 'payload' });
+    }
   };
 
   function handlePlainPaste(e) {
@@ -3539,6 +3611,7 @@
     loadStylePrefs();
     registerEventHandlers();
     initializeLabelState();
+    ensureEmptyPayloadTemplate();
     venn.ready = true;
     debugLog('init complete');
   };

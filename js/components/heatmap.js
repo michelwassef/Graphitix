@@ -66,6 +66,27 @@
 
   const DEFAULT_ROWS = 100;
   const DEFAULT_COLS = 6;
+  let emptyPayloadTemplate = null;
+
+  function cloneSimple(value){
+    if(!value) return null;
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      console.error('heatmap cloneSimple error', err);
+      return null;
+    }
+  }
+
+  function ensureEmptyPayloadTemplate(){
+    if(emptyPayloadTemplate || typeof getHeatmapPayload !== 'function'){
+      return;
+    }
+    const snapshot = getHeatmapPayload();
+    if(snapshot){
+      emptyPayloadTemplate = cloneSimple(snapshot);
+    }
+  }
   const NS = 'http://www.w3.org/2000/svg';
   const COLUMN_LABEL_VERTICAL_ANGLE = 90;
   const HEATMAP_AUTO_DRAW_ROW_THRESHOLD = 5000;
@@ -3317,6 +3338,19 @@
     return payload;
   }
   heatmap.getPayload = getPayload;
+  heatmap.createEmptyPayload = function createEmptyHeatmapPayload(){
+    heatmap.ensure();
+    ensureEmptyPayloadTemplate();
+    const payload = cloneSimple(emptyPayloadTemplate) || { type: 'heatmap', config: {} };
+    payload.type = 'heatmap';
+    const createEmpty = Shared.createEmptyData;
+    const emptyData = typeof createEmpty === 'function'
+      ? createEmpty(DEFAULT_ROWS, DEFAULT_COLS)
+      : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+    payload.data = emptyData;
+    payload.exclusions = [];
+    return payload;
+  };
 
   heatmap.save = async function saveHeatmap(){
     console.debug('Debug: heatmap.save invoked', { hasHandle: !!state.fileHandle });
@@ -3375,26 +3409,51 @@
     console.debug('Debug: heatmap.open result', result);
   };
 
+  function applyHeatmapPayload(obj, meta = {}){
+    if(!obj || typeof obj !== 'object'){
+      console.error('heatmap payload missing or invalid', { meta });
+      return false;
+    }
+    if(obj.type && obj.type !== 'heatmap'){
+      console.error('Invalid heatmap payload type', { type: obj.type, meta });
+      return false;
+    }
+    const matrix = Array.isArray(obj.data) ? obj.data : [];
+    if(state.hot){
+      state.hot.loadData(matrix);
+      if(obj.exclusions && state.hot.applyExclusions){
+        state.hot.applyExclusions(obj.exclusions);
+      }
+    }
+    applyConfig(obj.config || {});
+    state.scheduleDraw();
+    debugLog('Debug: heatmap payload applied', {
+      source: meta.source || 'unknown',
+      rows: matrix.length,
+      cols: matrix[0]?.length || 0
+    });
+    return true;
+  }
+
   heatmap.loadFromFile = function loadHeatmapFromFile(file){
     const reader = new FileReader();
     reader.onload = e => {
       try{
         const obj = JSON.parse(e.target.result);
-        console.log('heatmap graph loaded', obj);
-        if(obj.type !== 'heatmap'){
-          throw new Error('Invalid graph type');
+        if(!applyHeatmapPayload(obj, { source: 'file' })){
+          console.warn('heatmap payload rejected from file', { hasType: !!obj?.type });
         }
-        state.hot?.loadData(obj.data || []);
-        if(obj.exclusions && state.hot){
-          state.hot.applyExclusions?.(obj.exclusions);
-        }
-        applyConfig(obj.config || {});
-        state.scheduleDraw();
       }catch(err){
         console.error('heatmap load error', err);
       }
     };
     reader.readAsText(file);
+  };
+
+  heatmap.loadFromPayload = function loadHeatmapFromPayload(payload){
+    if(!applyHeatmapPayload(payload, { source: 'payload' })){
+      console.warn('heatmap payload application failed', { source: 'payload' });
+    }
   };
 
   heatmap.__internals = Object.assign({}, heatmap.__internals, {
@@ -3460,6 +3519,7 @@
     state.layout?.syncPanels?.();
     updateAutoDrawUi();
     evaluateAutoDrawThresholds();
+    ensureEmptyPayloadTemplate();
     heatmap.ready = true;
     state.scheduleDraw();
   };

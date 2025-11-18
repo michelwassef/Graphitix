@@ -164,6 +164,8 @@
       draw: () => window.Components?.venn?.draw?.(),
       getPayload: () => window.Components?.venn?.getPayload?.(),
       loadFromFile: blob => window.Components?.venn?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.venn?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.venn?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('venn'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('venn', state, options || {})
     },
@@ -175,6 +177,8 @@
       draw: () => scheduleDrawBoxplot(),
       getPayload: () => window.Components?.box?.getPayload?.(),
       loadFromFile: blob => window.Components?.box?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.box?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.box?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('box'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('box', state, options || {})
     },
@@ -186,6 +190,8 @@
       draw: () => scheduleDrawScatter(),
       getPayload: () => window.Components?.scatter?.getPayload?.(),
       loadFromFile: blob => window.Components?.scatter?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.scatter?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.scatter?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('scatter'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('scatter', state, options || {})
     },
@@ -197,6 +203,8 @@
       draw: () => scheduleDrawPca(),
       getPayload: () => window.Components?.pca?.getPayload?.(),
       loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.pca?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.pca?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('pca'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pca', state, options || {})
     },
@@ -208,6 +216,8 @@
       draw: () => scheduleDrawLine(),
       getPayload: () => window.Components?.line?.getPayload?.(),
       loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.line?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.line?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('line'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('line', state, options || {})
     },
@@ -219,6 +229,8 @@
       draw: () => scheduleDrawHeatmap(),
       getPayload: () => window.Components?.heatmap?.getPayload?.(),
       loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.heatmap?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.heatmap?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('heatmap'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('heatmap', state, options || {})
     },
@@ -230,6 +242,8 @@
       draw: () => scheduleDrawSurface(),
       getPayload: () => window.Components?.surface?.getPayload?.(),
       loadFromFile: blob => window.Components?.surface?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.surface?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.surface?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('surface'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('surface', state, options || {})
     },
@@ -241,6 +255,8 @@
       draw: () => window.Components?.roc?.draw?.(),
       getPayload: () => window.Components?.roc?.getPayload?.(),
       loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.roc?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.roc?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('roc'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('roc', state, options || {})
     },
@@ -252,6 +268,8 @@
       draw: () => scheduleDrawSurvival(),
       getPayload: () => window.Components?.survival?.getPayload?.(),
       loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.survival?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.survival?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('survival'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('survival', state, options || {})
     },
@@ -263,6 +281,8 @@
       draw: () => scheduleDrawHist(),
       getPayload: () => window.Components?.hist?.getPayload?.(),
       loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.hist?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.hist?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('hist'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('hist', state, options || {})
     },
@@ -274,6 +294,8 @@
       draw: () => scheduleDrawPie(),
       getPayload: () => window.Components?.pie?.getPayload?.(),
       loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob),
+      loadFromPayload: payload => window.Components?.pie?.loadFromPayload?.(payload),
+      createEmptyPayload: () => window.Components?.pie?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('pie'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pie', state, options || {})
     }
