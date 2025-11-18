@@ -1273,15 +1273,6 @@
     }
   }
 
-  function ensureEmptyPayloadTemplate(){
-    if(emptyPayloadTemplate || typeof getPcaGraphPayload !== 'function'){
-      return;
-    }
-    const snapshot = getPcaGraphPayload();
-    if(snapshot){
-      emptyPayloadTemplate = cloneSimple(snapshot);
-    }
-  }
   function nowMs(){
     try{
       if(typeof global.performance === 'object' && typeof global.performance.now === 'function'){
@@ -5444,70 +5435,7 @@
         type:'pca',
         data:pcaHot.getData(),
         exclusions: pcaHot?.exportExclusions?.() || Shared.hot.exportExclusions(pcaHot),
-        config:{
-          method:pcaMethod.value,
-          dotSize:pcaDotSize.value,
-          fill:pcaFill.value,
-          border:pcaBorder.value,
-          borderWidth:pcaBorderWidth.value,
-          tableFormat:pcaState.tableFormat,
-          grouped:pcaState.grouped ? {
-            replicatesPerGroup: pcaState.grouped.replicatesPerGroup,
-            groups: Array.isArray(pcaState.grouped.groups) ? [...pcaState.grouped.groups] : [],
-            colors: Array.isArray(pcaState.grouped.colors) ? [...pcaState.grouped.colors] : [],
-            shapes: Array.isArray(pcaState.grouped.shapes) ? [...pcaState.grouped.shapes] : []
-          } : null,
-          alpha:pcaAlpha.value,
-          labelColors:pcaLabelColors,
-          labelShapes:pcaLabelShapes,
-          showGrid:pcaShowGrid.checked,
-          showFrame:pcaShowFrame.checked,
-          showLegend: pcaShowLegendInput ? !!pcaShowLegendInput.checked : true,
-          scale:pcaScale.checked,
-          axesVarianceScaled:pcaState.axesVarianceScaled,
-          fontSize:pcaFontSize.value,
-          fontStyles: (exportFontStyles('pca') || undefined),
-          labels: {
-            title: (pcaState.labels && typeof pcaState.labels.title === 'string')
-              ? pcaState.labels.title
-              : getDefaultTitleForMethod(pcaState.lastMethod || 'pca')
-          },
-          viewMode:pcaViewMode?.value || DEFAULT_VIEW_MODE,
-          axisSelection:{
-            x:pcaState.axisSelection.x,
-            y:pcaState.axisSelection.y,
-            z:pcaState.axisSelection.z
-          },
-          rotation:{
-            x:pcaState.rotation.x,
-            y:pcaState.rotation.y,
-            z:pcaState.rotation.z,
-            quaternion: pcaState.rotation.quaternion ? {
-              w: pcaState.rotation.quaternion.w,
-              x: pcaState.rotation.quaternion.x,
-              y: pcaState.rotation.quaternion.y,
-              z: pcaState.rotation.quaternion.z
-            } : null
-          },
-          axis:{
-            strokeWidth: axisSettings.strokeWidth,
-            color: axisSettings.color,
-            tickIntervalX: axisSettings.x?.tickInterval ?? null,
-            tickIntervalY: axisSettings.y?.tickInterval ?? null
-          },
-          tsne:{
-            perplexity:pcaTsnePerplexity?.value ?? DEFAULT_TSNE_SETTINGS.perplexity,
-            learningRate:pcaTsneLearningRate?.value ?? DEFAULT_TSNE_SETTINGS.learningRate,
-            iterations:pcaTsneIterations?.value ?? DEFAULT_TSNE_SETTINGS.iterations,
-            earlyExaggeration:pcaTsneExaggeration?.value ?? DEFAULT_TSNE_SETTINGS.earlyExaggeration
-          },
-          umap:{
-            neighbors:pcaUmapNeighbors?.value ?? DEFAULT_UMAP_SETTINGS.neighbors,
-            minDist:pcaUmapMinDist?.value ?? DEFAULT_UMAP_SETTINGS.minDist,
-            learningRate:pcaUmapLearningRate?.value ?? DEFAULT_UMAP_SETTINGS.learningRate,
-            epochs:pcaUmapEpochs?.value ?? DEFAULT_UMAP_SETTINGS.epochs
-          }
-        },
+        config: snapshotPcaConfig(axisSettings),
         stats:lastPcaStats ? {
           method:lastPcaStats.method || null,
           eigenSummary:Array.isArray(lastPcaStats.eigenSummary) ? lastPcaStats.eigenSummary : [],
@@ -5516,6 +5444,88 @@
           totalVariance:lastPcaStats.totalVariance,
           dimensions:lastPcaStats.dimensions
         } : null
+      };
+    }
+
+    function snapshotPcaConfig(axisSettingsOverride){
+      const axisSettings = axisSettingsOverride && typeof axisSettingsOverride === 'object'
+        ? axisSettingsOverride
+        : ensureAxisSettings();
+      return {
+        method:pcaMethod.value,
+        dotSize:pcaDotSize.value,
+        fill:pcaFill.value,
+        border:pcaBorder.value,
+        borderWidth:pcaBorderWidth.value,
+        tableFormat:pcaState.tableFormat,
+        grouped:pcaState.grouped ? {
+          replicatesPerGroup: pcaState.grouped.replicatesPerGroup,
+          groups: Array.isArray(pcaState.grouped.groups) ? [...pcaState.grouped.groups] : [],
+          colors: Array.isArray(pcaState.grouped.colors) ? [...pcaState.grouped.colors] : [],
+          shapes: Array.isArray(pcaState.grouped.shapes) ? [...pcaState.grouped.shapes] : []
+        } : null,
+        alpha:pcaAlpha.value,
+        labelColors:pcaLabelColors,
+        labelShapes:pcaLabelShapes,
+        showGrid:pcaShowGrid.checked,
+        showFrame:pcaShowFrame.checked,
+        showLegend: pcaShowLegendInput ? !!pcaShowLegendInput.checked : true,
+        scale:pcaScale.checked,
+        axesVarianceScaled:pcaState.axesVarianceScaled,
+        fontSize:pcaFontSize.value,
+        fontStyles: (exportFontStyles('pca') || undefined),
+        labels: {
+          title: (pcaState.labels && typeof pcaState.labels.title === 'string')
+            ? pcaState.labels.title
+            : getDefaultTitleForMethod(pcaState.lastMethod || 'pca')
+        },
+        viewMode:pcaViewMode?.value || DEFAULT_VIEW_MODE,
+        axisSelection:{
+          x:pcaState.axisSelection.x,
+          y:pcaState.axisSelection.y,
+          z:pcaState.axisSelection.z
+        },
+        rotation:{
+          x:pcaState.rotation.x,
+          y:pcaState.rotation.y,
+          z:pcaState.rotation.z,
+          quaternion: pcaState.rotation.quaternion ? {
+            w: pcaState.rotation.quaternion.w,
+            x: pcaState.rotation.quaternion.x,
+            y: pcaState.rotation.quaternion.y,
+            z: pcaState.rotation.quaternion.z
+          } : null
+        },
+        axis:{
+          strokeWidth: axisSettings?.strokeWidth,
+          color: axisSettings?.color,
+          tickIntervalX: axisSettings?.x?.tickInterval ?? null,
+          tickIntervalY: axisSettings?.y?.tickInterval ?? null
+        },
+        tsne:{
+          perplexity:pcaTsnePerplexity?.value ?? DEFAULT_TSNE_SETTINGS.perplexity,
+          learningRate:pcaTsneLearningRate?.value ?? DEFAULT_TSNE_SETTINGS.learningRate,
+          iterations:pcaTsneIterations?.value ?? DEFAULT_TSNE_SETTINGS.iterations,
+          earlyExaggeration:pcaTsneExaggeration?.value ?? DEFAULT_TSNE_SETTINGS.earlyExaggeration
+        },
+        umap:{
+          neighbors:pcaUmapNeighbors?.value ?? DEFAULT_UMAP_SETTINGS.neighbors,
+          minDist:pcaUmapMinDist?.value ?? DEFAULT_UMAP_SETTINGS.minDist,
+          learningRate:pcaUmapLearningRate?.value ?? DEFAULT_UMAP_SETTINGS.learningRate,
+          epochs:pcaUmapEpochs?.value ?? DEFAULT_UMAP_SETTINGS.epochs
+        }
+      };
+    }
+
+    function ensureEmptyPayloadTemplate(){
+      if(emptyPayloadTemplate){
+        return;
+      }
+      const configSnapshot = snapshotPcaConfig();
+      const safeConfig = cloneSimple(configSnapshot) || configSnapshot || {};
+      emptyPayloadTemplate = {
+        type: 'pca',
+        config: safeConfig
       };
     }
       let pcaFileHandle=null, pcaFileName='pca.graph';
