@@ -1251,12 +1251,18 @@
       <div id="heatmapPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="heatmapGraphPanel">
         <div class="diagram-area">
-          <div class="svgbox">
-            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
-            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
-            <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
-            <svg id="heatmapSvg" viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Correlation heatmap"></svg>
-            <div class="row" id="heatmapExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          <div class="heatmap-plot-stack">
+            <div class="svgbox">
+              <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+              <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+              <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
+              <svg id="heatmapSvg" viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Correlation heatmap"></svg>
+              <div class="row" id="heatmapExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            </div>
+            <div id="heatmapRenderRow" class="heatmap-render-row" hidden>
+              <button type="button" class="btn" id="heatmapRenderButton" disabled>Update Plot</button>
+              <p id="heatmapAutoDrawNotice" class="heatmap-auto-draw-notice" hidden aria-live="polite"></p>
+            </div>
           </div>
           <div class="config-options">
             <fieldset>

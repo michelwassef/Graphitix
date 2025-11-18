@@ -18,6 +18,26 @@
   heatmap.__installed = true;
   heatmap.ready = false;
 
+  function debugLog(label, payload){
+    try{
+      if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+        return;
+      }
+    }catch(err){
+      // Ignore toggle errors and log by default
+    }
+    if(typeof console !== 'undefined' && typeof console.debug === 'function'){
+      console.debug(label, payload);
+    }
+  }
+
+  const nowMs = () => {
+    if(global.performance && typeof global.performance.now === 'function'){
+      return global.performance.now();
+    }
+    return Date.now();
+  };
+
   const fileIO = Shared.fileIO = Shared.fileIO || {};
   if(!fileIO.saveGraphFile){
     console.debug('Debug: heatmap component awaiting Shared.fileIO helpers');
@@ -48,6 +68,13 @@
   const DEFAULT_COLS = 6;
   const NS = 'http://www.w3.org/2000/svg';
   const COLUMN_LABEL_VERTICAL_ANGLE = 90;
+  const HEATMAP_AUTO_DRAW_ROW_THRESHOLD = 5000;
+  const HEATMAP_AUTO_DRAW_COL_THRESHOLD = 5000;
+  const HEATMAP_AUTO_DRAW_CELL_THRESHOLD = 50000;
+
+  let heatmapRenderRowEl = null;
+  let heatmapRenderButtonEl = null;
+  let heatmapAutoDrawNoticeEl = null;
 
   const state = {
     hot: null,
@@ -58,10 +85,278 @@
     svgBox: null,
     statsEl: null,
     layout: null,
-    minSvgWidth: 0
+    minSvgWidth: 0,
+    autoDrawEnabled: true,
+    autoDrawReason: null,
+    autoDrawLockedByThreshold: false,
+    drawPending: false,
+    lastDataShape: { rows: 0, cols: 0 },
+    lastAutoDrawEvaluation: null,
+    lastRenderModel: null,
+    lastViewOptions: null,
+    lastStats: null
   };
 
   const refs = {};
+
+  let scheduleDrawHeatmapRaw = () => {};
+  let pendingDrawOptions = {};
+
+  function clearCachedRenderState(){
+    state.lastRenderModel = null;
+    state.lastViewOptions = null;
+    state.lastStats = null;
+    if(!state.drawPending){
+      debugLog('Debug: heatmap cached render cleared');
+    }
+  }
+
+  function normalizeDrawOptions(options){
+    if(!options){
+      return {};
+    }
+    if(typeof options === 'string'){
+      return { reason: options };
+    }
+    if(typeof options === 'object'){
+      return options;
+    }
+    return {};
+  }
+
+  function mergePendingDrawOptions(opts){
+    const previous = pendingDrawOptions || {};
+    if(!opts || typeof opts !== 'object'){
+      if(previous.viewOnly){
+        pendingDrawOptions = { ...previous };
+        return;
+      }
+      pendingDrawOptions = {};
+      return;
+    }
+    const next = { ...previous, ...opts };
+    if(opts.force){
+      next.viewOnly = false;
+    }else if(Object.prototype.hasOwnProperty.call(opts, 'viewOnly')){
+      next.viewOnly = !!opts.viewOnly;
+    }else if(previous.viewOnly){
+      next.viewOnly = true;
+    }else{
+      next.viewOnly = false;
+    }
+    if(!Object.prototype.hasOwnProperty.call(opts, 'reason') && previous.viewOnly && next.viewOnly){
+      next.reason = previous.reason;
+    }
+    pendingDrawOptions = next;
+  }
+
+  function updateHeatmapDataShape(shape){
+    if(!shape || typeof shape !== 'object'){
+      return;
+    }
+    const rows = Number(shape.rows);
+    const cols = Number(shape.cols);
+    const normalizedRows = Number.isFinite(rows) ? rows : state.lastDataShape.rows;
+    const normalizedCols = Number.isFinite(cols) ? cols : state.lastDataShape.cols;
+    if(normalizedRows === state.lastDataShape.rows && normalizedCols === state.lastDataShape.cols){
+      return;
+    }
+    state.lastDataShape = { rows: normalizedRows, cols: normalizedCols };
+    debugLog('Debug: heatmap data shape updated', { rows: normalizedRows, cols: normalizedCols });
+  }
+
+  function setAutoDrawEnabled(enabled, meta = {}){
+    const nextEnabled = !!enabled;
+    const previousEnabled = !!state.autoDrawEnabled;
+    let disabledNow = false;
+    state.autoDrawEnabled = nextEnabled;
+    if(!nextEnabled){
+      if(previousEnabled && meta.renderImmediate !== false){
+        disabledNow = true;
+      }
+      if(meta.reason === 'threshold'){
+        const rows = Number(meta.rows ?? meta.totalRows);
+        const cols = Number(meta.cols ?? meta.totalCols);
+        state.autoDrawReason = {
+          type: 'threshold',
+          rows: Number.isFinite(rows) ? rows : null,
+          cols: Number.isFinite(cols) ? cols : null
+        };
+      }else if(meta.reason){
+        state.autoDrawReason = { type: meta.reason };
+      }else if(!state.autoDrawReason){
+        state.autoDrawReason = { type: 'manual' };
+      }
+    }else if(meta.reason === 'threshold-cleared' || !meta.preserveReason){
+      state.autoDrawReason = null;
+    }
+    if(nextEnabled){
+      state.drawPending = false;
+    }
+    updateAutoDrawUi(meta);
+    if(previousEnabled !== nextEnabled){
+      debugLog('Debug: heatmap autoDraw toggled', {
+        enabled: nextEnabled,
+        reason: meta.reason || null
+      });
+    }
+    return {
+      changed: previousEnabled !== nextEnabled,
+      disabledNow
+    };
+  }
+
+  function updateAutoDrawUi(){
+    const manualMode = !state.autoDrawEnabled;
+    const pendingWhileAuto = !manualMode && !!state.drawPending;
+    const shouldShowRenderRow = manualMode || pendingWhileAuto;
+    if(heatmapRenderRowEl && heatmapRenderRowEl.hidden === shouldShowRenderRow){
+      heatmapRenderRowEl.hidden = !shouldShowRenderRow;
+    }
+    if(heatmapRenderButtonEl){
+      const shouldDisable = !manualMode && !state.drawPending;
+      if(heatmapRenderButtonEl.disabled !== shouldDisable){
+        heatmapRenderButtonEl.disabled = shouldDisable;
+      }
+      if(heatmapRenderButtonEl.hidden === shouldShowRenderRow){
+        heatmapRenderButtonEl.hidden = !shouldShowRenderRow;
+      }
+    }
+    if(heatmapAutoDrawNoticeEl){
+      let text = '';
+      let hidden = !shouldShowRenderRow;
+      if(!hidden && manualMode){
+        const reason = state.autoDrawReason?.type || 'manual';
+        if(reason === 'threshold'){
+          const rows = state.autoDrawReason?.rows;
+          const summary = Number.isFinite(rows) ? ` (${rows.toLocaleString()} rows)` : '';
+          text = `Live updates are paused for large datasets${summary}. Use Update Plot after making changes.`;
+        }else{
+          text = 'Live updates are disabled. Use Update Plot after making changes.';
+        }
+        if(state.drawPending){
+          text += ' Changes are waiting to be rendered.';
+        }
+      }else if(!hidden && pendingWhileAuto){
+        hidden = false;
+        text = 'Changes are waiting to be rendered. Use Update Plot to redraw immediately.';
+      }
+      heatmapAutoDrawNoticeEl.textContent = text;
+      heatmapAutoDrawNoticeEl.hidden = hidden || !text;
+    }
+  }
+
+  function evaluateAutoDrawThresholds(meta = {}){
+    const hot = state.hot;
+    const perfStart = nowMs();
+    if(!hot){
+      return { autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null };
+    }
+    let totalRows = Number(meta?.shape?.rows);
+    let totalCols = Number(meta?.shape?.cols);
+    if(!Number.isFinite(totalRows) || totalRows < 0){
+      if(typeof hot.countSourceRows === 'function'){
+        totalRows = hot.countSourceRows();
+      }else if(typeof hot.getSourceData === 'function'){
+        const source = hot.getSourceData();
+        totalRows = Array.isArray(source) ? source.length : 0;
+      }else if(typeof hot.countRows === 'function'){
+        totalRows = hot.countRows();
+      }else{
+        totalRows = state.lastDataShape.rows;
+      }
+    }
+    if(!Number.isFinite(totalCols) || totalCols < 0){
+      if(typeof hot.countSourceCols === 'function'){
+        totalCols = hot.countSourceCols();
+      }else if(typeof hot.getSourceData === 'function'){
+        const source = hot.getSourceData();
+        const firstRow = Array.isArray(source) && source.length ? source[0] : null;
+        totalCols = Array.isArray(firstRow) ? firstRow.length : 0;
+      }else if(typeof hot.countCols === 'function'){
+        totalCols = hot.countCols();
+      }else{
+        totalCols = state.lastDataShape.cols;
+      }
+    }
+    const cellEstimate = Math.max(0, totalRows) * Math.max(1, totalCols);
+    const thresholdExceeded = totalRows >= HEATMAP_AUTO_DRAW_ROW_THRESHOLD
+      || totalCols >= HEATMAP_AUTO_DRAW_COL_THRESHOLD
+      || cellEstimate >= HEATMAP_AUTO_DRAW_CELL_THRESHOLD;
+    state.lastAutoDrawEvaluation = {
+      totalRows,
+      totalCols,
+      cellEstimate,
+      thresholdExceeded,
+      totalMs: nowMs() - perfStart
+    };
+    updateHeatmapDataShape({ rows: totalRows, cols: totalCols });
+    debugLog('Debug: heatmap autoDraw evaluation', state.lastAutoDrawEvaluation);
+    if(thresholdExceeded){
+      state.autoDrawLockedByThreshold = true;
+      const toggleResult = setAutoDrawEnabled(false, {
+        reason: 'threshold',
+        rows: totalRows,
+        cols: totalCols,
+        preserveReason: true
+      });
+      return {
+        autoDrawEnabled: state.autoDrawEnabled,
+        disabledNow: !!toggleResult?.disabledNow,
+        reason: 'threshold'
+      };
+    }
+    const previouslyLocked = !!state.autoDrawLockedByThreshold;
+    state.autoDrawLockedByThreshold = false;
+    if(previouslyLocked){
+      setAutoDrawEnabled(true, { reason: 'threshold-cleared', preserveReason: false });
+    }
+    return { autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null };
+  }
+
+  function scheduleDrawHeatmap(options){
+    const opts = normalizeDrawOptions(options);
+    mergePendingDrawOptions(opts);
+    if(opts.viewOnly){
+      if(typeof scheduleDrawHeatmapRaw === 'function'){
+        scheduleDrawHeatmapRaw();
+      }
+      return;
+    }
+    if(opts.force){
+      if(!opts.skipThresholdEvaluation){
+        evaluateAutoDrawThresholds();
+      }
+      state.drawPending = false;
+      updateAutoDrawUi();
+      if(typeof scheduleDrawHeatmapRaw === 'function'){
+        scheduleDrawHeatmapRaw();
+      }
+      return;
+    }
+    const evalResult = evaluateAutoDrawThresholds({ markPending: true });
+    if(evalResult?.disabledNow){
+      state.drawPending = false;
+      updateAutoDrawUi();
+      if(typeof scheduleDrawHeatmapRaw === 'function'){
+        scheduleDrawHeatmapRaw();
+      }
+      return;
+    }
+    if(!state.autoDrawEnabled){
+      state.drawPending = true;
+      updateAutoDrawUi();
+      debugLog('Debug: heatmap draw suppressed', { reason: opts.reason || 'auto-draw-disabled' });
+      return;
+    }
+    state.drawPending = false;
+    updateAutoDrawUi();
+    if(typeof scheduleDrawHeatmapRaw === 'function'){
+      scheduleDrawHeatmapRaw();
+    }
+  }
+
+  state.scheduleDraw = (opts) => scheduleDrawHeatmap(opts);
 
   function attachHeatmapSelectAutoSize(select, label){
     if(!select){ return; }
@@ -234,6 +529,7 @@
     chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize?.value || 12), input: refs.fontSize, manual: true });
 
     const schedule = () => state.scheduleDraw();
+    const scheduleViewOnly = reason => state.scheduleDraw({ viewOnly: true, reason });
 
     const updateViewControlState = () => {
       const view = refs.view?.value || 'corr-columns';
@@ -338,10 +634,16 @@
       console.debug('Debug: heatmap method changed', { value: refs.method.value });
       schedule();
     });
-    [refs.absValues, refs.maskLower, refs.showValues, refs.logTransform, refs.normalizeGenes, refs.normalizeArrays, refs.showRowDendrogram, refs.showColumnDendrogram].forEach(el => {
+    [refs.logTransform, refs.normalizeGenes, refs.normalizeArrays, refs.showRowDendrogram, refs.showColumnDendrogram].forEach(el => {
       el?.addEventListener('change', () => {
         console.debug('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
         schedule();
+      });
+    });
+    [refs.absValues, refs.maskLower, refs.showValues].forEach(el => {
+      el?.addEventListener('change', () => {
+        console.debug('Debug: heatmap view toggle changed', { id: el.id, checked: el.checked });
+        scheduleViewOnly(`toggle-${el?.id || 'unknown'}`);
       });
     });
     refs.decimals?.addEventListener('input', () => {
@@ -349,7 +651,7 @@
         refs.decimals.value = String(clampDecimals(refs.decimals.value));
         console.debug('Debug: heatmap decimals changed', { value: refs.decimals.value });
       }
-      schedule();
+      scheduleViewOnly('decimals');
     });
     [refs.colorNegative, refs.colorZero, refs.colorPositive].forEach(el => {
       if(!el) return;
@@ -358,7 +660,7 @@
       }
       el.addEventListener('input', () => {
         console.debug('Debug: heatmap color changed', { id: el.id, value: el.value });
-        schedule();
+        scheduleViewOnly(`color-${el.id}`);
       });
     });
     refs.cellSize?.addEventListener('input', () => {
@@ -366,7 +668,7 @@
         refs.cellSizeVal.textContent = refs.cellSize.value;
       }
       console.debug('Debug: heatmap cell size changed', { value: refs.cellSize?.value });
-      schedule();
+      scheduleViewOnly('cell-size');
     });
     refs.fontSize?.addEventListener('input', () => {
       if(refs.fontSize){
@@ -376,7 +678,7 @@
         chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: Number(refs.fontSize.value), input: refs.fontSize, manual: true });
         console.debug('Debug: heatmap font size changed', { value: refs.fontSize.value });
       }
-      schedule();
+      scheduleViewOnly('font-size');
     });
     refs.labelAngle?.addEventListener('input', () => {
       if(refs.labelAngle){
@@ -1284,6 +1586,24 @@
     return settings;
   }
 
+  function extractViewOptions(settings){
+    if(!settings){
+      return null;
+    }
+    return {
+      view: settings.view,
+      decimals: settings.decimals,
+      useAbsolute: settings.useAbsolute,
+      maskLower: settings.maskLower,
+      showValues: settings.showValues,
+      cellSize: settings.cellSize,
+      fontSize: settings.fontSize,
+      palette: settings.palette,
+      colors: settings.palette,
+      correlationMethod: settings.correlationMethod
+    };
+  }
+
   function prepareProcessedData(settings){
     const raw = collectTableData();
     if(!raw){
@@ -1337,17 +1657,26 @@
     }
     rowLabels = rowLabels.slice();
     rowMeta = rowMeta.slice();
-    const finiteValues = [];
+    let finiteCount = 0;
+    let finiteSum = 0;
+    let min = Infinity;
+    let max = -Infinity;
     for(const row of matrix){
       for(const value of row){
-        if(Number.isFinite(value)){
-          finiteValues.push(value);
+        if(!Number.isFinite(value)){
+          continue;
         }
+        finiteCount++;
+        finiteSum += value;
+        if(value < min) min = value;
+        if(value > max) max = value;
       }
     }
-    const min = finiteValues.length ? Math.min(...finiteValues) : NaN;
-    const max = finiteValues.length ? Math.max(...finiteValues) : NaN;
-    const mean = finiteValues.length ? finiteValues.reduce((acc, value) => acc + value, 0) / finiteValues.length : NaN;
+    if(!finiteCount){
+      min = NaN;
+      max = NaN;
+    }
+    const mean = finiteCount ? (finiteSum / finiteCount) : NaN;
     return {
       ok: true,
       matrix,
@@ -1363,7 +1692,7 @@
         min,
         max,
         mean,
-        finiteCount: finiteValues.length,
+        finiteCount,
         initialRows: raw.rowLabels.length,
         initialColumns: raw.columnLabels.length,
         rowsFiltered: filterResult.removed.length,
@@ -2018,6 +2347,7 @@
   }
 
   function renderEmpty(message){
+    clearCachedRenderState();
     if(!state.svg) return;
     while(state.svg.firstChild){
       state.svg.removeChild(state.svg.firstChild);
@@ -2068,6 +2398,7 @@
   }
 
   function updateStats(stats){
+    state.lastStats = stats ? { ...stats } : null;
     if(!state.statsEl){
       console.debug('Debug: heatmap stats element missing');
       return;
@@ -2459,13 +2790,12 @@
     let mostNegative = null;
     for(let i = 0; i < items.length; i += 1){
       const selfCount = items[i].vector.filter(value => Number.isFinite(value)).length;
-      matrix[i][i] = { raw: 1, display: 1, count: selfCount };
+      matrix[i][i] = { raw: 1, count: selfCount };
       for(let j = i + 1; j < items.length; j += 1){
         const entry = calculateCorrelationEntry(items[i].vector, items[j].vector, settings.correlationMethod);
         const raw = Number.isFinite(entry.corr) ? entry.corr : NaN;
-        const display = Number.isFinite(raw) ? (settings.useAbsolute ? Math.abs(raw) : raw) : NaN;
-        matrix[i][j] = { raw, display, count: entry.count };
-        matrix[j][i] = { raw, display, count: entry.count };
+        matrix[i][j] = { raw, count: entry.count };
+        matrix[j][i] = { raw, count: entry.count };
         if(Number.isFinite(raw)){
           pairCount += 1;
           const absValue = Math.abs(raw);
@@ -2497,58 +2827,29 @@
       ? clusterResult.order.map(idx => positionByIndex.get(idx)).filter(idx => idx !== undefined)
       : items.map((_, idx) => idx);
     const orderedRowLabels = orderPositions.map(pos => items[pos].label);
-    const orderedCells = orderPositions.map(rowPos => orderPositions.map(colPos => {
+    const orderedEntries = orderPositions.map(rowPos => orderPositions.map(colPos => {
       const entry = matrix[rowPos][colPos];
-      const fill = entry && Number.isFinite(entry.raw)
-        ? colorForValue({ raw: entry.raw, value: entry.display }, {
-            negative: hexToRgb(settings.palette.negative || '#313695'),
-            zero: hexToRgb(settings.palette.zero || '#f7f7f7'),
-            positive: hexToRgb(settings.palette.positive || '#a50026')
-          }, settings.useAbsolute)
-        : '#d0d0d0';
-      const value = entry ? entry.display : NaN;
-      const title = entry
-        ? `${items[rowPos].label} vs ${items[colPos].label}: ${Number.isFinite(entry.display) ? entry.display.toFixed(settings.decimals ?? 2) : 'n/a'} (n=${entry.count})`
-        : '';
-      return { fill, value, title };
+      if(!entry){
+        return { raw: NaN, count: 0 };
+      }
+      return { raw: entry.raw, count: entry.count };
     }));
     const showRowDendrogram = !!(clusterResult && clusterConfig.showDendrogram);
     const showColumnDendrogram = showRowDendrogram;
-    const colorScale = settings.useAbsolute
-      ? {
-          stops: [
-            { offset: 0, color: rgbToCss(hexToRgb(settings.palette.zero || '#f7f7f7')) },
-            { offset: 100, color: rgbToCss(hexToRgb(settings.palette.positive || '#a50026')) }
-          ],
-          ticks: [0, 0.25, 0.5, 0.75, 1].map(value => ({ value, label: value.toFixed(settings.decimals ?? 2) })),
-          valueToRatio: value => Math.min(1, Math.max(0, value))
-        }
-      : {
-          stops: [
-            { offset: 0, color: rgbToCss(hexToRgb(settings.palette.negative || '#313695')) },
-            { offset: 50, color: rgbToCss(hexToRgb(settings.palette.zero || '#f7f7f7')) },
-            { offset: 100, color: rgbToCss(hexToRgb(settings.palette.positive || '#a50026')) }
-          ],
-          ticks: [-1, -0.5, 0, 0.5, 1].map(value => ({ value, label: value.toFixed(settings.decimals ?? 2) })),
-          valueToRatio: value => (Math.min(1, Math.max(-1, value)) + 1) / 2
-        };
-    drawHeatmap({
+    const model = {
+      type: 'correlation',
       orderedRowLabels,
       orderedColumnLabels: orderedRowLabels,
-      orderedCells,
+      cells: orderedEntries,
       rowOrder: orderPositions.map(pos => items[pos].index),
       columnOrder: orderPositions.map(pos => items[pos].index),
       rowClustering: clusterResult,
       columnClustering: clusterResult,
       showRowDendrogram,
-      showColumnDendrogram,
-      maskLower: settings.maskLower,
-      cellSize: settings.cellSize,
-      fontSize: settings.fontSize,
-      showValues: settings.showValues,
-      decimals: settings.decimals,
-      colorScale
-    });
+      showColumnDendrogram
+    };
+    const viewOptions = extractViewOptions(settings);
+    renderModelWithView(model, viewOptions);
     updateStats({
       type: 'correlation',
       itemCount: items.length,
@@ -2585,73 +2886,27 @@
     const orderedRowLabels = rowOrderPositions.map(pos => processed.rowLabels[pos]);
     const orderedColumnLabels = columnOrderPositions.map(pos => processed.columnLabels[pos]);
     const orderedMatrix = rowOrderPositions.map(rowPos => columnOrderPositions.map(colPos => processed.matrix[rowPos][colPos]));
-    const colorMapper = createValueColorMapper(processed.stats, settings.palette);
-    const orderedCells = orderedMatrix.map((row, rowIndex) => row.map((value, columnIndex) => {
-      const fill = colorMapper(value);
-      const title = `${orderedRowLabels[rowIndex]} vs ${orderedColumnLabels[columnIndex]}: ${Number.isFinite(value) ? value.toFixed(settings.decimals ?? 2) : 'n/a'}`;
-      return { fill, value, title };
-    }));
+    const orderedCells = orderedMatrix.map(row => row.map(value => ({ value })));
     const min = processed.stats.min;
     const max = processed.stats.max;
-    let stops;
-    if(Number.isFinite(min) && Number.isFinite(max) && min < 0 && max > 0){
-      stops = [
-        { offset: 0, color: rgbToCss(hexToRgb(settings.palette.negative || '#313695')) },
-        { offset: 50, color: rgbToCss(hexToRgb(settings.palette.zero || '#f7f7f7')) },
-        { offset: 100, color: rgbToCss(hexToRgb(settings.palette.positive || '#a50026')) }
-      ];
-    }else if(Number.isFinite(max) && max <= 0){
-      stops = [
-        { offset: 0, color: rgbToCss(hexToRgb(settings.palette.negative || '#313695')) },
-        { offset: 100, color: rgbToCss(hexToRgb(settings.palette.zero || '#f7f7f7')) }
-      ];
-    }else{
-      stops = [
-        { offset: 0, color: rgbToCss(hexToRgb(settings.palette.zero || '#f7f7f7')) },
-        { offset: 100, color: rgbToCss(hexToRgb(settings.palette.positive || '#a50026')) }
-      ];
-    }
-    const tickValues = [];
-    if(Number.isFinite(min) && Number.isFinite(max)){
-      for(let i = 0; i <= 4; i += 1){
-        const ratio = i / 4;
-        const value = min + (max - min) * ratio;
-        tickValues.push({ value, label: value.toFixed(settings.decimals ?? 2) });
-      }
-    }
-    const colorScale = {
-      stops,
-      ticks: tickValues,
-      valueToRatio: value => {
-        if(!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || min === max){
-          return 0;
-        }
-        if(min < 0 && max > 0){
-          const maxAbs = Math.max(Math.abs(min), Math.abs(max));
-          return (Math.min(maxAbs, Math.max(-maxAbs, value)) + maxAbs) / (2 * maxAbs);
-        }
-        return (value - min) / (max - min);
-      }
-    };
     const showRowDendrogram = !!(rowCluster && settings.clustering.rows.showDendrogram);
     const showColumnDendrogram = !!(columnCluster && settings.clustering.columns.showDendrogram);
-    drawHeatmap({
+    const model = {
+      type: 'values',
       orderedRowLabels,
       orderedColumnLabels,
-      orderedCells,
+      cells: orderedCells,
       rowOrder: rowOrderPositions.map(pos => rowItems[pos].index),
       columnOrder: columnOrderPositions.map(pos => columnItems[pos].index),
       rowClustering: rowCluster,
       columnClustering: columnCluster,
       showRowDendrogram,
       showColumnDendrogram,
-      maskLower: false,
-      cellSize: settings.cellSize,
-      fontSize: settings.fontSize,
-      showValues: settings.showValues,
-      decimals: settings.decimals,
-      colorScale
-    });
+      valueStats: { min, max, stats: processed.stats },
+      adjustmentSummary: processed.adjustmentSummary
+    };
+    const viewOptions = extractViewOptions(settings);
+    renderModelWithView(model, viewOptions);
     updateStats({
       type: 'values',
       rowCount: orderedRowLabels.length,
@@ -2672,15 +2927,206 @@
     });
   }
 
+  function createCorrelationColorScale(viewOptions){
+    if(!viewOptions){
+      return null;
+    }
+    if(viewOptions.useAbsolute){
+      return {
+        stops: [
+          { offset: 0, color: rgbToCss(hexToRgb(viewOptions.palette?.zero || '#f7f7f7')) },
+          { offset: 100, color: rgbToCss(hexToRgb(viewOptions.palette?.positive || '#a50026')) }
+        ],
+        ticks: [0, 0.25, 0.5, 0.75, 1].map(value => ({ value, label: value.toFixed(viewOptions.decimals ?? 2) })),
+        valueToRatio: value => Math.min(1, Math.max(0, value))
+      };
+    }
+    return {
+      stops: [
+        { offset: 0, color: rgbToCss(hexToRgb(viewOptions.palette?.negative || '#313695')) },
+        { offset: 50, color: rgbToCss(hexToRgb(viewOptions.palette?.zero || '#f7f7f7')) },
+        { offset: 100, color: rgbToCss(hexToRgb(viewOptions.palette?.positive || '#a50026')) }
+      ],
+      ticks: [-1, -0.5, 0, 0.5, 1].map(value => ({ value, label: value.toFixed(viewOptions.decimals ?? 2) })),
+      valueToRatio: value => (Math.min(1, Math.max(-1, value)) + 1) / 2
+    };
+  }
+
+  function createValueColorScale(stats, palette, decimals){
+    if(!stats){
+      return null;
+    }
+    const min = stats.min;
+    const max = stats.max;
+    let stops;
+    if(Number.isFinite(min) && Number.isFinite(max) && min < 0 && max > 0){
+      stops = [
+        { offset: 0, color: rgbToCss(hexToRgb(palette?.negative || '#313695')) },
+        { offset: 50, color: rgbToCss(hexToRgb(palette?.zero || '#f7f7f7')) },
+        { offset: 100, color: rgbToCss(hexToRgb(palette?.positive || '#a50026')) }
+      ];
+    }else if(Number.isFinite(max) && max <= 0){
+      stops = [
+        { offset: 0, color: rgbToCss(hexToRgb(palette?.negative || '#313695')) },
+        { offset: 100, color: rgbToCss(hexToRgb(palette?.zero || '#f7f7f7')) }
+      ];
+    }else{
+      stops = [
+        { offset: 0, color: rgbToCss(hexToRgb(palette?.zero || '#f7f7f7')) },
+        { offset: 100, color: rgbToCss(hexToRgb(palette?.positive || '#a50026')) }
+      ];
+    }
+    const tickValues = [];
+    if(Number.isFinite(min) && Number.isFinite(max)){
+      for(let i = 0; i <= 4; i += 1){
+        const ratio = i / 4;
+        const value = min + (max - min) * ratio;
+        tickValues.push({ value, label: value.toFixed(decimals ?? 2) });
+      }
+    }
+    return {
+      stops,
+      ticks: tickValues,
+      valueToRatio: value => {
+        if(!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || min === max){
+          return 0;
+        }
+        if(min < 0 && max > 0){
+          const maxAbs = Math.max(Math.abs(min), Math.abs(max));
+          return (Math.min(maxAbs, Math.max(-maxAbs, value)) + maxAbs) / (2 * maxAbs);
+        }
+        return (value - min) / (max - min);
+      }
+    };
+  }
+
+  function buildDrawPayloadFromModel(model, viewOptions){
+    if(!model || !viewOptions){
+      return null;
+    }
+    if(model.type === 'correlation'){
+      const palette = {
+        negative: hexToRgb(viewOptions.palette?.negative || '#313695'),
+        zero: hexToRgb(viewOptions.palette?.zero || '#f7f7f7'),
+        positive: hexToRgb(viewOptions.palette?.positive || '#a50026')
+      };
+      const orderedCells = model.cells.map((row, rowIndex) => row.map((cell, columnIndex) => {
+        const raw = Number(cell?.raw);
+        const count = Number(cell?.count);
+        const displayValue = Number.isFinite(raw)
+          ? (viewOptions.useAbsolute ? Math.abs(raw) : raw)
+          : NaN;
+        const fill = Number.isFinite(raw)
+          ? colorForValue({ raw, value: displayValue }, palette, viewOptions.useAbsolute)
+          : '#d0d0d0';
+        const baseLabel = `${model.orderedRowLabels[rowIndex]} vs ${model.orderedColumnLabels[columnIndex]}`;
+        const parts = [`${baseLabel}: ${Number.isFinite(displayValue) ? displayValue.toFixed(viewOptions.decimals ?? 2) : 'n/a'}`];
+        if(Number.isFinite(count)){
+          parts.push(`(n=${count})`);
+        }
+        return { fill, value: displayValue, title: parts.join(' ') };
+      }));
+      return {
+        orderedRowLabels: model.orderedRowLabels,
+        orderedColumnLabels: model.orderedColumnLabels,
+        orderedCells,
+        rowOrder: model.rowOrder,
+        columnOrder: model.columnOrder,
+        rowClustering: model.rowClustering,
+        columnClustering: model.columnClustering,
+        showRowDendrogram: model.showRowDendrogram,
+        showColumnDendrogram: model.showColumnDendrogram,
+        maskLower: !!viewOptions.maskLower,
+        cellSize: viewOptions.cellSize,
+        fontSize: viewOptions.fontSize,
+        showValues: viewOptions.showValues,
+        decimals: viewOptions.decimals,
+        colorScale: createCorrelationColorScale(viewOptions)
+      };
+    }
+    if(model.type === 'values'){
+      const stats = model.valueStats?.stats || {};
+      const colorMapper = createValueColorMapper(stats, viewOptions.palette);
+      const orderedCells = model.cells.map((row, rowIndex) => row.map((cell, columnIndex) => {
+        const value = cell?.value;
+        const fill = colorMapper(value);
+        const title = `${model.orderedRowLabels[rowIndex]} vs ${model.orderedColumnLabels[columnIndex]}: ${Number.isFinite(value) ? value.toFixed(viewOptions.decimals ?? 2) : 'n/a'}`;
+        return { fill, value, title };
+      }));
+      return {
+        orderedRowLabels: model.orderedRowLabels,
+        orderedColumnLabels: model.orderedColumnLabels,
+        orderedCells,
+        rowOrder: model.rowOrder,
+        columnOrder: model.columnOrder,
+        rowClustering: model.rowClustering,
+        columnClustering: model.columnClustering,
+        showRowDendrogram: model.showRowDendrogram,
+        showColumnDendrogram: model.showColumnDendrogram,
+        maskLower: false,
+        cellSize: viewOptions.cellSize,
+        fontSize: viewOptions.fontSize,
+        showValues: viewOptions.showValues,
+        decimals: viewOptions.decimals,
+        colorScale: createValueColorScale({ min: model.valueStats?.min, max: model.valueStats?.max }, viewOptions.palette, viewOptions.decimals)
+      };
+    }
+    return null;
+  }
+
+  function renderModelWithView(model, viewOptions){
+    const payload = buildDrawPayloadFromModel(model, viewOptions);
+    if(!payload){
+      debugLog('Debug: heatmap renderModelWithView skipped - missing payload');
+      return false;
+    }
+    drawHeatmap(payload);
+    state.lastRenderModel = model;
+    state.lastViewOptions = viewOptions;
+    return true;
+  }
+
+  function refreshStatsForView(viewOptions){
+    if(!state.lastStats){
+      return;
+    }
+    const stats = { ...state.lastStats };
+    stats.decimals = viewOptions?.decimals ?? stats.decimals;
+    if(stats.type === 'correlation'){
+      stats.useAbs = !!viewOptions?.useAbsolute;
+    }
+    updateStats(stats);
+  }
+
   function draw(){
+    const drawOpts = pendingDrawOptions || {};
+    pendingDrawOptions = {};
     try{
       if(!state.hot || !state.svg){
         console.debug('Debug: heatmap draw skipped - missing hot or svg');
         return;
       }
       const settings = collectSettings();
+      const viewMatches = (state.lastRenderModel?.type === 'values' && settings.view === 'values')
+        || (state.lastRenderModel?.type === 'correlation' && settings.view.startsWith('corr'));
+      if(drawOpts.viewOnly){
+        if(state.lastRenderModel && viewMatches){
+          const viewOptions = extractViewOptions(settings);
+          const applied = renderModelWithView(state.lastRenderModel, viewOptions);
+          if(applied){
+            refreshStatsForView(viewOptions);
+            debugLog('Debug: heatmap view-only redraw applied', { reason: drawOpts.reason });
+            return;
+          }
+          debugLog('Debug: heatmap view-only redraw fallback triggered');
+        }else{
+          debugLog('Debug: heatmap view-only redraw skipped - no cached render');
+        }
+        return;
+      }
       const processed = prepareProcessedData(settings);
       if(!processed.ok){
+        clearCachedRenderState();
         const reason = processed.reason;
         if(reason === 'no-data'){
           renderEmpty('Add numeric data to draw the heatmap.');
@@ -2979,13 +3425,24 @@
       }
     });
     state.svgBox = state.layout?.elements?.svgBox || state.svg?.closest('.svgbox') || null;
+    heatmapRenderRowEl = $('heatmapRenderRow');
+    heatmapRenderButtonEl = $('heatmapRenderButton');
+    heatmapAutoDrawNoticeEl = $('heatmapAutoDrawNotice');
+    if(heatmapRenderButtonEl){
+      heatmapRenderButtonEl.addEventListener('click', () => {
+        debugLog('Debug: heatmap manual render button');
+        state.scheduleDraw({ force: true, reason: 'manual-render' });
+      });
+    }
     initHot();
     initControls();
     initFileButtons();
-    state.scheduleDraw = Shared.debounceFrame ? Shared.debounceFrame(draw) : draw;
-    console.debug('Debug: heatmap scheduler configured', { hasDebounce: !!Shared.debounceFrame });
-    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    scheduleDrawHeatmapRaw = Shared.debounceFrame ? Shared.debounceFrame(draw) : draw;
+    debugLog('Debug: heatmap scheduler configured', { hasDebounce: !!Shared.debounceFrame });
+    state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
     state.layout?.syncPanels?.();
+    updateAutoDrawUi();
+    evaluateAutoDrawThresholds();
     heatmap.ready = true;
     state.scheduleDraw();
   };
