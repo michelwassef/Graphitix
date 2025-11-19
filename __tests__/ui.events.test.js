@@ -268,10 +268,10 @@ describe('UI events and example loaders', () => {
     expect(lineStateGrouped?.legendItems?.map(item => item.label)).toEqual(['Control', 'Treated']);
   });
 
-  test.skip('Box Plot: assumption warnings surface for non-normal data', async () => {
-    await activateWorkspace('box');
+  test('Box Plot: assumption warnings surface for non-normal data', async () => {
     const cleanupJStat = ensureJStatStub();
     try {
+      await activateWorkspace('box');
       const boxComponent = window.Components?.box;
       expect(boxComponent).toBeTruthy();
       await new Promise(resolve => setTimeout(resolve, 0));
@@ -304,7 +304,6 @@ describe('UI events and example loaders', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
 
       const statsResults = document.getElementById('statsResults');
-      console.debug('Debug: test statsResults HTML', statsResults?.innerHTML);
       const assumptionSection = statsResults?.querySelector('.stats-assumption-section');
       expect(assumptionSection).toBeTruthy();
       const failBadges = Array.from(assumptionSection.querySelectorAll('.assumption-badge[data-result="fail"]'));
@@ -313,11 +312,6 @@ describe('UI events and example loaders', () => {
       expect(warningTexts.some(text => /failed normality/i.test(text))).toBe(true);
 
       const updatedState = window.Components.box.__getState?.();
-      console.debug('Debug: test assumption state snapshot', {
-        recommend: updatedState?.assumptionDiagnostics?.recommendNonParametric,
-        warnings: updatedState?.assumptionDiagnostics?.warnings,
-        statsTest: updatedState?.statsTest
-      });
       expect(updatedState?.assumptionDiagnostics?.recommendNonParametric).toBe(true);
       expect(updatedState?.statsTest).toBe('nonparametric');
       expect((updatedState?.assumptionDiagnostics?.warnings || []).length).toBeGreaterThan(0);
@@ -381,55 +375,65 @@ describe('UI events and example loaders', () => {
     expect(loads.length).toBeGreaterThan(0);
   });
 
-  test.skip('ROC: Load Example populates data', async () => {
-    await activateWorkspace('roc');
-    const btn = document.getElementById('rocLoadExample');
-    expect(btn).toBeTruthy();
-    btn.click();
-    await flushAsyncWork();
-    const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'rocHot');
-    expect(loads.length).toBeGreaterThan(0);
-    const firstRow = loads[loads.length - 1].firstRow;
-    expect(firstRow).toEqual(expect.arrayContaining(['Label', 'Model1', 'Model2']));
-    await flushAsyncWork();
+  test('ROC: Load Example populates data', async () => {
+    const cleanupJStat = ensureJStatStub();
+    try {
+      await activateWorkspace('roc');
+      const btn = document.getElementById('rocLoadExample');
+      expect(btn).toBeTruthy();
+      btn.click();
+      await flushAsyncWork();
+      const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'rocHot');
+      expect(loads.length).toBeGreaterThan(0);
+      const firstRow = loads[loads.length - 1].firstRow;
+      expect(firstRow).toEqual(expect.arrayContaining(['Label', 'Model1', 'Model2']));
+      await flushAsyncWork();
+    } finally {
+      cleanupJStat();
+    }
   });
 
-  test.skip('ROC stats escape series names that look like HTML', async () => {
-    await activateWorkspace('roc');
-    const htmlName = 'Model <em>Injected</em>';
-    const payload = window.Components?.roc?.getPayload?.();
-    expect(payload).toBeTruthy();
-    const tableData = payload.data;
-    expect(Array.isArray(tableData)).toBe(true);
+  test('ROC stats escape series names that look like HTML', async () => {
+    const cleanupJStat = ensureJStatStub();
+    try {
+      await activateWorkspace('roc');
+      const htmlName = 'Model <em>Injected</em>';
+      const payload = window.Components?.roc?.getPayload?.();
+      expect(payload).toBeTruthy();
+      const tableData = payload.data;
+      expect(Array.isArray(tableData)).toBe(true);
 
-    const ensureRow = index => {
-      tableData[index] = tableData[index] || [];
-      return tableData[index];
-    };
-    const header = ensureRow(0);
-    header[0] = 'Label';
-    header[1] = htmlName;
-    const rows = [
-      [1, 0.92],
-      [0, 0.12],
-      [1, 0.88],
-      [0, 0.05]
-    ];
-    rows.forEach((row, idx) => {
-      const target = ensureRow(idx + 1);
-      target[0] = row[0];
-      target[1] = row[1];
-    });
+      const ensureRow = index => {
+        tableData[index] = tableData[index] || [];
+        return tableData[index];
+      };
+      const header = ensureRow(0);
+      header[0] = 'Label';
+      header[1] = htmlName;
+      const rows = [
+        [1, 0.92],
+        [0, 0.12],
+        [1, 0.88],
+        [0, 0.05]
+      ];
+      rows.forEach((row, idx) => {
+        const target = ensureRow(idx + 1);
+        target[0] = row[0];
+        target[1] = row[1];
+      });
 
-    window.Components.roc.draw();
+      window.Components.roc.draw();
 
-    const statsResults = document.getElementById('rocStatsResults');
-    expect(statsResults).toBeTruthy();
-    const lines = Array.from(statsResults.querySelectorAll('p')).map(el => el.textContent);
-    expect(lines.length).toBeGreaterThan(0);
-    expect(lines[0]).toContain(htmlName);
-    expect(statsResults.querySelector('em')).toBeNull();
-    expect(statsResults.innerHTML).toContain('&lt;em&gt;');
+      const statsResults = document.getElementById('rocStatsResults');
+      expect(statsResults).toBeTruthy();
+      const lines = Array.from(statsResults.querySelectorAll('p')).map(el => el.textContent);
+      expect(lines.length).toBeGreaterThan(0);
+      expect(lines[0]).toContain(htmlName);
+      expect(statsResults.querySelector('em')).toBeNull();
+      expect(statsResults.innerHTML).toContain('&lt;em&gt;');
+    } finally {
+      cleanupJStat();
+    }
   });
 
   test('Survival: Load Example populates data', async () => {
