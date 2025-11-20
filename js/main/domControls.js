@@ -112,20 +112,55 @@
       return moduleState.workspaceDefaults[type];
     }
     const cloneFn = session?.fastClonePayload || session?.clonePayload;
-    if (!config || typeof config.getPayload !== 'function' || !session || typeof cloneFn !== 'function') {
+    if (!session || typeof cloneFn !== 'function' || !config) {
+      console.debug('Debug: ensureDefaultPayload skipped', {
+        hasSession: !!session,
+        hasClone: typeof cloneFn === 'function',
+        hasConfig: !!config,
+        type
+      });
       return null;
     }
+    const resolveEmptyPayload = () => {
+      if (typeof config.createEmptyPayload === 'function') {
+        try {
+          const emptyPayload = config.createEmptyPayload();
+          console.debug('Debug: ensureDefaultPayload using createEmptyPayload', { type, hasPayload: !!emptyPayload });
+          return emptyPayload;
+        } catch (err) {
+          console.error('ensureDefaultPayload empty payload error', { type, err });
+        }
+      }
+      if (typeof config.getPayload === 'function') {
+        try {
+          const snapshot = config.getPayload();
+          console.debug('Debug: ensureDefaultPayload using live payload snapshot', { type, hasPayload: !!snapshot });
+          return snapshot;
+        } catch (err) {
+          console.error('ensureDefaultPayload live payload error', { type, err });
+        }
+      }
+      return null;
+    };
     try {
-      const payload = config.getPayload();
+      const payload = resolveEmptyPayload();
+      if (!payload) {
+        console.debug('Debug: ensureDefaultPayload payload unavailable', { type });
+        return null;
+      }
       moduleState.workspaceDefaults[type] = cloneFn.call(session, payload);
       console.debug('Debug: workspace default captured', { type, hasPayload: !!moduleState.workspaceDefaults[type] });
       if (typeof config.getLayoutState === 'function') {
-        const layout = config.getLayoutState();
-        moduleState.workspaceLayoutDefaults[type] = cloneFn.call(session, layout);
-        console.debug('Debug: workspace layout default captured', {
-          type,
-          hasLayout: !!moduleState.workspaceLayoutDefaults[type]
-        });
+        try {
+          const layout = config.getLayoutState();
+          moduleState.workspaceLayoutDefaults[type] = cloneFn.call(session, layout);
+          console.debug('Debug: workspace layout default captured', {
+            type,
+            hasLayout: !!moduleState.workspaceLayoutDefaults[type]
+          });
+        } catch (layoutErr) {
+          console.error('ensureDefaultPayload layout capture error', { type, err: layoutErr });
+        }
       }
       return moduleState.workspaceDefaults[type];
     } catch (err) {
@@ -210,7 +245,17 @@
     const applyWorkspaceState = () => {
       const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
       if (!options.skipApply) {
-        const payload = tab.payload ? cloneFn?.(tab.payload) : cloneFn?.(defaultPayload);
+        let payload = tab.payload ? cloneFn?.(tab.payload) : cloneFn?.(defaultPayload);
+        if (!payload && typeof config.createEmptyPayload === 'function') {
+          try {
+            const emptyPayload = config.createEmptyPayload();
+            moduleState.workspaceDefaults[tab.type] = moduleState.workspaceDefaults[tab.type] || cloneFn?.(emptyPayload);
+            payload = cloneFn?.(emptyPayload) || emptyPayload;
+            console.debug('Debug: workspace payload rebuilt from empty template', { tabId: tab.id, type: tab.type });
+          } catch (err) {
+            console.error('workspace payload empty rebuild error', { type: tab.type, err });
+          }
+        }
         namespace.applyWorkspacePayload(config, payload);
       }
       if (typeof config.applyLayoutState === 'function') {
