@@ -111,6 +111,30 @@
     }
   }
 
+  function ensureFallbackColorInput(){
+    if(overlayState.__fallbackColorInput && overlayState.__fallbackColorInput.isConnected){
+      return overlayState.__fallbackColorInput;
+    }
+    const input = documentRef.createElement('input');
+    input.type = 'color';
+    input.className = 'shared-color-picker__hidden-fallback-input';
+    input.tabIndex = -1;
+    input.style.position = 'fixed';
+    input.style.inset = '0';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    input.addEventListener('input', (evt)=>{
+      const value = normalizeHex(evt.target.value);
+      if(value){
+        logDebug('eyedropper-fallback-input', { color: value });
+        applyColor(value, { source: 'eyedropper' });
+      }
+    });
+    documentRef.body.appendChild(input);
+    overlayState.__fallbackColorInput = input;
+    return input;
+  }
+
   function normalizeHex(value){
     if(typeof value !== 'string'){
       return null;
@@ -891,36 +915,49 @@
     }
   }
 
-  function handleEyeDropperClick(evt){
+  function openSystemColorPickerFallback(){
+    if(!overlayState.customInput){
+      return;
+    }
+    try{
+      overlayState.customInput.focus({ preventScroll: true });
+    }catch(err){
+      overlayState.customInput.focus();
+    }
+    overlayState.customInput.click();
+  }
+
+  async function handleEyeDropperClick(evt){
     evt.preventDefault();
     const mode = evt && evt.currentTarget && evt.currentTarget.dataset ? evt.currentTarget.dataset.mode : null;
     if(mode === 'fallback' || typeof global.EyeDropper !== 'function'){
       const fallbackReason = mode === 'fallback' ? 'native-unavailable' : 'missing-interface';
       logDebug('eyedropper-fallback', { reason: fallbackReason });
-      if(overlayState.customInput){
+      const fallbackInput = ensureFallbackColorInput();
+      if(fallbackInput){
+        fallbackInput.value = overlayState.activeColor || '#000000';
         try{
-          overlayState.customInput.focus({ preventScroll: true });
+          fallbackInput.showPicker?.();
         }catch(err){
-          overlayState.customInput.focus();
+          // Firefox exposes showPicker behind flags; fallback to click()
+          fallbackInput.click();
         }
-        overlayState.customInput.click();
+      }else{
+        openSystemColorPickerFallback();
       }
       return;
     }
     try{
       const eyeDropper = new global.EyeDropper();
       logDebug('eyedropper-open', {});
-      eyeDropper.open().then(result => {
-        const value = normalizeHex(result?.sRGBHex);
-        if(value){
-          logDebug('eyedropper-result', { color: value });
-          applyColor(value, { source: 'eyedropper' });
-        }
-      }).catch(err => {
-        logDebug('eyedropper-cancelled', { message: err?.message || String(err) });
-      });
+      const result = await eyeDropper.open();
+      const value = normalizeHex(result?.sRGBHex);
+      if(value){
+        logDebug('eyedropper-result', { color: value });
+        applyColor(value, { source: 'eyedropper' });
+      }
     }catch(err){
-      console.warn('colorPicker eyedropper error', err);
+      logDebug('eyedropper-cancelled', { message: err?.message || String(err) });
     }
   }
 

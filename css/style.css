@@ -295,6 +295,15 @@
     border: 0;
 }
 
+.shared-color-picker__hidden-fallback-input {
+    position: fixed;
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
+    width: 1px;
+    height: 1px;
+}
+
 @media (prefers-color-scheme: dark) {
     .shared-color-picker {
         background: #0f172a;
