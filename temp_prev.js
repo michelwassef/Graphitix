@@ -118,38 +118,6 @@
     lastStats: null
   };
 
-  function deriveHeatmapExportFileName(){
-    const baseName = typeof state.fileName === 'string' ? state.fileName.trim() : '';
-    const sanitized = baseName.replace(/\.graph$/i, '');
-    return sanitized || 'correlation-heatmap';
-  }
-
-  function refreshHeatmapExportControls(){
-    if(!Shared.exporter || typeof Shared.exporter.mountSvgControls !== 'function'){
-      return;
-    }
-    const exportFileName = deriveHeatmapExportFileName();
-    Shared.exporter.mountSvgControls({
-      container: '#heatmapExportControls',
-      svgSelector: '#heatmapSvg',
-      fileName: exportFileName,
-      contextLabel: 'heatmap-export'
-    });
-    debugLog('Debug: heatmap export controls configured', { fileName: exportFileName });
-  }
-
-  function setHeatmapFileName(name, options = {}){
-    const trimmed = typeof name === 'string' ? name.trim() : '';
-    const normalized = trimmed || 'correlation-heatmap.graph';
-    if(!options.force && state.fileName === normalized){
-      return;
-    }
-    state.fileName = normalized;
-    if(!options.skipExportRefresh){
-      refreshHeatmapExportControls();
-    }
-  }
-
   const refs = {};
 
   let scheduleDrawHeatmapRaw = () => {};
@@ -817,7 +785,13 @@
       }, true);
     }
 
-    refreshHeatmapExportControls();
+    if(Shared.exporter && typeof Shared.exporter.mountSvgControls === 'function'){
+      Shared.exporter.mountSvgControls({
+        container: '#heatmapExportControls',
+        svgSelector: '#heatmapSvg',
+        fileName: () => (state.fileName || 'correlation-heatmap.graph').replace(/\.graph$/i, '') || 'correlation-heatmap'
+      });
+    }
 
     updateViewControlState();
   }
@@ -829,7 +803,7 @@
     $('heatmapGraphFile')?.addEventListener('change', event => {
       const file = event.target.files && event.target.files[0];
       if(file){
-        setHeatmapFileName(file.name);
+        state.fileName = file.name;
         state.fileHandle = null;
         heatmap.loadFromFile(file);
       }
@@ -2688,19 +2662,6 @@
     defs.appendChild(gradient);
     const g = doc.createElementNS(NS, 'g');
     state.svg.appendChild(g);
-    const labelMeasureFont = chartStyle.makeFont
-      ? chartStyle.makeFont(Math.max(4, Math.round(scaledFontSize)))
-      : `${Math.max(4, Math.round(scaledFontSize))}px sans-serif`;
-    const measureColumnLabelWidth = label => {
-      if(typeof chartStyle.measureText === 'function'){
-        try{
-          return chartStyle.measureText(label || '', labelMeasureFont);
-        }catch(err){
-          console.warn('heatmap column label measureText error', err);
-        }
-      }
-      return String(label || '').length * scaledFontSize * 0.6;
-    };
     orderedRowLabels.forEach((label, index) => {
       const text = doc.createElementNS(NS, 'text');
       text.setAttribute('x', String(marginLeft - 12));
@@ -2715,13 +2676,12 @@
     orderedColumnLabels.forEach((label, index) => {
       const text = doc.createElementNS(NS, 'text');
       const x = marginLeft + index * cellSize + cellSize / 2;
-      const labelWidth = measureColumnLabelWidth(label);
-      const y = marginTop - 12 - labelWidth / 2;
+      const y = marginTop - 12;
       text.setAttribute('x', String(x));
       text.setAttribute('y', String(y));
       text.setAttribute('font-size', String(scaledFontSize));
-      text.setAttribute('text-anchor', 'middle');
-      text.setAttribute('dominant-baseline', 'middle');
+      text.setAttribute('text-anchor', 'start');
+      text.setAttribute('dominant-baseline', 'text-before-edge');
       text.setAttribute('transform', `rotate(-90 ${x} ${y})`);
       text.textContent = label;
       markFontEditable(text, 'columnLabel', `column-label-${index}`);
@@ -3405,7 +3365,7 @@
       fileName: state.fileName,
       downloadFileName: state.fileName,
       setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => setHeatmapFileName(name)
+      setFileName: name => { state.fileName = name; }
     });
     console.debug('Debug: heatmap.save result', result);
   };
@@ -3422,7 +3382,7 @@
       fileName: state.fileName,
       downloadFileName: state.fileName,
       setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => setHeatmapFileName(name)
+      setFileName: name => { state.fileName = name; }
     });
     console.debug('Debug: heatmap.saveAs result', result);
   };
@@ -3436,7 +3396,7 @@
     const result = await fileIO.openGraphFile({
       context: 'heatmap',
       setFileHandle: handle => { state.fileHandle = handle; },
-      setFileName: name => setHeatmapFileName(name),
+      setFileName: name => { state.fileName = name; },
       loadFromFile: file => heatmap.loadFromFile(file),
       triggerInput: () => {
         const input = $('heatmapGraphFile');
