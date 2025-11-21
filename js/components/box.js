@@ -4671,6 +4671,14 @@
     console.debug('Debug: box statsPostHoc normalized',{ before:state.statsPostHoc, after:normalizedPostHoc, context:postHocContext });
     state.statsPostHoc=normalizedPostHoc;
   }
+  if(state.selectedCols && state.selectedCols.size){
+    const beforeSize = state.selectedCols.size;
+    const filteredSelection = [...state.selectedCols].filter(idx => idx < traces.length);
+    if(filteredSelection.length !== beforeSize){
+      state.selectedCols = new Set(filteredSelection);
+      console.debug('Debug: box selectedCols pruned for trace count',{ before: beforeSize, after: filteredSelection.length, traces: traces.length });
+    }
+  }
   if(state.selectedCols.size<2 && traces.length>=2){
     state.selectedCols.clear();
     state.selectedCols.add(0);
@@ -6251,6 +6259,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       return;
     }
     if(!traces.length){
+      state.lastAxisLabels = [];
+      renderStatsControls([]);
       els.boxColorPerBox.innerHTML='';
       global.document.getElementById('boxPlot').innerHTML='';
       global.document.getElementById('statsResults').innerHTML='';

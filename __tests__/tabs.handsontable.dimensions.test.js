@@ -191,4 +191,21 @@ describe('Workspace tab Handsontable defaults', () => {
     expect(restoredHot.getSettings().minRows).toBe(defaultRows);
     expect(restoredHot.countCols()).toBeGreaterThanOrEqual(defaultCols);
   });
+
+  test('Box stats controls reset when loading an empty payload', async () => {
+    await activateWorkspace('box');
+    const boxComponent = window.Components?.box;
+    expect(boxComponent).toBeTruthy();
+    const boxState = boxComponent.__getState();
+    const hot = boxState?.hot;
+    expect(hot?.loadData).toBeInstanceOf(Function);
+
+    boxState.lastAxisLabels = ['Cond 1', 'Cond 2'];
+
+    const emptyPayload = boxComponent.createEmptyPayload();
+    boxComponent.loadFromPayload(emptyPayload);
+    await flushAsyncWork();
+
+    expect(boxState.lastAxisLabels.length).toBe(0);
+  });
 });
