@@ -97,6 +97,79 @@
       console.debug('Debug: tab rename cancelled', { tabId, reason });
     }
 
+    const renameDoubleClickState = {
+      lastTabId: null,
+      lastTimestamp: 0
+    };
+    const RENAME_DOUBLE_CLICK_THRESHOLD_MS = 380;
+
+    function getNowMs() {
+      if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+        return performance.now();
+      }
+      return Date.now();
+    }
+
+    function shouldSuppressRenameTarget(target) {
+      if (!target || typeof target.closest !== 'function') return false;
+      if (target.closest('.workspace-tab__close')) return true;
+      if (target.closest('.workspace-tab__rename')) return true;
+      return false;
+    }
+
+    function resetRenameDoubleClickState() {
+      renameDoubleClickState.lastTabId = null;
+      renameDoubleClickState.lastTimestamp = 0;
+    }
+
+    function triggerTabRename(tab, event, meta = {}) {
+      if (!tab || tab.isWelcome || tab.isRenaming) {
+        return false;
+      }
+      if (event) {
+        if (shouldSuppressRenameTarget(event.target)) {
+          return false;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      resetRenameDoubleClickState();
+      if (window.Shared?.isDebugEnabled?.()) {
+        console.debug('Debug: workspace tab rename trigger', {
+          tabId: tab.id,
+          reason: meta.reason || 'unknown',
+          targetClass: event?.target && event.target.className || '',
+          source: meta.source || 'direct'
+        });
+      }
+      beginRenameTab(tab.id);
+      return true;
+    }
+
+    function handleClickForRename(tab, event) {
+      if (!tab || tab.isWelcome || tab.isRenaming) {
+        return false;
+      }
+      const now = getNowMs();
+      const lastId = renameDoubleClickState.lastTabId;
+      const lastTimestamp = renameDoubleClickState.lastTimestamp;
+      renameDoubleClickState.lastTabId = tab.id;
+      renameDoubleClickState.lastTimestamp = now;
+      if (lastId !== tab.id) {
+        return false;
+      }
+      if ((now - lastTimestamp) > RENAME_DOUBLE_CLICK_THRESHOLD_MS) {
+        return false;
+      }
+      if (event?.metaKey || event?.ctrlKey || event?.altKey || event?.shiftKey) {
+        return false;
+      }
+      if (shouldSuppressRenameTarget(event?.target || null)) {
+        return false;
+      }
+      return triggerTabRename(tab, event, { reason: 'synthetic-double-click', source: 'click-handler' });
+    }
+
     function renderTabs() {
       if (!dom.tabsList) return;
       if (typeof previews.hideTabPreviewTooltip === 'function') {
@@ -121,7 +194,10 @@
         btn.setAttribute('aria-selected', tab.id === workspaceState.activeTabId ? 'true' : 'false');
         btn.draggable = !tab.isRenaming;
         const displayTitle = tab.title || `Workspace ${index + 1}`;
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', event => {
+          if (handleClickForRename(tab, event)) {
+            return;
+          }
           console.debug('Debug: workspace tab selected', { tabId: tab.id });
           activateTab(tab.id);
         });
@@ -151,12 +227,13 @@
         const label = document.createElement('span');
         label.className = 'workspace-tab__label';
         label.textContent = displayTitle;
+        const handleRenameDoubleClick = event => {
+          triggerTabRename(tab, event, { reason: 'native-dblclick', source: 'dblclick-handler' });
+        };
         if (!tab.isWelcome) {
           label.title = 'Double-click to rename this tab';
-          label.addEventListener('dblclick', event => {
-            event.stopPropagation();
-            beginRenameTab(tab.id);
-          });
+          label.addEventListener('dblclick', handleRenameDoubleClick);
+          btn.addEventListener('dblclick', handleRenameDoubleClick);
         }
         btn.appendChild(label);
 
