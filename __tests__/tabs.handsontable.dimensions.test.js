@@ -161,11 +161,20 @@ describe('Workspace tab Handsontable defaults', () => {
     const defaultCols = window.Components?.pca?.createEmptyPayload?.().data?.[0]?.length || 0;
     expect(defaultRows).toBeGreaterThan(0);
     expect(defaultCols).toBeGreaterThan(0);
+    await flushAsyncWork();
 
-    const sourceTab = window.Main.session.getActiveTab();
-    const widePayload = window.Components.pca.createEmptyPayload();
-    widePayload.data = window.Shared.createEmptyData(1000, defaultCols);
-    window.Main.session.assignTabPayload(sourceTab, widePayload, { reason: 'test-wide-dataset' });
+    const hot = window.Components?.pca?.getHotInstance?.();
+    expect(hot).toBeTruthy();
+    const wideRowCount = Math.max(defaultRows * 10, defaultRows + 900);
+    const wideData = window.Shared.createEmptyData(wideRowCount, defaultCols);
+    expect(wideData.length).toBe(wideRowCount);
+    expect(Array.isArray(wideData[0])).toBe(true);
+    hot._data = wideData;
+    hot._settings = Object.assign({}, hot.getSettings(), {
+      minRows: wideRowCount,
+      minCols: defaultCols
+    });
+    expect(hot.countRows()).toBe(wideRowCount);
 
     window.Main.tabs.handleAddTabClick();
     await flushAsyncWork();
@@ -177,8 +186,9 @@ describe('Workspace tab Handsontable defaults', () => {
 
     const newActiveTab = window.Main.session.getActiveTab();
     expect(newActiveTab?.type).toBe('pca');
-    const hot = window.Components.pca.getHotInstance();
-    expect(hot.countRows()).toBe(defaultRows);
-    expect(hot.countCols()).toBeGreaterThanOrEqual(defaultCols);
+    const restoredHot = window.Components.pca.getHotInstance();
+    expect(restoredHot.countRows()).toBe(defaultRows);
+    expect(restoredHot.getSettings().minRows).toBe(defaultRows);
+    expect(restoredHot.countCols()).toBeGreaterThanOrEqual(defaultCols);
   });
 });

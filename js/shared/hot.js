@@ -545,6 +545,39 @@
 
     let instance = null;
 
+    const baseMinRows = Math.max(rowCount, 0);
+    const baseMinCols = Math.max(colCount, MIN_INPUT_COLS);
+
+    const resolveMatrixSize = (matrix)=>{
+      if(!Array.isArray(matrix)){
+        return { rows: 0, cols: 0 };
+      }
+      let cols = 0;
+      for(let r = 0; r < matrix.length; r++){
+        const row = matrix[r];
+        if(Array.isArray(row)){
+          cols = Math.max(cols, row.length);
+        }
+      }
+      return { rows: matrix.length, cols };
+    };
+
+    const enforceMinDimensions = (matrix)=>{
+      if(!instance || typeof instance.updateSettings !== 'function'){
+        return;
+      }
+      const { rows, cols } = resolveMatrixSize(matrix);
+      const targetMinRows = Math.max(baseMinRows, rows);
+      const targetMinCols = Math.max(baseMinCols, cols);
+      const settings = typeof instance.getSettings === 'function' ? instance.getSettings() : null;
+      const currentMinRows = settings?.minRows;
+      const currentMinCols = settings?.minCols;
+      if(currentMinRows !== targetMinRows || currentMinCols !== targetMinCols){
+        instance.updateSettings({ minRows: targetMinRows, minCols: targetMinCols });
+        console.debug('Debug: Shared.hot min dimensions enforced', { debugLabel, targetMinRows, targetMinCols });
+      }
+    };
+
     const copyHighlightState = {
       overlay: null,
       range: null,
@@ -2117,6 +2150,7 @@
     };
 
     const afterLoadDataBase = function(_sourceData, initialLoad){
+      enforceMinDimensions(_sourceData);
       if(!preserveExclusionsOnLoad && !initialLoad){
         exclusionController.clearAll(true);
         console.debug('Debug: Shared.hot afterLoadData cleared exclusions', { debugLabel });
@@ -2392,6 +2426,13 @@
 
     console.debug('Debug: createStandardTable options prepared', { debugLabel, rowCount, colCount });
     instance = new Handsontable(container, options);
+    if(instance && typeof instance.loadData === 'function'){
+      const originalLoadData = instance.loadData.bind(instance);
+      instance.loadData = function patchedLoadData(data){
+        enforceMinDimensions(data);
+        return originalLoadData(data);
+      };
+    }
     baseOrderSnapshot = captureCurrentOrder();
     attachScrollHandler();
     scheduleRowGrowth('init');
