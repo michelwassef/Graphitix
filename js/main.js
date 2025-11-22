@@ -370,6 +370,38 @@
     return true;
   }
 
+  function debugInteraction(message, payload) {
+    try {
+      if (typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()) {
+        return;
+      }
+    } catch (err) {
+      // ignore debug toggle errors; fall through to log
+    }
+    if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+      console.debug(message, payload || {});
+    }
+  }
+
+  function findClosestInteractive(target, selector) {
+    if (!target || !selector) {
+      return null;
+    }
+    let node = target;
+    while (node) {
+      if (node.nodeType === 1 && typeof node.matches === 'function' && node.matches(selector)) {
+        return node;
+      }
+      const parentElement = node.parentElement || (typeof node.getRootNode === 'function' ? node.getRootNode().host : null);
+      if (!parentElement && node.assignedSlot) {
+        node = node.assignedSlot;
+      } else {
+        node = parentElement;
+      }
+    }
+    return null;
+  }
+
   async function handleWelcomeGraphOpen() {
     const context = getSessionActionsContext();
     const shared = context.Shared;
@@ -502,7 +534,8 @@
   void consumeTransferredSessionIfAvailable();
 
   document.addEventListener('click', event => {
-    const sessionButton = event.target.closest('[data-session-action]');
+    const target = event.target;
+    const sessionButton = findClosestInteractive(target, '[data-session-action]');
     if (sessionButton) {
       event.preventDefault();
       const action = sessionButton.dataset.sessionAction;
@@ -514,15 +547,19 @@
       }
       return;
     }
-    const welcomeGraphItem = event.target.closest('#welcomeOpenGraph');
+    const welcomeGraphItem = findClosestInteractive(target, '#welcomeOpenGraph');
     if (welcomeGraphItem) {
       event.preventDefault();
       void handleWelcomeGraphOpen();
       return;
     }
-    const styleSyncTrigger = event.target.closest('[data-style-sync-trigger]');
+    const styleSyncTrigger = findClosestInteractive(target, '[data-style-sync-trigger]');
     if (styleSyncTrigger) {
       event.preventDefault();
+      debugInteraction('Debug: match styles trigger detected', {
+        id: styleSyncTrigger.id || null,
+        tag: styleSyncTrigger.tagName
+      });
       if (styleSyncApi?.handleMatchStylesClick) {
         styleSyncApi.handleMatchStylesClick();
       }

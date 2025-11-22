@@ -17,6 +17,20 @@
     activeSourceId: null
   };
 
+  function debugLog(label, payload) {
+    try {
+      const shared = window.Shared;
+      if (shared && typeof shared.isDebugEnabled === 'function' && !shared.isDebugEnabled()) {
+        return;
+      }
+    } catch (err) {
+      // Ignore debug toggle errors to avoid masking the root issue
+    }
+    if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+      console.debug(label, payload || {});
+    }
+  }
+
   function cloneValue(value) {
     if (value === null || value === undefined) {
       return value;
@@ -440,7 +454,9 @@
       : 0;
     const checked = collectSelectedTargets().length;
     selectAll.checked = total > 0 && checked > 0 && checked === total;
-    selectAll.indeterminate = total > 0 && checked > 0 && checked < total;
+    if ('indeterminate' in selectAll) {
+      selectAll.indeterminate = total > 0 && checked > 0 && checked < total;
+    }
     selectAll.disabled = total === 0;
   }
 
@@ -771,6 +787,14 @@
       console.warn('styleSync prompt unavailable in DOM');
       return;
     }
+    if (!state.dom.styleSyncSource || !state.dom.styleSyncTargets) {
+      setStatus('Style matching controls are unavailable in this browser session.', 'error');
+      debugLog('Debug: styleSync prompt aborted - missing controls', {
+        hasSource: !!state.dom.styleSyncSource,
+        hasTargets: !!state.dom.styleSyncTargets
+      });
+      return;
+    }
     prompt.removeAttribute('hidden');
     prompt.setAttribute('aria-hidden', 'false');
     state.isOpen = true;
@@ -783,7 +807,19 @@
     syncSelectAllCheckbox();
     setStatus('');
     if (state.dom.styleSyncSource) {
-      state.dom.styleSyncSource.focus();
+      try {
+        state.dom.styleSyncSource.focus({ preventScroll: true });
+      } catch (err) {
+        debugLog('Debug: styleSync prompt focus retry', { error: err?.message || String(err) });
+        const raf = window.requestAnimationFrame || window.setTimeout;
+        raf(() => {
+          try {
+            state.dom.styleSyncSource?.focus({ preventScroll: true });
+          } catch (focusErr) {
+            debugLog('Debug: styleSync prompt focus failed', { error: focusErr?.message || String(focusErr) });
+          }
+        }, 0);
+      }
     }
     console.debug('Debug: styleSync prompt shown', {
       trigger: trigger || 'unknown',
