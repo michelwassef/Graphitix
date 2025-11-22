@@ -189,6 +189,9 @@
         return;
       }
       workspaceState.tabs.splice(index, 1);
+      if (tab.type && workspaceState.loadedWorkspaces && workspaceState.loadedWorkspaces[tab.type]?.tabId === tabId) {
+        delete workspaceState.loadedWorkspaces[tab.type];
+      }
       if (workspaceState.pendingDuplicateSource === tabId) {
         workspaceState.pendingDuplicateSource = null;
       }

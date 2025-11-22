@@ -2578,20 +2578,20 @@
           const clientWidth = pcaSvgBox.clientWidth || 0;
           drawingBoxWidth = Math.max(rectWidth || 0, clientWidth || 0);
         }
-        let width = containerWidth > 0 ? containerWidth : 320;
+        let width = containerWidth > 0 ? containerWidth : 360;
         if(drawingBoxWidth > 0){
           width = Math.min(width, drawingBoxWidth);
-        }else if(width < 320){
-          width = 320;
+        }else if(width < 360){
+          width = 360;
         }
         if(pcaScreeContainer.style){
           pcaScreeContainer.style.maxWidth = `${Math.max(width, 0)}px`;
         }
-        const height = 220;
-        const margin = { top: 32, right: 32, bottom: 60, left: 90 };
-        const axisTickFontSize = 10;
-        const axisTitleFontSize = 11;
-        const legendFontSize = 9;
+        const height = 260;
+        const margin = { top: 26, right: 28, bottom: 54, left: 78 };
+        const axisTickFontSize = 12;
+        const axisTitleFontSize = 13;
+        const legendFontSize = 11;
         const plotWidth = Math.max(20, width - margin.left - margin.right);
         const plotHeight = Math.max(20, height - margin.top - margin.bottom);
         const maxPct = Math.max(...data.map(item => Number(item.variancePercent) || 0), 1);
@@ -2683,7 +2683,6 @@
           cumulativePath.setAttribute('fill', 'none');
           cumulativePath.setAttribute('stroke', cumulativeColor);
           cumulativePath.setAttribute('stroke-width', '2');
-          cumulativePath.setAttribute('stroke-dasharray', '6 4');
           svg.appendChild(cumulativePath);
         }
         const xAxisTickLength = 6;
@@ -2730,7 +2729,7 @@
           });
         }
         const yAxisTitle = document.createElementNS(NS, 'text');
-        const yAxisTitleOffset = 42;
+        const yAxisTitleOffset = 52;
         const yAxisTitleX = margin.left - yAxisTitleOffset;
         const yAxisTitleY = margin.top + plotHeight / 2;
         yAxisTitle.setAttribute('x', String(yAxisTitleX));
@@ -2751,8 +2750,8 @@
         xAxisTitle.textContent = 'Component number';
         svg.appendChild(xAxisTitle);
         const legendEntries = [
-          { label: 'Explained variance', color: pointColor, strokeDash: '' },
-          { label: 'Cumulative variance', color: cumulativeColor, strokeDash: '6 4' }
+          { label: 'Cumulative variance', color: cumulativeColor, strokeDash: '' },
+          { label: 'Explained variance', color: pointColor, strokeDash: '' }
         ];
         const legendLineHeight = 14;
         const legendHeight = legendEntries.length * legendLineHeight;
@@ -2803,17 +2802,20 @@
         }
         if(!data.length){
           pcaVarianceSummary.hidden = false;
-          pcaVarianceList.innerHTML = '<li class="variance-card__item variance-card__item--empty">Variance summary will appear after PCA runs.</li>';
+          pcaVarianceList.innerHTML = '<div class="variance-card__empty">Variance summary will appear after PCA runs.</div>';
           updateScreeVarianceRowVisibility();
           debugLog('Debug: pca variance summary placeholder shown');
           return;
         }
-        const items = data.map(entry => {
+        let tableHtml = '<table class="variance-card__table"><thead><tr><th>Component</th><th>Variance %</th></tr></thead><tbody>';
+        data.forEach(entry => {
           const component = Number(entry.component) || 0;
           const pct = Number(entry.variancePercent) || 0;
-          return `<li class="variance-card__item"><span class="variance-card__label">PC${component}</span><span class="variance-card__value">${pct.toFixed(2)}%</span></li>`;
+          const label = entry.componentLabel || `PC${component}`;
+          tableHtml += `<tr><td>${label}</td><td>${pct.toFixed(2)}%</td></tr>`;
         });
-        pcaVarianceList.innerHTML = items.join('');
+        tableHtml += '</tbody></table>';
+        pcaVarianceList.innerHTML = tableHtml;
         pcaVarianceSummary.hidden = false;
         updateScreeVarianceRowVisibility();
         debugLog('Debug: pca variance summary rendered',{ count: data.length });
@@ -2856,7 +2858,7 @@
           const cumulativeHeader = method === 'mds' ? 'Cumulative Inertia %' : 'Cumulative %';
           const headers = ['Component','Eigenvalue',percentHeader,cumulativeHeader];
           headers.forEach(header => {
-            html += `<th class="stats-table__cell stats-table__header stats-table__cell--center">${header}</th>`;
+            html += `<th class="stats-table__cell stats-table__header stats-table__cell--left">${header}</th>`;
           });
           html += '</tr></thead><tbody>';
           data.forEach(entry => {
@@ -2866,10 +2868,10 @@
             const cumulative = Number(entry.cumulativeVariancePercent) || 0;
             const label = entry.componentLabel || (method === 'mds' ? `Dim${comp}` : `PC${comp}`);
             html += '<tr>';
-            html += `<td class="stats-table__cell stats-table__cell--center">${label}</td>`;
-            html += `<td class="stats-table__cell stats-table__cell--right">${eigen.toFixed(4)}</td>`;
-            html += `<td class="stats-table__cell stats-table__cell--right">${pct.toFixed(2)}%</td>`;
-            html += `<td class="stats-table__cell stats-table__cell--right">${cumulative.toFixed(2)}%</td>`;
+            html += `<td class="stats-table__cell stats-table__cell--left">${label}</td>`;
+            html += `<td class="stats-table__cell stats-table__cell--left">${eigen.toFixed(4)}</td>`;
+            html += `<td class="stats-table__cell stats-table__cell--left">${pct.toFixed(2)}%</td>`;
+            html += `<td class="stats-table__cell stats-table__cell--left">${cumulative.toFixed(2)}%</td>`;
             html += '</tr>';
           });
           html += '</tbody></table>';
@@ -3451,20 +3453,26 @@
         }
         const truncated = totalAvailable > totalRows;
         const parts = [];
-        if(truncated){
-          parts.push(`<div class="text-muted">Showing top ${totalRows.toLocaleString()} of ${totalAvailable.toLocaleString()} loadings by absolute weight.</div>`);
-        }
-        parts.push('<table class="table table-compact"><thead><tr>' + headerCells.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>');
+        parts.push('<table class="stats-table"><thead><tr>');
+        parts.push(`<th class="stats-table__cell stats-table__header stats-table__cell--left">${headerCells[0]}</th>`);
+        headerCells.slice(1).forEach(h => {
+          parts.push(`<th class="stats-table__cell stats-table__header stats-table__cell--left">${h}</th>`);
+        });
+        parts.push('</tr></thead><tbody>');
         rowsToRender.forEach(row => {
           const label = row?.label || '';
-          parts.push(`<tr><th scope="row">${label}</th>`);
+          parts.push('<tr>');
+          parts.push(`<td class="stats-table__cell stats-table__cell--left">${label}</td>`);
           for(let idx=0; idx<columnsToRender; idx+=1){
             const value = Number(row?.values?.[idx] ?? 0);
-            parts.push(`<td>${value.toFixed(4)}</td>`);
+            parts.push(`<td class="stats-table__cell stats-table__cell--left">${value.toFixed(4)}</td>`);
           }
           parts.push('</tr>');
         });
         parts.push('</tbody></table>');
+        if(truncated){
+          parts.push(`<div class="stats-table-footnotes"><div class="stats-table-footnote">Showing top ${totalRows.toLocaleString()} of ${totalAvailable.toLocaleString()} loadings by absolute weight.</div></div>`);
+        }
         pcaLoadingsTable.innerHTML = parts.join('');
         debugLog('Debug: pca loadings table rendered',{ rowCount: totalRows, columnsToRender, viewMode, truncated, totalAvailable });
       };

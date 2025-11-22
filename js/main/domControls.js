@@ -224,6 +224,13 @@
       namespace.showGraphSelection({ dom, workspaces, reason: 'unknown-type' });
       return;
     }
+    if (workspaceState && !workspaceState.loadedWorkspaces) {
+      workspaceState.loadedWorkspaces = {};
+    }
+    const loadedWorkspaces = workspaceState?.loadedWorkspaces || {};
+    const cachedWorkspace = loadedWorkspaces[tab.type] || null;
+    const targetPayloadSignature = tab.payloadSignature !== undefined ? tab.payloadSignature : null;
+    const targetLayoutSignature = tab.layoutSignature !== undefined ? tab.layoutSignature : null;
     namespace.hideAllWorkspaces(workspaces);
     if (dom?.welcomeScreen) {
       dom.welcomeScreen.style.display = 'none';
@@ -241,8 +248,30 @@
     const cloneFn = session?.fastClonePayload
       ? value => session.fastClonePayload(value)
       : (session?.clonePayload ? value => session.clonePayload(value) : null);
+    const canReuseWorkspace = !options.forceReload
+      && cachedWorkspace
+      && cachedWorkspace.tabId === tab.id
+      && cachedWorkspace.payloadSignature === targetPayloadSignature
+      && cachedWorkspace.layoutSignature === targetLayoutSignature
+      && alreadyInitialized;
 
     const applyWorkspaceState = () => {
+      if (canReuseWorkspace) {
+        loadedWorkspaces[tab.type] = {
+          tabId: tab.id,
+          payloadSignature: targetPayloadSignature,
+          layoutSignature: targetLayoutSignature
+        };
+        if (workspaceState) {
+          workspaceState.lastActiveGraphId = tab.id;
+        }
+        console.debug('Debug: workspace reuse without redraw', {
+          tabId: tab.id,
+          type: tab.type,
+          reason: options.reason || 'reuse-cache'
+        });
+        return;
+      }
       const defaultPayload = namespace.ensureDefaultPayload(session, tab.type, config);
       if (!options.skipApply) {
         let payload = tab.payload ? cloneFn?.(tab.payload) : cloneFn?.(defaultPayload);
@@ -282,6 +311,11 @@
       if (workspaceState) {
         workspaceState.lastActiveGraphId = tab.id;
       }
+      loadedWorkspaces[tab.type] = {
+        tabId: tab.id,
+        payloadSignature: targetPayloadSignature,
+        layoutSignature: targetLayoutSignature
+      };
       console.debug('Debug: workspace displayed', { tabId: tab.id, type: tab.type });
     };
 

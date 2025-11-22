@@ -1743,22 +1743,24 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #pcaPage .stats-table-message{font-size:13px;color:#6b7280}
 #pcaPage .stats-toggle-row{gap:12px;margin-bottom:8px}
 #pcaPage .scree-variance-row{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px}
-#pcaPage .scree-card{border:1px solid #c8d2e3;border-radius:10px;background:#ffffff;padding:16px;display:flex;flex-direction:column;gap:12px;flex:1 1 280px}
-#pcaPage .scree-card svg{width:100%;height:auto;max-height:260px}
-#pcaPage .variance-card{border:1px solid #c8d2e3;border-radius:10px;background:#f8fbff;padding:16px;display:flex;flex-direction:column;gap:12px;flex:1 1 220px;min-width:200px}
-#pcaPage .variance-card__title{font-weight:600;color:#2d3b55}
-#pcaPage .variance-card__list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-#pcaPage .variance-card__item{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border:1px solid #d8e0ef;border-radius:8px;background:#ffffff}
-#pcaPage .variance-card__item--empty{justify-content:center;color:#5d6a85;font-style:italic}
-#pcaPage .variance-card__label{font-weight:500;color:#1f2a3d}
-#pcaPage .variance-card__value{font-variant-numeric:tabular-nums;font-weight:600;color:#375a9e}
-#pcaPage .loadings-card{border:1px solid #c8d2e3;border-radius:10px;background:#ffffff;padding:16px;display:flex;flex-direction:column;gap:12px;margin-top:16px}
-#pcaPage .loadings-card__title{font-weight:600;color:#2d3b55}
-#pcaPage .loadings-card__table{overflow:auto}
+#pcaPage .scree-card{border:1.5px solid #c6cad1;border-radius:6px;background:#ffffff;padding:14px;display:flex;flex-direction:column;gap:12px;flex:1 1 320px}
+#pcaPage .scree-card svg{width:100%;height:auto;max-height:320px}
+#pcaPage .variance-card{border:1.5px solid #c6cad1;border-radius:6px;background:#ffffff;padding:0;display:flex;flex-direction:column;gap:0;flex:1 1 260px;min-width:240px;overflow:hidden}
+#pcaPage .variance-card__title{font-weight:600;color:#1d2735;font-size:14px;padding:12px 16px;border-bottom:1px solid #d7e0ef;background:#f7f9fc}
+#pcaPage .variance-card__table{width:100%;border-collapse:collapse;color:#1d2735;font-size:13px}
+#pcaPage .variance-card__table thead tr{background:#eef3fa}
+#pcaPage .variance-card__table th,#pcaPage .variance-card__table td{padding:10px 16px;border-bottom:1px solid #d7e0ef}
+#pcaPage .variance-card__table th{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#42526b;text-align:left;font-weight:700}
+#pcaPage .variance-card__table td{font-weight:500;text-align:left}
+#pcaPage .variance-card__table td:nth-child(2){text-align:left;font-variant-numeric:tabular-nums}
+#pcaPage .variance-card__table tbody tr:nth-child(even){background:#f9fbff}
+#pcaPage .variance-card__table tbody tr:last-child td{border-bottom:0}
+#pcaPage .variance-card__empty{padding:12px 16px;color:#5d6a85;font-style:italic;font-size:13px}
+#pcaPage .loadings-card{border:1.5px solid #c6cad1;border-radius:6px;background:#ffffff;padding:0;display:flex;flex-direction:column;gap:0;margin-top:16px;overflow:hidden}
+#pcaPage .loadings-card__title{font-weight:600;color:#1d2735;font-size:14px;padding:12px 16px;border-bottom:1px solid #d7e0ef;background:#f7f9fc}
+#pcaPage .loadings-card__table{overflow:auto;padding:0 16px 16px 16px}
 #pcaPage .loadings-card__table table{width:100%;border-collapse:collapse}
-#pcaPage .loadings-card__table th,#pcaPage .loadings-card__table td{border:1px solid #d8e0ef;padding:6px 8px;text-align:right}
-#pcaPage .loadings-card__table th:first-child,#pcaPage .loadings-card__table td:first-child{text-align:left}
-#pcaPage .eigen-table-container{border:1px solid #c8d2e3;border-radius:10px;background:#ffffff;display:flex;flex-direction:column;gap:0}
+#pcaPage .eigen-table-container{border:1.5px solid #c6cad1;border-radius:6px;background:#ffffff;display:flex;flex-direction:column;gap:0}
 #pcaPage .eigen-table-wrapper{max-height:260px;overflow:auto;padding:0 16px 16px 16px}
 #pcaPage .eigen-table-wrapper .stats-table{min-width:100%}
 #pcaPage .stats-table-actions{display:flex;justify-content:flex-end;padding:10px 16px}

@@ -46,6 +46,7 @@
     nextId: 1,
     pendingDuplicateSource: null,
     lastActiveGraphId: null,
+    loadedWorkspaces: {},
     renameFocusId: null,
     pendingClosePrompt: null,
     sessionFileHandle: null,
@@ -604,6 +605,16 @@
           hasPreviews: !!previews
         });
       }
+      if (!workspaceState.loadedWorkspaces) {
+        workspaceState.loadedWorkspaces = {};
+      }
+      if (workspaceState.activeTabId === tab.id && tab.type) {
+        workspaceState.loadedWorkspaces[tab.type] = {
+          tabId: tab.id,
+          payloadSignature: tab.payloadSignature,
+          layoutSignature: tab.layoutSignature
+        };
+      }
       if (changed || layoutChanged) {
         markSessionDirty(options.reason || 'tab-state-updated', {
           tabId: tab.id,
@@ -702,6 +713,7 @@
     workspaceState.activeTabId = null;
     workspaceState.pendingDuplicateSource = null;
     workspaceState.lastActiveGraphId = null;
+    workspaceState.loadedWorkspaces = {};
     workspaceState.renameFocusId = null;
     workspaceState.pendingClosePrompt = null;
     workspaceState.nextId = 1;
