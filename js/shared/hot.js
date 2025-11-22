@@ -431,9 +431,14 @@
       return;
     }
     wrapper.style.overflow = 'auto';
+    wrapper.style.width = '100%';
+    wrapper.style.maxWidth = '100%';
+    wrapper.style.minWidth = '0';
     wrapper.style.height = '100%';
     wrapper.style.flex = '1 1 auto';
+    wrapper.style.flexShrink = '1';
     wrapper.style.minHeight = '0';
+    wrapper.style.boxSizing = 'border-box';
     console.debug('Debug: hotWrapper style updated', wrapper.id || '', wrapper.style.cssText); // Debug: wrapper style
   }
 

@@ -1192,6 +1192,16 @@
     }
     const resizerEl = opts.panelResizer || (graphPanel.parentElement ? Array.from(graphPanel.parentElement.children).find(el => el.classList && el.classList.contains('panel-resizer')) : null);
     const resizerWidth = resizerEl ? resizerEl.getBoundingClientRect().width : 0;
+    let resizerMargin = 0;
+    if(resizerEl && global.getComputedStyle){
+      try{
+        const resizerStyle = global.getComputedStyle(resizerEl);
+        resizerMargin = readNumeric(resizerStyle.marginLeft) + readNumeric(resizerStyle.marginRight);
+      }catch(resizerErr){
+        console.error('Shared.syncPanelWidths resizer margin error', resizerErr);
+      }
+    }
+    const resizerSpace = (Number.isFinite(resizerWidth) ? resizerWidth : 0) + (Number.isFinite(resizerMargin) ? resizerMargin : 0);
     let availableRaw = Number.isFinite(graphContentWidth) ? graphContentWidth - configWidth - gap : NaN;
     const manualWidth = isManualResize && Number.isFinite(svgCurrentWidth) ? svgCurrentWidth : NaN;
     if(isManualResize && Number.isFinite(manualWidth)){
@@ -1412,7 +1422,6 @@
       }
       const wrap = graphPanel?.parentElement || null;
       if(wrap && wrap.style){
-        const resizerSpace = Number.isFinite(resizerWidth) ? resizerWidth : 0;
         const wrapMin = Math.max(0, finalTableWidth + finalGraphWidth + graphInset + resizerSpace);
         wrap.style.minWidth = wrapMin ? wrapMin + 'px' : '';
       }
@@ -1471,7 +1480,7 @@
     }
     const wrap = graphPanel?.parentElement || null;
     if(wrap && Number.isFinite(tableWidth) && Number.isFinite(targetGraphWidth)){
-      const wrapMin = tableWidth + targetGraphWidth + graphInset + (Number.isFinite(resizerWidth) ? resizerWidth : 0);
+      const wrapMin = tableWidth + targetGraphWidth + graphInset + resizerSpace;
       if(Number.isFinite(wrapMin) && wrapMin > 0){
         wrap.style.minWidth = wrapMin + 'px';
         console.debug('Debug: Shared.syncPanelWidths wrap minWidth', {
@@ -1480,7 +1489,9 @@
           tableWidth,
           targetGraphWidth,
           graphInset,
-          resizerWidth
+          resizerWidth,
+          resizerMargin,
+          resizerSpace
         }); // Debug: wrap width enforcement
       }
     }
