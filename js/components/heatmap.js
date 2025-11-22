@@ -2192,8 +2192,8 @@
     const group = doc.createElementNS(NS, 'g');
     group.setAttribute('class', 'heatmap-dendrogram');
     group.setAttribute('fill', 'none');
-    group.setAttribute('stroke', '#555');
-    group.setAttribute('stroke-width', '1');
+    group.setAttribute('stroke', '#3d3d3d');
+    group.setAttribute('stroke-width', '1.5');
     group.setAttribute('stroke-linecap', 'square');
     parent.appendChild(group);
 
@@ -2628,6 +2628,8 @@
       }
     }
     const scaledFontSize = Number.isFinite(fontInfo?.scaledPx) ? fontInfo.scaledPx : fontSize;
+    const heatmapWidth = columnCount * cellSize;
+    const heatmapHeight = rowCount * cellSize;
     let marginLeft = 160;
     let marginTop = 160;
     let marginRight = 120;
@@ -2636,9 +2638,14 @@
     const maxColumnLabelLength = orderedColumnLabels.reduce((acc, label) => Math.max(acc, String(label || '').length), 0);
     marginLeft = Math.max(marginLeft, Math.min(280, scaledFontSize * (maxRowLabelLength * 0.6 + 4)));
     marginTop = Math.max(marginTop, Math.min(260, scaledFontSize * (maxColumnLabelLength * 0.6 + 4)));
-    const rowDendroWidth = showRowDendrogram && rowClustering?.tree ? Math.min(220, Math.max(60, Math.round(cellSize * 1.5))) : 0;
-    const columnDendroHeight = showColumnDendrogram && columnClustering?.tree ? Math.min(180, Math.max(60, Math.round(cellSize * 1.2))) : 0;
-    const dendroPadding = (rowDendroWidth || columnDendroHeight) ? Math.max(12, Math.round(cellSize * 0.3)) : Math.max(8, Math.round(cellSize * 0.2));
+    const dendroHeatmapGap = 0;
+    const rowDendroWidth = showRowDendrogram && rowClustering?.tree
+      ? Math.min(320, Math.max(60, Math.round(Math.max(cellSize * 1.6, heatmapWidth * 0.18))))
+      : 0;
+    const columnDendroHeight = showColumnDendrogram && columnClustering?.tree
+      ? Math.min(280, Math.max(60, Math.round(Math.max(cellSize * 1.3, heatmapHeight * 0.18))))
+      : 0;
+    const dendroPadding = (rowDendroWidth || columnDendroHeight) ? Math.max(12, Math.round(cellSize * 0.25)) : Math.max(8, Math.round(cellSize * 0.2));
     if(rowDendroWidth){
       marginRight += rowDendroWidth + dendroPadding;
     }
@@ -2649,8 +2656,6 @@
     const scalePadding = 24;
     const scaleLabelGap = 48;
     marginRight += scaleWidth + scalePadding + scaleLabelGap;
-    const heatmapWidth = columnCount * cellSize;
-    const heatmapHeight = rowCount * cellSize;
     const totalWidth = marginLeft + heatmapWidth + marginRight;
     const totalHeight = marginTop + heatmapHeight + marginBottom;
     state.svg.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
@@ -2810,7 +2815,7 @@
         parent: g,
         tree: rowClustering.tree,
         order: rowOrder,
-        startX: marginLeft + heatmapWidth + dendroPadding,
+        startX: marginLeft + heatmapWidth + dendroHeatmapGap,
         startY: marginTop,
         length: rowDendroWidth,
         cellSize,
@@ -2825,7 +2830,7 @@
         tree: columnClustering.tree,
         order: columnOrder,
         startX: marginLeft,
-        startY: marginTop + heatmapHeight + dendroPadding,
+        startY: marginTop + heatmapHeight + dendroHeatmapGap,
         length: columnDendroHeight,
         cellSize,
         maxDistance: columnClustering.maxDistance,

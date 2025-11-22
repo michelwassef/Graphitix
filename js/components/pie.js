@@ -372,6 +372,8 @@
     const valueColumn=$('#pieValueColumn');
     const expectedColumn=$('#pieExpectedColumn');
     const pieShowLegendInput=document.getElementById('pieShowLegend');
+    const pieBorderColor=document.getElementById('pieBorderColor');
+    const pieBorderWidth=document.getElementById('pieBorderWidth');
     const pieAutoSizeTargets=[pieChartType,valueColumn,expectedColumn];
     pieAutoSizeTargets.filter(Boolean).forEach(select=>{
       attachPieSelectAutoSize(select, 'pie');
@@ -402,6 +404,12 @@
       });
     }
     pieShowFrame.addEventListener('change',()=>{console.debug('Debug: pie showFrame change',{checked:pieShowFrame.checked}); state.scheduleDraw();});
+    if(pieBorderColor){
+      pieBorderColor.addEventListener('input',()=>{ console.debug('Debug: pie border color change',{value: pieBorderColor.value}); state.scheduleDraw(); });
+    }
+    if(pieBorderWidth){
+      pieBorderWidth.addEventListener('input',()=>{ console.debug('Debug: pie border width change',{value: pieBorderWidth.value}); state.scheduleDraw(); });
+    }
     valueColumn.addEventListener('change',()=>{console.log('pie value column changed',valueColumn.value); state.scheduleDraw();});
     expectedColumn.addEventListener('change',()=>{console.log('pie expected column changed',expectedColumn.value); state.scheduleDraw();});
 
@@ -499,6 +507,10 @@
       if(showPercentsInput){ showPercentsInput.checked = !!config.showPercents; }
       const showFrameInput = document.getElementById('pieShowFrame');
       if(showFrameInput){ showFrameInput.checked = !!config.showFrame; }
+      const borderColorInput = document.getElementById('pieBorderColor');
+      if(borderColorInput){ borderColorInput.value = config.borderColor || borderColorInput.value || '#ffffff'; }
+      const borderWidthInput = document.getElementById('pieBorderWidth');
+      if(borderWidthInput){ borderWidthInput.value = config.borderWidth != null ? config.borderWidth : (borderWidthInput.value || 0); }
       if(pieShowLegendInput){
         pieShowLegendInput.checked = config.showLegend !== false;
         ensurePieLegendControlPlacement();
@@ -532,6 +544,7 @@
     }
     function collectConfig(){
       const axisSettings = ensureAxisSettings();
+      const borderWidthVal = Number($('#pieBorderWidth')?.value);
       return {
         title: state.titleText,
         chartType: $('#pieChartType').value,
@@ -539,6 +552,8 @@
         showFrame: $('#pieShowFrame').checked,
         showLegend: pieShowLegendInput ? !!pieShowLegendInput.checked : true,
         startAngle: $('#pieStartAngle').value,
+        borderColor: ($('#pieBorderColor')?.value || '#ffffff'),
+        borderWidth: Number.isFinite(borderWidthVal) ? borderWidthVal : 0,
         fontSize: $('#pieFontSize').value,
         fontStyles: (exportFontStyles('pie') || undefined),
         valueColumn: $('#pieValueColumn').value,
@@ -757,6 +772,10 @@
     console.debug('Debug: pie axis metrics',axisMetrics);
     const styleScaleInfo=fontInfo.scaleInfo;
     const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
+    const borderColor = $('#pieBorderColor')?.value || '#ffffff';
+    const borderWidthBase = Number.parseFloat($('#pieBorderWidth')?.value) || 0;
+    const borderWidth = chartStyle.scaleStrokeWidth(borderWidthBase, styleScaleInfo, { context: 'pie-border', min: 0 });
+    console.debug('Debug: pie border settings',{ borderColor, borderWidthBase, borderWidth });
     const showPerc=$('#pieShowPercents').checked;
     const showFrame=$('#pieShowFrame').checked;
     console.debug('Debug: pie showFrame state',{showFrame, chartType:type});
@@ -828,6 +847,7 @@
       const doc = svg.ownerDocument || global.document;
       const barLayer = doc?.createElementNS ? doc.createElementNS(NS,'g') : null;
       const axisLayer = doc?.createElementNS ? doc.createElementNS(NS,'g') : null;
+      const labelLayer = doc?.createElementNS ? doc.createElementNS(NS,'g') : null;
       if(barLayer){
         barLayer.dataset.layer = 'pie-data';
         svg.appendChild(barLayer);
@@ -835,6 +855,11 @@
       if(axisLayer){
         axisLayer.dataset.layer = 'pie-axis';
         svg.appendChild(axisLayer);
+      }
+      if(labelLayer){
+        labelLayer.dataset.layer = 'pie-labels';
+        // Append after bars and axes so text stays on top
+        svg.appendChild(labelLayer);
       }
       if(fontControls && typeof fontControls.enableForSvg === 'function'){
         fontControls.enableForSvg(svg,{ scopeId: 'pie' });
@@ -973,16 +998,22 @@
           rect.setAttribute('height',h);
           const fillColor = state.colors[lab] || palette[i % palette.length];
           rect.setAttribute('fill', fillColor);
+          if(borderWidth > 0){
+            rect.setAttribute('stroke', borderColor);
+            rect.setAttribute('stroke-width', borderWidth);
+            rect.setAttribute('stroke-linejoin', 'round');
+          }
           (barLayer||svg).appendChild(rect);
-          if(showPerc && frac>0){
+          if(showPerc && frac>0 && labelLayer){
             const txt=document.createElementNS(NS,'text');
             txt.setAttribute('x',margin.left+barGap+j*(barWidth+barGap)+barWidth/2);
             txt.setAttribute('y',y+h/2);
             txt.setAttribute('text-anchor','middle');
+            txt.setAttribute('dominant-baseline','middle');
             txt.setAttribute('font-size',fs);
             txt.textContent=(frac*100).toFixed(1)+'%';
             markFontEditable(txt,'annotation',`stacked-annotation-${j}-${i}`);
-            (barLayer||svg).appendChild(txt);
+            labelLayer.appendChild(txt);
           }
         });
         const lbl=document.createElementNS(NS,'text');
@@ -1201,6 +1232,11 @@
       }
       const fillColor = state.colors[lab] || palette2[i % palette2.length];
       path.setAttribute('fill', fillColor);
+      if(borderWidth > 0){
+        path.setAttribute('stroke', borderColor);
+        path.setAttribute('stroke-width', borderWidth);
+        path.setAttribute('stroke-linejoin', 'round');
+      }
       svg.appendChild(path);
       if(showPerc && frac>0){
         const mid=(startAngle+endAngle)/2;

@@ -238,6 +238,8 @@
           setIfDefined(configPatch, 'showPercents', cfg.showPercents);
           setIfDefined(configPatch, 'showFrame', cfg.showFrame);
           setIfDefined(configPatch, 'startAngle', cfg.startAngle);
+          setIfDefined(configPatch, 'borderColor', cfg.borderColor);
+          setIfDefined(configPatch, 'borderWidth', cfg.borderWidth);
           if (cfg.colors) {
             configPatch.colors = cloneValue(cfg.colors);
           }
