@@ -1972,6 +1972,11 @@
         TH.classList.remove('hot-header-excluded');
         TH.classList.remove('hot-column-header-excluded');
       }
+      try{
+        if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+          return;
+        }
+      }catch(err){ /* ignore */ }
       console.debug('Debug: Shared.hot afterGetColHeaderBase applied', { debugLabel, column: col, order, headerLabel });
     };
 
@@ -1989,6 +1994,11 @@
         TH.classList.remove('hot-header-excluded');
         TH.classList.remove('hot-row-header-excluded');
       }
+      try{
+        if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+          return;
+        }
+      }catch(err){ /* ignore */ }
       console.debug('Debug: Shared.hot afterGetRowHeaderBase applied', { debugLabel, row, rowExcluded });
     };
 

@@ -227,8 +227,13 @@
     if (workspaceState && !workspaceState.loadedWorkspaces) {
       workspaceState.loadedWorkspaces = {};
     }
+    if (workspaceState && !workspaceState.renderedWorkspaceByType) {
+      workspaceState.renderedWorkspaceByType = {};
+    }
     const loadedWorkspaces = workspaceState?.loadedWorkspaces || {};
-    const cachedWorkspace = loadedWorkspaces[tab.type] || null;
+    const cachedWorkspace = loadedWorkspaces[tab.id] || null;
+    const renderedWorkspaceByType = workspaceState?.renderedWorkspaceByType || {};
+    const renderedTabForType = renderedWorkspaceByType[tab.type] || null;
     const targetPayloadSignature = tab.payloadSignature !== undefined ? tab.payloadSignature : null;
     const targetLayoutSignature = tab.layoutSignature !== undefined ? tab.layoutSignature : null;
     namespace.hideAllWorkspaces(workspaces);
@@ -253,17 +258,20 @@
       && cachedWorkspace.tabId === tab.id
       && cachedWorkspace.payloadSignature === targetPayloadSignature
       && cachedWorkspace.layoutSignature === targetLayoutSignature
-      && alreadyInitialized;
+      && alreadyInitialized
+      && renderedTabForType === tab.id;
 
     const applyWorkspaceState = () => {
       if (canReuseWorkspace) {
-        loadedWorkspaces[tab.type] = {
+        loadedWorkspaces[tab.id] = {
           tabId: tab.id,
+          type: tab.type,
           payloadSignature: targetPayloadSignature,
           layoutSignature: targetLayoutSignature
         };
         if (workspaceState) {
           workspaceState.lastActiveGraphId = tab.id;
+          workspaceState.renderedWorkspaceByType[tab.type] = tab.id;
         }
         console.debug('Debug: workspace reuse without redraw', {
           tabId: tab.id,
@@ -310,9 +318,11 @@
       }
       if (workspaceState) {
         workspaceState.lastActiveGraphId = tab.id;
+        workspaceState.renderedWorkspaceByType[tab.type] = tab.id;
       }
-      loadedWorkspaces[tab.type] = {
+      loadedWorkspaces[tab.id] = {
         tabId: tab.id,
+        type: tab.type,
         payloadSignature: targetPayloadSignature,
         layoutSignature: targetLayoutSignature
       };

@@ -47,6 +47,7 @@
     pendingDuplicateSource: null,
     lastActiveGraphId: null,
     loadedWorkspaces: {},
+    renderedWorkspaceByType: {},
     renameFocusId: null,
     pendingClosePrompt: null,
     sessionFileHandle: null,
@@ -608,9 +609,10 @@
       if (!workspaceState.loadedWorkspaces) {
         workspaceState.loadedWorkspaces = {};
       }
-      if (workspaceState.activeTabId === tab.id && tab.type) {
-        workspaceState.loadedWorkspaces[tab.type] = {
+      if (workspaceState.activeTabId === tab.id) {
+        workspaceState.loadedWorkspaces[tab.id] = {
           tabId: tab.id,
+          type: tab.type || null,
           payloadSignature: tab.payloadSignature,
           layoutSignature: tab.layoutSignature
         };
@@ -714,6 +716,7 @@
     workspaceState.pendingDuplicateSource = null;
     workspaceState.lastActiveGraphId = null;
     workspaceState.loadedWorkspaces = {};
+    workspaceState.renderedWorkspaceByType = {};
     workspaceState.renameFocusId = null;
     workspaceState.pendingClosePrompt = null;
     workspaceState.nextId = 1;

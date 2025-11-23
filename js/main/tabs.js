@@ -189,8 +189,17 @@
         return;
       }
       workspaceState.tabs.splice(index, 1);
-      if (tab.type && workspaceState.loadedWorkspaces && workspaceState.loadedWorkspaces[tab.type]?.tabId === tabId) {
-        delete workspaceState.loadedWorkspaces[tab.type];
+      if (workspaceState.loadedWorkspaces) {
+        if (workspaceState.loadedWorkspaces[tabId]) {
+          delete workspaceState.loadedWorkspaces[tabId];
+        } else {
+          Object.keys(workspaceState.loadedWorkspaces).forEach(key => {
+            const entry = workspaceState.loadedWorkspaces[key];
+            if (entry && entry.tabId === tabId) {
+              delete workspaceState.loadedWorkspaces[key];
+            }
+          });
+        }
       }
       if (workspaceState.pendingDuplicateSource === tabId) {
         workspaceState.pendingDuplicateSource = null;
