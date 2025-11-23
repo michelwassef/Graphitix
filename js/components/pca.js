@@ -3,6 +3,7 @@
   const Shared = global.Shared = global.Shared || {};
   const Components = global.Components = global.Components || {};
   const pca = Components.pca = Components.pca || {};
+  const Main = global.Main = global.Main || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const plot3d = Shared.plot3d = Shared.plot3d || {};
   if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
@@ -140,6 +141,120 @@
   let pcaRenderButtonEl = null;
   let pcaAutoDrawNoticeEl = null;
   let pcaHotInstance = null;
+  function createPcaTableInstance(container){
+    if(!container || typeof Shared.hot?.createStandardTable !== 'function'){
+      return null;
+    }
+    const pcaData = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
+    debugLog('Debug: pca default header suppressed - awaiting user paste', {
+      rows: pcaData.length, cols: pcaData[0]?.length || 0
+    });
+    let pcaScheduleProxyCount = 0;
+    const scheduleDrawPcaProxy = () => {
+      pcaScheduleProxyCount += 1;
+      if(pcaScheduleProxyCount <= 5){
+        debugLog('Debug: pca scheduleDraw proxy invoked', { count: pcaScheduleProxyCount });
+        if(pcaScheduleProxyCount === 5){
+          debugLog('Debug: pca scheduleDraw proxy suppressing further logs');
+        }
+      }
+      markPcaDataDirty('hot-change');
+      scheduleDrawPca({ reason: 'hot-change' });
+    };
+    const pcaHot = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPcaProxy,{
+      debugLabel: 'pca',
+      data: pcaData,
+      firstRowClassName: 'htCenter',
+      scheduleOnLoadData: true,
+      hotOptions: {
+        contextMenu: true,
+        afterChange(changes,source){
+          const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+          if(!debugEnabled){
+            return;
+          }
+          const changeCount = Array.isArray(changes) ? changes.length : 0;
+          debugLog('Debug: pca table afterChange',{ count: changeCount, source });
+        },
+        afterUndo(){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            debugLog('Debug: pca table undo');
+          }
+        },
+        afterRedo(){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            debugLog('Debug: pca table redo');
+          }
+        }
+      }
+    });
+    if(pcaHot && typeof pcaHot.loadData === 'function' && !pcaHot.__pcaPatched){
+      const originalLoadData = pcaHot.loadData;
+      pcaHot.loadData = function patchedPcaLoadData(){
+        const dataset = arguments[0];
+        let rows = 0;
+        let cols = 0;
+        if(Array.isArray(dataset)){
+          rows = dataset.length;
+          cols = Array.isArray(dataset[0]) ? dataset[0].length : 0;
+        }
+        if(rows || cols){
+          updatePcaDataShape({ rows, cols });
+        }
+        const start = nowMs();
+        const result = originalLoadData.apply(this, arguments);
+        const afterLoad = nowMs();
+        const evaluationStart = afterLoad;
+        const evaluationMeta = rows || cols ? { source: 'load-data', shape: { rows, cols } } : { source: 'load-data' };
+        evaluateAutoDrawThresholds(evaluationMeta);
+        const afterEvaluation = nowMs();
+        recordPcaPerformance('loadData', {
+          rows,
+          cols,
+          totalMs: afterEvaluation - start,
+          hotMs: afterLoad - start,
+          evaluationMs: afterEvaluation - evaluationStart
+        });
+        return result;
+      };
+      pcaHot.__pcaPatched = true;
+    }
+    return pcaHot;
+  }
+  function ensurePcaHotForActiveTab(){
+    const wrapper = document.getElementById('pcaHotWrapper');
+    const baseContainer = document.getElementById('pcaHot');
+    const tabId = resolveActiveTabId() || 'pca-default';
+    if(!Shared.hot?.mountTableForTab || !wrapper){
+      if(!pcaHotInstance && baseContainer && typeof Shared.hot?.createStandardTable === 'function'){
+        pcaHotInstance = createPcaTableInstance(baseContainer);
+        pcaState.hot = pcaHotInstance;
+      }
+      return pcaHotInstance;
+    }
+    const placeholder = wrapper.querySelector('.hot-pool-slot') || wrapper;
+    const entry = Shared.hot.mountTableForTab({
+      type: 'pca',
+      tabId,
+      wrapper: wrapper,
+      templateContainer: baseContainer,
+      createInstance: container => createPcaTableInstance(container)
+    });
+    if(entry){
+      pcaHotInstance = entry.instance;
+      pcaState.hot = entry.instance;
+    }
+    return pcaHotInstance;
+  }
+  function resolveActiveTabId(){
+    try{
+      const tab = Main?.session?.getActiveTab?.();
+      return tab?.id || null;
+    }catch(err){
+      console.error('pca resolveActiveTabId error', err);
+      return null;
+    }
+  }
 
   function ensurePcaLegendControlPlacement(){
     if(!pcaLegendControl || !pcaSvgBoxRef){
@@ -1043,7 +1158,7 @@
     debugLog('Debug: pca data shape updated', { rows, cols });
   }
   function evaluateAutoDrawThresholds(meta = {}){
-    const hot = pcaHotInstance;
+    const hot = ensurePcaHotForActiveTab();
     const perfStart = nowMs();
     let totalRows = 0;
     let totalCols = 0;
@@ -1627,10 +1742,13 @@
     console.debug('Debug: Components.pca.setup start');
     const $ = global.$;
     const document = global.document;
-    const Handsontable = global.Handsontable;
+    const Handsontable = global.Handsontable || globalThis.Handsontable;
     if(!Handsontable){
       console.error('Handsontable missing for PCA component');
       return;
+    }
+    if(!global.Handsontable){
+      global.Handsontable = Handsontable;
     }
     const ensureGraphViewport = Shared.graphViewport?.createEnsurer
       ? Shared.graphViewport.createEnsurer('pca')
@@ -1713,88 +1831,8 @@
       pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
       pcaLayout?.syncPanels?.();
       debugLog('Debug: pca initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
-      if(typeof Shared.hot?.createStandardTable !== 'function'){
-        console.error('pca initHot missing Shared.hot.createStandardTable');
-        return;
-      }
-      const pcaData = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
-      // Do not prefill any headers - let the user paste their own.
-      // First row stays empty by default so column names never appear automatically.
-      debugLog('Debug: pca default header suppressed - awaiting user paste', {
-        rows: pcaData.length, cols: pcaData[0]?.length || 0
-      });
-      let pcaScheduleProxyCount = 0;
-      const scheduleDrawPcaProxy = () => {
-        pcaScheduleProxyCount += 1;
-        if(pcaScheduleProxyCount <= 5){
-          debugLog('Debug: pca scheduleDraw proxy invoked', { count: pcaScheduleProxyCount }); // Debug: table change trigger
-          if(pcaScheduleProxyCount === 5){
-            debugLog('Debug: pca scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
-          }
-        }
-        markPcaDataDirty('hot-change');
-        scheduleDrawPca({ reason: 'hot-change' });
-      };
-
-      const pcaHot=Shared.hot.createStandardTable(pcaHotContainer,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPcaProxy,{
-        debugLabel: 'pca',
-        data: pcaData,
-        firstRowClassName: 'htCenter',
-        scheduleOnLoadData: true,
-        hotOptions: {
-          contextMenu: true,
-          afterChange(changes,source){
-            const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
-            if(!debugEnabled){
-              return;
-            }
-            const changeCount = Array.isArray(changes) ? changes.length : 0;
-            debugLog('Debug: pca table afterChange',{ count: changeCount, source });
-          },
-          afterUndo(){
-            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              debugLog('Debug: pca table undo');
-            }
-          },
-          afterRedo(){
-            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-              debugLog('Debug: pca table redo');
-            }
-          }
-        }
-      });
-      pcaHotInstance = pcaHot;
-      pcaState.hot = pcaHot;
-      if(pcaHot && typeof pcaHot.loadData === 'function'){
-        const originalLoadData = pcaHot.loadData;
-        pcaHot.loadData = function patchedPcaLoadData(){
-          const dataset = arguments[0];
-          let rows = 0;
-          let cols = 0;
-          if(Array.isArray(dataset)){
-            rows = dataset.length;
-            cols = Array.isArray(dataset[0]) ? dataset[0].length : 0;
-          }
-          if(rows || cols){
-            updatePcaDataShape({ rows, cols });
-          }
-          const start = nowMs();
-          const result = originalLoadData.apply(this, arguments);
-          const afterLoad = nowMs();
-          const evaluationStart = afterLoad;
-          const evaluationMeta = rows || cols ? { source: 'load-data', shape: { rows, cols } } : { source: 'load-data' };
-          evaluateAutoDrawThresholds(evaluationMeta);
-          const afterEvaluation = nowMs();
-          recordPcaPerformance('loadData', {
-            rows,
-            cols,
-            totalMs: afterEvaluation - start,
-            hotMs: afterLoad - start,
-            evaluationMs: afterEvaluation - evaluationStart
-          });
-          return result;
-        };
-      }
+      ensurePcaHotForActiveTab();
+      ensurePcaHotForActiveTab();
       updateAutoDrawUi();
       evaluateAutoDrawThresholds();
       if(pcaRenderButtonEl){
@@ -1967,6 +2005,7 @@
 
       function buildPcaGroupedNestedHeaders(){
         ensurePcaGroupedDefaults();
+        const pcaHot = ensurePcaHotForActiveTab();
         if(!pcaHot){
           return [];
         }
@@ -1997,6 +2036,7 @@
       }
 
       function updatePcaGroupedHeaders(){
+        const pcaHot = ensurePcaHotForActiveTab();
         if(!pcaHot){
           debugLog('Debug: pca updateGroupedHeaders skipped',{ reason: 'no-hot' });
           return;
@@ -2015,6 +2055,7 @@
       }
 
       function applyPcaTableFormatToHot(){
+        const pcaHot = ensurePcaHotForActiveTab();
         if(!pcaHot){
           return;
         }
@@ -2239,7 +2280,8 @@
           ['Var3',3,4,1,4,30,30,10,40],
           ['Var4',4,2,4,1,40,20,40,10]
         ];
-        pcaHot.loadData(pcaExample);
+        const hot = ensurePcaHotForActiveTab();
+        hot?.loadData?.(pcaExample);
         console.log('pca example loaded');
         debugLog('Debug: pca example dataset applied (transposed labels)', { rows: pcaExample.length, cols: pcaExample[0]?.length });
         pcaState.grouped = {
@@ -2263,7 +2305,7 @@
           return;
         }
         tableImport.openFile(pcaFileInput, {
-          hot: pcaHot,
+          hot: ensurePcaHotForActiveTab(),
           minCols: DEFAULT_COLS,
           minRows: DEFAULT_ROWS,
           scheduleDraw: () => {
@@ -2279,8 +2321,10 @@
         });
       });
       if(tableImport && typeof tableImport.handlePaste === 'function'){
-        pcaHotContainer.addEventListener('paste',async e=>{
-          await tableImport.handlePaste(e, pcaHot, {
+        const pasteTarget = document.getElementById('pcaHot') || pcaHotContainer;
+        pasteTarget?.addEventListener('paste',async e=>{
+          const hot = ensurePcaHotForActiveTab();
+          await tableImport.handlePaste(e, hot, {
             minCols: DEFAULT_COLS,
             minRows: DEFAULT_ROWS,
             scheduleDraw: () => {
@@ -2808,14 +2852,17 @@
           return;
         }
         let tableHtml = '<table class="variance-card__table"><thead><tr><th>Component</th><th>Variance %</th></tr></thead><tbody>';
+        let listHtml = '<ul class="variance-card__sr-only">';
         data.forEach(entry => {
           const component = Number(entry.component) || 0;
           const pct = Number(entry.variancePercent) || 0;
           const label = entry.componentLabel || `PC${component}`;
           tableHtml += `<tr><td>${label}</td><td>${pct.toFixed(2)}%</td></tr>`;
+          listHtml += `<li>${label}: ${pct.toFixed(2)}%</li>`;
         });
         tableHtml += '</tbody></table>';
-        pcaVarianceList.innerHTML = tableHtml;
+        listHtml += '</ul>';
+        pcaVarianceList.innerHTML = tableHtml + listHtml;
         pcaVarianceSummary.hidden = false;
         updateScreeVarianceRowVisibility();
         debugLog('Debug: pca variance summary rendered',{ count: data.length });
@@ -3346,8 +3393,8 @@
         debugLog('Debug: pca view mode adjusted for method',{ method, rawViewMode, requestedViewMode });
       }
 
-      let SVDLib = global.SVDJS;
-      const jStatLib = global.jStat;
+      let SVDLib = global.SVDJS || globalThis.SVDJS;
+      const jStatLib = global.jStat || globalThis.jStat;
 
       if ((!SVDLib || !SVDLib.SVD) && typeof Shared.lazySvd === 'function') {
         try {
@@ -3358,8 +3405,8 @@
         }
       }
 
-      if ((!SVDLib || !SVDLib.SVD) && global.SVDJS && global.SVDJS.SVD) {
-        SVDLib = global.SVDJS;
+      if ((!SVDLib || !SVDLib.SVD) && (global.SVDJS?.SVD || globalThis.SVDJS?.SVD)) {
+        SVDLib = global.SVDJS || globalThis.SVDJS;
       }
 
       if (SVDLib && SVDLib.SVD) {
@@ -3534,7 +3581,8 @@
           }
         }
       } else {
-      const data = pcaHot.getData();
+      const hot = ensurePcaHotForActiveTab();
+      const data = hot?.getData?.() || [];
       const headerRow = Array.isArray(data[0]) ? data[0] : [];
       const candidateColCount = headerRow.length;
       const numericColIndices = [];
@@ -5439,10 +5487,11 @@
     }
     function getPcaGraphPayload(){
       const axisSettings = ensureAxisSettings();
+      ensurePcaHotForActiveTab();
       return {
         type:'pca',
-        data:pcaHot.getData(),
-        exclusions: pcaHot?.exportExclusions?.() || Shared.hot.exportExclusions(pcaHot),
+        data:pcaHotInstance?.getData?.() || [],
+        exclusions: pcaHotInstance?.exportExclusions?.() || Shared.hot.exportExclusions(pcaHotInstance),
         config: snapshotPcaConfig(axisSettings),
         stats:lastPcaStats ? {
           method:lastPcaStats.method || null,
@@ -5600,11 +5649,12 @@
           console.error('Invalid graph type for pca payload', { type: obj.type, meta });
           return false;
         }
+        ensurePcaHotForActiveTab();
         const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
-        if(pcaHot && typeof pcaHot.loadData === 'function'){
-          pcaHot.loadData(dataMatrix);
+        if(pcaHotInstance && typeof pcaHotInstance.loadData === 'function'){
+          pcaHotInstance.loadData(dataMatrix);
           if(obj.exclusions){
-            pcaHot.applyExclusions?.(obj.exclusions);
+            pcaHotInstance.applyExclusions?.(obj.exclusions);
           }
         }
         const c=obj.config||{};
@@ -5751,7 +5801,7 @@
       }
       document.getElementById('openPcaGraph')?.addEventListener('click',openPcaFile);
       document.getElementById('savePcaGraph')?.addEventListener('click',savePcaFile);
-      document.getElementById('saveAsPca').addEventListener('click',saveAsPcaFile);
+      document.getElementById('saveAsPca')?.addEventListener('click',saveAsPcaFile);
       document.getElementById('pcaGraphFile').addEventListener('change',e=>{ const f=e.target.files[0]; if(f){ pcaFileName=f.name; pcaFileHandle=null; loadPcaGraphFile(f); } });
     
     scheduleDrawPcaRaw = Shared.debounceFrame(drawPca);
@@ -5793,6 +5843,9 @@
     };
     pca.serialize = serializeSvg;
     pca.getHotInstance = () => pcaHotInstance;
+    pca.prepareForTab = function prepareForTab(){
+      ensurePcaHotForActiveTab();
+    };
     pca.__state = pcaState;
     ensureEmptyPayloadTemplate();
     pca.ready = true;

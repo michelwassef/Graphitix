@@ -5,6 +5,7 @@
   const Shared = global.Shared = global.Shared || {};
   const hotNS = Shared.hot = Shared.hot || {};
   const MIN_INPUT_COLS = 12;
+  const tabTablePools = hotNS.__tabTablePools = hotNS.__tabTablePools || {};
 
   const EXCLUSION_SCOPES = Object.freeze({
     CELL: 'cell',
@@ -453,6 +454,115 @@
     return Array.from({length: targetRows}, () => Array.from({length: enforcedCols}, () => ''));
   }
 
+  hotNS.mountTableForTab = function mountTableForTab(options){
+    const {
+      type,
+      tabId,
+      wrapper,
+      templateContainer,
+      createInstance
+    } = options || {};
+    if(!type || !tabId || !wrapper){
+      console.debug('Debug: hot mountTableForTab skipped', {
+        type,
+        tabId,
+        hasWrapper: !!wrapper
+      });
+      return null;
+    }
+    const pool = tabTablePools[type] = tabTablePools[type] || {
+      byTab: {},
+      currentTabId: null,
+      template: null,
+      initialClaimed: false
+    };
+    if(!pool.template && templateContainer){
+      try{
+        pool.template = templateContainer.cloneNode(false);
+      }catch(err){
+        console.error('hot mountTableForTab template clone error', err);
+      }
+    }
+    if(pool.currentTabId && pool.currentTabId !== tabId){
+      const currentEntry = pool.byTab[pool.currentTabId];
+      if(currentEntry?.instance && typeof currentEntry.instance.suspendRender === 'function'){
+        try{
+          currentEntry.instance.suspendRender();
+        }catch(err){
+          console.error('hot mountTableForTab suspendRender error', { type, tabId: pool.currentTabId, err });
+        }
+      }
+      if(currentEntry && currentEntry.container && currentEntry.container.parentNode === wrapper){
+        wrapper.removeChild(currentEntry.container);
+      }
+    }
+    let entry = pool.byTab[tabId];
+    if(entry && entry.container){
+      if(entry.container.parentNode !== wrapper){
+        // detach from previous parent before reattaching
+        if(entry.container.parentNode){
+          entry.container.parentNode.removeChild(entry.container);
+        }
+        wrapper.appendChild(entry.container);
+      }
+      pool.currentTabId = tabId;
+      if(entry.instance && !entry.creating){
+        const resume = entry.instance.resumeRender || entry.instance.render;
+        if(typeof resume === 'function'){
+          const schedule = global.requestAnimationFrame || global.setTimeout;
+          schedule(() => {
+            try{
+              resume.call(entry.instance);
+            }catch(err){
+              console.error('hot mountTableForTab resumeRender error', { type, tabId, err });
+            }
+          }, 0);
+        }
+      }
+      return entry;
+    }
+    let container = null;
+    if(!pool.initialClaimed && templateContainer && templateContainer.parentNode){
+      container = templateContainer;
+      pool.initialClaimed = true;
+    }else if(pool.template){
+      try{
+        container = pool.template.cloneNode(false);
+      }catch(err){
+        console.error('hot mountTableForTab clone error', err);
+      }
+    }
+    if(!container){
+      container = document.createElement('div');
+    }
+    if(!container.id && templateContainer?.id){
+      container.id = templateContainer.id;
+    }
+    if(container.parentNode !== wrapper){
+      if(container.parentNode){
+        container.parentNode.removeChild(container);
+      }
+      // avoid appending a parent into its own descendant
+      if(container !== wrapper && !wrapper.contains(container)){
+        wrapper.appendChild(container);
+      }
+    }
+    // mark entry before instantiation to guard against re-entrant calls
+    entry = pool.byTab[tabId] = { container, instance: null, creating: true };
+    pool.currentTabId = tabId;
+    const instance = typeof createInstance === 'function' ? createInstance(container) : null;
+    entry.instance = instance;
+    if(instance && typeof instance.resumeRender === 'function'){
+      try{
+        instance.resumeRender();
+      }catch(err){
+        console.error('hot mountTableForTab resumeRender error', { type, tabId, err });
+      }
+    }
+    delete entry.creating;
+    return entry;
+  };
+
   function createStandardTable(container, dimensions, scheduleDraw, overrides){
     const debugLabel = overrides?.debugLabel || container?.id || 'hot';
     console.debug('Debug: createStandardTable entry', { debugLabel, containerId: container?.id || null });
@@ -460,7 +570,7 @@
       console.warn('Shared.hot.createStandardTable missing container', { debugLabel });
       return null;
     }
-    const Handsontable = global.Handsontable;
+    const Handsontable = global.Handsontable || globalThis.Handsontable;
     if(!Handsontable){
       console.error('Shared.hot.createStandardTable missing global.Handsontable', { debugLabel });
       return null;
@@ -505,6 +615,27 @@
       columnSorting: userColumnSorting,
       ...otherHotOptions
     } = hotOptions;
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const performanceDefaults = {
+      autoRowSize: hotOptions.autoRowSize ?? false,
+      autoColumnSize: hotOptions.autoColumnSize ?? false,
+      renderAllRows: hotOptions.renderAllRows ?? false,
+      viewportRowRenderingOffset: hotOptions.viewportRowRenderingOffset ?? clamp(30, 6, 40),
+      viewportColumnRenderingOffset: hotOptions.viewportColumnRenderingOffset ?? clamp(8, 4, 16),
+      preventOverflow: hotOptions.preventOverflow ?? 'vertical',
+      rowHeights: hotOptions.rowHeights ?? hotOptions.rowHeight ?? 22,
+      colWidths: hotOptions.colWidths ?? hotOptions.colWidth ?? undefined
+    };
+
+    const hotDebugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const hotDebug = (message, payload) => {
+      if(!hotDebugEnabled){ return; }
+      if(typeof payload === 'undefined'){
+        console.debug(message);
+      }else{
+        console.debug(message, payload);
+      }
+    };
 
     const padRowToLength = (row, targetCols)=>{
       const safeRow = Array.isArray(row) ? row.slice() : [];
@@ -611,7 +742,7 @@
     const rowHeaders = function(index){
       const defaultLabel = treatFirstRowAsHeader ? (index === 0 ? '' : index) : (index + 1);
       const value = typeof userRowHeaders === 'function' ? userRowHeaders.call(this, index) : defaultLabel;
-      console.debug('Debug: Shared.hot rowHeader', { debugLabel, index, label: value });
+      hotDebug('Debug: Shared.hot rowHeader', { debugLabel, index, label: value });
       return value;
     };
 
@@ -1999,7 +2130,7 @@
           return;
         }
       }catch(err){ /* ignore */ }
-      console.debug('Debug: Shared.hot afterGetRowHeaderBase applied', { debugLabel, row, rowExcluded });
+      hotDebug('Debug: Shared.hot afterGetRowHeaderBase applied', { debugLabel, row, rowExcluded });
     };
 
     const afterChangeBase = function(changes, source){
@@ -2414,7 +2545,7 @@
       licenseKey: 'non-commercial-and-evaluation',
       cells,
       columnSorting: columnSortingSettings
-    }, otherHotOptions, {
+    }, performanceDefaults, otherHotOptions, {
       afterChange: wrapHook('afterChange', userAfterChange, afterChangeBase),
       afterCreateRow: wrapHook('afterCreateRow', userAfterCreateRow, afterCreateRowBase),
       afterCreateCol: wrapHook('afterCreateCol', userAfterCreateCol, afterCreateColBase),

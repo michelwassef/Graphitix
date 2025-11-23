@@ -7,6 +7,7 @@
   const roc = Components.roc = Components.roc || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const Main = global.Main = global.Main || {};
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -48,6 +49,15 @@
   const DEFAULT_ROWS = 100;
   const ROC_DEFAULT_COLS = 3;
   let emptyPayloadTemplate = null;
+  function resolveActiveTabId(){
+    try{
+      const tab = Main?.session?.getActiveTab?.();
+      return tab?.id || null;
+    }catch(err){
+      console.error('roc resolveActiveTabId error', err);
+      return null;
+    }
+  }
 
   function cloneSimple(value){
     if(!value) return null;
@@ -370,15 +380,14 @@
     return !!(refs.tablePanel && refs.graphPanel && refs.hotContainer && refs.plotDiv);
   }
 
-  function initHot(){
-    if(!refs.hotContainer || !global.Handsontable){
+  function createRocTableInstance(container){
+    if(!container || !global.Handsontable){
       console.warn('ROC hot container or Handsontable missing');
-      return;
+      return null;
     }
-    console.debug('Debug: ROC initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
     if(typeof Shared.hot?.createStandardTable !== 'function'){
       console.error('roc initHot missing Shared.hot.createStandardTable');
-      return;
+      return null;
     }
     const data = Shared.createEmptyData(DEFAULT_ROWS, ROC_DEFAULT_COLS);
     let rocScheduleProxyCount = 0;
@@ -395,7 +404,7 @@
       }
     };
 
-    state.hot = Shared.hot.createStandardTable(refs.hotContainer, { rows: DEFAULT_ROWS, cols: ROC_DEFAULT_COLS }, scheduleRocDrawProxy, {
+    const instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: ROC_DEFAULT_COLS }, scheduleRocDrawProxy, {
       debugLabel: 'roc',
       data,
       scheduleOnLoadData: true,
@@ -426,6 +435,31 @@
         }
       }
     });
+    return instance;
+  }
+
+  function ensureHotForActiveTab(){
+    const wrapper = refs.hotWrapper || document.getElementById('rocHotWrapper');
+    const baseContainer = refs.hotContainer || document.getElementById('rocHot');
+    const tabId = resolveActiveTabId() || 'roc-default';
+    if(!Shared.hot?.mountTableForTab || !wrapper){
+      if(!state.hot && baseContainer){
+        state.hot = createRocTableInstance(baseContainer);
+      }
+      return state.hot;
+    }
+    const entry = Shared.hot.mountTableForTab({
+      type: 'roc',
+      tabId,
+      wrapper,
+      templateContainer: baseContainer,
+      createInstance: container => createRocTableInstance(container)
+    });
+    if(entry){
+      refs.hotContainer = entry.container;
+      state.hot = entry.instance;
+    }
+    return state.hot;
   }
 
   function clearPlotArea(reason){
@@ -1640,6 +1674,7 @@
   }
 
   function getPayload(){
+    ensureHotForActiveTab();
     const payload = {
       type: 'roc',
       data: state.hot?.getData() || [],
@@ -1691,6 +1726,7 @@
       console.warn('roc payload rejected', { source, hasType: !!payload?.type });
       return false;
     }
+    ensureHotForActiveTab();
     const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
     if(state.hot && typeof state.hot.loadData === 'function'){
       state.hot.loadData(dataMatrix);
@@ -1913,7 +1949,7 @@
     }
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();
-    initHot();
+    ensureHotForActiveTab();
     initControls();
     initExampleAndImport();
     initExportsAndFiles();
@@ -1925,6 +1961,9 @@
   }
 
   roc.init = init;
+  roc.prepareForTab = function prepareForTab(_tab){
+    ensureHotForActiveTab();
+  };
   roc.draw = () => { void drawRoc(); };
   roc.scheduleDraw = () => state.scheduleDraw?.();
   roc.save = saveFile;

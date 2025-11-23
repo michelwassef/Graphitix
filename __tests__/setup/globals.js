@@ -316,6 +316,9 @@ Handsontable.renderers = {
 Handsontable.plugins = Handsontable.plugins || {};
 HandsontableInstance.prototype.constructor = Handsontable;
 global.Handsontable = Handsontable;
+if (global.window && !global.window.Handsontable) {
+  global.window.Handsontable = Handsontable;
+}
 
 // Expose tracking for tests
 global.__HT_CALLS__ = HT_CALLS;

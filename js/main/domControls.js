@@ -234,6 +234,13 @@
     const cachedWorkspace = loadedWorkspaces[tab.id] || null;
     const renderedWorkspaceByType = workspaceState?.renderedWorkspaceByType || {};
     const renderedTabForType = renderedWorkspaceByType[tab.type] || null;
+    if (typeof config.prepareForTab === 'function') {
+      try {
+        config.prepareForTab(tab);
+      } catch (err) {
+        console.error('workspace prepareForTab error', err);
+      }
+    }
     const targetPayloadSignature = tab.payloadSignature !== undefined ? tab.payloadSignature : null;
     const targetLayoutSignature = tab.layoutSignature !== undefined ? tab.layoutSignature : null;
     namespace.hideAllWorkspaces(workspaces);

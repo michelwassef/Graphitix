@@ -2813,7 +2813,7 @@
   }
   venn.getPayload = getVennGraphPayload;
   venn.createEmptyPayload = function createEmptyVennPayload(){
-    ensureReady();
+    venn.ensure();
     ensureEmptyPayloadTemplate();
     const payload = cloneSimple(emptyPayloadTemplate) || { type: 'venn' };
     payload.type = 'venn';

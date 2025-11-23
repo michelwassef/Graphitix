@@ -285,7 +285,8 @@
     fill: currentColor;
 }
 
-.shared-color-picker__sr-only {
+.shared-color-picker__sr-only,
+.variance-card__sr-only {
     position: absolute;
     width: 1px;
     height: 1px;

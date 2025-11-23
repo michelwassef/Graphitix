@@ -205,6 +205,7 @@
       loadFromFile: blob => window.Components?.pca?.loadFromFile?.(blob),
       loadFromPayload: payload => window.Components?.pca?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.pca?.createEmptyPayload?.(),
+      prepareForTab: tab => window.Components?.pca?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('pca'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pca', state, options || {})
     },
@@ -257,6 +258,7 @@
       loadFromFile: blob => window.Components?.roc?.loadFromFile?.(blob),
       loadFromPayload: payload => window.Components?.roc?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.roc?.createEmptyPayload?.(),
+      prepareForTab: tab => window.Components?.roc?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('roc'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('roc', state, options || {})
     },
