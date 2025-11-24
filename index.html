@@ -891,10 +891,13 @@
         <div id="pcaStats" style="width:100%; margin-top:12px;">
             <fieldset>
               <legend>Statistics</legend>
-              <div id="pcaStatsResults" class="stats-panel">
+                <div id="pcaStatsResults" class="stats-panel">
                 <div id="pcaStatsSummary" class="stats-summary"></div>
                 <div id="pcaScreeVarianceRow" class="scree-variance-row">
-                  <div id="pcaScreeContainer" class="scree-card" hidden></div>
+                  <div id="pcaScreeContainer" class="scree-card" hidden>
+                    <div id="pcaScreePlot"></div>
+                    <div class="row" id="pcaScreeExportControls" style="justify-content:flex-end; margin-top:8px;"></div>
+                  </div>
                   <div id="pcaVarianceSummary" class="variance-card" hidden>
                     <div class="variance-card__title">Component Variance</div>
                     <div id="pcaVarianceList"></div>

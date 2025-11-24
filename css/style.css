@@ -1745,7 +1745,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #pcaPage .stats-summary{font-size:13px;color:#3b4758;line-height:1.5;display:flex;flex-direction:column;gap:4px}
 #pcaPage .stats-table-message{font-size:13px;color:#6b7280}
 #pcaPage .stats-toggle-row{gap:12px;margin-bottom:8px}
-#pcaPage .scree-variance-row{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px}
+#pcaPage .scree-variance-row{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;align-items:flex-start}
 #pcaPage .scree-card{border:1.5px solid #c6cad1;border-radius:6px;background:#ffffff;padding:14px;display:flex;flex-direction:column;gap:12px;flex:1 1 320px}
 #pcaPage .scree-card svg{width:100%;height:auto;max-height:320px}
 #pcaPage .variance-card{border:1.5px solid #c6cad1;border-radius:6px;background:#ffffff;padding:0;display:flex;flex-direction:column;gap:0;flex:1 1 260px;min-width:240px;overflow:hidden}

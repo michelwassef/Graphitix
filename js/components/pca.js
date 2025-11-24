@@ -2512,6 +2512,8 @@
       const pcaStatsResults=document.getElementById('pcaStatsResults');
       const pcaStatsSummary=document.getElementById('pcaStatsSummary');
       const pcaScreeContainer=document.getElementById('pcaScreeContainer');
+      const pcaScreePlot=document.getElementById('pcaScreePlot') || pcaScreeContainer;
+      const pcaScreeExportControls=document.getElementById('pcaScreeExportControls');
       const pcaEigenTableContainer=document.getElementById('pcaEigenTableContainer');
       const pcaEigenTableWrapper=document.getElementById('pcaEigenTableWrapper');
       const pcaExportEigenTableBtn=document.getElementById('pcaExportEigenTable');
@@ -2665,8 +2667,13 @@
         } else if(pcaStatsResults){
           pcaStatsResults.innerHTML = message ? `<div class="stats-table-message">${message}</div>` : '';
         }
+        if(pcaScreePlot){
+          pcaScreePlot.innerHTML = '';
+        }
+        if(pcaScreeExportControls){
+          pcaScreeExportControls.style.display = 'none';
+        }
         if(pcaScreeContainer){
-          pcaScreeContainer.innerHTML = '';
           pcaScreeContainer.hidden = true;
         }
         if(pcaVarianceSummary){
@@ -2702,7 +2709,12 @@
           debugLog('Debug: pca scree render skipped',{ reason: 'missing-container' });
           return;
         }
-        pcaScreeContainer.innerHTML = '';
+        if(pcaScreePlot){
+          pcaScreePlot.innerHTML = '';
+        }
+        if(pcaScreeExportControls){
+          pcaScreeExportControls.style.display = show ? '' : 'none';
+        }
         if(!show || opts.method !== 'pca'){
           pcaScreeContainer.hidden = true;
           if(pcaScreeContainer.style){
@@ -2714,7 +2726,12 @@
         }
         if(!data.length){
           pcaScreeContainer.hidden = false;
-          pcaScreeContainer.innerHTML = '<div class="stats-table-message">Scree plot will appear after PCA runs.</div>';
+          if(pcaScreeExportControls){
+            pcaScreeExportControls.style.display = 'none';
+          }
+          if(pcaScreePlot){
+            pcaScreePlot.innerHTML = '<div class="stats-table-message">Scree plot will appear after PCA runs.</div>';
+          }
           if(pcaScreeContainer.style){
             pcaScreeContainer.style.removeProperty('max-width');
           }
@@ -2723,7 +2740,11 @@
           return;
         }
         pcaScreeContainer.hidden = false;
-        const containerWidth = pcaScreeContainer.clientWidth || 0;
+        const host = pcaScreePlot || pcaScreeContainer;
+        if(pcaScreeExportControls){
+          pcaScreeExportControls.style.display = '';
+        }
+        const containerWidth = host.clientWidth || 0;
         let drawingBoxWidth = 0;
         if(pcaSvgBox){
           const rectWidth = typeof pcaSvgBox.getBoundingClientRect === 'function' ? pcaSvgBox.getBoundingClientRect().width : 0;
@@ -2739,7 +2760,7 @@
         if(pcaScreeContainer.style){
           pcaScreeContainer.style.maxWidth = `${Math.max(width, 0)}px`;
         }
-        const height = 260;
+        const height = 300;
         const margin = { top: 26, right: 28, bottom: 54, left: 78 };
         const axisTickFontSize = 12;
         const axisTitleFontSize = 13;
@@ -2758,6 +2779,7 @@
         const yAxisMax = Math.max(maxPct, maxCumulative, 1);
         const svg = document.createElementNS(NS, 'svg');
         svg.setAttribute('class', 'scree-chart');
+        svg.setAttribute('id', 'pcaScreeSvg');
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', String(height));
@@ -2933,7 +2955,7 @@
           legendGroup.appendChild(legendLabel);
         });
         svg.appendChild(legendGroup);
-        pcaScreeContainer.appendChild(svg);
+        host.appendChild(svg);
         debugLog('Debug: pca scree chart rendered',{ count: data.length, maxPct: yAxisMax, width, height, drawingBoxWidth, containerWidth });
         updateScreeVarianceRowVisibility();
       }
@@ -5857,6 +5879,12 @@
           svgSelector: '#pcaSvg',
           fileName: 'pca',
           contextLabel: 'pca-export'
+        });
+        Shared.exporter.mountSvgControls({
+          container: '#pcaScreeExportControls',
+          svgSelector: '#pcaScreeSvg',
+          fileName: 'pca-scree',
+          contextLabel: 'pca-scree-export'
         });
         debugLog('Debug: pca export controls mounted', { hasExporter: true }); // Debug: pca export mount
       } else {
