@@ -124,7 +124,7 @@
   const PCA_AUTO_DRAW_FEATURE_THRESHOLD = 5000;
   const PCA_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const PCA_FAST_POINT_THRESHOLD = 20000;
-  const PCA_LOADINGS_ROW_LIMIT = 1000;
+  const PCA_LOADINGS_ROW_LIMIT = 100;
 
   function getDefaultTitleForMethod(method){
     const key = typeof method === 'string' ? method.toLowerCase() : '';
