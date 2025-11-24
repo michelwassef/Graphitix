@@ -2848,6 +2848,14 @@
     instance.getAnalysisData = function(options){
       return hotNS.getAnalysisData(instance, options);
     };
+    instance.__hotHeaderWidthManager = headerWidthManager;
+    instance.__hotRefreshHeaderWidths = function(reason, headerRow){
+      if(headerRow){
+        headerWidthManager.setHeaderRowRef(headerRow);
+      }
+      headerWidthManager.reset();
+      scheduleHeaderWidthRefresh(reason || 'external');
+    };
     instance.exportExclusions = function(){
       return hotNS.exportExclusions(instance);
     };
@@ -3163,6 +3171,25 @@
     return analysis.getRowValues(visualRow, options);
   }
 
+  function refreshHeaderWidths(instance, options){
+    const inst = resolveInstance(instance);
+    if(!inst){
+      return false;
+    }
+    if(typeof inst.__hotRefreshHeaderWidths === 'function'){
+      try{
+        inst.__hotRefreshHeaderWidths(options?.reason, options?.headerRow);
+        console.debug('Debug: Shared.hot.refreshHeaderWidths invoked', { debugLabel: getInstanceDebugLabel(inst), reason: options?.reason || 'external' });
+        return true;
+      }catch(err){
+        console.error('Shared.hot.refreshHeaderWidths error', err);
+      }
+    }else{
+      console.debug('Debug: Shared.hot.refreshHeaderWidths skipped - handler missing', { debugLabel: getInstanceDebugLabel(inst) });
+    }
+    return false;
+  }
+
   hotNS.clearCopyHighlight = function(instance, reason){
     const inst = resolveInstance(instance);
     const label = reason || 'Shared.hot.clearCopyHighlight';
@@ -3194,5 +3221,5 @@
   hotNS.getAnalysisData = getAnalysisData;
   hotNS.getIncludedColumn = getIncludedColumn;
   hotNS.getIncludedRow = getIncludedRow;
+  hotNS.refreshHeaderWidths = refreshHeaderWidths;
 })(window);
-

@@ -549,6 +549,14 @@
     if(typeof options.onProcessed === 'function'){
       options.onProcessed(result);
     }
+    try{
+      if(startRow === 0 && Shared?.hot?.refreshHeaderWidths){
+        const headerRow = filteredRows[0] || null;
+        Shared.hot.refreshHeaderWidths(hot, { reason: 'tableImport', headerRow });
+      }
+    }catch(err){
+      debugLog('processRows.headerWidthRefreshError', { error: err?.message || String(err) }, debugLabel);
+    }
     debugLog('processRows.complete', result, debugLabel);
     return result;
   };
