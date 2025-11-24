@@ -665,6 +665,8 @@
       afterRender: userAfterRender,
       afterContextMenuDefaultOptions: userAfterContextMenuDefaultOptions,
       columnSorting: userColumnSorting,
+      colWidths: userColWidths,
+      colWidth: userColWidth,
       ...otherHotOptions
     } = hotOptions;
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -732,6 +734,173 @@
     console.debug('Debug: createStandardTable column enforcement', { debugLabel, requestedColCount, effectiveColCount: colCount }); // Debug: column enforcement trace
 
     let instance = null;
+    const userColWidthOption = typeof userColWidths !== 'undefined' ? userColWidths : userColWidth;
+    const resolveUserColWidth = (colIndex)=>{
+      const source = userColWidthOption;
+      if(typeof source === 'function'){
+        try{
+          const value = source(colIndex);
+          const numeric = toNumber(value);
+          return numeric > 0 ? numeric : null;
+        }catch(err){
+          console.error('Shared.hot colWidth resolver error', err);
+          return null;
+        }
+      }
+      if(Array.isArray(source)){
+        const numeric = toNumber(source[colIndex]);
+        return numeric > 0 ? numeric : null;
+      }
+      const numeric = toNumber(source);
+      return numeric > 0 ? numeric : null;
+    };
+
+    // Lazily derive column widths from the first-row header text to avoid scanning large datasets.
+    const headerWidthManager = (function(){
+      const cache = new Map();
+      let headerRowRef = treatFirstRowAsHeader && Array.isArray(baseData) ? baseData[0] : null;
+      const canvas = typeof document !== 'undefined' && document.createElement ? document.createElement('canvas') : null;
+      const ctx = typeof canvas?.getContext === 'function' ? canvas.getContext('2d') : null;
+      let resolvedFont = null;
+      const MIN_HEADER_COL_WIDTH = Math.max(60, resolveUserColWidth(-1) || 0);
+      const MAX_HEADER_COL_WIDTH = Math.max(MIN_HEADER_COL_WIDTH, 420);
+      const HEADER_PADDING = 28;
+
+      const resolveFont = ()=>{
+        if(resolvedFont){
+          return resolvedFont;
+        }
+        try{
+          const source = container || document.body;
+          const style = source ? global.getComputedStyle(source) : null;
+          const fontSize = style?.fontSize || '12px';
+          const fontFamily = style?.fontFamily || 'Arial, sans-serif';
+          const fontWeight = style?.fontWeight || '400';
+          resolvedFont = `${fontWeight} ${fontSize} ${fontFamily}`;
+        }catch(err){
+          resolvedFont = '12px Arial, sans-serif';
+        }
+        return resolvedFont;
+      };
+
+      const measure = (text)=>{
+        const value = text || '';
+        if(ctx && typeof ctx.measureText === 'function'){
+          try{
+            ctx.font = resolveFont();
+            const metrics = ctx.measureText(value);
+            if(metrics && Number.isFinite(metrics.width)){
+              return metrics.width;
+            }
+          }catch(err){
+            console.error('Shared.hot header width measure error', err);
+          }
+        }
+        return value.length * 8;
+      };
+
+      const getHeaderText = (colIndex)=>{
+        if(!treatFirstRowAsHeader){
+          return '';
+        }
+        if(instance && typeof instance.getDataAtCell === 'function'){
+          try{
+            const value = instance.getDataAtCell(0, colIndex);
+            return value == null ? '' : String(value);
+          }catch(err){
+            console.error('Shared.hot header width cell read error', err);
+          }
+        }
+        if(Array.isArray(headerRowRef)){
+          const value = headerRowRef[colIndex];
+          return value == null ? '' : String(value);
+        }
+        return '';
+      };
+
+      const normalizeText = (value)=>{
+        if(value === null || typeof value === 'undefined'){
+          return '';
+        }
+        const text = String(value);
+        return text.length > 120 ? text.slice(0, 120) : text;
+      };
+
+      const getWidth = (colIndex)=>{
+        if(!Number.isInteger(colIndex) || colIndex < 0){
+          return resolveUserColWidth(colIndex) || MIN_HEADER_COL_WIDTH;
+        }
+        if(cache.has(colIndex)){
+          return cache.get(colIndex);
+        }
+        const userWidth = resolveUserColWidth(colIndex) || 0;
+        const headerText = normalizeText(getHeaderText(colIndex));
+        const measured = measure(headerText);
+        const minWidth = Math.max(MIN_HEADER_COL_WIDTH, userWidth);
+        const computed = clamp(Math.ceil(measured + HEADER_PADDING), minWidth, MAX_HEADER_COL_WIDTH);
+        cache.set(colIndex, computed);
+        hotDebug('Debug: Shared.hot header width computed', { debugLabel, col: colIndex, width: computed, textLength: headerText.length });
+        return computed;
+      };
+
+      const invalidateColumns = (cols)=>{
+        if(!cols || !cols.length){
+          return;
+        }
+        cols.forEach(colIndex => cache.delete(colIndex));
+      };
+
+      const reset = ()=>{
+        cache.clear();
+      };
+
+      const setHeaderRowRef = (rowRef)=>{
+        headerRowRef = Array.isArray(rowRef) ? rowRef : null;
+      };
+
+      return {
+        getWidth,
+        invalidateColumns,
+        reset,
+        setHeaderRowRef
+      };
+    })();
+
+    const resolveColumnWidth = function(colIndex){
+      return headerWidthManager.getWidth(colIndex);
+    };
+
+    let pendingHeaderWidthSync = null;
+    const scheduleHeaderWidthRefresh = function(reason){
+      if(!treatFirstRowAsHeader){
+        return;
+      }
+      if(!instance || typeof instance.updateSettings !== 'function'){
+        hotDebug('Debug: Shared.hot header width refresh skipped', { debugLabel, reason, hasInstance: !!instance });
+        return;
+      }
+      if(pendingHeaderWidthSync){
+        return;
+      }
+      pendingHeaderWidthSync = raf(()=>{
+        pendingHeaderWidthSync = null;
+        try{
+          if(instance){
+            if(typeof instance.forceFullRender !== 'undefined'){
+              instance.forceFullRender = true;
+            }
+            instance.updateSettings({ colWidths: resolveColumnWidth }, false);
+            if(typeof instance.render === 'function'){
+              instance.render();
+            }
+            hotDebug('Debug: Shared.hot header widths refreshed', { debugLabel, reason });
+          }
+        }catch(err){
+          console.error('Shared.hot header width refresh error', err);
+        }
+      });
+      hotDebug('Debug: Shared.hot header width refresh scheduled', { debugLabel, reason });
+    };
 
     const baseMinRows = Math.max(rowCount, 0);
     const baseMinCols = Math.max(colCount, MIN_INPUT_COLS);
@@ -2200,6 +2369,27 @@
         });
         clearCopyHighlightRange('afterChange:paste');
       }
+      if(treatFirstRowAsHeader){
+        const headerCols = new Set();
+        for(let i = 0; i < changes.length; i++){
+          const change = changes[i];
+          if(!Array.isArray(change)){
+            continue;
+          }
+          const changeRow = Number(change[0]);
+          if(changeRow !== 0){
+            continue;
+          }
+          const changeCol = Number(change[1]);
+          if(Number.isInteger(changeCol) && changeCol >= 0){
+            headerCols.add(changeCol);
+          }
+        }
+        if(headerCols.size){
+          headerWidthManager.invalidateColumns(headerCols);
+          scheduleHeaderWidthRefresh('headerChange');
+        }
+      }
       if(hasGlobalUndo && source !== 'loadData' && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
         queueUndoRegistration('change', { count: changes.length, source });
       }
@@ -2217,6 +2407,8 @@
       if(hasGlobalUndo && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
         queueUndoRegistration('createCol', { index, amount, source });
       }
+      headerWidthManager.reset();
+      scheduleHeaderWidthRefresh('afterCreateCol');
       triggerSchedule('afterCreateCol');
     };
     const afterRemoveRowBase = function(index, amount, physicalRows, source){
@@ -2235,6 +2427,8 @@
       if(hasGlobalUndo && source !== 'UndoRedo.undo' && source !== 'UndoRedo.redo'){
         queueUndoRegistration('removeCol', { index, amount, physicalColumns, source });
       }
+      headerWidthManager.reset();
+      scheduleHeaderWidthRefresh('afterRemoveCol');
       triggerSchedule('afterRemoveCol');
     };
     const afterUndoBase = function(){ triggerSchedule('afterUndo'); };
@@ -2244,6 +2438,8 @@
         if(hasGlobalUndo){
           queueUndoRegistration('columnMove', { finalIndex: _finalIndex, dropIndex: _dropIndex });
         }
+        headerWidthManager.reset();
+        scheduleHeaderWidthRefresh('afterColumnMove');
         triggerSchedule('afterColumnMove');
       }else{
         console.debug('Debug: Shared.hot afterColumnMove ignored', { debugLabel, orderChanged });
@@ -2352,6 +2548,12 @@
       if(!preserveExclusionsOnLoad && !initialLoad){
         exclusionController.clearAll(true);
         console.debug('Debug: Shared.hot afterLoadData cleared exclusions', { debugLabel });
+      }
+      if(treatFirstRowAsHeader){
+        const headerRow = Array.isArray(_sourceData?.[0]) ? _sourceData[0] : null;
+        headerWidthManager.setHeaderRowRef(headerRow);
+        headerWidthManager.reset();
+        scheduleHeaderWidthRefresh(initialLoad ? 'loadData:init' : 'loadData');
       }
       if(scheduleOnLoadData || !initialLoad){
         triggerSchedule('afterLoadData');
@@ -2598,6 +2800,7 @@
       cells,
       columnSorting: columnSortingSettings
     }, performanceDefaults, otherHotOptions, {
+      colWidths: resolveColumnWidth,
       afterChange: wrapHook('afterChange', userAfterChange, afterChangeBase),
       afterCreateRow: wrapHook('afterCreateRow', userAfterCreateRow, afterCreateRowBase),
       afterCreateCol: wrapHook('afterCreateCol', userAfterCreateCol, afterCreateColBase),
