@@ -1687,6 +1687,9 @@
       resetGroupLabels: shouldResetLabels,
       preserveGroupLabels: options?.preserveGroupLabels
     });
+    if(structure?.seriesCount){
+      lineLegendLayoutInfo.entryCount = structure.seriesCount;
+    }
     lineReplicates = normalized;
     if(lineReplicates > LINE_MIN_REPLICATES){
       lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
@@ -3961,46 +3964,94 @@
       scheduleLineDraw();
     };
 
-    lineHot = Shared.hot.createStandardTable(refs.hotContainer, { rows: DEFAULT_ROWS, cols: LINE_DEFAULT_COLS }, scheduleLineDrawProxy, {
-      debugLabel: 'line',
-      data,
-      hotOptions: {
-        stretchH: 'all',
-        afterChange(changes, source){
-          if(changes && source !== 'loadData'){
-            console.debug('Debug: line afterChange', { count: changes.length, source });
-            revalidateActiveLineLogAxis('x','data-edit');
-            revalidateActiveLineLogAxis('y','data-edit');
+    const createLineTable = (container) => {
+      const instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: LINE_DEFAULT_COLS }, scheduleLineDrawProxy, {
+        debugLabel: 'line',
+        data,
+        hotOptions: {
+          stretchH: 'all',
+          afterChange(changes, source){
+            if(changes && source !== 'loadData'){
+              console.debug('Debug: line afterChange', { count: changes.length, source });
+              revalidateActiveLineLogAxis('x','data-edit');
+              revalidateActiveLineLogAxis('y','data-edit');
+            }
+          },
+          afterCreateRow(){
+            console.debug('Debug: line row created');
+          },
+          afterCreateCol(){
+            console.debug('Debug: line col created');
+          },
+          afterRemoveRow(){
+            console.debug('Debug: line row removed');
+          },
+          afterRemoveCol(){
+            console.debug('Debug: line col removed');
+          },
+          afterUndo(){
+            console.debug('Debug: line undo');
+          },
+          afterRedo(){
+            console.debug('Debug: line redo');
           }
-        },
-        afterCreateRow(){
-          console.debug('Debug: line row created');
-        },
-        afterCreateCol(){
-          console.debug('Debug: line col created');
-        },
-        afterRemoveRow(){
-          console.debug('Debug: line row removed');
-        },
-        afterRemoveCol(){
-          console.debug('Debug: line col removed');
-        },
-        afterUndo(){
-          console.debug('Debug: line undo');
-        },
-        afterRedo(){
-          console.debug('Debug: line redo');
-        }
-      }
-    });
-    if(lineHot && typeof lineHot.addHook === 'function'){
-      lineHot.addHook('afterRender', () => {
-        if(lineReplicates > 1){
-          applyLineNestedHeaderEditors();
         }
       });
-      console.debug('Debug: lineHot afterRender hook registered for nested headers');
-    }
+      if(instance && typeof instance.addHook === 'function'){
+        instance.addHook('afterRender', () => {
+          if(lineReplicates > 1){
+            applyLineNestedHeaderEditors();
+          }
+        });
+        console.debug('Debug: lineHot afterRender hook registered for nested headers');
+      }
+      return instance;
+    };
+    const ensureLineHotForActiveTab = () => {
+      const wrapper = refs.hotWrapper || document.getElementById('lineHotWrapper');
+      const baseContainer = refs.hotContainer || document.getElementById('lineHot');
+      if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
+        if(!lineHot){
+          lineHot = createLineTable(baseContainer);
+        }
+        refs.hotContainer = baseContainer;
+        return lineHot;
+      }
+      const entry = Shared.hot.ensureTableForTab({
+        type: 'line',
+        tabId: Shared.hot.resolveActiveTabId?.() || 'line-default',
+        wrapper,
+        container: baseContainer,
+        createInstance: createLineTable
+      });
+      if(entry?.instance){
+        lineHot = entry.instance;
+        refs.hotContainer = entry.container || baseContainer;
+      }
+      const tableImport = Shared.tableImport;
+      if(tableImport?.handlePaste && refs.hotContainer && !refs.hotContainer.__linePasteBound){
+        refs.hotContainer.addEventListener('paste',async e=>{
+          try{
+            const result = await tableImport.handlePaste(e,lineHot,{
+              minCols: LINE_DEFAULT_COLS,
+              minRows: DEFAULT_ROWS,
+              scheduleDraw: scheduleLineDraw,
+              debugLabel: 'line',
+              onProcessed: info => {
+                console.debug('Debug: line paste processed', info || {}); // Debug: paste processed callback
+              }
+            });
+            console.debug('Debug: line paste finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: paste finish trace
+          }catch(err){
+            console.error('line paste failed',err);
+          }
+        });
+        refs.hotContainer.__linePasteBound = true;
+      }
+      return lineHot;
+    };
+    lineHot = ensureLineHotForActiveTab();
+    line.__ensureHotForActiveTab = ensureLineHotForActiveTab;
     global.DEBUG_LINE=true;
     console.debug('Debug: lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
 
@@ -4058,6 +4109,16 @@
         groupLabels: example.groupLabels,
         groupShapes: example.groupShapes
       });
+      if(lineHot && Array.isArray(example?.data)){
+        lineHot.loadData(example.data);
+        setTimeout(()=>{
+          try{
+            lineHot.loadData(example.data);
+          }catch(err){
+            console.error('line example reload failed', err);
+          }
+        }, 0);
+      }
       console.debug('Debug: line example loaded',{ key, replicates: example.replicates, mode: isGroupedMode ? 'grouped' : 'single' });
       scheduleLineDraw();
     });
@@ -4084,28 +4145,6 @@
         console.debug('Debug: line import finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: import finish trace
       }catch(err){
         console.error('line import failed',err);
-      }
-    });
-
-    refs.hotContainer?.addEventListener('paste',async e=>{
-      const tableImport = Shared.tableImport;
-      if(!tableImport || typeof tableImport.handlePaste !== 'function'){
-        console.warn('line paste skipped: Shared.tableImport.handlePaste unavailable');
-        return;
-      }
-      try{
-        const result = await tableImport.handlePaste(e,lineHot,{
-          minCols: LINE_DEFAULT_COLS,
-          minRows: DEFAULT_ROWS,
-          scheduleDraw: scheduleLineDraw,
-          debugLabel: 'line',
-          onProcessed: info => {
-            console.debug('Debug: line paste processed', info || {}); // Debug: paste processed callback
-          }
-        });
-        console.debug('Debug: line paste finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: paste finish trace
-      }catch(err){
-        console.error('line paste failed',err);
       }
     });
 
@@ -4242,6 +4281,15 @@
 
   line.init = setup;
   line.ensure = ensureReady;
+  line.prepareForTab = function prepareForTab(){
+    if(!line.ready){
+      line.init();
+      return;
+    }
+    if(typeof line.__ensureHotForActiveTab === 'function'){
+      line.__ensureHotForActiveTab();
+    }
+  };
   line.draw = function draw(){ ensureReady(); scheduleLineDraw && scheduleLineDraw(); };
   line.save = saveLineFile;
   line.saveAs = saveAsLineFile;
@@ -4275,6 +4323,8 @@
   line.updateStats = updateLineStats;
   line.__getState = function(){
     console.debug('Debug: line.__getState invoked');
+    const headerRow = Array.isArray(lineHot?.getData?.()) ? lineHot.getData()[0] : null;
+    const inferredEntryCount = lineLegendLayoutInfo.entryCount || (Array.isArray(headerRow) ? Math.max(0, Math.floor(((headerRow.length || 1) - 1) / Math.max(lineReplicates || 1, 1))) : 0);
     return {
       hot: lineHot,
       layout: lineLayout,
@@ -4282,7 +4332,7 @@
       legendWidth: lineLegendWidth,
       showLegend: refs.showLegend ? !!refs.showLegend.checked : true,
       legendLayout: {
-        entryCount: lineLegendLayoutInfo.entryCount,
+        entryCount: inferredEntryCount,
         rendererWidth: lineLegendLayoutInfo.rendererWidth,
         legendWidthForMargin: lineLegendLayoutInfo.legendWidthForMargin,
         legendGapPx: lineLegendLayoutInfo.legendGapPx,

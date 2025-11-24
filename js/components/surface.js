@@ -386,11 +386,6 @@
 
   function initHot(){
     if(state.hot){ return state.hot; }
-    const container = global.document && global.document.getElementById('surfaceHot');
-    if(!container){
-      console.warn('surface initHot missing container');
-      return null;
-    }
     const baseData = typeof Shared.createEmptyData === 'function'
       ? Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS)
       : null;
@@ -419,9 +414,32 @@
         state.scheduleDraw();
       }
     };
-    state.hot = typeof hotNS.createStandardTable === 'function'
+    const createSurfaceTable = (container) => typeof hotNS.createStandardTable === 'function'
       ? hotNS.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), overrides)
       : null;
+    const ensureSurfaceHotForActiveTab = () => {
+      const wrapper = global.document && global.document.getElementById('surfaceHotWrapper');
+      const baseContainer = global.document && global.document.getElementById('surfaceHot');
+      if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
+        if(!state.hot){
+          state.hot = createSurfaceTable(baseContainer);
+        }
+        return state.hot;
+      }
+      const entry = Shared.hot.ensureTableForTab({
+        type: 'surface',
+        tabId: Shared.hot.resolveActiveTabId?.() || 'surface-default',
+        wrapper,
+        container: baseContainer,
+        createInstance: createSurfaceTable
+      });
+      if(entry?.instance){
+        state.hot = entry.instance;
+      }
+      return state.hot;
+    };
+    state.hot = ensureSurfaceHotForActiveTab();
+    state.ensureHotForActiveTab = ensureSurfaceHotForActiveTab;
     if(state.hot && typeof state.hot.addHook === 'function'){
       state.hot.addHook('afterCreateCol', updateAxisOptions);
       state.hot.addHook('afterRemoveCol', updateAxisOptions);
@@ -1243,6 +1261,15 @@
 
   surface.ensure = function ensure(){
     if(!surface.ready){ surface.init(); }
+  };
+  surface.prepareForTab = function prepareForTab(){
+    if(!surface.ready){
+      surface.init();
+      return;
+    }
+    if(typeof state.ensureHotForActiveTab === 'function'){
+      state.ensureHotForActiveTab();
+    }
   };
 
   function applySurfacePayload(payload, meta){

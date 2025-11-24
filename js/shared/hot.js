@@ -6,6 +6,15 @@
   const hotNS = Shared.hot = Shared.hot || {};
   const MIN_INPUT_COLS = 12;
   const tabTablePools = hotNS.__tabTablePools = hotNS.__tabTablePools || {};
+  const resolveActiveTabId = () => {
+    try{
+      const tab = global.Main?.session?.getActiveTab?.();
+      return tab?.id || null;
+    }catch(err){
+      return null;
+    }
+  };
+  hotNS.resolveActiveTabId = resolveActiveTabId;
 
   const EXCLUSION_SCOPES = Object.freeze({
     CELL: 'cell',
@@ -561,6 +570,49 @@
     }
     delete entry.creating;
     return entry;
+  };
+
+  hotNS.ensureTableForTab = function ensureTableForTab(options){
+    const {
+      type,
+      tabId: explicitTabId,
+      wrapper,
+      container,
+      createInstance
+    } = options || {};
+    const tabId = explicitTabId || resolveActiveTabId() || `${type || 'hot'}-default`;
+    if(typeof hotNS.mountTableForTab !== 'function' || !wrapper){
+      const instance = typeof createInstance === 'function' ? createInstance(container) : null;
+      return { instance, container, tabId };
+    }
+    const entry = hotNS.mountTableForTab({
+      type: type || 'hot',
+      tabId,
+      wrapper,
+      templateContainer: container,
+      createInstance
+    });
+    return entry || { instance: null, container, tabId };
+  };
+
+  hotNS.ensureStandardTableForTab = function ensureStandardTableForTab(options){
+    const {
+      type,
+      tabId,
+      wrapper,
+      container,
+      dimensions,
+      scheduleDraw,
+      overrides
+    } = options || {};
+    const createInstance = targetContainer => hotNS.createStandardTable(targetContainer, dimensions, scheduleDraw, overrides);
+    return hotNS.ensureTableForTab({
+      type,
+      tabId,
+      wrapper,
+      container,
+      createInstance
+    });
   };
 
   function createStandardTable(container, dimensions, scheduleDraw, overrides){

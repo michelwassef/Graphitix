@@ -383,7 +383,6 @@
   }
 
   function initHot(){
-    const hotContainer=document.getElementById('histHot');
     console.debug('Debug: hist initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
     if(typeof Shared.hot?.createStandardTable !== 'function'){
       console.error('hist initHot missing Shared.hot.createStandardTable');
@@ -404,7 +403,7 @@
       }
     };
 
-    state.hot = Shared.hot.createStandardTable(hotContainer, { rows: HIST_DEFAULT_ROWS, cols: HIST_DEFAULT_COLS }, scheduleHistDrawProxy, {
+    const createHistTable = (container) => Shared.hot.createStandardTable(container, { rows: HIST_DEFAULT_ROWS, cols: HIST_DEFAULT_COLS }, scheduleHistDrawProxy, {
       debugLabel: 'hist',
       data,
       firstRowClassName: 'htCenter',
@@ -425,6 +424,29 @@
         }
       }
     });
+    const ensureHistHotForActiveTab = () => {
+      const wrapper = document.getElementById('histHotWrapper');
+      const baseContainer = document.getElementById('histHot');
+      if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
+        if(!state.hot){
+          state.hot = createHistTable(baseContainer);
+        }
+        return state.hot;
+      }
+      const entry = Shared.hot.ensureTableForTab({
+        type: 'hist',
+        tabId: Shared.hot.resolveActiveTabId?.() || 'hist-default',
+        wrapper,
+        container: baseContainer,
+        createInstance: createHistTable
+      });
+      if(entry?.instance){
+        state.hot = entry.instance;
+      }
+      return state.hot;
+    };
+    state.hot = ensureHistHotForActiveTab();
+    state.ensureHotForActiveTab = ensureHistHotForActiveTab;
   }
 
   function initControls(){
@@ -1326,6 +1348,15 @@
   };
 
   hist.ensure = function ensure(){ if (!hist.ready) hist.init(); };
+  hist.prepareForTab = function prepareForTab(){
+    if(!hist.ready){
+      hist.init();
+      return;
+    }
+    if(typeof state.ensureHotForActiveTab === 'function'){
+      state.ensureHotForActiveTab();
+    }
+  };
 
 })(window);
 

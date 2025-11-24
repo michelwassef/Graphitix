@@ -319,7 +319,6 @@
   };
 
   function initHot(){
-    const container=document.getElementById('pieHot');
     console.debug('Debug: pie initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
     if(typeof Shared.hot?.createStandardTable !== 'function'){
       console.error('pie initHot missing Shared.hot.createStandardTable');
@@ -340,7 +339,7 @@
       }
     };
 
-    state.hot = Shared.hot.createStandardTable(container, { rows: PIE_DEFAULT_ROWS, cols: PIE_DEFAULT_COLS }, schedulePieDrawProxy, {
+    const createPieTable = (container) => Shared.hot.createStandardTable(container, { rows: PIE_DEFAULT_ROWS, cols: PIE_DEFAULT_COLS }, schedulePieDrawProxy, {
       debugLabel: 'pie',
       data,
       firstRowClassName: 'htCenter',
@@ -361,6 +360,29 @@
         }
       }
     });
+    const ensurePieHotForActiveTab = () => {
+      const wrapper = document.getElementById('pieHotWrapper');
+      const baseContainer = document.getElementById('pieHot');
+      if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
+        if(!state.hot){
+          state.hot = createPieTable(baseContainer);
+        }
+        return state.hot;
+      }
+      const entry = Shared.hot.ensureTableForTab({
+        type: 'pie',
+        tabId: Shared.hot.resolveActiveTabId?.() || 'pie-default',
+        wrapper,
+        container: baseContainer,
+        createInstance: createPieTable
+      });
+      if(entry?.instance){
+        state.hot = entry.instance;
+      }
+      return state.hot;
+    };
+    state.hot = ensurePieHotForActiveTab();
+    state.ensureHotForActiveTab = ensurePieHotForActiveTab;
   }
 
   function initControls(){
@@ -1373,6 +1395,15 @@
   };
 
   pie.ensure = function ensure(){ if (!pie.ready) pie.init(); };
+  pie.prepareForTab = function prepareForTab(){
+    if(!pie.ready){
+      pie.init();
+      return;
+    }
+    if(typeof state.ensureHotForActiveTab === 'function'){
+      state.ensureHotForActiveTab();
+    }
+  };
 
 })(window);
 

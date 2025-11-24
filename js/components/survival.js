@@ -358,40 +358,58 @@
   };
 
   function initHot(){
-    if(!refs.hotContainer || !global.Handsontable){
-      console.warn('Survival hot container or Handsontable missing');
-      return;
-    }
-    if(typeof Shared.hot?.createStandardTable !== 'function'){
-      console.error('Shared.hot.createStandardTable unavailable for survival component');
-      return;
-    }
-    const baseData = Shared.createEmptyData(DEFAULT_ROWS, SURVIVAL_DEFAULT_COLS);
-    logDebug('initHot table schema', { firstRowIsHeader: false, columns: SURVIVAL_DEFAULT_COLS, headers: SURVIVAL_COL_HEADERS });
-    state.hot = Shared.hot.createStandardTable(refs.hotContainer, { rows: DEFAULT_ROWS, cols: SURVIVAL_DEFAULT_COLS }, () => {
-      if(state.scheduleDraw){
-        logDebug('table scheduled redraw');
-        state.scheduleDraw();
-      }
-    }, {
-      debugLabel: 'survival',
-      data: baseData,
-      firstRowIsHeader: false,
-      scheduleOnLoadData: true,
-      hotOptions: {
-        stretchH: 'all',
-        contextMenu: true,
-        colHeaders: SURVIVAL_COL_HEADERS.slice(),
-        afterChange(changes, source){
-          if(changes){
-            logDebug('table afterChange', { count: changes.length, source });
-          }
-          if(source !== 'loadData'){
-            refreshCovariateControls();
+    const createSurvivalTable = (container) => {
+      const baseData = Shared.createEmptyData(DEFAULT_ROWS, SURVIVAL_DEFAULT_COLS);
+      logDebug('initHot table schema', { firstRowIsHeader: false, columns: SURVIVAL_DEFAULT_COLS, headers: SURVIVAL_COL_HEADERS });
+      return Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: SURVIVAL_DEFAULT_COLS }, () => {
+        if(state.scheduleDraw){
+          logDebug('table scheduled redraw');
+          state.scheduleDraw();
+        }
+      }, {
+        debugLabel: 'survival',
+        data: baseData,
+        firstRowIsHeader: false,
+        scheduleOnLoadData: true,
+        hotOptions: {
+          stretchH: 'all',
+          contextMenu: true,
+          colHeaders: SURVIVAL_COL_HEADERS.slice(),
+          afterChange(changes, source){
+            if(changes){
+              logDebug('table afterChange', { count: changes.length, source });
+            }
+            if(source !== 'loadData'){
+              refreshCovariateControls();
+            }
           }
         }
+      });
+    };
+    const ensureSurvivalHotForActiveTab = () => {
+      const wrapper = $('#survivalHotWrapper');
+      const baseContainer = refs.hotContainer || $('#survivalHot');
+      if(!baseContainer || typeof Shared.hot?.ensureTableForTab !== 'function'){
+        if(!state.hot && baseContainer){
+          state.hot = createSurvivalTable(baseContainer);
+        }
+        return state.hot;
       }
-    });
+      const entry = Shared.hot.ensureTableForTab({
+        type: 'survival',
+        tabId: Shared.hot.resolveActiveTabId?.() || 'survival-default',
+        wrapper,
+        container: baseContainer,
+        createInstance: createSurvivalTable
+      });
+      if(entry?.instance){
+        state.hot = entry.instance;
+        refs.hotContainer = entry.container || baseContainer;
+      }
+      return state.hot;
+    };
+    state.hot = ensureSurvivalHotForActiveTab();
+    state.ensureHotForActiveTab = ensureSurvivalHotForActiveTab;
     logDebug('Handsontable initialized', { hasHot: !!state.hot });
     refreshCovariateControls();
   }
@@ -2924,6 +2942,15 @@
   survival.ensure = function ensure(){
     if(!survival.ready){
       init();
+    }
+  };
+  survival.prepareForTab = function prepareForTab(){
+    if(!survival.ready){
+      init();
+      return;
+    }
+    if(typeof state.ensureHotForActiveTab === 'function'){
+      state.ensureHotForActiveTab();
     }
   };
   survival.draw = drawSurvival;

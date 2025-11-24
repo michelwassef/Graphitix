@@ -179,6 +179,7 @@
       loadFromFile: blob => window.Components?.box?.loadFromFile?.(blob),
       loadFromPayload: payload => window.Components?.box?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.box?.createEmptyPayload?.(),
+      prepareForTab: tab => window.Components?.box?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('box'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('box', state, options || {})
     },
@@ -192,6 +193,7 @@
       loadFromFile: blob => window.Components?.scatter?.loadFromFile?.(blob),
       loadFromPayload: payload => window.Components?.scatter?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.scatter?.createEmptyPayload?.(),
+      prepareForTab: tab => window.Components?.scatter?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('scatter'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('scatter', state, options || {})
     },
@@ -219,6 +221,7 @@
       loadFromFile: blob => window.Components?.line?.loadFromFile?.(blob),
       loadFromPayload: payload => window.Components?.line?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.line?.createEmptyPayload?.(),
+      prepareForTab: tab => window.Components?.line?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('line'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('line', state, options || {})
     },
@@ -232,6 +235,7 @@
       loadFromFile: blob => window.Components?.heatmap?.loadFromFile?.(blob),
       loadFromPayload: payload => window.Components?.heatmap?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.heatmap?.createEmptyPayload?.(),
+      prepareForTab: tab => window.Components?.heatmap?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('heatmap'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('heatmap', state, options || {})
     },
@@ -245,6 +249,7 @@
       loadFromFile: blob => window.Components?.surface?.loadFromFile?.(blob),
       loadFromPayload: payload => window.Components?.surface?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.surface?.createEmptyPayload?.(),
+      prepareForTab: tab => window.Components?.surface?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('surface'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('surface', state, options || {})
     },
@@ -272,6 +277,7 @@
       loadFromFile: blob => window.Components?.survival?.loadFromFile?.(blob),
       loadFromPayload: payload => window.Components?.survival?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.survival?.createEmptyPayload?.(),
+      prepareForTab: tab => window.Components?.survival?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('survival'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('survival', state, options || {})
     },
@@ -285,6 +291,7 @@
       loadFromFile: blob => window.Components?.hist?.loadFromFile?.(blob),
       loadFromPayload: payload => window.Components?.hist?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.hist?.createEmptyPayload?.(),
+      prepareForTab: tab => window.Components?.hist?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('hist'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('hist', state, options || {})
     },
@@ -298,6 +305,7 @@
       loadFromFile: blob => window.Components?.pie?.loadFromFile?.(blob),
       loadFromPayload: payload => window.Components?.pie?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.pie?.createEmptyPayload?.(),
+      prepareForTab: tab => window.Components?.pie?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('pie'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pie', state, options || {})
     }

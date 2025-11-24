@@ -774,7 +774,7 @@
         scheduleDrawScatter();
       };
 
-      const scatterHot=Shared.hot.createStandardTable(scatterHotContainer,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatterProxy,{
+      const createScatterTable = (container) => Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatterProxy,{
         debugLabel: 'scatter',
         data,
         hotOptions: {
@@ -792,7 +792,45 @@
           }
         }
       });
-    
+      const ensureScatterHotForActiveTab = () => {
+        const wrapper = scatterHotWrapper || document.getElementById('scatterHotWrapper');
+        const baseContainer = scatterHotContainer || document.getElementById('scatterHot');
+        if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
+          if(!scatterHot){
+            scatterHot = createScatterTable(baseContainer);
+          }
+          return scatterHot;
+        }
+        const entry = Shared.hot.ensureTableForTab({
+          type: 'scatter',
+          tabId: Shared.hot.resolveActiveTabId?.() || 'scatter-default',
+          wrapper,
+          container: baseContainer,
+          createInstance: createScatterTable
+        });
+        if(entry?.instance){
+          scatterHot = entry.instance;
+        }
+        const tableImport = Shared.tableImport;
+        if(tableImport?.handlePaste && entry?.container && !entry.container.__scatterPasteBound){
+          entry.container.addEventListener('paste',async e=>{
+            try{
+              await tableImport.handlePaste(e, scatterHot, {
+                minCols: DEFAULT_COLS,
+                minRows: DEFAULT_ROWS,
+                scheduleDraw: scheduleDrawScatter,
+                debugLabel: 'scatter'
+              });
+            }catch(err){
+              console.error('scatter paste failed', err);
+            }
+          }, true);
+          entry.container.__scatterPasteBound = true;
+        }
+        return scatterHot;
+      };
+      scatterHot = ensureScatterHotForActiveTab();
+      scatter.__ensureHotForActiveTab = ensureScatterHotForActiveTab;
       global.DEBUG_SCATTER=true;
       const scatterExamples={
         scatter:[
@@ -893,24 +931,6 @@
         });
       });
 
-      if(tableImport && typeof tableImport.handlePaste === 'function'){
-        scatterHotContainer.addEventListener('paste',async e=>{
-          console.time('scatterPaste');
-          try{
-            await tableImport.handlePaste(e, scatterHot, {
-              minCols: 4,
-              minRows: DEFAULT_ROWS,
-              scheduleDraw: scheduleDrawScatter,
-              debugLabel: 'scatter',
-              onBeforeProcess: meta => console.log('scatter fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
-              onProcessed: info => console.log('scatter data imported',{rows: info?.rows, cols: info?.cols})
-            });
-          }finally{
-            console.timeEnd('scatterPaste');
-          }
-        },true);
-      }
-    
       const scatterGraphTypeSelect=$('#scatterGraphType');
       const scatterThresholdControls=$('#scatterThresholdControls');
       const scatterLog2FCThreshold=$('#scatterLog2FCThreshold');
@@ -4008,6 +4028,15 @@
 
   scatter.init = setup;
   scatter.ensure = ensureReady;
+  scatter.prepareForTab = function prepareForTab(){
+    if(!scatter.ready){
+      scatter.init();
+      return;
+    }
+    if(typeof scatter.__ensureHotForActiveTab === 'function'){
+      scatter.__ensureHotForActiveTab();
+    }
+  };
   scatter.draw = function draw(){ ensureReady(); scheduleDrawScatter && scheduleDrawScatter(); };
 
 })(window);

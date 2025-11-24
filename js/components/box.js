@@ -2448,7 +2448,7 @@
       }
     };
 
-    state.hot = Shared.hot.createStandardTable(els.hotContainer, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
+    const createBoxTable = (container) => Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
       debugLabel: 'box',
       data,
       hotOptions: {
@@ -2479,6 +2479,50 @@
         }
       }
     });
+    const ensureBoxHotForActiveTab = () => {
+      const wrapper = global.document.getElementById('hotWrapper');
+      const baseContainer = global.document.getElementById('hot');
+      if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
+        if(!state.hot){
+          state.hot = createBoxTable(baseContainer);
+        }
+        els.hotContainer = baseContainer;
+        return state.hot;
+      }
+      const entry = Shared.hot.ensureTableForTab({
+        type: 'box',
+        tabId: Shared.hot.resolveActiveTabId?.() || 'box-default',
+        wrapper,
+        container: baseContainer,
+        createInstance: createBoxTable
+      });
+      if(entry?.instance){
+        state.hot = entry.instance;
+        els.hotContainer = entry.container || baseContainer;
+      }
+      const tableImport = Shared.tableImport;
+      if(tableImport?.handlePaste && els.hotContainer && !els.hotContainer.__boxPasteBound){
+        els.hotContainer.addEventListener('paste',async e=>{
+          console.time('boxplotPaste');
+          try{
+            await tableImport.handlePaste(e, state.hot, {
+              minCols: DEFAULT_COLS,
+              minRows: DEFAULT_ROWS,
+              scheduleDraw: state.scheduleDraw,
+              debugLabel: 'box',
+              onBeforeProcess: meta => console.log('boxplot fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
+              onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols})
+            });
+          }finally{
+            console.timeEnd('boxplotPaste');
+          }
+        }, true);
+        els.hotContainer.__boxPasteBound = true;
+      }
+      return state.hot;
+    };
+    state.hot = ensureBoxHotForActiveTab();
+    state.ensureHotForActiveTab = ensureBoxHotForActiveTab;
   
     const loadExampleBtn=global.$('#boxLoadExample'), importBtn=global.$('#boxImport'), fileInput=global.$('#boxFile');
     const exampleSingle=[
@@ -2532,23 +2576,6 @@
       });
     });
 
-    if(tableImport && typeof tableImport.handlePaste === 'function'){
-      els.hotContainer.addEventListener('paste',async e=>{
-        console.time('boxplotPaste');
-        try{
-          await tableImport.handlePaste(e, state.hot, {
-            minCols: DEFAULT_COLS,
-            minRows: DEFAULT_ROWS,
-            scheduleDraw: state.scheduleDraw,
-            debugLabel: 'box',
-            onBeforeProcess: meta => console.log('boxplot fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
-            onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols})
-          });
-        }finally{
-          console.timeEnd('boxplotPaste');
-        }
-      },true);
-    }
     applyTableFormatToHot();
     updateTableFormatUI();
   }
@@ -8511,6 +8538,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 
   box.draw = function(){ try{ if (typeof draw === 'function') draw(); } catch(e){ console.error('box.draw error', e); } };
   box.ensure = function(){ if(!box.ready) box.init(); };
+  box.prepareForTab = function prepareForTab(){
+    if(!box.ready){
+      box.init();
+      return;
+    }
+    if(typeof state.ensureHotForActiveTab === 'function'){
+      state.ensureHotForActiveTab();
+    }
+  };
   box.getAdvisorRecommendation = function(answers,context){
     return computeAdvisorRecommendation(answers || {}, context || {});
   };

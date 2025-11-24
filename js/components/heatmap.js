@@ -471,14 +471,13 @@
   }
 
   function initHot(){
-    const container = $('heatmapHot');
     if(typeof Shared.hot?.createStandardTable !== 'function'){
       console.error('heatmap initHot missing Shared.hot.createStandardTable');
       return;
     }
     const data = Shared.createEmptyData ? Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS) : [];
     console.debug('Debug: heatmap initHot using shared factory', { hasDataHelper: !!Shared.createEmptyData });
-    state.hot = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), {
+    const createHeatmapTable = (container) => Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), {
       debugLabel: 'heatmap',
       data,
       scheduleOnLoadData: true,
@@ -498,6 +497,48 @@
         }
       }
     });
+    const ensureHeatmapHotForActiveTab = () => {
+      let wrapper = document.getElementById('heatmapHotWrapper');
+      let baseContainer = document.getElementById('heatmapHot');
+      if(!wrapper){
+        wrapper = baseContainer?.parentNode || document.getElementById('heatmapPage') || document.body || document.documentElement;
+      }
+      if(!baseContainer){
+        baseContainer = document.createElement('div');
+        baseContainer.id = 'heatmapHot';
+        if(wrapper && !wrapper.contains(baseContainer)){
+          wrapper.appendChild(baseContainer);
+        }
+      }
+      if(typeof Shared.hot?.ensureTableForTab !== 'function' || !wrapper || !baseContainer){
+        if(!state.hot){
+          state.hot = createHeatmapTable(baseContainer);
+        }
+        if(state.hot){
+          global.__LAST_HEATMAP_HOT__ = state.hot;
+        }
+        return state.hot;
+      }
+      const entry = Shared.hot.ensureTableForTab({
+        type: 'heatmap',
+        tabId: Shared.hot.resolveActiveTabId?.() || 'heatmap-default',
+        wrapper,
+        container: baseContainer,
+        createInstance: createHeatmapTable
+      });
+      if(entry?.instance){
+        state.hot = entry.instance;
+      }
+      if(!state.hot && baseContainer){
+        state.hot = createHeatmapTable(baseContainer);
+      }
+      if(state.hot){
+        global.__LAST_HEATMAP_HOT__ = state.hot;
+      }
+      return state.hot;
+    };
+    state.hot = ensureHeatmapHotForActiveTab();
+    state.ensureHotForActiveTab = ensureHeatmapHotForActiveTab;
   }
 
   function clampDecimals(value){
@@ -3574,6 +3615,14 @@
       heatmap.init();
     }
   };
+  heatmap.prepareForTab = function prepareForTab(){
+    if(!heatmap.ready){
+      heatmap.init();
+      return;
+    }
+    if(typeof state.ensureHotForActiveTab === 'function'){
+      state.ensureHotForActiveTab();
+    }
+  };
 
 })(window);
-
