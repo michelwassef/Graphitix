@@ -7223,8 +7223,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           pathParts.push('Z');
           add('path',{ d: pathParts.join(' '), fill: fillColor, 'fill-opacity': 0.7, stroke: borderColor, 'stroke-width': borderWidthPx });
-          add('line',{ x1: cx - halfWidth, y1: yMed, x2: cx + halfWidth, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
-          console.debug('Debug: box violin vertical render',{ index: i, points: vals.length, peak, halfWidth });
+          const insetBoxWidth = Math.max(3, Math.min(halfWidth * 0.175, boxW * 0.1));
+          const insetStrokeWidth = Math.max(0.6, (borderWidthPx || 1) * 0.6);
+          const whiskerStrokeWidth = Math.max(0.6, (errorBarWidthPx || insetStrokeWidth) * 0.6);
+          const insetX0 = cx - insetBoxWidth / 2;
+          const insetX1 = insetX0 + insetBoxWidth;
+          add('line',{ x1: cx, y1: yWMax, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': whiskerStrokeWidth });
+          add('rect',{ x: insetX0, y: yQ3, width: insetBoxWidth, height: Math.max(1, yQ1 - yQ3), fill: '#fff', stroke: borderColor, 'stroke-width': insetStrokeWidth });
+          add('line',{ x1: insetX0, y1: yMed, x2: insetX1, y2: yMed, stroke: borderColor, 'stroke-width': insetStrokeWidth });
+          if(debugEnabled){
+            console.debug('Debug: box violin vertical render',{ index: i, points: vals.length, peak, halfWidth, insetBoxWidth });
+          }
         }else if(graphTypeRaw === 'strip'){
           const pointEntries = vals.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value }));
           const swarm = computeSwarmOffsets(pointEntries, {
@@ -7794,8 +7803,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           pathParts.push('Z');
           add('path',{ d: pathParts.join(' '), fill: fillColor, 'fill-opacity': 0.7, stroke: borderColor, 'stroke-width': borderWidthPx });
-          add('line',{ x1: xMed, y1: cy - halfHeight, x2: xMed, y2: cy + halfHeight, stroke: borderColor, 'stroke-width': borderWidthPx });
-          console.debug('Debug: box violin horizontal render',{ index: i, points: vals.length, peak, halfHeight });
+          const insetBoxHeight = Math.max(3, Math.min(halfHeight * 0.175, boxH * 0.1));
+          const insetStrokeWidth = Math.max(0.6, (borderWidthPx || 1) * 0.6);
+          const whiskerStrokeWidth = Math.max(0.6, (errorBarWidthPx || insetStrokeWidth) * 0.6);
+          const insetY0 = cy - insetBoxHeight / 2;
+          const insetY1 = insetY0 + insetBoxHeight;
+          const insetLeft = Math.min(xQ1, xQ3);
+          const insetWidth = Math.max(1, Math.abs(xQ3 - xQ1));
+          add('line',{ x1: xWMin, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': whiskerStrokeWidth });
+          add('rect',{ x: insetLeft, y: insetY0, width: insetWidth, height: insetBoxHeight, fill: '#fff', stroke: borderColor, 'stroke-width': insetStrokeWidth });
+          add('line',{ x1: xMed, y1: insetY0, x2: xMed, y2: insetY1, stroke: borderColor, 'stroke-width': insetStrokeWidth });
+          if(debugEnabled){
+            console.debug('Debug: box violin horizontal render',{ index: i, points: vals.length, peak, halfHeight, insetBoxHeight });
+          }
         }else if(graphTypeRaw === 'strip'){
           const pointEntries = vals.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value }));
           const swarm = computeSwarmOffsets(pointEntries, {
