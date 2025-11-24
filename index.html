@@ -908,6 +908,13 @@
                 </div>
                 <div id="pcaLoadingsContainer" class="loadings-card" hidden>
                   <div class="loadings-card__title">Component Loadings</div>
+                  <div class="loadings-card__actions stats-table-actions">
+                    <div class="loadings-card__range">
+                      <label for="pcaLoadingsLimit">Top loadings</label>
+                      <input type="range" id="pcaLoadingsLimit" min="1" max="100" step="1" value="100" />
+                      <output id="pcaLoadingsLimitVal">100</output>
+                    </div>
+                  </div>
                   <div id="pcaLoadingsTable" class="loadings-card__table"></div>
                 </div>
               </div>

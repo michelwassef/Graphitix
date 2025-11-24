@@ -1360,6 +1360,7 @@
       colors: [],
       shapes: []
     },
+    loadingsLimit: PCA_LOADINGS_ROW_LIMIT,
     labels: { title: getDefaultTitleForMethod('pca') },
     lastMethod: 'pca',
     autoDrawEnabled: true,
@@ -2343,6 +2344,113 @@
       }
       const pcaLoadingsContainer=document.getElementById('pcaLoadingsContainer');
       const pcaLoadingsTable=document.getElementById('pcaLoadingsTable');
+      const pcaLoadingsLimitInput=document.getElementById('pcaLoadingsLimit');
+      const pcaLoadingsLimitVal=document.getElementById('pcaLoadingsLimitVal');
+      let lastLoadingsRender = null;
+      function clampLoadingsLimitValue(value, maxRows = PCA_LOADINGS_ROW_LIMIT){
+        const safeMax = Math.max(1, Math.floor(Number(maxRows) || 1));
+        const requested = Math.floor(Number(value) || 0);
+        if(!Number.isFinite(requested) || requested <= 0){
+          return Math.min(PCA_LOADINGS_ROW_LIMIT, safeMax);
+        }
+        return Math.min(Math.max(1, requested), safeMax);
+      }
+      function syncLoadingsLimitUi(maxRows = PCA_LOADINGS_ROW_LIMIT){
+        const resolved = clampLoadingsLimitValue(pcaState.loadingsLimit, maxRows);
+        pcaState.loadingsLimit = resolved;
+        if(pcaLoadingsLimitInput){
+          const clampedMax = Math.max(1, Math.floor(Number(maxRows) || 1));
+          pcaLoadingsLimitInput.max = String(clampedMax);
+          pcaLoadingsLimitInput.value = String(resolved);
+          if(pcaLoadingsLimitVal){
+            pcaLoadingsLimitVal.textContent = resolved.toLocaleString();
+          }
+        }
+        return resolved;
+      }
+      syncLoadingsLimitUi(PCA_LOADINGS_ROW_LIMIT);
+      function updateLoadingsTable({ rows, components, method, viewMode, totalCount } = {}){
+        if(!pcaLoadingsTable){
+          debugLog('Debug: pca loadings table skipped',{ reason: 'missing-container' });
+          return;
+        }
+        if(pcaLoadingsContainer){
+          pcaLoadingsContainer.hidden = false;
+        }
+        if(method !== 'pca'){
+          lastLoadingsRender = null;
+          pcaLoadingsTable.innerHTML = '<i>Loadings available for PCA only.</i>';
+          debugLog('Debug: pca loadings unavailable for method',{ method });
+          return;
+        }
+        const rowsToRender = Array.isArray(rows) ? rows : [];
+        lastLoadingsRender = { rows: rowsToRender, components, method, viewMode, totalCount };
+        const totalRows = rowsToRender.length;
+        const totalAvailable = Number.isFinite(totalCount) ? totalCount : totalRows;
+        if(!totalRows || !components){
+          lastLoadingsRender = null;
+          pcaLoadingsTable.innerHTML = '<i>No loadings computed.</i>';
+          debugLog('Debug: pca loadings empty',{ rowCount: totalRows, totalAvailable, components });
+          return;
+        }
+        const maxRows = Math.max(1, Math.min(PCA_LOADINGS_ROW_LIMIT, totalAvailable, rowsToRender.length));
+        const rowsLimit = syncLoadingsLimitUi(maxRows);
+        const columnLimit = viewMode === '3d' ? 3 : 2;
+        const columnsToRender = Math.min(columnLimit, components);
+        const headerCells = ['Variable'];
+        for(let idx=0; idx<columnsToRender; idx+=1){
+          headerCells.push(`PC${idx+1}`);
+        }
+        const rowsToDisplay = rowsToRender.slice(0, rowsLimit);
+        const truncated = totalAvailable > rowsToDisplay.length;
+        const parts = [];
+        parts.push('<table class="stats-table"><thead><tr>');
+        parts.push(`<th class="stats-table__cell stats-table__header stats-table__cell--left">${headerCells[0]}</th>`);
+        headerCells.slice(1).forEach(h => {
+          parts.push(`<th class="stats-table__cell stats-table__header stats-table__cell--left">${h}</th>`);
+        });
+        parts.push('</tr></thead><tbody>');
+        rowsToDisplay.forEach(row => {
+          const label = row?.label || '';
+          parts.push('<tr>');
+          parts.push(`<td class="stats-table__cell stats-table__cell--left">${label}</td>`);
+          for(let idx=0; idx<columnsToRender; idx+=1){
+            const value = Number(row?.values?.[idx] ?? 0);
+            parts.push(`<td class="stats-table__cell stats-table__cell--left">${value.toFixed(4)}</td>`);
+          }
+          parts.push('</tr>');
+        });
+        parts.push('</tbody></table>');
+        if(truncated){
+          parts.push(`<div class="stats-table-footnotes"><div class="stats-table-footnote">Showing top ${rowsToDisplay.length.toLocaleString()} of ${totalAvailable.toLocaleString()} loadings by absolute weight.</div></div>`);
+        }
+        pcaLoadingsTable.innerHTML = parts.join('');
+        debugLog('Debug: pca loadings table rendered',{
+          rowCount: rowsToDisplay.length,
+          columnsToRender,
+          viewMode,
+          truncated,
+          totalAvailable,
+          rowsLimit,
+          sliderMax: maxRows
+        });
+      }
+      if(pcaLoadingsLimitInput){
+        pcaLoadingsLimitInput.addEventListener('input', () => {
+          const maxRows = lastLoadingsRender
+            ? Math.max(1, Math.min(
+              PCA_LOADINGS_ROW_LIMIT,
+              Number(lastLoadingsRender.totalCount) || 0,
+              Array.isArray(lastLoadingsRender.rows) ? lastLoadingsRender.rows.length : 0
+            ))
+            : PCA_LOADINGS_ROW_LIMIT;
+          pcaState.loadingsLimit = clampLoadingsLimitValue(pcaLoadingsLimitInput.value, maxRows);
+          syncLoadingsLimitUi(maxRows);
+          if(lastLoadingsRender){
+            updateLoadingsTable(lastLoadingsRender);
+          }
+        });
+      }
       const pcaScreeVarianceRow=document.getElementById('pcaScreeVarianceRow');
       const pcaVarianceSummary=document.getElementById('pcaVarianceSummary');
       const pcaVarianceList=document.getElementById('pcaVarianceList');
@@ -3471,58 +3579,6 @@
       });
       const axisMetrics = chartStyle.createAxisMetrics(fs);
       debugLog('Debug: pca axis metrics',axisMetrics);
-      const updateLoadingsTable = ({ rows, components, method, viewMode, totalCount }) => {
-        if(!pcaLoadingsTable){
-          debugLog('Debug: pca loadings table skipped',{ reason: 'missing-container' });
-          return;
-        }
-        if(pcaLoadingsContainer){
-          pcaLoadingsContainer.hidden = false;
-        }
-        if(method !== 'pca'){
-          pcaLoadingsTable.innerHTML = '<i>Loadings available for PCA only.</i>';
-          debugLog('Debug: pca loadings unavailable for method',{ method });
-          return;
-        }
-        const rowsToRender = Array.isArray(rows) ? rows : [];
-        const totalRows = rowsToRender.length;
-        const totalAvailable = Number.isFinite(totalCount) ? totalCount : totalRows;
-        if(!totalRows || !components){
-          pcaLoadingsTable.innerHTML = '<i>No loadings computed.</i>';
-          debugLog('Debug: pca loadings empty',{ rowCount: totalRows, totalAvailable, components });
-          return;
-        }
-        const columnLimit = viewMode === '3d' ? 3 : 2;
-        const columnsToRender = Math.min(columnLimit, components);
-        const headerCells = ['Variable'];
-        for(let idx=0; idx<columnsToRender; idx+=1){
-          headerCells.push(`PC${idx+1}`);
-        }
-        const truncated = totalAvailable > totalRows;
-        const parts = [];
-        parts.push('<table class="stats-table"><thead><tr>');
-        parts.push(`<th class="stats-table__cell stats-table__header stats-table__cell--left">${headerCells[0]}</th>`);
-        headerCells.slice(1).forEach(h => {
-          parts.push(`<th class="stats-table__cell stats-table__header stats-table__cell--left">${h}</th>`);
-        });
-        parts.push('</tr></thead><tbody>');
-        rowsToRender.forEach(row => {
-          const label = row?.label || '';
-          parts.push('<tr>');
-          parts.push(`<td class="stats-table__cell stats-table__cell--left">${label}</td>`);
-          for(let idx=0; idx<columnsToRender; idx+=1){
-            const value = Number(row?.values?.[idx] ?? 0);
-            parts.push(`<td class="stats-table__cell stats-table__cell--left">${value.toFixed(4)}</td>`);
-          }
-          parts.push('</tr>');
-        });
-        parts.push('</tbody></table>');
-        if(truncated){
-          parts.push(`<div class="stats-table-footnotes"><div class="stats-table-footnote">Showing top ${totalRows.toLocaleString()} of ${totalAvailable.toLocaleString()} loadings by absolute weight.</div></div>`);
-        }
-        pcaLoadingsTable.innerHTML = parts.join('');
-        debugLog('Debug: pca loadings table rendered',{ rowCount: totalRows, columnsToRender, viewMode, truncated, totalAvailable });
-      };
       const fontScale=styleScaleInfo?.styleScale || styleScaleInfo?.scale || 1;
       const showGrid = pcaShowGrid.checked;
       const showFrame = pcaShowFrame.checked;
@@ -5515,6 +5571,7 @@
         border:pcaBorder.value,
         borderWidth:pcaBorderWidth.value,
         tableFormat:pcaState.tableFormat,
+        loadingsLimit:pcaState.loadingsLimit,
         grouped:pcaState.grouped ? {
           replicatesPerGroup: pcaState.grouped.replicatesPerGroup,
           groups: Array.isArray(pcaState.grouped.groups) ? [...pcaState.grouped.groups] : [],
@@ -5692,6 +5749,12 @@
         ensurePcaGroupedDefaults();
         const restoredTableFormat = typeof c.tableFormat === 'string' ? c.tableFormat : pcaState.tableFormat;
         setPcaTableFormat(restoredTableFormat);
+        if(Number.isFinite(Number(c.loadingsLimit))){
+          pcaState.loadingsLimit = clampLoadingsLimitValue(c.loadingsLimit, PCA_LOADINGS_ROW_LIMIT);
+        } else {
+          pcaState.loadingsLimit = clampLoadingsLimitValue(pcaState.loadingsLimit, PCA_LOADINGS_ROW_LIMIT);
+        }
+        syncLoadingsLimitUi(PCA_LOADINGS_ROW_LIMIT);
         pcaShowGrid.checked=!!c.showGrid;
         pcaShowFrame.checked=!!c.showFrame;
         if(pcaShowLegendInput){
