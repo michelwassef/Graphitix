@@ -2810,14 +2810,16 @@
         for(let i=0;i<=tickCount;i+=1){
           const pct = (yAxisMax / tickCount) * i;
           const y = margin.top + plotHeight - (plotHeight * (pct / yAxisMax));
-          const grid = document.createElementNS(NS, 'line');
-          grid.setAttribute('x1', String(margin.left));
-          grid.setAttribute('x2', String(margin.left + plotWidth));
-          grid.setAttribute('y1', String(y));
-          grid.setAttribute('y2', String(y));
-          grid.setAttribute('stroke', 'rgba(0,0,0,0.08)');
-          grid.setAttribute('stroke-width', '1');
-          svg.appendChild(grid);
+          if(i !== 0){ // skip drawing over the x-axis
+            const grid = document.createElementNS(NS, 'line');
+            grid.setAttribute('x1', String(margin.left));
+            grid.setAttribute('x2', String(margin.left + plotWidth));
+            grid.setAttribute('y1', String(y));
+            grid.setAttribute('y2', String(y));
+            grid.setAttribute('stroke', '#ddd');
+            grid.setAttribute('stroke-width', '1');
+            svg.appendChild(grid);
+          }
           const label = document.createElementNS(NS, 'text');
           label.setAttribute('x', String(margin.left - 8));
           label.setAttribute('y', String(y));
