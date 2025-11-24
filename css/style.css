@@ -1881,13 +1881,13 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .font-controls-panel__field--color .font-controls-panel__color-input{align-self:stretch;width:100%}
 .font-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:11px;letter-spacing:0.12em;text-transform:uppercase}
 .font-controls-panel__field--full{flex:1 1 160px}
-.font-controls-panel__input{padding:2px 8px;font-size:12px;line-height:20px;border-radius:0;border:1px solid #8d97a6;background:#fdfefe;color:#111b29;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease;min-width:0;width:100%;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7);height:26px}
+.font-controls-panel__input{padding:2px 8px;font-size:12px;line-height:18px;border-radius:0;border:1px solid #8d97a6;background:#fdfefe;color:#111b29;transition:border-color .2s ease,box-shadow .2s ease,background .2s ease;min-width:0;width:100%;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7);height:22px}
 .font-controls-panel__input:focus{outline:none;border-color:rgba(59,130,246,0.8);background:#fff;box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
 .font-controls-panel__input--number{appearance:textfield;width:100%;max-width:120px}
 .font-controls-panel__input--combo{width:100%;padding-right:24px;flex:1 1 auto;min-width:0;border:none;background:transparent;box-shadow:none;height:100%}
 .font-controls-panel__input--combo::-webkit-calendar-picker-indicator{display:none !important}
 .font-controls-panel__input--combo::-webkit-list-button{display:none !important}
-.font-controls-panel__combo{display:flex;flex-direction:column;gap:0;min-width:0;position:relative;border:1px solid #8d97a6;background:#fdfefe;border-radius:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7);height:26px}
+.font-controls-panel__combo{display:flex;flex-direction:column;gap:0;min-width:0;position:relative;border:1px solid #8d97a6;background:#fdfefe;border-radius:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.7);height:22px}
 .font-controls-panel__combo:focus-within{outline:2px solid #1f6bff;outline-offset:-2px;border-color:#1f6bff}
 .font-controls-panel__combo-row{display:flex;align-items:center;gap:0;position:relative;border-radius:0;height:100%}
 .font-controls-panel__combo-row .font-controls-panel__input{border:none;height:100%;padding:2px 8px;font-size:12px}
@@ -1909,7 +1909,7 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .font-controls-panel__combo--size{max-width:96px}
 .font-controls-panel__combo--size .font-controls-panel__combo-row{gap:0;min-width:82px;max-width:92px}
 .font-controls-panel__combo--size .font-controls-panel__input--combo{padding-right:34px}
-.font-controls-panel__input--size{text-align:center;width:58px;min-width:58px;padding:6px 6px;font-size:13px;font-weight:600;color:#111827;letter-spacing:0.01em;font-variant-numeric:tabular-nums;border:none;background:transparent}
+.font-controls-panel__input--size{text-align:center;width:58px;min-width:58px;padding:3px 6px;font-size:13px;font-weight:400;color:#111827;letter-spacing:0.01em;font-variant-numeric:tabular-nums;border:none;background:transparent;height:100%}
 @keyframes fontControlsMenuFade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 .font-controls-panel__input--number::-webkit-outer-spin-button,.font-controls-panel__input--number::-webkit-inner-spin-button{appearance:none;margin:0}
 .font-controls-panel__color-input{height:34px;width:100%;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;transition:border-color .2s ease,box-shadow .2s ease;max-width:120px}
