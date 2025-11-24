@@ -1711,9 +1711,11 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #scatterPage .panel{display:flex;flex-direction:column;min-width:0}
 #scatterPage #scatterPlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
 @media (max-width:1000px){#scatterPage .wrap{grid-template-columns:1fr}}
-#pcaPage .wrap{display:flex;align-items:stretch;gap:0}
-#pcaPage #pcaTablePanel{flex:1 1 33%;min-width:150px}
-#pcaPage #pcaGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#pcaPage{--pca-input-default:clamp(320px,33%,420px)}
+#pcaPage .wrap{display:flex;align-items:stretch;gap:0;min-width:0}
+#pcaPage #pcaTablePanel{flex:0 1 var(--pca-input-default);min-width:150px;max-width:65%}
+#pcaPage #pcaHotWrapper{min-width:0;max-width:100%}
+#pcaPage #pcaGraphPanel{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
 #pcaPage .diagram-area .svgbox{flex:0 0 auto}
 #pcaPage .diagram-area .pca-plot-stack{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #pcaPage .pca-plot-stack .svgbox{flex:1 1 auto}
