@@ -2212,7 +2212,8 @@
     length,
     cellSize,
     maxDistance,
-    orientation = 'vertical'
+    orientation = 'vertical',
+    strokeWidth = 1.5
   }){
     const hasBasics = doc && parent && tree && Array.isArray(order) && order.length > 0;
     if(!hasBasics || !Number.isFinite(length) || length <= 0){
@@ -2234,8 +2235,11 @@
     group.setAttribute('class', 'heatmap-dendrogram');
     group.setAttribute('fill', 'none');
     group.setAttribute('stroke', '#3d3d3d');
-    group.setAttribute('stroke-width', '1.5');
-    group.setAttribute('stroke-linecap', 'square');
+    group.setAttribute('stroke-width', String(strokeWidth));
+    group.setAttribute('stroke-linecap', 'butt');
+    group.setAttribute('stroke-linejoin', 'miter');
+    group.setAttribute('shape-rendering', 'geometricPrecision');
+    group.setAttribute('vector-effect', 'non-scaling-stroke');
     parent.appendChild(group);
 
     const visitVertical = node => {
@@ -2813,6 +2817,12 @@
     const scaleStartX = marginLeft + heatmapWidth + (rowDendroWidth ? rowDendroWidth + dendroPadding : 0) + scalePadding;
     const scaleStartY = marginTop;
     const scaleHeight = heatmapHeight;
+    // Scale strokes using a uniform factor to avoid X/Y distortion when the SVG is resized non-uniformly
+    const scaleX = containerRect?.width && totalWidth ? containerRect.width / totalWidth : 1;
+    const scaleY = containerRect?.height && totalHeight ? containerRect.height / totalHeight : 1;
+    const uniformScale = Math.sqrt(Math.max(scaleX * scaleY, 0)) || 1;
+    const dendrogramStrokeBase = Math.max(1, Math.min(3, Math.round(cellSize * 0.025 * 10) / 10));
+    const dendrogramStroke = dendrogramStrokeBase * uniformScale;
     const scaleGroup = doc.createElementNS(NS, 'g');
     scaleGroup.setAttribute('class', 'heatmap-color-scale');
     const scaleRect = doc.createElementNS(NS, 'rect');
@@ -2861,7 +2871,8 @@
         length: rowDendroWidth,
         cellSize,
         maxDistance: rowClustering.maxDistance,
-        orientation: 'vertical'
+        orientation: 'vertical',
+        strokeWidth: dendrogramStroke
       });
     }
     if(showColumnDendrogram && columnClustering?.tree){
@@ -2875,7 +2886,8 @@
         length: columnDendroHeight,
         cellSize,
         maxDistance: columnClustering.maxDistance,
-        orientation: 'horizontal'
+        orientation: 'horizontal',
+        strokeWidth: dendrogramStroke
       });
     }
     ensureGraphViewport(state.svg, { padding: Math.max(fontSize, 16), debugLabel: 'heatmap-graph' });
