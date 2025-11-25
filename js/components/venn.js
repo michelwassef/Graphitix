@@ -2507,6 +2507,17 @@
       if (region && state.ui.regionSelect) { state.ui.regionSelect.value = region; populateRegion(region); }
     };
     ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'venn-diagram' });
+    if(typeof chartStyle.applyTextAspectCorrection === 'function'){
+      chartStyle.applyTextAspectCorrection({
+        svg: stage,
+        svgBox,
+        viewBoxWidth: stageWidth,
+        viewBoxHeight: stageHeight,
+        displayWidth: svgBoxRect?.width,
+        displayHeight: svgBoxRect?.height,
+        debugLabel: 'venn-text-correction'
+      });
+    }
   }
 
   function drawFromLists() {
