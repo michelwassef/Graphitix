@@ -874,38 +874,84 @@
       }
       return;
     }
-    const mean = (global.jStat?.mean ? global.jStat.mean(numericValues) : numericValues.reduce((s,v)=>s+v,0)/numericValues.length) || 0;
-    const median = global.jStat?.median ? global.jStat.median(numericValues) : numericValues.slice().sort((a,b)=>a-b)[Math.floor((numericValues.length-1)/2)];
-    const sd = global.jStat?.stdev ? global.jStat.stdev(numericValues, true) : Math.sqrt(numericValues.reduce((s,v)=>s+Math.pow(v-mean,2),0)/(numericValues.length || 1));
-    const min = Math.min(...numericValues);
-    const max = Math.max(...numericValues);
+    const sorted = numericValues.slice().sort((a, b) => a - b);
+    const percentile = (list, p) => {
+      if(!list.length) return NaN;
+      const pos = (list.length - 1) * p;
+      const base = Math.floor(pos);
+      const rest = pos - base;
+      const baseVal = list[base];
+      const nextVal = list[base + 1] !== undefined ? list[base + 1] : baseVal;
+      return baseVal + rest * (nextVal - baseVal);
+    };
+    const mean = (global.jStat?.mean ? global.jStat.mean(sorted) : sorted.reduce((s,v)=>s+v,0)/sorted.length) || 0;
+    const median = global.jStat?.median ? global.jStat.median(sorted) : percentile(sorted, 0.5);
+    const sd = global.jStat?.stdev ? global.jStat.stdev(sorted, true) : Math.sqrt(sorted.reduce((s,v)=>s+Math.pow(v-mean,2),0)/(sorted.length || 1));
+    const min = sorted[0];
+    const max = sorted[sorted.length - 1];
+    const q1 = global.jStat?.quantiles ? global.jStat.quantiles(sorted, [0.25])?.[0] : percentile(sorted, 0.25);
+    const q3 = global.jStat?.quantiles ? global.jStat.quantiles(sorted, [0.75])?.[0] : percentile(sorted, 0.75);
+    const bestFit = Array.isArray(distributionSummaries) ? distributionSummaries.find(entry => entry?.fit?.valid !== false && entry?.fit) : null;
+    const statsRow = {
+      column: state.xLabelText || 'Column 1',
+      n: sorted.length,
+      mean: formatNumber(mean, 2),
+      median: formatNumber(median, 2),
+      sd: formatNumber(sd, 2),
+      min: formatNumber(min, 2),
+      q1: formatNumber(q1, 2),
+      q3: formatNumber(q3, 2),
+      max: formatNumber(max, 2)
+    };
+    const statsModel = {
+      caption: 'Descriptive statistics',
+      columns: [
+        { key: 'column', label: 'Column' },
+        { key: 'n', label: 'N', align: 'right' },
+        { key: 'mean', label: 'Mean', align: 'right' },
+        { key: 'median', label: 'Median', align: 'right' },
+        { key: 'sd', label: 'SD', align: 'right' },
+        { key: 'min', label: 'Min', align: 'right' },
+        { key: 'q1', label: 'Q1', align: 'right' },
+        { key: 'q3', label: 'Q3', align: 'right' },
+        { key: 'max', label: 'Max', align: 'right' }
+      ],
+      rows: [statsRow],
+      footnotes: bestFit?.fit?.label ? [`Best fit: ${bestFit.fit.label}`] : [],
+      options: {
+        fileName: 'histogram-stats',
+        contextLabel: 'hist-stats'
+      },
+      target,
+      append: false
+    };
+    if(Shared.statsTable && typeof Shared.statsTable.render === 'function'){
+      Shared.statsTable.render(statsModel);
+      if(debugEnabled){
+        console.debug('Debug: hist stats rendered via Shared.statsTable', { rows: statsModel.rows.length });
+      }
+      return;
+    }
+    // Fallback plain table if statsTable is unavailable
     const table = document.createElement('table');
     table.className = 'stats-table';
-    const rows = [
-      ['n', String(numericValues.length)],
-      ['Mean', formatNumber(mean, 4)],
-      ['Median', formatNumber(median, 4)],
-      ['SD', formatNumber(sd, 4)],
-      ['Min', formatNumber(min, 4)],
-      ['Max', formatNumber(max, 4)]
-    ];
-    const bestFit = Array.isArray(distributionSummaries) ? distributionSummaries.find(entry => entry?.fit?.valid !== false && entry?.fit) : null;
-    if(bestFit?.fit?.label){
-      rows.push(['Best fit', bestFit.fit.label]);
-    }
-    rows.forEach(([label, value]) => {
-      const tr = document.createElement('tr');
+    const headerRow = document.createElement('tr');
+    statsModel.columns.forEach(col => {
       const th = document.createElement('th');
-      th.textContent = label;
-      const td = document.createElement('td');
-      td.textContent = value;
-      tr.appendChild(th);
-      tr.appendChild(td);
-      table.appendChild(tr);
+      th.textContent = col.label;
+      headerRow.appendChild(th);
     });
+    table.appendChild(headerRow);
+    const bodyRow = document.createElement('tr');
+    statsModel.columns.forEach(col => {
+      const td = document.createElement('td');
+      td.textContent = statsRow[col.key];
+      bodyRow.appendChild(td);
+    });
+    table.appendChild(bodyRow);
     target.appendChild(table);
     if(debugEnabled){
-      console.debug('Debug: hist stats updated', { count: numericValues.length, hasFit: !!bestFit });
+      console.debug('Debug: hist stats rendered via fallback table', { rows: statsModel.rows.length });
     }
   }
 
