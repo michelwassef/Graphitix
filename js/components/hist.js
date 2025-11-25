@@ -5,6 +5,9 @@
   const NS='http://www.w3.org/2000/svg';
   const HIST_DEFAULT_ROWS=100;
   const HIST_DEFAULT_COLS=1;
+  const HIST_AUTO_DRAW_ROW_THRESHOLD = 5000;
+  const HIST_AUTO_DRAW_COL_THRESHOLD = 5000;
+  const HIST_AUTO_DRAW_CELL_THRESHOLD = 50000;
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -32,6 +35,13 @@
   const hist = Components.hist = Components.hist || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  let histRenderRowEl = null;
+  let histRenderButtonEl = null;
+  let histAutoDrawNoticeEl = null;
+  let histAutoDrawManager = null;
+  let scheduleDrawHistRaw = () => {};
+  let histAutoDrawManager = null;
+  let scheduleDrawHistRaw = () => {};
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -140,6 +150,12 @@
     svgBox: null,
     layout: null,
     minSvgWidth: 0,
+    autoDrawEnabled: true,
+    autoDrawReason: null,
+    autoDrawLockedByThreshold: false,
+    drawPending: false,
+    lastDataShape: { rows: 0, cols: 0 },
+    lastAutoDrawEvaluation: null,
     axisSettings: createDefaultAxisSettings(),
     distributionSettings: createDefaultDistributionSettings(),
     distributionOptions: [],
@@ -1338,10 +1354,50 @@
     state.svgBox = state.layout?.elements?.svgBox || state.svgBox;
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();
+    histRenderRowEl = document.getElementById('histRenderRow');
+    histRenderButtonEl = document.getElementById('histRenderButton');
+    histAutoDrawNoticeEl = document.getElementById('histAutoDrawNotice');
+    if(histRenderButtonEl){
+      histRenderButtonEl.addEventListener('click', () => {
+        console.debug('Debug: hist manual render button');
+        state.scheduleDraw?.({ force: true, reason: 'manual-render' });
+      });
+    }
     initHot();
     initControls();
-    state.scheduleDraw = Shared.debounceFrame(draw);
-    console.debug('Debug: hist scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    if(!histAutoDrawManager && Shared.hot?.createAutoDrawManager){
+      histAutoDrawManager = Shared.hot.createAutoDrawManager({
+        component: 'hist',
+        state,
+        thresholds: {
+          rows: HIST_AUTO_DRAW_ROW_THRESHOLD,
+          cols: HIST_AUTO_DRAW_COL_THRESHOLD,
+          cells: HIST_AUTO_DRAW_CELL_THRESHOLD
+        },
+        getHot: () => state.hot,
+        elements: {
+          renderRow: () => histRenderRowEl,
+          renderButton: () => histRenderButtonEl,
+          notice: () => histAutoDrawNoticeEl
+        },
+        debugLog: console.debug
+      });
+    }
+    scheduleDrawHistRaw = Shared.debounceFrame ? Shared.debounceFrame(draw) : draw;
+    if(histAutoDrawManager){
+      histAutoDrawManager.setScheduleRaw(scheduleDrawHistRaw);
+      histAutoDrawManager.setElements({
+        renderRow: histRenderRowEl,
+        renderButton: histRenderButtonEl,
+        notice: histAutoDrawNoticeEl
+      });
+      state.scheduleDraw = (opts) => histAutoDrawManager.schedule(opts);
+      histAutoDrawManager.updateUi();
+      histAutoDrawManager.evaluateThresholds();
+    }else{
+      state.scheduleDraw = scheduleDrawHistRaw;
+    }
+    console.debug('Debug: hist scheduleDraw configured via Shared.debounceFrame', { guarded: !!histAutoDrawManager }); // Debug: scheduler setup
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     ensureEmptyPayloadTemplate();
     hist.ready = true;

@@ -84,6 +84,9 @@
   const SCATTER_SHAPE_DEFAULTS = SCATTER_SHAPE_OPTIONS.map(opt => opt.value);
   const SCATTER_SHAPE_VALUES = new Set(SCATTER_SHAPE_DEFAULTS);
   const SCATTER_3D_DEFAULTS = Object.freeze({ rotationX: -0.31, rotationY: -0.48, aspectRatio: 4 / 3 });
+  const SCATTER_AUTO_DRAW_ROW_THRESHOLD = 5000;
+  const SCATTER_AUTO_DRAW_COL_THRESHOLD = 5000;
+  const SCATTER_AUTO_DRAW_CELL_THRESHOLD = 50000;
 
   const scatterState = {
     viewMode: '2d',
@@ -93,6 +96,14 @@
     rotationPendingLogged: false,
     supports3d: false,
     supportsBubble: false
+  };
+  const scatterAutoDrawState = {
+    autoDrawEnabled: true,
+    autoDrawReason: null,
+    autoDrawLockedByThreshold: false,
+    drawPending: false,
+    lastDataShape: { rows: 0, cols: 0 },
+    lastAutoDrawEvaluation: null
   };
   let emptyPayloadTemplate = null;
 
@@ -537,7 +548,9 @@
     };
   }
 
-  let scheduleDrawScatter=null;
+  let scheduleDrawScatter = () => {};
+  let scheduleDrawScatterRaw = () => {};
+  let scatterAutoDrawManager = null;
   let scatterCurrentGraphType='scatter';
   let scatterLastGraphType='scatter';
   let scatterLastRegressionSummary=null;
@@ -664,7 +677,12 @@
         console.debug('Debug: scatter markFontEditable', payload); // Debug: font target tagging summary
       }
     };
-    let scatterDrawToken=0;
+  let scatterDrawToken=0;
+  let scatterHot = null;
+  let scatterRenderRowEl = null;
+  let scatterRenderButtonEl = null;
+  let scatterAutoDrawNoticeEl = null;
+  let scatterLegendChangeInternal = false;
       // Scatter plot setup
       const scatterHotContainer=document.getElementById('scatterHot');
       const scatterHotWrapper=document.getElementById('scatterHotWrapper');
@@ -673,6 +691,33 @@
       const scatterPanelResizer=document.getElementById('scatterPanelResizer');
       let scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
       const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-options');
+      scatterRenderRowEl=document.getElementById('scatterRenderRow');
+      scatterRenderButtonEl=document.getElementById('scatterRenderButton');
+      scatterAutoDrawNoticeEl=document.getElementById('scatterAutoDrawNotice');
+      if(scatterRenderButtonEl){
+        scatterRenderButtonEl.addEventListener('click', () => {
+          scatterDebug('Debug: scatter manual render button');
+          scheduleDrawScatter({ force: true, reason: 'manual-render' });
+        });
+      }
+      if(!scatterAutoDrawManager && Shared.hot?.createAutoDrawManager){
+        scatterAutoDrawManager = Shared.hot.createAutoDrawManager({
+          component: 'scatter',
+          state: scatterAutoDrawState,
+          thresholds: {
+            rows: SCATTER_AUTO_DRAW_ROW_THRESHOLD,
+            cols: SCATTER_AUTO_DRAW_COL_THRESHOLD,
+            cells: SCATTER_AUTO_DRAW_CELL_THRESHOLD
+          },
+          getHot: () => scatterHot || (typeof ensureScatterHotForActiveTab === 'function' ? ensureScatterHotForActiveTab() : null),
+          elements: {
+            renderRow: () => scatterRenderRowEl,
+            renderButton: () => scatterRenderButtonEl,
+            notice: () => scatterAutoDrawNoticeEl
+          },
+          debugLog: scatterDebug
+        });
+      }
       const scatterShowLegend=$('#scatterShowLegend');
       const scatterLegendControl=scatterShowLegend?.closest('label')||null;
       const ensureScatterLegendTrayPlacement=()=>{
@@ -1844,6 +1889,9 @@
       scatterShowFrame.addEventListener('change',()=>{console.debug('Debug: scatter showFrame change',{checked:scatterShowFrame.checked}); scheduleDrawScatter();});
       if(scatterShowLegend){
         scatterShowLegend.addEventListener('change',()=>{
+          if(scatterLegendChangeInternal){
+            return;
+          }
           console.debug('Debug: scatter showLegend change',{checked:scatterShowLegend.checked});
           scheduleDrawScatter();
         });
@@ -2118,7 +2166,7 @@
         info('scatter showGrid', showGrid);
         const showFrame=scatterShowFrame.checked;
         debug('Debug: scatter showFrame state',{showFrame});
-        const showLegend = scatterShowLegend ? scatterShowLegend.checked : true;
+        let showLegend = scatterShowLegend ? scatterShowLegend.checked : true;
         debug('Debug: scatter legend toggle state',{ showLegend });
         let showLine=scatterShowLine.checked;
         const showIntervals = !!(scatterShowIntervals && scatterShowIntervals.checked);
@@ -2462,6 +2510,19 @@
           renderScatterNotice('No points fall within the specified axis range.');
           debug('Debug: scatter plot aborted due to range filter',{range:{xMin,xMax,yMin,yMax}});
           return;
+        }
+        const shouldAutoHideLegend = scatterCurrentGraphType === 'scatter' && pointsInRange.length > 10;
+        if(shouldAutoHideLegend && showLegend){
+          scatterLegendChangeInternal = true;
+          try{
+            if(scatterShowLegend){
+              scatterShowLegend.checked = false;
+            }
+            showLegend = false;
+            debug('Debug: scatter legend auto-hidden for large dataset',{ pointCount: pointsInRange.length });
+          }finally{
+            scatterLegendChangeInternal = false;
+          }
         }
         if(scatterCurrentGraphType==='scatter'){
           renderScatterStatsAdvisor(pointsInRange);
@@ -3577,9 +3638,22 @@
         scatterLayout?.syncPanels?.({ skipSchedule: true });
         info('scatter render complete with enhanced styles');
       }
-      scheduleDrawScatter = Shared.debounceFrame(drawScatter);
+      scheduleDrawScatterRaw = Shared.debounceFrame ? Shared.debounceFrame(drawScatter) : drawScatter;
+      if(scatterAutoDrawManager){
+        scatterAutoDrawManager.setScheduleRaw(scheduleDrawScatterRaw);
+        scatterAutoDrawManager.setElements({
+          renderRow: scatterRenderRowEl,
+          renderButton: scatterRenderButtonEl,
+          notice: scatterAutoDrawNoticeEl
+        });
+        scheduleDrawScatter = (opts) => scatterAutoDrawManager.schedule(opts);
+        scatterAutoDrawManager.updateUi();
+        scatterAutoDrawManager.evaluateThresholds();
+      }else{
+        scheduleDrawScatter = scheduleDrawScatterRaw;
+      }
       scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
-      console.debug('Debug: scatter scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+      console.debug('Debug: scatter scheduleDraw configured via Shared.debounceFrame', { guarded: !!scatterAutoDrawManager }); // Debug: scheduler setup
     
     
       function computeScatterStats(points,method,options={}){

@@ -41,6 +41,9 @@
   const ASSUMPTION_ALPHA=0.05;
   const DEFAULT_WHISKER_RULE='iqr15';
   const DEFAULT_WHISKER_MULTIPLIER=1.5;
+  const BOX_AUTO_DRAW_ROW_THRESHOLD = 5000;
+  const BOX_AUTO_DRAW_COL_THRESHOLD = 5000;
+  const BOX_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
     iqr3:{ key:'iqr3', mode:'iqr', multiplier:3, label:'3×IQR' },
@@ -54,6 +57,11 @@
 
   const boxRefs = {};
   let boxTooltipEl = null;
+  let boxRenderRowEl = null;
+  let boxRenderButtonEl = null;
+  let boxAutoDrawNoticeEl = null;
+  let scheduleDrawBoxRaw = () => {};
+  let boxAutoDrawManager = null;
   
   function boxDebug(label, payload){
     try{
@@ -1662,7 +1670,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -2119,6 +2127,9 @@
     els.panelResizer = global.document.getElementById('boxPanelResizer');
     els.svgBox = els.graphPanel?.querySelector('.svgbox');
     els.configPanel = els.graphPanel?.querySelector('.config-options');
+    els.renderRow = global.document.getElementById('boxRenderRow');
+    els.renderButton = global.document.getElementById('boxRenderButton');
+    els.autoDrawNotice = global.document.getElementById('boxAutoDrawNotice');
     els.hotContainer = global.document.getElementById('hot');
     els.hotWrapper = global.document.getElementById('hotWrapper');
     els.plotDiv = global.document.getElementById('boxPlot');
@@ -2624,6 +2635,12 @@
   function initUI(){
     ensureViolinState();
     syncViolinControlsFromState();
+    if(els.renderButton){
+      boxRenderButtonEl = els.renderButton;
+      boxRenderRowEl = els.renderRow || boxRenderRowEl;
+      boxAutoDrawNoticeEl = els.autoDrawNotice || boxAutoDrawNoticeEl;
+      els.renderButton.addEventListener('click',()=>{ boxDebug('Debug: box manual render button'); state.scheduleDraw({ force: true, reason: 'manual-render' }); });
+    }
     if(els.tableFormat){
       els.tableFormat.addEventListener('change', e=>{
         console.debug('Debug: tableFormat select change',{ value: e.target.value });
@@ -8515,6 +8532,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     // Will be filled by placeholders
     // cache elements, ensure styles, set up resizers, hot, ui, and schedule
     if (typeof cacheEls === 'function') cacheEls();
+    if(!boxAutoDrawManager && Shared.hot?.createAutoDrawManager){
+      boxAutoDrawManager = Shared.hot.createAutoDrawManager({
+        component: 'box',
+        state,
+        thresholds: {
+          rows: BOX_AUTO_DRAW_ROW_THRESHOLD,
+          cols: BOX_AUTO_DRAW_COL_THRESHOLD,
+          cells: BOX_AUTO_DRAW_CELL_THRESHOLD
+        },
+        getHot: () => state.hot || state.ensureHotForActiveTab?.(),
+        elements: {
+          renderRow: () => els.renderRow,
+          renderButton: () => els.renderButton,
+          notice: () => els.autoDrawNotice
+        },
+        debugLog: boxDebug
+      });
+    }
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'box',
       selectors: {
@@ -8548,9 +8583,22 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     if (typeof initHot === 'function') initHot();
     if (typeof initUI === 'function') initUI();
-    state.scheduleDraw = Shared.debounceFrame(draw);
-    console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
-    state.layout?.setScheduleDraw?.(state.scheduleDraw);
+    scheduleDrawBoxRaw = Shared.debounceFrame ? Shared.debounceFrame(draw) : draw;
+    if(boxAutoDrawManager){
+      boxAutoDrawManager.setScheduleRaw(scheduleDrawBoxRaw);
+      boxAutoDrawManager.setElements({
+        renderRow: els.renderRow,
+        renderButton: els.renderButton,
+        notice: els.autoDrawNotice
+      });
+      state.scheduleDraw = (opts) => boxAutoDrawManager.schedule(opts);
+      boxAutoDrawManager.updateUi();
+      boxAutoDrawManager.evaluateThresholds();
+    }else{
+      state.scheduleDraw = scheduleDrawBoxRaw;
+    }
+    console.debug('Debug: box scheduleDraw configured via Shared.debounceFrame', { guarded: !!boxAutoDrawManager }); // Debug: scheduler setup
+    state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
     ensureEmptyPayloadTemplate();
     box.ready = true;
     try{ state.scheduleDraw(); } catch(e){ console.error('box init initial draw error', e); }

@@ -3222,4 +3222,311 @@
   hotNS.getIncludedColumn = getIncludedColumn;
   hotNS.getIncludedRow = getIncludedRow;
   hotNS.refreshHeaderWidths = refreshHeaderWidths;
+  const resolveAutoDrawElement = (value) => {
+    if(typeof value === 'function'){
+      try{
+        return value();
+      }catch(err){
+        console.error('Shared.hot autoDraw element resolver error', err);
+        return null;
+      }
+    }
+    return value || null;
+  };
+  const normalizeAutoDrawOptions = (options) => {
+    if(!options){
+      return {};
+    }
+    if(typeof options === 'string'){
+      return { reason: options };
+    }
+    if(typeof options === 'object'){
+      return options;
+    }
+    return {};
+  };
+  const nowMs = () => (global.performance && typeof global.performance.now === 'function')
+    ? global.performance.now()
+    : Date.now();
+
+  const ensureAutoDrawStateDefaults = (state) => {
+    const target = state && typeof state === 'object' ? state : {};
+    if(typeof target.autoDrawEnabled !== 'boolean'){
+      target.autoDrawEnabled = true;
+    }
+    if(target.autoDrawReason === undefined){
+      target.autoDrawReason = null;
+    }
+    if(typeof target.autoDrawLockedByThreshold !== 'boolean'){
+      target.autoDrawLockedByThreshold = false;
+    }
+    if(typeof target.drawPending !== 'boolean'){
+      target.drawPending = false;
+    }
+    if(!target.lastDataShape || typeof target.lastDataShape !== 'object'){
+      target.lastDataShape = { rows: 0, cols: 0 };
+    }else{
+      target.lastDataShape.rows = Number(target.lastDataShape.rows) || 0;
+      target.lastDataShape.cols = Number(target.lastDataShape.cols) || 0;
+    }
+    if(target.lastAutoDrawEvaluation === undefined){
+      target.lastAutoDrawEvaluation = null;
+    }
+    return target;
+  };
+
+  hotNS.createAutoDrawManager = function createAutoDrawManager(config = {}){
+    const component = config.component || 'component';
+    const getHot = typeof config.getHot === 'function' ? config.getHot : () => null;
+    const debugLog = typeof config.debugLog === 'function'
+      ? config.debugLog
+      : (label, payload) => {
+        try{
+          if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
+            return;
+          }
+        }catch(err){
+          // ignore toggle failures
+        }
+        if(typeof console?.debug === 'function'){
+          console.debug(label, payload);
+        }
+      };
+    const state = ensureAutoDrawStateDefaults(config.state);
+    const thresholds = {
+      rows: Number.isFinite(config.thresholds?.rows) ? config.thresholds.rows : 5000,
+      cols: Number.isFinite(config.thresholds?.cols) ? config.thresholds.cols : 5000,
+      cells: Number.isFinite(config.thresholds?.cells) ? config.thresholds.cells : 50000
+    };
+    const resolveElements = () => ({
+      renderRow: resolveAutoDrawElement(config.elements?.renderRow ?? config.renderRow),
+      renderButton: resolveAutoDrawElement(config.elements?.renderButton ?? config.renderButton),
+      notice: resolveAutoDrawElement(config.elements?.notice ?? config.notice)
+    });
+    let elementConfig = resolveElements();
+    let scheduleRaw = typeof config.scheduleRaw === 'function' ? config.scheduleRaw : () => {};
+
+    const setElements = (elements) => {
+      if(!elements || typeof elements !== 'object'){
+        return;
+      }
+      config.elements = {
+        renderRow: elements.renderRow ?? config.elements?.renderRow,
+        renderButton: elements.renderButton ?? config.elements?.renderButton,
+        notice: elements.notice ?? config.elements?.notice
+      };
+      elementConfig = resolveElements();
+    };
+
+    const setScheduleRaw = (fn) => {
+      scheduleRaw = typeof fn === 'function' ? fn : () => {};
+    };
+
+    const setEnabled = (enabled, meta = {}) => {
+      const nextEnabled = !!enabled;
+      const previousEnabled = !!state.autoDrawEnabled;
+      let disabledNow = false;
+      state.autoDrawEnabled = nextEnabled;
+      if(!nextEnabled){
+        if(previousEnabled && meta.renderImmediate !== false){
+          disabledNow = true;
+        }
+        if(meta.reason === 'threshold'){
+          const rows = Number(meta.rows ?? meta.totalRows);
+          const cols = Number(meta.cols ?? meta.totalCols);
+          state.autoDrawReason = {
+            type: 'threshold',
+            rows: Number.isFinite(rows) ? rows : null,
+            cols: Number.isFinite(cols) ? cols : null
+          };
+        }else if(meta.reason){
+          state.autoDrawReason = { type: meta.reason };
+        }else if(!state.autoDrawReason){
+          state.autoDrawReason = { type: 'manual' };
+        }
+      }else if(meta.reason === 'threshold-cleared' || !meta.preserveReason){
+        state.autoDrawReason = null;
+      }
+      if(nextEnabled){
+        state.drawPending = false;
+      }
+      updateUi(meta);
+      if(previousEnabled !== nextEnabled){
+        debugLog(`Debug: ${component} autoDraw toggled`, {
+          enabled: nextEnabled,
+          reason: meta.reason || null
+        });
+      }
+      return { changed: previousEnabled !== nextEnabled, disabledNow };
+    };
+
+    function updateDataShape(shape){
+      if(!shape || typeof shape !== 'object'){
+        return;
+      }
+      const rows = Number(shape.rows);
+      const cols = Number(shape.cols);
+      const normalizedRows = Number.isFinite(rows) ? rows : state.lastDataShape.rows;
+      const normalizedCols = Number.isFinite(cols) ? cols : state.lastDataShape.cols;
+      if(normalizedRows === state.lastDataShape.rows && normalizedCols === state.lastDataShape.cols){
+        return;
+      }
+      state.lastDataShape = { rows: normalizedRows, cols: normalizedCols };
+      debugLog(`Debug: ${component} data shape updated`, { rows: normalizedRows, cols: normalizedCols });
+    }
+
+    function updateUi(meta = {}){
+      elementConfig = resolveElements();
+      const renderRow = elementConfig.renderRow;
+      const renderButton = elementConfig.renderButton;
+      const notice = elementConfig.notice;
+      const manualMode = !state.autoDrawEnabled;
+      const pendingWhileAuto = !manualMode && !!state.drawPending;
+      const shouldShowRenderRow = manualMode || pendingWhileAuto;
+      if(renderRow && renderRow.hidden === shouldShowRenderRow){
+        renderRow.hidden = !shouldShowRenderRow;
+      }
+      if(renderButton){
+        const shouldDisable = !manualMode && !state.drawPending;
+        if(renderButton.disabled !== shouldDisable){
+          renderButton.disabled = shouldDisable;
+        }
+        if(renderButton.hidden === shouldShowRenderRow){
+          renderButton.hidden = !shouldShowRenderRow;
+        }
+      }
+      if(notice){
+        let text = '';
+        let hidden = !shouldShowRenderRow;
+        if(!hidden && manualMode){
+          const reason = state.autoDrawReason?.type || 'manual';
+          if(reason === 'threshold'){
+            const rows = state.autoDrawReason?.rows;
+            const summary = Number.isFinite(rows) ? ` (${rows.toLocaleString()} rows)` : '';
+            text = `Live updates are paused for large datasets${summary}. Use Update Plot after making changes.`;
+          }else{
+            text = 'Live updates are disabled. Use Update Plot after making changes.';
+          }
+          if(state.drawPending){
+            text += ' Changes are waiting to be rendered.';
+          }
+        }else if(!hidden && pendingWhileAuto){
+          hidden = false;
+          text = 'Changes are waiting to be rendered. Use Update Plot to redraw immediately.';
+        }
+        if(!hidden && notice.textContent !== text){
+          notice.textContent = text;
+        }
+        notice.hidden = hidden || !text;
+      }
+    }
+
+    function evaluateThresholds(meta = {}){
+      const hot = getHot();
+      const perfStart = nowMs();
+      if(!hot){
+        return { autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null };
+      }
+      let totalRows = Number(meta?.shape?.rows);
+      let totalCols = Number(meta?.shape?.cols);
+      if(!Number.isFinite(totalRows) || totalRows < 0){
+        if(typeof hot.countSourceRows === 'function'){
+          totalRows = hot.countSourceRows();
+        }else if(typeof hot.getSourceData === 'function'){
+          const source = hot.getSourceData();
+          totalRows = Array.isArray(source) ? source.length : 0;
+        }else if(typeof hot.countRows === 'function'){
+          totalRows = hot.countRows();
+        }else{
+          totalRows = state.lastDataShape.rows;
+        }
+      }
+      if(!Number.isFinite(totalCols) || totalCols < 0){
+        if(typeof hot.countSourceCols === 'function'){
+          totalCols = hot.countSourceCols();
+        }else if(typeof hot.getSourceData === 'function'){
+          const source = hot.getSourceData();
+          const firstRow = Array.isArray(source) && source.length ? source[0] : null;
+          totalCols = Array.isArray(firstRow) ? firstRow.length : 0;
+        }else if(typeof hot.countCols === 'function'){
+          totalCols = hot.countCols();
+        }else{
+          totalCols = state.lastDataShape.cols;
+        }
+      }
+      const cellEstimate = Math.max(0, totalRows) * Math.max(1, totalCols);
+      const thresholdExceeded = totalRows >= thresholds.rows
+        || totalCols >= thresholds.cols
+        || cellEstimate >= thresholds.cells;
+      state.lastAutoDrawEvaluation = {
+        totalRows,
+        totalCols,
+        cellEstimate,
+        thresholdExceeded,
+        totalMs: nowMs() - perfStart
+      };
+      updateDataShape({ rows: totalRows, cols: totalCols });
+      debugLog(`Debug: ${component} autoDraw evaluation`, state.lastAutoDrawEvaluation);
+      if(thresholdExceeded){
+        state.autoDrawLockedByThreshold = true;
+        const toggleResult = setEnabled(false, {
+          reason: 'threshold',
+          rows: totalRows,
+          cols: totalCols,
+          preserveReason: true
+        });
+        return {
+          autoDrawEnabled: state.autoDrawEnabled,
+          disabledNow: !!toggleResult?.disabledNow,
+          reason: 'threshold'
+        };
+      }
+      const previouslyLocked = !!state.autoDrawLockedByThreshold;
+      state.autoDrawLockedByThreshold = false;
+      if(previouslyLocked){
+        setEnabled(true, { reason: 'threshold-cleared', preserveReason: false });
+      }
+      return { autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null };
+    }
+
+    function schedule(options){
+      const opts = normalizeAutoDrawOptions(options);
+      if(opts.force){
+        if(!opts.skipThresholdEvaluation){
+          evaluateThresholds();
+        }
+        state.drawPending = false;
+        updateUi(opts);
+        scheduleRaw();
+        return;
+      }
+      const evalResult = evaluateThresholds({ markPending: true });
+      if(evalResult?.disabledNow){
+        state.drawPending = false;
+        updateUi({ reason: evalResult.reason || opts.reason });
+        scheduleRaw();
+        return;
+      }
+      if(!state.autoDrawEnabled){
+        state.drawPending = true;
+        updateUi(opts);
+        debugLog(`Debug: ${component} draw suppressed`, { reason: opts.reason || 'auto-draw-disabled' });
+        return;
+      }
+      state.drawPending = false;
+      updateUi(opts);
+      scheduleRaw();
+    }
+
+    updateUi();
+
+    return {
+      setScheduleRaw,
+      schedule,
+      evaluateThresholds,
+      updateUi,
+      setEnabled,
+      setElements
+    };
+  };
 })(window);

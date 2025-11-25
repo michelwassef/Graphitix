@@ -359,12 +359,18 @@
       <div id="boxPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" style="align-items:center;" id="boxGraphPanel">
         <div class="diagram-area">
-          <div class="svgbox">
-            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
-            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
-            <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-            <div id="boxPlot" style="width:100%; height:100%;"></div>
-            <div class="row" id="boxExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          <div class="box-plot-stack">
+            <div class="svgbox">
+              <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+              <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+              <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+              <div id="boxPlot" style="width:100%; height:100%;"></div>
+              <div class="row" id="boxExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            </div>
+            <div id="boxRenderRow" class="box-render-row" hidden>
+              <button type="button" class="btn" id="boxRenderButton" disabled>Update Plot</button>
+              <p id="boxAutoDrawNotice" class="box-auto-draw-notice" hidden aria-live="polite"></p>
+            </div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -536,12 +542,18 @@
       <div id="scatterPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" style="align-items:center;" id="scatterGraphPanel">
         <div class="diagram-area">
-          <div class="svgbox">
-            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
-            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
-            <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-            <div id="scatterPlot" style="width:100%; height:100%;"></div>
-            <div class="row" id="scatterExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          <div class="scatter-plot-stack">
+            <div class="svgbox">
+              <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+              <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+              <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+              <div id="scatterPlot" style="width:100%; height:100%;"></div>
+              <div class="row" id="scatterExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            </div>
+            <div id="scatterRenderRow" class="scatter-render-row" hidden>
+              <button type="button" class="btn" id="scatterRenderButton" disabled>Update Plot</button>
+              <p id="scatterAutoDrawNotice" class="scatter-auto-draw-notice" hidden aria-live="polite"></p>
+            </div>
           </div>
           <div class="config-panel">
             <fieldset class="config-panel__fieldset">
@@ -942,13 +954,19 @@
       <div id="surfacePanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" id="surfaceGraphPanel">
         <div class="diagram-area">
-          <div class="svgbox">
-            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
-            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
-            <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
-            <svg id="surfaceSvg" viewBox="0 0 640 420" xmlns="http://www.w3.org/2000/svg" aria-label="Surface plot"></svg>
-            <div id="surfaceMessage" class="surface-message" role="status" aria-live="polite" hidden></div>
-            <div class="row" id="surfaceExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          <div class="surface-plot-stack">
+            <div class="svgbox">
+              <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+              <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+              <div class="resizer resizer-corner" title="Drag to change width &amp; height" aria-hidden="true"></div>
+              <svg id="surfaceSvg" viewBox="0 0 640 420" xmlns="http://www.w3.org/2000/svg" aria-label="Surface plot"></svg>
+              <div id="surfaceMessage" class="surface-message" role="status" aria-live="polite" hidden></div>
+              <div class="row" id="surfaceExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            </div>
+            <div id="surfaceRenderRow" class="surface-render-row" hidden>
+              <button type="button" class="btn" id="surfaceRenderButton" disabled>Update Plot</button>
+              <p id="surfaceAutoDrawNotice" class="surface-auto-draw-notice" hidden aria-live="polite"></p>
+            </div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -1070,12 +1088,18 @@
       <div id="linePanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" style="align-items:center;" id="lineGraphPanel">
         <div class="diagram-area">
-          <div class="svgbox">
-            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
-            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
-            <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-            <div id="linePlot" style="width:100%; height:100%;"></div>
-            <div class="row" id="lineExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          <div class="line-plot-stack">
+            <div class="svgbox">
+              <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+              <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+              <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+              <div id="linePlot" style="width:100%; height:100%;"></div>
+              <div class="row" id="lineExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            </div>
+            <div id="lineRenderRow" class="line-render-row" hidden>
+              <button type="button" class="btn" id="lineRenderButton" disabled>Update Plot</button>
+              <p id="lineAutoDrawNotice" class="line-auto-draw-notice" hidden aria-live="polite"></p>
+            </div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -1516,12 +1540,18 @@
       <div id="rocPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" style="align-items:center;" id="rocGraphPanel">
         <div class="diagram-area">
-          <div class="svgbox">
-            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
-            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
-            <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-            <div id="rocPlot" style="width:100%; height:100%;"></div>
-            <div class="row" id="rocExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          <div class="roc-plot-stack">
+            <div class="svgbox">
+              <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+              <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+              <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+              <div id="rocPlot" style="width:100%; height:100%;"></div>
+              <div class="row" id="rocExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            </div>
+            <div id="rocRenderRow" class="roc-render-row" hidden>
+              <button type="button" class="btn" id="rocRenderButton" disabled>Update Plot</button>
+              <p id="rocAutoDrawNotice" class="roc-auto-draw-notice" hidden aria-live="polite"></p>
+            </div>
           </div>
           <div class="config-options">
             <fieldset>
@@ -1682,12 +1712,18 @@
       <div id="histPanelResizer" class="panel-resizer" aria-hidden="true"></div>
       <div class="panel" style="align-items:center;" id="histGraphPanel">
         <div class="diagram-area">
-          <div class="svgbox">
-            <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
-            <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
-            <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
-            <div id="histPlot" style="width:100%; height:100%;"></div>
-            <div class="row" id="histExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+          <div class="hist-plot-stack">
+            <div class="svgbox">
+              <div class="resizer resizer-vertical" title="Drag to change width" aria-hidden="true"></div>
+              <div class="resizer resizer-horizontal" title="Drag to change height" aria-hidden="true"></div>
+              <div class="resizer resizer-corner" title="Drag to change width & height" aria-hidden="true"></div>
+              <div id="histPlot" style="width:100%; height:100%;"></div>
+              <div class="row" id="histExportControls" style="justify-content:flex-end; margin-top:6px;"></div>
+            </div>
+            <div id="histRenderRow" class="hist-render-row" hidden>
+              <button type="button" class="btn" id="histRenderButton" disabled>Update Plot</button>
+              <p id="histAutoDrawNotice" class="hist-auto-draw-notice" hidden aria-live="polite"></p>
+            </div>
           </div>
           <div class="config-options">
             <fieldset>

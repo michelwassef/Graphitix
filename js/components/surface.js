@@ -64,6 +64,9 @@
   });
 
   const DEFAULT_AXIS_LABELS = Object.freeze({ x: 'X', y: 'Y', z: 'Z' });
+  const SURFACE_AUTO_DRAW_ROW_THRESHOLD = 5000;
+  const SURFACE_AUTO_DRAW_COL_THRESHOLD = 5000;
+  const SURFACE_AUTO_DRAW_CELL_THRESHOLD = 50000;
 
   const state = {
     hot: null,
@@ -73,6 +76,15 @@
     statsEl: null,
     messageEl: null,
     exportContainer: null,
+    renderRow: null,
+    renderButton: null,
+    autoDrawNotice: null,
+    autoDrawEnabled: true,
+    autoDrawReason: null,
+    autoDrawLockedByThreshold: false,
+    drawPending: false,
+    lastDataShape: { rows: 0, cols: 0 },
+    lastAutoDrawEvaluation: null,
     axisSelects: { x: null, y: null, z: null },
     controls: {},
     axisMap: { x: 0, y: 1, z: 2 },
@@ -95,6 +107,8 @@
     fileName: DEFAULT_FILE_NAME,
     fileHandle: null
   };
+  let surfaceAutoDrawManager = null;
+  let scheduleDrawSurfaceRaw = () => {};
   const surfaceUndoManager = Shared.undoManager || null;
   function recordSurfaceChange(label, previous, next, apply){
     if(!surfaceUndoManager || typeof surfaceUndoManager.recordStateChange !== 'function'){
@@ -257,6 +271,9 @@
     state.statsEl = doc.getElementById('surfaceStatsSummary') || state.statsEl;
     state.messageEl = doc.getElementById('surfaceMessage') || state.messageEl;
     state.exportContainer = doc.getElementById('surfaceExportControls') || state.exportContainer;
+    state.renderRow = doc.getElementById('surfaceRenderRow') || state.renderRow;
+    state.renderButton = doc.getElementById('surfaceRenderButton') || state.renderButton;
+    state.autoDrawNotice = doc.getElementById('surfaceAutoDrawNotice') || state.autoDrawNotice;
     state.axisSelects.x = doc.getElementById('surfaceXAxis') || state.axisSelects.x;
     state.axisSelects.y = doc.getElementById('surfaceYAxis') || state.axisSelects.y;
     state.axisSelects.z = doc.getElementById('surfaceZAxis') || state.axisSelects.z;
@@ -1217,6 +1234,12 @@
     }
     cacheDom();
     state.scheduleDraw = () => {};
+    if(state.renderButton){
+      state.renderButton.addEventListener('click', () => {
+        debugLog('Debug: surface manual render button');
+        state.scheduleDraw?.({ force: true, reason: 'manual-render' });
+      });
+    }
     state.layout = componentLayout && typeof componentLayout.createStandardPanels === 'function'
       ? componentLayout.createStandardPanels({
         componentName: 'surface',
@@ -1244,9 +1267,40 @@
     cacheDom();
     initHot();
     initControls();
-    state.scheduleDraw = typeof Shared.debounceFrame === 'function'
+    if(!surfaceAutoDrawManager && Shared.hot?.createAutoDrawManager){
+      surfaceAutoDrawManager = Shared.hot.createAutoDrawManager({
+        component: 'surface',
+        state,
+        thresholds: {
+          rows: SURFACE_AUTO_DRAW_ROW_THRESHOLD,
+          cols: SURFACE_AUTO_DRAW_COL_THRESHOLD,
+          cells: SURFACE_AUTO_DRAW_CELL_THRESHOLD
+        },
+        getHot: () => state.hot,
+        elements: {
+          renderRow: () => state.renderRow,
+          renderButton: () => state.renderButton,
+          notice: () => state.autoDrawNotice
+        },
+        debugLog
+      });
+    }
+    scheduleDrawSurfaceRaw = typeof Shared.debounceFrame === 'function'
       ? Shared.debounceFrame(draw)
       : (() => setTimeout(draw, 16));
+    if(surfaceAutoDrawManager){
+      surfaceAutoDrawManager.setScheduleRaw(scheduleDrawSurfaceRaw);
+      surfaceAutoDrawManager.setElements({
+        renderRow: state.renderRow,
+        renderButton: state.renderButton,
+        notice: state.autoDrawNotice
+      });
+      state.scheduleDraw = (opts) => surfaceAutoDrawManager.schedule(opts);
+      surfaceAutoDrawManager.updateUi();
+      surfaceAutoDrawManager.evaluateThresholds();
+    }else{
+      state.scheduleDraw = scheduleDrawSurfaceRaw;
+    }
     if(state.layout && typeof state.layout.setScheduleDraw === 'function'){
       state.layout.setScheduleDraw(state.scheduleDraw);
     }

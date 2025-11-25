@@ -82,6 +82,9 @@
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
   const DEFAULT_AXIS_COLOR = '#000000';
+  const ROC_AUTO_DRAW_ROW_THRESHOLD = 5000;
+  const ROC_AUTO_DRAW_COL_THRESHOLD = 5000;
+  const ROC_AUTO_DRAW_CELL_THRESHOLD = 50000;
 
   function createDefaultAxisSettings(){
     return {
@@ -104,8 +107,16 @@
     layout: null,
     fileHandle: null,
     fileName: 'roc.graph',
-    axisSettings: createDefaultAxisSettings()
+    axisSettings: createDefaultAxisSettings(),
+    autoDrawEnabled: true,
+    autoDrawReason: null,
+    autoDrawLockedByThreshold: false,
+    drawPending: false,
+    lastDataShape: { rows: 0, cols: 0 },
+    lastAutoDrawEvaluation: null
   };
+  let rocAutoDrawManager = null;
+  let scheduleDrawRocRaw = () => {};
   const rocUndoManager = Shared.undoManager || null;
   function recordRocChange(label, previous, next, apply){
     if(!rocUndoManager || typeof rocUndoManager.recordStateChange !== 'function'){
@@ -355,6 +366,9 @@
     refs.plotDiv = document.getElementById('rocPlot');
     refs.statsResults = document.getElementById('rocStatsResults');
     refs.statsControls = document.getElementById('rocStatsControls');
+    refs.renderRow = document.getElementById('rocRenderRow');
+    refs.renderButton = document.getElementById('rocRenderButton');
+    refs.autoDrawNotice = document.getElementById('rocAutoDrawNotice');
     refs.borderWidth = document.getElementById('rocBorderWidth');
     refs.showGrid = document.getElementById('rocShowGrid');
     refs.showFrame = document.getElementById('rocShowFrame');
@@ -840,6 +854,12 @@
         refs.fileInput.click();
       }
     });
+    if(refs.renderButton){
+      refs.renderButton.addEventListener('click', () => {
+        console.debug('Debug: roc manual render button');
+        state.scheduleDraw?.({ force: true, reason: 'manual-render' });
+      });
+    }
 
     refs.fileInput?.addEventListener('change', async () => {
       const tableImport = Shared.tableImport;
@@ -1909,8 +1929,39 @@
       console.warn('ROC component init skipped: required elements missing');
       return;
     }
-    state.scheduleDraw = Shared.debounceFrame(drawRoc);
-    console.debug('Debug: roc scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    scheduleDrawRocRaw = Shared.debounceFrame ? Shared.debounceFrame(drawRoc) : drawRoc;
+    if(!rocAutoDrawManager && Shared.hot?.createAutoDrawManager){
+      rocAutoDrawManager = Shared.hot.createAutoDrawManager({
+        component: 'roc',
+        state,
+        thresholds: {
+          rows: ROC_AUTO_DRAW_ROW_THRESHOLD,
+          cols: ROC_AUTO_DRAW_COL_THRESHOLD,
+          cells: ROC_AUTO_DRAW_CELL_THRESHOLD
+        },
+        getHot: () => state.hot,
+        elements: {
+          renderRow: () => refs.renderRow,
+          renderButton: () => refs.renderButton,
+          notice: () => refs.autoDrawNotice
+        },
+        debugLog: console.debug
+      });
+    }
+    if(rocAutoDrawManager){
+      rocAutoDrawManager.setScheduleRaw(scheduleDrawRocRaw);
+      rocAutoDrawManager.setElements({
+        renderRow: refs.renderRow,
+        renderButton: refs.renderButton,
+        notice: refs.autoDrawNotice
+      });
+      state.scheduleDraw = (opts) => rocAutoDrawManager.schedule(opts);
+      rocAutoDrawManager.updateUi();
+      rocAutoDrawManager.evaluateThresholds();
+    }else{
+      state.scheduleDraw = scheduleDrawRocRaw;
+    }
+    console.debug('Debug: roc scheduleDraw configured via Shared.debounceFrame', { guarded: !!rocAutoDrawManager }); // Debug: scheduler setup
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'roc',
       selectors: {

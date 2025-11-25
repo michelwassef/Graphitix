@@ -69,8 +69,21 @@
   const LINE_GROUP_SHAPE_VALUES = new Set(LINE_GROUP_SHAPE_DEFAULTS);
   const LINE_DISPLAY_MODE_OPTIONS = Object.freeze(['line','area']);
   let lineDisplayMode = 'line';
+  const LINE_AUTO_DRAW_ROW_THRESHOLD = 5000;
+  const LINE_AUTO_DRAW_COL_THRESHOLD = 5000;
+  const LINE_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const lineAutoDrawState = {
+    autoDrawEnabled: true,
+    autoDrawReason: null,
+    autoDrawLockedByThreshold: false,
+    drawPending: false,
+    lastDataShape: { rows: 0, cols: 0 },
+    lastAutoDrawEvaluation: null
+  };
 
   let scheduleLineDraw = () => {};
+  let scheduleLineDrawRaw = () => {};
+  let lineAutoDrawManager = null;
   let lineHot = null;
   let lineTitleText = 'Line graph';
   let lineXLabelText = 'X';
@@ -3559,6 +3572,9 @@
     refs.panelResizer=document.getElementById('linePanelResizer');
     refs.svgBox=refs.graphPanel?.querySelector('.svgbox');
     refs.configPanel=refs.graphPanel?.querySelector('.config-options');
+    refs.renderRow=document.getElementById('lineRenderRow');
+    refs.renderButton=document.getElementById('lineRenderButton');
+    refs.autoDrawNotice=document.getElementById('lineAutoDrawNotice');
     refs.hotContainer=document.getElementById('lineHot');
     refs.hotWrapper=document.getElementById('lineHotWrapper');
     refs.plot=document.getElementById('linePlot');
@@ -4057,6 +4073,24 @@
 
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
     lineLayout?.syncPanels?.();
+    if(!lineAutoDrawManager && Shared.hot?.createAutoDrawManager){
+      lineAutoDrawManager = Shared.hot.createAutoDrawManager({
+        component: 'line',
+        state: lineAutoDrawState,
+        thresholds: {
+          rows: LINE_AUTO_DRAW_ROW_THRESHOLD,
+          cols: LINE_AUTO_DRAW_COL_THRESHOLD,
+          cells: LINE_AUTO_DRAW_CELL_THRESHOLD
+        },
+        getHot: () => lineHot || (typeof ensureLineHotForActiveTab === 'function' ? ensureLineHotForActiveTab() : null),
+        elements: {
+          renderRow: () => refs.renderRow,
+          renderButton: () => refs.renderButton,
+          notice: () => refs.autoDrawNotice
+        },
+        debugLog: lineDebug
+      });
+    }
     applyLineReplicateChange(lineReplicates, { sourceReplicates: lineReplicates, skipDraw: true });
 
     const lineExamples={
@@ -4154,6 +4188,12 @@
         console.debug('Debug: line resizer container missing', { hasContainer: !!container });
       }
       refs.plot.addEventListener('mouseleave', handleLinePlotMouseLeave);
+    }
+    if(refs.renderButton){
+      refs.renderButton.addEventListener('click', () => {
+        lineDebug('Debug: line manual render button');
+        scheduleLineDraw({ force: true, reason: 'manual-render' });
+      });
     }
 
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
@@ -4268,9 +4308,22 @@
       }
     });
 
-    scheduleLineDraw = Shared.debounceFrame(drawLine);
+    scheduleLineDrawRaw = Shared.debounceFrame ? Shared.debounceFrame(drawLine) : drawLine;
+    if(lineAutoDrawManager){
+      lineAutoDrawManager.setScheduleRaw(scheduleLineDrawRaw);
+      lineAutoDrawManager.setElements({
+        renderRow: refs.renderRow,
+        renderButton: refs.renderButton,
+        notice: refs.autoDrawNotice
+      });
+      scheduleLineDraw = (opts) => lineAutoDrawManager.schedule(opts);
+      lineAutoDrawManager.updateUi();
+      lineAutoDrawManager.evaluateThresholds();
+    }else{
+      scheduleLineDraw = scheduleLineDrawRaw;
+    }
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
-    console.debug('Debug: line scheduleLineDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
+    console.debug('Debug: line scheduleLineDraw configured via Shared.debounceFrame', { guarded: !!lineAutoDrawManager }); // Debug: scheduler setup
     ensureEmptyPayloadTemplate();
     line.ready = true;
     scheduleLineDraw();
