@@ -40,8 +40,6 @@
   let histAutoDrawNoticeEl = null;
   let histAutoDrawManager = null;
   let scheduleDrawHistRaw = () => {};
-  let histAutoDrawManager = null;
-  let scheduleDrawHistRaw = () => {};
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -856,6 +854,59 @@
       return Shared.formatPValue(num);
     }
     return num <= 0 ? '0' : num.toExponential(5);
+  }
+
+  function updateHistStats(values, distributionSummaries){
+    const target = document.getElementById('histStatsResults');
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    if(!target){
+      if(debugEnabled){
+        console.debug('Debug: hist stats target missing');
+      }
+      return;
+    }
+    const numericValues = Array.isArray(values) ? values.filter(Number.isFinite) : [];
+    target.innerHTML = '';
+    if(!numericValues.length){
+      target.textContent = 'No data';
+      if(debugEnabled){
+        console.debug('Debug: hist stats skipped (no values)');
+      }
+      return;
+    }
+    const mean = (global.jStat?.mean ? global.jStat.mean(numericValues) : numericValues.reduce((s,v)=>s+v,0)/numericValues.length) || 0;
+    const median = global.jStat?.median ? global.jStat.median(numericValues) : numericValues.slice().sort((a,b)=>a-b)[Math.floor((numericValues.length-1)/2)];
+    const sd = global.jStat?.stdev ? global.jStat.stdev(numericValues, true) : Math.sqrt(numericValues.reduce((s,v)=>s+Math.pow(v-mean,2),0)/(numericValues.length || 1));
+    const min = Math.min(...numericValues);
+    const max = Math.max(...numericValues);
+    const table = document.createElement('table');
+    table.className = 'stats-table';
+    const rows = [
+      ['n', String(numericValues.length)],
+      ['Mean', formatNumber(mean, 4)],
+      ['Median', formatNumber(median, 4)],
+      ['SD', formatNumber(sd, 4)],
+      ['Min', formatNumber(min, 4)],
+      ['Max', formatNumber(max, 4)]
+    ];
+    const bestFit = Array.isArray(distributionSummaries) ? distributionSummaries.find(entry => entry?.fit?.valid !== false && entry?.fit) : null;
+    if(bestFit?.fit?.label){
+      rows.push(['Best fit', bestFit.fit.label]);
+    }
+    rows.forEach(([label, value]) => {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = label;
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.appendChild(th);
+      tr.appendChild(td);
+      table.appendChild(tr);
+    });
+    target.appendChild(table);
+    if(debugEnabled){
+      console.debug('Debug: hist stats updated', { count: numericValues.length, hasFit: !!bestFit });
+    }
   }
 
   function draw(){
