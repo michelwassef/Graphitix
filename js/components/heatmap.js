@@ -64,9 +64,19 @@
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
   });
 
+  const makeEditable = (el, onChange, options) => {
+    const fn = Shared.makeEditable || global.makeEditable;
+    if(typeof fn === 'function'){
+      return fn(el, onChange, options);
+    }
+    console.warn('heatmap component makeEditable fallback missing');
+    return undefined;
+  };
+
   const DEFAULT_ROWS = 100;
   const DEFAULT_COLS = 6;
   let emptyPayloadTemplate = null;
+  const heatmapUndoManager = Shared.undoManager || null;
 
   function cloneSimple(value){
     if(!value) return null;
@@ -102,6 +112,7 @@
     scheduleDraw: () => {},
     fileHandle: null,
     fileName: 'correlation-heatmap.graph',
+    titleText: 'Heatmap',
     svg: null,
     svgBox: null,
     statsEl: null,
@@ -117,6 +128,25 @@
     lastViewOptions: null,
     lastStats: null
   };
+
+  function recordHeatmapChange(label, previous, next, apply){
+    if(!heatmapUndoManager || typeof heatmapUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(typeof apply !== 'function'){
+      return;
+    }
+    heatmapUndoManager.recordStateChange({
+      label,
+      scope: 'heatmapGraphPanel',
+      from: previous,
+      to: next,
+      apply(value){
+        apply(value);
+        return true;
+      }
+    });
+  }
 
   function deriveHeatmapExportFileName(){
     const baseName = typeof state.fileName === 'string' ? state.fileName.trim() : '';
@@ -2697,6 +2727,8 @@
     if(columnDendroHeight){
       marginBottom += columnDendroHeight + dendroPadding;
     }
+    const titlePadding = Math.max(scaledFontSize * 2, 28);
+    marginTop += titlePadding;
     const scaleWidth = 36;
     const scalePadding = 24;
     const scaleLabelGap = 48;
@@ -2717,6 +2749,33 @@
       totalHeight,
       preserveAspectRatio: state.svg.getAttribute('preserveAspectRatio')
     });
+    const title = doc.createElementNS(NS, 'text');
+    title.setAttribute('x', String(totalWidth / 2));
+    title.setAttribute('y', String(Math.max(scaledFontSize * 1.6, titlePadding * 0.55)));
+    title.setAttribute('text-anchor', 'middle');
+    title.setAttribute('font-size', String(scaledFontSize));
+    title.textContent = state.titleText != null ? String(state.titleText) : 'Heatmap';
+    markFontEditable(title, 'graphTitle', 'graphTitle');
+    const applyHeatmapTitle = value => {
+      const nextValue = value != null ? String(value) : '';
+      state.titleText = nextValue;
+      if(title.textContent !== nextValue){
+        title.textContent = nextValue;
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+    };
+    makeEditable(title, txt => {
+      const previous = state.titleText != null ? String(state.titleText) : '';
+      const nextValue = txt != null ? String(txt) : '';
+      if(previous === nextValue){
+        return;
+      }
+      applyHeatmapTitle(nextValue);
+      recordHeatmapChange('heatmap:title', previous, nextValue, applyHeatmapTitle);
+    });
+    state.svg.appendChild(title);
 
     const defs = doc.createElementNS(NS, 'defs');
     
@@ -3301,6 +3360,7 @@
       cellSize: Number(refs.cellSize?.value) || 60,
       fontSize: Number(refs.fontSize?.value) || 12,
       fontStyles: exportFontStyles('heatmap') || undefined,
+      title: state.titleText,
       filters: {
         presentEnabled: !!refs.filterPresentEnable?.checked,
         presentThreshold: Number(refs.filterPresentValue?.value),
@@ -3337,6 +3397,11 @@
 
   function applyConfig(config){
     if(!config) return;
+    if(config.title !== undefined){
+      state.titleText = config.title != null ? String(config.title) : '';
+    }else if(state.titleText == null){
+      state.titleText = 'Heatmap';
+    }
     if(refs.view){
       refs.view.value = config.view || 'corr-columns';
       refs.view.dispatchEvent(new Event('change'));

@@ -46,6 +46,15 @@
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
   });
 
+  const makeEditable = (el, onChange, options) => {
+    const fn = Shared.makeEditable || global.makeEditable;
+    if(typeof fn === 'function'){
+      return fn(el, onChange, options);
+    }
+    console.warn('roc component makeEditable fallback missing');
+    return undefined;
+  };
+
   const DEFAULT_ROWS = 100;
   const ROC_DEFAULT_COLS = 3;
   let emptyPayloadTemplate = null;
@@ -107,6 +116,7 @@
     layout: null,
     fileHandle: null,
     fileName: 'roc.graph',
+    titleText: 'ROC curve',
     axisSettings: createDefaultAxisSettings(),
     autoDrawEnabled: true,
     autoDrawReason: null,
@@ -1112,6 +1122,9 @@
     const debugStamp = Date.now();
     console.debug('Debug: drawRoc start', {debugStamp}); // Debug: draw entry
     const graphType = refs.graphType?.value || 'roc';
+    if(state.titleText == null){
+      state.titleText = graphType === 'pr' ? 'Precision-Recall curve' : 'ROC curve';
+    }
     const borderWidthRaw = Number(refs.borderWidth?.value) || 2;
     const showGrid = !!refs.showGrid?.checked;
     const showFrame = !!refs.showFrame?.checked;
@@ -1515,6 +1528,36 @@
       fill: chartStyle.TEXT_COLOR
     }, yAxisLabel, { role: 'yTitle', key: 'yTitle' });
 
+    const titleY = Math.max(fontSize * 1.6, margin.top * 0.5);
+    const defaultTitle = graphType === 'pr' ? 'Precision-Recall curve' : 'ROC curve';
+    const titleValue = state.titleText != null ? String(state.titleText) : defaultTitle;
+    const titleNode = add('text', {
+      x: margin.left + plotWidth / 2,
+      y: titleY,
+      'text-anchor': 'middle',
+      'font-size': fontSize,
+      fill: chartStyle.TEXT_COLOR
+    }, titleValue, { role: 'graphTitle', key: 'graphTitle' });
+    const applyRocTitle = value => {
+      const nextValue = value != null ? String(value) : '';
+      state.titleText = nextValue;
+      if(titleNode && titleNode.textContent !== nextValue){
+        titleNode.textContent = nextValue;
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+    };
+    makeEditable(titleNode, txt => {
+      const previous = state.titleText != null ? String(state.titleText) : '';
+      const nextValue = txt != null ? String(txt) : '';
+      if(previous === nextValue){
+        return;
+      }
+      applyRocTitle(nextValue);
+      recordRocChange('roc:title', previous, nextValue, applyRocTitle);
+    });
+
     const stats = [];
     const allPairs = [];
 
@@ -1707,6 +1750,7 @@
         fontSize: refs.fontSize?.value,
         fontStyles: exportFontStyles('roc') || undefined,
         labelColors: state.labelColors,
+        title: state.titleText,
         graphType: refs.graphType?.value
       }
     };
@@ -1765,6 +1809,12 @@
     }
     if(refs.fontSize) refs.fontSize.value = config.fontSize || refs.fontSize.value;
     updateFontSizeLabel();
+    if(config.title !== undefined){
+      state.titleText = config.title != null ? String(config.title) : '';
+    }else if(state.titleText == null){
+      const inferredType = config.graphType || refs.graphType?.value || 'roc';
+      state.titleText = inferredType === 'pr' ? 'Precision-Recall curve' : 'ROC curve';
+    }
     state.labelColors = config.labelColors || {};
     if(refs.graphType) refs.graphType.value = config.graphType || refs.graphType.value;
     const axisConfig = config.axis || config.axisSettings;

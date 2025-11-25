@@ -18,6 +18,7 @@
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   const fileIO = Shared.fileIO = Shared.fileIO || {};
+  const survivalUndoManager = Shared.undoManager || null;
 
   survival.__installed = true;
   survival.ready = false;
@@ -119,6 +120,15 @@
     usesFactory: typeof Shared.graphViewport?.createEnsurer === 'function'
   });
 
+  const makeEditable = (el, onChange, options) => {
+    const fn = Shared.makeEditable || global.makeEditable;
+    if(typeof fn === 'function'){
+      return fn(el, onChange, options);
+    }
+    console.warn('survival component makeEditable fallback missing');
+    return undefined;
+  };
+
   const DEFAULT_AXIS_COLOR = '#000000';
 
   function createDefaultAxisSettings(){
@@ -139,12 +149,32 @@
     layout: null,
     fileHandle: null,
     fileName: 'survival.graph',
+    titleText: 'Survival curve',
     lastSummary: null,
     lastStats: null,
     covariateSettings: {},
     covariateColumns: [],
     axisSettings: createDefaultAxisSettings()
   };
+
+  function recordSurvivalChange(label, previous, next, apply){
+    if(!survivalUndoManager || typeof survivalUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(typeof apply !== 'function'){
+      return;
+    }
+    survivalUndoManager.recordStateChange({
+      label,
+      scope: 'survivalGraphPanel',
+      from: previous,
+      to: next,
+      apply(value){
+        apply(value);
+        return true;
+      }
+    });
+  }
 
   function ensureAxisSettings(){
     if(!state.axisSettings || typeof state.axisSettings !== 'object'){
@@ -2298,6 +2328,36 @@
     yTitle.textContent = yLabelText;
     markFontEditable(yTitle, 'yTitle', 'yTitle');
 
+    const titleY = Math.max(fs * 1.6, margin.top * 0.5);
+    const titleText = add('text', {
+      x: margin.left + plotW / 2,
+      y: titleY,
+      'font-size': fs,
+      'text-anchor': 'middle',
+      fill: chartStyle.TEXT_COLOR || '#000'
+    });
+    titleText.textContent = state.titleText != null ? String(state.titleText) : 'Survival curve';
+    markFontEditable(titleText, 'graphTitle', 'graphTitle');
+    const applySurvivalTitle = value => {
+      const nextValue = value != null ? String(value) : '';
+      state.titleText = nextValue;
+      if(titleText.textContent !== nextValue){
+        titleText.textContent = nextValue;
+      }
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }
+    };
+    makeEditable(titleText, txt => {
+      const previous = state.titleText != null ? String(state.titleText) : '';
+      const nextValue = txt != null ? String(txt) : '';
+      if(previous === nextValue){
+        return;
+      }
+      applySurvivalTitle(nextValue);
+      recordSurvivalChange('survival:title', previous, nextValue, applySurvivalTitle);
+    });
+
     const showCI = !!refs.showCI?.checked;
     const showCensor = !!refs.showCensor?.checked;
 
@@ -2557,6 +2617,7 @@
         fontStyles: (exportFontStyles('survival') || undefined),
         xLabel: refs.xLabel?.value || '',
         yLabel: refs.yLabel?.value || '',
+        title: state.titleText,
         covariateSettings: state.covariateSettings,
         axis: {
           strokeWidth: axisSettings.strokeWidth,
@@ -2651,6 +2712,11 @@
     }
     if(refs.xLabel) refs.xLabel.value = config.xLabel || 'Time';
     if(refs.yLabel) refs.yLabel.value = config.yLabel || 'Survival Probability';
+    if(config.title !== undefined){
+      state.titleText = config.title != null ? String(config.title) : '';
+    }else if(state.titleText == null){
+      state.titleText = 'Survival curve';
+    }
     applyAxisSettings(config.axis || config.axisSettings);
     refreshCovariateControls();
     renderSurvivalStatsAdvisor(state.lastSummary || {

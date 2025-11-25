@@ -28,6 +28,15 @@
     console.debug(`Debug: venn ${label}`, payload || {});
   };
 
+  const makeEditable = (el, onChange, options) => {
+    const fn = Shared.makeEditable || global.makeEditable;
+    if (typeof fn === 'function') {
+      return fn(el, onChange, options);
+    }
+    console.warn('venn component makeEditable fallback missing');
+    return undefined;
+  };
+
   const formatSharedPValue = value => {
     if(typeof Shared?.formatPValue === 'function'){
       return Shared.formatPValue(value);
@@ -414,7 +423,8 @@
       persistence: {
         fileHandle: null,
         fileName: 'venn.graph',
-      }
+      },
+      titleText: 'Venn diagram'
     };
   }
 
@@ -646,7 +656,7 @@
         return false;
       }
     }
-    const styleKeys = ['colorA','colorB','colorC','opacity','fontsize','borderColor','borderWidth'];
+    const styleKeys = ['colorA','colorB','colorC','opacity','fontsize','borderColor','borderWidth','title'];
     const styleA = a.payload?.style || {};
     const styleB = b.payload?.style || {};
     for(const key of styleKeys){
@@ -698,6 +708,28 @@
       equals: vennSnapshotsEqual,
       apply(value){
         return applyVennSnapshot(value);
+      }
+    });
+  }
+
+  function recordVennTitleChange(previous, next, apply){
+    if(!vennUndoManager || typeof vennUndoManager.recordStateChange !== 'function'){
+      return;
+    }
+    if(previous === next){
+      return;
+    }
+    if(typeof apply !== 'function'){
+      return;
+    }
+    vennUndoManager.recordStateChange({
+      label: 'venn:title',
+      scope: 'vennGraphPanel',
+      from: previous,
+      to: next,
+      apply(value){
+        apply(value);
+        return true;
       }
     });
   }
@@ -2280,6 +2312,39 @@
       fontSizePx: style.fontSizePx,
       fontSizePt: style.fontPt
     }); // Debug: stage font sync
+    const titlePadding = Math.max(style.fontSizePx * 2, 28);
+    const layoutTop = titlePadding;
+    const layoutHeight = Math.max(stageHeight - titlePadding, Math.max(stageHeight * 0.6, style.fontSizePx * 12));
+    const titleY = Math.max(style.fontSizePx * 1.6, titlePadding * 0.55);
+    const titleText = makeEl('text', {
+      x: stageWidth / 2,
+      y: titleY,
+      'text-anchor': 'middle',
+      'font-size': style.fontSizePx,
+      fill: textColor,
+      'font-family': fontFamily
+    });
+    titleText.textContent = state.titleText != null ? String(state.titleText) : 'Venn diagram';
+    markFontEditable(titleText, 'graphTitle', 'graphTitle');
+    const applyVennTitle = value => {
+      const nextValue = value != null ? String(value) : '';
+      state.titleText = nextValue;
+      if(titleText.textContent !== nextValue){
+        titleText.textContent = nextValue;
+      }
+      if(typeof state.ui.scheduleDraw === 'function'){
+        state.ui.scheduleDraw();
+      }
+    };
+    makeEditable(titleText, txt => {
+      const previousValue = state.titleText != null ? String(state.titleText) : '';
+      const nextValue = txt != null ? String(txt) : '';
+      if(previousValue === nextValue){
+        return;
+      }
+      applyVennTitle(nextValue);
+      recordVennTitleChange(previousValue, nextValue, applyVennTitle);
+    });
     const tooltip = state.ui.tooltip;
     const W = stageWidth;
     const H = stageHeight;
@@ -2290,9 +2355,9 @@
     if (counts.nC > 0) { xs.push(d.Cx - d.rC, d.Cx + d.rC); ys.push(d.Cy - d.rC, d.Cy + d.rC); }
     const minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
     const minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
-    const scale = Math.min((W - 2 * pad) / Math.max(1e-6, maxX - minX), (H - 2 * pad - 2 * labelPad) / Math.max(1e-6, maxY - minY));
+    const scale = Math.min((W - 2 * pad) / Math.max(1e-6, maxX - minX), (layoutHeight - 2 * labelPad) / Math.max(1e-6, maxY - minY));
     const tx = (W - scale * (minX + maxX)) / 2;
-    const ty = (H - 2 * labelPad - scale * (minY + maxY)) / 2 + labelPad;
+    const ty = layoutTop + (layoutHeight - 2 * labelPad - scale * (minY + maxY)) / 2 + labelPad;
     function toPx(x, y) { return { x: x * scale + tx, y: y * scale + ty }; }
     const circles = [{ id: 'A', x: d.Ax, y: d.Ay, r: d.rA, color: style.colorA }, { id: 'B', x: d.Bx, y: d.By, r: d.rB, color: style.colorB }];
     if (counts.nC > 0) circles.push({ id: 'C', x: d.Cx, y: d.Cy, r: d.rC, color: style.colorC });
@@ -2800,7 +2865,8 @@
         borderColor: inputs.borderColor.value,
         borderWidth: inputs.borderWidth.value,
         fontsize: inputs.fontsize.value,
-        fontStyles: exportFontStyles('venn') || undefined
+        fontStyles: exportFontStyles('venn') || undefined,
+        title: state.titleText
       }
     };
     console.debug('Debug: venn.getPayload captured state', {
@@ -2929,6 +2995,11 @@
     c.nABC.value = d.nABC || 0;
     const s = obj.style || {};
     importFontStyles('venn', s.fontStyles || null);
+    if(s.title !== undefined){
+      state.titleText = s.title != null ? String(s.title) : '';
+    }else if(state.titleText == null){
+      state.titleText = 'Venn diagram';
+    }
     inputs.colorA.value = s.colorA || inputs.colorA.value;
     inputs.colorB.value = s.colorB || inputs.colorB.value;
     inputs.colorC.value = s.colorC || inputs.colorC.value;
