@@ -72,6 +72,10 @@
   let currentScope = null;
   let currentKey = null;
   let placementMonitoringAttached = false;
+  let knownFontNames = null;
+  let appendFontOption = null;
+  let hydrateLocalFonts = null;
+  let localFontsHydrating = false;
 
   const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
   const STYLE_ATTR_MAP = {
@@ -902,6 +906,9 @@
 
   function openFontMenu(trigger, meta){
     if(!fontMenuPopup || fontMenuVisible){ return; }
+    if(typeof hydrateLocalFonts === 'function'){
+      hydrateLocalFonts(trigger || 'menu-open').catch(() => {});
+    }
     fontMenuPopup.hidden = false;
     fontMenuPopup.classList.add('font-controls-panel__combo-menu--open');
     fontMenuVisible = true;
@@ -1599,13 +1606,17 @@
     defaultOption.value = '';
     defaultOption.label = 'Match chart default';
     fontDatalist.appendChild(defaultOption);
+    const knownFontNames = new Set();
     const uniqueFonts = Array.from(new Set(DEFAULT_FONTS));
-    uniqueFonts.forEach(fontName => {
-      const option = doc.createElement('option');
-      option.value = fontName;
-      option.textContent = fontName;
-      fontDatalist.appendChild(option);
-    });
+    const normalizeFontName = (name) => {
+      if(!name){ return null; }
+      const trimmed = String(name).trim();
+      if(!trimmed){ return null; }
+      const key = trimmed.toLowerCase();
+      if(knownFontNames.has(key)){ return null; }
+      knownFontNames.add(key);
+      return trimmed;
+    };
     fontComboWrapper.appendChild(fontDatalist);
     fontMenuPopup = doc.createElement('div');
     fontMenuPopup.id = menuId;
@@ -1619,6 +1630,49 @@
     fontMenuEmptyState.textContent = 'No matching fonts';
     fontMenuEmptyState.hidden = true;
     fontMenuPopup.appendChild(fontMenuEmptyState);
+    appendFontOption = (fontName) => {
+      const normalized = normalizeFontName(fontName);
+      if(!normalized || !fontDatalist || !fontMenuPopup){ return false; }
+      const option = doc.createElement('option');
+      option.value = normalized;
+      option.textContent = normalized;
+      fontDatalist.appendChild(option);
+      const optionBtn = createFontMenuOption(normalized, normalized);
+      fontMenuPopup.insertBefore(optionBtn, fontMenuEmptyState);
+      return true;
+    };
+    uniqueFonts.forEach(fontName => appendFontOption(fontName));
+    hydrateLocalFonts = async (reason) => {
+      if(localFontsHydrating || typeof global.queryLocalFonts !== 'function'){ return; }
+      localFontsHydrating = true;
+      let localFonts = [];
+      try {
+        localFonts = await global.queryLocalFonts();
+      } catch(err){
+        logDebug('local font query failed', { reason: reason || 'init', error: err?.name || err?.message || String(err) });
+        localFontsHydrating = false;
+        return;
+      }
+      if(!Array.isArray(localFonts) || !localFonts.length){
+        logDebug('local font query empty', { reason: reason || 'init' });
+        localFontsHydrating = false;
+        return;
+      }
+      let added = 0;
+      localFonts.forEach(entry => {
+        const name = entry?.fullName || entry?.postscriptName || entry?.family || null;
+        if(name && appendFontOption(name)){
+          added += 1;
+        }
+      });
+      fontMenuEmptyState.hidden = true;
+      if(added){
+        computeComboFieldWidth();
+      }
+      localFontsHydrating = false;
+      logDebug('local font query complete', { reason: reason || 'init', discovered: localFonts.length, added, totalKnown: knownFontNames.size });
+    };
+    hydrateLocalFonts('init');
     fontField.appendChild(fontComboWrapper);
 
     const formatField = doc.createElement('div');
@@ -1721,10 +1775,6 @@
 
     const defaultMenuButton = createFontMenuOption('', 'Match chart default');
     fontMenuPopup.insertBefore(defaultMenuButton, fontMenuEmptyState);
-    uniqueFonts.forEach(fontName => {
-      const optionBtn = createFontMenuOption(fontName, fontName);
-      fontMenuPopup.insertBefore(optionBtn, fontMenuEmptyState);
-    });
     fontMenuEmptyState.hidden = true;
     highlightFontMenuSelection('');
     computeComboFieldWidth();
