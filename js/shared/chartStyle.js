@@ -7,8 +7,8 @@
   const TEXT_COLOR = '#000000';
   const BASE_BOTTOM_FACTOR = 2.4;
   const PT_TO_PX = 96 / 72;
-  const BASE_FONT_SIZE_PT = 13;
-  const BASE_FONT_SIZE_PX = Number((BASE_FONT_SIZE_PT * PT_TO_PX).toFixed(2));
+  const BASE_FONT_SIZE_PX = 17;
+  const BASE_FONT_SIZE_PT = Number((BASE_FONT_SIZE_PX / PT_TO_PX).toFixed(2));
   const MIN_DEFAULT_SIZE = 320;
   const FALLBACK_VIEWPORT_WIDTH = 960;
   const COLOR_SWATCH_SIZE = 20;
@@ -494,7 +494,8 @@
       }
     }
     const textScale = lockOverride ? 1 : resizeInfo.styleScale;
-    const scaledPx = Math.max(4, normalized.px * textScale);
+    const scaledPxRaw = normalized.px * textScale;
+    const scaledPx = Math.max(4, Math.round(scaledPxRaw));
     const scaledPt = chartStyle.pxToPt(scaledPx);
     if(inputEl && inputEl.dataset){
       inputEl.dataset.fontDisplayPt = String(scaledPt);
