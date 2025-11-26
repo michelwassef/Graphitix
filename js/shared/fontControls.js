@@ -6,6 +6,9 @@
   const DEFAULT_FONTS = [
     'Inter',
     'Segoe UI',
+    'Segoe UI Variable',
+    'Segoe UI Emoji',
+    'Segoe UI Symbol',
     'Arial',
     'Helvetica',
     'Times New Roman',
@@ -19,12 +22,207 @@
     'Verdana',
     'Tahoma',
     'Trebuchet MS',
+    'Franklin Gothic Medium',
+    'Franklin Gothic',
+    'Gill Sans',
+    'Gill Sans MT',
+    'Calibri',
+    'Candara',
+    'Corbel',
+    'Optima',
+    'Avenir',
+    'Avenir Next',
+    'Avenir Next Condensed',
+    'SF Pro Text',
+    'SF Pro Display',
+    'San Francisco',
+    'Helvetica Neue',
+    'Charter',
+    'Chicago',
     'Roboto',
+    'Noto Sans',
+    'Noto Serif',
+    'Noto Sans Display',
+    'Noto Serif Display',
+    'Noto Sans JP',
+    'Noto Sans KR',
+    'Noto Sans SC',
+    'Noto Sans TC',
+    'Noto Sans Arabic',
+    'Noto Sans Hebrew',
+    'Noto Sans Devanagari',
+    'Noto Sans Thai',
+    'Noto Sans Tamil',
+    'Noto Sans Bengali',
+    'Noto Sans Armenian',
+    'Noto Sans Georgian',
+    'Noto Sans Ethiopic',
+    'Noto Sans Symbols',
+    'Noto Emoji',
     'Open Sans',
     'Lato',
     'Montserrat',
+    'Source Sans Pro',
+    'Source Serif Pro',
+    'Source Code Pro',
+    'PT Sans',
+    'PT Serif',
+    'PT Sans Caption',
+    'PT Mono',
+    'Fira Code',
+    'Fira Mono',
+    'JetBrains Mono',
+    'Inconsolata',
+    'Menlo',
+    'Consolas',
+    'Lucida Grande',
+    'Lucida Sans',
+    'Lucida Sans Unicode',
+    'Lucida Console',
+    'Monaco',
+    'Ubuntu',
+    'Ubuntu Mono',
+    'Droid Sans',
+    'Droid Serif',
+    'Droid Sans Mono',
+    'Century Gothic',
+    'Century Schoolbook',
+    'Book Antiqua',
+    'Goudy Old Style',
+    'Baskerville',
+    'Hoefler Text',
+    'Palatino Linotype',
+    'Didot',
+    'Bodoni MT',
+    'Rockwell',
+    'Avenir Book',
     'Poppins',
+    'Mulish',
+    'Work Sans',
+    'Raleway',
+    'IBM Plex Serif',
+    'IBM Plex Mono',
+    'IBM Plex Sans Condensed',
+    'Space Grotesk',
+    'Space Mono',
+    'Manrope',
+    'Assistant',
+    'Asap',
+    'Barlow',
+    'Barlow Condensed',
+    'Barlow Semi Condensed',
+    'Cabin',
+    'Cairo',
+    'Catamaran',
+    'Chivo',
+    'Exo 2',
+    'Hind',
+    'Karla',
+    'Libre Franklin',
+    'Merriweather',
+    'Merriweather Sans',
+    'Playfair Display',
+    'Poppins SemiBold',
+    'Quicksand',
+    'Rubik',
+    'Spectral',
+    'Titillium Web',
+    'Varela Round',
     'Symbol'
+  ];
+  const CORE_FONTS = [
+    'Arial',
+    'Helvetica',
+    'Times New Roman',
+    'Georgia',
+    'Cambria',
+    'Verdana',
+    'Tahoma',
+    'Trebuchet MS',
+    'Courier New',
+    'Consolas',
+    'Segoe UI',
+    'Segoe UI Emoji',
+    'Segoe UI Symbol',
+    'Lucida Sans',
+    'Lucida Sans Unicode',
+    'Lucida Grande',
+    'Palatino',
+    'Palatino Linotype',
+    'Gill Sans',
+    'Calibri',
+    'Optima',
+    'Menlo',
+    'Monaco',
+    'Ubuntu',
+    'Ubuntu Mono',
+    'DejaVu Sans',
+    'DejaVu Serif',
+    'DejaVu Sans Mono',
+    'Symbol'
+  ];
+  const SHARED_FONTS = [
+    'Arial',
+    'Helvetica',
+    'Times New Roman',
+    'Georgia',
+    'Verdana',
+    'Tahoma',
+    'Trebuchet MS',
+    'Courier New',
+    'Symbol'
+  ];
+  const WINDOWS_FONTS = [
+    'Segoe UI',
+    'Segoe UI Emoji',
+    'Segoe UI Symbol',
+    'Calibri',
+    'Cambria',
+    'Candara',
+    'Corbel',
+    'Consolas',
+    'Franklin Gothic Medium',
+    'Gill Sans',
+    'Gill Sans MT',
+    'Book Antiqua',
+    'Century Gothic',
+    'Rockwell',
+    'Palatino Linotype',
+    'Lucida Sans',
+    'Lucida Sans Unicode',
+    'Lucida Console'
+  ];
+  const MAC_FONTS = [
+    'San Francisco',
+    'SF Pro Text',
+    'SF Pro Display',
+    'Helvetica Neue',
+    'Avenir',
+    'Avenir Next',
+    'Avenir Next Condensed',
+    'Optima',
+    'Gill Sans',
+    'Lucida Grande',
+    'Menlo',
+    'Monaco',
+    'Charter',
+    'Hoefler Text',
+    'Didot',
+    'Baskerville'
+  ];
+  const LINUX_FONTS = [
+    'Ubuntu',
+    'Ubuntu Mono',
+    'DejaVu Sans',
+    'DejaVu Serif',
+    'DejaVu Sans Mono',
+    'Droid Sans',
+    'Droid Serif',
+    'Droid Sans Mono',
+    'Noto Sans',
+    'Noto Serif',
+    'Noto Sans Symbols',
+    'Noto Emoji'
   ];
 
   const PRESET_FONT_SIZES = [
@@ -76,6 +274,141 @@
   let appendFontOption = null;
   let hydrateLocalFonts = null;
   let localFontsHydrating = false;
+  let fontAvailabilityCache = null;
+  let fontMeasureProbe = null;
+  let fontBaselineWidths = null;
+  let fontMeasureCanvas = null;
+  let fontMeasureCtx = null;
+  const isFirefox = (() => {
+    if(typeof navigator === 'undefined'){ return false; }
+    const ua = navigator.userAgent || '';
+    if(/firefox|gecko/i.test(ua)){ return true; }
+    const brands = navigator.userAgentData && Array.isArray(navigator.userAgentData.brands)
+      ? navigator.userAgentData.brands
+      : [];
+    return brands.some(entry => /firefox/i.test(entry.brand || ''));
+  })();
+  const isWindows = typeof navigator !== 'undefined' && /windows|win32|win64/i.test(navigator.userAgent || '');
+  const isMac = typeof navigator !== 'undefined' && /macintosh|mac os x|mac_powerpc|darwin/i.test(navigator.userAgent || '');
+  const isLinux = typeof navigator !== 'undefined' && /linux|x11|ubuntu|debian|fedora|redhat|suse|arch/i.test(navigator.userAgent || '');
+  const sharedFontSet = new Set(SHARED_FONTS.map(f => f.toLowerCase()));
+  const windowsFontSet = new Set(WINDOWS_FONTS.map(f => f.toLowerCase()));
+  const macFontSet = new Set(MAC_FONTS.map(f => f.toLowerCase()));
+  const linuxFontSet = new Set(LINUX_FONTS.map(f => f.toLowerCase()));
+
+  function isLikelyFontForPlatform(name){
+    if(!name){ return false; }
+    const key = String(name).trim().toLowerCase();
+    if(!key){ return false; }
+    if(!(isWindows || isMac || isLinux)){
+      return true; // Unknown platform: keep full list.
+    }
+    if(sharedFontSet.has(key)){ return true; }
+    if(isWindows && windowsFontSet.has(key)){ return true; }
+    if(isMac && macFontSet.has(key)){ return true; }
+    if(isLinux && linuxFontSet.has(key)){ return true; }
+    return false;
+  }
+
+  function ensureFontProbe(doc){
+    if(fontMeasureProbe && fontMeasureProbe.ownerDocument === doc){ return fontMeasureProbe; }
+    const probe = doc.createElement('span');
+    probe.textContent = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.style.fontSize = '32px';
+    probe.style.left = '-9999px';
+    probe.style.top = '-9999px';
+    if(doc.body){ doc.body.appendChild(probe); }
+    fontMeasureProbe = probe;
+    fontBaselineWidths = null;
+    return probe;
+  }
+
+  function measureFontWidth(family, doc){
+    const referenceDoc = doc || global.document;
+    if(!referenceDoc){ return 0; }
+    const probe = ensureFontProbe(referenceDoc);
+    probe.style.fontFamily = family;
+    const rect = probe.getBoundingClientRect();
+    return rect.width || 0;
+  }
+
+  function measureFontWidthCanvas(family){
+    if(!fontMeasureCanvas){
+      fontMeasureCanvas = global.document ? global.document.createElement('canvas') : null;
+    }
+    if(!fontMeasureCanvas){ return 0; }
+    if(!fontMeasureCtx){
+      fontMeasureCtx = fontMeasureCanvas.getContext('2d');
+    }
+    if(!fontMeasureCtx){ return 0; }
+    fontMeasureCtx.font = `32px ${family}`;
+    return fontMeasureCtx.measureText('abcdefghijklmnopqrstuvwxyz0123456789').width || 0;
+  }
+
+  function isFontAvailable(name){
+    if(!name){ return false; }
+    const key = String(name).toLowerCase();
+    if(!fontAvailabilityCache){ fontAvailabilityCache = new Map(); }
+    if(fontAvailabilityCache.has(key)){ return fontAvailabilityCache.get(key); }
+    const doc = global.document;
+    if(!doc){
+      fontAvailabilityCache.set(key, true);
+      return true;
+    }
+    if(doc.fonts && typeof doc.fonts.check === 'function'){
+      const available = doc.fonts.check(`12px "${name}"`) || doc.fonts.check(`12px ${name}`);
+      fontAvailabilityCache.set(key, available);
+      return available;
+    }
+    const probe = ensureFontProbe(doc);
+    if(!fontBaselineWidths){
+      fontBaselineWidths = {
+        serif: measureFontWidth('serif', doc),
+        sans: measureFontWidth('sans-serif', doc),
+        mono: measureFontWidth('monospace', doc)
+      };
+    }
+    const testFamilies = [`"${name}", serif`, `"${name}", sans-serif`, `"${name}", monospace`];
+    const testStrings = ['mmmmmmmmmm', 'iiiiiiiiii', 'abcdefghijklmnopqrstuvwxyz', '0123456789'];
+    let available = false;
+    testStrings.some(str => {
+      const widths = testFamilies.map(fam => {
+        probe.style.fontFamily = fam;
+        probe.textContent = str;
+        const rect = probe.getBoundingClientRect();
+        const spanWidth = rect.width || 0;
+        const canvasWidth = measureFontWidthCanvas(fam) || spanWidth;
+        return Math.max(spanWidth, canvasWidth);
+      });
+      const baseline = [
+        fontBaselineWidths.serif || 0,
+        fontBaselineWidths.sans || 0,
+        fontBaselineWidths.mono || 0
+      ];
+      const diffs = widths.map((w, idx) => Math.abs(w - baseline[idx]));
+      // Require noticeable difference from all baselines to treat as installed.
+      const allFar = diffs.every(delta => delta > 2);
+      if(allFar){
+        available = true;
+        return true;
+      }
+      return false;
+    });
+    fontAvailabilityCache.set(key, available);
+    return available;
+  }
+
+  function safeIsFontAvailable(name, options){
+    try {
+      return isFontAvailable(name);
+    } catch(err){
+      console.warn('fontControls availability check failed', { font: name, error: err?.message || err });
+      if(options && options.fallback === 'assume-available'){ return true; }
+      return false;
+    }
+  }
 
   const STYLE_KEYS = ['fontFamily', 'fontWeight', 'fontStyle', 'fontSize', 'fill', 'textDecoration', 'baselineShift'];
   const STYLE_ATTR_MAP = {
@@ -1607,7 +1940,8 @@
     defaultOption.label = 'Match chart default';
     fontDatalist.appendChild(defaultOption);
     const knownFontNames = new Set();
-    const uniqueFonts = Array.from(new Set(DEFAULT_FONTS));
+    const sourceFonts = (isFirefox ? CORE_FONTS : DEFAULT_FONTS).filter(isLikelyFontForPlatform);
+    const uniqueFonts = Array.from(new Set(sourceFonts));
     const normalizeFontName = (name) => {
       if(!name){ return null; }
       const trimmed = String(name).trim();
@@ -1630,9 +1964,17 @@
     fontMenuEmptyState.textContent = 'No matching fonts';
     fontMenuEmptyState.hidden = true;
     fontMenuPopup.appendChild(fontMenuEmptyState);
-    appendFontOption = (fontName) => {
+    appendFontOption = (fontName, opts) => {
       const normalized = normalizeFontName(fontName);
       if(!normalized || !fontDatalist || !fontMenuPopup){ return false; }
+      if(!isLikelyFontForPlatform(normalized)){
+        return false;
+      }
+      const skipAvailability = opts && opts.skipAvailability === true;
+      if(!skipAvailability && !safeIsFontAvailable(normalized, { fallback: 'assume-available' })){
+        logDebug('font skipped (unavailable)', { font: normalized });
+        return false;
+      }
       const option = doc.createElement('option');
       option.value = normalized;
       option.textContent = normalized;
@@ -1641,8 +1983,19 @@
       fontMenuPopup.insertBefore(optionBtn, fontMenuEmptyState);
       return true;
     };
-    uniqueFonts.forEach(fontName => appendFontOption(fontName));
+    let appendedCount = 0;
+    uniqueFonts.forEach(fontName => {
+      if(appendFontOption(fontName)){ appendedCount += 1; }
+    });
+    if(appendedCount === 0){
+      const fallbackFonts = CORE_FONTS.filter(isLikelyFontForPlatform);
+      fallbackFonts.forEach(fontName => appendFontOption(fontName, { skipAvailability: true }));
+    }
     hydrateLocalFonts = async (reason) => {
+      if(isFirefox){
+        logDebug('local font query skipped', { reason: reason || 'init', detail: 'firefox-fallback' });
+        return;
+      }
       if(localFontsHydrating || typeof global.queryLocalFonts !== 'function'){ return; }
       localFontsHydrating = true;
       let localFonts = [];
