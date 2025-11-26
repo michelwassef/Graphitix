@@ -147,6 +147,7 @@
   const toolbarConfigs = new Map();
   const UNDO_BUTTON_SELECTOR = 'button[data-undo-command="undo"]';
   const REDO_BUTTON_SELECTOR = 'button[data-undo-command="redo"]';
+  const IMPORT_TOOLTIP_TEXT = 'Import CSV, TSV, TXT, XLS, XLSX, ODS, or ODG files';
   const MENU_WRAPPER_SELECTOR = '.workspace-toolbar__menu';
   const MENU_TRIGGER_SELECTOR = '.workspace-toolbar__button[data-menu-id]';
   const MENU_OPEN_CLASS = 'workspace-toolbar__menu--open';
@@ -213,7 +214,8 @@
     if(config.id){ button.id = config.id; }
     const ariaLabel = config.ariaLabel || config.label || null;
     if(ariaLabel){ button.setAttribute('aria-label', ariaLabel); }
-    if(config.title){ button.title = config.title; }
+    const tooltip = config.tooltip || (config.icon === 'import' ? IMPORT_TOOLTIP_TEXT : null);
+    if(config.title || tooltip){ button.title = config.title || tooltip; }
     if(config.disabled){ button.disabled = true; }
     if(config.dataset){
       Object.keys(config.dataset).forEach(key => {
@@ -222,6 +224,9 @@
           button.dataset[key] = String(value);
         }
       });
+    }
+    if(tooltip){
+      button.dataset.tooltip = tooltip;
     }
 
     const iconWrap = doc.createElement('span');

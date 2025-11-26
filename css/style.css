@@ -1227,6 +1227,7 @@ select {
     cursor:pointer;
     box-shadow:none;
     transition:background 0.2s ease;
+    position:relative;
 }
 .workspace-toolbar__button--menu .workspace-toolbar__label::after{
     content:'\25BE';
@@ -1277,6 +1278,30 @@ select {
     font-size:12px;
     font-weight:400;
     color:#0f172a;
+}
+.workspace-toolbar__button[data-tooltip]::after{
+    content:attr(data-tooltip);
+    position:absolute;
+    bottom:calc(100% + 8px);
+    left:50%;
+    transform:translateX(-50%);
+    background:#ffffff;
+    color:#0f172a;
+    padding:5px 7px;
+    border-radius:6px;
+    border:1px solid #cbd5f5;
+    box-shadow:none;
+    font-size:11px;
+    line-height:1.4;
+    white-space:nowrap;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity 0.08s ease;
+    z-index:45;
+}
+.workspace-toolbar__button[data-tooltip]:hover::after,
+.workspace-toolbar__button[data-tooltip]:focus-visible::after{
+    opacity:1;
 }
 .workspace-toolbar__menu-list{
     position:absolute;
