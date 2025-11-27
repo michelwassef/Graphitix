@@ -1968,6 +1968,47 @@
         scatterDebug('Debug: ensureScatterLabelShapes sync complete',{count:Object.keys(scatterLabelShapes).length});
       }
 
+      function computeScatterLabelDistribution(points){
+        const summary = {
+          totalPoints: Array.isArray(points) ? points.length : 0,
+          labeledPointCount: 0,
+          labelCount: 0,
+          pureUnique: false,
+          averageFrequency: 0,
+          shouldUseUniform: false
+        };
+        if(!Array.isArray(points) || points.length === 0){
+          return summary;
+        }
+        const counts = new Map();
+        for(let i = 0; i < points.length; i += 1){
+          const rawLabel = points[i]?.label;
+          const label = rawLabel ? String(rawLabel) : '';
+          if(!label){
+            continue;
+          }
+          summary.labeledPointCount += 1;
+          counts.set(label, (counts.get(label) || 0) + 1);
+        }
+        summary.labelCount = counts.size;
+        if(summary.labelCount === 0 || summary.labeledPointCount === 0){
+          return summary;
+        }
+        summary.pureUnique = Array.from(counts.values()).every(count => count === 1);
+        const total = summary.totalPoints > 0 ? summary.totalPoints : summary.labeledPointCount;
+        summary.averageFrequency = (summary.labeledPointCount / summary.labelCount) / total;
+        summary.shouldUseUniform = summary.pureUnique || summary.averageFrequency < 0.05;
+        scatterDebug('Debug: scatter label distribution', {
+          labelCount: summary.labelCount,
+          labeledPointCount: summary.labeledPointCount,
+          totalPoints: summary.totalPoints,
+          pureUnique: summary.pureUnique,
+          averageFrequency: summary.averageFrequency,
+          shouldUseUniform: summary.shouldUseUniform
+        });
+        return summary;
+      }
+
       function createScatterMarkerElement(shape, options){
         const doc = global.document;
         if(!doc){ return null; }
@@ -2529,6 +2570,19 @@
         }else{
           significantCount=pointsInRange.reduce((acc,p)=>acc+(p.isSignificant?1:0),0);
         }
+        const labelDistribution = scatterCurrentGraphType==='scatter'
+          ? computeScatterLabelDistribution(pointsInRange)
+          : { shouldUseUniform: false, pureUnique: false, averageFrequency: 0, labelCount: 0, labeledPointCount: 0, totalPoints: pointsInRange.length };
+        const useUniformLabelStyle = scatterCurrentGraphType==='scatter' && labelDistribution.shouldUseUniform;
+        if(useUniformLabelStyle){
+          scatterDebug('Debug: scatter uniform label styling enabled', {
+            pureUnique: labelDistribution.pureUnique,
+            averageFrequency: labelDistribution.averageFrequency,
+            labelCount: labelDistribution.labelCount,
+            labeledPointCount: labelDistribution.labeledPointCount,
+            totalPoints: labelDistribution.totalPoints
+          });
+        }
         const visibleLabels = shouldCollectLabelSet
           ? Array.from(new Set(pointsInRange.map(p=>p.label).filter(Boolean)))
           : [];
@@ -2536,18 +2590,29 @@
         if(showLegend){
           const legendEntries=[];
           if(scatterCurrentGraphType==='scatter'){
-            visibleLabels.forEach((labelName, labelIndex)=>{
-              const shapeValue = sanitizeScatterLabelShape(scatterLabelShapes[labelName], labelIndex);
-              scatterLabelShapes[labelName] = shapeValue;
+            if(useUniformLabelStyle){
               legendEntries.push({
-                label:labelName,
-                fill:scatterLabelColors[labelName]||fill,
-                key:labelName,
-                editable:true,
-                shape: shapeValue,
-                labelIndex
+                label:'All points',
+                fill,
+                key:'__scatter_uniform__',
+                editable:false,
+                shape:'circle',
+                labelIndex:0
               });
-            });
+            }else{
+              visibleLabels.forEach((labelName, labelIndex)=>{
+                const shapeValue = sanitizeScatterLabelShape(scatterLabelShapes[labelName], labelIndex);
+                scatterLabelShapes[labelName] = shapeValue;
+                legendEntries.push({
+                  label:labelName,
+                  fill:scatterLabelColors[labelName]||fill,
+                  key:labelName,
+                  editable:true,
+                  shape: shapeValue,
+                  labelIndex
+                });
+              });
+            }
           }else if(significanceLegendNeeded){
             legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
             legendEntries.push({label:'Not significant',fill});
@@ -2841,8 +2906,8 @@
               index: idx,
               projected,
               label: pt.label,
-              color: scatterLabelColors[pt.label] || fill,
-              shape: labelShapeLookup.get(pt.label) || 'circle',
+              color: useUniformLabelStyle ? fill : (scatterLabelColors[pt.label] || fill),
+              shape: useUniformLabelStyle ? 'circle' : (labelShapeLookup.get(pt.label) || 'circle'),
               data: pt
             };
           }).sort((a, b) => (a.projected.depth || 0) - (b.projected.depth || 0));
@@ -3245,10 +3310,10 @@
           const cxVal=x2px(xv);
           const cyVal=y2px(yv);
           const color=scatterCurrentGraphType==='scatter'
-            ? (scatterLabelColors[p.label]||fill)
+            ? (useUniformLabelStyle ? fill : (scatterLabelColors[p.label]||fill))
             : (p.isSignificant?SIGNIFICANT_COLOR:fill);
           const markerShape = isBubbleView ? 'circle' : (scatterCurrentGraphType==='scatter'
-            ? (labelShapeLookup.get(p.label) || 'circle')
+            ? (useUniformLabelStyle ? 'circle' : (labelShapeLookup.get(p.label) || 'circle'))
             : 'circle');
           const markerRadius = isBubbleView && resolveBubbleRadius
             ? resolveBubbleRadius(p)
