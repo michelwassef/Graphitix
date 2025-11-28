@@ -3676,7 +3676,8 @@
           pointIndex++;
           if(pointIndex >= nextPointProgress){info('scatter svg draw progress',{pointIndex,token});nextPointProgress += pointProgressInterval;}
         }
-        add('g',{}).appendChild(frag);
+        const pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
+        pointLayer.appendChild(frag);
         if(labelAnnotations.length){
           const annotationLayer=document.createElementNS(NS,'g');
           labelAnnotations.forEach(node=>annotationLayer.appendChild(node));
@@ -4434,7 +4435,19 @@
           container: '#scatterExportControls',
           svgSelector: '#scatterSvg',
           fileName: 'scatter',
-          contextLabel: 'scatter-export'
+          contextLabel: 'scatter-export',
+          hybridOptions: {
+            label: 'SVG (points as PNG)',
+            fileNameSuffix: '-light',
+            rasterScale: 2,
+            layers: [
+              {
+                selector: '[data-export-layer="scatter-points"]',
+                label: 'scatter-points',
+                padding: 2
+              }
+            ]
+          }
         });
         console.debug('Debug: scatter export controls mounted', { hasExporter: true }); // Debug: scatter export mount
       }else{

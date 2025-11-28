@@ -2353,6 +2353,214 @@
     return { width, height };
   }
 
+  function blobToDataUrl(blob) {
+    const Reader = global.FileReader || (typeof FileReader !== 'undefined' ? FileReader : null);
+    if (!Reader) {
+      warn('blobToDataUrl missing FileReader', {});
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve, reject) => {
+      const reader = new Reader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = err => reject(err);
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function computeCombinedBBox(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return null;
+    let bounds = null;
+    nodes.forEach(node => {
+      let box = null;
+      try {
+        box = typeof node?.getBBox === 'function' ? node.getBBox() : null;
+      } catch (err) {
+        debugLog('combineBBox getBBox error', { error: err?.message });
+      }
+      if (!box || !Number.isFinite(box.x) || !Number.isFinite(box.y) || !Number.isFinite(box.width) || !Number.isFinite(box.height)) {
+        return;
+      }
+      if (!bounds) {
+        bounds = { x: box.x, y: box.y, width: box.width, height: box.height };
+        return;
+      }
+      const minX = Math.min(bounds.x, box.x);
+      const minY = Math.min(bounds.y, box.y);
+      const maxX = Math.max(bounds.x + bounds.width, box.x + box.width);
+      const maxY = Math.max(bounds.y + bounds.height, box.y + box.height);
+      bounds = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    });
+    return bounds;
+  }
+
+  function inflateBox(box, padding = 0) {
+    const pad = Number.isFinite(padding) ? Math.max(0, padding) : 0;
+    const width = Math.max(1, (box?.width ?? 0) + pad * 2);
+    const height = Math.max(1, (box?.height ?? 0) + pad * 2);
+    return {
+      x: (box?.x ?? 0) - pad,
+      y: (box?.y ?? 0) - pad,
+      width,
+      height
+    };
+  }
+
+  function collectDefs(svgEl) {
+    if (!svgEl || typeof svgEl.querySelectorAll !== 'function') return [];
+    const defs = svgEl.querySelectorAll('defs');
+    return Array.from(defs || []);
+  }
+
+  async function buildHybridSvg(svgEl, options = {}) {
+    if (!svgEl) {
+      logDebug('buildHybridSvg skipped', { contextLabel: options.contextLabel, reason: 'no element' });
+      return null;
+    }
+    const layers = Array.isArray(options.layers) ? options.layers : [];
+    if (!layers.length) {
+      logDebug('buildHybridSvg skipped', { contextLabel: options.contextLabel, reason: 'no layers' });
+      return null;
+    }
+    const baseDoc = svgEl.ownerDocument || doc;
+    const NS = 'http://www.w3.org/2000/svg';
+    const defsTemplates = collectDefs(svgEl);
+    const paddingDefault = Number.isFinite(options.padding) ? Math.max(0, options.padding) : 0;
+    const scaleDefault = Number.isFinite(options.rasterScale) && options.rasterScale > 0 ? options.rasterScale : 1;
+    const hybridSvg = typeof svgEl.cloneNode === 'function' ? svgEl.cloneNode(true) : null;
+    if (!hybridSvg) {
+      warn('buildHybridSvg clone failed', { contextLabel: options.contextLabel });
+      return null;
+    }
+    const layerSummaries = [];
+    for (const layer of layers) {
+      const selector = typeof layer?.selector === 'string' ? layer.selector : '';
+      if (!selector) {
+        warn('buildHybridSvg layer missing selector', { contextLabel: options.contextLabel });
+        continue;
+      }
+      let targets = [];
+      try {
+        targets = Array.from(svgEl.querySelectorAll(selector));
+      } catch (err) {
+        warn('buildHybridSvg selector error', { contextLabel: options.contextLabel, selector, error: err?.message });
+        continue;
+      }
+      if (!targets.length) {
+        debugLog('buildHybridSvg layer empty', { contextLabel: options.contextLabel, selector });
+        continue;
+      }
+      const bbox = computeCombinedBBox(targets);
+      if (!bbox || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height) || bbox.width <= 0 || bbox.height <= 0) {
+        warn('buildHybridSvg invalid bbox', { contextLabel: options.contextLabel, selector });
+        continue;
+      }
+      const padding = Number.isFinite(layer.padding) ? Math.max(0, layer.padding) : paddingDefault;
+      const scale = Number.isFinite(layer.scale) && layer.scale > 0 ? layer.scale : scaleDefault;
+      const padded = inflateBox(bbox, padding);
+      const rasterSvg = baseDoc?.createElementNS ? baseDoc.createElementNS(NS, 'svg') : null;
+      if (!rasterSvg) {
+        warn('buildHybridSvg raster svg unavailable', { contextLabel: options.contextLabel });
+        break;
+      }
+      rasterSvg.setAttribute('xmlns', NS);
+      rasterSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+      rasterSvg.setAttribute('viewBox', `${padded.x} ${padded.y} ${padded.width} ${padded.height}`);
+      rasterSvg.setAttribute('width', String(Math.max(1, padded.width * scale)));
+      rasterSvg.setAttribute('height', String(Math.max(1, padded.height * scale)));
+      defsTemplates.forEach(def => {
+        try {
+          rasterSvg.appendChild(def.cloneNode(true));
+        } catch (err) {
+          debugLog('buildHybridSvg defs clone error', { error: err?.message });
+        }
+      });
+      const layerGroup = baseDoc.createElementNS(NS, 'g');
+      const label = layer?.label || selector;
+      layerGroup.setAttribute('data-export-raster-source', label);
+      targets.forEach(node => {
+        try {
+          layerGroup.appendChild(node.cloneNode(true));
+        } catch (err) {
+          debugLog('buildHybridSvg node clone error', { error: err?.message });
+        }
+      });
+      rasterSvg.appendChild(layerGroup);
+      const pngBlob = await svgElementToPngBlob(rasterSvg, {
+        fallbackWidth: padded.width * scale,
+        fallbackHeight: padded.height * scale,
+        contextLabel: `${options.contextLabel || 'hybrid-svg'}-${label}`,
+        dpi: options.dpi,
+        dpiX: options.dpiX,
+        dpiY: options.dpiY
+      });
+      if (!pngBlob) {
+        warn('buildHybridSvg raster blob missing', { contextLabel: options.contextLabel, label });
+        continue;
+      }
+      const dataUrl = await blobToDataUrl(pngBlob).catch(err => {
+        warn('buildHybridSvg dataurl error', { contextLabel: options.contextLabel, error: err?.message });
+        return null;
+      });
+      if (!dataUrl) {
+        continue;
+      }
+      const imageNode = baseDoc.createElementNS(NS, 'image');
+      imageNode.setAttribute('x', String(padded.x));
+      imageNode.setAttribute('y', String(padded.y));
+      imageNode.setAttribute('width', String(padded.width));
+      imageNode.setAttribute('height', String(padded.height));
+      imageNode.setAttribute('preserveAspectRatio', 'none');
+      imageNode.setAttribute('data-export-raster', label);
+      imageNode.setAttributeNS('http://www.w3.org/1999/xlink', 'href', dataUrl);
+      imageNode.setAttribute('href', dataUrl);
+      const cloneTargets = Array.from(hybridSvg.querySelectorAll(selector));
+      const parent = cloneTargets[0]?.parentNode || hybridSvg;
+      parent.insertBefore(imageNode, cloneTargets[0] || null);
+      cloneTargets.forEach(node => {
+        if (node?.parentNode) {
+          node.parentNode.removeChild(node);
+        }
+      });
+      layerSummaries.push({
+        label,
+        selector,
+        nodeCount: targets.length,
+        bbox,
+        paddedBBox: padded,
+        scale,
+        pngBytes: pngBlob.size
+      });
+    }
+    if (!layerSummaries.length) {
+      warn('buildHybridSvg no layers rasterized', { contextLabel: options.contextLabel });
+      return null;
+    }
+    debugLog('buildHybridSvg complete', { contextLabel: options.contextLabel, layers: layerSummaries });
+    return { svg: hybridSvg, layers: layerSummaries };
+  }
+
+  async function buildHybridSvgExportPayload(svgEl, options = {}) {
+    const hybrid = await buildHybridSvg(svgEl, options);
+    if (!hybrid?.svg) {
+      return null;
+    }
+    const contextLabel = options.contextLabel || 'hybrid-svg';
+    const baseName = options.fileName || `${options.baseFileName || 'chart'}${options.fileNameSuffix || '-hybrid'}`;
+    const xml = svgToXml(hybrid.svg, `${contextLabel}-xml`);
+    if (!xml) {
+      return null;
+    }
+    const payload = buildSvgExportPayload(xml, {
+      fileName: baseName,
+      contextLabel: `${contextLabel}-payload`,
+      includeHtmlPreview: options.includeHtmlPreview !== false
+    });
+    if (payload) {
+      payload.layers = hybrid.layers;
+    }
+    return payload;
+  }
+
   function getSerializeFn() {
     if (typeof Shared.serializeCleanSVG === 'function') {
       return Shared.serializeCleanSVG;
@@ -3053,7 +3261,20 @@
   }
 
   function createSvgActions(config) {
-    const { getSvg, fileName = 'chart', contextLabel = 'svg-export', fallbackWidth, fallbackHeight, dpi, dpiX, dpiY } = config;
+    const {
+      getSvg,
+      fileName = 'chart',
+      contextLabel = 'svg-export',
+      fallbackWidth,
+      fallbackHeight,
+      dpi,
+      dpiX,
+      dpiY,
+      hybridOptions
+    } = config;
+    const hybridConfig = hybridOptions && Array.isArray(hybridOptions.layers) && hybridOptions.layers.length
+      ? hybridOptions
+      : null;
     const resolveSvg = () => {
       try {
         return typeof getSvg === 'function' ? getSvg() : null;
@@ -3109,6 +3330,25 @@
             warn('svgActions svg copy unavailable', { contextLabel: `${contextLabel}-svg` });
           }
         }
+      } else if (format === 'svg-hybrid') {
+        if (!hybridConfig) {
+          warn('svgActions hybrid missing config', { contextLabel });
+          return;
+        }
+        if (mode !== 'download') {
+          warn('svgActions hybrid copy unsupported', { contextLabel });
+          return;
+        }
+        const payload = await buildHybridSvgExportPayload(svgEl, {
+          ...hybridConfig,
+          baseFileName: hybridConfig.baseFileName || fileName,
+          contextLabel: `${contextLabel}-hybrid`
+        });
+        if (!payload) {
+          warn('svgActions hybrid payload missing', { contextLabel });
+          return handle(mode, 'svg');
+        }
+        downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-hybrid`);
       } else if (format === 'emf') {
         const blob = await svgElementToEmfBlob(svgEl, {
           contextLabel: `${contextLabel}-emf`,
@@ -3141,6 +3381,7 @@
         formats: [
           { key: 'png', label: 'PNG', handler: () => handle('download', 'png') },
           { key: 'svg', label: 'SVG', handler: () => handle('download', 'svg') },
+          ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridConfig.label || 'SVG (rasterized)', handler: () => handle('download', 'svg-hybrid') }] : []),
           { key: 'emf', label: 'EMF', handler: () => handle('download', 'emf') }
         ]
       },
@@ -3437,7 +3678,8 @@
       fallbackHeight: config.fallbackHeight,
       dpi: config.dpi,
       dpiX: config.dpiX,
-      dpiY: config.dpiY
+      dpiY: config.dpiY,
+      hybridOptions: config.hybridOptions
     });
     mountControls({ container: config.container, actions, contextLabel: config.contextLabel || config.fileName || 'svg-export' });
   };
@@ -3476,6 +3718,8 @@
   exporter.canvasToEmfBlob = canvasToEmfBlob;
   exporter.downloadBlob = downloadBlob;
   exporter.copyBlobMap = copyBlobMap;
+  exporter.buildHybridSvg = buildHybridSvg;
+  exporter.buildHybridSvgExportPayload = buildHybridSvgExportPayload;
 
   logDebug('module ready', {
     hasClipboardWrite: !!(global.navigator?.clipboard?.write),
