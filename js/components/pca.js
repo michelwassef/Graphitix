@@ -140,6 +140,9 @@
   let pcaRenderRowEl = null;
   let pcaRenderButtonEl = null;
   let pcaAutoDrawNoticeEl = null;
+  let pcaNoticeBoundWidth = null;
+  let syncPcaAutoDrawNoticeWidth = () => {};
+  let schedulePcaNoticeWidth = () => {};
   let pcaHotInstance = null;
   function createPcaTableInstance(container){
     if(!container || typeof Shared.hot?.createStandardTable !== 'function'){
@@ -1128,9 +1131,6 @@
         if(pcaState.drawPending){
           text += ' Changes are waiting to be rendered.';
         }
-        if(pcaState.fastPointMode){
-          text += ' Fast rendering mode is active; point tooltips are disabled to improve performance.';
-        }
       }else if(!hidden && pendingWhileAuto){
         hidden = false;
         text = 'Changes are waiting to be rendered. Use Update Plot to redraw immediately.';
@@ -1141,6 +1141,7 @@
       if(pcaAutoDrawNoticeEl.hidden !== hidden){
         pcaAutoDrawNoticeEl.hidden = hidden;
       }
+      schedulePcaNoticeWidth('ui-update');
     }
   }
   function updatePcaDataShape(shape){
@@ -1796,6 +1797,41 @@
       if(pcaAutoDrawNoticeEl && !pcaAutoDrawNoticeEl.getAttribute('aria-live')){
         pcaAutoDrawNoticeEl.setAttribute('aria-live', 'polite');
       }
+      syncPcaAutoDrawNoticeWidth = (reason) => {
+        const svgBox = pcaSvgBox || pcaGraphPanel?.querySelector?.('.svgbox');
+        const renderRow = pcaRenderRowEl || document.getElementById('pcaRenderRow');
+        if(!svgBox || !renderRow){
+          return;
+        }
+        const rect = svgBox.getBoundingClientRect?.();
+        const width = Math.round(rect?.width || svgBox.clientWidth || svgBox.offsetWidth || 0);
+        if(!width){
+          return;
+        }
+        const widthPx = `${width}px`;
+        if(renderRow.style.maxWidth !== widthPx){
+          renderRow.style.maxWidth = widthPx;
+          renderRow.style.width = '100%';
+        }
+        if(pcaAutoDrawNoticeEl && pcaAutoDrawNoticeEl.style.maxWidth !== widthPx){
+          pcaAutoDrawNoticeEl.style.maxWidth = widthPx;
+        }
+        if(pcaNoticeBoundWidth !== width){
+          pcaNoticeBoundWidth = width;
+          debugLog('Debug: pca auto draw notice width synced', { width, reason: reason || null });
+        }
+      };
+      schedulePcaNoticeWidth = (() => {
+        if(typeof Shared.debounceFrame === 'function'){
+          let lastReason = 'frame';
+          const debounced = Shared.debounceFrame(() => syncPcaAutoDrawNoticeWidth(lastReason));
+          return reason => {
+            lastReason = reason || 'frame';
+            debounced();
+          };
+        }
+        return reason => syncPcaAutoDrawNoticeWidth(reason || 'immediate');
+      })();
       const pcaLayout = Shared.componentLayout?.createStandardPanels({
         componentName: 'pca',
         selectors: {
@@ -1805,12 +1841,14 @@
           hotWrapper: '#pcaHotWrapper',
           hotContainer: '#pcaHot',
           svgBox: () => pcaGraphPanel?.querySelector('.svgbox'),
-          resizeTarget: () => pcaGraphPanel?.querySelector('.svgbox')
-        },
+        resizeTarget: () => pcaGraphPanel?.querySelector('.svgbox')
+      },
         scheduleDraw: () => scheduleDrawPca(),
+        onAfterSync: () => syncPcaAutoDrawNoticeWidth('panel-sync'),
         resizableBoxOptions: {
           onResize: () => {
             debugLog('Debug: pca layout onResize schedule trigger');
+            schedulePcaNoticeWidth('resize');
             evaluateAutoDrawThresholds();
             requestPcaViewRefresh('resize');
           }
@@ -1831,6 +1869,7 @@
       }
       pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
       pcaLayout?.syncPanels?.();
+      syncPcaAutoDrawNoticeWidth('init');
       debugLog('Debug: pca initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
       ensurePcaHotForActiveTab();
       ensurePcaHotForActiveTab();
@@ -4947,6 +4986,7 @@
         debugLog('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisRanges });
         ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'pca-3d-graph' });
         pcaLayout?.syncPanels?.({ skipSchedule: true });
+        syncPcaAutoDrawNoticeWidth('draw');
         return;
       }
 
@@ -5525,6 +5565,7 @@
       });
       ensureGraphViewport(svg, { padding: Math.max(fs, 18), debugLabel: 'pca-2d-graph' });
       pcaLayout?.syncPanels?.({ skipSchedule: true });
+      syncPcaAutoDrawNoticeWidth('draw');
     } finally {
       const totalEnd = nowMs();
       const fastModeChanged = pcaState.fastPointMode !== fastPointModeActive;

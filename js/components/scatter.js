@@ -694,6 +694,42 @@
       scatterRenderRowEl=document.getElementById('scatterRenderRow');
       scatterRenderButtonEl=document.getElementById('scatterRenderButton');
       scatterAutoDrawNoticeEl=document.getElementById('scatterAutoDrawNotice');
+      let scatterNoticeBoundWidth=null;
+      const syncScatterAutoDrawNoticeWidth=(reason)=>{
+        const svgBox=scatterSvgBox||scatterGraphPanel?.querySelector?.('.svgbox');
+        const renderRow=scatterRenderRowEl||document.getElementById('scatterRenderRow');
+        if(!svgBox||!renderRow){
+          return;
+        }
+        const rect=svgBox.getBoundingClientRect?.();
+        const width=Math.round(rect?.width||svgBox.clientWidth||svgBox.offsetWidth||0);
+        if(!width){
+          return;
+        }
+        const widthPx=`${width}px`;
+        if(renderRow.style.maxWidth!==widthPx){
+          renderRow.style.maxWidth=widthPx;
+          renderRow.style.width='100%';
+        }
+        if(scatterAutoDrawNoticeEl&&scatterAutoDrawNoticeEl.style.maxWidth!==widthPx){
+          scatterAutoDrawNoticeEl.style.maxWidth=widthPx;
+        }
+        if(scatterNoticeBoundWidth!==width){
+          scatterNoticeBoundWidth=width;
+          scatterDebug('Debug: scatter auto draw notice width synced',{ width, reason: reason || null });
+        }
+      };
+      const scheduleScatterNoticeWidth=(()=>{
+        if(typeof Shared.debounceFrame==='function'){
+          let lastReason='frame';
+          const debounced=Shared.debounceFrame(()=>syncScatterAutoDrawNoticeWidth(lastReason));
+          return reason=>{
+            lastReason=reason||'frame';
+            debounced();
+          };
+        }
+        return reason=>syncScatterAutoDrawNoticeWidth(reason||'immediate');
+      })();
       if(scatterRenderButtonEl){
         scatterRenderButtonEl.addEventListener('click', () => {
           scatterDebug('Debug: scatter manual render button');
@@ -766,9 +802,11 @@
           resizeTarget: () => scatterGraphPanel?.querySelector('.svgbox')
         },
         scheduleDraw: () => scheduleDrawScatter(),
+        onAfterSync: () => syncScatterAutoDrawNoticeWidth('panel-sync'),
         resizableBoxOptions: {
           onResize: () => {
             console.debug('Debug: scatter layout onResize schedule trigger');
+            scheduleScatterNoticeWidth('resize');
             scheduleDrawScatter();
           }
         }
@@ -778,6 +816,7 @@
       }
       scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
       scatterLayout?.syncPanels?.();
+      syncScatterAutoDrawNoticeWidth('init');
       if(scatterLegendControl){
         ensureScatterLegendTrayPlacement();
         const scheduleLegendPlacement=typeof Shared.debounceFrame==='function'
@@ -798,6 +837,7 @@
               scatterSvgBox=scatterLayout.elements.svgBox;
             }
             ensureScatterLegendTrayPlacement();
+            scheduleScatterNoticeWidth('update-svgbox');
           };
         }
       }
@@ -3701,6 +3741,7 @@
         }
         ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'scatter-graph' });
         scatterLayout?.syncPanels?.({ skipSchedule: true });
+        syncScatterAutoDrawNoticeWidth('draw');
         info('scatter render complete with enhanced styles');
       }
       scheduleDrawScatterRaw = Shared.debounceFrame ? Shared.debounceFrame(drawScatter) : drawScatter;
@@ -3714,6 +3755,7 @@
         scheduleDrawScatter = (opts) => scatterAutoDrawManager.schedule(opts);
         scatterAutoDrawManager.updateUi();
         scatterAutoDrawManager.evaluateThresholds();
+        syncScatterAutoDrawNoticeWidth('auto-draw-init');
       }else{
         scheduleDrawScatter = scheduleDrawScatterRaw;
       }

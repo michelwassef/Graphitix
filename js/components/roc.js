@@ -172,6 +172,43 @@
 
   const refs = {};
   let rocLegendControl = null;
+  let rocNoticeBoundWidth = null;
+
+  const syncRocAutoDrawNoticeWidth = (reason) => {
+    const svgBox = refs.svgBox || refs.graphPanel?.querySelector?.('.svgbox');
+    const renderRow = refs.renderRow || document.getElementById('rocRenderRow');
+    if(!svgBox || !renderRow){
+      return;
+    }
+    const rect = svgBox.getBoundingClientRect?.();
+    const width = Math.round(rect?.width || svgBox.clientWidth || svgBox.offsetWidth || 0);
+    if(!width){
+      return;
+    }
+    const widthPx = `${width}px`;
+    if(renderRow.style.maxWidth !== widthPx){
+      renderRow.style.maxWidth = widthPx;
+      renderRow.style.width = '100%';
+    }
+    if(refs.autoDrawNotice && refs.autoDrawNotice.style.maxWidth !== widthPx){
+      refs.autoDrawNotice.style.maxWidth = widthPx;
+    }
+    if(rocNoticeBoundWidth !== width){
+      rocNoticeBoundWidth = width;
+      console.debug('Debug: roc auto draw notice width synced', { width, reason: reason || null });
+    }
+  };
+  const scheduleRocNoticeWidth = (() => {
+    if(typeof Shared.debounceFrame === 'function'){
+      let lastReason = 'frame';
+      const debounced = Shared.debounceFrame(() => syncRocAutoDrawNoticeWidth(lastReason));
+      return reason => {
+        lastReason = reason || 'frame';
+        debounced();
+      };
+    }
+    return reason => syncRocAutoDrawNoticeWidth(reason || 'immediate');
+  })();
 
   function ensureRocLegendControlPlacement(){
     if(!rocLegendControl || !refs.svgBox){
@@ -1734,6 +1771,7 @@
     }
     ensureGraphViewport(svg, { padding: Math.max(fontSize, 16), debugLabel: 'roc-graph' });
     state.layout?.syncPanels?.({ skipSchedule: true });
+    syncRocAutoDrawNoticeWidth('draw');
   }
 
   function getPayload(){
@@ -2008,6 +2046,7 @@
       state.scheduleDraw = (opts) => rocAutoDrawManager.schedule(opts);
       rocAutoDrawManager.updateUi();
       rocAutoDrawManager.evaluateThresholds();
+      syncRocAutoDrawNoticeWidth('auto-draw-init');
     }else{
       state.scheduleDraw = scheduleDrawRocRaw;
     }
@@ -2024,6 +2063,10 @@
         resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
       },
       scheduleDraw: state.scheduleDraw,
+      onAfterSync: () => {
+        syncRocAutoDrawNoticeWidth('panel-sync');
+        ensureRocLegendControlPlacement();
+      },
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: roc layout min width update', { value: state.minSvgWidth });
@@ -2032,6 +2075,7 @@
         onResize: () => {
           console.debug('Debug: roc layout onResize schedule trigger');
           ensureRocLegendControlPlacement();
+          scheduleRocNoticeWidth('resize');
           state.scheduleDraw?.();
         }
       }
@@ -2050,6 +2094,7 @@
     }
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();
+    scheduleRocNoticeWidth('init');
     ensureHotForActiveTab();
     initControls();
     initExampleAndImport();

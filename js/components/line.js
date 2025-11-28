@@ -427,6 +427,43 @@
 
   const refs = {};
   let lineTooltipEl = null;
+  let lineNoticeBoundWidth = null;
+
+  const syncLineAutoDrawNoticeWidth = (reason) => {
+    const svgBox = refs.svgBox || refs.graphPanel?.querySelector?.('.svgbox');
+    const renderRow = refs.renderRow || global.document?.getElementById?.('lineRenderRow');
+    if(!svgBox || !renderRow){
+      return;
+    }
+    const rect = svgBox.getBoundingClientRect?.();
+    const width = Math.round(rect?.width || svgBox.clientWidth || svgBox.offsetWidth || 0);
+    if(!width){
+      return;
+    }
+    const widthPx = `${width}px`;
+    if(renderRow.style.maxWidth !== widthPx){
+      renderRow.style.maxWidth = widthPx;
+      renderRow.style.width = '100%';
+    }
+    if(refs.autoDrawNotice && refs.autoDrawNotice.style.maxWidth !== widthPx){
+      refs.autoDrawNotice.style.maxWidth = widthPx;
+    }
+    if(lineNoticeBoundWidth !== width){
+      lineNoticeBoundWidth = width;
+      lineDebug('Debug: line auto draw notice width synced', { width, reason: reason || null });
+    }
+  };
+  const scheduleLineNoticeWidth = (() => {
+    if(typeof Shared.debounceFrame === 'function'){
+      let lastReason = 'frame';
+      const debounced = Shared.debounceFrame(() => syncLineAutoDrawNoticeWidth(lastReason));
+      return reason => {
+        lastReason = reason || 'frame';
+        debounced();
+      };
+    }
+    return reason => syncLineAutoDrawNoticeWidth(reason || 'immediate');
+  })();
 
   function lineDebug(label, payload){
     try{
@@ -3555,6 +3592,7 @@
       updateLineStats(seriesWithData, statsContext);
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
+      scheduleLineNoticeWidth('draw');
       console.debug('Debug: drawLine complete',{debugStamp}); // Debug: draw exit
     }catch(err){ console.error('drawLine error',err); }
   }
@@ -3933,6 +3971,7 @@
         resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
       },
       scheduleDraw: scheduleLineDraw,
+      onAfterSync: () => syncLineAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         lineMinSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: line layout min width update', { value: lineMinSvgWidth });
@@ -3940,6 +3979,7 @@
       resizableBoxOptions: {
         onResize: () => {
           console.debug('Debug: line layout onResize schedule trigger');
+          scheduleLineNoticeWidth('resize');
           scheduleLineDraw();
         }
       }
@@ -3949,6 +3989,7 @@
     }
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
     lineLayout?.syncPanels?.();
+    scheduleLineNoticeWidth('init');
     ensureLineLegendControlPlacement();
     const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
       ? Shared.debounceFrame(()=>ensureLineLegendControlPlacement())
@@ -4319,6 +4360,7 @@
       scheduleLineDraw = (opts) => lineAutoDrawManager.schedule(opts);
       lineAutoDrawManager.updateUi();
       lineAutoDrawManager.evaluateThresholds();
+      syncLineAutoDrawNoticeWidth('auto-draw-init');
     }else{
       scheduleLineDraw = scheduleLineDrawRaw;
     }

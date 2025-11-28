@@ -1861,6 +1861,43 @@
   }
   const els = {};
   let boxLegendControl = null;
+  let boxNoticeBoundWidth = null;
+
+  const syncBoxAutoDrawNoticeWidth = (reason) => {
+    const svgBox = els.svgBox || els.graphPanel?.querySelector?.('.svgbox');
+    const renderRow = els.renderRow || global.document?.getElementById?.('boxRenderRow');
+    if(!svgBox || !renderRow){
+      return;
+    }
+    const rect = svgBox.getBoundingClientRect?.();
+    const width = Math.round(rect?.width || svgBox.clientWidth || svgBox.offsetWidth || 0);
+    if(!width){
+      return;
+    }
+    const widthPx = `${width}px`;
+    if(renderRow.style.maxWidth !== widthPx){
+      renderRow.style.maxWidth = widthPx;
+      renderRow.style.width = '100%';
+    }
+    if(els.autoDrawNotice && els.autoDrawNotice.style.maxWidth !== widthPx){
+      els.autoDrawNotice.style.maxWidth = widthPx;
+    }
+    if(boxNoticeBoundWidth !== width){
+      boxNoticeBoundWidth = width;
+      boxDebug('Debug: box auto draw notice width synced', { width, reason: reason || null });
+    }
+  };
+  const scheduleBoxNoticeWidth = (() => {
+    if(typeof Shared.debounceFrame === 'function'){
+      let lastReason = 'frame';
+      const debounced = Shared.debounceFrame(() => syncBoxAutoDrawNoticeWidth(lastReason));
+      return reason => {
+        lastReason = reason || 'frame';
+        debounced();
+      };
+    }
+    return reason => syncBoxAutoDrawNoticeWidth(reason || 'immediate');
+  })();
 
   function ensureBoxLegendControlPlacement(){
     if(!boxLegendControl || !els.svgBox){
@@ -8001,6 +8038,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const orientationResult = isFlipped ? renderHorizontal() : renderVertical();
     if(!orientationResult){
       ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
+      state.layout?.syncPanels?.({ skipSchedule: true });
+      syncBoxAutoDrawNoticeWidth('draw');
       return;
     }
     if(token !== state.drawToken){
@@ -8052,6 +8091,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       titleText.setAttribute('y', newY);
     }
     ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
+    state.layout?.syncPanels?.({ skipSchedule: true });
+    syncBoxAutoDrawNoticeWidth('draw');
     console.log('boxplot render complete');
   }
   // PART: SAVE_OPEN
@@ -8562,9 +8603,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         resizeTarget: () => els.plotDiv?.closest('.svgbox') || els.graphPanel?.querySelector('.svgbox')
       },
       scheduleDraw: state.scheduleDraw,
+      onAfterSync: () => syncBoxAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: box layout min width update', { value: state.minSvgWidth });
+      },
+      resizableBoxOptions: {
+        onResize: () => {
+          boxDebug('Debug: box layout onResize schedule trigger');
+          scheduleBoxNoticeWidth('resize');
+        }
       }
     });
     if(state.layout?.elements?.svgBox){
@@ -8572,6 +8620,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     state.layout?.setScheduleDraw?.(state.scheduleDraw);
     state.layout?.syncPanels?.();
+    syncBoxAutoDrawNoticeWidth('init');
     ensureBoxLegendControlPlacement();
     const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
       ? Shared.debounceFrame(()=>ensureBoxLegendControlPlacement())
@@ -8594,6 +8643,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       state.scheduleDraw = (opts) => boxAutoDrawManager.schedule(opts);
       boxAutoDrawManager.updateUi();
       boxAutoDrawManager.evaluateThresholds();
+      syncBoxAutoDrawNoticeWidth('auto-draw-init');
     }else{
       state.scheduleDraw = scheduleDrawBoxRaw;
     }

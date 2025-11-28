@@ -163,6 +163,42 @@
       showCdf: null
     }
   };
+  let histNoticeBoundWidth = null;
+  const syncHistAutoDrawNoticeWidth = (reason) => {
+    const svgBox = state.svgBox || state.layout?.elements?.svgBox || document.querySelector('#histGraphPanel .svgbox');
+    const renderRow = histRenderRowEl || document.getElementById('histRenderRow');
+    if(!svgBox || !renderRow){
+      return;
+    }
+    const rect = svgBox.getBoundingClientRect?.();
+    const width = Math.round(rect?.width || svgBox.clientWidth || svgBox.offsetWidth || 0);
+    if(!width){
+      return;
+    }
+    const widthPx = `${width}px`;
+    if(renderRow.style.maxWidth !== widthPx){
+      renderRow.style.maxWidth = widthPx;
+      renderRow.style.width = '100%';
+    }
+    if(histAutoDrawNoticeEl && histAutoDrawNoticeEl.style.maxWidth !== widthPx){
+      histAutoDrawNoticeEl.style.maxWidth = widthPx;
+    }
+    if(histNoticeBoundWidth !== width){
+      histNoticeBoundWidth = width;
+      console.debug('Debug: hist auto draw notice width synced', { width, reason: reason || null });
+    }
+  };
+  const scheduleHistNoticeWidth = (() => {
+    if(typeof Shared.debounceFrame === 'function'){
+      let lastReason = 'frame';
+      const debounced = Shared.debounceFrame(() => syncHistAutoDrawNoticeWidth(lastReason));
+      return reason => {
+        lastReason = reason || 'frame';
+        debounced();
+      };
+    }
+    return reason => syncHistAutoDrawNoticeWidth(reason || 'immediate');
+  })();
   const histUndoManager = Shared.undoManager || null;
   function recordHistChange(label, previous, next, apply){
     if(!histUndoManager || typeof histUndoManager.recordStateChange !== 'function'){
@@ -1398,6 +1434,8 @@
       });
     }
     ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'hist-graph' });
+    state.layout?.syncPanels?.({ skipSchedule: true });
+    syncHistAutoDrawNoticeWidth('draw');
     // Update stats panel
     const distributionSummaries = [];
     if(distributionFits.length){
@@ -1443,9 +1481,16 @@
         resizeTarget: () => document.querySelector('#histGraphPanel .svgbox')
       },
       scheduleDraw: state.scheduleDraw,
+      onAfterSync: () => syncHistAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: hist layout min width update', { value: state.minSvgWidth });
+      },
+      resizableBoxOptions: {
+        onResize: () => {
+          console.debug('Debug: hist layout onResize schedule trigger');
+          scheduleHistNoticeWidth('resize');
+        }
       }
     });
     state.svgBox = state.layout?.elements?.svgBox || state.svgBox;
@@ -1460,6 +1505,7 @@
         state.scheduleDraw?.({ force: true, reason: 'manual-render' });
       });
     }
+    scheduleHistNoticeWidth('init');
     initHot();
     initControls();
     if(!histAutoDrawManager && Shared.hot?.createAutoDrawManager){
@@ -1491,6 +1537,7 @@
       state.scheduleDraw = (opts) => histAutoDrawManager.schedule(opts);
       histAutoDrawManager.updateUi();
       histAutoDrawManager.evaluateThresholds();
+      syncHistAutoDrawNoticeWidth('auto-draw-init');
     }else{
       state.scheduleDraw = scheduleDrawHistRaw;
     }

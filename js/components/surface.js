@@ -108,6 +108,42 @@
     fileHandle: null
   };
   let surfaceAutoDrawManager = null;
+  let surfaceNoticeBoundWidth = null;
+  const syncSurfaceAutoDrawNoticeWidth = (reason) => {
+    const svgBox = state.svgBox || state.layout?.elements?.svgBox || global.document.querySelector('#surfaceGraphPanel .svgbox');
+    const renderRow = state.renderRow || global.document.getElementById('surfaceRenderRow');
+    if(!svgBox || !renderRow){
+      return;
+    }
+    const rect = svgBox.getBoundingClientRect?.();
+    const width = Math.round(rect?.width || svgBox.clientWidth || svgBox.offsetWidth || 0);
+    if(!width){
+      return;
+    }
+    const widthPx = `${width}px`;
+    if(renderRow.style.maxWidth !== widthPx){
+      renderRow.style.maxWidth = widthPx;
+      renderRow.style.width = '100%';
+    }
+    if(state.autoDrawNotice && state.autoDrawNotice.style.maxWidth !== widthPx){
+      state.autoDrawNotice.style.maxWidth = widthPx;
+    }
+    if(surfaceNoticeBoundWidth !== width){
+      surfaceNoticeBoundWidth = width;
+      debugLog('Debug: surface auto draw notice width synced', { width, reason: reason || null });
+    }
+  };
+  const scheduleSurfaceNoticeWidth = (() => {
+    if(typeof Shared.debounceFrame === 'function'){
+      let lastReason = 'frame';
+      const debounced = Shared.debounceFrame(() => syncSurfaceAutoDrawNoticeWidth(lastReason));
+      return reason => {
+        lastReason = reason || 'frame';
+        debounced();
+      };
+    }
+    return reason => syncSurfaceAutoDrawNoticeWidth(reason || 'immediate');
+  })();
   let scheduleDrawSurfaceRaw = () => {};
   const surfaceUndoManager = Shared.undoManager || null;
   function recordSurfaceChange(label, previous, next, apply){
@@ -1218,6 +1254,8 @@
       removeLegend(svg);
     }
     updateStats(parsed.stats);
+    state.layout?.syncPanels?.({ skipSchedule: true });
+    syncSurfaceAutoDrawNoticeWidth('draw');
     debugLog('Debug: surface draw complete', {
       mode: effectiveMode,
       points: parsed.points.length,
@@ -1246,13 +1284,20 @@
         selectors: {
           tablePanel: '#surfaceTablePanel',
           graphPanel: '#surfaceGraphPanel',
-          panelResizer: '#surfacePanelResizer',
-          hotWrapper: '#surfaceHotWrapper',
-          hotContainer: '#surfaceHot',
-          svgBox: () => global.document.querySelector('#surfaceGraphPanel .svgbox'),
-          resizeTarget: () => global.document.querySelector('#surfaceGraphPanel .svgbox')
-        },
-        scheduleDraw: state.scheduleDraw
+        panelResizer: '#surfacePanelResizer',
+        hotWrapper: '#surfaceHotWrapper',
+        hotContainer: '#surfaceHot',
+        svgBox: () => global.document.querySelector('#surfaceGraphPanel .svgbox'),
+        resizeTarget: () => global.document.querySelector('#surfaceGraphPanel .svgbox')
+      },
+        scheduleDraw: state.scheduleDraw,
+        onAfterSync: () => syncSurfaceAutoDrawNoticeWidth('panel-sync'),
+        resizableBoxOptions: {
+          onResize: () => {
+            debugLog('Debug: surface layout onResize schedule trigger');
+            scheduleSurfaceNoticeWidth('resize');
+          }
+        }
       })
       : null;
     if(state.layout && typeof state.layout.setScheduleDraw === 'function'){
@@ -1265,6 +1310,7 @@
       state.layout.syncPanels();
     }
     cacheDom();
+    scheduleSurfaceNoticeWidth('init');
     initHot();
     initControls();
     if(!surfaceAutoDrawManager && Shared.hot?.createAutoDrawManager){
@@ -1298,6 +1344,7 @@
       state.scheduleDraw = (opts) => surfaceAutoDrawManager.schedule(opts);
       surfaceAutoDrawManager.updateUi();
       surfaceAutoDrawManager.evaluateThresholds();
+      syncSurfaceAutoDrawNoticeWidth('auto-draw-init');
     }else{
       state.scheduleDraw = scheduleDrawSurfaceRaw;
     }
@@ -1307,6 +1354,7 @@
     if(state.layout && typeof state.layout.syncPanels === 'function'){
       state.layout.syncPanels();
     }
+    syncSurfaceAutoDrawNoticeWidth('panel-resync');
     updateAxisOptions();
     ensureEmptyPayloadTemplate();
     surface.ready = true;

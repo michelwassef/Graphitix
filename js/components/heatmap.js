@@ -129,6 +129,43 @@
     lastStats: null
   };
 
+  let heatmapNoticeBoundWidth = null;
+  const syncHeatmapAutoDrawNoticeWidth = (reason) => {
+    const svgBox = state.svgBox || state.layout?.elements?.svgBox || state.svg?.closest?.('.svgbox');
+    const renderRow = heatmapRenderRowEl || global.document?.getElementById?.('heatmapRenderRow');
+    if(!svgBox || !renderRow){
+      return;
+    }
+    const rect = svgBox.getBoundingClientRect?.();
+    const width = Math.round(rect?.width || svgBox.clientWidth || svgBox.offsetWidth || 0);
+    if(!width){
+      return;
+    }
+    const widthPx = `${width}px`;
+    if(renderRow.style.maxWidth !== widthPx){
+      renderRow.style.maxWidth = widthPx;
+      renderRow.style.width = '100%';
+    }
+    if(heatmapAutoDrawNoticeEl && heatmapAutoDrawNoticeEl.style.maxWidth !== widthPx){
+      heatmapAutoDrawNoticeEl.style.maxWidth = widthPx;
+    }
+    if(heatmapNoticeBoundWidth !== width){
+      heatmapNoticeBoundWidth = width;
+      debugLog('Debug: heatmap auto draw notice width synced', { width, reason: reason || null });
+    }
+  };
+  const scheduleHeatmapNoticeWidth = (() => {
+    if(typeof Shared.debounceFrame === 'function'){
+      let lastReason = 'frame';
+      const debounced = Shared.debounceFrame(() => syncHeatmapAutoDrawNoticeWidth(lastReason));
+      return reason => {
+        lastReason = reason || 'frame';
+        debounced();
+      };
+    }
+    return reason => syncHeatmapAutoDrawNoticeWidth(reason || 'immediate');
+  })();
+
   function recordHeatmapChange(label, previous, next, apply){
     if(!heatmapUndoManager || typeof heatmapUndoManager.recordStateChange !== 'function'){
       return;
@@ -327,6 +364,7 @@
       heatmapAutoDrawNoticeEl.textContent = text;
       heatmapAutoDrawNoticeEl.hidden = hidden || !text;
     }
+    scheduleHeatmapNoticeWidth('ui-update');
   }
 
   function evaluateAutoDrawThresholds(meta = {}){
@@ -2513,6 +2551,8 @@
     state.svg.appendChild(text);
     markFontEditable(text, 'emptyMessage', 'heatmap-empty');
     ensureGraphViewport(state.svg, { padding: 16, debugLabel: 'heatmap-empty' });
+    state.layout?.syncPanels?.({ skipSchedule: true });
+    syncHeatmapAutoDrawNoticeWidth('draw');
   }
 
   function appendStatRow(labelText, strongValueText, options = {}){
@@ -2962,6 +3002,7 @@
       });
     }
     state.layout?.syncPanels?.({ skipSchedule: true });
+    syncHeatmapAutoDrawNoticeWidth('draw');
     console.debug('Debug: heatmap drawHeatmap complete', {
       rows: rowCount,
       columns: columnCount,
@@ -3658,9 +3699,16 @@
         svgBox: () => state.svg?.closest('.svgbox'),
         resizeTarget: () => state.svg?.closest('.svgbox')
       },
+      onAfterSync: () => syncHeatmapAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         state.minSvgWidth = value;
         console.debug('Debug: heatmap layout minSvgWidth updated', { value });
+      },
+      resizableBoxOptions: {
+        onResize: () => {
+          debugLog('Debug: heatmap layout onResize schedule trigger');
+          scheduleHeatmapNoticeWidth('resize');
+        }
       }
     });
     state.svgBox = state.layout?.elements?.svgBox || state.svg?.closest('.svgbox') || null;
@@ -3680,6 +3728,7 @@
     debugLog('Debug: heatmap scheduler configured', { hasDebounce: !!Shared.debounceFrame });
     state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
     state.layout?.syncPanels?.();
+    syncHeatmapAutoDrawNoticeWidth('init');
     updateAutoDrawUi();
     evaluateAutoDrawThresholds();
     ensureEmptyPayloadTemplate();
