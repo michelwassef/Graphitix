@@ -608,6 +608,25 @@
                   </span>
                 </label>
               </div>
+              <div class="config-panel__line config-panel__line--split">
+                <label class="config-panel__item config-panel__item--select-auto" id="scatterColorModeRow">
+                  <span class="config-panel__label">Color mode</span>
+                  <select id="scatterColorMode">
+                    <option value="auto">Auto (density for large datasets)</option>
+                    <option value="solid">Solid color</option>
+                    <option value="density">Density</option>
+                  </select>
+                </label>
+                <label class="config-panel__item config-panel__item--select-auto" id="scatterDensityPaletteRow">
+                  <span class="config-panel__label">Density palette</span>
+                  <select id="scatterDensityPalette">
+                    <option value="turbo">Turbo</option>
+                    <option value="viridis">Viridis</option>
+                    <option value="plasma">Plasma</option>
+                    <option value="inferno">Inferno</option>
+                  </select>
+                </label>
+              </div>
             </fieldset>
             <fieldset class="config-panel__fieldset">
               <legend>Border</legend>

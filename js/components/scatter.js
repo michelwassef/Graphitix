@@ -87,6 +87,15 @@
   const SCATTER_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const SCATTER_AUTO_DRAW_COL_THRESHOLD = 5000;
   const SCATTER_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const SCATTER_DENSITY_MODE_DEFAULT = 'auto';
+  const SCATTER_DENSITY_POINT_THRESHOLD = 500;
+  const SCATTER_DENSITY_PALETTE_DEFAULT = 'turbo';
+  const SCATTER_DENSITY_RAMPS = Object.freeze({
+    turbo: ['#30123b', '#4145ab', '#2f9df4', '#43ecb0', '#fde54c', '#f45f2a', '#821529'],
+    viridis: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'],
+    plasma: ['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921'],
+    inferno: ['#000004', '#1f0c48', '#550f6d', '#88216b', '#b63655', '#e35933', '#fcffa4']
+  });
 
   const scatterState = {
     viewMode: '2d',
@@ -158,6 +167,150 @@
       // ignore toggle errors and log by default
     }
     console.debug(label, payload);
+  }
+
+  function normalizeScatterColorMode(value){
+    const normalized = typeof value === 'string' ? value.toLowerCase() : '';
+    if(normalized === 'density'){
+      return 'density';
+    }
+    if(normalized === 'solid'){
+      return 'solid';
+    }
+    return SCATTER_DENSITY_MODE_DEFAULT;
+  }
+
+  function normalizeScatterDensityPalette(value){
+    const key = typeof value === 'string' ? value.toLowerCase() : '';
+    return SCATTER_DENSITY_RAMPS[key] ? key : SCATTER_DENSITY_PALETTE_DEFAULT;
+  }
+
+  function scatterHexToRgb(hex){
+    if(!hex){ return null; }
+    const match = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+    if(!match){ return null; }
+    const intValue = parseInt(match[1], 16);
+    return {
+      r: (intValue >> 16) & 255,
+      g: (intValue >> 8) & 255,
+      b: intValue & 255
+    };
+  }
+
+  function scatterMixColors(a, b, t){
+    const clamped = Math.min(Math.max(t, 0), 1);
+    const safeA = a || { r: 0, g: 0, b: 0 };
+    const safeB = b || safeA;
+    return {
+      r: Math.round(safeA.r + (safeB.r - safeA.r) * clamped),
+      g: Math.round(safeA.g + (safeB.g - safeA.g) * clamped),
+      b: Math.round(safeA.b + (safeB.b - safeA.b) * clamped)
+    };
+  }
+
+  function scatterRgbToCss(rgb){
+    if(!rgb){ return '#000000'; }
+    const r = Math.min(255, Math.max(0, Math.round(rgb.r)));
+    const g = Math.min(255, Math.max(0, Math.round(rgb.g)));
+    const b = Math.min(255, Math.max(0, Math.round(rgb.b)));
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  function createScatterDensityColorMapper(paletteKey){
+    const rampKey = normalizeScatterDensityPalette(paletteKey);
+    const stops = SCATTER_DENSITY_RAMPS[rampKey] || SCATTER_DENSITY_RAMPS[SCATTER_DENSITY_PALETTE_DEFAULT];
+    const parsed = (Array.isArray(stops) ? stops : []).map((hex, idx) => ({
+      t: stops.length > 1 ? idx / (stops.length - 1) : 0,
+      color: scatterHexToRgb(hex)
+    })).filter(entry => entry.color);
+    if(!parsed.length){
+      const fallback = scatterHexToRgb('#377eb8');
+      return () => scatterRgbToCss(fallback);
+    }
+    return ratio => {
+      const t = Math.min(Math.max(Number(ratio) || 0, 0), 1);
+      if(parsed.length === 1){
+        return scatterRgbToCss(parsed[0].color);
+      }
+      let start = parsed[0];
+      let end = parsed[parsed.length - 1];
+      for(let i = 0; i < parsed.length - 1; i += 1){
+        const a = parsed[i];
+        const b = parsed[i + 1];
+        if(t >= a.t && t <= b.t){
+          start = a;
+          end = b;
+          break;
+        }
+      }
+      const span = end.t - start.t || 1;
+      const localT = span ? (t - start.t) / span : 0;
+      return scatterRgbToCss(scatterMixColors(start.color, end.color, localT));
+    };
+  }
+
+  function computeScatterDensityValues(points, size){
+    const width = Math.max(1, Number(size?.width) || 1);
+    const height = Math.max(1, Number(size?.height) || 1);
+    const data = Array.isArray(points) ? points : [];
+    const count = data.length;
+    if(!count){
+      return { values: [], max: 0 };
+    }
+    const gridResolution = Math.max(10, Math.min(80, Math.round(Math.sqrt(count))));
+    const gridX = gridResolution;
+    const gridY = gridResolution;
+    const cellW = width / gridX;
+    const cellH = height / gridY;
+    const grid = new Array(gridX * gridY).fill(0);
+    const coords = [];
+    for(let i = 0; i < count; i += 1){
+      const pt = data[i];
+      const x = Math.min(Math.max(Number(pt?.x) || 0, 0), width - 1e-6);
+      const y = Math.min(Math.max(Number(pt?.y) || 0, 0), height - 1e-6);
+      const gx = Math.min(gridX - 1, Math.max(0, Math.floor(x / cellW)));
+      const gy = Math.min(gridY - 1, Math.max(0, Math.floor(y / cellH)));
+      grid[gy * gridX + gx] += 1;
+      coords.push({ gx, gy });
+    }
+    const neighborOffsets = [-1, 0, 1];
+    const values = new Array(count);
+    let maxDensity = 0;
+    coords.forEach(({ gx, gy }, idx) => {
+      let sum = 0;
+      let n = 0;
+      for(let dxIdx = 0; dxIdx < neighborOffsets.length; dxIdx += 1){
+        const dx = neighborOffsets[dxIdx];
+        for(let dyIdx = 0; dyIdx < neighborOffsets.length; dyIdx += 1){
+          const dy = neighborOffsets[dyIdx];
+          const nx = gx + dx;
+          const ny = gy + dy;
+          if(nx < 0 || nx >= gridX || ny < 0 || ny >= gridY){
+            continue;
+          }
+          sum += grid[ny * gridX + nx] || 0;
+          n += 1;
+        }
+      }
+      const density = n ? sum / n : 0;
+      values[idx] = density;
+      if(density > maxDensity){
+        maxDensity = density;
+      }
+    });
+    return { values, max: maxDensity };
+  }
+
+  function resolveScatterColorMode(options){
+    const desired = normalizeScatterColorMode(options?.mode);
+    const graphType = options?.graphType || 'scatter';
+    const viewMode = typeof options?.viewMode === 'string' ? options.viewMode.toLowerCase() : scatterState.viewMode || '2d';
+    const pointCount = Number(options?.pointCount) || 0;
+    const allowDensity = graphType === 'scatter' && viewMode !== '3d';
+    const applied = allowDensity && (desired === 'density' || (desired === 'auto' && pointCount > SCATTER_DENSITY_POINT_THRESHOLD))
+      ? 'density'
+      : 'solid';
+    return { desired, applied, allowDensity };
   }
 
   function ensureScatterTooltipHost(tooltip, doc){
@@ -1021,6 +1174,12 @@
       const scatterLog2FCThreshold=$('#scatterLog2FCThreshold');
       const scatterNegLogPThreshold=$('#scatterNegLogPThreshold');
       const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterAlpha=$('#scatterAlpha');
+      const scatterColorMode=$('#scatterColorMode');
+      const scatterDensityPalette=$('#scatterDensityPalette');
+      const scatterDensityPaletteRow=$('#scatterDensityPaletteRow');
+      const scatterColorModeRow=$('#scatterColorModeRow');
+      let scatterColorModeApplied = 'solid';
+      let scatterColorModeDesired = SCATTER_DENSITY_MODE_DEFAULT;
       const scatterShowIntervals=$('#scatterShowIntervals');
       const scatterShowDiagnostics=$('#scatterShowDiagnostics');
       const scatterAlphaVal=$('#scatterAlphaVal');
@@ -1030,6 +1189,15 @@
         console.debug('Debug: scatter font size base initialized',{ value: scatterFontSize.value }); // Debug: initial base
       }
       chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
+      if(scatterColorMode){
+        const normalizedMode = normalizeScatterColorMode(scatterColorMode.value);
+        scatterColorMode.value = normalizedMode;
+        scatterColorModeDesired = normalizedMode;
+      }
+      if(scatterDensityPalette){
+        const paletteKey = normalizeScatterDensityPalette(scatterDensityPalette.value);
+        scatterDensityPalette.value = paletteKey;
+      }
       const scatterShowGrid=$('#scatterShowGrid'), scatterShowFrame=$('#scatterShowFrame'), scatterLogX=$('#scatterLogX'), scatterLogY=$('#scatterLogY');
       const scatterXMin=$('#scatterXMin'), scatterXMax=$('#scatterXMax'), scatterYMin=$('#scatterYMin'), scatterYMax=$('#scatterYMax');
       const scatterOriginMode=$('#scatterOriginMode'), scatterOriginX=$('#scatterOriginX'), scatterOriginY=$('#scatterOriginY');
@@ -1155,6 +1323,7 @@
           if(applied !== next){
             scatterViewMode.value = applied;
           }
+          syncScatterColorModeUI(scatterColorModeApplied);
         });
       }
       let scatterLogWarningEl=null;
@@ -1324,6 +1493,39 @@
           }
         });
       }
+      function syncScatterColorModeUI(appliedMode = scatterColorModeApplied){
+        const type = scatterGraphTypeSelect?.value || 'scatter';
+        const isScatter = type === 'scatter';
+        const viewMode = scatterState?.viewMode || '2d';
+        if(scatterColorMode){
+          const normalizedMode = normalizeScatterColorMode(scatterColorMode.value);
+          if(scatterColorMode.value !== normalizedMode){
+            scatterColorMode.value = normalizedMode;
+          }
+          scatterColorMode.disabled = !isScatter;
+        }
+        if(scatterDensityPalette){
+          const paletteKey = normalizeScatterDensityPalette(scatterDensityPalette.value);
+          if(scatterDensityPalette.value !== paletteKey){
+            scatterDensityPalette.value = paletteKey;
+          }
+          scatterDensityPalette.disabled = !isScatter;
+        }
+        const paletteRow = scatterDensityPaletteRow || scatterDensityPalette?.closest('.config-panel__item');
+        const desiredMode = scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT;
+        const paletteVisible = isScatter && viewMode !== '3d' && (desiredMode === 'density' || desiredMode === 'auto');
+        if(paletteRow){
+          paletteRow.style.display = paletteVisible ? '' : 'none';
+        }
+        if(scatterColorModeRow){
+          scatterColorModeRow.style.display = isScatter ? '' : 'none';
+        }
+        if(scatterFill){
+          const disableFill = isScatter && appliedMode === 'density' && viewMode !== '3d';
+          scatterFill.disabled = disableFill;
+          scatterFill.title = disableFill ? 'Fill color is controlled by density in this mode.' : '';
+        }
+      }
       function syncScatterGraphTypeUI(){
         const type=scatterGraphTypeSelect?.value || 'scatter';
         scatterCurrentGraphType=type;
@@ -1372,9 +1574,10 @@
             scatterTitleText=defaults.title;
           }
           scatterLastGraphType=type;
-      }
-      renderScatterStatsAdvisor(null, buildScatterAdvisorContext([]));
-      console.debug('Debug: syncScatterGraphTypeUI complete',{type,showThresholds});
+        }
+        renderScatterStatsAdvisor(null, buildScatterAdvisorContext([]));
+        syncScatterColorModeUI(scatterColorModeApplied);
+        console.debug('Debug: syncScatterGraphTypeUI complete',{type,showThresholds});
         if(scatterViewMode){
           if(type !== 'scatter'){
             scatterState.supports3d = false;
@@ -1392,7 +1595,8 @@
             });
           }
         }
-    }
+        syncScatterColorModeUI(scatterColorModeApplied);
+      }
 
       function buildScatterAdvisorContext(points, overrides){
         const context={
@@ -1870,6 +2074,22 @@
       if(scatterNegLogPThreshold){
         scatterNegLogPThreshold.addEventListener('input',()=>{
           console.debug('Debug: scatter negLogP threshold input',{value:scatterNegLogPThreshold.value});
+          scheduleDrawScatter();
+        });
+      }
+      if(scatterColorMode){
+        scatterColorMode.addEventListener('change',()=>{
+          scatterColorModeDesired = normalizeScatterColorMode(scatterColorMode.value);
+          scatterColorMode.value = scatterColorModeDesired;
+          syncScatterColorModeUI(scatterColorModeApplied);
+          console.debug('Debug: scatter color mode changed',{ value: scatterColorModeDesired });
+          scheduleDrawScatter();
+        });
+      }
+      if(scatterDensityPalette){
+        scatterDensityPalette.addEventListener('change',()=>{
+          scatterDensityPalette.value = normalizeScatterDensityPalette(scatterDensityPalette.value);
+          console.debug('Debug: scatter density palette changed',{ value: scatterDensityPalette.value });
           scheduleDrawScatter();
         });
       }
@@ -2592,7 +2812,29 @@
           debug('Debug: scatter plot aborted due to range filter',{range:{xMin,xMax,yMin,yMax}});
           return;
         }
-        const shouldAutoHideLegend = scatterCurrentGraphType === 'scatter' && pointsInRange.length > 10;
+        scatterColorModeDesired = scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT;
+        const colorModeSetting = resolveScatterColorMode({
+          mode: scatterColorModeDesired,
+          pointCount: pointsInRange.length,
+          graphType: scatterCurrentGraphType,
+          viewMode: scatterState.viewMode
+        });
+        scatterColorModeApplied = colorModeSetting.applied;
+        const densityPaletteKey = normalizeScatterDensityPalette(scatterDensityPalette?.value);
+        const densityColorFor = scatterColorModeApplied === 'density'
+          ? createScatterDensityColorMapper(densityPaletteKey)
+          : null;
+        const densityColoringActive = scatterCurrentGraphType==='scatter' && scatterColorModeApplied === 'density';
+        syncScatterColorModeUI(scatterColorModeApplied);
+        debug('Debug: scatter color mode resolved',{
+          desired: scatterColorModeDesired,
+          applied: scatterColorModeApplied,
+          allowDensity: colorModeSetting.allowDensity,
+          palette: densityPaletteKey,
+          pointCount: pointsInRange.length,
+          viewMode: scatterState.viewMode
+        });
+        const shouldAutoHideLegend = scatterCurrentGraphType === 'scatter' && !densityColoringActive && pointsInRange.length > 10;
         if(shouldAutoHideLegend && showLegend){
           scatterLegendChangeInternal = true;
           try{
@@ -2613,7 +2855,7 @@
         const labelDistribution = scatterCurrentGraphType==='scatter'
           ? computeScatterLabelDistribution(pointsInRange)
           : { shouldUseUniform: false, pureUnique: false, averageFrequency: 0, labelCount: 0, labeledPointCount: 0, totalPoints: pointsInRange.length };
-        const useUniformLabelStyle = scatterCurrentGraphType==='scatter' && labelDistribution.shouldUseUniform;
+        const useUniformLabelStyle = densityColoringActive || (scatterCurrentGraphType==='scatter' && labelDistribution.shouldUseUniform);
         if(useUniformLabelStyle){
           scatterDebug('Debug: scatter uniform label styling enabled', {
             pureUnique: labelDistribution.pureUnique,
@@ -2630,7 +2872,14 @@
         if(showLegend){
           const legendEntries=[];
           if(scatterCurrentGraphType==='scatter'){
-            if(useUniformLabelStyle){
+            if(densityColoringActive){
+              const low = densityColorFor ? densityColorFor(0.1) : fill;
+              const mid = densityColorFor ? densityColorFor(0.55) : fill;
+              const high = densityColorFor ? densityColorFor(1) : fill;
+              legendEntries.push({ label:'High density', fill: high, editable:false, key:'__scatter_density_high__', shape:'circle' });
+              legendEntries.push({ label:'Medium', fill: mid, editable:false, key:'__scatter_density_mid__', shape:'circle' });
+              legendEntries.push({ label:'Low density', fill: low, editable:false, key:'__scatter_density_low__', shape:'circle' });
+            }else if(useUniformLabelStyle){
               legendEntries.push({
                 label:'All points',
                 fill,
@@ -2663,7 +2912,7 @@
             strokeWidth:borderWidthPx,
             onSwatchClick:({ entry, event, swatch, index })=>{
               const labelKey=entry?.key;
-              if(!labelKey){
+              if(!labelKey || entry?.editable===false || scatterColorModeApplied === 'density'){
                 return;
               }
               if(event){ event.stopPropagation(); }
@@ -3339,18 +3588,38 @@
         debug('Debug: scatter font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
         debug('Debug: scatter ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
         time(`scatterSvgDraw_${token}`);
+        const pointGeometry = points.map(p => {
+          const xv = logX ? Math.log10(p.x) : p.x;
+          const yv = logY ? Math.log10(p.y) : p.y;
+          return { xv, yv, cx: x2px(xv), cy: y2px(yv) };
+        });
+        let densityInfo = null;
+        if(scatterColorModeApplied === 'density'){
+          const densityPoints = pointGeometry.map(pos => ({
+            x: pos.cx - margin.left,
+            y: pos.cy - margin.top
+          }));
+          densityInfo = computeScatterDensityValues(densityPoints, { width: plotW, height: plotH });
+          debug('Debug: scatter density computed',{ max: densityInfo.max, count: densityPoints.length });
+        }
         const frag=document.createDocumentFragment();
         const labelBBox=new Map();
         let pointIndex=0;
         const isBubbleView = scatterCurrentGraphType==='scatter' && scatterState.viewMode === 'bubble';
         const resolveBubbleRadius = isBubbleView ? createBubbleRadiusScaler(points, dotSizePx) : null;
         for(const p of points){
-          const xv=logX?Math.log10(p.x):p.x;
-          const yv=logY?Math.log10(p.y):p.y;
-          const cxVal=x2px(xv);
-          const cyVal=y2px(yv);
+          const geom = pointGeometry[pointIndex] || null;
+          const xv = geom ? geom.xv : (logX ? Math.log10(p.x) : p.x);
+          const yv = geom ? geom.yv : (logY ? Math.log10(p.y) : p.y);
+          const cxVal=geom ? geom.cx : x2px(xv);
+          const cyVal=geom ? geom.cy : y2px(yv);
+          const densityRatio = densityInfo && densityInfo.max>0
+            ? (densityInfo.values[pointIndex] || 0) / densityInfo.max
+            : 0;
           const color=scatterCurrentGraphType==='scatter'
-            ? (useUniformLabelStyle ? fill : (scatterLabelColors[p.label]||fill))
+            ? (scatterColorModeApplied === 'density'
+              ? (densityColorFor ? densityColorFor(densityRatio) : fill)
+              : (useUniformLabelStyle ? fill : (scatterLabelColors[p.label]||fill)))
             : (p.isSignificant?SIGNIFICANT_COLOR:fill);
           const markerShape = isBubbleView ? 'circle' : (scatterCurrentGraphType==='scatter'
             ? (useUniformLabelStyle ? 'circle' : (labelShapeLookup.get(p.label) || 'circle'))
@@ -3926,6 +4195,8 @@
             zLabel:scatterZLabelText,
             dotSize:scatterDotSize.value,
             fill:scatterFill.value,
+            colorMode: scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT,
+            densityPalette: scatterDensityPalette ? normalizeScatterDensityPalette(scatterDensityPalette.value) : SCATTER_DENSITY_PALETTE_DEFAULT,
             border:scatterBorder.value,
             borderWidth:scatterBorderWidth.value,
             alpha:scatterAlpha.value,
@@ -4054,6 +4325,13 @@
         scatterZLabelText=c.zLabel||scatterZLabelText;
         scatterDotSize.value=c.dotSize||scatterDotSize.value;
         scatterFill.value=c.fill||scatterFill.value;
+        if(scatterColorMode){
+          scatterColorMode.value = normalizeScatterColorMode(c.colorMode || scatterColorMode.value);
+          scatterColorModeDesired = scatterColorMode.value;
+        }
+        if(scatterDensityPalette){
+          scatterDensityPalette.value = normalizeScatterDensityPalette(c.densityPalette || scatterDensityPalette.value);
+        }
         scatterBorder.value=c.border||scatterBorder.value;
         scatterBorderWidth.value=c.borderWidth||scatterBorderWidth.value;
         scatterAlpha.value=c.alpha||0;
