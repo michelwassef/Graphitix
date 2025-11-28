@@ -104,7 +104,9 @@
     rotationPending: false,
     rotationPendingLogged: false,
     supports3d: false,
-    supportsBubble: false
+    supportsBubble: false,
+    logPlusOneX: false,
+    logPlusOneY: false
   };
   const scatterAutoDrawState = {
     autoDrawEnabled: true,
@@ -1412,7 +1414,7 @@
           if(scatterDebugEnabled()){
             console.debug('Debug: scatter log axis blocked by manual minimum',{ axis, value: manualMin });
           }
-          return{allowed:false,reason:'axis-limit',value:manualMin,message};
+          return{allowed:false,reason:'axis-limit',value:manualMin,message,hasZeros:manualMin===0,hasNegatives:manualMin<0};
         }
         const manualMax=parseFloat(maxInput?.value);
         if(Number.isFinite(manualMax)&&manualMax<=0){
@@ -1420,7 +1422,7 @@
           if(scatterDebugEnabled()){
             console.debug('Debug: scatter log axis blocked by manual maximum',{ axis, value: manualMax });
           }
-          return{allowed:false,reason:'axis-limit',value:manualMax,message};
+          return{allowed:false,reason:'axis-limit',value:manualMax,message,hasZeros:manualMax===0,hasNegatives:manualMax<0};
         }
         const originModeValue=scatterOriginMode?.value;
         if(originModeValue==='custom'){
@@ -1430,7 +1432,7 @@
             if(scatterDebugEnabled()){
               console.debug('Debug: scatter log axis blocked by custom origin',{ axis, value: originVal });
             }
-            return{allowed:false,reason:'origin',value:originVal,message};
+            return{allowed:false,reason:'origin',value:originVal,message,hasZeros:originVal===0,hasNegatives:originVal<0};
           }
         }
         const analysis=scatterHot?.getAnalysisData?.()||Shared.hot.getAnalysisData(scatterHot);
@@ -1449,6 +1451,11 @@
           }
           return{allowed:false,reason:'excluded',message:`Restore the ${axisLabel} axis column before enabling log scale.`};
         }
+        let hasZeros=false;
+        let hasNegatives=false;
+        let firstZeroRow=null;
+        let firstNegativeRow=null;
+        let firstNegativeValue=null;
         for(let r=1;r<rowCount;r+=1){
           if(analysis.isRowExcluded?.(r)){
             continue;
@@ -1458,14 +1465,35 @@
             continue;
           }
           const value=parseFloat(raw);
-          if(Number.isFinite(value)&&value<=0){
-            const formatted=value===0?'0':value.toPrecision(4);
-            const message=`Cannot enable log scale on the ${axisLabel} axis because data includes ${formatted} at row ${r+1}.`;
-            if(scatterDebugEnabled()){
-              console.debug('Debug: scatter log axis blocked by data',{ axis, row:r, value });
+          if(Number.isFinite(value)){
+            if(value<0){
+              hasNegatives=true;
+              if(firstNegativeRow===null){
+                firstNegativeRow=r;
+                firstNegativeValue=value;
+              }
+            }else if(value===0){
+              hasZeros=true;
+              if(firstZeroRow===null){
+                firstZeroRow=r;
+              }
             }
-            return{allowed:false,reason:'data',value,message};
           }
+        }
+        if(hasNegatives){
+          const formatted=firstNegativeValue.toPrecision(4);
+          const message=`Cannot enable log scale on the ${axisLabel} axis because data includes ${formatted} at row ${firstNegativeRow+1}.`;
+          if(scatterDebugEnabled()){
+            console.debug('Debug: scatter log axis blocked by negative data',{ axis, row:firstNegativeRow, value:firstNegativeValue });
+          }
+          return{allowed:false,reason:'data',value:firstNegativeValue,message,hasZeros,hasNegatives:true};
+        }
+        if(hasZeros){
+          const message=`Data contains zero values on the ${axisLabel} axis. Would you like to use log(x+1) transform instead?`;
+          if(scatterDebugEnabled()){
+            console.debug('Debug: scatter log axis has zeros',{ axis, row:firstZeroRow });
+          }
+          return{allowed:false,reason:'zeros',value:0,message,hasZeros:true,hasNegatives:false,canUsePlusOne:true};
         }
         if(scatterDebugEnabled()){
           console.debug('Debug: scatter log axis validation passed',{ axis });
@@ -2124,14 +2152,48 @@
           if(enabling){
             const validation=validateScatterLogAxis(axis);
             if(!validation.allowed){
+              if(validation.canUsePlusOne && validation.hasZeros && !validation.hasNegatives){
+                const axisLabel=axis==='x'?'X':'Y';
+                const useLogPlusOne = global.confirm(`Your data contains zero values on the ${axisLabel} axis. Would you like to add +1 to all values before log transform?\n\nThis will plot log(x+1) instead of log(x).`);
+                if(useLogPlusOne){
+                  if(axis==='x'){
+                    scatterState.logPlusOneX = true;
+                  }else{
+                    scatterState.logPlusOneY = true;
+                  }
+                  clearScatterLogWarning();
+                  console.debug('Debug: scatter log+1 enabled by user confirmation',{ axis });
+                  scheduleDrawScatter();
+                  return;
+                }else{
+                  checkbox.checked = false;
+                  if(axis==='x'){
+                    scatterState.logPlusOneX = false;
+                  }else{
+                    scatterState.logPlusOneY = false;
+                  }
+                  console.debug('Debug: scatter log scale cancelled by user',{ axis });
+                  return;
+                }
+              }
               checkbox.checked=false;
               const warningMessage=validation.message||`Cannot enable log scale on the ${axis==='x'?'X':'Y'} axis while non-positive values are present.`;
               showScatterLogWarning(warningMessage);
               console.warn('scatter log axis blocked',{ axis, reason: validation.reason, value: validation.value });
               return;
             }
+            if(axis==='x'){
+              scatterState.logPlusOneX = false;
+            }else{
+              scatterState.logPlusOneY = false;
+            }
             clearScatterLogWarning();
           }else{
+            if(axis==='x'){
+              scatterState.logPlusOneX = false;
+            }else{
+              scatterState.logPlusOneY = false;
+            }
             clearScatterLogWarning();
           }
           console.debug('Debug: scatter log toggle change',{ id: checkbox.id, checked: checkbox.checked });
@@ -2768,12 +2830,29 @@
           return;
         }
         if(logX&&points.some(p=>p.x<=0)){
-          renderScatterNotice('Log scale requires positive X values.');
-          return;
+          if(!scatterState.logPlusOneX){
+            renderScatterNotice('Log scale requires positive X values.');
+            return;
+          }
         }
         if(logY&&points.some(p=>p.y<=0)){
-          renderScatterNotice('Log scale requires positive Y values.');
-          return;
+          if(!scatterState.logPlusOneY){
+            renderScatterNotice('Log scale requires positive Y values.');
+            return;
+          }
+        }
+        // Apply log+1 transform if enabled
+        if(logX && scatterState.logPlusOneX){
+          points = points.map(p => ({ ...p, x: p.x + 1 }));
+          xMinRaw = xMinRaw + 1;
+          xMaxRaw = xMaxRaw + 1;
+          debug('Debug: scatter log+1 transform applied to X');
+        }
+        if(logY && scatterState.logPlusOneY){
+          points = points.map(p => ({ ...p, y: p.y + 1 }));
+          yMinRaw = yMinRaw + 1;
+          yMaxRaw = yMaxRaw + 1;
+          debug('Debug: scatter log+1 transform applied to Y');
         }
         let xMin=xMinRaw, xMax=xMaxRaw, yMin=yMinRaw, yMax=yMaxRaw;
         if(isFinite(xMinManual)) xMin=xMinManual;
@@ -4208,6 +4287,8 @@
             showLegend:scatterShowLegend ? scatterShowLegend.checked : true,
             logX:scatterLogX.checked,
             logY:scatterLogY.checked,
+            logPlusOneX:!!scatterState.logPlusOneX,
+            logPlusOneY:!!scatterState.logPlusOneY,
             xMin:scatterXMin.value,
             xMax:scatterXMax.value,
             yMin:scatterYMin.value,
@@ -4346,6 +4427,8 @@
         }
         scatterLogX.checked=!!c.logX;
         scatterLogY.checked=!!c.logY;
+        scatterState.logPlusOneX=!!c.logPlusOneX;
+        scatterState.logPlusOneY=!!c.logPlusOneY;
         scatterXMin.value=c.xMin||'';
         scatterXMax.value=c.xMax||'';
         scatterYMin.value=c.yMin||'';

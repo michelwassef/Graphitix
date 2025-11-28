@@ -126,7 +126,8 @@
     lastAutoDrawEvaluation: null,
     lastRenderModel: null,
     lastViewOptions: null,
-    lastStats: null
+    lastStats: null,
+    logPlusOne: false
   };
 
   let heatmapNoticeBoundWidth = null;
@@ -808,7 +809,47 @@
       console.debug('Debug: heatmap method changed', { value: refs.method.value });
       schedule();
     });
-    [refs.logTransform, refs.normalizeGenes, refs.normalizeArrays, refs.showRowDendrogram, refs.showColumnDendrogram].forEach(el => {
+    refs.logTransform?.addEventListener('change', () => {
+      const enabling = !!refs.logTransform.checked;
+      if(enabling){
+        const raw = collectTableData();
+        if(raw && raw.matrix){
+          let hasZeros = false;
+          let hasNegatives = false;
+          for(let i = 0; i < raw.matrix.length && !hasNegatives; i += 1){
+            for(let j = 0; j < raw.matrix[i].length && !hasNegatives; j += 1){
+              const value = raw.matrix[i][j];
+              if(Number.isFinite(value)){
+                if(value < 0){
+                  hasNegatives = true;
+                }else if(value === 0){
+                  hasZeros = true;
+                }
+              }
+            }
+          }
+          if(hasZeros && !hasNegatives){
+            const useLogPlusOne = global.confirm('Your data contains zero values. Would you like to add +1 to all values before log transform?\n\nThis will compute log2(x+1) instead of log2(x).');
+            if(useLogPlusOne){
+              state.logPlusOne = true;
+              console.debug('Debug: heatmap log+1 enabled by user confirmation');
+            }else{
+              refs.logTransform.checked = false;
+              state.logPlusOne = false;
+              console.debug('Debug: heatmap log transform cancelled by user');
+              return;
+            }
+          }else{
+            state.logPlusOne = false;
+          }
+        }
+      }else{
+        state.logPlusOne = false;
+      }
+      console.debug('Debug: heatmap logTransform changed', { id: refs.logTransform.id, checked: refs.logTransform.checked, logPlusOne: state.logPlusOne });
+      schedule();
+    });
+    [refs.normalizeGenes, refs.normalizeArrays, refs.showRowDendrogram, refs.showColumnDendrogram].forEach(el => {
       el?.addEventListener('change', () => {
         console.debug('Debug: heatmap toggle changed', { id: el.id, checked: el.checked });
         schedule();
@@ -1221,21 +1262,32 @@
   function applyLogTransform(matrix){
     let converted = 0;
     let invalid = 0;
+    const usePlusOne = !!state.logPlusOne;
     const log2 = value => Math.log(value) / Math.log(2);
     for(let i = 0; i < matrix.length; i += 1){
       for(let j = 0; j < matrix[i].length; j += 1){
         const value = matrix[i][j];
         if(!Number.isFinite(value)) continue;
-        if(value > 0){
-          matrix[i][j] = log2(value);
-          converted += 1;
+        if(usePlusOne){
+          if(value >= 0){
+            matrix[i][j] = log2(value + 1);
+            converted += 1;
+          }else{
+            matrix[i][j] = NaN;
+            invalid += 1;
+          }
         }else{
-          matrix[i][j] = NaN;
-          invalid += 1;
+          if(value > 0){
+            matrix[i][j] = log2(value);
+            converted += 1;
+          }else{
+            matrix[i][j] = NaN;
+            invalid += 1;
+          }
         }
       }
     }
-    console.debug('Debug: heatmap applyLogTransform complete', { converted, invalid });
+    console.debug('Debug: heatmap applyLogTransform complete', { converted, invalid, usePlusOne });
     return { converted, invalid };
   }
 
@@ -1731,6 +1783,7 @@
       },
       adjust: {
         logTransform: !!refs.logTransform?.checked,
+        logPlusOne: !!state.logPlusOne,
         centerRowsMode: refs.centerGenes?.checked ? (getCheckedRadioValue('heatmapCenterGenesMode') || 'mean') : null,
         normalizeRows: !!refs.normalizeGenes?.checked,
         centerColumnsMode: refs.centerArrays?.checked ? (getCheckedRadioValue('heatmapCenterArraysMode') || 'mean') : null,
@@ -3432,6 +3485,7 @@
       },
       adjust: {
         logTransform: !!refs.logTransform?.checked,
+        logPlusOne: !!state.logPlusOne,
         centerRows: refs.centerGenes?.checked ? (getCheckedRadioValue('heatmapCenterGenesMode') || 'mean') : null,
         centerColumns: refs.centerArrays?.checked ? (getCheckedRadioValue('heatmapCenterArraysMode') || 'mean') : null,
         normalizeRows: !!refs.normalizeGenes?.checked,
@@ -3504,6 +3558,7 @@
       refs.filterRangeEnable.dispatchEvent(new Event('change'));
     }
     if(refs.logTransform) refs.logTransform.checked = !!config.adjust?.logTransform;
+    state.logPlusOne = !!config.adjust?.logPlusOne;
     if(refs.centerGenes){
       refs.centerGenes.checked = !!config.adjust?.centerRows;
       const mode = config.adjust?.centerRows || 'mean';

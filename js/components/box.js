@@ -1670,7 +1670,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -1969,7 +1969,7 @@
       if(boxDebugEnabled()){
         console.debug('Debug: box log scale blocked by manual minimum', { value: manualMin, axisLabel });
       }
-      return { allowed: false, reason: 'axis-limit', value: manualMin, message };
+      return { allowed: false, reason: 'axis-limit', value: manualMin, message, hasZeros: manualMin === 0, hasNegatives: manualMin < 0 };
     }
     const manualMax = parseFloat(els.boxYMax?.value);
     if(Number.isFinite(manualMax) && manualMax <= 0){
@@ -1977,7 +1977,7 @@
       if(boxDebugEnabled()){
         console.debug('Debug: box log scale blocked by manual maximum', { value: manualMax, axisLabel });
       }
-      return { allowed: false, reason: 'axis-limit', value: manualMax, message };
+      return { allowed: false, reason: 'axis-limit', value: manualMax, message, hasZeros: manualMax === 0, hasNegatives: manualMax < 0 };
     }
     const analysis = state.hot?.getAnalysisData?.() || Shared.hot.getAnalysisData(state.hot);
     const dataMatrix = analysis?.data || [];
@@ -1989,6 +1989,10 @@
       }
       return { allowed: true };
     }
+    let hasZeros = false;
+    let hasNegatives = false;
+    let firstZeroLocation = null;
+    let firstNegativeLocation = null;
     for(let c = 0; c < colCount; c += 1){
       if(analysis.isColumnExcluded?.(c)){
         continue;
@@ -2004,15 +2008,37 @@
           continue;
         }
         const value = parseFloat(raw);
-        if(Number.isFinite(value) && value <= 0){
-          const formatted = value === 0 ? '0' : value.toPrecision(4);
-          const message = `Cannot enable log scale because ${axisLabel} data in "${columnLabel}" includes ${formatted} at row ${r + 1}.`;
-          if(boxDebugEnabled()){
-            console.debug('Debug: box log scale blocked by data', { column: c, row: r, value, columnLabel });
+        if(Number.isFinite(value)){
+          if(value < 0){
+            hasNegatives = true;
+            if(!firstNegativeLocation){
+              firstNegativeLocation = { column: c, row: r, value, columnLabel };
+            }
+          }else if(value === 0){
+            hasZeros = true;
+            if(!firstZeroLocation){
+              firstZeroLocation = { column: c, row: r, value, columnLabel };
+            }
           }
-          return { allowed: false, reason: 'data', value, message };
         }
       }
+    }
+    if(hasNegatives){
+      const loc = firstNegativeLocation;
+      const formatted = loc.value.toPrecision(4);
+      const message = `Cannot enable log scale because ${axisLabel} data in "${loc.columnLabel}" includes ${formatted} at row ${loc.row + 1}.`;
+      if(boxDebugEnabled()){
+        console.debug('Debug: box log scale blocked by negative data', { column: loc.column, row: loc.row, value: loc.value, columnLabel: loc.columnLabel });
+      }
+      return { allowed: false, reason: 'data', value: loc.value, message, hasZeros, hasNegatives: true };
+    }
+    if(hasZeros){
+      const loc = firstZeroLocation;
+      const message = `Data contains zero values. Would you like to use log(x+1) transform instead?`;
+      if(boxDebugEnabled()){
+        console.debug('Debug: box log scale has zeros', { column: loc.column, row: loc.row, columnLabel: loc.columnLabel });
+      }
+      return { allowed: false, reason: 'zeros', value: 0, message, hasZeros: true, hasNegatives: false, canUsePlusOne: true };
     }
     if(boxDebugEnabled()){
       console.debug('Debug: box log scale validation passed');
@@ -2826,12 +2852,29 @@
       if(enabling){
         const validation=validateBoxLogScale();
         if(!validation.allowed){
+          if(validation.canUsePlusOne && validation.hasZeros && !validation.hasNegatives){
+            const useLogPlusOne = global.confirm('Your data contains zero values. Would you like to add +1 to all values before log transform?\n\nThis will plot log(x+1) instead of log(x).');
+            if(useLogPlusOne){
+              state.logPlusOne = true;
+              clearBoxLogWarning();
+              console.debug('Debug: box log+1 enabled by user confirmation');
+              state.scheduleDraw();
+              return;
+            }else{
+              els.boxLogScale.checked = false;
+              state.logPlusOne = false;
+              console.debug('Debug: box log scale cancelled by user');
+              return;
+            }
+          }
           applyBoxLogScaleValidationFailure(validation,'toggle');
           console.warn('box log scale blocked',{ reason: validation.reason, value: validation.value });
           return;
         }
+        state.logPlusOne = false;
         clearBoxLogWarning();
       }else{
+        state.logPlusOne = false;
         clearBoxLogWarning();
       }
       console.log('boxLogScale changed', els.boxLogScale.checked);
@@ -6374,14 +6417,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     renderStatsControls(traces);
     if(logScale){
+      const logPlusOne = !!state.logPlusOne;
       const hasNonPos = traces.some(t => t.rawY.some(v => v <= 0));
-      if(hasNonPos){
+      if(hasNonPos && !logPlusOne){
         global.document.getElementById('boxPlot').innerHTML='<i>Log scale requires positive values.</i>';
         global.document.getElementById('statsResults').innerHTML='';
         global.document.getElementById('statsTable').innerHTML='';
         return;
       }
-      traces.forEach(t => { t.y = t.rawY.map(v => Math.log10(v)); });
+      if(logPlusOne){
+        traces.forEach(t => { t.y = t.rawY.map(v => Math.log10(v + 1)); });
+        console.debug('Debug: box log+1 transform applied');
+      }else{
+        traces.forEach(t => { t.y = t.rawY.map(v => Math.log10(v)); });
+      }
     }else{
       traces.forEach(t => { t.y = [...t.rawY]; });
     }
@@ -8123,6 +8172,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         showFrame:!!els.boxShowFrame?.checked,
         showLegend:els.boxShowLegend ? !!els.boxShowLegend.checked : true,
         logScale:els.boxLogScale.checked,
+        logPlusOne:!!state.logPlusOne,
         graphType:els.boxGraphType.value,
         groupLayout: state.groupLayout,
         individualSummary: state.individualSummary,
@@ -8309,6 +8359,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(els.boxShowFrame) els.boxShowFrame.checked=!!c.showFrame;
     if(els.boxShowLegend) els.boxShowLegend.checked=c.showLegend !== false;
     els.boxLogScale.checked=!!c.logScale;
+    state.logPlusOne=!!c.logPlusOne;
     els.boxGraphType.value=c.graphType||els.boxGraphType.value;
     const violinConfig = c.violin || {};
     const violinState = ensureViolinState();
