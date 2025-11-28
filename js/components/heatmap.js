@@ -3005,9 +3005,13 @@
     const scaleX = containerRect?.width && totalWidth ? containerRect.width / totalWidth : 1;
     const scaleY = containerRect?.height && totalHeight ? containerRect.height / totalHeight : 1;
     const uniformScale = Math.sqrt(Math.max(scaleX * scaleY, 0)) || 1;
-    // Use dendrogram thickness from state settings
+    // Compute auto-scaled dendrogram thickness based on cell size (original behavior)
+    const autoScaledThickness = Math.max(1, Math.min(3, Math.round(cellSize * 0.025 * 10) / 10));
+    // Use user-defined thickness from state if set, otherwise use auto-scaled value
     const dendroSettings = ensureDendrogramSettings();
-    const dendrogramStrokeBase = dendroSettings.thickness || DEFAULT_DENDROGRAM_THICKNESS;
+    const userThickness = dendroSettings.thickness;
+    // If user thickness is at default (1), use auto-scaling; otherwise use user value
+    const dendrogramStrokeBase = (userThickness === DEFAULT_DENDROGRAM_THICKNESS) ? autoScaledThickness : userThickness;
     const dendrogramStroke = dendrogramStrokeBase * uniformScale;
     const scaleGroup = doc.createElementNS(NS, 'g');
     scaleGroup.setAttribute('class', 'heatmap-color-scale');

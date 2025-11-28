@@ -5,14 +5,20 @@
   const TEXT_CLASS = 'graph-edit-highlight--text';
   const AXIS_CLASS = 'graph-edit-highlight--axis';
   const AXIS_OVERLAY_CLASS = 'graph-edit-highlight--axis-overlay';
+  const DENDROGRAM_CLASS = 'graph-edit-highlight--dendrogram';
+  const DENDROGRAM_OVERLAY_CLASS = 'graph-edit-highlight--dendrogram-overlay';
   const TEXT_FILTER = 'drop-shadow(0 0 4px rgba(255, 152, 0, 0.55))';
   const AXIS_FILTER = 'drop-shadow(0 0 4px rgba(255, 152, 0, 0.5))';
+  const DENDROGRAM_FILTER = 'drop-shadow(0 0 4px rgba(255, 152, 0, 0.5))';
 
   const state = {
     textTargets: [],
     axis: null,
     axisFilter: '',
-    overlay: null
+    overlay: null,
+    dendrogram: null,
+    dendrogramFilter: '',
+    dendrogramOverlay: null
   };
 
   function logDebug(message, payload){
@@ -70,6 +76,23 @@
     state.axis = null;
     state.axisFilter = '';
     state.overlay = null;
+  }
+
+  function clearDendrogram(reason){
+    if(!state.dendrogram && !state.dendrogramOverlay){ return; }
+    if(state.dendrogram && state.dendrogram.classList){
+      state.dendrogram.classList.remove(DENDROGRAM_CLASS);
+    }
+    if(state.dendrogram){
+      applyFilter(state.dendrogram, state.dendrogramFilter);
+    }
+    if(state.dendrogramOverlay && state.dendrogramOverlay.classList){
+      state.dendrogramOverlay.classList.remove(DENDROGRAM_OVERLAY_CLASS);
+    }
+    logDebug('dendrogram highlight cleared', { reason, orientation: state.dendrogram?.dataset?.dendrogramOrientation || null });
+    state.dendrogram = null;
+    state.dendrogramFilter = '';
+    state.dendrogramOverlay = null;
   }
 
   function escapeAttribute(value){
@@ -157,6 +180,7 @@
     }
     clearText('axis-selected');
     clearAxis('replace');
+    clearDendrogram('axis-selected');
     state.axis = target;
     state.overlay = options && options.overlay ? options.overlay : null;
     state.axisFilter = target?.style?.filter || '';
@@ -170,16 +194,41 @@
     logDebug('axis highlight applied', { id: target.id || null });
   }
 
+  function highlightDendrogram(target, options){
+    if(!target){ return; }
+    if(state.dendrogram === target && state.dendrogramOverlay === (options && options.overlay)){
+      logDebug('dendrogram highlight retained', { reason: 'same-target', orientation: target.dataset?.dendrogramOrientation || null });
+      return;
+    }
+    clearText('dendrogram-selected');
+    clearAxis('dendrogram-selected');
+    clearDendrogram('replace');
+    state.dendrogram = target;
+    state.dendrogramOverlay = options && options.overlay ? options.overlay : null;
+    state.dendrogramFilter = target?.style?.filter || '';
+    if(target.classList){
+      target.classList.add(DENDROGRAM_CLASS);
+    }
+    applyFilter(target, mergeFilter(state.dendrogramFilter, DENDROGRAM_FILTER));
+    if(state.dendrogramOverlay && state.dendrogramOverlay.classList){
+      state.dendrogramOverlay.classList.add(DENDROGRAM_OVERLAY_CLASS);
+    }
+    logDebug('dendrogram highlight applied', { orientation: target.dataset?.dendrogramOrientation || null });
+  }
+
   function clearAll(reason){
     clearText(reason || 'clear-all');
     clearAxis(reason || 'clear-all');
+    clearDendrogram(reason || 'clear-all');
   }
 
   Shared.editHighlight = {
     highlightText,
     highlightAxis,
+    highlightDendrogram,
     clearText,
     clearAxis,
+    clearDendrogram,
     clearAll
   };
 })(typeof window !== 'undefined' ? window : globalThis);
