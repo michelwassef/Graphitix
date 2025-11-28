@@ -3335,10 +3335,6 @@
           warn('svgActions hybrid missing config', { contextLabel });
           return;
         }
-        if (mode !== 'download') {
-          warn('svgActions hybrid copy unsupported', { contextLabel });
-          return;
-        }
         const payload = await buildHybridSvgExportPayload(svgEl, {
           ...hybridConfig,
           baseFileName: hybridConfig.baseFileName || fileName,
@@ -3348,7 +3344,14 @@
           warn('svgActions hybrid payload missing', { contextLabel });
           return handle(mode, 'svg');
         }
-        downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-hybrid`);
+        if (mode === 'download') {
+          downloadBlob(payload.svgBlob, payload.fileName, `${contextLabel}-hybrid`);
+        } else {
+          const copied = await copyBlobMap(payload.clipboardMap, `${contextLabel}-hybrid`);
+          if (!copied) {
+            warn('svgActions hybrid copy unavailable', { contextLabel: `${contextLabel}-hybrid` });
+          }
+        }
       } else if (format === 'emf') {
         const blob = await svgElementToEmfBlob(svgEl, {
           contextLabel: `${contextLabel}-emf`,
@@ -3374,6 +3377,7 @@
         }
       }
     }
+    const hybridLabel = hybridConfig?.label || 'SVG (rasterized)';
     return [
       {
         key: 'download',
@@ -3381,7 +3385,7 @@
         formats: [
           { key: 'png', label: 'PNG', handler: () => handle('download', 'png') },
           { key: 'svg', label: 'SVG', handler: () => handle('download', 'svg') },
-          ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridConfig.label || 'SVG (rasterized)', handler: () => handle('download', 'svg-hybrid') }] : []),
+          ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridLabel, handler: () => handle('download', 'svg-hybrid') }] : []),
           { key: 'emf', label: 'EMF', handler: () => handle('download', 'emf') }
         ]
       },
@@ -3391,6 +3395,7 @@
         formats: [
           { key: 'png', label: 'PNG', handler: () => handle('copy', 'png') },
           { key: 'svg', label: 'SVG', handler: () => handle('copy', 'svg') },
+          ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridLabel, handler: () => handle('copy', 'svg-hybrid') }] : []),
           { key: 'emf', label: 'EMF', handler: () => handle('copy', 'emf') }
         ]
       }
