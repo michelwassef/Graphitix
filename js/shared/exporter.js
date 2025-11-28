@@ -69,6 +69,9 @@
   const SETPOLYFILLMODE_ALTERNATE = 1;
   const SETPOLYFILLMODE_WINDING = 2;
 
+  // Default scale factor for PNG exports (2x for higher resolution)
+  const DEFAULT_PNG_SCALE = 2;
+
   function isDebugEnabled() {
     try {
       return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -2426,6 +2429,8 @@
     const defsTemplates = collectDefs(svgEl);
     const paddingDefault = Number.isFinite(options.padding) ? Math.max(0, options.padding) : 0;
     const scaleDefault = Number.isFinite(options.rasterScale) && options.rasterScale > 0 ? options.rasterScale : 1;
+    // Use pngScale for higher resolution raster output in hybrid SVG
+    const pngScaleDefault = Number.isFinite(options.pngScale) && options.pngScale > 0 ? options.pngScale : DEFAULT_PNG_SCALE;
     const hybridSvg = typeof svgEl.cloneNode === 'function' ? svgEl.cloneNode(true) : null;
     if (!hybridSvg) {
       warn('buildHybridSvg clone failed', { contextLabel: options.contextLabel });
@@ -2456,6 +2461,7 @@
       }
       const padding = Number.isFinite(layer.padding) ? Math.max(0, layer.padding) : paddingDefault;
       const scale = Number.isFinite(layer.scale) && layer.scale > 0 ? layer.scale : scaleDefault;
+      const layerPngScale = Number.isFinite(layer.pngScale) && layer.pngScale > 0 ? layer.pngScale : pngScaleDefault;
       const padded = inflateBox(bbox, padding);
       const rasterSvg = baseDoc?.createElementNS ? baseDoc.createElementNS(NS, 'svg') : null;
       if (!rasterSvg) {
@@ -2491,7 +2497,8 @@
         contextLabel: `${options.contextLabel || 'hybrid-svg'}-${label}`,
         dpi: options.dpi,
         dpiX: options.dpiX,
-        dpiY: options.dpiY
+        dpiY: options.dpiY,
+        pngScale: layerPngScale
       });
       if (!pngBlob) {
         warn('buildHybridSvg raster blob missing', { contextLabel: options.contextLabel, label });
@@ -2528,6 +2535,7 @@
         bbox,
         paddedBBox: padded,
         scale,
+        pngScale: layerPngScale,
         pngBytes: pngBlob.size
       });
     }
@@ -2736,6 +2744,8 @@
 
   async function renderSvgStringToCanvas(xml, options = {}) {
     const { width, height, fallbackWidth = 800, fallbackHeight = 400, contextLabel } = options;
+    // Apply scale factor for higher resolution PNG output
+    const pngScale = Number.isFinite(options.pngScale) && options.pngScale > 0 ? options.pngScale : DEFAULT_PNG_SCALE;
     if (!xml) {
       logDebug('renderSvgStringToCanvas skipped', { contextLabel, reason: 'empty xml' });
       return null;
@@ -2773,9 +2783,12 @@
     }
     const resolvedWidth = Number.isFinite(width) && width > 0 ? width : (img.width || fallbackWidth);
     const resolvedHeight = Number.isFinite(height) && height > 0 ? height : (img.height || fallbackHeight);
+    // Scale the canvas for higher resolution output
+    const scaledWidth = Math.round(resolvedWidth * pngScale);
+    const scaledHeight = Math.round(resolvedHeight * pngScale);
     const canvas = doc.createElement('canvas');
-    canvas.width = resolvedWidth;
-    canvas.height = resolvedHeight;
+    canvas.width = scaledWidth;
+    canvas.height = scaledHeight;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) {
       warn('renderSvgStringToCanvas missing context', { contextLabel });
@@ -2783,6 +2796,8 @@
       canvas.height = 0;
       return null;
     }
+    // Apply scale transform for drawing
+    ctx.scale(pngScale, pngScale);
     if (options.backgroundColor) {
       const parsed = parseCssColor(options.backgroundColor);
       if (parsed?.css) {
@@ -2797,14 +2812,17 @@
       console.debug('Debug: exporter renderSvgStringToCanvas ready', {
         contextLabel,
         width: resolvedWidth,
-        height: resolvedHeight
+        height: resolvedHeight,
+        scaledWidth,
+        scaledHeight,
+        pngScale
       });
     }
     const release = () => {
       canvas.width = 0;
       canvas.height = 0;
     };
-    return { canvas, width: resolvedWidth, height: resolvedHeight, release };
+    return { canvas, width: scaledWidth, height: scaledHeight, logicalWidth: resolvedWidth, logicalHeight: resolvedHeight, pngScale, release };
   }
 
   function resolveDpiValue(value) {
@@ -3046,6 +3064,9 @@
       contextLabel: options.contextLabel,
       width: rendered?.width,
       height: rendered?.height,
+      logicalWidth: rendered?.logicalWidth,
+      logicalHeight: rendered?.logicalHeight,
+      pngScale: rendered?.pngScale,
       hasBlob: !!blob
     });
     return blob;
@@ -3067,7 +3088,8 @@
       contextLabel: options.contextLabel,
       dpi: options.dpi,
       dpiX: options.dpiX,
-      dpiY: options.dpiY
+      dpiY: options.dpiY,
+      pngScale: options.pngScale
     });
   }
 
@@ -3270,6 +3292,7 @@
       dpi,
       dpiX,
       dpiY,
+      pngScale,
       hybridOptions
     } = config;
     const hybridConfig = hybridOptions && Array.isArray(hybridOptions.layers) && hybridOptions.layers.length
@@ -3296,7 +3319,8 @@
           fallbackHeight,
           dpi,
           dpiX,
-          dpiY
+          dpiY,
+          pngScale
         });
         if (!blob) return;
         if (mode === 'download') {
@@ -3539,7 +3563,7 @@
   }
 
   function createSvgStringActions(config) {
-    const { getSvgString, getDimensions, fileName = 'chart', contextLabel = 'svg-string', dpi, dpiX, dpiY } = config;
+    const { getSvgString, getDimensions, fileName = 'chart', contextLabel = 'svg-string', dpi, dpiX, dpiY, pngScale } = config;
     const resolveBackground = () => {
       if (config.backgroundColor) {
         return config.backgroundColor;
@@ -3586,7 +3610,8 @@
           contextLabel: `${contextLabel}-png`,
           dpi,
           dpiX,
-          dpiY
+          dpiY,
+          pngScale
         });
         if (!blob) return;
         if (mode === 'download') {
@@ -3684,6 +3709,7 @@
       dpi: config.dpi,
       dpiX: config.dpiX,
       dpiY: config.dpiY,
+      pngScale: config.pngScale,
       hybridOptions: config.hybridOptions
     });
     mountControls({ container: config.container, actions, contextLabel: config.contextLabel || config.fileName || 'svg-export' });
@@ -3697,7 +3723,8 @@
       contextLabel: config.contextLabel || config.fileName || 'canvas-export',
       dpi: config.dpi,
       dpiX: config.dpiX,
-      dpiY: config.dpiY
+      dpiY: config.dpiY,
+      pngScale: config.pngScale
     });
     mountControls({ container: config.container, actions, contextLabel: config.contextLabel || config.fileName || 'canvas-export' });
   };
@@ -3710,10 +3737,14 @@
       contextLabel: config.contextLabel || config.fileName || 'svg-string',
       dpi: config.dpi,
       dpiX: config.dpiX,
-      dpiY: config.dpiY
+      dpiY: config.dpiY,
+      pngScale: config.pngScale
     });
     mountControls({ container: config.container, actions, contextLabel: config.contextLabel || config.fileName || 'svg-string' });
   };
+
+  // Expose the default PNG scale constant for external configuration
+  exporter.DEFAULT_PNG_SCALE = DEFAULT_PNG_SCALE;
 
   exporter.svgElementToPngBlob = svgElementToPngBlob;
   exporter.svgElementToEmfBlob = svgElementToEmfBlob;
