@@ -200,7 +200,19 @@
       container: '#heatmapExportControls',
       svgSelector: '#heatmapSvg',
       fileName: exportFileName,
-      contextLabel: 'heatmap-export'
+      contextLabel: 'heatmap-export',
+      hybridOptions: {
+        label: 'SVG (matrix as PNG)',
+        fileNameSuffix: '-light',
+        layers: [
+          {
+            selector: '[data-export-layer="heatmap-cells"]',
+            label: 'heatmap-cells',
+            padding: 2,
+            scale: 4
+          }
+        ]
+      }
     });
     debugLog('Debug: heatmap export controls configured', { fileName: exportFileName });
   }
@@ -2876,6 +2888,11 @@
       markFontEditable(text, 'columnLabel', `column-label-${index}`);
       g.appendChild(text);
     });
+    // Create a separate layer for the data matrix cells to support composite export (PNG matrix + SVG labels)
+    const cellLayer = doc.createElementNS(NS, 'g');
+    cellLayer.setAttribute('data-export-layer', 'heatmap-cells');
+    cellLayer.setAttribute('data-layer', 'cells');
+    g.appendChild(cellLayer);
     for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
       for(let columnIndex = 0; columnIndex < columnCount; columnIndex += 1){
         if(maskLower && columnIndex < rowIndex){
@@ -2897,7 +2914,7 @@
           title.textContent = cell.title;
           rect.appendChild(title);
         }
-        g.appendChild(rect);
+        cellLayer.appendChild(rect);
         if(showValues && Number.isFinite(cell.value)){
           const text = doc.createElementNS(NS, 'text');
           text.setAttribute('x', String(x + cellSize / 2));
@@ -2909,7 +2926,7 @@
           text.setAttribute('fill', textColorForBackground(cell.fill || '#d0d0d0'));
           text.textContent = cell.value.toFixed(decimals ?? 2);
           markFontEditable(text, 'cellValue', `cell-${rowIndex}-${columnIndex}`);
-          g.appendChild(text);
+          cellLayer.appendChild(text);
         }
       }
     }
