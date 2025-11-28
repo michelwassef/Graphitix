@@ -6418,7 +6418,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     renderStatsControls(traces);
     if(logScale){
       const logPlusOne = !!state.logPlusOne;
-      const hasNonPos = traces.some(t => t.rawY.some(v => v <= 0));
+      const hasNonPos = traces.some(t => t.rawY.some(v => Number.isFinite(v) && v <= 0));
       if(hasNonPos && !logPlusOne){
         global.document.getElementById('boxPlot').innerHTML='<i>Log scale requires positive values.</i>';
         global.document.getElementById('statsResults').innerHTML='';
@@ -6426,10 +6426,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         return;
       }
       if(logPlusOne){
-        traces.forEach(t => { t.y = t.rawY.map(v => Math.log10(v + 1)); });
+        traces.forEach(t => { t.y = t.rawY.map(v => Number.isFinite(v) ? Math.log10(v + 1) : v); });
         console.debug('Debug: box log+1 transform applied');
       }else{
-        traces.forEach(t => { t.y = t.rawY.map(v => Math.log10(v)); });
+        traces.forEach(t => { t.y = t.rawY.map(v => Number.isFinite(v) ? Math.log10(v) : v); });
       }
     }else{
       traces.forEach(t => { t.y = [...t.rawY]; });

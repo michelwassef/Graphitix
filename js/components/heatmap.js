@@ -1269,6 +1269,7 @@
         const value = matrix[i][j];
         if(!Number.isFinite(value)) continue;
         if(usePlusOne){
+          // When log+1 is enabled, allow non-negative values (zeros become log2(1) = 0)
           if(value >= 0){
             matrix[i][j] = log2(value + 1);
             converted += 1;

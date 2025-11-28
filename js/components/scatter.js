@@ -2843,15 +2843,15 @@
         }
         // Apply log+1 transform if enabled
         if(logX && scatterState.logPlusOneX){
-          points = points.map(p => ({ ...p, x: p.x + 1 }));
-          xMinRaw = xMinRaw + 1;
-          xMaxRaw = xMaxRaw + 1;
+          points = points.map(p => Number.isFinite(p.x) ? { ...p, x: p.x + 1 } : p);
+          if(Number.isFinite(xMinRaw)) xMinRaw = xMinRaw + 1;
+          if(Number.isFinite(xMaxRaw)) xMaxRaw = xMaxRaw + 1;
           debug('Debug: scatter log+1 transform applied to X');
         }
         if(logY && scatterState.logPlusOneY){
-          points = points.map(p => ({ ...p, y: p.y + 1 }));
-          yMinRaw = yMinRaw + 1;
-          yMaxRaw = yMaxRaw + 1;
+          points = points.map(p => Number.isFinite(p.y) ? { ...p, y: p.y + 1 } : p);
+          if(Number.isFinite(yMinRaw)) yMinRaw = yMinRaw + 1;
+          if(Number.isFinite(yMaxRaw)) yMaxRaw = yMaxRaw + 1;
           debug('Debug: scatter log+1 transform applied to Y');
         }
         let xMin=xMinRaw, xMax=xMaxRaw, yMin=yMinRaw, yMax=yMaxRaw;

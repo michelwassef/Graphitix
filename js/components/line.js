@@ -2813,29 +2813,29 @@
       if(logX && lineLogPlusOneX){
         seriesWithData.forEach(s=>{
           s.points=s.points.map(pt=>{
-            if(!pt) return null;
+            if(!pt || !Number.isFinite(pt.x)) return pt;
             return { ...pt, x: pt.x + 1 };
           });
         });
-        xMinRaw = xMinRaw + 1;
-        xMaxRaw = xMaxRaw + 1;
+        if(Number.isFinite(xMinRaw)) xMinRaw = xMinRaw + 1;
+        if(Number.isFinite(xMaxRaw)) xMaxRaw = xMaxRaw + 1;
         console.debug('Debug: line log+1 transform applied to X');
       }
       if(logY && lineLogPlusOneY){
         seriesWithData.forEach(s=>{
           s.points=s.points.map(pt=>{
-            if(!pt) return null;
+            if(!pt || !Number.isFinite(pt.y)) return pt;
             const newPt = { ...pt, y: pt.y + 1 };
             if(Number.isFinite(pt.lower)) newPt.lower = pt.lower + 1;
             if(Number.isFinite(pt.upper)) newPt.upper = pt.upper + 1;
             if(Array.isArray(pt.replicates)){
-              newPt.replicates = pt.replicates.map(v => v + 1);
+              newPt.replicates = pt.replicates.map(v => Number.isFinite(v) ? v + 1 : v);
             }
             return newPt;
           });
         });
-        yMinRaw = yMinRaw + 1;
-        yMaxRaw = yMaxRaw + 1;
+        if(Number.isFinite(yMinRaw)) yMinRaw = yMinRaw + 1;
+        if(Number.isFinite(yMaxRaw)) yMaxRaw = yMaxRaw + 1;
         console.debug('Debug: line log+1 transform applied to Y');
       }
       const filterPointByRange = (pt, range) => {
