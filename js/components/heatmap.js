@@ -2757,14 +2757,36 @@
     const scaledFontSize = Number.isFinite(fontInfo?.scaledPx) ? fontInfo.scaledPx : fontSize;
     const heatmapWidth = columnCount * cellSize;
     const heatmapHeight = rowCount * cellSize;
+    // Define label measurement helpers early for margin calculation
+    const labelMeasureFont = chartStyle.makeFont
+      ? chartStyle.makeFont(Math.max(4, Math.round(scaledFontSize)))
+      : `${Math.max(4, Math.round(scaledFontSize))}px sans-serif`;
+    const measureColumnLabelWidth = label => {
+      if(typeof chartStyle.measureText === 'function'){
+        try{
+          return chartStyle.measureText(label || '', labelMeasureFont);
+        }catch(err){
+          console.warn('heatmap column label measureText error', err);
+        }
+      }
+      return String(label || '').length * scaledFontSize * 0.6;
+    };
     let marginLeft = 160;
     let marginTop = 160;
     let marginRight = 120;
     let marginBottom = 120;
     const maxRowLabelLength = orderedRowLabels.reduce((acc, label) => Math.max(acc, String(label || '').length), 0);
     const maxColumnLabelLength = orderedColumnLabels.reduce((acc, label) => Math.max(acc, String(label || '').length), 0);
+    // Calculate maximum measured column label width (becomes height when rotated vertically)
+    const maxColumnLabelWidth = orderedColumnLabels.reduce((acc, label) => Math.max(acc, measureColumnLabelWidth(label)), 0);
     marginLeft = Math.max(marginLeft, Math.min(280, scaledFontSize * (maxRowLabelLength * 0.6 + 4)));
-    marginTop = Math.max(marginTop, Math.min(260, scaledFontSize * (maxColumnLabelLength * 0.6 + 4)));
+    // Constants for title positioning relative to column labels
+    const labelGap = 12;
+    const titleGap = Math.max(scaledFontSize * 0.5, 8);
+    const minTitleY = scaledFontSize * 1.2; // Minimum distance from top of SVG
+    // marginTop must accommodate: label gap + full label height + title gap + minimum title position
+    const requiredMarginForLabels = labelGap + maxColumnLabelWidth + titleGap + minTitleY;
+    marginTop = Math.max(marginTop, requiredMarginForLabels, Math.min(260, scaledFontSize * (maxColumnLabelLength * 0.6 + 4)));
     const dendroHeatmapGap = 0;
     const rowDendroWidth = showRowDendrogram && rowClustering?.tree
       ? Math.min(320, Math.max(60, Math.round(Math.max(cellSize * 1.6, heatmapWidth * 0.18))))
@@ -2803,7 +2825,13 @@
     });
     const title = doc.createElementNS(NS, 'text');
     title.setAttribute('x', String(totalWidth / 2));
-    title.setAttribute('y', String(Math.max(scaledFontSize * 1.6, titlePadding * 0.55)));
+    // Calculate title position to remain above all column labels
+    // Column labels after -90 rotation have their top at: marginTop - labelGap - maxColumnLabelWidth
+    // Title baseline should be above this with titleGap, using constants defined earlier
+    const columnLabelTopExtent = marginTop - labelGap - maxColumnLabelWidth;
+    // Title y should be above labels (smaller y = higher up) but not above minimum
+    const titleY = Math.max(minTitleY, columnLabelTopExtent - titleGap);
+    title.setAttribute('y', String(titleY));
     title.setAttribute('text-anchor', 'middle');
     title.setAttribute('font-size', String(scaledFontSize));
     title.textContent = state.titleText != null ? String(state.titleText) : 'Heatmap';
@@ -2849,19 +2877,6 @@
     defs.appendChild(gradient);
     const g = doc.createElementNS(NS, 'g');
     state.svg.appendChild(g);
-    const labelMeasureFont = chartStyle.makeFont
-      ? chartStyle.makeFont(Math.max(4, Math.round(scaledFontSize)))
-      : `${Math.max(4, Math.round(scaledFontSize))}px sans-serif`;
-    const measureColumnLabelWidth = label => {
-      if(typeof chartStyle.measureText === 'function'){
-        try{
-          return chartStyle.measureText(label || '', labelMeasureFont);
-        }catch(err){
-          console.warn('heatmap column label measureText error', err);
-        }
-      }
-      return String(label || '').length * scaledFontSize * 0.6;
-    };
     orderedRowLabels.forEach((label, index) => {
       const text = doc.createElementNS(NS, 'text');
       text.setAttribute('x', String(marginLeft - 12));
