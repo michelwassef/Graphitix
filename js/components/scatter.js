@@ -4439,12 +4439,12 @@
           hybridOptions: {
             label: 'SVG (points as PNG)',
             fileNameSuffix: '-light',
-            rasterScale: 4,
             layers: [
               {
                 selector: '[data-export-layer="scatter-points"]',
                 label: 'scatter-points',
-                padding: 2
+                padding: 2,
+                scale: 4
               }
             ]
           }
