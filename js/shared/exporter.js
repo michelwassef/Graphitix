@@ -3419,8 +3419,7 @@
         formats: [
           { key: 'png', label: 'PNG', handler: () => handle('copy', 'png') },
           { key: 'svg', label: 'SVG', handler: () => handle('copy', 'svg') },
-          ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridLabel, handler: () => handle('copy', 'svg-hybrid') }] : []),
-          { key: 'emf', label: 'EMF', handler: () => handle('copy', 'emf') }
+          ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridLabel, handler: () => handle('copy', 'svg-hybrid') }] : [])
         ]
       }
     ];
@@ -3555,8 +3554,7 @@
         label: 'Copy',
         formats: [
           { key: 'png', label: 'PNG', handler: () => handle('copy', 'png') },
-          { key: 'svg', label: 'SVG', handler: () => handle('copy', 'svg') },
-          { key: 'emf', label: 'EMF', handler: () => handle('copy', 'emf') }
+          { key: 'svg', label: 'SVG', handler: () => handle('copy', 'svg') }
         ]
       }
     ];
@@ -3692,8 +3690,7 @@
         label: 'Copy',
         formats: [
           { key: 'png', label: 'PNG', handler: () => handle('copy', 'png') },
-          { key: 'svg', label: 'SVG', handler: () => handle('copy', 'svg') },
-          { key: 'emf', label: 'EMF', handler: () => handle('copy', 'emf') }
+          { key: 'svg', label: 'SVG', handler: () => handle('copy', 'svg') }
         ]
       }
     ];
