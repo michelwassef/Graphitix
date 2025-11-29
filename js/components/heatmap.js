@@ -130,7 +130,7 @@
     lastRenderModel: null,
     lastViewOptions: null,
     lastStats: null,
-    logPlusOne: false
+    logPlusOne: false,
     dendrogramSettings: {
       thickness: DEFAULT_DENDROGRAM_THICKNESS,
       color: DEFAULT_DENDROGRAM_COLOR
