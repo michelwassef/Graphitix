@@ -1579,7 +1579,7 @@
           x: {
             title: { display: true, text: '-log10(p)' },
             grid: { display: false },
-            ticks: { callback: v => v.toLocaleString('en-US', { maximumFractionDigits: 2 }) }
+            ticks: { callback: v => chartStyle.formatScientific(v, { maxDecimals: 2 }) }
           },
           y: { grid: { display: false }, ticks: { autoSkip: false } }
         }

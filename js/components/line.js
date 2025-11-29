@@ -3095,7 +3095,7 @@
       let xTickTarget=chartStyle.estimateTickCount(W,{axis:'x',fallback:6});
       let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
       console.debug('Debug: line initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
-      function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
+      function formatTick(v){return chartStyle.formatScientific(v,{maxDecimals:2});}
       const tickFont=chartStyle.makeFont(fs);
       const axisLabelFont=chartStyle.makeFont(fs);
       const yTitleWidthBase=chartStyle.measureText(lineYLabelText,axisLabelFont);

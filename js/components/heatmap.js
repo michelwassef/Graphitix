@@ -3453,7 +3453,7 @@
           { offset: 0, color: rgbToCss(hexToRgb(viewOptions.palette?.zero || '#f7f7f7')) },
           { offset: 100, color: rgbToCss(hexToRgb(viewOptions.palette?.positive || '#a50026')) }
         ],
-        ticks: [0, 0.25, 0.5, 0.75, 1].map(value => ({ value, label: value.toFixed(viewOptions.decimals ?? 2) })),
+        ticks: [0, 0.25, 0.5, 0.75, 1].map(value => ({ value, label: chartStyle.formatScientific(value, { maxDecimals: viewOptions.decimals ?? 2 }) })),
         valueToRatio: value => Math.min(1, Math.max(0, value))
       };
     }
@@ -3463,7 +3463,7 @@
         { offset: 50, color: rgbToCss(hexToRgb(viewOptions.palette?.zero || '#f7f7f7')) },
         { offset: 100, color: rgbToCss(hexToRgb(viewOptions.palette?.positive || '#a50026')) }
       ],
-      ticks: [-1, -0.5, 0, 0.5, 1].map(value => ({ value, label: value.toFixed(viewOptions.decimals ?? 2) })),
+      ticks: [-1, -0.5, 0, 0.5, 1].map(value => ({ value, label: chartStyle.formatScientific(value, { maxDecimals: viewOptions.decimals ?? 2 }) })),
       valueToRatio: value => (Math.min(1, Math.max(-1, value)) + 1) / 2
     };
   }
@@ -3497,7 +3497,7 @@
       for(let i = 0; i <= 4; i += 1){
         const ratio = i / 4;
         const value = min + (max - min) * ratio;
-        tickValues.push({ value, label: value.toFixed(decimals ?? 2) });
+        tickValues.push({ value, label: chartStyle.formatScientific(value, { maxDecimals: decimals ?? 2 }) });
       }
     }
     return {

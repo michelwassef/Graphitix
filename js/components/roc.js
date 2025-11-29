@@ -1387,7 +1387,7 @@
       return list;
     };
     let tickCount = chartStyle.estimateTickCount(Math.min(width, height), { axis: graphType, fallback: 6, min: 3, max: 11 });
-    const formatTick = value => value.toLocaleString('en-US',{maximumFractionDigits:2, minimumFractionDigits:2});
+    const formatTick = value => chartStyle.formatScientific(value,{maxDecimals:2});
     const tickFont = chartStyle.makeFont(fontSize);
     const axisLabelFont = chartStyle.makeFont(fontSize);
     const xAxisLabel = graphType === 'roc' ? 'False Positive Rate' : 'Recall';

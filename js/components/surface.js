@@ -292,11 +292,7 @@
     if(!Number.isFinite(value)){
       return 'n/a';
     }
-    const abs = Math.abs(value);
-    if(abs >= 1e4 || abs < 1e-3){
-      return value.toExponential(2);
-    }
-    return value.toFixed(2);
+    return chartStyle.formatScientific(value, { maxDecimals: 2 });
   }
 
   function cacheDom(){
