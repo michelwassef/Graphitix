@@ -2038,3 +2038,39 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
     pointer-events: auto;
     transition: stroke 0.12s ease-in-out, fill 0.12s ease-in-out;
 }
+
+/* Dendrogram controls panel */
+.font-toolbar-host.font-toolbar-host--visible>.dendrogram-controls-panel{position:static;margin:0;max-width:100%}
+.font-toolbar-host--dendrogram{display:block}
+.dendrogram-controls-panel{display:flex;align-items:flex-start;gap:12px;padding:0;border-radius:12px;border:none;background:transparent;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
+.dendrogram-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:72px}
+.dendrogram-controls-panel__summary-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#475569;font-weight:600}
+.dendrogram-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
+.dendrogram-controls-panel__field{display:flex;flex-direction:column;align-items:flex-start;gap:4px;font-size:11px;color:#475569;letter-spacing:.01em;min-width:72px;flex:0 0 auto}
+.dendrogram-controls-panel__field--numeric{width:auto;min-width:72px}
+.dendrogram-controls-panel__field--color{min-width:64px;width:auto;align-items:center;text-align:center}
+.dendrogram-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:10px;text-transform:uppercase;letter-spacing:.12em;white-space:nowrap}
+.dendrogram-controls-panel__input{padding:5px 6px;font-size:13px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#0f172a;min-width:0;width:auto;max-width:96px;text-align:center}
+.dendrogram-controls-panel__input--small{width:40px;min-width:40px}
+.dendrogram-controls-panel__input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
+.dendrogram-controls-panel__color-input{height:32px;width:64px;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;display:block;margin:0 auto}
+.dendrogram-controls-panel__field--color .dendrogram-controls-panel__field-label{display:block;width:100%;text-align:center}
+.dendrogram-controls-panel__field--color .dendrogram-controls-panel__color-input{align-self:center;margin-left:0;margin-right:0;margin-inline:auto}
+.dendrogram-controls-panel__color-input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
+
+/* Dendrogram highlight styles */
+.graph-edit-highlight--dendrogram {
+    stroke: #ff9800;
+    stroke-width: 2.5;
+    filter: drop-shadow(0 0 2px rgba(255, 152, 0, 0.4)) drop-shadow(0 0 5px rgba(255, 152, 0, 0.5));
+}
+
+.graph-edit-highlight--dendrogram-overlay {
+    stroke: rgba(255, 152, 0, 0.85);
+    stroke-width: 2;
+    fill: rgba(255, 152, 0, 0.12);
+    rx: 3;
+    ry: 3;
+    pointer-events: auto;
+    transition: stroke 0.12s ease-in-out, fill 0.12s ease-in-out;
+}

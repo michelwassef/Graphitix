@@ -6,6 +6,7 @@
   const heatmap = Components.heatmap = Components.heatmap || {};
   const chartStyle = Shared.chartStyle = Shared.chartStyle || {};
   const fontControls = Shared.fontControls = Shared.fontControls || {};
+  const dendrogramControls = Shared.dendrogramControls = Shared.dendrogramControls || {};
   const exportFontStyles = scopeId => (fontControls && typeof fontControls.exportScopeStyles === 'function')
     ? fontControls.exportScopeStyles(scopeId)
     : null;
@@ -102,6 +103,8 @@
   const HEATMAP_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const HEATMAP_AUTO_DRAW_COL_THRESHOLD = 5000;
   const HEATMAP_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const DEFAULT_DENDROGRAM_COLOR = '#3d3d3d';
+  const DEFAULT_DENDROGRAM_THICKNESS = 1;
 
   let heatmapRenderRowEl = null;
   let heatmapRenderButtonEl = null;
@@ -126,8 +129,64 @@
     lastAutoDrawEvaluation: null,
     lastRenderModel: null,
     lastViewOptions: null,
-    lastStats: null
+    lastStats: null,
+    dendrogramSettings: {
+      thickness: DEFAULT_DENDROGRAM_THICKNESS,
+      color: DEFAULT_DENDROGRAM_COLOR
+    }
   };
+
+  function ensureDendrogramSettings(){
+    if(!state.dendrogramSettings){
+      state.dendrogramSettings = {
+        thickness: DEFAULT_DENDROGRAM_THICKNESS,
+        color: DEFAULT_DENDROGRAM_COLOR
+      };
+    }
+    return state.dendrogramSettings;
+  }
+
+  function getDendrogramThickness(){
+    const settings = ensureDendrogramSettings();
+    return settings.thickness;
+  }
+
+  function getDendrogramColor(){
+    const settings = ensureDendrogramSettings();
+    return settings.color;
+  }
+
+  function updateDendrogramThickness(value){
+    const settings = ensureDendrogramSettings();
+    const numeric = Number(value);
+    const newThickness = Number.isFinite(numeric) && numeric > 0 ? numeric : DEFAULT_DENDROGRAM_THICKNESS;
+    if(settings.thickness !== newThickness){
+      settings.thickness = newThickness;
+      debugLog('Debug: heatmap dendrogram thickness updated', { value: newThickness });
+      state.scheduleDraw({ viewOnly: true, reason: 'dendrogram-thickness' });
+    }
+  }
+
+  function updateDendrogramColor(value){
+    const settings = ensureDendrogramSettings();
+    const newColor = typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_DENDROGRAM_COLOR;
+    if(settings.color !== newColor){
+      settings.color = newColor;
+      debugLog('Debug: heatmap dendrogram color updated', { value: newColor });
+      state.scheduleDraw({ viewOnly: true, reason: 'dendrogram-color' });
+    }
+  }
+
+  function createDendrogramControlConfig(orientation){
+    return {
+      orientation,
+      scopeId: 'heatmap',
+      getThickness: getDendrogramThickness,
+      getColor: getDendrogramColor,
+      onThicknessChange: updateDendrogramThickness,
+      onColorChange: updateDendrogramColor
+    };
+  }
 
   let heatmapNoticeBoundWidth = null;
   const syncHeatmapAutoDrawNoticeWidth = (reason) => {
@@ -2306,6 +2365,8 @@
       });
       return null;
     }
+    const settings = ensureDendrogramSettings();
+    const dendrogramColor = settings.color || DEFAULT_DENDROGRAM_COLOR;
     const orderIndex = new Map();
     order.forEach((itemIndex, position) => {
       orderIndex.set(itemIndex, position);
@@ -2313,14 +2374,21 @@
     const safeMaxDistance = maxDistance > 0 ? maxDistance : 1;
     const group = doc.createElementNS(NS, 'g');
     group.setAttribute('class', 'heatmap-dendrogram');
+    group.setAttribute('data-dendrogram-orientation', orientation);
     group.setAttribute('fill', 'none');
-    group.setAttribute('stroke', '#3d3d3d');
+    group.setAttribute('stroke', dendrogramColor);
     group.setAttribute('stroke-width', String(strokeWidth));
     group.setAttribute('stroke-linecap', 'butt');
     group.setAttribute('stroke-linejoin', 'miter');
     group.setAttribute('shape-rendering', 'geometricPrecision');
     group.setAttribute('vector-effect', 'non-scaling-stroke');
     parent.appendChild(group);
+
+    // Register dendrogram group with dendrogramControls for click handling
+    if(dendrogramControls && typeof dendrogramControls.registerDendrogramElement === 'function'){
+      dendrogramControls.registerDendrogramElement(group, createDendrogramControlConfig(orientation));
+      debugLog('Debug: heatmap dendrogram registered with controls', { orientation });
+    }
 
     const visitVertical = node => {
       if(!node){
@@ -2937,7 +3005,13 @@
     const scaleX = containerRect?.width && totalWidth ? containerRect.width / totalWidth : 1;
     const scaleY = containerRect?.height && totalHeight ? containerRect.height / totalHeight : 1;
     const uniformScale = Math.sqrt(Math.max(scaleX * scaleY, 0)) || 1;
-    const dendrogramStrokeBase = Math.max(1, Math.min(3, Math.round(cellSize * 0.025 * 10) / 10));
+    // Compute auto-scaled dendrogram thickness based on cell size (original behavior)
+    const autoScaledThickness = Math.max(1, Math.min(3, Math.round(cellSize * 0.025 * 10) / 10));
+    // Use user-defined thickness from state if set, otherwise use auto-scaled value
+    const dendroSettings = ensureDendrogramSettings();
+    const userThickness = dendroSettings.thickness;
+    // If user thickness is at default (1), use auto-scaling; otherwise use user value
+    const dendrogramStrokeBase = (userThickness === DEFAULT_DENDROGRAM_THICKNESS) ? autoScaledThickness : userThickness;
     const dendrogramStroke = dendrogramStrokeBase * uniformScale;
     const scaleGroup = doc.createElementNS(NS, 'g');
     scaleGroup.setAttribute('class', 'heatmap-color-scale');
@@ -3403,6 +3477,7 @@
     }
   }
   function getConfig(){
+    const dendroSettings = ensureDendrogramSettings();
     return {
       view: refs.view?.value || 'corr-columns',
       method: refs.method?.value || 'pearson',
@@ -3419,6 +3494,10 @@
       fontSize: Number(refs.fontSize?.value) || 12,
       fontStyles: exportFontStyles('heatmap') || undefined,
       title: state.titleText,
+      dendrogram: {
+        thickness: dendroSettings.thickness,
+        color: dendroSettings.color
+      },
       filters: {
         presentEnabled: !!refs.filterPresentEnable?.checked,
         presentThreshold: Number(refs.filterPresentValue?.value),
@@ -3459,6 +3538,21 @@
       state.titleText = config.title != null ? String(config.title) : '';
     }else if(state.titleText == null){
       state.titleText = 'Heatmap';
+    }
+    // Restore dendrogram settings
+    if(config.dendrogram && typeof config.dendrogram === 'object'){
+      const settings = ensureDendrogramSettings();
+      if(typeof config.dendrogram.thickness === 'number' && config.dendrogram.thickness > 0){
+        settings.thickness = config.dendrogram.thickness;
+      }else{
+        settings.thickness = DEFAULT_DENDROGRAM_THICKNESS;
+      }
+      if(typeof config.dendrogram.color === 'string' && config.dendrogram.color.trim()){
+        settings.color = config.dendrogram.color;
+      }else{
+        settings.color = DEFAULT_DENDROGRAM_COLOR;
+      }
+      debugLog('Debug: heatmap dendrogram settings restored', { thickness: settings.thickness, color: settings.color });
     }
     if(refs.view){
       refs.view.value = config.view || 'corr-columns';
