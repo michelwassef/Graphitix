@@ -1220,22 +1220,42 @@
     if(!Array.isArray(values) || values.length === 0){
       return NaN;
     }
-    const finite = values.filter(value => Number.isFinite(value));
-    if(finite.length < 2){
+    // Single-pass computation avoiding redundant filtering and iteration
+    let sum = 0;
+    let sumSq = 0;
+    let count = 0;
+    for(let i = 0; i < values.length; i += 1){
+      const value = values[i];
+      if(Number.isFinite(value)){
+        sum += value;
+        sumSq += value * value;
+        count += 1;
+      }
+    }
+    if(count < 2){
       return NaN;
     }
-    const mean = computeMean(finite);
-    const variance = finite.reduce((acc, value) => acc + Math.pow(value - mean, 2), 0) / (finite.length - 1);
+    const mean = sum / count;
+    const variance = (sumSq - count * mean * mean) / (count - 1);
     return Math.sqrt(Math.max(variance, 0));
   }
 
   function computeRange(values){
-    const finite = values.filter(value => Number.isFinite(value));
-    if(finite.length === 0){
+    // Single-pass min/max computation avoiding spread operator overhead
+    let min = Infinity;
+    let max = -Infinity;
+    let hasFinite = false;
+    for(let i = 0; i < values.length; i += 1){
+      const value = values[i];
+      if(Number.isFinite(value)){
+        hasFinite = true;
+        if(value < min) min = value;
+        if(value > max) max = value;
+      }
+    }
+    if(!hasFinite){
       return NaN;
     }
-    const min = Math.min(...finite);
-    const max = Math.max(...finite);
     return { min, max, span: max - min };
   }
 
@@ -1396,20 +1416,52 @@
     if(!Array.isArray(matrix) || matrix.length === 0){
       return 0;
     }
+    const rowCount = matrix.length;
     const columnCount = matrix[0].length;
     let adjusted = 0;
     for(let colIndex = 0; colIndex < columnCount; colIndex += 1){
-      const columnValues = matrix.map(row => row[colIndex]);
-      const center = mode === 'median' ? computeMedian(columnValues) : computeMean(columnValues);
+      let center;
+      if(mode === 'median'){
+        // Inline median calculation to avoid allocating a column array via map().
+        // This duplicates computeMedian logic but avoids O(n) intermediate allocation per column.
+        const finite = [];
+        for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+          const value = matrix[rowIndex][colIndex];
+          if(Number.isFinite(value)){
+            finite.push(value);
+          }
+        }
+        if(finite.length === 0){
+          continue;
+        }
+        finite.sort((a, b) => a - b);
+        const mid = Math.floor(finite.length / 2);
+        center = finite.length % 2 === 0 ? (finite[mid - 1] + finite[mid]) / 2 : finite[mid];
+      }else{
+        // For mean, single-pass computation without intermediate array allocation
+        let sum = 0;
+        let count = 0;
+        for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+          const value = matrix[rowIndex][colIndex];
+          if(Number.isFinite(value)){
+            sum += value;
+            count += 1;
+          }
+        }
+        if(count === 0){
+          continue;
+        }
+        center = sum / count;
+      }
       if(!Number.isFinite(center) || center === 0){
         continue;
       }
-      matrix.forEach((row, rowIndex) => {
-        if(Number.isFinite(row[colIndex])){
-          row[colIndex] -= center;
+      for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+        if(Number.isFinite(matrix[rowIndex][colIndex])){
+          matrix[rowIndex][colIndex] -= center;
           adjusted += 1;
         }
-      });
+      }
     }
     console.debug('Debug: heatmap centerColumns applied', { mode, adjusted });
     return adjusted;
@@ -1419,24 +1471,41 @@
     if(!Array.isArray(matrix) || matrix.length === 0){
       return { normalized: 0, skipped: 0 };
     }
+    const rowCount = matrix.length;
     const columnCount = matrix[0].length;
     let normalized = 0;
     let skipped = 0;
+    // Single-pass mean and std computation per column to avoid redundant array allocations
     for(let colIndex = 0; colIndex < columnCount; colIndex += 1){
-      const columnValues = matrix.map(row => row[colIndex]);
-      const mean = computeMean(columnValues);
-      const std = computeStd(columnValues);
+      let sum = 0;
+      let sumSq = 0;
+      let count = 0;
+      for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+        const value = matrix[rowIndex][colIndex];
+        if(Number.isFinite(value)){
+          sum += value;
+          sumSq += value * value;
+          count += 1;
+        }
+      }
+      if(count < 2){
+        skipped += 1;
+        continue;
+      }
+      const mean = sum / count;
+      const variance = (sumSq - count * mean * mean) / (count - 1);
+      const std = Math.sqrt(Math.max(variance, 0));
       if(!Number.isFinite(std) || std === 0){
         skipped += 1;
         continue;
       }
-      matrix.forEach((row, rowIndex) => {
-        const value = row[colIndex];
+      for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
+        const value = matrix[rowIndex][colIndex];
         if(Number.isFinite(value)){
-          row[colIndex] = (value - (Number.isFinite(mean) ? mean : 0)) / std;
+          matrix[rowIndex][colIndex] = (value - mean) / std;
           normalized += 1;
         }
-      });
+      }
     }
     console.debug('Debug: heatmap normalizeColumns applied', { normalized, skipped });
     return { normalized, skipped };
@@ -1538,24 +1607,49 @@
   }
 
   function distanceBetweenVectors(vecA, vecB, metric){
+    // Optimized: inline aligned value processing to avoid redundant array allocations
+    const length = Math.min(vecA?.length || 0, vecB?.length || 0);
+    if(length === 0){
+      return { distance: 1, count: 0 };
+    }
+    if(metric === 'euclidean'){
+      // Direct computation without intermediate arrays.
+      // This duplicates alignVectors' finite-value filtering but avoids O(n) array allocation
+      // for the common euclidean case during hierarchical clustering.
+      let sumSq = 0;
+      let count = 0;
+      for(let i = 0; i < length; i += 1){
+        const a = vecA[i];
+        const b = vecB[i];
+        if(Number.isFinite(a) && Number.isFinite(b)){
+          const diff = a - b;
+          sumSq += diff * diff;
+          count += 1;
+        }
+      }
+      if(count === 0){
+        return { distance: 1, count: 0 };
+      }
+      const distance = Math.sqrt(sumSq / count);
+      return { distance, count };
+    }
+    // For correlation metrics, compute in single pass where possible
     const { xs, ys } = alignVectors(vecA, vecB);
     const count = xs.length;
     if(count === 0){
       return { distance: 1, count: 0 };
     }
-    if(metric === 'euclidean'){
-      let sumSq = 0;
-      for(let i = 0; i < count; i += 1){
-        const diff = xs[i] - ys[i];
-        sumSq += diff * diff;
-      }
-      const distance = Math.sqrt(sumSq / count);
-      return { distance, count };
+    let corr;
+    if(metric === 'spearman'){
+      corr = computeCorrelation(xs, ys, 'spearman');
+    }else if(metric === 'uncentered'){
+      corr = computeUncenteredCorrelation(xs, ys);
+    }else{
+      corr = computeCorrelation(xs, ys, 'pearson');
     }
-    const entry = calculateCorrelationEntry(xs, ys, metric === 'pearson' || metric === 'spearman' ? metric : 'uncentered');
-    const corr = entry.corr;
-    const distance = Number.isFinite(corr) ? 1 - corr : 1;
-    return { distance, count, corr };
+    const normalizedCorr = Number.isFinite(corr) ? Math.max(-1, Math.min(1, corr)) : NaN;
+    const distance = Number.isFinite(normalizedCorr) ? 1 - normalizedCorr : 1;
+    return { distance, count, corr: normalizedCorr };
   }
 
   function hierarchicalCluster(items, metric, linkage){

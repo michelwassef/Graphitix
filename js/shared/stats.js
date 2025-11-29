@@ -230,7 +230,11 @@
 
   function adjustBenjaminiYekutieli(values){
     const m = values.length;
-    const harmonic = Array.from({ length: Math.max(m, 1) }, (_, idx) => 1 / (idx + 1)).reduce((sum, val) => sum + val, 0);
+    // Compute harmonic sum directly without intermediate array allocation
+    let harmonic = 0;
+    for(let k = 1; k <= m; k++){
+      harmonic += 1 / k;
+    }
     const ordered = values.map((v, index) => ({ p: sanitizeP(v), index }));
     ordered.sort((a, b) => a.p - b.p);
     const adjusted = new Array(m).fill(1);
