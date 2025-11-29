@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2025-11-29T20:56:16.028Z",
+  "iterations": 5,
+  "overrides": {},
+  "results": [
+    {
+      "id": "box-dataset",
+      "label": "Box dataset (test-box.csv)",
+      "input": {
+        "source": "test-box.csv",
+        "rows": 76091,
+        "columns": "all"
+      },
+      "stats": {
+        "min": 59.478,
+        "max": 123.918,
+        "mean": 83.5008,
+        "median": 72.863
+      },
+      "samples": [
+        123.918,
+        101.488,
+        72.863,
+        59.478,
+        59.757
+      ],
+      "delta": {
+        "deltaMs": -6.440400000000011,
+        "deltaPct": -7.160678309829099
+      },
+      "lastResult": {
+        "ok": true,
+        "rows": 76091,
+        "cols": 3,
+        "traceCount": 3,
+        "collectMs": 22.185,
+        "summaryMs": 22.342,
+        "assumptionMs": 15.226,
+        "totalMs": 59.757,
+        "durationMs": 59.757,
+        "warnings": 4
+      }
+    }
+  ]
+}

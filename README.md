@@ -55,6 +55,7 @@ All modules share a two-panel layout: Handsontable workspace on the left, respon
 ## Testing & Quality
 - `npm test` spins up JSDOM, loads `index.html`, and verifies each component initializes correctly.
 - Performance guards exercise heavy workloads such as the heatmap clusterer and report when thresholds are exceeded.
+- `npm run bench -- [options]` executes `scripts/run-benchmarks.js`, a lightweight CLI that calls each component’s synthetic workload hooks and reports mean/median durations. Use `--json bench.json` to capture a baseline and `--compare bench.json` on future runs to see deltas. Inputs can be overridden inline (`box.rows=50000`) or via `--config overrides.json`.
 - No linting is configured; Jest is the authoritative automated check.
 
 ## Troubleshooting

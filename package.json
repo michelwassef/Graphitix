@@ -4,7 +4,8 @@
   "description": "Client-side Venn diagram generator using only HTML and JavaScript. Also includes box plot, scatter plot, principal component analysis, line graph, histogram, pie chart, and ROC/PR curve tools.",
   "main": "index.js",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "bench": "node scripts/run-benchmarks.js"
   },
   "keywords": [],
   "author": "",

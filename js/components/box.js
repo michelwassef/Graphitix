@@ -465,6 +465,10 @@
 
   function computeTraceSummary(values, options){
     const requireSorted = !!options?.requireSorted;
+    const assumeFiniteValues = options?.assumeFiniteValues === true;
+    const precomputed = options?.precomputedMoments && Number.isFinite(options.precomputedMoments.count)
+      ? options.precomputedMoments
+      : null;
     if(!Array.isArray(values) || !values.length){
       return {
         count: 0,
@@ -477,17 +481,27 @@
         median: NaN,
         q3: NaN,
         iqr: 0,
-        sortedValues: requireSorted ? [] : null
+        sortedValues: requireSorted ? [] : null,
+        sum: 0,
+        sumSquares: 0,
+        sumCubes: 0,
+        sumFourth: 0
       };
     }
-    const numericValues = [];
-    for(let idx = 0; idx < values.length; idx++){
-      const v = Number(values[idx]);
-      if(Number.isFinite(v)){
-        numericValues.push(v);
+    const sourceValues = Array.isArray(values) ? values : [];
+    let numericValues;
+    if(assumeFiniteValues){
+      numericValues = sourceValues.slice();
+    }else{
+      numericValues = [];
+      for(let idx = 0; idx < sourceValues.length; idx++){
+        const v = Number(sourceValues[idx]);
+        if(Number.isFinite(v)){
+          numericValues.push(v);
+        }
       }
     }
-    const count = numericValues.length;
+    const count = precomputed?.count ?? numericValues.length;
     if(!count){
       return {
         count: 0,
@@ -500,19 +514,30 @@
         median: NaN,
         q3: NaN,
         iqr: 0,
-        sortedValues: requireSorted ? [] : null
+        sortedValues: requireSorted ? [] : null,
+        sum: 0,
+        sumSquares: 0,
+        sumCubes: 0,
+        sumFourth: 0
       };
     }
-    let min = numericValues[0];
-    let max = numericValues[0];
-    let sum = 0;
-    let sumSquares = 0;
-    for(let idx = 0; idx < numericValues.length; idx++){
-      const value = numericValues[idx];
-      if(value < min) min = value;
-      if(value > max) max = value;
-      sum += value;
-      sumSquares += value * value;
+    let min = Number.isFinite(precomputed?.min) ? precomputed.min : numericValues[0];
+    let max = Number.isFinite(precomputed?.max) ? precomputed.max : numericValues[0];
+    let sum = Number.isFinite(precomputed?.sum) ? precomputed.sum : 0;
+    let sumSquares = Number.isFinite(precomputed?.sumSquares) ? precomputed.sumSquares : 0;
+    let sumCubes = Number.isFinite(precomputed?.sumCubes) ? precomputed.sumCubes : 0;
+    let sumFourth = Number.isFinite(precomputed?.sumFourth) ? precomputed.sumFourth : 0;
+    if(!precomputed){
+      for(let idx = 0; idx < numericValues.length; idx++){
+        const value = numericValues[idx];
+        if(value < min) min = value;
+        if(value > max) max = value;
+        sum += value;
+        const square = value * value;
+        sumSquares += square;
+        sumCubes += square * value;
+        sumFourth += square * square;
+      }
     }
     const mean = sum / count;
     const variance = count > 1 ? Math.max(0, (sumSquares - (sum * sum) / count) / (count - 1)) : 0;
@@ -544,7 +569,11 @@
       median,
       q3,
       iqr: Number.isFinite(q3) && Number.isFinite(q1) ? q3 - q1 : 0,
-      sortedValues
+      sortedValues,
+      sum,
+      sumSquares,
+      sumCubes,
+      sumFourth
     };
   }
 
@@ -572,6 +601,105 @@
       cols,
       points: rows * cols,
       durationMs: Number((end - start).toFixed(3))
+    };
+  }
+
+  function benchmarkDatasetLoad(config){
+    const matrix = Array.isArray(config?.matrix) ? config.matrix : null;
+    if(!matrix || matrix.length < 2){
+      return { ok:false, reason:'Matrix requires header row plus data rows.' };
+    }
+    const headerRow = Array.isArray(matrix[0]) ? matrix[0] : [];
+    const totalCols = headerRow.length;
+    if(!totalCols){
+      return { ok:false, reason:'Header row is empty.' };
+    }
+    const colLimitRaw = Number(config?.columns);
+    const colLimit = Number.isFinite(colLimitRaw) && colLimitRaw > 0
+      ? Math.min(totalCols, Math.floor(colLimitRaw))
+      : totalCols;
+    const targets = config?.columnIndices;
+    const perf = global.performance;
+    const now = typeof perf?.now === 'function' ? () => perf.now() : () => Date.now();
+    const traces = [];
+    const collectStart = now();
+    const chosenColumns = Array.isArray(targets) && targets.length
+      ? targets.map(idx => Math.max(0, Math.min(totalCols - 1, idx)))
+      : Array.from({ length: colLimit }, (_, idx) => idx);
+    chosenColumns.forEach(colIndex => {
+      const labelRaw = headerRow[colIndex];
+      const label = typeof labelRaw === 'string' && labelRaw.trim() ? labelRaw.trim() : `Col ${colIndex + 1}`;
+      const values = [];
+      const moments = {
+        count: 0,
+        sum: 0,
+        sumSquares: 0,
+        sumCubes: 0,
+        sumFourth: 0,
+        min: Infinity,
+        max: -Infinity
+      };
+      for(let rowIndex = 1; rowIndex < matrix.length; rowIndex++){
+        const row = matrix[rowIndex];
+        if(!row){ continue; }
+        const rawValue = row[colIndex];
+        if(rawValue === null || rawValue === undefined || rawValue === ''){
+          continue;
+        }
+        const numeric = typeof rawValue === 'number' ? rawValue : parseFloat(rawValue);
+        if(Number.isFinite(numeric)){
+          values.push(numeric);
+          moments.count += 1;
+          moments.sum += numeric;
+          const square = numeric * numeric;
+          moments.sumSquares += square;
+          moments.sumCubes += square * numeric;
+          moments.sumFourth += square * square;
+          if(numeric < moments.min) moments.min = numeric;
+          if(numeric > moments.max) moments.max = numeric;
+        }
+      }
+      if(values.length){
+        traces.push({ name: label, rawY: values, __moments: moments });
+      }
+    });
+    const collectEnd = now();
+    const summaryStart = now();
+    const summaries = [];
+    traces.forEach(trace => {
+      trace.summary = computeTraceSummary(trace.rawY, {
+        requireSorted: false,
+        assumeFiniteValues: true,
+        precomputedMoments: trace.__moments
+      });
+      summaries.push(trace.summary);
+      delete trace.__moments;
+    });
+    const summaryEnd = now();
+    let assumption = null;
+    const assumptionStart = now();
+    if(traces.length >= 2){
+      const groups = traces.map(t => t.rawY);
+      const labels = traces.map(t => t.name);
+      assumption = computeAssumptionDiagnostics(groups, labels, {
+        qqSampleLimit: ASSUMPTION_QQ_SAMPLE_LIMIT,
+        summaries
+      });
+    }
+    const assumptionEnd = now();
+    const duration = total => Number(total.toFixed(3));
+    const totalMs = duration(assumptionEnd - collectStart);
+    return {
+      ok: true,
+      rows: matrix.length - 1,
+      cols: totalCols,
+      traceCount: traces.length,
+      collectMs: duration(collectEnd - collectStart),
+      summaryMs: duration(summaryEnd - summaryStart),
+      assumptionMs: duration(assumptionEnd - assumptionStart),
+      totalMs,
+      durationMs: totalMs,
+      warnings: assumption?.warnings?.length || 0
     };
   }
 
@@ -3682,24 +3810,31 @@
     return points;
   }
 
-  function computeDagostino(values){
+  function computeDagostino(values, summary){
     const series=Array.isArray(values)?values:[];
-    let n=0;
-    let sum=0;
-    let sumSquares=0;
-    let sumCubes=0;
-    let sumFourth=0;
-    for(let idx=0;idx<series.length;idx++){
-      const value=Number(series[idx]);
-      if(!Number.isFinite(value)){
-        continue;
+    const readySummary=summary && Number.isFinite(summary.count) && summary.count>0
+      && Number.isFinite(summary.sum) && Number.isFinite(summary.sumSquares)
+      && Number.isFinite(summary.sumCubes) && Number.isFinite(summary.sumFourth)
+      ? summary
+      : null;
+    let n=readySummary ? readySummary.count : 0;
+    let sum=readySummary ? readySummary.sum : 0;
+    let sumSquares=readySummary ? readySummary.sumSquares : 0;
+    let sumCubes=readySummary ? readySummary.sumCubes : 0;
+    let sumFourth=readySummary ? readySummary.sumFourth : 0;
+    if(!readySummary){
+      for(let idx=0;idx<series.length;idx++){
+        const value=Number(series[idx]);
+        if(!Number.isFinite(value)){
+          continue;
+        }
+        n+=1;
+        sum+=value;
+        const square=value*value;
+        sumSquares+=square;
+        sumCubes+=square*value;
+        sumFourth+=square*square;
       }
-      n+=1;
-      sum+=value;
-      const square=value*value;
-      sumSquares+=square;
-      sumCubes+=square*value;
-      sumFourth+=square*square;
     }
     if(n<8){
       console.debug('Debug: box dagostino insufficient sample',{ n });
@@ -3743,11 +3878,12 @@
     return { method:'dagostino', sampleSize:n, statistic, pValue, passed, z1, z2, g1, g2 };
   }
 
-  function computeVarianceDiagnostics(groups,labels){
+  function computeVarianceDiagnostics(groups,labels,options){
     const summaries=[];
     let totalN=0;
     let grandSum=0;
     const sparklineValues=[];
+    const summaryList=Array.isArray(options?.summaries)?options.summaries:null;
     for(let idx=0; idx<groups.length; idx++){
       const group=Array.isArray(groups[idx])?groups[idx]:[];
       const label=labels[idx];
@@ -3757,7 +3893,10 @@
         sparklineValues.push({ label, value: 0 });
         continue;
       }
-      const median=quantileFromUnsorted(group,0.5);
+      const summaryRef=summaryList && summaryList[idx];
+      const median=Number.isFinite(summaryRef?.median)
+        ? summaryRef.median
+        : quantileFromUnsorted(group,0.5);
       let count=0;
       let sum=0;
       let sumSquares=0;
@@ -3833,14 +3972,18 @@
     const qqSampleLimit=Number.isFinite(options?.qqSampleLimit)
       ? Math.max(25,Math.floor(options.qqSampleLimit))
       : ASSUMPTION_QQ_SAMPLE_LIMIT;
+    const summaryList=Array.isArray(options?.summaries)?options.summaries:null;
     const failReasons=[];
     let normalityFailures=0;
     groups.forEach((group,idx)=>{
       const label=labels[idx] || `Group ${idx + 1}`;
-      const dagostino=computeDagostino(group);
+      const summaryRef=summaryList && summaryList[idx];
+      const dagostino=computeDagostino(group,summaryRef);
       const sampleSize=Number.isFinite(dagostino?.sampleSize)
         ? dagostino.sampleSize
-        : countFiniteValues(group);
+        : Number.isFinite(summaryRef?.count)
+          ? summaryRef.count
+          : countFiniteValues(group);
       const qqPoints=sampleSize>0
         ? computeQQPoints(group,{ maxSampleSize: qqSampleLimit })
         : [];
@@ -3856,7 +3999,7 @@
         normalityFailures++;
       }
     });
-    const variance=computeVarianceDiagnostics(groups,labels);
+    const variance=computeVarianceDiagnostics(groups,labels,{ summaries: summaryList });
     diagnostics.variance=variance;
     const varianceConcern=variance && variance.passed===false;
     if(variance && variance.passed===false){
@@ -5540,7 +5683,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const tableDiv=document.getElementById('statsTable');
     if(!tableDiv) return;
     const tableRows=traces.map(t=>{
-      const summary = computeTraceSummary(Array.isArray(t.rawY) ? t.rawY : [], { requireSorted: false });
+      const summary = (t.summary && Number.isFinite(t.summary.count))
+        ? t.summary
+        : (t.summary = computeTraceSummary(Array.isArray(t.rawY) ? t.rawY : [], { requireSorted: false }));
       if(!summary.count){
         return {
           name:t.name,
@@ -5747,7 +5892,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     const groups=indices.map(i=>traces[i].rawY);
     const labels=indices.map(i=>traces[i].name);
-    const assumptionDiagnostics=computeAssumptionDiagnostics(groups,labels,{ qqSampleLimit: ASSUMPTION_QQ_SAMPLE_LIMIT });
+    const summaryList=indices.map(i=>{
+      const trace=traces[i];
+      if(!trace.summary){
+        trace.summary=computeTraceSummary(Array.isArray(trace.rawY)?trace.rawY:[],{ requireSorted:false });
+      }
+      return trace.summary;
+    });
+    const assumptionDiagnostics=computeAssumptionDiagnostics(groups,labels,{
+      qqSampleLimit: ASSUMPTION_QQ_SAMPLE_LIMIT,
+      summaries: summaryList
+    });
     state.assumptionDiagnostics=assumptionDiagnostics;
     renderAssumptionSection(assumptionContainer,assumptionDiagnostics);
     if(assumptionDiagnostics){
@@ -9146,9 +9301,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options),
     computeTraceSummary:(values,opts)=>computeTraceSummary(values,opts),
     benchmarkSummaries:opts=>benchmarkTraceSummaries(opts),
-    computeDagostino:(values)=>computeDagostino(values),
+    benchmarkDatasetLoad:opts=>benchmarkDatasetLoad(opts),
+    computeDagostino:(values,summary)=>computeDagostino(values,summary),
     computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
-    computeVarianceDiagnostics:(groups,labels)=>computeVarianceDiagnostics(groups,labels)
+    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts)
   });
 })(window);
 
