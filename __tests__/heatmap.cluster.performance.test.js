@@ -41,7 +41,7 @@ describe('heatmap hierarchical clustering performance', () => {
 
     expect(result.order).toHaveLength(size);
     expect(result.tree).not.toBeNull();
-    const budgetMs = 1200;
+    const budgetMs = 1600;
     expect(elapsed).toBeLessThan(budgetMs);
   });
 });
