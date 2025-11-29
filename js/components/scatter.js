@@ -90,6 +90,10 @@
   const SCATTER_DENSITY_MODE_DEFAULT = 'auto';
   const SCATTER_DENSITY_POINT_THRESHOLD = 500;
   const SCATTER_DENSITY_PALETTE_DEFAULT = 'turbo';
+  const SCATTER_ADAPTIVE_SIZE_MIN = 1;
+  const SCATTER_ADAPTIVE_SIZE_MAX = 3;
+  const SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW = 50;
+  const SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH = 5000;
   const SCATTER_DENSITY_RAMPS = Object.freeze({
     turbo: ['#30123b', '#4145ab', '#2f9df4', '#43ecb0', '#fde54c', '#f45f2a', '#821529'],
     viridis: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'],
@@ -313,6 +317,27 @@
       ? 'density'
       : 'solid';
     return { desired, applied, allowDensity };
+  }
+
+  /**
+   * Computes an adaptive point size based on the number of data points.
+   * More points result in smaller point sizes for better visualization.
+   * @param {number} pointCount - The number of data points to display
+   * @returns {number} - Point size between SCATTER_ADAPTIVE_SIZE_MIN (1) and SCATTER_ADAPTIVE_SIZE_MAX (3)
+   */
+  function computeAdaptivePointSize(pointCount){
+    const count = Number(pointCount) || 0;
+    if(count <= SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW){
+      return SCATTER_ADAPTIVE_SIZE_MAX;
+    }
+    if(count >= SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH){
+      return SCATTER_ADAPTIVE_SIZE_MIN;
+    }
+    // Linear interpolation between thresholds
+    const range = SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH - SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW;
+    const ratio = (count - SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW) / range;
+    const size = SCATTER_ADAPTIVE_SIZE_MAX - ratio * (SCATTER_ADAPTIVE_SIZE_MAX - SCATTER_ADAPTIVE_SIZE_MIN);
+    return Math.max(SCATTER_ADAPTIVE_SIZE_MIN, Math.min(SCATTER_ADAPTIVE_SIZE_MAX, size));
   }
 
   function ensureScatterTooltipHost(tooltip, doc){
@@ -2500,8 +2525,10 @@
         const axisStrokeWidthBase = getScatterAxisStrokeWidth();
         const axisStrokeWidth=chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'scatter-axis', min: 0.25 });
         const axisStroke = getScatterAxisColor();
-        const dotSizeRaw=Number(scatterDotSize.value)||3;
-        const dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'scatter-point', min: 0 });
+        const dotSizeInputRaw=Number(scatterDotSize.value)||3;
+        // Initial dotSizePx uses user input; will be recalculated with adaptive sizing after points are collected
+        let dotSizeRaw=dotSizeInputRaw;
+        let dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'scatter-point', min: 0 });
         const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'scatter-border', min: 0 });
         debug('Debug: scatter style scaling applied',{
           dotSizeRaw,
@@ -2912,6 +2939,14 @@
           palette: densityPaletteKey,
           pointCount: pointsInRange.length,
           viewMode: scatterState.viewMode
+        });
+        // Apply adaptive point sizing based on the number of data points
+        dotSizeRaw = computeAdaptivePointSize(pointsInRange.length);
+        dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'scatter-point', min: 0 });
+        debug('Debug: scatter adaptive point size applied',{
+          pointCount: pointsInRange.length,
+          adaptiveSize: dotSizeRaw,
+          scaledSize: dotSizePx
         });
         const shouldAutoHideLegend = scatterCurrentGraphType === 'scatter' && !densityColoringActive && pointsInRange.length > 10;
         if(shouldAutoHideLegend && showLegend){
@@ -4583,6 +4618,7 @@
 
   scatter.init = setup;
   scatter.ensure = ensureReady;
+  scatter.computeAdaptivePointSize = computeAdaptivePointSize;
   scatter.prepareForTab = function prepareForTab(){
     if(!scatter.ready){
       scatter.init();
