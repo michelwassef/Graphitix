@@ -1374,6 +1374,8 @@
       } catch (err) {
         logDebug('enableLabelDrag transform error', { error: err?.message });
       }
+      // Fallback: log warning and return screen coords (may be less accurate)
+      logDebug('enableLabelDrag using screen coords fallback', { clientX, clientY });
       return { x: clientX, y: clientY };
     };
 
@@ -1405,7 +1407,8 @@
       // Update transform for rotated elements (like y-axis labels)
       const transform = el.getAttribute('transform');
       if (transform && transform.includes('rotate')) {
-        const rotateMatch = transform.match(/rotate\((-?\d+\.?\d*)/);
+        // More robust regex to handle whitespace variations in rotate transform
+        const rotateMatch = transform.match(/rotate\s*\(\s*(-?\d+\.?\d*)\s*/);
         if (rotateMatch) {
           const angle = rotateMatch[1];
           el.setAttribute('transform', `rotate(${angle} ${newX} ${newY})`);
