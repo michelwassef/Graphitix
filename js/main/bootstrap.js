@@ -14,17 +14,17 @@
   }
 
   const GRAPH_TYPES = [
-    { type: 'venn', label: 'Venn Diagram', hint: 'Lists & overlap', description: 'Visualize overlaps between up to three sets with region statistics.' },
-    { type: 'box', label: 'Box Plot', hint: 'Group comparisons', description: 'Compare distributions across groups with rich styling and statistical tests.' },
-    { type: 'scatter', label: 'Scatter Plot', hint: 'Correlation', description: 'Explore relationships between variables and configure regression overlays.' },
-    { type: 'pca', label: 'Dimensionality Reduction', hint: 'PCA / MDS', description: 'Run PCA or MDS on wide tables and inspect eigenvalue summaries.' },
-    { type: 'line', label: 'Line Graph', hint: 'Trends', description: 'Plot series data with per-line styling, axes controls, and correlation metrics.' },
-    { type: 'heatmap', label: 'Correlation Heatmap', hint: 'Matrix view', description: 'Cluster correlation matrices and tune color ramps, labels, and dendrograms.' },
-    { type: 'surface', label: 'Surface Plot', hint: '3D Surface', description: 'Render 3D surfaces with customizable color ramps and rotation.' },
-    { type: 'roc', label: 'Classification Curves', hint: 'ROC / PR', description: 'Compare ROC or precision-recall curves with statistical comparisons.' },
-    { type: 'survival', label: 'Survival Curves', hint: 'Kaplan–Meier', description: 'Build Kaplan–Meier curves with confidence intervals and censor controls.' },
-    { type: 'hist', label: 'Histogram', hint: 'Distribution', description: 'Summarize univariate distributions with customizable binning and stats.' },
-    { type: 'pie', label: 'Proportion Graph', hint: 'Categories', description: 'Visualize category proportions and run Chi² goodness-of-fit tests.' }
+    { type: 'venn', label: 'Venn Diagram', hint: 'Set comparisons', description: 'Visualize overlaps between sets with region statistics, GO enrichment, and STRING network analysis.' },
+    { type: 'box', label: 'Distribution Charts', hint: 'Group comparisons', description: 'Compare groups with box plots, violin plots, bar charts, or individual value strips, plus statistical tests.' },
+    { type: 'scatter', label: 'XY Plots', hint: 'Correlation & expression', description: 'Create scatter, volcano, or MA plots with regression, 2D/3D views, and density coloring.' },
+    { type: 'pca', label: 'Dimensionality Reduction', hint: 'PCA / MDS / t-SNE / UMAP', description: 'Run PCA, MDS, t-SNE, or UMAP on wide tables with 2D/3D views and variance summaries.' },
+    { type: 'line', label: 'Line & Area Charts', hint: 'Trends & forecasting', description: 'Plot time series as lines or areas with regression, ARIMA/Holt-Winters forecasting, and correlation metrics.' },
+    { type: 'heatmap', label: 'Heatmap & Clustering', hint: 'Matrix view', description: 'Visualize data values or correlation matrices with hierarchical clustering and dendrograms.' },
+    { type: 'surface', label: '3D Surface Plot', hint: '3D visualization', description: 'Render 3D surfaces from X/Y/Z data with rotation, grid interpolation, and color ramps.' },
+    { type: 'roc', label: 'Classification Curves', hint: 'ROC & precision-recall', description: 'Evaluate classifiers with ROC or precision-recall curves, AUC metrics, and DeLong comparisons.' },
+    { type: 'survival', label: 'Survival Analysis', hint: 'Time-to-event analysis', description: 'Build Kaplan–Meier curves with confidence intervals, log-rank tests, and Cox regression.' },
+    { type: 'hist', label: 'Histogram', hint: 'Frequency distribution', description: 'Summarize univariate distributions with adjustable binning, PDF/CDF overlays, and distribution fits.' },
+    { type: 'pie', label: 'Pie, Donut & Stacked Bar', hint: 'Category proportions', description: 'Visualize category proportions as pie charts, donuts, or stacked bars with Chi² tests.' }
   ];
 
   const SESSION_FILE_TYPES = [
