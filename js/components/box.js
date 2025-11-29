@@ -41,6 +41,7 @@
   const ASSUMPTION_ALPHA=0.05;
   const DEFAULT_WHISKER_RULE='iqr15';
   const DEFAULT_WHISKER_MULTIPLIER=1.5;
+  const ASSUMPTION_QQ_SAMPLE_LIMIT=4000;
   const BOX_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const BOX_AUTO_DRAW_COL_THRESHOLD = 5000;
   const BOX_AUTO_DRAW_CELL_THRESHOLD = 50000;
@@ -3601,12 +3602,65 @@
     return Number.isFinite(result)?result:0;
   }
 
-  function computeQQPoints(values){
-    const cleaned=values.filter(Number.isFinite);
-    if(cleaned.length<3){
+  function sampleArrayEvenly(values,limit){
+    if(!Array.isArray(values) || !values.length){
       return [];
     }
-    const sorted=cleaned.slice().sort((a,b)=>a-b);
+    const maxSamples=Math.max(0,Math.floor(limit));
+    if(!maxSamples){
+      return [];
+    }
+    if(values.length<=maxSamples){
+      return values.slice().filter(Number.isFinite);
+    }
+    if(maxSamples===1){
+      const firstFinite=values.find(Number.isFinite);
+      return Number.isFinite(firstFinite)?[Number(firstFinite)]:[];
+    }
+    const sample=[];
+    const step=(values.length-1)/(maxSamples-1);
+    for(let idx=0;idx<maxSamples;idx++){
+      const target=Math.min(values.length-1,Math.round(idx*step));
+      let candidate=Number(values[target]);
+      if(!Number.isFinite(candidate)){
+        let offset=1;
+        while(!Number.isFinite(candidate) && (target-offset>=0 || target+offset<values.length)){
+          if(target-offset>=0){
+            const left=Number(values[target-offset]);
+            if(Number.isFinite(left)){
+              candidate=left;
+              break;
+            }
+          }
+          if(target+offset<values.length){
+            const right=Number(values[target+offset]);
+            if(Number.isFinite(right)){
+              candidate=right;
+              break;
+            }
+          }
+          offset++;
+        }
+      }
+      if(Number.isFinite(candidate)){
+        sample.push(candidate);
+      }
+    }
+    return sample;
+  }
+
+  function computeQQPoints(values,options){
+    const maxSample=Number.isFinite(options?.maxSampleSize)
+      ? Math.max(25,Math.floor(options.maxSampleSize))
+      : ASSUMPTION_QQ_SAMPLE_LIMIT;
+    const source=Array.isArray(values)?values:[];
+    const baseValues=source.length>maxSample
+      ? sampleArrayEvenly(source,maxSample)
+      : source.slice().filter(Number.isFinite);
+    if(baseValues.length<3){
+      return [];
+    }
+    const sorted=baseValues.slice().sort((a,b)=>a-b);
     const n=sorted.length;
     const mean=sorted.reduce((sum,v)=>sum+v,0)/n;
     const variance=sorted.reduce((sum,v)=>{ const diff=v-mean; return sum+diff*diff; },0)/(n-1||1);
@@ -3623,30 +3677,51 @@
       const observed=(sorted[index]-mean)/sd;
       points.push({ theoretical, observed });
     }
-    console.debug('Debug: box QQ points computed',{ sampleCount: points.length, n });
+    const sampled=source.length>maxSample;
+    console.debug('Debug: box QQ points computed',{ sampleCount: points.length, sourceSize: source.length, sampled });
     return points;
   }
 
   function computeDagostino(values){
-    const cleaned=values.filter(Number.isFinite);
-    const n=cleaned.length;
+    const series=Array.isArray(values)?values:[];
+    let n=0;
+    let sum=0;
+    let sumSquares=0;
+    let sumCubes=0;
+    let sumFourth=0;
+    for(let idx=0;idx<series.length;idx++){
+      const value=Number(series[idx]);
+      if(!Number.isFinite(value)){
+        continue;
+      }
+      n+=1;
+      sum+=value;
+      const square=value*value;
+      sumSquares+=square;
+      sumCubes+=square*value;
+      sumFourth+=square*square;
+    }
     if(n<8){
       console.debug('Debug: box dagostino insufficient sample',{ n });
       return { method:'dagostino', sampleSize:n, statistic:NaN, pValue:NaN, passed:null, reason:'Sample size < 8' };
     }
-    const meanVal=cleaned.reduce((sum,v)=>sum+v,0)/n;
-    const diffs=cleaned.map(v=>v-meanVal);
-    const m2=diffs.reduce((sum,v)=>sum+v*v,0);
-    const m3=diffs.reduce((sum,v)=>sum+v*v*v,0);
-    const m4=diffs.reduce((sum,v)=>sum+Math.pow(v,4),0);
+    const meanVal=sum/n;
+    const m2=sumSquares-(sum*sum)/n;
+    const meanSquared=meanVal*meanVal;
+    const meanCubed=meanSquared*meanVal;
+    const meanFourth=meanSquared*meanSquared;
+    const m3=sumCubes-3*meanVal*sumSquares+2*n*meanCubed;
+    const m4=sumFourth-4*meanVal*sumCubes+6*meanSquared*sumSquares-3*n*meanFourth;
     const s2=m2/(n-1||1);
-    const s=Math.sqrt(s2);
+    const s=Math.sqrt(Math.max(s2,0));
     if(!Number.isFinite(s)||s===0){
       console.debug('Debug: box dagostino zero variance',{ n });
       return { method:'dagostino', sampleSize:n, statistic:0, pValue:1, passed:true, reason:'Zero variance' };
     }
-    const g1=(n*m3)/((n-1)*(n-2)*Math.pow(s,3));
-    const g2=((n*(n+1)*m4)/((n-1)*(n-2)*(n-3)*Math.pow(s,4)))-(3*Math.pow(n-1,2))/((n-2)*(n-3));
+    const s3=Math.pow(s,3);
+    const s4=Math.pow(s,4);
+    const g1=(n*m3)/((n-1)*(n-2)*s3);
+    const g2=((n*(n+1)*m4)/((n-1)*(n-2)*(n-3)*s4))-(3*Math.pow(n-1,2))/((n-2)*(n-3));
     const mu2=6*(n-2)/((n+1)*(n+3));
     const gamma2=36*(n-7)*(n*n+2*n-5)/((n-2)*(n+5)*(n+7)*(n+9));
     const w2=Math.sqrt(2*gamma2+4)-1;
@@ -3669,34 +3744,59 @@
   }
 
   function computeVarianceDiagnostics(groups,labels){
-    const cleanedGroups=groups.map((group,idx)=>{
-      const filtered=group.filter(Number.isFinite);
-      console.debug('Debug: box variance group summary',{ index: idx, label: labels[idx], size: filtered.length });
-      return filtered;
-    });
-    if(cleanedGroups.length<2){
+    const summaries=[];
+    let totalN=0;
+    let grandSum=0;
+    const sparklineValues=[];
+    for(let idx=0; idx<groups.length; idx++){
+      const group=Array.isArray(groups[idx])?groups[idx]:[];
+      const label=labels[idx];
+      console.debug('Debug: box variance group summary',{ index: idx, label, size: group.length });
+      if(!group.length){
+        summaries.push({ count:0, sum:0, sumSquares:0, mean:0, median:NaN });
+        sparklineValues.push({ label, value: 0 });
+        continue;
+      }
+      const median=quantileFromUnsorted(group,0.5);
+      let count=0;
+      let sum=0;
+      let sumSquares=0;
+      for(let j=0;j<group.length;j++){
+        const value=Number(group[j]);
+        if(!Number.isFinite(value)){
+          continue;
+        }
+        const deviation=Math.abs(value-(Number.isFinite(median)?median:0));
+        sum+=deviation;
+        sumSquares+=deviation*deviation;
+        count++;
+      }
+      totalN+=count;
+      grandSum+=sum;
+      const mean=count?sum/count:0;
+      sparklineValues.push({ label, value: mean });
+      summaries.push({ count, sum, sumSquares, mean, median });
+    }
+    const k=summaries.length;
+    if(k<2){
       return { method:'brown-forsythe', statistic:NaN, pValue:NaN, passed:null, df1:0, df2:0, sparkline:[], reason:'Need >=2 groups' };
     }
-    const medians=cleanedGroups.map(group=>{
-      if(!group.length) return NaN;
-      const sorted=group.slice().sort((a,b)=>a-b);
-      const mid=Math.floor(sorted.length/2);
-      return sorted.length%2===0?(sorted[mid-1]+sorted[mid])/2:sorted[mid];
-    });
-    const transformed=cleanedGroups.map((group,idx)=>group.map(value=>Math.abs(value-(medians[idx]||0))));
-    const totalN=transformed.reduce((sum,g)=>sum+g.length,0);
-    const k=transformed.length;
     if(totalN<=k){
       return { method:'brown-forsythe', statistic:NaN, pValue:NaN, passed:null, df1:k-1, df2:Math.max(totalN-k,0), sparkline:[], reason:'Insufficient observations' };
     }
-    const groupMeans=transformed.map(group=>group.reduce((sum,v)=>sum+v,0)/(group.length||1));
-    const grandMean=transformed.reduce((sum,group,idx)=>sum+groupMeans[idx]*(group.length||0),0)/totalN;
+    const grandMean=grandSum/totalN;
     let ssBetween=0;
     let ssWithin=0;
-    transformed.forEach((group,idx)=>{
-      const mean=groupMeans[idx]||0;
-      ssBetween+=(group.length||0)*Math.pow(mean-grandMean,2);
-      group.forEach(val=>{ ssWithin+=Math.pow(val-mean,2); });
+    summaries.forEach(summary=>{
+      if(!summary.count){
+        return;
+      }
+      const mean=summary.mean;
+      ssBetween+=summary.count*Math.pow(mean-grandMean,2);
+      const within=summary.sumSquares-(summary.sum*summary.sum)/(summary.count||1);
+      if(Number.isFinite(within)){
+        ssWithin+=within;
+      }
     });
     const df1=k-1;
     const df2=totalN-k;
@@ -3706,11 +3806,23 @@
     const pValue=Number.isFinite(F)?1-fcdf(F,df1,df2):0;
     const passed=Number.isFinite(pValue)?pValue>=ASSUMPTION_ALPHA:null;
     console.debug('Debug: box variance diagnostics',{ df1, df2, F, pValue, passed, grandMean });
-    const sparklineValues=groupMeans.map((val,idx)=>({ label: labels[idx], value: val }));
     return { method:'brown-forsythe', statistic:F, pValue, passed, df1, df2, sparkline:sparklineValues };
   }
 
-  function computeAssumptionDiagnostics(groups,labels){
+  function countFiniteValues(values){
+    if(!Array.isArray(values) || !values.length){
+      return 0;
+    }
+    let count=0;
+    for(let idx=0; idx<values.length; idx++){
+      if(Number.isFinite(values[idx])){
+        count++;
+      }
+    }
+    return count;
+  }
+
+  function computeAssumptionDiagnostics(groups,labels,options){
     const diagnostics={
       normalityMethod:'dagostino',
       varianceMethod:'brown-forsythe',
@@ -3718,15 +3830,23 @@
       groups:[],
       warnings:[]
     };
+    const qqSampleLimit=Number.isFinite(options?.qqSampleLimit)
+      ? Math.max(25,Math.floor(options.qqSampleLimit))
+      : ASSUMPTION_QQ_SAMPLE_LIMIT;
     const failReasons=[];
     let normalityFailures=0;
     groups.forEach((group,idx)=>{
       const label=labels[idx] || `Group ${idx + 1}`;
       const dagostino=computeDagostino(group);
-      const qqPoints=computeQQPoints(group);
+      const sampleSize=Number.isFinite(dagostino?.sampleSize)
+        ? dagostino.sampleSize
+        : countFiniteValues(group);
+      const qqPoints=sampleSize>0
+        ? computeQQPoints(group,{ maxSampleSize: qqSampleLimit })
+        : [];
       diagnostics.groups.push({
         label,
-        size:group.filter(Number.isFinite).length,
+        size:sampleSize,
         normality:dagostino,
         qqPoints
       });
@@ -5627,7 +5747,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     const groups=indices.map(i=>traces[i].rawY);
     const labels=indices.map(i=>traces[i].name);
-    const assumptionDiagnostics=computeAssumptionDiagnostics(groups,labels);
+    const assumptionDiagnostics=computeAssumptionDiagnostics(groups,labels,{ qqSampleLimit: ASSUMPTION_QQ_SAMPLE_LIMIT });
     state.assumptionDiagnostics=assumptionDiagnostics;
     renderAssumptionSection(assumptionContainer,assumptionDiagnostics);
     if(assumptionDiagnostics){
@@ -9025,7 +9145,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     computeWhiskerFences:ctx=>computeWhiskerFences(ctx),
     resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options),
     computeTraceSummary:(values,opts)=>computeTraceSummary(values,opts),
-    benchmarkSummaries:opts=>benchmarkTraceSummaries(opts)
+    benchmarkSummaries:opts=>benchmarkTraceSummaries(opts),
+    computeDagostino:(values)=>computeDagostino(values),
+    computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
+    computeVarianceDiagnostics:(groups,labels)=>computeVarianceDiagnostics(groups,labels)
   });
 })(window);
 
