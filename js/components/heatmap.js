@@ -134,7 +134,8 @@
     dendrogramSettings: {
       thickness: DEFAULT_DENDROGRAM_THICKNESS,
       color: DEFAULT_DENDROGRAM_COLOR
-    }
+    },
+    labelPositions: { title: null }
   };
 
   function ensureDendrogramSettings(){
@@ -3054,14 +3055,16 @@
       preserveAspectRatio: state.svg.getAttribute('preserveAspectRatio')
     });
     const title = doc.createElementNS(NS, 'text');
-    title.setAttribute('x', String(totalWidth / 2));
+    const defaultTitleX = totalWidth / 2;
     // Calculate title position to remain above all column labels
     // Column labels after -90 rotation have their top at: marginTop - labelGap - maxColumnLabelWidth
     // Title baseline should be above this with titleGap, using constants defined earlier
     const columnLabelTopExtent = marginTop - labelGap - maxColumnLabelWidth;
     // Title y should be above labels (smaller y = higher up) but not above minimum
-    const titleY = Math.max(minTitleY, columnLabelTopExtent - titleGap);
-    title.setAttribute('y', String(titleY));
+    const defaultTitleY = Math.max(minTitleY, columnLabelTopExtent - titleGap);
+    const titlePos = state.labelPositions?.title;
+    title.setAttribute('x', String(titlePos?.x ?? defaultTitleX));
+    title.setAttribute('y', String(titlePos?.y ?? defaultTitleY));
     title.setAttribute('text-anchor', 'middle');
     title.setAttribute('font-size', String(scaledFontSize));
     title.textContent = state.titleText != null ? String(state.titleText) : 'Heatmap';
@@ -3085,6 +3088,15 @@
       applyHeatmapTitle(nextValue);
       recordHeatmapChange('heatmap:title', previous, nextValue, applyHeatmapTitle);
     });
+    // Enable drag for title
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(title, state.svg, {
+        onDragEnd: pos => {
+          state.labelPositions.title = { x: pos.x, y: pos.y };
+          console.debug('Debug: heatmap title position saved', pos);
+        }
+      });
+    }
     state.svg.appendChild(title);
 
     const defs = doc.createElementNS(NS, 'defs');
@@ -3671,6 +3683,7 @@
       fontSize: Number(refs.fontSize?.value) || 12,
       fontStyles: exportFontStyles('heatmap') || undefined,
       title: state.titleText,
+      labelPositions: state.labelPositions || null,
       dendrogram: {
         thickness: dendroSettings.thickness,
         color: dendroSettings.color
@@ -3716,6 +3729,12 @@
       state.titleText = config.title != null ? String(config.title) : '';
     }else if(state.titleText == null){
       state.titleText = 'Heatmap';
+    }
+    // Restore label positions if saved
+    if(config.labelPositions){
+      state.labelPositions = {
+        title: config.labelPositions.title || null
+      };
     }
     // Restore dendrogram settings
     if(config.dendrogram && typeof config.dendrogram === 'object'){

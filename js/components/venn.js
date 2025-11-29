@@ -424,7 +424,8 @@
         fileHandle: null,
         fileName: 'venn.graph',
       },
-      titleText: 'Venn diagram'
+      titleText: 'Venn diagram',
+      labelPositions: { title: null }
     };
   }
 
@@ -2315,10 +2316,12 @@
     const titlePadding = Math.max(style.fontSizePx * 2, 28);
     const layoutTop = titlePadding;
     const layoutHeight = Math.max(stageHeight - titlePadding, Math.max(stageHeight * 0.6, style.fontSizePx * 12));
-    const titleY = Math.max(style.fontSizePx * 1.6, titlePadding * 0.55);
+    const defaultTitleX = stageWidth / 2;
+    const defaultTitleY = Math.max(style.fontSizePx * 1.6, titlePadding * 0.55);
+    const titlePos = state.labelPositions?.title;
     const titleText = makeEl('text', {
-      x: stageWidth / 2,
-      y: titleY,
+      x: titlePos?.x ?? defaultTitleX,
+      y: titlePos?.y ?? defaultTitleY,
       'text-anchor': 'middle',
       'font-size': style.fontSizePx,
       fill: textColor,
@@ -2345,6 +2348,15 @@
       applyVennTitle(nextValue);
       recordVennTitleChange(previousValue, nextValue, applyVennTitle);
     });
+    // Enable drag for title using shared helper
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(titleText, stage, {
+        onDragEnd: pos => {
+          state.labelPositions.title = { x: pos.x, y: pos.y };
+          debugLog('venn title position saved', pos);
+        }
+      });
+    }
     const tooltip = state.ui.tooltip;
     const W = stageWidth;
     const H = stageHeight;
@@ -2877,7 +2889,8 @@
         borderWidth: inputs.borderWidth.value,
         fontsize: inputs.fontsize.value,
         fontStyles: exportFontStyles('venn') || undefined,
-        title: state.titleText
+        title: state.titleText,
+        labelPositions: state.labelPositions || null
       }
     };
     console.debug('Debug: venn.getPayload captured state', {
@@ -3029,6 +3042,12 @@
       inputs.fontsize.value = Number.isFinite(fontInfo?.pt) ? fontInfo.pt : inputs.fontsize.value;
       chartStyle.renderFontSizeLabel({ element: inputs.fontsizeVal, fontInfo, input: inputs.fontsize });
       console.debug('Debug: venn payload font fallback', { fontInfo });
+    }
+    // Restore label positions if saved
+    if(s.labelPositions){
+      state.labelPositions = {
+        title: s.labelPositions.title || null
+      };
     }
     refreshDiagram();
     if(meta.recordUndo !== false){

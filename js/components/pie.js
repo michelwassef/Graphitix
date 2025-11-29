@@ -220,7 +220,8 @@
     svgBox: null,
     layout: null,
     minSvgWidth: 0,
-    axisSettings: createDefaultAxisSettings()
+    axisSettings: createDefaultAxisSettings(),
+    labelPositions: { title: null }
   };
   const pieUndoManager = Shared.undoManager || null;
   function recordPieChange(label, previous, next, apply){
@@ -558,6 +559,12 @@
       if(axisConfig){
         applyAxisSettings(axisConfig);
       }
+      // Restore label positions if saved
+      if(config.labelPositions){
+        state.labelPositions = {
+          title: config.labelPositions.title || null
+        };
+      }
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw();
       }
@@ -586,7 +593,8 @@
           color: axisSettings.color,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null
-        }
+        },
+        labelPositions: state.labelPositions || null
       };
     }
     pie.save = async function(){
@@ -1107,9 +1115,12 @@
       if(axis.parentNode !== (axisLayer || svg)){
         (axisLayer || svg).appendChild(axis);
       }
+      const defaultTitleX = margin.left+chartWidth/2;
+      const defaultTitleY = margin.top/2;
+      const titlePos = state.labelPositions?.title;
       const title=document.createElementNS(NS,'text');
-      title.setAttribute('x',margin.left+chartWidth/2);
-      title.setAttribute('y',margin.top/2);
+      title.setAttribute('x', titlePos?.x ?? defaultTitleX);
+      title.setAttribute('y', titlePos?.y ?? defaultTitleY);
       title.setAttribute('text-anchor','middle');
       title.setAttribute('font-size',fs);
       title.textContent=state.titleText;
@@ -1123,6 +1134,15 @@
           }
           applyPieTitleValue(title,nextValue);
           recordPieChange('pie:title',previous,nextValue,value=>applyPieTitleValue(title,value));
+        });
+      }
+      // Enable drag for title
+      if(typeof Shared.enableLabelDrag === 'function'){
+        Shared.enableLabelDrag(title, svg, {
+          onDragEnd: pos => {
+            state.labelPositions.title = { x: pos.x, y: pos.y };
+            console.debug('Debug: pie title position saved', pos);
+          }
         });
       }
       svg.appendChild(title);
@@ -1321,9 +1341,12 @@
     }else{
       console.debug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length });
     }
+    const defaultTitleX = cx;
+    const defaultTitleY = fs;
+    const titlePos = state.labelPositions?.title;
     const title=document.createElementNS(NS,'text');
-    title.setAttribute('x',cx);
-    title.setAttribute('y',fs);
+    title.setAttribute('x', titlePos?.x ?? defaultTitleX);
+    title.setAttribute('y', titlePos?.y ?? defaultTitleY);
     title.setAttribute('text-anchor','middle');
     title.setAttribute('font-size',fs);
     title.textContent=state.titleText;
@@ -1337,6 +1360,15 @@
         }
         applyPieTitleValue(title,nextValue);
         recordPieChange('pie:title',previous,nextValue,value=>applyPieTitleValue(title,value));
+      });
+    }
+    // Enable drag for title
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(title, svg, {
+        onDragEnd: pos => {
+          state.labelPositions.title = { x: pos.x, y: pos.y };
+          console.debug('Debug: pie title position saved', pos);
+        }
       });
     }
     svg.appendChild(title);
