@@ -1375,7 +1375,8 @@
     fastPointMode: false,
     cachedRender: null,
     dataDirty: true,
-    viewDirty: true
+    viewDirty: true,
+    labelPositions: { title: null, xLabel: null, yLabel: null }
   };
   pcaState.scheduleDraw = (opts) => scheduleDrawPca(opts);
   let emptyPayloadTemplate = null;
@@ -5369,14 +5370,26 @@
       debugLog('Debug: pca ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
       debugLog('Debug: pca font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
 
+      const defaultXLabelX = margin.left + plotW / 2;
+      const defaultXLabelY = margin.top + plotH + bottomLayout.titleOffset;
+      const xLabelPos = pcaState.labelPositions?.xLabel;
       const xAxisText = add('text', {
-        x: margin.left + plotW / 2,
-        y: margin.top + plotH + bottomLayout.titleOffset,
+        x: xLabelPos?.x ?? defaultXLabelX,
+        y: xLabelPos?.y ?? defaultXLabelY,
         'font-size': fs,
         'text-anchor': 'middle',
         fill: chartStyle.TEXT_COLOR,
       }, pcaXLabelText);
       markFontEditable(xAxisText,'xTitle','xTitle');
+      // Enable drag for x-axis label
+      if(typeof Shared.enableLabelDrag === 'function'){
+        Shared.enableLabelDrag(xAxisText, svg, {
+          onDragEnd: pos => {
+            pcaState.labelPositions.xLabel = { x: pos.x, y: pos.y };
+            debugLog('pca x-label position saved', pos);
+          }
+        });
+      }
 
       if(xTickNodes.length){
         const svgRect = typeof svg?.getBoundingClientRect === 'function' ? svg.getBoundingClientRect() : null;
@@ -5426,26 +5439,51 @@
         }
       }
 
-      const yLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+      const defaultYLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+      const defaultYLabelY = margin.top + plotH / 2;
+      const yLabelPos = pcaState.labelPositions?.yLabel;
+      const yTextX = yLabelPos?.x ?? defaultYLabelX;
+      const yTextY = yLabelPos?.y ?? defaultYLabelY;
       const yAxisText = add('text', {
-        x: yLabelX,
-        y: margin.top + plotH / 2,
+        x: yTextX,
+        y: yTextY,
         'font-size': fs,
         'text-anchor': 'middle',
-        transform: `rotate(-90 ${yLabelX} ${margin.top + plotH / 2})`,
+        transform: `rotate(-90 ${yTextX} ${yTextY})`,
         fill: chartStyle.TEXT_COLOR,
       }, pcaYLabelText);
       markFontEditable(yAxisText,'yTitle','yTitle');
+      // Enable drag for y-axis label
+      if(typeof Shared.enableLabelDrag === 'function'){
+        Shared.enableLabelDrag(yAxisText, svg, {
+          onDragEnd: pos => {
+            pcaState.labelPositions.yLabel = { x: pos.x, y: pos.y };
+            debugLog('pca y-label position saved', pos);
+          }
+        });
+      }
 
+      const defaultTitleX = margin.left + plotW / 2;
+      const defaultTitleY = Math.max(fs, margin.top * 0.5);
+      const titlePos = pcaState.labelPositions?.title;
       const titleText = add('text', {
-        x: margin.left + plotW / 2,
-        y: Math.max(fs, margin.top * 0.5),
+        x: titlePos?.x ?? defaultTitleX,
+        y: titlePos?.y ?? defaultTitleY,
         'font-size': fs,
         'text-anchor': 'middle',
         fill: chartStyle.TEXT_COLOR,
       }, pcaTitleText);
       markFontEditable(titleText,'graphTitle','graphTitle');
       makeEditableHelper(titleText, text => commitTitleChange(text, '2d-title'));
+      // Enable drag for title
+      if(typeof Shared.enableLabelDrag === 'function'){
+        Shared.enableLabelDrag(titleText, svg, {
+          onDragEnd: pos => {
+            pcaState.labelPositions.title = { x: pos.x, y: pos.y };
+            debugLog('pca title position saved', pos);
+          }
+        });
+      }
       debugLog('Debug: pca title rendered', { mode: '2d', text: pcaTitleText });
 
       const strokeColor = alpha > 0 && borderWidthPx > 0 ? borderColor : 'none';
@@ -5692,7 +5730,8 @@
           minDist:pcaUmapMinDist?.value ?? DEFAULT_UMAP_SETTINGS.minDist,
           learningRate:pcaUmapLearningRate?.value ?? DEFAULT_UMAP_SETTINGS.learningRate,
           epochs:pcaUmapEpochs?.value ?? DEFAULT_UMAP_SETTINGS.epochs
-        }
+        },
+        labelPositions: pcaState.labelPositions || null
       };
     }
 
@@ -5896,6 +5935,14 @@
             hasScree: Array.isArray(c.stats?.scree) && c.stats.scree.length > 0,
             method: c.stats?.method || null
           });
+        }
+        // Restore label positions if saved
+        if(c.labelPositions){
+          pcaState.labelPositions = {
+            title: c.labelPositions.title || null,
+            xLabel: c.labelPositions.xLabel || null,
+            yLabel: c.labelPositions.yLabel || null
+          };
         }
         scheduleDrawPca();
         debugLog('Debug: pca payload applied',{ source: meta.source || 'unknown', rows: dataMatrix.length });

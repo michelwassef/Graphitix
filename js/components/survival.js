@@ -154,7 +154,8 @@
     lastStats: null,
     covariateSettings: {},
     covariateColumns: [],
-    axisSettings: createDefaultAxisSettings()
+    axisSettings: createDefaultAxisSettings(),
+    labelPositions: { title: null, xLabel: null, yLabel: null }
   };
 
   function recordSurvivalChange(label, previous, next, apply){
@@ -2305,33 +2306,61 @@
     });
 
     const xTitleY = xAxisY + (bottomLayout.titleOffset || fs * 2);
+    const defaultXLabelX = margin.left + plotW / 2;
+    const defaultXLabelY = xTitleY;
+    const xLabelPos = state.labelPositions?.xLabel;
     const xTitle = add('text', {
-      x: margin.left + plotW / 2,
-      y: xTitleY,
+      x: xLabelPos?.x ?? defaultXLabelX,
+      y: xLabelPos?.y ?? defaultXLabelY,
       'font-size': fs,
       'text-anchor': 'middle',
       fill: chartStyle.TEXT_COLOR || '#000'
     });
     xTitle.textContent = xLabelText;
     markFontEditable(xTitle, 'xTitle', 'xTitle');
+    // Enable drag for x-axis label
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(xTitle, svg, {
+        onDragEnd: pos => {
+          state.labelPositions.xLabel = { x: pos.x, y: pos.y };
+          logDebug('x-label position saved', pos);
+        }
+      });
+    }
 
-    const yTitleX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+    const defaultYTitleX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fs * 0.5);
+    const defaultYTitleY = margin.top + plotH / 2;
+    const yLabelPos = state.labelPositions?.yLabel;
+    const yTitleX = yLabelPos?.x ?? defaultYTitleX;
+    const yTitleY = yLabelPos?.y ?? defaultYTitleY;
     logDebug('y-axis title placement', { yTitleX, maxYLabelWidth }); // Debug: axis label alignment
     const yTitle = add('text', {
       x: yTitleX,
-      y: margin.top + plotH / 2,
-      transform: `rotate(-90 ${yTitleX} ${margin.top + plotH / 2})`,
+      y: yTitleY,
+      transform: `rotate(-90 ${yTitleX} ${yTitleY})`,
       'font-size': fs,
       'text-anchor': 'middle',
       fill: chartStyle.TEXT_COLOR || '#000'
     });
     yTitle.textContent = yLabelText;
     markFontEditable(yTitle, 'yTitle', 'yTitle');
+    // Enable drag for y-axis label
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(yTitle, svg, {
+        onDragEnd: pos => {
+          state.labelPositions.yLabel = { x: pos.x, y: pos.y };
+          logDebug('y-label position saved', pos);
+        }
+      });
+    }
 
     const titleY = Math.max(fs * 1.6, margin.top * 0.5);
+    const defaultTitleX = margin.left + plotW / 2;
+    const defaultTitleY = titleY;
+    const titlePos = state.labelPositions?.title;
     const titleText = add('text', {
-      x: margin.left + plotW / 2,
-      y: titleY,
+      x: titlePos?.x ?? defaultTitleX,
+      y: titlePos?.y ?? defaultTitleY,
       'font-size': fs,
       'text-anchor': 'middle',
       fill: chartStyle.TEXT_COLOR || '#000'
@@ -2357,6 +2386,15 @@
       applySurvivalTitle(nextValue);
       recordSurvivalChange('survival:title', previous, nextValue, applySurvivalTitle);
     });
+    // Enable drag for title
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(titleText, svg, {
+        onDragEnd: pos => {
+          state.labelPositions.title = { x: pos.x, y: pos.y };
+          logDebug('title position saved', pos);
+        }
+      });
+    }
 
     const showCI = !!refs.showCI?.checked;
     const showCensor = !!refs.showCensor?.checked;
@@ -2624,7 +2662,8 @@
           color: axisSettings.color,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null
-        }
+        },
+        labelPositions: state.labelPositions || null
       },
       stats: state.lastStats || null
     };
@@ -2716,6 +2755,14 @@
       state.titleText = config.title != null ? String(config.title) : '';
     }else if(state.titleText == null){
       state.titleText = 'Survival curve';
+    }
+    // Restore label positions if saved
+    if(config.labelPositions){
+      state.labelPositions = {
+        title: config.labelPositions.title || null,
+        xLabel: config.labelPositions.xLabel || null,
+        yLabel: config.labelPositions.yLabel || null
+      };
     }
     applyAxisSettings(config.axis || config.axisSettings);
     refreshCovariateControls();
