@@ -10,6 +10,8 @@
   let tickInput = null;
   let thicknessInput = null;
   let colorInput = null;
+  let notationFieldEl = null;
+  let notationSelect = null;
   let activeConfig = null;
   let activeHost = null;
   let hasDocListener = false;
@@ -56,6 +58,15 @@
   function normalizeColorForCompare(value){
     const sanitized = sanitizeColorState(value);
     return sanitized ? sanitized.toLowerCase() : '';
+  }
+
+  const AXIS_NOTATION_DEFAULT = 'auto';
+  const AXIS_NOTATION_VALUES = new Set(['auto','decimal','scientific']);
+
+  function sanitizeNotationValue(value){
+    if(typeof value !== 'string'){ return AXIS_NOTATION_DEFAULT; }
+    const normalized = value.trim().toLowerCase();
+    return AXIS_NOTATION_VALUES.has(normalized) ? normalized : AXIS_NOTATION_DEFAULT;
   }
 
   function toColorInputValue(value){
@@ -123,6 +134,24 @@
     thicknessInput.value = thicknessValue === null ? '' : String(thicknessValue);
     const colorValueRaw = config.getColor ? config.getColor() : null;
     colorInput.value = toColorInputValue(colorValueRaw);
+
+    const notationSupported = notationSelect && typeof config.isNotationSupported === 'function'
+      ? config.isNotationSupported(config.axis) !== false
+      : (notationSelect && typeof config.getNotationMode === 'function' && typeof config.onNotationChange === 'function');
+    if(notationFieldEl){
+      if(notationSupported){
+        notationFieldEl.hidden = false;
+        notationFieldEl.dataset.disabled = '0';
+        notationSelect.disabled = false;
+        const notationRaw = config.getNotationMode ? config.getNotationMode(config.axis) : AXIS_NOTATION_DEFAULT;
+        notationSelect.value = sanitizeNotationValue(notationRaw);
+      }else{
+        notationFieldEl.dataset.disabled = '1';
+        notationFieldEl.hidden = true;
+        notationSelect.disabled = true;
+        notationSelect.value = AXIS_NOTATION_DEFAULT;
+      }
+    }
   }
 
   function syncPanelInputsFromConfig(config){
@@ -352,6 +381,30 @@
       Shared.attachColorPickerNear(colorInput);
     }
 
+    const notationField = doc.createElement('label');
+    notationField.className = 'axis-controls-panel__field';
+    const notationLabel = doc.createElement('span');
+    notationLabel.className = 'axis-controls-panel__field-label';
+    notationLabel.textContent = 'Number Format';
+    notationSelect = doc.createElement('select');
+    notationSelect.className = 'axis-controls-panel__select';
+    notationSelect.setAttribute('data-undo-ignore','1');
+    const notationOptions = [
+      { value: 'auto', label: 'Automatic' },
+      { value: 'decimal', label: 'Decimal' },
+      { value: 'scientific', label: 'Scientific' }
+    ];
+    notationOptions.forEach(opt => {
+      const optionEl = doc.createElement('option');
+      optionEl.value = opt.value;
+      optionEl.textContent = opt.label;
+      notationSelect.appendChild(optionEl);
+    });
+    notationField.appendChild(notationLabel);
+    notationField.appendChild(notationSelect);
+    panelEl.appendChild(notationField);
+    notationFieldEl = notationField;
+
     tickInput.addEventListener('change', () => {
       if(applyingFromUndo){ return; }
       if(!activeConfig || tickInput.disabled){ return; }
@@ -428,6 +481,31 @@
           }
         },
         (a, b) => normalizeColorForCompare(a) === normalizeColorForCompare(b)
+      );
+    });
+
+    notationSelect.addEventListener('change', () => {
+      if(applyingFromUndo){ return; }
+      if(!activeConfig || notationSelect.disabled){ return; }
+      const config = activeConfig;
+      if(typeof config.onNotationChange !== 'function'){ return; }
+      const previousValue = sanitizeNotationValue(config.getNotationMode ? config.getNotationMode(config.axis) : AXIS_NOTATION_DEFAULT);
+      const nextRequested = sanitizeNotationValue(notationSelect.value);
+      if(previousValue === nextRequested){ return; }
+      logDebug('notation change',{ axis: config.axis, mode: nextRequested });
+      config.onNotationChange(nextRequested, config.axis);
+      const resolvedNext = sanitizeNotationValue(config.getNotationMode ? config.getNotationMode(config.axis) : nextRequested);
+      syncPanelInputsFromConfig(config);
+      recordAxisStateChange(
+        config,
+        'notation',
+        previousValue,
+        resolvedNext,
+        value => {
+          if(config.onNotationChange){
+            config.onNotationChange(value, config.axis);
+          }
+        }
       );
     });
 
@@ -611,7 +689,10 @@
         tickPlaceholder: config.tickPlaceholder,
         onTickIntervalChange: config.onTickIntervalChange,
         onThicknessChange: config.onThicknessChange,
-        onColorChange: config.onColorChange
+        onColorChange: config.onColorChange,
+        getNotationMode: config.getNotationMode,
+        onNotationChange: config.onNotationChange,
+        isNotationSupported: config.isNotationSupported
       });
     };
     element.addEventListener('click', handler);

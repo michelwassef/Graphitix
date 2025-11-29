@@ -963,7 +963,8 @@
 
   /**
    * Format a number for axis tick labels, using scientific notation for
-   * very large (>=10000) or very small (<=0.001 and >0) numbers.
+   * very large (>=10000) or very small (<=0.001 and >0) numbers unless
+   * forceScientific is provided, which bypasses the thresholds.
    * Uses Unicode superscript for the exponent (e.g., 10³ instead of 10^3).
    *
    * Note: Zero is always formatted as "0", not in scientific notation.
@@ -975,6 +976,7 @@
    *        Note: Mantissa in scientific notation is capped at 2 decimals for readability.
    * @param {number} [options.thresholdHigh=10000] - Threshold above which to use scientific notation
    * @param {number} [options.thresholdLow=0.001] - Threshold at or below which to use scientific notation (for non-zero values)
+   * @param {boolean} [options.forceScientific=false] - Always use scientific notation when true
    * @returns {string} - The formatted string representation
    */
   chartStyle.formatScientific = function formatScientific(value, options){
@@ -982,6 +984,7 @@
     const maxDecimals = Number.isFinite(opts.maxDecimals) ? opts.maxDecimals : 2;
     const thresholdHigh = Number.isFinite(opts.thresholdHigh) ? opts.thresholdHigh : SCIENTIFIC_THRESHOLD_HIGH;
     const thresholdLow = Number.isFinite(opts.thresholdLow) ? opts.thresholdLow : SCIENTIFIC_THRESHOLD_LOW;
+    const forceScientific = opts.forceScientific === true;
 
     // Handle non-finite values
     if(!Number.isFinite(value)){
@@ -997,7 +1000,7 @@
 
     // Check if scientific notation is needed.
     // For small values, we check absValue > 0 to exclude zero (already handled above).
-    const needsScientific = absValue >= thresholdHigh || (absValue > 0 && absValue <= thresholdLow);
+    const needsScientific = forceScientific || absValue >= thresholdHigh || (absValue > 0 && absValue <= thresholdLow);
 
     if(needsScientific){
       // Calculate exponent
@@ -1035,6 +1038,77 @@
     });
 
     return formatted;
+  };
+
+  function formatDecimal(value, options){
+    if(!Number.isFinite(value)){
+      return String(value);
+    }
+    const opts = options || {};
+    const maxDigits = Number.isFinite(opts.maxDecimals) ? Math.min(12, Math.max(0, opts.maxDecimals)) : 6;
+    const minDigits = Number.isFinite(opts.minDecimals) ? Math.max(0, Math.min(maxDigits, opts.minDecimals)) : 0;
+    const digits = Math.max(minDigits, maxDigits);
+    let text;
+    try{
+      text = value.toFixed(digits);
+    }catch(err){
+      text = String(value);
+    }
+    if(text && text.indexOf('e') !== -1){
+      // Fallback when toFixed resorts to exponential form
+      text = Number(value).toLocaleString('en-US', {
+        useGrouping: false,
+        maximumFractionDigits: digits,
+        minimumFractionDigits: minDigits
+      });
+    }
+    if(opts.trimTrailingZeros !== false){
+      text = text.replace(/\.0+$/,'').replace(/(\.\d*?[1-9])0+$/,'$1');
+    }
+    if(text === '-0'){
+      return '0';
+    }
+    return text;
+  }
+
+  chartStyle.formatDecimal = formatDecimal;
+
+  const AXIS_NOTATION_ALLOWED = new Set(['auto','decimal','scientific']);
+
+  function normalizeAxisNotation(value){
+    if(typeof value !== 'string'){ return 'auto'; }
+    const trimmed = value.trim().toLowerCase();
+    return AXIS_NOTATION_ALLOWED.has(trimmed) ? trimmed : 'auto';
+  }
+
+  /**
+   * Format axis ticks using the requested notation mode.
+   * @param {number} value
+   * @param {Object} [options]
+   * @param {'auto'|'decimal'|'scientific'} [options.notation='auto']
+   * @param {number} [options.maxDecimals=2]
+   * @param {number} [options.decimalDigits]
+   * @returns {string}
+   */
+  chartStyle.formatAxisValue = function formatAxisValue(value, options){
+    const opts = options || {};
+    const notation = normalizeAxisNotation(opts.notation);
+    if(notation === 'scientific'){
+      return chartStyle.formatScientific(value, {
+        ...opts,
+        forceScientific: true
+      });
+    }
+    if(notation === 'decimal'){
+      const decimalDigits = Number.isFinite(opts.decimalDigits)
+        ? Math.max(0, Math.min(12, opts.decimalDigits))
+        : Math.max(4, Math.min(8, (Number.isFinite(opts.maxDecimals) ? opts.maxDecimals + 4 : 6)));
+      return formatDecimal(value, {
+        maxDecimals: decimalDigits,
+        trimTrailingZeros: opts.trimTrailingZeros !== false
+      });
+    }
+    return chartStyle.formatScientific(value, opts);
   };
 
   /**

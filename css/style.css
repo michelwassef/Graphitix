@@ -1893,10 +1893,13 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .axis-controls-panel__input--small{width:40px;min-width:40px}
 .axis-controls-panel__input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
 .axis-controls-panel__color-input{height:32px;width:64px;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;display:block;margin:0 auto}
+.axis-controls-panel__select{padding:5px 28px 5px 10px;font-size:13px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#0f172a;min-width:120px;appearance:none;background-image:linear-gradient(45deg,transparent 50%,#94a3b8 50%),linear-gradient(135deg,#94a3b8 50%,transparent 50%);background-position:calc(100% - 18px) calc(50% - 3px),calc(100% - 12px) calc(50% - 3px);background-size:6px 6px;background-repeat:no-repeat}
+.axis-controls-panel__select:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
 .axis-controls-panel__field--color .axis-controls-panel__field-label{display:block;width:100%;text-align:center}
 .axis-controls-panel__field--color .axis-controls-panel__color-input{align-self:center;margin-left:0;margin-right:0;margin-inline:auto}
 .axis-controls-panel__field[data-disabled='1']{opacity:.55}
 .axis-controls-panel__field[data-disabled='1'] .axis-controls-panel__input{pointer-events:none;cursor:not-allowed;background:rgba(241,245,249,0.8);border-color:rgba(148,163,184,0.4)}
+.axis-controls-panel__field[data-disabled='1'] .axis-controls-panel__select{pointer-events:none;cursor:not-allowed;background:rgba(241,245,249,0.8);border-color:rgba(148,163,184,0.4)}
 .axis-controls-panel__color-input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
 .axis-controls-panel__field--compact{min-width:100px;flex-direction:row;align-items:center;justify-content:center;gap:10px}
 .font-controls-panel{position:static;z-index:auto;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;min-width:0;max-width:100%;padding:0 12px;border-radius:14px;border:none;background:transparent;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}

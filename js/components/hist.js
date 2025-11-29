@@ -83,9 +83,14 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null },
-      y: { tickInterval: null }
+      x: { tickInterval: null, notation: 'auto' },
+      y: { tickInterval: null, notation: 'auto' }
     };
+  }
+
+  function sanitizeHistAxisNotation(value){
+    if(value === 'decimal' || value === 'scientific'){ return value; }
+    return 'auto';
   }
 
   const DEFAULT_DISTRIBUTION_COLORS = ['#d95f02', '#1b9e77', '#7570b3', '#e7298a', '#66a61e'];
@@ -229,17 +234,37 @@
       state.axisSettings = createDefaultAxisSettings();
     }
     if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
-      state.axisSettings.x = { tickInterval: null };
+      state.axisSettings.x = { tickInterval: null, notation: 'auto' };
     }
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
-      state.axisSettings.y = { tickInterval: null };
+      state.axisSettings.y = { tickInterval: null, notation: 'auto' };
     }
     const strokeNumeric = Number(state.axisSettings.strokeWidth);
     state.axisSettings.strokeWidth = Number.isFinite(strokeNumeric) && strokeNumeric > 0 ? strokeNumeric : 1;
     if(typeof state.axisSettings.color !== 'string' || !state.axisSettings.color){
       state.axisSettings.color = DEFAULT_AXIS_COLOR;
     }
+    state.axisSettings.x.notation = sanitizeHistAxisNotation(state.axisSettings.x.notation);
+    state.axisSettings.y.notation = sanitizeHistAxisNotation(state.axisSettings.y.notation);
     return state.axisSettings;
+  }
+
+  function getAxisNotation(axis){
+    if(axis !== 'x' && axis !== 'y'){ return 'auto'; }
+    const settings = ensureAxisSettings();
+    return sanitizeHistAxisNotation(settings[axis]?.notation);
+  }
+
+  function updateAxisNotation(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const nextValue = sanitizeHistAxisNotation(value);
+    if(settings[axis].notation === nextValue){ return; }
+    settings[axis].notation = nextValue;
+    console.debug('Debug: hist axis notation updated',{ axis, notation: nextValue });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
   }
 
   function getAxisTickInterval(axis){
@@ -313,6 +338,10 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'auto';
+      const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
+      base.x.notation = sanitizeHistAxisNotation(xNotation);
+      base.y.notation = sanitizeHistAxisNotation(yNotation);
     }
     state.axisSettings = base;
     ensureAxisSettings();
@@ -653,7 +682,9 @@
           strokeWidth: axisSettings.strokeWidth,
           color: axisSettings.color,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
-          tickIntervalY: axisSettings.y?.tickInterval ?? null
+          tickIntervalY: axisSettings.y?.tickInterval ?? null,
+          notationX: axisSettings.x?.notation ?? 'auto',
+          notationY: axisSettings.y?.notation ?? 'auto'
         },
         distributions:{
           selected:getActiveDistributionKeys(),
@@ -724,7 +755,9 @@
           strokeWidth: axisConfig.strokeWidth,
           color: axisConfig.color,
           tickIntervalX: axisConfig.tickIntervalX ?? axisConfig.xTickInterval ?? axisConfig?.x?.tickInterval ?? null,
-          tickIntervalY: axisConfig.tickIntervalY ?? axisConfig.yTickInterval ?? axisConfig?.y?.tickInterval ?? null
+          tickIntervalY: axisConfig.tickIntervalY ?? axisConfig.yTickInterval ?? axisConfig?.y?.tickInterval ?? null,
+          notationX: axisConfig.notationX ?? axisConfig.axisNotationX ?? axisConfig?.x?.notation ?? 'auto',
+          notationY: axisConfig.notationY ?? axisConfig.axisNotationY ?? axisConfig?.y?.notation ?? 'auto'
         });
         console.debug('Debug: hist axis settings restored',{ axis: ensureAxisSettings() });
       }
@@ -1072,7 +1105,10 @@
     } else {
       console.debug('Debug: hist fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
     }
-    function formatTick(v){return chartStyle.formatScientific(v,{maxDecimals:2});}
+    const histNotationX = getAxisNotation('x');
+    const histNotationY = getAxisNotation('y');
+    const formatTickX = v => chartStyle.formatAxisValue(v,{ notation: histNotationX, maxDecimals: 2 });
+    const formatTickY = v => chartStyle.formatAxisValue(v,{ notation: histNotationY, maxDecimals: 2 });
     const containerRect=state.svgBox?.getBoundingClientRect?.();
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: histFontSize.value,
@@ -1202,8 +1238,8 @@
           console.debug('Debug: hist manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
         }
       }
-      xTickLabels=xScale.ticks.map(t=>formatTick(t));
-      yTickLabels=yScale.ticks.map(t=>formatTick(logY?Math.pow(10,t):t));
+      xTickLabels=xScale.ticks.map(t=>formatTickX(t));
+      yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
       const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));
       maxYLabelWidth=Math.max(...yLabelWidths,0);
       margin=chartStyle.computeBaseMargins({fontSize:fs,maxYLabelWidth,yTitleWidth:yTitleWidthBase,axisMetrics});
@@ -1258,7 +1294,10 @@
         tickPlaceholder: 'Auto',
         onTickIntervalChange: value => updateAxisTickInterval(axis, value),
         onThicknessChange: value => updateAxisStrokeWidth(value),
-        onColorChange: value => updateAxisColor(value)
+        onColorChange: value => updateAxisColor(value),
+        getNotationMode: () => getAxisNotation(axis),
+        onNotationChange: value => updateAxisNotation(axis, value),
+        isNotationSupported: () => true
       });
       const xAxisLine = add('line',{x1:axisXStart,y1:margin.top+plotH,x2:axisXEnd,y2:margin.top+plotH,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){
@@ -1280,7 +1319,7 @@
         const x=x2px(t);
         add('line',{x1:x,y1:margin.top+plotH,x2:x,y2:margin.top+plotH+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
         const txt=add('text',{x,y:margin.top+plotH+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});
-        txt.textContent=formatTick(t);
+        txt.textContent=formatTickX(t);
         markFontEditable(txt,'xTick');
         xTickFontCount+=1;
         xTickNodes.push(txt);
@@ -1291,7 +1330,7 @@
         const y=y2px(t);
         add('line',{x1:margin.left-tickLen,y1:y,x2:margin.left,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
         const txt=add('text',{x:margin.left-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
-        txt.textContent=formatTick(logY?Math.pow(10,t):t);
+        txt.textContent=formatTickY(logY?Math.pow(10,t):t);
         markFontEditable(txt,'yTick');
         yTickFontCount+=1;
       });

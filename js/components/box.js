@@ -456,9 +456,14 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null },
-      y: { tickInterval: null }
+      x: { tickInterval: null, notation: 'auto' },
+      y: { tickInterval: null, notation: 'auto' }
     };
+  }
+
+  function sanitizeBoxAxisNotation(value){
+    if(value === 'decimal' || value === 'scientific'){ return value; }
+    return 'auto';
   }
   function fallbackSanitizeP(value){
     const num=Number(value);
@@ -1714,10 +1719,12 @@
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
-    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null }; }
-    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null }; }
+    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, notation: 'auto' }; }
+    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, notation: 'auto' }; }
     if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
     if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
+    settings.x.notation = sanitizeBoxAxisNotation(settings.x.notation);
+    settings.y.notation = sanitizeBoxAxisNotation(settings.y.notation);
     const strokeNumeric = Number(settings.strokeWidth);
     if(!Number.isFinite(strokeNumeric) || strokeNumeric <= 0){
       settings.strokeWidth = 1;
@@ -1727,6 +1734,24 @@
     }
     state.axisSettings = settings;
     return settings;
+  }
+
+  function getAxisNotation(axis){
+    if(axis !== 'x' && axis !== 'y'){ return 'auto'; }
+    const settings = ensureAxisSettings();
+    return sanitizeBoxAxisNotation(settings[axis]?.notation);
+  }
+
+  function updateAxisNotation(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const normalized = sanitizeBoxAxisNotation(value);
+    if(settings[axis].notation === normalized){ return; }
+    settings[axis].notation = normalized;
+    console.debug('Debug: box axis notation updated',{ axis, notation: normalized });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
   }
 
   function isAxisNumeric(axis){
@@ -6661,8 +6686,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       legendWidthForMargin = 0;
       console.debug('Debug: box legend disabled',{ grouped: isGroupedMode, groupCount: groupColorAssignments.size, showLegend });
     }
+    const boxAxisNotationX = getAxisNotation('x');
+    const boxAxisNotationY = getAxisNotation('y');
+    const numericAxisKey = state.flipAxes ? 'x' : 'y';
     function formatTick(v){
-      return chartStyle.formatScientific(v,{ maxDecimals: 2 });
+      const notation = numericAxisKey === 'x' ? boxAxisNotationX : boxAxisNotationY;
+      return chartStyle.formatAxisValue(v,{ notation, maxDecimals: 2 });
     }
     const appendToLayer = (layer, tag, attrs) => {
       const target = layer || dataLayer || svg;
@@ -6826,9 +6855,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         return 'Tick interval available only for numeric axes.';
       },
+      tickPlaceholder: 'Auto',
       onTickIntervalChange: value => updateAxisTickInterval(axis, value),
       onThicknessChange: value => updateAxisStrokeWidth(value),
-      onColorChange: value => updateAxisColor(value)
+      onColorChange: value => updateAxisColor(value),
+      getNotationMode: () => getAxisNotation(axis),
+      onNotationChange: value => {
+        if(!isAxisNumeric(axis)){
+          console.debug('Debug: box axis notation ignored for categorical axis',{ axis, flipAxes: state.flipAxes, requested: value });
+          return;
+        }
+        updateAxisNotation(axis, value);
+      },
+      isNotationSupported: () => isAxisNumeric(axis)
     });
 
     function renderVertical(){
