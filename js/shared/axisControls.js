@@ -11,7 +11,12 @@
   let thicknessInput = null;
   let colorInput = null;
   let notationFieldEl = null;
-  let notationSelect = null;
+  let notationComboWrapper = null;
+  let notationDisplayInput = null;
+  let notationMenuToggle = null;
+  let notationMenuPopup = null;
+  let notationMenuVisible = false;
+  let notationActiveValue = 'auto';
   let activeConfig = null;
   let activeHost = null;
   let hasDocListener = false;
@@ -62,11 +67,131 @@
 
   const AXIS_NOTATION_DEFAULT = 'auto';
   const AXIS_NOTATION_VALUES = new Set(['auto','decimal','scientific']);
+  const AXIS_NOTATION_OPTIONS = [
+    { value: 'auto', label: 'Automatic' },
+    { value: 'decimal', label: 'Decimal' },
+    { value: 'scientific', label: 'Scientific' }
+  ];
+  const AXIS_NOTATION_LABELS = AXIS_NOTATION_OPTIONS.reduce((map, opt) => {
+    map[opt.value] = opt.label;
+    return map;
+  }, {});
 
   function sanitizeNotationValue(value){
     if(typeof value !== 'string'){ return AXIS_NOTATION_DEFAULT; }
     const normalized = value.trim().toLowerCase();
     return AXIS_NOTATION_VALUES.has(normalized) ? normalized : AXIS_NOTATION_DEFAULT;
+  }
+
+  function getNotationLabel(value){
+    const sanitized = sanitizeNotationValue(value);
+    return AXIS_NOTATION_LABELS[sanitized] || AXIS_NOTATION_LABELS[AXIS_NOTATION_DEFAULT];
+  }
+
+  function setNotationDisplayValue(value){
+    notationActiveValue = sanitizeNotationValue(value);
+    if(notationDisplayInput){
+      notationDisplayInput.value = getNotationLabel(notationActiveValue);
+    }
+    if(!notationMenuPopup){ return; }
+    const options = notationMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+    options.forEach(optionEl => {
+      const isActive = optionEl.dataset.value === notationActiveValue;
+      optionEl.classList.toggle('font-controls-panel__combo-option--active', isActive);
+      optionEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+  }
+
+  function focusNotationOptionByIndex(index){
+    if(!notationMenuPopup){ return false; }
+    const options = notationMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+    if(!options.length){ return false; }
+    const clamped = Math.max(0, Math.min(options.length - 1, index));
+    const option = options[clamped];
+    if(option){
+      option.focus();
+      return true;
+    }
+    return false;
+  }
+
+  function focusNotationOptionByValue(value){
+    if(!notationMenuPopup){ return false; }
+    const normalized = sanitizeNotationValue(value);
+    const option = notationMenuPopup.querySelector(`.font-controls-panel__combo-option[data-value="${normalized}"]`);
+    if(option){
+      option.focus();
+      return true;
+    }
+    return false;
+  }
+
+  function closeNotationMenu(reason){
+    if(!notationMenuPopup || !notationMenuVisible){ return; }
+    notationMenuVisible = false;
+    notationMenuPopup.hidden = true;
+    notationMenuPopup.classList.remove('font-controls-panel__combo-menu--open');
+    if(notationMenuToggle){
+      notationMenuToggle.setAttribute('aria-expanded', 'false');
+    }
+    logDebug('notation menu closed', { reason });
+  }
+
+  function openNotationMenu(reason){
+    if(!notationMenuPopup || notationMenuVisible){ return; }
+    notationMenuVisible = true;
+    notationMenuPopup.hidden = false;
+    requestAnimationFrame(() => {
+      if(notationMenuPopup){
+        notationMenuPopup.classList.add('font-controls-panel__combo-menu--open');
+      }
+    });
+    if(notationMenuToggle){
+      notationMenuToggle.setAttribute('aria-expanded', 'true');
+    }
+    const focused = focusNotationOptionByValue(notationActiveValue);
+    if(!focused){ focusNotationOptionByIndex(0); }
+    logDebug('notation menu opened', { reason, value: notationActiveValue });
+  }
+
+  function toggleNotationMenu(reason){
+    if(notationMenuVisible){
+      closeNotationMenu(reason || 'toggle');
+    }else{
+      openNotationMenu(reason || 'toggle');
+    }
+  }
+
+  function handleNotationOptionSelect(requestedValue){
+    if(applyingFromUndo){ return; }
+    if(!activeConfig || !notationMenuToggle || notationMenuToggle.disabled){
+      closeNotationMenu('notation-disabled');
+      return;
+    }
+    const config = activeConfig;
+    if(typeof config.onNotationChange !== 'function'){ return; }
+    const previousValue = sanitizeNotationValue(config.getNotationMode ? config.getNotationMode(config.axis) : AXIS_NOTATION_DEFAULT);
+    const nextRequested = sanitizeNotationValue(requestedValue);
+    if(previousValue === nextRequested){
+      closeNotationMenu('notation-noop');
+      return;
+    }
+    logDebug('notation change',{ axis: config.axis, mode: nextRequested });
+    config.onNotationChange(nextRequested, config.axis);
+    const resolvedNext = sanitizeNotationValue(config.getNotationMode ? config.getNotationMode(config.axis) : nextRequested);
+    syncPanelInputsFromConfig(config);
+    recordAxisStateChange(
+      config,
+      'notation',
+      previousValue,
+      resolvedNext,
+      value => {
+        if(config.onNotationChange){
+          config.onNotationChange(value, config.axis);
+        }
+      }
+    );
+    closeNotationMenu('notation-select');
   }
 
   function toColorInputValue(value){
@@ -135,21 +260,24 @@
     const colorValueRaw = config.getColor ? config.getColor() : null;
     colorInput.value = toColorInputValue(colorValueRaw);
 
-    const notationSupported = notationSelect && typeof config.isNotationSupported === 'function'
+    const notationSupported = notationMenuToggle && typeof config.isNotationSupported === 'function'
       ? config.isNotationSupported(config.axis) !== false
-      : (notationSelect && typeof config.getNotationMode === 'function' && typeof config.onNotationChange === 'function');
+      : (notationMenuToggle && typeof config.getNotationMode === 'function' && typeof config.onNotationChange === 'function');
     if(notationFieldEl){
       if(notationSupported){
         notationFieldEl.hidden = false;
         notationFieldEl.dataset.disabled = '0';
-        notationSelect.disabled = false;
+        if(notationMenuToggle){ notationMenuToggle.disabled = false; }
+        if(notationDisplayInput){ notationDisplayInput.disabled = false; }
         const notationRaw = config.getNotationMode ? config.getNotationMode(config.axis) : AXIS_NOTATION_DEFAULT;
-        notationSelect.value = sanitizeNotationValue(notationRaw);
+        setNotationDisplayValue(notationRaw);
       }else{
         notationFieldEl.dataset.disabled = '1';
         notationFieldEl.hidden = true;
-        notationSelect.disabled = true;
-        notationSelect.value = AXIS_NOTATION_DEFAULT;
+        if(notationMenuToggle){ notationMenuToggle.disabled = true; }
+        if(notationDisplayInput){ notationDisplayInput.disabled = true; }
+        setNotationDisplayValue(AXIS_NOTATION_DEFAULT);
+        closeNotationMenu('notation-disabled');
       }
     }
   }
@@ -382,28 +510,136 @@
     }
 
     const notationField = doc.createElement('label');
-    notationField.className = 'axis-controls-panel__field';
+    notationField.className = 'axis-controls-panel__field axis-controls-panel__field--notation';
     const notationLabel = doc.createElement('span');
     notationLabel.className = 'axis-controls-panel__field-label';
     notationLabel.textContent = 'Number Format';
-    notationSelect = doc.createElement('select');
-    notationSelect.className = 'axis-controls-panel__select';
-    notationSelect.setAttribute('data-undo-ignore','1');
-    const notationOptions = [
-      { value: 'auto', label: 'Automatic' },
-      { value: 'decimal', label: 'Decimal' },
-      { value: 'scientific', label: 'Scientific' }
-    ];
-    notationOptions.forEach(opt => {
-      const optionEl = doc.createElement('option');
-      optionEl.value = opt.value;
-      optionEl.textContent = opt.label;
-      notationSelect.appendChild(optionEl);
-    });
     notationField.appendChild(notationLabel);
-    notationField.appendChild(notationSelect);
+
+    notationComboWrapper = doc.createElement('div');
+    notationComboWrapper.className = 'font-controls-panel__combo axis-controls-panel__notation-combo';
+
+    const notationComboRow = doc.createElement('div');
+    notationComboRow.className = 'font-controls-panel__combo-row';
+    notationDisplayInput = doc.createElement('input');
+    notationDisplayInput.type = 'text';
+    notationDisplayInput.className = 'font-controls-panel__input font-controls-panel__input--combo axis-controls-panel__notation-display';
+    notationDisplayInput.value = getNotationLabel(AXIS_NOTATION_DEFAULT);
+    notationDisplayInput.readOnly = true;
+    notationDisplayInput.setAttribute('tabindex','-1');
+    notationDisplayInput.setAttribute('aria-hidden','true');
+    notationDisplayInput.setAttribute('data-undo-ignore','1');
+    notationComboRow.appendChild(notationDisplayInput);
+
+    notationMenuToggle = doc.createElement('button');
+    notationMenuToggle.type = 'button';
+    notationMenuToggle.className = 'font-controls-panel__combo-toggle axis-controls-panel__notation-toggle';
+    notationMenuToggle.setAttribute('aria-label', 'Choose number format');
+    notationMenuToggle.setAttribute('aria-haspopup', 'listbox');
+    notationMenuToggle.setAttribute('aria-expanded', 'false');
+    notationMenuToggle.setAttribute('data-undo-ignore','1');
+    notationComboRow.appendChild(notationMenuToggle);
+
+    notationComboWrapper.appendChild(notationComboRow);
+
+    notationMenuPopup = doc.createElement('div');
+    notationMenuPopup.className = 'font-controls-panel__combo-menu axis-controls-panel__notation-menu';
+    notationMenuPopup.setAttribute('role', 'listbox');
+    notationMenuPopup.setAttribute('aria-label', 'Number format');
+    notationMenuPopup.hidden = true;
+
+    AXIS_NOTATION_OPTIONS.forEach(opt => {
+      const optionEl = doc.createElement('button');
+      optionEl.type = 'button';
+      optionEl.className = 'font-controls-panel__combo-option';
+      optionEl.dataset.value = opt.value;
+      optionEl.textContent = opt.label;
+      optionEl.setAttribute('role', 'option');
+      optionEl.setAttribute('tabindex', '-1');
+      optionEl.addEventListener('mousedown', evt => { evt.preventDefault(); });
+      optionEl.addEventListener('click', () => { handleNotationOptionSelect(opt.value); });
+      optionEl.addEventListener('keydown', evt => {
+        if(evt.key === 'ArrowDown'){
+          evt.preventDefault();
+          const options = notationMenuPopup ? Array.from(notationMenuPopup.querySelectorAll('.font-controls-panel__combo-option')) : [];
+          const idx = options.indexOf(optionEl);
+          focusNotationOptionByIndex(idx + 1);
+        }else if(evt.key === 'ArrowUp'){
+          evt.preventDefault();
+          const options = notationMenuPopup ? Array.from(notationMenuPopup.querySelectorAll('.font-controls-panel__combo-option')) : [];
+          const idx = options.indexOf(optionEl);
+          focusNotationOptionByIndex(idx - 1);
+        }else if(evt.key === 'Home'){
+          evt.preventDefault();
+          focusNotationOptionByIndex(0);
+        }else if(evt.key === 'End'){
+          evt.preventDefault();
+          if(notationMenuPopup){
+            const opts = notationMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+            focusNotationOptionByIndex(opts.length - 1);
+          }
+        }else if(evt.key === 'Escape'){
+          evt.preventDefault();
+          closeNotationMenu('escape');
+          if(notationMenuToggle){ notationMenuToggle.focus(); }
+        }else if(evt.key === 'Enter' || evt.key === ' '){
+          evt.preventDefault();
+          handleNotationOptionSelect(opt.value);
+        }
+      });
+      notationMenuPopup.appendChild(optionEl);
+    });
+
+    notationComboWrapper.appendChild(notationMenuPopup);
+    setNotationDisplayValue(AXIS_NOTATION_DEFAULT);
+    notationField.appendChild(notationComboWrapper);
     panelEl.appendChild(notationField);
     notationFieldEl = notationField;
+    if(notationDisplayInput){
+      notationDisplayInput.addEventListener('click', evt => {
+        evt.preventDefault();
+        if(notationFieldEl?.dataset?.disabled === '1'){ return; }
+        toggleNotationMenu('display-click');
+        if(notationMenuToggle && !notationMenuToggle.disabled){
+          notationMenuToggle.focus();
+        }
+      });
+    }
+    if(notationMenuToggle){
+      notationMenuToggle.addEventListener('mousedown', evt => { evt.preventDefault(); });
+      notationMenuToggle.addEventListener('click', () => {
+        if(notationMenuToggle.disabled){ return; }
+        toggleNotationMenu('button-click');
+      });
+      notationMenuToggle.addEventListener('keydown', evt => {
+        if(notationMenuToggle.disabled){ return; }
+        if(evt.key === 'ArrowDown' || evt.key === 'ArrowUp'){
+          evt.preventDefault();
+          openNotationMenu('button-arrow');
+        }else if(evt.key === 'Escape' && notationMenuVisible){
+          evt.preventDefault();
+          closeNotationMenu('button-escape');
+        }else if(evt.key === 'Enter' || evt.key === ' '){
+          evt.preventDefault();
+          toggleNotationMenu('button-enter');
+        }
+      });
+    }
+
+    panelEl.addEventListener('click', evt => {
+      if(!notationMenuVisible){ return; }
+      if(notationFieldEl && notationFieldEl.contains(evt.target)){ return; }
+      closeNotationMenu('panel-click');
+    });
+
+    panelEl.addEventListener('keydown', evt => {
+      if(evt.key === 'Escape' && notationMenuVisible){
+        closeNotationMenu('panel-escape');
+        if(notationMenuToggle && !notationMenuToggle.disabled){
+          notationMenuToggle.focus();
+        }
+      }
+    });
 
     tickInput.addEventListener('change', () => {
       if(applyingFromUndo){ return; }
@@ -484,30 +720,7 @@
       );
     });
 
-    notationSelect.addEventListener('change', () => {
-      if(applyingFromUndo){ return; }
-      if(!activeConfig || notationSelect.disabled){ return; }
-      const config = activeConfig;
-      if(typeof config.onNotationChange !== 'function'){ return; }
-      const previousValue = sanitizeNotationValue(config.getNotationMode ? config.getNotationMode(config.axis) : AXIS_NOTATION_DEFAULT);
-      const nextRequested = sanitizeNotationValue(notationSelect.value);
-      if(previousValue === nextRequested){ return; }
-      logDebug('notation change',{ axis: config.axis, mode: nextRequested });
-      config.onNotationChange(nextRequested, config.axis);
-      const resolvedNext = sanitizeNotationValue(config.getNotationMode ? config.getNotationMode(config.axis) : nextRequested);
-      syncPanelInputsFromConfig(config);
-      recordAxisStateChange(
-        config,
-        'notation',
-        previousValue,
-        resolvedNext,
-        value => {
-          if(config.onNotationChange){
-            config.onNotationChange(value, config.axis);
-          }
-        }
-      );
-    });
+    // notation combo listeners defined above
 
     ensureDocumentListener();
     logDebug('panel created');
@@ -598,6 +811,7 @@
 
   function closePanel(reason){
     if(!panelEl){ return; }
+    closeNotationMenu(reason || 'panel-close');
     panelEl.style.display = 'none';
     panelEl.hidden = true;
     panelEl.dataset.open = '0';
