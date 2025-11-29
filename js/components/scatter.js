@@ -110,7 +110,10 @@
     supports3d: false,
     supportsBubble: false,
     logPlusOneX: false,
-    logPlusOneY: false
+    logPlusOneY: false,
+    // User override for dot size. When enabled, draw uses this raw value
+    dotSizeOverrideEnabled: false,
+    dotSizeOverrideRaw: null
   };
   const scatterAutoDrawState = {
     autoDrawEnabled: true,
@@ -2149,7 +2152,20 @@
       scatterFill.addEventListener('input',()=>{console.log('scatterFill changed', scatterFill.value); scheduleDrawScatter();});
       scatterBorder.addEventListener('input',()=>{console.log('scatterBorder changed', scatterBorder.value); scheduleDrawScatter();});
       scatterBorderWidth.addEventListener('input',()=>{console.log('scatterBorderWidth changed', scatterBorderWidth.value); scheduleDrawScatter();});
-      scatterDotSize.addEventListener('input',()=>{console.log('scatterDotSize changed', scatterDotSize.value); scheduleDrawScatter();});
+      scatterDotSize.addEventListener('input',()=>{
+        const raw = Number(scatterDotSize.value);
+        if(Number.isFinite(raw)){
+          // Enable manual override on user input
+          scatterState.dotSizeOverrideEnabled = true;
+          scatterState.dotSizeOverrideRaw = raw;
+        }else{
+          // Non-finite input disables override and falls back to auto sizing
+          scatterState.dotSizeOverrideEnabled = false;
+          scatterState.dotSizeOverrideRaw = null;
+        }
+        console.log('scatterDotSize changed', scatterState.dotSizeOverrideEnabled ? scatterState.dotSizeOverrideRaw : '(auto)');
+        scheduleDrawScatter();
+      });
       scatterAlpha.addEventListener('input',()=>{scatterAlphaVal.textContent=scatterAlpha.value; console.log('scatterAlpha changed',scatterAlpha.value); scheduleDrawScatter();});
       scatterFontSize.addEventListener('input',()=>{
         if(scatterFontSize.dataset){
@@ -2940,14 +2956,28 @@
           pointCount: pointsInRange.length,
           viewMode: scatterState.viewMode
         });
-        // Apply adaptive point sizing based on the number of data points
-        dotSizeRaw = computeAdaptivePointSize(pointsInRange.length);
-        dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'scatter-point', min: 0 });
-        debug('Debug: scatter adaptive point size applied',{
-          pointCount: pointsInRange.length,
-          adaptiveSize: dotSizeRaw,
-          scaledSize: dotSizePx
-        });
+        // Apply adaptive point sizing based on the number of data points unless user override is enabled
+        if(scatterState.dotSizeOverrideEnabled && Number.isFinite(scatterState.dotSizeOverrideRaw)){
+          dotSizeRaw = scatterState.dotSizeOverrideRaw;
+          dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'scatter-point', min: 0 });
+          debug('Debug: scatter dot size override applied',{
+            pointCount: pointsInRange.length,
+            overrideSize: dotSizeRaw,
+            scaledSize: dotSizePx
+          });
+        }else{
+          dotSizeRaw = computeAdaptivePointSize(pointsInRange.length);
+          dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'scatter-point', min: 0 });
+          debug('Debug: scatter adaptive point size applied',{
+            pointCount: pointsInRange.length,
+            adaptiveSize: dotSizeRaw,
+            scaledSize: dotSizePx
+          });
+          // Sync the Dot size control to display the applied adaptive size when auto mode is active
+          if(scatterDotSize && String(scatterDotSize.value) !== String(dotSizeRaw)){
+            try{ scatterDotSize.value = String(dotSizeRaw); }catch(err){ /* ignore UI sync errors */ }
+          }
+        }
         const shouldAutoHideLegend = scatterCurrentGraphType === 'scatter' && !densityColoringActive && pointsInRange.length > 10;
         if(shouldAutoHideLegend && showLegend){
           scatterLegendChangeInternal = true;
