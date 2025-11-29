@@ -3838,7 +3838,15 @@
         }
         const xAxisBase=margin.top+plotH;
         const defaultXLabelX = margin.left+plotW/2;
-        const defaultXLabelY = xAxisBase+bottomLayout.titleOffset;
+        // Prevent overlap between x-axis title and rotated tick labels by adding
+        // a rotation-aware separation to the default Y when ticks rotate.
+        let rotationExtra = 0;
+        if(bottomLayout && bottomLayout.shouldRotate){
+          const maxLabelWidthLocal = bottomLayout.maxLabelWidth || 0;
+          rotationExtra = Math.min(220, Math.max(fs * 1.8, Math.ceil(Math.SQRT1_2 * maxLabelWidthLocal) + fs));
+        }
+        const rotationSeparation = rotationExtra ? Math.round(rotationExtra * 0.55) : 0;
+        const defaultXLabelY = xAxisBase + bottomLayout.titleOffset + rotationSeparation;
         const xLabelPos = scatterLabelPositions?.xLabel;
         const xText=add('text',{x: xLabelPos?.x ?? defaultXLabelX, y: xLabelPos?.y ?? defaultXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         xText.textContent=scatterXLabelText;
