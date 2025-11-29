@@ -1310,7 +1310,8 @@
     for(let colIndex = 0; colIndex < columnCount; colIndex += 1){
       let center;
       if(mode === 'median'){
-        // For median, we need to collect finite values then sort
+        // Inline median calculation to avoid allocating a column array via map().
+        // This duplicates computeMedian logic but avoids O(n) intermediate allocation per column.
         const finite = [];
         for(let rowIndex = 0; rowIndex < rowCount; rowIndex += 1){
           const value = matrix[rowIndex][colIndex];
@@ -1500,7 +1501,9 @@
       return { distance: 1, count: 0 };
     }
     if(metric === 'euclidean'){
-      // Direct computation without intermediate arrays
+      // Direct computation without intermediate arrays.
+      // This duplicates alignVectors' finite-value filtering but avoids O(n) array allocation
+      // for the common euclidean case during hierarchical clustering.
       let sumSq = 0;
       let count = 0;
       for(let i = 0; i < length; i += 1){
