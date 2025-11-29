@@ -544,4 +544,5 @@
   dendrogramControls.ensurePanel = ensurePanel;
   dendrogramControls.registerDendrogramElement = registerDendrogramElement;
   dendrogramControls.close = closePanel;
+  dendrogramControls.updateOverlayBounds = updateOverlayBounds;
 })(typeof window !== 'undefined' ? window : globalThis);

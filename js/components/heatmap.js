@@ -2439,8 +2439,22 @@
     parent.appendChild(group);
 
     // Register dendrogram group with dendrogramControls for click handling
-    if(dendrogramControls && typeof dendrogramControls.registerDendrogramElement === 'function'){
+    // Register dendrogram group with dendrogramControls for click handling
+    if (dendrogramControls && typeof dendrogramControls.registerDendrogramElement === 'function') {
+      // Always ensure overlay covers the full bounding box of the dendrogram group
       dendrogramControls.registerDendrogramElement(group, createDendrogramControlConfig(orientation));
+      // Optionally, force overlay update after rendering all paths
+      setTimeout(() => {
+        if (group.__dendrogramControlOverlay && typeof group.getBBox === 'function') {
+          const info = group.__dendrogramControlOverlay;
+          if (info && info.element) {
+            // Recompute overlay bounds to ensure it covers the full area
+            if (typeof Shared.dendrogramControls.updateOverlayBounds === 'function') {
+              Shared.dendrogramControls.updateOverlayBounds(group, info.element, info.padding);
+            }
+          }
+        }
+      }, 0);
       debugLog('Debug: heatmap dendrogram registered with controls', { orientation });
     }
 
