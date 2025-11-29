@@ -4784,5 +4784,50 @@
   };
   scatter.draw = function draw(){ ensureReady(); scheduleDrawScatter && scheduleDrawScatter(); };
 
+  function benchmarkScatterLoad(config){
+    const points = Math.max(1, Math.floor(Number(config?.points) || 1000));
+    const dims = Math.max(2, Math.floor(Number(config?.dimensions) || 2));
+    const generator = typeof config?.generator === 'function'
+      ? config.generator
+      : ((index, dimension) => ((index * 37 + dimension * 19) % 1000) / 10);
+    const perf = global.performance;
+    const coords = new Array(points);
+    for(let idx = 0; idx < points; idx++){
+      const entry = new Array(dims);
+      for(let dim = 0; dim < dims; dim++){
+        entry[dim] = Number(generator(idx, dim)) || 0;
+      }
+      coords[idx] = entry;
+    }
+    const start = perf?.now ? perf.now() : Date.now();
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for(let idx = 0; idx < points; idx++){
+      const entry = coords[idx];
+      const x = entry[0];
+      const y = entry[1] ?? 0;
+      if(x < minX) minX = x;
+      if(x > maxX) maxX = x;
+      if(y < minY) minY = y;
+      if(y > maxY) maxY = y;
+    }
+    const end = perf?.now ? perf.now() : Date.now();
+    return {
+      points,
+      dimensions: dims,
+      durationMs: Number((end - start).toFixed(3)),
+      extent: {
+        x: [minX, maxX],
+        y: [minY, maxY]
+      }
+    };
+  }
+
+  scatter.__testHooks = Object.assign({}, scatter.__testHooks, {
+    benchmarkLoad: opts => benchmarkScatterLoad(opts)
+  });
+
 })(window);
 

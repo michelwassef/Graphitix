@@ -6039,5 +6039,69 @@
   pca.ensure = ensureReady;
   pca.draw = function draw(){ ensureReady(); scheduleDrawPca && scheduleDrawPca(); };
 
+  function benchmarkPcaLoad(config){
+    const rows = Math.max(2, Math.floor(Number(config?.rows) || 200));
+    const cols = Math.max(2, Math.floor(Number(config?.cols) || 5));
+    const generator = typeof config?.generator === 'function'
+      ? config.generator
+      : ((rowIdx, colIdx) => Math.sin(rowIdx * 0.1 + colIdx * 0.5) * 10 + colIdx);
+    const matrix = new Array(rows);
+    for(let r = 0; r < rows; r++){
+      const row = new Array(cols);
+      for(let c = 0; c < cols; c++){
+        row[c] = Number(generator(r, c)) || 0;
+      }
+      matrix[r] = row;
+    }
+    const perf = global.performance;
+    const start = perf?.now ? perf.now() : Date.now();
+    const means = new Array(cols).fill(0);
+    for(let r = 0; r < rows; r++){
+      const row = matrix[r];
+      for(let c = 0; c < cols; c++){
+        means[c] += row[c];
+      }
+    }
+    for(let c = 0; c < cols; c++){
+      means[c] /= rows;
+    }
+    const centered = new Array(rows);
+    for(let r = 0; r < rows; r++){
+      const row = new Array(cols);
+      for(let c = 0; c < cols; c++){
+        row[c] = matrix[r][c] - means[c];
+      }
+      centered[r] = row;
+    }
+    const cov = Array.from({ length: cols }, () => new Array(cols).fill(0));
+    for(let r = 0; r < rows; r++){
+      const row = centered[r];
+      for(let i = 0; i < cols; i++){
+        for(let j = i; j < cols; j++){
+          cov[i][j] += row[i] * row[j];
+        }
+      }
+    }
+    const denom = rows - 1 || 1;
+    for(let i = 0; i < cols; i++){
+      for(let j = i; j < cols; j++){
+        const value = cov[i][j] / denom;
+        cov[i][j] = value;
+        cov[j][i] = value;
+      }
+    }
+    const end = perf?.now ? perf.now() : Date.now();
+    return {
+      rows,
+      cols,
+      durationMs: Number((end - start).toFixed(3)),
+      varianceTrace: cov.reduce((sum, diagRow, idx) => sum + (diagRow[idx] || 0), 0)
+    };
+  }
+
+  pca.__testHooks = Object.assign({}, pca.__testHooks, {
+    benchmarkLoad: opts => benchmarkPcaLoad(opts)
+  });
+
 })(window);
 

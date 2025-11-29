@@ -4060,4 +4060,54 @@
     }
   };
 
+  function benchmarkHeatmapLoad(config){
+    const rows = Math.max(1, Math.floor(Number(config?.rows) || 200));
+    const cols = Math.max(1, Math.floor(Number(config?.cols) || 10));
+    const generator = typeof config?.generator === 'function'
+      ? config.generator
+      : ((rowIdx, colIdx) => Math.cos(rowIdx * 0.15 + colIdx * 0.25) * 5 + rowIdx * 0.1);
+    const grid = Array.from({ length: rows }, (_, r) => {
+      const row = new Array(cols);
+      for(let c = 0; c < cols; c++){
+        row[c] = Number(generator(r, c)) || 0;
+      }
+      return row;
+    });
+    const perf = global.performance;
+    const start = perf?.now ? perf.now() : Date.now();
+    const rowStats = grid.map(row => {
+      let min = Infinity;
+      let max = -Infinity;
+      let sum = 0;
+      for(let c = 0; c < cols; c++){
+        const value = row[c];
+        if(value < min) min = value;
+        if(value > max) max = value;
+        sum += value;
+      }
+      return { min, max, mean: sum / cols };
+    });
+    const colSums = new Array(cols).fill(0);
+    for(let r = 0; r < rows; r++){
+      for(let c = 0; c < cols; c++){
+        colSums[c] += grid[r][c];
+      }
+    }
+    const end = perf?.now ? perf.now() : Date.now();
+    return {
+      rows,
+      cols,
+      durationMs: Number((end - start).toFixed(3)),
+      rowExtents: {
+        min: Math.min(...rowStats.map(stat => stat.min)),
+        max: Math.max(...rowStats.map(stat => stat.max))
+      },
+      columnMeans: colSums.map(sum => sum / rows)
+    };
+  }
+
+  heatmap.__testHooks = Object.assign({}, heatmap.__testHooks, {
+    benchmarkLoad: opts => benchmarkHeatmapLoad(opts)
+  });
+
 })(window);

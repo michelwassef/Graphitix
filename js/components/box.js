@@ -336,7 +336,15 @@
     let wMin = Infinity;
     let wMax = -Infinity;
     let iterCount = 0;
-    for(const v of values){
+    let observedMin = Infinity;
+    let observedMax = -Infinity;
+    for(const raw of values){
+      const v = Number(raw);
+      if(!Number.isFinite(v)){
+        continue;
+      }
+      observedMin = v < observedMin ? v : observedMin;
+      observedMax = v > observedMax ? v : observedMax;
       if(v < lowerFence || v > upperFence){
         outliers.push(v);
       }else{
@@ -350,10 +358,10 @@
     }
     const fallbackMinSource = Number.isFinite(lowerFence)
       ? lowerFence
-      : (values.length ? values[0] : (Number.isFinite(q1) ? q1 : 0));
+      : (Number.isFinite(options?.minValue) ? options.minValue : (Number.isFinite(observedMin) ? observedMin : (Number.isFinite(q1) ? q1 : 0)));
     const fallbackMaxSource = Number.isFinite(upperFence)
       ? upperFence
-      : (values.length ? values[values.length - 1] : (Number.isFinite(q3) ? q3 : fallbackMinSource));
+      : (Number.isFinite(options?.maxValue) ? options.maxValue : (Number.isFinite(observedMax) ? observedMax : (Number.isFinite(q3) ? q3 : fallbackMinSource)));
     const fallbackApplied = !Number.isFinite(wMin) || !Number.isFinite(wMax);
     if(!Number.isFinite(wMin)){
       wMin = fallbackMinSource;
@@ -370,6 +378,200 @@
       console.debug('Debug: box whisker extents',{ label, orientation, wMin, wMax, outlierCount: outliers.length, fallbackApplied, token });
     }
     return { wMin, wMax, outliers };
+  }
+
+  function percentileFromSorted(sorted, p){
+    if(!Array.isArray(sorted) || !sorted.length){
+      return NaN;
+    }
+    const clamped = Math.min(Math.max(p, 0), 1);
+    const pos = (sorted.length - 1) * clamped;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    const baseVal = sorted[base];
+    const nextVal = sorted[base + 1];
+    if(nextVal === undefined){
+      return baseVal;
+    }
+    return baseVal + rest * (nextVal - baseVal);
+  }
+
+  function partitionArray(arr, left, right, pivotIndex){
+    const pivotValue = arr[pivotIndex];
+    [arr[pivotIndex], arr[right]] = [arr[right], arr[pivotIndex]];
+    let storeIndex = left;
+    for(let i = left; i < right; i++){
+      if(arr[i] < pivotValue){
+        [arr[storeIndex], arr[i]] = [arr[i], arr[storeIndex]];
+        storeIndex += 1;
+      }
+    }
+    [arr[right], arr[storeIndex]] = [arr[storeIndex], arr[right]];
+    return storeIndex;
+  }
+
+  function nthValueInPlace(arr, n, left = 0, right = arr.length - 1){
+    let start = left;
+    let end = right;
+    while(start <= end){
+      if(start === end){
+        return arr[start];
+      }
+      const pivotIndex = Math.floor((start + end) / 2);
+      const newPivotIndex = partitionArray(arr, start, end, pivotIndex);
+      if(n === newPivotIndex){
+        return arr[n];
+      }
+      if(n < newPivotIndex){
+        end = newPivotIndex - 1;
+      }else{
+        start = newPivotIndex + 1;
+      }
+    }
+    return arr[start];
+  }
+
+  function quantileFromUnsorted(values, p){
+    if(!Array.isArray(values) || !values.length){
+      return NaN;
+    }
+    const pos = (values.length - 1) * Math.min(Math.max(p, 0), 1);
+    const lowerIndex = Math.floor(pos);
+    const upperIndex = Math.ceil(pos);
+    const working = values.slice();
+    const lowerValue = nthValueInPlace(working, lowerIndex);
+    if(upperIndex === lowerIndex){
+      return lowerValue;
+    }
+    const upperValue = nthValueInPlace(working, upperIndex);
+    return lowerValue + (upperValue - lowerValue) * (pos - lowerIndex);
+  }
+
+  function selectQuantileInPlace(work, p){
+    if(!work.length){
+      return NaN;
+    }
+    const pos = (work.length - 1) * Math.min(Math.max(p, 0), 1);
+    const lowerIndex = Math.floor(pos);
+    const upperIndex = Math.ceil(pos);
+    const lowerValue = nthValueInPlace(work, lowerIndex);
+    if(upperIndex === lowerIndex){
+      return lowerValue;
+    }
+    const upperValue = nthValueInPlace(work, upperIndex);
+    return lowerValue + (upperValue - lowerValue) * (pos - lowerIndex);
+  }
+
+  function computeTraceSummary(values, options){
+    const requireSorted = !!options?.requireSorted;
+    if(!Array.isArray(values) || !values.length){
+      return {
+        count: 0,
+        mean: 0,
+        variance: 0,
+        sd: 0,
+        min: NaN,
+        max: NaN,
+        q1: NaN,
+        median: NaN,
+        q3: NaN,
+        iqr: 0,
+        sortedValues: requireSorted ? [] : null
+      };
+    }
+    const numericValues = [];
+    for(let idx = 0; idx < values.length; idx++){
+      const v = Number(values[idx]);
+      if(Number.isFinite(v)){
+        numericValues.push(v);
+      }
+    }
+    const count = numericValues.length;
+    if(!count){
+      return {
+        count: 0,
+        mean: 0,
+        variance: 0,
+        sd: 0,
+        min: NaN,
+        max: NaN,
+        q1: NaN,
+        median: NaN,
+        q3: NaN,
+        iqr: 0,
+        sortedValues: requireSorted ? [] : null
+      };
+    }
+    let min = numericValues[0];
+    let max = numericValues[0];
+    let sum = 0;
+    let sumSquares = 0;
+    for(let idx = 0; idx < numericValues.length; idx++){
+      const value = numericValues[idx];
+      if(value < min) min = value;
+      if(value > max) max = value;
+      sum += value;
+      sumSquares += value * value;
+    }
+    const mean = sum / count;
+    const variance = count > 1 ? Math.max(0, (sumSquares - (sum * sum) / count) / (count - 1)) : 0;
+    const sd = Math.sqrt(variance);
+    let q1;
+    let median;
+    let q3;
+    let sortedValues = null;
+    if(requireSorted){
+      const sorted = numericValues.slice().sort((a, b) => a - b);
+      sortedValues = sorted;
+      q1 = percentileFromSorted(sorted, 0.25);
+      median = percentileFromSorted(sorted, 0.5);
+      q3 = percentileFromSorted(sorted, 0.75);
+    }else{
+      const working = numericValues;
+      q1 = selectQuantileInPlace(working, 0.25);
+      median = selectQuantileInPlace(working, 0.5);
+      q3 = selectQuantileInPlace(working, 0.75);
+    }
+    return {
+      count,
+      mean,
+      variance,
+      sd,
+      min,
+      max,
+      q1,
+      median,
+      q3,
+      iqr: Number.isFinite(q3) && Number.isFinite(q1) ? q3 - q1 : 0,
+      sortedValues
+    };
+  }
+
+  function benchmarkTraceSummaries(config){
+    const rows = Math.max(1, Math.floor(Number(config?.rows) || 1));
+    const cols = Math.max(1, Math.floor(Number(config?.cols) || 1));
+    const generator = typeof config?.generator === 'function'
+      ? config.generator
+      : ((rowIdx, colIdx) => ((rowIdx * 131 + colIdx * 17) % 100) + (rowIdx % 5));
+    const dataset = Array.from({ length: cols }, (_, colIdx) => {
+      const col = new Array(rows);
+      for(let r = 0; r < rows; r++){
+        col[r] = Number(generator(r, colIdx)) || 0;
+      }
+      return col;
+    });
+    const perf = global.performance;
+    const start = perf?.now ? perf.now() : Date.now();
+    dataset.forEach(values => {
+      computeTraceSummary(values, { requireSorted: config?.requireSorted === true });
+    });
+    const end = perf?.now ? perf.now() : Date.now();
+    return {
+      rows,
+      cols,
+      points: rows * cols,
+      durationMs: Number((end - start).toFixed(3))
+    };
   }
 
   function computeSeparatedCategoryUnits(groupIndices){
@@ -5217,15 +5419,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   function renderStatsTable(traces){
     const tableDiv=document.getElementById('statsTable');
     if(!tableDiv) return;
-    const jStatLib=global.jStat;
-    if(!jStatLib){
-      tableDiv.textContent='Statistics unavailable (jStat missing).';
-      return;
-    }
     const tableRows=traces.map(t=>{
-      const arr=t.rawY.filter(v=>Number.isFinite(v));
-      const n=arr.length;
-      if(!n){
+      const summary = computeTraceSummary(Array.isArray(t.rawY) ? t.rawY : [], { requireSorted: false });
+      if(!summary.count){
         return {
           name:t.name,
           n:'0',
@@ -5238,24 +5434,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           max:'—'
         };
       }
-      const sorted=arr.slice().sort((a,b)=>a-b);
-      const mean=arr.reduce((s,v)=>s+v,0)/n;
-      const med=sorted[Math.floor((n-1)/2)];
-      const sd=jStatLib.stdev(arr,true);
-      const min=sorted[0];
-      const q1=jStatLib.percentile(arr,0.25);
-      const q3=jStatLib.percentile(arr,0.75);
-      const max=sorted[sorted.length-1];
+      const mean = summary.mean;
+      const med = summary.median;
+      const sd = summary.sd;
+      const min = summary.min;
+      const q1 = summary.q1;
+      const q3 = summary.q3;
+      const max = summary.max;
       return {
         name:t.name,
-        n:String(n),
-        mean:mean.toFixed(2),
-        median:med.toFixed(2),
-        sd:sd.toFixed(2),
-        min:min.toFixed(2),
-        q1:q1.toFixed(2),
-        q3:q3.toFixed(2),
-        max:max.toFixed(2)
+        n:String(summary.count),
+        mean:Number.isFinite(mean)?mean.toFixed(2):'—',
+        median:Number.isFinite(med)?med.toFixed(2):'—',
+        sd:Number.isFinite(sd)?sd.toFixed(2):'—',
+        min:Number.isFinite(min)?min.toFixed(2):'—',
+        q1:Number.isFinite(q1)?q1.toFixed(2):'—',
+        q3:Number.isFinite(q3)?q3.toFixed(2):'—',
+        max:Number.isFinite(max)?max.toFixed(2):'—'
       };
     });
     if(Shared.statsTable && typeof Shared.statsTable.render==='function'){
@@ -6494,42 +6689,31 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     } else {
       console.debug('Debug: box fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
     }
+    const needSortedValues = graphTypeRaw === 'violin';
     let ymin = Infinity;
     let ymax = -Infinity;
-    for(let ti = 0; ti < traces.length; ti++){
-      const t = traces[ti];
-      const sampleCount = t.y.length;
-      let sum = 0;
-      let sumSq = 0;
-      for(let j = 0; j < sampleCount; j++){
-        const v = t.y[j];
-        if(v < ymin) ymin = v;
-        if(v > ymax) ymax = v;
-        sum += v;
-        sumSq += v * v;
-        if(j % 10000 === 0 && Shared.isDebugEnabled?.()){
-          console.debug('boxplot range progress',{ component: 'box', trace: ti, row: j, token });
+    traces.forEach((trace, traceIndex) => {
+      const summary = computeTraceSummary(trace.y, { requireSorted: needSortedValues });
+      trace.__distribution = summary;
+      if(summary.count){
+        if(Number.isFinite(summary.min) && summary.min < ymin){
+          ymin = summary.min;
+        }
+        if(Number.isFinite(summary.max) && summary.max > ymax){
+          ymax = summary.max;
         }
       }
-      let mean = 0;
-      let variance = 0;
-      let sd = 0;
-      if(sampleCount){
-        mean = sum / sampleCount;
-        if(sampleCount > 1){
-          const numerator = sumSq - (sum * sum) / sampleCount;
-          variance = numerator > 0 ? numerator / (sampleCount - 1) : 0;
-          sd = Math.sqrt(Math.max(variance, 0));
-        }
+      if(traceIndex % 5 === 0 && Shared.isDebugEnabled?.()){
+        console.debug('boxplot distribution summary',{ component: 'box', trace: traceIndex, count: summary.count, needSortedValues, token });
       }
-      t.__barStats = {
-        sampleCount,
-        mean,
-        variance,
-        sd,
-        hasSpread: sampleCount > 1
+      trace.__barStats = {
+        sampleCount: summary.count,
+        mean: summary.mean,
+        variance: summary.variance,
+        sd: summary.sd,
+        hasSpread: summary.count > 1
       };
-    }
+    });
     if(token !== state.drawToken){
       console.log('boxplot draw cancelled after range calc',{ token });
       return;
@@ -6719,13 +6903,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     };
     const add = (tag, attrs) => appendToLayer(dataLayer || svg, tag, attrs);
     const addGrid = (tag, attrs) => appendToLayer(gridLayer || svg, tag, attrs);
-    function percentile(sorted, p){
-      if(!sorted.length) return NaN;
-      const pos = (sorted.length - 1) * p;
-      const base = Math.floor(pos);
-      const rest = pos - base;
-      return (sorted[base + 1] !== undefined) ? sorted[base] + rest * (sorted[base + 1] - sorted[base]) : sorted[base];
-    }
     const axisStroke = axisStrokeColor || DEFAULT_AXIS_COLOR;
     function estimateBandwidth(sorted){
       if(!sorted.length) return 1;
@@ -6733,7 +6910,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const meanVal = sorted.reduce((acc, v) => acc + v, 0) / n;
       const variance = sorted.reduce((acc, v) => acc + Math.pow(v - meanVal, 2), 0) / (n - 1 || 1);
       const sigma = Math.sqrt(variance) || 0;
-      const iqrVal = percentile(sorted, 0.75) - percentile(sorted, 0.25);
+      const iqrVal = percentileFromSorted(sorted, 0.75) - percentileFromSorted(sorted, 0.25);
       const scale = Math.min(sigma, iqrVal / 1.349 || Infinity) || sigma || Math.abs(sorted[0]) || 1;
       const bandwidth = 0.9 * scale * Math.pow(n, -0.2);
       const fallback = (sorted[n - 1] - sorted[0]) / (Math.sqrt(n) || 1) || 1;
@@ -7194,8 +7371,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           return null;
         }
         const t = traces[i];
-        const vals = [...t.y].sort((a, b) => a - b);
-        if(!vals.length) continue;
+        const summary = t.__distribution || computeTraceSummary(t.y, { requireSorted: graphTypeRaw === 'violin' });
+        if(!summary || !summary.count){
+          continue;
+        }
+        const valueList = summary.sortedValues || t.y;
         const tooltipSeriesName = t?.name || `Trace ${i + 1}`;
         const tooltipCategoryName = t?.categoryName || axisLabels?.[i] || tooltipSeriesName;
         const tooltipGroupName = t?.groupName || null;
@@ -7204,17 +7384,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const boxW = Math.max(6, Math.min(60, localBand * 0.6));
         const x0 = cx - boxW / 2;
         const x1 = cx + boxW / 2;
-        const q1 = percentile(vals, 0.25);
-        const med = percentile(vals, 0.5);
-        const q3 = percentile(vals, 0.75);
-        const iqr = q3 - q1;
-        const sampleCount = t.y.length;
-        const mean = sampleCount ? t.y.reduce((acc, v) => acc + v, 0) / sampleCount : 0;
-        let sdForRule = 0;
-        if(whiskerNeedsSd && sampleCount > 1){
-          const variance = t.y.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (sampleCount - 1);
-          sdForRule = Math.sqrt(Math.max(variance, 0));
-        }
+        const q1 = summary.q1;
+        const med = summary.median;
+        const q3 = summary.q3;
+        const iqr = summary.iqr;
+        const sampleCount = summary.count;
+        const mean = summary.mean;
+        const sdForRule = whiskerNeedsSd ? summary.sd : 0;
         const whiskerInfo = computeWhiskerFences({
           q1,
           q3,
@@ -7230,9 +7406,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const upperFence = whiskerInfo.upperFence;
         const whiskerAnnotation = whiskerInfo.annotation;
         const outlierAnnotation = whiskerAnnotation ? `${whiskerAnnotation} Outlier.` : null;
-        const whiskerExtents = resolveWhiskerExtents(vals,
+        const whiskerExtents = resolveWhiskerExtents(valueList,
           { lowerFence, upperFence, q1, q3 },
-          { debugEnabled, label: t?.name || `Trace ${i + 1}`, orientation: 'vertical', token }
+          {
+            debugEnabled,
+            label: t?.name || `Trace ${i + 1}`,
+            orientation: 'vertical',
+            token,
+            minValue: summary.min,
+            maxValue: summary.max
+          }
         );
         const { wMin, wMax, outliers } = whiskerExtents;
         const yQ1 = y2px(q1);
@@ -7250,7 +7433,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             const medianLine = add('line',{ x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
             annotateWithTitle(medianLine, whiskerAnnotation);
           }else{
-            const notchSpan = 1.57 * (iqr) / Math.sqrt(vals.length);
+            const notchSpan = 1.57 * (iqr) / Math.sqrt(sampleCount);
             let notchLower = Math.max(q1, med - notchSpan);
             let notchUpper = Math.min(q3, med + notchSpan);
             if(notchLower > notchUpper){
@@ -7372,7 +7555,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             console.debug('Debug: box bar error bar skipped for single value',{ index: i, sampleCount: sampleCountBar, mean });
           }
         }else if(graphTypeRaw === 'violin'){
-          const densityInfo = computeDensity(vals, yScale.min, yScale.max, violinState.sampleCount);
+          const densitySource = summary.sortedValues || valueList.slice().sort((a, b) => a - b);
+          const densityInfo = computeDensity(densitySource, yScale.min, yScale.max, violinState.sampleCount);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
           const halfWidth = Math.max(6, Math.min(80, localBand * 0.45));
           const pathParts = [];
@@ -7403,14 +7587,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           add('rect',{ x: insetX0, y: yQ3, width: insetBoxWidth, height: Math.max(1, yQ1 - yQ3), fill: '#fff', stroke: borderColor, 'stroke-width': insetStrokeWidth });
           add('line',{ x1: insetX0, y1: yMed, x2: insetX1, y2: yMed, stroke: borderColor, 'stroke-width': insetStrokeWidth });
           if(debugEnabled){
-            console.debug('Debug: box violin vertical render',{ index: i, points: vals.length, peak, halfWidth, insetBoxWidth });
+            console.debug('Debug: box violin vertical render',{ index: i, points: sampleCount, peak, halfWidth, insetBoxWidth });
           }
         }else if(graphTypeRaw === 'strip'){
-          const pointEntries = vals.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value }));
+          const pointEntries = valueList.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value }));
           const swarm = computeSwarmOffsets(pointEntries, {
             axisSpacing: localBand,
             pointRadius,
-            sampleSize: vals.length,
+            sampleSize: sampleCount,
             orientation: 'vertical'
           });
           const frag = document.createDocumentFragment();
@@ -7447,9 +7631,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               return node;
             };
             if(individualSummaryMode === 'mean'){
-              const sampleCount = vals.length;
-              const variance = sampleCount > 1 ? vals.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (sampleCount - 1) : 0;
-              const sd = Math.sqrt(Math.max(variance, 0));
+              const variance = summary.variance;
+              const sd = summary.sd;
               const sem = sampleCount > 0 ? sd / Math.sqrt(sampleCount) : 0;
               if(sampleCount > 1){
                 const yTop = y2px(mean + sem);
@@ -7471,7 +7654,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               console.debug('Debug: box individual summary vertical median',{ index: i, q1, q3 });
             }
           }
-          console.debug('Debug: box individual vertical render',{ index: i, mean, maxOffsetUsed: swarm.maxOffsetUsed, spreadFactor: swarm.spreadFactor, pointCount: vals.length });
+          console.debug('Debug: box individual vertical render',{ index: i, mean, maxOffsetUsed: swarm.maxOffsetUsed, spreadFactor: swarm.spreadFactor, pointCount: sampleCount });
         }
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
@@ -7501,7 +7684,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               }
             }
           }else{
-            for(const v of vals){
+            for(const v of valueList){
               const cy = y2px(v);
               let px;
               if(pointMode === 'overlay'){
@@ -7769,8 +7952,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           return null;
         }
         const t = traces[i];
-        const vals = [...t.y].sort((a, b) => a - b);
-        if(!vals.length) continue;
+        const summary = t.__distribution || computeTraceSummary(t.y, { requireSorted: graphTypeRaw === 'violin' });
+        if(!summary || !summary.count){
+          continue;
+        }
+        const valueList = summary.sortedValues || t.y;
         const tooltipSeriesName = t?.name || `Trace ${i + 1}`;
         const tooltipCategoryName = t?.categoryName || axisLabels?.[i] || tooltipSeriesName;
         const tooltipGroupName = t?.groupName || null;
@@ -7779,17 +7965,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const boxH = Math.max(6, Math.min(60, localBand * 0.6));
         const y0 = cy - boxH / 2;
         const y1 = cy + boxH / 2;
-        const q1 = percentile(vals, 0.25);
-        const med = percentile(vals, 0.5);
-        const q3 = percentile(vals, 0.75);
-        const iqr = q3 - q1;
-        const sampleCount = t.y.length;
-        const mean = sampleCount ? t.y.reduce((acc, v) => acc + v, 0) / sampleCount : 0;
-        let sdForRule = 0;
-        if(whiskerNeedsSd && sampleCount > 1){
-          const variance = t.y.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (sampleCount - 1);
-          sdForRule = Math.sqrt(Math.max(variance, 0));
-        }
+        const q1 = summary.q1;
+        const med = summary.median;
+        const q3 = summary.q3;
+        const iqr = summary.iqr;
+        const sampleCount = summary.count;
+        const mean = summary.mean;
+        const sdForRule = whiskerNeedsSd ? summary.sd : 0;
         const whiskerInfo = computeWhiskerFences({
           q1,
           q3,
@@ -7805,9 +7987,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const upperFence = whiskerInfo.upperFence;
         const whiskerAnnotation = whiskerInfo.annotation;
         const outlierAnnotation = whiskerAnnotation ? `${whiskerAnnotation} Outlier.` : null;
-        const whiskerExtents = resolveWhiskerExtents(vals,
+        const whiskerExtents = resolveWhiskerExtents(valueList,
           { lowerFence, upperFence, q1, q3 },
-          { debugEnabled, label: t?.name || `Trace ${i + 1}`, orientation: 'horizontal', token }
+          {
+            debugEnabled,
+            label: t?.name || `Trace ${i + 1}`,
+            orientation: 'horizontal',
+            token,
+            minValue: summary.min,
+            maxValue: summary.max
+          }
         );
         const { wMin, wMax, outliers } = whiskerExtents;
         const xQ1 = valueToX(q1);
@@ -7827,7 +8016,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             const medianLine = add('line',{ x1: xMed, y1: y0, x2: xMed, y2: y1, stroke: borderColor, 'stroke-width': borderWidthPx });
             annotateWithTitle(medianLine, whiskerAnnotation);
           }else{
-            const notchSpan = 1.57 * (iqr) / Math.sqrt(vals.length);
+            const notchSpan = 1.57 * (iqr) / Math.sqrt(sampleCount);
             let notchLower = Math.max(q1, med - notchSpan);
             let notchUpper = Math.min(q3, med + notchSpan);
             if(notchLower > notchUpper){
@@ -7966,7 +8155,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             console.debug('Debug: box horizontal bar error bar skipped for single value',{ index: i, sampleCount: sampleCountBar, mean });
           }
         }else if(graphTypeRaw === 'violin'){
-          const densityInfo = computeDensity(vals, yScale.min, yScale.max, violinState.sampleCount);
+          const densitySource = summary.sortedValues || valueList.slice().sort((a, b) => a - b);
+          const densityInfo = computeDensity(densitySource, yScale.min, yScale.max, violinState.sampleCount);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
           const halfHeight = Math.max(6, Math.min(80, localBand * 0.45));
           const pathParts = [];
@@ -7999,14 +8189,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           add('rect',{ x: insetLeft, y: insetY0, width: insetWidth, height: insetBoxHeight, fill: '#fff', stroke: borderColor, 'stroke-width': insetStrokeWidth });
           add('line',{ x1: xMed, y1: insetY0, x2: xMed, y2: insetY1, stroke: borderColor, 'stroke-width': insetStrokeWidth });
           if(debugEnabled){
-            console.debug('Debug: box violin horizontal render',{ index: i, points: vals.length, peak, halfHeight, insetBoxHeight });
+            console.debug('Debug: box violin horizontal render',{ index: i, points: sampleCount, peak, halfHeight, insetBoxHeight });
           }
         }else if(graphTypeRaw === 'strip'){
-          const pointEntries = vals.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value }));
+          const pointEntries = valueList.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value }));
           const swarm = computeSwarmOffsets(pointEntries, {
             axisSpacing: localBand,
             pointRadius,
-            sampleSize: vals.length,
+            sampleSize: sampleCount,
             orientation: 'horizontal'
           });
           const frag = document.createDocumentFragment();
@@ -8043,9 +8233,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               return node;
             };
             if(individualSummaryMode === 'mean'){
-              const sampleCount = vals.length;
-              const variance = sampleCount > 1 ? vals.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (sampleCount - 1) : 0;
-              const sd = Math.sqrt(Math.max(variance, 0));
+              const variance = summary.variance;
+              const sd = summary.sd;
               const sem = sampleCount > 0 ? sd / Math.sqrt(sampleCount) : 0;
               if(sampleCount > 1){
                 const xLow = valueToX(mean - sem);
@@ -8069,7 +8258,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               console.debug('Debug: box individual summary horizontal median',{ index: i, q1, q3 });
             }
           }
-          console.debug('Debug: box individual horizontal render',{ index: i, mean, maxOffsetUsed: swarm.maxOffsetUsed, spreadFactor: swarm.spreadFactor, pointCount: vals.length });
+          console.debug('Debug: box individual horizontal render',{ index: i, mean, maxOffsetUsed: swarm.maxOffsetUsed, spreadFactor: swarm.spreadFactor, pointCount: sampleCount });
         }
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
@@ -8099,7 +8288,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               }
             }
           }else{
-            for(const v of vals){
+            for(const v of valueList){
               const px = valueToX(v);
               let py;
               if(pointMode === 'overlay'){
@@ -8834,7 +9023,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     anova:groups=>anova(groups),
     kruskalWallis:groups=>kruskalWallis(groups),
     computeWhiskerFences:ctx=>computeWhiskerFences(ctx),
-    resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options)
+    resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options),
+    computeTraceSummary:(values,opts)=>computeTraceSummary(values,opts),
+    benchmarkSummaries:opts=>benchmarkTraceSummaries(opts)
   });
 })(window);
 
