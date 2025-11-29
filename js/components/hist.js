@@ -161,6 +161,11 @@
       checkboxes: {},
       showPdf: null,
       showCdf: null
+    },
+    labelPositions: {
+      title: null,
+      xLabel: null,
+      yLabel: null
     }
   };
   let histNoticeBoundWidth = null;
@@ -655,7 +660,8 @@
           showPdf:!!state.distributionSettings.showPdf,
           showCdf:!!state.distributionSettings.showCdf,
           alpha:state.distributionSettings.alpha
-        }
+        },
+        labelPositions: state.labelPositions || null
       };
     const payload = {
         type:'hist',
@@ -752,6 +758,14 @@
       }
       if(state.distributionInputs?.showCdf){
         state.distributionInputs.showCdf.checked = !!state.distributionSettings.showCdf;
+      }
+      // Restore label positions if saved
+      if(config.labelPositions){
+        state.labelPositions = {
+          title: config.labelPositions.title || null,
+          xLabel: config.labelPositions.xLabel || null,
+          yLabel: config.labelPositions.yLabel || null
+        };
       }
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw();
@@ -1360,7 +1374,10 @@
       }
     }
     const xAxisBase=margin.top+plotH;
-    const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    const defaultXLabelX = margin.left+plotW/2;
+    const defaultXLabelY = xAxisBase+bottomLayout.titleOffset;
+    const xLabelPos = state.labelPositions?.xLabel;
+    const xText=add('text',{x: xLabelPos?.x ?? defaultXLabelX, y: xLabelPos?.y ?? defaultXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     xText.textContent=state.xLabelText;
     markFontEditable(xText,'xTitle','xTitle');
     const applyHistXLabel=value=>{
@@ -1384,8 +1401,22 @@
         recordHistChange('hist:x-label',previous,nextValue,applyHistXLabel);
       });
     }
+    // Enable drag for x-axis label
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(xText, svg, {
+        onDragEnd: pos => {
+          state.labelPositions.xLabel = { x: pos.x, y: pos.y };
+          console.debug('Debug: hist x-label position saved', pos);
+        }
+      });
+    }
     const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
-    const yText=add('text',{x:yX,y:margin.top+plotH/2,'dominant-baseline':'middle',transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    const defaultYLabelX = yX;
+    const defaultYLabelY = margin.top+plotH/2;
+    const yLabelPos = state.labelPositions?.yLabel;
+    const yTextX = yLabelPos?.x ?? defaultYLabelX;
+    const yTextY = yLabelPos?.y ?? defaultYLabelY;
+    const yText=add('text',{x:yTextX,y:yTextY,'dominant-baseline':'middle',transform:`rotate(-90 ${yTextX} ${yTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     yText.textContent=state.yLabelText;
     markFontEditable(yText,'yTitle','yTitle');
     const applyHistYLabel=value=>{
@@ -1409,7 +1440,19 @@
         recordHistChange('hist:y-label',previous,nextValue,applyHistYLabel);
       });
     }
-    const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+    // Enable drag for y-axis label
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(yText, svg, {
+        onDragEnd: pos => {
+          state.labelPositions.yLabel = { x: pos.x, y: pos.y };
+          console.debug('Debug: hist y-label position saved', pos);
+        }
+      });
+    }
+    const defaultTitleX = margin.left+plotW/2;
+    const defaultTitleY = margin.top/2;
+    const titlePos = state.labelPositions?.title;
+    const titleText=add('text',{x: titlePos?.x ?? defaultTitleX, y: titlePos?.y ?? defaultTitleY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
     titleText.textContent=state.titleText;
     markFontEditable(titleText,'graphTitle','graphTitle');
     const applyHistTitle=value=>{
@@ -1431,6 +1474,15 @@
         }
         applyHistTitle(nextValue);
         recordHistChange('hist:title',previous,nextValue,applyHistTitle);
+      });
+    }
+    // Enable drag for title
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(titleText, svg, {
+        onDragEnd: pos => {
+          state.labelPositions.title = { x: pos.x, y: pos.y };
+          console.debug('Debug: hist title position saved', pos);
+        }
       });
     }
     ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'hist-graph' });

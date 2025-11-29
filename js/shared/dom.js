@@ -1340,6 +1340,97 @@
     logDebug('makeEditable bound', { hasOnChange: typeof onChange === 'function' });
   }
 
+  /**
+   * Enable drag functionality for SVG text elements (titles, axis labels).
+   * Allows users to reposition labels by dragging them within the SVG.
+   * @param {SVGElement} el - The SVG element to make draggable
+   * @param {SVGSVGElement} svg - The parent SVG element for coordinate transforms
+   * @param {Object} options - Configuration options
+   * @param {Function} options.onDragEnd - Callback when drag ends with {x, y} position
+   * @param {Function} options.onDragStart - Callback when drag starts
+   * @param {string} options.cursor - Cursor style during drag (default: 'move')
+   */
+  function enableLabelDrag(el, svg, options = {}) {
+    if (!el || !svg) {
+      logDebug('enableLabelDrag skipped', { hasElement: !!el, hasSvg: !!svg });
+      return;
+    }
+    const { onDragEnd, onDragStart, cursor = 'move' } = options;
+    let dragging = false;
+    let startPoint = { x: 0, y: 0 };
+    let origPos = { x: 0, y: 0 };
+
+    el.style.cursor = cursor;
+
+    const getTransformedPoint = (clientX, clientY) => {
+      try {
+        const pt = svg.createSVGPoint();
+        pt.x = clientX;
+        pt.y = clientY;
+        const ctm = svg.getScreenCTM();
+        if (ctm) {
+          return pt.matrixTransform(ctm.inverse());
+        }
+      } catch (err) {
+        logDebug('enableLabelDrag transform error', { error: err?.message });
+      }
+      return { x: clientX, y: clientY };
+    };
+
+    const handleMouseDown = (e) => {
+      // Don't start drag if user is editing text
+      if (el.dataset.editing === 'true') return;
+      dragging = true;
+      const loc = getTransformedPoint(e.clientX, e.clientY);
+      startPoint = { x: loc.x, y: loc.y };
+      origPos = {
+        x: parseFloat(el.getAttribute('x') || '0'),
+        y: parseFloat(el.getAttribute('y') || '0')
+      };
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof onDragStart === 'function') {
+        safeCall(onDragStart, [{ x: origPos.x, y: origPos.y, element: el }], 'enableLabelDrag onDragStart error');
+      }
+      logDebug('enableLabelDrag start', { origPos, startPoint });
+    };
+
+    const handleMouseMove = (e) => {
+      if (!dragging) return;
+      const loc = getTransformedPoint(e.clientX, e.clientY);
+      const newX = origPos.x + (loc.x - startPoint.x);
+      const newY = origPos.y + (loc.y - startPoint.y);
+      el.setAttribute('x', String(newX));
+      el.setAttribute('y', String(newY));
+      // Update transform for rotated elements (like y-axis labels)
+      const transform = el.getAttribute('transform');
+      if (transform && transform.includes('rotate')) {
+        const rotateMatch = transform.match(/rotate\((-?\d+\.?\d*)/);
+        if (rotateMatch) {
+          const angle = rotateMatch[1];
+          el.setAttribute('transform', `rotate(${angle} ${newX} ${newY})`);
+        }
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      const finalX = parseFloat(el.getAttribute('x') || '0');
+      const finalY = parseFloat(el.getAttribute('y') || '0');
+      if (typeof onDragEnd === 'function') {
+        safeCall(onDragEnd, [{ x: finalX, y: finalY, element: el }], 'enableLabelDrag onDragEnd error');
+      }
+      logDebug('enableLabelDrag end', { x: finalX, y: finalY });
+    };
+
+    el.addEventListener('mousedown', handleMouseDown);
+    global.addEventListener('mousemove', handleMouseMove);
+    global.addEventListener('mouseup', handleMouseUp);
+
+    logDebug('enableLabelDrag bound', { element: el.tagName || 'unknown' });
+  }
+
   function autoResizeSvg(svg, opts = {}) {
     if (!svg) {
       logDebug('autoResizeSvg skipped (no svg)', { hasSvg: false });
@@ -1489,6 +1580,7 @@
   }
 
   Shared.makeEditable = makeEditable;
+  Shared.enableLabelDrag = enableLabelDrag;
   Shared.autoResizeSvg = autoResizeSvg;
   Shared.ensureGraphViewport = ensureGraphViewport;
   Shared.graphViewport = Shared.graphViewport || {};
@@ -1498,6 +1590,9 @@
 
   if (typeof global.makeEditable !== 'function') {
     global.makeEditable = makeEditable;
+  }
+  if (typeof global.enableLabelDrag !== 'function') {
+    global.enableLabelDrag = enableLabelDrag;
   }
   if (typeof global.autoResizeSvg !== 'function') {
     global.autoResizeSvg = autoResizeSvg;
@@ -1510,6 +1605,7 @@
   }
   logDebug('shared DOM helpers ready', {
     hasMakeEditable: typeof Shared.makeEditable === 'function',
+    hasEnableLabelDrag: typeof Shared.enableLabelDrag === 'function',
     hasAutoResizeSvg: typeof Shared.autoResizeSvg === 'function',
     hasSerializeCleanSVG: typeof Shared.serializeCleanSVG === 'function'
   });
