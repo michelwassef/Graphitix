@@ -87,4 +87,55 @@ describe('Heatmap stats formatting', () => {
     expect(statsContent.querySelector('script')).toBeNull();
     expect(statsContent.textContent).toContain('<script>alert(1)</script>');
   });
+
+  test('graph title stays above long vertical column labels', () => {
+    const hot = global.__LAST_HEATMAP_HOT__;
+    expect(hot).toBeTruthy();
+    // Create data with very long column headers that will extend high when rotated vertically
+    const longLabelMatrix = [
+      ['Row', 'VeryLongColumnHeaderThatExtendsHighWhenRotated', 'AnotherExtremelyLongColumnLabelForTesting'],
+      ['A', 1, 2],
+      ['B', 3, 4],
+      ['C', 5, 6]
+    ];
+    hot.loadData(longLabelMatrix);
+    console.debug('Debug: heatmap long label test data loaded', { rows: longLabelMatrix.length });
+    window.Components.heatmap.draw();
+
+    const svg = document.getElementById('heatmapSvg');
+    expect(svg).toBeTruthy();
+
+    // Find the title text element (should be first text with data-font-role="graphTitle")
+    const titleEl = svg.querySelector('text[data-font-role="graphTitle"]');
+    expect(titleEl).toBeTruthy();
+    const titleY = parseFloat(titleEl.getAttribute('y'));
+
+    // Find column label text elements (should have data-font-role="columnLabel")
+    const columnLabels = svg.querySelectorAll('text[data-font-role="columnLabel"]');
+    expect(columnLabels.length).toBeGreaterThan(0);
+
+    // For rotated labels, we need to check their effective top extent
+    // Each label is at y position with rotation -90 degrees
+    // The text-anchor is "middle", so the label extends labelWidth/2 above and below its y position
+    // After -90 rotation, the top of the label is at: y - textWidth/2
+    let highestLabelTop = Infinity;
+    columnLabels.forEach(label => {
+      const y = parseFloat(label.getAttribute('y'));
+      // Estimate text width from content (8px per character as per test stub)
+      const textWidth = (label.textContent || '').length * 8;
+      const labelTop = y - textWidth / 2;
+      if (labelTop < highestLabelTop) {
+        highestLabelTop = labelTop;
+      }
+    });
+
+    console.debug('Debug: heatmap title positioning test', {
+      titleY,
+      highestLabelTop,
+      titleAboveLabels: titleY < highestLabelTop
+    });
+
+    // Title's y position should be above (smaller than) the highest label top extent
+    expect(titleY).toBeLessThan(highestLabelTop);
+  });
 });
