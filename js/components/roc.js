@@ -123,7 +123,8 @@
     autoDrawLockedByThreshold: false,
     drawPending: false,
     lastDataShape: { rows: 0, cols: 0 },
-    lastAutoDrawEvaluation: null
+    lastAutoDrawEvaluation: null,
+    labelPositions: { title: null, xLabel: null, yLabel: null }
   };
   let rocAutoDrawManager = null;
   let scheduleDrawRocRaw = () => {};
@@ -1547,30 +1548,58 @@
     });
     console.debug('Debug: roc ticks stroke scaled',{xTickCount: xTicks.length, yTickCount: yTicks.length, axisStrokeWidth});
 
-    add('text', {
-      x: margin.left + plotWidth / 2,
-      y: margin.top + plotHeight + bottomLayout.titleOffset,
+    const defaultXLabelX = margin.left + plotWidth / 2;
+    const defaultXLabelY = margin.top + plotHeight + bottomLayout.titleOffset;
+    const xLabelPos = state.labelPositions?.xLabel;
+    const xText = add('text', {
+      x: xLabelPos?.x ?? defaultXLabelX,
+      y: xLabelPos?.y ?? defaultXLabelY,
       'text-anchor': 'middle',
       'font-size': fontSize,
       fill: chartStyle.TEXT_COLOR
     }, xAxisLabel, { role: 'xTitle', key: 'xTitle' });
+    // Enable drag for x-axis label
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(xText, svg, {
+        onDragEnd: pos => {
+          state.labelPositions.xLabel = { x: pos.x, y: pos.y };
+          console.debug('Debug: roc x-label position saved', pos);
+        }
+      });
+    }
 
-    const yLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fontSize * 0.5);
-    add('text', {
-      x: yLabelX,
-      y: margin.top + plotHeight / 2,
+    const defaultYLabelX = margin.left - (maxYLabelWidth + tickLen + tickGap + axisMetrics.axisTitleGap + fontSize * 0.5);
+    const defaultYLabelY = margin.top + plotHeight / 2;
+    const yLabelPos = state.labelPositions?.yLabel;
+    const yTextX = yLabelPos?.x ?? defaultYLabelX;
+    const yTextY = yLabelPos?.y ?? defaultYLabelY;
+    const yText = add('text', {
+      x: yTextX,
+      y: yTextY,
       'text-anchor': 'middle',
       'font-size': fontSize,
-      transform: `rotate(-90 ${yLabelX} ${margin.top + plotHeight / 2})`,
+      transform: `rotate(-90 ${yTextX} ${yTextY})`,
       fill: chartStyle.TEXT_COLOR
     }, yAxisLabel, { role: 'yTitle', key: 'yTitle' });
+    // Enable drag for y-axis label
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(yText, svg, {
+        onDragEnd: pos => {
+          state.labelPositions.yLabel = { x: pos.x, y: pos.y };
+          console.debug('Debug: roc y-label position saved', pos);
+        }
+      });
+    }
 
     const titleY = Math.max(fontSize * 1.6, margin.top * 0.5);
     const defaultTitle = graphType === 'pr' ? 'Precision-Recall curve' : 'ROC curve';
     const titleValue = state.titleText != null ? String(state.titleText) : defaultTitle;
+    const defaultTitleX = margin.left + plotWidth / 2;
+    const defaultTitleY = titleY;
+    const titlePos = state.labelPositions?.title;
     const titleNode = add('text', {
-      x: margin.left + plotWidth / 2,
-      y: titleY,
+      x: titlePos?.x ?? defaultTitleX,
+      y: titlePos?.y ?? defaultTitleY,
       'text-anchor': 'middle',
       'font-size': fontSize,
       fill: chartStyle.TEXT_COLOR
@@ -1594,6 +1623,15 @@
       applyRocTitle(nextValue);
       recordRocChange('roc:title', previous, nextValue, applyRocTitle);
     });
+    // Enable drag for title
+    if(typeof Shared.enableLabelDrag === 'function'){
+      Shared.enableLabelDrag(titleNode, svg, {
+        onDragEnd: pos => {
+          state.labelPositions.title = { x: pos.x, y: pos.y };
+          console.debug('Debug: roc title position saved', pos);
+        }
+      });
+    }
 
     const stats = [];
     const allPairs = [];
@@ -1799,6 +1837,7 @@
       tickIntervalX: axisSettings.x?.tickInterval ?? null,
       tickIntervalY: axisSettings.y?.tickInterval ?? null
     };
+    payload.config.labelPositions = state.labelPositions || null;
     console.debug('Debug: roc.getPayload captured state', {
       rows: payload.data?.length || 0,
       cols: payload.data?.[0]?.length || 0,
@@ -1858,6 +1897,14 @@
     const axisConfig = config.axis || config.axisSettings;
     if(axisConfig){
       applyAxisSettings(axisConfig);
+    }
+    // Restore label positions if saved
+    if(config.labelPositions){
+      state.labelPositions = {
+        title: config.labelPositions.title || null,
+        xLabel: config.labelPositions.xLabel || null,
+        yLabel: config.labelPositions.yLabel || null
+      };
     }
     renderStatsControls();
     if(typeof state.scheduleDraw === 'function'){
