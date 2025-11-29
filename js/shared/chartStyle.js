@@ -919,7 +919,21 @@
   };
 
   /**
+   * Tolerance for floating point comparison when determining integer mantissa.
+   * @type {number}
+   */
+  const MANTISSA_INTEGER_TOLERANCE = 1e-9;
+
+  /**
+   * Maximum decimal places for mantissa in scientific notation.
+   * Kept at 2 for readability on chart axes regardless of maxDecimals setting.
+   * @type {number}
+   */
+  const MANTISSA_MAX_DECIMALS = 2;
+
+  /**
    * Convert a number string to Unicode superscript characters.
+   * Only processes digits 0-9 and the minus sign; other characters pass through unchanged.
    * @param {string|number} num - The number to convert (e.g., "-3", "10")
    * @returns {string} - The superscript version (e.g., "⁻³", "¹⁰")
    */
@@ -928,6 +942,7 @@
     let result = '';
     for(let i = 0; i < str.length; i++){
       const char = str[i];
+      // Only map known characters; others pass through (shouldn't happen for valid exponents)
       result += SUPERSCRIPT_MAP[char] || char;
     }
     return result;
@@ -940,7 +955,8 @@
   const SCIENTIFIC_THRESHOLD_HIGH = 10000;
 
   /**
-   * Threshold for small numbers (absolute value > 0 and <= this uses scientific notation)
+   * Threshold for small numbers (absolute value > 0 and <= this uses scientific notation).
+   * Zero is handled separately and always formatted as "0".
    * @type {number}
    */
   const SCIENTIFIC_THRESHOLD_LOW = 0.001;
@@ -950,11 +966,15 @@
    * very large (>=10000) or very small (<=0.001 and >0) numbers.
    * Uses Unicode superscript for the exponent (e.g., 10³ instead of 10^3).
    *
+   * Note: Zero is always formatted as "0", not in scientific notation.
+   * The low threshold check excludes zero to avoid "0×10⁰" formatting.
+   *
    * @param {number} value - The numeric value to format
    * @param {Object} [options] - Formatting options
-   * @param {number} [options.maxDecimals=2] - Maximum decimal places for non-scientific notation
+   * @param {number} [options.maxDecimals=2] - Maximum decimal places for non-scientific notation.
+   *        Note: Mantissa in scientific notation is capped at 2 decimals for readability.
    * @param {number} [options.thresholdHigh=10000] - Threshold above which to use scientific notation
-   * @param {number} [options.thresholdLow=0.001] - Threshold below which to use scientific notation (for positive values)
+   * @param {number} [options.thresholdLow=0.001] - Threshold at or below which to use scientific notation (for non-zero values)
    * @returns {string} - The formatted string representation
    */
   chartStyle.formatScientific = function formatScientific(value, options){
@@ -968,14 +988,15 @@
       return String(value);
     }
 
-    // Handle zero
+    // Handle zero specially - never use scientific notation for zero
     if(value === 0){
       return '0';
     }
 
     const absValue = Math.abs(value);
 
-    // Check if scientific notation is needed
+    // Check if scientific notation is needed.
+    // For small values, we check absValue > 0 to exclude zero (already handled above).
     const needsScientific = absValue >= thresholdHigh || (absValue > 0 && absValue <= thresholdLow);
 
     if(needsScientific){
@@ -984,13 +1005,14 @@
       const mantissa = value / Math.pow(10, exponent);
 
       // Format mantissa with appropriate precision
+      // Mantissa decimals capped at MANTISSA_MAX_DECIMALS for axis readability
       let mantissaStr;
-      if(Math.abs(mantissa - Math.round(mantissa)) < 1e-9){
+      if(Math.abs(mantissa - Math.round(mantissa)) < MANTISSA_INTEGER_TOLERANCE){
         // Integer mantissa
         mantissaStr = String(Math.round(mantissa));
       }else{
-        // Decimal mantissa - use up to 2 decimal places
-        mantissaStr = mantissa.toFixed(Math.min(2, maxDecimals));
+        // Decimal mantissa - use up to MANTISSA_MAX_DECIMALS for readability
+        mantissaStr = mantissa.toFixed(Math.min(MANTISSA_MAX_DECIMALS, maxDecimals));
         // Remove trailing zeros after decimal point
         mantissaStr = mantissaStr.replace(/\.?0+$/, '');
       }
