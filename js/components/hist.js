@@ -1058,7 +1058,7 @@
     } else {
       console.debug('Debug: hist fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
     }
-    function formatTick(v){return v.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});}
+    function formatTick(v){return chartStyle.formatScientific(v,{maxDecimals:2});}
     const containerRect=state.svgBox?.getBoundingClientRect?.();
     const fontInfo=chartStyle.resolveScaledFontSize({
       rawSize: histFontSize.value,

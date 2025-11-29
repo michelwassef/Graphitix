@@ -1983,7 +1983,7 @@
       return 'n/a';
     }
     const precision = Number.isFinite(digits) ? digits : 2;
-    return value.toLocaleString('en-US', { maximumFractionDigits: precision });
+    return chartStyle.formatScientific(value, { maxDecimals: precision });
   }
 
   function formatP(value){

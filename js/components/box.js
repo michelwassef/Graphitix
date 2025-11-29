@@ -6662,7 +6662,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       console.debug('Debug: box legend disabled',{ grouped: isGroupedMode, groupCount: groupColorAssignments.size, showLegend });
     }
     function formatTick(v){
-      return v.toLocaleString('en-US',{ maximumFractionDigits: 2, useGrouping: false });
+      return chartStyle.formatScientific(v,{ maxDecimals: 2 });
     }
     const appendToLayer = (layer, tag, attrs) => {
       const target = layer || dataLayer || svg;

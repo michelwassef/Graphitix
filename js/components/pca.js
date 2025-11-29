@@ -5110,7 +5110,7 @@
       let xTickTarget = chartStyle.estimateTickCount(W, { axis: 'x', fallback: 6 });
       let yTickTarget = chartStyle.estimateTickCount(H, { axis: 'y', fallback: 6 });
       debugLog('Debug: pca initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
-      const formatTick = value => value.toLocaleString('en-US',{maximumFractionDigits:2,useGrouping:false});
+      const formatTick = value => chartStyle.formatScientific(value,{maxDecimals:2});
       const tickFont = chartStyle.makeFont(fs);
       const axisLabelFont = chartStyle.makeFont(fs);
       const yTitleWidthBase = chartStyle.measureText(pcaYLabelText, axisLabelFont);
