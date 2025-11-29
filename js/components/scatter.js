@@ -3586,6 +3586,18 @@
         const xMaxT=logX?Math.log10(xMax):xMax;
         const yMinT=logY?Math.log10(yMin):yMin;
         const yMaxT=logY?Math.log10(yMax):yMax;
+        const manualXMinValue=Number.isFinite(xMinManual) && (!logX || xMinManual > 0)
+          ? (logX ? Math.log10(xMinManual) : xMinManual)
+          : null;
+        const manualXMaxValue=Number.isFinite(xMaxManual) && (!logX || xMaxManual > 0)
+          ? (logX ? Math.log10(xMaxManual) : xMaxManual)
+          : null;
+        const manualYMinValue=Number.isFinite(yMinManual) && (!logY || yMinManual > 0)
+          ? (logY ? Math.log10(yMinManual) : yMinManual)
+          : null;
+        const manualYMaxValue=Number.isFinite(yMaxManual) && (!logY || yMaxManual > 0)
+          ? (logY ? Math.log10(yMaxManual) : yMaxManual)
+          : null;
         const tickBaseSpacing=Math.max(48,Math.round(fs*3.2));
         const xTickEstimateOptions={axis:'x',fallback:6,baseSpacing:tickBaseSpacing,min:4};
         const yTickEstimateOptions={axis:'y',fallback:6,baseSpacing:tickBaseSpacing,min:4};
@@ -3619,22 +3631,38 @@
         if(logY && storedManualIntervalY){
           debug('Debug: scatter manual interval suppressed',{ axis: 'y', reason: 'log-scale', stored: storedManualIntervalY });
         }
+        const applyLogTickOverride = (axisKey, scale, manualMin, manualMax, fallbackMin, fallbackMax, enabled) => {
+          if(!enabled || !scale || !chartStyle.axisTicks?.applyLogTicks){
+            return;
+          }
+          const applied = chartStyle.axisTicks.applyLogTicks(scale, {
+            manualMin: Number.isFinite(manualMin) ? manualMin : null,
+            manualMax: Number.isFinite(manualMax) ? manualMax : null,
+            fallbackMin,
+            fallbackMax
+          });
+          if(applied){
+            debug('Debug: scatter log tick override',{ axis: axisKey, tickCount: scale.ticks.length });
+          }
+        };
         let xScale=buildScatterScale({
           dataMin:xMinT,
           dataMax:xMaxT,
-          manualMin:Number.isFinite(xMinManual)?xMinT:NaN,
-          manualMax:Number.isFinite(xMaxManual)?xMaxT:NaN,
+          manualMin:manualXMinValue,
+          manualMax:manualXMaxValue,
           targetTickCount:xTickTarget,
           fixedStep:Number.isFinite(manualIntervalX)&&manualIntervalX>0?manualIntervalX:null
         });
         let yScale=buildScatterScale({
           dataMin:yMinT,
           dataMax:yMaxT,
-          manualMin:Number.isFinite(yMinManual)?yMinT:NaN,
-          manualMax:Number.isFinite(yMaxManual)?yMaxT:NaN,
+          manualMin:manualYMinValue,
+          manualMax:manualYMaxValue,
           targetTickCount:yTickTarget,
           fixedStep:Number.isFinite(manualIntervalY)&&manualIntervalY>0?manualIntervalY:null
         });
+        applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
+        applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
         let xTickLabels=xScale.ticks.map(t=>formatTickX(logX?Math.pow(10,t):t));
         let yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
         let maxYLabelWidth=0;
@@ -3643,19 +3671,21 @@
           xScale=buildScatterScale({
             dataMin:xMinT,
             dataMax:xMaxT,
-            manualMin:Number.isFinite(xMinManual)?xMinT:NaN,
-            manualMax:Number.isFinite(xMaxManual)?xMaxT:NaN,
+            manualMin:manualXMinValue,
+            manualMax:manualXMaxValue,
             targetTickCount:xTickTarget,
             fixedStep:Number.isFinite(manualIntervalX)&&manualIntervalX>0?manualIntervalX:null
           });
           yScale=buildScatterScale({
             dataMin:yMinT,
             dataMax:yMaxT,
-            manualMin:Number.isFinite(yMinManual)?yMinT:NaN,
-            manualMax:Number.isFinite(yMaxManual)?yMaxT:NaN,
+            manualMin:manualYMinValue,
+            manualMax:manualYMaxValue,
             targetTickCount:yTickTarget,
             fixedStep:Number.isFinite(manualIntervalY)&&manualIntervalY>0?manualIntervalY:null
           });
+          applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
+          applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
           xTickLabels=xScale.ticks.map(t=>formatTickX(logX?Math.pow(10,t):t));
           yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
           const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));

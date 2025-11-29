@@ -1209,6 +1209,14 @@
       yMinT=logY?Math.log10(yMin):yMin;
       yMaxT=logY?Math.log10(yMax):yMax;
       yScale=buildAxisScale({ dataMin: yMinT, dataMax: yMaxT, targetTickCount: yTickTarget, manualMin: logY ? Math.log10(yMin) : yMin, manualMax: logY ? Math.log10(yMax) : yMax });
+      if(logY && axisTickTools?.applyLogTicks){
+        axisTickTools.applyLogTicks(yScale, {
+          manualMin: null,
+          manualMax: null,
+          fallbackMin: yMinT,
+          fallbackMax: yMaxT
+        });
+      }
       console.debug('Debug: hist axis auto range',{ yMin, yMax, logY });
       if(Number.isFinite(manualIntervalX) && manualIntervalX > 0){
         const manualX = buildManualTicks(
@@ -1224,7 +1232,7 @@
           console.debug('Debug: hist manual interval applied',{ axis: 'x', interval: manualIntervalX, tickCount: manualX.ticks.length });
         }
       }
-      if(Number.isFinite(manualIntervalY) && manualIntervalY > 0){
+      if(!logY && Number.isFinite(manualIntervalY) && manualIntervalY > 0){
         const manualY = buildManualTicks(
           Number.isFinite(yScale.min) ? yScale.min : yMinT,
           Number.isFinite(yScale.max) ? yScale.max : yMaxT,

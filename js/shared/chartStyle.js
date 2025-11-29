@@ -1444,10 +1444,81 @@
     };
   }
 
+  function applyLogTicks(scale, options){
+    if(!scale || typeof scale !== 'object'){
+      return false;
+    }
+    const manualMin = Number.isFinite(options?.manualMin) ? options.manualMin : null;
+    const manualMax = Number.isFinite(options?.manualMax) ? options.manualMax : null;
+    const fallbackMin = Number.isFinite(options?.fallbackMin) ? options.fallbackMin : null;
+    const fallbackMax = Number.isFinite(options?.fallbackMax) ? options.fallbackMax : null;
+    let resolvedMin = Number.isFinite(scale.min) ? scale.min : fallbackMin;
+    let resolvedMax = Number.isFinite(scale.max) ? scale.max : fallbackMax;
+    if(!Number.isFinite(resolvedMin) || !Number.isFinite(resolvedMax) || resolvedMin >= resolvedMax){
+      return false;
+    }
+    const epsilon = Math.max(1e-9, Math.abs(resolvedMax - resolvedMin) * 1e-6);
+    if(manualMin === null){
+      const alignedMin = Math.floor(resolvedMin - epsilon);
+      if(Number.isFinite(alignedMin)){
+        scale.min = alignedMin;
+        resolvedMin = alignedMin;
+      }
+    }else{
+      scale.min = manualMin;
+      resolvedMin = manualMin;
+    }
+    if(Object.is(scale.min, -0)){
+      scale.min = 0;
+      resolvedMin = 0;
+    }
+    if(manualMax === null){
+      const alignedMax = Math.ceil(resolvedMax + epsilon);
+      if(Number.isFinite(alignedMax)){
+        scale.max = alignedMax;
+        resolvedMax = alignedMax;
+      }
+    }else{
+      scale.max = manualMax;
+      resolvedMax = manualMax;
+    }
+    if(Object.is(scale.max, -0)){
+      scale.max = 0;
+      resolvedMax = 0;
+    }
+    if(!Number.isFinite(resolvedMin) || !Number.isFinite(resolvedMax) || resolvedMin >= resolvedMax){
+      return false;
+    }
+    const tickStart = Math.ceil(resolvedMin - epsilon);
+    const tickEnd = Math.floor(resolvedMax + epsilon);
+    if(tickStart > tickEnd){
+      return false;
+    }
+    const ticks = [];
+    for(let exp = tickStart; exp <= tickEnd; exp += 1){
+      ticks.push(exp);
+    }
+    if(!ticks.length){
+      return false;
+    }
+    const normalizedTicks = ticks.map(value => (Object.is(value, -0) ? 0 : value));
+    scale.ticks = normalizedTicks;
+    scale.step = 1;
+    axisTicksDebug('Debug: chartStyle.axisTicks log override',{
+      min: resolvedMin,
+      max: resolvedMax,
+      tickCount: normalizedTicks.length,
+      manualMinApplied: manualMin !== null,
+      manualMaxApplied: manualMax !== null
+    });
+    return true;
+  }
+
   chartStyle.axisTicks = Object.freeze({
     clampTickTarget,
     selectStep: selectTickStep,
-    buildScale: buildAxisScale
+    buildScale: buildAxisScale,
+    applyLogTicks
   });
 
   chartStyle.computeLabelPadding = function computeLabelPadding(options){

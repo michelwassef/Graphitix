@@ -3125,6 +3125,20 @@
         const max = Number.isFinite(opts?.manualMax) ? opts.manualMax : Number(opts?.dataMax) || min + 1;
         return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
       };
+          const applyLogTickOverride = (axisKey, scale, manualMin, manualMax, fallbackMin, fallbackMax, enabled) => {
+            if(!enabled || !scale || !axisTickTools?.applyLogTicks){
+              return;
+            }
+            const applied = axisTickTools.applyLogTicks(scale, {
+              manualMin: Number.isFinite(manualMin) ? manualMin : null,
+              manualMax: Number.isFinite(manualMax) ? manualMax : null,
+              fallbackMin,
+              fallbackMax
+            });
+            if(applied && Shared.isDebugEnabled?.()){
+              console.debug('Debug: line log tick override',{ axis: axisKey, tickCount: scale.ticks.length });
+            }
+          };
       let xTickTarget=chartStyle.estimateTickCount(W,{axis:'x',fallback:6});
       let yTickTarget=chartStyle.estimateTickCount(H,{axis:'y',fallback:6});
       console.debug('Debug: line initial tick targets',{xTickTarget,yTickTarget,width:W,height:H});
@@ -3151,6 +3165,8 @@
       const manualYMaxValue = Number.isFinite(yMaxManual) && (!logY || yMaxManual > 0) ? (logY ? Math.log10(yMaxManual) : yMaxManual) : null;
       let xScale=buildAxisScale({ dataMin: xMinT, dataMax: xMaxT, manualMin: manualXMinValue, manualMax: manualXMaxValue, targetTickCount: xTickTarget });
       let yScale=buildAxisScale({ dataMin: yMinT, dataMax: yMaxT, manualMin: manualYMinValue, manualMax: manualYMaxValue, targetTickCount: yTickTarget });
+      applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
+      applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
       let xTickLabels=xScale.ticks.map(t=>formatTickX(logX?Math.pow(10,t):t));
       let yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
       let maxYLabelWidth=0;
@@ -3204,6 +3220,8 @@
             console.debug('Debug: line manual interval applied',{ axis: 'y', interval: manualIntervalY, tickCount: manualY.ticks.length });
           }
         }
+        applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
+        applyLogTickOverride('y', yScale, manualYMinValue, manualYMaxValue, yMinT, yMaxT, logY);
         xTickLabels=xScale.ticks.map(t=>formatTickX(logX?Math.pow(10,t):t));
         yTickLabels=yScale.ticks.map(t=>formatTickY(logY?Math.pow(10,t):t));
         const yLabelWidths=yTickLabels.map(lbl=>chartStyle.measureText(lbl,tickFont));

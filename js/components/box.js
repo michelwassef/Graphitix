@@ -6661,6 +6661,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const max = Number.isFinite(opts?.manualMax) ? opts.manualMax : Number(opts?.dataMax) || min + 1;
       return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
     };
+    const applyLogTickOverride = scale => {
+      if(!logScale || !scale || !axisTickTools?.applyLogTicks){
+        return false;
+      }
+      const applied = axisTickTools.applyLogTicks(scale, {
+        manualMin: Number.isFinite(manualYMinValue) ? manualYMinValue : null,
+        manualMax: Number.isFinite(manualYMaxValue) ? manualYMaxValue : null,
+        fallbackMin: ymin,
+        fallbackMax: ymax
+      });
+      if(applied && Shared.isDebugEnabled?.()){
+        console.debug('Debug: box log tick override',{ tickCount: scale.ticks.length, orientation: state.flipAxes ? 'horizontal' : 'vertical' });
+      }
+      return applied;
+    };
     const labelTexts = axisLabels.map((lab, i) => lab || `Category ${i + 1}`);
     const separatedCategoryUnits = (isGroupedMode && layoutMode === 'separated' && axisLabels.length)
       ? computeSeparatedCategoryUnits(axisGroupIndices)
@@ -6919,6 +6934,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             manualMax: manualYMaxValue,
             targetTickCount: yTickTarget
           });
+          applyLogTickOverride(yScale);
         }
         tickLabels = yScale.ticks.map(t => formatTick(logScale ? Math.pow(10, t) : t));
         tickWidths = tickLabels.map(lbl => chartStyle.measureText(lbl, tickFont));
@@ -7581,6 +7597,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           yScale = manual;
           console.debug('Debug: box x-axis manual override',{ step: manual.step, tickCount: manual.ticks.length });
         }
+      }else{
+        applyLogTickOverride(yScale);
       }
       const valueRange = yScale.max - yScale.min || 1;
       const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
