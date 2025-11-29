@@ -89,6 +89,7 @@
   let lineXLabelText = 'X';
   let lineYLabelText = 'Y';
   let lineLabelColors = {};
+  let lineLabelPositions = { title: null, xLabel: null, yLabel: null };
   let lineLegendControl = null;
   let lineLogPlusOneX = false;
   let lineLogPlusOneY = false;
@@ -2388,7 +2389,8 @@
           color: axisSettings.color,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null
-        }
+        },
+        labelPositions: lineLabelPositions || null
       }
     };
   }
@@ -2527,6 +2529,14 @@
     resolveForecastOptions({ syncInputs: true });
     updateForecastVisibility();
     lineLastRegressionSummaries = Array.isArray(c.regression?.seriesSummaries) ? c.regression.seriesSummaries.slice() : [];
+    // Restore label positions if saved
+    if(c.labelPositions){
+      lineLabelPositions = {
+        title: c.labelPositions.title || null,
+        xLabel: c.labelPositions.xLabel || null,
+        yLabel: c.labelPositions.yLabel || null
+      };
+    }
     ensureLineLabelColors(Object.keys(lineLabelColors));
     ensureLineLegendControlPlacement();
     scheduleLineDraw();
@@ -3567,7 +3577,10 @@
         }
       }
       const xAxisBase=margin.top+plotH;
-      const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+      const defaultXLabelX = margin.left+plotW/2;
+      const defaultXLabelY = xAxisBase+bottomLayout.titleOffset;
+      const xLabelPos = lineLabelPositions?.xLabel;
+      const xText=add('text',{x: xLabelPos?.x ?? defaultXLabelX, y: xLabelPos?.y ?? defaultXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       xText.textContent=lineXLabelText;
       markFontEditable(xText,'xTitle','xTitle');
       const applyLineXLabel=value=>{
@@ -3587,8 +3600,21 @@
         applyLineXLabel(nextValue);
         recordLineChange('line:x-label',previous,nextValue,applyLineXLabel);
       });
-      const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
-      const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+      // Enable drag for x-axis label
+      if(typeof Shared.enableLabelDrag === 'function'){
+        Shared.enableLabelDrag(xText, svg, {
+          onDragEnd: pos => {
+            lineLabelPositions.xLabel = { x: pos.x, y: pos.y };
+            console.debug('Debug: line x-label position saved', pos);
+          }
+        });
+      }
+      const defaultYX = margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+      const defaultYY = margin.top+plotH/2;
+      const yLabelPos = lineLabelPositions?.yLabel;
+      const yTextX = yLabelPos?.x ?? defaultYX;
+      const yTextY = yLabelPos?.y ?? defaultYY;
+      const yText=add('text',{x:yTextX,y:yTextY,transform:`rotate(-90 ${yTextX} ${yTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       yText.textContent=lineYLabelText;
       markFontEditable(yText,'yTitle','yTitle');
       const applyLineYLabel=value=>{
@@ -3608,7 +3634,19 @@
         applyLineYLabel(nextValue);
         recordLineChange('line:y-label',previous,nextValue,applyLineYLabel);
       });
-      const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+      // Enable drag for y-axis label
+      if(typeof Shared.enableLabelDrag === 'function'){
+        Shared.enableLabelDrag(yText, svg, {
+          onDragEnd: pos => {
+            lineLabelPositions.yLabel = { x: pos.x, y: pos.y };
+            console.debug('Debug: line y-label position saved', pos);
+          }
+        });
+      }
+      const defaultTitleX = margin.left+plotW/2;
+      const defaultTitleY = margin.top/2;
+      const titlePos = lineLabelPositions?.title;
+      const titleText=add('text',{x: titlePos?.x ?? defaultTitleX, y: titlePos?.y ?? defaultTitleY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
       titleText.textContent=lineTitleText;
       markFontEditable(titleText,'graphTitle','graphTitle');
       const applyLineTitle=value=>{
@@ -3628,6 +3666,15 @@
         applyLineTitle(nextValue);
         recordLineChange('line:title',previous,nextValue,applyLineTitle);
       });
+      // Enable drag for title
+      if(typeof Shared.enableLabelDrag === 'function'){
+        Shared.enableLabelDrag(titleText, svg, {
+          onDragEnd: pos => {
+            lineLabelPositions.title = { x: pos.x, y: pos.y };
+            console.debug('Debug: line title position saved', pos);
+          }
+        });
+      }
       updateLineStats(seriesWithData, statsContext);
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });

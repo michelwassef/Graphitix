@@ -2503,6 +2503,7 @@
       let scatterXLabelText='X';
       let scatterYLabelText='Y';
       let scatterZLabelText='Z';
+      let scatterLabelPositions = { title: null, xLabel: null, yLabel: null };
       async function drawScatter(){
         const debugEnabled = typeof Shared.isDebugEnabled === 'function' ? Shared.isDebugEnabled() : false;
         const debug = debugEnabled ? console.debug.bind(console) : () => {};
@@ -3836,7 +3837,10 @@
           debug('Debug: scatter legend rendered shared helper',{legendX,legendGapPx,entryCount:legendRenderer.entries.length});
         }
         const xAxisBase=margin.top+plotH;
-        const xText=add('text',{x:margin.left+plotW/2,y:xAxisBase+bottomLayout.titleOffset,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+        const defaultXLabelX = margin.left+plotW/2;
+        const defaultXLabelY = xAxisBase+bottomLayout.titleOffset;
+        const xLabelPos = scatterLabelPositions?.xLabel;
+        const xText=add('text',{x: xLabelPos?.x ?? defaultXLabelX, y: xLabelPos?.y ?? defaultXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         xText.textContent=scatterXLabelText;
         markFontEditable(xText,'xTitle','xTitle');
         const applyScatterXLabel=value=>{
@@ -3856,9 +3860,22 @@
           applyScatterXLabel(nextValue);
           recordScatterChange('scatter:x-label',previous,nextValue,applyScatterXLabel);
         });
-        const yX=margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
-        info('scatter y-axis position',yX);
-        const yText=add('text',{x:yX,y:margin.top+plotH/2,transform:`rotate(-90 ${yX} ${margin.top+plotH/2})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+        // Enable drag for x-axis label
+        if(typeof Shared.enableLabelDrag === 'function'){
+          Shared.enableLabelDrag(xText, svg, {
+            onDragEnd: pos => {
+              scatterLabelPositions.xLabel = { x: pos.x, y: pos.y };
+              console.debug('Debug: scatter x-label position saved', pos);
+            }
+          });
+        }
+        const defaultYX = margin.left-(maxYLabelWidth+tickLen+tickGap+axisMetrics.axisTitleGap+fs*0.5);
+        const defaultYY = margin.top+plotH/2;
+        const yLabelPos = scatterLabelPositions?.yLabel;
+        const yTextX = yLabelPos?.x ?? defaultYX;
+        const yTextY = yLabelPos?.y ?? defaultYY;
+        info('scatter y-axis position',yTextX);
+        const yText=add('text',{x:yTextX,y:yTextY,transform:`rotate(-90 ${yTextX} ${yTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         yText.textContent=scatterYLabelText;
         markFontEditable(yText,'yTitle','yTitle');
         const applyScatterYLabel=value=>{
@@ -3878,7 +3895,19 @@
           applyScatterYLabel(nextValue);
           recordScatterChange('scatter:y-label',previous,nextValue,applyScatterYLabel);
         });
-        const titleText=add('text',{x:margin.left+plotW/2,y:margin.top/2,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
+        // Enable drag for y-axis label
+        if(typeof Shared.enableLabelDrag === 'function'){
+          Shared.enableLabelDrag(yText, svg, {
+            onDragEnd: pos => {
+              scatterLabelPositions.yLabel = { x: pos.x, y: pos.y };
+              console.debug('Debug: scatter y-label position saved', pos);
+            }
+          });
+        }
+        const defaultTitleX = margin.left+plotW/2;
+        const defaultTitleY = margin.top/2;
+        const titlePos = scatterLabelPositions?.title;
+        const titleText=add('text',{x: titlePos?.x ?? defaultTitleX, y: titlePos?.y ?? defaultTitleY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
         titleText.textContent=scatterTitleText;
         markFontEditable(titleText,'graphTitle','graphTitle');
         const applyScatterTitle=value=>{
@@ -3898,6 +3927,15 @@
           applyScatterTitle(nextValue);
           recordScatterChange('scatter:title',previous,nextValue,applyScatterTitle);
         });
+        // Enable drag for title
+        if(typeof Shared.enableLabelDrag === 'function'){
+          Shared.enableLabelDrag(titleText, svg, {
+            onDragEnd: pos => {
+              scatterLabelPositions.title = { x: pos.x, y: pos.y };
+              console.debug('Debug: scatter title position saved', pos);
+            }
+          });
+        }
         if(scatterCurrentGraphType==='scatter'){
           const regressionModeValue = scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
           const stats=computeScatterStats(points,method,{ regressionMode: regressionModeValue, domain: { minX: xMin, maxX: xMax } });
@@ -4389,7 +4427,8 @@
                 y: scatterState.rotation.quaternion.y,
                 z: scatterState.rotation.quaternion.z
               } : null
-            } : null
+            } : null,
+            labelPositions: scatterLabelPositions || null
           }
         };
       }
@@ -4558,6 +4597,14 @@
             tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null
           });
           console.debug('Debug: scatter axis settings restored',{ axis: ensureScatterAxisSettings() });
+        }
+        // Restore label positions if saved
+        if(c.labelPositions){
+          scatterLabelPositions = {
+            title: c.labelPositions.title || null,
+            xLabel: c.labelPositions.xLabel || null,
+            yLabel: c.labelPositions.yLabel || null
+          };
         }
         syncScatterGraphTypeUI();
         scheduleDrawScatter();
