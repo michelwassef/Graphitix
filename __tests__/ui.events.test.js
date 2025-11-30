@@ -4,6 +4,42 @@
  */
 
 function createJStatTestStub(){
+  const collectValidPairs = (arrA = [], arrB = []) => {
+    const len = Math.min(arrA.length, arrB.length);
+    const pairs = [];
+    for(let i = 0; i < len; i += 1){
+      const ax = Number(arrA[i]);
+      const by = Number(arrB[i]);
+      if(Number.isFinite(ax) && Number.isFinite(by)){
+        pairs.push([ax, by]);
+      }
+    }
+    return pairs;
+  };
+  const rankValues = (source = []) => {
+    const entries = [];
+    const ranks = new Array(source.length).fill(NaN);
+    source.forEach((value, index) => {
+      const numeric = Number(value);
+      if(Number.isFinite(numeric)){
+        entries.push({ value: numeric, index });
+      }
+    });
+    entries.sort((a, b) => a.value - b.value);
+    let i = 0;
+    while(i < entries.length){
+      let j = i + 1;
+      while(j < entries.length && entries[j].value === entries[i].value){
+        j += 1;
+      }
+      const rank = ((i + j - 1) / 2) + 1; // average rank (1-based)
+      for(let k = i; k < j; k += 1){
+        ranks[entries[k].index] = rank;
+      }
+      i = j;
+    }
+    return ranks;
+  };
   const erf = (x)=>{
     const sign = x >= 0 ? 1 : -1;
     const abs = Math.abs(x);
@@ -32,6 +68,39 @@ function createJStatTestStub(){
     } },
     centralF: { cdf: ()=>0.5 },
     chisquare: { cdf: ()=>0.5 },
+    corrcoeff: (arrA, arrB)=>{
+      const pairs = collectValidPairs(arrA, arrB);
+      if(pairs.length < 2){
+        return 0;
+      }
+      let sumX = 0;
+      let sumY = 0;
+      let sumXY = 0;
+      let sumXX = 0;
+      let sumYY = 0;
+      const n = pairs.length;
+      for(let i = 0; i < n; i += 1){
+        const [x, y] = pairs[i];
+        sumX += x;
+        sumY += y;
+        sumXY += x * y;
+        sumXX += x * x;
+        sumYY += y * y;
+      }
+      const numerator = (n * sumXY) - (sumX * sumY);
+      const denomX = (n * sumXX) - (sumX * sumX);
+      const denomY = (n * sumYY) - (sumY * sumY);
+      const denom = Math.sqrt(Math.max(denomX * denomY, 0));
+      if(denom === 0){
+        return 0;
+      }
+      return numerator / denom;
+    },
+    spearmancoeff: (arrA, arrB)=>{
+      const ranksA = rankValues(arrA);
+      const ranksB = rankValues(arrB);
+      return stub.corrcoeff(ranksA, ranksB);
+    },
     mean: (arr)=>{
       const clean = (arr || []).map(Number).filter(Number.isFinite);
       if(!clean.length){
@@ -318,8 +387,46 @@ describe('UI events and example loaders', () => {
 
       const updatedState = window.Components.box.__getState?.();
       expect(updatedState?.assumptionDiagnostics?.recommendNonParametric).toBe(true);
-      expect(updatedState?.statsTest).toBe('nonparametric');
+      expect(updatedState?.assumptionDiagnostics?.parametricOverrideActive).toBe(true);
       expect((updatedState?.assumptionDiagnostics?.warnings || []).length).toBeGreaterThan(0);
+    } finally {
+      cleanupJStat();
+    }
+  });
+
+  test('Scatter Plot: statistics require manual compute', async () => {
+    const cleanupJStat = ensureJStatStub();
+    try {
+      await activateWorkspace('scatter');
+      await flushAsyncWork();
+      const loadBtn = document.getElementById('scatterLoadExample');
+      expect(loadBtn).toBeTruthy();
+      loadBtn.click();
+      await flushAsyncWork(60);
+
+      const statusEl = document.getElementById('scatterStatsStatus');
+      expect(statusEl?.textContent || '').toMatch(/ready/i);
+
+      const computeBtn = document.getElementById('scatterComputeStats');
+      expect(computeBtn).toBeTruthy();
+      expect(computeBtn.disabled).toBe(false);
+
+      computeBtn.click();
+      await flushAsyncWork(10);
+
+      let statsTable = document.querySelector('#scatterStatsResults table');
+      for(let i = 0; i < 30 && !statsTable; i += 1){
+        await flushAsyncWork(5);
+        statsTable = document.querySelector('#scatterStatsResults table');
+      }
+      if(!statsTable){
+        const debugText = document.getElementById('scatterStatsResults');
+        console.error('Scatter stats debug output', debugText?.textContent || '(empty)');
+      }
+      expect(statsTable).toBeTruthy();
+      const rows = statsTable?.querySelectorAll('tbody tr');
+      expect(rows?.length || 0).toBeGreaterThan(2);
+      expect(statusEl?.textContent || '').toMatch(/up to date/i);
     } finally {
       cleanupJStat();
     }

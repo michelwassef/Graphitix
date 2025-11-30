@@ -679,6 +679,10 @@
               <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowDiagnostics" /> <span>Show diagnostics summary</span></label>
               <label class="config-panel__checkbox"><input type="checkbox" id="scatterShowLine" /> <span>Trend line &amp; stats on plot</span></label>
             </div>
+            <div id="scatterStatsActionRow" class="config-panel__line" style="gap:8px; flex-wrap:wrap; align-items:center;">
+              <button type="button" class="btn" id="scatterComputeStats" disabled>Calculate statistics</button>
+              <span id="scatterStatsStatus" style="font-size:12px; color:#555;" aria-live="polite"></span>
+            </div>
             <div id="scatterStatsResults" style="margin-top:8px;"></div>
           </fieldset>
         </div>

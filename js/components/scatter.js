@@ -113,7 +113,12 @@
     logPlusOneY: false,
     // User override for dot size. When enabled, draw uses this raw value
     dotSizeOverrideEnabled: false,
-    dotSizeOverrideRaw: null
+    dotSizeOverrideRaw: null,
+    statsContext: null,
+    statsContextVersion: 0,
+    statsContextSignature: null,
+    statsLastRunVersion: 0,
+    statsComputationPending: false
   };
   const scatterAutoDrawState = {
     autoDrawEnabled: true,
@@ -1264,6 +1269,358 @@
       const scatterRegressionMode=$('#scatterRegressionMode');
       const scatterViewMode=$('#scatterViewMode');
       const scatterViewControls=$('#scatterViewControls');
+      const scatterStatsResults=document.getElementById('scatterStatsResults');
+      const scatterStatsButton=document.getElementById('scatterComputeStats');
+      const scatterStatsStatus=document.getElementById('scatterStatsStatus');
+      const scatterStatsPlaceholder='Statistics will appear after calculation.';
+
+      function setScatterStatsStatus(message){
+        if(scatterStatsStatus){
+          scatterStatsStatus.textContent = message || '';
+        }
+      }
+
+      function clearScatterStatsOutputs(message = scatterStatsPlaceholder){
+        if(!scatterStatsResults){
+          return;
+        }
+        scatterStatsResults.innerHTML='';
+        if(message){
+          const note=document.createElement('div');
+          note.className='stats-placeholder';
+          note.textContent=message;
+          scatterStatsResults.appendChild(note);
+        }
+      }
+
+      function updateScatterStatsButtonState(config){
+        if(!scatterStatsButton){
+          return;
+        }
+        if(config && Object.prototype.hasOwnProperty.call(config,'disabled')){
+          scatterStatsButton.disabled=!!config.disabled;
+        }
+        if(config && typeof config.label==='string' && config.label){
+          scatterStatsButton.textContent=config.label;
+        }
+      }
+
+      function summarizeScatterPoints(points){
+        const summary={ count:0, sumX:0, sumY:0, sumXX:0, sumYY:0, sumXY:0 };
+        if(!Array.isArray(points) || !points.length){
+          return summary;
+        }
+        for(let i=0;i<points.length;i+=1){
+          const x=Number(points[i]?.x) || 0;
+          const y=Number(points[i]?.y) || 0;
+          summary.count+=1;
+          summary.sumX+=x;
+          summary.sumY+=y;
+          summary.sumXX+=x*x;
+          summary.sumYY+=y*y;
+          summary.sumXY+=x*y;
+        }
+        return summary;
+      }
+
+      function formatScatterSignatureNumber(value){
+        return Number.isFinite(value)?value.toFixed(4):'NaN';
+      }
+
+      function getScatterStatsControlSignature(){
+        return [
+          scatterStatType?.value || 'pearson',
+          scatterRegressionMode?.value || 'linear',
+          scatterShowIntervals?.checked ? 'intervals:on' : 'intervals:off',
+          scatterShowDiagnostics?.checked ? 'diagnostics:on' : 'diagnostics:off',
+          scatterShowLine?.checked ? 'line:on' : 'line:off'
+        ].join('|');
+      }
+
+      function buildScatterStatsSignature(context){
+        if(!context){
+          return 'empty';
+        }
+        let pointsKey='none';
+        if(typeof context.signatureSeed==='string'){
+          pointsKey=context.signatureSeed;
+        }else{
+          const summary=context.pointSummary || summarizeScatterPoints(context.points);
+          pointsKey=[
+            summary.count,
+            formatScatterSignatureNumber(summary.sumX),
+            formatScatterSignatureNumber(summary.sumY),
+            formatScatterSignatureNumber(summary.sumXX),
+            formatScatterSignatureNumber(summary.sumYY),
+            formatScatterSignatureNumber(summary.sumXY)
+          ].join('|');
+        }
+        const thresholdKey=context.thresholds
+          ? [
+              formatScatterSignatureNumber(context.thresholds.log2fc ?? 0),
+              formatScatterSignatureNumber(context.thresholds.negLogP ?? 0),
+              context.thresholds.negLabel || ''
+            ].join('|')
+          : 'threshold:none';
+        const significanceKey=context.significance
+          ? [
+              context.significance.totalPoints ?? 'na',
+              context.significance.significantCount ?? 'na',
+              context.significance.nonSignificantCount ?? 'na',
+              context.significance.missingP ?? 0
+            ].join('|')
+          : 'significance:none';
+        const domainKey=context.domain
+          ? [
+              formatScatterSignatureNumber(context.domain.minX ?? NaN),
+              formatScatterSignatureNumber(context.domain.maxX ?? NaN)
+            ].join('|')
+          : 'domain:none';
+        const controlKey=getScatterStatsControlSignature();
+        const graphKey=context.graphType || 'scatter';
+        return [graphKey,pointsKey,thresholdKey,significanceKey,domainKey,controlKey].join('::');
+      }
+
+      function primeScatterStatsContext(context,options={}){
+        if(!context || (context.graphType==='scatter' && (!Array.isArray(context.points) || !context.points.length))){
+          scatterState.statsContext=null;
+          scatterState.statsContextSignature=null;
+          scatterState.statsContextVersion=0;
+          scatterState.statsLastRunVersion=0;
+          scatterState.statsComputationPending=false;
+          clearScatterStatsOutputs(options.placeholder || 'Add data to enable statistics.');
+          setScatterStatsStatus('');
+          updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
+          return;
+        }
+        const signature=buildScatterStatsSignature(context);
+        const changed=signature!==scatterState.statsContextSignature;
+        if(changed){
+          scatterState.statsContextVersion=(scatterState.statsContextVersion||0)+1;
+          scatterState.statsLastRunVersion=0;
+        }else if(!scatterState.statsContextVersion){
+          scatterState.statsContextVersion=1;
+        }
+        scatterState.statsContextSignature=signature;
+        scatterState.statsContext={ ...context, version: scatterState.statsContextVersion };
+        if(changed){
+          clearScatterStatsOutputs(options.placeholder || scatterStatsPlaceholder);
+          setScatterStatsStatus('Statistics ready to calculate.');
+          updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
+        }else if(scatterState.statsLastRunVersion===scatterState.statsContextVersion){
+          setScatterStatsStatus('Statistics up to date.');
+          updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
+        }else if(!scatterState.statsComputationPending){
+          setScatterStatsStatus('Statistics ready to calculate.');
+          updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
+        }
+      }
+
+      function requestScatterStatsContextRefresh(reason){
+        const ctx=scatterState.statsContext;
+        if(!ctx){
+          clearScatterStatsOutputs(scatterStatsPlaceholder);
+          setScatterStatsStatus('');
+          updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
+          console.debug('Debug: scatter stats context refresh skipped',{ reason, hasContext:false });
+          return false;
+        }
+        console.debug('Debug: scatter stats context refresh requested',{ reason, graphType:ctx.graphType, pointCount:ctx.points?.length || ctx.significance?.totalPoints || 0 });
+        primeScatterStatsContext({
+          ...ctx,
+          precomputedStats:null,
+          precomputedSignature:null
+        });
+        return true;
+      }
+
+      function handleScatterStatsComputeClick(){
+        if(scatterState.statsComputationPending){
+          return;
+        }
+        const context=scatterState.statsContext;
+        if(!context){
+          setScatterStatsStatus('Statistics unavailable until data is loaded.');
+          return;
+        }
+        scatterState.statsComputationPending=true;
+        updateScatterStatsButtonState({ disabled:true, label:'Calculating…' });
+        setScatterStatsStatus('Calculating statistics…');
+        try{
+          runScatterStatsComputation(context);
+          scatterState.statsLastRunVersion=context.version;
+          setScatterStatsStatus('Statistics up to date.');
+          updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
+        }catch(err){
+          console.error('scatter stats computation failed',err);
+          if(scatterStatsResults){
+            scatterStatsResults.textContent='Unable to compute statistics. See console for details.';
+          }
+          setScatterStatsStatus('Failed to compute statistics.');
+          updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
+        }finally{
+          scatterState.statsComputationPending=false;
+        }
+      }
+
+      function renderScatterSignificanceSummary(context){
+        if(!scatterStatsResults){
+          return;
+        }
+        const summary=context?.significance;
+        if(!summary){
+          scatterStatsResults.textContent='Statistics unavailable.';
+          return;
+        }
+        const rows=[
+          { metric:'Total points', value:String(summary.totalPoints || 0) },
+          { metric:'Significant', value:String(summary.significantCount || 0) },
+          { metric:'Not significant', value:String(summary.nonSignificantCount || 0) },
+          { metric:'|log₂FC| ≥', value:Number.isFinite(summary.log2fcThreshold)?summary.log2fcThreshold.toFixed(2):'—' },
+          { metric:`${summary.negLabel || '-log10(p-value)'} ≥`, value:Number.isFinite(summary.negLogPThreshold)?summary.negLogPThreshold.toFixed(2):'—' }
+        ];
+        if(Number(summary.missingP)>0){
+          rows.push({ metric:'Missing p-values', value:String(summary.missingP) });
+        }
+        renderStatsCard(scatterStatsResults,{
+          caption: context.graphType==='ma' ? 'Differential expression summary' : 'Significance summary',
+          columns:[
+            {key:'metric',label:'Metric',align:'left'},
+            {key:'value',label:'Value',align:'right'}
+          ],
+          rows,
+          options:{
+            fileName:'scatter-threshold-summary',
+            contextLabel:'scatter-threshold'
+          }
+        });
+      }
+
+      function runScatterStatsComputation(context){
+        if(!scatterStatsResults){
+          return;
+        }
+        scatterStatsResults.innerHTML='';
+        if(context.graphType==='scatter'){
+          if(!Array.isArray(context.points) || context.points.length<3){
+            scatterStatsResults.textContent='Select at least three paired values to compute correlation statistics.';
+            return;
+          }
+          const method=scatterStatType?.value || 'pearson';
+          const regressionModeValue=scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
+          const showIntervals=!!scatterShowIntervals?.checked;
+          const showDiagnostics=!!scatterShowDiagnostics?.checked;
+          const controlSignature=getScatterStatsControlSignature();
+          let stats=context.precomputedStats;
+          if(!stats || context.precomputedSignature!==controlSignature){
+            stats=computeScatterStats(context.points,method,{ regressionMode:regressionModeValue, domain:context.domain || null });
+            context.precomputedStats=stats;
+            context.precomputedSignature=controlSignature;
+            scatterState.statsContext=context;
+          }
+          const regressionModel=stats?.regression || null;
+          scatterLastRegressionSummary=typeof regressionTools.createSummary==='function'
+            ? regressionTools.createSummary(regressionModel)
+            : null;
+          const rows=[
+            { metric:'r', value:formatMetricValue(stats.r) },
+            { metric:'P value', value:formatP(stats.p) }
+          ];
+          if(regressionModel?.metrics){
+            rows.push({ metric:'R²', value:formatMetricValue(regressionModel.metrics.r2) });
+            if(Number.isFinite(regressionModel.metrics.adjR2)){
+              rows.push({ metric:'Adjusted R²', value:formatMetricValue(regressionModel.metrics.adjR2) });
+            }
+            rows.push({ metric:'RMSE', value:formatMetricValue(regressionModel.metrics.rmse) });
+            rows.push({ metric:'MAE', value:formatMetricValue(regressionModel.metrics.mae) });
+            if(Number.isFinite(regressionModel.metrics.logLoss)){
+              rows.push({ metric:'Log loss', value:formatMetricValue(regressionModel.metrics.logLoss,6) });
+            }
+          }else{
+            rows.push({ metric:'R²', value:formatMetricValue(stats.r2) });
+          }
+          if(regressionModel?.summary){
+            const summary=regressionModel.summary;
+            if(summary.parameters && typeof summary.parameters==='object'){
+              Object.entries(summary.parameters).forEach(([label,value])=>{
+                if(Number.isFinite(value)){
+                  rows.push({ metric:label, value:formatMetricValue(value) });
+                }else if(value!=null && value!==''){
+                  rows.push({ metric:label, value:String(value) });
+                }
+              });
+            }
+            if(summary.primaryParameter && summary.primaryParameter.label && Number.isFinite(summary.primaryParameter.value)){
+              const duplicate=summary.parameters && Object.prototype.hasOwnProperty.call(summary.parameters,summary.primaryParameter.label);
+              if(!duplicate){
+                rows.push({ metric:summary.primaryParameter.label, value:formatMetricValue(summary.primaryParameter.value) });
+              }
+            }
+            if(!summary.parameters && Number.isFinite(summary.slope)){
+              rows.push({ metric:'Slope', value:formatMetricValue(summary.slope) });
+            }
+            if(!summary.parameters && Number.isFinite(summary.intercept)){
+              rows.push({ metric:'Intercept', value:formatMetricValue(summary.intercept) });
+            }
+            if(summary.equation){
+              rows.push({ metric:'Equation', value:summary.equation });
+            }
+          }else{
+            rows.push({ metric:'Slope', value:formatMetricValue(stats.m) });
+            rows.push({ metric:'Intercept', value:formatMetricValue(stats.b) });
+          }
+          if(regressionModel?.residuals){
+            rows.push({ metric:'Residual mean', value:formatMetricValue(regressionModel.residuals.mean) });
+            rows.push({ metric:'Residual SD', value:formatMetricValue(regressionModel.residuals.sd) });
+          }
+          if(showIntervals && regressionModel?.intervals?.summary){
+            const summary=regressionModel.intervals.summary;
+            if(Number.isFinite(summary.ciMin) && Number.isFinite(summary.ciMax)){
+              rows.push({ metric:'Confidence interval (y)', value:`${formatMetricValue(summary.ciMin)} – ${formatMetricValue(summary.ciMax)}` });
+            }
+            if(Number.isFinite(summary.piMin) && Number.isFinite(summary.piMax)){
+              rows.push({ metric:'Prediction interval (y)', value:`${formatMetricValue(summary.piMin)} – ${formatMetricValue(summary.piMax)}` });
+            }
+          }
+          if(showDiagnostics && regressionModel?.diagnostics){
+            rows.push({ metric:'Residual skewness', value:formatMetricValue(regressionModel.diagnostics.skewness,3) });
+            rows.push({ metric:'Residual kurtosis', value:formatMetricValue(regressionModel.diagnostics.kurtosis,3) });
+            if(Number.isFinite(regressionModel.diagnostics.jarqueBera)){
+              rows.push({ metric:'Jarque-Bera', value:formatMetricValue(regressionModel.diagnostics.jarqueBera,3) });
+            }
+            if(Number.isFinite(regressionModel.diagnostics.jarqueBeraP)){
+              rows.push({ metric:'Jarque-Bera p', value:formatP(regressionModel.diagnostics.jarqueBeraP) });
+            }
+          }
+          if(regressionModel?.warnings?.length){
+            rows.push({ metric:'Warnings', value:regressionModel.warnings.join('; ') });
+          }
+          renderStatsCard(scatterStatsResults,{
+            caption:`${stats.method} correlation (${regressionModeValue} regression)` ,
+            columns:[
+              {key:'metric',label:'Metric',align:'left'},
+              {key:'value',label:'Value',align:'right'}
+            ],
+            rows,
+            options:{
+              fileName:'scatter-correlation',
+              contextLabel:'scatter-correlation'
+            }
+          });
+          scatterDebug('Debug: scatter manual stats computed',{ stats, regressionSummary: scatterLastRegressionSummary });
+        }else{
+          renderScatterSignificanceSummary(context);
+          scatterLastRegressionSummary=null;
+        }
+      }
+
+      if(scatterStatsButton){
+        scatterStatsButton.addEventListener('click',handleScatterStatsComputeClick);
+      }
+      clearScatterStatsOutputs(scatterStatsPlaceholder);
+      setScatterStatsStatus('');
+      updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
+
       const scatterSelects=[
         scatterGraphTypeSelect,
         scatterViewMode,
@@ -2119,6 +2476,7 @@
               });
               scheduleDrawScatter();
               renderScatterStatsAdvisor(null, scatterAdvisorState.context);
+              requestScatterStatsContextRefresh('stats-advisor-apply');
             });
             actions.appendChild(applyBtn);
             const resetBtn=document.createElement('button');
@@ -2214,6 +2572,9 @@
               return;
             }
           }
+          if(el===scatterStatType || el===scatterShowLine || el===scatterShowIntervals || el===scatterShowDiagnostics){
+            requestScatterStatsContextRefresh(`${el.id||'scatter-control'}-change`);
+          }
           scheduleDrawScatter();
         }));
       const handleScatterLogToggle=(axis,checkbox)=>{
@@ -2275,6 +2636,7 @@
       if(scatterRegressionMode){
         scatterRegressionMode.addEventListener('change',()=>{
           console.debug('Debug: scatter regression mode change',{ value: scatterRegressionMode.value });
+          requestScatterStatsContextRefresh('regression-mode-change');
           scheduleDrawScatter();
         });
       }
@@ -2551,6 +2913,15 @@
         let nextPointProgress = debugEnabled ? pointProgressInterval : Number.POSITIVE_INFINITY;
         const token=++scatterDrawToken; // debug token for cancellation
         info('drawScatter called',{token});
+        let statsContextPayload=null;
+        scatterState.statsContext=null;
+        scatterState.statsContextSignature=null;
+        scatterState.statsContextVersion=0;
+        scatterState.statsLastRunVersion=0;
+        scatterState.statsComputationPending=false;
+        clearScatterStatsOutputs(scatterStatsPlaceholder);
+        setScatterStatsStatus('');
+        updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
         scatterState.rotationPending = false;
         scatterState.rotationPendingLogged = false;
         hideScatterTooltip('draw-start');
@@ -2666,6 +3037,7 @@
         if(analysis.isColumnExcluded?.(1) || analysis.isColumnExcluded?.(2)){
           console.warn('Scatter draw cancelled - axis column excluded',{ excludeX: analysis.isColumnExcluded?.(1), excludeY: analysis.isColumnExcluded?.(2) });
           chartStyle.clearSvg(scatterSvg);
+          primeScatterStatsContext(null,{ placeholder:'Statistics unavailable until both axes are included.' });
           return;
         }
         const labelCol = extractColumn(0);
@@ -2896,21 +3268,23 @@
           notice.textContent=message;
           plotEl.appendChild(notice);
         };
-        document.getElementById('scatterStatsResults').innerHTML='';
         if(!points.length){
           renderScatterNotice('No valid data points to plot.');
           debug('Debug: scatter plot aborted due to empty dataset',{graphType});
+          primeScatterStatsContext(null,{ placeholder:'Add data to enable statistics.' });
           return;
         }
         if(logX&&points.some(p=>p.x<=0)){
           if(!scatterState.logPlusOneX){
             renderScatterNotice('Log scale requires positive X values.');
+            primeScatterStatsContext(null,{ placeholder:'Statistics unavailable until the axis range is valid.' });
             return;
           }
         }
         if(logY&&points.some(p=>p.y<=0)){
           if(!scatterState.logPlusOneY){
             renderScatterNotice('Log scale requires positive Y values.');
+            primeScatterStatsContext(null,{ placeholder:'Statistics unavailable until the axis range is valid.' });
             return;
           }
         }
@@ -2962,6 +3336,7 @@
           }
           renderScatterNotice('No points fall within the specified axis range.');
           debug('Debug: scatter plot aborted due to range filter',{range:{xMin,xMax,yMin,yMax}});
+          primeScatterStatsContext(null,{ placeholder:'Adjust the axis range to enable statistics.' });
           return;
         }
         scatterColorModeDesired = scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT;
@@ -4011,259 +4386,187 @@
         }
         if(scatterCurrentGraphType==='scatter'){
           const regressionModeValue = scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
-          const stats=computeScatterStats(points,method,{ regressionMode: regressionModeValue, domain: { minX: xMin, maxX: xMax } });
-          if(token!==scatterDrawToken){info('scatter draw cancelled before stats',{token});return;}
-          const regressionModel = stats.regression;
-          scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(regressionModel) : null;
-          if(showLine && regressionModel){
-            const intervalSamplesRaw = Array.isArray(regressionModel.intervals?.samples) ? regressionModel.intervals.samples.slice() : [];
-            const intervalSamples = intervalSamplesRaw.sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
-            const intervalLayer = (showIntervals && intervalSamples.length >= 2) ? document.createElementNS(NS,'g') : null;
-            if(intervalLayer){
-              intervalLayer.setAttribute('data-layer','interval-bands');
-              svg.appendChild(intervalLayer);
-              const buildIntervalPath = (lowerKey, upperKey) => {
-                const upperPoints=[];
-                const lowerPoints=[];
-                intervalSamples.forEach(sample => {
-                  const xRaw = sample?.x;
-                  const upperRaw = sample?.[upperKey];
-                  const lowerRaw = sample?.[lowerKey];
-                  if(!Number.isFinite(xRaw) || !Number.isFinite(upperRaw) || !Number.isFinite(lowerRaw)){
-                    return;
+          let visualStats=null;
+          if(showLine){
+            visualStats=computeScatterStats(points,method,{ regressionMode: regressionModeValue, domain: { minX: xMin, maxX: xMax } });
+            if(token!==scatterDrawToken){info('scatter draw cancelled before stats',{token});return;}
+            const regressionModel = visualStats.regression;
+            scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(regressionModel) : null;
+            if(regressionModel){
+              const intervalSamplesRaw = Array.isArray(regressionModel.intervals?.samples) ? regressionModel.intervals.samples.slice() : [];
+              const intervalSamples = intervalSamplesRaw.sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
+              const intervalLayer = (showIntervals && intervalSamples.length >= 2) ? document.createElementNS(NS,'g') : null;
+              if(intervalLayer){
+                intervalLayer.setAttribute('data-layer','interval-bands');
+                svg.appendChild(intervalLayer);
+                const buildIntervalPath = (lowerKey, upperKey) => {
+                  const upperPoints=[];
+                  const lowerPoints=[];
+                  intervalSamples.forEach(sample => {
+                    const xRaw = sample?.x;
+                    const upperRaw = sample?.[upperKey];
+                    const lowerRaw = sample?.[lowerKey];
+                    if(!Number.isFinite(xRaw) || !Number.isFinite(upperRaw) || !Number.isFinite(lowerRaw)){
+                      return;
+                    }
+                    if(logX && xRaw <= 0){
+                      return;
+                    }
+                    if(logY && (upperRaw <= 0 || lowerRaw <= 0)){
+                      return;
+                    }
+                    const xVal = logX ? Math.log10(xRaw) : xRaw;
+                    const upperVal = logY ? Math.log10(upperRaw) : upperRaw;
+                    const lowerVal = logY ? Math.log10(lowerRaw) : lowerRaw;
+                    if(!Number.isFinite(xVal) || !Number.isFinite(upperVal) || !Number.isFinite(lowerVal)){
+                      return;
+                    }
+                    upperPoints.push({ x: x2px(xVal), y: y2px(upperVal) });
+                    lowerPoints.push({ x: x2px(xVal), y: y2px(lowerVal) });
+                  });
+                  if(upperPoints.length < 2 || lowerPoints.length < 2){
+                    return null;
                   }
-                  if(logX && xRaw <= 0){
-                    return;
-                  }
-                  if(logY && (upperRaw <= 0 || lowerRaw <= 0)){
-                    return;
-                  }
-                  const xVal = logX ? Math.log10(xRaw) : xRaw;
-                  const upperVal = logY ? Math.log10(upperRaw) : upperRaw;
-                  const lowerVal = logY ? Math.log10(lowerRaw) : lowerRaw;
-                  if(!Number.isFinite(xVal) || !Number.isFinite(upperVal) || !Number.isFinite(lowerVal)){
-                    return;
-                  }
-                  upperPoints.push({ x: x2px(xVal), y: y2px(upperVal) });
-                  lowerPoints.push({ x: x2px(xVal), y: y2px(lowerVal) });
-                });
-                if(upperPoints.length < 2 || lowerPoints.length < 2){
-                  return null;
+                  const commands=[];
+                  upperPoints.forEach((pt, idx)=>{
+                    commands.push(`${idx?'L':'M'}${pt.x},${pt.y}`);
+                  });
+                  lowerPoints.slice().reverse().forEach(pt=>{
+                    commands.push(`L${pt.x},${pt.y}`);
+                  });
+                  commands.push('Z');
+                  return commands.join(' ');
+                };
+                const confidencePath = buildIntervalPath('ciLow','ciHigh');
+                const predictionPath = buildIntervalPath('piLow','piHigh');
+                if(confidencePath){
+                  const confEl=document.createElementNS(NS,'path');
+                  confEl.setAttribute('d',confidencePath);
+                  confEl.setAttribute('fill','#d62728');
+                  confEl.setAttribute('fill-opacity','0.15');
+                  confEl.setAttribute('stroke','none');
+                  confEl.dataset.band='confidence';
+                  intervalLayer.appendChild(confEl);
                 }
-                const commands=[];
-                upperPoints.forEach((pt, idx)=>{
-                  commands.push(`${idx?'L':'M'}${pt.x},${pt.y}`);
+                if(predictionPath){
+                  const predEl=document.createElementNS(NS,'path');
+                  predEl.setAttribute('d',predictionPath);
+                  predEl.setAttribute('fill','#d62728');
+                  predEl.setAttribute('fill-opacity','0.08');
+                  predEl.setAttribute('stroke','none');
+                  predEl.dataset.band='prediction';
+                  intervalLayer.appendChild(predEl);
+                }
+                debug('Debug: scatter interval shading rendered', {
+                  sampleCount: intervalSamples.length,
+                  hasConfidence: !!confidencePath,
+                  hasPrediction: !!predictionPath
                 });
-                lowerPoints.slice().reverse().forEach(pt=>{
-                  commands.push(`L${pt.x},${pt.y}`);
-                });
-                commands.push('Z');
-                return commands.join(' ');
-              };
-              const confidencePath = buildIntervalPath('ciLow','ciHigh');
-              const predictionPath = buildIntervalPath('piLow','piHigh');
-              if(confidencePath){
-                const confEl=document.createElementNS(NS,'path');
-                confEl.setAttribute('d',confidencePath);
-                confEl.setAttribute('fill','#d62728');
-                confEl.setAttribute('fill-opacity','0.15');
-                confEl.setAttribute('stroke','none');
-                confEl.dataset.band='confidence';
-                intervalLayer.appendChild(confEl);
               }
-              if(predictionPath){
-                const predEl=document.createElementNS(NS,'path');
-                predEl.setAttribute('d',predictionPath);
-                predEl.setAttribute('fill','#d62728');
-                predEl.setAttribute('fill-opacity','0.08');
-                predEl.setAttribute('stroke','none');
-                predEl.dataset.band='prediction';
-                intervalLayer.appendChild(predEl);
-              }
-              debug('Debug: scatter interval shading rendered', {
-                sampleCount: intervalSamples.length,
-                hasConfidence: !!confidencePath,
-                hasPrediction: !!predictionPath
+              const sampleCount = regressionModel.mode === 'linear' ? 60 : 160;
+              const samples = typeof regressionTools.sampleCurve === 'function'
+                ? regressionTools.sampleCurve(regressionModel,{ minX: xMin, maxX: xMax, sampleCount })
+                : [];
+              const pathCommands = [];
+              samples.forEach((sample) => {
+                if(!Number.isFinite(sample.x) || !Number.isFinite(sample.y)) return;
+                if(logX && sample.x <= 0) return;
+                if(logY && sample.y <= 0) return;
+                const xVal = logX ? Math.log10(sample.x) : sample.x;
+                const yVal = logY ? Math.log10(sample.y) : sample.y;
+                if(!Number.isFinite(xVal) || !Number.isFinite(yVal)) return;
+                const command = `${pathCommands.length?'L':'M'}${x2px(xVal)},${y2px(yVal)}`;
+                pathCommands.push(command);
               });
-            }
-            const sampleCount = regressionModel.mode === 'linear' ? 60 : 160;
-            const samples = typeof regressionTools.sampleCurve === 'function'
-              ? regressionTools.sampleCurve(regressionModel,{ minX: xMin, maxX: xMax, sampleCount })
-              : [];
-            const pathCommands = [];
-            samples.forEach((sample, idx) => {
-              if(!Number.isFinite(sample.x) || !Number.isFinite(sample.y)) return;
-              if(logX && sample.x <= 0) return;
-              if(logY && sample.y <= 0) return;
-              const xVal = logX ? Math.log10(sample.x) : sample.x;
-              const yVal = logY ? Math.log10(sample.y) : sample.y;
-              if(!Number.isFinite(xVal) || !Number.isFinite(yVal)) return;
-              const command = `${pathCommands.length?'L':'M'}${x2px(xVal)},${y2px(yVal)}`;
-              pathCommands.push(command);
-            });
-            if(pathCommands.length>1){
-              const strokeWidth=chartStyle.scaleStrokeWidth(1.5, styleScaleInfo, { context: 'scatter-trend', min: 0.75 });
-              const path=add('path',{d:pathCommands.join(' '),fill:'none',stroke:'#d00','stroke-width':strokeWidth});
-              path.setAttribute('vector-effect','non-scaling-stroke');
-              debug('Debug: scatter regression path drawn',{ mode: regressionModel.mode, commandCount: pathCommands.length, strokeWidth });
+              if(pathCommands.length>1){
+                const strokeWidth=chartStyle.scaleStrokeWidth(1.5, styleScaleInfo, { context: 'scatter-trend', min: 0.75 });
+                const path=add('path',{d:pathCommands.join(' '),fill:'none',stroke:'#d00','stroke-width':strokeWidth});
+                path.setAttribute('vector-effect','non-scaling-stroke');
+                debug('Debug: scatter regression path drawn',{ mode: regressionModel.mode, commandCount: pathCommands.length, strokeWidth });
+              }else{
+                debug('Debug: scatter regression path skipped',{ mode: regressionModel.mode, pathCommands: pathCommands.length });
+              }
+              const infoLines=[];
+              if(regressionModel?.summary?.equation){
+                infoLines.push(regressionModel.summary.equation);
+              }else if(Number.isFinite(visualStats.m) && Number.isFinite(visualStats.b)){
+                const eq=`y=${visualStats.m.toFixed(2)}x${visualStats.b>=0?'+':'-'}${Math.abs(visualStats.b).toFixed(2)}`;
+                infoLines.push(eq);
+              }
+              infoLines.push(`r=${formatMetricValue(visualStats.r,2)} R²=${formatMetricValue(visualStats.r2,2)} p=${formatP(visualStats.p)}`);
+              if(regressionModel?.metrics){
+                if(Number.isFinite(regressionModel.metrics.rmse) || Number.isFinite(regressionModel.metrics.mae)){
+                  infoLines.push(`RMSE=${formatMetricValue(regressionModel.metrics.rmse,3)} MAE=${formatMetricValue(regressionModel.metrics.mae,3)}`);
+                }
+              }
+              const infoX=margin.left+plotW-4;
+              const slopeCandidate=Number.isFinite(visualStats.m)?visualStats.m:0;
+              const infoY=slopeCandidate>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
+              const infoText=add('text',{x:infoX,y:infoY,'text-anchor':'end','font-size':fs,fill:'#000'});
+              infoLines.forEach((line,lineIdx)=>{
+                const t=document.createElementNS(NS,'tspan');
+                t.setAttribute('x',infoX);
+                t.setAttribute('dy',lineIdx===0?0:fs);
+                t.textContent=line;
+                infoText.appendChild(t);
+              });
+              info('scatter stats (visual)',{ stats: visualStats, regressionSummary: scatterLastRegressionSummary });
             }else{
-              debug('Debug: scatter regression path skipped',{ mode: regressionModel.mode, pathCommands: pathCommands.length });
-            }
-            const infoLines=[];
-            if(regressionModel?.summary?.equation){
-              infoLines.push(regressionModel.summary.equation);
-            }else if(Number.isFinite(stats.m) && Number.isFinite(stats.b)){
-              const eq=`y=${stats.m.toFixed(2)}x${stats.b>=0?'+':'-'}${Math.abs(stats.b).toFixed(2)}`;
-              infoLines.push(eq);
-            }
-            infoLines.push(`r=${formatMetricValue(stats.r,2)} R²=${formatMetricValue(stats.r2,2)} p=${formatP(stats.p)}`);
-            if(regressionModel?.metrics){
-              if(Number.isFinite(regressionModel.metrics.rmse) || Number.isFinite(regressionModel.metrics.mae)){
-                infoLines.push(`RMSE=${formatMetricValue(regressionModel.metrics.rmse,3)} MAE=${formatMetricValue(regressionModel.metrics.mae,3)}`);
-              }
-            }
-            const infoX=margin.left+plotW-4;
-            const infoY=stats.m>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
-            const info=add('text',{x:infoX,y:infoY,'text-anchor':'end','font-size':fs,fill:'#000'});
-            infoLines.forEach((line,lineIdx)=>{
-              const t=document.createElementNS(NS,'tspan');
-              t.setAttribute('x',infoX);
-              t.setAttribute('dy',lineIdx===0?0:fs);
-              t.textContent=line;
-              info.appendChild(t);
-            });
-          }else{
-            debug('Debug: scatter regression trend omitted',{ showLine, hasModel: !!regressionModel });
-          }
-          const resDiv=document.getElementById('scatterStatsResults');
-          const rows=[];
-          rows.push({ metric:'r', value: formatMetricValue(stats.r) });
-          rows.push({ metric:'P value', value: formatP(stats.p) });
-          if(regressionModel?.metrics){
-            rows.push({ metric:'R²', value: formatMetricValue(regressionModel.metrics.r2) });
-            if(Number.isFinite(regressionModel.metrics.adjR2)){
-              rows.push({ metric:'Adjusted R²', value: formatMetricValue(regressionModel.metrics.adjR2) });
-            }
-            rows.push({ metric:'RMSE', value: formatMetricValue(regressionModel.metrics.rmse) });
-            rows.push({ metric:'MAE', value: formatMetricValue(regressionModel.metrics.mae) });
-            if(Number.isFinite(regressionModel.metrics.logLoss)){
-              rows.push({ metric:'Log loss', value: formatMetricValue(regressionModel.metrics.logLoss,6) });
+              debug('Debug: scatter regression trend omitted',{ showLine, hasModel: !!regressionModel });
             }
           }else{
-            rows.push({ metric:'R²', value: formatMetricValue(stats.r2) });
+            scatterLastRegressionSummary=null;
           }
-          if(regressionModel?.summary){
-            const summary = regressionModel.summary;
-            let parametersRendered = false;
-            if(summary.parameters && typeof summary.parameters === 'object'){
-              Object.entries(summary.parameters).forEach(([label, value]) => {
-                parametersRendered = true;
-                if(Number.isFinite(value)){
-                  rows.push({ metric: label, value: formatMetricValue(value) });
-                }else if(value != null && value !== ''){
-                  rows.push({ metric: label, value: String(value) });
-                }
-              });
-            }
-            if(summary.primaryParameter && summary.primaryParameter.label && Number.isFinite(summary.primaryParameter.value)){
-              const duplicate = summary.parameters && Object.prototype.hasOwnProperty.call(summary.parameters, summary.primaryParameter.label);
-              if(!duplicate){
-                rows.push({ metric: summary.primaryParameter.label, value: formatMetricValue(summary.primaryParameter.value) });
-              }
-            }
-            if(!parametersRendered){
-              if(Number.isFinite(summary.slope)){
-                rows.push({ metric:'Slope', value: formatMetricValue(summary.slope) });
-              }
-              if(Number.isFinite(summary.intercept)){
-                rows.push({ metric:'Intercept', value: formatMetricValue(summary.intercept) });
-              }
-            }
-            if(summary.equation){
-              rows.push({ metric:'Equation', value: summary.equation });
-            }
-          }else{
-            rows.push({ metric:'Slope', value: formatMetricValue(stats.m) });
-            rows.push({ metric:'Intercept', value: formatMetricValue(stats.b) });
-          }
-          if(regressionModel?.residuals){
-            rows.push({ metric:'Residual mean', value: formatMetricValue(regressionModel.residuals.mean) });
-            rows.push({ metric:'Residual SD', value: formatMetricValue(regressionModel.residuals.sd) });
-          }
-          if(showIntervals && regressionModel?.intervals?.summary){
-            const summary = regressionModel.intervals.summary;
-            if(Number.isFinite(summary.ciMin) && Number.isFinite(summary.ciMax)){
-              rows.push({ metric:'Confidence interval (y)', value: `${formatMetricValue(summary.ciMin)} – ${formatMetricValue(summary.ciMax)}` });
-            }
-            if(Number.isFinite(summary.piMin) && Number.isFinite(summary.piMax)){
-              rows.push({ metric:'Prediction interval (y)', value: `${formatMetricValue(summary.piMin)} – ${formatMetricValue(summary.piMax)}` });
-            }
-          }
-          if(showDiagnostics && regressionModel?.diagnostics){
-            rows.push({ metric:'Residual skewness', value: formatMetricValue(regressionModel.diagnostics.skewness,3) });
-            rows.push({ metric:'Residual kurtosis', value: formatMetricValue(regressionModel.diagnostics.kurtosis,3) });
-            if(Number.isFinite(regressionModel.diagnostics.jarqueBera)){
-              rows.push({ metric:'Jarque-Bera', value: formatMetricValue(regressionModel.diagnostics.jarqueBera,3) });
-            }
-            if(Number.isFinite(regressionModel.diagnostics.jarqueBeraP)){
-              rows.push({ metric:'Jarque-Bera p', value: formatP(regressionModel.diagnostics.jarqueBeraP) });
-            }
-          }
-          if(regressionModel?.warnings?.length){
-            rows.push({ metric:'Warnings', value: regressionModel.warnings.join('; ') });
-          }
-          renderStatsCard(resDiv,{
-            caption:`${stats.method} correlation (${regressionModeValue} regression)`,
-            columns:[
-              {key:'metric',label:'Metric',align:'left'},
-              {key:'value',label:'Value',align:'right'}
-            ],
-            rows,
-            options:{
-              fileName:'scatter-correlation',
-              contextLabel:'scatter-correlation'
-            }
-          });
-          info('scatter stats',{ stats, regressionSummary: scatterLastRegressionSummary });
+          const statsPoints=points.map(p=>({ x:p.x, y:p.y }));
+          statsContextPayload={
+            graphType:'scatter',
+            points:statsPoints,
+            pointSummary:summarizeScatterPoints(statsPoints),
+            domain:{ minX:xMin, maxX:xMax },
+            thresholds:null,
+            significance:null,
+            precomputedStats:visualStats,
+            precomputedSignature:visualStats ? getScatterStatsControlSignature() : null
+          };
         }else{
           scatterLastRegressionSummary=null;
-          const resDiv=document.getElementById('scatterStatsResults');
-          const nonSigCount=points.length-significantCount;
+          const totalPoints=points.length;
+          const nonSigCount=totalPoints-significantCount;
           const negLabel=scatterCurrentGraphType==='ma' ? (extraLabelRaw && String(extraLabelRaw).trim() ? `-log10(${String(extraLabelRaw).trim()})` : '-log10(p-value)') : scatterYLabelText;
-          let summaryRows=`<tr><th>Total points</th><td>${points.length}</td></tr>`+
-            `<tr><th>Significant</th><td>${significantCount}</td></tr>`+
-            `<tr><th>Not significant</th><td>${nonSigCount}</td></tr>`+
-            `<tr><th>|log₂FC| ≥</th><td>${log2fcThreshold.toFixed(2)}</td></tr>`+
-            `<tr><th>${negLabel} ≥</th><td>${negLogPThreshold.toFixed(2)}</td></tr>`;
-          if(maMissingPCount>0){
-            summaryRows+=`<tr><th>Missing p-values</th><td>${maMissingPCount}</td></tr>`;
-          }
-          renderStatsCard(resDiv,{
-            caption: scatterCurrentGraphType==='ma' ? 'Differential expression summary' : 'Significance summary',
-            columns:[
-              {key:'metric',label:'Metric',align:'left'},
-              {key:'value',label:'Value',align:'right'}
-            ],
-            rows:(()=>{
-              const rows=[
-                { metric:'Total points', value:String(points.length) },
-                { metric:'Significant', value:String(significantCount) },
-                { metric:'Not significant', value:String(nonSigCount) },
-                { metric:'|log₂FC| ≥', value:log2fcThreshold.toFixed(2) },
-                { metric:`${negLabel} ≥`, value:negLogPThreshold.toFixed(2) }
-              ];
-              if(maMissingPCount>0){
-                rows.push({ metric:'Missing p-values', value:String(maMissingPCount) });
-              }
-              return rows;
-            })(),
-            options:{
-              fileName:'scatter-threshold-summary',
-              contextLabel:'scatter-threshold'
-            }
-          });
+          statsContextPayload={
+            graphType:scatterCurrentGraphType,
+            points:[],
+            pointSummary:null,
+            domain:null,
+            thresholds:{
+              log2fc:log2fcThreshold,
+              negLogP:negLogPThreshold,
+              negLabel
+            },
+            significance:{
+              totalPoints,
+              significantCount,
+              nonSignificantCount:nonSigCount,
+              log2fcThreshold,
+              negLogPThreshold,
+              missingP:maMissingPCount,
+              negLabel
+            },
+            precomputedStats:null,
+            precomputedSignature:null,
+            signatureSeed:[
+              totalPoints,
+              significantCount,
+              nonSigCount,
+              log2fcThreshold,
+              negLogPThreshold,
+              maMissingPCount,
+              negLabel
+            ].join('|')
+          };
           debug('Debug: scatter significance summary',{graphType:scatterCurrentGraphType,significantCount,nonSigCount,log2fcThreshold,negLogPThreshold,missingP:maMissingPCount});
         }
+        primeScatterStatsContext(statsContextPayload);
         ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'scatter-graph' });
         scatterLayout?.syncPanels?.({ skipSchedule: true });
         syncScatterAutoDrawNoticeWidth('draw');
