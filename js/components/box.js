@@ -4202,6 +4202,12 @@
       });
       section.appendChild(warningList);
     }
+    if(diagnostics.parametricOverrideActive){
+      const override=document.createElement('div');
+      override.className='assumption-info';
+      override.textContent='Parametric results remain visible despite failed assumptions; consider alternative tests if violations persist.';
+      section.appendChild(override);
+    }
     if(diagnostics.appliedVariant==='welch'){
       const info=document.createElement('div');
       info.className='assumption-info';
@@ -5812,7 +5818,6 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       state.statsEffectParametric,
       state.statsEffectNonParametric,
       state.statsPostHoc,
-      state.statsParametricVariant,
       state.statsPairsText,
       state.statsCustomPairs?.length || 0,
       state.showSignificanceBars ? 'sig-on' : 'sig-off'
@@ -5828,6 +5833,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       return `${trace.name || idx}:${count}:${sum}:${sumSquares}`;
     });
     return `${configKey}::${selectionKey}::${traceParts.join(';')}`;
+  }
+
+  function reconcileStatsContextSignature(traces){
+    const ctx=state.statsContext;
+    if(!ctx){
+      return;
+    }
+    const referenceTraces=Array.isArray(traces) && traces.length?traces:ctx.traces;
+    if(!Array.isArray(referenceTraces) || !referenceTraces.length){
+      return;
+    }
+    const nextSignature=buildStatsSignature(referenceTraces);
+    if(nextSignature && nextSignature!==state.statsContextSignature){
+      console.debug('Debug: box stats signature reconciled',{ previous:state.statsContextSignature, next:nextSignature });
+      state.statsContextSignature=nextSignature;
+      ctx.signature=nextSignature;
+    }
   }
 
   function primeStatsComputation(traces, svg, helpers){
@@ -5889,6 +5911,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       computeStats(context.traces, context.svg, context.helpers);
       renderStatsTable(context.traces);
       state.statsLastRunVersion = context.version;
+      reconcileStatsContextSignature(context.traces);
       setStatsStatus('Statistics up to date.');
     }catch(err){
       console.error('box stats computation failed', err);
@@ -6078,14 +6101,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       summaries: summaryList
     });
     state.assumptionDiagnostics=assumptionDiagnostics;
+    if(assumptionDiagnostics){
+      assumptionDiagnostics.parametricOverrideActive=assumptionDiagnostics.recommendNonParametric && state.statsTest==='parametric';
+      if(assumptionDiagnostics.parametricOverrideActive){
+        console.debug('Debug: box assumptions override active',{ warnings: assumptionDiagnostics.warnings });
+      }
+    }
     renderAssumptionSection(assumptionContainer,assumptionDiagnostics);
     if(assumptionDiagnostics){
-      if(assumptionDiagnostics.recommendNonParametric && state.statsTest==='parametric'){
-        state.statsTest='nonparametric';
-        assumptionDiagnostics.autoSwitched=true;
-        console.debug('Debug: box assumptions auto-switch',{ warnings: assumptionDiagnostics.warnings });
-        renderStatsControls(traces);
-      }
       const varianceConcern=assumptionDiagnostics.varianceConcern===true;
       const normalityFailures=Number.isFinite(assumptionDiagnostics.normalityFailures)
         ? assumptionDiagnostics.normalityFailures
