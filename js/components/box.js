@@ -2006,7 +2006,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null } };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -2633,6 +2633,15 @@
     els.boxColorPerBox=global.$('#boxColorPerBox');
     els.boxYMin=global.$('#boxYMin');
     els.boxYMax=global.$('#boxYMax');
+    els.statsControls=global.document.getElementById('statsControls');
+    els.statsResults=global.document.getElementById('statsResults');
+    els.statsTable=global.document.getElementById('statsTable');
+    els.statsButton=global.document.getElementById('boxComputeStats');
+    els.statsStatus=global.document.getElementById('boxStatsStatus');
+    if(els.statsButton && !els.statsButton.dataset?.boxHandlerAttached){
+      els.statsButton.addEventListener('click', handleStatsComputeClick);
+      els.statsButton.dataset.boxHandlerAttached='true';
+    }
     ensureWhiskerState();
     if(els.boxWhiskerRule){
       els.boxWhiskerRule.value = state.whiskerRule;
@@ -5183,6 +5192,7 @@
             answers:{ ...answers }
           });
           renderStatsControls(traces);
+          requestStatsContextRefresh('stats-advisor-apply-grouped');
           state.scheduleDraw();
           return;
         }
@@ -5210,6 +5220,7 @@
           answers:{ ...answers }
         });
         renderStatsControls(traces);
+        requestStatsContextRefresh('stats-advisor-apply');
         state.scheduleDraw();
       });
       actions.appendChild(applyBtn);
@@ -5325,6 +5336,7 @@
   testSel.addEventListener('change',()=>{
     state.statsTest=testSel.value;
     console.log('boxplot statsTest changed', state.statsTest);
+    requestStatsContextRefresh('stats-test-change');
     state.scheduleDraw();
   });
   optionWrap.appendChild(testLabel);
@@ -5343,6 +5355,7 @@
   pairedSel.addEventListener('change',()=>{
     state.statsPaired=pairedSel.value==='paired';
     console.log('boxplot statsPaired changed', state.statsPaired);
+    requestStatsContextRefresh('stats-pairing-change');
     state.scheduleDraw();
   });
   optionWrap.appendChild(pairedLabel);
@@ -5369,6 +5382,7 @@
         console.debug('Debug: selectedCols pruned',{ before: beforeSize, after: filteredSelection.length });
       }
     }
+    requestStatsContextRefresh('stats-mode-change');
     renderStatsControls(traces);
     state.scheduleDraw();
   });
@@ -5392,6 +5406,7 @@
   postHocSel.addEventListener('change',()=>{
     state.statsPostHoc=postHocSel.value;
     console.debug('Debug: box statsPostHoc changed',{ value:state.statsPostHoc });
+    requestStatsContextRefresh('stats-posthoc-change');
     renderStatsControls(traces);
     state.scheduleDraw();
   });
@@ -5413,6 +5428,7 @@
     state.statsCorrection=value;
     console.debug('Debug: box statsCorrection changed',{ value, source:'main-controls' });
     updateStatsCorrectionSummary(0);
+    requestStatsContextRefresh('stats-correction-change');
     state.scheduleDraw();
   });
   correctionSel.disabled=state.statsPostHoc==='tukey' || state.statsPostHoc==='gamesHowell';
@@ -5441,6 +5457,7 @@
     const value=ensureValidEffectOption('parametric',paramEffectSel.value);
     state.statsEffectParametric=value;
     console.debug('Debug: box statsEffectParametric changed',{ value });
+    requestStatsContextRefresh('stats-param-effect-change');
     state.scheduleDraw();
   });
   optionWrap.appendChild(paramEffectLabel);
@@ -5461,6 +5478,7 @@
     const value=ensureValidEffectOption('nonparametric',nonParamEffectSel.value);
     state.statsEffectNonParametric=value;
     console.debug('Debug: box statsEffectNonParametric changed',{ value });
+    requestStatsContextRefresh('stats-nonparam-effect-change');
     state.scheduleDraw();
   });
   optionWrap.appendChild(nonParamEffectLabel);
@@ -5485,6 +5503,7 @@
     refSel.addEventListener('change',()=>{
       state.statsRef=+refSel.value;
       console.log('boxplot statsRef changed', state.statsRef);
+      requestStatsContextRefresh('stats-reference-change');
       renderStatsControls(traces);
       state.scheduleDraw();
     });
@@ -5501,6 +5520,7 @@
       state.statsPairsText=pairInput.value;
       state.statsCustomPairs=parsePairString(state.statsPairsText,traces);
       console.log('boxplot custom pairs changed', state.statsPairsText);
+      requestStatsContextRefresh('stats-custom-pairs-change');
       state.scheduleDraw();
     });
     optionWrap.appendChild(pairLabel);
@@ -5521,6 +5541,7 @@
       if(checkbox.checked) state.selectedCols.add(index);
       else state.selectedCols.delete(index);
       console.log('boxplot column toggle',{index,checked:checkbox.checked});
+      requestStatsContextRefresh('stats-column-toggle');
       state.scheduleDraw();
     });
     const label=document.createElement('label');
@@ -5747,6 +5768,159 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       tableDiv.innerHTML=html;
       console.debug('Debug: box renderStatsTable fallback',{rowCount:tableRows.length});
     }
+  }
+
+  function setStatsStatus(message){
+    if(!els.statsStatus){
+      return;
+    }
+    els.statsStatus.textContent = message || '';
+  }
+
+  function clearStatsOutputs(message){
+    const placeholder = message || 'Statistics will appear after calculation.';
+    if(els.statsResults){
+      els.statsResults.textContent = placeholder;
+    }
+    if(els.statsTable){
+      els.statsTable.innerHTML = '';
+    }
+  }
+
+  function updateStatsButtonState(config){
+    if(!els.statsButton){
+      return;
+    }
+    if(config && Object.prototype.hasOwnProperty.call(config,'disabled')){
+      els.statsButton.disabled = !!config.disabled;
+    }
+    if(config && typeof config.label === 'string' && config.label){
+      els.statsButton.textContent = config.label;
+    }
+  }
+
+  function buildStatsSignature(traces){
+    if(!Array.isArray(traces) || !traces.length){
+      return 'empty';
+    }
+    const configKey = [
+      state.statsTest,
+      state.statsMode,
+      state.statsRef,
+      state.statsPaired ? 'paired' : 'unpaired',
+      state.statsCorrection,
+      state.statsEffectParametric,
+      state.statsEffectNonParametric,
+      state.statsPostHoc,
+      state.statsParametricVariant,
+      state.statsPairsText,
+      state.statsCustomPairs?.length || 0,
+      state.showSignificanceBars ? 'sig-on' : 'sig-off'
+    ].join('|');
+    const selectionKey = Array.from(state.selectedCols).sort((a,b)=>a-b).join(',');
+    const traceParts = traces.map((trace, idx)=>{
+      const summary = trace.summary && Number.isFinite(trace.summary.count)
+        ? trace.summary
+        : (trace.summary = computeTraceSummary(Array.isArray(trace.rawY) ? trace.rawY : [], { requireSorted: false }));
+      const count = Number.isFinite(summary.count) ? summary.count : 0;
+      const sum = Number.isFinite(summary.sum) ? summary.sum : 0;
+      const sumSquares = Number.isFinite(summary.sumSquares) ? summary.sumSquares : 0;
+      return `${trace.name || idx}:${count}:${sum}:${sumSquares}`;
+    });
+    return `${configKey}::${selectionKey}::${traceParts.join(';')}`;
+  }
+
+  function primeStatsComputation(traces, svg, helpers){
+    const hasTraces = Array.isArray(traces) && traces.length > 0;
+    if(!hasTraces){
+      state.statsContext = null;
+      state.statsContextSignature = null;
+      state.statsContextVersion = 0;
+      state.statsLastRunVersion = 0;
+      state.statsComputationPending = false;
+      state.assumptionDiagnostics = null;
+      clearStatsOutputs('Add data to enable statistics.');
+      setStatsStatus('');
+      updateStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+      return;
+    }
+    const signature = buildStatsSignature(traces);
+    const contextChanged = signature !== state.statsContextSignature;
+    let version = state.statsContextVersion || 0;
+    if(contextChanged){
+      version += 1;
+      state.statsLastRunVersion = 0;
+      state.statsComputationPending = false;
+      state.assumptionDiagnostics = null;
+    }else if(!version){
+      version = 1;
+    }
+    state.statsContextVersion = version;
+    state.statsContextSignature = signature;
+    state.statsContext = { traces: traces.slice(), svg, helpers, version, signature };
+    if(contextChanged){
+      clearStatsOutputs('Statistics will appear after calculation.');
+      setStatsStatus('Statistics ready to calculate.');
+      updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+      return;
+    }
+    if(state.statsLastRunVersion === version && els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length){
+      setStatsStatus('Statistics up to date.');
+      updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+    }else if(!state.statsComputationPending){
+      setStatsStatus('Statistics ready to calculate.');
+      updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+    }
+  }
+
+  function handleStatsComputeClick(){
+    if(state.statsComputationPending){
+      return;
+    }
+    const context = state.statsContext;
+    if(!context || !Array.isArray(context.traces) || !context.traces.length){
+      setStatsStatus('Statistics unavailable until data is loaded.');
+      return;
+    }
+    state.statsComputationPending = true;
+    updateStatsButtonState({ disabled: true, label: 'Calculating…' });
+    setStatsStatus('Calculating statistics…');
+    try{
+      computeStats(context.traces, context.svg, context.helpers);
+      renderStatsTable(context.traces);
+      state.statsLastRunVersion = context.version;
+      setStatsStatus('Statistics up to date.');
+    }catch(err){
+      console.error('box stats computation failed', err);
+      if(els.statsResults){
+        els.statsResults.textContent = 'Unable to compute statistics. See console for details.';
+      }
+      setStatsStatus('Failed to compute statistics.');
+    }finally{
+      state.statsComputationPending = false;
+      const stillCurrent = state.statsContext === context && state.statsContextSignature === context.signature;
+      const label = stillCurrent && state.statsLastRunVersion === context.version
+        ? 'Recalculate statistics'
+        : 'Calculate statistics';
+      updateStatsButtonState({ disabled: !stillCurrent, label });
+    }
+  }
+
+  function requestStatsContextRefresh(reason){
+    const ctx = state.statsContext;
+    const hasContext = ctx && Array.isArray(ctx.traces) && ctx.traces.length > 0;
+    if(!hasContext){
+      console.debug('Debug: box stats context refresh skipped',{ reason, hasContext: !!ctx });
+      if(!ctx){
+        clearStatsOutputs('Statistics will appear after calculation.');
+        setStatsStatus('');
+        updateStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+      }
+      return false;
+    }
+    console.debug('Debug: box stats context refresh requested',{ reason, traceCount: ctx.traces.length });
+    primeStatsComputation(ctx.traces, ctx.svg, ctx.helpers);
+    return true;
   }
 
   // Compute and render statistics and p-value annotations
@@ -8688,8 +8862,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       significance: { enabled: showSignificance }
     };
     console.debug('Debug: box annotation style forwarded', { annotationStyle: helpers.annotationStyle, significance: helpers.significance });
-    computeStats(traces, svg, helpers);
-    renderStatsTable(traces);
+    primeStatsComputation(traces, svg, helpers);
     const otherBoxes = Array.from(svg.children).filter(el => el !== titleText && el.getBBox).map(el => el.getBBox());
     if(otherBoxes.length){
       const topMost = Math.min(...otherBoxes.map(b => b.y));

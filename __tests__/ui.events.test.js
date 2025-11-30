@@ -303,6 +303,11 @@ describe('UI events and example loaders', () => {
       window.Components.box.draw();
       await new Promise(resolve => setTimeout(resolve, 0));
 
+      const computeBtn = document.getElementById('boxComputeStats');
+      expect(computeBtn).toBeTruthy();
+      computeBtn.click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
       const statsResults = document.getElementById('statsResults');
       const assumptionSection = statsResults?.querySelector('.stats-assumption-section');
       expect(assumptionSection).toBeTruthy();
