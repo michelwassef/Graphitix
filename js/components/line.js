@@ -214,6 +214,15 @@
   let lineSeriesGroupLabels = [];
   let lineGroupShapes = [];
   let lineLastRegressionSummaries = [];
+  const lineStatsDefaultPlaceholder = 'Statistics will appear after calculation.';
+  const lineStatsEmptyPlaceholder = 'Add data to enable statistics.';
+  const lineStatsState = {
+    context: null,
+    signature: null,
+    version: 0,
+    lastRunVersion: 0,
+    computationPending: false
+  };
   let lineForecastOptions = {
     horizon: DEFAULT_FORECAST_HORIZON,
     seasonLength: DEFAULT_FORECAST_SEASON,
@@ -403,6 +412,193 @@
       applyLineLegendGuardWidth(lineLegendLayoutInfo.minSvgWidth);
     }
     console.debug('Debug: line render state reset',{ reason, hasMessage: !!options.message });
+  }
+
+  function clearLineStatsOutputs(message){
+    const placeholder = message || lineStatsDefaultPlaceholder;
+    if(refs.statsResults){
+      refs.statsResults.textContent = placeholder;
+    }
+  }
+
+  function setLineStatsStatus(message){
+    if(refs.statsStatus){
+      refs.statsStatus.textContent = message || '';
+    }
+  }
+
+  function updateLineStatsButtonState(config = {}){
+    if(!refs.statsButton){
+      return;
+    }
+    if(Object.prototype.hasOwnProperty.call(config,'disabled')){
+      refs.statsButton.disabled = !!config.disabled;
+    }
+    if(typeof config.label === 'string' && config.label){
+      refs.statsButton.textContent = config.label;
+    }
+  }
+
+  function formatLineSignatureNumber(value){
+    if(Number.isFinite(value)){
+      return Number(value).toPrecision(6);
+    }
+    return 'na';
+  }
+
+  function buildLineStatsSignature(payload){
+    if(!payload || !Array.isArray(payload.series) || !payload.series.length){
+      return 'empty';
+    }
+    const method = payload.controls?.method || 'pearson';
+    const regressionMode = payload.controls?.regressionMode || 'linear';
+    const showIntervalsKey = payload.statsOptions?.showIntervals ? 'intervals:on' : 'intervals:off';
+    const showDiagnosticsKey = payload.statsOptions?.showDiagnostics ? 'diagnostics:on' : 'diagnostics:off';
+    const forecast = payload.statsOptions?.forecast || {};
+    const forecastKey = [
+      forecast.horizon ?? '',
+      forecast.seasonLength ?? '',
+      forecast.autoTune ? 'auto' : 'manual',
+      forecast.criterion || ''
+    ].join('|');
+    let seriesKey = 'series:none';
+    if(typeof payload.signatureSeed === 'string'){
+      seriesKey = payload.signatureSeed;
+    }else{
+      const parts = payload.series.map((series, idx)=>{
+        const name = series?.name || `series-${idx}`;
+        const points = Array.isArray(series?.points) ? series.points.filter(Boolean) : [];
+        if(!points.length){
+          return `${name}:empty`;
+        }
+        let count = 0;
+        let sumX = 0;
+        let sumY = 0;
+        let sumXX = 0;
+        let sumYY = 0;
+        let sumXY = 0;
+        points.forEach(pt=>{
+          const x = Number(pt?.x);
+          const y = Number(pt?.y);
+          if(Number.isFinite(x) && Number.isFinite(y)){
+            count += 1;
+            sumX += x;
+            sumY += y;
+            sumXX += x * x;
+            sumYY += y * y;
+            sumXY += x * y;
+          }
+        });
+        return `${name}:${count}:${formatLineSignatureNumber(sumX)}:${formatLineSignatureNumber(sumY)}:${formatLineSignatureNumber(sumXX)}:${formatLineSignatureNumber(sumYY)}:${formatLineSignatureNumber(sumXY)}`;
+      });
+      seriesKey = parts.join(';');
+    }
+    const cacheSize = payload.statsOptions?.regressionCache instanceof Map ? payload.statsOptions.regressionCache.size : 0;
+    const cacheKey = `cache:${cacheSize}`;
+    return [method, regressionMode, showIntervalsKey, showDiagnosticsKey, forecastKey, cacheKey, seriesKey].join('::');
+  }
+
+  function handleLineStatsUnavailable(statsOptions, placeholder){
+    const advisorOptions = statsOptions || { showIntervals: !!refs.showIntervals?.checked, showDiagnostics: !!refs.showDiagnostics?.checked };
+    renderLineStatsAdvisor([], advisorOptions);
+    primeLineStatsContext(null, { placeholder: placeholder || lineStatsEmptyPlaceholder });
+  }
+
+  function primeLineStatsContext(payload, options = {}){
+    if(!payload || !Array.isArray(payload.series) || !payload.series.length){
+      lineStatsState.context = null;
+      lineStatsState.signature = null;
+      lineStatsState.version = 0;
+      lineStatsState.lastRunVersion = 0;
+      lineStatsState.computationPending = false;
+      lineLastRegressionSummaries = [];
+      clearLineStatsOutputs(options.placeholder || lineStatsEmptyPlaceholder);
+      setLineStatsStatus('');
+      updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+      return;
+    }
+    const signature = buildLineStatsSignature(payload);
+    const changed = signature !== lineStatsState.signature;
+    let version = lineStatsState.version || 0;
+    if(changed){
+      version += 1;
+      lineStatsState.lastRunVersion = 0;
+      lineLastRegressionSummaries = [];
+    }else if(!version){
+      version = 1;
+    }
+    lineStatsState.version = version;
+    lineStatsState.signature = signature;
+    lineStatsState.context = { ...payload, version, signature };
+    if(changed){
+      clearLineStatsOutputs(lineStatsDefaultPlaceholder);
+      setLineStatsStatus('Statistics ready to calculate.');
+      updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+      return;
+    }
+    if(lineStatsState.lastRunVersion === version && refs.statsResults?.childNodes?.length){
+      setLineStatsStatus('Statistics up to date.');
+      updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+    }else if(!lineStatsState.computationPending){
+      setLineStatsStatus('Statistics ready to calculate.');
+      updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+    }
+  }
+
+  function requestLineStatsContextRefresh(reason){
+    const context = lineStatsState.context;
+    if(!context || !Array.isArray(context.series) || !context.series.length){
+      console.debug('Debug: line stats context refresh skipped',{ reason, hasContext: !!context });
+      return false;
+    }
+    const refreshed = {
+      ...context,
+      statsOptions: {
+        ...context.statsOptions,
+        showIntervals: !!refs.showIntervals?.checked,
+        showDiagnostics: !!refs.showDiagnostics?.checked
+      },
+      controls: {
+        ...context.controls,
+        method: refs.statType?.value || context.controls?.method || 'pearson',
+        regressionMode: refs.regressionMode?.value || context.controls?.regressionMode || 'linear'
+      }
+    };
+    if(context.statsOptions?.forecast){
+      refreshed.statsOptions.forecast = { ...context.statsOptions.forecast };
+    }
+    console.debug('Debug: line stats context refresh',{ reason, seriesCount: refreshed.series.length });
+    primeLineStatsContext(refreshed);
+    return true;
+  }
+
+  function handleLineStatsComputeClick(){
+    if(lineStatsState.computationPending){
+      return;
+    }
+    const context = lineStatsState.context;
+    if(!context || !Array.isArray(context.series) || !context.series.length){
+      setLineStatsStatus('Statistics unavailable until data is loaded.');
+      return;
+    }
+    lineStatsState.computationPending = true;
+    updateLineStatsButtonState({ disabled: true, label: 'Calculating…' });
+    setLineStatsStatus('Calculating statistics…');
+    try{
+      updateLineStats(context.series, context.statsOptions || {});
+      lineStatsState.lastRunVersion = context.version;
+      setLineStatsStatus('Statistics up to date.');
+      updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+    }catch(err){
+      console.error('line stats computation failed', err);
+      if(refs.statsResults){
+        refs.statsResults.textContent = 'Unable to compute statistics. See console for details.';
+      }
+      setLineStatsStatus('Failed to compute statistics.');
+      updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+    }finally{
+      lineStatsState.computationPending = false;
+    }
   }
 
   function applyLineAxisSettings(settings){
@@ -2761,7 +2957,7 @@
       const statsContext={ showIntervals, showDiagnostics, alpha: regressionAlpha, regressionCache, forecast: forecastOptions };
       if(!Array.isArray(data) || !data.length){
         resetLineRenderState('no-data-matrix');
-        updateLineStats([], statsContext);
+        handleLineStatsUnavailable(statsContext, lineStatsEmptyPlaceholder);
         return;
       }
       const header=Array.isArray(data[0])?data[0]:[];
@@ -2835,20 +3031,20 @@
       }
       if(!seriesWithData.length){
         resetLineRenderState('no-valid-series');
-        updateLineStats([], statsContext);
+        handleLineStatsUnavailable(statsContext, 'Not enough data for statistics.');
         return;
       }
       if(logX && xMinRaw<=0){
         if(!lineLogPlusOneX){
           resetLineRenderState('log-x-nonpositive',{ message: '<i>Log scale requires positive X values.</i>', allowHtml: true });
-          updateLineStats([], statsContext);
+          handleLineStatsUnavailable(statsContext, 'Log scale requires positive X values before statistics can be calculated.');
           return;
         }
       }
       if(logY && yMinRaw<=0){
         if(!lineLogPlusOneY){
           resetLineRenderState('log-y-nonpositive',{ message: '<i>Log scale requires positive Y values.</i>', allowHtml: true });
-          updateLineStats([], statsContext);
+          handleLineStatsUnavailable(statsContext, 'Log scale requires positive Y values before statistics can be calculated.');
           return;
         }
       }
@@ -3075,7 +3271,7 @@
         seriesWithData = clipSeriesToRange(seriesWithData, rangeForClipping);
         if(!seriesWithData.length){
           resetLineRenderState('no-valid-series-after-clipping');
-          updateLineStats([], statsContext);
+          handleLineStatsUnavailable(statsContext, 'Adjust the axis range to enable statistics.');
           console.debug('Debug: line plot aborted due to clipping',{ range: rangeForClipping });
           return;
         }
@@ -3732,7 +3928,15 @@
           }
         });
       }
-      updateLineStats(seriesWithData, statsContext);
+      renderLineStatsAdvisor(seriesWithData, statsContext);
+      primeLineStatsContext({
+        series: seriesWithData,
+        statsOptions: statsContext,
+        controls: {
+          method: refs.statType?.value || 'pearson',
+          regressionMode: regressionModeCurrent
+        }
+      });
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw');
@@ -3762,6 +3966,8 @@
     refs.tooltip=document.getElementById('tooltip');
     refs.statType=document.getElementById('lineStatType');
     refs.statsResults=document.getElementById('lineStatsResults');
+    refs.statsButton=document.getElementById('lineComputeStats');
+    refs.statsStatus=document.getElementById('lineStatsStatus');
     refs.regressionMode=document.getElementById('lineRegressionMode');
     refs.showIntervals=document.getElementById('lineShowIntervals');
     refs.showDiagnostics=document.getElementById('lineShowDiagnostics');
@@ -3773,6 +3979,12 @@
       }
     }
     renderLineStatsAdvisor([], { showIntervals: !!refs.showIntervals?.checked, showDiagnostics: !!refs.showDiagnostics?.checked });
+    clearLineStatsOutputs(lineStatsEmptyPlaceholder);
+    setLineStatsStatus('');
+    updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+    if(refs.statsButton){
+      refs.statsButton.addEventListener('click', handleLineStatsComputeClick);
+    }
     refs.forecastFieldset=document.getElementById('lineForecastControls');
     refs.forecastHorizon=document.getElementById('lineForecastHorizon');
     refs.forecastSeasonLength=document.getElementById('lineForecastSeasonLength');
@@ -3868,6 +4080,7 @@
       refs.regressionMode.addEventListener('change',e=>{
         console.debug('Debug: line regression mode change',{ value: e.target.value });
         updateForecastVisibility();
+        requestLineStatsContextRefresh('regression-mode-change');
         scheduleLineDraw();
       });
     }
@@ -4525,9 +4738,20 @@
         scheduleLineDraw();
       });
     }
-    refs.statType?.addEventListener('change',()=>{ scheduleLineDraw(); });
-    refs.showIntervals?.addEventListener('change',e=>{ console.debug('Debug: line showIntervals change',{checked:e.target.checked}); scheduleLineDraw(); });
-    refs.showDiagnostics?.addEventListener('change',e=>{ console.debug('Debug: line showDiagnostics change',{checked:e.target.checked}); scheduleLineDraw(); });
+    refs.statType?.addEventListener('change',()=>{
+      requestLineStatsContextRefresh('stat-type-change');
+      scheduleLineDraw();
+    });
+    refs.showIntervals?.addEventListener('change',e=>{
+      console.debug('Debug: line showIntervals change',{checked:e.target.checked});
+      requestLineStatsContextRefresh('intervals-toggle');
+      scheduleLineDraw();
+    });
+    refs.showDiagnostics?.addEventListener('change',e=>{
+      console.debug('Debug: line showDiagnostics change',{checked:e.target.checked});
+      requestLineStatsContextRefresh('diagnostics-toggle');
+      scheduleLineDraw();
+    });
     refs.showLegend?.addEventListener('change',e=>{
       console.debug('Debug: line showLegend change',{checked:e.target.checked});
       ensureLineLegendControlPlacement();

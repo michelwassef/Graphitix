@@ -337,6 +337,40 @@ describe('UI events and example loaders', () => {
     expect(lineStateGrouped?.legendItems?.map(item => item.label)).toEqual(['Control', 'Treated']);
   });
 
+  test('Line Graph: statistics require manual trigger', async () => {
+    const cleanupJStat = ensureJStatStub();
+    try {
+      await activateWorkspace('line');
+      const loadBtn = document.getElementById('lineLoadExample');
+      expect(loadBtn).toBeTruthy();
+      loadBtn.click();
+      await flushAsyncWork(50);
+
+      const statsButton = document.getElementById('lineComputeStats');
+      const statsStatus = document.getElementById('lineStatsStatus');
+      const statsResults = document.getElementById('lineStatsResults');
+      expect(statsButton).toBeTruthy();
+      expect(statsStatus).toBeTruthy();
+      expect(statsResults).toBeTruthy();
+      expect(statsButton.disabled).toBe(false);
+      expect(statsButton.textContent).toBe('Calculate statistics');
+      expect(statsStatus.textContent).toBe('Statistics ready to calculate.');
+      expect(statsResults.textContent).toContain('Statistics will appear after calculation.');
+
+      statsButton.click();
+      await flushAsyncWork(30);
+
+      expect(statsStatus.textContent).toBe('Statistics up to date.');
+      expect(statsButton.disabled).toBe(false);
+      expect(statsButton.textContent).toBe('Recalculate statistics');
+      const renderedTable = statsResults.querySelector('table');
+      expect(renderedTable).toBeTruthy();
+      expect(statsResults.textContent).toContain('Series');
+    }finally{
+      cleanupJStat();
+    }
+  });
+
   test('Box Plot: assumption warnings surface for non-normal data', async () => {
     const cleanupJStat = ensureJStatStub();
     try {

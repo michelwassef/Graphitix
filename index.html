@@ -1209,6 +1209,10 @@
                 <input type="checkbox" id="lineShowDiagnostics" /> Show Diagnostics Summary
               </label>
             </div>
+            <div class="control" id="lineStatsActionRow" style="gap:8px; flex-wrap:wrap; align-items:center;">
+              <button type="button" class="btn" id="lineComputeStats" disabled>Calculate statistics</button>
+              <span id="lineStatsStatus" style="font-size:12px; color:#555;" aria-live="polite"></span>
+            </div>
             <fieldset id="lineForecastControls" style="margin-top:8px;">
               <legend>Forecasting</legend>
               <div class="control">
