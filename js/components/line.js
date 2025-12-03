@@ -231,6 +231,7 @@
   };
   const lineAdvisorState={
     open:false,
+    activated:false,
     answers:{},
     lastApplied:null,
     context:null
@@ -1403,6 +1404,10 @@
     toggle.textContent=lineAdvisorState.open?'Hide advisor':'Guide me';
     toggle.addEventListener('click',()=>{
       lineAdvisorState.open=!lineAdvisorState.open;
+      if(lineAdvisorState.open && !lineAdvisorState.activated){
+        lineAdvisorState.activated=true;
+        console.debug('Debug: line statsAdvisor activated');
+      }
       console.debug('Debug: line statsAdvisor toggled',{ open:lineAdvisorState.open });
       renderLineStatsAdvisor(null, null, lineAdvisorState.context);
     });
@@ -1410,7 +1415,11 @@
     wrapper.appendChild(header);
     const summary=document.createElement('div');
     summary.className='stats-advisor__summary';
-    if(recommendation.ready){
+    if(!lineAdvisorState.activated){
+      const message=document.createElement('div');
+      message.textContent='Press the "Guide me" button to view advisor recommendations.';
+      summary.appendChild(message);
+    }else if(recommendation.ready){
       const summaryLine=document.createElement('div');
       summaryLine.className='stats-advisor__summary-line';
       summaryLine.textContent=`Recommendation: ${recommendation.summary}`;

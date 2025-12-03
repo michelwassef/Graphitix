@@ -309,6 +309,7 @@
 
   const survivalAdvisorState = {
     open: false,
+    activated: false,
     answers: {},
     lastApplied: null,
     context: null
@@ -667,6 +668,10 @@
     toggle.textContent = survivalAdvisorState.open ? 'Hide advisor' : 'Guide me';
     toggle.addEventListener('click', () => {
       survivalAdvisorState.open = !survivalAdvisorState.open;
+      if(survivalAdvisorState.open && !survivalAdvisorState.activated){
+        survivalAdvisorState.activated = true;
+        logDebug('stats advisor activated');
+      }
       logDebug('stats advisor toggled', { open: survivalAdvisorState.open });
       renderSurvivalStatsAdvisor(null, survivalAdvisorState.context);
     });
@@ -674,7 +679,11 @@
     wrapper.appendChild(header);
     const summaryBlock = document.createElement('div');
     summaryBlock.className = 'stats-advisor__summary';
-    if(recommendation.ready){
+    if(!survivalAdvisorState.activated){
+      const message = document.createElement('div');
+      message.textContent = 'Press the "Guide me" button to view advisor recommendations.';
+      summaryBlock.appendChild(message);
+    }else if(recommendation.ready){
       const summaryLine = document.createElement('div');
       summaryLine.className = 'stats-advisor__summary-line';
       summaryLine.textContent = `Recommendation: ${recommendation.summary}`;

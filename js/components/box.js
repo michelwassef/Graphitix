@@ -4896,7 +4896,10 @@
   }
   function getAdvisorState(){
     if(!state.statsAdvisor || typeof state.statsAdvisor!=='object'){
-      state.statsAdvisor={ open:false, answers:{} };
+      state.statsAdvisor={ open:false, activated:false, answers:{} };
+    }
+    if(typeof state.statsAdvisor.activated!=='boolean'){
+      state.statsAdvisor.activated=false;
     }
     if(!state.statsAdvisor.answers || typeof state.statsAdvisor.answers!=='object'){
       state.statsAdvisor.answers={};
@@ -5071,6 +5074,10 @@
     toggle.textContent=advisorState.open?'Hide advisor':'Guide me';
     toggle.addEventListener('click',()=>{
       advisorState.open=!advisorState.open;
+      if(advisorState.open && !advisorState.activated){
+        advisorState.activated=true;
+        console.debug('Debug: box statsAdvisor activated');
+      }
       console.debug('Debug: box statsAdvisor toggled',{ open:advisorState.open });
       renderStatsControls(traces);
     });
@@ -5079,7 +5086,11 @@
 
     const summary=document.createElement('div');
     summary.className='stats-advisor__summary';
-    if(recommendation.ready){
+    if(!advisorState.activated){
+      const msg=document.createElement('div');
+      msg.textContent='Press the "Guide me" button to view advisor recommendations.';
+      summary.appendChild(msg);
+    }else if(recommendation.ready){
       const summaryLine=document.createElement('div');
       summaryLine.className='stats-advisor__summary-line';
       summaryLine.textContent=`Recommendation: ${recommendation.summary}`;

@@ -773,6 +773,7 @@
   let scatterLastRegressionSummary=null;
   const scatterAdvisorState={
     open:false,
+    activated:false,
     answers:{},
     lastApplied:null,
     context:null
@@ -2358,6 +2359,10 @@
         toggle.textContent=scatterAdvisorState.open?'Hide advisor':'Guide me';
         toggle.addEventListener('click',()=>{
           scatterAdvisorState.open=!scatterAdvisorState.open;
+          if(scatterAdvisorState.open && !scatterAdvisorState.activated){
+            scatterAdvisorState.activated=true;
+            console.debug('Debug: scatter statsAdvisor activated');
+          }
           console.debug('Debug: scatter statsAdvisor toggled',{ open:scatterAdvisorState.open });
           renderScatterStatsAdvisor(null, scatterAdvisorState.context);
         });
@@ -2365,7 +2370,11 @@
         wrapper.appendChild(header);
         const summary=document.createElement('div');
         summary.className='stats-advisor__summary';
-        if(recommendation.ready){
+        if(!scatterAdvisorState.activated){
+          const message=document.createElement('div');
+          message.textContent='Press the "Guide me" button to view advisor recommendations.';
+          summary.appendChild(message);
+        }else if(recommendation.ready){
           const summaryLine=document.createElement('div');
           summaryLine.className='stats-advisor__summary-line';
           summaryLine.textContent=`Recommendation: ${recommendation.summary}`;
