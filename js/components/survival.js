@@ -2006,6 +2006,85 @@
     return value.toExponential(5);
   }
 
+  function formatInterval(low, high){
+    if(Number.isFinite(low) && Number.isFinite(high)){
+      return `${formatNumber(low, 3)} – ${formatNumber(high, 3)}`;
+    }
+    return 'n/a';
+  }
+
+  function renderStatsLead(target, text){
+    if(!target){
+      return;
+    }
+    target.innerHTML = '';
+    const lead = document.createElement('div');
+    lead.className = 'stats-table-lead';
+    lead.textContent = text;
+    target.appendChild(lead);
+  }
+
+  function renderStatsTableCard(target, model){
+    if(!target){
+      return false;
+    }
+    const statsRenderer = Shared.statsTable?.render;
+    if(typeof statsRenderer === 'function'){
+      statsRenderer({ target, ...model });
+      return true;
+    }
+    target.innerHTML = '';
+    if(model.caption){
+      const caption = document.createElement('div');
+      caption.className = 'stats-table-lead';
+      caption.textContent = model.caption;
+      target.appendChild(caption);
+    }
+    if(Array.isArray(model.columns) && model.columns.length){
+      const table = document.createElement('table');
+      table.className = 'stats-table stats-table--fallback';
+      const thead = document.createElement('thead');
+      const headRow = document.createElement('tr');
+      model.columns.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col.label;
+        th.style.textAlign = col.align === 'right' ? 'right' : (col.align === 'center' ? 'center' : 'left');
+        if(col.tooltip){
+          th.title = col.tooltip;
+        }
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      (model.rows || []).forEach(row => {
+        const tr = document.createElement('tr');
+        model.columns.forEach(col => {
+          const td = document.createElement('td');
+          td.style.textAlign = col.align === 'right' ? 'right' : (col.align === 'center' ? 'center' : 'left');
+          const value = row?.[col.key];
+          td.textContent = value != null ? String(value) : '';
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      target.appendChild(table);
+    }
+    if(Array.isArray(model.footnotes) && model.footnotes.length){
+      const footnoteList = document.createElement('div');
+      footnoteList.className = 'stats-table-footnotes';
+      model.footnotes.forEach(note => {
+        const entry = document.createElement('div');
+        entry.className = 'stats-table-footnote';
+        entry.textContent = note;
+        footnoteList.appendChild(entry);
+      });
+      target.appendChild(footnoteList);
+    }
+    return false;
+  }
+
   function autoResizeSvgHelper(svg){
     if(!svg){
       logDebug('autoResizeSvgHelper skipped', { hasSvg: false });
@@ -2502,121 +2581,18 @@
       return;
     }
     if(!summary.series.length){
-      refs.statsSummary.textContent = 'Enter at least one group with time and event values to compute statistics.';
-      refs.statsLogRank.textContent = '';
-      if(refs.statsHazardRatios) refs.statsHazardRatios.textContent = '';
-      if(refs.statsCox) refs.statsCox.textContent = '';
+      renderStatsLead(refs.statsSummary, 'Enter at least one group with time and event values to compute statistics.');
+      renderStatsLead(refs.statsLogRank, 'Log-rank test results will appear after statistics are calculated.');
+      if(refs.statsHazardRatios) refs.statsHazardRatios.innerHTML = '';
+      if(refs.statsCox) refs.statsCox.innerHTML = '';
       state.lastStats = null;
       return;
     }
-    const rows = summary.series.map(group => {
-      const medianLabel = group.km?.median != null ? formatNumber(group.km.median, 2) : 'Not reached';
-      const safeName = escapeHtml(group.name);
-      return `<tr><td>${safeName}</td><td style="text-align:right;">${group.total}</td><td style="text-align:right;">${group.events}</td><td style="text-align:right;">${group.censored}</td><td style="text-align:right;">${medianLabel}</td></tr>`;
-    }).join('');
-    refs.statsSummary.innerHTML = `<table class="stats-table" style="border-collapse:collapse; width:100%;">
-      <thead>
-        <tr>
-          <th style="border:1px solid #ccc; padding:4px; text-align:left;">Group</th>
-          <th style="border:1px solid #ccc; padding:4px; text-align:right;">N</th>
-          <th style="border:1px solid #ccc; padding:4px; text-align:right;">Events</th>
-          <th style="border:1px solid #ccc; padding:4px; text-align:right;">Censored</th>
-          <th style="border:1px solid #ccc; padding:4px; text-align:right;">Median</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-    if(summary.logRank?.available){
-      const chi2 = formatNumber(summary.logRank.chi2, 3);
-      const pLabel = formatP(summary.logRank.p);
-      refs.statsLogRank.innerHTML = `<strong>Log-rank test:</strong> χ²(${summary.logRank.df}) = ${chi2}, p = ${pLabel}`;
-    } else {
-      refs.statsLogRank.textContent = summary.logRank?.message || 'Log-rank test unavailable.';
-    }
-    if(refs.statsHazardRatios){
-      if(summary.flags?.hazardRatiosEnabled){
-        if(summary.hazardRatios?.available && Array.isArray(summary.hazardRatios.rows) && summary.hazardRatios.rows.length){
-          const hazardRows = summary.hazardRatios.rows.map(row => {
-            const comparison = `${escapeHtml(row.groupB)} vs ${escapeHtml(row.groupA)}`;
-            const hr = formatNumber(row.hazardRatio, 3);
-            const ci = row.ciLow != null && row.ciHigh != null ? `${formatNumber(row.ciLow, 3)} – ${formatNumber(row.ciHigh, 3)}` : 'n/a';
-            const zLabel = row.z != null ? formatNumber(row.z, 3) : 'n/a';
-            const pLabel = formatP(row.p);
-            return `<tr><td>${comparison}</td><td style="text-align:right;">${hr}</td><td style="text-align:right;">${ci}</td><td style="text-align:right;">${zLabel}</td><td style="text-align:right;">${pLabel}</td></tr>`;
-          }).join('');
-          refs.statsHazardRatios.innerHTML = `<div style="font-weight:bold; margin-bottom:4px;">Hazard Ratios</div>
-            <table class="stats-table" style="border-collapse:collapse; width:100%;">
-              <thead>
-                <tr>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:left;">Comparison</th>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:right;">Hazard Ratio</th>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:right;">95% CI</th>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:right;">z</th>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:right;">p</th>
-                </tr>
-              </thead>
-              <tbody>${hazardRows}</tbody>
-            </table>`;
-          logDebug('hazard ratio stats rendered', { rowCount: summary.hazardRatios.rows.length });
-        } else {
-          refs.statsHazardRatios.textContent = summary.hazardRatios?.message || 'Hazard ratios unavailable.';
-        }
-      } else {
-        refs.statsHazardRatios.textContent = 'Enable "Show Hazard Ratios" above to compute pairwise comparisons.';
-      }
-    }
-    if(refs.statsCox){
-      if(summary.flags?.coxEnabled){
-        if(summary.coxModel?.available){
-          const baseline = escapeHtml(summary.coxModel.baselineGroup || 'Reference');
-          const coefRows = (summary.coxModel.coefficients || []).map(coef => {
-            const safeLabel = escapeHtml(coef.label || coef.group || '');
-            const typeLabel = coef.type === 'group' ? 'Group' : (coef.type === 'time' ? 'Time-dependent' : 'Baseline');
-            const betaLabel = formatNumber(coef.beta, 3);
-            const hr = formatNumber(coef.hazardRatio, 3);
-            const ci = coef.ciLow != null && coef.ciHigh != null ? `${formatNumber(coef.ciLow, 3)} – ${formatNumber(coef.ciHigh, 3)}` : 'n/a';
-            const zLabel = coef.z != null ? formatNumber(coef.z, 3) : 'n/a';
-            const pLabel = formatP(coef.p);
-            return `<tr><td>${safeLabel}</td><td>${escapeHtml(typeLabel)}</td><td style="text-align:right;">${betaLabel}</td><td style="text-align:right;">${hr}</td><td style="text-align:right;">${ci}</td><td style="text-align:right;">${zLabel}</td><td style="text-align:right;">${pLabel}</td></tr>`;
-          }).join('');
-          const diag = summary.coxModel.diagnostics || {};
-          const lr = diag.likelihoodRatio || {};
-          const diagLines = [
-            `Log-likelihood: ${formatNumber(diag.logLikelihood, 3)}`,
-            `Null log-likelihood: ${formatNumber(diag.logLikelihoodNull, 3)}`,
-            `Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatNumber(lr.statistic, 3)}, p = ${formatP(lr.p)}`,
-            `AIC: ${formatNumber(diag.aic, 3)}`,
-            `BIC: ${formatNumber(diag.bic, 3)}`,
-            `Iterations: ${diag.iterations ?? 'n/a'}`,
-            `Converged: ${diag.converged ? 'Yes' : 'No'}`
-          ];
-          refs.statsCox.innerHTML = `<div style="font-weight:bold; margin-bottom:4px;">Cox Model (baseline: ${baseline})</div>
-            <table class="stats-table" style="border-collapse:collapse; width:100%; margin-bottom:6px;">
-              <thead>
-                <tr>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:left;">Predictor</th>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:left;">Type</th>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:right;">β</th>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:right;">Hazard Ratio</th>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:right;">95% CI</th>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:right;">z</th>
-                  <th style="border:1px solid #ccc; padding:4px; text-align:right;">p</th>
-                </tr>
-              </thead>
-              <tbody>${coefRows}</tbody>
-            </table>
-            <div>${diagLines.map(line => `<div>${escapeHtml(line)}</div>`).join('')}</div>`;
-          logDebug('cox stats rendered', {
-            rowCount: summary.coxModel.coefficients?.length || 0,
-            baseline: summary.coxModel.baselineGroup
-          });
-        } else {
-          refs.statsCox.textContent = summary.coxModel?.message || 'Cox model unavailable.';
-        }
-      } else {
-        refs.statsCox.textContent = 'Enable "Fit Cox Model" above to review coefficient estimates.';
-      }
-    }
+
+    renderSurvivalGroupSummary(summary);
+    renderSurvivalLogRank(summary);
+    renderSurvivalHazardRatios(summary);
+    renderSurvivalCoxModel(summary);
     const statsPayload = {
       groups: summary.series.map(group => ({
         name: group.name,
@@ -2637,6 +2613,169 @@
       logRank: summary.logRank,
       hazardRatiosAvailable: summary.hazardRatios?.available,
       coxAvailable: summary.coxModel?.available
+    });
+  }
+
+  function renderSurvivalGroupSummary(summary){
+    if(!refs.statsSummary){
+      return;
+    }
+    if(!summary.series.length){
+      renderStatsLead(refs.statsSummary, 'Enter at least one group with time and event values to compute statistics.');
+      return;
+    }
+    const rows = summary.series.map(group => ({
+      group: group.name || '(unnamed)',
+      total: Number.isFinite(group.total) ? String(group.total) : String(group.total ?? '0'),
+      events: Number.isFinite(group.events) ? String(group.events) : String(group.events ?? '0'),
+      censored: Number.isFinite(group.censored) ? String(group.censored) : String(group.censored ?? '0'),
+      median: Number.isFinite(group.km?.median) ? formatNumber(group.km.median, 2) : 'Not reached'
+    }));
+    const footnotes = [
+      'Counts and medians derive from the filtered Handsontable input.',
+      '"Not reached" indicates survival remained above 50% at the final timepoint.'
+    ];
+    renderStatsTableCard(refs.statsSummary, {
+      caption: 'Group Summary',
+      columns: [
+        { key: 'group', label: 'Group', align: 'left' },
+        { key: 'total', label: 'N', align: 'right' },
+        { key: 'events', label: 'Events', align: 'right' },
+        { key: 'censored', label: 'Censored', align: 'right' },
+        { key: 'median', label: 'Median survival', align: 'right' }
+      ],
+      rows,
+      footnotes,
+      options: {
+        fileName: 'survival-group-summary',
+        contextLabel: 'survival-group-summary'
+      }
+    });
+  }
+
+  function renderSurvivalLogRank(summary){
+    if(!refs.statsLogRank){
+      return;
+    }
+    if(summary.logRank?.available){
+      const rows = [{
+        test: 'Log-rank',
+        statistic: formatNumber(summary.logRank.chi2, 3),
+        df: Number.isFinite(summary.logRank.df) ? String(summary.logRank.df) : 'n/a',
+        p: formatP(summary.logRank.p)
+      }];
+      renderStatsTableCard(refs.statsLogRank, {
+        caption: 'Log-rank Test',
+        columns: [
+          { key: 'test', label: 'Test', align: 'left' },
+          { key: 'statistic', label: 'Statistic', align: 'right' },
+          { key: 'df', label: 'df', align: 'right' },
+          { key: 'p', label: 'p value', align: 'right' }
+        ],
+        rows,
+        footnotes: ['H0: survival curves are identical across groups.'],
+        options: {
+          fileName: 'survival-log-rank',
+          contextLabel: 'survival-log-rank'
+        }
+      });
+      return;
+    }
+    renderStatsLead(refs.statsLogRank, summary.logRank?.message || 'Log-rank test unavailable.');
+  }
+
+  function renderSurvivalHazardRatios(summary){
+    if(!refs.statsHazardRatios){
+      return;
+    }
+    if(!summary.flags?.hazardRatiosEnabled){
+      renderStatsLead(refs.statsHazardRatios, 'Enable "Show Hazard Ratios" above to compute pairwise comparisons.');
+      return;
+    }
+    if(!(summary.hazardRatios?.available) || !Array.isArray(summary.hazardRatios.rows) || !summary.hazardRatios.rows.length){
+      renderStatsLead(refs.statsHazardRatios, summary.hazardRatios?.message || 'Hazard ratios unavailable.');
+      return;
+    }
+    const rows = summary.hazardRatios.rows.map(row => ({
+      comparison: `${row.groupB} vs ${row.groupA}`,
+      hazardRatio: formatNumber(row.hazardRatio, 3),
+      ci: formatInterval(row.ciLow, row.ciHigh),
+      z: Number.isFinite(row.z) ? formatNumber(row.z, 3) : 'n/a',
+      p: formatP(row.p)
+    }));
+    renderStatsTableCard(refs.statsHazardRatios, {
+      caption: 'Hazard Ratios',
+      columns: [
+        { key: 'comparison', label: 'Comparison', align: 'left' },
+        { key: 'hazardRatio', label: 'Hazard Ratio', align: 'right' },
+        { key: 'ci', label: '95% CI', align: 'right' },
+        { key: 'z', label: 'z', align: 'right' },
+        { key: 'p', label: 'p value', align: 'right' }
+      ],
+      rows,
+      footnotes: [
+        'Ratios > 1 indicate increased hazard for the numerator group.',
+        'Confidence intervals derive from the Cox variance–covariance matrix.'
+      ],
+      options: {
+        fileName: 'survival-hazard-ratios',
+        contextLabel: 'survival-hazard-ratios'
+      }
+    });
+    logDebug('hazard ratio stats rendered', { rowCount: rows.length });
+  }
+
+  function renderSurvivalCoxModel(summary){
+    if(!refs.statsCox){
+      return;
+    }
+    if(!summary.flags?.coxEnabled){
+      renderStatsLead(refs.statsCox, 'Enable "Fit Cox Model" above to review coefficient estimates.');
+      return;
+    }
+    if(!(summary.coxModel?.available) || !Array.isArray(summary.coxModel.coefficients) || !summary.coxModel.coefficients.length){
+      renderStatsLead(refs.statsCox, summary.coxModel?.message || 'Cox model unavailable.');
+      return;
+    }
+    const rows = summary.coxModel.coefficients.map(coef => ({
+      predictor: coef.label || coef.group || '',
+      type: coef.type === 'group' ? 'Group' : (coef.type === 'time' ? 'Time-dependent' : 'Baseline'),
+      beta: formatNumber(coef.beta, 3),
+      hazardRatio: formatNumber(coef.hazardRatio, 3),
+      ci: formatInterval(coef.ciLow, coef.ciHigh),
+      z: Number.isFinite(coef.z) ? formatNumber(coef.z, 3) : 'n/a',
+      p: formatP(coef.p)
+    }));
+    const diag = summary.coxModel.diagnostics || {};
+    const lr = diag.likelihoodRatio || {};
+    const footnotes = [
+      `Baseline group: ${summary.coxModel.baselineGroup || 'Reference'}`,
+      `Log-likelihood = ${formatNumber(diag.logLikelihood, 3)} | Null = ${formatNumber(diag.logLikelihoodNull, 3)}`,
+      `Likelihood ratio χ²(${lr.df ?? 'n/a'}) = ${formatNumber(lr.statistic, 3)}, p = ${formatP(lr.p)}`,
+      `AIC = ${formatNumber(diag.aic, 3)} | BIC = ${formatNumber(diag.bic, 3)}`,
+      `Iterations = ${diag.iterations ?? 'n/a'} | Converged: ${diag.converged ? 'Yes' : 'No'}`
+    ].filter(Boolean);
+    renderStatsTableCard(refs.statsCox, {
+      caption: 'Cox Model Coefficients',
+      columns: [
+        { key: 'predictor', label: 'Predictor', align: 'left' },
+        { key: 'type', label: 'Type', align: 'left' },
+        { key: 'beta', label: 'β', align: 'right' },
+        { key: 'hazardRatio', label: 'Hazard Ratio', align: 'right' },
+        { key: 'ci', label: '95% CI', align: 'right' },
+        { key: 'z', label: 'z', align: 'right' },
+        { key: 'p', label: 'p value', align: 'right' }
+      ],
+      rows,
+      footnotes,
+      options: {
+        fileName: 'survival-cox-model',
+        contextLabel: 'survival-cox-model'
+      }
+    });
+    logDebug('cox stats rendered', {
+      rowCount: rows.length,
+      baseline: summary.coxModel.baselineGroup
     });
   }
 

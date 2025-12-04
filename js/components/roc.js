@@ -1162,6 +1162,109 @@
     return formatted;
   }
 
+  function formatRocDecimal(value, digits){
+    if(!Number.isFinite(value)){
+      return '—';
+    }
+    const places=Number.isFinite(digits)?digits:3;
+    return Number(value).toFixed(places);
+  }
+
+  function formatRocPercent(value, digits){
+    if(!Number.isFinite(value)){
+      return '—';
+    }
+    const places=Number.isFinite(digits)?digits:1;
+    return `${(value*100).toFixed(places)}%`;
+  }
+
+  function renderRocStatsSummary(stats, graphType){
+    if(!refs.statsResults){
+      return;
+    }
+    refs.statsResults.innerHTML='';
+    if(!Array.isArray(stats) || !stats.length){
+      const message=document.createElement('div');
+      message.className='stats-table-lead';
+      message.textContent='Add at least one labeled score column to view summary statistics.';
+      refs.statsResults.appendChild(message);
+      return;
+    }
+    const hasStatsTable=Shared.statsTable && typeof Shared.statsTable.render==='function';
+    const baseColumns=[
+      { key:'series', label:'Series', align:'left' },
+      { key:'auc', label:graphType==='roc'?'AUC':'Area', align:'right' }
+    ];
+    if(graphType==='pr'){
+      baseColumns.push({ key:'ap', label:'Average Precision', align:'right' });
+    }
+    baseColumns.push(
+      { key:'p', label:'p value', align:'right' },
+      { key:'threshold', label:'Best threshold', align:'right' },
+      { key:'accuracy', label:'Accuracy', align:'right' },
+      { key:'precision', label:'Precision', align:'right' },
+      { key:'recall', label:'Recall', align:'right' },
+      { key:'f1', label:'F1 score', align:'right' }
+    );
+    const rows=stats.map(stat=>({
+      series:stat.name,
+      auc:formatRocDecimal(stat.auc,3),
+      ap:graphType==='pr' && Number.isFinite(stat.avgPrecision)?formatRocDecimal(stat.avgPrecision,3):graphType==='pr'?'—':undefined,
+      p:formatPValue(stat.pVal),
+      threshold:Number.isFinite(stat.thr)?stat.thr.toFixed(3):'—',
+      accuracy:formatRocPercent(stat.accuracy),
+      precision:formatRocPercent(stat.precision),
+      recall:formatRocPercent(stat.recall),
+      f1:formatRocPercent(stat.f1)
+    }));
+    const footnotes=[
+      graphType==='roc'
+        ? 'AUC integrates the ROC curve relative to the 0.5 no-skill baseline.'
+        : 'Area and Average Precision integrate the precision–recall curve relative to the positive rate.',
+      'Best threshold is the cutoff that maximizes the F1 score for each series.'
+    ];
+    const model={
+      caption:graphType==='roc'?'ROC metrics':'Precision–Recall metrics',
+      columns:baseColumns,
+      rows,
+      footnotes,
+      options:{
+        fileName:graphType==='roc'?'roc-statistics':'pr-statistics',
+        contextLabel:'roc-stats-summary'
+      }
+    };
+    if(hasStatsTable){
+      Shared.statsTable.render({ target:refs.statsResults, ...model });
+      console.debug('Debug: roc stats rendered via Shared.statsTable',{ graphType, rowCount:rows.length });
+      return;
+    }
+    rows.forEach(row=>{
+      const paragraph=document.createElement('p');
+      const metrics=[
+        `${graphType==='roc'?'AUC':'Area'} ${row.auc}`,
+        graphType==='pr' && row.ap ? `AP ${row.ap}` : null,
+        `p ${row.p}`,
+        `Thr ${row.threshold}`,
+        `Acc ${row.accuracy}`,
+        `Prec ${row.precision}`,
+        `Recall ${row.recall}`,
+        `F1 ${row.f1}`
+      ].filter(Boolean);
+      paragraph.textContent=`${row.series}: ${metrics.join(', ')}`;
+      refs.statsResults.appendChild(paragraph);
+    });
+    const footnoteBlock=document.createElement('div');
+    footnoteBlock.className='stats-table-footnotes';
+    footnotes.forEach(note=>{
+      const item=document.createElement('div');
+      item.className='stats-table-footnote';
+      item.textContent=note;
+      footnoteBlock.appendChild(item);
+    });
+    refs.statsResults.appendChild(footnoteBlock);
+    console.debug('Debug: roc stats fallback rendered',{ graphType, rowCount:rows.length });
+  }
+
   async function drawRoc(){
     if(!state.hot || !refs.plotDiv){
       return;
@@ -1760,38 +1863,7 @@
       console.debug('Debug: roc legend skipped',{ legendVisible, entryCount: legendRenderer.entries.length });
     }
 
-    if(refs.statsResults){
-      refs.statsResults.textContent = '';
-      const fragment = document.createDocumentFragment();
-      stats.forEach((stat, index) => {
-        const aucText = stat.auc.toFixed(3);
-        const pText = formatPValue(stat.pVal);
-        const thrText = Number.isFinite(stat.thr) ? stat.thr.toFixed(3) : 'NA';
-        const metrics = [];
-        metrics.push(`AUC = ${aucText}`);
-        if(graphType === 'pr' && stat.avgPrecision !== undefined){
-          metrics.push(`AP = ${stat.avgPrecision.toFixed(3)}`);
-        }
-        metrics.push(`p = ${pText}`);
-        metrics.push(`Thr = ${thrText}`);
-        metrics.push(`Acc = ${(stat.accuracy * 100).toFixed(1)}%`);
-        metrics.push(`Prec = ${(stat.precision * 100).toFixed(1)}%`);
-        metrics.push(`Recall = ${(stat.recall * 100).toFixed(1)}%`);
-        metrics.push(`F1 = ${(stat.f1 * 100).toFixed(1)}%`);
-
-        const line = document.createElement('p');
-        const nameSpan = document.createElement('span');
-        nameSpan.textContent = `${stat.name}:`;
-        line.appendChild(nameSpan);
-        const metricsSpan = document.createElement('span');
-        metricsSpan.textContent = ` ${metrics.join(', ')}`;
-        line.appendChild(metricsSpan);
-        fragment.appendChild(line);
-        console.debug('Debug: roc stat line built', { index, name: stat.name, metrics }); // Debug: stats DOM line details
-      });
-      refs.statsResults.appendChild(fragment);
-      console.debug('Debug: roc stats DOM updated', { count: stats.length }); // Debug: stats container refresh summary
-    }
+    renderRocStatsSummary(stats, graphType);
 
     if(series.length >= 2 && state.compareSel && state.compareSel.value){
       const [i, j] = state.compareSel.value.split(',').map(Number);
