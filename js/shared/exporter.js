@@ -192,17 +192,22 @@
   /**
    * Coordinate precision for optimized SVG export (number of decimal places).
    * Lower precision reduces file size significantly for large datasets.
+   * 0 = integer coordinates (most compact, suitable for typical chart sizes)
+   * 1 = one decimal place (good balance of precision and size)
    */
-  const OPTIMIZED_COORDINATE_PRECISION = 1;
+  const OPTIMIZED_COORDINATE_PRECISION = 0;
 
   /**
    * Rounds a numeric value to the specified number of decimal places.
    * @param {number} value - The value to round
-   * @param {number} decimals - Number of decimal places (default: 1)
+   * @param {number} decimals - Number of decimal places (default: 0)
    * @returns {string} - Rounded value as a string
    */
   function roundCoord(value, decimals = OPTIMIZED_COORDINATE_PRECISION) {
     if (!Number.isFinite(value)) return '0';
+    if (decimals <= 0) {
+      return String(Math.round(value));
+    }
     const multiplier = Math.pow(10, decimals);
     const rounded = Math.round(value * multiplier) / multiplier;
     // Avoid trailing zeros: 10.0 -> 10, 10.50 -> 10.5
@@ -229,20 +234,26 @@
   /**
    * Converts a circle to a compact SVG path data string.
    * Uses two arc commands to draw a complete circle.
+   * The format is optimized for minimal character count while maintaining valid SVG.
    * @param {number} cx - Center x coordinate
    * @param {number} cy - Center y coordinate  
    * @param {number} r - Radius
+   * @param {boolean} isFirst - Whether this is the first circle (needs M command)
    * @returns {string} - Path data for the circle
    */
-  function circleToPathData(cx, cy, r) {
+  function circleToPathData(cx, cy, r, isFirst = true) {
     // Draw circle using two arcs: move to left edge, arc to right, arc back to left
-    // M(cx-r),cy a r,r 0 1,0 2r,0 a r,r 0 1,0 -2r,0
+    // Format: M(cx-r),cy a r,r 0 1,0 2r,0 a r,r 0 1,0 -2r,0
+    // Optimizations:
+    // - Use 'M' only for first circle, others use 'm' (absolute move still needed for each)
+    // - Spaces can be omitted when unambiguous (after letters, between negative numbers)
     const left = roundCoord(cx - r);
     const diameter = roundCoord(r * 2);
     const negDiameter = roundCoord(-r * 2);
     const rStr = roundCoord(r);
     const cyStr = roundCoord(cy);
-    return `M${left},${cyStr}a${rStr},${rStr} 0 1,0 ${diameter},0a${rStr},${rStr} 0 1,0 ${negDiameter},0`;
+    // Compact format: remove spaces where allowed
+    return `M${left} ${cyStr}a${rStr} ${rStr} 0 1 0 ${diameter} 0a${rStr} ${rStr} 0 1 0 ${negDiameter} 0`;
   }
 
   /**

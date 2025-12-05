@@ -103,9 +103,9 @@ describe('Scatter SVG export optimization', () => {
     const paths = svg.querySelectorAll('[data-export-layer="scatter-points"] path');
     expect(paths.length).toBeGreaterThan(0);
     
-    // Path should have 'd' attribute with arc commands
+    // Path should have 'd' attribute with arc commands (spaces, no commas)
     const firstPath = paths[0];
-    expect(firstPath.getAttribute('d')).toMatch(/^M.*a.*0 1,0/);
+    expect(firstPath.getAttribute('d')).toMatch(/^M.*a.*0 1 0/);
   });
 
   test('creates one path per style group', () => {
@@ -240,10 +240,10 @@ describe('Scatter SVG export optimization', () => {
     // Check that coordinates in path are rounded
     const pathData = paths[0].getAttribute('d');
     
-    // Path should contain rounded coordinates (e.g., 120.5 instead of 120.456789)
-    // The path format is: M(cx-r),cy a r,r 0 1,0 2r,0 a r,r 0 1,0 -2r,0
-    // So for cx=123.5, cy=790, r=3: M120.5,790a3,3 0 1,0 6,0a3,3 0 1,0-6,0
-    expect(pathData).toMatch(/M120\.5,790/);
+    // Path should contain rounded coordinates (integer precision)
+    // The path format is: M(cx-r) cy a r r 0 1 0 2r 0a r r 0 1 0 -2r 0
+    // For cx=123, cy=790, r=3: M120 790a3 3 0 1 0 6 0a3 3 0 1 0 -6 0
+    expect(pathData).toMatch(/M120 790a3/);
   });
 
   test('estimates size savings correctly', () => {
@@ -290,7 +290,8 @@ describe('Scatter SVG export optimization', () => {
       const d = path.getAttribute('d');
       expect(d).toBeTruthy();
       // Should contain arc commands (a) for drawing circles
-      expect(d).toMatch(/a[0-9.]+,[0-9.]+ 0 1,0/);
+      // Format: a3 3 0 1 0 6 0 (with spaces, no commas for compactness)
+      expect(d).toMatch(/a[0-9.]+ [0-9.]+ 0 1 0/);
     });
   });
 
