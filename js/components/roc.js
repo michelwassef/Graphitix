@@ -174,6 +174,33 @@
 
   const refs = {};
   let rocLegendControl = null;
+  const rocOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'roc',
+    message: 'Rendering ROC/PR plot...',
+    getHost: () => (
+      refs.svgBox
+      || refs.graphPanel?.querySelector?.('.svgbox')
+      || global.document?.getElementById?.('rocGraphPanel')?.querySelector?.('.svgbox')
+      || global.document?.getElementById?.('rocGraphPanel')
+    )
+  });
+
+  function markRocOverlayPending(reason){
+    rocOverlayController?.markPending(reason);
+    console.debug('Debug: roc overlay pending flagged', { reason: reason || 'data-change' });
+  }
+
+  function queueRocOverlay(reason, options = {}){
+    return rocOverlayController?.queue(reason, options) || false;
+  }
+
+  function resolveRocOverlay(reason){
+    rocOverlayController?.resolve(reason);
+  }
+
+  function forceRocOverlay(reason, options = {}){
+    return rocOverlayController?.force(reason, options) || false;
+  }
   let rocNoticeBoundWidth = null;
 
   const syncRocAutoDrawNoticeWidth = (reason) => {
@@ -898,11 +925,14 @@
     ];
 
     refs.loadExampleBtn?.addEventListener('click', () => {
-      if(state.hot){
-        state.hot.loadData(example);
-        console.debug('Debug: ROC example loaded');
-        state.scheduleDraw?.();
+      if(!state.hot){
+        return;
       }
+      const overlayReason = 'example-data';
+      markRocOverlayPending(overlayReason);
+      state.hot.loadData(example);
+      console.debug('Debug: ROC example loaded');
+      state.scheduleDraw?.();
     });
 
     refs.importBtn?.addEventListener('click', () => {
@@ -914,7 +944,10 @@
     if(refs.renderButton){
       refs.renderButton.addEventListener('click', () => {
         console.debug('Debug: roc manual render button');
-        state.scheduleDraw?.({ force: true, reason: 'manual-render' });
+        const overlayReason = 'manual-render';
+        markRocOverlayPending(overlayReason);
+        forceRocOverlay(overlayReason, { message: 'Rendering ROC/PR plot...' });
+        state.scheduleDraw?.({ force: true, reason: overlayReason });
       });
     }
 
@@ -924,6 +957,11 @@
         console.warn('roc import skipped: Shared.tableImport.openFile unavailable');
         return;
       }
+      const hasFile = !!(refs.fileInput?.files && refs.fileInput.files[0]);
+      let forcedOverlay = false;
+      if(hasFile){
+        forcedOverlay = !!forceRocOverlay('file-import-start', { message: 'Importing table data...' });
+      }
       const fileName = refs.fileInput?.files?.[0]?.name || '';
       console.debug('Debug: ROC import start', {fileName}); // Debug: import start trace
       try{
@@ -931,14 +969,23 @@
           hot: state.hot,
           minCols: ROC_DEFAULT_COLS,
           minRows: DEFAULT_ROWS,
-          scheduleDraw: state.scheduleDraw,
+          scheduleDraw: () => {
+            markRocOverlayPending('file-import');
+            state.scheduleDraw?.();
+          },
           debugLabel: 'roc',
           onProcessed: info => {
             console.debug('Debug: ROC tableImport processed', info || {}); // Debug: processed callback
           }
         });
+        if(!result && forcedOverlay){
+          resolveRocOverlay('file-import-empty');
+        }
         console.debug('Debug: ROC import finished', {rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: import finish trace
       }catch(err){
+        if(forcedOverlay){
+          resolveRocOverlay('file-import-error');
+        }
         console.error('roc import failed', err);
       }
     });
@@ -949,18 +996,28 @@
         console.warn('roc paste skipped: Shared.tableImport.handlePaste unavailable');
         return;
       }
+      const forcedOverlay = !!forceRocOverlay('table-paste-start', { message: 'Processing pasted data...' });
       try{
         const result = await tableImport.handlePaste(event, state.hot, {
           minCols: ROC_DEFAULT_COLS,
           minRows: DEFAULT_ROWS,
-          scheduleDraw: state.scheduleDraw,
+          scheduleDraw: () => {
+            markRocOverlayPending('table-paste');
+            state.scheduleDraw?.();
+          },
           debugLabel: 'roc',
           onProcessed: info => {
             console.debug('Debug: ROC paste processed', info || {}); // Debug: paste processed callback
           }
         });
+        if(!result && forcedOverlay){
+          resolveRocOverlay('table-paste-empty');
+        }
         console.debug('Debug: ROC paste finished', {rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: paste finish trace
       }catch(err){
+        if(forcedOverlay){
+          resolveRocOverlay('table-paste-error');
+        }
         console.error('roc paste failed', err);
       }
     }, true);
@@ -1263,6 +1320,18 @@
     });
     refs.statsResults.appendChild(footnoteBlock);
     console.debug('Debug: roc stats fallback rendered',{ graphType, rowCount:rows.length });
+  }
+
+  async function runRocDrawCycle(){
+    let status = 'complete';
+    try{
+      await drawRoc();
+    }catch(err){
+      status = 'error';
+      throw err;
+    }finally{
+      resolveRocOverlay(status);
+    }
   }
 
   async function drawRoc(){
@@ -2145,7 +2214,19 @@
       console.warn('ROC component init skipped: required elements missing');
       return;
     }
-    scheduleDrawRocRaw = Shared.debounceFrame ? Shared.debounceFrame(drawRoc) : drawRoc;
+    const scheduleRocDrawBase = Shared.debounceFrame ? Shared.debounceFrame(runRocDrawCycle) : runRocDrawCycle;
+    const scheduleRocDrawInstrumented = (opts) => {
+      const nextOpts = opts || {};
+      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      if(nextOpts.force){
+        markRocOverlayPending(overlayReason);
+        forceRocOverlay(overlayReason, { message: 'Rendering ROC/PR plot...' });
+      }else{
+        queueRocOverlay(overlayReason);
+      }
+      scheduleRocDrawBase(nextOpts);
+    };
+    scheduleDrawRocRaw = scheduleRocDrawInstrumented;
     if(!rocAutoDrawManager && Shared.hot?.createAutoDrawManager){
       rocAutoDrawManager = Shared.hot.createAutoDrawManager({
         component: 'roc',
@@ -2238,7 +2319,7 @@
   roc.prepareForTab = function prepareForTab(_tab){
     ensureHotForActiveTab();
   };
-  roc.draw = () => { void drawRoc(); };
+  roc.draw = () => { void runRocDrawCycle(); };
   roc.scheduleDraw = () => state.scheduleDraw?.();
   roc.save = saveFile;
   roc.saveAs = saveFileAs;

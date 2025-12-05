@@ -1905,7 +1905,9 @@
       if(pcaRenderButtonEl){
         pcaRenderButtonEl.addEventListener('click',()=>{
           debugLog('Debug: pca manual render button');
-          markPcaOverlayPending('manual-render');
+          const overlayReason = 'manual-render';
+          markPcaOverlayPending(overlayReason);
+          forcePcaOverlay(overlayReason, { message: 'Rendering PCA view...' });
           markPcaDataDirty('manual-button');
           scheduleDrawPca({ force: true, reason: 'manual-render' });
         });
@@ -6058,10 +6060,18 @@
       }
     };
     const schedulePcaBase = Shared.debounceFrame ? Shared.debounceFrame(runPcaDrawCycle) : runPcaDrawCycle;
-    scheduleDrawPcaRaw = (opts) => {
-      queuePcaOverlay(opts?.reason || 'schedule');
-      schedulePcaBase(opts);
+    const schedulePcaInstrumented = (opts) => {
+      const nextOpts = opts || {};
+      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      if(nextOpts.force){
+        markPcaOverlayPending(overlayReason);
+        forcePcaOverlay(overlayReason, { message: 'Rendering PCA view...' });
+      }else{
+        queuePcaOverlay(overlayReason);
+      }
+      schedulePcaBase(nextOpts);
     };
+    scheduleDrawPcaRaw = schedulePcaInstrumented;
     pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
     debugLog('Debug: pca scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     pca.save = savePcaFile;

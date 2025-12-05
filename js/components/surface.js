@@ -107,6 +107,33 @@
     fileName: DEFAULT_FILE_NAME,
     fileHandle: null
   };
+  const surfaceOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'surface',
+    message: 'Rendering surface plot...',
+    getHost: () => (
+      state.svgBox
+      || state.layout?.elements?.svgBox
+      || global.document?.querySelector?.('#surfaceGraphPanel .svgbox')
+      || global.document?.getElementById?.('surfaceGraphPanel')
+    )
+  });
+
+  function markSurfaceOverlayPending(reason){
+    surfaceOverlayController?.markPending(reason);
+    debugLog('Debug: surface overlay pending flagged', { reason: reason || 'data-change' });
+  }
+
+  function queueSurfaceOverlay(reason, options = {}){
+    return surfaceOverlayController?.queue(reason, options) || false;
+  }
+
+  function resolveSurfaceOverlay(reason){
+    surfaceOverlayController?.resolve(reason);
+  }
+
+  function forceSurfaceOverlay(reason, options = {}){
+    return surfaceOverlayController?.force(reason, options) || false;
+  }
   let surfaceAutoDrawManager = null;
   let surfaceNoticeBoundWidth = null;
   const syncSurfaceAutoDrawNoticeWidth = (reason) => {
@@ -866,6 +893,7 @@
       state.controls.loadExample.addEventListener('click', () => {
         const example = buildExampleDataset();
         if(state.hot && typeof state.hot.loadData === 'function'){
+          markSurfaceOverlayPending('example-data');
           state.hot.loadData(example);
           debugLog('Debug: surface example dataset loaded', { rows: example.length });
           updateAxisOptions();
@@ -883,16 +911,33 @@
           console.warn('surface import skipped: tableImport unavailable');
           return;
         }
+        const hasFile = !!(state.controls.importFile?.files && state.controls.importFile.files[0]);
+        let forcedOverlay = false;
+        if(hasFile){
+          forcedOverlay = !!forceSurfaceOverlay('file-import-start', { message: 'Importing table data...' });
+        }
         tableImport.openFile(state.controls.importFile, {
           hot: state.hot,
           minCols: 3,
           minRows: 5,
-          scheduleDraw: state.scheduleDraw,
+          scheduleDraw: () => {
+            markSurfaceOverlayPending('file-import');
+            state.scheduleDraw?.();
+          },
           debugLabel: 'surface',
           onProcessed: info => {
             debugLog('Debug: surface data imported', info);
             updateAxisOptions();
           }
+        }).then(result => {
+          if(!result && forcedOverlay){
+            resolveSurfaceOverlay('file-import-empty');
+          }
+        }).catch(err => {
+          if(forcedOverlay){
+            resolveSurfaceOverlay('file-import-error');
+          }
+          console.error('surface import failed', err);
         });
       });
     }
@@ -919,6 +964,18 @@
   }
   function draw(){
     drawSurface();
+  }
+
+  function runSurfaceDrawCycle(){
+    let status = 'complete';
+    try{
+      draw();
+    }catch(err){
+      status = 'error';
+      throw err;
+    }finally{
+      resolveSurfaceOverlay(status);
+    }
   }
 
   function drawSurface(){
@@ -1259,7 +1316,7 @@
     });
   }
 
-  surface.draw = draw;
+  surface.draw = () => { runSurfaceDrawCycle(); };
 
   surface.init = function init(){
     if(surface.ready){
@@ -1271,7 +1328,10 @@
     if(state.renderButton){
       state.renderButton.addEventListener('click', () => {
         debugLog('Debug: surface manual render button');
-        state.scheduleDraw?.({ force: true, reason: 'manual-render' });
+        const overlayReason = 'manual-render';
+        markSurfaceOverlayPending(overlayReason);
+        forceSurfaceOverlay(overlayReason, { message: 'Rendering surface plot...' });
+        state.scheduleDraw?.({ force: true, reason: overlayReason });
       });
     }
     state.layout = componentLayout && typeof componentLayout.createStandardPanels === 'function'
@@ -1327,9 +1387,21 @@
         debugLog
       });
     }
-    scheduleDrawSurfaceRaw = typeof Shared.debounceFrame === 'function'
-      ? Shared.debounceFrame(draw)
-      : (() => setTimeout(draw, 16));
+    const scheduleSurfaceDrawBase = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(runSurfaceDrawCycle)
+      : (() => setTimeout(runSurfaceDrawCycle, 16));
+    const scheduleSurfaceDrawInstrumented = (opts) => {
+      const nextOpts = opts || {};
+      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      if(nextOpts.force){
+        markSurfaceOverlayPending(overlayReason);
+        forceSurfaceOverlay(overlayReason, { message: 'Rendering surface plot...' });
+      }else{
+        queueSurfaceOverlay(overlayReason);
+      }
+      scheduleSurfaceDrawBase(nextOpts);
+    };
+    scheduleDrawSurfaceRaw = scheduleSurfaceDrawInstrumented;
     if(surfaceAutoDrawManager){
       surfaceAutoDrawManager.setScheduleRaw(scheduleDrawSurfaceRaw);
       surfaceAutoDrawManager.setElements({

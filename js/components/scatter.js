@@ -975,7 +975,9 @@
       if(scatterRenderButtonEl){
         scatterRenderButtonEl.addEventListener('click', () => {
           scatterDebug('Debug: scatter manual render button');
-          markScatterOverlayPending('manual-render');
+          const overlayReason = 'manual-render';
+          markScatterOverlayPending(overlayReason);
+          forceScatterOverlay(overlayReason, { message: 'Rendering scatter plot...' });
           scheduleDrawScatter({ force: true, reason: 'manual-render' });
         });
       }
@@ -4650,8 +4652,29 @@
       };
       const scheduleScatterBase = Shared.debounceFrame ? Shared.debounceFrame(runScatterDrawCycle) : runScatterDrawCycle;
       const scheduleScatterInstrumented = (opts) => {
-        queueScatterOverlay(opts?.reason || 'schedule');
-        scheduleScatterBase(opts);
+        const nextOpts = opts || {};
+        const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+        if(nextOpts.force){
+          markScatterOverlayPending(overlayReason);
+          forceScatterOverlay(overlayReason, { message: 'Rendering scatter plot...' });
+        }else{
+          queueScatterOverlay(overlayReason);
+        }
+        const runSchedule = () => scheduleScatterBase(nextOpts);
+        const shouldDelayForOverlay = scatterOverlayController?.isActive?.() && !nextOpts.viewOnly;
+        if(shouldDelayForOverlay){
+          const scheduleAfterPaint = () => {
+            scatterDebug('Debug: scatter autoDraw deferred for overlay',{ reason: overlayReason });
+            runSchedule();
+          };
+          if(typeof global.requestAnimationFrame === 'function'){
+            global.requestAnimationFrame(scheduleAfterPaint);
+          }else{
+            (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
+          }
+          return;
+        }
+        runSchedule();
       };
       scheduleDrawScatterRaw = scheduleScatterInstrumented;
       if(scatterAutoDrawManager){

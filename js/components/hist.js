@@ -1650,7 +1650,9 @@
     if(histRenderButtonEl){
       histRenderButtonEl.addEventListener('click', () => {
         console.debug('Debug: hist manual render button');
-        markHistOverlayPending('manual-render');
+        const overlayReason = 'manual-render';
+        markHistOverlayPending(overlayReason);
+        forceHistOverlay(overlayReason, { message: 'Rendering histogram...' });
         state.scheduleDraw?.({ force: true, reason: 'manual-render' });
       });
     }
@@ -1688,8 +1690,15 @@
     };
     const scheduleHistBase = Shared.debounceFrame ? Shared.debounceFrame(runHistDrawCycle) : runHistDrawCycle;
     const scheduleHistInstrumented = (opts) => {
-      queueHistOverlay(opts?.reason || 'schedule');
-      scheduleHistBase(opts);
+      const nextOpts = opts || {};
+      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      if(nextOpts.force){
+        markHistOverlayPending(overlayReason);
+        forceHistOverlay(overlayReason, { message: 'Rendering histogram...' });
+      }else{
+        queueHistOverlay(overlayReason);
+      }
+      scheduleHistBase(nextOpts);
     };
     scheduleDrawHistRaw = scheduleHistInstrumented;
     if(histAutoDrawManager){

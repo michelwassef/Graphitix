@@ -4087,7 +4087,9 @@
     if(heatmapRenderButtonEl){
       heatmapRenderButtonEl.addEventListener('click', () => {
         debugLog('Debug: heatmap manual render button');
-        markHeatmapOverlayPending('manual-render');
+        const overlayReason = 'manual-render';
+        markHeatmapOverlayPending(overlayReason);
+        forceHeatmapOverlay(overlayReason, { message: 'Rendering heatmap...' });
         state.scheduleDraw({ force: true, reason: 'manual-render' });
       });
     }
@@ -4107,8 +4109,15 @@
     };
     const scheduleHeatmapBase = Shared.debounceFrame ? Shared.debounceFrame(runHeatmapDrawCycle) : runHeatmapDrawCycle;
     const scheduleHeatmapInstrumented = (opts) => {
-      queueHeatmapOverlay(opts?.reason || 'schedule');
-      scheduleHeatmapBase(opts);
+      const nextOpts = opts || {};
+      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      if(nextOpts.force){
+        markHeatmapOverlayPending(overlayReason);
+        forceHeatmapOverlay(overlayReason, { message: 'Rendering heatmap...' });
+      }else{
+        queueHeatmapOverlay(overlayReason);
+      }
+      scheduleHeatmapBase(nextOpts);
     };
     scheduleDrawHeatmapRaw = scheduleHeatmapInstrumented;
     debugLog('Debug: heatmap scheduler configured', { hasDebounce: !!Shared.debounceFrame });

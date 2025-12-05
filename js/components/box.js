@@ -3130,7 +3130,9 @@
       boxAutoDrawNoticeEl = els.autoDrawNotice || boxAutoDrawNoticeEl;
       els.renderButton.addEventListener('click',()=>{
         boxDebug('Debug: box manual render button');
-        markBoxOverlayPending('manual-render');
+        const overlayReason = 'manual-render';
+        markBoxOverlayPending(overlayReason);
+        forceBoxOverlay(overlayReason, { message: 'Rendering box plot...' });
         state.scheduleDraw({ force: true, reason: 'manual-render' });
       });
     }
@@ -9570,8 +9572,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if (typeof initUI === 'function') initUI();
     const scheduleBoxDrawBase = Shared.debounceFrame ? Shared.debounceFrame(runBoxDrawCycle) : runBoxDrawCycle;
     const scheduleBoxDrawInstrumented = (opts) => {
-      queueBoxLoading(opts?.reason || 'schedule');
-      scheduleBoxDrawBase(opts);
+      const nextOpts = opts || {};
+      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      if(nextOpts.force){
+        markBoxOverlayPending(overlayReason);
+        forceBoxOverlay(overlayReason, { message: 'Rendering box plot...' });
+      }else{
+        queueBoxLoading(overlayReason);
+      }
+      scheduleBoxDrawBase(nextOpts);
     };
     scheduleDrawBoxRaw = scheduleBoxDrawInstrumented;
     if(boxAutoDrawManager){

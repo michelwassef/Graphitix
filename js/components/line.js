@@ -4735,7 +4735,9 @@
     if(refs.renderButton){
       refs.renderButton.addEventListener('click', () => {
         lineDebug('Debug: line manual render button');
-        markLineOverlayPending('manual-render');
+        const overlayReason = 'manual-render';
+        markLineOverlayPending(overlayReason);
+        forceLineOverlay(overlayReason, { message: 'Rendering line graph...' });
         scheduleLineDraw({ force: true, reason: 'manual-render' });
       });
     }
@@ -4910,8 +4912,15 @@
     };
     const scheduleLineBase = Shared.debounceFrame ? Shared.debounceFrame(runLineDrawCycle) : runLineDrawCycle;
     const scheduleLineInstrumented = (opts) => {
-      queueLineOverlay(opts?.reason || 'schedule');
-      scheduleLineBase(opts);
+      const nextOpts = opts || {};
+      const overlayReason = nextOpts.reason || (nextOpts.force ? 'manual-render' : 'schedule');
+      if(nextOpts.force){
+        markLineOverlayPending(overlayReason);
+        forceLineOverlay(overlayReason, { message: 'Rendering line graph...' });
+      }else{
+        queueLineOverlay(overlayReason);
+      }
+      scheduleLineBase(nextOpts);
     };
     scheduleLineDrawRaw = scheduleLineInstrumented;
     if(lineAutoDrawManager){

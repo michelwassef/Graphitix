@@ -3491,20 +3491,33 @@
 
     function schedule(options){
       const opts = normalizeAutoDrawOptions(options);
+      debugLog(`Debug: ${component} autoDraw schedule request`, {
+        hasForce: !!opts.force,
+        reason: opts.reason || null,
+        viewOnly: !!opts.viewOnly,
+        skipThresholdEvaluation: !!opts.skipThresholdEvaluation
+      });
       if(opts.force){
         if(!opts.skipThresholdEvaluation){
           evaluateThresholds();
         }
         state.drawPending = false;
         updateUi(opts);
-        scheduleRaw();
+        scheduleRaw(opts);
+        debugLog(`Debug: ${component} autoDraw force dispatched`, {
+          reason: opts.reason || null
+        });
         return;
       }
       const evalResult = evaluateThresholds({ markPending: true });
       if(evalResult?.disabledNow){
         state.drawPending = false;
         updateUi({ reason: evalResult.reason || opts.reason });
-        scheduleRaw();
+        scheduleRaw(opts);
+        debugLog(`Debug: ${component} autoDraw dispatched after threshold disable`, {
+          evalReason: evalResult.reason || null,
+          requestReason: opts.reason || null
+        });
         return;
       }
       if(!state.autoDrawEnabled){
@@ -3515,7 +3528,11 @@
       }
       state.drawPending = false;
       updateUi(opts);
-      scheduleRaw();
+      scheduleRaw(opts);
+      debugLog(`Debug: ${component} autoDraw dispatched`, {
+        reason: opts.reason || null,
+        viewOnly: !!opts.viewOnly
+      });
     }
 
     updateUi();
