@@ -173,72 +173,31 @@
       yLabel: null
     }
   };
-  const histOverlayState = {
-    controller: null,
-    pendingReason: null,
-    activeReason: null,
-    forceActive: false
-  };
+  const histOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'hist',
+    message: 'Rendering histogram...',
+    getHost: () => (
+      state.svgBox
+      || document.querySelector('#histGraphPanel .svgbox')
+      || document.getElementById('histGraphPanel')
+    )
+  });
 
   function markHistOverlayPending(reason){
-    const label = reason || 'data-change';
-    histOverlayState.pendingReason = label;
-    console.debug('Debug: hist overlay pending flagged', { reason: label });
-  }
-
-  function consumeHistOverlayReason(){
-    const pending = histOverlayState.pendingReason;
-    histOverlayState.pendingReason = null;
-    return pending;
-  }
-
-  function getHistLoadingController(){
-    if(histOverlayState.controller || !Shared.loadingOverlay?.createController){
-      return histOverlayState.controller;
-    }
-    histOverlayState.controller = Shared.loadingOverlay.createController({
-      component: 'hist',
-      message: 'Rendering histogram...',
-      getHost: () => (
-        state.svgBox
-        || document.querySelector('#histGraphPanel .svgbox')
-        || document.getElementById('histGraphPanel')
-      )
-    });
-    return histOverlayState.controller;
+    histOverlayController?.markPending(reason);
+    console.debug('Debug: hist overlay pending flagged', { reason: reason || 'data-change' });
   }
 
   function queueHistOverlay(reason, options = {}){
-    const controller = getHistLoadingController();
-    if(!controller){
-      return false;
-    }
-    if(options.force){
-      histOverlayState.pendingReason = null;
-      histOverlayState.forceActive = true;
-      histOverlayState.activeReason = options.source || reason || 'forced';
-      controller.queue({ reason, source: histOverlayState.activeReason, message: options.message });
-      return true;
-    }
-    const pendingReason = consumeHistOverlayReason();
-    if(!pendingReason){
-      console.debug('Debug: hist overlay queue skipped', { reason, pendingReason: null });
-      return false;
-    }
-    histOverlayState.activeReason = pendingReason;
-    controller.queue({ reason, source: pendingReason, message: options.message });
-    return true;
+    return histOverlayController?.queue(reason, options) || false;
   }
 
   function resolveHistOverlay(reason){
-    histOverlayState.activeReason = null;
-    histOverlayState.forceActive = false;
-    const controller = getHistLoadingController();
-    controller?.resolve({ reason });
+    histOverlayController?.resolve(reason);
   }
 
   function forceHistOverlay(reason, options = {}){
-    return queueHistOverlay(reason, { ...options, force: true });
+    return histOverlayController?.force(reason, options) || false;
   }
   let histNoticeBoundWidth = null;
   const syncHistAutoDrawNoticeWidth = (reason) => {

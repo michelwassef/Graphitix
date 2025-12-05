@@ -52,71 +52,70 @@
   if(typeof plot3d.isInteractivePointerTarget !== 'function'){
     plot3d.isInteractivePointerTarget = target => plot3d.isLegendPointerTarget(target);
   }
-  scatter.__installed = true;
-  scatter.ready = false;
-  const fileIO = Shared.fileIO = Shared.fileIO || {};
-  if(!fileIO.saveGraphFile){
-    console.debug('Debug: scatter component awaiting Shared.fileIO helpers');
-  }
-  if(!Shared.tableImport || typeof Shared.tableImport.openFile !== 'function'){
-    console.debug('Debug: scatter component awaiting Shared.tableImport helpers');
-  }
+  const NS = 'http://www.w3.org/2000/svg';
+  const DEFAULT_ROWS = 100;
+  const DEFAULT_COLS = 5;
 
-  const NS='http://www.w3.org/2000/svg';
-  const DEFAULT_ROWS=100;
-  const DEFAULT_COLS=4;
-  const SIGNIFICANT_COLOR = '#d62728';
-  const DEFAULT_NON_SIG_COLOR = '#808080';
-  const MAX_SIGNIFICANT_ANNOTATIONS = 250;
-  const GRAPH_TYPE_DEFAULTS = {
-    scatter: { title: 'Scatter plot' },
-    volcano: { title: 'Volcano plot' },
-    ma: { title: 'MA plot' }
-  };
+  const SCATTER_AUTO_DRAW_ROW_THRESHOLD = 8000;
+  const SCATTER_AUTO_DRAW_COL_THRESHOLD = 200;
+  const SCATTER_AUTO_DRAW_CELL_THRESHOLD = 160000;
 
-  const SCATTER_SHAPE_OPTIONS = Object.freeze([
-    { value: 'circle', label: 'Circle' },
-    { value: 'square', label: 'Square' },
-    { value: 'triangle', label: 'Triangle' },
-    { value: 'diamond', label: 'Diamond' },
-    { value: 'cross', label: 'Cross' }
-  ]);
-  const SCATTER_SHAPE_DEFAULTS = SCATTER_SHAPE_OPTIONS.map(opt => opt.value);
-  const SCATTER_SHAPE_VALUES = new Set(SCATTER_SHAPE_DEFAULTS);
-  const SCATTER_3D_DEFAULTS = Object.freeze({ rotationX: -0.31, rotationY: -0.48, aspectRatio: 4 / 3 });
-  const SCATTER_AUTO_DRAW_ROW_THRESHOLD = 5000;
-  const SCATTER_AUTO_DRAW_COL_THRESHOLD = 5000;
-  const SCATTER_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const SCATTER_DENSITY_MODE_DEFAULT = 'auto';
-  const SCATTER_DENSITY_POINT_THRESHOLD = 500;
-  const SCATTER_DENSITY_PALETTE_DEFAULT = 'turbo';
+  const SCATTER_DENSITY_PALETTE_DEFAULT = 'viridis';
+  const SCATTER_DENSITY_POINT_THRESHOLD = 1500;
+
+  const SCATTER_DENSITY_RAMPS = Object.freeze({
+    viridis: Object.freeze(['#440154','#482777','#3f4a8a','#31688e','#26838f','#1f9d8a','#6cce5a','#b6de2b','#fee825']),
+    magma: Object.freeze(['#000004','#1c1044','#4f127b','#812581','#b5367a','#e65164','#fb8761','#febb78','#fcfdbf']),
+    plasma: Object.freeze(['#0d0887','#5b02a3','#9a179b','#cb4679','#ed7953','#fb9f3a','#fdca26','#f0f921']),
+    cividis: Object.freeze(['#00204c','#11306b','#364f8a','#566f9e','#7a90a5','#a6bda9','#d4e7b0','#f6fbd1']),
+    sunset: Object.freeze(['#331832','#6a2042','#a72c50','#d44842','#f26e3d','#fca635','#fde164'])
+  });
+
   const SCATTER_ADAPTIVE_SIZE_MIN = 1;
   const SCATTER_ADAPTIVE_SIZE_MAX = 3;
-  const SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW = 50;
-  const SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH = 5000;
-  const SCATTER_DENSITY_RAMPS = Object.freeze({
-    turbo: ['#30123b', '#4145ab', '#2f9df4', '#43ecb0', '#fde54c', '#f45f2a', '#821529'],
-    viridis: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'],
-    plasma: ['#0d0887', '#6a00a8', '#b12a90', '#e16462', '#fca636', '#f0f921'],
-    inferno: ['#000004', '#1f0c48', '#550f6d', '#88216b', '#b63655', '#e35933', '#fcffa4']
+  const SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW = 400;
+  const SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH = 8000;
+
+  const SCATTER_SHAPE_DEFAULTS = Object.freeze(['circle','triangle','square','diamond','cross','plus','star']);
+  const SCATTER_SHAPE_VALUES = new Set(SCATTER_SHAPE_DEFAULTS);
+  const SCATTER_SHAPE_OPTIONS = Object.freeze([
+    { value: 'circle', label: 'Circle' },
+    { value: 'triangle', label: 'Triangle' },
+    { value: 'square', label: 'Square' },
+    { value: 'diamond', label: 'Diamond' },
+    { value: 'cross', label: 'Cross' },
+    { value: 'plus', label: 'Plus' },
+    { value: 'star', label: 'Star' }
+  ]);
+
+  const SCATTER_3D_DEFAULTS = Object.freeze({
+    rotationX: -22.5,
+    rotationY: 32,
+    aspectRatio: 4 / 3
   });
+
+  const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
+  global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
   const scatterState = {
     viewMode: '2d',
-    requestedViewMode: '2d',
-    rotation: plot3d.createRotationState({ x: SCATTER_3D_DEFAULTS.rotationX, y: SCATTER_3D_DEFAULTS.rotationY }),
+    requestedViewMode: null,
+    rotation: plot3d.createRotationState({
+      x: SCATTER_3D_DEFAULTS.rotationX,
+      y: SCATTER_3D_DEFAULTS.rotationY
+    }),
     rotationPending: false,
     rotationPendingLogged: false,
     supports3d: false,
     supportsBubble: false,
-    logPlusOneX: false,
-    logPlusOneY: false,
-    // User override for dot size. When enabled, draw uses this raw value
     dotSizeOverrideEnabled: false,
     dotSizeOverrideRaw: null,
+    logPlusOneX: false,
+    logPlusOneY: false,
     statsContext: null,
-    statsContextVersion: 0,
     statsContextSignature: null,
+    statsContextVersion: 0,
     statsLastRunVersion: 0,
     statsComputationPending: false
   };
@@ -778,71 +777,30 @@
     lastApplied:null,
     context:null
   };
-  const scatterOverlayState = {
-    controller: null,
-    pendingReason: null,
-    activeReason: null,
-    forceActive: false
-  };
+  const scatterOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'scatter',
+    message: 'Rendering scatter plot...',
+    getHost: () => (
+      global.document?.getElementById?.('scatterGraphPanel')?.querySelector?.('.svgbox')
+      || global.document?.getElementById?.('scatterGraphPanel')
+    )
+  });
 
   function markScatterOverlayPending(reason){
-    const label = reason || 'data-change';
-    scatterOverlayState.pendingReason = label;
-    scatterDebug('Debug: scatter overlay pending flagged', { reason: label });
-  }
-
-  function consumeScatterOverlayReason(){
-    const pending = scatterOverlayState.pendingReason;
-    scatterOverlayState.pendingReason = null;
-    return pending;
-  }
-
-  function getScatterLoadingController(){
-    if(scatterOverlayState.controller || !Shared.loadingOverlay?.createController){
-      return scatterOverlayState.controller;
-    }
-    scatterOverlayState.controller = Shared.loadingOverlay.createController({
-      component: 'scatter',
-      message: 'Rendering scatter plot...',
-      getHost: () => (
-        global.document?.getElementById?.('scatterGraphPanel')?.querySelector?.('.svgbox')
-        || global.document?.getElementById?.('scatterGraphPanel')
-      )
-    });
-    return scatterOverlayState.controller;
+    scatterOverlayController?.markPending(reason);
+    scatterDebug('Debug: scatter overlay pending flagged', { reason: reason || 'data-change' });
   }
 
   function queueScatterOverlay(reason, options = {}){
-    const controller = getScatterLoadingController();
-    if(!controller){
-      return false;
-    }
-    if(options.force){
-      scatterOverlayState.pendingReason = null;
-      scatterOverlayState.forceActive = true;
-      scatterOverlayState.activeReason = options.source || reason || 'forced';
-      controller.queue({ reason, source: scatterOverlayState.activeReason, message: options.message });
-      return true;
-    }
-    const pendingReason = consumeScatterOverlayReason();
-    if(!pendingReason){
-      scatterDebug('Debug: scatter overlay queue skipped',{ reason, pendingReason: null });
-      return false;
-    }
-    scatterOverlayState.activeReason = pendingReason;
-    controller.queue({ reason, source: pendingReason, message: options.message });
-    return true;
+    return scatterOverlayController?.queue(reason, options) || false;
   }
 
   function resolveScatterOverlay(reason){
-    scatterOverlayState.activeReason = null;
-    scatterOverlayState.forceActive = false;
-    const controller = getScatterLoadingController();
-    controller?.resolve({ reason });
+    scatterOverlayController?.resolve(reason);
   }
 
   function forceScatterOverlay(reason, options = {}){
-    return queueScatterOverlay(reason, { ...options, force: true });
+    return scatterOverlayController?.force(reason, options) || false;
   }
 
   function formatP(p){

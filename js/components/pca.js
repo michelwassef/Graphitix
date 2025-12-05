@@ -132,72 +132,31 @@
   }
 
   const pcaRefs = {};
-  const pcaOverlayState = {
-    controller: null,
-    pendingReason: null,
-    activeReason: null,
-    forceActive: false
-  };
-
-  function getPcaLoadingController(){
-    if(pcaOverlayState.controller || !Shared.loadingOverlay?.createController){
-      return pcaOverlayState.controller;
-    }
-    pcaOverlayState.controller = Shared.loadingOverlay.createController({
-      component: 'pca',
-      message: 'Rendering PCA workspace...',
-      getHost: () => (
-        pcaSvgBoxRef
-        || global.document?.getElementById?.('pcaGraphPanel')?.querySelector?.('.svgbox')
-        || global.document?.getElementById?.('pcaGraphPanel')
-      )
-    });
-    return pcaOverlayState.controller;
-  }
+  const pcaOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'pca',
+    message: 'Rendering PCA workspace...',
+    getHost: () => (
+      pcaSvgBoxRef
+      || global.document?.getElementById?.('pcaGraphPanel')?.querySelector?.('.svgbox')
+      || global.document?.getElementById?.('pcaGraphPanel')
+    )
+  });
 
   function markPcaOverlayPending(reason){
-    const label = reason || 'data-change';
-    pcaOverlayState.pendingReason = label;
-    debugLog('Debug: pca overlay pending flagged',{ reason: label });
-  }
-
-  function consumePcaOverlayReason(){
-    const pending = pcaOverlayState.pendingReason;
-    pcaOverlayState.pendingReason = null;
-    return pending;
+    pcaOverlayController?.markPending(reason);
+    debugLog('Debug: pca overlay pending flagged',{ reason: reason || 'data-change' });
   }
 
   function queuePcaOverlay(reason, options = {}){
-    const controller = getPcaLoadingController();
-    if(!controller){
-      return false;
-    }
-    if(options.force){
-      pcaOverlayState.pendingReason = null;
-      pcaOverlayState.forceActive = true;
-      pcaOverlayState.activeReason = options.source || reason || 'forced';
-      controller.queue({ reason, source: pcaOverlayState.activeReason, message: options.message });
-      return true;
-    }
-    const pendingReason = consumePcaOverlayReason();
-    if(!pendingReason){
-      debugLog('Debug: pca overlay queue skipped',{ reason, pendingReason: null });
-      return false;
-    }
-    pcaOverlayState.activeReason = pendingReason;
-    controller.queue({ reason, source: pendingReason, message: options.message });
-    return true;
+    return pcaOverlayController?.queue(reason, options) || false;
   }
 
   function resolvePcaOverlay(reason){
-    pcaOverlayState.activeReason = null;
-    pcaOverlayState.forceActive = false;
-    const controller = getPcaLoadingController();
-    controller?.resolve({ reason });
+    pcaOverlayController?.resolve(reason);
   }
 
   function forcePcaOverlay(reason, options = {}){
-    return queuePcaOverlay(reason, { ...options, force: true });
+    return pcaOverlayController?.force(reason, options) || false;
   }
   let pcaTooltipEl = null;
   let pcaLegendControl = null;

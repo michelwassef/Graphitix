@@ -137,72 +137,31 @@
     },
     labelPositions: { title: null }
   };
-  const heatmapOverlayState = {
-    controller: null,
-    pendingReason: null,
-    activeReason: null,
-    forceActive: false
-  };
-
-  function getHeatmapLoadingController(){
-    if(heatmapOverlayState.controller || !Shared.loadingOverlay?.createController){
-      return heatmapOverlayState.controller;
-    }
-    heatmapOverlayState.controller = Shared.loadingOverlay.createController({
-      component: 'heatmap',
-      message: 'Rendering heatmap...',
-      getHost: () => (
-        state.svgBox
-        || global.document?.getElementById?.('heatmapGraphPanel')?.querySelector?.('.svgbox')
-        || global.document?.getElementById?.('heatmapGraphPanel')
-      )
-    });
-    return heatmapOverlayState.controller;
-  }
+  const heatmapOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'heatmap',
+    message: 'Rendering heatmap...',
+    getHost: () => (
+      state.svgBox
+      || global.document?.getElementById?.('heatmapGraphPanel')?.querySelector?.('.svgbox')
+      || global.document?.getElementById?.('heatmapGraphPanel')
+    )
+  });
 
   function markHeatmapOverlayPending(reason){
-    const label = reason || 'data-change';
-    heatmapOverlayState.pendingReason = label;
-    debugLog('Debug: heatmap overlay pending flagged',{ reason: label });
-  }
-
-  function consumeHeatmapOverlayReason(){
-    const pending = heatmapOverlayState.pendingReason;
-    heatmapOverlayState.pendingReason = null;
-    return pending;
+    heatmapOverlayController?.markPending(reason);
+    debugLog('Debug: heatmap overlay pending flagged',{ reason: reason || 'data-change' });
   }
 
   function queueHeatmapOverlay(reason, options = {}){
-    const controller = getHeatmapLoadingController();
-    if(!controller){
-      return false;
-    }
-    if(options.force){
-      heatmapOverlayState.pendingReason = null;
-      heatmapOverlayState.forceActive = true;
-      heatmapOverlayState.activeReason = options.source || reason || 'forced';
-      controller.queue({ reason, source: heatmapOverlayState.activeReason, message: options.message });
-      return true;
-    }
-    const pendingReason = consumeHeatmapOverlayReason();
-    if(!pendingReason){
-      debugLog('Debug: heatmap overlay queue skipped',{ reason, pendingReason: null });
-      return false;
-    }
-    heatmapOverlayState.activeReason = pendingReason;
-    controller.queue({ reason, source: pendingReason, message: options.message });
-    return true;
+    return heatmapOverlayController?.queue(reason, options) || false;
   }
 
   function resolveHeatmapOverlay(reason){
-    heatmapOverlayState.activeReason = null;
-    heatmapOverlayState.forceActive = false;
-    const controller = getHeatmapLoadingController();
-    controller?.resolve({ reason });
+    heatmapOverlayController?.resolve(reason);
   }
 
   function forceHeatmapOverlay(reason, options = {}){
-    return queueHeatmapOverlay(reason, { ...options, force: true });
+    return heatmapOverlayController?.force(reason, options) || false;
   }
 
   function ensureDendrogramSettings(){

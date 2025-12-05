@@ -227,4 +227,73 @@
       }
     };
   };
+
+  loadingOverlay.createPendingController = function createPendingController(config = {}){
+    if(typeof loadingOverlay.createController !== 'function'){
+      return null;
+    }
+    let controller = null;
+    const ensureController = () => {
+      if(controller){ return controller; }
+      controller = loadingOverlay.createController(config);
+      return controller;
+    };
+    const state = {
+      pendingReason: null,
+      activeReason: null,
+      forceActive: false
+    };
+    const markPending = reason => {
+      const label = reason || 'data-change';
+      state.pendingReason = label;
+      if(isDebug()){
+        console.debug('Debug: loading overlay pending flagged',{ component: config.component || null, reason: label });
+      }
+    };
+    const queue = (reason, options = {}) => {
+      const ctrl = ensureController();
+      if(!ctrl){
+        return false;
+      }
+      if(options.force){
+        state.pendingReason = null;
+        state.forceActive = true;
+        state.activeReason = options.source || reason || 'forced';
+        ctrl.queue({ reason, source: state.activeReason, message: options.message });
+        return true;
+      }
+      const pending = state.pendingReason;
+      state.pendingReason = null;
+      if(!pending){
+        if(isDebug()){
+          console.debug('Debug: loading overlay queue skipped',{
+            component: config.component || null,
+            reason,
+            pendingReason: pending
+          });
+        }
+        return false;
+      }
+      state.activeReason = pending;
+      ctrl.queue({ reason, source: pending, message: options.message });
+      return true;
+    };
+    const resolve = reason => {
+      const ctrl = ensureController();
+      if(!ctrl){
+        return false;
+      }
+      state.activeReason = null;
+      state.forceActive = false;
+      ctrl.resolve({ reason });
+      return true;
+    };
+    return {
+      markPending,
+      queue,
+      resolve,
+      force: (reason, options = {}) => queue(reason, { ...options, force: true }),
+      isActive: () => state.forceActive || !!controller?.isActive?.()
+    };
+  };
 })(window);

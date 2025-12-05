@@ -655,73 +655,34 @@
   }); // Debug: group label state bootstrap
 
   const refs = {};
-  const lineOverlayState = {
-    controller: null,
-    pendingReason: null,
-    activeReason: null,
-    forceActive: false
-  };
+  const lineOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'line',
+    message: 'Rendering line chart...',
+    getHost: () => (
+      refs.svgBox
+      || refs.graphPanel?.querySelector?.('.svgbox')
+      || global.document?.getElementById?.('lineGraphPanel')?.querySelector?.('.svgbox')
+      || global.document?.getElementById?.('lineGraphPanel')
+    )
+  });
 
   function markLineOverlayPending(reason){
-    const label = reason || 'data-change';
-    lineOverlayState.pendingReason = label;
-    lineDebug('Debug: line overlay pending flagged',{ reason: label });
-  }
-
-  function consumeLineOverlayReason(){
-    const pending = lineOverlayState.pendingReason;
-    lineOverlayState.pendingReason = null;
-    return pending;
-  }
-
-  function getLineLoadingController(){
-    if(lineOverlayState.controller || !Shared.loadingOverlay?.createController){
-      return lineOverlayState.controller;
+    lineOverlayController?.markPending(reason);
+    if(lineOverlayController && typeof reason === 'string'){
+      lineDebug('Debug: line overlay pending flagged',{ reason });
     }
-    lineOverlayState.controller = Shared.loadingOverlay.createController({
-      component: 'line',
-      message: 'Rendering line chart...',
-      getHost: () => (
-        refs.svgBox
-        || refs.graphPanel?.querySelector?.('.svgbox')
-        || global.document?.getElementById?.('lineGraphPanel')?.querySelector?.('.svgbox')
-        || global.document?.getElementById?.('lineGraphPanel')
-      )
-    });
-    return lineOverlayState.controller;
   }
 
   function queueLineOverlay(reason, options = {}){
-    const controller = getLineLoadingController();
-    if(!controller){
-      return false;
-    }
-    if(options.force){
-      lineOverlayState.pendingReason = null;
-      lineOverlayState.forceActive = true;
-      lineOverlayState.activeReason = options.source || reason || 'forced';
-      controller.queue({ reason, source: lineOverlayState.activeReason, message: options.message });
-      return true;
-    }
-    const pendingReason = consumeLineOverlayReason();
-    if(!pendingReason){
-      lineDebug('Debug: line overlay queue skipped', { reason, pendingReason: null });
-      return false;
-    }
-    lineOverlayState.activeReason = pendingReason;
-    controller.queue({ reason, source: pendingReason, message: options.message });
-    return true;
+    return lineOverlayController?.queue(reason, options) || false;
   }
 
   function resolveLineOverlay(reason){
-    lineOverlayState.activeReason = null;
-    lineOverlayState.forceActive = false;
-    const controller = getLineLoadingController();
-    controller?.resolve({ reason });
+    lineOverlayController?.resolve(reason);
   }
 
   function forceLineOverlay(reason, options = {}){
-    return queueLineOverlay(reason, { ...options, force: true });
+    return lineOverlayController?.force(reason, options) || false;
   }
   let lineTooltipEl = null;
   let lineNoticeBoundWidth = null;

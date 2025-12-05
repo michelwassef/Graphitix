@@ -2216,73 +2216,32 @@
     return state.violin;
   }
   const els = {};
-  const boxOverlayState = {
-    controller: null,
-    pendingReason: null,
-    activeReason: null,
-    forceActive: false
-  };
+  const boxOverlayController = Shared.loadingOverlay?.createPendingController?.({
+    component: 'box',
+    message: 'Rendering box plot...',
+    getHost: () => (
+      els.svgBox
+      || els.graphPanel?.querySelector?.('.svgbox')
+      || global.document?.getElementById?.('boxGraphPanel')?.querySelector?.('.svgbox')
+      || global.document?.getElementById?.('boxGraphPanel')
+    )
+  });
 
   function markBoxOverlayPending(reason){
-    const label = reason || 'data-change';
-    boxOverlayState.pendingReason = label;
-    boxDebug('Debug: box overlay pending flagged',{ reason: label });
-  }
-
-  function consumeBoxOverlayReason(){
-    const pending = boxOverlayState.pendingReason;
-    boxOverlayState.pendingReason = null;
-    return pending;
-  }
-
-  function getBoxLoadingController(){
-    if(boxOverlayState.controller || !Shared.loadingOverlay?.createController){
-      return boxOverlayState.controller;
-    }
-    boxOverlayState.controller = Shared.loadingOverlay.createController({
-      component: 'box',
-      message: 'Rendering box plot...',
-      getHost: () => (
-        els.svgBox
-        || els.graphPanel?.querySelector?.('.svgbox')
-        || global.document?.getElementById?.('boxGraphPanel')?.querySelector?.('.svgbox')
-        || global.document?.getElementById?.('boxGraphPanel')
-      )
-    });
-    return boxOverlayState.controller;
+    boxOverlayController?.markPending(reason);
+    boxDebug('Debug: box overlay pending flagged',{ reason: reason || 'data-change' });
   }
 
   function queueBoxLoading(reason, options = {}){
-    const controller = getBoxLoadingController();
-    if(!controller){
-      return false;
-    }
-    if(options.force){
-      boxOverlayState.pendingReason = null;
-      boxOverlayState.forceActive = true;
-      boxOverlayState.activeReason = options.source || reason || 'forced';
-      controller.queue({ reason, source: boxOverlayState.activeReason, message: options.message });
-      return true;
-    }
-    const pendingReason = consumeBoxOverlayReason();
-    if(!pendingReason){
-      boxDebug('Debug: box overlay queue skipped',{ reason, pendingReason: null });
-      return false;
-    }
-    boxOverlayState.activeReason = pendingReason;
-    controller.queue({ reason, source: pendingReason, message: options.message });
-    return true;
+    return boxOverlayController?.queue(reason, options) || false;
   }
 
   function resolveBoxLoading(reason){
-    boxOverlayState.activeReason = null;
-    boxOverlayState.forceActive = false;
-    const controller = getBoxLoadingController();
-    controller?.resolve({ reason });
+    boxOverlayController?.resolve(reason);
   }
 
   function forceBoxOverlay(reason, options = {}){
-    return queueBoxLoading(reason, { ...options, force: true });
+    return boxOverlayController?.force(reason, options) || false;
   }
   let boxLegendControl = null;
   let boxNoticeBoundWidth = null;
@@ -3059,6 +3018,12 @@
     const exampleGrouped=[['Wild type','Knock-out A','Knock-out B','Wild type','Knock-out A','Knock-out B'],[23,24,21,67,29,65],[21,23,25,79,31,69],[19,25,27,98,32,71],[22,26,24,88,30,67]];
     console.debug('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
     loadExampleBtn.addEventListener('click',()=>{
+      const overlayReason = 'example-data';
+      const overlayMessage = state.tableFormat === 'grouped'
+        ? 'Loading grouped example data...'
+        : 'Loading example data...';
+      forceBoxOverlay(overlayReason, { message: overlayMessage });
+      markBoxOverlayPending(overlayReason);
       state.selectedCols.clear();
       if(state.tableFormat === 'grouped'){
         state.grouped.replicatesPerGroup = 3;
@@ -3066,11 +3031,9 @@
         renderGroupedList();
         updateTableFormatUI();
         applyTableFormatToHot();
-        markBoxOverlayPending('example-data');
         state.hot.loadData(exampleGrouped);
         console.log('boxplot grouped example loaded');
       }else{
-        markBoxOverlayPending('example-data');
         state.hot.loadData(exampleSingle);
         console.log('boxplot example loaded');
       }
@@ -9189,20 +9152,35 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     console.debug('Debug: box.open result', result);
   };
   function applyBoxPayload(obj, meta = {}){
+    const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
+    const overlayMessage = meta?.overlayMessage || (meta?.source === 'file' ? 'Loading saved box graph...' : 'Loading box data...');
+    const overlayEnabled = meta?.flagOverlay === true;
+    if(overlayEnabled){
+      forceBoxOverlay(overlayReason, { message: overlayMessage });
+    }
+    let overlaySettled = false;
+    const resolveOverlay = reason => {
+      if(overlayEnabled && !overlaySettled){
+        overlaySettled = true;
+        resolveBoxLoading(reason || `${overlayReason}-done`);
+      }
+    };
+    if(overlayEnabled){
+      markBoxOverlayPending(overlayReason);
+    }
     if(!obj || typeof obj !== 'object'){
+      resolveOverlay('payload-invalid');
       console.error('box payload missing or invalid', { meta });
       return false;
     }
-    if(meta?.flagOverlay){
-      const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
-      markBoxOverlayPending(overlayReason);
-    }
-    const version=Number.isFinite(obj?.version)?Number(obj.version):Number(obj?.version)||Number(obj?.configVersion)||1;
-    console.debug('Debug: box.applyPayload version parse',{ version, hasStats:!!obj?.config?.stats, hasEffectOptions:!!obj?.config?.stats?.effectParametric });
     if(obj.type && obj.type!=='box'){
+      resolveOverlay('payload-invalid-type');
       console.error('Invalid graph type for box payload', { type: obj.type, meta });
       return false;
     }
+    try{
+    const version=Number.isFinite(obj?.version)?Number(obj.version):Number(obj?.version)||Number(obj?.configVersion)||1;
+    console.debug('Debug: box.applyPayload version parse',{ version, hasStats:!!obj?.config?.stats, hasEffectOptions:!!obj?.config?.stats?.effectParametric });
     state.hot.loadData(obj.data||[]);
     if(obj.exclusions){
       state.hot.applyExclusions?.(obj.exclusions);
@@ -9475,6 +9453,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.scheduleDraw();
     console.debug('Debug: box payload applied', { source: meta.source || 'unknown', rows: obj.data?.length || 0 });
     return true;
+    }catch(err){
+      resolveOverlay('payload-error');
+      throw err;
+    }
   }
 
   function runBoxDrawCycle(){
@@ -9490,15 +9472,26 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   }
 
   box.loadFromFile = function(file){
-    const reader=new FileReader();
-    reader.onload=e=>{
+    const reader = new FileReader();
+    const readOverlayReason = 'graph-file-read';
+    const readOverlayForced = forceBoxOverlay(readOverlayReason, { message: 'Opening saved box graph...' });
+    reader.onerror = err => {
+      if(readOverlayForced){
+        resolveBoxLoading('graph-file-error');
+      }
+      console.error('loadBoxGraph error', err);
+    };
+    reader.onload = e => {
+      if(readOverlayForced){
+        resolveBoxLoading(readOverlayReason);
+      }
       try{
-        const obj=JSON.parse(e.target.result);
+        const obj = JSON.parse(e.target.result);
         if(!applyBoxPayload(obj, { source: 'file', flagOverlay: true, overlayReason: 'graph-file' })){
           console.warn('box payload rejected from file', { hasType: !!obj?.type });
         }
       }catch(err){
-        console.error('loadBoxGraph error',err);
+        console.error('loadBoxGraph error', err);
       }
     };
     reader.readAsText(file);
@@ -9604,8 +9597,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 
   box.draw = function(){
     try{
-      forceBoxOverlay('manual-draw');
-      runBoxDrawCycle();
+      box.ensure();
+      if(typeof state.scheduleDraw === 'function'){
+        state.scheduleDraw();
+      }else{
+        runBoxDrawCycle();
+      }
     }catch(e){
       console.error('box.draw error', e);
     }
