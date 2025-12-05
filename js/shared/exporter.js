@@ -183,6 +183,213 @@
     return removed;
   }
 
+  /**
+   * Threshold for triggering scatter point optimization.
+   * When a scatter layer has more points than this, optimization is applied.
+   */
+  const SCATTER_OPTIMIZATION_THRESHOLD = 500;
+
+  /**
+   * Coordinate precision for optimized SVG export (number of decimal places).
+   * Lower precision reduces file size significantly for large datasets.
+   */
+  const OPTIMIZED_COORDINATE_PRECISION = 1;
+
+  /**
+   * Rounds a numeric value to the specified number of decimal places.
+   * @param {number} value - The value to round
+   * @param {number} decimals - Number of decimal places (default: 1)
+   * @returns {string} - Rounded value as a string
+   */
+  function roundCoord(value, decimals = OPTIMIZED_COORDINATE_PRECISION) {
+    if (!Number.isFinite(value)) return '0';
+    const multiplier = Math.pow(10, decimals);
+    const rounded = Math.round(value * multiplier) / multiplier;
+    // Avoid trailing zeros: 10.0 -> 10, 10.50 -> 10.5
+    return String(rounded);
+  }
+
+  /**
+   * Extracts a style key from a circle element for grouping purposes.
+   * Elements with the same key can share attributes via a parent group.
+   * @param {SVGCircleElement} circle - The circle element
+   * @returns {string} - A key string representing the element's style and radius
+   */
+  function getCircleGroupKey(circle) {
+    if (!circle || typeof circle.getAttribute !== 'function') return '';
+    const r = circle.getAttribute('r') || '3';
+    const fill = circle.getAttribute('fill') || '';
+    const stroke = circle.getAttribute('stroke') || '';
+    const strokeWidth = circle.getAttribute('stroke-width') || '';
+    const fillOpacity = circle.getAttribute('fill-opacity') || '';
+    const strokeOpacity = circle.getAttribute('stroke-opacity') || '';
+    return `${r}|${fill}|${stroke}|${strokeWidth}|${fillOpacity}|${strokeOpacity}`;
+  }
+
+  /**
+   * Converts a circle to a compact SVG path data string.
+   * Uses two arc commands to draw a complete circle.
+   * @param {number} cx - Center x coordinate
+   * @param {number} cy - Center y coordinate  
+   * @param {number} r - Radius
+   * @returns {string} - Path data for the circle
+   */
+  function circleToPathData(cx, cy, r) {
+    // Draw circle using two arcs: move to left edge, arc to right, arc back to left
+    // M(cx-r),cy a r,r 0 1,0 2r,0 a r,r 0 1,0 -2r,0
+    const left = roundCoord(cx - r);
+    const diameter = roundCoord(r * 2);
+    const negDiameter = roundCoord(-r * 2);
+    const rStr = roundCoord(r);
+    const cyStr = roundCoord(cy);
+    return `M${left},${cyStr}a${rStr},${rStr} 0 1,0 ${diameter},0a${rStr},${rStr} 0 1,0 ${negDiameter},0`;
+  }
+
+  /**
+   * Optimizes scatter point elements in an SVG for export.
+   * Combines circles with the same style into single path elements.
+   * 
+   * Strategy:
+   * 1. Group circles by radius and style attributes
+   * 2. For each group, create a single <path> element with multiple circle subpaths
+   * 3. Apply shared style attributes to parent groups
+   * 4. Reduce coordinate precision
+   * 
+   * @param {SVGElement} svgNode - The root SVG element (will be modified)
+   * @param {Object} options - Optimization options
+   * @param {string} options.layerSelector - CSS selector for the scatter points layer
+   * @param {string} options.contextLabel - Label for debug logging
+   * @returns {Object} - Statistics about the optimization
+   */
+  function optimizeScatterPoints(svgNode, options = {}) {
+    const selector = options.layerSelector || '[data-export-layer="scatter-points"]';
+    const contextLabel = options.contextLabel || 'scatter-optimize';
+    const stats = {
+      optimized: false,
+      originalCount: 0,
+      optimizedCount: 0,
+      symbolsCreated: 0,
+      groupsCreated: 0,
+      estimatedSavingsPercent: 0
+    };
+
+    if (!svgNode || typeof svgNode.querySelector !== 'function') {
+      debugLog('optimizeScatterPoints skipped', { contextLabel, reason: 'invalid node' });
+      return stats;
+    }
+
+    const layer = svgNode.querySelector(selector);
+    if (!layer) {
+      debugLog('optimizeScatterPoints skipped', { contextLabel, reason: 'layer not found', selector });
+      return stats;
+    }
+
+    // Collect all circle elements in the layer
+    const circles = Array.from(layer.querySelectorAll('circle'));
+    stats.originalCount = circles.length;
+
+    if (circles.length < SCATTER_OPTIMIZATION_THRESHOLD) {
+      debugLog('optimizeScatterPoints skipped', {
+        contextLabel,
+        reason: 'below threshold',
+        count: circles.length,
+        threshold: SCATTER_OPTIMIZATION_THRESHOLD
+      });
+      return stats;
+    }
+
+    const ownerDoc = svgNode.ownerDocument || doc;
+    if (!ownerDoc) {
+      debugLog('optimizeScatterPoints skipped', { contextLabel, reason: 'no owner document' });
+      return stats;
+    }
+
+    const NS = 'http://www.w3.org/2000/svg';
+
+    // Group circles by radius and style for path consolidation
+    const circleGroups = new Map();
+    for (const circle of circles) {
+      const key = getCircleGroupKey(circle);
+      
+      if (!circleGroups.has(key)) {
+        circleGroups.set(key, {
+          radius: Number.parseFloat(circle.getAttribute('r') || '3'),
+          fill: circle.getAttribute('fill'),
+          stroke: circle.getAttribute('stroke'),
+          strokeWidth: circle.getAttribute('stroke-width'),
+          fillOpacity: circle.getAttribute('fill-opacity'),
+          strokeOpacity: circle.getAttribute('stroke-opacity'),
+          circles: []
+        });
+      }
+      
+      const cx = Number.parseFloat(circle.getAttribute('cx') || '0');
+      const cy = Number.parseFloat(circle.getAttribute('cy') || '0');
+      circleGroups.get(key).circles.push({ cx, cy });
+    }
+
+    // Create a new layer to hold optimized content
+    const optimizedLayer = ownerDoc.createElementNS(NS, 'g');
+    optimizedLayer.setAttribute('data-export-layer', 'scatter-points');
+    optimizedLayer.setAttribute('data-layer', 'points');
+    optimizedLayer.setAttribute('data-optimized', 'true');
+
+    let totalPathElements = 0;
+
+    for (const [key, group] of circleGroups) {
+      // Build path data by combining all circles in this group
+      const pathParts = [];
+      for (const pt of group.circles) {
+        pathParts.push(circleToPathData(pt.cx, pt.cy, group.radius));
+      }
+      
+      const pathData = pathParts.join('');
+      
+      // Create a single path element for all circles in this group
+      const path = ownerDoc.createElementNS(NS, 'path');
+      path.setAttribute('d', pathData);
+      
+      // Apply style attributes
+      if (group.fill) path.setAttribute('fill', group.fill);
+      if (group.stroke) path.setAttribute('stroke', group.stroke);
+      if (group.strokeWidth) path.setAttribute('stroke-width', group.strokeWidth);
+      if (group.fillOpacity && group.fillOpacity !== '1') {
+        path.setAttribute('fill-opacity', group.fillOpacity);
+      }
+      if (group.strokeOpacity && group.strokeOpacity !== '1') {
+        path.setAttribute('stroke-opacity', group.strokeOpacity);
+      }
+      
+      optimizedLayer.appendChild(path);
+      totalPathElements++;
+      stats.groupsCreated++;
+    }
+
+    // Replace the original layer with the optimized layer
+    layer.parentNode.replaceChild(optimizedLayer, layer);
+    stats.optimizedCount = totalPathElements;
+    stats.optimized = true;
+
+    // Estimate file size savings:
+    // Original: <circle cx="123.456789" cy="789.123456" r="3" fill="#377eb8"/> ~75 chars each
+    // Optimized: M97,200a3,3 0 1,0 6,0a3,3 0 1,0-6,0 ~40 chars per circle, no element overhead
+    const originalEstimate = stats.originalCount * 75;
+    const optimizedEstimate = (totalPathElements * 60) + (stats.originalCount * 40);
+    if (originalEstimate > 0) {
+      stats.estimatedSavingsPercent = Math.round((1 - optimizedEstimate / originalEstimate) * 100);
+    }
+
+    debugLog('optimizeScatterPoints complete', {
+      contextLabel,
+      originalCount: stats.originalCount,
+      pathElements: totalPathElements,
+      groupsCreated: stats.groupsCreated,
+      estimatedSavingsPercent: stats.estimatedSavingsPercent
+    });
+
+    return stats;
+  }
+
   function applyStyleString(target, styleString) {
     if (!styleString || typeof styleString !== 'string') {
       return;
@@ -2264,7 +2471,8 @@
       textFontApplied: 0,
       widthAttrNormalized: 0,
       heightAttrNormalized: 0,
-      axisHandlesRemoved: 0
+      axisHandlesRemoved: 0,
+      scatterOptimization: null
     };
     try {
       const defaultFont = getDefaultFontFamily();
@@ -2293,6 +2501,9 @@
       }
 
       counters.axisHandlesRemoved = removeAxisInteractionHandles(svgNode);
+
+      // Apply scatter point optimization for large datasets
+      counters.scatterOptimization = optimizeScatterPoints(svgNode, { contextLabel });
 
       logDebug('prepareSvgForExport applied', {
         contextLabel,
@@ -3742,6 +3953,11 @@
 
   // Expose the default PNG scale constant for external configuration
   exporter.DEFAULT_PNG_SCALE = DEFAULT_PNG_SCALE;
+
+  // Expose scatter optimization constants and function for testing/configuration
+  exporter.SCATTER_OPTIMIZATION_THRESHOLD = SCATTER_OPTIMIZATION_THRESHOLD;
+  exporter.OPTIMIZED_COORDINATE_PRECISION = OPTIMIZED_COORDINATE_PRECISION;
+  exporter.optimizeScatterPoints = optimizeScatterPoints;
 
   exporter.svgElementToPngBlob = svgElementToPngBlob;
   exporter.svgElementToEmfBlob = svgElementToEmfBlob;
