@@ -132,6 +132,73 @@
   }
 
   const pcaRefs = {};
+  const pcaOverlayState = {
+    controller: null,
+    pendingReason: null,
+    activeReason: null,
+    forceActive: false
+  };
+
+  function getPcaLoadingController(){
+    if(pcaOverlayState.controller || !Shared.loadingOverlay?.createController){
+      return pcaOverlayState.controller;
+    }
+    pcaOverlayState.controller = Shared.loadingOverlay.createController({
+      component: 'pca',
+      message: 'Rendering PCA workspace...',
+      getHost: () => (
+        pcaSvgBoxRef
+        || global.document?.getElementById?.('pcaGraphPanel')?.querySelector?.('.svgbox')
+        || global.document?.getElementById?.('pcaGraphPanel')
+      )
+    });
+    return pcaOverlayState.controller;
+  }
+
+  function markPcaOverlayPending(reason){
+    const label = reason || 'data-change';
+    pcaOverlayState.pendingReason = label;
+    debugLog('Debug: pca overlay pending flagged',{ reason: label });
+  }
+
+  function consumePcaOverlayReason(){
+    const pending = pcaOverlayState.pendingReason;
+    pcaOverlayState.pendingReason = null;
+    return pending;
+  }
+
+  function queuePcaOverlay(reason, options = {}){
+    const controller = getPcaLoadingController();
+    if(!controller){
+      return false;
+    }
+    if(options.force){
+      pcaOverlayState.pendingReason = null;
+      pcaOverlayState.forceActive = true;
+      pcaOverlayState.activeReason = options.source || reason || 'forced';
+      controller.queue({ reason, source: pcaOverlayState.activeReason, message: options.message });
+      return true;
+    }
+    const pendingReason = consumePcaOverlayReason();
+    if(!pendingReason){
+      debugLog('Debug: pca overlay queue skipped',{ reason, pendingReason: null });
+      return false;
+    }
+    pcaOverlayState.activeReason = pendingReason;
+    controller.queue({ reason, source: pendingReason, message: options.message });
+    return true;
+  }
+
+  function resolvePcaOverlay(reason){
+    pcaOverlayState.activeReason = null;
+    pcaOverlayState.forceActive = false;
+    const controller = getPcaLoadingController();
+    controller?.resolve({ reason });
+  }
+
+  function forcePcaOverlay(reason, options = {}){
+    return queuePcaOverlay(reason, { ...options, force: true });
+  }
   let pcaTooltipEl = null;
   let pcaLegendControl = null;
   let pcaShowLegendInput = null;
@@ -1879,6 +1946,7 @@
       if(pcaRenderButtonEl){
         pcaRenderButtonEl.addEventListener('click',()=>{
           debugLog('Debug: pca manual render button');
+          markPcaOverlayPending('manual-render');
           markPcaDataDirty('manual-button');
           scheduleDrawPca({ force: true, reason: 'manual-render' });
         });
@@ -2322,6 +2390,7 @@
           ['Var4',4,2,4,1,40,20,40,10]
         ];
         const hot = ensurePcaHotForActiveTab();
+        markPcaOverlayPending('example-data');
         hot?.loadData?.(pcaExample);
         console.log('pca example loaded');
         debugLog('Debug: pca example dataset applied (transposed labels)', { rows: pcaExample.length, cols: pcaExample[0]?.length });
@@ -2340,46 +2409,75 @@
       const pcaFileInput=document.getElementById('pcaFile');
       const tableImport = Shared.tableImport;
       pcaImportBtn.addEventListener('click',()=>{pcaFileInput.value=''; pcaFileInput.click();});
-      pcaFileInput.addEventListener('change',()=>{
+      pcaFileInput.addEventListener('change',async ()=>{
         if(!tableImport || typeof tableImport.openFile !== 'function'){
           console.warn('pca import skipped: Shared.tableImport.openFile unavailable');
           return;
         }
-        tableImport.openFile(pcaFileInput, {
-          hot: ensurePcaHotForActiveTab(),
-          minCols: DEFAULT_COLS,
-          minRows: DEFAULT_ROWS,
-          scheduleDraw: () => {
-            evaluateAutoDrawThresholds();
-            scheduleDrawPca({ force: true, reason: 'import-load' });
-          },
-          debugLabel: 'pca',
-          onProcessed: info => {
-            console.log('pca data imported',{rows: info?.rows, cols: info?.cols});
-            updatePcaDataShape({ rows: info?.rows, cols: info?.cols });
-            evaluateAutoDrawThresholds();
-          }
-        });
-      });
-      if(tableImport && typeof tableImport.handlePaste === 'function'){
-        const pasteTarget = document.getElementById('pcaHot') || pcaHotContainer;
-        pasteTarget?.addEventListener('paste',async e=>{
-          const hot = ensurePcaHotForActiveTab();
-          await tableImport.handlePaste(e, hot, {
+        const hasFile = !!(pcaFileInput?.files && pcaFileInput.files[0]);
+        let forcedOverlay = false;
+        if(hasFile){
+          forcedOverlay = !!forcePcaOverlay('file-import-start', { message: 'Importing table data...' });
+        }
+        try{
+          const result = await tableImport.openFile(pcaFileInput, {
+            hot: ensurePcaHotForActiveTab(),
             minCols: DEFAULT_COLS,
             minRows: DEFAULT_ROWS,
             scheduleDraw: () => {
+              markPcaOverlayPending('file-import');
               evaluateAutoDrawThresholds();
-              scheduleDrawPca({ force: true, reason: 'paste-load' });
+              scheduleDrawPca({ force: true, reason: 'import-load' });
             },
             debugLabel: 'pca',
-            onBeforeProcess: meta => console.log('pca fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
             onProcessed: info => {
               console.log('pca data imported',{rows: info?.rows, cols: info?.cols});
               updatePcaDataShape({ rows: info?.rows, cols: info?.cols });
               evaluateAutoDrawThresholds();
             }
           });
+          if(!result && forcedOverlay){
+            resolvePcaOverlay('file-import-empty');
+          }
+        }catch(err){
+          if(forcedOverlay){
+            resolvePcaOverlay('file-import-error');
+          }
+          console.error('pca import failed', err);
+        }
+      });
+      if(tableImport && typeof tableImport.handlePaste === 'function'){
+        const pasteTarget = document.getElementById('pcaHot') || pcaHotContainer;
+        pasteTarget?.addEventListener('paste',async e=>{
+          let forcedOverlay = false;
+          try{
+            forcedOverlay = !!forcePcaOverlay('table-paste-start', { message: 'Processing pasted data...' });
+            const hot = ensurePcaHotForActiveTab();
+            const result = await tableImport.handlePaste(e, hot, {
+              minCols: DEFAULT_COLS,
+              minRows: DEFAULT_ROWS,
+              scheduleDraw: () => {
+                markPcaOverlayPending('table-paste');
+                evaluateAutoDrawThresholds();
+                scheduleDrawPca({ force: true, reason: 'paste-load' });
+              },
+              debugLabel: 'pca',
+              onBeforeProcess: meta => console.log('pca fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
+              onProcessed: info => {
+                console.log('pca data imported',{rows: info?.rows, cols: info?.cols});
+                updatePcaDataShape({ rows: info?.rows, cols: info?.cols });
+                evaluateAutoDrawThresholds();
+              }
+            });
+            if(!result && forcedOverlay){
+              resolvePcaOverlay('table-paste-empty');
+            }
+          }catch(err){
+            if(forcedOverlay){
+              resolvePcaOverlay('table-paste-error');
+            }
+            console.error('pca paste failed', err);
+          }
         });
       }
       const pcaLoadingsContainer=document.getElementById('pcaLoadingsContainer');
@@ -5810,6 +5908,10 @@
           console.error('Invalid graph type for pca payload', { type: obj.type, meta });
           return false;
         }
+        if(meta?.flagOverlay){
+          const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
+          markPcaOverlayPending(overlayReason);
+        }
         ensurePcaHotForActiveTab();
         const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
         if(pcaHotInstance && typeof pcaHotInstance.loadData === 'function'){
@@ -5954,7 +6056,7 @@
         reader.onload=e=>{
           try{
             const obj=JSON.parse(e.target.result);
-            if(!applyPcaPayload(obj, { source: 'file' })){
+            if(!applyPcaPayload(obj, { source: 'file', flagOverlay: true, overlayReason: 'graph-file' })){
               console.warn('pca payload rejected from file', { hasType: !!obj?.type });
             }
           }catch(err){
@@ -5985,15 +6087,30 @@
       document.getElementById('saveAsPca')?.addEventListener('click',saveAsPcaFile);
       document.getElementById('pcaGraphFile').addEventListener('change',e=>{ const f=e.target.files[0]; if(f){ pcaFileName=f.name; pcaFileHandle=null; loadPcaGraphFile(f); } });
     
-    scheduleDrawPcaRaw = Shared.debounceFrame(drawPca);
+    const runPcaDrawCycle = async () => {
+      let status = 'complete';
+      try{
+        await drawPca();
+      }catch(err){
+        status = 'error';
+        throw err;
+      }finally{
+        resolvePcaOverlay(status);
+      }
+    };
+    const schedulePcaBase = Shared.debounceFrame ? Shared.debounceFrame(runPcaDrawCycle) : runPcaDrawCycle;
+    scheduleDrawPcaRaw = (opts) => {
+      queuePcaOverlay(opts?.reason || 'schedule');
+      schedulePcaBase(opts);
+    };
     pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
     debugLog('Debug: pca scheduleDraw configured via Shared.debounceFrame'); // Debug: scheduler setup
     pca.save = savePcaFile;
     pca.saveAs = saveAsPcaFile;
     pca.open = openPcaFile;
     pca.loadFromFile = loadPcaGraphFile;
-    pca.loadFromPayload = function loadPcaFromPayload(payload){
-      if(!applyPcaPayload(payload, { source: 'payload' })){
+    pca.loadFromPayload = function loadPcaFromPayload(payload, options = {}){
+      if(!applyPcaPayload(payload, { source: 'payload', ...options })){
         console.warn('pca payload application failed', { source: 'payload' });
       }
     };

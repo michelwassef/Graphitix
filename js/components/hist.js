@@ -173,6 +173,73 @@
       yLabel: null
     }
   };
+  const histOverlayState = {
+    controller: null,
+    pendingReason: null,
+    activeReason: null,
+    forceActive: false
+  };
+
+  function markHistOverlayPending(reason){
+    const label = reason || 'data-change';
+    histOverlayState.pendingReason = label;
+    console.debug('Debug: hist overlay pending flagged', { reason: label });
+  }
+
+  function consumeHistOverlayReason(){
+    const pending = histOverlayState.pendingReason;
+    histOverlayState.pendingReason = null;
+    return pending;
+  }
+
+  function getHistLoadingController(){
+    if(histOverlayState.controller || !Shared.loadingOverlay?.createController){
+      return histOverlayState.controller;
+    }
+    histOverlayState.controller = Shared.loadingOverlay.createController({
+      component: 'hist',
+      message: 'Rendering histogram...',
+      getHost: () => (
+        state.svgBox
+        || document.querySelector('#histGraphPanel .svgbox')
+        || document.getElementById('histGraphPanel')
+      )
+    });
+    return histOverlayState.controller;
+  }
+
+  function queueHistOverlay(reason, options = {}){
+    const controller = getHistLoadingController();
+    if(!controller){
+      return false;
+    }
+    if(options.force){
+      histOverlayState.pendingReason = null;
+      histOverlayState.forceActive = true;
+      histOverlayState.activeReason = options.source || reason || 'forced';
+      controller.queue({ reason, source: histOverlayState.activeReason, message: options.message });
+      return true;
+    }
+    const pendingReason = consumeHistOverlayReason();
+    if(!pendingReason){
+      console.debug('Debug: hist overlay queue skipped', { reason, pendingReason: null });
+      return false;
+    }
+    histOverlayState.activeReason = pendingReason;
+    controller.queue({ reason, source: pendingReason, message: options.message });
+    return true;
+  }
+
+  function resolveHistOverlay(reason){
+    histOverlayState.activeReason = null;
+    histOverlayState.forceActive = false;
+    const controller = getHistLoadingController();
+    controller?.resolve({ reason });
+  }
+
+  function forceHistOverlay(reason, options = {}){
+    return queueHistOverlay(reason, { ...options, force: true });
+  }
   let histNoticeBoundWidth = null;
   const syncHistAutoDrawNoticeWidth = (reason) => {
     const svgBox = state.svgBox || state.layout?.elements?.svgBox || document.querySelector('#histGraphPanel .svgbox');
@@ -617,6 +684,7 @@
     const exampleBtn = document.getElementById('histLoadExample');
     if(exampleBtn){
       exampleBtn.addEventListener('click',()=>{
+        markHistOverlayPending('example-data');
         state.hot.loadData(example);
         console.log('hist example loaded');
         state.scheduleDraw();
@@ -634,13 +702,31 @@
           console.warn('hist import skipped: Shared.tableImport.openFile unavailable');
           return;
         }
-        tableImport.openFile(histFileInput, {
+        const hasFile = !!(histFileInput?.files && histFileInput.files[0]);
+        let forcedOverlay = false;
+        if(hasFile){
+          forcedOverlay = !!forceHistOverlay('file-import-start', { message: 'Importing table data...' });
+        }
+        const importPromise = tableImport.openFile(histFileInput, {
           hot: state.hot,
           minCols: HIST_DEFAULT_COLS,
           minRows: HIST_DEFAULT_ROWS,
-          scheduleDraw: state.scheduleDraw,
+          scheduleDraw: () => {
+            markHistOverlayPending('file-import');
+            state.scheduleDraw();
+          },
           debugLabel: 'hist',
           onProcessed: info => console.log('hist data imported',{rows: info?.rows, cols: info?.cols})
+        });
+        Promise.resolve(importPromise).then(result => {
+          if(!result && forcedOverlay){
+            resolveHistOverlay('file-import-empty');
+          }
+        }).catch(err => {
+          if(forcedOverlay){
+            resolveHistOverlay('file-import-error');
+          }
+          console.error('hist import failed', err);
         });
       });
     } else {
@@ -712,6 +798,10 @@
       if(!payload || payload.type !== 'hist'){
         console.warn('hist payload rejected', { source, hasType: !!payload?.type });
         return false;
+      }
+      if(meta?.flagOverlay){
+        const overlayReason = meta?.overlayReason || (typeof source === 'string' ? `payload-${source}` : 'payload');
+        markHistOverlayPending(overlayReason);
       }
       const dataMatrix = Array.isArray(payload.data) ? payload.data : [];
       if(state.hot && typeof state.hot.loadData === 'function'){
@@ -875,7 +965,7 @@
       console.debug('Debug: hist.open result', result);
     };
     hist.loadFromFile = function(file){
-      const apply = payload => applyHistPayload(payload, { source: 'file' });
+      const apply = payload => applyHistPayload(payload, { source: 'file', flagOverlay: true, overlayReason: 'graph-file' });
       if(file instanceof Blob){
         const reader=new FileReader();
         reader.onload=e=>{
@@ -906,8 +996,8 @@
         apply(file);
       }
     };
-    hist.loadFromPayload = function loadFromPayload(payload){
-      if(!applyHistPayload(payload, { source: 'payload' })){
+    hist.loadFromPayload = function loadFromPayload(payload, options = {}){
+      if(!applyHistPayload(payload, { source: 'payload', ...options })){
         console.warn('hist payload application failed', { source: 'payload' });
       }
     };
@@ -1601,6 +1691,7 @@
     if(histRenderButtonEl){
       histRenderButtonEl.addEventListener('click', () => {
         console.debug('Debug: hist manual render button');
+        markHistOverlayPending('manual-render');
         state.scheduleDraw?.({ force: true, reason: 'manual-render' });
       });
     }
@@ -1625,7 +1716,23 @@
         debugLog: console.debug
       });
     }
-    scheduleDrawHistRaw = Shared.debounceFrame ? Shared.debounceFrame(draw) : draw;
+    const runHistDrawCycle = () => {
+      let status = 'complete';
+      try{
+        draw();
+      }catch(err){
+        status = 'error';
+        throw err;
+      }finally{
+        resolveHistOverlay(status);
+      }
+    };
+    const scheduleHistBase = Shared.debounceFrame ? Shared.debounceFrame(runHistDrawCycle) : runHistDrawCycle;
+    const scheduleHistInstrumented = (opts) => {
+      queueHistOverlay(opts?.reason || 'schedule');
+      scheduleHistBase(opts);
+    };
+    scheduleDrawHistRaw = scheduleHistInstrumented;
     if(histAutoDrawManager){
       histAutoDrawManager.setScheduleRaw(scheduleDrawHistRaw);
       histAutoDrawManager.setElements({

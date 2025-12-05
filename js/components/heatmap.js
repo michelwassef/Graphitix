@@ -137,6 +137,73 @@
     },
     labelPositions: { title: null }
   };
+  const heatmapOverlayState = {
+    controller: null,
+    pendingReason: null,
+    activeReason: null,
+    forceActive: false
+  };
+
+  function getHeatmapLoadingController(){
+    if(heatmapOverlayState.controller || !Shared.loadingOverlay?.createController){
+      return heatmapOverlayState.controller;
+    }
+    heatmapOverlayState.controller = Shared.loadingOverlay.createController({
+      component: 'heatmap',
+      message: 'Rendering heatmap...',
+      getHost: () => (
+        state.svgBox
+        || global.document?.getElementById?.('heatmapGraphPanel')?.querySelector?.('.svgbox')
+        || global.document?.getElementById?.('heatmapGraphPanel')
+      )
+    });
+    return heatmapOverlayState.controller;
+  }
+
+  function markHeatmapOverlayPending(reason){
+    const label = reason || 'data-change';
+    heatmapOverlayState.pendingReason = label;
+    debugLog('Debug: heatmap overlay pending flagged',{ reason: label });
+  }
+
+  function consumeHeatmapOverlayReason(){
+    const pending = heatmapOverlayState.pendingReason;
+    heatmapOverlayState.pendingReason = null;
+    return pending;
+  }
+
+  function queueHeatmapOverlay(reason, options = {}){
+    const controller = getHeatmapLoadingController();
+    if(!controller){
+      return false;
+    }
+    if(options.force){
+      heatmapOverlayState.pendingReason = null;
+      heatmapOverlayState.forceActive = true;
+      heatmapOverlayState.activeReason = options.source || reason || 'forced';
+      controller.queue({ reason, source: heatmapOverlayState.activeReason, message: options.message });
+      return true;
+    }
+    const pendingReason = consumeHeatmapOverlayReason();
+    if(!pendingReason){
+      debugLog('Debug: heatmap overlay queue skipped',{ reason, pendingReason: null });
+      return false;
+    }
+    heatmapOverlayState.activeReason = pendingReason;
+    controller.queue({ reason, source: pendingReason, message: options.message });
+    return true;
+  }
+
+  function resolveHeatmapOverlay(reason){
+    heatmapOverlayState.activeReason = null;
+    heatmapOverlayState.forceActive = false;
+    const controller = getHeatmapLoadingController();
+    controller?.resolve({ reason });
+  }
+
+  function forceHeatmapOverlay(reason, options = {}){
+    return queueHeatmapOverlay(reason, { ...options, force: true });
+  }
 
   function ensureDendrogramSettings(){
     if(!state.dendrogramSettings){
@@ -992,9 +1059,10 @@
         console.warn('heatmap example skipped - hot not ready');
         return;
       }
+      markHeatmapOverlayPending('example-data');
       state.hot.loadData(example);
       console.log('heatmap example loaded');
-      schedule();
+      state.scheduleDraw({ force: true, reason: 'example-load' });
     });
 
     const importBtn = $('heatmapImport');
@@ -1011,29 +1079,58 @@
         console.warn('heatmap import skipped - Shared.tableImport.openFile unavailable');
         return;
       }
-      await tableImport.openFile(fileInput, {
-        hot: state.hot,
-        minCols: 2,
-        minRows: DEFAULT_ROWS,
-        scheduleDraw: () => state.scheduleDraw(),
-        debugLabel: 'heatmap',
-        onProcessed: info => console.log('heatmap data imported', info)
-      });
+      const hasFile = !!(fileInput?.files && fileInput.files[0]);
+      let forcedOverlay = false;
+      if(hasFile){
+        forcedOverlay = !!forceHeatmapOverlay('file-import-start', { message: 'Importing table data...' });
+      }
+      try{
+        const result = await tableImport.openFile(fileInput, {
+          hot: state.hot,
+          minCols: 2,
+          minRows: DEFAULT_ROWS,
+          scheduleDraw: () => {
+            markHeatmapOverlayPending('file-import');
+            state.scheduleDraw();
+          },
+          debugLabel: 'heatmap',
+          onProcessed: info => console.log('heatmap data imported', info)
+        });
+        if(!result && forcedOverlay){
+          resolveHeatmapOverlay('file-import-empty');
+        }
+      }catch(err){
+        if(forcedOverlay){
+          resolveHeatmapOverlay('file-import-error');
+        }
+        console.error('heatmap import failed', err);
+      }
     });
 
     const hotContainer = $('heatmapHot');
     if(hotContainer && Shared.tableImport && typeof Shared.tableImport.handlePaste === 'function'){
       hotContainer.addEventListener('paste', async evt => {
         console.debug('Debug: heatmap paste detected');
+        let forcedOverlay = false;
         try{
-          await Shared.tableImport.handlePaste(evt, state.hot, {
+          forcedOverlay = !!forceHeatmapOverlay('table-paste-start', { message: 'Processing pasted data...' });
+          const result = await Shared.tableImport.handlePaste(evt, state.hot, {
             minCols: 2,
             minRows: DEFAULT_ROWS,
-            scheduleDraw: () => state.scheduleDraw(),
+            scheduleDraw: () => {
+              markHeatmapOverlayPending('table-paste');
+              state.scheduleDraw();
+            },
             debugLabel: 'heatmap',
             onProcessed: info => console.log('heatmap paste processed', info)
           });
+          if(!result && forcedOverlay){
+            resolveHeatmapOverlay('table-paste-empty');
+          }
         }catch(err){
+          if(forcedOverlay){
+            resolveHeatmapOverlay('table-paste-error');
+          }
           console.error('heatmap paste error', err);
         }
       }, true);
@@ -3931,6 +4028,10 @@
       console.error('Invalid heatmap payload type', { type: obj.type, meta });
       return false;
     }
+    if(meta?.flagOverlay){
+      const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
+      markHeatmapOverlayPending(overlayReason);
+    }
     const matrix = Array.isArray(obj.data) ? obj.data : [];
     if(state.hot){
       state.hot.loadData(matrix);
@@ -3953,7 +4054,7 @@
     reader.onload = e => {
       try{
         const obj = JSON.parse(e.target.result);
-        if(!applyHeatmapPayload(obj, { source: 'file' })){
+        if(!applyHeatmapPayload(obj, { source: 'file', flagOverlay: true, overlayReason: 'graph-file' })){
           console.warn('heatmap payload rejected from file', { hasType: !!obj?.type });
         }
       }catch(err){
@@ -3963,8 +4064,8 @@
     reader.readAsText(file);
   };
 
-  heatmap.loadFromPayload = function loadHeatmapFromPayload(payload){
-    if(!applyHeatmapPayload(payload, { source: 'payload' })){
+  heatmap.loadFromPayload = function loadHeatmapFromPayload(payload, options = {}){
+    if(!applyHeatmapPayload(payload, { source: 'payload', ...options })){
       console.warn('heatmap payload application failed', { source: 'payload' });
     }
   };
@@ -4027,13 +4128,30 @@
     if(heatmapRenderButtonEl){
       heatmapRenderButtonEl.addEventListener('click', () => {
         debugLog('Debug: heatmap manual render button');
+        markHeatmapOverlayPending('manual-render');
         state.scheduleDraw({ force: true, reason: 'manual-render' });
       });
     }
     initHot();
     initControls();
     initFileButtons();
-    scheduleDrawHeatmapRaw = Shared.debounceFrame ? Shared.debounceFrame(draw) : draw;
+    const runHeatmapDrawCycle = () => {
+      let status = 'complete';
+      try{
+        draw();
+      }catch(err){
+        status = 'error';
+        throw err;
+      }finally{
+        resolveHeatmapOverlay(status);
+      }
+    };
+    const scheduleHeatmapBase = Shared.debounceFrame ? Shared.debounceFrame(runHeatmapDrawCycle) : runHeatmapDrawCycle;
+    const scheduleHeatmapInstrumented = (opts) => {
+      queueHeatmapOverlay(opts?.reason || 'schedule');
+      scheduleHeatmapBase(opts);
+    };
+    scheduleDrawHeatmapRaw = scheduleHeatmapInstrumented;
     debugLog('Debug: heatmap scheduler configured', { hasDebounce: !!Shared.debounceFrame });
     state.layout?.setScheduleDraw?.(() => state.scheduleDraw());
     state.layout?.syncPanels?.();

@@ -778,6 +778,72 @@
     lastApplied:null,
     context:null
   };
+  const scatterOverlayState = {
+    controller: null,
+    pendingReason: null,
+    activeReason: null,
+    forceActive: false
+  };
+
+  function markScatterOverlayPending(reason){
+    const label = reason || 'data-change';
+    scatterOverlayState.pendingReason = label;
+    scatterDebug('Debug: scatter overlay pending flagged', { reason: label });
+  }
+
+  function consumeScatterOverlayReason(){
+    const pending = scatterOverlayState.pendingReason;
+    scatterOverlayState.pendingReason = null;
+    return pending;
+  }
+
+  function getScatterLoadingController(){
+    if(scatterOverlayState.controller || !Shared.loadingOverlay?.createController){
+      return scatterOverlayState.controller;
+    }
+    scatterOverlayState.controller = Shared.loadingOverlay.createController({
+      component: 'scatter',
+      message: 'Rendering scatter plot...',
+      getHost: () => (
+        global.document?.getElementById?.('scatterGraphPanel')?.querySelector?.('.svgbox')
+        || global.document?.getElementById?.('scatterGraphPanel')
+      )
+    });
+    return scatterOverlayState.controller;
+  }
+
+  function queueScatterOverlay(reason, options = {}){
+    const controller = getScatterLoadingController();
+    if(!controller){
+      return false;
+    }
+    if(options.force){
+      scatterOverlayState.pendingReason = null;
+      scatterOverlayState.forceActive = true;
+      scatterOverlayState.activeReason = options.source || reason || 'forced';
+      controller.queue({ reason, source: scatterOverlayState.activeReason, message: options.message });
+      return true;
+    }
+    const pendingReason = consumeScatterOverlayReason();
+    if(!pendingReason){
+      scatterDebug('Debug: scatter overlay queue skipped',{ reason, pendingReason: null });
+      return false;
+    }
+    scatterOverlayState.activeReason = pendingReason;
+    controller.queue({ reason, source: pendingReason, message: options.message });
+    return true;
+  }
+
+  function resolveScatterOverlay(reason){
+    scatterOverlayState.activeReason = null;
+    scatterOverlayState.forceActive = false;
+    const controller = getScatterLoadingController();
+    controller?.resolve({ reason });
+  }
+
+  function forceScatterOverlay(reason, options = {}){
+    return queueScatterOverlay(reason, { ...options, force: true });
+  }
 
   function formatP(p){
     if(p === undefined || p === null || Number.isNaN(p)) return 'n/a';
@@ -951,6 +1017,7 @@
       if(scatterRenderButtonEl){
         scatterRenderButtonEl.addEventListener('click', () => {
           scatterDebug('Debug: scatter manual render button');
+          markScatterOverlayPending('manual-render');
           scheduleDrawScatter({ force: true, reason: 'manual-render' });
         });
       }
@@ -1117,14 +1184,22 @@
         const tableImport = Shared.tableImport;
         if(tableImport?.handlePaste && entry?.container && !entry.container.__scatterPasteBound){
           entry.container.addEventListener('paste',async e=>{
+            let forcedOverlay = false;
             try{
+              forcedOverlay = !!forceScatterOverlay('table-paste-start', { message: 'Processing pasted data...' });
               await tableImport.handlePaste(e, scatterHot, {
                 minCols: DEFAULT_COLS,
                 minRows: DEFAULT_ROWS,
-                scheduleDraw: scheduleDrawScatter,
+                scheduleDraw: () => {
+                  markScatterOverlayPending('table-paste');
+                  scheduleDrawScatter();
+                },
                 debugLabel: 'scatter'
               });
             }catch(err){
+              if(forcedOverlay){
+                resolveScatterOverlay('table-paste-error');
+              }
               console.error('scatter paste failed', err);
             }
           }, true);
@@ -1207,6 +1282,7 @@
         }else{
           dataset = scatterExamples[type] || scatterExamples.scatter;
         }
+        markScatterOverlayPending('example-data');
         scatterHot.loadData(dataset);
         if(type!=='scatter' && scatterFill && scatterFill.value && scatterFill.value.toLowerCase()==='#377eb8'){
           scatterFill.value=DEFAULT_NON_SIG_COLOR;
@@ -1224,13 +1300,35 @@
           console.warn('scatter import skipped: Shared.tableImport.openFile unavailable');
           return;
         }
-        tableImport.openFile(scatterFileInput, {
+        const hasFile = !!(scatterFileInput?.files && scatterFileInput.files[0]);
+        let forcedOverlay = false;
+        const ensureForcedOverlay = () => {
+          if(forcedOverlay){ return; }
+          forcedOverlay = !!forceScatterOverlay('file-import-start', { message: 'Importing table data...' });
+        };
+        if(hasFile){
+          ensureForcedOverlay();
+        }
+        const importPromise = tableImport.openFile(scatterFileInput, {
           hot: scatterHot,
           minCols: 4,
           minRows: DEFAULT_ROWS,
-          scheduleDraw: scheduleDrawScatter,
+          scheduleDraw: () => {
+            markScatterOverlayPending('file-import');
+            scheduleDrawScatter();
+          },
           debugLabel: 'scatter',
           onProcessed: info => console.log('scatter data imported',{rows: info?.rows, cols: info?.cols})
+        });
+        Promise.resolve(importPromise).then(result => {
+          if(!result && forcedOverlay){
+            resolveScatterOverlay('file-import-empty');
+          }
+        }).catch(err => {
+          if(forcedOverlay){
+            resolveScatterOverlay('file-import-error');
+          }
+          console.error('scatter import failed', err);
         });
       });
 
@@ -4581,7 +4679,23 @@
         syncScatterAutoDrawNoticeWidth('draw');
         info('scatter render complete with enhanced styles');
       }
-      scheduleDrawScatterRaw = Shared.debounceFrame ? Shared.debounceFrame(drawScatter) : drawScatter;
+      const runScatterDrawCycle = async () => {
+        let status = 'complete';
+        try{
+          await drawScatter();
+        }catch(err){
+          status = 'error';
+          throw err;
+        }finally{
+          resolveScatterOverlay(status);
+        }
+      };
+      const scheduleScatterBase = Shared.debounceFrame ? Shared.debounceFrame(runScatterDrawCycle) : runScatterDrawCycle;
+      const scheduleScatterInstrumented = (opts) => {
+        queueScatterOverlay(opts?.reason || 'schedule');
+        scheduleScatterBase(opts);
+      };
+      scheduleDrawScatterRaw = scheduleScatterInstrumented;
       if(scatterAutoDrawManager){
         scatterAutoDrawManager.setScheduleRaw(scheduleDrawScatterRaw);
         scatterAutoDrawManager.setElements({
@@ -4883,6 +4997,10 @@
           console.error('Invalid scatter payload type', { type: obj.type, meta });
           return false;
         }
+        if(meta?.flagOverlay){
+          const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
+          markScatterOverlayPending(overlayReason);
+        }
         const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
         if(scatterHot && typeof scatterHot.loadData === 'function'){
           scatterHot.loadData(dataMatrix);
@@ -5006,7 +5124,7 @@
         reader.onload=e=>{
           try{
             const obj=JSON.parse(e.target.result);
-            if(!applyScatterPayload(obj, { source: 'file' })){
+            if(!applyScatterPayload(obj, { source: 'file', flagOverlay: true, overlayReason: 'graph-file' })){
               console.warn('scatter payload rejected from file', { hasType: !!obj?.type });
             }
           }catch(err){console.error('loadScatterGraph error',err);}
@@ -5053,8 +5171,8 @@
     scatter.saveAs = saveAsScatterFile;
     scatter.open = openScatterFile;
     scatter.loadFromFile = loadScatterGraphFile;
-    scatter.loadFromPayload = function loadScatterFromPayload(payload){
-      if(!applyScatterPayload(payload, { source: 'payload' })){
+    scatter.loadFromPayload = function loadScatterFromPayload(payload, options = {}){
+      if(!applyScatterPayload(payload, { source: 'payload', ...options })){
         console.warn('scatter payload application failed', { source: 'payload' });
       }
     };

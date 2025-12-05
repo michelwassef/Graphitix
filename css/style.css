@@ -1537,6 +1537,12 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .stats-advisor__reset:hover,.stats-advisor__reset:focus-visible{background:#f1f5f9}
 #goOptsBtn,#stringOptsBtn{font-size:12px;padding:4px 6px}
 .svgbox{background:#ffffff;border:1.5px solid #c6cad1;border-radius:6px;padding:40px 14px 14px;margin:0 0 8px;box-shadow:none;position:relative;display:flex;flex-direction:column;min-width:var(--graph-min-width,192px);min-height:var(--graph-min-height,126px);width:min(100%,var(--graph-default-width,640px));height:auto;max-width:var(--graph-max-width,1920px);max-height:var(--graph-max-height,1260px);box-sizing:border-box;overflow:visible;flex:0 0 auto;aspect-ratio:var(--graph-aspect-ratio,1)}
+.venn-loading-host{position:relative}
+.venn-loading-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.65rem;background:rgba(255,255,255,0.86);backdrop-filter:blur(1.5px);border-radius:inherit;color:#0f172a;font-size:0.95rem;font-weight:600;text-align:center;padding:1.25rem;z-index:220;opacity:0;pointer-events:none;transition:opacity .15s ease}
+.venn-loading-overlay.is-visible{opacity:1;pointer-events:auto}
+.venn-loading-overlay__spinner{width:38px;height:38px;border-radius:50%;border:3px solid rgba(15,23,42,0.25);border-top-color:#2563eb;animation:venn-loading-spin .85s linear infinite}
+.venn-loading-overlay__message{font-size:.95rem;font-weight:500;color:#111b2c}
+@keyframes venn-loading-spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 .svgbox .resizer{position:absolute;z-index:40;background:rgba(0,0,0,0);touch-action:none}
 .svgbox .resizer-vertical{top:0;right:0;width:12px;height:100%;cursor:ew-resize}
 .svgbox .resizer-horizontal{bottom:0;left:0;height:12px;width:100%;cursor:ns-resize}

@@ -655,6 +655,74 @@
   }); // Debug: group label state bootstrap
 
   const refs = {};
+  const lineOverlayState = {
+    controller: null,
+    pendingReason: null,
+    activeReason: null,
+    forceActive: false
+  };
+
+  function markLineOverlayPending(reason){
+    const label = reason || 'data-change';
+    lineOverlayState.pendingReason = label;
+    lineDebug('Debug: line overlay pending flagged',{ reason: label });
+  }
+
+  function consumeLineOverlayReason(){
+    const pending = lineOverlayState.pendingReason;
+    lineOverlayState.pendingReason = null;
+    return pending;
+  }
+
+  function getLineLoadingController(){
+    if(lineOverlayState.controller || !Shared.loadingOverlay?.createController){
+      return lineOverlayState.controller;
+    }
+    lineOverlayState.controller = Shared.loadingOverlay.createController({
+      component: 'line',
+      message: 'Rendering line chart...',
+      getHost: () => (
+        refs.svgBox
+        || refs.graphPanel?.querySelector?.('.svgbox')
+        || global.document?.getElementById?.('lineGraphPanel')?.querySelector?.('.svgbox')
+        || global.document?.getElementById?.('lineGraphPanel')
+      )
+    });
+    return lineOverlayState.controller;
+  }
+
+  function queueLineOverlay(reason, options = {}){
+    const controller = getLineLoadingController();
+    if(!controller){
+      return false;
+    }
+    if(options.force){
+      lineOverlayState.pendingReason = null;
+      lineOverlayState.forceActive = true;
+      lineOverlayState.activeReason = options.source || reason || 'forced';
+      controller.queue({ reason, source: lineOverlayState.activeReason, message: options.message });
+      return true;
+    }
+    const pendingReason = consumeLineOverlayReason();
+    if(!pendingReason){
+      lineDebug('Debug: line overlay queue skipped', { reason, pendingReason: null });
+      return false;
+    }
+    lineOverlayState.activeReason = pendingReason;
+    controller.queue({ reason, source: pendingReason, message: options.message });
+    return true;
+  }
+
+  function resolveLineOverlay(reason){
+    lineOverlayState.activeReason = null;
+    lineOverlayState.forceActive = false;
+    const controller = getLineLoadingController();
+    controller?.resolve({ reason });
+  }
+
+  function forceLineOverlay(reason, options = {}){
+    return queueLineOverlay(reason, { ...options, force: true });
+  }
   let lineTooltipEl = null;
   let lineNoticeBoundWidth = null;
 
@@ -2262,6 +2330,51 @@
     return {method:label,r,p,slope,slopeLabel,regression:regressionModel};
   }
 
+  function captureLineRegressionSummaries(seriesList, options = {}){
+    if(!Array.isArray(seriesList) || !seriesList.length){
+      lineLastRegressionSummaries = [];
+      return;
+    }
+    const mode = options.mode || refs.regressionMode?.value || 'linear';
+    const summarize = typeof regressionTools.createSummary === 'function'
+      ? regressionTools.createSummary
+      : null;
+    const summaries = [];
+    seriesList.forEach(entry => {
+      if(!entry){
+        return;
+      }
+      let summary = null;
+      if(entry.regression){
+        if(summarize){
+          try{
+            summary = summarize(entry.regression);
+          }catch(err){
+            console.error('line regression summary build failed', err);
+            summary = {
+              metrics: entry.regression.metrics || null,
+              residuals: entry.regression.residuals || null,
+              diagnostics: entry.regression.diagnostics || null
+            };
+          }
+        }else{
+          summary = {
+            metrics: entry.regression.metrics || null,
+            residuals: entry.regression.residuals || null,
+            diagnostics: entry.regression.diagnostics || null
+          };
+        }
+      }
+      summaries.push({
+        name: entry.name || '',
+        mode,
+        summary
+      });
+    });
+    lineLastRegressionSummaries = summaries;
+    console.debug('Debug: line regression summaries captured',{ count: summaries.length, mode });
+  }
+
   function updateLineStats(series, options = {}){
     if(!refs.statType || !refs.statsResults) return;
     const jStatLib = global.jStat;
@@ -2640,6 +2753,10 @@
       console.error('Invalid line payload type', { type: obj.type, meta });
       return false;
     }
+    if(meta?.flagOverlay){
+      const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
+      markLineOverlayPending(overlayReason);
+    }
     console.debug('Debug: applyLineGraphPayload payload', obj);
     const c=obj.config||{};
     importFontStyles('line', c.fontStyles || null);
@@ -2787,7 +2904,7 @@
     reader.onload=e=>{
       try{
         const obj=JSON.parse(e.target.result);
-        if(!applyLineGraphPayload(obj, { source: 'file' })){
+        if(!applyLineGraphPayload(obj, { source: 'file', flagOverlay: true, overlayReason: 'graph-file' })){
           console.warn('line payload rejected from file', { hasType: !!obj?.type });
         }
       }catch(err){ console.error('loadLineGraph error',err); }
@@ -3946,6 +4063,7 @@
           regressionMode: regressionModeCurrent
         }
       });
+      captureLineRegressionSummaries(seriesWithData, { mode: regressionModeCurrent });
       ensureGraphViewport(svg, { padding: Math.max(fs, 16), debugLabel: 'line-graph' });
       lineLayout?.syncPanels?.({ skipSchedule: true });
       scheduleLineNoticeWidth('draw');
@@ -4485,18 +4603,29 @@
       const tableImport = Shared.tableImport;
       if(tableImport?.handlePaste && refs.hotContainer && !refs.hotContainer.__linePasteBound){
         refs.hotContainer.addEventListener('paste',async e=>{
+          let forcedOverlay = false;
           try{
+            forcedOverlay = !!forceLineOverlay('table-paste-start', { message: 'Processing pasted data...' });
             const result = await tableImport.handlePaste(e,lineHot,{
               minCols: LINE_DEFAULT_COLS,
               minRows: DEFAULT_ROWS,
-              scheduleDraw: scheduleLineDraw,
+              scheduleDraw: () => {
+                markLineOverlayPending('table-paste');
+                scheduleLineDraw();
+              },
               debugLabel: 'line',
               onProcessed: info => {
                 console.debug('Debug: line paste processed', info || {}); // Debug: paste processed callback
               }
             });
+            if(!result && forcedOverlay){
+              resolveLineOverlay('table-paste-empty');
+            }
             console.debug('Debug: line paste finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: paste finish trace
           }catch(err){
+            if(forcedOverlay){
+              resolveLineOverlay('table-paste-error');
+            }
             console.error('line paste failed',err);
           }
         });
@@ -4573,6 +4702,7 @@
       const isGroupedMode = refs.replicateMode?.value === 'grouped';
       const key = isGroupedMode ? 'groupedDoseResponse' : 'standard';
       const example=lineExamples[key]||lineExamples.standard;
+      markLineOverlayPending('example-data');
       applyLineReplicateChange(example.replicates,{
         dataOverride: example.data,
         sourceReplicates: example.replicates,
@@ -4602,20 +4732,34 @@
         return;
       }
       const fileName = e.target.files?.[0]?.name || '';
+      const hasFile = !!(e.target.files && e.target.files[0]);
+      let forcedOverlay = false;
+      if(hasFile){
+        forcedOverlay = !!forceLineOverlay('file-import-start', { message: 'Importing table data...' });
+      }
       console.debug('Debug: line import start',{fileName}); // Debug: import start trace
       try{
         const result = await tableImport.openFile(refs.fileInput,{
           hot: lineHot,
           minCols: LINE_DEFAULT_COLS,
           minRows: DEFAULT_ROWS,
-          scheduleDraw: scheduleLineDraw,
+          scheduleDraw: () => {
+            markLineOverlayPending('file-import');
+            scheduleLineDraw();
+          },
           debugLabel: 'line',
           onProcessed: info => {
             console.debug('Debug: line tableImport processed', info || {}); // Debug: processed callback
           }
         });
+        if(!result && forcedOverlay){
+          resolveLineOverlay('file-import-empty');
+        }
         console.debug('Debug: line import finished',{rows: result?.rows || 0, cols: result?.cols || 0}); // Debug: import finish trace
       }catch(err){
+        if(forcedOverlay){
+          resolveLineOverlay('file-import-error');
+        }
         console.error('line import failed',err);
       }
     });
@@ -4630,6 +4774,7 @@
     if(refs.renderButton){
       refs.renderButton.addEventListener('click', () => {
         lineDebug('Debug: line manual render button');
+        markLineOverlayPending('manual-render');
         scheduleLineDraw({ force: true, reason: 'manual-render' });
       });
     }
@@ -4791,7 +4936,23 @@
       }
     });
 
-    scheduleLineDrawRaw = Shared.debounceFrame ? Shared.debounceFrame(drawLine) : drawLine;
+    const runLineDrawCycle = () => {
+      let status = 'complete';
+      try{
+        drawLine();
+      }catch(err){
+        status = 'error';
+        throw err;
+      }finally{
+        resolveLineOverlay(status);
+      }
+    };
+    const scheduleLineBase = Shared.debounceFrame ? Shared.debounceFrame(runLineDrawCycle) : runLineDrawCycle;
+    const scheduleLineInstrumented = (opts) => {
+      queueLineOverlay(opts?.reason || 'schedule');
+      scheduleLineBase(opts);
+    };
+    scheduleLineDrawRaw = scheduleLineInstrumented;
     if(lineAutoDrawManager){
       lineAutoDrawManager.setScheduleRaw(scheduleLineDrawRaw);
       lineAutoDrawManager.setElements({
@@ -4832,8 +4993,8 @@
   line.saveAs = saveAsLineFile;
   line.open = openLineFile;
   line.loadFromFile = loadLineGraphFile;
-  line.loadFromPayload = function loadLineGraphFromPayload(payload){
-    if(!applyLineGraphPayload(payload, { source: 'payload' })){
+  line.loadFromPayload = function loadLineGraphFromPayload(payload, options = {}){
+    if(!applyLineGraphPayload(payload, { source: 'payload', ...options })){
       console.warn('line payload application failed', { source: 'payload' });
     }
   };
