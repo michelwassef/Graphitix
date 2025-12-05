@@ -4920,7 +4920,21 @@
       }else{
         queueLineOverlay(overlayReason);
       }
-      scheduleLineBase(nextOpts);
+      const runSchedule = () => scheduleLineBase(nextOpts);
+      const shouldDelayForOverlay = lineOverlayController?.isActive?.() && !nextOpts.viewOnly;
+      if(shouldDelayForOverlay){
+        const scheduleAfterPaint = () => {
+          lineDebug('Debug: line autoDraw deferred for overlay',{ reason: overlayReason });
+          runSchedule();
+        };
+        if(typeof global.requestAnimationFrame === 'function'){
+          global.requestAnimationFrame(scheduleAfterPaint);
+        }else{
+          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
+        }
+        return;
+      }
+      runSchedule();
     };
     scheduleLineDrawRaw = scheduleLineInstrumented;
     if(lineAutoDrawManager){

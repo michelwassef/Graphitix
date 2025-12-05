@@ -6069,7 +6069,21 @@
       }else{
         queuePcaOverlay(overlayReason);
       }
-      schedulePcaBase(nextOpts);
+      const runSchedule = () => schedulePcaBase(nextOpts);
+      const shouldDelayForOverlay = pcaOverlayController?.isActive?.() && !nextOpts.viewOnly;
+      if(shouldDelayForOverlay){
+        const scheduleAfterPaint = () => {
+          debugLog('Debug: pca autoDraw deferred for overlay',{ reason: overlayReason });
+          runSchedule();
+        };
+        if(typeof global.requestAnimationFrame === 'function'){
+          global.requestAnimationFrame(scheduleAfterPaint);
+        }else{
+          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
+        }
+        return;
+      }
+      runSchedule();
     };
     scheduleDrawPcaRaw = schedulePcaInstrumented;
     pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
