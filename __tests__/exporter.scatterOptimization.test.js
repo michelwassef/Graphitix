@@ -1,7 +1,7 @@
 /**
  * Tests for scatter SVG export optimization.
- * Validates that large scatter datasets are optimized using symbol/use patterns
- * to reduce SVG file size.
+ * Validates that large scatter datasets are optimized using path-based circle
+ * representation to reduce SVG file size.
  */
 
 describe('Scatter SVG export optimization', () => {

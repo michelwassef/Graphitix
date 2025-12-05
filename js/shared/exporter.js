@@ -238,21 +238,17 @@
    * @param {number} cx - Center x coordinate
    * @param {number} cy - Center y coordinate  
    * @param {number} r - Radius
-   * @param {boolean} isFirst - Whether this is the first circle (needs M command)
    * @returns {string} - Path data for the circle
    */
-  function circleToPathData(cx, cy, r, isFirst = true) {
+  function circleToPathData(cx, cy, r) {
     // Draw circle using two arcs: move to left edge, arc to right, arc back to left
-    // Format: M(cx-r),cy a r,r 0 1,0 2r,0 a r,r 0 1,0 -2r,0
-    // Optimizations:
-    // - Use 'M' only for first circle, others use 'm' (absolute move still needed for each)
-    // - Spaces can be omitted when unambiguous (after letters, between negative numbers)
+    // Format: M(cx-r) cy a r r 0 1 0 2r 0 a r r 0 1 0 -2r 0
     const left = roundCoord(cx - r);
     const diameter = roundCoord(r * 2);
     const negDiameter = roundCoord(-r * 2);
     const rStr = roundCoord(r);
     const cyStr = roundCoord(cy);
-    // Compact format: remove spaces where allowed
+    // Compact format: spaces between numbers where needed for parsing
     return `M${left} ${cyStr}a${rStr} ${rStr} 0 1 0 ${diameter} 0a${rStr} ${rStr} 0 1 0 ${negDiameter} 0`;
   }
 
@@ -279,7 +275,6 @@
       optimized: false,
       originalCount: 0,
       optimizedCount: 0,
-      symbolsCreated: 0,
       groupsCreated: 0,
       estimatedSavingsPercent: 0
     };
