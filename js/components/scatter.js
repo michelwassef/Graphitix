@@ -4767,7 +4767,21 @@
         }else{
           queueScatterOverlay(overlayReason);
         }
-        scheduleScatterBase(nextOpts);
+        const runSchedule = () => scheduleScatterBase(nextOpts);
+        const shouldDelayForOverlay = scatterOverlayController?.isActive?.() && !nextOpts.viewOnly;
+        if(shouldDelayForOverlay){
+          const scheduleAfterPaint = () => {
+            scatterDebug('Debug: scatter autoDraw deferred for overlay',{ reason: overlayReason });
+            runSchedule();
+          };
+          if(typeof global.requestAnimationFrame === 'function'){
+            global.requestAnimationFrame(scheduleAfterPaint);
+          }else{
+            (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
+          }
+          return;
+        }
+        runSchedule();
       };
       scheduleDrawScatterRaw = scheduleScatterInstrumented;
       if(scatterAutoDrawManager){
