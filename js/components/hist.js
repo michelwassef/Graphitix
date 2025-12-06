@@ -1698,21 +1698,7 @@
       }else{
         queueHistOverlay(overlayReason);
       }
-      const runSchedule = () => scheduleHistBase(nextOpts);
-      const shouldDelayForOverlay = histOverlayController?.isActive?.() && !nextOpts.viewOnly;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          console.debug('Debug: hist autoDraw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
-        };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
-        }
-        return;
-      }
-      runSchedule();
+      scheduleHistBase(nextOpts);
     };
     scheduleDrawHistRaw = scheduleHistInstrumented;
     if(histAutoDrawManager){

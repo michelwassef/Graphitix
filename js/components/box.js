@@ -9586,21 +9586,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }else{
         queueBoxLoading(overlayReason);
       }
-      const runSchedule = () => scheduleBoxDrawBase(nextOpts);
-      const shouldDelayForOverlay = boxOverlayController?.isActive?.() && !nextOpts.viewOnly;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          boxDebug('Debug: box autoDraw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
-        };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
-        }
-        return;
-      }
-      runSchedule();
+      scheduleBoxDrawBase(nextOpts);
     };
     scheduleDrawBoxRaw = scheduleBoxDrawInstrumented;
     if(boxAutoDrawManager){
