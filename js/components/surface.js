@@ -1399,21 +1399,7 @@
       }else{
         queueSurfaceOverlay(overlayReason);
       }
-      const runSchedule = () => scheduleSurfaceDrawBase(nextOpts);
-      const shouldDelayForOverlay = surfaceOverlayController?.isActive?.() && !nextOpts.viewOnly;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          debugLog('Debug: surface autoDraw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
-        };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
-        }
-        return;
-      }
-      runSchedule();
+      scheduleSurfaceDrawBase(nextOpts);
     };
     scheduleDrawSurfaceRaw = scheduleSurfaceDrawInstrumented;
     if(surfaceAutoDrawManager){

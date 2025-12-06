@@ -2224,21 +2224,7 @@
       }else{
         queueRocOverlay(overlayReason);
       }
-      const runSchedule = () => scheduleRocDrawBase(nextOpts);
-      const shouldDelayForOverlay = rocOverlayController?.isActive?.() && !nextOpts.viewOnly;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          console.debug('Debug: roc autoDraw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
-        };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
-        }
-        return;
-      }
-      runSchedule();
+      scheduleRocDrawBase(nextOpts);
     };
     scheduleDrawRocRaw = scheduleRocDrawInstrumented;
     if(!rocAutoDrawManager && Shared.hot?.createAutoDrawManager){
