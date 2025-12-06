@@ -66,6 +66,8 @@
 
   const SCATTER_DENSITY_RAMPS = Object.freeze({
     viridis: Object.freeze(['#440154','#482777','#3f4a8a','#31688e','#26838f','#1f9d8a','#6cce5a','#b6de2b','#fee825']),
+    turbo: Object.freeze(['#30123b','#4145ab','#4675e7','#2fb5f4','#14cdd4','#34d35c','#8fd625','#f9e524','#fca108','#f1605d','#b91372']),
+    inferno: Object.freeze(['#000004','#1b0c41','#4a0c6b','#781c6d','#a52c5f','#cf4446','#ef6a32','#fb9b06','#f7d13d','#fcffa4']),
     magma: Object.freeze(['#000004','#1c1044','#4f127b','#812581','#b5367a','#e65164','#fb8761','#febb78','#fcfdbf']),
     plasma: Object.freeze(['#0d0887','#5b02a3','#9a179b','#cb4679','#ed7953','#fb9f3a','#fdca26','#f0f921']),
     cividis: Object.freeze(['#00204c','#11306b','#364f8a','#566f9e','#7a90a5','#a6bda9','#d4e7b0','#f6fbd1']),
