@@ -1296,7 +1296,7 @@
       const scatterThresholdControls=$('#scatterThresholdControls');
       const scatterLog2FCThreshold=$('#scatterLog2FCThreshold');
       const scatterNegLogPThreshold=$('#scatterNegLogPThreshold');
-      const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterAlpha=$('#scatterAlpha');
+      const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterShowPlotStats=$('#scatterShowPlotStats'), scatterAlpha=$('#scatterAlpha');
       const scatterColorMode=$('#scatterColorMode');
       const scatterDensityPalette=$('#scatterDensityPalette');
       const scatterDensityPaletteRow=$('#scatterDensityPaletteRow');
@@ -1797,6 +1797,12 @@
             scatterShowLine.checked = false;
           }
         }
+        if(scatterShowPlotStats){
+          scatterShowPlotStats.disabled = disableRegression;
+          if(disableRegression && scatterShowPlotStats.checked){
+            scatterShowPlotStats.checked = false;
+          }
+        }
         if(scatterShowIntervals){
           scatterShowIntervals.disabled = disableRegression;
           if(disableRegression && scatterShowIntervals.checked){
@@ -2108,6 +2114,12 @@
             scatterShowLine.checked=false;
           }
         }
+        if(scatterShowPlotStats){
+          scatterShowPlotStats.disabled=disableRegressionControls;
+          if(disableRegressionControls && scatterShowPlotStats.checked){
+            scatterShowPlotStats.checked=false;
+          }
+        }
         if(scatterShowIntervals){
           scatterShowIntervals.disabled=disableRegressionControls;
         }
@@ -2153,6 +2165,7 @@
           statsMethod: scatterStatType?.value || 'pearson',
           regressionMode: scatterRegressionMode?.value || 'linear',
           showLine: !!scatterShowLine?.checked,
+          showLineStats: !!scatterShowPlotStats?.checked,
           showIntervals: !!scatterShowIntervals?.checked,
           showDiagnostics: !!scatterShowDiagnostics?.checked,
           logX: !!scatterLogX?.checked,
@@ -2323,6 +2336,7 @@
           statsMethod:context.statsMethod || 'pearson',
           regression:context.regressionMode || 'linear',
           showLine:context.showLine,
+          showLineStats:context.showLineStats,
           showIntervals:context.showIntervals,
           showDiagnostics:context.showDiagnostics
         };
@@ -2574,6 +2588,9 @@
               if(scatterShowLine){
                 scatterShowLine.checked=!!recommendation.showLine;
               }
+              if(scatterShowPlotStats && typeof recommendation.showLineStats === 'boolean'){
+                scatterShowPlotStats.checked=recommendation.showLineStats;
+              }
               if(scatterShowIntervals){
                 scatterShowIntervals.checked=!!recommendation.showIntervals;
               }
@@ -2677,7 +2694,7 @@
         chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
         scheduleDrawScatter();
       });
-      [scatterShowGrid,scatterStatType,scatterOriginMode,scatterShowLine,scatterShowIntervals,scatterShowDiagnostics]
+      [scatterShowGrid,scatterStatType,scatterOriginMode,scatterShowLine,scatterShowPlotStats,scatterShowIntervals,scatterShowDiagnostics]
         .forEach(el=>el&&el.addEventListener('change',()=>{
           console.debug('Debug: scatter config changed', { id: el.id, checked: el.checked, value: el.value });
           if(el===scatterOriginMode){
@@ -3090,6 +3107,7 @@
         let showLegend = scatterShowLegend ? scatterShowLegend.checked : true;
         debug('Debug: scatter legend toggle state',{ showLegend });
         let showLine=scatterShowLine.checked;
+        let showLineStats = scatterShowPlotStats ? scatterShowPlotStats.checked : false;
         const showIntervals = !!(scatterShowIntervals && scatterShowIntervals.checked);
         const showDiagnostics = !!(scatterShowDiagnostics && scatterShowDiagnostics.checked);
         const graphType=scatterGraphTypeSelect?.value || 'scatter';
@@ -3105,6 +3123,9 @@
           if(showLine){
             showLine=false;
           }
+          if(showLineStats){
+            showLineStats=false;
+          }
         }
         const logX=allowLogAxes && scatterLogX ? scatterLogX.checked : false;
         const logY=allowLogAxes && scatterLogY ? scatterLogY.checked : false;
@@ -3114,11 +3135,17 @@
             scatterShowLine.checked=false;
           }
         }
+        if(scatterShowPlotStats){
+          scatterShowPlotStats.disabled=!allowLogAxes;
+          if(!allowLogAxes && scatterShowPlotStats.checked){
+            scatterShowPlotStats.checked=false;
+          }
+        }
         debug('Debug: scatter graph type resolved',{graphType,allowLogAxes,logX,logY});
         if(!allowLogAxes){
           debug('Debug: scatter forcing trend line off',{graphType});
         }
-        debug('Debug: scatter regression toggles', { showLine, showIntervals, showDiagnostics });
+        debug('Debug: scatter regression toggles', { showLine, showLineStats, showIntervals, showDiagnostics });
         info('drawScatter dot size', dotSizeRaw);
         const log2fcThresholdValue=parseFloat(scatterLog2FCThreshold?.value);
         const negLogPThresholdValue=parseFloat(scatterNegLogPThreshold?.value);
@@ -4523,9 +4550,17 @@
             statsPayloadBase.precomputedStats=cachedContext.precomputedStats;
             statsPayloadBase.precomputedSignature=cachedContext.precomputedSignature || getScatterStatsControlSignature();
           }
-          if(showLine && visualStats){
+          if(visualStats?.regression){
+            scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function'
+              ? regressionTools.createSummary(visualStats.regression)
+              : null;
+          }else{
+            scatterLastRegressionSummary = null;
+          }
+          const shouldRenderTrend = showLine && visualStats;
+          const shouldRenderStatsOverlay = showLineStats && visualStats;
+          if(shouldRenderTrend){
             const regressionModel = visualStats.regression;
-            scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(regressionModel) : null;
             if(regressionModel){
               const intervalSamplesRaw = Array.isArray(regressionModel.intervals?.samples) ? regressionModel.intervals.samples.slice() : [];
               const intervalSamples = intervalSamplesRaw.sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
@@ -4620,39 +4655,43 @@
               }else{
                 debug('Debug: scatter regression path skipped',{ mode: regressionModel.mode, pathCommands: pathCommands.length });
               }
-              const infoLines=[];
-              if(regressionModel?.summary?.equation){
-                infoLines.push(regressionModel.summary.equation);
-              }else if(Number.isFinite(visualStats.m) && Number.isFinite(visualStats.b)){
-                const eq=`y=${visualStats.m.toFixed(2)}x${visualStats.b>=0?'+':'-'}${Math.abs(visualStats.b).toFixed(2)}`;
-                infoLines.push(eq);
-              }
-              infoLines.push(`r=${formatMetricValue(visualStats.r,2)} R²=${formatMetricValue(visualStats.r2,2)} p=${formatP(visualStats.p)}`);
-              if(regressionModel?.metrics){
-                if(Number.isFinite(regressionModel.metrics.rmse) || Number.isFinite(regressionModel.metrics.mae)){
-                  infoLines.push(`RMSE=${formatMetricValue(regressionModel.metrics.rmse,3)} MAE=${formatMetricValue(regressionModel.metrics.mae,3)}`);
-                }
-              }
-              const infoX=margin.left+plotW-4;
-              const slopeCandidate=Number.isFinite(visualStats.m)?visualStats.m:0;
-              const infoY=slopeCandidate>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
-              const infoText=add('text',{x:infoX,y:infoY,'text-anchor':'end','font-size':fs,fill:'#000'});
-              infoLines.forEach((line,lineIdx)=>{
-                const t=document.createElementNS(NS,'tspan');
-                t.setAttribute('x',infoX);
-                t.setAttribute('dy',lineIdx===0?0:fs);
-                t.textContent=line;
-                infoText.appendChild(t);
-              });
-              info('scatter stats (visual)',{ stats: visualStats, regressionSummary: scatterLastRegressionSummary });
             }else{
               debug('Debug: scatter regression trend omitted',{ showLine, hasModel: !!regressionModel });
             }
           }else{
-            scatterLastRegressionSummary=null;
             if(showLine && !visualStats){
               debug('Debug: scatter regression trend omitted',{ showLine, reason:'stats-not-computed' });
             }
+          }
+          if(shouldRenderStatsOverlay){
+            const regressionModel = visualStats.regression;
+            const infoLines=[];
+            if(regressionModel?.summary?.equation){
+              infoLines.push(regressionModel.summary.equation);
+            }else if(Number.isFinite(visualStats.m) && Number.isFinite(visualStats.b)){
+              const eq=`y=${visualStats.m.toFixed(2)}x${visualStats.b>=0?'+':'-'}${Math.abs(visualStats.b).toFixed(2)}`;
+              infoLines.push(eq);
+            }
+            infoLines.push(`r=${formatMetricValue(visualStats.r,2)} R²=${formatMetricValue(visualStats.r2,2)} p=${formatP(visualStats.p)}`);
+            if(regressionModel?.metrics){
+              if(Number.isFinite(regressionModel.metrics.rmse) || Number.isFinite(regressionModel.metrics.mae)){
+                infoLines.push(`RMSE=${formatMetricValue(regressionModel.metrics.rmse,3)} MAE=${formatMetricValue(regressionModel.metrics.mae,3)}`);
+              }
+            }
+            const infoX=margin.left+plotW-4;
+            const slopeCandidate=Number.isFinite(visualStats.m)?visualStats.m:0;
+            const infoY=slopeCandidate>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
+            const infoText=add('text',{x:infoX,y:infoY,'text-anchor':'end','font-size':fs,fill:'#000'});
+            infoLines.forEach((line,lineIdx)=>{
+              const t=document.createElementNS(NS,'tspan');
+              t.setAttribute('x',infoX);
+              t.setAttribute('dy',lineIdx===0?0:fs);
+              t.textContent=line;
+              infoText.appendChild(t);
+            });
+            info('scatter stats (visual)',{ stats: visualStats, regressionSummary: scatterLastRegressionSummary });
+          }else if(showLineStats && !visualStats){
+            debug('Debug: scatter stats overlay omitted',{ reason:'stats-not-computed' });
           }
           statsContextPayload=statsPayloadBase;
         }else{
@@ -4940,6 +4979,7 @@
             originX:scatterOriginX.value,
             originY:scatterOriginY.value,
             showLine:scatterShowLine.checked,
+            showPlotStats:scatterShowPlotStats ? scatterShowPlotStats.checked : false,
             showIntervals:scatterShowIntervals ? scatterShowIntervals.checked : false,
             showDiagnostics:scatterShowDiagnostics ? scatterShowDiagnostics.checked : false,
             graphType:scatterGraphTypeSelect?.value || 'scatter',
@@ -5087,6 +5127,9 @@
         scatterOriginX.value=c.originX||'';
         scatterOriginY.value=c.originY||'';
         scatterShowLine.checked=!!c.showLine;
+        if(scatterShowPlotStats){
+          scatterShowPlotStats.checked = typeof c.showPlotStats === 'boolean' ? c.showPlotStats : !!c.showLine;
+        }
         if(scatterShowIntervals){
           scatterShowIntervals.checked=!!c.showIntervals;
         }
