@@ -3033,7 +3033,7 @@
       let scatterXLabelText='X';
       let scatterYLabelText='Y';
       let scatterZLabelText='Z';
-      let scatterLabelPositions = { title: null, xLabel: null, yLabel: null };
+      let scatterLabelPositions = { title: null, xLabel: null, yLabel: null, stats: null };
       async function drawScatter(){
         const debugEnabled = typeof Shared.isDebugEnabled === 'function' ? Shared.isDebugEnabled() : false;
         const debug = debugEnabled ? console.debug.bind(console) : () => {};
@@ -4673,22 +4673,30 @@
               infoLines.push(eq);
             }
             infoLines.push(`r=${formatMetricValue(visualStats.r,2)} R²=${formatMetricValue(visualStats.r2,2)} p=${formatP(visualStats.p)}`);
-            if(regressionModel?.metrics){
-              if(Number.isFinite(regressionModel.metrics.rmse) || Number.isFinite(regressionModel.metrics.mae)){
-                infoLines.push(`RMSE=${formatMetricValue(regressionModel.metrics.rmse,3)} MAE=${formatMetricValue(regressionModel.metrics.mae,3)}`);
-              }
-            }
-            const infoX=margin.left+plotW-4;
+            const statsFontSize = Math.max(Math.round(fs * 0.65), 7);
+            const statsPos = scatterLabelPositions?.stats || null;
+            const defaultInfoX=margin.left+plotW-4;
             const slopeCandidate=Number.isFinite(visualStats.m)?visualStats.m:0;
-            const infoY=slopeCandidate>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
-            const infoText=add('text',{x:infoX,y:infoY,'text-anchor':'end','font-size':fs,fill:'#000'});
+            const defaultInfoY=slopeCandidate>=0?margin.top+plotH-(fs*2):margin.top+fs*2;
+            const infoX=Number.isFinite(statsPos?.x)?statsPos.x:defaultInfoX;
+            const infoY=Number.isFinite(statsPos?.y)?statsPos.y:defaultInfoY;
+            const infoText=add('text',{x:infoX,y:infoY,'text-anchor':'start','font-size':statsFontSize,fill:'#000'});
             infoLines.forEach((line,lineIdx)=>{
               const t=document.createElementNS(NS,'tspan');
-              t.setAttribute('x',infoX);
-              t.setAttribute('dy',lineIdx===0?0:fs);
+              t.setAttribute('dy',lineIdx===0?0:statsFontSize);
+              t.setAttribute('x', String(infoX));
               t.textContent=line;
               infoText.appendChild(t);
             });
+            if(typeof Shared.enableLabelDrag === 'function'){
+              Shared.enableLabelDrag(infoText, svg, {
+                syncChildX: true,
+                onDragEnd: pos => {
+                  scatterLabelPositions.stats = { x: pos.x, y: pos.y };
+                  console.debug('Debug: scatter stats overlay position saved', pos);
+                }
+              });
+            }
             info('scatter stats (visual)',{ stats: visualStats, regressionSummary: scatterLastRegressionSummary });
           }else if(showLineStats && !visualStats){
             debug('Debug: scatter stats overlay omitted',{ reason:'stats-not-computed' });
@@ -5194,7 +5202,8 @@
           scatterLabelPositions = {
             title: c.labelPositions.title || null,
             xLabel: c.labelPositions.xLabel || null,
-            yLabel: c.labelPositions.yLabel || null
+            yLabel: c.labelPositions.yLabel || null,
+            stats: c.labelPositions.stats || null
           };
         }
         syncScatterGraphTypeUI();

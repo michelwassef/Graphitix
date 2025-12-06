@@ -1355,12 +1355,58 @@
       logDebug('enableLabelDrag skipped', { hasElement: !!el, hasSvg: !!svg });
       return;
     }
-    const { onDragEnd, onDragStart, cursor = 'move' } = options;
+    const { onDragEnd, onDragStart, cursor = 'move', syncChildX = false } = options;
     let dragging = false;
     let startPoint = { x: 0, y: 0 };
     let origPos = { x: 0, y: 0 };
+    const CAPTURE_ATTR = 'dragXOffset';
 
     el.style.cursor = cursor;
+
+    const datasetKey = `data-${CAPTURE_ATTR.replace(/([A-Z])/g,'-$1').toLowerCase()}`;
+    const getChildOffset = (child) => {
+      if(!child){ return NaN; }
+      const raw = child.dataset ? child.dataset[CAPTURE_ATTR] : child.getAttribute(datasetKey);
+      return Number(raw);
+    };
+    const setChildOffset = (child, offset) => {
+      if(!child){ return; }
+      if(child.dataset){
+        child.dataset[CAPTURE_ATTR] = String(offset);
+      }else{
+        child.setAttribute(datasetKey, String(offset));
+      }
+    };
+
+    const applyChildAnchors = (baseX) => {
+      if(!syncChildX){
+        return;
+      }
+      try{
+        Array.from(el.children || []).forEach(child => {
+          const offset = getChildOffset(child);
+          if(Number.isFinite(offset)){
+            child.setAttribute('x', String(baseX + offset));
+          }
+        });
+      }catch(err){
+        logDebug('enableLabelDrag applyChildAnchors error', { message: err?.message });
+      }
+    };
+
+    const captureChildAnchors = () => {
+      if(!syncChildX){
+        return;
+      }
+      Array.from(el.children || []).forEach(child => {
+        if(!child || typeof child.getAttribute !== 'function'){
+          return;
+        }
+        const childX = parseFloat(child.getAttribute('x'));
+        const offset = Number.isFinite(childX) ? childX - origPos.x : 0;
+        setChildOffset(child, offset);
+      });
+    };
 
     const getTransformedPoint = (clientX, clientY) => {
       try {
@@ -1389,6 +1435,7 @@
         x: parseFloat(el.getAttribute('x') || '0'),
         y: parseFloat(el.getAttribute('y') || '0')
       };
+      captureChildAnchors();
       e.preventDefault();
       e.stopPropagation();
       if (typeof onDragStart === 'function') {
@@ -1404,6 +1451,7 @@
       const newY = origPos.y + (loc.y - startPoint.y);
       el.setAttribute('x', String(newX));
       el.setAttribute('y', String(newY));
+      applyChildAnchors(newX);
       // Update transform for rotated elements (like y-axis labels)
       const transform = el.getAttribute('transform');
       if (transform && transform.includes('rotate')) {
@@ -1432,6 +1480,7 @@
           try {
             el.setAttribute('x', String(pos.x));
             el.setAttribute('y', String(pos.y));
+            applyChildAnchors(pos.x);
             const currentTransform = el.getAttribute('transform');
             if (currentTransform && currentTransform.includes('rotate')) {
               const rotateMatch = currentTransform.match(/rotate\s*\(\s*(-?\d+\.?\d*)\s*/);
