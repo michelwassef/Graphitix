@@ -1304,6 +1304,12 @@
       let scatterColorModeApplied = 'solid';
       let scatterColorModeDesired = SCATTER_DENSITY_MODE_DEFAULT;
       const scatterShowIntervals=$('#scatterShowIntervals');
+      const scatterStatsRegressionOptionsRow=(scatterShowIntervals||scatterShowLine)?.closest('.config-panel__line--checkboxes')||null;
+      if(scatterStatsRegressionOptionsRow){
+        scatterStatsRegressionOptionsRow.hidden=true;
+        scatterStatsRegressionOptionsRow.style.display='none';
+        scatterStatsRegressionOptionsRow.setAttribute('aria-hidden','true');
+      }
       let scatterShowDiagnostics=$('#scatterShowDiagnostics');
       if(scatterShowDiagnostics){
         const diagLabel=scatterShowDiagnostics.closest('label')||scatterShowDiagnostics.parentElement;
@@ -1371,6 +1377,31 @@
         if(config && typeof config.label==='string' && config.label){
           scatterStatsButton.textContent=config.label;
         }
+      }
+
+      function scatterHasComputedStats(){
+        const context = scatterState.statsContext;
+        if(!context || context.graphType!=='scatter'){
+          return false;
+        }
+        if(!context.precomputedStats){
+          return false;
+        }
+        if(scatterState.statsComputationPending){
+          return false;
+        }
+        return scatterState.statsContextVersion>0
+          && scatterState.statsLastRunVersion===scatterState.statsContextVersion;
+      }
+
+      function syncScatterRegressionOptionVisibility(){
+        if(!scatterStatsRegressionOptionsRow){
+          return;
+        }
+        const shouldShow=scatterHasComputedStats();
+        scatterStatsRegressionOptionsRow.hidden=!shouldShow;
+        scatterStatsRegressionOptionsRow.style.display=shouldShow?'':'none';
+        scatterStatsRegressionOptionsRow.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
       }
 
       function summarizeScatterPoints(points){
@@ -1459,6 +1490,7 @@
           clearScatterStatsOutputs(options.placeholder || 'Add data to enable statistics.');
           setScatterStatsStatus('');
           updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
+          syncScatterRegressionOptionVisibility();
           return;
         }
         const signature=buildScatterStatsSignature(context);
@@ -1471,6 +1503,9 @@
         }
         scatterState.statsContextSignature=signature;
         scatterState.statsContext={ ...context, version: scatterState.statsContextVersion };
+        if(!changed && context.graphType==='scatter' && !context.precomputedStats){
+          scatterState.statsLastRunVersion=0;
+        }
         if(changed){
           clearScatterStatsOutputs(options.placeholder || scatterStatsPlaceholder);
           setScatterStatsStatus('Statistics ready to calculate.');
@@ -1482,6 +1517,7 @@
           setScatterStatsStatus('Statistics ready to calculate.');
           updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
         }
+        syncScatterRegressionOptionVisibility();
       }
 
       function requestScatterStatsContextRefresh(reason){
@@ -1490,6 +1526,7 @@
           clearScatterStatsOutputs(scatterStatsPlaceholder);
           setScatterStatsStatus('');
           updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
+          syncScatterRegressionOptionVisibility();
           console.debug('Debug: scatter stats context refresh skipped',{ reason, hasContext:false });
           return false;
         }
@@ -1519,6 +1556,9 @@
           scatterState.statsLastRunVersion=context.version;
           setScatterStatsStatus('Statistics up to date.');
           updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
+          if(typeof scheduleDrawScatter === 'function'){
+            scheduleDrawScatter({ reason:'scatter-stats-updated' });
+          }
         }catch(err){
           console.error('scatter stats computation failed',err);
           if(scatterStatsResults){
@@ -1528,6 +1568,7 @@
           updateScatterStatsButtonState({ disabled:false, label:'Calculate statistics' });
         }finally{
           scatterState.statsComputationPending=false;
+          syncScatterRegressionOptionVisibility();
         }
       }
 
@@ -1688,6 +1729,7 @@
       clearScatterStatsOutputs(scatterStatsPlaceholder);
       setScatterStatsStatus('');
       updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
+      syncScatterRegressionOptionVisibility();
 
       const scatterSelects=[
         scatterGraphTypeSelect,
@@ -2990,14 +3032,6 @@
         const token=++scatterDrawToken; // debug token for cancellation
         info('drawScatter called',{token});
         let statsContextPayload=null;
-        scatterState.statsContext=null;
-        scatterState.statsContextSignature=null;
-        scatterState.statsContextVersion=0;
-        scatterState.statsLastRunVersion=0;
-        scatterState.statsComputationPending=false;
-        clearScatterStatsOutputs(scatterStatsPlaceholder);
-        setScatterStatsStatus('');
-        updateScatterStatsButtonState({ disabled:true, label:'Calculate statistics' });
         scatterState.rotationPending = false;
         scatterState.rotationPendingLogged = false;
         hideScatterTooltip('draw-start');
@@ -4461,11 +4495,31 @@
           });
         }
         if(scatterCurrentGraphType==='scatter'){
-          const regressionModeValue = scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
+          const statsPoints=points.map(p=>({ x:p.x, y:p.y }));
+          const statsPointSummary=summarizeScatterPoints(statsPoints);
+          const statsPayloadBase={
+            graphType:'scatter',
+            points:statsPoints,
+            pointSummary:statsPointSummary,
+            domain:{ minX:xMin, maxX:xMax },
+            thresholds:null,
+            significance:null,
+            precomputedStats:null,
+            precomputedSignature:null
+          };
+          const nextStatsSignature=buildScatterStatsSignature(statsPayloadBase);
+          const cachedContext=scatterState.statsContext;
+          const canReuseStats=scatterHasComputedStats()
+            && typeof scatterState.statsContextSignature==='string'
+            && scatterState.statsContextSignature===nextStatsSignature
+            && !!cachedContext?.precomputedStats;
           let visualStats=null;
-          if(showLine){
-            visualStats=computeScatterStats(points,method,{ regressionMode: regressionModeValue, domain: { minX: xMin, maxX: xMax } });
-            if(token!==scatterDrawToken){info('scatter draw cancelled before stats',{token});return;}
+          if(canReuseStats){
+            visualStats=cachedContext.precomputedStats;
+            statsPayloadBase.precomputedStats=cachedContext.precomputedStats;
+            statsPayloadBase.precomputedSignature=cachedContext.precomputedSignature || getScatterStatsControlSignature();
+          }
+          if(showLine && visualStats){
             const regressionModel = visualStats.regression;
             scatterLastRegressionSummary = typeof regressionTools.createSummary === 'function' ? regressionTools.createSummary(regressionModel) : null;
             if(regressionModel){
@@ -4592,18 +4646,11 @@
             }
           }else{
             scatterLastRegressionSummary=null;
+            if(showLine && !visualStats){
+              debug('Debug: scatter regression trend omitted',{ showLine, reason:'stats-not-computed' });
+            }
           }
-          const statsPoints=points.map(p=>({ x:p.x, y:p.y }));
-          statsContextPayload={
-            graphType:'scatter',
-            points:statsPoints,
-            pointSummary:summarizeScatterPoints(statsPoints),
-            domain:{ minX:xMin, maxX:xMax },
-            thresholds:null,
-            significance:null,
-            precomputedStats:visualStats,
-            precomputedSignature:visualStats ? getScatterStatsControlSignature() : null
-          };
+          statsContextPayload=statsPayloadBase;
         }else{
           scatterLastRegressionSummary=null;
           const totalPoints=points.length;
