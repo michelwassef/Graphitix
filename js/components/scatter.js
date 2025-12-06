@@ -1429,10 +1429,7 @@
       function getScatterStatsControlSignature(){
         return [
           scatterStatType?.value || 'pearson',
-          scatterRegressionMode?.value || 'linear',
-          scatterShowIntervals?.checked ? 'intervals:on' : 'intervals:off',
-          scatterShowDiagnostics?.checked ? 'diagnostics:on' : 'diagnostics:off',
-          scatterShowLine?.checked ? 'line:on' : 'line:off'
+          scatterRegressionMode?.value || 'linear'
         ].join('|');
       }
 
@@ -2690,8 +2687,15 @@
               return;
             }
           }
-          if(el===scatterStatType || el===scatterShowLine || el===scatterShowIntervals || el===scatterShowDiagnostics){
+          if(el===scatterStatType){
             requestScatterStatsContextRefresh(`${el.id||'scatter-control'}-change`);
+          }else if(el===scatterShowDiagnostics && scatterHasComputedStats()){
+            try{
+              runScatterStatsComputation(scatterState.statsContext);
+              setScatterStatsStatus('Statistics up to date.');
+            }catch(renderErr){
+              console.error('scatter diagnostics toggle rerender failed',renderErr);
+            }
           }
           scheduleDrawScatter();
         }));
