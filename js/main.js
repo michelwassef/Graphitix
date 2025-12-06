@@ -84,6 +84,7 @@
   const MainTabDrag = bootstrap.tabDrag;
   const WORKSPACES = bootstrap.workspaces;
   const GRAPH_TYPES = bootstrap.graphTypes || [];
+  const GRAPH_VARIANTS = bootstrap.graphVariants || [];
   const dom = bootstrap.dom;
   const workspaceState = bootstrap.workspaceState;
   const withSessionContext = bootstrap.withSessionContext;
@@ -236,6 +237,7 @@
     tabDrag: MainTabDrag,
     workspaces: WORKSPACES,
     graphTypes: bootstrap.graphTypes,
+    graphVariants: GRAPH_VARIANTS,
     sessionFileTypes: bootstrap.sessionFileTypes,
     dom,
     workspaceState,

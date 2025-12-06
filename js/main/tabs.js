@@ -12,9 +12,62 @@
     const tabDrag = config.tabDrag;
     const workspaces = config.workspaces || {};
     const graphTypes = config.graphTypes || [];
+    const graphVariants = Array.isArray(config.graphVariants) ? config.graphVariants : [];
     const dom = config.dom;
     const workspaceState = config.workspaceState;
     const withSessionContext = config.withSessionContext;
+    const graphVariantApi = Main.graphVariants || {};
+    const graphTypeLabelByType = new Map(graphTypes.map(info => [info.type, info.label || info.type]));
+    const graphVariantLookup = new Map();
+    const normalizedGraphVariants = graphVariants.map(raw => {
+      const normalized = {
+        id: raw.id,
+        type: raw.type,
+        label: raw.label,
+        description: raw.description || '',
+        groupLabel: raw.groupLabel || graphTypeLabelByType.get(raw.type) || 'Workspace',
+        keywords: Array.isArray(raw.keywords) ? raw.keywords.slice() : []
+      };
+      normalized.searchText = [
+        normalized.label,
+        normalized.description,
+        normalized.groupLabel,
+        normalized.type,
+        ...normalized.keywords
+      ].join(' ').toLowerCase();
+      graphVariantLookup.set(normalized.id, normalized);
+      return normalized;
+    });
+    normalizedGraphVariants.sort((a, b) => {
+      const groupCompare = a.groupLabel.localeCompare(b.groupLabel);
+      return groupCompare !== 0 ? groupCompare : a.label.localeCompare(b.label);
+    });
+    let renderedVariantList = normalizedGraphVariants.slice();
+    function applyPendingVariant(tab, meta = {}) {
+      if (!tab || !tab.pendingVariantId) {
+        return;
+      }
+      const variantId = tab.pendingVariantId;
+      tab.pendingVariantId = null;
+      if (typeof graphVariantApi.applyVariant !== 'function') {
+        console.debug('Debug: pending variant skipped (no api)', { tabId: tab?.id, variantId });
+        return;
+      }
+      const success = graphVariantApi.applyVariant(variantId, {
+        tabId: tab.id,
+        type: tab.type,
+        reason: meta.reason || 'pending-variant'
+      }) === true;
+      console.debug('Debug: pending variant processed', {
+        tabId: tab.id,
+        type: tab.type,
+        variantId,
+        success,
+        reason: meta.reason || 'pending-variant'
+      });
+    }
+
+    let selectedVariantId = null;
 
     if (!session || !previews || !domControls || !tabDrag || !dom || !workspaceState || typeof withSessionContext !== 'function') {
       const details = {
@@ -40,7 +93,7 @@
     const getActiveTab = () => workspaceState.tabs.find(tab => tab.id === workspaceState.activeTabId) || null;
 
     const showWorkspaceForTab = (tab, options = {}) => {
-      domControls.showWorkspaceForTab({
+      const result = domControls.showWorkspaceForTab({
         tab,
         options,
         dom,
@@ -48,6 +101,18 @@
         session,
         workspaceState
       });
+      const finalizeVariant = () => applyPendingVariant(tab, options || {});
+      if (result && typeof result.then === 'function') {
+        return result.then(payload => {
+          finalizeVariant();
+          return payload;
+        }).catch(err => {
+          finalizeVariant();
+          throw err;
+        });
+      }
+      finalizeVariant();
+      return result;
     };
 
     const showGraphSelection = (options = {}) => {
@@ -315,10 +380,10 @@
     }
 
 
-    function handleGraphSelection(type) {
+    function handleGraphSelection(type, options = {}) {
       let tab = getActiveTab();
       if (!tab) {
-        console.warn('handleGraphSelection with no active tab', { type });
+        console.warn('handleGraphSelection with no active tab', { type, options });
         return;
       }
       let previousType = tab.type || null;
@@ -343,7 +408,11 @@
       }
       const priorType = previousType;
       const priorTitle = previousTitle;
+      const pendingVariantId = options.variantId && graphVariantLookup.has(options.variantId)
+        ? options.variantId
+        : null;
       tab.type = type;
+      tab.pendingVariantId = pendingVariantId;
       const info = graphTypes.find(item => item.type === type);
       const config = workspaces[type];
       const resolvedTitleBase = info?.label || config?.tabLabel || tab.title;
@@ -358,7 +427,7 @@
       });
       tab.isRenaming = false;
       renderTabs();
-      console.debug('Debug: graph assigned to tab', { tabId: tab.id, type });
+      console.debug('Debug: graph assigned to tab', { tabId: tab.id, type, variantId: pendingVariantId, reason: options.reason || 'graph-selection' });
       if (priorType !== type) {
         session.markSessionDirty('graph-type-changed', { tabId: tab.id, previousType: priorType, nextType: type });
       }
@@ -461,8 +530,198 @@
       console.debug('Debug: selection cards generated', { count: graphTypes.length });
     }
 
+      function updateVariantHighlight(container) {
+        const root = container || dom.welcomeGraphSearchResults;
+        if (!root) {
+          return;
+        }
+        const buttons = root.querySelectorAll('[data-variant-id]');
+        buttons.forEach(button => {
+          const variantId = button.dataset.variantId;
+          const isSelected = !!selectedVariantId && selectedVariantId === variantId;
+          button.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+          button.classList.toggle('welcome-picker__option--selected', isSelected);
+        });
+      }
+
+      function setSelectedVariant(variantId, options = {}) {
+        selectedVariantId = variantId || null;
+        if (!options.skipSummary && dom.welcomeGraphSelectionLabel) {
+          if (selectedVariantId && graphVariantLookup.has(selectedVariantId)) {
+            const variant = graphVariantLookup.get(selectedVariantId);
+            dom.welcomeGraphSelectionLabel.textContent = `${variant.label} (${variant.groupLabel}) selected.`;
+          } else if (!renderedVariantList.length) {
+            dom.welcomeGraphSelectionLabel.textContent = 'No plot types match that search.';
+          } else {
+            dom.welcomeGraphSelectionLabel.textContent = 'Select a plot type above to enable quick launch.';
+          }
+        }
+        if (!options.skipButton && dom.welcomeGraphLaunch) {
+          dom.welcomeGraphLaunch.disabled = !selectedVariantId;
+        }
+        if (!options.skipHighlight) {
+          updateVariantHighlight();
+        }
+      }
+
+      function renderVariantResults(list) {
+        const container = dom.welcomeGraphSearchResults;
+        if (!container) {
+          return;
+        }
+        renderedVariantList = list.slice();
+        container.innerHTML = '';
+        if (!list.length) {
+          const empty = document.createElement('p');
+          empty.className = 'welcome-picker__empty';
+          empty.textContent = 'No matches found. Try another search term.';
+          container.appendChild(empty);
+          setSelectedVariant(null, { skipHighlight: true });
+          return;
+        }
+        if (selectedVariantId && !list.some(entry => entry.id === selectedVariantId)) {
+          setSelectedVariant(null, { skipHighlight: true });
+        }
+        const fragment = document.createDocumentFragment();
+        list.forEach(variant => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'welcome-picker__option';
+          button.dataset.variantId = variant.id;
+          button.setAttribute('role', 'option');
+          button.setAttribute('aria-selected', selectedVariantId === variant.id ? 'true' : 'false');
+          const label = document.createElement('span');
+          label.className = 'welcome-picker__option-label';
+          label.textContent = variant.label;
+          const group = document.createElement('span');
+          group.className = 'welcome-picker__option-group';
+          group.textContent = variant.groupLabel;
+          const description = document.createElement('span');
+          description.className = 'welcome-picker__option-description';
+          description.textContent = variant.description || '';
+          button.appendChild(label);
+          button.appendChild(group);
+          button.appendChild(description);
+          fragment.appendChild(button);
+        });
+        container.appendChild(fragment);
+        updateVariantHighlight(container);
+        if (!selectedVariantId) {
+          setSelectedVariant(null, { skipHighlight: true });
+        }
+      }
+
+      function filterAndRenderVariants(term) {
+        const normalized = (term || '').toLowerCase().trim();
+        const tokens = normalized ? normalized.split(/\s+/).filter(Boolean) : [];
+        const nextList = tokens.length
+          ? normalizedGraphVariants.filter(entry => tokens.every(token => entry.searchText.includes(token)))
+          : normalizedGraphVariants;
+        renderVariantResults(nextList);
+      }
+
+      function clearVariantSearch() {
+        if (dom.welcomeGraphSearch) {
+          dom.welcomeGraphSearch.value = '';
+          dom.welcomeGraphSearch.focus();
+        }
+        setSelectedVariant(null, { skipHighlight: true });
+        filterAndRenderVariants('');
+      }
+
+      function handleVariantResultClick(event) {
+        const target = event?.target?.closest('[data-variant-id]');
+        if (!target) {
+          return;
+        }
+        const variantId = target.dataset.variantId;
+        if (!variantId) {
+          return;
+        }
+        setSelectedVariant(variantId);
+      }
+
+      function handleVariantResultDoubleClick(event) {
+        const target = event?.target?.closest('[data-variant-id]');
+        if (!target) {
+          return;
+        }
+        const variantId = target.dataset.variantId;
+        if (!variantId) {
+          return;
+        }
+        setSelectedVariant(variantId);
+        launchVariant(variantId, { reason: 'welcome-picker-dblclick' });
+      }
+
+      function handleVariantSearchKeydown(event) {
+        if (event.key !== 'Enter') {
+          return;
+        }
+        if (!renderedVariantList.length) {
+          return;
+        }
+        event.preventDefault();
+        if (!selectedVariantId) {
+          setSelectedVariant(renderedVariantList[0].id);
+        }
+        if (selectedVariantId) {
+          launchVariant(selectedVariantId, { reason: 'welcome-picker-enter' });
+        }
+      }
+
+      function launchVariant(variantId, meta = {}) {
+        if (!variantId || !graphVariantLookup.has(variantId)) {
+          console.debug('Debug: launchVariant skipped', { variantId, reason: meta.reason });
+          return;
+        }
+        const variant = graphVariantLookup.get(variantId);
+        handleGraphSelection(variant.type, {
+          variantId,
+          reason: meta.reason || 'welcome-picker'
+        });
+      }
+
+      function initializeVariantPicker() {
+        if (!dom?.welcomeGraphSearchResults) {
+          return;
+        }
+        if (!normalizedGraphVariants.length) {
+          if (dom.welcomeGraphSearch) dom.welcomeGraphSearch.disabled = true;
+          if (dom.welcomeGraphSearchClear) dom.welcomeGraphSearchClear.disabled = true;
+          if (dom.welcomeGraphLaunch) dom.welcomeGraphLaunch.disabled = true;
+          if (dom.welcomeGraphSelectionLabel) {
+            dom.welcomeGraphSelectionLabel.textContent = 'Quick launch will be available once graph types are registered.';
+          }
+          return;
+        }
+        setSelectedVariant(null, { skipHighlight: true });
+        renderVariantResults(normalizedGraphVariants);
+        if (dom.welcomeGraphSearch) {
+          dom.welcomeGraphSearch.addEventListener('input', event => {
+            filterAndRenderVariants(event.target.value || '');
+          });
+          dom.welcomeGraphSearch.addEventListener('keydown', handleVariantSearchKeydown);
+        }
+        if (dom.welcomeGraphSearchClear) {
+          dom.welcomeGraphSearchClear.addEventListener('click', () => clearVariantSearch());
+        }
+        if (dom.welcomeGraphSearchResults) {
+          dom.welcomeGraphSearchResults.addEventListener('click', handleVariantResultClick);
+          dom.welcomeGraphSearchResults.addEventListener('dblclick', handleVariantResultDoubleClick);
+        }
+        if (dom.welcomeGraphLaunch) {
+          dom.welcomeGraphLaunch.addEventListener('click', () => {
+            if (selectedVariantId) {
+              launchVariant(selectedVariantId, { reason: 'welcome-picker' });
+            }
+          });
+        }
+      }
+
     function initializeWorkspace(callbacks = {}) {
       createSelectionCards();
+      initializeVariantPicker();
       const welcomeTab = session.createTab({ title: 'Welcome', isWelcome: true, allowClose: false });
       workspaceState.tabs.push(welcomeTab);
       workspaceState.activeTabId = welcomeTab.id;

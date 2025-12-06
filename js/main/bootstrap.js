@@ -139,6 +139,7 @@
 
     const components = target.components || {};
     const workspaces = components.registry || {};
+    const variantApi = target.graphVariants || {};
 
     const dom = domControls.createDomHandles();
     const workspaceState = session.workspaceState;
@@ -146,6 +147,8 @@
       console.error('Main.bootstrap.init missing workspaceState');
       throw new Error('Main.bootstrap.init requires session.workspaceState.');
     }
+
+    const graphVariants = typeof variantApi.list === 'function' ? variantApi.list() : [];
 
     function withSessionContext(extra = {}) {
       const context = {
@@ -159,7 +162,8 @@
 
     console.debug('Debug: Main.bootstrap.init completed', {
       tabs: workspaceState.tabs?.length || 0,
-      workspaces: Object.keys(workspaces).length
+      workspaces: Object.keys(workspaces).length,
+      graphVariants: graphVariants.length
     });
 
     return {
@@ -170,6 +174,7 @@
       tabDrag,
       workspaces,
       graphTypes: GRAPH_TYPES,
+      graphVariants,
       sessionFileTypes: SESSION_FILE_TYPES,
       dom,
       workspaceState,
