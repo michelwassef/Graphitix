@@ -1304,7 +1304,16 @@
       let scatterColorModeApplied = 'solid';
       let scatterColorModeDesired = SCATTER_DENSITY_MODE_DEFAULT;
       const scatterShowIntervals=$('#scatterShowIntervals');
-      const scatterShowDiagnostics=$('#scatterShowDiagnostics');
+      let scatterShowDiagnostics=$('#scatterShowDiagnostics');
+      if(scatterShowDiagnostics){
+        const diagLabel=scatterShowDiagnostics.closest('label')||scatterShowDiagnostics.parentElement;
+        if(diagLabel){
+          diagLabel.remove();
+        }else{
+          scatterShowDiagnostics.remove();
+        }
+        scatterShowDiagnostics=null;
+      }
       const scatterAlphaVal=$('#scatterAlphaVal');
       const scatterFontSize=$('#scatterFontSize'), scatterFontSizeVal=$('#scatterFontSizeVal');
       if(scatterFontSize?.dataset){
