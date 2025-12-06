@@ -5406,7 +5406,22 @@
   }
 
   const optionWrap=document.createElement('div');
+  // Arrange controls in compact rows: label + control side-by-side
+  optionWrap.style.display = 'flex';
+  optionWrap.style.flexDirection = 'column';
+  optionWrap.style.gap = '8px';
 
+  function appendInline(labelEl, inputEl){
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.gap = '8px';
+    row.style.alignItems = 'center';
+    // keep labels compact and aligned
+    try{ labelEl.style.minWidth = '120px'; }catch(e){}
+    row.appendChild(labelEl);
+    row.appendChild(inputEl);
+    optionWrap.appendChild(row);
+  }
   const testLabel=document.createElement('label');
   testLabel.textContent='Test:';
   const testSel=document.createElement('select');
@@ -5423,8 +5438,7 @@
     requestStatsContextRefresh('stats-test-change');
     state.scheduleDraw();
   });
-  optionWrap.appendChild(testLabel);
-  optionWrap.appendChild(testSel);
+  appendInline(testLabel, testSel);
 
   const pairedLabel=document.createElement('label');
   pairedLabel.textContent='Pairing:';
@@ -5442,8 +5456,7 @@
     requestStatsContextRefresh('stats-pairing-change');
     state.scheduleDraw();
   });
-  optionWrap.appendChild(pairedLabel);
-  optionWrap.appendChild(pairedSel);
+  appendInline(pairedLabel, pairedSel);
 
   const modeLabel=document.createElement('label');
   modeLabel.textContent='Comparison:';
@@ -5470,8 +5483,7 @@
     renderStatsControls(traces);
     state.scheduleDraw();
   });
-  optionWrap.appendChild(modeLabel);
-  optionWrap.appendChild(modeSel);
+  appendInline(modeLabel, modeSel);
 
   const postHocLabel=document.createElement('label');
   postHocLabel.textContent='Post-hoc:';
@@ -5494,8 +5506,7 @@
     renderStatsControls(traces);
     state.scheduleDraw();
   });
-  optionWrap.appendChild(postHocLabel);
-  optionWrap.appendChild(postHocSel);
+  appendInline(postHocLabel, postHocSel);
 
   const correctionLabel=document.createElement('label');
   correctionLabel.textContent='Correction:';
@@ -5523,8 +5534,7 @@
   }else{
     correctionSel.removeAttribute('title');
   }
-  optionWrap.appendChild(correctionLabel);
-  optionWrap.appendChild(correctionSel);
+  appendInline(correctionLabel, correctionSel);
 
   const paramEffectLabel=document.createElement('label');
   paramEffectLabel.textContent='Param effect size:';
@@ -5544,8 +5554,7 @@
     requestStatsContextRefresh('stats-param-effect-change');
     state.scheduleDraw();
   });
-  optionWrap.appendChild(paramEffectLabel);
-  optionWrap.appendChild(paramEffectSel);
+  appendInline(paramEffectLabel, paramEffectSel);
 
   const nonParamEffectLabel=document.createElement('label');
   nonParamEffectLabel.textContent='Non-param effect size:';
@@ -5565,8 +5574,7 @@
     requestStatsContextRefresh('stats-nonparam-effect-change');
     state.scheduleDraw();
   });
-  optionWrap.appendChild(nonParamEffectLabel);
-  optionWrap.appendChild(nonParamEffectSel);
+  appendInline(nonParamEffectLabel, nonParamEffectSel);
 
   const postHocHelp=document.getElementById('statsPostHocHelp');
   if(postHocHelp){
@@ -5591,8 +5599,7 @@
       renderStatsControls(traces);
       state.scheduleDraw();
     });
-    optionWrap.appendChild(refLabel);
-    optionWrap.appendChild(refSel);
+    appendInline(refLabel, refSel);
   }else if(state.statsMode==='custom'){
     const pairLabel=document.createElement('label');
     pairLabel.textContent='Pairs:';
@@ -5607,8 +5614,7 @@
       requestStatsContextRefresh('stats-custom-pairs-change');
       state.scheduleDraw();
     });
-    optionWrap.appendChild(pairLabel);
-    optionWrap.appendChild(pairInput);
+    appendInline(pairLabel, pairInput);
     state.statsCustomPairs=parsePairString(state.statsPairsText,traces);
   }
 
