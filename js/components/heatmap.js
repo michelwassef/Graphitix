@@ -4117,21 +4117,7 @@
       }else{
         queueHeatmapOverlay(overlayReason);
       }
-      const runSchedule = () => scheduleHeatmapBase(nextOpts);
-      const shouldDelayForOverlay = heatmapOverlayController?.isActive?.() && !nextOpts.viewOnly;
-      if(shouldDelayForOverlay){
-        const scheduleAfterPaint = () => {
-          debugLog('Debug: heatmap autoDraw deferred for overlay',{ reason: overlayReason });
-          runSchedule();
-        };
-        if(typeof global.requestAnimationFrame === 'function'){
-          global.requestAnimationFrame(scheduleAfterPaint);
-        }else{
-          (global.setTimeout || setTimeout)(scheduleAfterPaint, 0);
-        }
-        return;
-      }
-      runSchedule();
+      scheduleHeatmapBase(nextOpts);
     };
     scheduleDrawHeatmapRaw = scheduleHeatmapInstrumented;
     debugLog('Debug: heatmap scheduler configured', { hasDebounce: !!Shared.debounceFrame });
