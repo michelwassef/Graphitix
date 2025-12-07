@@ -24,6 +24,7 @@
       matchStylesBtn: document.getElementById('matchWorkspaceStyles'),
       sessionFileInput: document.getElementById('workspaceSessionInput'),
       welcomeGraphInput: document.getElementById('welcomeGraphFileInput'),
+      welcomePicker: document.querySelector('.welcome-picker'),
       welcomeGraphSearch: document.getElementById('welcomeGraphSearch'),
       welcomeGraphSearchResults: document.getElementById('welcomeGraphResults'),
       welcomeGraphLaunch: document.getElementById('welcomeGraphLaunch'),

@@ -61,17 +61,21 @@
               <p class="welcome-picker__hint">Browse every plot type or start typing to filter.</p>
             </div>
             <label class="welcome-picker__label" for="welcomeGraphSearch">Find a graph type</label>
-            <div class="welcome-picker__input-row">
-              <input
-                type="text"
-                id="welcomeGraphSearch"
-                class="welcome-picker__input"
-                placeholder='Type "scatter", "volcano", "roc"...'
-                autocomplete="off"
-              />
-              <button type="button" id="welcomeGraphSearchClear" class="welcome-picker__clear" aria-label="Clear search">Clear</button>
+            <div class="welcome-picker__search">
+              <div class="welcome-picker__input-row">
+                <input
+                  type="text"
+                  id="welcomeGraphSearch"
+                  class="welcome-picker__input"
+                  placeholder='Type "scatter", "volcano", "roc"...'
+                  autocomplete="off"
+                  aria-haspopup="listbox"
+                  aria-expanded="false"
+                />
+                <button type="button" id="welcomeGraphSearchClear" class="welcome-picker__clear" aria-label="Clear search">Clear</button>
+              </div>
+              <div id="welcomeGraphResults" class="welcome-picker__results" role="listbox" aria-label="Available graph types"></div>
             </div>
-            <div id="welcomeGraphResults" class="welcome-picker__results" role="listbox" aria-label="Available graph types"></div>
             <div class="welcome-picker__footer">
               <p id="welcomeGraphSelectionLabel" class="welcome-picker__selection">Select a plot type above to enable quick launch.</p>
               <button type="button" class="btn welcome-picker__launch" id="welcomeGraphLaunch" disabled>Open Graph</button>

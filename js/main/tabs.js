@@ -68,6 +68,8 @@
     }
 
     let selectedVariantId = null;
+    let pickerDropdownOpen = false;
+    let pickerDismissListenerBound = false;
 
     if (!session || !previews || !domControls || !tabDrag || !dom || !workspaceState || typeof withSessionContext !== 'function') {
       const details = {
@@ -530,6 +532,52 @@
       console.debug('Debug: selection cards generated', { count: graphTypes.length });
     }
 
+      function syncPickerAria() {
+        if (dom.welcomeGraphSearch) {
+          dom.welcomeGraphSearch.setAttribute('aria-expanded', pickerDropdownOpen ? 'true' : 'false');
+        }
+      }
+
+      function setVariantDropdownState(shouldOpen, meta = {}) {
+        const picker = dom.welcomePicker;
+        if (!picker || pickerDropdownOpen === shouldOpen) {
+          return;
+        }
+        pickerDropdownOpen = !!shouldOpen;
+        picker.classList.toggle('welcome-picker--open', pickerDropdownOpen);
+        syncPickerAria();
+      }
+
+      function openVariantDropdown(meta = {}) {
+        if (!normalizedGraphVariants.length) {
+          return;
+        }
+        setVariantDropdownState(true, meta);
+      }
+
+      function closeVariantDropdown(meta = {}) {
+        setVariantDropdownState(false, meta);
+      }
+
+      function ensurePickerDismissListener() {
+        if (pickerDismissListenerBound) {
+          return;
+        }
+        const handleDismiss = event => {
+          const picker = dom.welcomePicker;
+          if (!pickerDropdownOpen || !picker) {
+            return;
+          }
+          if (picker.contains(event.target)) {
+            return;
+          }
+          closeVariantDropdown({ reason: 'outside-click' });
+        };
+        document.addEventListener('mousedown', handleDismiss, true);
+        document.addEventListener('touchstart', handleDismiss, { passive: true, capture: true });
+        pickerDismissListenerBound = true;
+      }
+
       function updateVariantHighlight(container) {
         const root = container || dom.welcomeGraphSearchResults;
         if (!root) {
@@ -577,6 +625,7 @@
           empty.textContent = 'No matches found. Try another search term.';
           container.appendChild(empty);
           setSelectedVariant(null, { skipHighlight: true });
+          openVariantDropdown({ reason: 'render-empty' });
           return;
         }
         if (selectedVariantId && !list.some(entry => entry.id === selectedVariantId)) {
@@ -590,18 +639,28 @@
           button.dataset.variantId = variant.id;
           button.setAttribute('role', 'option');
           button.setAttribute('aria-selected', selectedVariantId === variant.id ? 'true' : 'false');
+
+          const line = document.createElement('span');
+          line.className = 'welcome-picker__option-line';
+
           const label = document.createElement('span');
           label.className = 'welcome-picker__option-label';
           label.textContent = variant.label;
-          const group = document.createElement('span');
-          group.className = 'welcome-picker__option-group';
-          group.textContent = variant.groupLabel;
-          const description = document.createElement('span');
-          description.className = 'welcome-picker__option-description';
-          description.textContent = variant.description || '';
-          button.appendChild(label);
-          button.appendChild(group);
-          button.appendChild(description);
+          line.appendChild(label);
+
+          if (variant.description) {
+            const separator = document.createElement('span');
+            separator.className = 'welcome-picker__option-separator';
+            separator.textContent = ': ';
+            line.appendChild(separator);
+
+            const description = document.createElement('span');
+            description.className = 'welcome-picker__option-description';
+            description.textContent = variant.description;
+            line.appendChild(description);
+          }
+
+          button.appendChild(line);
           fragment.appendChild(button);
         });
         container.appendChild(fragment);
@@ -609,6 +668,7 @@
         if (!selectedVariantId) {
           setSelectedVariant(null, { skipHighlight: true });
         }
+        openVariantDropdown({ reason: 'render-list' });
       }
 
       function filterAndRenderVariants(term) {
@@ -627,6 +687,7 @@
         }
         setSelectedVariant(null, { skipHighlight: true });
         filterAndRenderVariants('');
+        openVariantDropdown({ reason: 'clear-search' });
       }
 
       function handleVariantResultClick(event) {
@@ -655,6 +716,11 @@
       }
 
       function handleVariantSearchKeydown(event) {
+        if (event.key === 'Escape') {
+          closeVariantDropdown({ reason: 'escape' });
+          event.stopPropagation();
+          return;
+        }
         if (event.key !== 'Enter') {
           return;
         }
@@ -680,6 +746,7 @@
           variantId,
           reason: meta.reason || 'welcome-picker'
         });
+        closeVariantDropdown({ reason: meta.reason || 'welcome-picker' });
       }
 
       function initializeVariantPicker() {
@@ -695,16 +762,23 @@
           }
           return;
         }
+        ensurePickerDismissListener();
         setSelectedVariant(null, { skipHighlight: true });
         renderVariantResults(normalizedGraphVariants);
         if (dom.welcomeGraphSearch) {
           dom.welcomeGraphSearch.addEventListener('input', event => {
             filterAndRenderVariants(event.target.value || '');
+            openVariantDropdown({ reason: 'input' });
           });
           dom.welcomeGraphSearch.addEventListener('keydown', handleVariantSearchKeydown);
+          dom.welcomeGraphSearch.addEventListener('focus', () => openVariantDropdown({ reason: 'focus' }));
+          dom.welcomeGraphSearch.addEventListener('click', () => openVariantDropdown({ reason: 'click' }));
         }
         if (dom.welcomeGraphSearchClear) {
-          dom.welcomeGraphSearchClear.addEventListener('click', () => clearVariantSearch());
+          dom.welcomeGraphSearchClear.addEventListener('click', () => {
+            clearVariantSearch();
+            openVariantDropdown({ reason: 'clear' });
+          });
         }
         if (dom.welcomeGraphSearchResults) {
           dom.welcomeGraphSearchResults.addEventListener('click', handleVariantResultClick);
@@ -717,6 +791,7 @@
             }
           });
         }
+        openVariantDropdown({ reason: 'init' });
       }
 
     function initializeWorkspace(callbacks = {}) {
