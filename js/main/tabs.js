@@ -70,6 +70,7 @@
     let selectedVariantId = null;
     let pickerDropdownOpen = false;
     let pickerDismissListenerBound = false;
+    let resizeListenerBound = false;
 
     if (!session || !previews || !domControls || !tabDrag || !dom || !workspaceState || typeof withSessionContext !== 'function') {
       const details = {
@@ -538,6 +539,19 @@
         }
       }
 
+      function alignVariantDropdown() {
+        const container = dom.welcomeGraphSearchResults;
+        const input = dom.welcomeGraphSearch;
+        if (!container || !input) {
+          return;
+        }
+        const offsetLeft = input.offsetLeft;
+        const offsetTop = input.offsetTop + input.offsetHeight;
+        container.style.left = `${offsetLeft}px`;
+        container.style.top = `${offsetTop}px`;
+        container.style.width = `${input.offsetWidth}px`;
+      }
+
       function setVariantDropdownState(shouldOpen, meta = {}) {
         const picker = dom.welcomePicker;
         if (!picker || pickerDropdownOpen === shouldOpen) {
@@ -552,6 +566,7 @@
         if (!normalizedGraphVariants.length) {
           return;
         }
+        alignVariantDropdown();
         setVariantDropdownState(true, meta);
       }
 
@@ -576,6 +591,15 @@
         document.addEventListener('mousedown', handleDismiss, true);
         document.addEventListener('touchstart', handleDismiss, { passive: true, capture: true });
         pickerDismissListenerBound = true;
+      }
+
+      function ensurePickerResizeListener() {
+        if (resizeListenerBound) {
+          return;
+        }
+        const resizeHandler = () => alignVariantDropdown();
+        window.addEventListener('resize', resizeHandler);
+        resizeListenerBound = true;
       }
 
       function updateVariantHighlight(container) {
@@ -668,6 +692,7 @@
         if (!selectedVariantId) {
           setSelectedVariant(null, { skipHighlight: true });
         }
+        alignVariantDropdown();
         openVariantDropdown({ reason: 'render-list' });
       }
 
@@ -763,12 +788,12 @@
           return;
         }
         ensurePickerDismissListener();
+        ensurePickerResizeListener();
         setSelectedVariant(null, { skipHighlight: true });
         renderVariantResults(normalizedGraphVariants);
         if (dom.welcomeGraphSearch) {
           dom.welcomeGraphSearch.addEventListener('input', event => {
             filterAndRenderVariants(event.target.value || '');
-            openVariantDropdown({ reason: 'input' });
           });
           dom.welcomeGraphSearch.addEventListener('keydown', handleVariantSearchKeydown);
           dom.welcomeGraphSearch.addEventListener('focus', () => openVariantDropdown({ reason: 'focus' }));
@@ -777,7 +802,7 @@
         if (dom.welcomeGraphSearchClear) {
           dom.welcomeGraphSearchClear.addEventListener('click', () => {
             clearVariantSearch();
-            openVariantDropdown({ reason: 'clear' });
+            dom.welcomeGraphSearch?.focus();
           });
         }
         if (dom.welcomeGraphSearchResults) {
@@ -791,7 +816,7 @@
             }
           });
         }
-        openVariantDropdown({ reason: 'init' });
+        closeVariantDropdown({ reason: 'init' });
       }
 
     function initializeWorkspace(callbacks = {}) {

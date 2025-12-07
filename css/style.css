@@ -688,10 +688,11 @@ select {
 
 .welcome-picker__results {
     position: absolute;
-    top: calc(100% + 6px);
+    top: 100%;
     left: 0;
-    right: 0;
-    transform: translateY(-6px) scale(0.98);
+    right: auto;
+    width: 100%;
+    transform: scale(0.98);
     border: 1px solid #cbd5f5;
     border-radius: 0;
     background: #ffffff;
@@ -705,13 +706,14 @@ select {
     visibility: hidden;
     pointer-events: none;
     transition: opacity 0.18s ease, transform 0.18s ease;
+    box-sizing: border-box;
 }
 
 .welcome-picker--open .welcome-picker__results {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
-    transform: translateY(0) scale(1);
+    transform: scale(1);
 }
 
 .welcome-picker__option {
