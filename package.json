@@ -1,7 +1,7 @@
 {
   "name": "venn",
   "version": "1.0.0",
-  "description": "Client-side Venn diagram generator using only HTML and JavaScript. Also includes box plot, scatter plot, principal component analysis, line graph, histogram, pie chart, and ROC/PR curve tools.",
+  "description": "Browser-based data visualization studio with Venn diagrams, box plots, scatter/volcano/MA plots, 3D surfaces, PCA/MDS/t-SNE/UMAP, line charts, heatmaps, ROC/PR curves, survival analysis, histograms, and pie charts. Features multi-tab workspaces, session management, and statistical analysis tools.",
   "main": "index.js",
   "scripts": {
     "test": "jest",
