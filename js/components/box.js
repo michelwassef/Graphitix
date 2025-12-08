@@ -2231,6 +2231,133 @@
     }
   }
 
+  // PART: BROKEN AXIS SCALE COMPUTATION
+  
+  function computeBrokenAxisScale(config){
+    const { dataMin, dataMax, segments, plotHeight } = config;
+    
+    if(!Array.isArray(segments) || segments.length === 0){
+      // No broken axis, return standard linear scale
+      return {
+        isBroken: false,
+        min: dataMin,
+        max: dataMax,
+        valueToPixel: (value, baseY, plotH) => {
+          const range = dataMax - dataMin || 1;
+          return baseY + plotH * (1 - (value - dataMin) / range);
+        },
+        segments: []
+      };
+    }
+    
+    // Sort and validate segments
+    const validSegments = segments
+      .filter(seg => Number.isFinite(seg.start) && Number.isFinite(seg.end) && seg.start < seg.end)
+      .sort((a, b) => a.start - b.start);
+    
+    if(validSegments.length === 0){
+      // No valid segments, return standard scale
+      return {
+        isBroken: false,
+        min: dataMin,
+        max: dataMax,
+        valueToPixel: (value, baseY, plotH) => {
+          const range = dataMax - dataMin || 1;
+          return baseY + plotH * (1 - (value - dataMin) / range);
+        },
+        segments: []
+      };
+    }
+    
+    // Merge overlapping segments and calculate display ranges
+    const mergedSegments = [];
+    let current = { ...validSegments[0] };
+    
+    for(let i = 1; i < validSegments.length; i++){
+      const seg = validSegments[i];
+      if(seg.start <= current.end){
+        // Overlapping or adjacent, merge
+        current.end = Math.max(current.end, seg.end);
+      }else{
+        mergedSegments.push(current);
+        current = { ...seg };
+      }
+    }
+    mergedSegments.push(current);
+    
+    // Calculate the total data range covered by segments
+    const totalDataRange = mergedSegments.reduce((sum, seg) => sum + (seg.end - seg.start), 0);
+    
+    // Define gap size in pixels (e.g., 20px per gap)
+    const gapSizePx = 20;
+    const numGaps = mergedSegments.length - 1;
+    const totalGapHeight = numGaps * gapSizePx;
+    const availableHeight = plotHeight - totalGapHeight;
+    
+    // Assign pixel heights to each segment proportionally
+    const segmentMeta = mergedSegments.map((seg, idx) => {
+      const dataRange = seg.end - seg.start;
+      const heightPx = (dataRange / totalDataRange) * availableHeight;
+      return {
+        start: seg.start,
+        end: seg.end,
+        dataRange,
+        heightPx,
+        pixelStart: 0, // Will be calculated next
+        pixelEnd: 0
+      };
+    });
+    
+    // Calculate pixel positions from top
+    let currentPixel = 0;
+    for(let i = 0; i < segmentMeta.length; i++){
+      segmentMeta[i].pixelStart = currentPixel;
+      segmentMeta[i].pixelEnd = currentPixel + segmentMeta[i].heightPx;
+      currentPixel = segmentMeta[i].pixelEnd + gapSizePx;
+    }
+    
+    // Create value-to-pixel mapping function
+    const valueToPixel = (value, baseY, plotH) => {
+      // Find which segment contains this value
+      for(let i = 0; i < segmentMeta.length; i++){
+        const seg = segmentMeta[i];
+        if(value >= seg.start && value <= seg.end){
+          // Map value within this segment to pixels
+          const fraction = (value - seg.start) / seg.dataRange;
+          const pixelInSegment = seg.pixelStart + fraction * seg.heightPx;
+          return baseY + pixelInSegment;
+        }
+      }
+      
+      // Value not in any segment - clamp to nearest segment
+      if(value < segmentMeta[0].start){
+        return baseY;
+      }
+      if(value > segmentMeta[segmentMeta.length - 1].end){
+        return baseY + plotH;
+      }
+      
+      // Value falls in a gap - return the bottom of the segment above it
+      for(let i = 0; i < segmentMeta.length - 1; i++){
+        if(value > segmentMeta[i].end && value < segmentMeta[i + 1].start){
+          // In gap between segment i and i+1
+          return baseY + segmentMeta[i].pixelEnd;
+        }
+      }
+      
+      return baseY + plotH / 2; // Fallback
+    };
+    
+    return {
+      isBroken: true,
+      min: mergedSegments[0].start,
+      max: mergedSegments[mergedSegments.length - 1].end,
+      segments: segmentMeta,
+      gapSizePx,
+      valueToPixel
+    };
+  }
+
   function clampViolinSampleCount(value){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){
@@ -7786,6 +7913,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         perGroupBand = bandW / Math.max(groupCountLocal, 1);
       }
       const groupOffset = usesGroupedSpacing ? (bandW - perGroupBand * groupCountLocal) / 2 : 0;
+      
+      // Broken axis support
+      const brokenAxisEnabled = getBrokenAxisEnabled('y');
+      const brokenAxisSegments = brokenAxisEnabled ? getBrokenAxisSegments('y') : [];
+      const brokenScale = brokenAxisEnabled && brokenAxisSegments.length > 0
+        ? computeBrokenAxisScale({
+            dataMin: yScale.min,
+            dataMax: yScale.max,
+            segments: brokenAxisSegments,
+            plotHeight: plotHLocal
+          })
+        : null;
+      
+      console.debug('Debug: box broken axis',{ enabled: brokenAxisEnabled, segments: brokenAxisSegments, isBroken: brokenScale?.isBroken });
+      
       const valueRange = yScale.max - yScale.min || 1;
       const clampToScale = v => {
         if(!Number.isFinite(v)){ return yScale.min; }
@@ -7805,6 +7947,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       };
       const y2px = v => {
         const safeV = clampToScale(v);
+        if(brokenScale && brokenScale.isBroken){
+          return brokenScale.valueToPixel(safeV, marginLocal.top, plotHLocal);
+        }
         return marginLocal.top + plotHLocal * (1 - (safeV - yScale.min) / valueRange);
       };
       const boxWidthForTrace = () => Math.max(6, Math.min(60, perGroupBand * 0.6));
@@ -7851,13 +7996,78 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       axisYStart = Math.min(axisYStart, xAxisY);
       axisYEnd = Math.max(axisYEnd, xAxisY);
       console.debug('Debug: box axis join span',{ axisYStart, axisYEnd, xAxisY, yAxisX });
-      const yAxisLine = addAxisElement('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
-      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+      
+      // Draw y-axis with broken axis support
+      if(brokenScale && brokenScale.isBroken){
+        // Draw each segment separately
+        brokenScale.segments.forEach((seg, segIdx) => {
+          const segYStart = marginLocal.top + seg.pixelStart;
+          const segYEnd = marginLocal.top + seg.pixelEnd;
+          
+          // Draw axis line for this segment
+          addAxisElement('line',{ 
+            x1: yAxisX, 
+            y1: segYStart, 
+            x2: yAxisX, 
+            y2: segYEnd, 
+            stroke: axisStroke, 
+            'stroke-linecap': 'square', 
+            'stroke-width': axisStrokeWidth 
+          });
+          
+          // Draw break symbol at the bottom of each segment (except the last)
+          if(segIdx < brokenScale.segments.length - 1){
+            const breakY = segYEnd + brokenScale.gapSizePx / 2;
+            const breakWidth = 8;
+            const breakHeight = 6;
+            
+            // Draw zigzag break lines
+            const zigzagPath = `M ${yAxisX - breakWidth},${breakY - breakHeight} L ${yAxisX + breakWidth},${breakY} L ${yAxisX - breakWidth},${breakY + breakHeight}`;
+            const breakLine = document.createElementNS(NS, 'path');
+            breakLine.setAttribute('d', zigzagPath);
+            breakLine.setAttribute('stroke', axisStroke);
+            breakLine.setAttribute('stroke-width', axisStrokeWidth);
+            breakLine.setAttribute('fill', 'none');
+            (axisLayer || svg).appendChild(breakLine);
+          }
+        });
+        
+        // Register axis controls on the first segment
+        const firstSegment = addAxisElement('line',{ 
+          x1: yAxisX, 
+          y1: marginLocal.top + brokenScale.segments[0].pixelStart, 
+          x2: yAxisX, 
+          y2: marginLocal.top + brokenScale.segments[0].pixelEnd, 
+          stroke: 'transparent',
+          'stroke-width': 20,
+          'pointer-events': 'stroke'
+        });
+        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+          axisControls.registerAxisElement(firstSegment, axisControlConfig('y'));
+        }
+      }else{
+        // Standard continuous y-axis
+        const yAxisLine = addAxisElement('line',{ x1: yAxisX, y1: axisYStart, x2: yAxisX, y2: axisYEnd, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
+        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+          axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+        }
       }
       let yTickFontCount = 0;
       yScale.ticks.forEach((t, i) => {
         const y = y2px(t);
+        // Only draw tick if it falls within a valid segment (for broken axis)
+        if(brokenScale && brokenScale.isBroken){
+          let inSegment = false;
+          for(const seg of brokenScale.segments){
+            if(t >= seg.start && t <= seg.end){
+              inSegment = true;
+              break;
+            }
+          }
+          if(!inSegment){
+            return; // Skip ticks that fall in gaps
+          }
+        }
         addAxisElement('line',{ x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const txt = addAxisElement('text',{ x: yAxisX - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
