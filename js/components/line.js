@@ -352,13 +352,29 @@
     }
   }
 
+  function resolveLineResizeGuardCap(){
+    const svgBox = refs.svgBox || lineLayout?.elements?.svgBox || null;
+    const datasetMin = Number(svgBox?.dataset?.resizerMinWidth);
+    if(Number.isFinite(datasetMin) && datasetMin > 0){
+      return datasetMin;
+    }
+    const defaultWidth = Number(chartStyle?.DEFAULT_WIDTH);
+    const resizeMinScale = Number(chartStyle?.RESIZE_MIN_SCALE);
+    if(Number.isFinite(defaultWidth) && defaultWidth > 0 && Number.isFinite(resizeMinScale) && resizeMinScale > 0){
+      return Math.max(1, Math.round(defaultWidth * resizeMinScale));
+    }
+    return null;
+  }
+
   function applyLineLegendGuardWidth(requiredWidth){
     const normalized = Number.isFinite(requiredWidth) ? Math.max(0, Math.round(requiredWidth)) : 0;
-    const changed = normalized !== lineLegendGuardWidth;
-    lineLegendGuardWidth = normalized;
+    const guardCap = resolveLineResizeGuardCap();
+    const effectiveWidth = Number.isFinite(guardCap) && guardCap > 0 ? Math.min(normalized, guardCap) : normalized;
+    const changed = effectiveWidth !== lineLegendGuardWidth;
+    lineLegendGuardWidth = effectiveWidth;
     if(!lineLayout){
       if(changed){
-        console.debug('Debug: line legend guard pending layout',{ requiredWidth: normalized });
+        console.debug('Debug: line legend guard pending layout',{ requiredWidth: normalized, appliedWidth: effectiveWidth, cap: guardCap });
       }
       return;
     }
@@ -366,7 +382,7 @@
       return;
     }
     try{
-      lineLayout.updateMinSvgWidth?.(normalized);
+      lineLayout.updateMinSvgWidth?.(effectiveWidth);
     }catch(err){
       console.error('line legend guard update error', err);
     }
@@ -375,7 +391,7 @@
     }catch(err){
       console.error('line legend guard sync error', err);
     }
-    console.debug('Debug: line legend guard width applied',{ requiredWidth: normalized });
+    console.debug('Debug: line legend guard width applied',{ requestedWidth: normalized, appliedWidth: effectiveWidth, cap: guardCap });
   }
 
   function ensureLineLegendControlPlacement(){
