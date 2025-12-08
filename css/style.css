@@ -535,7 +535,7 @@ select {
 }
 
 .welcome-screen {
-    padding: 48px 24px 32px;
+    padding: 28px 20px 18px;
     display: flex;
     justify-content: center;
     align-items: flex-start;
@@ -545,24 +545,24 @@ select {
     width: min(960px, 100%);
     background: #ffffff;
     border-radius: 18px;
-    padding: 40px 48px;
-    box-shadow: 0 32px 68px rgba(15, 23, 42, 0.14);
+    padding: 24px 32px;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
     border: 1px solid rgba(148, 163, 184, 0.24);
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 10px;
     text-align: left;
 }
 
 .welcome-panel__title {
     margin: 0;
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 700;
     color: #111827;
 }
 
 .welcome-panel__body {
-    margin: 0 0 16px;
+    margin: 0 0 8px;
     color: #4b5563;
     font-size: 16px;
     line-height: 1.6;
@@ -571,8 +571,8 @@ select {
 .welcome-panel__actions {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-bottom: 8px;
+    gap: 8px;
+    margin-bottom: 4px;
     flex-wrap: wrap;
 }
 
@@ -602,19 +602,19 @@ select {
 
 .welcome-picker {
     border: 1px solid rgba(148, 163, 184, 0.35);
-    border-radius: 16px;
+    border-radius: 14px;
     background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 0.96));
-    padding: 20px 24px;
+    padding: 14px 18px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
     position: relative;
 }
 
 .welcome-picker__header {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
 }
 
 .welcome-picker__title {
@@ -639,6 +639,7 @@ select {
     font-size: 12px;
     color: #6366f1;
 }
+
 
 .welcome-picker__input-row {
     display: flex;
