@@ -9333,6 +9333,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           tickInterval: {
             x: axisSnapshot.x?.tickInterval ?? null,
             y: axisSnapshot.y?.tickInterval ?? null
+          },
+          notation: {
+            x: axisSnapshot.x?.notation ?? 'auto',
+            y: axisSnapshot.y?.notation ?? 'auto'
+          },
+          brokenAxis: {
+            y: {
+              enabled: axisSnapshot.y?.brokenAxis?.enabled ?? false,
+              segments: axisSnapshot.y?.brokenAxis?.segments ?? []
+            }
           }
         },
         stats: {
@@ -9630,11 +9640,33 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const tickY = tickCfg.y;
       axisState.x.tickInterval = Number.isFinite(Number(tickX)) && Number(tickX) > 0 ? Math.max(1, Math.round(Number(tickX))) : null;
       axisState.y.tickInterval = Number.isFinite(Number(tickY)) && Number(tickY) > 0 ? Number(tickY) : null;
+      
+      // Restore notation settings
+      if(axisCfg.notation){
+        axisState.x.notation = sanitizeBoxAxisNotation(axisCfg.notation.x);
+        axisState.y.notation = sanitizeBoxAxisNotation(axisCfg.notation.y);
+      }
+      
+      // Restore broken axis settings
+      if(axisCfg.brokenAxis && axisCfg.brokenAxis.y){
+        const brokenY = axisCfg.brokenAxis.y;
+        axisState.y.brokenAxis = {
+          enabled: !!brokenY.enabled,
+          segments: Array.isArray(brokenY.segments) ? brokenY.segments.filter(seg => {
+            return seg && typeof seg === 'object' && 
+                   Number.isFinite(seg.start) && Number.isFinite(seg.end) && 
+                   seg.start < seg.end;
+          }).map(seg => ({ start: Number(seg.start), end: Number(seg.end) })) : []
+        };
+      }
+      
       console.debug('Debug: box axis settings restored from payload',{
         strokeWidth: axisState.strokeWidth,
         color: axisState.color,
         tickIntervalX: axisState.x.tickInterval,
-        tickIntervalY: axisState.y.tickInterval
+        tickIntervalY: axisState.y.tickInterval,
+        brokenAxisEnabled: axisState.y?.brokenAxis?.enabled,
+        segmentCount: axisState.y?.brokenAxis?.segments?.length || 0
       });
     } else {
       state.axisSettings = createDefaultAxisSettings();
