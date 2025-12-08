@@ -579,11 +579,13 @@
           return;
         }
         const handleDismiss = event => {
-          const picker = dom.welcomePicker;
-          if (!pickerDropdownOpen || !picker) {
+          if (!pickerDropdownOpen) {
             return;
           }
-          if (picker.contains(event.target)) {
+          const isWithinSearch = dom.welcomeGraphSearch?.contains(event.target);
+          const isWithinResults = dom.welcomeGraphSearchResults?.contains(event.target);
+          const isWithinClear = dom.welcomeGraphSearchClear?.contains(event.target);
+          if (isWithinSearch || isWithinResults || isWithinClear) {
             return;
           }
           closeVariantDropdown({ reason: 'outside-click' });
@@ -617,11 +619,16 @@
       }
 
       function setSelectedVariant(variantId, options = {}) {
-        selectedVariantId = variantId || null;
+          const nextId = variantId || null;
+          const shouldCloseDropdown = !!nextId && !options.keepDropdown;
+          selectedVariantId = nextId;
+          const selectedVariant = selectedVariantId ? graphVariantLookup.get(selectedVariantId) : null;
+          if (selectedVariant && !options.skipInputUpdate && dom.welcomeGraphSearch) {
+            dom.welcomeGraphSearch.value = selectedVariant.label;
+          }
         if (!options.skipSummary && dom.welcomeGraphSelectionLabel) {
-          if (selectedVariantId && graphVariantLookup.has(selectedVariantId)) {
-            const variant = graphVariantLookup.get(selectedVariantId);
-            dom.welcomeGraphSelectionLabel.textContent = `${variant.label} (${variant.groupLabel}) selected.`;
+            if (selectedVariant) {
+              dom.welcomeGraphSelectionLabel.textContent = `${selectedVariant.label} (${selectedVariant.groupLabel}) selected.`;
           } else if (!renderedVariantList.length) {
             dom.welcomeGraphSelectionLabel.textContent = 'No plot types match that search.';
           } else {
@@ -633,6 +640,9 @@
         }
         if (!options.skipHighlight) {
           updateVariantHighlight();
+        }
+        if (shouldCloseDropdown) {
+          closeVariantDropdown({ reason: options.reason || 'selection' });
         }
       }
 
@@ -724,7 +734,7 @@
         if (!variantId) {
           return;
         }
-        setSelectedVariant(variantId);
+        setSelectedVariant(variantId, { reason: 'click-selection' });
       }
 
       function handleVariantResultDoubleClick(event) {
@@ -736,7 +746,7 @@
         if (!variantId) {
           return;
         }
-        setSelectedVariant(variantId);
+        setSelectedVariant(variantId, { reason: 'double-click-selection' });
         launchVariant(variantId, { reason: 'welcome-picker-dblclick' });
       }
 
@@ -754,7 +764,7 @@
         }
         event.preventDefault();
         if (!selectedVariantId) {
-          setSelectedVariant(renderedVariantList[0].id);
+          setSelectedVariant(renderedVariantList[0].id, { reason: 'enter-selection' });
         }
         if (selectedVariantId) {
           launchVariant(selectedVariantId, { reason: 'welcome-picker-enter' });
