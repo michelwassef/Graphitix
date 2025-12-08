@@ -788,7 +788,7 @@
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
       x: { tickInterval: null, notation: 'auto' },
-      y: { tickInterval: null, notation: 'auto' }
+      y: { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -2051,11 +2051,21 @@
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
     if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, notation: 'auto' }; }
-    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, notation: 'auto' }; }
+    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }; }
     if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
     if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
     settings.x.notation = sanitizeBoxAxisNotation(settings.x.notation);
     settings.y.notation = sanitizeBoxAxisNotation(settings.y.notation);
+    // Ensure broken axis settings for y-axis
+    if(!settings.y.brokenAxis || typeof settings.y.brokenAxis !== 'object'){
+      settings.y.brokenAxis = { enabled: false, segments: [] };
+    }
+    if(typeof settings.y.brokenAxis.enabled !== 'boolean'){
+      settings.y.brokenAxis.enabled = false;
+    }
+    if(!Array.isArray(settings.y.brokenAxis.segments)){
+      settings.y.brokenAxis.segments = [];
+    }
     const strokeNumeric = Number(settings.strokeWidth);
     if(!Number.isFinite(strokeNumeric) || strokeNumeric <= 0){
       settings.strokeWidth = 1;
@@ -2152,6 +2162,52 @@
       settings.strokeWidth = Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
     }
     console.debug('Debug: box axis stroke width updated',{ strokeWidth: settings.strokeWidth });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function getBrokenAxisEnabled(axis){
+    if(axis !== 'y'){ return false; }
+    const settings = ensureAxisSettings();
+    return !!settings.y?.brokenAxis?.enabled;
+  }
+
+  function updateBrokenAxisEnabled(axis, enabled){
+    if(axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const previousValue = !!settings.y.brokenAxis.enabled;
+    settings.y.brokenAxis.enabled = !!enabled;
+    console.debug('Debug: box broken axis enabled updated',{ axis, enabled: settings.y.brokenAxis.enabled });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function getBrokenAxisSegments(axis){
+    if(axis !== 'y'){ return []; }
+    const settings = ensureAxisSettings();
+    return settings.y?.brokenAxis?.segments || [];
+  }
+
+  function updateBrokenAxisSegments(axis, segments){
+    if(axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    if(!Array.isArray(segments)){
+      settings.y.brokenAxis.segments = [];
+      return;
+    }
+    // Validate and sanitize segments
+    settings.y.brokenAxis.segments = segments.filter(seg => {
+      if(!seg || typeof seg !== 'object'){ return false; }
+      const start = Number(seg.start);
+      const end = Number(seg.end);
+      return Number.isFinite(start) && Number.isFinite(end) && start < end;
+    }).map(seg => ({
+      start: Number(seg.start),
+      end: Number(seg.end)
+    }));
+    console.debug('Debug: box broken axis segments updated',{ axis, segments: settings.y.brokenAxis.segments });
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
@@ -7615,7 +7671,29 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         updateAxisNotation(axis, value);
       },
-      isNotationSupported: () => isAxisNumeric(axis)
+      isNotationSupported: () => isAxisNumeric(axis),
+      getBrokenAxisEnabled: () => getBrokenAxisEnabled(axis),
+      onBrokenAxisEnabledChange: (enabled) => updateBrokenAxisEnabled(axis, enabled),
+      getBrokenAxisSegments: () => getBrokenAxisSegments(axis),
+      onBrokenAxisSegmentChange: (axis, index, segment) => {
+        const segments = getBrokenAxisSegments(axis);
+        if(index >= 0 && index < segments.length){
+          segments[index] = segment;
+          updateBrokenAxisSegments(axis, segments);
+        }
+      },
+      onBrokenAxisAddSegment: () => {
+        const segments = getBrokenAxisSegments(axis);
+        segments.push({ start: 0, end: 1 });
+        updateBrokenAxisSegments(axis, segments);
+      },
+      onBrokenAxisRemoveSegment: (axis, index) => {
+        const segments = getBrokenAxisSegments(axis);
+        if(index >= 0 && index < segments.length){
+          segments.splice(index, 1);
+          updateBrokenAxisSegments(axis, segments);
+        }
+      }
     });
 
     function renderVertical(){
