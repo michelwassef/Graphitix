@@ -1393,16 +1393,19 @@
     if(isManualResize){
       const safeAppliedWidth = Number.isFinite(appliedWidth) && appliedWidth > 0 ? appliedWidth : manualWidth;
       const liveTableWidth = Number.isFinite(tableWidth) && tableWidth > 0 ? tableWidth : (tablePanel.getBoundingClientRect().width || 0);
-      const lockedTableWidth = Number.isFinite(storedTableWidth) && storedTableWidth > 0 ? storedTableWidth : liveTableWidth;
-      const finalTableWidth = Math.max(150, Math.round(lockedTableWidth));
+      const lockedTableWidth = Number.isFinite(liveTableWidth) && liveTableWidth > 0
+        ? liveTableWidth
+        : (Number.isFinite(storedTableWidth) && storedTableWidth > 0 ? storedTableWidth : liveTableWidth);
+      const minTablePx = Math.max(0, Math.round(minPx));
+      const finalTableWidth = Math.max(minTablePx, Math.round(lockedTableWidth));
       if(svgDataset && finalTableWidth > 0){
         svgDataset.resizerTableWidth = String(finalTableWidth);
       }
       if(tablePanel && finalTableWidth > 0){
         tablePanel.style.flex = '0 0 ' + finalTableWidth + 'px';
         tablePanel.style.width = finalTableWidth + 'px';
-        tablePanel.style.minWidth = finalTableWidth + 'px';
-        tablePanel.style.maxWidth = finalTableWidth + 'px';
+        tablePanel.style.minWidth = minTablePx + 'px';
+        tablePanel.style.maxWidth = 'none';
       }
       const targetGraphWidth = Number.isFinite(configWidth) ? safeAppliedWidth + configWidth + gap : safeAppliedWidth;
       const finalGraphWidth = Math.max(0, Math.round(targetGraphWidth));
