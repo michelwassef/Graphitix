@@ -1042,6 +1042,7 @@
         selectors: {
           tablePanel: '#scatterTablePanel',
           graphPanel: '#scatterGraphPanel',
+          configPanel: () => scatterGraphPanel?.querySelector('.config-panel') || scatterGraphPanel?.querySelector('.config-options'),
           panelResizer: '#scatterPanelResizer',
           hotWrapper: '#scatterHotWrapper',
           hotContainer: '#scatterHot',
