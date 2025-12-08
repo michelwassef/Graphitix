@@ -35,7 +35,7 @@
       syncPanels,
       computeMinSvgWidth,
       onMinSvgWidth,
-      minTableWidth = 150,
+      minTableWidth = 0,
       diagramSelector = '.diagram-area'
     } = opts || {};
     const label = debugLabel || panelResizer?.id || tablePanel?.id || 'panel';
@@ -72,7 +72,6 @@
         return;
       }
       const startX = Number(event?.clientX) || 0;
-      const configWidth = configPanel?.getBoundingClientRect?.().width || 0;
       let gap = 0;
       if(diagramSelector){
         const diagramArea = graphPanel.querySelector?.(diagramSelector);
@@ -104,26 +103,17 @@
         }
       }
       const total = startTable + startGraph;
-      const minGraph = Math.max(0, configWidth + gap + minSvgWidth);
       const tableDataset = tablePanel.dataset || {};
-      const baseMinTable = Number.isFinite(minTableWidth) && minTableWidth > 0 ? Math.round(minTableWidth) : 150;
-      let defaultTableWidth = Number.parseFloat(tableDataset.panelDefaultWidth);
-      if(!Number.isFinite(defaultTableWidth) || defaultTableWidth <= 0){
-        defaultTableWidth = Math.max(Math.round(startTable), baseMinTable);
-        tableDataset.panelDefaultWidth = String(defaultTableWidth);
-        console.debug('Debug: Shared.resizer.attachPanelDragResizer stored default', { label, defaultTableWidth }); // Debug: capture default width
-      }else{
-        console.debug('Debug: Shared.resizer.attachPanelDragResizer reused default', { label, defaultTableWidth }); // Debug: reuse stored default
+      const baseMinTable = Number.isFinite(minTableWidth) && minTableWidth >= 0 ? Math.round(minTableWidth) : 0;
+      if(!Number.isFinite(Number.parseFloat(tableDataset.panelDefaultWidth)) || Number.parseFloat(tableDataset.panelDefaultWidth) <= 0){
+        tableDataset.panelDefaultWidth = String(Math.round(startTable));
+        console.debug('Debug: Shared.resizer.attachPanelDragResizer stored default', { label, defaultTableWidth: tableDataset.panelDefaultWidth }); // Debug: capture default width
       }
-      let storedMinWidth = Number.parseFloat(tableDataset.panelMinWidth);
-      if(!Number.isFinite(storedMinWidth) || storedMinWidth <= 0){
-        storedMinWidth = Math.max(baseMinTable, defaultTableWidth);
-        tableDataset.panelMinWidth = String(storedMinWidth);
-        console.debug('Debug: Shared.resizer.attachPanelDragResizer stored min', { label, storedMinWidth, defaultTableWidth }); // Debug: persist minimum width
-      }
+      const minTable = baseMinTable;
+      tableDataset.panelMinWidth = String(minTable);
       if(tablePanel?.style){
         const existingMin = Number.parseFloat(tablePanel.style.minWidth) || 0;
-        const enforcedMin = Math.max(existingMin, storedMinWidth, baseMinTable);
+        const enforcedMin = Math.max(existingMin, minTable);
         if(Number.isFinite(enforcedMin) && enforcedMin > 0 && enforcedMin !== existingMin){
           tablePanel.style.minWidth = `${Math.round(enforcedMin)}px`;
           console.debug('Debug: Shared.resizer.attachPanelDragResizer enforced table min', { label, enforcedMin, existingMin }); // Debug: align style minimum
@@ -133,32 +123,36 @@
         label,
         startTable,
         startGraph,
-        configWidth,
         gap,
         minSvgWidth,
-        minGraph,
         total
       });
       const onMove = (ev) => {
         const clientX = Number(ev?.clientX) || 0;
         const dx = clientX - startX;
         const proposedTable = startTable + dx;
-        const maxTable = total - minGraph;
+        const maxTable = Number.isFinite(total) ? Math.max(total, startTable + Math.max(0, dx)) : proposedTable;
         const clampedBase = Number.isFinite(maxTable) ? Math.min(maxTable, proposedTable) : proposedTable;
-        const minTable = Math.max(baseMinTable, defaultTableWidth, storedMinWidth);
         const newTable = Math.max(minTable, clampedBase);
-        const newGraph = Math.max(0, total - newTable);
+        const growRight = dx > 0;
+        const newGraph = growRight
+          ? Math.max(startGraph, total - newTable)
+          : Math.max(0, total - newTable);
         if(tablePanel?.style){
           const tablePx = `${Math.round(newTable)}px`;
           tablePanel.style.flex = `0 0 ${tablePx}`;
           tablePanel.style.flexBasis = tablePx;
           tablePanel.style.width = tablePx;
           tablePanel.style.minWidth = `${Math.round(minTable)}px`;
+          tablePanel.style.maxWidth = 'none';
         }
         if(graphPanel?.style){
           const graphPx = `${Math.max(0, Math.round(newGraph))}px`;
           graphPanel.style.flex = `0 0 ${graphPx}`;
           graphPanel.style.flexBasis = graphPx;
+          graphPanel.style.width = graphPx;
+          graphPanel.style.minWidth = graphPx;
+          graphPanel.style.maxWidth = 'none';
         }
         if(typeof syncPanels === 'function'){
           try{
@@ -173,6 +167,7 @@
           proposedTable,
           newTable,
           newGraph,
+          growRight,
           minTable,
           minSvgWidth
         });
@@ -1124,43 +1119,43 @@
       }
     }
     const minTableHint = parsePositive(opts.minTableWidth);
+    const baseMinTable = Number.isFinite(minTableHint) && minTableHint >= 0 ? minTableHint : 0;
     let storedMinTableWidth = parsePositive(tableDataset.panelMinWidth);
-    if(!Number.isFinite(storedMinTableWidth) || storedMinTableWidth <= 0){
-      if(Number.isFinite(defaultTableWidth) && defaultTableWidth > 0){
-        storedMinTableWidth = Math.max(defaultTableWidth, Number.isFinite(minTableHint) ? minTableHint : 0);
-        tableDataset.panelMinWidth = String(storedMinTableWidth);
-        console.debug('Debug: Shared.syncPanelWidths table min stored', {
-          label: debugLabel,
-          storedMinTableWidth,
-          defaultTableWidth,
-          minTableHint
-        }); // Debug: persist computed min width baseline
-      }else if(Number.isFinite(minTableHint) && minTableHint > 0){
-        storedMinTableWidth = minTableHint;
-      }
+    if(!Number.isFinite(storedMinTableWidth)){
+      storedMinTableWidth = baseMinTable;
+      tableDataset.panelMinWidth = String(storedMinTableWidth);
+      console.debug('Debug: Shared.syncPanelWidths table min stored', {
+        label: debugLabel,
+        storedMinTableWidth,
+        minTableHint
+      }); // Debug: persist computed min width baseline
+    }else if(Number.isFinite(baseMinTable) && storedMinTableWidth < baseMinTable){
+      storedMinTableWidth = baseMinTable;
+      tableDataset.panelMinWidth = String(storedMinTableWidth);
+      console.debug('Debug: Shared.syncPanelWidths table min normalized', {
+        label: debugLabel,
+        storedMinTableWidth,
+        minTableHint
+      }); // Debug: normalize stored min width to hint
     }
-    const effectiveMinTable = Number.isFinite(storedMinTableWidth) && storedMinTableWidth > 0
-      ? storedMinTableWidth
-      : (Number.isFinite(defaultTableWidth) ? defaultTableWidth : (Number.isFinite(minTableHint) ? minTableHint : NaN));
-    if(Number.isFinite(effectiveMinTable) && effectiveMinTable > 0){
-      const minPx = Math.max(0, Math.round(effectiveMinTable));
-      if(tablePanel.style.minWidth !== minPx + 'px'){
-        tablePanel.style.minWidth = minPx + 'px';
-        console.debug('Debug: Shared.syncPanelWidths table min enforced', {
-          label: debugLabel,
-          minPx
-        }); // Debug: enforce locked min width style
-      }
-      if(Number.isFinite(tableWidth) && tableWidth > 0 && tableWidth < minPx - 0.5){
-        tablePanel.style.flex = '0 0 ' + minPx + 'px';
-        tablePanel.style.flexBasis = minPx + 'px';
-        tablePanel.style.width = minPx + 'px';
-        console.debug('Debug: Shared.syncPanelWidths table width corrected', {
-          label: debugLabel,
-          minPx,
-          tableWidth
-        }); // Debug: bump table width back to min when compressed
-      }
+    const effectiveMinTable = Number.isFinite(storedMinTableWidth) ? storedMinTableWidth : baseMinTable;
+    const minPx = Math.max(0, Math.round(effectiveMinTable));
+    if(tablePanel.style.minWidth !== minPx + 'px'){
+      tablePanel.style.minWidth = minPx + 'px';
+      console.debug('Debug: Shared.syncPanelWidths table min enforced', {
+        label: debugLabel,
+        minPx
+      }); // Debug: enforce locked min width style
+    }
+    if(minPx > 0 && Number.isFinite(tableWidth) && tableWidth > 0 && tableWidth < minPx - 0.5){
+      tablePanel.style.flex = '0 0 ' + minPx + 'px';
+      tablePanel.style.flexBasis = minPx + 'px';
+      tablePanel.style.width = minPx + 'px';
+      console.debug('Debug: Shared.syncPanelWidths table width corrected', {
+        label: debugLabel,
+        minPx,
+        tableWidth
+      }); // Debug: bump table width back to min when compressed
     }
     const graphRect = graphPanel.getBoundingClientRect();
     const graphWidth = graphRect.width;
