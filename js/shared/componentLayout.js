@@ -105,7 +105,8 @@
         minSvgWidth: panelState.minSvgWidth,
         debugLabel: componentName,
         panelResizer: elements.panelResizer,
-        skipSchedule
+        skipSchedule,
+        preserveGraphContent: config?.preserveGraphContent !== false
       });
       console.debug('Debug: componentLayout syncPanels complete', { component: componentName, minSvgWidth: panelState.minSvgWidth });
       if(typeof config?.onAfterSync === 'function'){

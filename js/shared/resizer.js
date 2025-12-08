@@ -154,6 +154,12 @@
           graphPanel.style.minWidth = graphPx;
           graphPanel.style.maxWidth = 'none';
         }
+        if(tablePanel?.dataset){
+          tablePanel.dataset.panelManualWidth = 'true';
+        }
+        if(graphPanel?.dataset){
+          graphPanel.dataset.panelManualWidth = 'true';
+        }
         if(typeof syncPanels === 'function'){
           try{
             syncPanels({ phase: 'drag', minSvgWidth, newTable, newGraph, minTable });
@@ -1026,6 +1032,7 @@
 
   Shared.syncPanelWidths = function syncPanelWidths(tablePanel, graphPanel, configPanel, scheduleDraw, opts={}){
     const debugLabel = opts.debugLabel || 'panel';
+    const preserveGraphContent = opts.preserveGraphContent === true;
     if(!tablePanel || !graphPanel || !configPanel){
       console.debug('Debug: Shared.syncPanelWidths skipped', {
         label: debugLabel,
@@ -1035,6 +1042,9 @@
       });
       return null;
     }
+    const tableManualPanel = tablePanel?.dataset?.panelManualWidth === 'true';
+    const graphManualPanel = graphPanel?.dataset?.panelManualWidth === 'true';
+    const hasManualPanelSizing = tableManualPanel || graphManualPanel;
     const svgBox = opts.svgBox || graphPanel.querySelector(opts.svgSelector || '.svgbox');
     const diagramSelector = opts.diagramSelector || '.diagram-area';
     const diagramArea = graphPanel.querySelector(diagramSelector);
@@ -1197,7 +1207,13 @@
       }
     }
     const resizerSpace = (Number.isFinite(resizerWidth) ? resizerWidth : 0) + (Number.isFinite(resizerMargin) ? resizerMargin : 0);
-    let availableRaw = Number.isFinite(graphContentWidth) ? graphContentWidth - configWidth - gap : NaN;
+    const baseContentWidth = Number.isFinite(graphContentWidth) ? graphContentWidth : NaN;
+    const baseAvailableWidth = Number.isFinite(baseContentWidth) ? baseContentWidth - gap : NaN;
+    let availableRaw = Number.isFinite(baseContentWidth) ? baseContentWidth - configWidth - gap : NaN;
+    const preserveAutoWidth = preserveGraphContent && !hasManualPanelSizing && !isManualResize;
+    if(preserveAutoWidth && Number.isFinite(baseAvailableWidth)){
+      availableRaw = baseAvailableWidth;
+    }
     const manualWidth = isManualResize && Number.isFinite(svgCurrentWidth) ? svgCurrentWidth : NaN;
     if(isManualResize && Number.isFinite(manualWidth)){
       if(!Number.isFinite(availableRaw) || manualWidth > availableRaw){
