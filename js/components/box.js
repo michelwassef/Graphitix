@@ -45,6 +45,10 @@
   const BOX_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const BOX_AUTO_DRAW_COL_THRESHOLD = 5000;
   const BOX_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const BROKEN_AXIS_GAP_SIZE_PX = 20;
+  const BROKEN_AXIS_BREAK_WIDTH = 8;
+  const BROKEN_AXIS_BREAK_HEIGHT = 6;
+  const BROKEN_AXIS_DEFAULT_SEGMENT = { start: 0, end: 1 };
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
     iqr3:{ key:'iqr3', mode:'iqr', multiplier:3, label:'3×IQR' },
@@ -2288,8 +2292,8 @@
     // Calculate the total data range covered by segments
     const totalDataRange = mergedSegments.reduce((sum, seg) => sum + (seg.end - seg.start), 0);
     
-    // Define gap size in pixels (e.g., 20px per gap)
-    const gapSizePx = 20;
+    // Define gap size in pixels
+    const gapSizePx = BROKEN_AXIS_GAP_SIZE_PX;
     const numGaps = mergedSegments.length - 1;
     const totalGapHeight = numGaps * gapSizePx;
     const availableHeight = plotHeight - totalGapHeight;
@@ -7811,7 +7815,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       },
       onBrokenAxisAddSegment: () => {
         const segments = getBrokenAxisSegments(axis);
-        segments.push({ start: 0, end: 1 });
+        segments.push({ ...BROKEN_AXIS_DEFAULT_SEGMENT });
         updateBrokenAxisSegments(axis, segments);
       },
       onBrokenAxisRemoveSegment: (axis, index) => {
@@ -8018,8 +8022,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           // Draw break symbol at the bottom of each segment (except the last)
           if(segIdx < brokenScale.segments.length - 1){
             const breakY = segYEnd + brokenScale.gapSizePx / 2;
-            const breakWidth = 8;
-            const breakHeight = 6;
+            const breakWidth = BROKEN_AXIS_BREAK_WIDTH;
+            const breakHeight = BROKEN_AXIS_BREAK_HEIGHT;
             
             // Draw zigzag break lines
             const zigzagPath = `M ${yAxisX - breakWidth},${breakY - breakHeight} L ${yAxisX + breakWidth},${breakY} L ${yAxisX - breakWidth},${breakY + breakHeight}`;

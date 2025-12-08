@@ -255,7 +255,8 @@
       
       const separator = doc.createElement('span');
       separator.className = 'axis-controls-panel__segment-separator';
-      separator.textContent = '—';
+      separator.textContent = 'to';
+      separator.setAttribute('aria-label', 'to');
       segmentRow.appendChild(separator);
       
       const endInput = doc.createElement('input');
