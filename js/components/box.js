@@ -2322,6 +2322,7 @@
     
     // Create value-to-pixel mapping function
     const valueToPixel = (value, baseY, plotH) => {
+      const mapPixel = pixel => baseY + plotH - pixel;
       // Find which segment contains this value
       for(let i = 0; i < segmentMeta.length; i++){
         const seg = segmentMeta[i];
@@ -2329,23 +2330,23 @@
           // Map value within this segment to pixels
           const fraction = (value - seg.start) / seg.dataRange;
           const pixelInSegment = seg.pixelStart + fraction * seg.heightPx;
-          return baseY + pixelInSegment;
+          return mapPixel(pixelInSegment);
         }
       }
       
       // Value not in any segment - clamp to nearest segment
       if(value < segmentMeta[0].start){
-        return baseY;
+        return baseY + plotH;
       }
       if(value > segmentMeta[segmentMeta.length - 1].end){
-        return baseY + plotH;
+        return baseY;
       }
       
       // Value falls in a gap - return the bottom of the segment above it
       for(let i = 0; i < segmentMeta.length - 1; i++){
         if(value > segmentMeta[i].end && value < segmentMeta[i + 1].start){
           // In gap between segment i and i+1
-          return baseY + segmentMeta[i].pixelEnd;
+          return mapPixel(segmentMeta[i].pixelEnd);
         }
       }
       
@@ -8004,44 +8005,32 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       // Draw y-axis with broken axis support
       if(brokenScale && brokenScale.isBroken){
         // Draw each segment separately
+        const segmentCoords = seg => ({
+          top: marginLocal.top + plotHLocal - seg.pixelEnd,
+          bottom: marginLocal.top + plotHLocal - seg.pixelStart
+        });
         brokenScale.segments.forEach((seg, segIdx) => {
-          const segYStart = marginLocal.top + seg.pixelStart;
-          const segYEnd = marginLocal.top + seg.pixelEnd;
+          const { top: segYTop, bottom: segYBottom } = segmentCoords(seg);
           
           // Draw axis line for this segment
           addAxisElement('line',{ 
             x1: yAxisX, 
-            y1: segYStart, 
+            y1: segYTop, 
             x2: yAxisX, 
-            y2: segYEnd, 
+            y2: segYBottom, 
             stroke: axisStroke, 
             'stroke-linecap': 'square', 
             'stroke-width': axisStrokeWidth 
           });
-          
-          // Draw break symbol at the bottom of each segment (except the last)
-          if(segIdx < brokenScale.segments.length - 1){
-            const breakY = segYEnd + brokenScale.gapSizePx / 2;
-            const breakWidth = BROKEN_AXIS_BREAK_WIDTH;
-            const breakHeight = BROKEN_AXIS_BREAK_HEIGHT;
-            
-            // Draw zigzag break lines
-            const zigzagPath = `M ${yAxisX - breakWidth},${breakY - breakHeight} L ${yAxisX + breakWidth},${breakY} L ${yAxisX - breakWidth},${breakY + breakHeight}`;
-            const breakLine = document.createElementNS(NS, 'path');
-            breakLine.setAttribute('d', zigzagPath);
-            breakLine.setAttribute('stroke', axisStroke);
-            breakLine.setAttribute('stroke-width', axisStrokeWidth);
-            breakLine.setAttribute('fill', 'none');
-            (axisLayer || svg).appendChild(breakLine);
-          }
         });
         
         // Register axis controls on the first segment
+        const firstSegCoords = segmentCoords(brokenScale.segments[0]);
         const firstSegment = addAxisElement('line',{ 
           x1: yAxisX, 
-          y1: marginLocal.top + brokenScale.segments[0].pixelStart, 
+          y1: firstSegCoords.top, 
           x2: yAxisX, 
-          y2: marginLocal.top + brokenScale.segments[0].pixelEnd, 
+          y2: firstSegCoords.bottom, 
           stroke: 'transparent',
           'stroke-width': 20,
           'pointer-events': 'stroke'

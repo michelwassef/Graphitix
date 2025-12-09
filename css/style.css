@@ -2143,6 +2143,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .axis-controls-panel__field-label{font-weight:600;color:#1e293b;font-size:10px;text-transform:uppercase;letter-spacing:.12em;white-space:nowrap;display:block;width:100%;text-align:center}
 .axis-controls-panel__input{padding:5px 6px;font-size:13px;border-radius:8px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#0f172a;min-width:0;width:auto;max-width:96px;text-align:center}
 .axis-controls-panel__input--small{width:58px;min-width:58px;max-width:58px}
+.axis-controls-panel__input--xs{width:64px;min-width:64px;max-width:64px}
 .axis-controls-panel__input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
 .axis-controls-panel__color-input{height:32px;width:64px;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;display:block;margin:0 auto}
 .axis-controls-panel__notation-combo{min-width:108px;width:108px;max-width:108px;align-self:center}
@@ -2153,17 +2154,23 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .axis-controls-panel__field--color .axis-controls-panel__color-input{align-self:center;margin-left:0;margin-right:0;margin-inline:auto}
 .axis-controls-panel__field[data-disabled='1']{opacity:.55}
 .axis-controls-panel__field[data-disabled='1'] .axis-controls-panel__input{pointer-events:none;cursor:not-allowed;background:rgba(241,245,249,0.8);border-color:rgba(148,163,184,0.4)}
-.axis-controls-panel__field--broken-axis{flex-direction:column;align-items:flex-start;min-width:280px;max-width:380px;gap:8px;padding:8px 12px;background:rgba(241,245,249,0.3);border-radius:8px}
+.axis-controls-panel__field--broken-axis{flex-direction:column;align-items:flex-start;min-width:280px;max-width:380px;gap:8px;padding:12px 16px;background:rgba(241,245,249,0.35);border-radius:10px}
+.axis-controls-panel__helper{margin:0;font-size:11px;color:#64748b;line-height:1.4}
 .axis-controls-panel__checkbox-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:#1e293b;cursor:pointer}
 .axis-controls-panel__checkbox{width:16px;height:16px;cursor:pointer}
+.axis-controls-panel__button--segments-toggle{align-self:stretch;width:100%;justify-content:space-between;display:flex;align-items:center;gap:6px;font-weight:600;letter-spacing:.04em}
+.axis-controls-panel__button--segments-toggle[aria-disabled='true']{opacity:.5;cursor:not-allowed}
 .axis-controls-panel__segments-container{display:none;width:100%;gap:6px;flex-direction:column;margin-top:4px}
-.axis-controls-panel__segment-row{display:flex;align-items:center;gap:6px;width:100%}
-.axis-controls-panel__segment-label{font-size:11px;font-weight:600;color:#475569;min-width:70px}
-.axis-controls-panel__segment-separator{color:#94a3b8;font-weight:600}
+.axis-controls-panel__segments-empty{width:100%;padding:8px 10px;border:1px dashed rgba(148,163,184,0.8);border-radius:8px;font-size:11px;color:#64748b;background:#f8fafc;text-align:left}
+.axis-controls-panel__segment-row{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border-radius:9px;border:1px solid rgba(148,163,184,0.55);background:#ffffff;box-shadow:0 1px 2px rgba(15,23,42,0.05)}
+.axis-controls-panel__segment-title{font-size:11px;font-weight:600;color:#0f172a;letter-spacing:.05em;min-width:62px}
+.axis-controls-panel__segment-inputs{flex:1;display:flex;align-items:center;gap:6px}
+.axis-controls-panel__segment-input{flex:0 0 70px;text-align:center}
+.axis-controls-panel__segment-separator{color:#94a3b8;font-weight:600;font-size:12px}
 .axis-controls-panel__button{padding:4px 8px;font-size:11px;border-radius:6px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;color:#1e293b;cursor:pointer;font-weight:500;transition:all 0.15s ease}
 .axis-controls-panel__button:hover{background:#f8fafc;border-color:#94a3b8}
-.axis-controls-panel__button--add-segment{width:100%;margin-top:4px}
-.axis-controls-panel__button--remove-segment{width:28px;height:28px;padding:0;font-size:16px;line-height:1;color:#ef4444;border-color:rgba(239,68,68,0.3)}
+.axis-controls-panel__button--add-segment{width:100%;margin-top:4px;display:none;align-items:center;justify-content:center;font-weight:600;letter-spacing:.05em}
+.axis-controls-panel__button--remove-segment{width:32px;height:32px;padding:0;font-size:16px;line-height:1;color:#ef4444;border-color:rgba(239,68,68,0.3)}
 .axis-controls-panel__button--remove-segment:hover{background:#fef2f2;border-color:#ef4444}
 .axis-controls-panel__field[data-disabled='1'] .axis-controls-panel__notation-combo{pointer-events:none;cursor:not-allowed;opacity:.65}
 .axis-controls-panel__color-input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}

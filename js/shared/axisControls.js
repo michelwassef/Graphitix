@@ -20,6 +20,9 @@
   let brokenAxisFieldEl = null;
   let brokenAxisCheckbox = null;
   let brokenAxisSegmentsContainer = null;
+  let brokenAxisAddButton = null;
+  let brokenAxisConfigButton = null;
+  let brokenAxisConfigExpanded = false;
   let activeConfig = null;
   let activeHost = null;
   let hasDocListener = false;
@@ -230,58 +233,72 @@
     // Clear existing segments
     brokenAxisSegmentsContainer.innerHTML = '';
     
-    const segments = config.getBrokenAxisSegments ? config.getBrokenAxisSegments(config.axis) : [];
-    if(!Array.isArray(segments)){ return; }
-    
+    const rawSegments = config.getBrokenAxisSegments ? config.getBrokenAxisSegments(config.axis) : [];
+    const segments = Array.isArray(rawSegments) ? rawSegments : [];
+
+    if(!segments.length){
+      const emptyState = doc.createElement('div');
+      emptyState.className = 'axis-controls-panel__segments-empty';
+      emptyState.textContent = 'No breaks yet — add an interval to hide a range of values.';
+      brokenAxisSegmentsContainer.appendChild(emptyState);
+      return;
+    }
+
     segments.forEach((segment, index) => {
       const segmentRow = doc.createElement('div');
       segmentRow.className = 'axis-controls-panel__segment-row';
-      
-      const segmentLabel = doc.createElement('span');
-      segmentLabel.className = 'axis-controls-panel__segment-label';
-      segmentLabel.textContent = `Segment ${index + 1}:`;
-      segmentRow.appendChild(segmentLabel);
-      
+
+      const title = doc.createElement('span');
+      title.className = 'axis-controls-panel__segment-title';
+      title.textContent = `Break ${index + 1}`;
+      segmentRow.appendChild(title);
+
+      const inputsGroup = doc.createElement('div');
+      inputsGroup.className = 'axis-controls-panel__segment-inputs';
+
       const startInput = doc.createElement('input');
       startInput.type = 'number';
       startInput.step = '0.1';
-      startInput.className = 'axis-controls-panel__input axis-controls-panel__input--small';
       startInput.placeholder = 'Start';
+      startInput.title = 'Break start value';
+      startInput.className = 'axis-controls-panel__input axis-controls-panel__input--xs axis-controls-panel__segment-input';
       startInput.value = segment.start != null ? segment.start : '';
       startInput.setAttribute('data-undo-ignore', '1');
       startInput.setAttribute('data-segment-index', index);
       startInput.setAttribute('data-segment-field', 'start');
-      segmentRow.appendChild(startInput);
-      
+
       const separator = doc.createElement('span');
       separator.className = 'axis-controls-panel__segment-separator';
-      separator.textContent = 'to';
-      separator.setAttribute('aria-label', 'to');
-      segmentRow.appendChild(separator);
-      
+      separator.textContent = '→';
+      separator.setAttribute('aria-hidden', 'true');
+
       const endInput = doc.createElement('input');
       endInput.type = 'number';
       endInput.step = '0.1';
-      endInput.className = 'axis-controls-panel__input axis-controls-panel__input--small';
       endInput.placeholder = 'End';
+      endInput.title = 'Break end value';
+      endInput.className = 'axis-controls-panel__input axis-controls-panel__input--xs axis-controls-panel__segment-input';
       endInput.value = segment.end != null ? segment.end : '';
       endInput.setAttribute('data-undo-ignore', '1');
       endInput.setAttribute('data-segment-index', index);
       endInput.setAttribute('data-segment-field', 'end');
-      segmentRow.appendChild(endInput);
-      
+
+      inputsGroup.appendChild(startInput);
+      inputsGroup.appendChild(separator);
+      inputsGroup.appendChild(endInput);
+      segmentRow.appendChild(inputsGroup);
+
       const removeButton = doc.createElement('button');
       removeButton.type = 'button';
       removeButton.className = 'axis-controls-panel__button axis-controls-panel__button--remove-segment';
       removeButton.textContent = '×';
-      removeButton.title = 'Remove segment';
+      removeButton.title = 'Remove break';
       removeButton.setAttribute('data-undo-ignore', '1');
       removeButton.setAttribute('data-segment-index', index);
       segmentRow.appendChild(removeButton);
-      
+
       brokenAxisSegmentsContainer.appendChild(segmentRow);
-      
-      // Add event listeners
+
       const updateSegment = () => {
         if(applyingFromUndo){ return; }
         if(!config || typeof config.onBrokenAxisSegmentChange !== 'function'){ return; }
@@ -292,10 +309,10 @@
           logDebug('broken axis segment changed',{ index, start, end });
         }
       };
-      
+
       startInput.addEventListener('change', updateSegment);
       endInput.addEventListener('change', updateSegment);
-      
+
       removeButton.addEventListener('click', () => {
         if(applyingFromUndo){ return; }
         if(!config || typeof config.onBrokenAxisRemoveSegment !== 'function'){ return; }
@@ -304,6 +321,24 @@
         syncPanelInputsFromConfig(config);
       });
     });
+  }
+
+  function setBrokenAxisConfigExpanded(expanded){
+    brokenAxisConfigExpanded = !!expanded;
+    if(brokenAxisConfigButton){
+      brokenAxisConfigButton.setAttribute('aria-expanded', brokenAxisConfigExpanded ? 'true' : 'false');
+      brokenAxisConfigButton.textContent = brokenAxisConfigExpanded ? 'Hide breaks' : 'Show breaks';
+    }
+    const shouldShow = brokenAxisConfigExpanded && brokenAxisCheckbox && brokenAxisCheckbox.checked;
+    if(brokenAxisSegmentsContainer){
+      brokenAxisSegmentsContainer.style.display = shouldShow ? 'flex' : 'none';
+    }
+    if(brokenAxisAddButton){
+      brokenAxisAddButton.style.display = shouldShow ? 'flex' : 'none';
+      const enabled = brokenAxisCheckbox ? brokenAxisCheckbox.checked : false;
+      brokenAxisAddButton.disabled = !enabled;
+      brokenAxisAddButton.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+    }
   }
 
   function updatePanelInputs(config){
@@ -379,14 +414,25 @@
         if(brokenAxisCheckbox){
           brokenAxisCheckbox.checked = enabled;
         }
-        if(brokenAxisSegmentsContainer){
-          brokenAxisSegmentsContainer.style.display = enabled ? 'block' : 'none';
+        if(brokenAxisConfigButton){
+          brokenAxisConfigButton.disabled = !enabled;
+          brokenAxisConfigButton.setAttribute('aria-disabled', enabled ? 'false' : 'true');
         }
-        if(enabled){
+        if(!enabled){
+          brokenAxisConfigExpanded = false;
+          if(brokenAxisSegmentsContainer){ brokenAxisSegmentsContainer.innerHTML = ''; }
+        }else{
           renderBrokenAxisSegments(config);
         }
+        setBrokenAxisConfigExpanded(enabled && brokenAxisConfigExpanded);
       }else{
         brokenAxisFieldEl.hidden = true;
+        if(brokenAxisSegmentsContainer){
+          brokenAxisSegmentsContainer.style.display = 'none';
+          brokenAxisSegmentsContainer.innerHTML = '';
+        }
+        brokenAxisConfigExpanded = false;
+        setBrokenAxisConfigExpanded(false);
       }
     }
   }
@@ -722,16 +768,33 @@
     brokenAxisCheckboxLabel.appendChild(brokenAxisLabelText);
     brokenAxisFieldEl.appendChild(brokenAxisCheckboxLabel);
 
+    const brokenAxisHelper = doc.createElement('p');
+    brokenAxisHelper.className = 'axis-controls-panel__helper';
+    brokenAxisHelper.textContent = 'Hide a span of values to keep distant clusters readable.';
+    brokenAxisFieldEl.appendChild(brokenAxisHelper);
+
+    brokenAxisConfigButton = doc.createElement('button');
+    brokenAxisConfigButton.type = 'button';
+    brokenAxisConfigButton.className = 'axis-controls-panel__button axis-controls-panel__button--segments-toggle';
+    brokenAxisConfigButton.textContent = 'Configure breaks';
+    brokenAxisConfigButton.disabled = true;
+    brokenAxisConfigButton.setAttribute('aria-expanded', 'false');
+    brokenAxisConfigButton.setAttribute('aria-disabled', 'true');
+    brokenAxisConfigButton.setAttribute('data-undo-ignore', '1');
+    brokenAxisFieldEl.appendChild(brokenAxisConfigButton);
+
     brokenAxisSegmentsContainer = doc.createElement('div');
     brokenAxisSegmentsContainer.className = 'axis-controls-panel__segments-container';
     brokenAxisFieldEl.appendChild(brokenAxisSegmentsContainer);
 
-    const addSegmentButton = doc.createElement('button');
-    addSegmentButton.type = 'button';
-    addSegmentButton.className = 'axis-controls-panel__button axis-controls-panel__button--add-segment';
-    addSegmentButton.textContent = '+ Add Segment';
-    addSegmentButton.setAttribute('data-undo-ignore', '1');
-    brokenAxisFieldEl.appendChild(addSegmentButton);
+    brokenAxisAddButton = doc.createElement('button');
+    brokenAxisAddButton.type = 'button';
+    brokenAxisAddButton.className = 'axis-controls-panel__button axis-controls-panel__button--add-segment';
+    brokenAxisAddButton.textContent = '+ Add Break';
+    brokenAxisAddButton.setAttribute('data-undo-ignore', '1');
+    brokenAxisAddButton.disabled = true;
+    brokenAxisAddButton.setAttribute('aria-disabled', 'true');
+    brokenAxisFieldEl.appendChild(brokenAxisAddButton);
 
     panelEl.appendChild(brokenAxisFieldEl);
 
@@ -874,8 +937,8 @@
       });
     }
 
-    if(addSegmentButton){
-      addSegmentButton.addEventListener('click', () => {
+    if(brokenAxisAddButton){
+      brokenAxisAddButton.addEventListener('click', () => {
         if(applyingFromUndo){ return; }
         if(!activeConfig){ return; }
         const config = activeConfig;
@@ -883,6 +946,16 @@
         logDebug('broken axis add segment');
         config.onBrokenAxisAddSegment(config.axis);
         syncPanelInputsFromConfig(config);
+      });
+    }
+
+    if(brokenAxisConfigButton){
+      brokenAxisConfigButton.addEventListener('click', () => {
+        if(brokenAxisConfigButton.disabled){ return; }
+        setBrokenAxisConfigExpanded(!brokenAxisConfigExpanded);
+        if(activeConfig){
+          renderBrokenAxisSegments(activeConfig);
+        }
       });
     }
 
@@ -1017,6 +1090,7 @@
       console.error('axisControls openPanel fontControls.close error', fontErr);
     }
     activeConfig = config;
+    brokenAxisConfigExpanded = false;
     const host = resolveToolbarHost(config.scopeId);
     if(host){
       if(panelEl.parentElement !== host){
@@ -1033,6 +1107,7 @@
       logDebug('host unavailable for open',{ scopeId: config.scopeId });
     }
     updatePanelInputs(config);
+    setBrokenAxisConfigExpanded(false);
     panelEl.style.display = 'flex';
     panelEl.hidden = false;
     panelEl.dataset.open = '1';
@@ -1057,7 +1132,7 @@
       } catch(highlightErr){
         console.error('axisControls registerAxisElement highlight error', highlightErr);
       }
-      openPanel({
+      const openConfig = {
         axis: config.axis,
         scopeId: config.scopeId,
         getTickInterval: config.getTickInterval,
@@ -1073,7 +1148,24 @@
         getNotationMode: config.getNotationMode,
         onNotationChange: config.onNotationChange,
         isNotationSupported: config.isNotationSupported
-      });
+      };
+      if(typeof config.getBrokenAxisEnabled === 'function' && typeof config.onBrokenAxisEnabledChange === 'function'){
+        openConfig.getBrokenAxisEnabled = config.getBrokenAxisEnabled;
+        openConfig.onBrokenAxisEnabledChange = config.onBrokenAxisEnabledChange;
+        if(typeof config.getBrokenAxisSegments === 'function'){
+          openConfig.getBrokenAxisSegments = config.getBrokenAxisSegments;
+        }
+        if(typeof config.onBrokenAxisSegmentChange === 'function'){
+          openConfig.onBrokenAxisSegmentChange = config.onBrokenAxisSegmentChange;
+        }
+        if(typeof config.onBrokenAxisAddSegment === 'function'){
+          openConfig.onBrokenAxisAddSegment = config.onBrokenAxisAddSegment;
+        }
+        if(typeof config.onBrokenAxisRemoveSegment === 'function'){
+          openConfig.onBrokenAxisRemoveSegment = config.onBrokenAxisRemoveSegment;
+        }
+      }
+      openPanel(openConfig);
     };
     element.addEventListener('click', handler);
     if(overlayInfo){
