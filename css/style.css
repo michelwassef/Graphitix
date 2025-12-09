@@ -2132,8 +2132,8 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .font-toolbar-host{margin:0;display:none;justify-content:flex-start;align-items:stretch;flex:0 0 auto;min-width:0;align-self:center;position:relative;overflow:visible;width:100%;padding:0}
 .font-toolbar-host.font-toolbar-host--visible{display:flex}
 .font-toolbar-host.font-toolbar-host--visible>.font-controls-panel,.font-toolbar-host.font-toolbar-host--visible>.axis-controls-panel{position:static;margin:0;max-width:100%}
-.font-toolbar-host.font-toolbar-host--axis{flex:1 1 100%;justify-content:flex-start;align-self:stretch;width:calc(100% + 20px);margin-left:-10px;margin-right:-10px}
-.axis-controls-panel{display:flex;align-items:flex-start;padding:0 16px 0 0;border-radius:12px;border:none;background:transparent;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
+.font-toolbar-host.font-toolbar-host--axis{flex:1 1 100%;justify-content:flex-start;align-self:stretch;width:100%;margin-left:0;margin-right:0}
+.axis-controls-panel{display:flex;align-items:flex-start;padding:0 8px;border-radius:12px;border:none;background:transparent;color:#0f172a;font-family:'Inter','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;box-shadow:none;flex:1 1 auto;width:100%;justify-content:flex-start}
 .axis-controls-panel__summary{display:flex;flex-direction:column;gap:2px;min-width:56px}
 .axis-controls-panel__summary-label{font-size:10px;text-transform:uppercase;letter-spacing:0.14em;color:#475569;font-weight:600}
 .axis-controls-panel__summary-value{font-size:13px;font-weight:600;color:#1e293b;white-space:nowrap}
@@ -2154,7 +2154,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .axis-controls-panel__field--color .axis-controls-panel__color-input{align-self:center;margin-left:0;margin-right:0;margin-inline:auto}
 .axis-controls-panel__field[data-disabled='1']{opacity:.55}
 .axis-controls-panel__field[data-disabled='1'] .axis-controls-panel__input{pointer-events:none;cursor:not-allowed;background:rgba(241,245,249,0.8);border-color:rgba(148,163,184,0.4)}
-.axis-controls-panel__field--broken-axis{position:relative;flex-direction:column;align-items:flex-start;align-self:flex-end;min-width:128px;max-width:140px;gap:4px;padding-top:0;background:transparent;border-radius:0;overflow:visible;margin-left:8px}
+.axis-controls-panel__field--broken-axis{position:relative;flex-direction:column;align-items:flex-end;align-self:flex-end;min-width:auto;max-width:none;gap:4px;padding-top:0;background:transparent;border-radius:0;overflow:visible;margin-left:8px;margin-right:0}
 .axis-controls-panel__dropdown{position:absolute;top:100%;left:0;display:none;flex-direction:column;width:auto;min-width:260px;max-width:clamp(260px,30vw,360px);padding:14px 14px;background:#f8f9fb;border-radius:0;border:1px solid #d0d5dd;box-shadow:0 18px 30px rgba(15,23,42,0.16);z-index:50;box-sizing:border-box}
 .axis-controls-panel__dropdown>.axis-controls-panel__checkbox-label,
 .axis-controls-panel__dropdown>.axis-controls-panel__segments-container{width:100%;}
