@@ -801,11 +801,6 @@
     brokenAxisCheckboxLabel.appendChild(brokenAxisLabelText);
     brokenAxisDropdown.appendChild(brokenAxisCheckboxLabel);
 
-    const brokenAxisHelper = doc.createElement('p');
-    brokenAxisHelper.className = 'axis-controls-panel__helper';
-    brokenAxisHelper.textContent = 'Hide a span of values to keep distant clusters readable.';
-    brokenAxisDropdown.appendChild(brokenAxisHelper);
-
     brokenAxisSegmentsContainer = doc.createElement('div');
     brokenAxisSegmentsContainer.className = 'axis-controls-panel__segments-container';
     brokenAxisDropdown.appendChild(brokenAxisSegmentsContainer);
