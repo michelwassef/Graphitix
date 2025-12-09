@@ -867,18 +867,19 @@
         const seg = segmentMeta[i];
         if(value >= seg.start && value <= seg.end){
           // Map value within this segment to pixels
-          const fraction = (value - seg.start) / seg.dataRange;
+          // Handle edge case where start === end (segment has zero range)
+          const fraction = seg.dataRange > 0 ? (value - seg.start) / seg.dataRange : 0;
           const pixelInSegment = seg.pixelStart + fraction * seg.lengthPx;
           return mapPixel(pixelInSegment);
         }
       }
       
-      // Value not in any segment - clamp to nearest segment
+      // Value not in any segment - clamp to nearest segment edge
       if(value < segmentMeta[0].start){
-        return mapPixel(0);
+        return mapPixel(segmentMeta[0].pixelStart);
       }
       if(value > segmentMeta[segmentMeta.length - 1].end){
-        return mapPixel(plotLen);
+        return mapPixel(segmentMeta[segmentMeta.length - 1].pixelEnd);
       }
       
       // Value falls in a gap - return the end of the segment before it
@@ -889,7 +890,8 @@
         }
       }
       
-      return mapPixel(plotLen / 2); // Fallback
+      // Final fallback - should not reach here, but return first segment start for safety
+      return mapPixel(segmentMeta[0].pixelStart);
     };
     
     return {
@@ -3844,8 +3846,40 @@
       };
       function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
       if(showGrid){
-        xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});});
-        yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});});
+        xScale.ticks.forEach(t=>{
+          // Only draw grid line if tick falls within a valid segment (for broken axis)
+          if(brokenXScale && brokenXScale.isBroken){
+            let inSegment = false;
+            for(const seg of brokenXScale.segments){
+              if(t >= seg.start && t <= seg.end){
+                inSegment = true;
+                break;
+              }
+            }
+            if(!inSegment){
+              return; // Skip grid lines that fall in gaps
+            }
+          }
+          const x=x2px(t);
+          add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});
+        });
+        yScale.ticks.forEach(t=>{
+          // Only draw grid line if tick falls within a valid segment (for broken axis)
+          if(brokenYScale && brokenYScale.isBroken){
+            let inSegment = false;
+            for(const seg of brokenYScale.segments){
+              if(t >= seg.start && t <= seg.end){
+                inSegment = true;
+                break;
+              }
+            }
+            if(!inSegment){
+              return; // Skip grid lines that fall in gaps
+            }
+          }
+          const y=y2px(t);
+          add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});
+        });
         console.debug('Debug: line grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,axisStrokeWidth});
       }
       let originXT,originYT;
