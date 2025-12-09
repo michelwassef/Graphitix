@@ -775,7 +775,7 @@
     brokenAxisConfigButton = doc.createElement('button');
     brokenAxisConfigButton.type = 'button';
     brokenAxisConfigButton.className = 'axis-controls-panel__button axis-controls-panel__button--segments-toggle axis-controls-panel__button--break-axis';
-    brokenAxisConfigButton.textContent = 'Break Axis';
+    brokenAxisConfigButton.textContent = 'Break axis';
     brokenAxisConfigButton.disabled = true;
     brokenAxisConfigButton.setAttribute('aria-expanded', 'false');
     brokenAxisConfigButton.setAttribute('aria-disabled', 'true');
