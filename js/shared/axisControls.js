@@ -972,6 +972,14 @@
         const enabled = brokenAxisCheckbox.checked;
         logDebug('broken axis enabled change',{ enabled });
         config.onBrokenAxisEnabledChange(enabled, config.axis);
+        if(enabled && typeof config.getBrokenAxisSegments === 'function' && typeof config.onBrokenAxisAddSegment === 'function'){
+          const currentSegments = config.getBrokenAxisSegments(config.axis) || [];
+          if(!currentSegments.length){
+            logDebug('broken axis auto segments',{ count: 2 });
+            config.onBrokenAxisAddSegment(config.axis);
+            config.onBrokenAxisAddSegment(config.axis);
+          }
+        }
         syncPanelInputsFromConfig(config);
       });
     }
