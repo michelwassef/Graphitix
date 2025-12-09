@@ -8004,39 +8004,48 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       
       // Draw y-axis with broken axis support
       if(brokenScale && brokenScale.isBroken){
-        // Draw each segment separately
+        // Draw each segment separately but register one combined hit area
+        // spanning from the top of the first segment to the bottom of the last.
         const segmentCoords = seg => ({
           top: marginLocal.top + plotHLocal - seg.pixelEnd,
           bottom: marginLocal.top + plotHLocal - seg.pixelStart
         });
-        brokenScale.segments.forEach((seg, segIdx) => {
+
+        let combinedTop = Infinity;
+        let combinedBottom = -Infinity;
+
+        brokenScale.segments.forEach(seg => {
           const { top: segYTop, bottom: segYBottom } = segmentCoords(seg);
-          
-          // Draw axis line for this segment
-          addAxisElement('line',{ 
-            x1: yAxisX, 
-            y1: segYTop, 
-            x2: yAxisX, 
-            y2: segYBottom, 
-            stroke: axisStroke, 
-            'stroke-linecap': 'square', 
-            'stroke-width': axisStrokeWidth 
+
+          // Visible axis line for this segment
+          addAxisElement('line',{
+            x1: yAxisX,
+            y1: segYTop,
+            x2: yAxisX,
+            y2: segYBottom,
+            stroke: axisStroke,
+            'stroke-linecap': 'square',
+            'stroke-width': axisStrokeWidth
           });
+
+          combinedTop = Math.min(combinedTop, segYTop);
+          combinedBottom = Math.max(combinedBottom, segYBottom);
         });
-        
-        // Register axis controls on the first segment
-        const firstSegCoords = segmentCoords(brokenScale.segments[0]);
-        const firstSegment = addAxisElement('line',{ 
-          x1: yAxisX, 
-          y1: firstSegCoords.top, 
-          x2: yAxisX, 
-          y2: firstSegCoords.bottom, 
-          stroke: 'transparent',
-          'stroke-width': 20,
-          'pointer-events': 'stroke'
-        });
-        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-          axisControls.registerAxisElement(firstSegment, axisControlConfig('y'));
+
+        // Single transparent hit area covering the whole broken axis range.
+        if(isFinite(combinedTop) && isFinite(combinedBottom)){
+          const hitLine = addAxisElement('line',{
+            x1: yAxisX,
+            y1: combinedTop,
+            x2: yAxisX,
+            y2: combinedBottom,
+            stroke: 'transparent',
+            'stroke-width': 20,
+            'pointer-events': 'stroke'
+          });
+          if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+            axisControls.registerAxisElement(hitLine, axisControlConfig('y'));
+          }
         }
       }else{
         // Standard continuous y-axis
