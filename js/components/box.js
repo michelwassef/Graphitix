@@ -8006,10 +8006,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(brokenScale && brokenScale.isBroken){
         // Draw each segment separately but register one combined hit area
         // spanning from the top of the first segment to the bottom of the last.
-        const segmentCoords = seg => ({
-          top: marginLocal.top + plotHLocal - seg.pixelEnd,
-          bottom: marginLocal.top + plotHLocal - seg.pixelStart
-        });
+        const axisPixelTop = y2px(yScale.max);
+        const axisPixelBottom = y2px(yScale.min);
+        const segmentCoords = seg => {
+          // Clamp segment pixel bounds so they never extend beyond
+          // the continuous axis extent used for ticks.
+          const rawTop = marginLocal.top + plotHLocal - seg.pixelEnd;
+          const rawBottom = marginLocal.top + plotHLocal - seg.pixelStart;
+          const top = Math.max(axisPixelTop, Math.min(axisPixelBottom, rawTop));
+          const bottom = Math.max(axisPixelTop, Math.min(axisPixelBottom, rawBottom));
+          return {
+            top: Math.min(top, bottom),
+            bottom: Math.max(top, bottom)
+          };
+        };
 
         let combinedTop = Infinity;
         let combinedBottom = -Infinity;
