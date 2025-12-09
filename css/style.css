@@ -2167,7 +2167,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .axis-controls-panel__button--segments-toggle[aria-disabled='true']{opacity:.5;cursor:not-allowed}
 .axis-controls-panel__segments-container{display:flex;width:100%;gap:6px;flex-direction:column;margin-top:4px}
 .axis-controls-panel__segments-empty{width:100%;padding:8px 10px;border:1px dashed rgba(148,163,184,0.8);border-radius:0;font-size:11px;color:#475569;background:#f8fafc;text-align:left;text-transform:uppercase;letter-spacing:.08em}
-.axis-controls-panel__segment-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:6px;width:100%;padding:4px 6px;border-radius:3px;border:1px solid #cfd8e3;background:#ffffff;box-shadow:none;min-height:40px}
+.axis-controls-panel__segment-row{display:grid;grid-template-columns:auto max-content auto;align-items:center;gap:6px;width:100%;padding:4px 6px;border-radius:3px;border:1px solid #cfd8e3;background:#ffffff;box-shadow:none;min-height:40px}
 .axis-controls-panel__segment-title{font-size:10px;font-weight:700;color:#0f172a;letter-spacing:.12em;text-transform:uppercase;min-width:0}
 .axis-controls-panel__segment-inputs{display:flex;align-items:center;gap:4px;justify-content:flex-start}
 .axis-controls-panel__segment-input{width:56px;flex:0 0 56px;text-align:center;height:22px;font-size:11px;padding:2px 4px}
