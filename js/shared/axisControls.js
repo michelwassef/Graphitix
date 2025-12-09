@@ -314,12 +314,17 @@
       startInput.addEventListener('change', updateSegment);
       endInput.addEventListener('change', updateSegment);
 
-      removeButton.addEventListener('click', () => {
+      removeButton.addEventListener('click', evt => {
+        // Keep the dropdown open while removing a break.
+        evt.preventDefault();
+        evt.stopPropagation();
         if(applyingFromUndo){ return; }
         if(!config || typeof config.onBrokenAxisRemoveSegment !== 'function'){ return; }
         config.onBrokenAxisRemoveSegment(config.axis, index);
         logDebug('broken axis segment removed',{ index });
         syncPanelInputsFromConfig(config);
+        // Re‑assert expanded state in case a global click handler tried to close it.
+        setBrokenAxisConfigExpanded(true);
       });
     });
   }
