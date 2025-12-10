@@ -1288,26 +1288,44 @@
     const rHoriz=colWidth*0.35;
     const rVert=rowHeight*0.35;
     let r=Math.max(10,Math.min(rHoriz,rVert));
+    const centers=[];
+    seriesColumns.forEach((_series,idx)=>{
+      const row=Math.floor(idx/cols);
+      const col=idx%cols;
+      const cx=colWidth*(col+0.5);
+      const cy=contentTop+rowHeight*(row+0.5);
+      centers.push({ cx, cy });
+    });
+    // Compute a safe common radius so all pies and labels stay
+    // fully inside the SVG bounds.
+    if(centers.length){
+      const leftLimit=fs; // padding from left edge
+      const rightLimit=svgWidth - fs; // padding from right edge
+      const topLimit=contentTop + fs*0.2;
+      const bottomLimit=svgHeight - fs*2; // leave space for viewport padding
+      let maxAllowedR=r;
+      centers.forEach(center=>{
+        if(!center){ return; }
+        let localMax=r;
+        // Keep circle inside left/right bounds
+        localMax=Math.min(localMax, center.cx-leftLimit);
+        localMax=Math.min(localMax, rightLimit-center.cx);
+        // Keep circle and label inside top/bottom bounds
+        localMax=Math.min(localMax, center.cy-topLimit);
+        localMax=Math.min(localMax, bottomLimit-center.cy-fs*1.0);
+        if(localMax<maxAllowedR){
+          maxAllowedR=localMax;
+        }
+      });
+      if(Number.isFinite(maxAllowedR) && maxAllowedR>0){
+        r=Math.max(10,Math.min(r,maxAllowedR));
+      }
+    }
     if(type==='donut'){
       r=r*0.9;
     }
-    const rInner=type==='donut' ? r*0.6 : 0;
-    const centers=[];
-    if(chartCount===3){
-      const cyTop=contentTop+rowHeight*0.65;
-      const cyBottom=contentTop+rowHeight*1.65;
-      centers.push({ cx: svgWidth*0.25, cy: cyTop });
-      centers.push({ cx: svgWidth*0.75, cy: cyTop });
-      centers.push({ cx: svgWidth*0.5, cy: cyBottom });
-    }else{
-      seriesColumns.forEach((_series,idx)=>{
-        const row=Math.floor(idx/cols);
-        const col=idx%cols;
-        const cx=colWidth*(col+0.5);
-        const cy=contentTop+rowHeight*(row+0.5);
-        centers.push({ cx, cy });
-      });
-    }
+    const effectiveR=r;
+    const effectiveInnerR=type==='donut' ? effectiveR*0.6 : 0;
     seriesColumns.forEach((series,seriesIndex)=>{
       const center=centers[seriesIndex] || { cx: svgWidth/2, cy: contentTop+contentHeight/2 };
       const cx=center.cx;
@@ -1318,21 +1336,21 @@
         const v=series.values[i] || 0;
         const frac=v/sum;
         const endAngle=startAngle+2*Math.PI*frac;
-        const x1=cx + r*Math.cos(startAngle);
-        const y1=cy + r*Math.sin(startAngle);
-        const x2=cx + r*Math.cos(endAngle);
-        const y2=cy + r*Math.sin(endAngle);
+        const x1=cx + effectiveR*Math.cos(startAngle);
+        const y1=cy + effectiveR*Math.sin(startAngle);
+        const x2=cx + effectiveR*Math.cos(endAngle);
+        const y2=cy + effectiveR*Math.sin(endAngle);
         const largeArc = (endAngle-startAngle) > Math.PI ? 1 : 0;
         const path=document.createElementNS(NS,'path');
-        if(rInner>0){
-          const x1i=cx + rInner*Math.cos(startAngle);
-          const y1i=cy + rInner*Math.sin(startAngle);
-          const x2i=cx + rInner*Math.cos(endAngle);
-          const y2i=cy + rInner*Math.sin(endAngle);
-          const d=`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${x2i} ${y2i} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x1i} ${y1i} Z`;
+        if(effectiveInnerR>0){
+          const x1i=cx + effectiveInnerR*Math.cos(startAngle);
+          const y1i=cy + effectiveInnerR*Math.sin(startAngle);
+          const x2i=cx + effectiveInnerR*Math.cos(endAngle);
+          const y2i=cy + effectiveInnerR*Math.sin(endAngle);
+          const d=`M ${x1} ${y1} A ${effectiveR} ${effectiveR} 0 ${largeArc} 1 ${x2} ${y2} L ${x2i} ${y2i} A ${effectiveInnerR} ${effectiveInnerR} 0 ${largeArc} 0 ${x1i} ${y1i} Z`;
           path.setAttribute('d',d);
         } else {
-          const d=`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+          const d=`M ${cx} ${cy} L ${x1} ${y1} A ${effectiveR} ${effectiveR} 0 ${largeArc} 1 ${x2} ${y2} Z`;
           path.setAttribute('d',d);
         }
         const fillColor = state.colors[lab] || palette2[i % palette2.length];
@@ -1345,8 +1363,8 @@
         svg.appendChild(path);
         if(showPerc && frac>0){
           const mid=(startAngle+endAngle)/2;
-          const tx=cx + (rInner>0?(r+rInner)/2:r*0.65)*Math.cos(mid);
-          const ty=cy + (rInner>0?(r+rInner)/2:r*0.65)*Math.sin(mid);
+          const tx=cx + (effectiveInnerR>0?(effectiveR+effectiveInnerR)/2:effectiveR*0.65)*Math.cos(mid);
+          const ty=cy + (effectiveInnerR>0?(effectiveR+effectiveInnerR)/2:effectiveR*0.65)*Math.sin(mid);
           const txt=document.createElementNS(NS,'text');
           txt.setAttribute('x',tx);
           txt.setAttribute('y',ty);
@@ -1360,7 +1378,7 @@
       });
       const seriesLabel=document.createElementNS(NS,'text');
       seriesLabel.setAttribute('x',cx);
-      seriesLabel.setAttribute('y',cy + r + fs*1.0);
+      seriesLabel.setAttribute('y',cy + effectiveR + fs*1.0);
       seriesLabel.setAttribute('text-anchor','middle');
       seriesLabel.setAttribute('font-size',Math.max(8,fs*0.9));
       seriesLabel.textContent=series.label;
