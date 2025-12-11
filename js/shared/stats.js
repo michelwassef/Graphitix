@@ -56,7 +56,7 @@
   };
 
   const DEFAULT_PVALUE_SIG_DIGITS = 6;
-  const DEFAULT_PVALUE_SCI_THRESHOLD = 1e-3;
+  const DEFAULT_PVALUE_SCI_THRESHOLD = 1;
 
   function statsDebugEnabled(){
     return typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -85,6 +85,20 @@
       return value;
     }
     let result = value;
+    const expMatch = result.match(/^[+-]?(?:\d+\.?\d*|\.\d+)[eE][+-]?\d+$/);
+    if(expMatch){
+      const parts = result.split(/[eE]/);
+      let mantissa = parts[0];
+      const exponent = parts[1];
+      if(mantissa.includes('.')){
+        mantissa = mantissa.replace(/0+$/, '').replace(/\.$/, '');
+        if(mantissa === '' || mantissa === '+' || mantissa === '-'){
+          mantissa = `${mantissa}0`;
+        }
+      }
+      result = `${mantissa}e${exponent}`;
+      return normalizeExponentText(result);
+    }
     if(!/[eE]/.test(result) && result.includes('.')){
       result = result.replace(/0+$/, '').replace(/\.$/, '');
       if(result === ''){
@@ -107,7 +121,9 @@
     const threshold = Number.isFinite(options?.scientificThreshold) && options.scientificThreshold > 0
       ? options.scientificThreshold
       : DEFAULT_PVALUE_SCI_THRESHOLD;
-    const forceScientific = options?.forceScientific === true;
+    // Default for p-values: always use scientific notation for 0 < p < 1,
+    // unless a caller explicitly opts out with forceScientific === false.
+    const forceScientific = options?.forceScientific === false ? false : (num > 0 && num < 1);
     const decimals = Number.isInteger(options?.decimals) && options.decimals >= 0 ? options.decimals : null;
     let formatted;
     if(forceScientific || Math.abs(num) < threshold){

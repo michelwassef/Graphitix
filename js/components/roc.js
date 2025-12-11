@@ -1214,8 +1214,9 @@
     if(value === 0){
       return '0';
     }
-    const formatted = value.toLocaleString('en-US', {maximumSignificantDigits: 6});
-    console.debug('Debug: ROC formatPValue fallback', {input: value, formatted});
+    const num = Number(value);
+    const formatted = num.toExponential(5);
+    console.debug('Debug: ROC formatPValue fallback',{ input: value, formatted });
     return formatted;
   }
 
