@@ -2331,7 +2331,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: -1 };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -3136,6 +3136,7 @@
     els.boxLogScaleLabel=global.$('#boxLogScaleLabel');
     clearBoxLogWarning();
     els.boxFlipAxes=global.$('#boxFlipAxes');
+    els.boxWhiskerRuleCtl=global.$('#boxWhiskerRuleCtl');
     els.boxWhiskerRule=global.$('#boxWhiskerRule');
     els.boxWhiskerCustom=global.$('#boxWhiskerCustomMultiplier');
     els.boxWhiskerCustomLabel=global.$('#boxWhiskerCustomLabel');
@@ -3842,6 +3843,11 @@
       if(els.boxErrorBarWidthCtl){
         els.boxErrorBarWidthCtl.style.display = showErrorBarThickness ? 'inline-flex' : 'none';
         console.debug('Debug: box error bar thickness visibility',{ graphTypeValue, showErrorBarThickness });
+      }
+      if(els.boxWhiskerRuleCtl){
+        const whiskerVisible = graphTypeValue !== 'bar' && graphTypeValue !== 'strip';
+        els.boxWhiskerRuleCtl.style.display = whiskerVisible ? '' : 'none';
+        console.debug('Debug: box whisker rule visibility',{ graphTypeValue, whiskerVisible });
       }
       const showCapsLabel = els.boxShowCaps?.closest('label');
       if(showCapsLabel){
@@ -6590,6 +6596,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   function computeStats(traces,svg,helpers){
     const statsDiv=document.getElementById('statsResults');
     if(!statsDiv){ console.warn('Debug: statsResults element not found'); return; }
+    state.significanceMaxLevel = -1;
     statsDiv.innerHTML='';
     const hasStatsTable=Shared.statsTable && typeof Shared.statsTable.render==='function';
     let resultsContainer=statsDiv;
@@ -7356,7 +7363,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           pr.level=level; placed.push(pr);
         });
         const maxLevel=Math.max(...pairs.map(pr=>pr.level));
-        void maxLevel;
+        state.significanceMaxLevel = Number.isFinite(maxLevel) && maxLevel >= 0 ? maxLevel : 0;
       }else{
         console.debug('Debug: box significance annotation skipped for pairs',{ pairCount: pairs.length, significanceEnabled });
       }
@@ -7364,6 +7371,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       // No pairwise; show overall only if available
       if(significanceEnabled && !state.statsPaired && indices.length>2 && overall){
         annotateOverall(svg,xs,valueToCoord,maxVal,overall.p,0,helpers.annotationStyle);
+        state.significanceMaxLevel = 0;
       }else if(!significanceEnabled){
         console.debug('Debug: box overall significance annotation skipped',{ significanceEnabled, groupCount: indices.length, overallP: overall?.p });
       }
