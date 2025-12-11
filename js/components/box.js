@@ -8820,6 +8820,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           if(individualSummaryMode !== 'none'){
             const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode });
             const summaryCap = Math.max(6, localBand * 0.12);
+            const baseStroke = Math.max(errorBarWidthPx || 0, borderWidthPx || 0.8, 0.8);
+            const summaryStrokeWidth = baseStroke * 1.5;
             const summaryAdd = (tag, attrs) => {
               const node = document.createElementNS(NS, tag);
               for(const [key, value] of Object.entries(attrs)){
@@ -8854,7 +8856,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const cySummary = y2px(value);
-                summaryAdd('circle',{ cx, cy: cySummary, r: Math.max(pointRadius * radiusMultiplier, pointRadius * 0.6), fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
+                const halfWidth = Math.max(summaryCap, pointRadius * radiusMultiplier, 4);
+                summaryAdd('line',{ x1: cx - halfWidth, y1: cySummary, x2: cx + halfWidth, y2: cySummary, stroke: borderColor, 'stroke-width': summaryStrokeWidth });
                 return true;
               },
               drawMedianLine: value => {
@@ -8862,7 +8865,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const yMid = y2px(value);
-                summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yMid, x2: cx + summaryCap / 2, y2: yMid, stroke: borderColor, 'stroke-width': borderWidthPx });
+                summaryAdd('line',{ x1: cx - Math.max(summaryCap, 4), y1: yMid, x2: cx + Math.max(summaryCap, 4), y2: yMid, stroke: borderColor, 'stroke-width': summaryStrokeWidth });
                 return true;
               },
               debug: debugEnabled
@@ -9439,6 +9442,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           if(individualSummaryMode !== 'none'){
             const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode });
             const summaryCap = Math.max(6, localBand * 0.12);
+            const baseStroke = Math.max(errorBarWidthPx || 0, borderWidthPx || 0.8, 0.8);
+            const summaryStrokeWidth = baseStroke * 1.5;
             const summaryAdd = (tag, attrs) => {
               const node = document.createElementNS(NS, tag);
               for(const [key, value] of Object.entries(attrs)){
@@ -9473,7 +9478,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const xVal = valueToX(value);
-                summaryAdd('circle',{ cx: xVal, cy, r: Math.max(pointRadius * radiusMultiplier, pointRadius * 0.6), fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
+                const halfWidth = Math.max(summaryCap, pointRadius * radiusMultiplier, 4);
+                summaryAdd('line',{ x1: xVal - halfWidth, y1: cy, x2: xVal + halfWidth, y2: cy, stroke: borderColor, 'stroke-width': summaryStrokeWidth });
                 return true;
               },
               drawMedianLine: value => {
@@ -9481,7 +9487,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const xMid = valueToX(value);
-                summaryAdd('line',{ x1: xMid, y1: cy - summaryCap / 2, x2: xMid, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+                const cap = Math.max(summaryCap, 4);
+                summaryAdd('line',{ x1: xMid, y1: cy - cap, x2: xMid, y2: cy + cap, stroke: borderColor, 'stroke-width': summaryStrokeWidth });
                 return true;
               },
               debug: debugEnabled
