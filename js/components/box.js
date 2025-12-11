@@ -56,6 +56,41 @@
     custom:{ key:'custom', mode:'iqr', multiplier:null, label:'Custom multiplier' }
   });
 
+  const INDIVIDUAL_SUMMARY_OPTIONS = Object.freeze([
+    { value:'mean-point', label:'Mean' },
+    { value:'mean-sd', label:'Mean with SD' },
+    { value:'mean-sem', label:'Mean with SEM' },
+    { value:'mean-ci', label:'Mean with 95% CI' },
+    { value:'mean-range', label:'Mean with range' },
+    { value:'geo-mean', label:'Geometric mean' },
+    { value:'geo-mean-ci', label:'Geometric mean with 95% CI' },
+    { value:'geo-mean-gsd', label:'Geometric mean with geometric SD' },
+    { value:'median-point', label:'Median' },
+    { value:'median-ci', label:'Median with 95% CI' },
+    { value:'median-range', label:'Median with range' },
+    { value:'median-iqr', label:'Median with interquartile range' },
+    { value:'none', label:'No line or error bar' }
+  ]);
+  const INDIVIDUAL_SUMMARY_DEFAULT = 'mean-sem';
+  const INDIVIDUAL_SUMMARY_SET = new Set(INDIVIDUAL_SUMMARY_OPTIONS.map(opt=>opt.value));
+
+  function normalizeIndividualSummaryValue(rawValue){
+    const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
+    if(INDIVIDUAL_SUMMARY_SET.has(value)){
+      return value;
+    }
+    if(value === 'mean'){
+      return 'mean-sem';
+    }
+    if(value === 'median'){
+      return 'median-iqr';
+    }
+    if(value === 'none'){
+      return 'none';
+    }
+    return INDIVIDUAL_SUMMARY_DEFAULT;
+  }
+
   function resolveWhiskerMeta(rule){
     return WHISKER_RULE_META[rule] || WHISKER_RULE_META[DEFAULT_WHISKER_RULE];
   }
@@ -1105,6 +1140,281 @@
     console.debug('Debug: computeSwarmOffsets result',{ orientation, sampleSize, spreadFactor, maxOffset, maxOffsetUsed: maxUsed, pointCount: entries.length });
     return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset };
   }
+
+  function populateIndividualSummarySelect(selectEl){
+    if(!selectEl){ return; }
+    const doc = selectEl.ownerDocument || global.document;
+    if(!doc){ return; }
+    const existingValues = new Set(Array.from(selectEl.options || []).map(opt => opt.value));
+    const optionsChanged = INDIVIDUAL_SUMMARY_OPTIONS.some(opt => !existingValues.has(opt.value) || selectEl.querySelector(`option[value="${opt.value}"]`)?.textContent !== opt.label);
+    if(!optionsChanged && selectEl.options.length === INDIVIDUAL_SUMMARY_OPTIONS.length){
+      return;
+    }
+    selectEl.innerHTML = '';
+    INDIVIDUAL_SUMMARY_OPTIONS.forEach(opt => {
+      const option = doc.createElement('option');
+      option.value = opt.value;
+      option.textContent = opt.label;
+      selectEl.appendChild(option);
+    });
+  }
+
+  function computeSortedNumericValues(values){
+    if(!Array.isArray(values) || !values.length){
+      return [];
+    }
+    const filtered = values.filter(v => Number.isFinite(v));
+    filtered.sort((a, b) => a - b);
+    return filtered;
+  }
+
+  function getStudentTCritical(df, alpha){
+    const fallback = 1.96;
+    const dof = Number(df);
+    if(!Number.isFinite(dof) || dof <= 0){
+      return fallback;
+    }
+    const targetAlpha = Number.isFinite(alpha) ? alpha : 0.05;
+    const jStatLib = global.jStat || global.jstat || global.window?.jStat;
+    const invFn = jStatLib?.studentt?.inv;
+    if(typeof invFn === 'function'){
+      try{
+        const critical = Math.abs(invFn(1 - targetAlpha / 2, dof));
+        if(Number.isFinite(critical)){
+          return critical;
+        }
+      }catch(err){
+        console.debug('Debug: box getStudentTCritical fallback',{ message: err?.message, df: dof });
+      }
+    }
+    return fallback;
+  }
+
+  function computeMeanCI95(summary){
+    const count = Number(summary?.count) || 0;
+    const mean = summary?.mean;
+    const sd = summary?.sd;
+    if(count < 2 || !Number.isFinite(mean) || !Number.isFinite(sd)){
+      return null;
+    }
+    const sem = sd / Math.sqrt(count);
+    if(!Number.isFinite(sem) || sem <= 0){
+      return null;
+    }
+    const multiplier = getStudentTCritical(count - 1, 0.05);
+    if(!Number.isFinite(multiplier)){
+      return null;
+    }
+    return { low: mean - multiplier * sem, high: mean + multiplier * sem };
+  }
+
+  function computeMedianCIApprox(sortedValues, confidence){
+    if(!Array.isArray(sortedValues) || !sortedValues.length){
+      return null;
+    }
+    const n = sortedValues.length;
+    if(n === 1){
+      const value = sortedValues[0];
+      return { low: value, high: value };
+    }
+    const targetConfidence = Number.isFinite(confidence) ? confidence : 0.95;
+    const z = targetConfidence >= 0.99 ? 2.576 : 1.96;
+    const center = (n + 1) / 2;
+    const halfWidth = z * Math.sqrt(n) / 2;
+    const lowerRank = Math.max(1, Math.floor(center - halfWidth));
+    const upperRank = Math.min(n, Math.ceil(center + halfWidth));
+    return {
+      low: sortedValues[lowerRank - 1],
+      high: sortedValues[upperRank - 1]
+    };
+  }
+
+  function computeGeometricSummary(values){
+    const filtered = Array.isArray(values)
+      ? values.filter(v => Number.isFinite(v) && v > 0)
+      : [];
+    if(!filtered.length){
+      return null;
+    }
+    const logValues = filtered.map(Math.log);
+    const n = logValues.length;
+    const meanLog = logValues.reduce((sum,val)=>sum+val,0)/n;
+    let varianceLog = 0;
+    for(const val of logValues){
+      varianceLog += Math.pow(val - meanLog, 2);
+    }
+    varianceLog = n > 1 ? varianceLog / (n - 1) : 0;
+    const sdLog = Math.sqrt(Math.max(varianceLog, 0));
+    const semLog = n > 0 ? sdLog / Math.sqrt(n) : NaN;
+    const multiplier = getStudentTCritical(n - 1, 0.05);
+    const geoMean = Math.exp(meanLog);
+    const ciLow = Number.isFinite(semLog) ? Math.exp(meanLog - multiplier * semLog) : NaN;
+    const ciHigh = Number.isFinite(semLog) ? Math.exp(meanLog + multiplier * semLog) : NaN;
+    const gsd = Math.exp(sdLog);
+    return {
+      sampleCount: n,
+      geoMean,
+      ciLow: Number.isFinite(ciLow) ? ciLow : NaN,
+      ciHigh: Number.isFinite(ciHigh) ? ciHigh : NaN,
+      gsdLow: Number.isFinite(gsd) ? geoMean / gsd : NaN,
+      gsdHigh: Number.isFinite(gsd) ? geoMean * gsd : NaN
+    };
+  }
+
+  function applyIndividualSummaryOverlay(mode, summary, valueList, operations){
+    if(!operations){
+      return;
+    }
+    const normalized = normalizeIndividualSummaryValue(mode);
+    if(normalized === 'none'){
+      return;
+    }
+    const sampleCount = Number(summary?.count) || (Array.isArray(valueList) ? valueList.filter(v=>Number.isFinite(v)).length : 0);
+    const mean = summary?.mean;
+    const sd = summary?.sd;
+    const q1 = summary?.q1;
+    const q3 = summary?.q3;
+    const median = summary?.median;
+    const minVal = summary?.min;
+    const maxVal = summary?.max;
+    const sortedValues = Array.isArray(summary?.sortedValues) && summary.sortedValues.length
+      ? summary.sortedValues
+      : computeSortedNumericValues(valueList);
+    const debug = !!operations.debug;
+    const drawPoint = typeof operations.drawPoint === 'function' ? operations.drawPoint : null;
+    const drawInterval = typeof operations.drawInterval === 'function' ? operations.drawInterval : null;
+    const drawMedianLine = typeof operations.drawMedianLine === 'function' ? operations.drawMedianLine : null;
+    const logSkip = (label, extra) => {
+      if(debug){
+        console.debug('Debug: box summary overlay skipped',{ mode: normalized, label, ...extra });
+      }
+    };
+    const ensurePoint = (value, radius, label) => {
+      if(!drawPoint){ return false; }
+      if(!Number.isFinite(value)){
+        logSkip(label || 'point',{ value });
+        return false;
+      }
+      drawPoint(value, radius);
+      return true;
+    };
+    const ensureInterval = (low, high, label, opts) => {
+      if(!drawInterval){ return false; }
+      if(!Number.isFinite(low) || !Number.isFinite(high)){
+        logSkip(label || 'interval',{ low, high });
+        return false;
+      }
+      drawInterval(low, high, opts);
+      return true;
+    };
+    const ensureMedianLine = value => {
+      if(!drawMedianLine){ return false; }
+      if(!Number.isFinite(value)){
+        logSkip('median-line',{ value });
+        return false;
+      }
+      drawMedianLine(value);
+      return true;
+    };
+    const getGeoStats = () => {
+      if(!operations.__geoSummary){
+        operations.__geoSummary = computeGeometricSummary(valueList);
+      }
+      return operations.__geoSummary;
+    };
+    switch(normalized){
+      case 'mean-point':
+        ensurePoint(mean, 1.4, 'mean-point');
+        break;
+      case 'mean-sd':
+        if(sampleCount > 1 && Number.isFinite(sd)){
+          ensureInterval(mean - sd, mean + sd, 'mean-sd');
+        }else{
+          logSkip('mean-sd spread',{ sampleCount, sd });
+        }
+        ensurePoint(mean, 1.4, 'mean-sd-center');
+        break;
+      case 'mean-sem':
+        if(sampleCount > 1 && Number.isFinite(sd)){
+          const semValue = sd / Math.sqrt(sampleCount);
+          ensureInterval(mean - semValue, mean + semValue, 'mean-sem');
+        }else{
+          logSkip('mean-sem spread',{ sampleCount, sd });
+        }
+        ensurePoint(mean, 1.4, 'mean-sem-center');
+        break;
+      case 'mean-ci':{
+        const ci = computeMeanCI95(summary);
+        if(ci){
+          ensureInterval(ci.low, ci.high, 'mean-ci');
+        }else{
+          logSkip('mean-ci',{ sampleCount, sd });
+        }
+        ensurePoint(mean, 1.4, 'mean-ci-center');
+        break;
+      }
+      case 'mean-range':
+        ensureInterval(minVal, maxVal, 'mean-range');
+        ensurePoint(mean, 1.4, 'mean-range-center');
+        break;
+      case 'geo-mean':{
+        const geo = getGeoStats();
+        if(geo){
+          ensurePoint(geo.geoMean, 1.4, 'geo-mean');
+        }else{
+          logSkip('geo-mean',{ reason:'invalid-data' });
+        }
+        break;
+      }
+      case 'geo-mean-ci':{
+        const geo = getGeoStats();
+        if(geo){
+          ensureInterval(geo.ciLow, geo.ciHigh, 'geo-mean-ci');
+          ensurePoint(geo.geoMean, 1.4, 'geo-mean-ci-center');
+        }else{
+          logSkip('geo-mean-ci',{ reason:'invalid-data' });
+        }
+        break;
+      }
+      case 'geo-mean-gsd':{
+        const geo = getGeoStats();
+        if(geo){
+          ensureInterval(geo.gsdLow, geo.gsdHigh, 'geo-mean-gsd');
+          ensurePoint(geo.geoMean, 1.4, 'geo-mean-gsd-center');
+        }else{
+          logSkip('geo-mean-gsd',{ reason:'invalid-data' });
+        }
+        break;
+      }
+      case 'median-point':
+        ensureMedianLine(median);
+        ensurePoint(median, 1.2, 'median-point');
+        break;
+      case 'median-ci':{
+        const ci = computeMedianCIApprox(sortedValues);
+        if(ci){
+          ensureInterval(ci.low, ci.high, 'median-ci');
+        }else{
+          logSkip('median-ci',{ reason:'ci-missing' });
+        }
+        ensureMedianLine(median);
+        ensurePoint(median, 1.2, 'median-ci-point');
+        break;
+      }
+      case 'median-range':
+        ensureInterval(minVal, maxVal, 'median-range');
+        ensureMedianLine(median);
+        ensurePoint(median, 1.2, 'median-range-point');
+        break;
+      case 'median-iqr':
+        ensureInterval(q1, q3, 'median-iqr');
+        ensureMedianLine(median);
+        ensurePoint(median, 1.2, 'median-iqr-point');
+        break;
+      default:
+        break;
+    }
+  }
   const makeEditable = (el,onChange,options) => {
     const fn = Shared.makeEditable || global.makeEditable;
     if (typeof fn === 'function') {
@@ -2039,7 +2349,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: 'mean', lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -2860,8 +3170,9 @@
     els.boxIndividualSummaryCtl=global.$('#boxIndividualSummaryCtl');
     els.boxIndividualSummary=global.$('#boxIndividualSummary');
     if(els.boxIndividualSummary){
-      const allowedSummaries = new Set(['mean','median','none']);
-      const fallbackSummary = allowedSummaries.has(state.individualSummary) ? state.individualSummary : 'mean';
+      populateIndividualSummarySelect(els.boxIndividualSummary);
+      const fallbackSummary = normalizeIndividualSummaryValue(state.individualSummary);
+      state.individualSummary = fallbackSummary;
       els.boxIndividualSummary.value = fallbackSummary;
       console.debug('Debug: box individual summary initialised',{ value: els.boxIndividualSummary.value });
     }
@@ -3560,8 +3871,8 @@
         const summaryVisible = graphTypeValue === 'strip';
         els.boxIndividualSummaryCtl.style.display = summaryVisible ? '' : 'none';
         if(summaryVisible && els.boxIndividualSummary){
-          const allowedSummaries = new Set(['mean','median','none']);
-          const summaryValue = allowedSummaries.has(state.individualSummary) ? state.individualSummary : 'mean';
+          const summaryValue = normalizeIndividualSummaryValue(state.individualSummary);
+          state.individualSummary = summaryValue;
           if(els.boxIndividualSummary.value !== summaryValue){
             els.boxIndividualSummary.value = summaryValue;
             console.debug('Debug: box individual summary sync',{ summaryValue });
@@ -3636,8 +3947,7 @@
     }
     if(els.boxIndividualSummary){
       els.boxIndividualSummary.addEventListener('change',()=>{
-        const allowedSummaries = new Set(['mean','median','none']);
-        const summaryValue = allowedSummaries.has(els.boxIndividualSummary.value) ? els.boxIndividualSummary.value : 'mean';
+        const summaryValue = normalizeIndividualSummaryValue(els.boxIndividualSummary.value);
         state.individualSummary = summaryValue;
         console.debug('Debug: box individual summary change',{ summaryValue });
         state.scheduleDraw();
@@ -7126,13 +7436,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const isIndividualValues = graphTypeRaw === 'strip';
     let individualSummaryMode = 'none';
     if(isIndividualValues){
-      const allowedSummaries = new Set(['mean','median','none']);
       const domValue = els.boxIndividualSummary?.value;
-      const summaryValue = allowedSummaries.has(domValue) ? domValue : (allowedSummaries.has(state.individualSummary) ? state.individualSummary : 'mean');
+      const normalizedDom = domValue ? normalizeIndividualSummaryValue(domValue) : null;
+      const summaryValue = normalizedDom || normalizeIndividualSummaryValue(state.individualSummary);
       individualSummaryMode = summaryValue;
       if(summaryValue !== state.individualSummary){
         state.individualSummary = summaryValue;
         console.debug('Debug: box individual summary state sync',{ summaryValue });
+      }
+      if(els.boxIndividualSummary && els.boxIndividualSummary.value !== summaryValue){
+        els.boxIndividualSummary.value = summaryValue;
       }
     }
     console.debug('Debug: box individual summary mode',{ graphTypeRaw, individualSummaryMode });
@@ -8515,29 +8828,46 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               summaryGroup.appendChild(node);
               return node;
             };
-            if(individualSummaryMode === 'mean'){
-              const variance = summary.variance;
-              const sd = summary.sd;
-              const sem = sampleCount > 0 ? sd / Math.sqrt(sampleCount) : 0;
-              if(sampleCount > 1){
-                const yTop = y2px(mean + sem);
-                const yBottom = y2px(mean - sem);
-                summaryAdd('line',{ x1: cx, y1: yTop, x2: cx, y2: yBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yTop, x2: cx + summaryCap / 2, y2: yTop, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yBottom, x2: cx + summaryCap / 2, y2: yBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                console.debug('Debug: box individual summary vertical mean',{ index: i, sampleCount, sd, sem });
-              }else{
-                console.debug('Debug: box individual summary vertical mean skipped error bars',{ index: i, sampleCount, mean });
-              }
-              summaryAdd('circle',{ cx, cy: yMean, r: pointRadius * 1.4, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
-            }else if(individualSummaryMode === 'median'){
-              summaryAdd('line',{ x1: cx, y1: yQ3, x2: cx, y2: yQ1, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yQ3, x2: cx + summaryCap / 2, y2: yQ3, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yQ1, x2: cx + summaryCap / 2, y2: yQ1, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yMed, x2: cx + summaryCap / 2, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('circle',{ cx, cy: yMed, r: pointRadius * 1.2, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
-              console.debug('Debug: box individual summary vertical median',{ index: i, q1, q3 });
-            }
+            const summaryOps = {
+              drawInterval: (low, high, opts = {}) => {
+                if(!Number.isFinite(low) || !Number.isFinite(high)){
+                  return false;
+                }
+                let start = low;
+                let end = high;
+                if(end < start){
+                  [start, end] = [end, start];
+                }
+                const yStart = y2px(end);
+                const yEnd = y2px(start);
+                summaryAdd('line',{ x1: cx, y1: yStart, x2: cx, y2: yEnd, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                const capsEnabled = opts.caps !== false;
+                const capSize = opts.capSize ?? summaryCap;
+                if(capsEnabled && capSize > 0){
+                  summaryAdd('line',{ x1: cx - capSize / 2, y1: yStart, x2: cx + capSize / 2, y2: yStart, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                  summaryAdd('line',{ x1: cx - capSize / 2, y1: yEnd, x2: cx + capSize / 2, y2: yEnd, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                }
+                return true;
+              },
+              drawPoint: (value, radiusMultiplier = 1.4) => {
+                if(!Number.isFinite(value)){
+                  return false;
+                }
+                const cySummary = y2px(value);
+                summaryAdd('circle',{ cx, cy: cySummary, r: Math.max(pointRadius * radiusMultiplier, pointRadius * 0.6), fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
+                return true;
+              },
+              drawMedianLine: value => {
+                if(!Number.isFinite(value)){
+                  return false;
+                }
+                const yMid = y2px(value);
+                summaryAdd('line',{ x1: cx - summaryCap / 2, y1: yMid, x2: cx + summaryCap / 2, y2: yMid, stroke: borderColor, 'stroke-width': borderWidthPx });
+                return true;
+              },
+              debug: debugEnabled
+            };
+            applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
           }
           console.debug('Debug: box individual vertical render',{ index: i, mean, maxOffsetUsed: swarm.maxOffsetUsed, spreadFactor: swarm.spreadFactor, pointCount: sampleCount });
         }
@@ -9117,31 +9447,46 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               summaryGroup.appendChild(node);
               return node;
             };
-            if(individualSummaryMode === 'mean'){
-              const variance = summary.variance;
-              const sd = summary.sd;
-              const sem = sampleCount > 0 ? sd / Math.sqrt(sampleCount) : 0;
-              if(sampleCount > 1){
-                const xLow = valueToX(mean - sem);
-                const xHigh = valueToX(mean + sem);
-                summaryAdd('line',{ x1: xLow, y1: cy, x2: xHigh, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                summaryAdd('line',{ x1: xLow, y1: cy - summaryCap / 2, x2: xLow, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                summaryAdd('line',{ x1: xHigh, y1: cy - summaryCap / 2, x2: xHigh, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                console.debug('Debug: box individual summary horizontal mean',{ index: i, sampleCount, sd, sem });
-              }else{
-                console.debug('Debug: box individual summary horizontal mean skipped error bars',{ index: i, sampleCount, mean });
-              }
-              summaryAdd('circle',{ cx: xMean, cy: cy, r: pointRadius * 1.4, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
-            }else if(individualSummaryMode === 'median'){
-              const xLow = valueToX(q1);
-              const xHigh = valueToX(q3);
-              summaryAdd('line',{ x1: xLow, y1: cy, x2: xHigh, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('line',{ x1: xLow, y1: cy - summaryCap / 2, x2: xLow, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('line',{ x1: xHigh, y1: cy - summaryCap / 2, x2: xHigh, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('line',{ x1: xMed - summaryCap / 2, y1: cy, x2: xMed + summaryCap / 2, y2: cy, stroke: borderColor, 'stroke-width': borderWidthPx });
-              summaryAdd('circle',{ cx: xMed, cy: cy, r: pointRadius * 1.2, fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
-              console.debug('Debug: box individual summary horizontal median',{ index: i, q1, q3 });
-            }
+            const summaryOps = {
+              drawInterval: (low, high, opts = {}) => {
+                if(!Number.isFinite(low) || !Number.isFinite(high)){
+                  return false;
+                }
+                let start = low;
+                let end = high;
+                if(end < start){
+                  [start, end] = [end, start];
+                }
+                const xStart = valueToX(start);
+                const xEnd = valueToX(end);
+                summaryAdd('line',{ x1: xStart, y1: cy, x2: xEnd, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                const capsEnabled = opts.caps !== false;
+                const capSize = opts.capSize ?? summaryCap;
+                if(capsEnabled && capSize > 0){
+                  summaryAdd('line',{ x1: xStart, y1: cy - capSize / 2, x2: xStart, y2: cy + capSize / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                  summaryAdd('line',{ x1: xEnd, y1: cy - capSize / 2, x2: xEnd, y2: cy + capSize / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                }
+                return true;
+              },
+              drawPoint: (value, radiusMultiplier = 1.4) => {
+                if(!Number.isFinite(value)){
+                  return false;
+                }
+                const xVal = valueToX(value);
+                summaryAdd('circle',{ cx: xVal, cy, r: Math.max(pointRadius * radiusMultiplier, pointRadius * 0.6), fill: '#fff', stroke: borderColor, 'stroke-width': borderWidthPx });
+                return true;
+              },
+              drawMedianLine: value => {
+                if(!Number.isFinite(value)){
+                  return false;
+                }
+                const xMid = valueToX(value);
+                summaryAdd('line',{ x1: xMid, y1: cy - summaryCap / 2, x2: xMid, y2: cy + summaryCap / 2, stroke: borderColor, 'stroke-width': borderWidthPx });
+                return true;
+              },
+              debug: debugEnabled
+            };
+            applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
           }
           console.debug('Debug: box individual horizontal render',{ index: i, mean, maxOffsetUsed: swarm.maxOffsetUsed, spreadFactor: swarm.spreadFactor, pointCount: sampleCount });
         }
@@ -9600,15 +9945,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
       });
     }
-    const allowedSummaries = new Set(['mean','median','none']);
-    if(typeof c.individualSummary === 'string' && allowedSummaries.has(c.individualSummary)){
-      state.individualSummary = c.individualSummary;
-    }else if(!allowedSummaries.has(state.individualSummary)){
-      state.individualSummary = 'mean';
-    }
+    const restoredSummary = typeof c.individualSummary === 'string'
+      ? normalizeIndividualSummaryValue(c.individualSummary)
+      : normalizeIndividualSummaryValue(state.individualSummary);
+    state.individualSummary = restoredSummary;
     if(els.boxIndividualSummary){
-      const summaryValue = allowedSummaries.has(state.individualSummary) ? state.individualSummary : 'mean';
-      els.boxIndividualSummary.value = summaryValue;
+      if(!els.boxIndividualSummary.options?.length){
+        populateIndividualSummarySelect(els.boxIndividualSummary);
+      }
+      els.boxIndividualSummary.value = restoredSummary;
     }
     els.boxPointMode.value=c.pointMode||els.boxPointMode.value;
     els.boxShowCaps.checked=!!c.showCaps;
