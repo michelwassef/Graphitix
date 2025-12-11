@@ -1046,99 +1046,81 @@
     const axisSpacing = Number(options?.axisSpacing) || 0;
     const orientation = options?.orientation || 'vertical';
     const spreadFactor = computeSampleSpreadFactor(sampleSize);
-    const searchStep = Math.max(1, pointRadiusValue * 0.75);
-    const minDistance = Math.max(pointRadiusValue * 2 + 0.5, searchStep);
-    const minDistanceSq = minDistance * minDistance;
-    const minOffset = Math.max(pointRadiusValue * 1.1, minDistance);
-    const axisSpreadCap = Math.max(axisSpacing * 0.35, minDistance);
-    let maxOffset = Math.max(minOffset, axisSpreadCap * spreadFactor);
-    if(!Number.isFinite(maxOffset) || maxOffset <= 0){
-      maxOffset = minOffset;
-    }
-    if(maxOffset < minDistance){
-      maxOffset = minDistance;
-    }
     const axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
-    if(axisBoundary > minDistance){
-      maxOffset = Math.min(maxOffset, axisBoundary);
-    }
-    const placed = [];
+    const violinScale = 0.45;
+    const stripScale = 0.18;
+    const baseScale = stripScale / violinScale;
+    const effectiveHalfSpan = axisBoundary > 0
+      ? axisSpacing * stripScale * spreadFactor
+      : pointRadiusValue * 2.2 * spreadFactor;
+    const globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
     const offsetsMap = new Map();
-    const sorted = entries.slice().sort((a, b) => (Number(a?.coord) || 0) - (Number(b?.coord) || 0));
-    let maxUsed = 0;
-    const axisSpacingClamped = Math.max(axisSpacing, 0);
-    console.debug('Debug: computeSwarmOffsets start',{ orientation, sampleSize, spreadFactor, axisSpacing: axisSpacingClamped, axisSpreadCap, axisBoundary, minOffset, maxOffset, pointRadiusValue });
-    sorted.forEach(entry => {
+    if(!entries.length || !Number.isFinite(globalMaxHalfWidth) || globalMaxHalfWidth <= 0){
+      console.debug('Debug: computeSwarmOffsets empty',{ orientation, sampleSize, axisSpacing });
+      return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
+    }
+    const bins = new Map();
+    entries.forEach(entry => {
       if(!entry || typeof entry.index !== 'number'){
         return;
       }
       const coord = Number(entry.coord) || 0;
-      const collides = candidate => {
-        for(const placedEntry of placed){
-          const dx = candidate - placedEntry.offset;
-          const dy = coord - placedEntry.coord;
-          if(dx * dx + dy * dy < minDistanceSq){
-            return true;
-          }
-        }
-        return false;
-      };
-      let chosen = 0;
-      if(collides(0)){
-        let step = searchStep;
-        let placedFlag = false;
-        let guard = 0;
-        while(step <= maxOffset + searchStep && !placedFlag && guard < 250){
-          for(const candidate of [step, -step]){
-            if(Math.abs(candidate) > maxOffset + 0.01){
-              continue;
-            }
-            if(!collides(candidate)){
-              chosen = candidate;
-              placedFlag = true;
-              break;
-            }
-          }
-          step += searchStep;
-          guard++;
-        }
-        if(!placedFlag){
-          const fallbackDir = placed.length % 2 === 0 ? 1 : -1;
-          chosen = fallbackDir * maxOffset;
-          console.debug('Debug: computeSwarmOffsets fallback',{ orientation, sampleSize, fallbackDir, maxOffset });
-        }
+      const key = Math.round(coord);
+      if(!bins.has(key)){
+        bins.set(key, { count: 0, members: [] });
       }
-      placed.push({ offset: chosen, coord });
-      offsetsMap.set(entry.index, chosen);
-      if(Math.abs(chosen) > maxUsed){
-        maxUsed = Math.abs(chosen);
+      const bin = bins.get(key);
+      bin.count += 1;
+      bin.members.push(entry);
+    });
+    let maxCount = 0;
+    bins.forEach(bin => {
+      if(bin.count > maxCount){
+        maxCount = bin.count;
       }
     });
-    const grouped = new Map();
-    entries.forEach(entry => {
-      if(!entry || entry.index === undefined){ return; }
-      const key = String(entry.coord);
-      if(!grouped.has(key)){
-        grouped.set(key, { total: 0, count: 0, members: [] });
+    if(maxCount <= 0){
+      console.debug('Debug: computeSwarmOffsets noBins',{ orientation, sampleSize, axisSpacing });
+      return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
+    }
+    const minGap = pointRadiusValue * 1.6;
+    let maxUsed = 0;
+    bins.forEach(bin => {
+      const n = bin.count;
+      if(n <= 1){
+        const only = bin.members[0];
+        offsetsMap.set(only.index, 0);
+        return;
       }
-      const group = grouped.get(key);
-      const value = offsetsMap.get(entry.index) || 0;
-      group.total += value;
-      group.count += 1;
-      group.members.push(entry.index);
-    });
-    grouped.forEach(group => {
-      if(group.count <= 1){ return; }
-      const meanOffset = group.total / group.count;
-      if(!meanOffset){ return; }
-      group.members.forEach(idx => {
-        const current = offsetsMap.get(idx) || 0;
-        offsetsMap.set(idx, current - meanOffset);
-      });
+      const normalized = maxCount ? n / maxCount : 1;
+      let halfWidth = globalMaxHalfWidth * normalized;
+      if(axisBoundary > 0){
+        halfWidth = Math.min(halfWidth, axisBoundary);
+      }
+      const requiredHalfWidth = (n - 1) * minGap / 2;
+      if(halfWidth < requiredHalfWidth){
+        halfWidth = Math.min(requiredHalfWidth, axisBoundary || requiredHalfWidth);
+      }
+      if(!Number.isFinite(halfWidth) || halfWidth <= 0){
+        bin.members.forEach(member => {
+          offsetsMap.set(member.index, 0);
+        });
+        return;
+      }
+      const ordered = bin.members.slice().sort((a, b) => a.index - b.index);
+      const step = n > 1 ? (halfWidth * 2) / (n - 1) : 0;
+      for(let i = 0; i < n; i++){
+        const offset = n === 1 ? 0 : -halfWidth + step * i;
+        offsetsMap.set(ordered[i].index, offset);
+        const abs = Math.abs(offset);
+        if(abs > maxUsed){
+          maxUsed = abs;
+        }
+      }
     });
     const offsets = entries.map(entry => offsetsMap.get(entry.index) || 0);
-    console.debug('Debug: computeSwarmOffsets result',{ orientation, sampleSize, spreadFactor, maxOffset, maxOffsetUsed: maxUsed, pointCount: entries.length });
-    return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset };
+    console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entries.length, maxBinSize: maxCount });
+    return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset: globalMaxHalfWidth };
   }
 
   function populateIndividualSummarySelect(selectEl){
