@@ -2331,7 +2331,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -6412,8 +6412,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       state.statsEffectNonParametric,
       state.statsPostHoc,
       state.statsPairsText,
-      state.statsCustomPairs?.length || 0,
-      state.showSignificanceBars ? 'sig-on' : 'sig-off'
+      state.statsCustomPairs?.length || 0
     ].join('|');
     const selectionKey = Array.from(state.selectedCols).sort((a,b)=>a-b).join(',');
     const traceParts = traces.map((trace, idx)=>{
@@ -6473,13 +6472,29 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.statsContextVersion = version;
     state.statsContextSignature = signature;
     state.statsContext = { traces: traces.slice(), svg, helpers, version, signature };
+    const significanceFlag = helpers?.significance?.enabled ?? !!state.showSignificanceBars;
     if(contextChanged){
       clearStatsOutputs('Statistics will appear after calculation.');
       setStatsStatus('Statistics ready to calculate.');
       updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
       return;
     }
-    if(state.statsLastRunVersion === version && els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length){
+    const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
+    const canAutoRecompute = hasResults && state.statsLastRunVersion === version && !state.statsComputationPending;
+    if(significanceFlag && canAutoRecompute){
+      try{
+        console.debug('Debug: box stats auto recompute for significance',{ version, significanceFlag });
+        computeStats(traces, svg, helpers);
+        state.statsLastRunVersion = version;
+        setStatsStatus('Statistics up to date.');
+        updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+      }catch(err){
+        console.error('box stats auto computation for significance failed', err);
+        setStatsStatus('Failed to compute statistics.');
+      }
+      return;
+    }
+    if(state.statsLastRunVersion === version && hasResults){
       setStatsStatus('Statistics up to date.');
       updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
     }else if(!state.statsComputationPending){
@@ -6616,6 +6631,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
     };
     const significanceEnabled = helpers?.significance?.enabled ?? !!state.showSignificanceBars;
+    state.statsLastSignificanceEnabled = !!significanceEnabled;
     console.debug('Debug: box significance annotations status',{ enabled: significanceEnabled });
     const annotationOpts=helpers?.annotationStyle||{};
     const orientation=annotationOpts.orientation==='horizontal'?'horizontal':'vertical';
