@@ -72,6 +72,10 @@
   const LINE_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const LINE_AUTO_DRAW_COL_THRESHOLD = 5000;
   const LINE_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  const BROKEN_AXIS_GAP_SIZE_PX = 20;
+  const BROKEN_AXIS_BREAK_WIDTH = 8;
+  const BROKEN_AXIS_BREAK_HEIGHT = 6;
+  const BROKEN_AXIS_DEFAULT_SEGMENT = { start: 0, end: 1 };
   const lineAutoDrawState = {
     autoDrawEnabled: true,
     autoDrawReason: null,
@@ -243,8 +247,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, notation: 'auto' },
-      y: { tickInterval: null, notation: 'auto' }
+      x: { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -260,10 +264,29 @@
       lineAxisSettings = createLineAxisSettings();
     }
     if(!lineAxisSettings.x || typeof lineAxisSettings.x !== 'object'){
-      lineAxisSettings.x = { tickInterval: null, notation: 'auto' };
+      lineAxisSettings.x = { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
     }
     if(!lineAxisSettings.y || typeof lineAxisSettings.y !== 'object'){
-      lineAxisSettings.y = { tickInterval: null, notation: 'auto' };
+      lineAxisSettings.y = { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
+    }
+    // Ensure broken axis structures
+    if(!lineAxisSettings.x.brokenAxis || typeof lineAxisSettings.x.brokenAxis !== 'object'){
+      lineAxisSettings.x.brokenAxis = { enabled: false, segments: [] };
+    }
+    if(typeof lineAxisSettings.x.brokenAxis.enabled !== 'boolean'){
+      lineAxisSettings.x.brokenAxis.enabled = false;
+    }
+    if(!Array.isArray(lineAxisSettings.x.brokenAxis.segments)){
+      lineAxisSettings.x.brokenAxis.segments = [];
+    }
+    if(!lineAxisSettings.y.brokenAxis || typeof lineAxisSettings.y.brokenAxis !== 'object'){
+      lineAxisSettings.y.brokenAxis = { enabled: false, segments: [] };
+    }
+    if(typeof lineAxisSettings.y.brokenAxis.enabled !== 'boolean'){
+      lineAxisSettings.y.brokenAxis.enabled = false;
+    }
+    if(!Array.isArray(lineAxisSettings.y.brokenAxis.segments)){
+      lineAxisSettings.y.brokenAxis.segments = [];
     }
     const strokeNumeric = Number(lineAxisSettings.strokeWidth);
     lineAxisSettings.strokeWidth = Number.isFinite(strokeNumeric) && strokeNumeric > 0 ? strokeNumeric : 1;
@@ -347,6 +370,50 @@
     const settings = ensureLineAxisSettings();
     settings.color = typeof value === 'string' && value.trim() ? value : DEFAULT_AXIS_COLOR;
     console.debug('Debug: line axis color updated',{ color: settings.color });
+    if(typeof scheduleLineDraw === 'function'){
+      scheduleLineDraw();
+    }
+  }
+
+  function getBrokenAxisEnabled(axis){
+    if(axis !== 'x' && axis !== 'y'){ return false; }
+    const settings = ensureLineAxisSettings();
+    return !!settings[axis]?.brokenAxis?.enabled;
+  }
+
+  function updateBrokenAxisEnabled(axis, enabled){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureLineAxisSettings();
+    const previousValue = !!settings[axis].brokenAxis.enabled;
+    settings[axis].brokenAxis.enabled = !!enabled;
+    console.debug('Debug: line broken axis enabled updated',{ axis, enabled: settings[axis].brokenAxis.enabled });
+    if(typeof scheduleLineDraw === 'function'){
+      scheduleLineDraw();
+    }
+    return previousValue;
+  }
+
+  function getBrokenAxisSegments(axis){
+    if(axis !== 'x' && axis !== 'y'){ return []; }
+    const settings = ensureLineAxisSettings();
+    return settings[axis]?.brokenAxis?.segments || [];
+  }
+
+  function updateBrokenAxisSegments(axis, segments){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureLineAxisSettings();
+    if(!Array.isArray(segments)){
+      settings[axis].brokenAxis.segments = [];
+      return;
+    }
+    settings[axis].brokenAxis.segments = segments.filter(seg => {
+      return seg &&
+             typeof seg === 'object' &&
+             Number.isFinite(seg.start) &&
+             Number.isFinite(seg.end) &&
+             seg.start < seg.end;
+    }).map(seg => ({ start: Number(seg.start), end: Number(seg.end) }));
+    console.debug('Debug: line broken axis segments updated',{ axis, segments: settings[axis].brokenAxis.segments });
     if(typeof scheduleLineDraw === 'function'){
       scheduleLineDraw();
     }
@@ -636,6 +703,34 @@
       const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
       base.x.notation = sanitizeLineAxisNotation(xNotation);
       base.y.notation = sanitizeLineAxisNotation(yNotation);
+      
+      // Handle broken axis settings
+      if(settings.brokenAxis){
+        if(settings.brokenAxis.x){
+          base.x.brokenAxis = {
+            enabled: !!settings.brokenAxis.x.enabled,
+            segments: Array.isArray(settings.brokenAxis.x.segments) 
+              ? settings.brokenAxis.x.segments.filter(seg => 
+                  seg && typeof seg === 'object' && 
+                  Number.isFinite(seg.start) && Number.isFinite(seg.end) && 
+                  seg.start < seg.end
+                ).map(seg => ({ start: Number(seg.start), end: Number(seg.end) }))
+              : []
+          };
+        }
+        if(settings.brokenAxis.y){
+          base.y.brokenAxis = {
+            enabled: !!settings.brokenAxis.y.enabled,
+            segments: Array.isArray(settings.brokenAxis.y.segments) 
+              ? settings.brokenAxis.y.segments.filter(seg => 
+                  seg && typeof seg === 'object' && 
+                  Number.isFinite(seg.start) && Number.isFinite(seg.end) && 
+                  seg.start < seg.end
+                ).map(seg => ({ start: Number(seg.start), end: Number(seg.end) }))
+              : []
+          };
+        }
+      }
     }
     lineAxisSettings = base;
     ensureLineAxisSettings();
@@ -663,6 +758,150 @@
     }
     console.debug('Debug: line manual ticks computed',{ interval, tickCount: ticks.length, min: graphMin, max: graphMax });
     return { min: graphMin, max: graphMax, ticks };
+  }
+
+  function computeBrokenAxisScale(config){
+    const { dataMin, dataMax, segments, plotLength, orientation } = config;
+    const isHorizontal = orientation === 'horizontal';
+    
+    if(!Array.isArray(segments) || segments.length === 0){
+      // No broken axis, return standard linear scale
+      return {
+        isBroken: false,
+        min: dataMin,
+        max: dataMax,
+        valueToPixel: (value, basePos, plotLen) => {
+          const range = dataMax - dataMin || 1;
+          if(isHorizontal){
+            return basePos + plotLen * ((value - dataMin) / range);
+          }else{
+            return basePos + plotLen * (1 - (value - dataMin) / range);
+          }
+        },
+        segments: []
+      };
+    }
+    
+    // Sort and validate segments
+    const validSegments = segments
+      .filter(seg => Number.isFinite(seg.start) && Number.isFinite(seg.end) && seg.start < seg.end)
+      .sort((a, b) => a.start - b.start);
+    
+    if(validSegments.length === 0){
+      // No valid segments, return standard scale
+      return {
+        isBroken: false,
+        min: dataMin,
+        max: dataMax,
+        valueToPixel: (value, basePos, plotLen) => {
+          const range = dataMax - dataMin || 1;
+          if(isHorizontal){
+            return basePos + plotLen * ((value - dataMin) / range);
+          }else{
+            return basePos + plotLen * (1 - (value - dataMin) / range);
+          }
+        },
+        segments: []
+      };
+    }
+    
+    // Merge overlapping segments and calculate display ranges
+    const mergedSegments = [];
+    let current = { ...validSegments[0] };
+    
+    for(let i = 1; i < validSegments.length; i++){
+      const seg = validSegments[i];
+      if(seg.start <= current.end){
+        // Overlapping or adjacent, merge
+        current.end = Math.max(current.end, seg.end);
+      }else{
+        mergedSegments.push(current);
+        current = { ...seg };
+      }
+    }
+    mergedSegments.push(current);
+    
+    // Calculate the total data range covered by segments
+    const totalDataRange = mergedSegments.reduce((sum, seg) => sum + (seg.end - seg.start), 0);
+    
+    // Define gap size in pixels
+    const gapSizePx = BROKEN_AXIS_GAP_SIZE_PX;
+    const numGaps = mergedSegments.length - 1;
+    const totalGapLength = numGaps * gapSizePx;
+    const availableLength = plotLength - totalGapLength;
+    
+    // Assign pixel lengths to each segment proportionally
+    const segmentMeta = mergedSegments.map((seg, idx) => {
+      const dataRange = seg.end - seg.start;
+      const lengthPx = (dataRange / totalDataRange) * availableLength;
+      return {
+        start: seg.start,
+        end: seg.end,
+        dataRange,
+        lengthPx,
+        pixelStart: 0, // Will be calculated next
+        pixelEnd: 0
+      };
+    });
+    
+    // Calculate pixel positions
+    let currentPixel = 0;
+    for(let i = 0; i < segmentMeta.length; i++){
+      segmentMeta[i].pixelStart = currentPixel;
+      segmentMeta[i].pixelEnd = currentPixel + segmentMeta[i].lengthPx;
+      currentPixel = segmentMeta[i].pixelEnd + gapSizePx;
+    }
+    
+    // Create value-to-pixel mapping function
+    const valueToPixel = (value, basePos, plotLen) => {
+      const mapPixel = pixel => {
+        if(isHorizontal){
+          return basePos + pixel;
+        }else{
+          return basePos + plotLen - pixel;
+        }
+      };
+      
+      // Find which segment contains this value
+      for(let i = 0; i < segmentMeta.length; i++){
+        const seg = segmentMeta[i];
+        if(value >= seg.start && value <= seg.end){
+          // Map value within this segment to pixels
+          // Handle edge case where start === end (segment has zero range)
+          const fraction = seg.dataRange > 0 ? (value - seg.start) / seg.dataRange : 0;
+          const pixelInSegment = seg.pixelStart + fraction * seg.lengthPx;
+          return mapPixel(pixelInSegment);
+        }
+      }
+      
+      // Value not in any segment - clamp to nearest segment edge
+      if(value < segmentMeta[0].start){
+        return mapPixel(segmentMeta[0].pixelStart);
+      }
+      if(value > segmentMeta[segmentMeta.length - 1].end){
+        return mapPixel(segmentMeta[segmentMeta.length - 1].pixelEnd);
+      }
+      
+      // Value falls in a gap - return the end of the segment before it
+      for(let i = 0; i < segmentMeta.length - 1; i++){
+        if(value > segmentMeta[i].end && value < segmentMeta[i + 1].start){
+          // In gap between segment i and i+1
+          return mapPixel(segmentMeta[i].pixelEnd);
+        }
+      }
+      
+      // Final fallback - should not reach here, but return first segment start for safety
+      return mapPixel(segmentMeta[0].pixelStart);
+    };
+    
+    return {
+      isBroken: true,
+      min: mergedSegments[0].start,
+      max: mergedSegments[mergedSegments.length - 1].end,
+      segments: segmentMeta,
+      gapSizePx,
+      valueToPixel
+    };
   }
 
   console.debug('Debug: line group labels state initialized', {
@@ -2714,7 +2953,17 @@
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
           notationX: axisSettings.x?.notation ?? 'auto',
-          notationY: axisSettings.y?.notation ?? 'auto'
+          notationY: axisSettings.y?.notation ?? 'auto',
+          brokenAxis: {
+            x: {
+              enabled: axisSettings.x?.brokenAxis?.enabled ?? false,
+              segments: axisSettings.x?.brokenAxis?.segments ?? []
+            },
+            y: {
+              enabled: axisSettings.y?.brokenAxis?.enabled ?? false,
+              segments: axisSettings.y?.brokenAxis?.segments ?? []
+            }
+          }
         },
         labelPositions: lineLabelPositions || null
       }
@@ -2838,7 +3087,8 @@
         tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
         tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null,
         notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'auto',
-        notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'auto'
+        notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'auto',
+        brokenAxis: c.axis.brokenAxis || {}
       });
       console.debug('Debug: line axis settings restored',{ axis: ensureLineAxisSettings() });
     }
@@ -3545,18 +3795,91 @@
         yTickTarget=refinedY;
       }
       console.debug('Debug: line layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth});
+      
+      // Broken axis support
+      const brokenXEnabled = getBrokenAxisEnabled('x');
+      const brokenXSegments = brokenXEnabled ? getBrokenAxisSegments('x') : [];
+      const brokenXScale = brokenXEnabled && brokenXSegments.length > 0
+        ? computeBrokenAxisScale({
+            dataMin: xScale.min,
+            dataMax: xScale.max,
+            segments: brokenXSegments,
+            plotLength: plotW,
+            orientation: 'horizontal'
+          })
+        : null;
+      
+      const brokenYEnabled = getBrokenAxisEnabled('y');
+      const brokenYSegments = brokenYEnabled ? getBrokenAxisSegments('y') : [];
+      const brokenYScale = brokenYEnabled && brokenYSegments.length > 0
+        ? computeBrokenAxisScale({
+            dataMin: yScale.min,
+            dataMax: yScale.max,
+            segments: brokenYSegments,
+            plotLength: plotH,
+            orientation: 'vertical'
+          })
+        : null;
+      
+      console.debug('Debug: line broken axis',{ 
+        xEnabled: brokenXEnabled, 
+        xSegments: brokenXSegments, 
+        xBroken: brokenXScale?.isBroken,
+        yEnabled: brokenYEnabled, 
+        ySegments: brokenYSegments, 
+        yBroken: brokenYScale?.isBroken
+      });
+      
       const x2px=v=>{
         const safeV = Math.min(Math.max(v, xScale.min), xScale.max);
+        if(brokenXScale && brokenXScale.isBroken){
+          return brokenXScale.valueToPixel(safeV, margin.left, plotW);
+        }
         return margin.left+plotW*(safeV-xScale.min)/(xScale.max-xScale.min);
       };
       const y2px=v=>{
         const safeV = Math.min(Math.max(v, yScale.min), yScale.max);
+        if(brokenYScale && brokenYScale.isBroken){
+          return brokenYScale.valueToPixel(safeV, margin.top, plotH);
+        }
         return margin.top+plotH*(1-(safeV-yScale.min)/(yScale.max-yScale.min));
       };
       function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
       if(showGrid){
-        xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});});
-        yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});});
+        xScale.ticks.forEach(t=>{
+          // Only draw grid line if tick falls within a valid segment (for broken axis)
+          if(brokenXScale && brokenXScale.isBroken){
+            let inSegment = false;
+            for(const seg of brokenXScale.segments){
+              if(t >= seg.start && t <= seg.end){
+                inSegment = true;
+                break;
+              }
+            }
+            if(!inSegment){
+              return; // Skip grid lines that fall in gaps
+            }
+          }
+          const x=x2px(t);
+          add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});
+        });
+        yScale.ticks.forEach(t=>{
+          // Only draw grid line if tick falls within a valid segment (for broken axis)
+          if(brokenYScale && brokenYScale.isBroken){
+            let inSegment = false;
+            for(const seg of brokenYScale.segments){
+              if(t >= seg.start && t <= seg.end){
+                inSegment = true;
+                break;
+              }
+            }
+            if(!inSegment){
+              return; // Skip grid lines that fall in gaps
+            }
+          }
+          const y=y2px(t);
+          add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});
+        });
         console.debug('Debug: line grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,axisStrokeWidth});
       }
       let originXT,originYT;
@@ -3627,15 +3950,118 @@
         onColorChange: value => updateLineAxisColor(value),
         getNotationMode: () => getLineAxisNotation(axis),
         onNotationChange: value => updateLineAxisNotation(axis, value),
-        isNotationSupported: () => true
+        isNotationSupported: () => true,
+        getBrokenAxisEnabled: () => getBrokenAxisEnabled(axis),
+        onBrokenAxisEnabledChange: (enabled) => updateBrokenAxisEnabled(axis, enabled),
+        getBrokenAxisSegments: () => getBrokenAxisSegments(axis),
+        onBrokenAxisSegmentChange: (axisName, index, segment) => {
+          const segments = getBrokenAxisSegments(axis);
+          if(index >= 0 && index < segments.length){
+            segments[index] = segment;
+            updateBrokenAxisSegments(axis, segments);
+          }
+        },
+        onBrokenAxisAddSegment: () => {
+          const segments = getBrokenAxisSegments(axis);
+          const newSegment = { ...BROKEN_AXIS_DEFAULT_SEGMENT };
+          segments.push(newSegment);
+          updateBrokenAxisSegments(axis, segments);
+        },
+        onBrokenAxisRemoveSegment: (axisName, index) => {
+          const segments = getBrokenAxisSegments(axis);
+          if(index >= 0 && index < segments.length){
+            segments.splice(index, 1);
+            updateBrokenAxisSegments(axis, segments);
+          }
+        }
       });
-      const xAxisLine = add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
-      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-        axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+      
+      // Draw X-axis with broken axis support
+      if(brokenXScale && brokenXScale.isBroken){
+        // Draw each segment separately
+        let combinedLeft = Infinity;
+        let combinedRight = -Infinity;
+        
+        brokenXScale.segments.forEach(seg => {
+          const segLeft = x2px(seg.start);
+          const segRight = x2px(seg.end);
+          add('line',{
+            x1: segLeft,
+            y1: xAxisY,
+            x2: segRight,
+            y2: xAxisY,
+            stroke: axisStroke,
+            'stroke-linecap': 'square',
+            'stroke-width': axisStrokeWidth
+          });
+          combinedLeft = Math.min(combinedLeft, segLeft);
+          combinedRight = Math.max(combinedRight, segRight);
+        });
+        
+        // Single transparent hit area covering the whole broken axis range
+        if(isFinite(combinedLeft) && isFinite(combinedRight)){
+          const hitLine = add('line',{
+            x1: combinedLeft,
+            y1: xAxisY,
+            x2: combinedRight,
+            y2: xAxisY,
+            stroke: 'transparent',
+            'stroke-width': 20,
+            'pointer-events': 'stroke'
+          });
+          if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+            axisControls.registerAxisElement(hitLine, axisControlConfig('x'));
+          }
+        }
+      }else{
+        const xAxisLine = add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+          axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+        }
       }
-      const yAxisLine = add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
-      if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-        axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+      
+      // Draw Y-axis with broken axis support
+      if(brokenYScale && brokenYScale.isBroken){
+        // Draw each segment separately
+        let combinedTop = Infinity;
+        let combinedBottom = -Infinity;
+        
+        brokenYScale.segments.forEach(seg => {
+          const segTop = y2px(seg.end);
+          const segBottom = y2px(seg.start);
+          add('line',{
+            x1: yAxisX,
+            y1: segTop,
+            x2: yAxisX,
+            y2: segBottom,
+            stroke: axisStroke,
+            'stroke-linecap': 'square',
+            'stroke-width': axisStrokeWidth
+          });
+          combinedTop = Math.min(combinedTop, segTop);
+          combinedBottom = Math.max(combinedBottom, segBottom);
+        });
+        
+        // Single transparent hit area covering the whole broken axis range
+        if(isFinite(combinedTop) && isFinite(combinedBottom)){
+          const hitLine = add('line',{
+            x1: yAxisX,
+            y1: combinedTop,
+            x2: yAxisX,
+            y2: combinedBottom,
+            stroke: 'transparent',
+            'stroke-width': 20,
+            'pointer-events': 'stroke'
+          });
+          if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+            axisControls.registerAxisElement(hitLine, axisControlConfig('y'));
+          }
+        }
+      }else{
+        const yAxisLine = add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+          axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+        }
       }
       console.debug('Debug: line axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
       if(showFrame){
@@ -3645,10 +4071,51 @@
       // Frame closes plot area using existing axis styling for continuity
       const xTickNodes=[];
       let xTickFontCount=0;
-      xScale.ticks.forEach((t,i)=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTickX(logX?Math.pow(10,t):t);markFontEditable(txt,'xTick');xTickFontCount+=1;xTickNodes.push(txt);});
+      xScale.ticks.forEach((t,i)=>{
+        // Only draw tick if it falls within a valid segment (for broken axis)
+        if(brokenXScale && brokenXScale.isBroken){
+          let inSegment = false;
+          for(const seg of brokenXScale.segments){
+            if(t >= seg.start && t <= seg.end){
+              inSegment = true;
+              break;
+            }
+          }
+          if(!inSegment){
+            return; // Skip ticks that fall in gaps
+          }
+        }
+        const x=x2px(t);
+        add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});
+        txt.textContent=formatTickX(logX?Math.pow(10,t):t);
+        markFontEditable(txt,'xTick');
+        xTickFontCount+=1;
+        xTickNodes.push(txt);
+      });
       chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
       let yTickFontCount=0;
-      yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTickY(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});
+      yScale.ticks.forEach((t,i)=>{
+        // Only draw tick if it falls within a valid segment (for broken axis)
+        if(brokenYScale && brokenYScale.isBroken){
+          let inSegment = false;
+          for(const seg of brokenYScale.segments){
+            if(t >= seg.start && t <= seg.end){
+              inSegment = true;
+              break;
+            }
+          }
+          if(!inSegment){
+            return; // Skip ticks that fall in gaps
+          }
+        }
+        const y=y2px(t);
+        add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+        const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
+        txt.textContent=formatTickY(logY?Math.pow(10,t):t);
+        markFontEditable(txt,'yTick');
+        yTickFontCount+=1;
+      });
       console.debug('Debug: line font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
       console.debug('Debug: line ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
       const showErrorBars=replicates>1;

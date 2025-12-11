@@ -1159,22 +1159,39 @@
     const valueColumn=$('#pieValueColumn');
     const expectedColumn=$('#pieExpectedColumn');
     const header=data[0]||[];
+    const labels=[];
+    const seriesColumnsRaw=[];
+    for(let c=1;c<header.length;c+=1){
+      const colLabel=header[c] || `Column ${c+1}`;
+      if(colLabel==null || String(colLabel).trim()===''){
+        continue;
+      }
+      seriesColumnsRaw.push({ index: c, label: String(colLabel), values: [] });
+    }
     const values=[];
     const expected=[];
-    const labels=[];
-    for(let r=1;r<data.length;r++){
+    const vi=parseInt(valueColumn.value||'1',10);
+    const ei=parseInt(expectedColumn.value||'2',10);
+    for(let r=1;r<data.length;r+=1){
       const row=data[r];
-      if(row && row[0]!=null && row[0]!==''){
-        labels.push(String(row[0]));
-        const vi=parseInt(valueColumn.value||'1',10);
-        const ei=parseInt(expectedColumn.value||'2',10);
-        const v=parseFloat(row[vi]);
-        const e=parseFloat(row[ei]);
-        values.push(isNaN(v)?0:v);
-        expected.push(e);
+      if(!row || row[0]==null || row[0]===''){
+        continue;
       }
+      labels.push(String(row[0]));
+      seriesColumnsRaw.forEach(series=>{
+        const rawVal=row[series.index];
+        const numVal=parseFloat(rawVal);
+        series.values.push(isNaN(numVal)?0:numVal);
+      });
+      const rawV=row[vi];
+      const rawE=row[ei];
+      const v=parseFloat(rawV);
+      const e=parseFloat(rawE);
+      values.push(isNaN(v)?0:v);
+      expected.push(e);
     }
-    if(!values.length){ plotEl.innerHTML='<i>No data</i>'; return; }
+    const seriesColumns=seriesColumnsRaw.filter(series=>series.values.some(v=>typeof v==='number' && isFinite(v) && v!==0));
+    if(!seriesColumns.length || !labels.length){ plotEl.innerHTML='<i>No data</i>'; return; }
     ensurePieColors(labels);
     const palette2 = getDefaultPalette();
     const radialLegendEntries = showLegend ? labels.map((lab,i)=>({
@@ -1223,21 +1240,19 @@
       chartType: type,
       legendVisible: radialLegendVisible
     });
-    const size=Math.min(svgWidth,svgHeight);
-    const svgWrapper=document.createElement('div');
-    svgWrapper.style.flex='0 0 auto';
-    svgWrapper.style.display='flex';
-    svgWrapper.style.alignItems='center';
-    svgWrapper.style.justifyContent='center';
-    svgWrapper.style.width=Math.max(svgWidth, state.minSvgWidth || svgWidth)+'px';
-    svgWrapper.style.height=svgHeight+'px';
+    const chartCount=seriesColumns.length;
     const svg=document.createElementNS(NS,'svg');
     svg.setAttribute('id','pieSvg');
-    svg.setAttribute('width',String(size));
-    svg.setAttribute('height',String(size));
-    svg.setAttribute('viewBox',`0 0 ${size} ${size}`);
+    svg.setAttribute('width',String(svgWidth));
+    svg.setAttribute('height',String(svgHeight));
+    svg.setAttribute('viewBox',`0 0 ${svgWidth} ${svgHeight}`);
     svg.setAttribute('font-family',chartStyle.FONT_FAMILY);
     chartStyle.applySvgDefaults(svg);
+    const svgWrapper=document.createElement('div');
+    svgWrapper.style.flex='1 1 auto';
+    svgWrapper.style.display='flex';
+    svgWrapper.style.alignItems='flex-start';
+    svgWrapper.style.justifyContent='center';
     svgWrapper.appendChild(svg);
     plotEl.appendChild(svgWrapper);
     if(legend){
@@ -1245,104 +1260,136 @@
     }
     if(fontControls && typeof fontControls.enableForSvg === 'function'){
       fontControls.enableForSvg(svg,{ scopeId: 'pie' });
-      console.debug('Debug: pie fontControls enableForSvg invoked',{ width: size, height: size });
+      console.debug('Debug: pie fontControls enableForSvg invoked',{ width: svgWidth, height: svgHeight });
     } else {
       console.debug('Debug: pie fontControls enableForSvg missing',{ hasFontControls: !!fontControls });
     }
-    const cx=size/2, cy=size/2; const r=type==='donut' ? size*0.32 : size*0.40; const rInner=type==='donut' ? r*0.6 : 0; const sum=values.reduce((a,b)=>a+b,0) || 1; let startAngle=startDeg*Math.PI/180;
+    const axisStrokeWidthBase = getAxisStrokeWidthBase();
+    const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0.25 });
+    const frameStroke = '#000';
     const legendMarkerSize=Math.max(10,Math.round(12*fontScale));
-    labels.forEach((lab,i)=>{
-      const v=values[i];
-      const frac=v/sum;
-      const endAngle=startAngle+2*Math.PI*frac;
-      const x1=cx + r*Math.cos(startAngle);
-      const y1=cy + r*Math.sin(startAngle);
-      const x2=cx + r*Math.cos(endAngle);
-      const y2=cy + r*Math.sin(endAngle);
-      const largeArc = (endAngle-startAngle) > Math.PI ? 1 : 0;
-      const path=document.createElementNS(NS,'path');
-      if(rInner>0){
-        const x1i=cx + rInner*Math.cos(startAngle);
-        const y1i=cy + rInner*Math.sin(startAngle);
-        const x2i=cx + rInner*Math.cos(endAngle);
-        const y2i=cy + rInner*Math.sin(endAngle);
-        const d=`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${x2i} ${y2i} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x1i} ${y1i} Z`;
-        path.setAttribute('d',d);
-      } else {
-        const d=`M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z`;
-        path.setAttribute('d',d);
-      }
-      const fillColor = state.colors[lab] || palette2[i % palette2.length];
-      path.setAttribute('fill', fillColor);
-      if(borderWidth > 0){
-        path.setAttribute('stroke', borderColor);
-        path.setAttribute('stroke-width', borderWidth);
-        path.setAttribute('stroke-linejoin', 'round');
-      }
-      svg.appendChild(path);
-      if(showPerc && frac>0){
-        const mid=(startAngle+endAngle)/2;
-        const tx=cx + (rInner>0?(r+rInner)/2:r*0.65)*Math.cos(mid);
-        const ty=cy + (rInner>0?(r+rInner)/2:r*0.65)*Math.sin(mid);
-        const txt=document.createElementNS(NS,'text');
-        txt.setAttribute('x',tx);
-        txt.setAttribute('y',ty);
-        txt.setAttribute('text-anchor','middle');
-        txt.setAttribute('font-size',fs);
-        txt.textContent=(frac*100).toFixed(1)+'%';
-        markFontEditable(txt,'annotation',`pie-annotation-${i}`);
-        svg.appendChild(txt);
-      }
-      if(radialLegendVisible && legend){
-        const legendItem=document.createElement('div');
-        legendItem.style.display='flex';
-        legendItem.style.alignItems='center';
-        legendItem.style.gap=radialLegendGap+'px';
-        const swatch=document.createElement('span');
-        swatch.style.display='inline-block';
-        swatch.style.width=radialLegendMarkerSize+'px';
-        swatch.style.height=radialLegendMarkerSize+'px';
-        swatch.style.borderRadius='2px';
-        swatch.style.background=fillColor;
-        swatch.style.cursor='pointer';
-        swatch.addEventListener('click',(evt)=>{
-          if(evt){ evt.stopPropagation(); }
-          const currentColor=state.colors[lab] || fillColor;
-          let previousColor=currentColor;
-          Shared.openColorPicker({
-            anchor: swatch,
-            color: currentColor,
-            onInput(value){
-              applyPieColorValue(lab,value);
-              console.debug('Debug: pie legend color input',{label:lab,color:value});
-            },
-            onChange(value){
-              const nextValue=value!=null?String(value):'';
-              if(nextValue===previousColor){
-                return;
-              }
-              applyPieColorValue(lab,nextValue);
-              recordPieChange(`pie:legend-color:${lab}`,previousColor,nextValue,val=>applyPieColorValue(lab,val));
-              previousColor=nextValue;
-            }
-          });
-        });
-        const labelSpan=document.createElement('span');
-        labelSpan.textContent=lab;
-        legendItem.appendChild(swatch);
-        legendItem.appendChild(labelSpan);
-        legend.appendChild(legendItem);
-      }
-      startAngle=endAngle;
-    });
-    if(radialLegendVisible && legend){
-      legend.style.gap=radialLegendGap+'px';
-      console.debug('Debug: pie legend items rendered',{ legendItemCount: labels.length, legendMarkerSize: radialLegendMarkerSize, legendGap: radialLegendGap, chartType: type });
-    }else{
-      console.debug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length });
+    const contentTop=fs*2;
+    const contentBottom=svgHeight-fs*2.2;
+    const contentHeight=Math.max(10,contentBottom-contentTop);
+    let rows=1;
+    let cols=chartCount;
+    if(chartCount===2){
+      rows=1; cols=2;
+    }else if(chartCount===3){
+      rows=2; cols=2;
+    }else if(chartCount===4){
+      rows=2; cols=2;
+    }else if(chartCount>4){
+      rows=Math.ceil(Math.sqrt(chartCount));
+      cols=Math.ceil(chartCount/rows);
     }
-    const defaultTitleX = cx;
-    const defaultTitleY = fs;
+    const colWidth=svgWidth/Math.max(1,cols);
+    const rowHeight=contentHeight/Math.max(1,rows);
+    const rHoriz=colWidth*0.35;
+    const rVert=rowHeight*0.35;
+    let r=Math.max(10,Math.min(rHoriz,rVert));
+    const centers=[];
+    seriesColumns.forEach((_series,idx)=>{
+      const row=Math.floor(idx/cols);
+      const col=idx%cols;
+      const cx=colWidth*(col+0.5);
+      const cy=contentTop+rowHeight*(row+0.5);
+      centers.push({ cx, cy });
+    });
+    // Compute a safe common radius so all pies and labels stay
+    // fully inside the SVG bounds.
+    if(centers.length){
+      const leftLimit=fs; // padding from left edge
+      const rightLimit=svgWidth - fs; // padding from right edge
+      const topLimit=contentTop + fs*0.2;
+      const bottomLimit=svgHeight - fs*2; // leave space for viewport padding
+      let maxAllowedR=r;
+      centers.forEach(center=>{
+        if(!center){ return; }
+        let localMax=r;
+        // Keep circle inside left/right bounds
+        localMax=Math.min(localMax, center.cx-leftLimit);
+        localMax=Math.min(localMax, rightLimit-center.cx);
+        // Keep circle and label inside top/bottom bounds
+        localMax=Math.min(localMax, center.cy-topLimit);
+        localMax=Math.min(localMax, bottomLimit-center.cy-fs*1.0);
+        if(localMax<maxAllowedR){
+          maxAllowedR=localMax;
+        }
+      });
+      if(Number.isFinite(maxAllowedR) && maxAllowedR>0){
+        r=Math.max(10,Math.min(r,maxAllowedR));
+      }
+    }
+    if(type==='donut'){
+      r=r*0.9;
+    }
+    const effectiveR=r;
+    const effectiveInnerR=type==='donut' ? effectiveR*0.6 : 0;
+    seriesColumns.forEach((series,seriesIndex)=>{
+      const center=centers[seriesIndex] || { cx: svgWidth/2, cy: contentTop+contentHeight/2 };
+      const cx=center.cx;
+      const cy=center.cy;
+      const sum=series.values.reduce((a,b)=>a+b,0) || 1;
+      let startAngle=startDeg*Math.PI/180;
+      labels.forEach((lab,i)=>{
+        const v=series.values[i] || 0;
+        const frac=v/sum;
+        const endAngle=startAngle+2*Math.PI*frac;
+        const x1=cx + effectiveR*Math.cos(startAngle);
+        const y1=cy + effectiveR*Math.sin(startAngle);
+        const x2=cx + effectiveR*Math.cos(endAngle);
+        const y2=cy + effectiveR*Math.sin(endAngle);
+        const largeArc = (endAngle-startAngle) > Math.PI ? 1 : 0;
+        const path=document.createElementNS(NS,'path');
+        if(effectiveInnerR>0){
+          const x1i=cx + effectiveInnerR*Math.cos(startAngle);
+          const y1i=cy + effectiveInnerR*Math.sin(startAngle);
+          const x2i=cx + effectiveInnerR*Math.cos(endAngle);
+          const y2i=cy + effectiveInnerR*Math.sin(endAngle);
+          const d=`M ${x1} ${y1} A ${effectiveR} ${effectiveR} 0 ${largeArc} 1 ${x2} ${y2} L ${x2i} ${y2i} A ${effectiveInnerR} ${effectiveInnerR} 0 ${largeArc} 0 ${x1i} ${y1i} Z`;
+          path.setAttribute('d',d);
+        } else {
+          const d=`M ${cx} ${cy} L ${x1} ${y1} A ${effectiveR} ${effectiveR} 0 ${largeArc} 1 ${x2} ${y2} Z`;
+          path.setAttribute('d',d);
+        }
+        const fillColor = state.colors[lab] || palette2[i % palette2.length];
+        path.setAttribute('fill', fillColor);
+        if(borderWidth > 0){
+          path.setAttribute('stroke', borderColor);
+          path.setAttribute('stroke-width', borderWidth);
+          path.setAttribute('stroke-linejoin', 'round');
+        }
+        svg.appendChild(path);
+        if(showPerc && frac>0){
+          const mid=(startAngle+endAngle)/2;
+          const tx=cx + (effectiveInnerR>0?(effectiveR+effectiveInnerR)/2:effectiveR*0.65)*Math.cos(mid);
+          const ty=cy + (effectiveInnerR>0?(effectiveR+effectiveInnerR)/2:effectiveR*0.65)*Math.sin(mid);
+          const txt=document.createElementNS(NS,'text');
+          txt.setAttribute('x',tx);
+          txt.setAttribute('y',ty);
+          txt.setAttribute('text-anchor','middle');
+          txt.setAttribute('font-size',fs);
+          txt.textContent=(frac*100).toFixed(1)+'%';
+          markFontEditable(txt,'annotation',`pie-annotation-${seriesIndex}-${i}`);
+          svg.appendChild(txt);
+        }
+        startAngle=endAngle;
+      });
+      const seriesLabel=document.createElementNS(NS,'text');
+      seriesLabel.setAttribute('x',cx);
+      seriesLabel.setAttribute('y',cy + effectiveR + fs*1.0);
+      seriesLabel.setAttribute('text-anchor','middle');
+      seriesLabel.setAttribute('font-size',Math.max(8,fs*0.9));
+      seriesLabel.textContent=series.label;
+      markFontEditable(seriesLabel,'seriesLabel',`series-${seriesIndex}`);
+      svg.appendChild(seriesLabel);
+    });
+    if(showFrame){
+      chartStyle.drawPlotFrame({ svg, margin: { top: 0, right: 0, bottom: 0, left: 0 }, plotW: svgWidth, plotH: svgHeight, stroke: frameStroke, strokeWidth: axisStrokeWidth, sides: ['top','right','bottom','left'] });
+    }
+    const defaultTitleX = svgWidth/2;
+    const defaultTitleY = fs*1.2;
     const titlePos = state.labelPositions?.title;
     const title=document.createElementNS(NS,'text');
     title.setAttribute('x', titlePos?.x ?? defaultTitleX);
@@ -1362,7 +1409,6 @@
         recordPieChange('pie:title',previous,nextValue,value=>applyPieTitleValue(title,value));
       });
     }
-    // Enable drag for title
     if(typeof Shared.enableLabelDrag === 'function'){
       Shared.enableLabelDrag(title, svg, {
         onDragEnd: pos => {
@@ -1372,14 +1418,54 @@
       });
     }
     svg.appendChild(title);
-    const axisStrokeWidthBase = getAxisStrokeWidthBase();
-    const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'pie-axis', min: 0.25 });
-    const frameStroke = '#000';
-    if(showFrame){
-      console.debug('Debug: pie circular frame request',{stroke:frameStroke, size, showFrame, axisStrokeWidth});
-      chartStyle.drawPlotFrame({ svg, margin: { top: 0, right: 0, bottom: 0, left: 0 }, plotW: size, plotH: size, stroke: frameStroke, strokeWidth: axisStrokeWidth, sides: ['top','right','bottom','left'] });
-    }
     ensureGraphViewport(svg, { padding: Math.max(fs, 14), debugLabel: 'pie-graph' });
+    if(radialLegendVisible && legend){
+      legend.style.gap=radialLegendGap+'px';
+      labels.forEach((lab,i)=>{
+        const item=document.createElement('div');
+        item.style.display='flex';
+        item.style.alignItems='center';
+        item.style.gap=radialLegendGap+'px';
+        const swatch=document.createElement('span');
+        swatch.style.display='inline-block';
+        swatch.style.width=radialLegendMarkerSize+'px';
+        swatch.style.height=radialLegendMarkerSize+'px';
+        swatch.style.borderRadius='2px';
+        const fillColor = state.colors[lab] || palette2[i % palette2.length];
+        swatch.style.background=fillColor;
+        swatch.style.cursor='pointer';
+        swatch.addEventListener('click',(evt)=>{
+          if(evt){ evt.stopPropagation(); }
+          const currentColor=state.colors[lab] || palette2[i % palette2.length];
+          let previousColor=currentColor;
+          Shared.openColorPicker({
+            anchor: swatch,
+            color: currentColor,
+            onInput(value){
+              applyPieColorValue(lab,value);
+              console.debug('Debug: pie radial legend color input',{label:lab,color:value});
+            },
+            onChange(value){
+              const nextValue=value!=null?String(value):'';
+              if(nextValue===previousColor){
+                return;
+              }
+              applyPieColorValue(lab,nextValue);
+              recordPieChange(`pie:legend-color:${lab}`,previousColor,nextValue,val=>applyPieColorValue(lab,val));
+              previousColor=nextValue;
+            }
+          });
+        });
+        const labelSpan=document.createElement('span');
+        labelSpan.textContent=lab;
+        item.appendChild(swatch);
+        item.appendChild(labelSpan);
+        legend.appendChild(item);
+      });
+      console.debug('Debug: pie legend items rendered',{ legendItemCount: labels.length, legendMarkerSize: legendMarkerSize, legendGap: radialLegendGap, chartType: type });
+    }else{
+      console.debug('Debug: pie legend skipped',{ legendVisible: radialLegendVisible, chartType: type, itemCount: labels.length });
+    }
     updatePieStats(labels, values, expected);
   }
   pie.draw = draw;
