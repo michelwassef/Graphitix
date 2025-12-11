@@ -2331,7 +2331,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -3162,8 +3162,33 @@
     els.boxPointMode=global.$('#boxPointMode');
     els.boxShowCaps=global.$('#boxShowCaps');
     els.boxShowSignificance=global.$('#boxShowSignificance');
+    els.boxSignificanceLabelCtl=global.$('#boxSignificanceLabelCtl');
+    els.boxSignificanceLabelMode=global.$('#boxSignificanceLabelMode');
     if(els.boxShowSignificance){
       els.boxShowSignificance.checked = !!state.showSignificanceBars;
+      els.boxShowSignificance.addEventListener('change',()=>{
+        state.showSignificanceBars = !!els.boxShowSignificance.checked;
+        console.debug('Debug: box significance toggle',{ enabled: state.showSignificanceBars });
+        requestStatsContextRefresh('significance-toggle');
+      });
+    }
+    if(els.boxSignificanceLabelMode && !els.boxSignificanceLabelMode.dataset?.boxHandlerAttached){
+      els.boxSignificanceLabelMode.addEventListener('change',()=>{
+        const raw = els.boxSignificanceLabelMode.value === 'p' ? 'p' : 'stars';
+        if(state.significanceLabelMode !== raw){
+          state.significanceLabelMode = raw;
+          console.debug('Debug: box significance label mode changed',{ mode: raw });
+          if(state.showSignificanceBars){
+            requestStatsContextRefresh('significance-label-mode');
+          }
+        }
+      });
+      els.boxSignificanceLabelMode.dataset.boxHandlerAttached = 'true';
+    }
+    if(els.boxSignificanceLabelMode){
+      const mode = state.significanceLabelMode === 'p' ? 'p' : 'stars';
+      state.significanceLabelMode = mode;
+      els.boxSignificanceLabelMode.value = mode;
     }
     els.boxErrorMode=global.$('#boxErrorMode');
     els.boxErrorModeCtl=global.$('#boxErrorModeCtl');
@@ -3195,7 +3220,8 @@
       els.boxIndividualSummary,
       els.boxErrorMode,
       els.boxPointMode,
-      els.boxWhiskerRule
+      els.boxWhiskerRule,
+      els.boxSignificanceLabelMode
     ];
     boxAutoSizeTargets.filter(Boolean).forEach(select=>{
       attachBoxSelectAutoSize(select, 'box');
@@ -4012,6 +4038,16 @@
 
   // PART: STATS
   function p2stars(p){ return p<0.0001?'****':p<0.001?'***':p<0.01?'**':p<0.05?'*':'ns'; }
+  function formatSignificanceLabel(p, mode){
+    if(!Number.isFinite(p)){
+      return String(p);
+    }
+    const resolvedMode = mode === 'p' ? 'p' : 'stars';
+    if(resolvedMode === 'p'){
+      return formatP(p, { compact: true });
+    }
+    return p2stars(p);
+  }
   function formatP(value, options){
     if(typeof Shared?.formatPValue === 'function'){
       return Shared.formatPValue(value, options);
@@ -6256,6 +6292,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     path.setAttribute('fill','none');
     svg.appendChild(path);
     const txt=document.createElementNS(NS,'text');
+    const labelText = formatSignificanceLabel(p, state.significanceLabelMode);
     if(orientation==='horizontal'){
       txt.setAttribute('x',valueCoord+bracketSize*1.4);
       txt.setAttribute('y',(x1+x2)/2);
@@ -6270,7 +6307,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(Number.isFinite(opts.fontSize)){
       txt.setAttribute('font-size',opts.fontSize);
     }
-    txt.textContent=p2stars(p);
+    txt.textContent=labelText;
     svg.appendChild(txt);
     console.debug('Debug: box annotatePair scaling',{strokeWidth,fontSize:opts.fontSize,orientation});
   }
@@ -6285,6 +6322,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const baseCoord=coordFn(maxVal);
     if(!Number.isFinite(baseCoord)) return;
     const txt=document.createElementNS(NS,'text');
+    const labelText = formatSignificanceLabel(p, state.significanceLabelMode);
     if(orientation==='horizontal'){
       const x=baseCoord+baseOffset+level*levelGap+bracketSize*0.6;
       const y=(Math.min(...xCenters)+Math.max(...xCenters))/2;
@@ -6301,7 +6339,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(Number.isFinite(fontSize)){
       txt.setAttribute('font-size',fontSize);
     }
-    txt.textContent=p2stars(p);
+    txt.textContent=labelText;
     svg.appendChild(txt);
     console.debug('Debug: box annotateOverall scaling',{baseOffset,levelGap,fontSize,orientation});
   }
@@ -6418,6 +6456,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const msg = 'Compute statistics first to enable significance bars.';
       els.boxShowSignificance.title = msg;
       if(label){ label.title = msg; }
+      if(els.boxSignificanceLabelMode){
+        els.boxSignificanceLabelMode.disabled = true;
+      }
       if(state.showSignificanceBars){
         state.showSignificanceBars = false;
         els.boxShowSignificance.checked = false;
@@ -6425,6 +6466,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }else{
       els.boxShowSignificance.title = '';
       if(label){ label.title = ''; }
+      if(els.boxSignificanceLabelMode){
+        els.boxSignificanceLabelMode.disabled = false;
+      }
     }
   }
 

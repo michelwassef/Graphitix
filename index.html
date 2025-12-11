@@ -399,12 +399,19 @@
                   <option value="stacked">Stacked</option>
                 </select>
               </div>
-              <div class="control" style="flex-wrap:wrap;">
+              <div class="control" style="flex-wrap:wrap; gap:8px; align-items:center;">
                 <label style="width:auto;">
                   <input type="checkbox" id="boxShowCaps" checked /> Show Whisker Caps
                 </label>
-                <label style="width:auto;">
+                <label style="width:auto; display:flex; align-items:center; gap:4px;">
                   <input type="checkbox" id="boxShowSignificance" /> Show Significance Bars
+                </label>
+                <label id="boxSignificanceLabelCtl" style="width:auto; display:flex; align-items:center; gap:4px;">
+                  Label
+                  <select id="boxSignificanceLabelMode">
+                    <option value="stars" selected>Stars (****, ***, **, *, ns)</option>
+                    <option value="p">P-value</option>
+                  </select>
                 </label>
               </div>
               <div class="control" id="boxIndividualSummaryCtl" style="flex-wrap:wrap; display:none;">
