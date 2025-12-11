@@ -6377,7 +6377,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   }
 
   function clearStatsOutputs(message){
-    const placeholder = message || 'Statistics will appear after calculation.';
+    const placeholder = message || 'Statistics (and significance bars) will appear after calculation.';
     if(els.statsResults){
       els.statsResults.textContent = placeholder;
     }
@@ -6395,6 +6395,29 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     if(config && typeof config.label === 'string' && config.label){
       els.statsButton.textContent = config.label;
+    }
+  }
+
+  function updateSignificanceControlState(options){
+    if(!els.boxShowSignificance){
+      return;
+    }
+    const statsReady = !!options?.statsReady;
+    els.boxShowSignificance.disabled = !statsReady;
+    const label = (typeof els.boxShowSignificance.closest === 'function'
+      ? els.boxShowSignificance.closest('label')
+      : els.boxShowSignificance.parentElement) || null;
+    if(!statsReady){
+      const msg = 'Compute statistics first to enable significance bars.';
+      els.boxShowSignificance.title = msg;
+      if(label){ label.title = msg; }
+      if(state.showSignificanceBars){
+        state.showSignificanceBars = false;
+        els.boxShowSignificance.checked = false;
+      }
+    }else{
+      els.boxShowSignificance.title = '';
+      if(label){ label.title = ''; }
     }
   }
 
@@ -6456,6 +6479,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       clearStatsOutputs('Add data to enable statistics.');
       setStatsStatus('');
       updateStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+      updateSignificanceControlState({ statsReady: false });
       return;
     }
     const signature = buildStatsSignature(traces);
@@ -6477,6 +6501,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       clearStatsOutputs('Statistics will appear after calculation.');
       setStatsStatus('Statistics ready to calculate.');
       updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+      updateSignificanceControlState({ statsReady: false });
       return;
     }
     const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
@@ -6488,6 +6513,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         state.statsLastRunVersion = version;
         setStatsStatus('Statistics up to date.');
         updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+        updateSignificanceControlState({ statsReady: true });
       }catch(err){
         console.error('box stats auto computation for significance failed', err);
         setStatsStatus('Failed to compute statistics.');
@@ -6497,9 +6523,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     if(state.statsLastRunVersion === version && hasResults){
       setStatsStatus('Statistics up to date.');
       updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+      updateSignificanceControlState({ statsReady: true });
     }else if(!state.statsComputationPending){
       setStatsStatus('Statistics ready to calculate.');
       updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+      updateSignificanceControlState({ statsReady: false });
     }
   }
 
@@ -6521,6 +6549,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       state.statsLastRunVersion = context.version;
       reconcileStatsContextSignature(context.traces);
       setStatsStatus('Statistics up to date.');
+      updateSignificanceControlState({ statsReady: true });
     }catch(err){
       console.error('box stats computation failed', err);
       if(els.statsResults){
@@ -6534,6 +6563,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         ? 'Recalculate statistics'
         : 'Calculate statistics';
       updateStatsButtonState({ disabled: !stillCurrent, label });
+      if(!stillCurrent){
+        updateSignificanceControlState({ statsReady: false });
+      }
     }
   }
 
