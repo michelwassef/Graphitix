@@ -172,6 +172,25 @@ describe('UI events and example loaders', () => {
     jest.resetModules();
     console.debug = jest.fn();
     console.log = jest.fn();
+
+    // Make requestAnimationFrame-driven debounced work deterministic and fast in this suite.
+    // (Many components schedule draws through Shared.debounceFrame -> requestAnimationFrame.)
+    global.requestAnimationFrame = (cb) => {
+      try { cb(Date.now()); } catch (err) { /* ignore */ }
+      return 1;
+    };
+    global.cancelAnimationFrame = () => {};
+
+    // Reset global namespaces so each test re-binds to the fresh DOM.
+    // The test harness reloads index.html per-test, but window.* objects persist.
+    // Without clearing these, components may skip setup due to ready/__installed flags
+    // and keep references to detached nodes, causing renders to target the old DOM.
+    if (typeof window !== 'undefined') {
+      delete window.Main;
+      delete window.Components;
+      delete window.Shared;
+    }
+
     if (typeof global.__restoreTestDebugLogs === 'function') {
       global.__restoreTestDebugLogs();
     }
@@ -465,6 +484,68 @@ describe('UI events and example loaders', () => {
       cleanupJStat();
     }
   });
+
+  test('Scatter Plot: Volcano example draws points', async () => {
+    await activateWorkspace('scatter');
+    await flushAsyncWork();
+
+    const applyVariant = window.Main?.graphVariants?.applyVariant;
+    if (typeof applyVariant === 'function') {
+      applyVariant('scatter:volcano');
+    } else {
+      const typeSelect = document.getElementById('scatterGraphType');
+      expect(typeSelect).toBeTruthy();
+      typeSelect.value = 'volcano';
+      typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    const loadBtn = document.getElementById('scatterLoadExample');
+    expect(loadBtn).toBeTruthy();
+    loadBtn.click();
+    await flushAsyncWork(20);
+
+    let svg = document.querySelector('#scatterPlot svg');
+    for (let i = 0; i < 50 && !svg; i += 1) {
+      await flushAsyncWork(5);
+      svg = document.querySelector('#scatterPlot svg');
+    }
+    expect(svg).toBeTruthy();
+
+    const pointLayer = svg.querySelector('[data-layer="points"]');
+    expect(pointLayer).toBeTruthy();
+    expect(pointLayer.querySelectorAll('*').length).toBeGreaterThan(0);
+  }, 10000);
+
+  test('Scatter Plot: MA example draws points', async () => {
+    await activateWorkspace('scatter');
+    await flushAsyncWork();
+
+    const applyVariant = window.Main?.graphVariants?.applyVariant;
+    if (typeof applyVariant === 'function') {
+      applyVariant('scatter:ma');
+    } else {
+      const typeSelect = document.getElementById('scatterGraphType');
+      expect(typeSelect).toBeTruthy();
+      typeSelect.value = 'ma';
+      typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    const loadBtn = document.getElementById('scatterLoadExample');
+    expect(loadBtn).toBeTruthy();
+    loadBtn.click();
+    await flushAsyncWork(20);
+
+    let svg = document.querySelector('#scatterPlot svg');
+    for (let i = 0; i < 50 && !svg; i += 1) {
+      await flushAsyncWork(5);
+      svg = document.querySelector('#scatterPlot svg');
+    }
+    expect(svg).toBeTruthy();
+
+    const pointLayer = svg.querySelector('[data-layer="points"]');
+    expect(pointLayer).toBeTruthy();
+    expect(pointLayer.querySelectorAll('*').length).toBeGreaterThan(0);
+  }, 10000);
 
   test('Histogram: Load Example populates data', async () => {
     await activateWorkspace('hist');

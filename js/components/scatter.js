@@ -76,8 +76,8 @@
 
   const SCATTER_ADAPTIVE_SIZE_MIN = 1;
   const SCATTER_ADAPTIVE_SIZE_MAX = 3;
-  const SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW = 400;
-  const SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH = 8000;
+  const SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW = 50;
+  const SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH = 5000;
 
   const SCATTER_SHAPE_DEFAULTS = Object.freeze(['circle','triangle','square','diamond','cross','plus','star']);
   const SCATTER_SHAPE_VALUES = new Set(SCATTER_SHAPE_DEFAULTS);
@@ -99,6 +99,27 @@
 
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+
+  const SIGNIFICANT_COLOR = global.SIGNIFICANT_COLOR
+    || DEFAULT_SCATTER_COLORS[0]
+    || '#e41a1c';
+  global.SIGNIFICANT_COLOR = SIGNIFICANT_COLOR;
+
+  const DEFAULT_NON_SIG_COLOR = global.DEFAULT_NON_SIG_COLOR
+    || DEFAULT_SCATTER_COLORS[DEFAULT_SCATTER_COLORS.length - 1]
+    || '#999999';
+  global.DEFAULT_NON_SIG_COLOR = DEFAULT_NON_SIG_COLOR;
+
+  const GRAPH_TYPE_DEFAULTS = Object.freeze({
+    scatter: Object.freeze({ title: 'Scatter plot' }),
+    volcano: Object.freeze({ title: 'Volcano plot' }),
+    ma: Object.freeze({ title: 'MA plot' })
+  });
+
+  const MAX_SIGNIFICANT_ANNOTATIONS = Number.isFinite(global.MAX_SIGNIFICANT_ANNOTATIONS)
+    ? global.MAX_SIGNIFICANT_ANNOTATIONS
+    : 25;
+  global.MAX_SIGNIFICANT_ANNOTATIONS = MAX_SIGNIFICANT_ANNOTATIONS;
 
   const scatterState = {
     viewMode: '2d',

@@ -88,7 +88,22 @@ describe('Regression controls persistence', () => {
     regressionSelect.dispatchEvent(new window.Event('change'));
 
     scatter.draw();
-    await new Promise(resolve => setTimeout(resolve, 0));
+    // Allow initial draw/UI sync, then compute stats explicitly (required for summaries).
+    for (let i = 0; i < 25; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    const computeBtn = document.getElementById('scatterComputeStats');
+    expect(computeBtn).toBeTruthy();
+    // Button enablement is async; give it a moment.
+    for (let i = 0; i < 25 && computeBtn.disabled; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    expect(computeBtn.disabled).toBe(false);
+    computeBtn.click();
+    for (let i = 0; i < 25; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
 
     const nextPayload = scatter.getPayload();
     expect(nextPayload.config.regression.mode).toBe('logistic');
