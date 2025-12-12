@@ -8145,17 +8145,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       if(!sorted.length){
         return { positions: [], densities: [], bandwidth: resolveViolinBandwidth(sorted) };
       }
-      let domainMin = Math.min(minVal, sorted[0]);
-      let domainMax = Math.max(maxVal, sorted[sorted.length - 1]);
+      const bandwidth = resolveViolinBandwidth(sorted);
+      const dataMin = sorted[0];
+      const dataMax = sorted[sorted.length - 1];
+      const dataSpan = dataMax - dataMin;
+      const pad = Math.max(bandwidth * 3, (Number.isFinite(dataSpan) ? dataSpan : 0) * 0.05);
+      let domainMin = dataMin - pad;
+      let domainMax = dataMax + pad;
+      if(Number.isFinite(minVal)){
+        domainMin = Math.max(domainMin, minVal);
+      }
+      if(Number.isFinite(maxVal)){
+        domainMax = Math.min(domainMax, maxVal);
+      }
       if(!isFinite(domainMin) || !isFinite(domainMax)){
-        domainMin = sorted[0];
-        domainMax = sorted[sorted.length - 1];
+        domainMin = dataMin;
+        domainMax = dataMax;
       }
       if(domainMax === domainMin){
         domainMin -= 0.5;
         domainMax += 0.5;
       }
-      const bandwidth = resolveViolinBandwidth(sorted);
       const positions = [];
       const densities = [];
       const step = (domainMax - domainMin) / Math.max(count - 1, 1);
