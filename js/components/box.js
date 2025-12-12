@@ -6276,6 +6276,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       : chartStyle.scaleStrokeWidth(1, opts.styleScaleInfo, { context: 'box-annotation', min: 0.5 });
     const bracketSize=Number.isFinite(opts.bracketSize)?opts.bracketSize:10;
     const path=document.createElementNS(NS,'path');
+    if(path.classList){
+      path.classList.add('box-significance-annotation');
+    }else{
+      path.setAttribute('class','box-significance-annotation');
+    }
     if(orientation==='horizontal'){
       const outerX=valueCoord;
       const innerX=outerX+bracketSize;
@@ -6292,6 +6297,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     path.setAttribute('fill','none');
     svg.appendChild(path);
     const txt=document.createElementNS(NS,'text');
+    if(txt.classList){
+      txt.classList.add('box-significance-annotation');
+    }else{
+      txt.setAttribute('class','box-significance-annotation');
+    }
     const labelText = formatSignificanceLabel(p, state.significanceLabelMode);
     if(orientation==='horizontal'){
       txt.setAttribute('x',valueCoord+bracketSize*1.4);
@@ -6322,6 +6332,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const baseCoord=coordFn(maxVal);
     if(!Number.isFinite(baseCoord)) return;
     const txt=document.createElementNS(NS,'text');
+    if(txt.classList){
+      txt.classList.add('box-significance-annotation');
+    }else{
+      txt.setAttribute('class','box-significance-annotation');
+    }
     const labelText = formatSignificanceLabel(p, state.significanceLabelMode);
     if(orientation==='horizontal'){
       const x=baseCoord+baseOffset+level*levelGap+bracketSize*0.6;
@@ -6642,6 +6657,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const statsDiv=document.getElementById('statsResults');
     if(!statsDiv){ console.warn('Debug: statsResults element not found'); return; }
     statsDiv.innerHTML='';
+    if(svg && typeof svg.querySelectorAll==='function'){
+      const existingAnnotations=svg.querySelectorAll('.box-significance-annotation');
+      existingAnnotations.forEach(node=>{
+        if(node && node.parentNode){ node.parentNode.removeChild(node); }
+      });
+    }
     const hasStatsTable=Shared.statsTable && typeof Shared.statsTable.render==='function';
     let resultsContainer=statsDiv;
     let assumptionContainer=null;
