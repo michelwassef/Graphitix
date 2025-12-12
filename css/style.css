@@ -1703,6 +1703,7 @@ body{margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;b
 .wrap{display:grid;grid-template-columns:360px 1fr;gap:12px;padding:0 12px 12px;background:#f1f4f8;min-width:0;width:100%;max-width:100%;box-sizing:border-box}
 .workspace-page .wrap{padding-inline:0;min-width:0;max-width:100%}
 .workspace-page .wrap>.panel{min-width:0;overflow:hidden;box-sizing:border-box;flex-shrink:1;padding:12px 0}
+.workspace-page .wrap>.panel[id$="TablePanel"]{padding-left:8px}
 .workspace-page .wrap>.panel-resizer{flex:0 0 var(--panel-resizer-width);width:var(--panel-resizer-width);margin:0 var(--panel-resizer-gap) 0 0;background:#c9ccd2;cursor:col-resize;position:relative;z-index:200}
 .workspace-page .wrap>.panel .diagram-area{width:100%;padding:0}
 .workspace-page .wrap>.panel .diagram-area .svgbox{margin:0}
