@@ -4750,6 +4750,22 @@
     const table=document.createElement('table');
     table.className='stats-table stats-assumption-table';
     table.setAttribute('aria-label','Assumption checks');
+
+    const colgroup=document.createElement('colgroup');
+    const colGroup=document.createElement('col');
+    colGroup.style.width='220px';
+    colgroup.appendChild(colGroup);
+    const colNormality=document.createElement('col');
+    colNormality.style.width='110px';
+    colgroup.appendChild(colNormality);
+    const colP=document.createElement('col');
+    colP.style.width='120px';
+    colgroup.appendChild(colP);
+    const colQq=document.createElement('col');
+    colQq.style.width='132px';
+    colgroup.appendChild(colQq);
+    table.appendChild(colgroup);
+
     const thead=document.createElement('thead');
     const headerRow=document.createElement('tr');
     ;[

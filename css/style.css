@@ -1751,9 +1751,11 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 /* Box stats: Assumption Checks */
 .stats-assumption-section{margin-top:10px}
 .stats-assumption-section .assumption-message{font-size:12px;color:#6b7280}
-.stats-assumption-table .stats-table__cell{padding:8px 12px}
+.stats-assumption-table{table-layout:fixed;display:inline-table;width:fit-content;max-width:100%}
+.stats-assumption-table .stats-table__cell{padding:7px 10px}
 .stats-assumption__group{font-weight:600}
-.stats-assumption__qq{padding-inline:6px;width:132px}
+.stats-assumption__group{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stats-assumption__qq{padding-inline:4px}
 
 .assumption-badge{display:inline-flex;align-items:center;justify-content:center;min-width:40px;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:0.02em;border:1px solid rgba(15,23,42,0.12)}
 .assumption-badge[data-result="pass"]{background:#d4edda;color:#155724;border-color:rgba(21,87,36,0.18)}
