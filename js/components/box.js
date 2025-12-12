@@ -8204,6 +8204,53 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       return auto;
     }
+
+    if(graphTypeRaw === 'violin'){
+      const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+      const beforeYMin = ymin;
+      const beforeYMax = ymax;
+      traces.forEach((trace, traceIndex) => {
+        const summary = trace?.__distribution;
+        const sorted = Array.isArray(summary?.sortedValues) ? summary.sortedValues : null;
+        if(!sorted || !sorted.length){
+          return;
+        }
+        const bandwidth = resolveViolinBandwidth(sorted);
+        const dataMin = sorted[0];
+        const dataMax = sorted[sorted.length - 1];
+        const dataSpan = dataMax - dataMin;
+        const pad = Math.max(bandwidth * 3, (Number.isFinite(dataSpan) ? dataSpan : 0) * 0.05);
+        const domainMin = dataMin - pad;
+        const domainMax = dataMax + pad;
+        if(manualYMinValue == null && Number.isFinite(domainMin)){
+          ymin = Math.min(ymin, domainMin);
+        }
+        if(manualYMaxValue == null && Number.isFinite(domainMax)){
+          ymax = Math.max(ymax, domainMax);
+        }
+        if(debugEnabled && traceIndex % 5 === 0){
+          console.debug('Debug: box violin axis expand trace',{
+            trace: traceIndex,
+            bandwidth,
+            dataMin,
+            dataMax,
+            domainMin,
+            domainMax
+          });
+        }
+      });
+      if(debugEnabled){
+        console.debug('Debug: box violin axis expanded',{
+          beforeYMin,
+          beforeYMax,
+          afterYMin: ymin,
+          afterYMax: ymax,
+          manualYMinValue,
+          manualYMaxValue
+        });
+      }
+    }
+
     function computeDensity(sorted, minVal, maxVal, sampleCount){
       const violinState = ensureViolinState();
       const requestedCount = Number(sampleCount);
