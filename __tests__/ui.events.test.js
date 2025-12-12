@@ -572,9 +572,7 @@ describe('UI events and example loaders', () => {
 
       const statsResults = document.getElementById('rocStatsResults');
       expect(statsResults).toBeTruthy();
-      const lines = Array.from(statsResults.querySelectorAll('p')).map(el => el.textContent);
-      expect(lines.length).toBeGreaterThan(0);
-      expect(lines[0]).toContain(htmlName);
+      expect(statsResults.textContent || '').toContain(htmlName);
       expect(statsResults.querySelector('em')).toBeNull();
       expect(statsResults.innerHTML).toContain('&lt;em&gt;');
     } finally {

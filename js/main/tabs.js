@@ -545,11 +545,17 @@
         if (!container || !input) {
           return;
         }
-        const offsetLeft = input.offsetLeft;
-        const offsetTop = input.offsetTop + input.offsetHeight;
-        container.style.left = `${offsetLeft}px`;
-        container.style.top = `${offsetTop}px`;
-        container.style.width = `${input.offsetWidth}px`;
+        const offsetParent = container.offsetParent || container.parentElement;
+        if (!offsetParent || typeof offsetParent.getBoundingClientRect !== 'function') {
+          return;
+        }
+        const parentRect = offsetParent.getBoundingClientRect();
+        const inputRect = input.getBoundingClientRect();
+        const scrollLeft = offsetParent.scrollLeft || 0;
+        const scrollTop = offsetParent.scrollTop || 0;
+        container.style.left = `${inputRect.left - parentRect.left + scrollLeft}px`;
+        container.style.top = `${inputRect.bottom - parentRect.top + scrollTop}px`;
+        container.style.width = `${inputRect.width}px`;
       }
 
       function setVariantDropdownState(shouldOpen, meta = {}) {
