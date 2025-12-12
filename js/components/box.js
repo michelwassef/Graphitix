@@ -4647,29 +4647,15 @@
     badge.className='assumption-badge';
     badge.textContent=label || (result ? 'PASS' : result===false ? 'FAIL' : 'N/A');
     badge.dataset.result=result===false?'fail':result?'pass':'na';
-    badge.style.display='inline-block';
-    badge.style.padding='2px 6px';
-    badge.style.borderRadius='4px';
-    badge.style.fontSize='11px';
-    badge.style.fontWeight='600';
-    if(result===false){
-      badge.style.background='#f8d7da';
-      badge.style.color='#721c24';
-    }else if(result){
-      badge.style.background='#d4edda';
-      badge.style.color='#155724';
-    }else{
-      badge.style.background='#e2e3e5';
-      badge.style.color='#383d41';
-    }
     return badge;
   }
 
   function createQQSparkline(points){
-    const width=80;
+    const width=104;
     const height=40;
     const padding=6;
     const svg=document.createElementNS(NS,'svg');
+    svg.classList.add('assumption-sparkline','assumption-sparkline--qq');
     svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
     svg.setAttribute('width',String(width));
     svg.setAttribute('height',String(height));
@@ -4713,10 +4699,11 @@
   }
 
   function createResidualSparkline(values){
-    const width=80;
+    const width=104;
     const height=40;
     const padding=6;
     const svg=document.createElementNS(NS,'svg');
+    svg.classList.add('assumption-sparkline','assumption-sparkline--variance');
     svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
     svg.setAttribute('width',String(width));
     svg.setAttribute('height',String(height));
@@ -4754,17 +4741,26 @@
     section.appendChild(heading);
     if(!diagnostics){
       const message=document.createElement('div');
+      message.className='assumption-message';
       message.textContent='Assumption metrics will appear once groups are selected.';
       section.appendChild(message);
       container.appendChild(section);
       return;
     }
     const table=document.createElement('table');
+    table.className='stats-table stats-assumption-table';
+    table.setAttribute('aria-label','Assumption checks');
     const thead=document.createElement('thead');
     const headerRow=document.createElement('tr');
-    ['Group','Normality','p-value','QQ'].forEach(label=>{
+    ;[
+      { label:'Group', align:'left' },
+      { label:'Normality', align:'center' },
+      { label:'p-value', align:'right' },
+      { label:'QQ', align:'center' }
+    ].forEach(col=>{
       const th=document.createElement('th');
-      th.textContent=label;
+      th.className=`stats-table__cell stats-table__header stats-table__cell--${col.align}`;
+      th.textContent=col.label;
       headerRow.appendChild(th);
     });
     thead.appendChild(headerRow);
@@ -4773,16 +4769,20 @@
     diagnostics.groups.forEach(group=>{
       const tr=document.createElement('tr');
       const labelCell=document.createElement('td');
+      labelCell.className='stats-table__cell stats-table__cell--left stats-assumption__group';
       labelCell.textContent=group.label;
       tr.appendChild(labelCell);
       const badgeCell=document.createElement('td');
+      badgeCell.className='stats-table__cell stats-table__cell--center stats-assumption__badge';
       badgeCell.appendChild(createAssumptionBadge(group.normality?.passed));
       tr.appendChild(badgeCell);
       const pCell=document.createElement('td');
       const pValue=group.normality?.pValue;
+      pCell.className='stats-table__cell stats-table__cell--right stats-assumption__pvalue';
       pCell.textContent=Number.isFinite(pValue)?formatP(pValue):'—';
       tr.appendChild(pCell);
       const sparkCell=document.createElement('td');
+      sparkCell.className='stats-table__cell stats-table__cell--center stats-assumption__qq';
       sparkCell.appendChild(createQQSparkline(group.qqPoints));
       tr.appendChild(sparkCell);
       tbody.appendChild(tr);
@@ -4791,20 +4791,19 @@
     section.appendChild(table);
     if(diagnostics.variance){
       const varianceRow=document.createElement('div');
-      varianceRow.style.marginTop='8px';
+      varianceRow.className='assumption-variance-row';
       const label=document.createElement('span');
       label.textContent='Variance test:';
-      label.style.marginRight='8px';
+      label.className='assumption-variance-label';
       varianceRow.appendChild(label);
       varianceRow.appendChild(createAssumptionBadge(diagnostics.variance.passed, diagnostics.variance.passed===false?'FAIL':'PASS'));
       const detail=document.createElement('span');
       const pValue=diagnostics.variance?.pValue;
       detail.textContent=` p = ${Number.isFinite(pValue)?formatP(pValue):'—'}`;
-      detail.style.marginLeft='6px';
+      detail.className='assumption-variance-detail';
       varianceRow.appendChild(detail);
       if(Array.isArray(diagnostics.variance.sparkline) && diagnostics.variance.sparkline.length){
         const spark=createResidualSparkline(diagnostics.variance.sparkline);
-        spark.style.marginLeft='12px';
         varianceRow.appendChild(spark);
       }
       section.appendChild(varianceRow);

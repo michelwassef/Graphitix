@@ -1747,6 +1747,31 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .stats-table-actions{border-top:1px solid #d7e0ef;padding:10px 16px;display:flex;justify-content:flex-end;background:#f7f9fc}
 .stats-table-actions__fallback{font-size:12px;color:#6b7280}
 .stats-table-lead{font-size:13px;color:#445065;margin-bottom:8px}
+
+/* Box stats: Assumption Checks */
+.stats-assumption-section{margin-top:10px}
+.stats-assumption-section .assumption-message{font-size:12px;color:#6b7280}
+.stats-assumption-table .stats-table__cell{padding:8px 12px}
+.stats-assumption__group{font-weight:600}
+.stats-assumption__qq{padding-inline:6px;width:132px}
+
+.assumption-badge{display:inline-flex;align-items:center;justify-content:center;min-width:40px;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:0.02em;border:1px solid rgba(15,23,42,0.12)}
+.assumption-badge[data-result="pass"]{background:#d4edda;color:#155724;border-color:rgba(21,87,36,0.18)}
+.assumption-badge[data-result="fail"]{background:#f8d7da;color:#721c24;border-color:rgba(114,28,36,0.18)}
+.assumption-badge[data-result="na"]{background:#e2e3e5;color:#383d41;border-color:rgba(56,61,65,0.18)}
+
+.assumption-sparkline{display:block}
+.stats-assumption__qq .assumption-sparkline{margin:0 auto}
+.assumption-variance-row .assumption-sparkline{margin:0}
+
+.assumption-variance-row{margin-top:10px;padding-top:8px;border-top:1px solid #d7e0ef;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#1d2735}
+.assumption-variance-label{font-weight:600;color:#1d2735}
+.assumption-variance-detail{color:#445065}
+
+.assumption-warning-list{margin-top:10px;padding:8px 10px;border-radius:6px;border:1px solid #f3c1c1;background:#fff4f4;color:#7a1f1f;font-size:12px;line-height:1.4;display:flex;flex-direction:column;gap:4px}
+.assumption-warning{margin:0}
+
+.assumption-info{margin-top:8px;padding:8px 10px;border-radius:6px;border:1px solid #d7e0ef;background:#f6f8fb;color:#3b4758;font-size:12px;line-height:1.4}
 .stats-advisor{margin:12px 0;border:1px solid #d7e0ef;border-radius:10px;background:#f8fbff;padding:12px 16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 1px 2px rgba(15,23,42,0.08);color:#1d2735}
 .stats-advisor__header{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .stats-advisor__toggle{border:none;border-radius:6px;background:#2563eb;color:#fff;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:background .2s ease}
