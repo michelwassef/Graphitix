@@ -6275,19 +6275,30 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       ? opts.strokeWidth
       : chartStyle.scaleStrokeWidth(1, opts.styleScaleInfo, { context: 'box-annotation', min: 0.5 });
     const bracketSize=Number.isFinite(opts.bracketSize)?opts.bracketSize:10;
+    const minY = Number.isFinite(opts.minY) ? opts.minY : null;
     const path=document.createElementNS(NS,'path');
     if(path.classList){
       path.classList.add('box-significance-annotation');
     }else{
       path.setAttribute('class','box-significance-annotation');
     }
+    let resolvedOuterY = null;
     if(orientation==='horizontal'){
       const outerX=valueCoord;
       const innerX=outerX+bracketSize;
       path.setAttribute('d',`M${outerX},${x1} L${innerX},${x1} L${innerX},${x2} L${outerX},${x2}`);
     }else{
-      const outerY=valueCoord;
-      const innerY=valueCoord-bracketSize;
+      let outerY=valueCoord;
+      if(minY != null){
+        const fontSize = Number.isFinite(opts.fontSize) ? opts.fontSize : 12;
+        const textYOffset = Number.isFinite(opts.fontSize) ? opts.fontSize * 0.2 : 12;
+        const minOuterY = minY + bracketSize + textYOffset + Math.max(2, fontSize * 0.1);
+        if(Number.isFinite(minOuterY)){
+          outerY = Math.max(outerY, minOuterY);
+        }
+      }
+      resolvedOuterY = outerY;
+      const innerY=outerY-bracketSize;
       path.setAttribute('d',`M${x1},${outerY} L${x1},${innerY} L${x2},${innerY} L${x2},${outerY}`);
     }
     path.setAttribute('stroke','#000');
@@ -6311,7 +6322,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }else{
       const textYOffset=Number.isFinite(opts.fontSize)?opts.fontSize*0.2:12;
       txt.setAttribute('x',(x1+x2)/2);
-      txt.setAttribute('y',valueCoord-bracketSize-textYOffset);
+      const safeOuterY = Number.isFinite(resolvedOuterY) ? resolvedOuterY : valueCoord;
+      txt.setAttribute('y',safeOuterY-bracketSize-textYOffset);
       txt.setAttribute('text-anchor','middle');
     }
     if(Number.isFinite(opts.fontSize)){
@@ -6328,6 +6340,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const levelGap=Number.isFinite(opts.levelGap)?opts.levelGap:ANN_LEVEL_GAP;
     const fontSize=opts.fontSize;
     const bracketSize=Number.isFinite(opts.bracketSize)?opts.bracketSize:10;
+    const minY = Number.isFinite(opts.minY) ? opts.minY : null;
     const coordFn=typeof valueToCoord==='function'?valueToCoord:v=>v;
     const baseCoord=coordFn(maxVal);
     if(!Number.isFinite(baseCoord)) return;
@@ -6346,7 +6359,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       txt.setAttribute('text-anchor','start');
       txt.setAttribute('dominant-baseline','middle');
     }else{
-      const y=baseCoord-baseOffset-level*levelGap;
+      let y=baseCoord-baseOffset-level*levelGap;
+      if(minY != null){
+        const minOverall = minY + 12 + Math.max(2, (Number.isFinite(fontSize) ? fontSize : 12) * 0.1);
+        if(Number.isFinite(minOverall)){
+          y = Math.max(y, minOverall);
+        }
+      }
       txt.setAttribute('x',(Math.min(...xCenters)+Math.max(...xCenters))/2);
       txt.setAttribute('y',y-12);
       txt.setAttribute('text-anchor','middle');
@@ -8355,11 +8374,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const yTitleWidthBase = chartStyle.measureText(state.yLabelText, axisLabelFont);
       const tickLen = axisMetrics.tickLength;
       const tickGap = axisMetrics.tickLabelGap;
-      const topExtra = showSignificance && maxLevelEstimate >= 0
-        ? (annotationBaseOffset + Math.max(0, maxLevelEstimate) * annotationLevelGap)
+      const annotationLabelClearance = showSignificance && maxLevelEstimate >= 0
+        ? (annotationBracketSize + (fs || 12))
         : 0;
+      const topExtra = showSignificance && maxLevelEstimate >= 0
+        ? (annotationBaseOffset + Math.max(0, maxLevelEstimate) * annotationLevelGap + annotationLabelClearance)
+        : 0;
+      const titleBand = showSignificance && maxLevelEstimate >= 0
+        ? Math.max(30, (fs || 12) * 3.0)
+        : 0;
+      const titleGap = showSignificance && maxLevelEstimate >= 0
+        ? Math.max(6, (fs || 12) * 0.45)
+        : 0;
+      const annotationMinY = (titleBand && titleGap) ? (titleBand + titleGap) : null;
       let marginLocal = chartStyle.computeBaseMargins({ fontSize: fs, maxYLabelWidth: 0, yTitleWidth: yTitleWidthBase, axisMetrics, legendWidth: legendWidthForMargin });
-      marginLocal.top += topExtra;
+      marginLocal.top += topExtra + titleBand + titleGap;
       marginLocal.left = Math.max(marginLocal.left, fs * 0.5);
       let plotWLocal = Math.max(20, W - marginLocal.left - marginLocal.right);
       let plotHLocal = Math.max(20, H - marginLocal.top - marginLocal.bottom);
@@ -9168,7 +9197,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         valueToCoord: y2px,
         annotationMaxByTrace,
         titleX: marginLocal.left + plotWLocal / 2,
-        titleY: marginLocal.top / 2
+        titleY: titleBand ? Math.max((fs || 12) * 1.25, titleBand * 0.55) : (marginLocal.top / 2),
+        annotationMinY
       };
     }
 
@@ -9866,23 +9896,30 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       legendRenderer.draw(svg, { x: legendX, y: orientationResult.margin.top });
       console.debug('Debug: box legend rendered shared helper',{ legendX, legendGapPx, entryCount: legendRenderer.entries.length });
     }
+    const annotationStyleForStats = Number.isFinite(orientationResult.annotationMinY)
+      ? { ...annotationStyle, minY: orientationResult.annotationMinY }
+      : annotationStyle;
     const helpers = {
       xCenter: orientationResult.categoryCenter,
       categoryCenter: orientationResult.categoryCenter,
       y2px: orientationResult.valueToCoord,
       valueToCoord: orientationResult.valueToCoord,
       annotationMaxByTrace: orientationResult.annotationMaxByTrace,
-      annotationStyle,
+      annotationStyle: annotationStyleForStats,
       significance: { enabled: showSignificance }
     };
     console.debug('Debug: box annotation style forwarded', { annotationStyle: helpers.annotationStyle, significance: helpers.significance });
     primeStatsComputation(traces, svg, helpers);
-    const otherBoxes = Array.from(svg.children).filter(el => el !== titleText && el.getBBox).map(el => el.getBBox());
-    if(otherBoxes.length){
-      const topMost = Math.min(...otherBoxes.map(b => b.y));
-      const spacing = fs + 4;
-      const newY = Math.max(spacing, topMost - spacing);
-      titleText.setAttribute('y', newY);
+    if(!showSignificance){
+      const otherBoxes = Array.from(svg.children)
+        .filter(el => el !== titleText && el.getBBox)
+        .map(el => el.getBBox());
+      if(otherBoxes.length){
+        const topMost = Math.min(...otherBoxes.map(b => b.y));
+        const spacing = fs + 4;
+        const newY = Math.max(spacing, topMost - spacing);
+        titleText.setAttribute('y', newY);
+      }
     }
     ensureGraphViewport(svg, { padding: Math.max(fs || 14, 16), debugLabel: 'box-graph' });
     state.layout?.syncPanels?.({ skipSchedule: true });
