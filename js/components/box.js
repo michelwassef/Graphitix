@@ -6749,6 +6749,37 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const baseOffset=Number.isFinite(annotationOpts.baseOffset)?annotationOpts.baseOffset:ANN_BASE_OFFSET;
     const levelGap=Number.isFinite(annotationOpts.levelGap)?annotationOpts.levelGap:ANN_LEVEL_GAP;
     console.debug('Debug: box annotation offsets',{baseOffset,levelGap,orientation});
+    const annotationMaxByTrace = Array.isArray(helpers?.annotationMaxByTrace) ? helpers.annotationMaxByTrace : null;
+    const fallbackTraceMax = idx => {
+      const trace = traces?.[idx];
+      const values = Array.isArray(trace?.rawY) ? trace.rawY : (Array.isArray(trace?.y) ? trace.y : []);
+      if(!values.length){
+        return -Infinity;
+      }
+      let max = -Infinity;
+      for(let i = 0; i < values.length; i++){
+        const v = values[i];
+        if(Number.isFinite(v) && v > max){
+          max = v;
+        }
+      }
+      return max;
+    };
+    const getRenderedMaxValue = idx => {
+      if(annotationMaxByTrace && Number.isFinite(annotationMaxByTrace[idx])){
+        return annotationMaxByTrace[idx];
+      }
+      return fallbackTraceMax(idx);
+    };
+    const getRenderedRangeMax = (idxA, idxB) => {
+      const start = Math.min(idxA, idxB);
+      const end = Math.max(idxA, idxB);
+      let max = -Infinity;
+      for(let k = start; k <= end; k++){
+        max = Math.max(max, getRenderedMaxValue(k));
+      }
+      return max;
+    };
     if(state.tableFormat==='grouped'){
       const prepared=prepareGroupedStatsData(traces, helpers || { axisLabels: state.lastAxisLabels });
       statsDiv.innerHTML='';
@@ -6864,7 +6895,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])),
           nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)]))
         });
-        let rangeMax=-Infinity; for(let k=Math.min(pr.ai,pr.bi);k<=Math.max(pr.ai,pr.bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+        const rangeMax = getRenderedRangeMax(pr.ai, pr.bi);
         pairs.push({
           ...pr,
           p:r.p,
@@ -6986,7 +7017,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           contextLabel:'box-pairwise'
         }
       });
-      const from=Math.min(indices[0],indices[1]); const to=Math.max(indices[0],indices[1]); let rangeMax=-Infinity; for(let k=from;k<=to;k++) rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); const baseCoord=valueToCoord(rangeMax); const annotationCoord=orientation==='horizontal'?baseCoord+baseOffset:baseCoord-baseOffset; if(significanceEnabled){
+      const from=Math.min(indices[0],indices[1]);
+      const to=Math.max(indices[0],indices[1]);
+      const rangeMax=getRenderedRangeMax(from,to);
+      const baseCoord=valueToCoord(rangeMax);
+      const annotationCoord=orientation==='horizontal'?baseCoord+baseOffset:baseCoord-baseOffset;
+      if(significanceEnabled){
         annotatePair(svg,categoryCenter(indices[0]),categoryCenter(indices[1]),annotationCoord,res.p,helpers.annotationStyle);
         state.significanceMaxLevel = 0;
       }else{
@@ -7051,7 +7087,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          const rangeMax = getRenderedRangeMax(ai, bi);
           return {
             a:pr.i,
             b:pr.j,
@@ -7086,7 +7122,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          const rangeMax = getRenderedRangeMax(ai, bi);
           return {
             a:pr.i,
             b:pr.j,
@@ -7121,7 +7157,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          const rangeMax = getRenderedRangeMax(ai, bi);
           return {
             a:pr.i,
             b:pr.j,
@@ -7158,7 +7194,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
             const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
             console.debug('Debug: box pair effect metrics',{ comparison:`${labels[i]} vs ${labels[j]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
-            let rangeMax=-Infinity; for(let k=Math.min(aIdx,bIdx);k<=Math.max(aIdx,bIdx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+            const rangeMax = getRenderedRangeMax(aIdx, bIdx);
             pairs.push({
               a:i,
               b:j,
@@ -7203,7 +7239,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          const rangeMax = getRenderedRangeMax(ai, bi);
           return {
             a:pr.i,
             b:pr.j,
@@ -7239,7 +7275,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          const rangeMax = getRenderedRangeMax(ai, bi);
           return {
             a:pr.i,
             b:pr.j,
@@ -7275,7 +7311,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const effectMetrics=computeEffectSizeMetrics(traces[ai].rawY,traces[bi].rawY,{ paired:false });
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
-          let rangeMax=-Infinity; for(let k=Math.min(ai,bi);k<=Math.max(ai,bi);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          const rangeMax = getRenderedRangeMax(ai, bi);
           return {
             a:pr.i,
             b:pr.j,
@@ -7310,7 +7346,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const formattedParamEffect=formatEffectValue(effectMetrics.parametric?.[paramEffectMeta?.value],paramEffectMeta);
           const formattedNonParamEffect=formatEffectValue(effectMetrics.nonParametric?.[nonParamEffectMeta?.value],nonParamEffectMeta);
           console.debug('Debug: box reference pair effect metrics',{ comparison:`${labels[refIdx]} vs ${labels[i]}`, parametric:Object.fromEntries(Object.entries(effectMetrics.parametric).map(([key,val])=>[key,safeRound(val,4)])), nonParametric:Object.fromEntries(Object.entries(effectMetrics.nonParametric).map(([key,val])=>[key,safeRound(val,4)])) });
-          let rangeMax=-Infinity; for(let k=Math.min(state.statsRef,idx);k<=Math.max(state.statsRef,idx);k++){ rangeMax=Math.max(rangeMax,Math.max(...traces[k].y)); }
+          const rangeMax = getRenderedRangeMax(state.statsRef, idx);
           pairs.push({
             a:refIdx,
             b:i,
@@ -7500,7 +7536,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const errorBarWidthPx = chartStyle.scaleStrokeWidth(errorBarWidthRaw, styleScaleInfo, { context: 'box-errorbar', min: 0 });
     const pointRadius = chartStyle.scaleRadius(3, styleScaleInfo, { context: 'box-point', min: 0.75 });
     const annotationStrokeWidth = chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-annotation', min: 0.5 });
-    const annotationBaseOffset = chartStyle.scaleLength(ANN_BASE_OFFSET, styleScaleInfo, { context: 'box-annotation-offset', min: 10 });
+    let annotationBaseOffset = chartStyle.scaleLength(ANN_BASE_OFFSET, styleScaleInfo, { context: 'box-annotation-offset', min: 10 });
     const annotationLevelGap = chartStyle.scaleLength(ANN_LEVEL_GAP, styleScaleInfo, { context: 'box-annotation-gap', min: 8 });
     const annotationBracketSize = chartStyle.scaleLength(12, styleScaleInfo, { context: 'box-annotation-bracket', min: 8 });
     const showSignificance = !!state.showSignificanceBars;
@@ -7539,6 +7575,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     console.debug('Debug: box showLegend state',{ showLegend });
     const logScale = els.boxLogScale.checked;
     const graphTypeRaw = els.boxGraphType.value;
+    const annotationClearanceMin = Math.max(
+      6,
+      (fs || 12) * 0.35,
+      (pointRadius || 0) * 1.5,
+      (borderWidthPx || 0) * 1.5,
+      (errorBarWidthPx || 0) * 1.25
+    );
+    const annotationOffsetFactor = (graphTypeRaw === 'box' || graphTypeRaw === 'notched')
+      ? 0.65
+      : (graphTypeRaw === 'violin')
+        ? 0.8
+        : 0.9;
+    annotationBaseOffset = Math.max(annotationClearanceMin, annotationBaseOffset * annotationOffsetFactor);
     if(debugEnabled && graphTypeRaw === 'violin'){
       console.debug('Debug: box violin draw settings',{ auto: violinState.autoBandwidth !== false, manualBandwidth: violinState.bandwidth, sampleCount: violinState.sampleCount });
     }
@@ -8695,6 +8744,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
       }
       const stackedErrorQueue = [];
+      const annotationMaxByTrace = new Array(traces.length).fill(null);
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
           console.log('boxplot draw cancelled during render loop',{ token });
@@ -8757,6 +8807,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const borderColor = t.borderColor || resolveTraceColor(t, i).borderColor;
         const yMean = y2px(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
+          annotationMaxByTrace[i] = wMax;
           if(graphTypeRaw === 'box'){
             const boxRect = add('rect',{ x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
             annotateWithTitle(boxRect, whiskerAnnotation);
@@ -8853,6 +8904,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             'stroke-width': borderWidthPx
           });
           console.debug('Debug: box bar vertical bounds adjusted',{ index: i, rawTop, rawBottom, rectY, rectBottom, strokeInset });
+          {
+            let maxVisualValue = Math.max(barStartValue, barEndValue);
+            if(hasSpread){
+              if(isStackedLayout){
+                const errorExtents = computeStackedErrorExtents(barStartValue, mean, sd, errorMode);
+                if(errorExtents && Number.isFinite(errorExtents.highValue)){
+                  maxVisualValue = Math.max(maxVisualValue, errorExtents.highValue);
+                }
+              }else{
+                maxVisualValue = Math.max(maxVisualValue, mean + sd);
+              }
+            }
+            annotationMaxByTrace[i] = maxVisualValue;
+          }
           if(hasSpread){
             const cap = Math.max(6, boxW * 0.4);
             if(isStackedLayout){
@@ -8887,6 +8952,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }else if(graphTypeRaw === 'violin'){
           const densitySource = summary.sortedValues || valueList.slice().sort((a, b) => a - b);
           const densityInfo = computeDensity(densitySource, yScale.min, yScale.max, violinState.sampleCount);
+          const violinMaxValue = densityInfo.positions.length
+            ? densityInfo.positions[densityInfo.positions.length - 1]
+            : summary.max;
+          annotationMaxByTrace[i] = Math.max(wMax, violinMaxValue);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
           const halfWidth = Math.max(6, Math.min(80, localBand * 0.45));
           const pathParts = [];
@@ -8920,6 +8989,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             console.debug('Debug: box violin vertical render',{ index: i, points: sampleCount, peak, halfWidth, insetBoxWidth });
           }
         }else if(graphTypeRaw === 'strip'){
+          annotationMaxByTrace[i] = summary.max;
           const pointEntries = valueList.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value }));
           const swarm = computeSwarmOffsets(pointEntries, {
             axisSpacing: localBand,
@@ -9096,6 +9166,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         plotH: plotHLocal,
         categoryCenter: traceCenter,
         valueToCoord: y2px,
+        annotationMaxByTrace,
         titleX: marginLocal.left + plotWLocal / 2,
         titleY: marginLocal.top / 2
       };
@@ -9296,6 +9367,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         });
       }
       const stackedErrorQueue = [];
+      const annotationMaxByTrace = new Array(traces.length).fill(null);
       for(let i = 0; i < traces.length; i++){
         if(token !== state.drawToken){
           console.log('boxplot draw cancelled during render loop',{ token });
@@ -9358,6 +9430,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const borderColor = t.borderColor || resolveTraceColor(t, i).borderColor;
         const xMean = valueToX(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
+          annotationMaxByTrace[i] = wMax;
           const left = Math.min(xQ1, xQ3);
           const right = Math.max(xQ1, xQ3);
           if(graphTypeRaw === 'box'){
@@ -9473,6 +9546,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             'stroke-width': borderWidthPx
           });
           console.debug('Debug: box bar horizontal bounds adjusted',{ index: i, rawLeft, rawRight, rectX, rectRight, strokeInset, rectY, rectBottom });
+          {
+            let maxVisualValue = Math.max(barStartValue, barEndValue);
+            if(hasSpread){
+              if(isStackedLayout){
+                const errorExtents = computeStackedErrorExtents(barStartValue, mean, sd, errorMode);
+                if(errorExtents && Number.isFinite(errorExtents.highValue)){
+                  maxVisualValue = Math.max(maxVisualValue, errorExtents.highValue);
+                }
+              }else{
+                maxVisualValue = Math.max(maxVisualValue, mean + sd);
+              }
+            }
+            annotationMaxByTrace[i] = maxVisualValue;
+          }
           if(hasSpread){
             const cap = Math.max(6, boxH * 0.4);
             if(isStackedLayout){
@@ -9507,6 +9594,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }else if(graphTypeRaw === 'violin'){
           const densitySource = summary.sortedValues || valueList.slice().sort((a, b) => a - b);
           const densityInfo = computeDensity(densitySource, yScale.min, yScale.max, violinState.sampleCount);
+          const violinMaxValue = densityInfo.positions.length
+            ? densityInfo.positions[densityInfo.positions.length - 1]
+            : summary.max;
+          annotationMaxByTrace[i] = Math.max(wMax, violinMaxValue);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
           const halfHeight = Math.max(6, Math.min(80, localBand * 0.45));
           const pathParts = [];
@@ -9542,6 +9633,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             console.debug('Debug: box violin horizontal render',{ index: i, points: sampleCount, peak, halfHeight, insetBoxHeight });
           }
         }else if(graphTypeRaw === 'strip'){
+          annotationMaxByTrace[i] = summary.max;
           const pointEntries = valueList.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value }));
           const swarm = computeSwarmOffsets(pointEntries, {
             axisSpacing: localBand,
@@ -9719,6 +9811,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         plotH: plotHLocal,
         categoryCenter: traceCenter,
         valueToCoord: valueToX,
+        annotationMaxByTrace,
         titleX: marginLocal.left + plotWLocal / 2,
         titleY: marginLocal.top / 2
       };
@@ -9778,6 +9871,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       categoryCenter: orientationResult.categoryCenter,
       y2px: orientationResult.valueToCoord,
       valueToCoord: orientationResult.valueToCoord,
+      annotationMaxByTrace: orientationResult.annotationMaxByTrace,
       annotationStyle,
       significance: { enabled: showSignificance }
     };
