@@ -465,21 +465,21 @@
             </fieldset>
             <fieldset>
               <legend>Colors</legend>
-              <div class="control" style="gap:8px;">
-                <label style="width:auto; display:flex; align-items:center; gap:4px;">
-                  <input type="radio" name="boxColorMode" id="boxColorUnified" checked /> Unified
-                </label>
-                <label style="width:auto; display:flex; align-items:center; gap:4px;">
-                  <input type="radio" name="boxColorMode" id="boxColorIndividual" /> Individual
-                </label>
+              <div class="control box-colors__row">
+                <span class="box-colors__mode">
+                  <label>
+                    <input type="radio" name="boxColorMode" id="boxColorUnified" checked /> Unified
+                  </label>
+                  <label>
+                    <input type="radio" name="boxColorMode" id="boxColorIndividual" /> Individual
+                  </label>
+                </span>
+                <div id="boxUnifiedColors" class="box-colors__unified">
+                  <label class="color-picker">Fill <input type="color" id="boxFill" value="#4472c4" /></label>
+                  <label class="color-picker">Border <input type="color" id="boxBorder" value="#000000" /></label>
+                </div>
+                <div id="boxColorPerBox" class="color-pickers"></div>
               </div>
-              <div id="boxUnifiedColors" class="control" style="flex-wrap:wrap;">
-                <label style="width:auto;">Fill</label>
-                <input type="color" id="boxFill" value="#4472c4" />
-                <label style="width:auto;">Border</label>
-                <input type="color" id="boxBorder" value="#000000" />
-              </div>
-              <div id="boxColorPerBox" class="color-pickers"></div>
             </fieldset>
             <fieldset>
               <legend>Border</legend>

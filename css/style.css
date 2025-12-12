@@ -1834,6 +1834,17 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-options .color-pickers label{display:flex;align-items:center;gap:6px;font-size:12px;color:#1c2534}
 .config-options .control input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px)}
 .config-options .control output{width:auto;min-width:28px;text-align:right;font-variant-numeric:tabular-nums;color:#0b1420;font-size:12px}
+
+/* Box Plot: keep the Colors section compact and less "boxed" */
+#boxPage .box-colors__row{flex-wrap:nowrap;gap:12px}
+#boxPage .box-colors__mode{display:flex;align-items:center;gap:12px;flex:0 0 auto}
+#boxPage .box-colors__mode label:has(> input[type=radio]){padding:0;border:0;background:transparent;letter-spacing:0;text-transform:none;color:inherit}
+#boxPage .box-colors__mode input[type=radio]{margin:0}
+#boxPage .box-colors__unified{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;flex:0 0 auto}
+#boxPage .box-colors__unified .color-picker{padding:0;border:0;background:transparent;letter-spacing:0}
+#boxPage #boxColorPerBox{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:14px;overflow-x:auto;overflow-y:hidden;min-width:0;flex:1 1 auto}
+#boxPage #boxColorPerBox:empty{display:none}
+#boxPage #boxColorPerBox label{flex:0 0 auto;white-space:nowrap}
 # Ensure statistics sections use the same compact typography as graph controls
 /* Targets any element with 'stats' in the id (e.g. #statsControls, #rocStatsControls, #scatterStats) */
 [id*="stats"], [id*="Stats"], .stats-panel {
