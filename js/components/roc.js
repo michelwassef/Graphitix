@@ -124,7 +124,7 @@
     drawPending: false,
     lastDataShape: { rows: 0, cols: 0 },
     lastAutoDrawEvaluation: null,
-    labelPositions: { title: null, xLabel: null, yLabel: null }
+    labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }
   };
   let rocAutoDrawManager = null;
   let scheduleDrawRocRaw = () => {};
@@ -1919,9 +1919,24 @@
     });
 
     if(legendVisible){
-      const legendX = margin.left + plotWidth + legendLayout.legendGapPx;
-      const legendGroup = legendRenderer.draw(svg,{ x: legendX, y: margin.top + (legendRenderer.baselineOffset || 0) });
+      const defaultLegendX = margin.left + plotWidth + legendLayout.legendGapPx;
+      const defaultLegendY = margin.top + (legendRenderer.baselineOffset || 0);
+      const legendPos = state.labelPositions?.legend;
+      const legendGroup = legendRenderer.draw(svg,{
+        x: legendPos?.x ?? defaultLegendX,
+        y: legendPos?.y ?? defaultLegendY
+      });
       if(legendGroup){
+        if(typeof Shared.enableLegendDrag === 'function'){
+          Shared.enableLegendDrag(legendGroup, svg, {
+            onDragEnd: pos => {
+              state.labelPositions.legend = { x: pos.x, y: pos.y };
+              if(Shared.isDebugEnabled?.()){
+                console.debug('Debug: roc legend position saved', pos);
+              }
+            }
+          });
+        }
         const textNodes = legendGroup.querySelectorAll('text');
         legendRenderer.entries.forEach((entry, index) => {
           const textNode = textNodes[index];
@@ -2054,7 +2069,8 @@
       state.labelPositions = {
         title: config.labelPositions.title || null,
         xLabel: config.labelPositions.xLabel || null,
-        yLabel: config.labelPositions.yLabel || null
+        yLabel: config.labelPositions.yLabel || null,
+        legend: config.labelPositions.legend || null
       };
     }
     renderStatsControls();

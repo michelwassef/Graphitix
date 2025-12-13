@@ -1402,7 +1402,7 @@
     cachedRender: null,
     dataDirty: true,
     viewDirty: true,
-    labelPositions: { title: null, xLabel: null, yLabel: null }
+    labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }
   };
   pcaState.scheduleDraw = (opts) => scheduleDrawPca(opts);
   let emptyPayloadTemplate = null;
@@ -4526,19 +4526,18 @@
         legendWidth,
         legendGap: legendLayout.legendGapPx,
         legendCount: legendRenderer.entries.length,
-        legendVisible,
         legendAxisGap,
-        appliedLegendAxisGap
+        appliedLegendAxisGap,
+        legendVisible,
+        effectiveLegendWidth
       });
 
       const plotEl = document.getElementById('pcaPlot');
       plotEl.style.display = 'block';
       const existingSvg = plotEl.querySelector('#pcaSvg');
       const reuse3dSvg = effectiveViewMode === '3d' && existingSvg && existingSvg.dataset.viewMode === '3d';
-      if(!reuse3dSvg){
-        while (plotEl.firstChild) {
-          plotEl.removeChild(plotEl.firstChild);
-        }
+      while (plotEl.firstChild) {
+        plotEl.removeChild(plotEl.firstChild);
       }
 
       const eigenSummaryForStats = (method === 'pca' || method === 'mds') ? eigenSummaryData : [];
@@ -4944,59 +4943,58 @@
           const baseLegendY = margin3.top;
           const legendBottomLimit = Math.max(baseLegendY, H3 - margin3.bottom - legendHeight);
           const verticalPadding = Math.max(fs * 0.45, 8);
-          const candidates = [baseLegendY];
-          if(axisLabelBounds.length){
-            for(let idx = 0; idx < axisLabelBounds.length; idx += 1){
-              const bounds = axisLabelBounds[idx];
-              const below = bounds.y + bounds.height + verticalPadding;
-              const above = bounds.y - legendHeight - verticalPadding;
-              if(below <= legendBottomLimit){
-                candidates.push(below);
-              }
-              if(above >= baseLegendY){
-                candidates.push(above);
+          let legendStartY = baseLegendY;
+          const storedLegendPos = pcaState.labelPositions?.legend;
+          if(Number.isFinite(storedLegendPos?.x) && Number.isFinite(storedLegendPos?.y)){
+            legendX3 = storedLegendPos.x;
+            legendStartY = storedLegendPos.y;
+          }else{
+            const candidates = [baseLegendY];
+            if(axisLabelBounds.length){
+              for(let idx = 0; idx < axisLabelBounds.length; idx += 1){
+                const bounds = axisLabelBounds[idx];
+                const below = bounds.y + bounds.height + verticalPadding;
+                const above = bounds.y - legendHeight - verticalPadding;
+                if(below <= legendBottomLimit){
+                  candidates.push(below);
+                }
+                if(above >= baseLegendY){
+                  candidates.push(above);
+                }
               }
             }
-          }
-          if(legendBottomLimit !== baseLegendY){
-            candidates.push(legendBottomLimit);
-          }
-          const candidatePositions = [];
-          for(let idx = 0; idx < candidates.length; idx += 1){
-            const candidate = candidates[idx];
-            const clamped = Math.min(Math.max(candidate, baseLegendY), legendBottomLimit);
-            let duplicate = false;
-            for(let j = 0; j < candidatePositions.length; j += 1){
-              if(Math.abs(candidatePositions[j] - clamped) < 0.5){
-                duplicate = true;
+            if(legendBottomLimit !== baseLegendY){
+              candidates.push(legendBottomLimit);
+            }
+            const candidatePositions = [];
+            for(let idx = 0; idx < candidates.length; idx += 1){
+              const candidate = candidates[idx];
+              const clamped = Math.min(Math.max(candidate, baseLegendY), legendBottomLimit);
+              if(!candidatePositions.some(existing => Math.abs(existing - clamped) < 0.5)){
+                candidatePositions.push(clamped);
+              }
+            }
+            candidatePositions.sort((a, b) => Math.abs(a - baseLegendY) - Math.abs(b - baseLegendY));
+            const intersectsAxis = (rect) => {
+              for(let idx = 0; idx < axisLabelBounds.length; idx += 1){
+                const bounds = axisLabelBounds[idx];
+                const horizontalOverlap = rect.x < bounds.x + bounds.width + horizontalPadding
+                  && rect.x + rect.width > bounds.x - horizontalPadding;
+                const verticalOverlap = rect.y < bounds.y + bounds.height + verticalPadding
+                  && rect.y + rect.height > bounds.y - verticalPadding;
+                if(horizontalOverlap && verticalOverlap){
+                  return true;
+                }
+              }
+              return false;
+            };
+            for(let idx = 0; idx < candidatePositions.length; idx += 1){
+              const candidateY = candidatePositions[idx];
+              const legendRect = { x: legendX3, y: candidateY, width: legendWidth, height: legendHeight };
+              if(!intersectsAxis(legendRect)){
+                legendStartY = candidateY;
                 break;
               }
-            }
-            if(!duplicate){
-              candidatePositions.push(clamped);
-            }
-          }
-          candidatePositions.sort((a, b) => Math.abs(a - baseLegendY) - Math.abs(b - baseLegendY));
-          const intersectsAxis = (rect) => {
-            for(let idx = 0; idx < axisLabelBounds.length; idx += 1){
-              const bounds = axisLabelBounds[idx];
-              const horizontalOverlap = rect.x < bounds.x + bounds.width + horizontalPadding
-                && rect.x + rect.width > bounds.x - horizontalPadding;
-              const verticalOverlap = rect.y < bounds.y + bounds.height + verticalPadding
-                && rect.y + rect.height > bounds.y - verticalPadding;
-              if(horizontalOverlap && verticalOverlap){
-                return true;
-              }
-            }
-            return false;
-          };
-          let legendStartY = baseLegendY;
-          for(let idx = 0; idx < candidatePositions.length; idx += 1){
-            const candidateY = candidatePositions[idx];
-            const legendRect = { x: legendX3, y: candidateY, width: legendWidth, height: legendHeight };
-            if(!intersectsAxis(legendRect)){
-              legendStartY = candidateY;
-              break;
             }
           }
           debugLog('Debug: pca legend placement resolved',{
@@ -5006,10 +5004,15 @@
             legendHeight,
             axisLabels: axisLabelBounds.length
           });
+          const legendGroup = add3('g', {
+            'data-role': 'pca-legend',
+            transform: `translate(${legendX3},${legendStartY})`
+          });
+          const legendAdd = (tag, attrs, text) => add3(tag, attrs, text, legendGroup);
           legendEntries.forEach((entry, i) => {
-            const itemY = legendStartY + i * (legendMarkerSize3 + legendSpacing3);
-            const swatch3 = drawShape(add3, entry.shape || 'circle', {
-              cx: legendX3 + legendMarkerSize3 / 2,
+            const itemY = i * (legendMarkerSize3 + legendSpacing3);
+            const swatch3 = drawShape(legendAdd, entry.shape || 'circle', {
+              cx: legendMarkerSize3 / 2,
               cy: itemY + legendMarkerSize3 / 2,
               radius: legendMarkerSize3 / 2,
               fill: entry.color,
@@ -5031,8 +5034,8 @@
                 handleLegendColorChange(entry, swatch3);
               });
             }
-            const legendText = add3('text', {
-              x: legendX3 + legendTextOffset3,
+            const legendText = legendAdd('text', {
+              x: legendTextOffset3,
               y: itemY + legendMarkerSize3 / 2,
               'font-size': fs,
               'dominant-baseline': 'middle',
@@ -5040,6 +5043,17 @@
             }, entry.label);
             markFontEditable(legendText,'legend',`legend-${i}`);
           });
+          if(legendGroup && typeof Shared.enableLegendDrag === 'function'){
+            Shared.enableLegendDrag(legendGroup, svg3, {
+              undoLabel: 'pca-legend-3d',
+              onDragEnd: pos => {
+                pcaState.labelPositions.legend = { x: pos.x, y: pos.y };
+                if(Shared.isDebugEnabled?.()){
+                  console.debug('Debug: pca 3d legend position saved', pos);
+                }
+              }
+            });
+          }
         } else {
           debugLog('Debug: pca legend skipped',{ mode: '3d', legendVisible, entryCount: legendEntries.length });
         }
@@ -5602,22 +5616,40 @@
       }
 
       if(legendVisible){
-        const legendX=margin.left+plotW+legendLayout.legendGapPx+appliedLegendAxisGap;
+        const defaultLegendX = margin.left + plotW + legendLayout.legendGapPx + appliedLegendAxisGap;
+        const defaultLegendY = margin.top;
+        const legendPos = pcaState.labelPositions?.legend;
+        const legendOriginX = Number.isFinite(legendPos?.x) ? legendPos.x : defaultLegendX;
+        const legendOriginY = Number.isFinite(legendPos?.y) ? legendPos.y : defaultLegendY;
         const legendSpacing=Math.max(legendRenderer.rowGap || 0, Math.round(fs*0.35));
         const legendMarkerSize=legendRenderer.swatchSize || Math.max(Math.round(fs*0.6), 10);
         const legendTextOffset=legendMarkerSize+(legendRenderer.swatchGap || Math.max(Math.round(fs*0.2), 6));
         debugLog('Debug: pca legend layout',{
-          legendX,
+          legendX: legendOriginX,
+          legendY: legendOriginY,
           legendSpacing,
           legendMarkerSize,
           legendTextOffset,
           legendVisible,
           appliedLegendAxisGap
         });
+        const legendDoc = svg?.ownerDocument || global.document;
+        const legendGroup = add('g', {
+          'data-role': 'pca-legend',
+          transform: `translate(${legendOriginX},${legendOriginY})`
+        });
+        const legendAdd = (tag, attrs, text) => {
+          if(!legendDoc){ return null; }
+          const node = legendDoc.createElementNS(NS, tag);
+          Object.keys(attrs || {}).forEach(key => node.setAttribute(key, String(attrs[key])));
+          if(text){ node.textContent = text; }
+          legendGroup.appendChild(node);
+          return node;
+        };
         legendEntries.forEach((entry, i) => {
-          const itemY = margin.top + i * (legendMarkerSize + legendSpacing);
-          const marker = drawShape(add, entry.shape || 'circle', {
-            cx: legendX + legendMarkerSize / 2,
+          const itemY = i * (legendMarkerSize + legendSpacing);
+          const marker = drawShape(legendAdd, entry.shape || 'circle', {
+            cx: legendMarkerSize / 2,
             cy: itemY + legendMarkerSize / 2,
             radius: legendMarkerSize / 2,
             fill: entry.color,
@@ -5638,8 +5670,8 @@
               handleLegendColorChange(entry, marker);
             });
           }
-          const legendText = add('text', {
-            x: legendX + legendTextOffset,
+          const legendText = legendAdd('text', {
+            x: legendTextOffset,
             y: itemY + legendMarkerSize / 2,
             'font-size': fs,
             'dominant-baseline': 'middle',
@@ -5647,6 +5679,17 @@
           }, entry.label);
           markFontEditable(legendText,'legend',`legend-${i}`);
         });
+        if(typeof Shared.enableLegendDrag === 'function'){
+          Shared.enableLegendDrag(legendGroup, svg, {
+            undoLabel: 'pca-legend-2d',
+            onDragEnd: pos => {
+              pcaState.labelPositions.legend = { x: pos.x, y: pos.y };
+              if(Shared.isDebugEnabled?.()){
+                console.debug('Debug: pca 2d legend position saved', pos);
+              }
+            }
+          });
+        }
       }else{
         debugLog('Debug: pca legend skipped',{ mode: '2d', legendVisible, entryCount: legendEntries.length });
       }
@@ -5663,6 +5706,9 @@
       ensureGraphViewport(svg, { padding: Math.max(fs, 18), debugLabel: 'pca-2d-graph' });
       pcaLayout?.syncPanels?.({ skipSchedule: true });
       syncPcaAutoDrawNoticeWidth('draw');
+    } catch(err){
+      debugLog('Error: drawPca failure',{ message: err?.message || err });
+      throw err;
     } finally {
       const totalEnd = nowMs();
       const fastModeChanged = pcaState.fastPointMode !== fastPointModeActive;
@@ -6004,7 +6050,8 @@
           pcaState.labelPositions = {
             title: c.labelPositions.title || null,
             xLabel: c.labelPositions.xLabel || null,
-            yLabel: c.labelPositions.yLabel || null
+            yLabel: c.labelPositions.yLabel || null,
+            legend: c.labelPositions.legend || null
           };
         }
         scheduleDrawPca();

@@ -155,7 +155,7 @@
     covariateSettings: {},
     covariateColumns: [],
     axisSettings: createDefaultAxisSettings(),
-    labelPositions: { title: null, xLabel: null, yLabel: null }
+    labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }
   };
 
   function recordSurvivalChange(label, previous, next, apply){
@@ -828,17 +828,112 @@
         global.attachColorPickerNear(input);
       }
       input.addEventListener('input', ev => {
-        state.labelColors[name] = ev.target.value;
-        logDebug('group color changed', { group: name, color: ev.target.value });
-        if(state.scheduleDraw){
-          state.scheduleDraw();
-        }
+        applySurvivalColorValue(name, ev.target.value, { source: 'control' });
       });
       wrapper.appendChild(input);
       refs.labelColorsDiv.appendChild(wrapper);
     });
     refs.labelColorsFieldset.style.display = activeNames.length ? '' : 'none';
     logDebug('group color pickers updated', { count: activeNames.length });
+  }
+
+  function applySurvivalColorValue(groupName, value, options = {}){
+    if(!groupName){
+      return false;
+    }
+    if(!state.labelColors || typeof state.labelColors !== 'object'){
+      state.labelColors = {};
+    }
+    const nextValue = value != null ? String(value) : '';
+    const previousValue = state.labelColors[groupName] || '';
+    const force = options.force === true;
+    if(nextValue){
+      if(!force && previousValue === nextValue){
+        return false;
+      }
+      state.labelColors[groupName] = nextValue;
+    } else {
+      if(!force && !previousValue){
+        return false;
+      }
+      delete state.labelColors[groupName];
+    }
+    logDebug('group color changed', {
+      group: groupName,
+      color: nextValue || null,
+      source: options.source || 'apply',
+      forced: force
+    });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+    return true;
+  }
+
+  function handleSurvivalLegendSwatchClick(payload){
+    const entry = payload?.entry;
+    const swatch = payload?.swatch;
+    const event = payload?.event;
+    if(!entry || !swatch || typeof Shared.openColorPicker !== 'function'){
+      return;
+    }
+    event?.stopPropagation?.();
+    const labelKey = entry.key || entry.label || entry.raw?.name || '';
+    if(!labelKey){
+      return;
+    }
+    const currentColor = state.labelColors[labelKey] || entry.fill || entry.color || '#888888';
+    let previousColor = currentColor;
+    Shared.openColorPicker({
+      anchor: swatch,
+      color: currentColor,
+      onInput(value){
+        applySurvivalColorValue(labelKey, value, { source: 'legend' });
+      },
+      onChange(value){
+        const normalized = value != null ? String(value) : '';
+        if(normalized === previousColor){
+          return;
+        }
+        applySurvivalColorValue(labelKey, normalized, { source: 'legend' });
+        recordSurvivalChange(`survival:legend-color:${labelKey}`, previousColor, normalized, next => {
+          applySurvivalColorValue(labelKey, next, { source: 'undo', force: true });
+        });
+        previousColor = normalized;
+      }
+    });
+  }
+
+  function drawSurvivalLegend(svg, legendLayout, defaults = {}){
+    const renderer = legendLayout?.renderer;
+    if(!svg || !renderer || !renderer.entries.length){
+      return null;
+    }
+    const stored = state.labelPositions || {};
+    const storedLegend = stored.legend || {};
+    const defaultX = Number.isFinite(defaults.x) ? Number(defaults.x) : 0;
+    const defaultY = Number.isFinite(defaults.y) ? Number(defaults.y) : 0;
+    const resolvedX = Number.isFinite(storedLegend.x) ? storedLegend.x : defaultX;
+    const resolvedY = Number.isFinite(storedLegend.y) ? storedLegend.y : defaultY;
+    const legendGroup = renderer.draw(svg, { x: resolvedX, y: resolvedY });
+    if(!legendGroup){
+      return null;
+    }
+    const textNodes = legendGroup.querySelectorAll('text');
+    textNodes.forEach((node, index) => {
+      markFontEditable(node, 'legend', `legend-${index}`);
+    });
+    if(typeof Shared.enableLegendDrag === 'function'){
+      Shared.enableLegendDrag(legendGroup, svg, {
+        undoLabel: 'survival-legend',
+        onDragEnd: pos => {
+          state.labelPositions = state.labelPositions || { title: null, xLabel: null, yLabel: null, legend: null };
+          state.labelPositions.legend = { x: pos.x, y: pos.y };
+          logDebug('legend position saved', pos);
+        }
+      });
+    }
+    return legendGroup;
   }
 
   function refreshCovariateControls(){
@@ -2177,13 +2272,29 @@
     ensureSurvivalLegendControlPlacement();
     const showLegend = !refs.showLegend || !!refs.showLegend.checked;
     logDebug('legend state resolved', { showLegend, groupCount: summary.series.length });
-
-    const legendEntries = showLegend ? summary.series.map((group, index) => {
+    const legendStrokeWidth = curveStrokeWidth;
+    const groupsForDraw = summary.series.map((group, index) => {
       const color = state.labelColors[group.name] || DEFAULT_COLORS[index % DEFAULT_COLORS.length];
-      const textWidth = chartStyle.measureText ? chartStyle.measureText(group.name, axisLabelFont) : fs * group.name.length * 0.6;
-      return { name: group.name, color, width: textWidth + fs * 2.5 };
-    }) : [];
-    const legendWidth = legendEntries.length ? Math.max(...legendEntries.map(entry => entry.width)) : 0;
+      return { ...group, color };
+    });
+    const legendEditable = typeof Shared.openColorPicker === 'function';
+    const legendEntries = showLegend ? groupsForDraw.map(group => ({
+      label: group.name,
+      key: group.name,
+      fill: group.color,
+      stroke: group.color,
+      strokeWidth: legendStrokeWidth,
+      editable: legendEditable
+    })) : [];
+    const legendLayout = chartStyle.computeLegendLayout({
+      entries: legendEntries,
+      fontSize: fs,
+      strokeWidth: legendStrokeWidth,
+      onSwatchClick: legendEditable ? handleSurvivalLegendSwatchClick : undefined
+    });
+    const legendRenderer = legendLayout.renderer;
+    const legendVisible = showLegend && legendRenderer.entries.length > 0;
+    const legendWidth = legendVisible ? Math.ceil(legendLayout.legendWidthForMargin) : 0;
 
     const axisTickTools = chartStyle.axisTicks || null;
     const buildAxisScale = opts => {
@@ -2486,12 +2597,6 @@
 
     const showCI = !!refs.showCI?.checked;
     const showCensor = !!refs.showCensor?.checked;
-
-    const groupsForDraw = summary.series.map((group, index) => {
-      const color = state.labelColors[group.name] || DEFAULT_COLORS[index % DEFAULT_COLORS.length];
-      return { ...group, color };
-    });
-
     groupsForDraw.forEach(group => {
       if(showCI){
         const ciPath = buildConfidencePath(group.km.upper, group.km.lower, xScale.max, x2px, y2px);
@@ -2539,35 +2644,16 @@
       }
     });
 
-    if(showLegend && legendEntries.length){
-      const legendGroup = document.createElementNS(NS, 'g');
-      const legendX = margin.left + plotW + 12;
-      const legendY = margin.top;
-      legendEntries.forEach((entry, index) => {
-        const row = document.createElementNS(NS, 'g');
-        row.setAttribute('transform', `translate(${legendX} ${legendY + index * (fs + 6)})`);
-        const sample = document.createElementNS(NS, 'line');
-        sample.setAttribute('x1', '0');
-        sample.setAttribute('y1', String(-fs / 4));
-        sample.setAttribute('x2', String(fs * 1.2));
-        sample.setAttribute('y2', String(-fs / 4));
-        sample.setAttribute('stroke', entry.color);
-        sample.setAttribute('stroke-width', curveStrokeWidth);
-        row.appendChild(sample);
-        const label = document.createElementNS(NS, 'text');
-        label.setAttribute('x', String(fs * 1.4));
-        label.setAttribute('y', '0');
-        label.setAttribute('font-size', String(fs));
-        label.setAttribute('dominant-baseline', 'middle');
-        label.setAttribute('fill', chartStyle.TEXT_COLOR || '#000');
-        label.textContent = entry.name;
-        markFontEditable(label, 'legend', `legend-${index}`);
-        row.appendChild(label);
-        legendGroup.appendChild(row);
-      });
-      svg.appendChild(legendGroup);
+    if(legendVisible){
+      const legendGapPx = Number.isFinite(legendLayout.legendGapPx) ? legendLayout.legendGapPx : 12;
+      const defaultLegendX = margin.left + plotW + legendGapPx;
+      const defaultLegendY = margin.top + (legendRenderer.baselineOffset || 0);
+      const legendGroup = drawSurvivalLegend(svg, legendLayout, { x: defaultLegendX, y: defaultLegendY });
+      if(!legendGroup){
+        logDebug('legend draw skipped', { reason: 'render-failed', legendVisible, entryCount: legendRenderer.entries.length });
+      }
     }else{
-      logDebug('legend skipped', { showLegend, entryCount: legendEntries.length });
+      logDebug('legend skipped', { showLegend, entryCount: legendRenderer.entries.length });
     }
 
     updateStats({ ...summary, series: groupsForDraw });
@@ -2909,8 +2995,13 @@
       state.labelPositions = {
         title: config.labelPositions.title || null,
         xLabel: config.labelPositions.xLabel || null,
-        yLabel: config.labelPositions.yLabel || null
+        yLabel: config.labelPositions.yLabel || null,
+        legend: config.labelPositions.legend || null
       };
+    } else if(!state.labelPositions || typeof state.labelPositions !== 'object'){
+      state.labelPositions = { title: null, xLabel: null, yLabel: null, legend: null };
+    } else if(!('legend' in state.labelPositions)){
+      state.labelPositions.legend = null;
     }
     applyAxisSettings(config.axis || config.axisSettings);
     refreshCovariateControls();

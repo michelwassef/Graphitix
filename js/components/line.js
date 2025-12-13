@@ -93,7 +93,7 @@
   let lineXLabelText = 'X';
   let lineYLabelText = 'Y';
   let lineLabelColors = {};
-  let lineLabelPositions = { title: null, xLabel: null, yLabel: null };
+  let lineLabelPositions = { title: null, xLabel: null, yLabel: null, legend: null };
   let lineLegendControl = null;
   let lineLogPlusOneX = false;
   let lineLogPlusOneY = false;
@@ -3116,7 +3116,8 @@
       lineLabelPositions = {
         title: c.labelPositions.title || null,
         xLabel: c.labelPositions.xLabel || null,
-        yLabel: c.labelPositions.yLabel || null
+        yLabel: c.labelPositions.yLabel || null,
+        legend: c.labelPositions.legend || null
       };
     }
     ensureLineLabelColors(Object.keys(lineLabelColors));
@@ -4386,9 +4387,24 @@
       };
       const legendRenderer=legendLayout.renderer;
       if(showLegend && legendRenderer.entries.length){
-        const legendX=margin.left+plotW+legendLayout.legendGapPx;
-        const legendGroup=legendRenderer.draw(svg,{x:legendX,y:margin.top+legendRenderer.baselineOffset});
+        const defaultLegendX=margin.left+plotW+legendLayout.legendGapPx;
+        const defaultLegendY=margin.top+legendRenderer.baselineOffset;
+        const legendPos=lineLabelPositions?.legend;
+        const legendGroup=legendRenderer.draw(svg,{
+          x: legendPos?.x ?? defaultLegendX,
+          y: legendPos?.y ?? defaultLegendY
+        });
         if(legendGroup){
+          if(typeof Shared.enableLegendDrag === 'function'){
+            Shared.enableLegendDrag(legendGroup, svg, {
+              onDragEnd: pos => {
+                lineLabelPositions.legend = { x: pos.x, y: pos.y };
+                if(Shared.isDebugEnabled?.()){
+                  console.debug('Debug: line legend position saved', pos);
+                }
+              }
+            });
+          }
           const textNodes=legendGroup.querySelectorAll('text');
           legendRenderer.entries.forEach((entry,index)=>{
             const textNode=textNodes[index];

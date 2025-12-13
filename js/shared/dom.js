@@ -1522,6 +1522,178 @@
     logDebug('enableLabelDrag bound', { element: el.tagName || 'unknown' });
   }
 
+  function enableLegendDrag(group, svg, options = {}) {
+    if (!group || !svg) {
+      logDebug('enableLegendDrag skipped', { hasGroup: !!group, hasSvg: !!svg });
+      return;
+    }
+    const dragThreshold = Math.max(2, Number(options.dragThreshold) || 4);
+    const dragThresholdSq = dragThreshold * dragThreshold;
+    const cursor = options.cursor || 'move';
+    if (group.style) {
+      group.style.cursor = cursor;
+    }
+
+    const normalizePoint = point => ({
+      x: Number.isFinite(point?.x) ? point.x : 0,
+      y: Number.isFinite(point?.y) ? point.y : 0
+    });
+
+    const parseTranslate = () => {
+      const raw = group.getAttribute('transform') || '';
+      const match = raw.match(/translate\s*\(\s*([-+]?\d*\.?\d+)(?:[\s,]+([-+]?\d*\.?\d+))?/i);
+      if (!match) {
+        return { x: 0, y: 0 };
+      }
+      const x = Number.parseFloat(match[1]);
+      const y = match[2] != null ? Number.parseFloat(match[2]) : x;
+      return {
+        x: Number.isFinite(x) ? x : 0,
+        y: Number.isFinite(y) ? y : 0
+      };
+    };
+
+    const writeTranslate = pos => {
+      const next = normalizePoint(pos);
+      group.setAttribute('transform', `translate(${next.x},${next.y})`);
+      return next;
+    };
+
+    const pointerToSvg = (clientX, clientY) => {
+      try {
+        const pt = svg.createSVGPoint();
+        pt.x = clientX;
+        pt.y = clientY;
+        const ctm = svg.getScreenCTM();
+        return ctm ? pt.matrixTransform(ctm.inverse()) : { x: clientX, y: clientY };
+      } catch (err) {
+        logDebug('enableLegendDrag transform error', { message: err?.message });
+        return { x: clientX, y: clientY };
+      }
+    };
+
+    const getPosition = typeof options.getPosition === 'function'
+      ? options.getPosition
+      : () => parseTranslate();
+    const setPosition = typeof options.setPosition === 'function'
+      ? options.setPosition
+      : value => writeTranslate(value);
+
+    let pointerDown = false;
+    let dragging = false;
+    let startPoint = { x: 0, y: 0 };
+    let originPos = { x: 0, y: 0 };
+    let currentPos = { x: 0, y: 0 };
+
+    const undoApi = Shared && Shared.undoManager;
+    const equals = (a, b) => a && b && a.x === b.x && a.y === b.y;
+    const applyUndoPosition = (pos, reason) => {
+      if (!pos) {
+        return false;
+      }
+      try {
+        setPosition(pos);
+        if (typeof options.onPositionChange === 'function') {
+          options.onPositionChange(pos);
+        }
+        logDebug('enableLegendDrag apply position', { reason, x: pos.x, y: pos.y });
+        return true;
+      } catch (err) {
+        console.error('enableLegendDrag apply position error', err);
+        return false;
+      }
+    };
+
+    const recordUndo = (before, after) => {
+      if (!undoApi || typeof undoApi.recordStateChange !== 'function') {
+        return;
+      }
+      if (equals(before, after)) {
+        return;
+      }
+      try {
+        undoApi.recordStateChange({
+          element: group,
+          label: options.undoLabel || 'legend-position',
+          from: before,
+          to: after,
+          equals,
+          apply: value => applyUndoPosition(value, 'undo')
+        });
+      } catch (err) {
+        console.error('enableLegendDrag undo record error', err);
+      }
+    };
+
+    const handleMouseDown = event => {
+      if (event.button !== undefined && event.button !== 0) {
+        return;
+      }
+      pointerDown = true;
+      dragging = false;
+      startPoint = pointerToSvg(event.clientX, event.clientY);
+      originPos = normalizePoint(getPosition());
+      currentPos = originPos;
+      global.addEventListener('mousemove', handleMouseMove, true);
+      global.addEventListener('mouseup', handleMouseUp, true);
+    };
+
+    const handleMouseMove = event => {
+      if (!pointerDown) {
+        return;
+      }
+      const loc = pointerToSvg(event.clientX, event.clientY);
+      const dx = loc.x - startPoint.x;
+      const dy = loc.y - startPoint.y;
+      if (!dragging) {
+        const distSq = dx * dx + dy * dy;
+        if (distSq < dragThresholdSq) {
+          return;
+        }
+        dragging = true;
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof options.onDragStart === 'function') {
+          safeCall(options.onDragStart, [{ x: originPos.x, y: originPos.y, element: group }], 'enableLegendDrag onDragStart error');
+        }
+        logDebug('enableLegendDrag start', { originPos, dragThreshold });
+      } else {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      const nextPos = { x: originPos.x + dx, y: originPos.y + dy };
+      currentPos = normalizePoint(setPosition(nextPos)) || normalizePoint(nextPos);
+      if (typeof options.onPositionChange === 'function') {
+        safeCall(options.onPositionChange, [currentPos], 'enableLegendDrag onPositionChange error');
+      }
+    };
+
+    const handleMouseUp = event => {
+      if (!pointerDown) {
+        return;
+      }
+      global.removeEventListener('mousemove', handleMouseMove, true);
+      global.removeEventListener('mouseup', handleMouseUp, true);
+      const wasDragging = dragging;
+      pointerDown = false;
+      dragging = false;
+      if (!wasDragging) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const finalPos = normalizePoint(currentPos || getPosition());
+      recordUndo(originPos, finalPos);
+      if (typeof options.onDragEnd === 'function') {
+        safeCall(options.onDragEnd, [{ x: finalPos.x, y: finalPos.y, element: group }], 'enableLegendDrag onDragEnd error');
+      }
+      logDebug('enableLegendDrag end', { x: finalPos.x, y: finalPos.y });
+    };
+
+    group.addEventListener('mousedown', handleMouseDown);
+    logDebug('enableLegendDrag bound', { element: group.tagName || 'g' });
+  }
+
   function autoResizeSvg(svg, opts = {}) {
     if (!svg) {
       logDebug('autoResizeSvg skipped (no svg)', { hasSvg: false });
@@ -1672,6 +1844,7 @@
 
   Shared.makeEditable = makeEditable;
   Shared.enableLabelDrag = enableLabelDrag;
+  Shared.enableLegendDrag = enableLegendDrag;
   Shared.autoResizeSvg = autoResizeSvg;
   Shared.ensureGraphViewport = ensureGraphViewport;
   Shared.graphViewport = Shared.graphViewport || {};
@@ -1685,6 +1858,9 @@
   if (typeof global.enableLabelDrag !== 'function') {
     global.enableLabelDrag = enableLabelDrag;
   }
+  if (typeof global.enableLegendDrag !== 'function') {
+    global.enableLegendDrag = enableLegendDrag;
+  }
   if (typeof global.autoResizeSvg !== 'function') {
     global.autoResizeSvg = autoResizeSvg;
   }
@@ -1697,6 +1873,7 @@
   logDebug('shared DOM helpers ready', {
     hasMakeEditable: typeof Shared.makeEditable === 'function',
     hasEnableLabelDrag: typeof Shared.enableLabelDrag === 'function',
+    hasEnableLegendDrag: typeof Shared.enableLegendDrag === 'function',
     hasAutoResizeSvg: typeof Shared.autoResizeSvg === 'function',
     hasSerializeCleanSVG: typeof Shared.serializeCleanSVG === 'function'
   });
