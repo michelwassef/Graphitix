@@ -1318,6 +1318,8 @@
 
       const scatterGraphTypeSelect=$('#scatterGraphType');
       const scatterThresholdControls=$('#scatterThresholdControls');
+        const scatterVolcanoOptions=$('#scatterVolcanoOptions');
+        const scatterShowSignificantLabels=$('#scatterShowSignificantLabels');
       const scatterLog2FCThreshold=$('#scatterLog2FCThreshold');
       const scatterNegLogPThreshold=$('#scatterNegLogPThreshold');
       const scatterFill=$('#scatterFill'), scatterBorder=$('#scatterBorder'), scatterBorderWidth=$('#scatterBorderWidth'), scatterDotSize=$('#scatterDotSize'), scatterShowLine=$('#scatterShowLine'), scatterShowPlotStats=$('#scatterShowPlotStats'), scatterAlpha=$('#scatterAlpha');
@@ -2114,6 +2116,12 @@
         }
         if(scatterThresholdControls){
           scatterThresholdControls.style.display=showThresholds?'':'none';
+        }
+        if(scatterVolcanoOptions){
+          scatterVolcanoOptions.style.display = type === 'volcano' ? '' : 'none';
+        }
+        if(scatterShowSignificantLabels){
+          scatterShowSignificantLabels.disabled = type !== 'volcano';
         }
         if(scatterViewControls){
           scatterViewControls.style.display = type === 'scatter' ? '' : 'none';
@@ -3414,6 +3422,15 @@
         });
         info('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
         const significanceLegendNeeded=scatterCurrentGraphType!=='scatter';
+        const shouldRenderSignificantLabels = (() => {
+          if(scatterCurrentGraphType === 'volcano'){
+            return scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true;
+          }
+          if(scatterCurrentGraphType === 'ma'){
+            return true;
+          }
+          return false;
+        })();
         if(token!==scatterDrawToken){info('scatter draw cancelled after collect',{token});return;}
         const plotEl=document.getElementById('scatterPlot');
         plotEl.style.display='block';
@@ -4408,10 +4425,16 @@
             size: isBubbleView ? p.bubbleValue : undefined
           });
           frag.appendChild(marker);
-          if(scatterCurrentGraphType!=='scatter' && p.isSignificant && p.label){
+          if(shouldRenderSignificantLabels && p.isSignificant && p.label){
             if(labelAnnotations.length < MAX_SIGNIFICANT_ANNOTATIONS){
               const labelNode=document.createElementNS(NS,'text');
               labelNode.setAttribute('x',cxVal+dotSizePx+2);
+                    if(scatterShowSignificantLabels){
+                      scatterShowSignificantLabels.addEventListener('change',()=>{
+                        console.debug('Debug: scatter significant label toggle',{checked:scatterShowSignificantLabels.checked});
+                        scheduleDrawScatter();
+                      });
+                    }
               labelNode.setAttribute('y',cyVal-(dotSizePx+2));
               labelNode.setAttribute('font-size',Math.max(fs*0.75,8));
               labelNode.setAttribute('fill',SIGNIFICANT_COLOR);
@@ -5017,6 +5040,7 @@
             graphType:scatterGraphTypeSelect?.value || 'scatter',
             log2fcThreshold:scatterLog2FCThreshold?.value || '',
             negLogPThreshold:scatterNegLogPThreshold?.value || '',
+            showSignificantLabels: scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : undefined,
             regression:{
               mode: scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear',
               summary: scatterLastRegressionSummary
@@ -5176,6 +5200,9 @@
         }
         if(scatterNegLogPThreshold && c.negLogPThreshold!==undefined){
           scatterNegLogPThreshold.value=c.negLogPThreshold;
+        }
+        if(scatterShowSignificantLabels && typeof c.showSignificantLabels === 'boolean'){
+          scatterShowSignificantLabels.checked = c.showSignificantLabels;
         }
         if(scatterRegressionMode && c.regression?.mode){
           scatterRegressionMode.value=c.regression.mode;
