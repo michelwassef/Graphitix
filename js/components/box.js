@@ -368,9 +368,9 @@
       return lbl;
     };
 
-    // Determine target points (all points in the same trace group if present)
+    // Determine parent group for the points (all points in the same trace group if present)
     const parentGroup = el.closest && el.closest('g[data-trace]') ? el.closest('g[data-trace]') : null;
-    const targetPoints = parentGroup ? Array.from(parentGroup.querySelectorAll('circle')) : [el];
+    const resolveTargetPoints = () => parentGroup ? Array.from(parentGroup.querySelectorAll('circle,rect,path')) : [el];
 
     // Helper: create a new marker element for a given shape based on an existing point
     function createMarkerFor(shape, src){
@@ -470,9 +470,8 @@
     ];
     const fillInput = doc.createElement('input');
     fillInput.type = 'color';
-    const currentFill = (targetPoints[0]?.getAttribute('fill') || el.getAttribute('fill') || '#000000');
+    const currentFill = (resolveTargetPoints()[0]?.getAttribute('fill') || el.getAttribute('fill') || '#000000');
     try{ fillInput.value = currentFill; }catch(e){}
-    fillInput.addEventListener('input', ()=>{ targetPoints.forEach(p => p.setAttribute('fill', fillInput.value)); });
     // determine current shape from element tag or data attribute
     const detectShape = (node) => {
       if(!node) return 'circle';
@@ -483,7 +482,7 @@
       if(tag === 'path') return node.getAttribute('data-shape') || 'circle';
       return 'circle';
     };
-    const currentShape = detectShape(targetPoints[0]);
+    const currentShape = detectShape(resolveTargetPoints()[0]);
     fillInput.addEventListener('click', (evt)=>{
       evt.preventDefault();
       try{
@@ -498,18 +497,18 @@
               options: BOX_SHAPE_OPTIONS,
               onChange(nextShape){
                 if(!nextShape) return;
-                replacePointsWithShape(targetPoints, nextShape);
+                replacePointsWithShape(resolveTargetPoints(), nextShape);
               }
             },
             onInput(value, meta){
               fillInput.value = value;
-              targetPoints.forEach(p => p.setAttribute('fill', value));
+              resolveTargetPoints().forEach(p => p.setAttribute('fill', value));
             },
             onChange(value, meta){
               const nextValue = value != null ? String(value) : '';
               if(nextValue !== prevColor){
                 prevColor = nextValue;
-                targetPoints.forEach(p => p.setAttribute('fill', nextValue));
+                resolveTargetPoints().forEach(p => p.setAttribute('fill', nextValue));
               }
             }
           });
@@ -530,13 +529,77 @@
     borderInput.type = 'color';
     const currentStroke = (el.getAttribute('stroke') && el.getAttribute('stroke') !== 'none') ? el.getAttribute('stroke') : '#000000';
     try{ borderInput.value = currentStroke; }catch(e){}
-    borderInput.addEventListener('input', ()=>{ targetPoints.forEach(p => p.setAttribute('stroke', borderInput.value)); });
+    borderInput.addEventListener('input', ()=>{ resolveTargetPoints().forEach(p => p.setAttribute('stroke', borderInput.value)); });
     if(typeof Shared.attachColorPickerNear === 'function'){
       try{ Shared.attachColorPickerNear(borderInput); }catch(e){}
     }
     const borderLabelEl = makeInput('Border', borderInput);
     borderLabelEl.classList.add('workspace-toolbar__input--color');
     wrap.appendChild(borderLabelEl);
+
+    // Size slider (compact)
+    function updatePointsSize(points, newSize){
+      const numeric = Number(newSize) || 0;
+      points.forEach(pt => {
+        const parent = pt.parentElement;
+        if(!parent) return;
+        let bbox;
+        try{ bbox = pt.getBBox(); }catch(e){ bbox = null; }
+        const cx = bbox ? (bbox.x + bbox.width / 2) : (Number(pt.getAttribute('cx')) || 0);
+        const cy = bbox ? (bbox.y + bbox.height / 2) : (Number(pt.getAttribute('cy')) || 0);
+        const fill = pt.getAttribute('fill') || 'black';
+        const stroke = pt.getAttribute('stroke') || 'none';
+        const fillOpacity = pt.getAttribute('fill-opacity') || pt.style?.opacity || '1';
+        const shape = pt.getAttribute('data-shape') || (pt.tagName || 'circle').toLowerCase();
+        const synthetic = {
+          tagName: pt.tagName,
+          getAttribute(name){
+            if(name === 'cx') return String(cx);
+            if(name === 'cy') return String(cy);
+            if(name === 'r') return String(numeric);
+            if(name === 'fill') return fill;
+            if(name === 'stroke') return stroke;
+            if(name === 'fill-opacity') return fillOpacity;
+            return null;
+          }
+        };
+        const newNode = createMarkerFor(shape, synthetic);
+        if(!newNode) return;
+        parent.insertBefore(newNode, pt);
+        try{ attachBoxPointTooltip(newNode, pt.__boxPointData); }catch(e){}
+        parent.removeChild(pt);
+      });
+    }
+
+    // Size selection box
+    // derive current size
+    let derivedSize = 4;
+    try{
+      if(targetPoints[0]){
+        const t0 = targetPoints[0];
+        if((t0.tagName||'').toLowerCase() === 'circle'){
+          const r0 = Number(t0.getAttribute('r'));
+          if(Number.isFinite(r0) && r0 > 0) derivedSize = r0;
+        }else{
+          const b = t0.getBBox();
+          if(b){ derivedSize = Math.max(b.width, b.height) / 2; }
+        }
+      }
+    }catch(e){}
+    const sizeSelect = doc.createElement('select');
+    const sizes = [2,4,6,8,10,12,16,20,24,30];
+    sizes.forEach(s => {
+      const opt = doc.createElement('option');
+      opt.value = String(s);
+      opt.textContent = `${s}px`;
+      if(Math.round(derivedSize) === s) opt.selected = true;
+      sizeSelect.appendChild(opt);
+    });
+    sizeSelect.addEventListener('change', ()=>{
+      const v = Number(sizeSelect.value) || 4;
+      updatePointsSize(resolveTargetPoints(), v);
+    });
+    wrap.appendChild(makeInput('Size', sizeSelect));
 
     // Opacity slider (compact)
     const opInput = doc.createElement('input');
@@ -548,7 +611,7 @@
     opValue.textContent = opInput.value + '%';
     opInput.addEventListener('input', ()=>{
       const v = Number(opInput.value) / 100;
-      targetPoints.forEach(p => p.setAttribute('fill-opacity', String(v)));
+      resolveTargetPoints().forEach(p => p.setAttribute('fill-opacity', String(v)));
       opValue.textContent = opInput.value + '%';
     });
     const opWrap = doc.createElement('div');
