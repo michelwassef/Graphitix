@@ -9164,7 +9164,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       });
       const xTickPositions = separatedSpacing
         ? separatedSpacing.centers.slice()
-        : axisLabels.map((_, i) => marginLocal.left + (i + 0.5) * bandW);
+        : axisLabels.map((_, i) => marginLocal.left + i * (bandW + datasetGapPx) + bandW / 2);
       const xIntervalSetting = getAxisTickInterval('x');
       const xInterval = Number.isFinite(xIntervalSetting) && xIntervalSetting > 1 ? Math.max(1, Math.round(xIntervalSetting)) : null;
       let axisXStart = xTickPositions.length ? Math.min(...xTickPositions) : yAxisX;
@@ -9210,7 +9210,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(xInterval && i % xInterval !== 0){
           return;
         }
-        const x = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.left + (i + 0.5) * bandW;
+        const x = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.left + i * (bandW + datasetGapPx) + bandW / 2;
         addAxisElement('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
         const t = addAxisElement('text',{ x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
@@ -9859,7 +9859,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(yInterval && i % yInterval !== 0){
           return;
         }
-        const y = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.top + (i + 0.5) * bandH;
+        const y = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.top + i * (bandH + datasetGapPxH) + bandH / 2;
         addAxisElement('line',{ x1: yAxisLeft, y1: y, x2: yAxisLeft - tickLen, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
         const t = addAxisElement('text',{ x: yAxisLeft - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
@@ -10429,7 +10429,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(separatedSpacing && idx >= 0 && idx < separatedSpacing.centers.length){
           return separatedSpacing.centers[idx];
         }
-        return marginLocal.top + (idx + 0.5) * bandH;
+        return marginLocal.top + idx * (bandH + datasetGapPxH) + bandH / 2;
       };
       return {
         margin: marginLocal,
