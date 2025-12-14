@@ -599,6 +599,90 @@
     return Math.max(minScale, Math.min(1, estimated));
   }
 
+  function scatterPointInsideCircle(point, circle){
+    if(!point || !circle){ return false; }
+    const dx = point.x - circle.cx;
+    const dy = point.y - circle.cy;
+    return Math.hypot(dx, dy) <= (circle.r || 0) + 1e-6;
+  }
+
+  function scatterCircleFromTwoPoints(a, b){
+    const cx = (a.x + b.x) / 2;
+    const cy = (a.y + b.y) / 2;
+    const r = Math.hypot(a.x - b.x, a.y - b.y) / 2;
+    return { cx, cy, r };
+  }
+
+  function scatterCircleFromThreePoints(a, b, c){
+    const A = b.x - a.x;
+    const B = b.y - a.y;
+    const C = c.x - a.x;
+    const D = c.y - a.y;
+    const E = A * (a.x + b.x) + B * (a.y + b.y);
+    const F = C * (a.x + c.x) + D * (a.y + c.y);
+    const G = 2 * (A * (c.y - b.y) - B * (c.x - b.x));
+    if(Math.abs(G) < 1e-6){
+      return null; // Points are collinear; no unique circle.
+    }
+    const cx = (D * E - B * F) / G;
+    const cy = (A * F - C * E) / G;
+    const r = Math.hypot(cx - a.x, cy - a.y);
+    return { cx, cy, r };
+  }
+
+  function scatterSmallestCircleForCollinear(a, b, c){
+    const candidates = [
+      scatterCircleFromTwoPoints(a, b),
+      scatterCircleFromTwoPoints(a, c),
+      scatterCircleFromTwoPoints(b, c)
+    ];
+    let best = null;
+    candidates.forEach(candidate => {
+      if(!candidate){ return; }
+      if(!scatterPointInsideCircle(a, candidate) || !scatterPointInsideCircle(b, candidate) || !scatterPointInsideCircle(c, candidate)){
+        return;
+      }
+      if(!best || candidate.r < best.r){
+        best = candidate;
+      }
+    });
+    return best;
+  }
+
+  function computeScatterEnclosingCircle(points){
+    const pts = Array.isArray(points) ? points : [];
+    if(!pts.length){
+      return { cx: 0, cy: 0, r: 0 };
+    }
+    let circle = null;
+    for(let i = 0; i < pts.length; i += 1){
+      const p = pts[i];
+      if(circle && scatterPointInsideCircle(p, circle)){
+        continue;
+      }
+      circle = { cx: p.x, cy: p.y, r: 0 };
+      for(let j = 0; j < i; j += 1){
+        const q = pts[j];
+        if(scatterPointInsideCircle(q, circle)){
+          continue;
+        }
+        circle = scatterCircleFromTwoPoints(p, q);
+        for(let k = 0; k < j; k += 1){
+          const rPt = pts[k];
+          if(scatterPointInsideCircle(rPt, circle)){
+            continue;
+          }
+          const throughThree = scatterCircleFromThreePoints(p, q, rPt)
+            || scatterSmallestCircleForCollinear(p, q, rPt);
+          if(throughThree){
+            circle = throughThree;
+          }
+        }
+      }
+    }
+    return circle || { cx: 0, cy: 0, r: 0 };
+  }
+
   const SCATTER_LABEL_LINE_HEIGHT = 1.35;
   const SCATTER_LABEL_PADDING = 2;
   const SCATTER_LEADER_COLLISION_STEP = 8;
@@ -900,6 +984,141 @@
       }
     }
     return entries;
+  }
+
+  function placeVolcanoAnnotation(entry, context){
+    const dir = entry.dir || { x: entry.side === 'left' ? -1 : 1, y: 0 };
+    const minLeader = Math.max(context.minimumLeaderLength || 0, SCATTER_LEADER_MIN_LENGTH);
+    const desiredLeader = Math.max(entry.leaderLength || minLeader, minLeader);
+    let anchorX = entry.pointX + dir.x * desiredLeader;
+    let anchorY = entry.pointY + dir.y * desiredLeader;
+    const clampMinY = Number.isFinite(context.clampMinY) ? context.clampMinY : anchorY;
+    const clampMaxY = Number.isFinite(context.clampMaxY) ? context.clampMaxY : anchorY;
+    if(anchorY < clampMinY || anchorY > clampMaxY){
+      if(Math.abs(dir.y) > 1e-4){
+        const targetY = clampScatterValue(anchorY, clampMinY, clampMaxY);
+        const adjustedLength = (targetY - entry.pointY) / dir.y;
+        const bounded = clampScatterValue(
+          Math.abs(adjustedLength),
+          minLeader,
+          Math.max(minLeader, entry.maxLeaderLength || adjustedLength)
+        );
+        anchorY = entry.pointY + dir.y * bounded;
+        anchorX = entry.pointX + dir.x * bounded;
+        entry.leaderLength = bounded;
+      }else{
+        anchorY = clampScatterValue(anchorY, clampMinY, clampMaxY);
+      }
+    }
+    const textAnchor = dir.x >= 0 ? 'start' : 'end';
+    const offset = Math.max(context.textPad || 0, (context.labelPadding || 0) + 1.5);
+    const textX = anchorX + (textAnchor === 'start' ? offset : -offset);
+    const layout = {
+      label: entry.label,
+      pointIndex: entry.pointIndex,
+      textWidth: entry.textWidth,
+      textAnchor,
+      textX,
+      anchorY,
+      attachX: anchorX,
+      pointX: entry.pointX,
+      pointY: entry.pointY,
+      side: entry.side
+    };
+    layout.rect = computeAnnotationLabelRect(layout, context);
+    layout.segment = computeAnnotationSegment(layout);
+    return layout;
+  }
+
+  function findVolcanoAnnotationConflict(entries){
+    if(!Array.isArray(entries) || entries.length < 2){
+      return null;
+    }
+    for(let i = 0; i < entries.length; i += 1){
+      const aLayout = entries[i].layout;
+      if(!aLayout){ continue; }
+      for(let j = i + 1; j < entries.length; j += 1){
+        const bLayout = entries[j].layout;
+        if(!bLayout){ continue; }
+        if(rectanglesOverlap(aLayout.rect, bLayout.rect)){
+          return { a: entries[i], b: entries[j], type: 'label' };
+        }
+        if(segmentIntersectsRect(aLayout.segment, bLayout.rect) || segmentIntersectsRect(bLayout.segment, aLayout.rect) || segmentsIntersect(aLayout.segment, bLayout.segment)){
+          return { a: entries[i], b: entries[j], type: 'leader' };
+        }
+      }
+    }
+    return null;
+  }
+
+  function layoutScatterVolcanoCloud(entries, context){
+    if(!Array.isArray(entries) || !entries.length){
+      return [];
+    }
+    const maxLeaderScale = Number.isFinite(context.maxLeaderScale) ? context.maxLeaderScale : 1.5;
+    const results = entries.map(entry => {
+      const dx = entry.pointX - context.circle.cx;
+      const dy = entry.pointY - context.circle.cy;
+      const distance = Math.hypot(dx, dy);
+      const dirX = distance > 1e-3 ? dx / distance : (entry.side === 'left' ? -1 : 1);
+      const dirY = distance > 1e-3 ? dy / distance : -0.05;
+      const baseLeader = Math.max(
+        context.minimumLeaderLength || SCATTER_LEADER_MIN_LENGTH,
+        (context.textPad || 0) * 2 + entry.textWidth * 0.25,
+        (context.circle.r || 0) * 0.12,
+        context.leaderPad || SCATTER_LEADER_MIN_LENGTH
+      );
+      const maxLeader = Math.max(baseLeader, baseLeader * maxLeaderScale);
+      const enriched = {
+        ...entry,
+        dir: { x: dirX, y: dirY },
+        leaderLength: baseLeader,
+        maxLeaderLength: maxLeader,
+        distanceFromCenter: distance
+      };
+      enriched.layout = placeVolcanoAnnotation(enriched, context);
+      return enriched;
+    });
+    const extensionStep = Math.max(context.extensionStep || 0, Math.max(context.leaderPad || 0, 8) * 0.25, 3);
+    const maxIterations = 48;
+    for(let iter = 0; iter < maxIterations; iter += 1){
+      const conflict = findVolcanoAnnotationConflict(results);
+      if(!conflict){
+        break;
+      }
+      const farther = (conflict.a.distanceFromCenter || 0) >= (conflict.b.distanceFromCenter || 0) ? conflict.a : conflict.b;
+      let extended = false;
+      const targetNext = Math.min(farther.maxLeaderLength, farther.leaderLength + extensionStep);
+      if(targetNext > farther.leaderLength + 1e-3){
+        farther.leaderLength = targetNext;
+        farther.layout = placeVolcanoAnnotation(farther, context);
+        extended = true;
+      }
+      if(!extended){
+        const other = farther === conflict.a ? conflict.b : conflict.a;
+        const otherNext = Math.min(other.maxLeaderLength, other.leaderLength + extensionStep);
+        if(otherNext > other.leaderLength + 1e-3){
+          other.leaderLength = otherNext;
+          other.layout = placeVolcanoAnnotation(other, context);
+          extended = true;
+        }
+      }
+      if(!extended){
+        break;
+      }
+    }
+    return results.map(entry => ({
+      label: entry.label,
+      pointIndex: entry.pointIndex,
+      textWidth: entry.textWidth,
+      textAnchor: entry.layout?.textAnchor || (entry.side === 'left' ? 'end' : 'start'),
+      textX: entry.layout?.textX ?? entry.pointX,
+      anchorY: entry.layout?.anchorY ?? entry.pointY,
+      attachX: entry.layout?.attachX ?? entry.pointX,
+      pointX: entry.pointX,
+      pointY: entry.pointY,
+      side: entry.side
+    }));
   }
 
   function enforceAnnotationMinimumSpacing(entries, context){
@@ -1394,6 +1613,9 @@
     if(!requestEntries.length){
       return [];
     }
+    if((params?.graphType || '').toLowerCase() === 'volcano'){
+      return layoutVolcanoAnnotationsInternal(requestEntries, params);
+    }
     const margin = params.margin || { top: 0, left: 0 };
     const plotH = Number.isFinite(params.plotH) ? params.plotH : 0;
     const minY = margin.top;
@@ -1473,6 +1695,67 @@
       results.push(...rightLayouts);
     }
     return results;
+  }
+
+  function layoutVolcanoAnnotationsInternal(requestEntries, params){
+    if(!Array.isArray(requestEntries) || !requestEntries.length){
+      return [];
+    }
+    const margin = params.margin || { top: 0, left: 0 };
+    const plotW = Number.isFinite(params.plotW) ? params.plotW : 0;
+    const plotH = Number.isFinite(params.plotH) ? params.plotH : 0;
+    const minY = margin.top;
+    const maxY = margin.top + plotH;
+    const fontSize = Math.max(6, Number(params?.fontSize) || 10);
+    const textPad = Math.max(2, Number(params?.textPadding) || 4);
+    const leaderPad = Math.max(6, Number(params?.leaderPadding) || 10);
+    const axisPadding = Math.max(4, Number(params?.axisPadding) || 8);
+    const verticalPadding = Math.max(axisPadding, Number(params?.verticalPadding) || axisPadding);
+    const labelLineHeight = Math.max(fontSize * SCATTER_LABEL_LINE_HEIGHT, fontSize + 4);
+    const labelPadding = Math.max(SCATTER_LABEL_PADDING, textPad * 0.35);
+    const clampMinY = Math.min(minY + verticalPadding, maxY - verticalPadding);
+    const clampMaxY = Math.max(minY + verticalPadding, maxY - verticalPadding);
+    const plotLeft = margin.left;
+    const plotRight = margin.left + plotW;
+    const labelRegionExtra = Math.max(leaderPad * 3, textPad * 8, 90);
+    const circlePadding = Math.max(leaderPad * 0.35, textPad * 1.5, 6);
+    const baseContext = {
+      fontSize,
+      labelLineHeight,
+      labelPadding,
+      textPad,
+      clampMinY,
+      clampMaxY,
+      minimumLeaderLength: Math.max(leaderPad * 0.6, SCATTER_LEADER_MIN_LENGTH),
+      leaderPad,
+      extensionStep: Math.max(leaderPad * 0.25, 4),
+      maxLeaderScale: 1.5,
+      outerLeft: plotLeft - labelRegionExtra,
+      outerRight: plotRight + labelRegionExtra,
+      labelOffset: Math.max(3, textPad * 0.8)
+    };
+    const grouped = { left: [], right: [] };
+    requestEntries.forEach(entry => {
+      const side = entry.side === 'left' ? 'left' : 'right';
+      grouped[side].push(entry);
+    });
+    const layouts = [];
+    ['left', 'right'].forEach(side => {
+      const group = grouped[side];
+      if(!group.length){
+        return;
+      }
+      const circleRaw = computeScatterEnclosingCircle(group.map(item => ({ x: item.pointX, y: item.pointY })));
+      const circle = {
+        cx: circleRaw.cx,
+        cy: circleRaw.cy,
+        r: Math.max(0, (circleRaw.r || 0) + circlePadding)
+      };
+      const context = { ...baseContext, circle, side };
+      const sideLayouts = layoutScatterVolcanoCloud(group, context);
+      layouts.push(...sideLayouts);
+    });
+    return layouts;
   }
 
   function showScatterTooltip(data, evt){
@@ -5457,6 +5740,7 @@
             leaderGap: Math.max(annotationLeaderPadding * 1.25, annotationLeaderPadding + 4),
             textPadding: annotationTextPadding,
             axisPadding: annotationAxisPadding,
+            graphType: scatterCurrentGraphType,
             verticalPadding: Math.max(
               annotationAxisPadding * 0.6 * Math.max(0.6, annotationCrowdingScale),
               fs * 0.6 * Math.max(0.6, annotationCrowdingScale),
@@ -6463,4 +6747,3 @@
   });
 
 })(window);
-
