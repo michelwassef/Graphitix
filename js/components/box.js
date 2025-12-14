@@ -4041,7 +4041,8 @@
       const hasFile = !!(fileInput?.files && fileInput.files[0]);
       let forcedOverlay = false;
       if(hasFile){
-        forcedOverlay = !!forceBoxOverlay('file-import-start', { message: 'Importing table data...' });
+        forcedOverlay = !!forceBoxOverlay('file-import', { message: 'Importing table data...' });
+        markBoxOverlayPending('file-import');
       }
       const importPromise = tableImport.openFile(fileInput, {
         hot: state.hot,
@@ -4049,10 +4050,15 @@
         minRows: DEFAULT_ROWS,
         scheduleDraw: () => {
           markBoxOverlayPending('file-import');
-          state.scheduleDraw();
+          state.scheduleDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
         },
         debugLabel: 'box',
-        onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols})
+        onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols}),
+        onCompleted: () => {
+          const renderReason = 'import-load';
+          markBoxOverlayPending(renderReason);
+          forceBoxOverlay(renderReason, { message: 'Rendering box plot...' });
+        }
       });
       Promise.resolve(importPromise).then(result => {
         if(!result && forcedOverlay){
@@ -11278,4 +11284,3 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts)
   });
 })(window);
-
