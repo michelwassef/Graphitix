@@ -1511,7 +1511,11 @@
       ? axisSpacing * stripScale * spreadFactor
       : pointRadiusValue * 2.2 * spreadFactor;
     globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
-    const minGap = pointRadiusValue * 1.6;
+    // minGap is the preferred minimum distance between point centers.
+    // For very dense bins we allow this to shrink (allow overlap) down to
+    // a conservative lower bound so all points can be placed horizontally.
+    const PREFERRED_GAP_FACTOR = 1.6;
+    const MIN_GAP_FACTOR = 0.1; // allow up to ~90% overlap when needed (more aggressive)
     let maxUsed = 0;
     bins.forEach(bin => {
       const n = bin.count;
@@ -1525,9 +1529,28 @@
       if(axisBoundary > 0){
         halfWidth = Math.min(halfWidth, axisBoundary);
       }
-      const requiredHalfWidth = (n - 1) * minGap / 2;
+      // compute required half-width given a gap factor; allow shrinking gap
+      // progressively if the preferred gap does not fit.
+      let gapFactor = PREFERRED_GAP_FACTOR;
+      let minGap = pointRadiusValue * gapFactor;
+      let requiredHalfWidth = (n - 1) * minGap / 2;
       if(halfWidth < requiredHalfWidth){
-        halfWidth = Math.min(requiredHalfWidth, axisBoundary || requiredHalfWidth);
+        // progressively reduce gapFactor down to MIN_GAP_FACTOR to try to fit
+        while(halfWidth < requiredHalfWidth && gapFactor > MIN_GAP_FACTOR){
+          gapFactor = Math.max(MIN_GAP_FACTOR, gapFactor * 0.85);
+          minGap = pointRadiusValue * gapFactor;
+          requiredHalfWidth = (n - 1) * minGap / 2;
+          // break if gapFactor can't reduce further
+          if(gapFactor === MIN_GAP_FACTOR) break;
+        }
+        // If still doesn't fit and axisBoundary is non-zero, clamp to axisBoundary.
+        if(halfWidth < requiredHalfWidth && axisBoundary > 0){
+          halfWidth = Math.min(requiredHalfWidth, axisBoundary);
+        } else if(halfWidth < requiredHalfWidth){
+          // allow halfWidth to remain smaller; we'll still compute offsets
+          // with the reduced gapFactor which permits overlap.
+          // keep halfWidth as-is (globalMaxHalfWidth * normalized)
+        }
       }
       if(!Number.isFinite(halfWidth) || halfWidth <= 0){
         bin.members.forEach(member => {
@@ -1536,6 +1559,8 @@
         return;
       }
       const ordered = bin.members.slice().sort((a, b) => a.index - b.index);
+      // If we reduced gapFactor earlier, compute step based on the effective
+      // spacing implied by current halfWidth (may produce overlap if needed).
       const step = n > 1 ? (halfWidth * 2) / (n - 1) : 0;
       for(let i = 0; i < n; i++){
         const offset = n === 1 ? 0 : -halfWidth + step * i;
