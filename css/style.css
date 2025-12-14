@@ -511,7 +511,6 @@ select {
 }
 .ag-theme-balham .ag-cell.hot-selected-cell {
     background: rgba(26, 115, 232, 0.12);
-    box-shadow: inset 0 0 0 1px rgba(26, 115, 232, 0.9);
 }
 .ag-theme-balham .ag-cell.hot-copy-highlight-cell {
     outline: 2px dotted var(--hot-copy-highlight-color, #1a73e8);
