@@ -664,7 +664,8 @@
         const hasFile = !!(histFileInput?.files && histFileInput.files[0]);
         let forcedOverlay = false;
         if(hasFile){
-          forcedOverlay = !!forceHistOverlay('file-import-start', { message: 'Importing table data...' });
+          forcedOverlay = !!forceHistOverlay('file-import', { message: 'Importing table data...' });
+          markHistOverlayPending('file-import');
         }
         const importPromise = tableImport.openFile(histFileInput, {
           hot: state.hot,
@@ -672,10 +673,15 @@
           minRows: HIST_DEFAULT_ROWS,
           scheduleDraw: () => {
             markHistOverlayPending('file-import');
-            state.scheduleDraw();
+            state.scheduleDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'hist',
-          onProcessed: info => console.log('hist data imported',{rows: info?.rows, cols: info?.cols})
+          onProcessed: info => console.log('hist data imported',{rows: info?.rows, cols: info?.cols}),
+          onCompleted: () => {
+            const renderReason = 'import-load';
+            markHistOverlayPending(renderReason);
+            forceHistOverlay(renderReason, { message: 'Rendering histogram...' });
+          }
         });
         Promise.resolve(importPromise).then(result => {
           if(!result && forcedOverlay){
@@ -1747,5 +1753,4 @@
   };
 
 })(window);
-
 

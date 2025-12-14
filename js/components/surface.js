@@ -914,7 +914,8 @@
         const hasFile = !!(state.controls.importFile?.files && state.controls.importFile.files[0]);
         let forcedOverlay = false;
         if(hasFile){
-          forcedOverlay = !!forceSurfaceOverlay('file-import-start', { message: 'Importing table data...' });
+          forcedOverlay = !!forceSurfaceOverlay('file-import', { message: 'Importing table data...' });
+          markSurfaceOverlayPending('file-import');
         }
         tableImport.openFile(state.controls.importFile, {
           hot: state.hot,
@@ -922,12 +923,17 @@
           minRows: 5,
           scheduleDraw: () => {
             markSurfaceOverlayPending('file-import');
-            state.scheduleDraw?.();
+            state.scheduleDraw?.({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'surface',
           onProcessed: info => {
             debugLog('Debug: surface data imported', info);
             updateAxisOptions();
+          },
+          onCompleted: () => {
+            const renderReason = 'import-load';
+            markSurfaceOverlayPending(renderReason);
+            forceSurfaceOverlay(renderReason, { message: 'Rendering surface plot...' });
           }
         }).then(result => {
           if(!result && forcedOverlay){

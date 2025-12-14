@@ -2399,7 +2399,8 @@
         const hasFile = !!(pcaFileInput?.files && pcaFileInput.files[0]);
         let forcedOverlay = false;
         if(hasFile){
-          forcedOverlay = !!forcePcaOverlay('file-import-start', { message: 'Importing table data...' });
+          forcedOverlay = !!forcePcaOverlay('file-import', { message: 'Importing table data...' });
+          markPcaOverlayPending('file-import');
         }
         try{
           const result = await tableImport.openFile(pcaFileInput, {
@@ -2409,13 +2410,18 @@
             scheduleDraw: () => {
               markPcaOverlayPending('file-import');
               evaluateAutoDrawThresholds();
-              scheduleDrawPca({ force: true, reason: 'import-load' });
+              scheduleDrawPca({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
             },
             debugLabel: 'pca',
             onProcessed: info => {
               console.log('pca data imported',{rows: info?.rows, cols: info?.cols});
               updatePcaDataShape({ rows: info?.rows, cols: info?.cols });
               evaluateAutoDrawThresholds();
+            },
+            onCompleted: () => {
+              const renderReason = 'import-load';
+              markPcaOverlayPending(renderReason);
+              forcePcaOverlay(renderReason, { message: 'Rendering PCA view...' });
             }
           });
           if(!result && forcedOverlay){

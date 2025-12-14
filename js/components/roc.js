@@ -960,7 +960,8 @@
       const hasFile = !!(refs.fileInput?.files && refs.fileInput.files[0]);
       let forcedOverlay = false;
       if(hasFile){
-        forcedOverlay = !!forceRocOverlay('file-import-start', { message: 'Importing table data...' });
+        forcedOverlay = !!forceRocOverlay('file-import', { message: 'Importing table data...' });
+        markRocOverlayPending('file-import');
       }
       const fileName = refs.fileInput?.files?.[0]?.name || '';
       console.debug('Debug: ROC import start', {fileName}); // Debug: import start trace
@@ -971,11 +972,16 @@
           minRows: DEFAULT_ROWS,
           scheduleDraw: () => {
             markRocOverlayPending('file-import');
-            state.scheduleDraw?.();
+            state.scheduleDraw?.({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'roc',
           onProcessed: info => {
             console.debug('Debug: ROC tableImport processed', info || {}); // Debug: processed callback
+          },
+          onCompleted: () => {
+            const renderReason = 'import-load';
+            markRocOverlayPending(renderReason);
+            forceRocOverlay(renderReason, { message: 'Rendering ROC/PR plot...' });
           }
         });
         if(!result && forcedOverlay){
@@ -2362,5 +2368,4 @@
     }
   };
 })(window);
-
 

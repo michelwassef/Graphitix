@@ -5195,7 +5195,8 @@
       const hasFile = !!(e.target.files && e.target.files[0]);
       let forcedOverlay = false;
       if(hasFile){
-        forcedOverlay = !!forceLineOverlay('file-import-start', { message: 'Importing table data...' });
+        forcedOverlay = !!forceLineOverlay('file-import', { message: 'Importing table data...' });
+        markLineOverlayPending('file-import');
       }
       console.debug('Debug: line import start',{fileName}); // Debug: import start trace
       try{
@@ -5205,11 +5206,16 @@
           minRows: DEFAULT_ROWS,
           scheduleDraw: () => {
             markLineOverlayPending('file-import');
-            scheduleLineDraw();
+            scheduleLineDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'line',
           onProcessed: info => {
             console.debug('Debug: line tableImport processed', info || {}); // Debug: processed callback
+          },
+          onCompleted: () => {
+            const renderReason = 'import-load';
+            markLineOverlayPending(renderReason);
+            forceLineOverlay(renderReason, { message: 'Rendering line graph...' });
           }
         });
         if(!result && forcedOverlay){
@@ -5542,4 +5548,3 @@
   };
 
 })(window);
-
