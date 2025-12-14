@@ -2,6 +2,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
   let originalAgGrid;
   let capturedGridOptions;
   let capturedApi;
+  let originalClipboard;
 
   beforeEach(() => {
     jest.resetModules();
@@ -9,6 +10,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     capturedApi = null;
 
     originalAgGrid = global.window?.agGrid;
+    originalClipboard = global.window?.navigator?.clipboard;
     const api = {
       refreshCells: jest.fn(),
       setRowData: jest.fn(next => {
@@ -37,6 +39,9 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
   afterEach(() => {
     global.window.agGrid = originalAgGrid;
+    if (global.window?.navigator) {
+      global.window.navigator.clipboard = originalClipboard;
+    }
     capturedGridOptions = null;
     capturedApi = null;
   });
@@ -64,6 +69,41 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     container.dispatchEvent(evt);
 
     expect(evt.defaultPrevented).toBe(true);
+    expect(hot.getDataAtCell(0, 0)).toBe('X');
+  });
+
+  test('paste handler stops other paste listeners (capture)', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteStopImmediateHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-stop-immediate',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    hot.selectCell(0, 0);
+
+    const spy = jest.fn();
+    container.addEventListener(
+      'paste',
+      () => {
+        spy();
+      },
+      true
+    );
+
+    const evt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    evt.clipboardData = { getData: () => 'X' };
+    container.dispatchEvent(evt);
+
+    expect(spy).toHaveBeenCalledTimes(0);
     expect(hot.getDataAtCell(0, 0)).toBe('X');
   });
 
@@ -230,5 +270,146 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(colDef.cellClassRules['hot-cell-excluded-cell'](params)).toBe(true);
     expect(colDef.cellClassRules['hot-cell-excluded-row'](params)).toBe(false);
     expect(colDef.cellClassRules['hot-cell-excluded-column'](params)).toBe(false);
+  });
+
+  test('clicking column header selects the full column', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agColHeaderSelectHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-col-header-select', data: Shared.createEmptyData(4, 3) }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+
+    const evt = new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 });
+    header.dispatchEvent(evt);
+
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+  });
+
+  test('clicking row header selects the full row', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agRowHeaderSelectHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-row-header-select', data: Shared.createEmptyData(4, 3) }
+    );
+
+    const row = document.createElement('div');
+    row.className = 'ag-row';
+    row.setAttribute('row-index', '2');
+
+    const cell = document.createElement('div');
+    cell.className = 'ag-cell hot-row-header';
+    cell.setAttribute('col-id', '__rowHeader');
+    row.appendChild(cell);
+    container.appendChild(row);
+
+    const evt = new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 });
+    cell.dispatchEvent(evt);
+
+    expect(hot.getSelectedLast()).toEqual([2, 0, 2, 11]);
+  });
+
+  test('Delete clears all selected cells', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agDeleteSelectionHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-delete-selection',
+        data: [
+          ['H1', 'H2', 'H3'],
+          ['A', 'B', 'C'],
+          ['D', 'E', 'F']
+        ]
+      }
+    );
+
+    hot.selectCell(1, 0, 2, 1);
+
+    const evt = new global.window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Delete', keyCode: 46 });
+    container.dispatchEvent(evt);
+
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+    expect(hot.getDataAtCell(1, 1)).toBe('');
+    expect(hot.getDataAtCell(2, 0)).toBe('');
+    expect(hot.getDataAtCell(2, 1)).toBe('');
+    expect(hot.getDataAtCell(1, 2)).toBe('C');
+  });
+
+  test('undo after cut+paste restores both source and destination', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agUndoMoveHot';
+    document.body.appendChild(container);
+
+    let clipboardText = '';
+    global.window.navigator.clipboard = {
+      writeText: jest.fn(async text => {
+        clipboardText = text;
+      })
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-undo-move',
+        data: [
+          ['H1', 'H2', 'H3'],
+          ['A', '', ''],
+          ['', '', '']
+        ]
+      }
+    );
+
+    hot.selectCell(1, 0);
+
+    const cutEvt = new global.window.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'x',
+      ctrlKey: true
+    });
+    container.dispatchEvent(cutEvt);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(clipboardText.trim()).toBe('A');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+
+    hot.selectCell(1, 1);
+    const pasteEvt = new global.window.Event('paste', { bubbles: true, cancelable: true });
+    pasteEvt.clipboardData = { getData: () => clipboardText };
+    container.dispatchEvent(pasteEvt);
+
+    expect(hot.getDataAtCell(1, 1)).toBe('A');
+    expect(hot.getDataAtCell(1, 0)).toBe('');
+
+    expect(typeof hot.undo).toBe('function');
+    hot.undo();
+
+    expect(hot.getDataAtCell(1, 0)).toBe('A');
+    expect(hot.getDataAtCell(1, 1)).toBe('');
   });
 });
