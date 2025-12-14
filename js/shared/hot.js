@@ -662,8 +662,8 @@
     const userAfterRemoveCol = hotOptions.afterRemoveCol;
     const userAfterColumnMove = hotOptions.afterColumnMove;
     const userBeforeKeyDown = hotOptions.beforeKeyDown;
-    const colHeadersOption = hotOptions.colHeaders;
-    const rowHeadersOption = hotOptions.rowHeaders;
+    let colHeadersSetting = hotOptions.colHeaders;
+    let rowHeadersSetting = hotOptions.rowHeaders;
     const headerWidthManager = { invalidateColumns: noop, reset: noop }; // placeholder for compat
     const hasEnterprise = !!(global.agGrid?.ModuleRegistry?.registeredModules && global.agGrid.ModuleRegistry.registeredModules.some(mod => /Enterprise/i.test(mod?.moduleName || '')));
 
@@ -695,17 +695,27 @@
     const dataHandle = { current: data };
     recordCall('construct', { containerId: container?.id || null, rows: data.length, cols: colCount });
     const resolveColHeaders = (count)=>{
-      if(Array.isArray(colHeadersOption)){
-        return colHeadersOption.slice(0, count).concat(Array.from({ length: Math.max(0, count - colHeadersOption.length) }, (_, idx)=>`Column ${colHeadersOption.length + idx + 1}`));
+      if(Array.isArray(colHeadersSetting)){
+        return colHeadersSetting.slice(0, count).concat(Array.from({ length: Math.max(0, count - colHeadersSetting.length) }, (_, idx)=>`Column ${colHeadersSetting.length + idx + 1}`));
       }
-      if(colHeadersOption === false){
+      if(typeof colHeadersSetting === 'function'){
+        return Array.from({ length: count }, (_, idx)=>{
+          try{
+            const label = colHeadersSetting(idx);
+            return label == null ? '' : String(label);
+          }catch(err){
+            return `Column ${idx + 1}`;
+          }
+        });
+      }
+      if(colHeadersSetting === false){
         return null;
       }
       return Array.from({ length: count }, (_, idx)=>`Column ${idx + 1}`);
     };
     let colHeaders = resolveColHeaders(colCount);
-    const colHeadersEnabled = colHeadersOption !== false;
-    const rowHeadersEnabled = rowHeadersOption !== false;
+    let colHeadersEnabled = colHeadersSetting !== false;
+    let rowHeadersEnabled = rowHeadersSetting !== false;
 
     const exclusionController = createExclusionController(()=>instance, debugLabel, (scope)=>{
       triggerSchedule(scope || 'exclusion-change', { scope });
@@ -755,28 +765,281 @@
     addHook('afterColumnMove', userAfterColumnMove);
     addHook('beforeKeyDown', userBeforeKeyDown);
 
+    let lastRange = null;
+    let copyHighlightRange = null;
+    let normalizedSelectionRange = null;
+    let normalizedCopyHighlightRange = null;
+
+    const normalizeRange = (range)=>{
+      if(!range || !range.from || !range.to){
+        return null;
+      }
+      const fromRow = Number(range.from.row);
+      const fromCol = Number(range.from.col);
+      const toRow = Number(range.to.row);
+      const toCol = Number(range.to.col);
+      if(!Number.isInteger(fromRow) || !Number.isInteger(fromCol) || !Number.isInteger(toRow) || !Number.isInteger(toCol)){
+        return null;
+      }
+      return {
+        from: { row: Math.min(fromRow, toRow), col: Math.min(fromCol, toCol) },
+        to: { row: Math.max(fromRow, toRow), col: Math.max(fromCol, toCol) }
+      };
+    };
+
+    const setLastRange = (range)=>{
+      lastRange = range || null;
+      normalizedSelectionRange = normalizeRange(lastRange);
+    };
+
+    const setCopyHighlightRange = (range)=>{
+      copyHighlightRange = range || null;
+      normalizedCopyHighlightRange = normalizeRange(copyHighlightRange);
+    };
+
+    const cleanupFns = [];
+    const runCleanup = ()=>{
+      while(cleanupFns.length){
+        const fn = cleanupFns.pop();
+        try{
+          fn?.();
+        }catch(err){
+          // best-effort cleanup
+        }
+      }
+    };
+
+    let isDragSelecting = false;
+    let dragAnchor = null;
+    let suppressNextCellClick = false;
+    let pendingDragCell = null;
+    let dragRafPending = false;
+
+    const MAX_CLIPBOARD_CELLS = 200000;
+
+    const buildClipboardTextFromRange = (range)=>{
+      const normalized = normalizeRange(range);
+      if(!normalized){
+        return null;
+      }
+      const rowCountLocal = normalized.to.row - normalized.from.row + 1;
+      const colCountLocal = normalized.to.col - normalized.from.col + 1;
+      if(rowCountLocal <= 0 || colCountLocal <= 0){
+        return '';
+      }
+      const totalCells = rowCountLocal * colCountLocal;
+      if(totalCells > MAX_CLIPBOARD_CELLS){
+        console.warn('Shared.hot AG copy skipped: selection too large', { debugLabel, totalCells, limit: MAX_CLIPBOARD_CELLS });
+        return null;
+      }
+      const matrix = dataHandle.current;
+      const lines = [];
+      for(let r = normalized.from.row; r <= normalized.to.row; r++){
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        const values = [];
+        for(let c = normalized.from.col; c <= normalized.to.col; c++){
+          const value = row[c];
+          values.push(value == null ? '' : String(value));
+        }
+        lines.push(values.join('\t'));
+      }
+      return lines.join('\n');
+    };
+
+    const writeClipboardText = async (text)=>{
+      if(typeof text !== 'string'){
+        return false;
+      }
+      try{
+        if(typeof navigator?.clipboard?.writeText === 'function'){
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+      }catch(err){
+        // fallback below
+      }
+      try{
+        const doc = container?.ownerDocument || document;
+        const textarea = doc.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '0';
+        textarea.style.opacity = '0';
+        doc.body.appendChild(textarea);
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+        const ok = typeof doc.execCommand === 'function' ? doc.execCommand('copy') : false;
+        doc.body.removeChild(textarea);
+        return !!ok;
+      }catch(err){
+        return false;
+      }
+    };
+
+    const fireAfterCopy = (normalized)=>{
+      if(!normalized){
+        return;
+      }
+      const coords = [{
+        startRow: normalized.from.row,
+        startCol: normalized.from.col,
+        endRow: normalized.to.row,
+        endCol: normalized.to.col
+      }];
+      fireHook('afterCopy', null, coords);
+    };
+
+    const copySelectionToClipboard = async ()=>{
+      const normalized = normalizedSelectionRange || normalizeRange(lastRange);
+      const text = buildClipboardTextFromRange(normalized);
+      if(text == null){
+        return false;
+      }
+      const ok = await writeClipboardText(text);
+      if(ok){
+        setCopyHighlightRange(normalized);
+        renderAg(instance.gridApi);
+        fireAfterCopy(normalized);
+      }
+      return ok;
+    };
+
+    const cutSelectionToClipboard = async ()=>{
+      const normalized = normalizedSelectionRange || normalizeRange(lastRange);
+      const text = buildClipboardTextFromRange(normalized);
+      if(text == null || !normalized){
+        return false;
+      }
+      const ok = await writeClipboardText(text);
+      if(!ok){
+        return false;
+      }
+      fireAfterCopy(normalized);
+      const rowCountLocal = normalized.to.row - normalized.from.row + 1;
+      const colCountLocal = normalized.to.col - normalized.from.col + 1;
+      const totalCells = rowCountLocal * colCountLocal;
+      if(totalCells > MAX_CLIPBOARD_CELLS){
+        return true;
+      }
+      const changes = [];
+      for(let r = normalized.from.row; r <= normalized.to.row; r++){
+        for(let c = normalized.from.col; c <= normalized.to.col; c++){
+          changes.push([r, c, '']);
+        }
+      }
+      instance.setDataAtCell(changes, 'cut');
+      setCopyHighlightRange(null);
+      renderAg(instance.gridApi);
+      return true;
+    };
+
     const buildRowData = ()=>Shared.agGrid?.buildRowData
       ? Shared.agGrid.buildRowData(dataHandle.current)
       : Array.from({ length: dataHandle.current.length }, (_, idx)=>({ __rowIndex: idx }));
     let rowData = buildRowData();
 
-    const buildColumnDefs = ()=>Shared.agGrid?.createColumnDefs
-      ? Shared.agGrid.createColumnDefs(colCount, { dataHandle, colHeaders })
-      : Array.from({ length: colCount }, (_, col)=>{
-        const headerName = colHeaders && colHeaders[col] ? colHeaders[col] : `Col ${col + 1}`;
-        return {
-          headerName,
-          colId: `c${col}`,
-          field: `c${col}`,
-          editable: true,
-          resizable: true,
-          cellClass: params => (treatFirstRowAsHeader && (params?.node?.rowIndex ?? 0) === 0) ? firstRowClassName : null
+    const buildRowHeaderColDef = ()=>{
+      if(!rowHeadersEnabled){
+        return null;
+      }
+      return {
+        headerName: '',
+        colId: '__rowHeader',
+        pinned: 'left',
+        lockPinned: true,
+        suppressMovable: true,
+        suppressNavigable: true,
+        editable: false,
+        resizable: false,
+        width: 56,
+        valueGetter(params){
+          const rowIndex = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? 0;
+          if(typeof rowHeadersSetting === 'function'){
+            try{
+              const label = rowHeadersSetting(rowIndex);
+              return label == null ? '' : String(label);
+            }catch(err){
+              return String(rowIndex + 1);
+            }
+          }
+          return String(rowIndex + 1);
+        },
+        cellClass: 'hot-row-header',
+        headerClass: 'hot-row-header'
+      };
+    };
+
+    const buildColumnDefs = ()=>{
+      const dataColumnDefs = Shared.agGrid?.createColumnDefs
+        ? Shared.agGrid.createColumnDefs(colCount, { dataHandle, colHeaders })
+        : Array.from({ length: colCount }, (_, col)=>{
+          const headerName = colHeaders && colHeaders[col] ? colHeaders[col] : `Col ${col + 1}`;
+          return {
+            headerName,
+            colId: `c${col}`,
+            field: `c${col}`,
+            editable: true,
+            resizable: true,
+            cellClass: params => (treatFirstRowAsHeader && (params?.node?.rowIndex ?? 0) === 0) ? firstRowClassName : null
+          };
+        });
+      const enhancedDataColumnDefs = dataColumnDefs.map(def=>{
+        if(!def || typeof def !== 'object'){
+          return def;
+        }
+        const existing = def.cellClassRules && typeof def.cellClassRules === 'object'
+          ? Object.assign({}, def.cellClassRules)
+          : {};
+        existing['hot-selected-cell'] = params=>{
+          if(!normalizedSelectionRange){
+            return false;
+          }
+          const rowIndex = params?.node?.rowIndex ?? params?.rowIndex;
+          const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
+          if(!Number.isInteger(rowIndex)){
+            return false;
+          }
+          const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          if(!Number.isInteger(col)){
+            return false;
+          }
+          return rowIndex >= normalizedSelectionRange.from.row
+            && rowIndex <= normalizedSelectionRange.to.row
+            && col >= normalizedSelectionRange.from.col
+            && col <= normalizedSelectionRange.to.col;
         };
+        existing['hot-copy-highlight-cell'] = params=>{
+          if(!normalizedCopyHighlightRange){
+            return false;
+          }
+          const rowIndex = params?.node?.rowIndex ?? params?.rowIndex;
+          const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
+          if(!Number.isInteger(rowIndex)){
+            return false;
+          }
+          const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          if(!Number.isInteger(col)){
+            return false;
+          }
+          return rowIndex >= normalizedCopyHighlightRange.from.row
+            && rowIndex <= normalizedCopyHighlightRange.to.row
+            && col >= normalizedCopyHighlightRange.from.col
+            && col <= normalizedCopyHighlightRange.to.col;
+        };
+        def.cellClassRules = existing;
+        return def;
       });
+      const rowHeaderCol = buildRowHeaderColDef();
+      return rowHeaderCol ? [rowHeaderCol, ...enhancedDataColumnDefs] : enhancedDataColumnDefs;
+    };
     let columnDefs = buildColumnDefs();
 
-    let lastRange = null;
     const colIdToIndex = (id)=>{
+      if(id === '__rowHeader'){
+        return 0;
+      }
       if(typeof id === 'string' && id.startsWith('c')){
         const num = Number(id.slice(1));
         return Number.isFinite(num) ? num : 0;
@@ -798,10 +1061,11 @@
             const endColId = range.endColumn?.getColId?.() ?? startColId;
             const startCol = colIdToIndex(startColId);
             const endCol = colIdToIndex(endColId);
-            lastRange = {
+            setLastRange({
               from: { row: Math.min(startRow, endRow), col: Math.min(startCol, endCol) },
               to: { row: Math.max(startRow, endRow), col: Math.max(startCol, endCol) }
-            };
+            });
+            renderAg(api);
             fireHook('afterSelectionEnd', startRow, startCol, endRow, endCol);
             return;
           }
@@ -815,7 +1079,8 @@
           if(focused && Number.isInteger(focused.rowIndex)){
             const row = focused.rowIndex;
             const col = colIdToIndex(focused.column?.getColId?.());
-            lastRange = { from: { row, col }, to: { row, col } };
+            setLastRange({ from: { row, col }, to: { row, col } });
+            renderAg(api);
             fireHook('afterSelectionEnd', row, col, row, col);
           }
         }catch(err){
@@ -824,34 +1089,138 @@
       }
     };
 
+    let batchDepth = 0;
+    let pendingRender = false;
+    let pendingRebuildColumns = false;
+    let pendingSyncRowData = false;
+    let pendingSchedulePayload = null;
+
+    const applyColumnDefs = (api, defs)=>{
+      if(!api || !Array.isArray(defs)){
+        return;
+      }
+      try{
+        if(typeof api.setGridOption === 'function'){
+          api.setGridOption('columnDefs', defs);
+          return;
+        }
+        if(typeof api.setColumnDefs === 'function'){
+          api.setColumnDefs(defs);
+        }
+      }catch(err){
+        console.error('Shared.hot AG applyColumnDefs error', err);
+      }
+    };
+
+    const applyRowData = (api, rows)=>{
+      if(!api || !Array.isArray(rows)){
+        return;
+      }
+      try{
+        if(typeof api.setGridOption === 'function'){
+          api.setGridOption('rowData', rows);
+          return;
+        }
+        if(typeof api.setRowData === 'function'){
+          api.setRowData(rows);
+        }
+      }catch(err){
+        console.error('Shared.hot AG applyRowData error', err);
+      }
+    };
+
+    const applyHeaderHeight = (api, height)=>{
+      if(!api){
+        return;
+      }
+      try{
+        if(typeof api.setHeaderHeight === 'function'){
+          api.setHeaderHeight(height);
+          return;
+        }
+        if(typeof api.setGridOption === 'function'){
+          api.setGridOption('headerHeight', height);
+        }
+      }catch(err){
+        console.error('Shared.hot AG headerHeight update error', err);
+      }
+    };
+
     const triggerSchedule = (reason, meta)=>{
       if(!scheduleFn){
         return;
       }
+      const payload = Object.assign({ reason }, meta || {});
+      if(batchDepth > 0){
+        pendingSchedulePayload = payload;
+        return;
+      }
       try{
-        scheduleFn(Object.assign({ reason }, meta || {}));
+        scheduleFn(payload);
       }catch(err){
         console.error('Shared.hot AG schedule error', err);
       }
     };
 
     const renderAg = (api)=>{
+      if(batchDepth > 0){
+        pendingRender = true;
+        return;
+      }
       if(api && typeof api.refreshCells === 'function'){
-        api.refreshCells({ force: true });
+        try{
+          api.refreshCells({ force: true });
+        }catch(err){
+          console.error('Shared.hot AG refreshCells error', err);
+        }
       }
     };
 
     const rebuildColumns = (api)=>{
       columnDefs = buildColumnDefs();
-      if(api && typeof api.setColumnDefs === 'function'){
-        api.setColumnDefs(columnDefs);
+      if(batchDepth > 0){
+        pendingRebuildColumns = true;
+        return;
       }
+      applyColumnDefs(api, columnDefs);
+      applyHeaderHeight(api, colHeadersEnabled ? 24 : 0);
     };
 
     const syncRowData = (api)=>{
       rowData = buildRowData();
-      if(api && typeof api.setRowData === 'function'){
-        api.setRowData(rowData);
+      if(batchDepth > 0){
+        pendingSyncRowData = true;
+        return;
+      }
+      applyRowData(api, rowData);
+    };
+
+    const flushBatch = ()=>{
+      if(batchDepth > 0){
+        return;
+      }
+      const api = instance.gridApi;
+      if(pendingSyncRowData){
+        pendingSyncRowData = false;
+        applyRowData(api, rowData);
+      }
+      if(pendingRebuildColumns){
+        pendingRebuildColumns = false;
+        applyColumnDefs(api, columnDefs);
+        applyHeaderHeight(api, colHeadersEnabled ? 24 : 0);
+      }
+      if(pendingRender){
+        pendingRender = false;
+        renderAg(api);
+      }
+      if(pendingSchedulePayload){
+        const payload = pendingSchedulePayload;
+        pendingSchedulePayload = null;
+        try{
+          scheduleFn(payload);
+        }catch(err){
+          console.error('Shared.hot AG schedule flush error', err);
+        }
       }
     };
 
@@ -869,7 +1238,10 @@
       rootElement: container,
       __hotDebugLabel: debugLabel,
       __hotExclusionController: exclusionController,
-      __hotClearCopyHighlight: noop,
+      __hotClearCopyHighlight(){
+        setCopyHighlightRange(null);
+        renderAg(instance.gridApi);
+      },
       __hotRefreshHeaderWidths: noop,
       __hotHeaderWidthManager: headerWidthManager,
       getSettings(){
@@ -877,16 +1249,54 @@
       },
       updateSettings(opts){
         data = dataHandle.current;
-        if(opts && Number.isFinite(opts.minRows)){
-          ensureDims(data, opts.minRows, colCount);
+        if(!opts || typeof opts !== 'object'){
+          return;
         }
-        if(opts && Number.isFinite(opts.minCols)){
-          ensureDims(data, rowCount, Math.max(MIN_INPUT_COLS, opts.minCols));
-          colCount = Math.max(colCount, opts.minCols);
+        let needsSync = false;
+        let needsRebuild = false;
+
+        if(Object.prototype.hasOwnProperty.call(opts, 'rowHeaders')){
+          rowHeadersSetting = opts.rowHeaders;
+          rowHeadersEnabled = rowHeadersSetting !== false;
+          needsRebuild = true;
         }
-        dataHandle.current = data;
-        syncRowData(instance.gridApi);
-        rebuildColumns(instance.gridApi);
+        if(Object.prototype.hasOwnProperty.call(opts, 'colHeaders')){
+          colHeadersSetting = opts.colHeaders;
+          colHeadersEnabled = colHeadersSetting !== false;
+          needsRebuild = true;
+        }
+        if(Object.prototype.hasOwnProperty.call(opts, 'data') && Array.isArray(opts.data)){
+          data = ensureDims(opts.data, rowCount, colCount);
+          dataHandle.current = data;
+          needsSync = true;
+        }
+        if(Number.isFinite(opts.minRows)){
+          rowCount = Math.max(0, Number(opts.minRows));
+          ensureDims(data, rowCount, colCount);
+          dataHandle.current = data;
+          needsSync = true;
+        }
+        if(Number.isFinite(opts.minCols)){
+          colCount = Math.max(MIN_INPUT_COLS, Number(opts.minCols));
+          ensureDims(data, rowCount, colCount);
+          dataHandle.current = data;
+          needsSync = true;
+          needsRebuild = true;
+        }
+        if(Object.prototype.hasOwnProperty.call(opts, 'nestedHeaders')){
+          instance.__agNestedHeaders = opts.nestedHeaders;
+          needsRebuild = true;
+        }
+
+        if(needsRebuild){
+          colHeaders = resolveColHeaders(colCount);
+        }
+        if(needsSync){
+          syncRowData(instance.gridApi);
+        }
+        if(needsRebuild){
+          rebuildColumns(instance.gridApi);
+        }
         renderAg(instance.gridApi);
       },
       countRows(){ return dataHandle.current.length; },
@@ -916,16 +1326,22 @@
       toPhysicalRow(row){ return Number.isInteger(row) ? row : null; },
       toPhysicalColumn(col){ return Number.isInteger(col) ? col : null; },
       getSelectedLast(){
-        if(!lastRange){
+        if(!normalizedSelectionRange){
           return null;
         }
-        return [[lastRange.from.row, lastRange.from.col, lastRange.to.row, lastRange.to.col]];
+        return [
+          normalizedSelectionRange.from.row,
+          normalizedSelectionRange.from.col,
+          normalizedSelectionRange.to.row,
+          normalizedSelectionRange.to.col
+        ];
       },
       getSelectedRangeLast(){
-        return lastRange ? Object.assign({}, lastRange) : null;
+        return normalizedSelectionRange ? Object.assign({}, normalizedSelectionRange) : null;
       },
       selectCell(row, col){
-        lastRange = { from: { row, col }, to: { row, col } };
+        setLastRange({ from: { row, col }, to: { row, col } });
+        renderAg(instance.gridApi);
         fireHook('afterSelectionEnd', row, col, row, col);
       },
       getDataAtCell(row, col){
@@ -970,27 +1386,100 @@
         }
         return values;
       },
-      setDataAtCell(row, col, value){
+      setDataAtCell(rowOrChanges, colOrSource, value, source){
         data = dataHandle.current;
-        const r = Number(row);
-        const c = Number(col);
+        if(Array.isArray(rowOrChanges)){
+          const entries = rowOrChanges;
+          const changeSource = typeof colOrSource === 'string'
+            ? colOrSource
+            : (typeof source === 'string' ? source : 'edit');
+          if(!entries.length){
+            return;
+          }
+          let maxRow = -1;
+          let maxCol = -1;
+          for(let i = 0; i < entries.length; i++){
+            const entry = entries[i];
+            if(!Array.isArray(entry) || entry.length < 3){
+              continue;
+            }
+            const r = Number(entry[0]);
+            const c = Number(entry[1]);
+            if(!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0){
+              continue;
+            }
+            maxRow = Math.max(maxRow, r);
+            maxCol = Math.max(maxCol, c);
+          }
+          if(maxRow < 0 || maxCol < 0){
+            return;
+          }
+          const prevRows = data.length;
+          const prevCols = colCount;
+          ensureDims(data, Math.max(maxRow + 1, rowCount), Math.max(maxCol + 1, colCount));
+          const changesForHook = [];
+          for(let i = 0; i < entries.length; i++){
+            const entry = entries[i];
+            if(!Array.isArray(entry) || entry.length < 3){
+              continue;
+            }
+            const r = Number(entry[0]);
+            const c = Number(entry[1]);
+            if(!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0){
+              continue;
+            }
+            const hasOldAndNew = entry.length >= 4;
+            const prev = hasOldAndNew ? entry[2] : data[r][c];
+            const next = hasOldAndNew ? entry[3] : entry[2];
+            if(prev === next){
+              continue;
+            }
+            data[r][c] = next;
+            changesForHook.push([r, c, prev, next]);
+          }
+          if(!changesForHook.length){
+            return;
+          }
+          dataHandle.current = data;
+          if(data.length !== prevRows){
+            syncRowData(instance.gridApi);
+          }
+          if(colCount !== prevCols){
+            colHeaders = resolveColHeaders(colCount);
+            rebuildColumns(instance.gridApi);
+          }
+          fireHook('afterChange', changesForHook, changeSource);
+          triggerSchedule('afterChange', { source: changeSource });
+          renderAg(instance.gridApi);
+          return;
+        }
+        const r = Number(rowOrChanges);
+        const c = Number(colOrSource);
+        const changeSource = typeof source === 'string' ? source : 'edit';
         if(!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0){
           return;
         }
+        const prevCols = colCount;
         ensureDims(data, Math.max(r + 1, rowCount), Math.max(c + 1, colCount));
         const prev = data[r][c];
+        if(prev === value){
+          return;
+        }
         data[r][c] = value;
         dataHandle.current = data;
-        syncRowData(instance.gridApi);
-        rebuildColumns(instance.gridApi);
-        fireHook('afterChange', [[r, c, prev, value]], 'edit');
-        triggerSchedule('afterChange', { source: 'edit' });
+        if(colCount !== prevCols){
+          colHeaders = resolveColHeaders(colCount);
+          rebuildColumns(instance.gridApi);
+        }
+        fireHook('afterChange', [[r, c, prev, value]], changeSource);
+        triggerSchedule('afterChange', { source: changeSource });
         renderAg(instance.gridApi);
       },
       loadData(nextData){
         const existingExclusions = preserveExclusionsOnLoad ? exclusionController.exportState() : null;
         data = Array.isArray(nextData) ? ensureDims(nextData, rowCount, colCount) : createEmptyData(rowCount, colCount);
         dataHandle.current = data;
+        colHeaders = resolveColHeaders(colCount);
         if(existingExclusions){
           exclusionController.importState(existingExclusions);
         }else{
@@ -1009,10 +1498,11 @@
         }
         renderAg(instance.gridApi);
       },
-      alter(action, index, amount){
+      alter(action, index, amount, source){
         data = dataHandle.current;
         const safeAmount = Math.max(0, Number(amount) || 0);
         const at = Math.max(0, Number(index) || 0);
+        const changeSource = typeof source === 'string' ? source : action;
         if(safeAmount === 0){
           return;
         }
@@ -1023,18 +1513,22 @@
           ensureDims(data, data.length, colCount);
           dataHandle.current = data;
           syncRowData(instance.gridApi);
-          fireHook('afterCreateRow', insertAt, safeAmount, action);
-          triggerSchedule('afterCreateRow', { source: action });
+          fireHook('afterCreateRow', insertAt, safeAmount, changeSource);
+          triggerSchedule('afterCreateRow', { source: changeSource });
         }else if(action === 'remove_row'){
           const removed = data.splice(at, safeAmount);
           exclusionController.shiftRowsForRemoval(Array.from({ length: safeAmount }, (_, idx)=>at + idx));
           ensureDims(data, rowCount, colCount);
           dataHandle.current = data;
           syncRowData(instance.gridApi);
-          fireHook('afterRemoveRow', at, safeAmount, Array.isArray(removed) ? removed.map((_, idx)=>at + idx) : null, action);
-          triggerSchedule('afterRemoveRow', { source: action });
-        }else if(action === 'insert_col' || action === 'insert_col_right' || action === 'insert_col_left'){
-          const insertAt = action === 'insert_col_left' ? at : at + (action === 'insert_col_right' ? 1 : 0);
+          fireHook('afterRemoveRow', at, safeAmount, Array.isArray(removed) ? removed.map((_, idx)=>at + idx) : null, changeSource);
+          triggerSchedule('afterRemoveRow', { source: changeSource });
+        }else if(action === 'insert_col' || action === 'insert_col_right' || action === 'insert_col_left' || action === 'insert_col_start' || action === 'insert_col_end'){
+          const insertAt = action === 'insert_col_start'
+            ? 0
+            : (action === 'insert_col_left'
+              ? at
+              : at + (action === 'insert_col_right' || action === 'insert_col_end' ? 1 : 0));
           for(let r = 0; r < data.length; r++){
             const row = data[r] || [];
             const emptyCols = Array.from({ length: safeAmount }, ()=>'');
@@ -1046,8 +1540,8 @@
           colCount = Math.max(colCount + safeAmount, MIN_INPUT_COLS);
           rebuildColumns(instance.gridApi);
           renderAg(instance.gridApi);
-          fireHook('afterCreateCol', insertAt, safeAmount, action);
-          triggerSchedule('afterCreateCol', { source: action });
+          fireHook('afterCreateCol', insertAt, safeAmount, changeSource);
+          triggerSchedule('afterCreateCol', { source: changeSource });
         }else if(action === 'remove_col'){
           const removedCols = [];
           for(let r = 0; r < data.length; r++){
@@ -1065,8 +1559,8 @@
           colHeaders = resolveColHeaders(colCount);
           rebuildColumns(instance.gridApi);
           renderAg(instance.gridApi);
-          fireHook('afterRemoveCol', at, safeAmount, removedCols, action);
-          triggerSchedule('afterRemoveCol', { source: action });
+          fireHook('afterRemoveCol', at, safeAmount, removedCols, changeSource);
+          triggerSchedule('afterRemoveCol', { source: changeSource });
         }
       },
       populateFromArray(startRow, startCol, block, endRow, endCol, _method, source){
@@ -1110,14 +1604,24 @@
         addHook(name, fn);
       },
       destroy(){
+        runCleanup();
         if(instance.gridApi && typeof instance.gridApi.destroy === 'function'){
           instance.gridApi.destroy();
         }
       }
       ,
       batch(fn){
-        if(typeof fn === 'function'){
+        if(typeof fn !== 'function'){
+          return;
+        }
+        batchDepth += 1;
+        try{
           fn();
+        }finally{
+          batchDepth = Math.max(0, batchDepth - 1);
+          if(batchDepth === 0){
+            flushBatch();
+          }
         }
       }
     };
@@ -1229,7 +1733,10 @@
       onPasteEnd(event){
         try{
           const dataBlocks = event?.data || [];
-          const ranges = event?.source === 'clipboard' ? (instance.getSelectedLast() || []) : [];
+          const selection = event?.source === 'clipboard' ? instance.getSelectedLast() : null;
+          const ranges = Array.isArray(selection) && selection.length === 4
+            ? [{ startRow: selection[0], startCol: selection[1], endRow: selection[2], endCol: selection[3] }]
+            : [];
           fireHook('afterPaste', dataBlocks, ranges);
           triggerSchedule('afterPaste', { source: 'paste' });
         }catch(err){
@@ -1237,13 +1744,27 @@
         }
       },
       onSelectionChanged(params){
+        if(isDragSelecting){
+          return;
+        }
+        if(normalizedSelectionRange && (normalizedSelectionRange.from.row !== normalizedSelectionRange.to.row || normalizedSelectionRange.from.col !== normalizedSelectionRange.to.col)){
+          return;
+        }
         updateSelectionFromApi(params.api);
       },
       onCellClicked(params){
+        if(suppressNextCellClick){
+          suppressNextCellClick = false;
+          return;
+        }
+        if(isDragSelecting){
+          return;
+        }
         const row = params?.node?.rowIndex ?? 0;
         const colId = params?.column?.getColId?.();
         const col = colIdToIndex(colId);
-        lastRange = { from: { row, col }, to: { row, col } };
+        setLastRange({ from: { row, col }, to: { row, col } });
+        renderAg(params?.api || instance.gridApi);
         fireHook('afterSelectionEnd', row, col, row, col);
       },
       onColumnMoved(){
@@ -1266,7 +1787,7 @@
         }
         const colIdRaw = params?.column?.getColId?.();
         const colIdx = typeof colIdRaw === 'string' && colIdRaw.startsWith('c') ? Number(colIdRaw.slice(1)) : 0;
-        const sel = lastRange || {
+        const sel = normalizedSelectionRange || normalizeRange(lastRange) || {
           from: { row: params?.node?.rowIndex ?? 0, col: colIdx },
           to: { row: params?.node?.rowIndex ?? 0, col: colIdx }
         };
@@ -1335,6 +1856,153 @@
     }else{
       instance.gridApi = null;
       instance.columnApi = null;
+    }
+
+    if(container && typeof container.addEventListener === 'function'){
+      const doc = container.ownerDocument || document;
+      const win = doc.defaultView || global;
+      const raf = typeof win?.requestAnimationFrame === 'function'
+        ? win.requestAnimationFrame.bind(win)
+        : (fn)=>win.setTimeout(fn, 16);
+
+      const isEditableTarget = (target)=>{
+        const node = target && target.nodeType === 1 ? target : null;
+        if(!node){
+          return false;
+        }
+        if(node.isContentEditable){
+          return true;
+        }
+        const tag = node.tagName;
+        if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'){
+          return true;
+        }
+        if(typeof node.closest === 'function'){
+          return !!node.closest('input,textarea,select,[contenteditable=\"true\"]');
+        }
+        return false;
+      };
+
+      const resolveCellCoords = (event)=>{
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        if(!target || typeof target.closest !== 'function'){
+          return null;
+        }
+        const cell = target.closest('.ag-cell');
+        if(!cell){
+          return null;
+        }
+        const rowAttr = cell.getAttribute('row-index');
+        const colAttr = cell.getAttribute('col-id');
+        if(rowAttr == null || colAttr == null){
+          return null;
+        }
+        const row = Number(rowAttr);
+        const col = colIdToIndex(colAttr);
+        if(!Number.isInteger(row) || row < 0){
+          return null;
+        }
+        if(!Number.isInteger(col) || col < 0){
+          return null;
+        }
+        return { row, col };
+      };
+
+      const handleMouseDown = (event)=>{
+        if(event?.button !== 0){
+          return;
+        }
+        const coords = resolveCellCoords(event);
+        if(!coords){
+          return;
+        }
+        isDragSelecting = true;
+        pendingDragCell = coords;
+        dragAnchor = (event.shiftKey && normalizedSelectionRange) ? normalizedSelectionRange.from : coords;
+        setLastRange({ from: dragAnchor, to: coords });
+        renderAg(instance.gridApi);
+      };
+
+      const handleMouseMove = (event)=>{
+        if(!isDragSelecting){
+          return;
+        }
+        const coords = resolveCellCoords(event);
+        if(!coords){
+          return;
+        }
+        pendingDragCell = coords;
+        if(dragRafPending){
+          return;
+        }
+        dragRafPending = true;
+        raf(()=>{
+          dragRafPending = false;
+          if(!isDragSelecting || !pendingDragCell){
+            return;
+          }
+          const anchor = dragAnchor || pendingDragCell;
+          setLastRange({ from: anchor, to: pendingDragCell });
+          renderAg(instance.gridApi);
+        });
+      };
+
+      const handleMouseUp = ()=>{
+        if(!isDragSelecting){
+          return;
+        }
+        isDragSelecting = false;
+        dragRafPending = false;
+        const normalized = normalizedSelectionRange;
+        if(normalized && (normalized.from.row !== normalized.to.row || normalized.from.col !== normalized.to.col)){
+          suppressNextCellClick = true;
+          win?.setTimeout?.(()=>{ suppressNextCellClick = false; }, 50);
+        }
+        if(normalized){
+          fireHook('afterSelectionEnd', normalized.from.row, normalized.from.col, normalized.to.row, normalized.to.col);
+        }
+        dragAnchor = null;
+        pendingDragCell = null;
+      };
+
+      const handleKeyDown = (event)=>{
+        if(!event){
+          return;
+        }
+        fireHook('beforeKeyDown', event);
+        const key = event.key || '';
+        const keyCode = typeof event.keyCode === 'number' ? event.keyCode : null;
+        const isEnter = key === 'Enter' || key === 'NumpadEnter' || keyCode === 13;
+        if(isEnter && normalizedCopyHighlightRange){
+          setCopyHighlightRange(null);
+          renderAg(instance.gridApi);
+        }
+        const isCmd = !!(event.ctrlKey || event.metaKey);
+        if(!isCmd || isEditableTarget(event.target)){
+          return;
+        }
+        const normalizedKey = typeof key === 'string' ? key.toLowerCase() : '';
+        if(normalizedKey === 'c'){
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          copySelectionToClipboard();
+        }else if(normalizedKey === 'x'){
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          cutSelectionToClipboard();
+        }
+      };
+
+      container.addEventListener('mousedown', handleMouseDown, true);
+      win?.addEventListener?.('mousemove', handleMouseMove, true);
+      win?.addEventListener?.('mouseup', handleMouseUp, true);
+      container.addEventListener('keydown', handleKeyDown, true);
+      cleanupFns.push(()=>{
+        container.removeEventListener('mousedown', handleMouseDown, true);
+        win?.removeEventListener?.('mousemove', handleMouseMove, true);
+        win?.removeEventListener?.('mouseup', handleMouseUp, true);
+        container.removeEventListener('keydown', handleKeyDown, true);
+      });
     }
 
     instance.exportExclusions = function(){

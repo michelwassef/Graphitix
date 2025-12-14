@@ -113,5 +113,53 @@ describe('Shared.hot AG Grid binding', () => {
     expect(afterChangeSpy).toHaveBeenCalledWith([[0, 1, 'X Value', 'X_NEW']], 'edit');
     expect(scheduleCalls.some(call => call && call.reason === 'afterChange')).toBe(true);
   });
-});
 
+  test('getSelectedLast returns flat tuple and setDataAtCell supports change lists', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'testAgHot2';
+    document.body.appendChild(container);
+
+    const scheduleCalls = [];
+    const scheduleDraw = meta => scheduleCalls.push(meta);
+    const afterChangeSpy = jest.fn();
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 2 },
+      scheduleDraw,
+      {
+        debugLabel: 'test-ag-grid-2',
+        data: [
+          ['A', 'B'],
+          ['C', 'D']
+        ],
+        hotOptions: {
+          afterChange: afterChangeSpy
+        }
+      }
+    );
+
+    hot.selectCell(1, 1);
+    expect(hot.getSelectedLast()).toEqual([1, 1, 1, 1]);
+
+    hot.setDataAtCell(
+      [
+        [0, 0, 'A2'],
+        [1, 1, 'D2']
+      ],
+      'unit-test'
+    );
+
+    expect(hot.getDataAtCell(0, 0)).toBe('A2');
+    expect(hot.getDataAtCell(1, 1)).toBe('D2');
+    expect(afterChangeSpy).toHaveBeenLastCalledWith(
+      [
+        [0, 0, 'A', 'A2'],
+        [1, 1, 'D', 'D2']
+      ],
+      'unit-test'
+    );
+    expect(scheduleCalls.some(call => call && call.reason === 'afterChange')).toBe(true);
+  });
+});
