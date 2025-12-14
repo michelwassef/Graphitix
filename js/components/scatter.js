@@ -97,6 +97,9 @@
     aspectRatio: 4 / 3
   });
 
+  const SCATTER_ANNOTATION_COMFORTABLE_COUNT = 8;
+  const SCATTER_ANNOTATION_MIN_SCALE = 0.35;
+
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
@@ -531,6 +534,945 @@
     if(wasVisible){
       scatterDebug('Debug: scatter tooltip hide',{ reason });
     }
+  }
+
+  function clampScatterValue(value, min, max){
+    if(!Number.isFinite(value)){
+      return Number.isFinite(min) ? min : 0;
+    }
+    if(Number.isFinite(min) && value < min){
+      return min;
+    }
+    if(Number.isFinite(max) && value > max){
+      return max;
+    }
+    return value;
+  }
+
+  function buildScatterAnnotationRequests(points, options){
+    const enabled = !!options?.enabled;
+    const fontSize = Math.max(6, Number(options?.fontSize) || 10);
+    if(!enabled || !Array.isArray(points) || !points.length){
+      return { requests: [], fontSize };
+    }
+    const axisMid = Number.isFinite(options?.axisMid) ? options.axisMid : 0;
+    const limitSource = Number.isFinite(options?.maxAnnotations) ? options.maxAnnotations : MAX_SIGNIFICANT_ANNOTATIONS;
+    const limit = Math.max(0, limitSource);
+    const safeMakeFont = typeof chartStyle?.makeFont === 'function'
+      ? chartStyle.makeFont
+      : (() => null);
+    const measureText = typeof chartStyle?.measureText === 'function'
+      ? chartStyle.measureText
+      : null;
+    const font = safeMakeFont(fontSize);
+    const requests = [];
+    const widthEstimator = label => {
+      const length = Math.max(1, (label || '').length);
+      return fontSize * 0.65 * length;
+    };
+    for(let idx = 0; idx < points.length && requests.length < limit; idx += 1){
+      const pt = points[idx];
+      if(!pt || !pt.label || !pt.isSignificant){
+        continue;
+      }
+      const side = Number.isFinite(pt.x) && pt.x >= axisMid ? 'right' : 'left';
+      let textWidth = measureText ? measureText(pt.label, font) : NaN;
+      if(!Number.isFinite(textWidth) || textWidth <= 0){
+        textWidth = widthEstimator(pt.label);
+      }
+      textWidth = Math.max(textWidth, widthEstimator(pt.label));
+      requests.push({ pointIndex: idx, label: pt.label, side, textWidth });
+    }
+    return { requests, fontSize };
+  }
+
+  function resolveScatterAnnotationCrowdingScale(count, options){
+    if(!Number.isFinite(count) || count <= 0){
+      return 1;
+    }
+    const comfortable = Math.max(1, Number(options?.comfortable) || SCATTER_ANNOTATION_COMFORTABLE_COUNT);
+    const minScale = Math.min(1, Math.max(0.25, Number(options?.minScale) || SCATTER_ANNOTATION_MIN_SCALE));
+    if(count <= comfortable){
+      return 1;
+    }
+    const estimated = comfortable / count;
+    return Math.max(minScale, Math.min(1, estimated));
+  }
+
+  const SCATTER_LABEL_LINE_HEIGHT = 1.35;
+  const SCATTER_LABEL_PADDING = 2;
+  const SCATTER_LEADER_COLLISION_STEP = 8;
+  const SCATTER_LEADER_MIN_LENGTH = 6;
+
+  function computeAnnotationSegment(entry){
+    return {
+      x1: Number(entry.pointX) || 0,
+      y1: Number(entry.pointY) || 0,
+      x2: Number(entry.attachX) || 0,
+      y2: Number(entry.anchorY) || 0
+    };
+  }
+
+  function computeAnnotationLabelRect(entry, context){
+    const height = context?.labelLineHeight || (context?.fontSize || 10) * SCATTER_LABEL_LINE_HEIGHT;
+    const half = height / 2;
+    const padding = context?.labelPadding ?? SCATTER_LABEL_PADDING;
+    let x1;
+    let x2;
+    if(entry.textAnchor === 'end'){
+      x2 = entry.textX + padding;
+      x1 = entry.textX - entry.textWidth - padding;
+    }else{
+      x1 = entry.textX - padding;
+      x2 = entry.textX + entry.textWidth + padding;
+    }
+    const y1 = entry.anchorY - half - padding;
+    const y2 = entry.anchorY + half + padding;
+    return { x1, x2, y1, y2 };
+  }
+
+  function rectanglesOverlap(a, b){
+    if(!a || !b){ return false; }
+    return !(a.x2 <= b.x1 || a.x1 >= b.x2 || a.y2 <= b.y1 || a.y1 >= b.y2);
+  }
+
+  function pointInRect(point, rect){
+    if(!rect || !point){ return false; }
+    return point.x >= rect.x1 && point.x <= rect.x2 && point.y >= rect.y1 && point.y <= rect.y2;
+  }
+
+  function orientation(p, q, r){
+    const val = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+    if(Math.abs(val) < 1e-6){ return 0; }
+    return val > 0 ? 1 : 2;
+  }
+
+  function onSegment(p, q, r){
+    return q.x <= Math.max(p.x, r.x) + 1e-6 && q.x + 1e-6 >= Math.min(p.x, r.x)
+      && q.y <= Math.max(p.y, r.y) + 1e-6 && q.y + 1e-6 >= Math.min(p.y, r.y);
+  }
+
+  function segmentsIntersect(a, b){
+    if(!a || !b){ return false; }
+    const p1 = { x: a.x1, y: a.y1 };
+    const q1 = { x: a.x2, y: a.y2 };
+    const p2 = { x: b.x1, y: b.y1 };
+    const q2 = { x: b.x2, y: b.y2 };
+    const o1 = orientation(p1, q1, p2);
+    const o2 = orientation(p1, q1, q2);
+    const o3 = orientation(p2, q2, p1);
+    const o4 = orientation(p2, q2, q1);
+    if(o1 !== o2 && o3 !== o4){
+      return true;
+    }
+    if(o1 === 0 && onSegment(p1, p2, q1)){ return true; }
+    if(o2 === 0 && onSegment(p1, q2, q1)){ return true; }
+    if(o3 === 0 && onSegment(p2, p1, q2)){ return true; }
+    if(o4 === 0 && onSegment(p2, q1, q2)){ return true; }
+    return false;
+  }
+
+  function segmentIntersectsRect(segment, rect){
+    if(!segment || !rect){ return false; }
+    if(pointInRect({ x: segment.x1, y: segment.y1 }, rect) || pointInRect({ x: segment.x2, y: segment.y2 }, rect)){
+      return true;
+    }
+    const edges = [
+      { x1: rect.x1, y1: rect.y1, x2: rect.x2, y2: rect.y1 },
+      { x1: rect.x2, y1: rect.y1, x2: rect.x2, y2: rect.y2 },
+      { x1: rect.x2, y1: rect.y2, x2: rect.x1, y2: rect.y2 },
+      { x1: rect.x1, y1: rect.y2, x2: rect.x1, y2: rect.y1 }
+    ];
+    return edges.some(edge => segmentsIntersect(segment, edge));
+  }
+
+  function refreshAnnotationGeometry(entry, context){
+    clampAnnotationHorizontal(entry, context);
+    entry.rect = computeAnnotationLabelRect(entry, context);
+    entry.segment = computeAnnotationSegment(entry);
+    return entry;
+  }
+
+  function availableLeaderSlack(entry, context){
+    if(!entry){ return 0; }
+    const dx = Math.abs((entry.attachX ?? 0) - (entry.pointX ?? 0));
+    const minLen = Math.max(context?.minimumLeaderLength || 0, 0);
+    return Math.max(0, dx - minLen);
+  }
+
+  function availableLeaderExtension(entry, context){
+    if(!entry){ return 0; }
+    const direction = entry.side === 'left' ? -1 : 1;
+    const boundaryLimit = direction > 0
+      ? (context.outerRight ?? context.innerRight) - context.labelOffset
+      : (context.outerLeft ?? context.innerLeft) + context.labelOffset;
+    let cappedLimit = boundaryLimit;
+    if(Number.isFinite(context?.maxLeaderLength) && context.maxLeaderLength > 0){
+      const dy = Math.abs((entry.anchorY ?? 0) - (entry.pointY ?? 0));
+      const maxHorizontal = Math.sqrt(Math.max(context.maxLeaderLength * context.maxLeaderLength - dy * dy, 0));
+      const capAttach = (entry.pointX ?? 0) + (direction > 0 ? maxHorizontal : -maxHorizontal);
+      cappedLimit = direction > 0 ? Math.min(boundaryLimit, capAttach) : Math.max(boundaryLimit, capAttach);
+    }
+    if(direction > 0){
+      return Math.max(0, cappedLimit - (entry.attachX ?? 0));
+    }
+    return Math.max(0, (entry.attachX ?? 0) - cappedLimit);
+  }
+
+  function clampAnnotationVertical(entry, value, context){
+    const base = Number.isFinite(entry.baseAnchorY) ? entry.baseAnchorY : entry.anchorY;
+    const drift = Math.max(context?.maxVerticalDrift || 0, 0);
+    const lower = Math.max(context.clampMinY, base - drift);
+    const upper = Math.min(context.clampMaxY, base + drift);
+    return clampScatterValue(value, lower, upper);
+  }
+
+  function moveAnnotationVertically(entry, direction, context, magnitude){
+    if(!entry){ return entry; }
+    const step = magnitude || (context.labelLineHeight + context.labelPadding);
+    const next = clampAnnotationVertical(entry, entry.anchorY + direction * step, context);
+    entry.anchorY = next;
+    return refreshAnnotationGeometry(entry, context);
+  }
+
+  function extendAnnotationLeader(entry, context, step){
+    if(!entry){ return entry; }
+    const direction = entry.side === 'left' ? -1 : 1;
+    const available = availableLeaderExtension(entry, context);
+    if(available <= 0){
+      return entry;
+    }
+    const delta = Math.min(Math.max(step || context.collisionShortenStep, 2), available);
+    if(delta <= 0){
+      return entry;
+    }
+    moveAnnotationLabel(entry, direction * delta, context);
+    enforceAnnotationLeaderLength(entry, context);
+    return refreshAnnotationGeometry(entry, context);
+  }
+
+  function separateAnnotationPair(entryA, entryB, context){
+    if(!entryA || !entryB){ return false; }
+    const up = entryA.anchorY <= entryB.anchorY ? entryA : entryB;
+    const down = up === entryA ? entryB : entryA;
+    moveAnnotationVertically(up, -1, context);
+    moveAnnotationVertically(down, 1, context);
+    return true;
+  }
+
+  function resolveAnnotationPairSegments(entryA, entryB, context){
+    const aHitsB = segmentIntersectsRect(entryA.segment, entryB.rect);
+    const bHitsA = segmentIntersectsRect(entryB.segment, entryA.rect);
+    if(aHitsB || bHitsA){
+      const target = aHitsB ? entryB : entryA;
+      if(availableLeaderExtension(target, context) > 0){
+        extendAnnotationLeader(target, context, context.collisionShortenStep);
+        refreshAnnotationGeometry(target, context);
+        return true;
+      }
+    }
+    const isRight = (context.side || 'right') !== 'left';
+    const earlier = entryA.anchorY <= entryB.anchorY ? entryA : entryB;
+    const later = earlier === entryA ? entryB : entryA;
+    const attachesOutOfOrder = isRight
+      ? (later.attachX ?? 0) + 0.5 < (earlier.attachX ?? 0)
+      : (later.attachX ?? 0) - 0.5 > (earlier.attachX ?? 0);
+    if(attachesOutOfOrder){
+      if(availableLeaderExtension(later, context) > 0){
+        extendAnnotationLeader(later, context, context.collisionShortenStep * 1.05);
+        refreshAnnotationGeometry(later, context);
+        return true;
+      }
+      if(availableLeaderSlack(earlier, context) > 0){
+        shortenAnnotationLeader(earlier, context, context.collisionShortenStep * 1.05);
+        refreshAnnotationGeometry(earlier, context);
+        return true;
+      }
+      const verticalDir = isRight ? 1 : -1;
+      moveAnnotationVertically(later, verticalDir, context, context.labelLineHeight * 0.75);
+      refreshAnnotationGeometry(later, context);
+      return true;
+    }
+    const slackA = availableLeaderSlack(entryA, context);
+    const slackB = availableLeaderSlack(entryB, context);
+    if(slackA <= 0 && slackB <= 0){
+      const extensionA = availableLeaderExtension(entryA, context);
+      const extensionB = availableLeaderExtension(entryB, context);
+      if(extensionA > 0 || extensionB > 0){
+        const target = extensionA >= extensionB ? entryA : entryB;
+        extendAnnotationLeader(target, context, context.collisionShortenStep * 1.15);
+        refreshAnnotationGeometry(target, context);
+        return true;
+      }
+      const upper = entryA.anchorY <= entryB.anchorY ? entryA : entryB;
+      const lower = upper === entryA ? entryB : entryA;
+      moveAnnotationVertically(upper, -1, context, context.labelLineHeight);
+      moveAnnotationVertically(lower, 1, context, context.labelLineHeight);
+      return true;
+    }
+    const target = slackA >= slackB ? entryA : entryB;
+    shortenAnnotationLeader(target, context, context.collisionShortenStep * 1.15);
+    refreshAnnotationGeometry(target, context);
+    return true;
+  }
+
+  function polishScatterAnnotationLayout(entries, context){
+    if(!Array.isArray(entries) || entries.length < 2){
+      return entries;
+    }
+    const maxPasses = 16;
+    for(let pass = 0; pass < maxPasses; pass += 1){
+      let changed = false;
+      for(let i = 0; i < entries.length; i += 1){
+        for(let j = i + 1; j < entries.length; j += 1){
+          const a = entries[i];
+          const b = entries[j];
+          if(rectanglesOverlap(a.rect, b.rect)){
+            changed = separateAnnotationPair(a, b, context) || changed;
+            continue;
+          }
+          if(segmentIntersectsRect(a.segment, b.rect) || segmentIntersectsRect(b.segment, a.rect) || segmentsIntersect(a.segment, b.segment)){
+            changed = resolveAnnotationPairSegments(a, b, context) || changed;
+          }
+        }
+      }
+      if(!changed){
+        break;
+      }
+    }
+    return entries;
+  }
+
+  function detectAnnotationConflict(entries, context){
+    if(!Array.isArray(entries) || entries.length < 2){
+      return null;
+    }
+    for(let i = 0; i < entries.length; i += 1){
+      const entryA = entries[i];
+      if(!entryA){ continue; }
+      if(!entryA.rect || !entryA.segment){
+        refreshAnnotationGeometry(entryA, context);
+      }
+      for(let j = i + 1; j < entries.length; j += 1){
+        const entryB = entries[j];
+        if(!entryB){ continue; }
+        if(!entryB.rect || !entryB.segment){
+          refreshAnnotationGeometry(entryB, context);
+        }
+        if(rectanglesOverlap(entryA.rect, entryB.rect)){
+          return { type: 'label', a: i, b: j };
+        }
+        if(segmentIntersectsRect(entryA.segment, entryB.rect) || segmentIntersectsRect(entryB.segment, entryA.rect)){
+          return { type: 'leader-label', a: i, b: j };
+        }
+        if(segmentsIntersect(entryA.segment, entryB.segment)){
+          return { type: 'leader', a: i, b: j };
+        }
+      }
+    }
+    return null;
+  }
+
+  function resolveResidualAnnotationConflicts(entries, context){
+    if(!Array.isArray(entries) || entries.length < 2){
+      return entries;
+    }
+    const maxIterations = 32;
+    for(let iter = 0; iter < maxIterations; iter += 1){
+      const conflict = detectAnnotationConflict(entries, context);
+      if(!conflict){
+        break;
+      }
+      const entryA = entries[conflict.a];
+      const entryB = entries[conflict.b];
+      if(!entryA || !entryB){
+        break;
+      }
+      let handled = false;
+      if(conflict.type === 'label'){
+        handled = separateAnnotationPair(entryA, entryB, context);
+      }else{
+        handled = resolveAnnotationPairSegments(entryA, entryB, context);
+      }
+      if(!handled){
+        moveAnnotationVertically(entryB, entryB.anchorY >= entryA.anchorY ? 1 : -1, context, context.labelLineHeight * 0.5);
+        refreshAnnotationGeometry(entryB, context);
+      }
+    }
+    return entries;
+  }
+
+  function enforceAnnotationMinimumSpacing(entries, context){
+    if(!Array.isArray(entries) || entries.length < 2){
+      return entries;
+    }
+    const minSpacing = Math.max(context.minSpacing || 0, context.labelLineHeight + context.labelPadding);
+    const sorted = entries.slice().sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    for(let i = 1; i < sorted.length; i += 1){
+      const prev = sorted[i - 1];
+      const curr = sorted[i];
+      if(curr.anchorY - prev.anchorY < minSpacing){
+        curr.anchorY = clampAnnotationVertical(curr, prev.anchorY + minSpacing, context);
+        refreshAnnotationGeometry(curr, context);
+      }
+    }
+    for(let i = sorted.length - 2; i >= 0; i -= 1){
+      const next = sorted[i + 1];
+      const curr = sorted[i];
+      if(next.anchorY - curr.anchorY < minSpacing){
+        curr.anchorY = clampAnnotationVertical(curr, next.anchorY - minSpacing, context);
+        refreshAnnotationGeometry(curr, context);
+      }
+    }
+    return entries;
+  }
+
+  function enforceAnnotationAttachOrder(entries, context){
+    if(!Array.isArray(entries) || entries.length < 2){
+      return entries;
+    }
+    const ordered = entries.slice().sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    if((context.side || 'right') === 'right'){
+      for(let i = 1; i < ordered.length; i += 1){
+        const prev = ordered[i - 1];
+        const curr = ordered[i];
+        if(curr.attachX + 0.5 < prev.attachX){
+          const delta = (prev.attachX - curr.attachX) + context.labelOffset;
+          moveAnnotationLabel(curr, delta, context);
+          enforceAnnotationLeaderLength(curr, context);
+          refreshAnnotationGeometry(curr, context);
+        }
+      }
+    }else{
+      for(let i = 1; i < ordered.length; i += 1){
+        const prev = ordered[i - 1];
+        const curr = ordered[i];
+        if(curr.attachX - 0.5 > prev.attachX){
+          const delta = (prev.attachX - curr.attachX) - context.labelOffset;
+          moveAnnotationLabel(curr, delta, context);
+          enforceAnnotationLeaderLength(curr, context);
+          refreshAnnotationGeometry(curr, context);
+        }
+      }
+    }
+    return entries;
+  }
+
+  function enforceAnnotationDeltaOrder(entries, context){
+    if(!Array.isArray(entries) || entries.length < 2){
+      return entries;
+    }
+    const ordered = entries.slice().sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    const direction = (context.side || 'right') === 'left' ? -1 : 1;
+    let prevDelta = null;
+    for(let i = 0; i < ordered.length; i += 1){
+      const entry = ordered[i];
+      const dx = (entry.attachX ?? 0) - (entry.pointX ?? 0);
+      if(prevDelta === null){
+        prevDelta = dx;
+        continue;
+      }
+      const minStep = Math.max(context.labelOffset * 0.75, 2);
+      const desiredDelta = direction > 0
+        ? Math.max(prevDelta + minStep, dx)
+        : Math.min(prevDelta - minStep, dx);
+      if(direction > 0 ? dx < desiredDelta - 1e-3 : dx > desiredDelta + 1e-3){
+        entry.attachX = entry.pointX + desiredDelta;
+        entry.textX = direction > 0
+          ? entry.attachX + context.labelOffset
+          : entry.attachX - context.labelOffset;
+        clampAnnotationHorizontal(entry, context);
+        enforceAnnotationLeaderLength(entry, context);
+        refreshAnnotationGeometry(entry, context);
+        prevDelta = (entry.attachX ?? 0) - (entry.pointX ?? 0);
+      }else{
+        prevDelta = dx;
+      }
+    }
+    return entries;
+  }
+
+  function applyIsotonicRegression(values, weights, nonDecreasing){
+    const n = values.length;
+    const result = new Array(n);
+    const stack = [];
+    for(let i = 0; i < n; i += 1){
+      let value = values[i];
+      let weight = Math.max(1e-3, weights[i] || 1);
+      stack.push({ value, weight, count: 1 });
+      while(stack.length >= 2){
+        const b = stack[stack.length - 1];
+        const a = stack[stack.length - 2];
+        const violates = nonDecreasing ? (a.value > b.value) : (a.value < b.value);
+        if(!violates){ break; }
+        const totalWeight = a.weight + b.weight;
+        const mergedValue = (a.value * a.weight + b.value * b.weight) / totalWeight;
+        stack.pop();
+        stack.pop();
+        stack.push({ value: mergedValue, weight: totalWeight, count: a.count + b.count });
+      }
+    }
+    let idx = n - 1;
+    while(stack.length){
+      const block = stack.pop();
+      for(let i = 0; i < block.count; i += 1){
+        result[idx - i] = block.value;
+      }
+      idx -= block.count;
+    }
+    return result;
+  }
+
+  function enforceAnnotationSlopeIsotonic(entries, context){
+    if(!Array.isArray(entries) || entries.length < 2){
+      return entries;
+    }
+    const ordered = entries.slice().sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    const isRight = (context.side || 'right') !== 'left';
+    const slopes = [];
+    const weights = [];
+    const dyInfo = [];
+    ordered.forEach(entry => {
+      const dyRaw = (entry.anchorY ?? 0) - (entry.pointY ?? 0);
+      const dySign = dyRaw === 0 ? (isRight ? 1 : -1) : Math.sign(dyRaw);
+      const dyAbs = Math.max(Math.abs(dyRaw), context.labelLineHeight);
+      const dy = dyAbs * dySign;
+      dyInfo.push({ dy, dyAbs });
+      let slope = ((entry.attachX ?? entry.pointX) - (entry.pointX ?? 0)) / dy;
+      if(!Number.isFinite(slope)){
+        slope = isRight ? 0.01 : -0.01;
+      }
+      slopes.push(slope);
+      weights.push(Math.max(1, dyAbs));
+    });
+    const adjusted = applyIsotonicRegression(slopes, weights, isRight);
+    ordered.forEach((entry, idx) => {
+      const dy = dyInfo[idx].dy;
+      const slope = adjusted[idx];
+      let targetAttach = (entry.pointX ?? 0) + slope * dy;
+      if(Number.isFinite(context.maxLeaderLength) && context.maxLeaderLength > 0){
+        const horizontalLimit = Math.sqrt(Math.max(context.maxLeaderLength * context.maxLeaderLength - dyInfo[idx].dyAbs * dyInfo[idx].dyAbs, 0));
+        if(horizontalLimit > 0){
+          const limit = (entry.pointX ?? 0) + (isRight ? 1 : -1) * horizontalLimit;
+          targetAttach = isRight ? Math.min(targetAttach, limit) : Math.max(targetAttach, limit);
+        }
+      }
+      entry.attachX = targetAttach;
+      entry.textX = isRight
+        ? entry.attachX + context.labelOffset
+        : entry.attachX - context.labelOffset;
+      clampAnnotationHorizontal(entry, context);
+      refreshAnnotationGeometry(entry, context);
+    });
+    return entries;
+  }
+
+  function enforceAnnotationAnchorFan(entries, context){
+    if(!Array.isArray(entries) || entries.length < 2){
+      return entries;
+    }
+    const ordered = entries.slice().sort((a, b) => a.anchorY - b.anchorY);
+    const isRight = (context.side || 'right') !== 'left';
+    const step = Math.max(context.labelOffset * 0.9, 4);
+    let prevRect = null;
+    ordered.forEach(entry => {
+      if(prevRect){
+        if(isRight){
+          const clearance = prevRect.x2 + step;
+          if(entry.attachX < clearance){
+            entry.attachX = clearance;
+            entry.textX = entry.attachX + context.labelOffset;
+          }
+        }else{
+          const clearance = prevRect.x1 - step;
+          if(entry.attachX > clearance){
+            entry.attachX = clearance;
+            entry.textX = entry.attachX - context.labelOffset;
+          }
+        }
+      }
+      enforceAnnotationLeaderLength(entry, context);
+      refreshAnnotationGeometry(entry, context);
+      prevRect = entry.rect;
+    });
+    return entries;
+  }
+
+  function clampAnnotationHorizontal(entry, context){
+    const direction = entry.side === 'left' ? -1 : 1;
+    const minGap = Number.isFinite(entry.minLeaderGap) ? entry.minLeaderGap : context.minLeaderGap;
+    if(direction > 0){
+      const minText = Math.max(context.innerLeft + context.textPad, entry.pointX + minGap + context.textPad);
+      const maxText = (context.outerRight ?? context.innerRight) - entry.textWidth;
+      entry.textX = clampScatterValue(entry.textX, Math.min(minText, maxText), Math.max(minText, maxText));
+    }else{
+      const maxText = Math.min(context.innerRight - context.textPad, entry.pointX - minGap - context.textPad);
+      const minText = (context.outerLeft ?? context.innerLeft) + entry.textWidth;
+      entry.textX = clampScatterValue(entry.textX, Math.min(minText, maxText), Math.max(minText, maxText));
+    }
+    entry.attachX = direction > 0
+      ? Math.min(entry.textX - context.labelOffset, (context.outerRight ?? context.innerRight) - context.labelOffset)
+      : Math.max(entry.textX + context.labelOffset, (context.outerLeft ?? context.innerLeft) + context.labelOffset);
+    return entry;
+  }
+
+  function moveAnnotationLabel(entry, delta, context){
+    entry.textX += delta;
+    clampAnnotationHorizontal(entry, context);
+    return entry;
+  }
+
+  function tightenAnnotationLeaderGap(entry, context){
+    const absoluteMin = context.absoluteMinLeaderGap ?? context.textPad ?? 2;
+    const desired = Math.max(absoluteMin, context.minimumLeaderLength * 0.5);
+    if(!Number.isFinite(entry.minLeaderGap) || entry.minLeaderGap > desired){
+      entry.minLeaderGap = desired;
+    }
+  }
+
+  function enforceAnnotationLeaderLength(entry, context){
+    if(!Number.isFinite(context.maxLeaderLength) || context.maxLeaderLength <= 0){
+      return entry;
+    }
+    const dx = entry.attachX - entry.pointX;
+    const dy = entry.anchorY - entry.pointY;
+    const currentLength = Math.hypot(dx, dy);
+    if(currentLength <= context.maxLeaderLength){
+      return entry;
+    }
+    tightenAnnotationLeaderGap(entry, context);
+    const direction = entry.side === 'left' ? -1 : 1;
+    const verticalSpan = Math.abs(dy);
+    const horizontalLimit = Math.max(0, Math.sqrt(Math.max(context.maxLeaderLength * context.maxLeaderLength - verticalSpan * verticalSpan, 0)));
+    const desiredAttachX = entry.pointX + Math.sign(dx || direction) * horizontalLimit;
+    const delta = entry.attachX - desiredAttachX;
+    if(Math.abs(delta) < 0.5){
+      entry.attachX = desiredAttachX;
+      return clampAnnotationHorizontal(entry, context);
+    }
+    return moveAnnotationLabel(entry, -delta, context);
+  }
+
+  function shortenAnnotationLeader(entry, context, step){
+    const dx = Math.abs(entry.attachX - entry.pointX);
+    const available = Math.max(0, dx - context.minimumLeaderLength);
+    const delta = Math.min(Math.max(step || SCATTER_LEADER_COLLISION_STEP, 2), available);
+    if(delta <= 0){
+      return entry;
+    }
+    tightenAnnotationLeaderGap(entry, context);
+    const direction = entry.side === 'left' ? -1 : 1;
+    return moveAnnotationLabel(entry, -direction * delta, context);
+  }
+
+  function nudgeAnnotationVertically(entry, reference, context){
+    const direction = entry.anchorY >= reference.anchorY ? 1 : -1;
+    const minSpacing = context.labelLineHeight + context.labelPadding;
+    const target = direction > 0
+      ? reference.anchorY + minSpacing
+      : reference.anchorY - minSpacing;
+    entry.anchorY = clampAnnotationVertical(entry, target, context);
+    return entry;
+  }
+
+  function resolveAnnotationConflicts(candidate, placed, context){
+    let current = refreshAnnotationGeometry(candidate, context);
+    const maxIterations = 36;
+    for(let iteration = 0; iteration < maxIterations; iteration += 1){
+      current = enforceAnnotationLeaderLength(current, context);
+      refreshAnnotationGeometry(current, context);
+      let conflictResolved = true;
+      for(let idx = 0; idx < placed.length; idx += 1){
+        const prev = placed[idx];
+        if(rectanglesOverlap(current.rect, prev.rect)){
+          const direction = current.anchorY >= prev.anchorY ? 1 : -1;
+          moveAnnotationVertically(current, direction, context);
+          conflictResolved = false;
+          break;
+        }
+        if(segmentIntersectsRect(current.segment, prev.rect) || segmentIntersectsRect(prev.segment, current.rect) || segmentsIntersect(current.segment, prev.segment)){
+          const slack = availableLeaderSlack(current, context);
+          if(slack > 0){
+            shortenAnnotationLeader(current, context, context.collisionShortenStep);
+          }else if(availableLeaderExtension(current, context) > 0){
+            extendAnnotationLeader(current, context, context.collisionShortenStep);
+          }else if(availableLeaderExtension(prev, context) > 0){
+            extendAnnotationLeader(prev, context, context.collisionShortenStep);
+            refreshAnnotationGeometry(prev, context);
+          }else{
+            moveAnnotationVertically(current, current.anchorY >= prev.anchorY ? 1 : -1, context);
+          }
+          refreshAnnotationGeometry(current, context);
+          conflictResolved = false;
+          break;
+        }
+      }
+      if(conflictResolved){
+        return current;
+      }
+    }
+    return current;
+  }
+  function layoutScatterAnnotationSide(entries, config){
+    if(!Array.isArray(entries) || !entries.length){
+      return [];
+    }
+    const minY = Number.isFinite(config?.minY) ? config.minY : 0;
+    const maxY = Number.isFinite(config?.maxY) ? config.maxY : minY + 1;
+    const fontSize = Math.max(6, Number(config?.fontSize) || 10);
+    const textPad = Math.max(2, Number(config?.textPad) || 4);
+    const minSpacing = Math.max(fontSize * 1.35, Number(config?.minSpacing) || 12) + Math.max(2, textPad * 0.4);
+    const verticalPadding = Math.max(2, Number(config?.verticalPadding) || 6);
+    const leaderPad = Math.max(6, Number(config?.leaderPad) || 10);
+      const leaderGap = Math.max(leaderPad * 1.2, Number(config?.leaderGap) || leaderPad * 1.2);
+    const axisPadding = Math.max(4, Number(config?.axisPadding) || 8);
+    const plotLeft = Number.isFinite(config?.plotLeft) ? config.plotLeft : 0;
+    const plotRight = Number.isFinite(config?.plotRight) ? config.plotRight : plotLeft + 1;
+    const innerLeft = plotLeft + axisPadding;
+    const innerRight = plotRight - axisPadding;
+    const labelRegionExtra = Math.max(leaderPad * 2.5, textPad * 6, 60);
+    const outerLeft = innerLeft - labelRegionExtra;
+    const outerRight = innerRight + labelRegionExtra;
+    const labelOffset = Math.max(2, textPad * 0.75);
+    const clampMinY = Math.min(minY + verticalPadding, maxY - verticalPadding);
+    const clampMaxY = Math.max(minY + verticalPadding, maxY - verticalPadding);
+    const horizontalSpan = Math.max(0, innerRight - innerLeft);
+    const fallbackLeaderLength = Math.min(Math.max(leaderPad * 2.25, horizontalSpan * 0.2), Math.max(horizontalSpan * 0.45, leaderPad * 2.25));
+    const maxLeaderLength = Number.isFinite(config?.maxLeaderLength) && config.maxLeaderLength > 0
+      ? config.maxLeaderLength
+      : fallbackLeaderLength;
+    const labelLineHeight = Math.max(fontSize * SCATTER_LABEL_LINE_HEIGHT, fontSize + 4);
+    const labelPadding = Math.max(SCATTER_LABEL_PADDING, textPad * 0.35);
+    const resolvedSpacing = Math.max(minSpacing, labelLineHeight + labelPadding * 2 + 1);
+    const context = {
+      innerLeft,
+      innerRight,
+      outerLeft,
+      outerRight,
+      textPad,
+      labelOffset,
+      clampMinY,
+      clampMaxY,
+      fontSize,
+      labelLineHeight,
+      labelPadding,
+      minSpacing: resolvedSpacing,
+      maxLeaderLength,
+      collisionShortenStep: Math.max(textPad * 1.75, SCATTER_LEADER_COLLISION_STEP),
+      minimumLeaderLength: Math.max(SCATTER_LEADER_MIN_LENGTH, leaderPad * 0.5),
+      minLeaderGap: Math.max(leaderGap, leaderPad * 0.9),
+      absoluteMinLeaderGap: Math.max(2, textPad),
+      maxVerticalDrift: Math.max(fontSize * 5.5, verticalPadding * 4),
+      labelRegionExtra
+    };
+    const sorted = entries.slice().sort((a, b) => a.baseY - b.baseY).map((entry, idx) => ({
+      ...entry,
+      orderIndex: idx
+    }));
+    const assigned = sorted.map(entry => ({
+      ...entry,
+      targetY: clampScatterValue(entry.baseY, clampMinY, clampMaxY)
+    }));
+    for(let i = 1; i < assigned.length; i += 1){
+      const prev = assigned[i - 1];
+      if(assigned[i].targetY - prev.targetY < minSpacing){
+        assigned[i].targetY = prev.targetY + minSpacing;
+      }
+    }
+    for(let i = assigned.length - 2; i >= 0; i -= 1){
+      const next = assigned[i + 1];
+      if(next.targetY - assigned[i].targetY < minSpacing){
+        assigned[i].targetY = next.targetY - minSpacing;
+      }
+    }
+    assigned.forEach(entry => {
+      entry.targetY = clampScatterValue(entry.targetY, clampMinY, clampMaxY);
+    });
+    for(let i = 1; i < assigned.length; i += 1){
+      const prev = assigned[i - 1];
+      if(assigned[i].targetY - prev.targetY < minSpacing){
+        assigned[i].targetY = prev.targetY + minSpacing;
+      }
+    }
+    for(let i = assigned.length - 2; i >= 0; i -= 1){
+      const next = assigned[i + 1];
+      if(next.targetY - assigned[i].targetY < minSpacing){
+        assigned[i].targetY = next.targetY - minSpacing;
+      }
+    }
+    assigned.forEach(entry => {
+      entry.targetY = clampScatterValue(entry.targetY, clampMinY, clampMaxY);
+    });
+    const side = config?.side === 'left' ? 'left' : 'right';
+    context.side = side;
+    const placed = [];
+    assigned.forEach(entry => {
+      const direction = side === 'left' ? -1 : 1;
+      const idealText = entry.pointX + direction * (leaderPad * 1.25 + textPad);
+      let textX;
+      if(direction > 0){
+        const minTextRaw = Math.max(innerLeft + textPad, entry.pointX + leaderGap + textPad);
+        const maxTextRaw = innerRight - entry.textWidth;
+        const lower = Math.min(minTextRaw, maxTextRaw);
+        const upper = Math.max(minTextRaw, maxTextRaw);
+        textX = clampScatterValue(idealText, lower, upper);
+      }else{
+        const maxTextRaw = Math.min(innerRight - textPad, entry.pointX - leaderGap - textPad);
+        const minTextRaw = innerLeft + entry.textWidth;
+        const lower = Math.min(minTextRaw, maxTextRaw);
+        const upper = Math.max(minTextRaw, maxTextRaw);
+        textX = clampScatterValue(idealText, lower, upper);
+      }
+      const attachX = direction > 0
+        ? Math.min(textX - labelOffset, innerRight - labelOffset)
+        : Math.max(textX + labelOffset, innerLeft + labelOffset);
+      const candidate = {
+        label: entry.label,
+        pointIndex: entry.pointIndex,
+        textWidth: entry.textWidth,
+        textAnchor: side === 'left' ? 'end' : 'start',
+        textX,
+        anchorY: entry.targetY,
+        baseAnchorY: entry.targetY,
+        attachX,
+        pointX: entry.pointX,
+        pointY: entry.pointY,
+        side,
+        minLeaderGap: context.minLeaderGap,
+        orderIndex: entry.orderIndex
+      };
+      const resolved = resolveAnnotationConflicts(candidate, placed, context);
+      placed.push(resolved);
+    });
+    polishScatterAnnotationLayout(placed, context);
+    enforceAnnotationMinimumSpacing(placed, context);
+    polishScatterAnnotationLayout(placed, context);
+    enforceAnnotationMinimumSpacing(placed, context);
+    enforceAnnotationSlopeIsotonic(placed, context);
+    enforceAnnotationAnchorFan(placed, context);
+    enforceAnnotationDeltaOrder(placed, context);
+    enforceAnnotationAttachOrder(placed, context);
+    enforceAnnotationMinimumSpacing(placed, context);
+    for(let finalPass = 0; finalPass < 2; finalPass += 1){
+      polishScatterAnnotationLayout(placed, context);
+      enforceAnnotationMinimumSpacing(placed, context);
+    }
+    resolveResidualAnnotationConflicts(placed, context);
+    enforceAnnotationMinimumSpacing(placed, context);
+    resolveResidualAnnotationConflicts(placed, context);
+    return placed.map(entry => ({
+      label: entry.label,
+      pointIndex: entry.pointIndex,
+      textWidth: entry.textWidth,
+      textAnchor: entry.textAnchor,
+      textX: entry.textX,
+      anchorY: entry.anchorY,
+      attachX: entry.attachX,
+      pointX: entry.pointX,
+      pointY: entry.pointY,
+      side: entry.side
+    }));
+  }
+
+  function layoutScatterAnnotations(params){
+    if(!Array.isArray(params?.requests) || !params.requests.length){
+      return [];
+    }
+    const pointGeometry = Array.isArray(params.pointGeometry) ? params.pointGeometry : [];
+    const requestEntries = params.requests.map(entry => {
+      const geom = pointGeometry[entry.pointIndex];
+      if(!geom){
+        return null;
+      }
+      return {
+        ...entry,
+        baseY: geom.cy,
+        pointX: geom.cx,
+        pointY: geom.cy
+      };
+    }).filter(Boolean);
+    if(!requestEntries.length){
+      return [];
+    }
+    const margin = params.margin || { top: 0, left: 0 };
+    const plotH = Number.isFinite(params.plotH) ? params.plotH : 0;
+    const minY = margin.top;
+    const maxY = margin.top + plotH;
+    const fontSize = Math.max(6, Number(params.fontSize) || 10);
+    const minSpacing = Math.max(fontSize + 4, fontSize * 1.25);
+    const plotW = Number.isFinite(params.plotW) ? params.plotW : 0;
+    const plotLeft = margin.left;
+    const plotRight = margin.left + plotW;
+    const leaderPad = Math.max(6, Number(params.leaderPadding) || 10);
+    const leaderGap = Math.max(leaderPad, Number(params.leaderGap) || leaderPad);
+    const textPad = Math.max(2, Number(params.textPadding) || 4);
+    const axisPadding = Math.max(4, Number(params.axisPadding) || 8);
+    const verticalPadding = Math.max(4, Number(params.verticalPadding) || 8);
+    const innerLeftBound = plotLeft + axisPadding;
+    const innerRightBound = plotRight - axisPadding;
+    const requiredGapBase = leaderGap + textPad * 2;
+    const availableWidth = Math.max(0, plotW - axisPadding * 2);
+    const defaultLeaderCap = Math.max(leaderPad * 2.25, availableWidth * 0.25);
+    const maxLeaderLength = Number.isFinite(params.maxLeaderLength) && params.maxLeaderLength > 0
+      ? params.maxLeaderLength
+      : defaultLeaderCap;
+    requestEntries.forEach(entry => {
+      const approxNeeded = Math.max(entry.textWidth + requiredGapBase, leaderPad * 1.5 + entry.textWidth);
+      const availableLeft = entry.pointX - innerLeftBound;
+      const availableRight = innerRightBound - entry.pointX;
+      if(entry.side === 'left' && availableLeft < approxNeeded && availableRight > availableLeft){
+        entry.side = 'right';
+      }else if(entry.side === 'right' && availableRight < approxNeeded && availableLeft > availableRight){
+        entry.side = 'left';
+      }
+    });
+    const leftEntries = [];
+    const rightEntries = [];
+    requestEntries.forEach(entry => {
+      if(entry.side === 'left'){
+        leftEntries.push(entry);
+      }else{
+        rightEntries.push(entry);
+      }
+    });
+    const results = [];
+    if(leftEntries.length){
+      const leftLayouts = layoutScatterAnnotationSide(leftEntries, {
+        side: 'left',
+        minY,
+        maxY,
+        minSpacing,
+        fontSize,
+        plotLeft,
+        plotRight,
+        leaderPad,
+        leaderGap,
+        textPad,
+        axisPadding,
+        verticalPadding,
+        maxLeaderLength
+      });
+      results.push(...leftLayouts);
+    }
+    if(rightEntries.length){
+      const rightLayouts = layoutScatterAnnotationSide(rightEntries, {
+        side: 'right',
+        minY,
+        maxY,
+        minSpacing,
+        fontSize,
+        plotLeft,
+        plotRight,
+        leaderPad,
+        leaderGap,
+        textPad,
+        axisPadding,
+        verticalPadding,
+        maxLeaderLength
+      });
+      results.push(...rightLayouts);
+    }
+    return results;
   }
 
   function showScatterTooltip(data, evt){
@@ -2684,6 +3626,12 @@
           scheduleDrawScatter();
         });
       }
+      if(scatterShowSignificantLabels){
+        scatterShowSignificantLabels.addEventListener('change',()=>{
+          console.debug('Debug: scatter significant label toggle',{checked:scatterShowSignificantLabels.checked});
+          scheduleDrawScatter();
+        });
+      }
       if(scatterColorMode){
         scatterColorMode.addEventListener('change',()=>{
           scatterColorModeDesired = normalizeScatterColorMode(scatterColorMode.value);
@@ -3054,6 +4002,7 @@
           return minRadius + (maxRadius - minRadius) * clamped;
         };
       }
+
     
       const scatterPlotDiv=document.getElementById('scatterPlot');
       const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
@@ -3065,7 +4014,7 @@
       let scatterXLabelText='X';
       let scatterYLabelText='Y';
       let scatterZLabelText='Z';
-      let scatterLabelPositions = { title: null, xLabel: null, yLabel: null, stats: null };
+      let scatterLabelPositions = { title: null, xLabel: null, yLabel: null, stats: null, legend: null };
       async function drawScatter(){
         const debugEnabled = typeof Shared.isDebugEnabled === 'function' ? Shared.isDebugEnabled() : false;
         const debug = debugEnabled ? console.debug.bind(console) : () => {};
@@ -3110,6 +4059,11 @@
         let dotSizeRaw=dotSizeInputRaw;
         let dotSizePx=chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'scatter-point', min: 0 });
         const borderWidthPx=chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'scatter-border', min: 0 });
+        const baseAnnotationFontPx = Math.max(fs * 0.65, 7);
+        let annotationFontPx = baseAnnotationFontPx;
+        let annotationCrowdingScale = 1;
+        const annotationStrokeWidthBase = chartStyle.scaleStrokeWidth(0.85, styleScaleInfo, { context: 'scatter-annotation', min: 0.45 });
+        let annotationStrokeWidth = annotationStrokeWidthBase;
         debug('Debug: scatter style scaling applied',{
           dotSizeRaw,
           dotSizePx,
@@ -3238,7 +4192,10 @@
         let points=[];
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
         const labelSet=shouldCollectLabelSet ? new Set() : null;
-        const labelAnnotations=[];
+        let annotationRequests = [];
+        let annotationLeaderPadding = 0;
+        let annotationTextPadding = 0;
+        let annotationAxisPadding = 0;
         let legendLayout=null;
         let legendRenderer=EMPTY_LEGEND_RENDERER;
         let legendGapPx=0;
@@ -3727,6 +4684,48 @@
         if(xMin===xMax) xMax=xMin+1;
         if(yMin===yMax) yMax=yMin+1;
         info('scatter final raw range',{xMin,xMax,yMin,yMax});
+        const axisMidpoint = Number.isFinite(xMin) && Number.isFinite(xMax)
+          ? (xMin + xMax) / 2
+          : 0;
+        const desiredAnnotationCap = shouldRenderSignificantLabels ? points.length : undefined;
+        let annotationRequestInfo = buildScatterAnnotationRequests(points, {
+          enabled: shouldRenderSignificantLabels,
+          axisMid: axisMidpoint,
+          fontSize: annotationFontPx,
+          maxAnnotations: desiredAnnotationCap
+        });
+        annotationRequests = annotationRequestInfo.requests;
+        if(annotationRequests.length){
+          annotationCrowdingScale = resolveScatterAnnotationCrowdingScale(annotationRequests.length, {
+            comfortable: SCATTER_ANNOTATION_COMFORTABLE_COUNT,
+            minScale: SCATTER_ANNOTATION_MIN_SCALE
+          });
+          const scaledFontPx = Math.max(5.5, baseAnnotationFontPx * annotationCrowdingScale);
+          if(Math.abs(scaledFontPx - annotationFontPx) > 0.25){
+            annotationFontPx = scaledFontPx;
+            annotationRequestInfo = buildScatterAnnotationRequests(points, {
+              enabled: shouldRenderSignificantLabels,
+              axisMid: axisMidpoint,
+              fontSize: annotationFontPx,
+              maxAnnotations: desiredAnnotationCap
+            });
+            annotationRequests = annotationRequestInfo.requests;
+          }else{
+            annotationFontPx = scaledFontPx;
+          }
+          const annotationLeaderPaddingBase = chartStyle.scaleStrokeWidth(Math.max(dotSizePx * 3, fs * 1.1), styleScaleInfo, { context: 'scatter-annotation-padding', min: 10 });
+          const annotationAxisPaddingBase = Math.max(fs * 0.8, axisStrokeWidth * 3, 10);
+          const annotationTextPaddingBase = Math.max(4, annotationLeaderPaddingBase * 0.4);
+          const connectorScale = Math.max(0.45, annotationCrowdingScale);
+          annotationLeaderPadding = Math.max(6, annotationLeaderPaddingBase * connectorScale);
+          annotationTextPadding = Math.max(2, annotationTextPaddingBase * connectorScale);
+          annotationAxisPadding = Math.max(6, annotationAxisPaddingBase * connectorScale);
+          annotationStrokeWidth = Math.max(0.35, annotationStrokeWidthBase * connectorScale);
+        }else{
+          annotationLeaderPadding = 0;
+          annotationTextPadding = 0;
+          annotationAxisPadding = 0;
+        }
         let points3dInRange = [];
         if(scatterCurrentGraphType==='scatter' && scatter3dCandidates.length){
           points3dInRange = scatter3dCandidates.filter(pt => pt.x>=xMin && pt.x<=xMax && pt.y>=yMin && pt.y<=yMax);
@@ -4033,6 +5032,7 @@
             const legendContentHeight=Math.max(legendRenderer.height || 0,0);
             const horizontalBase=margin3.left+plotW3+legendGapFor3d+appliedLegendAxisGap;
             const horizontalPadding=Math.max(fs*0.6,12)+appliedLegendAxisGap;
+            const storedLegendPos=scatterLabelPositions?.legend;
             let legendX3=Math.max(horizontalBase,contentRightBound+horizontalPadding);
             const safeRightPad=Math.max(fs*0.6,12);
             const widthForClamp=Math.max(legendContentWidth,legendWidth);
@@ -4078,16 +5078,31 @@
               return false;
             };
             let legendStartY=baseLegendY;
-            for(let idx=0;idx<candidatePositions.length;idx+=1){
-              const candidateY=candidatePositions[idx];
-              const legendRect={ x:legendX3, y:candidateY, width:legendContentWidth || widthForClamp, height:legendHeight };
-              if(!intersectsAxis(legendRect)){
-                legendStartY=candidateY;
-                break;
+            if(Number.isFinite(storedLegendPos?.x) && Number.isFinite(storedLegendPos?.y)){
+              legendX3 = storedLegendPos.x;
+              legendStartY = storedLegendPos.y;
+            }else{
+              for(let idx=0;idx<candidatePositions.length;idx+=1){
+                const candidateY=candidatePositions[idx];
+                const legendRect={ x:legendX3, y:candidateY, width:legendContentWidth || widthForClamp, height:legendHeight };
+                if(!intersectsAxis(legendRect)){
+                  legendStartY=candidateY;
+                  break;
+                }
               }
             }
             scatterDebug('Debug: scatter legend placement resolved',{ legendX: legendX3, legendY: legendStartY, legendHeight, axisLabels: axisLabelBounds.length });
             const legendGroup=legendRenderer.draw(svg3,{ x:legendX3, y:legendStartY });
+            if(legendGroup && typeof Shared.enableLegendDrag === 'function'){
+              Shared.enableLegendDrag(legendGroup, svg3, {
+                onDragEnd: pos => {
+                  scatterLabelPositions.legend = { x: pos.x, y: pos.y };
+                  if(Shared.isDebugEnabled?.()){
+                    console.debug('Debug: scatter 3d legend position saved', pos);
+                  }
+                }
+              });
+            }
             if(legendGroup && typeof legendGroup.querySelectorAll === 'function'){
               const interactiveNodes=legendGroup.querySelectorAll('[data-legend-key]');
               interactiveNodes.forEach(node=>{
@@ -4425,44 +5440,81 @@
             size: isBubbleView ? p.bubbleValue : undefined
           });
           frag.appendChild(marker);
-          if(shouldRenderSignificantLabels && p.isSignificant && p.label){
-            if(labelAnnotations.length < MAX_SIGNIFICANT_ANNOTATIONS){
-              const labelNode=document.createElementNS(NS,'text');
-              labelNode.setAttribute('x',cxVal+dotSizePx+2);
-                    if(scatterShowSignificantLabels){
-                      scatterShowSignificantLabels.addEventListener('change',()=>{
-                        console.debug('Debug: scatter significant label toggle',{checked:scatterShowSignificantLabels.checked});
-                        scheduleDrawScatter();
-                      });
-                    }
-              labelNode.setAttribute('y',cyVal-(dotSizePx+2));
-              labelNode.setAttribute('font-size',Math.max(fs*0.75,8));
-              labelNode.setAttribute('fill',SIGNIFICANT_COLOR);
-              labelNode.setAttribute('text-anchor','start');
-              labelNode.textContent=p.label;
-              markFontEditable(labelNode,'annotation',`annotation-${labelAnnotations.length}`);
-              labelAnnotations.push(labelNode);
-            }else if(labelAnnotations.length === MAX_SIGNIFICANT_ANNOTATIONS){
-              debug('Debug: scatter annotation cap reached',{graphType:scatterCurrentGraphType,cap:MAX_SIGNIFICANT_ANNOTATIONS}); // Debug: annotation cap notice
-            }
-          }
           pointIndex++;
           if(pointIndex >= nextPointProgress){info('scatter svg draw progress',{pointIndex,token});nextPointProgress += pointProgressInterval;}
         }
         const pointLayer=add('g',{'data-export-layer':'scatter-points','data-layer':'points'});
         pointLayer.appendChild(frag);
-        if(labelAnnotations.length){
-          const annotationLayer=document.createElementNS(NS,'g');
-          labelAnnotations.forEach(node=>annotationLayer.appendChild(node));
-          svg.appendChild(annotationLayer);
-          debug('Debug: scatter annotations rendered',{count:labelAnnotations.length,graphType:scatterCurrentGraphType});
+        if(annotationRequests.length){
+          const annotationLayout = layoutScatterAnnotations({
+            requests: annotationRequests,
+            pointGeometry,
+            margin,
+            plotW,
+            plotH,
+            fontSize: annotationFontPx,
+            leaderPadding: annotationLeaderPadding,
+            leaderGap: Math.max(annotationLeaderPadding * 1.25, annotationLeaderPadding + 4),
+            textPadding: annotationTextPadding,
+            axisPadding: annotationAxisPadding,
+            verticalPadding: Math.max(
+              annotationAxisPadding * 0.6 * Math.max(0.6, annotationCrowdingScale),
+              fs * 0.6 * Math.max(0.6, annotationCrowdingScale),
+              6
+            )
+          });
+          if(annotationLayout.length){
+            const annotationLayer=document.createElementNS(NS,'g');
+            annotationLayout.forEach((entry, idx)=>{
+              const textNode=document.createElementNS(NS,'text');
+              textNode.setAttribute('x',entry.textX);
+              textNode.setAttribute('y',entry.anchorY);
+              textNode.setAttribute('font-size',annotationFontPx);
+              textNode.setAttribute('fill',SIGNIFICANT_COLOR);
+              textNode.setAttribute('text-anchor',entry.textAnchor);
+              textNode.setAttribute('dominant-baseline','middle');
+              textNode.textContent=entry.label;
+              markFontEditable(textNode,'annotation',`annotation-${idx}`);
+              annotationLayer.appendChild(textNode);
+              const connector=document.createElementNS(NS,'path');
+              const path=`M ${entry.attachX} ${entry.anchorY} L ${entry.pointX} ${entry.pointY}`;
+              connector.setAttribute('d',path);
+              connector.setAttribute('fill','none');
+              connector.setAttribute('stroke',SIGNIFICANT_COLOR);
+              connector.setAttribute('stroke-width',annotationStrokeWidth);
+              connector.setAttribute('stroke-linecap','round');
+              annotationLayer.appendChild(connector);
+            });
+            svg.appendChild(annotationLayer);
+            debug('Debug: scatter annotations rendered',{count:annotationLayout.length,graphType:scatterCurrentGraphType});
+          }
         }
         timeEnd(`scatterSvgDraw_${token}`);
         if(legendVisible){
           const plotRight=margin.left+plotW;
-          const legendX=plotRight+legendGapPx;
-          legendRenderer.draw(svg,{x:legendX,y:margin.top});
-          debug('Debug: scatter legend rendered shared helper',{legendX,legendGapPx,entryCount:legendRenderer.entries.length});
+          const defaultLegendX=plotRight+legendGapPx;
+          const defaultLegendY=margin.top;
+          const legendPos=scatterLabelPositions?.legend;
+          const legendGroup=legendRenderer.draw(svg,{
+            x: legendPos?.x ?? defaultLegendX,
+            y: legendPos?.y ?? defaultLegendY
+          });
+          if(legendGroup && typeof Shared.enableLegendDrag === 'function'){
+            Shared.enableLegendDrag(legendGroup, svg, {
+              onDragEnd: pos => {
+                scatterLabelPositions.legend = { x: pos.x, y: pos.y };
+                if(Shared.isDebugEnabled?.()){
+                  console.debug('Debug: scatter legend position saved', pos);
+                }
+              }
+            });
+          }
+          debug('Debug: scatter legend rendered shared helper',{
+            legendX: legendPos?.x ?? defaultLegendX,
+            legendY: legendPos?.y ?? defaultLegendY,
+            legendGapPx,
+            entryCount:legendRenderer.entries.length
+          });
         }
         const xAxisBase=margin.top+plotH;
         const defaultXLabelX = margin.left+plotW/2;
@@ -5254,7 +6306,8 @@
             title: c.labelPositions.title || null,
             xLabel: c.labelPositions.xLabel || null,
             yLabel: c.labelPositions.yLabel || null,
-            stats: c.labelPositions.stats || null
+            stats: c.labelPositions.stats || null,
+            legend: c.labelPositions.legend || null
           };
         }
         syncScatterGraphTypeUI();
@@ -5400,7 +6453,13 @@
   }
 
   scatter.__testHooks = Object.assign({}, scatter.__testHooks, {
-    benchmarkLoad: opts => benchmarkScatterLoad(opts)
+    benchmarkLoad: opts => benchmarkScatterLoad(opts),
+    buildAnnotationRequests: (points, options) => buildScatterAnnotationRequests(points, options),
+    layoutAnnotations: params => layoutScatterAnnotations(params),
+    resolveAnnotationCrowdingScale: (count, options) => resolveScatterAnnotationCrowdingScale(count, options),
+    constants: Object.assign({}, scatter.__testHooks?.constants, {
+      MAX_SIGNIFICANT_ANNOTATIONS
+    })
   });
 
 })(window);
