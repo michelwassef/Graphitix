@@ -1132,19 +1132,16 @@
   function openPanel(config){
     ensurePanel();
     if(!panelEl){ return; }
-    try {
-      const fontControls = global.Shared?.fontControls;
-      if(fontControls && typeof fontControls.close === 'function'){
-        fontControls.close('axis-open');
-        logDebug('font controls closed before axis open');
-      }
-    } catch(fontErr){
-      console.error('axisControls openPanel fontControls.close error', fontErr);
-    }
+    // Do not forcibly close font controls here — allow font (FORMAT) panel to remain visible
+    // so axis and font panels can be shown simultaneously when appropriate.
     activeConfig = config;
     brokenAxisConfigExpanded = false;
     const host = resolveToolbarHost(config.scopeId);
     if(host){
+      // remove any point-format controls so axis open doesn't show point controls
+      try{
+        host.querySelectorAll('.box-point-controls, [data-point-controls="1"]').forEach(n => n.remove());
+      }catch(e){}
       if(panelEl.parentElement !== host){
         host.appendChild(panelEl);
       }

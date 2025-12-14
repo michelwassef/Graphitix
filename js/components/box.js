@@ -313,7 +313,110 @@
     el.addEventListener('mouseenter', handleBoxPointEnter);
     el.addEventListener('mousemove', handleBoxPointMove);
     el.addEventListener('mouseleave', handleBoxPointLeave);
+    el.addEventListener('click', handleBoxPointClick);
     }
+
+  function handleBoxPointClick(evt){
+    const el = evt?.currentTarget;
+    if(!el){ return; }
+    // prevent the click from bubbling to other handlers
+    try{ evt.stopPropagation(); }catch(e){}
+    const data = el.__boxPointData;
+    showPointFormatControls(el, data);
+  }
+
+  function showPointFormatControls(el, data){
+    const doc = global.document;
+    if(!doc){ return; }
+    const anchor = doc.getElementById('boxFontHost');
+    if(!anchor){ return; }
+
+    // Find or create the real toolbar host that sits after the anchor
+    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
+      ? anchor.nextElementSibling
+      : null;
+    if(!toolbarHost){
+      toolbarHost = doc.createElement('div');
+      toolbarHost.className = 'font-toolbar-host';
+      toolbarHost.dataset.fontToolbarScope = 'box';
+      toolbarHost.style.display = 'none';
+      anchor.insertAdjacentElement('afterend', toolbarHost);
+    }
+
+    // Hide other visible hosts
+    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h => {
+      if(h !== toolbarHost){
+        h.classList.remove('font-toolbar-host--visible');
+        h.style.display = 'none';
+      }
+    });
+
+    // Prepare single-line form so toolbar height doesn't increase
+    toolbarHost.innerHTML = '';
+    const wrap = doc.createElement('div');
+    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single box-point-controls';
+    wrap.dataset.pointControls = '1';
+
+    const makeInput = (labelText, inputEl) => {
+      const lbl = doc.createElement('label');
+      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
+      const span = doc.createElement('span');
+      span.className = 'workspace-toolbar__input-label';
+      span.textContent = labelText;
+      lbl.appendChild(span);
+      lbl.appendChild(inputEl);
+      return lbl;
+    };
+
+    // Fill color
+    const fillInput = doc.createElement('input');
+    fillInput.type = 'color';
+    const currentFill = (el.getAttribute('fill') || '#000000');
+    try{ fillInput.value = currentFill; }catch(e){}
+    fillInput.addEventListener('input', ()=>{ el.setAttribute('fill', fillInput.value); });
+    if(typeof Shared.attachColorPickerNear === 'function'){
+      try{ Shared.attachColorPickerNear(fillInput); }catch(e){}
+    }
+    wrap.appendChild(makeInput('Fill', fillInput));
+
+    // Border color
+    const borderInput = doc.createElement('input');
+    borderInput.type = 'color';
+    const currentStroke = (el.getAttribute('stroke') && el.getAttribute('stroke') !== 'none') ? el.getAttribute('stroke') : '#000000';
+    try{ borderInput.value = currentStroke; }catch(e){}
+    borderInput.addEventListener('input', ()=>{ el.setAttribute('stroke', borderInput.value); });
+    if(typeof Shared.attachColorPickerNear === 'function'){
+      try{ Shared.attachColorPickerNear(borderInput); }catch(e){}
+    }
+    wrap.appendChild(makeInput('Border', borderInput));
+
+    // Opacity slider (compact)
+    const opInput = doc.createElement('input');
+    opInput.type = 'range'; opInput.min = '0'; opInput.max = '100';
+    const currentOpacity = Number(el.getAttribute('fill-opacity'));
+    opInput.value = Number.isFinite(currentOpacity) ? Math.round(currentOpacity * 100) : 100;
+    const opValue = doc.createElement('span');
+    opValue.className = 'workspace-toolbar__input-value';
+    opValue.textContent = opInput.value + '%';
+    opInput.addEventListener('input', ()=>{
+      const v = Number(opInput.value) / 100;
+      el.setAttribute('fill-opacity', String(v));
+      opValue.textContent = opInput.value + '%';
+    });
+    const opWrap = doc.createElement('div');
+    opWrap.style.display = 'inline-flex';
+    opWrap.style.alignItems = 'center';
+    opWrap.appendChild(opInput);
+    opWrap.appendChild(opValue);
+    wrap.appendChild(makeInput('Opacity', opWrap));
+
+    toolbarHost.appendChild(wrap);
+    // show host and mark dock active
+    toolbarHost.style.display = 'block';
+    toolbarHost.classList.add('font-toolbar-host--visible');
+    const dock = toolbarHost.closest('.workspace-toolbar__dock');
+    if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
+  }
 
   function clampWhiskerMultiplier(value){
     const numeric=Number(value);
