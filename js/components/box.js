@@ -71,7 +71,7 @@
     { value:'median-iqr', label:'Median with interquartile range' },
     { value:'none', label:'No line or error bar' }
   ]);
-  const INDIVIDUAL_SUMMARY_DEFAULT = 'mean-sem';
+  const INDIVIDUAL_SUMMARY_DEFAULT = 'mean-sd';
   const INDIVIDUAL_SUMMARY_SET = new Set(INDIVIDUAL_SUMMARY_OPTIONS.map(opt=>opt.value));
 
   function normalizeIndividualSummaryValue(rawValue){
@@ -80,7 +80,7 @@
       return value;
     }
     if(value === 'mean'){
-      return 'mean-sem';
+      return 'mean-sd';
     }
     if(value === 'median'){
       return 'median-iqr';
