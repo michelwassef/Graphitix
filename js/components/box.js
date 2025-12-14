@@ -372,16 +372,156 @@
     const parentGroup = el.closest && el.closest('g[data-trace]') ? el.closest('g[data-trace]') : null;
     const targetPoints = parentGroup ? Array.from(parentGroup.querySelectorAll('circle')) : [el];
 
-    // Fill color
+    // Helper: create a new marker element for a given shape based on an existing point
+    function createMarkerFor(shape, src){
+      const NS = 'http://www.w3.org/2000/svg';
+      const tag = typeof src?.tagName === 'string' ? src.tagName.toLowerCase() : 'circle';
+      const cx = Number(src.getAttribute('cx')) || 0;
+      const cy = Number(src.getAttribute('cy')) || 0;
+      const r = Number(src.getAttribute('r')) || 4;
+      const fill = src.getAttribute('fill') || 'black';
+      const stroke = src.getAttribute('stroke') || 'none';
+      const fillOpacity = src.getAttribute('fill-opacity') || src.style?.opacity || '1';
+      const normalized = typeof shape === 'string' ? shape.toLowerCase() : '';
+      let node = null;
+      if(normalized === 'square'){
+        node = document.createElementNS(NS, 'rect');
+        const size = r * 2;
+        node.setAttribute('x', String(cx - r));
+        node.setAttribute('y', String(cy - r));
+        node.setAttribute('width', String(size));
+        node.setAttribute('height', String(size));
+      }else if(normalized === 'triangle'){
+        node = document.createElementNS(NS, 'path');
+        const d = `M ${cx} ${cy - r} L ${cx + r} ${cy + r} L ${cx - r} ${cy + r} Z`;
+        node.setAttribute('d', d);
+      }else if(normalized === 'diamond'){
+        node = document.createElementNS(NS, 'path');
+        const d = `M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`;
+        node.setAttribute('d', d);
+      }else if(normalized === 'cross'){
+        node = document.createElementNS(NS, 'path');
+        const s = Math.max(Math.round(r * 1.2), 2);
+        const half = Math.round(s / 2);
+        const top = cy - half; const bottom = cy + half; const left = cx - half; const right = cx + half;
+        const bar = Math.max(Math.round(s / 3), 2);
+        const hb = Math.round(bar / 2);
+        const d = `M ${cx - hb} ${top} H ${cx + hb} V ${cy - hb} H ${right} V ${cy + hb} H ${cx + hb} V ${bottom} H ${cx - hb} V ${cy + hb} H ${left} V ${cy - hb} H ${cx - hb} Z`;
+        node.setAttribute('d', d);
+      }else if(normalized === 'plus'){
+        node = document.createElementNS(NS, 'path');
+        const size = Math.max(Math.round(r * 1.2), 2);
+        const half = Math.round(size / 2);
+        const thick = Math.max(Math.round(size / 3), 1);
+        const t = Math.round(thick / 2);
+        const d = `M ${cx - t} ${cy - half} H ${cx + t} V ${cy - t} H ${cx + half} V ${cy + t} H ${cx + t} V ${cy + half} H ${cx - t} V ${cy + t} H ${cx - half} V ${cy - t} H ${cx - t} Z`;
+        node.setAttribute('d', d);
+      }else if(normalized === 'star'){
+        node = document.createElementNS(NS, 'path');
+        // simple 5-point star approximation
+        const R = r; const r2 = Math.max(r * 0.45, 1);
+        const points = [];
+        for(let i=0;i<5;i+=1){
+          const a = (Math.PI * 2 * i) / 5 - Math.PI/2;
+          points.push({ x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * R });
+          const b = a + Math.PI / 5;
+          points.push({ x: cx + Math.cos(b) * r2, y: cy + Math.sin(b) * r2 });
+        }
+        const d = points.map((pt,i)=> `${i===0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' ') + ' Z';
+        node.setAttribute('d', d);
+      }else{
+        node = document.createElementNS(NS, 'circle');
+        node.setAttribute('cx', String(cx));
+        node.setAttribute('cy', String(cy));
+        node.setAttribute('r', String(r));
+      }
+      if(!node){ return null; }
+      node.setAttribute('fill', fill);
+      if(stroke && stroke !== 'none') node.setAttribute('stroke', stroke);
+      node.setAttribute('fill-opacity', String(fillOpacity));
+      node.setAttribute('data-shape', normalized || 'circle');
+      return node;
+    }
+
+    function replacePointsWithShape(points, shape){
+      points.forEach(oldPt => {
+        const parent = oldPt.parentElement;
+        if(!parent){ return; }
+        const newNode = createMarkerFor(shape, oldPt);
+        if(!newNode){ return; }
+        // insert new node at same position
+        parent.insertBefore(newNode, oldPt);
+        // reattach tooltip/handlers
+        try{ attachBoxPointTooltip(newNode, oldPt.__boxPointData || oldPt.__boxPointData); }catch(e){}
+        // remove old element
+        parent.removeChild(oldPt);
+      });
+    }
+
+    // Fill color + shape
+    const BOX_SHAPE_OPTIONS = [
+      { value: 'circle', label: 'Circle' },
+      { value: 'triangle', label: 'Triangle' },
+      { value: 'square', label: 'Square' },
+      { value: 'diamond', label: 'Diamond' },
+      { value: 'cross', label: 'Cross' },
+      { value: 'plus', label: 'Plus' },
+      { value: 'star', label: 'Star' }
+    ];
     const fillInput = doc.createElement('input');
     fillInput.type = 'color';
     const currentFill = (targetPoints[0]?.getAttribute('fill') || el.getAttribute('fill') || '#000000');
     try{ fillInput.value = currentFill; }catch(e){}
     fillInput.addEventListener('input', ()=>{ targetPoints.forEach(p => p.setAttribute('fill', fillInput.value)); });
-    if(typeof Shared.attachColorPickerNear === 'function'){
-      try{ Shared.attachColorPickerNear(fillInput); }catch(e){}
-    }
-    const fillLabelEl = makeInput('Fill', fillInput);
+    // determine current shape from element tag or data attribute
+    const detectShape = (node) => {
+      if(!node) return 'circle';
+      const ds = node.getAttribute('data-shape');
+      if(ds) return ds;
+      const tag = (node.tagName || '').toLowerCase();
+      if(tag === 'rect') return 'square';
+      if(tag === 'path') return node.getAttribute('data-shape') || 'circle';
+      return 'circle';
+    };
+    const currentShape = detectShape(targetPoints[0]);
+    fillInput.addEventListener('click', (evt)=>{
+      evt.preventDefault();
+      try{
+        if(typeof Shared.openColorPicker === 'function'){
+          let prevColor = fillInput.value;
+          let prevShape = currentShape;
+          Shared.openColorPicker({
+            anchor: fillInput,
+            color: fillInput.value,
+            shapePicker: {
+              value: currentShape,
+              options: BOX_SHAPE_OPTIONS,
+              onChange(nextShape){
+                if(!nextShape) return;
+                replacePointsWithShape(targetPoints, nextShape);
+              }
+            },
+            onInput(value, meta){
+              fillInput.value = value;
+              targetPoints.forEach(p => p.setAttribute('fill', value));
+            },
+            onChange(value, meta){
+              const nextValue = value != null ? String(value) : '';
+              if(nextValue !== prevColor){
+                prevColor = nextValue;
+                targetPoints.forEach(p => p.setAttribute('fill', nextValue));
+              }
+            }
+          });
+          return;
+        }
+      }catch(err){ console.warn('openColorPicker error', err); }
+      // Fallback: attached simple picker
+      if(typeof Shared.attachColorPickerNear === 'function'){
+        try{ Shared.attachColorPickerNear(fillInput); }catch(e){}
+      }
+    });
+    const fillLabelEl = makeInput('Fill/Shape', fillInput);
     fillLabelEl.classList.add('workspace-toolbar__input--color');
     wrap.appendChild(fillLabelEl);
 
