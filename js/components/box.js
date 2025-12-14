@@ -376,9 +376,44 @@
     function createMarkerFor(shape, src){
       const NS = 'http://www.w3.org/2000/svg';
       const tag = typeof src?.tagName === 'string' ? src.tagName.toLowerCase() : 'circle';
-      const cx = Number(src.getAttribute('cx')) || 0;
-      const cy = Number(src.getAttribute('cy')) || 0;
-      const r = Number(src.getAttribute('r')) || 4;
+      // Resolve center and size robustly from the source element.
+      let cx = 0;
+      let cy = 0;
+      let r = 4;
+      try{
+        if(src && typeof src.getBBox === 'function'){
+          const bb = src.getBBox();
+          if(bb && Number.isFinite(bb.x) && Number.isFinite(bb.y) && Number.isFinite(bb.width) && Number.isFinite(bb.height)){
+            cx = bb.x + bb.width / 2;
+            cy = bb.y + bb.height / 2;
+            r = Math.max(1, Math.max(bb.width, bb.height) / 2);
+          }
+        }
+      }catch(e){
+        // getBBox may throw in some contexts; fall back to attributes below
+      }
+      // Fallbacks if bbox didn't produce values
+      if((!Number.isFinite(cx) || !Number.isFinite(cy)) || (cx === 0 && cy === 0)){
+        const tag = (src && src.tagName) ? String(src.tagName).toLowerCase() : '';
+        if(tag === 'circle'){
+          cx = Number(src.getAttribute('cx')) || cx || 0;
+          cy = Number(src.getAttribute('cy')) || cy || 0;
+          r = Number(src.getAttribute('r')) || r;
+        }else if(tag === 'rect'){
+          const x = Number(src.getAttribute('x')) || 0;
+          const y = Number(src.getAttribute('y')) || 0;
+          const w = Number(src.getAttribute('width')) || 0;
+          const h = Number(src.getAttribute('height')) || 0;
+          cx = (Number.isFinite(x) ? x : 0) + (Number.isFinite(w) ? w / 2 : 0);
+          cy = (Number.isFinite(y) ? y : 0) + (Number.isFinite(h) ? h / 2 : 0);
+          r = Math.max(1, Math.max(w, h) / 2 || r);
+        }else{
+          // try generic attributes
+          cx = Number(src.getAttribute('cx')) || Number(src.getAttribute('x')) || cx || 0;
+          cy = Number(src.getAttribute('cy')) || Number(src.getAttribute('y')) || cy || 0;
+          r = Number(src.getAttribute('r')) || r;
+        }
+      }
       const fill = src.getAttribute('fill') || 'black';
       const stroke = src.getAttribute('stroke') || 'none';
       const fillOpacity = src.getAttribute('fill-opacity') || src.style?.opacity || '1';
@@ -652,6 +687,31 @@
     toolbarHost.classList.add('font-toolbar-host--visible');
     const dock = toolbarHost.closest('.workspace-toolbar__dock');
     if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
+    // attach a document click handler to clear the FORMAT host when clicking away
+    try{
+      if(toolbarHost.__boxDocClickHandler){
+        document.removeEventListener('click', toolbarHost.__boxDocClickHandler);
+        toolbarHost.__boxDocClickHandler = null;
+      }
+      const onDocClick = function(evt){
+        try{
+          const tgt = evt && evt.target ? evt.target : null;
+          if(!tgt){ return; }
+          if(toolbarHost.contains(tgt)){ return; }
+          // ignore clicks inside the shared color picker overlay
+          if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
+          // hide the toolbar host
+          toolbarHost.classList.remove('font-toolbar-host--visible');
+          toolbarHost.style.display = 'none';
+          const d = toolbarHost.closest('.workspace-toolbar__dock');
+          if(d){ d.classList.remove('workspace-toolbar__dock--active'); }
+          document.removeEventListener('click', onDocClick);
+          toolbarHost.__boxDocClickHandler = null;
+        }catch(err){ console.warn('box.format docClick error', err); }
+      };
+      document.addEventListener('click', onDocClick);
+      toolbarHost.__boxDocClickHandler = onDocClick;
+    }catch(err){ console.warn('attach doc click for box point controls failed', err); }
   }
 
   function clampWhiskerMultiplier(value){
