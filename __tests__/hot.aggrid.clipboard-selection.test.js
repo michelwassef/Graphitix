@@ -296,6 +296,40 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
   });
 
+  test('header click only sorts after column is already selected', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agColHeaderSortGateHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      { debugLabel: 'ag-col-header-sort-gate', data: Shared.createEmptyData(4, 3) }
+    );
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+
+    const sortSpy = jest.fn();
+    header.addEventListener('click', sortSpy);
+
+    header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+    expect(sortSpy).toHaveBeenCalledTimes(0);
+
+    header.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+    expect(hot.getSelectedLast()).toEqual([0, 1, 3, 1]);
+    expect(sortSpy).toHaveBeenCalledTimes(1);
+  });
+
   test('clicking row header selects the full row', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');

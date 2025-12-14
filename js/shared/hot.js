@@ -814,6 +814,7 @@
     let suppressNextCellClick = false;
     let pendingDragCell = null;
     let dragRafPending = false;
+    let pendingHeaderSortSuppression = null;
 
     const MAX_CLIPBOARD_CELLS = 200000;
 
@@ -2598,6 +2599,28 @@
         fireHook('afterSelectionEnd', 0, fromCol, lastRow, toCol);
       };
 
+      const rangesEqual = (rangeA, rangeB)=>{
+        if(!rangeA || !rangeB){
+          return !rangeA && !rangeB;
+        }
+        return rangeA.from.row === rangeB.from.row
+          && rangeA.from.col === rangeB.from.col
+          && rangeA.to.row === rangeB.to.row
+          && rangeA.to.col === rangeB.to.col;
+      };
+
+      const clearHeaderSortSuppression = ()=>{
+        pendingHeaderSortSuppression = null;
+      };
+
+      const armHeaderSortSuppression = (colId)=>{
+        if(typeof colId !== 'string' || !colId){
+          return;
+        }
+        clearHeaderSortSuppression();
+        pendingHeaderSortSuppression = { colId };
+      };
+
       const handleRowHeaderMouseDown = (event)=>{
         if(event?.button !== 0){
           return;
@@ -2641,7 +2664,52 @@
         if(!Number.isInteger(col) || col < 0){
           return;
         }
+        const selectionBefore = normalizedSelectionRange;
         selectColumnByHeader(col, !!event.shiftKey);
+        const selectionAfter = normalizedSelectionRange;
+        const selectionChanged = !rangesEqual(selectionBefore, selectionAfter);
+        if(event.shiftKey || selectionChanged){
+          armHeaderSortSuppression(colId);
+        }
+      };
+
+      const handleColumnHeaderMouseUp = (event)=>{
+        if(!pendingHeaderSortSuppression){
+          return;
+        }
+        // If a click isn't emitted (drag/move/resize), don't let the suppression linger.
+        // setTimeout(0) runs after the click event dispatch in browsers.
+        win?.setTimeout?.(()=>clearHeaderSortSuppression(), 0);
+      };
+
+      const handleColumnHeaderClick = (event)=>{
+        const suppression = pendingHeaderSortSuppression;
+        if(!suppression){
+          return;
+        }
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        if(!target || typeof target.closest !== 'function'){
+          clearHeaderSortSuppression();
+          return;
+        }
+        if(!container.contains(target)){
+          clearHeaderSortSuppression();
+          return;
+        }
+        const headerCell = target.closest('.ag-header-cell');
+        if(!headerCell){
+          clearHeaderSortSuppression();
+          return;
+        }
+        const colId = headerCell.getAttribute('col-id');
+        if(colId !== suppression.colId){
+          clearHeaderSortSuppression();
+          return;
+        }
+        clearHeaderSortSuppression();
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        event.stopImmediatePropagation?.();
       };
 
       const handleMouseDown = (event)=>{
@@ -2850,6 +2918,8 @@
       container.addEventListener('mousedown', handleMouseDown, true);
       win?.addEventListener?.('mousemove', handleMouseMove, true);
       win?.addEventListener?.('mouseup', handleMouseUp, true);
+      win?.addEventListener?.('mouseup', handleColumnHeaderMouseUp, true);
+      doc.addEventListener('click', handleColumnHeaderClick, true);
       container.addEventListener('keydown', handleKeyDown, true);
       container.addEventListener('contextmenu', handleContextMenu, true);
       container.addEventListener('paste', handlePaste, true);
@@ -2859,6 +2929,9 @@
         container.removeEventListener('mousedown', handleMouseDown, true);
         win?.removeEventListener?.('mousemove', handleMouseMove, true);
         win?.removeEventListener?.('mouseup', handleMouseUp, true);
+        win?.removeEventListener?.('mouseup', handleColumnHeaderMouseUp, true);
+        doc.removeEventListener('click', handleColumnHeaderClick, true);
+        clearHeaderSortSuppression();
         container.removeEventListener('keydown', handleKeyDown, true);
         container.removeEventListener('contextmenu', handleContextMenu, true);
         container.removeEventListener('paste', handlePaste, true);
