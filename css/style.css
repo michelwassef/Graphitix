@@ -1732,6 +1732,16 @@ select {
 .workspace-toolbar__input--compact{
     min-width:80px;
 }
+.workspace-toolbar__input--color{
+    align-items:center;
+    min-width:56px;
+}
+.workspace-toolbar__input--color input[type="color"]{
+    padding:2px;
+    width:28px;
+    height:22px;
+    border-radius:3px;
+}
 .workspace-toolbar__input--range{
     min-width:200px;
 }

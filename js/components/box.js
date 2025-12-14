@@ -368,27 +368,35 @@
       return lbl;
     };
 
+    // Determine target points (all points in the same trace group if present)
+    const parentGroup = el.closest && el.closest('g[data-trace]') ? el.closest('g[data-trace]') : null;
+    const targetPoints = parentGroup ? Array.from(parentGroup.querySelectorAll('circle')) : [el];
+
     // Fill color
     const fillInput = doc.createElement('input');
     fillInput.type = 'color';
-    const currentFill = (el.getAttribute('fill') || '#000000');
+    const currentFill = (targetPoints[0]?.getAttribute('fill') || el.getAttribute('fill') || '#000000');
     try{ fillInput.value = currentFill; }catch(e){}
-    fillInput.addEventListener('input', ()=>{ el.setAttribute('fill', fillInput.value); });
+    fillInput.addEventListener('input', ()=>{ targetPoints.forEach(p => p.setAttribute('fill', fillInput.value)); });
     if(typeof Shared.attachColorPickerNear === 'function'){
       try{ Shared.attachColorPickerNear(fillInput); }catch(e){}
     }
-    wrap.appendChild(makeInput('Fill', fillInput));
+    const fillLabelEl = makeInput('Fill', fillInput);
+    fillLabelEl.classList.add('workspace-toolbar__input--color');
+    wrap.appendChild(fillLabelEl);
 
     // Border color
     const borderInput = doc.createElement('input');
     borderInput.type = 'color';
     const currentStroke = (el.getAttribute('stroke') && el.getAttribute('stroke') !== 'none') ? el.getAttribute('stroke') : '#000000';
     try{ borderInput.value = currentStroke; }catch(e){}
-    borderInput.addEventListener('input', ()=>{ el.setAttribute('stroke', borderInput.value); });
+    borderInput.addEventListener('input', ()=>{ targetPoints.forEach(p => p.setAttribute('stroke', borderInput.value)); });
     if(typeof Shared.attachColorPickerNear === 'function'){
       try{ Shared.attachColorPickerNear(borderInput); }catch(e){}
     }
-    wrap.appendChild(makeInput('Border', borderInput));
+    const borderLabelEl = makeInput('Border', borderInput);
+    borderLabelEl.classList.add('workspace-toolbar__input--color');
+    wrap.appendChild(borderLabelEl);
 
     // Opacity slider (compact)
     const opInput = doc.createElement('input');
@@ -400,7 +408,7 @@
     opValue.textContent = opInput.value + '%';
     opInput.addEventListener('input', ()=>{
       const v = Number(opInput.value) / 100;
-      el.setAttribute('fill-opacity', String(v));
+      targetPoints.forEach(p => p.setAttribute('fill-opacity', String(v)));
       opValue.textContent = opInput.value + '%';
     });
     const opWrap = doc.createElement('div');
