@@ -615,7 +615,765 @@
     });
   };
 
+  function createStandardTableAgGrid(container, dimensions, scheduleDraw, overrides){
+    const debugLabel = overrides?.debugLabel || container?.id || 'hot-ag';
+    const htCalls = global.__HT_CALLS__ = global.__HT_CALLS__ || [];
+    const recordCall = (type, payload)=>{
+      try{
+        htCalls.push(Object.assign({ type }, payload || {}));
+      }catch(err){
+        // best-effort only
+      }
+    };
+    const trimRow = (row)=>{
+      if(!Array.isArray(row)){
+        return row;
+      }
+      let end = row.length;
+      while(end > 0 && (row[end - 1] === '' || typeof row[end - 1] === 'undefined' || row[end - 1] === null)){
+        end -= 1;
+      }
+      return row.slice(0, end);
+    };
+    if(!container){
+      console.warn('Shared.hot.createStandardTable (ag-grid) missing container', { debugLabel });
+      return null;
+    }
+    const agNS = Shared.agGrid || {};
+    const hasAgGrid = !!(global.agGrid && (typeof global.agGrid.createGrid === 'function' || typeof global.agGrid.Grid === 'function'));
+    const scheduleFn = typeof scheduleDraw === 'function' ? scheduleDraw : null;
+    let rowCount = Math.max(0, Number(dimensions?.rows ?? 0));
+    const requestedColCount = Math.max(0, Number(dimensions?.cols ?? 0));
+    let colCount = Math.max(MIN_INPUT_COLS, requestedColCount);
+    const scheduleOnLoadData = overrides?.scheduleOnLoadData ?? false;
+    const treatFirstRowAsHeader = overrides?.firstRowIsHeader !== false;
+    const firstRowClassName = overrides?.firstRowClassName || 'hot-header-row';
+    const preserveExclusionsOnLoad = overrides?.preserveExclusionsOnLoad === true;
+    const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
+    const hotOptions = overrides?.hotOptions || {};
+    const userAfterChange = hotOptions.afterChange;
+    const userAfterLoadData = hotOptions.afterLoadData;
+    const userAfterSelectionEnd = hotOptions.afterSelectionEnd;
+    const userAfterPaste = hotOptions.afterPaste;
+    const userAfterCopy = hotOptions.afterCopy;
+    const userAfterCreateRow = hotOptions.afterCreateRow;
+    const userAfterCreateCol = hotOptions.afterCreateCol;
+    const userAfterRemoveRow = hotOptions.afterRemoveRow;
+    const userAfterRemoveCol = hotOptions.afterRemoveCol;
+    const userAfterColumnMove = hotOptions.afterColumnMove;
+    const userBeforeKeyDown = hotOptions.beforeKeyDown;
+    const colHeadersOption = hotOptions.colHeaders;
+    const rowHeadersOption = hotOptions.rowHeaders;
+    const headerWidthManager = { invalidateColumns: noop, reset: noop }; // placeholder for compat
+    const hasEnterprise = !!(global.agGrid?.ModuleRegistry?.registeredModules && global.agGrid.ModuleRegistry.registeredModules.some(mod => /Enterprise/i.test(mod?.moduleName || '')));
+
+    const ensureDims = (matrix, targetRows, targetCols)=>{
+      const totalRows = Math.max(targetRows, matrix.length);
+      let maxCols = Math.max(targetCols, MIN_INPUT_COLS);
+      for(let r = 0; r < matrix.length; r++){
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        maxCols = Math.max(maxCols, row.length);
+      }
+      for(let r = 0; r < totalRows; r++){
+        if(!Array.isArray(matrix[r])){
+          matrix[r] = [];
+        }
+        if(matrix[r].length < maxCols){
+          matrix[r].length = maxCols;
+        }
+        for(let c = 0; c < matrix[r].length; c++){
+          if(typeof matrix[r][c] === 'undefined'){
+            matrix[r][c] = '';
+          }
+        }
+      }
+      colCount = Math.max(colCount, maxCols);
+      return matrix;
+    };
+
+    let data = baseData ? ensureDims(baseData, rowCount, colCount) : createEmptyData(rowCount, colCount);
+    const dataHandle = { current: data };
+    recordCall('construct', { containerId: container?.id || null, rows: data.length, cols: colCount });
+    const resolveColHeaders = (count)=>{
+      if(Array.isArray(colHeadersOption)){
+        return colHeadersOption.slice(0, count).concat(Array.from({ length: Math.max(0, count - colHeadersOption.length) }, (_, idx)=>`Column ${colHeadersOption.length + idx + 1}`));
+      }
+      if(colHeadersOption === false){
+        return null;
+      }
+      return Array.from({ length: count }, (_, idx)=>`Column ${idx + 1}`);
+    };
+    let colHeaders = resolveColHeaders(colCount);
+    const colHeadersEnabled = colHeadersOption !== false;
+    const rowHeadersEnabled = rowHeadersOption !== false;
+
+    const exclusionController = createExclusionController(()=>instance, debugLabel, (scope)=>{
+      triggerSchedule(scope || 'exclusion-change', { scope });
+    });
+
+    const hooks = {
+      afterChange: [],
+      afterLoadData: [],
+      afterSelectionEnd: [],
+      afterPaste: [],
+      afterCopy: [],
+      afterCreateRow: [],
+      afterCreateCol: [],
+      afterRemoveRow: [],
+      afterRemoveCol: [],
+      afterColumnMove: [],
+      beforeKeyDown: []
+    };
+    const addHook = (name, fn)=>{
+      if(!fn || typeof fn !== 'function' || !hooks[name]){
+        return;
+      }
+      hooks[name].push(fn);
+    };
+    const fireHook = (name, ...args)=>{
+      if(!hooks[name]){
+        return;
+      }
+      for(let i = 0; i < hooks[name].length; i++){
+        try{
+          hooks[name][i](...args);
+        }catch(err){
+          console.error(`Shared.hot AG hook error (${name})`, err);
+        }
+      }
+    };
+
+    addHook('afterChange', userAfterChange);
+    addHook('afterLoadData', userAfterLoadData);
+    addHook('afterSelectionEnd', userAfterSelectionEnd);
+    addHook('afterPaste', userAfterPaste);
+    addHook('afterCopy', userAfterCopy);
+    addHook('afterCreateRow', userAfterCreateRow);
+    addHook('afterCreateCol', userAfterCreateCol);
+    addHook('afterRemoveRow', userAfterRemoveRow);
+    addHook('afterRemoveCol', userAfterRemoveCol);
+    addHook('afterColumnMove', userAfterColumnMove);
+    addHook('beforeKeyDown', userBeforeKeyDown);
+
+    const buildRowData = ()=>Shared.agGrid?.buildRowData
+      ? Shared.agGrid.buildRowData(dataHandle.current)
+      : Array.from({ length: dataHandle.current.length }, (_, idx)=>({ __rowIndex: idx }));
+    let rowData = buildRowData();
+
+    const buildColumnDefs = ()=>Shared.agGrid?.createColumnDefs
+      ? Shared.agGrid.createColumnDefs(colCount, { dataHandle, colHeaders })
+      : Array.from({ length: colCount }, (_, col)=>{
+        const headerName = colHeaders && colHeaders[col] ? colHeaders[col] : `Col ${col + 1}`;
+        return {
+          headerName,
+          colId: `c${col}`,
+          field: `c${col}`,
+          editable: true,
+          resizable: true,
+          cellClass: params => (treatFirstRowAsHeader && (params?.node?.rowIndex ?? 0) === 0) ? firstRowClassName : null
+        };
+      });
+    let columnDefs = buildColumnDefs();
+
+    let lastRange = null;
+    const colIdToIndex = (id)=>{
+      if(typeof id === 'string' && id.startsWith('c')){
+        const num = Number(id.slice(1));
+        return Number.isFinite(num) ? num : 0;
+      }
+      return 0;
+    };
+    const updateSelectionFromApi = (api)=>{
+      if(!api){
+        return;
+      }
+      if(hasEnterprise && typeof api.getCellRanges === 'function'){
+        try{
+          const ranges = api.getCellRanges();
+          if(Array.isArray(ranges) && ranges.length){
+            const range = ranges[ranges.length - 1];
+            const startRow = range.startRow?.rowIndex ?? range.startRow?.rowPinned ?? 0;
+            const endRow = range.endRow?.rowIndex ?? range.endRow?.rowPinned ?? startRow;
+            const startColId = range.startColumn?.getColId?.() ?? range.columns?.[0]?.getColId?.();
+            const endColId = range.endColumn?.getColId?.() ?? startColId;
+            const startCol = colIdToIndex(startColId);
+            const endCol = colIdToIndex(endColId);
+            lastRange = {
+              from: { row: Math.min(startRow, endRow), col: Math.min(startCol, endCol) },
+              to: { row: Math.max(startRow, endRow), col: Math.max(startCol, endCol) }
+            };
+            fireHook('afterSelectionEnd', startRow, startCol, endRow, endCol);
+            return;
+          }
+        }catch(err){
+          console.debug('Debug: ag selection range not available', err);
+        }
+      }
+      if(typeof api.getFocusedCell === 'function'){
+        try{
+          const focused = api.getFocusedCell();
+          if(focused && Number.isInteger(focused.rowIndex)){
+            const row = focused.rowIndex;
+            const col = colIdToIndex(focused.column?.getColId?.());
+            lastRange = { from: { row, col }, to: { row, col } };
+            fireHook('afterSelectionEnd', row, col, row, col);
+          }
+        }catch(err){
+          console.debug('Debug: ag focused cell not available', err);
+        }
+      }
+    };
+
+    const triggerSchedule = (reason, meta)=>{
+      if(!scheduleFn){
+        return;
+      }
+      try{
+        scheduleFn(Object.assign({ reason }, meta || {}));
+      }catch(err){
+        console.error('Shared.hot AG schedule error', err);
+      }
+    };
+
+    const renderAg = (api)=>{
+      if(api && typeof api.refreshCells === 'function'){
+        api.refreshCells({ force: true });
+      }
+    };
+
+    const rebuildColumns = (api)=>{
+      columnDefs = buildColumnDefs();
+      if(api && typeof api.setColumnDefs === 'function'){
+        api.setColumnDefs(columnDefs);
+      }
+    };
+
+    const syncRowData = (api)=>{
+      rowData = buildRowData();
+      if(api && typeof api.setRowData === 'function'){
+        api.setRowData(rowData);
+      }
+    };
+
+    const getHeaderLabel = (col)=>{
+      if(!colHeaders){
+        return null;
+      }
+      if(typeof col === 'number'){
+        return colHeaders[col];
+      }
+      return colHeaders.slice();
+    };
+
+    const instance = {
+      rootElement: container,
+      __hotDebugLabel: debugLabel,
+      __hotExclusionController: exclusionController,
+      __hotClearCopyHighlight: noop,
+      __hotRefreshHeaderWidths: noop,
+      __hotHeaderWidthManager: headerWidthManager,
+      getSettings(){
+        return { minRows: rowCount, minCols: colCount };
+      },
+      updateSettings(opts){
+        data = dataHandle.current;
+        if(opts && Number.isFinite(opts.minRows)){
+          ensureDims(data, opts.minRows, colCount);
+        }
+        if(opts && Number.isFinite(opts.minCols)){
+          ensureDims(data, rowCount, Math.max(MIN_INPUT_COLS, opts.minCols));
+          colCount = Math.max(colCount, opts.minCols);
+        }
+        dataHandle.current = data;
+        syncRowData(instance.gridApi);
+        rebuildColumns(instance.gridApi);
+        renderAg(instance.gridApi);
+      },
+      countRows(){ return dataHandle.current.length; },
+      countCols(){ return colCount; },
+      countSourceRows(){ return dataHandle.current.length; },
+      countSourceCols(){ return colCount; },
+      getSourceData(){ return dataHandle.current; },
+      getData(rowStart, colStart, rowEnd, colEnd){
+        if([rowStart, colStart, rowEnd, colEnd].every(v => typeof v === 'undefined')){
+          return dataHandle.current;
+        }
+        const rs = Math.max(0, rowStart || 0);
+        const cs = Math.max(0, colStart || 0);
+        const matrix = dataHandle.current;
+        const re = Math.min(matrix.length - 1, typeof rowEnd === 'number' ? rowEnd : matrix.length - 1);
+        const ce = Math.min(colCount - 1, typeof colEnd === 'number' ? colEnd : colCount - 1);
+        const slice = [];
+        for(let r = rs; r <= re; r++){
+          const row = matrix[r] || [];
+          slice.push(row.slice(cs, ce + 1));
+        }
+        return slice;
+      },
+      getColHeader(col){
+        return getHeaderLabel(col);
+      },
+      toPhysicalRow(row){ return Number.isInteger(row) ? row : null; },
+      toPhysicalColumn(col){ return Number.isInteger(col) ? col : null; },
+      getSelectedLast(){
+        if(!lastRange){
+          return null;
+        }
+        return [[lastRange.from.row, lastRange.from.col, lastRange.to.row, lastRange.to.col]];
+      },
+      getSelectedRangeLast(){
+        return lastRange ? Object.assign({}, lastRange) : null;
+      },
+      selectCell(row, col){
+        lastRange = { from: { row, col }, to: { row, col } };
+        fireHook('afterSelectionEnd', row, col, row, col);
+      },
+      getDataAtCell(row, col){
+        const matrix = dataHandle.current;
+        const r = Number(row);
+        const c = Number(col);
+        if(!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0){
+          return null;
+        }
+        const physicalRow = r;
+        const physicalCol = c;
+        if(exclusionController.isCellExcluded(physicalRow, physicalCol)){
+          return null;
+        }
+        return matrix[r]?.[c];
+      },
+      getDataAtRow(row){
+        const matrix = dataHandle.current;
+        const r = Number(row);
+        if(!Number.isInteger(r) || r < 0 || r >= matrix.length){
+          return [];
+        }
+        const physicalRow = r;
+        const values = [];
+        for(let c = 0; c < colCount; c++){
+          const physicalCol = c;
+          const excluded = exclusionController.isCellExcluded(physicalRow, physicalCol);
+          values.push(excluded ? null : matrix[r][c]);
+        }
+        return values;
+      },
+      getDataAtCol(col){
+        const matrix = dataHandle.current;
+        const c = Number(col);
+        if(!Number.isInteger(c) || c < 0 || c >= colCount){
+          return [];
+        }
+        const values = [];
+        for(let r = 0; r < matrix.length; r++){
+          const excluded = exclusionController.isCellExcluded(r, c);
+          values.push(excluded ? null : matrix[r][c]);
+        }
+        return values;
+      },
+      setDataAtCell(row, col, value){
+        data = dataHandle.current;
+        const r = Number(row);
+        const c = Number(col);
+        if(!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0){
+          return;
+        }
+        ensureDims(data, Math.max(r + 1, rowCount), Math.max(c + 1, colCount));
+        const prev = data[r][c];
+        data[r][c] = value;
+        dataHandle.current = data;
+        syncRowData(instance.gridApi);
+        rebuildColumns(instance.gridApi);
+        fireHook('afterChange', [[r, c, prev, value]], 'edit');
+        triggerSchedule('afterChange', { source: 'edit' });
+        renderAg(instance.gridApi);
+      },
+      loadData(nextData){
+        const existingExclusions = preserveExclusionsOnLoad ? exclusionController.exportState() : null;
+        data = Array.isArray(nextData) ? ensureDims(nextData, rowCount, colCount) : createEmptyData(rowCount, colCount);
+        dataHandle.current = data;
+        if(existingExclusions){
+          exclusionController.importState(existingExclusions);
+        }else{
+          exclusionController.clearAll(true);
+        }
+        syncRowData(instance.gridApi);
+        rebuildColumns(instance.gridApi);
+        recordCall('loadData', {
+          containerId: container?.id || null,
+          rows: data.length,
+          firstRow: trimRow(Array.isArray(data[0]) ? data[0] : null)
+        });
+        fireHook('afterLoadData');
+        if(scheduleOnLoadData){
+          triggerSchedule('afterLoadData', { source: 'loadData' });
+        }
+        renderAg(instance.gridApi);
+      },
+      alter(action, index, amount){
+        data = dataHandle.current;
+        const safeAmount = Math.max(0, Number(amount) || 0);
+        const at = Math.max(0, Number(index) || 0);
+        if(safeAmount === 0){
+          return;
+        }
+        if(action === 'insert_row_above' || action === 'insert_row_below' || action === 'insert_row'){
+          const insertAt = action === 'insert_row_above' ? at : at + (action === 'insert_row_below' ? 1 : 0);
+          const rows = Array.from({ length: safeAmount }, ()=>Array.from({ length: colCount }, ()=>''));
+          data.splice(insertAt, 0, ...rows);
+          ensureDims(data, data.length, colCount);
+          dataHandle.current = data;
+          syncRowData(instance.gridApi);
+          fireHook('afterCreateRow', insertAt, safeAmount, action);
+          triggerSchedule('afterCreateRow', { source: action });
+        }else if(action === 'remove_row'){
+          const removed = data.splice(at, safeAmount);
+          exclusionController.shiftRowsForRemoval(Array.from({ length: safeAmount }, (_, idx)=>at + idx));
+          ensureDims(data, rowCount, colCount);
+          dataHandle.current = data;
+          syncRowData(instance.gridApi);
+          fireHook('afterRemoveRow', at, safeAmount, Array.isArray(removed) ? removed.map((_, idx)=>at + idx) : null, action);
+          triggerSchedule('afterRemoveRow', { source: action });
+        }else if(action === 'insert_col' || action === 'insert_col_right' || action === 'insert_col_left'){
+          const insertAt = action === 'insert_col_left' ? at : at + (action === 'insert_col_right' ? 1 : 0);
+          for(let r = 0; r < data.length; r++){
+            const row = data[r] || [];
+            const emptyCols = Array.from({ length: safeAmount }, ()=>'');
+            row.splice(insertAt, 0, ...emptyCols);
+            data[r] = row;
+          }
+          dataHandle.current = data;
+          colHeaders = resolveColHeaders(colCount + safeAmount);
+          colCount = Math.max(colCount + safeAmount, MIN_INPUT_COLS);
+          rebuildColumns(instance.gridApi);
+          renderAg(instance.gridApi);
+          fireHook('afterCreateCol', insertAt, safeAmount, action);
+          triggerSchedule('afterCreateCol', { source: action });
+        }else if(action === 'remove_col'){
+          const removedCols = [];
+          for(let r = 0; r < data.length; r++){
+            const row = data[r] || [];
+            for(let k = 0; k < safeAmount; k++){
+              row.splice(at, 1);
+            }
+          }
+          for(let k = 0; k < safeAmount; k++){
+            removedCols.push(at + k);
+          }
+          exclusionController.shiftColsForRemoval(removedCols);
+          dataHandle.current = data;
+          colCount = Math.max(MIN_INPUT_COLS, colCount - safeAmount);
+          colHeaders = resolveColHeaders(colCount);
+          rebuildColumns(instance.gridApi);
+          renderAg(instance.gridApi);
+          fireHook('afterRemoveCol', at, safeAmount, removedCols, action);
+          triggerSchedule('afterRemoveCol', { source: action });
+        }
+      },
+      populateFromArray(startRow, startCol, block, endRow, endCol, _method, source){
+        data = dataHandle.current;
+        if(!Array.isArray(block)){
+          return;
+        }
+        const sr = Math.max(0, Number(startRow) || 0);
+        const sc = Math.max(0, Number(startCol) || 0);
+        const dataRows = block.length;
+        const dataCols = dataRows > 0 && Array.isArray(block[0]) ? block[0].length : 0;
+        const er = Math.max(sr + dataRows - 1, Number(endRow) || (sr + dataRows - 1));
+        const ec = Math.max(sc + dataCols - 1, Number(endCol) || (sc + dataCols - 1));
+        ensureDims(data, er + 1, ec + 1);
+        const changes = [];
+        for(let r = 0; r < dataRows; r++){
+          for(let c = 0; c < dataCols; c++){
+            const targetRow = sr + r;
+            const targetCol = sc + c;
+            const prev = data[targetRow][targetCol];
+            const next = block[r][c];
+            data[targetRow][targetCol] = next;
+            changes.push([targetRow, targetCol, prev, next]);
+          }
+        }
+        dataHandle.current = data;
+        syncRowData(instance.gridApi);
+        rebuildColumns(instance.gridApi);
+        fireHook('afterChange', changes, source || 'populateFromArray');
+        fireHook('afterPaste', block, [{ startRow: sr, startCol: sc, endRow: er, endCol: ec }]);
+        triggerSchedule('afterPaste', { source: source || 'populateFromArray' });
+        renderAg(instance.gridApi);
+      },
+      render(){
+        renderAg(instance.gridApi);
+      },
+      refreshHeaderWidths(){
+        renderAg(instance.gridApi);
+      },
+      addHook(name, fn){
+        addHook(name, fn);
+      },
+      destroy(){
+        if(instance.gridApi && typeof instance.gridApi.destroy === 'function'){
+          instance.gridApi.destroy();
+        }
+      }
+      ,
+      batch(fn){
+        if(typeof fn === 'function'){
+          fn();
+        }
+      }
+    };
+    Object.defineProperty(instance, '_data', {
+      get(){ return dataHandle.current; },
+      set(value){
+        if(Array.isArray(value)){
+          data = ensureDims(value, rowCount, colCount);
+          dataHandle.current = data;
+          syncRowData(instance.gridApi);
+          rebuildColumns(instance.gridApi);
+          renderAg(instance.gridApi);
+        }
+      }
+    });
+    Object.defineProperty(instance, '_settings', {
+      get(){ return { minRows: rowCount, minCols: colCount }; },
+      set(value){
+        if(!value || typeof value !== 'object'){
+          return;
+        }
+        if(Number.isFinite(value.minRows)){
+          rowCount = Math.max(0, Number(value.minRows));
+        }
+        if(Number.isFinite(value.minCols)){
+          colCount = Math.max(MIN_INPUT_COLS, Number(value.minCols));
+        }
+        data = dataHandle.current;
+        ensureDims(data, rowCount, colCount);
+        dataHandle.current = data;
+        syncRowData(instance.gridApi);
+        rebuildColumns(instance.gridApi);
+        renderAg(instance.gridApi);
+      }
+    });
+
+    let customContextMenu = null;
+    const closeCustomMenu = ()=>{
+      if(customContextMenu && customContextMenu.parentNode){
+        customContextMenu.parentNode.removeChild(customContextMenu);
+      }
+      customContextMenu = null;
+    };
+    const openCustomMenu = (event, items)=>{
+      closeCustomMenu();
+      const doc = container?.ownerDocument || document;
+      const menu = doc.createElement('div');
+      menu.className = 'ag-hot-menu';
+      menu.style.position = 'fixed';
+      menu.style.zIndex = '9999';
+      menu.style.background = '#fff';
+      menu.style.border = '1px solid #ccc';
+      menu.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+      menu.style.fontSize = '13px';
+      menu.style.minWidth = '180px';
+      items.forEach(item=>{
+        if(item === 'separator'){
+          const sep = doc.createElement('div');
+          sep.style.borderTop = '1px solid #eee';
+          menu.appendChild(sep);
+          return;
+        }
+        const entry = doc.createElement('div');
+        entry.textContent = item.label;
+        entry.style.padding = '6px 10px';
+        entry.style.cursor = item.disabled ? 'not-allowed' : 'pointer';
+        entry.style.color = item.disabled ? '#aaa' : '#222';
+        entry.addEventListener('click', ()=>{
+          if(item.disabled){ return; }
+          item.action?.();
+          closeCustomMenu();
+        });
+        menu.appendChild(entry);
+      });
+      menu.addEventListener('mouseleave', ()=>setTimeout(closeCustomMenu, 150));
+      doc.body.appendChild(menu);
+      const x = event?.clientX ?? 0;
+      const y = event?.clientY ?? 0;
+      menu.style.left = `${x}px`;
+      menu.style.top = `${y}px`;
+      customContextMenu = menu;
+      doc.addEventListener('click', closeCustomMenu, { once: true });
+    };
+
+    const gridOptions = {
+      rowData,
+      columnDefs,
+      defaultColDef: {
+        editable: true,
+        resizable: true,
+        suppressHeaderMenuButton: true
+      },
+      rowSelection: { mode: 'multiRow', headerCheckbox: false },
+      suppressMenuHide: true,
+      ensureDomOrder: true,
+      headerHeight: colHeadersEnabled ? 24 : 0,
+      onGridReady(params){
+        instance.gridApi = params.api;
+        instance.columnApi = params.columnApi;
+        updateSelectionFromApi(params.api);
+      },
+      onCellValueChanged(event){
+        const rowIndex = event?.node?.rowIndex ?? event?.rowIndex ?? 0;
+        const colId = event?.column?.getColId?.() ?? event?.colId;
+        const colIndex = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : 0;
+        fireHook('afterChange', [[rowIndex, colIndex, event.oldValue, event.newValue]], event.source || 'edit');
+        triggerSchedule('afterChange', { source: event.source || 'edit' });
+      },
+      onPasteEnd(event){
+        try{
+          const dataBlocks = event?.data || [];
+          const ranges = event?.source === 'clipboard' ? (instance.getSelectedLast() || []) : [];
+          fireHook('afterPaste', dataBlocks, ranges);
+          triggerSchedule('afterPaste', { source: 'paste' });
+        }catch(err){
+          console.error('Shared.hot AG paste handler error', err);
+        }
+      },
+      onSelectionChanged(params){
+        updateSelectionFromApi(params.api);
+      },
+      onCellClicked(params){
+        const row = params?.node?.rowIndex ?? 0;
+        const colId = params?.column?.getColId?.();
+        const col = colIdToIndex(colId);
+        lastRange = { from: { row, col }, to: { row, col } };
+        fireHook('afterSelectionEnd', row, col, row, col);
+      },
+      onColumnMoved(){
+        fireHook('afterColumnMove');
+        triggerSchedule('afterColumnMove', { source: 'columnMove' });
+      },
+      getRowClass(params){
+        if(treatFirstRowAsHeader && (params?.node?.rowIndex ?? 0) === 0){
+          return firstRowClassName;
+        }
+        return null;
+      },
+      onCellContextMenu(params){
+        if(hasEnterprise){
+          return;
+        }
+        const event = params?.event;
+        if(event && typeof event.preventDefault === 'function'){
+          event.preventDefault();
+        }
+        const colIdRaw = params?.column?.getColId?.();
+        const colIdx = typeof colIdRaw === 'string' && colIdRaw.startsWith('c') ? Number(colIdRaw.slice(1)) : 0;
+        const sel = lastRange || {
+          from: { row: params?.node?.rowIndex ?? 0, col: colIdx },
+          to: { row: params?.node?.rowIndex ?? 0, col: colIdx }
+        };
+        const pairs = [];
+        for(let r = sel.from.row; r <= sel.to.row; r++){
+          for(let c = sel.from.col; c <= sel.to.col; c++){
+            pairs.push({ row: r, col: c });
+          }
+        }
+        const items = [
+          {
+            label: 'Paste -> Transposed',
+            disabled: false,
+            action: async ()=>{
+              let text = '';
+              if(typeof navigator?.clipboard?.readText === 'function'){
+                try{
+                  text = await navigator.clipboard.readText();
+                }catch(err){
+                  console.error('Shared.hot AG clipboard read failed', err);
+                }
+              }
+              if(!text){
+                return;
+              }
+              const rows = text.split(/\r?\n/).filter(line=>line.length).map(line=>line.split(/\t/));
+              const transposed = rows[0]?.map((_, colIndex)=>rows.map(row=>row[colIndex] ?? '')) || [];
+              instance.populateFromArray(sel.from.row, sel.from.col, transposed, sel.from.row + transposed.length - 1, sel.from.col + (transposed[0]?.length || 1) - 1, 'transpose', 'transpose');
+            }
+          },
+          'separator',
+          {
+            label: 'Exclude selection from analysis',
+            disabled: !pairs.length,
+            action: ()=>{
+              exclusionController.markCells(pairs, true);
+              triggerSchedule('exclusion-change', { scope: 'cell', exclude: true });
+            }
+          },
+          {
+            label: 'Include selection in analysis',
+            disabled: !pairs.length,
+            action: ()=>{
+              exclusionController.markCells(pairs, false);
+              triggerSchedule('exclusion-change', { scope: 'cell', exclude: false });
+            }
+          }
+        ];
+        openCustomMenu(event, items);
+      },
+      getContextMenuItems: hasEnterprise ? undefined : null
+    };
+
+    agNS.ensureTheme?.(container);
+    if(hasAgGrid){
+      try{
+        const createGridFn = global.agGrid?.createGrid;
+        if(typeof createGridFn === 'function'){
+          instance.gridApi = createGridFn(container, gridOptions);
+        }else{
+          instance.gridApi = new global.agGrid.Grid(container, gridOptions);
+        }
+      }catch(err){
+        console.error('Shared.hot createStandardTable (ag-grid) init error', err);
+      }
+    }else{
+      instance.gridApi = null;
+      instance.columnApi = null;
+    }
+
+    instance.exportExclusions = function(){
+      return hotNS.exportExclusions(instance);
+    };
+    instance.applyExclusions = function(payload){
+      return hotNS.applyExclusions(instance, payload);
+    };
+    instance.clearExclusions = function(){
+      return hotNS.clearExclusions(instance);
+    };
+    instance.getAnalysisData = function(options){
+      return hotNS.getAnalysisData(instance, options);
+    };
+    if(overrides?.exclusions){
+      exclusionController.importState(overrides.exclusions);
+    }
+    if(typeof overrides?.onCreate === 'function'){
+      try{
+        overrides.onCreate(instance);
+      }catch(err){
+        console.error('Shared.hot.createStandardTable (ag-grid) onCreate error', err);
+      }
+    }
+    return instance;
+  }
+
   function createStandardTable(container, dimensions, scheduleDraw, overrides){
+    const preferAg = overrides?.engine !== 'handsontable';
+    if(preferAg){
+      try{
+        const agInstance = createStandardTableAgGrid(container, dimensions, scheduleDraw, overrides);
+        if(agInstance){
+          return agInstance;
+        }
+      }catch(err){
+        console.error('Shared.hot createStandardTable ag-grid path failed, falling back to Handsontable', err);
+      }
+    }
     const debugLabel = overrides?.debugLabel || container?.id || 'hot';
     console.debug('Debug: createStandardTable entry', { debugLabel, containerId: container?.id || null });
     if(!container){
@@ -634,7 +1392,7 @@
     const scheduleFn = typeof scheduleDraw === 'function' ? scheduleDraw : null;
     const scheduleOnLoadData = overrides?.scheduleOnLoadData ?? false;
     const treatFirstRowAsHeader = overrides?.firstRowIsHeader !== false;
-    const firstRowClassName = overrides?.firstRowClassName || '';
+    const firstRowClassName = overrides?.firstRowClassName || 'hot-header-row';
     const firstRowRenderer = overrides?.firstRowRenderer;
     const applyCellMeta = overrides?.applyCellMeta;
     const hotOptions = overrides?.hotOptions || {};

@@ -1764,6 +1764,27 @@
       }
     }
 
+    // Cache distances between dynamic clusters to avoid repeated O(n^2) scans (Lance-Williams updates).
+    const distanceCache = new Map();
+    const makeKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+    const setDistance = (a, b, value) => {
+      if(a === b){ return; }
+      distanceCache.set(makeKey(a, b), value);
+    };
+    const getDistance = (a, b) => {
+      if(a === b){ return 0; }
+      const key = makeKey(a, b);
+      if(distanceCache.has(key)){
+        return distanceCache.get(key);
+      }
+      if(a < countItems && b < countItems){
+        const base = readBaseDistance(a, b);
+        distanceCache.set(key, base);
+        return base;
+      }
+      return 1;
+    };
+
     const computeCentroidForIndices = indices => {
       const length = items[0]?.vector?.length || 0;
       const sums = Array.from({ length }, () => 0);
@@ -1833,7 +1854,8 @@
       right: null,
       distance: 0,
       centroid: null,
-      version: 0
+      version: 0,
+      size: 1
     }));
     const active = new Map();
     clusters.forEach(cluster => {
@@ -1858,8 +1880,11 @@
         aId: firstId,
         bId: secondId,
         aVersion: clusterA.version,
-        bVersion: clusterB.version
+        bVersion: clusterB.version,
+        aSize: clusterA.size,
+        bSize: clusterB.size
       });
+      setDistance(firstId, secondId, safeDistance);
     };
 
     for(let i = 0; i < clusters.length; i += 1){
@@ -1916,7 +1941,8 @@
         right: clusterB,
         distance: mergeDistance,
         centroid: null,
-        version: 0
+        version: 0,
+        size: clusterA.size + clusterB.size
       };
       if(linkage === 'centroid'){
         mergedCluster.centroid = computeCentroidForIndices(mergedIndices);
@@ -1927,7 +1953,27 @@
       active.set(mergedCluster.id, mergedCluster);
       for(const other of active.values()){
         if(other.id === mergedCluster.id){ continue; }
-        pushCandidate(mergedCluster.id, other.id);
+        const dAC = getDistance(clusterA.id, other.id);
+        const dBC = getDistance(clusterB.id, other.id);
+        let newDistance = 1;
+        if(linkage === 'single'){
+          newDistance = Math.min(dAC, dBC);
+        }else if(linkage === 'complete'){
+          newDistance = Math.max(dAC, dBC);
+        }else{
+          const total = (clusterA.size * dAC) + (clusterB.size * dBC);
+          newDistance = (clusterA.size + clusterB.size) > 0 ? total / (clusterA.size + clusterB.size) : 1;
+        }
+        setDistance(mergedCluster.id, other.id, newDistance);
+        heap.push({
+          distance: newDistance,
+          aId: mergedCluster.id < other.id ? mergedCluster.id : other.id,
+          bId: mergedCluster.id < other.id ? other.id : mergedCluster.id,
+          aVersion: mergedCluster.version,
+          bVersion: other.version,
+          aSize: mergedCluster.size,
+          bSize: other.size
+        });
       }
     }
 

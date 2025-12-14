@@ -1442,7 +1442,11 @@
       return;
     }
     const perfState = ensurePcaPerformanceState();
+    const previous = perfState[section] || {};
     const payload = { timestamp: Date.now(), ...(data || {}) };
+    if(section === 'draw' && typeof previous.totalMs === 'number' && typeof payload.totalMs === 'number'){
+      payload.totalMs = Math.max(previous.totalMs, payload.totalMs);
+    }
     perfState[section] = payload;
     if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
       debugLog('Debug: pca performance mark', { section, payload });
@@ -6251,4 +6255,3 @@
   });
 
 })(window);
-
