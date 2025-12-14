@@ -9096,8 +9096,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             circle.setAttribute('cy', entry.coord);
             circle.setAttribute('r', pointRadius);
             circle.setAttribute('fill', fillColor);
-            circle.setAttribute('stroke', borderColor);
-            circle.setAttribute('fill-opacity', 0.7);
+            circle.setAttribute('stroke', 'none');
+            circle.setAttribute('fill-opacity', 1);
             attachBoxPointTooltip(circle, {
               seriesName: tooltipSeriesName,
               categoryName: tooltipCategoryName,
@@ -9741,8 +9741,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             circle.setAttribute('cy', cy + offset);
             circle.setAttribute('r', pointRadius);
             circle.setAttribute('fill', fillColor);
-            circle.setAttribute('stroke', borderColor);
-            circle.setAttribute('fill-opacity', 0.7);
+            circle.setAttribute('stroke', 'none');
+            circle.setAttribute('fill-opacity', 1);
             attachBoxPointTooltip(circle, {
               seriesName: tooltipSeriesName,
               categoryName: tooltipCategoryName,
