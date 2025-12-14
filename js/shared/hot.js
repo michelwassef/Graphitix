@@ -645,7 +645,7 @@
     let rowCount = Math.max(0, Number(dimensions?.rows ?? 0));
     const requestedColCount = Math.max(0, Number(dimensions?.cols ?? 0));
     let colCount = Math.max(MIN_INPUT_COLS, requestedColCount);
-    const scheduleOnLoadData = overrides?.scheduleOnLoadData ?? false;
+    const scheduleOnLoadData = overrides?.scheduleOnLoadData ?? true;
     const treatFirstRowAsHeader = overrides?.firstRowIsHeader !== false;
     const firstRowClassName = overrides?.firstRowClassName || 'hot-header-row';
     const preserveExclusionsOnLoad = overrides?.preserveExclusionsOnLoad === true;
@@ -834,11 +834,13 @@
       }
       const matrix = dataHandle.current;
       const lines = [];
-      for(let r = normalized.from.row; r <= normalized.to.row; r++){
-        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+      for(let visualRow = normalized.from.row; visualRow <= normalized.to.row; visualRow++){
+        const physicalRow = toPhysicalRowIndex(visualRow);
+        const row = Number.isInteger(physicalRow) && Array.isArray(matrix[physicalRow]) ? matrix[physicalRow] : [];
         const values = [];
-        for(let c = normalized.from.col; c <= normalized.to.col; c++){
-          const value = row[c];
+        for(let visualCol = normalized.from.col; visualCol <= normalized.to.col; visualCol++){
+          const physicalCol = toPhysicalColIndex(visualCol);
+          const value = Number.isInteger(physicalCol) ? row[physicalCol] : null;
           values.push(value == null ? '' : String(value));
         }
         lines.push(values.join('\t'));
@@ -955,7 +957,7 @@
         resizable: false,
         width: 56,
         valueGetter(params){
-          const rowIndex = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? 0;
+          const rowIndex = params?.node?.rowIndex ?? params?.data?.__rowIndex ?? 0;
           if(typeof rowHeadersSetting === 'function'){
             try{
               const label = rowHeadersSetting(rowIndex);
@@ -982,7 +984,10 @@
             field: `c${col}`,
             editable: true,
             resizable: true,
-            cellClass: params => (treatFirstRowAsHeader && (params?.node?.rowIndex ?? 0) === 0) ? firstRowClassName : null
+            cellClass: params => {
+              const physicalRow = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? 0;
+              return (treatFirstRowAsHeader && physicalRow === 0) ? firstRowClassName : null;
+            }
           };
         });
       const enhancedDataColumnDefs = dataColumnDefs.map(def=>{
@@ -1045,6 +1050,47 @@
         return Number.isFinite(num) ? num : 0;
       }
       return 0;
+    };
+
+    const toPhysicalRowIndex = (visualRow)=>{
+      const row = Number(visualRow);
+      if(!Number.isInteger(row) || row < 0){
+        return null;
+      }
+      const api = instance?.gridApi;
+      if(api && typeof api.getDisplayedRowAtIndex === 'function'){
+        try{
+          const node = api.getDisplayedRowAtIndex(row);
+          const physical = node?.data?.__rowIndex;
+          if(Number.isInteger(physical) && physical >= 0){
+            return physical;
+          }
+        }catch(err){
+          // ignore mapping failures
+        }
+      }
+      return row;
+    };
+
+    const toPhysicalColIndex = (visualCol)=>{
+      const col = Number(visualCol);
+      if(!Number.isInteger(col) || col < 0){
+        return null;
+      }
+      return col;
+    };
+
+    const getVisualRowCount = ()=>{
+      const api = instance?.gridApi;
+      if(api && typeof api.getDisplayedRowCount === 'function'){
+        try{
+          const count = api.getDisplayedRowCount();
+          return Number.isInteger(count) && count >= 0 ? count : dataHandle.current.length;
+        }catch(err){
+          // ignore
+        }
+      }
+      return dataHandle.current.length;
     };
     const updateSelectionFromApi = (api)=>{
       if(!api){
@@ -1254,6 +1300,9 @@
         }
         let needsSync = false;
         let needsRebuild = false;
+        let needsSchedule = false;
+        const hasIncomingData = Object.prototype.hasOwnProperty.call(opts, 'data') && Array.isArray(opts.data);
+        const existingExclusions = hasIncomingData && preserveExclusionsOnLoad ? exclusionController.exportState() : null;
 
         if(Object.prototype.hasOwnProperty.call(opts, 'rowHeaders')){
           rowHeadersSetting = opts.rowHeaders;
@@ -1265,16 +1314,23 @@
           colHeadersEnabled = colHeadersSetting !== false;
           needsRebuild = true;
         }
-        if(Object.prototype.hasOwnProperty.call(opts, 'data') && Array.isArray(opts.data)){
+        if(hasIncomingData){
           data = ensureDims(opts.data, rowCount, colCount);
           dataHandle.current = data;
           needsSync = true;
+          needsSchedule = true;
+          if(existingExclusions){
+            exclusionController.importState(existingExclusions);
+          }else{
+            exclusionController.clearAll(true);
+          }
         }
         if(Number.isFinite(opts.minRows)){
           rowCount = Math.max(0, Number(opts.minRows));
           ensureDims(data, rowCount, colCount);
           dataHandle.current = data;
           needsSync = true;
+          needsSchedule = true;
         }
         if(Number.isFinite(opts.minCols)){
           colCount = Math.max(MIN_INPUT_COLS, Number(opts.minCols));
@@ -1282,6 +1338,7 @@
           dataHandle.current = data;
           needsSync = true;
           needsRebuild = true;
+          needsSchedule = true;
         }
         if(Object.prototype.hasOwnProperty.call(opts, 'nestedHeaders')){
           instance.__agNestedHeaders = opts.nestedHeaders;
@@ -1297,6 +1354,14 @@
         if(needsRebuild){
           rebuildColumns(instance.gridApi);
         }
+        if(needsSchedule){
+          if(hasIncomingData){
+            fireHook('afterLoadData');
+            triggerSchedule('afterLoadData', { source: 'updateSettings' });
+          }else{
+            triggerSchedule('updateSettings', { source: 'updateSettings' });
+          }
+        }
         renderAg(instance.gridApi);
       },
       countRows(){ return dataHandle.current.length; },
@@ -1311,11 +1376,13 @@
         const rs = Math.max(0, rowStart || 0);
         const cs = Math.max(0, colStart || 0);
         const matrix = dataHandle.current;
-        const re = Math.min(matrix.length - 1, typeof rowEnd === 'number' ? rowEnd : matrix.length - 1);
+        const visualRowCount = getVisualRowCount();
+        const re = Math.min(Math.max(0, visualRowCount - 1), typeof rowEnd === 'number' ? rowEnd : (visualRowCount - 1));
         const ce = Math.min(colCount - 1, typeof colEnd === 'number' ? colEnd : colCount - 1);
         const slice = [];
-        for(let r = rs; r <= re; r++){
-          const row = matrix[r] || [];
+        for(let visualRow = rs; visualRow <= re; visualRow++){
+          const physicalRow = toPhysicalRowIndex(visualRow);
+          const row = Number.isInteger(physicalRow) ? (matrix[physicalRow] || []) : [];
           slice.push(row.slice(cs, ce + 1));
         }
         return slice;
@@ -1323,8 +1390,8 @@
       getColHeader(col){
         return getHeaderLabel(col);
       },
-      toPhysicalRow(row){ return Number.isInteger(row) ? row : null; },
-      toPhysicalColumn(col){ return Number.isInteger(col) ? col : null; },
+      toPhysicalRow(row){ return toPhysicalRowIndex(row); },
+      toPhysicalColumn(col){ return toPhysicalColIndex(col); },
       getSelectedLast(){
         if(!normalizedSelectionRange){
           return null;
@@ -1351,38 +1418,58 @@
         if(!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0){
           return null;
         }
-        const physicalRow = r;
-        const physicalCol = c;
+        const physicalRow = toPhysicalRowIndex(r);
+        const physicalCol = toPhysicalColIndex(c);
+        if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
+          return null;
+        }
         if(exclusionController.isCellExcluded(physicalRow, physicalCol)){
           return null;
         }
-        return matrix[r]?.[c];
+        return matrix[physicalRow]?.[physicalCol];
       },
       getDataAtRow(row){
         const matrix = dataHandle.current;
         const r = Number(row);
-        if(!Number.isInteger(r) || r < 0 || r >= matrix.length){
+        if(!Number.isInteger(r) || r < 0){
           return [];
         }
-        const physicalRow = r;
+        const physicalRow = toPhysicalRowIndex(r);
+        if(!Number.isInteger(physicalRow) || physicalRow < 0 || physicalRow >= matrix.length){
+          return [];
+        }
         const values = [];
-        for(let c = 0; c < colCount; c++){
-          const physicalCol = c;
+        for(let visualCol = 0; visualCol < colCount; visualCol++){
+          const physicalCol = toPhysicalColIndex(visualCol);
+          if(!Number.isInteger(physicalCol) || physicalCol < 0){
+            values.push(null);
+            continue;
+          }
           const excluded = exclusionController.isCellExcluded(physicalRow, physicalCol);
-          values.push(excluded ? null : matrix[r][c]);
+          values.push(excluded ? null : matrix[physicalRow][physicalCol]);
         }
         return values;
       },
       getDataAtCol(col){
         const matrix = dataHandle.current;
         const c = Number(col);
-        if(!Number.isInteger(c) || c < 0 || c >= colCount){
+        if(!Number.isInteger(c) || c < 0){
+          return [];
+        }
+        const physicalCol = toPhysicalColIndex(c);
+        if(!Number.isInteger(physicalCol) || physicalCol < 0 || physicalCol >= colCount){
           return [];
         }
         const values = [];
-        for(let r = 0; r < matrix.length; r++){
-          const excluded = exclusionController.isCellExcluded(r, c);
-          values.push(excluded ? null : matrix[r][c]);
+        const visualRowCount = getVisualRowCount();
+        for(let visualRow = 0; visualRow < visualRowCount; visualRow++){
+          const physicalRow = toPhysicalRowIndex(visualRow);
+          if(!Number.isInteger(physicalRow) || physicalRow < 0){
+            values.push(null);
+            continue;
+          }
+          const excluded = exclusionController.isCellExcluded(physicalRow, physicalCol);
+          values.push(excluded ? null : matrix[physicalRow]?.[physicalCol]);
         }
         return values;
       },
@@ -1396,8 +1483,8 @@
           if(!entries.length){
             return;
           }
-          let maxRow = -1;
-          let maxCol = -1;
+          let maxPhysicalRow = -1;
+          let maxPhysicalCol = -1;
           for(let i = 0; i < entries.length; i++){
             const entry = entries[i];
             if(!Array.isArray(entry) || entry.length < 3){
@@ -1408,15 +1495,20 @@
             if(!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0){
               continue;
             }
-            maxRow = Math.max(maxRow, r);
-            maxCol = Math.max(maxCol, c);
+            const physicalRow = toPhysicalRowIndex(r);
+            const physicalCol = toPhysicalColIndex(c);
+            if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
+              continue;
+            }
+            maxPhysicalRow = Math.max(maxPhysicalRow, physicalRow);
+            maxPhysicalCol = Math.max(maxPhysicalCol, physicalCol);
           }
-          if(maxRow < 0 || maxCol < 0){
+          if(maxPhysicalRow < 0 || maxPhysicalCol < 0){
             return;
           }
           const prevRows = data.length;
           const prevCols = colCount;
-          ensureDims(data, Math.max(maxRow + 1, rowCount), Math.max(maxCol + 1, colCount));
+          ensureDims(data, Math.max(maxPhysicalRow + 1, rowCount), Math.max(maxPhysicalCol + 1, colCount));
           const changesForHook = [];
           for(let i = 0; i < entries.length; i++){
             const entry = entries[i];
@@ -1428,13 +1520,18 @@
             if(!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0){
               continue;
             }
+            const physicalRow = toPhysicalRowIndex(r);
+            const physicalCol = toPhysicalColIndex(c);
+            if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
+              continue;
+            }
             const hasOldAndNew = entry.length >= 4;
-            const prev = hasOldAndNew ? entry[2] : data[r][c];
+            const prev = hasOldAndNew ? entry[2] : data[physicalRow][physicalCol];
             const next = hasOldAndNew ? entry[3] : entry[2];
             if(prev === next){
               continue;
             }
-            data[r][c] = next;
+            data[physicalRow][physicalCol] = next;
             changesForHook.push([r, c, prev, next]);
           }
           if(!changesForHook.length){
@@ -1459,13 +1556,18 @@
         if(!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || c < 0){
           return;
         }
+        const physicalRow = toPhysicalRowIndex(r);
+        const physicalCol = toPhysicalColIndex(c);
+        if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
+          return;
+        }
         const prevCols = colCount;
-        ensureDims(data, Math.max(r + 1, rowCount), Math.max(c + 1, colCount));
-        const prev = data[r][c];
+        ensureDims(data, Math.max(physicalRow + 1, rowCount), Math.max(physicalCol + 1, colCount));
+        const prev = data[physicalRow][physicalCol];
         if(prev === value){
           return;
         }
-        data[r][c] = value;
+        data[physicalRow][physicalCol] = value;
         dataHandle.current = data;
         if(colCount !== prevCols){
           colHeaders = resolveColHeaders(colCount);
@@ -1574,22 +1676,47 @@
         const dataCols = dataRows > 0 && Array.isArray(block[0]) ? block[0].length : 0;
         const er = Math.max(sr + dataRows - 1, Number(endRow) || (sr + dataRows - 1));
         const ec = Math.max(sc + dataCols - 1, Number(endCol) || (sc + dataCols - 1));
-        ensureDims(data, er + 1, ec + 1);
+        const physicalRows = Array.from({ length: dataRows }, (_, idx)=>{
+          const physical = toPhysicalRowIndex(sr + idx);
+          return Number.isInteger(physical) && physical >= 0 ? physical : null;
+        });
+        const physicalCols = Array.from({ length: dataCols }, (_, idx)=>{
+          const physical = toPhysicalColIndex(sc + idx);
+          return Number.isInteger(physical) && physical >= 0 ? physical : null;
+        });
+        const maxPhysicalRow = physicalRows.reduce((acc, value)=>value == null ? acc : Math.max(acc, value), -1);
+        const maxPhysicalCol = physicalCols.reduce((acc, value)=>value == null ? acc : Math.max(acc, value), -1);
+        if(maxPhysicalRow >= 0 && maxPhysicalCol >= 0){
+          ensureDims(data, Math.max(maxPhysicalRow + 1, rowCount), Math.max(maxPhysicalCol + 1, colCount));
+        }
         const changes = [];
         for(let r = 0; r < dataRows; r++){
+          const physicalRow = physicalRows[r];
+          if(physicalRow == null){
+            continue;
+          }
           for(let c = 0; c < dataCols; c++){
             const targetRow = sr + r;
             const targetCol = sc + c;
-            const prev = data[targetRow][targetCol];
+            const physicalCol = physicalCols[c];
+            if(physicalCol == null){
+              continue;
+            }
+            const prev = data[physicalRow][physicalCol];
             const next = block[r][c];
-            data[targetRow][targetCol] = next;
+            if(prev === next){
+              continue;
+            }
+            data[physicalRow][physicalCol] = next;
             changes.push([targetRow, targetCol, prev, next]);
           }
         }
         dataHandle.current = data;
         syncRowData(instance.gridApi);
         rebuildColumns(instance.gridApi);
-        fireHook('afterChange', changes, source || 'populateFromArray');
+        if(changes.length){
+          fireHook('afterChange', changes, source || 'populateFromArray');
+        }
         fireHook('afterPaste', block, [{ startRow: sr, startCol: sc, endRow: er, endCol: ec }]);
         triggerSchedule('afterPaste', { source: source || 'populateFromArray' });
         renderAg(instance.gridApi);
@@ -1718,6 +1845,22 @@
       suppressMenuHide: true,
       ensureDomOrder: true,
       headerHeight: colHeadersEnabled ? 24 : 0,
+      postSortRows: treatFirstRowAsHeader ? function(params){
+        try{
+          const nodes = params?.nodes;
+          if(!Array.isArray(nodes) || nodes.length < 2){
+            return;
+          }
+          const headerIdx = nodes.findIndex(node => (node?.data?.__rowIndex ?? node?.rowIndex) === 0);
+          if(headerIdx <= 0){
+            return;
+          }
+          const headerNode = nodes.splice(headerIdx, 1)[0];
+          nodes.unshift(headerNode);
+        }catch(err){
+          console.debug('Debug: Shared.hot AG postSortRows error', { debugLabel, err });
+        }
+      } : undefined,
       onGridReady(params){
         instance.gridApi = params.api;
         instance.columnApi = params.columnApi;
@@ -1772,7 +1915,8 @@
         triggerSchedule('afterColumnMove', { source: 'columnMove' });
       },
       getRowClass(params){
-        if(treatFirstRowAsHeader && (params?.node?.rowIndex ?? 0) === 0){
+        const physicalRow = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? 0;
+        if(treatFirstRowAsHeader && physicalRow === 0){
           return firstRowClassName;
         }
         return null;
@@ -1794,7 +1938,12 @@
         const pairs = [];
         for(let r = sel.from.row; r <= sel.to.row; r++){
           for(let c = sel.from.col; c <= sel.to.col; c++){
-            pairs.push({ row: r, col: c });
+            const physicalRow = toPhysicalRowIndex(r);
+            const physicalCol = toPhysicalColIndex(c);
+            if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
+              continue;
+            }
+            pairs.push({ row: physicalRow, col: physicalCol });
           }
         }
         const items = [
@@ -1892,7 +2041,7 @@
         if(!cell){
           return null;
         }
-        const rowAttr = cell.getAttribute('row-index');
+        const rowAttr = cell.getAttribute('row-index') ?? cell.closest('.ag-row')?.getAttribute?.('row-index');
         const colAttr = cell.getAttribute('col-id');
         if(rowAttr == null || colAttr == null){
           return null;
@@ -1993,15 +2142,97 @@
         }
       };
 
+      const parsePastedText = (text)=>{
+        if(typeof text !== 'string' || !text){
+          return [];
+        }
+        const sanitized = text.replace(/\r\n?/g, '\n');
+        const lines = sanitized.split('\n');
+        if(lines.length && lines[lines.length - 1] === ''){
+          lines.pop();
+        }
+        if(!lines.length){
+          return [];
+        }
+        let delimiter = null;
+        if(sanitized.indexOf('\t') !== -1){
+          delimiter = '\t';
+        }else{
+          const commaCount = (sanitized.match(/,/g) || []).length;
+          const semicolonCount = (sanitized.match(/;/g) || []).length;
+          if(commaCount || semicolonCount){
+            delimiter = commaCount >= semicolonCount ? ',' : ';';
+          }
+        }
+        return lines.map(line => {
+          if(delimiter){
+            return line.split(delimiter);
+          }
+          return [line];
+        }).filter(row => Array.isArray(row) && row.some(cell => String(cell ?? '').trim() !== ''));
+      };
+
+      const handlePaste = (event)=>{
+        if(!event || event.defaultPrevented){
+          return;
+        }
+        if(isEditableTarget(event.target)){
+          return;
+        }
+        let selection = normalizedSelectionRange || normalizeRange(lastRange);
+        if(!selection){
+          const coords = resolveCellCoords(event);
+          if(coords){
+            setLastRange({ from: coords, to: coords });
+            selection = normalizeRange({ from: coords, to: coords });
+          }
+        }
+        if(!selection){
+          return;
+        }
+        const plain = event.clipboardData?.getData?.('text/plain')
+          || event.clipboardData?.getData?.('text')
+          || '';
+        const rows = parsePastedText(plain);
+        if(!rows.length){
+          return;
+        }
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        const selRowCount = selection.to.row - selection.from.row + 1;
+        const selColCount = selection.to.col - selection.from.col + 1;
+        let block = rows;
+        if((selRowCount > 1 || selColCount > 1) && rows.length === 1 && rows[0].length === 1){
+          const value = rows[0][0];
+          block = Array.from({ length: selRowCount }, ()=>Array.from({ length: selColCount }, ()=>value));
+        }
+        const endRow = selection.from.row + block.length - 1;
+        const endCol = selection.from.col + (block[0]?.length || 1) - 1;
+        try{
+          instance.populateFromArray(selection.from.row, selection.from.col, block, endRow, endCol, 'clipboard', 'paste');
+          setLastRange({
+            from: { row: selection.from.row, col: selection.from.col },
+            to: { row: endRow, col: endCol }
+          });
+          setCopyHighlightRange(null);
+          renderAg(instance.gridApi);
+          fireHook('afterSelectionEnd', selection.from.row, selection.from.col, endRow, endCol);
+        }catch(err){
+          console.error('Shared.hot AG paste handler failed', { debugLabel, err });
+        }
+      };
+
       container.addEventListener('mousedown', handleMouseDown, true);
       win?.addEventListener?.('mousemove', handleMouseMove, true);
       win?.addEventListener?.('mouseup', handleMouseUp, true);
       container.addEventListener('keydown', handleKeyDown, true);
+      container.addEventListener('paste', handlePaste);
       cleanupFns.push(()=>{
         container.removeEventListener('mousedown', handleMouseDown, true);
         win?.removeEventListener?.('mousemove', handleMouseMove, true);
         win?.removeEventListener?.('mouseup', handleMouseUp, true);
         container.removeEventListener('keydown', handleKeyDown, true);
+        container.removeEventListener('paste', handlePaste);
       });
     }
 
