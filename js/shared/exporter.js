@@ -253,6 +253,284 @@
   }
 
   /**
+   * Sanitize an SVG DOM for static export by removing interactive metadata and
+   * optional numeric rounding. Returns statistics about items removed and
+   * example removals.
+   */
+  function sanitizeSvgForStaticExport(svgNode, opts = {}) {
+    if (!svgNode || !svgNode.querySelectorAll) return null;
+    const precision = Number.isInteger(opts.precision) ? opts.precision : 3;
+    const stats = {
+      removedDataAttrs: 0,
+      removedCursorStyles: 0,
+      removedCursorAttrs: 0,
+      removedFillOpacityOnes: 0,
+      removedStrokeOpacityOnes: 0,
+      removedOpacityOnes: 0,
+      removedEmptyGroups: 0,
+      removedXlinkNamespace: 0,
+      removedRootColor: 0,
+      removedDominantBaseline: 0,
+      replacedDominantBaselineWithDy: 0,
+      flattenedAttributeFreeGroups: 0,
+      roundedNumberCount: 0,
+      roundingMaxDelta: 0,
+      examples: {
+        dataAttrs: [],
+        cursorStyles: [],
+        fillOpacity: [],
+        emptyGroups: [],
+        roundedExamples: [],
+        dominantBaseline: [],
+        flattenedGroups: []
+      }
+    };
+
+    const doc = svgNode.ownerDocument || (typeof document !== 'undefined' && document);
+
+    // Helper to record example snippets (max 3)
+    const recordExample = (arr, node) => {
+      if (!arr || !node) return;
+      if (arr.length >= 3) return;
+      try { arr.push(node.outerHTML); } catch (e) { arr.push(node.tagName || 'node'); }
+    };
+
+    // Remove dominant-baseline first: replace with dy on tick labels when possible, otherwise remove
+    try {
+      const dbNodes = svgNode.querySelectorAll('[dominant-baseline]');
+      for (let i = 0; i < dbNodes.length; i += 1) {
+        const n = dbNodes[i];
+        try {
+          const val = n.getAttribute && n.getAttribute('dominant-baseline');
+          // Detect tick labels heuristically via role or id/class containing 'tick'
+          const role = n.getAttribute && n.getAttribute('role');
+          const cls = (n.getAttribute && n.getAttribute('class')) || '';
+          const id = (n.getAttribute && n.getAttribute('id')) || '';
+          const isTick = role === 'xTick' || role === 'yTick' || /\btick\b/i.test(cls) || /tick/i.test(id);
+          // remove attribute
+          n.removeAttribute('dominant-baseline');
+          stats.removedDominantBaseline += 1;
+          recordExample(stats.examples.dominantBaseline, n);
+          if (isTick) {
+            // set dy to approximate vertical centering
+            try { n.setAttribute('dy', '0.35em'); stats.replacedDominantBaselineWithDy += 1; } catch (e) {}
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+
+    // Remove data-* attributes
+    const all = svgNode.querySelectorAll('*');
+    for (let i = 0; i < all.length; i += 1) {
+      const node = all[i];
+      if (!node || !node.getAttribute) continue;
+      const attrs = Array.from(node.attributes || []);
+      for (let j = 0; j < attrs.length; j += 1) {
+        const a = attrs[j];
+        if (!a || !a.name) continue;
+        const name = a.name;
+        const val = a.value;
+        // data-* attributes
+        if (name.startsWith('data-')) {
+          try { node.removeAttribute(name); stats.removedDataAttrs += 1; recordExample(stats.examples.dataAttrs, node); } catch (e) {}
+          continue;
+        }
+        // raw cursor attribute
+        if (name === 'cursor') {
+          try { node.removeAttribute('cursor'); stats.removedCursorAttrs += 1; recordExample(stats.examples.cursorStyles, node); } catch (e) {}
+          continue;
+        }
+        // fill-opacity="1"
+        if (name === 'fill-opacity') {
+          const nv = ('' + val).trim();
+          if (nv === '1' || nv === '1.0') {
+            try { node.removeAttribute('fill-opacity'); stats.removedFillOpacityOnes += 1; recordExample(stats.examples.fillOpacity, node); } catch (e) {}
+          }
+        }
+        // stroke-opacity="1"
+        if (name === 'stroke-opacity') {
+          const nv = ('' + val).trim();
+          if (nv === '1' || nv === '1.0') {
+            try { node.removeAttribute('stroke-opacity'); stats.removedStrokeOpacityOnes += 1; } catch (e) {}
+          }
+        }
+        // opacity="1"
+        if (name === 'opacity') {
+          const nv = ('' + val).trim();
+          if (nv === '1' || nv === '1.0') {
+            try { node.removeAttribute('opacity'); stats.removedOpacityOnes += 1; } catch (e) {}
+          }
+        }
+      }
+
+      // Inline style: remove cursor declarations like "cursor: move;"
+      const style = node.getAttribute && node.getAttribute('style');
+      if (style && typeof style === 'string' && /cursor\s*:\s*[^;]+/i.test(style)) {
+        const newStyle = style.replace(/(?:^|;)\s*cursor\s*:\s*[^;]+;?/ig, ';').replace(/;;+/g, ';').trim();
+        const trimmed = newStyle.replace(/(^;|;+$)/g, '');
+        try {
+          if (trimmed) node.setAttribute('style', trimmed); else node.removeAttribute('style');
+          stats.removedCursorStyles += 1; recordExample(stats.examples.cursorStyles, node);
+        } catch (e) {}
+      }
+    }
+
+    // Remove empty groups (<g> with no children and no rendering attributes)
+    const groups = svgNode.querySelectorAll('g');
+    for (let i = groups.length - 1; i >= 0; i -= 1) {
+      const g = groups[i];
+      try {
+        const hasChildren = g.children && g.children.length > 0;
+        const hasRenderableAttrs = Array.from(g.attributes || []).some(a => {
+          const n = a.name;
+          if (!n) return false;
+          // Attributes that might influence rendering: id,class,transform,style,fill,stroke,opacity,clip-path,mask
+          return ['id','class','transform','style','fill','stroke','opacity','clip-path','mask','filter','marker-start','marker-end','marker-mid'].indexOf(n) >= 0;
+        });
+        if (!hasChildren && !hasRenderableAttrs) {
+          recordExample(stats.examples.emptyGroups, g);
+          g.remove();
+          stats.removedEmptyGroups += 1;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Flatten groups that have no attributes (attribute-free wrapper groups)
+    try {
+      for (let i = groups.length - 1; i >= 0; i -= 1) {
+        const g = groups[i];
+        try {
+          const attrsLen = (g.attributes && g.attributes.length) || 0;
+          const hasChildren = g.children && g.children.length > 0;
+          if (attrsLen === 0 && hasChildren) {
+            // move children out to parent
+            const parent = g.parentNode;
+            if (parent) {
+              recordExample(stats.examples.flattenedGroups, g);
+              while (g.firstChild) parent.insertBefore(g.firstChild, g);
+              parent.removeChild(g);
+              stats.flattenedAttributeFreeGroups += 1;
+            }
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+
+    // Round numeric attribute values (x,y,cx,cy,r,width,height,viewBox numbers, points, d)
+    // We operate conservatively: only replace numeric tokens inside attribute values.
+    const numericAttrNames = ['x','y','cx','cy','r','width','height','x1','y1','x2','y2','rx','ry','stroke-width'];
+    const numberRe = /([+-]?\d*\.?\d+(?:e[+-]?\d+)?)/ig;
+    for (let i = 0; i < all.length; i += 1) {
+      const node = all[i];
+      if (!node || !node.attributes) continue;
+      const attrs = Array.from(node.attributes || []);
+      for (let j = 0; j < attrs.length; j += 1) {
+        const a = attrs[j];
+        if (!a || !a.name) continue;
+        const name = a.name;
+        const val = a.value;
+        // Skip attributes that must remain precise or are non-numeric
+        if (!val || typeof val !== 'string') continue;
+        if (name === 'viewBox') {
+          // viewBox: four numbers
+          const parts = val.trim().split(/[,\s]+/).map(s => parseFloat(s));
+          if (parts.length === 4 && parts.every(Number.isFinite)) {
+            const rounded = parts.map(n => Number(n.toFixed(precision)));
+            const deltas = parts.map((n,i)=>Math.abs(n-rounded[i]));
+            const maxDelta = Math.max(...deltas);
+            if (maxDelta > 0) stats.roundingMaxDelta = Math.max(stats.roundingMaxDelta, maxDelta);
+            node.setAttribute('viewBox', rounded.join(' '));
+            stats.roundedNumberCount += parts.length;
+            if (stats.examples.roundedExamples.length < 3) recordExample(stats.examples.roundedExamples, node);
+          }
+          continue;
+        }
+        if (numericAttrNames.indexOf(name) >= 0) {
+          // round all numbers in the value
+          let replaced = false;
+          const newVal = val.replace(numberRe, (m) => {
+            const num = Number(m);
+            if (!Number.isFinite(num)) return m;
+            const r = Number(Number(num).toFixed(precision));
+            const delta = Math.abs(num - r);
+            if (delta > 0) {
+              stats.roundingMaxDelta = Math.max(stats.roundingMaxDelta, delta);
+            }
+            stats.roundedNumberCount += 1;
+            replaced = true;
+            return String(r);
+          });
+          if (replaced) {
+            try { node.setAttribute(name, newVal); if (stats.examples.roundedExamples.length < 3) recordExample(stats.examples.roundedExamples, node); } catch (e) {}
+          }
+        } else if (name === 'd' || name === 'points') {
+          // For path data and polyline points, round numeric tokens conservatively
+          let replaced = false;
+          const newVal = val.replace(numberRe, (m) => {
+            const num = Number(m);
+            if (!Number.isFinite(num)) return m;
+            const r = Number(Number(num).toFixed(precision));
+            const delta = Math.abs(num - r);
+            if (delta > 0) stats.roundingMaxDelta = Math.max(stats.roundingMaxDelta, delta);
+            stats.roundedNumberCount += 1;
+            replaced = true;
+            return String(r);
+          });
+          if (replaced) {
+            try { node.setAttribute(name, newVal); if (stats.examples.roundedExamples.length < 3) recordExample(stats.examples.roundedExamples, node); } catch (e) {}
+          }
+        }
+      }
+    }
+
+    // Remove root color="#000000" if present (not needed for static exports unless using currentColor)
+    try {
+      if (svgNode.getAttribute) {
+        const colorVal = svgNode.getAttribute('color');
+        if (colorVal && (colorVal === '#000000' || colorVal === '#000')) {
+          svgNode.removeAttribute('color');
+          stats.removedRootColor = 1;
+        }
+      }
+    } catch (e) {}
+
+    // Remove xmlns:xlink if not used
+    try {
+      let xlinkUsed = false;
+      const allAttrs = svgNode.querySelectorAll ? svgNode.querySelectorAll('*') : [];
+      for (let i = 0; i < allAttrs.length && !xlinkUsed; i += 1) {
+        const attrs = Array.from(allAttrs[i].attributes || []);
+        for (let j = 0; j < attrs.length; j += 1) {
+          if (attrs[j].name && attrs[j].name.indexOf('xlink:') === 0) { xlinkUsed = true; break; }
+        }
+      }
+      if (!xlinkUsed && svgNode.getAttribute && svgNode.getAttribute('xmlns:xlink')) {
+        svgNode.removeAttribute('xmlns:xlink');
+        stats.removedXlinkNamespace = 1;
+      }
+    } catch (e) {}
+
+    // Minify: remove repeated whitespace in text nodes and attributes where safe
+    try {
+      const walker = svgNode.createTreeWalker(svgNode, NodeFilter.SHOW_TEXT, null, false);
+      const textNodes = [];
+      while (walker.nextNode()) textNodes.push(walker.currentNode);
+      for (let i = 0; i < textNodes.length; i += 1) {
+        const tn = textNodes[i];
+        if (!tn || !tn.nodeValue) continue;
+        const v = tn.nodeValue.replace(/\s+/g, ' ');
+        tn.nodeValue = v;
+      }
+    } catch (e) {}
+
+    // Final debug log
+    debugLog('sanitizeSvgForStaticExport', stats);
+    return stats;
+  }
+
+  /**
    * Optimizes scatter point elements in an SVG for export.
    * Combines circles with the same style into single path elements.
    * 
@@ -2510,6 +2788,14 @@
 
       // Apply scatter point optimization for large datasets
       counters.scatterOptimization = optimizeScatterPoints(svgNode, { contextLabel });
+
+      // Sanitize SVG for static export: strip interactive metadata and optionally round numeric values
+      try {
+        const sanitizeStats = sanitizeSvgForStaticExport(svgNode, { precision: 3 });
+        counters.sanitize = sanitizeStats || null;
+      } catch (e) {
+        console.error('exporter sanitizeSvgForStaticExport error', e);
+      }
 
       logDebug('prepareSvgForExport applied', {
         contextLabel,
