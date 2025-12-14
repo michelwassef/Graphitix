@@ -458,6 +458,23 @@
       });
     }
 
+    // Helper: persist style for a trace index
+    const traceIndex = parentGroup && parentGroup.dataset && parentGroup.dataset.trace != null ? String(parentGroup.dataset.trace) : null;
+    function persistTraceStyle(patch){
+      if(traceIndex == null){ return; }
+      state.pointStyles = state.pointStyles || {};
+      const previous = cloneSimple(state.pointStyles[traceIndex]) || {};
+      const next = Object.assign({}, previous, patch);
+      state.pointStyles[traceIndex] = next;
+      // record undoable change
+      try{
+        recordBoxChange(`box:point-style:${traceIndex}`, previous, next, value => {
+          state.pointStyles[traceIndex] = value || null;
+          if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
+        });
+      }catch(err){ console.warn('persistTraceStyle error', err); }
+    }
+
     // Fill color + shape
     const BOX_SHAPE_OPTIONS = [
       { value: 'circle', label: 'Circle' },
@@ -498,6 +515,7 @@
               onChange(nextShape){
                 if(!nextShape) return;
                 replacePointsWithShape(resolveTargetPoints(), nextShape);
+                try{ persistTraceStyle({ shape: nextShape }); }catch(e){console.warn(e);} 
               }
             },
             onInput(value, meta){
@@ -509,6 +527,7 @@
               if(nextValue !== prevColor){
                 prevColor = nextValue;
                 resolveTargetPoints().forEach(p => p.setAttribute('fill', nextValue));
+                try{ persistTraceStyle({ fill: nextValue }); }catch(e){console.warn(e);} 
               }
             }
           });
@@ -530,6 +549,7 @@
     const currentStroke = (el.getAttribute('stroke') && el.getAttribute('stroke') !== 'none') ? el.getAttribute('stroke') : '#000000';
     try{ borderInput.value = currentStroke; }catch(e){}
     borderInput.addEventListener('input', ()=>{ resolveTargetPoints().forEach(p => p.setAttribute('stroke', borderInput.value)); });
+    borderInput.addEventListener('change', ()=>{ try{ persistTraceStyle({ stroke: borderInput.value }); }catch(e){console.warn(e);} });
     if(typeof Shared.attachColorPickerNear === 'function'){
       try{ Shared.attachColorPickerNear(borderInput); }catch(e){}
     }
@@ -598,6 +618,7 @@
     sizeSelect.addEventListener('change', ()=>{
       const v = Number(sizeSelect.value) || 4;
       updatePointsSize(resolveTargetPoints(), v);
+      try{ persistTraceStyle({ size: v }); }catch(e){console.warn(e);} 
     });
     wrap.appendChild(makeInput('Size', sizeSelect));
 
@@ -613,6 +634,10 @@
       const v = Number(opInput.value) / 100;
       resolveTargetPoints().forEach(p => p.setAttribute('fill-opacity', String(v)));
       opValue.textContent = opInput.value + '%';
+    });
+    opInput.addEventListener('change', ()=>{
+      const v = Number(opInput.value) / 100;
+      try{ persistTraceStyle({ opacity: v }); }catch(e){console.warn(e);} 
     });
     const opWrap = doc.createElement('div');
     opWrap.style.display = 'inline-flex';
@@ -9403,24 +9428,58 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             orientation: 'vertical'
           });
           const frag = document.createDocumentFragment();
+          // apply per-trace persisted point styles if present
+          const traceStyle = (state.pointStyles && state.pointStyles[i]) ? state.pointStyles[i] : null;
           pointEntries.forEach(entry => {
             const offset = swarm.offsets[entry.index] || 0;
-            const circle = document.createElementNS(NS, 'circle');
-            circle.setAttribute('cx', cx + offset);
-            circle.setAttribute('cy', entry.coord);
-            circle.setAttribute('r', pointRadius);
-            circle.setAttribute('fill', fillColor);
-            circle.setAttribute('stroke', 'none');
-            circle.setAttribute('fill-opacity', 1);
-            attachBoxPointTooltip(circle, {
-              seriesName: tooltipSeriesName,
-              categoryName: tooltipCategoryName,
-              groupName: tooltipGroupName,
-              value: entry.raw,
-              rawValue: entry.raw,
-              index: entry.index
-            });
-            frag.appendChild(circle);
+            const effectiveR = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : pointRadius;
+            const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
+            const effectiveStroke = (traceStyle && traceStyle.stroke) ? traceStyle.stroke : 'none';
+            const effectiveOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
+            const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
+            let node = null;
+            if(effectiveShape === 'circle'){
+              node = document.createElementNS(NS, 'circle');
+              node.setAttribute('cx', cx + offset);
+              node.setAttribute('cy', entry.coord);
+              node.setAttribute('r', effectiveR);
+            }else if(effectiveShape === 'square'){
+              node = document.createElementNS(NS, 'rect');
+              const size = effectiveR * 2;
+              node.setAttribute('x', String(cx + offset - effectiveR));
+              node.setAttribute('y', String(entry.coord - effectiveR));
+              node.setAttribute('width', String(size));
+              node.setAttribute('height', String(size));
+            }else if(effectiveShape === 'triangle'){
+              node = document.createElementNS(NS, 'path');
+              const d = `M ${cx + offset} ${entry.coord - effectiveR} L ${cx + offset + effectiveR} ${entry.coord + effectiveR} L ${cx + offset - effectiveR} ${entry.coord + effectiveR} Z`;
+              node.setAttribute('d', d);
+            }else if(effectiveShape === 'diamond'){
+              node = document.createElementNS(NS, 'path');
+              const d = `M ${cx + offset} ${entry.coord - effectiveR} L ${cx + offset + effectiveR} ${entry.coord} L ${cx + offset} ${entry.coord + effectiveR} L ${cx + offset - effectiveR} ${entry.coord} Z`;
+              node.setAttribute('d', d);
+            }else{
+              // cross, plus, star -> fallback to circle for now
+              node = document.createElementNS(NS, 'circle');
+              node.setAttribute('cx', cx + offset);
+              node.setAttribute('cy', entry.coord);
+              node.setAttribute('r', effectiveR);
+            }
+            if(node){
+              node.setAttribute('fill', effectiveFill);
+              if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
+              node.setAttribute('fill-opacity', String(effectiveOpacity));
+              node.setAttribute('data-shape', effectiveShape);
+              attachBoxPointTooltip(node, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: entry.raw,
+                rawValue: entry.raw,
+                index: entry.index
+              });
+              frag.appendChild(node);
+            }
           });
           const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
           stripGroup.appendChild(frag);
@@ -10048,24 +10107,57 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             orientation: 'horizontal'
           });
           const frag = document.createDocumentFragment();
+          // apply per-trace persisted point styles if present
+          const traceStyleH = (state.pointStyles && state.pointStyles[i]) ? state.pointStyles[i] : null;
           pointEntries.forEach(entry => {
             const offset = swarm.offsets[entry.index] || 0;
-            const circle = document.createElementNS(NS, 'circle');
-            circle.setAttribute('cx', entry.coord);
-            circle.setAttribute('cy', cy + offset);
-            circle.setAttribute('r', pointRadius);
-            circle.setAttribute('fill', fillColor);
-            circle.setAttribute('stroke', 'none');
-            circle.setAttribute('fill-opacity', 1);
-            attachBoxPointTooltip(circle, {
-              seriesName: tooltipSeriesName,
-              categoryName: tooltipCategoryName,
-              groupName: tooltipGroupName,
-              value: entry.raw,
-              rawValue: entry.raw,
-              index: entry.index
-            });
-            frag.appendChild(circle);
+            const effectiveR = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : pointRadius;
+            const effectiveFill = (traceStyleH && traceStyleH.fill) ? traceStyleH.fill : fillColor;
+            const effectiveStroke = (traceStyleH && traceStyleH.stroke) ? traceStyleH.stroke : 'none';
+            const effectiveOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
+            const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
+            let node = null;
+            if(effectiveShape === 'circle'){
+              node = document.createElementNS(NS, 'circle');
+              node.setAttribute('cx', entry.coord);
+              node.setAttribute('cy', cy + offset);
+              node.setAttribute('r', effectiveR);
+            }else if(effectiveShape === 'square'){
+              node = document.createElementNS(NS, 'rect');
+              const size = effectiveR * 2;
+              node.setAttribute('x', String(entry.coord - effectiveR));
+              node.setAttribute('y', String(cy + offset - effectiveR));
+              node.setAttribute('width', String(size));
+              node.setAttribute('height', String(size));
+            }else if(effectiveShape === 'triangle'){
+              node = document.createElementNS(NS, 'path');
+              const d = `M ${entry.coord} ${cy + offset - effectiveR} L ${entry.coord + effectiveR} ${cy + offset + effectiveR} L ${entry.coord - effectiveR} ${cy + offset + effectiveR} Z`;
+              node.setAttribute('d', d);
+            }else if(effectiveShape === 'diamond'){
+              node = document.createElementNS(NS, 'path');
+              const d = `M ${entry.coord} ${cy + offset - effectiveR} L ${entry.coord + effectiveR} ${cy + offset} L ${entry.coord} ${cy + offset + effectiveR} L ${entry.coord - effectiveR} ${cy + offset} Z`;
+              node.setAttribute('d', d);
+            }else{
+              node = document.createElementNS(NS, 'circle');
+              node.setAttribute('cx', entry.coord);
+              node.setAttribute('cy', cy + offset);
+              node.setAttribute('r', effectiveR);
+            }
+            if(node){
+              node.setAttribute('fill', effectiveFill);
+              if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
+              node.setAttribute('fill-opacity', String(effectiveOpacity));
+              node.setAttribute('data-shape', effectiveShape);
+              attachBoxPointTooltip(node, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: entry.raw,
+                rawValue: entry.raw,
+                index: entry.index
+              });
+              frag.appendChild(node);
+            }
           });
           const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
           stripGroup.appendChild(frag);
