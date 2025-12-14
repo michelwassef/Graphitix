@@ -49,6 +49,7 @@
   const BROKEN_AXIS_BREAK_WIDTH = 8;
   const BROKEN_AXIS_BREAK_HEIGHT = 6;
   const BROKEN_AXIS_DEFAULT_SEGMENT = { start: 0, end: 1 };
+  const BOX_POINT_BATCH_THRESHOLD = 1500; // when exceeded, batch points into a single path
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
     iqr3:{ key:'iqr3', mode:'iqr', multiplier:3, label:'3×IQR' },
@@ -833,6 +834,29 @@
       return baseVal;
     }
     return baseVal + rest * (nextVal - baseVal);
+  }
+
+  // Create a compact SVG path representing many small squares (approximate points).
+  // Returns an SVGPathElement. Points is array of { x, y } in user coordinates.
+  function createBatchedPointPath(doc, points, size, opts){
+    const half = size / 2;
+    const parts = [];
+    for(let i = 0; i < points.length; i++){
+      const pt = points[i];
+      if(!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) continue;
+      const x0 = pt.x - half;
+      const y0 = pt.y - half;
+      // draw small rect using relative h/v commands for compactness
+      parts.push(`M ${x0} ${y0} h ${size} v ${size} h -${size} Z`);
+    }
+    const path = doc.createElementNS(NS, 'path');
+    path.setAttribute('d', parts.join(' '));
+    if(opts?.fill) path.setAttribute('fill', opts.fill);
+    if(opts?.fillOpacity != null) path.setAttribute('fill-opacity', String(opts.fillOpacity));
+    if(opts?.stroke) path.setAttribute('stroke', opts.stroke);
+    if(opts?.strokeWidth) path.setAttribute('stroke-width', String(opts.strokeWidth));
+    if(opts?.dataTrace != null) path.setAttribute('data-trace', String(opts.dataTrace));
+    return path;
   }
 
   function partitionArray(arr, left, right, pivotIndex){
@@ -9570,62 +9594,69 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             sampleSize: sampleCount,
             orientation: 'vertical'
           });
-          const frag = document.createDocumentFragment();
           // apply per-trace persisted point styles if present
           const traceStyle = (state.pointStyles && state.pointStyles[i]) ? state.pointStyles[i] : null;
-          pointEntries.forEach(entry => {
-            const offset = swarm.offsets[entry.index] || 0;
-            const effectiveR = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
-            const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
-            const effectiveStroke = (traceStyle && traceStyle.stroke) ? traceStyle.stroke : 'none';
-            const effectiveOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
-            const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
-            let node = null;
-            if(effectiveShape === 'circle'){
-              node = document.createElementNS(NS, 'circle');
-              node.setAttribute('cx', cx + offset);
-              node.setAttribute('cy', entry.coord);
-              node.setAttribute('r', effectiveR);
-            }else if(effectiveShape === 'square'){
-              node = document.createElementNS(NS, 'rect');
-              const size = effectiveR * 2;
-              node.setAttribute('x', String(cx + offset - effectiveR));
-              node.setAttribute('y', String(entry.coord - effectiveR));
-              node.setAttribute('width', String(size));
-              node.setAttribute('height', String(size));
-            }else if(effectiveShape === 'triangle'){
-              node = document.createElementNS(NS, 'path');
-              const d = `M ${cx + offset} ${entry.coord - effectiveR} L ${cx + offset + effectiveR} ${entry.coord + effectiveR} L ${cx + offset - effectiveR} ${entry.coord + effectiveR} Z`;
-              node.setAttribute('d', d);
-            }else if(effectiveShape === 'diamond'){
-              node = document.createElementNS(NS, 'path');
-              const d = `M ${cx + offset} ${entry.coord - effectiveR} L ${cx + offset + effectiveR} ${entry.coord} L ${cx + offset} ${entry.coord + effectiveR} L ${cx + offset - effectiveR} ${entry.coord} Z`;
-              node.setAttribute('d', d);
-            }else{
-              // cross, plus, star -> fallback to circle for now
-              node = document.createElementNS(NS, 'circle');
-              node.setAttribute('cx', cx + offset);
-              node.setAttribute('cy', entry.coord);
-              node.setAttribute('r', effectiveR);
-            }
-            if(node){
-              node.setAttribute('fill', effectiveFill);
-              if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
-              node.setAttribute('fill-opacity', String(effectiveOpacity));
-              node.setAttribute('data-shape', effectiveShape);
-              attachBoxPointTooltip(node, {
-                seriesName: tooltipSeriesName,
-                categoryName: tooltipCategoryName,
-                groupName: tooltipGroupName,
-                value: entry.raw,
-                rawValue: entry.raw,
-                index: entry.index
-              });
-              frag.appendChild(node);
-            }
-          });
-          const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
-          stripGroup.appendChild(frag);
+          const effectiveR = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
+          const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
+          const effectiveStroke = (traceStyle && traceStyle.stroke) ? traceStyle.stroke : 'none';
+          const effectiveOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
+          const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
+          // If many points, batch them into a single path of small rects to reduce DOM nodes
+          if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && (effectiveShape === 'circle' || effectiveShape === 'square')){
+            const pts = pointEntries.map(e => ({ x: cx + (swarm.offsets[e.index] || 0), y: e.coord }));
+            const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveR * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: i });
+            const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
+            stripGroup.appendChild(pathNode);
+          }else{
+            const frag = document.createDocumentFragment();
+            pointEntries.forEach(entry => {
+              const offset = swarm.offsets[entry.index] || 0;
+              let node = null;
+              if(effectiveShape === 'circle'){
+                node = document.createElementNS(NS, 'circle');
+                node.setAttribute('cx', cx + offset);
+                node.setAttribute('cy', entry.coord);
+                node.setAttribute('r', effectiveR);
+              }else if(effectiveShape === 'square'){
+                node = document.createElementNS(NS, 'rect');
+                const size = effectiveR * 2;
+                node.setAttribute('x', String(cx + offset - effectiveR));
+                node.setAttribute('y', String(entry.coord - effectiveR));
+                node.setAttribute('width', String(size));
+                node.setAttribute('height', String(size));
+              }else if(effectiveShape === 'triangle'){
+                node = document.createElementNS(NS, 'path');
+                const d = `M ${cx + offset} ${entry.coord - effectiveR} L ${cx + offset + effectiveR} ${entry.coord + effectiveR} L ${cx + offset - effectiveR} ${entry.coord + effectiveR} Z`;
+                node.setAttribute('d', d);
+              }else if(effectiveShape === 'diamond'){
+                node = document.createElementNS(NS, 'path');
+                const d = `M ${cx + offset} ${entry.coord - effectiveR} L ${cx + offset + effectiveR} ${entry.coord} L ${cx + offset} ${entry.coord + effectiveR} L ${cx + offset - effectiveR} ${entry.coord} Z`;
+                node.setAttribute('d', d);
+              }else{
+                node = document.createElementNS(NS, 'circle');
+                node.setAttribute('cx', cx + offset);
+                node.setAttribute('cy', entry.coord);
+                node.setAttribute('r', effectiveR);
+              }
+              if(node){
+                node.setAttribute('fill', effectiveFill);
+                if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
+                node.setAttribute('fill-opacity', String(effectiveOpacity));
+                node.setAttribute('data-shape', effectiveShape);
+                attachBoxPointTooltip(node, {
+                  seriesName: tooltipSeriesName,
+                  categoryName: tooltipCategoryName,
+                  groupName: tooltipGroupName,
+                  value: entry.raw,
+                  rawValue: entry.raw,
+                  index: entry.index
+                });
+                frag.appendChild(node);
+              }
+            });
+            const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
+            stripGroup.appendChild(frag);
+          }
           if(individualSummaryMode !== 'none'){
             const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode });
             const summaryCap = Math.max(6, localBand * 0.12);
@@ -9687,7 +9718,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           console.time(`boxplotPoints_${token}_${i}`);
           const frag = document.createDocumentFragment();
           let ptIdx = 0;
-          if(pointMode === 'outliers'){
+          // If many points, batch into a single path to reduce DOM size (no per-point tooltips in batched mode)
+          if(pointMode !== 'outliers' && valueList.length > BOX_POINT_BATCH_THRESHOLD){
+            const pts = [];
+            for(const v of valueList){
+              const cy = y2px(v);
+              let px;
+              if(pointMode === 'overlay'){
+                px = cx + (Math.random() - 0.5) * boxW * 0.6;
+              }else{
+                px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
+              }
+              pts.push({ x: px, y: cy });
+              ptIdx++;
+            }
+            const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(pointRadius * 2)), { fill: fillColor, fillOpacity: pointMode === 'overlay' ? 0.6 : 1, stroke: borderColor, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: i });
+            add('g',{ 'data-trace': i }).appendChild(pathNode);
+          }else if(pointMode === 'outliers'){
             for(const v of outliers){
               const c = document.createElementNS(NS, 'circle');
               c.setAttribute('cx', cx);
@@ -9710,6 +9757,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token });
               }
             }
+            add('g',{ 'data-trace': i }).appendChild(frag);
           }else{
             for(const v of valueList){
               const cy = y2px(v);
@@ -9742,8 +9790,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token });
               }
             }
+            add('g',{ 'data-trace': i }).appendChild(frag);
           }
-          add('g',{ 'data-trace': i }).appendChild(frag);
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
       }
