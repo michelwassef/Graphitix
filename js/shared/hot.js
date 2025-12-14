@@ -1033,6 +1033,66 @@
             && col >= normalizedCopyHighlightRange.from.col
             && col <= normalizedCopyHighlightRange.to.col;
         };
+        existing['hot-cell-excluded'] = params=>{
+          const physicalRow = params?.data?.__rowIndex;
+          if(!Number.isInteger(physicalRow) || physicalRow < 0){
+            return false;
+          }
+          if(treatFirstRowAsHeader && physicalRow === 0){
+            return false;
+          }
+          const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
+          const physicalCol = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          if(!Number.isInteger(physicalCol) || physicalCol < 0){
+            return false;
+          }
+          return exclusionController.isCellExcluded(physicalRow, physicalCol);
+        };
+        existing['hot-cell-excluded-row'] = params=>{
+          const physicalRow = params?.data?.__rowIndex;
+          if(!Number.isInteger(physicalRow) || physicalRow < 0){
+            return false;
+          }
+          if(treatFirstRowAsHeader && physicalRow === 0){
+            return false;
+          }
+          const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
+          const physicalCol = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          if(!Number.isInteger(physicalCol) || physicalCol < 0){
+            return false;
+          }
+          return exclusionController.resolveCellState(physicalRow, physicalCol).fromRow;
+        };
+        existing['hot-cell-excluded-column'] = params=>{
+          const physicalRow = params?.data?.__rowIndex;
+          if(!Number.isInteger(physicalRow) || physicalRow < 0){
+            return false;
+          }
+          if(treatFirstRowAsHeader && physicalRow === 0){
+            return false;
+          }
+          const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
+          const physicalCol = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          if(!Number.isInteger(physicalCol) || physicalCol < 0){
+            return false;
+          }
+          return exclusionController.resolveCellState(physicalRow, physicalCol).fromCol;
+        };
+        existing['hot-cell-excluded-cell'] = params=>{
+          const physicalRow = params?.data?.__rowIndex;
+          if(!Number.isInteger(physicalRow) || physicalRow < 0){
+            return false;
+          }
+          if(treatFirstRowAsHeader && physicalRow === 0){
+            return false;
+          }
+          const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
+          const physicalCol = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          if(!Number.isInteger(physicalCol) || physicalCol < 0){
+            return false;
+          }
+          return exclusionController.resolveCellState(physicalRow, physicalCol).fromCell;
+        };
         def.cellClassRules = existing;
         return def;
       });
@@ -1842,25 +1902,73 @@
         suppressHeaderMenuButton: true
       },
       rowSelection: { mode: 'multiRow', headerCheckbox: false },
+      suppressRowHoverHighlight: true,
       suppressMenuHide: true,
       ensureDomOrder: true,
       headerHeight: colHeadersEnabled ? 24 : 0,
-      postSortRows: treatFirstRowAsHeader ? function(params){
+      postSortRows: function(params){
         try{
           const nodes = params?.nodes;
           if(!Array.isArray(nodes) || nodes.length < 2){
             return;
           }
-          const headerIdx = nodes.findIndex(node => (node?.data?.__rowIndex ?? node?.rowIndex) === 0);
-          if(headerIdx <= 0){
-            return;
+          const matrix = dataHandle.current;
+          const isValueEmpty = (value)=>{
+            if(value == null){
+              return true;
+            }
+            if(typeof value === 'string'){
+              return value.trim() === '';
+            }
+            return false;
+          };
+          const isPhysicalRowAllEmpty = (physicalRow)=>{
+            if(!Number.isInteger(physicalRow) || physicalRow < 0){
+              return false;
+            }
+            const rowValues = Array.isArray(matrix?.[physicalRow]) ? matrix[physicalRow] : [];
+            for(let c = 0; c < colCount; c++){
+              if(!isValueEmpty(rowValues[c])){
+                return false;
+              }
+            }
+            return true;
+          };
+
+          const headerNodes = [];
+          const nonEmptyNodes = [];
+          const emptyNodes = [];
+          for(let i = 0; i < nodes.length; i++){
+            const node = nodes[i];
+            const physicalRow = node?.data?.__rowIndex ?? node?.rowIndex;
+            if(treatFirstRowAsHeader && physicalRow === 0){
+              headerNodes.push(node);
+              continue;
+            }
+            if(isPhysicalRowAllEmpty(physicalRow)){
+              emptyNodes.push(node);
+            }else{
+              nonEmptyNodes.push(node);
+            }
           }
-          const headerNode = nodes.splice(headerIdx, 1)[0];
-          nodes.unshift(headerNode);
+
+          const emptyNodesHavePhysical = emptyNodes.every(node => Number.isInteger(node?.data?.__rowIndex ?? node?.rowIndex));
+          if(emptyNodesHavePhysical){
+            emptyNodes.sort((a, b)=>{
+              const aRow = a?.data?.__rowIndex ?? a?.rowIndex ?? 0;
+              const bRow = b?.data?.__rowIndex ?? b?.rowIndex ?? 0;
+              return aRow - bRow;
+            });
+          }
+
+          nodes.length = 0;
+          headerNodes.forEach(node => nodes.push(node));
+          nonEmptyNodes.forEach(node => nodes.push(node));
+          emptyNodes.forEach(node => nodes.push(node));
         }catch(err){
           console.debug('Debug: Shared.hot AG postSortRows error', { debugLabel, err });
         }
-      } : undefined,
+      },
       onGridReady(params){
         instance.gridApi = params.api;
         instance.columnApi = params.columnApi;
@@ -1926,8 +2034,9 @@
           return;
         }
         const event = params?.event;
-        if(event && typeof event.preventDefault === 'function'){
-          event.preventDefault();
+        if(event){
+          event.preventDefault?.();
+          event.stopPropagation?.();
         }
         const colIdRaw = params?.column?.getColId?.();
         const colIdx = typeof colIdRaw === 'string' && colIdRaw.startsWith('c') ? Number(colIdRaw.slice(1)) : 0;
@@ -2222,16 +2331,28 @@
         }
       };
 
+      const handleContextMenu = (event)=>{
+        if(!event || event.defaultPrevented){
+          return;
+        }
+        if(isEditableTarget(event.target)){
+          return;
+        }
+        event.preventDefault?.();
+      };
+
       container.addEventListener('mousedown', handleMouseDown, true);
       win?.addEventListener?.('mousemove', handleMouseMove, true);
       win?.addEventListener?.('mouseup', handleMouseUp, true);
       container.addEventListener('keydown', handleKeyDown, true);
+      container.addEventListener('contextmenu', handleContextMenu, true);
       container.addEventListener('paste', handlePaste);
       cleanupFns.push(()=>{
         container.removeEventListener('mousedown', handleMouseDown, true);
         win?.removeEventListener?.('mousemove', handleMouseMove, true);
         win?.removeEventListener?.('mouseup', handleMouseUp, true);
         container.removeEventListener('keydown', handleKeyDown, true);
+        container.removeEventListener('contextmenu', handleContextMenu, true);
         container.removeEventListener('paste', handlePaste);
       });
     }

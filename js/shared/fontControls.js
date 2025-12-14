@@ -2646,15 +2646,8 @@
   function openPanelForTarget(target, options){
     if(!target){ return; }
     ensurePanel();
-    try {
-      const axisControls = global.Shared?.axisControls;
-      if(axisControls && typeof axisControls.close === 'function'){
-        axisControls.close('font-open');
-        logDebug('axis controls closed before font panel open', { reason: 'font-open' });
-      }
-    } catch(axisErr){
-      console.error('fontControls.openPanelForTarget axisControls.close error', axisErr);
-    }
+    // Allow axis controls to remain visible when opening the font (FORMAT) panel.
+    // Do not forcibly close axisControls here so both panels can be shown together.
     currentTarget = target;
     currentScope = options?.scopeId || target.dataset?.fontScope || null;
     currentKey = options?.key || target.dataset?.fontKey || null;
