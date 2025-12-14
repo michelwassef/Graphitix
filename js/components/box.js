@@ -1441,18 +1441,18 @@
   function computeSwarmOffsets(points, options){
     const entries = Array.isArray(points) ? points.slice() : [];
     const sampleSize = Number(options?.sampleSize) || entries.length;
-    const pointRadiusValue = Number(options?.pointRadius) || 1;
+    let pointRadiusValue = Number(options?.pointRadius) || 1;
     const axisSpacing = Number(options?.axisSpacing) || 0;
     const orientation = options?.orientation || 'vertical';
     const spreadFactor = computeSampleSpreadFactor(sampleSize);
-    const axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
+    let axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
     const violinScale = 0.45;
     const stripScale = 0.18;
     const baseScale = stripScale / violinScale;
-    const effectiveHalfSpan = axisBoundary > 0
+    let effectiveHalfSpan = axisBoundary > 0
       ? axisSpacing * stripScale * spreadFactor
       : pointRadiusValue * 2.2 * spreadFactor;
-    const globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
+    let globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
     const offsetsMap = new Map();
     if(!entries.length || !Number.isFinite(globalMaxHalfWidth) || globalMaxHalfWidth <= 0){
       console.debug('Debug: computeSwarmOffsets empty',{ orientation, sampleSize, axisSpacing });
@@ -1482,6 +1482,35 @@
       console.debug('Debug: computeSwarmOffsets noBins',{ orientation, sampleSize, axisSpacing });
       return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
+
+    // Robust auto-adjustment: when many points fall into the same rounded
+    // coordinate (pixel), reduce the requested point radius so the points
+    // can be laid out within the available half-width. This uses several
+    // heuristics for available space so it works even when axisBoundary is 0.
+    if(maxCount > 1){
+      const minRadius = 0.15;
+      const nominalGapFactor = 1.6; // min gap between centers = r * 1.6
+      const denomFactor = (maxCount - 1) * (nominalGapFactor / 2); // required half-width per unit radius
+      const axisHalf = Math.max(0, axisSpacing / 2);
+      const altAvailable = Math.max(0, axisSpacing * stripScale * spreadFactor);
+      const available = Math.max(axisHalf, altAvailable, 1) - 0.5;
+      if(denomFactor > 0 && available > 0){
+        const maxAllowedRadius = available / denomFactor;
+        if(maxAllowedRadius < pointRadiusValue){
+          const adjusted = Math.max(minRadius, Math.min(pointRadiusValue, maxAllowedRadius));
+          if(adjusted < pointRadiusValue){
+            console.debug('Debug: computeSwarmOffsets auto-adjust radius',{ previousRadius: pointRadiusValue, adjustedRadius: adjusted, available, maxCount });
+            pointRadiusValue = adjusted;
+          }
+        }
+      }
+    }
+    // Recompute derived span values after any radius adjustment
+    axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
+    effectiveHalfSpan = axisBoundary > 0
+      ? axisSpacing * stripScale * spreadFactor
+      : pointRadiusValue * 2.2 * spreadFactor;
+    globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
     const minGap = pointRadiusValue * 1.6;
     let maxUsed = 0;
     bins.forEach(bin => {
@@ -1518,8 +1547,8 @@
       }
     });
     const offsets = entries.map(entry => offsetsMap.get(entry.index) || 0);
-    console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entries.length, maxBinSize: maxCount });
-    return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset: globalMaxHalfWidth };
+    console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entries.length, maxBinSize: maxCount, adjustedRadius: pointRadiusValue });
+    return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset: globalMaxHalfWidth, adjustedRadius: pointRadiusValue };
   }
 
   function populateIndividualSummarySelect(selectEl){
@@ -8917,7 +8946,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       console.debug('Debug: box layout',{ margin: marginLocal, plotW: plotWLocal, plotH: plotHLocal, rotate: bottomLayout.shouldRotate, yTickTarget, manualTicks: !!manualYScale });
       const axisCount = Math.max(axisLabels.length, 1);
-      let bandW = plotWLocal / axisCount;
+      // Add a small gap between adjacent category bands so datasets don't touch
+      // each other. Compute a gap as a fraction of the raw band width and
+      // subtract total gap space from the plot width before deriving bandW.
+      const rawBandW = plotWLocal / axisCount;
+      const datasetGapFraction = 0.06; // fraction of band used as gap
+      const datasetGapPxCandidate = rawBandW * datasetGapFraction;
+      const datasetGapPx = Math.max(2, Math.min(40, datasetGapPxCandidate));
+      let bandW = (plotWLocal - datasetGapPx * Math.max(0, axisCount - 1)) / axisCount;
       const separatedSpacing = separatedCategoryUnits
         ? scaleSeparatedCategoryUnits(separatedCategoryUnits, plotWLocal, marginLocal.left)
         : null;
@@ -8991,7 +9027,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
         }
         const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-        return marginLocal.left + (categoryIdx + 0.5) * bandW;
+        // account for gap between bands when computing center
+        const x = marginLocal.left + categoryIdx * (bandW + datasetGapPx) + bandW / 2;
+        return x;
       };
       const addAxisElement = (tag, attrs) => appendToLayer(axisLayer || svg, tag, attrs);
       let stackOffsets = null;
@@ -9492,7 +9530,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const traceStyle = (state.pointStyles && state.pointStyles[i]) ? state.pointStyles[i] : null;
           pointEntries.forEach(entry => {
             const offset = swarm.offsets[entry.index] || 0;
-            const effectiveR = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : pointRadius;
+            const effectiveR = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
             const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
             const effectiveStroke = (traceStyle && traceStyle.stroke) ? traceStyle.stroke : 'none';
             const effectiveOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
@@ -9582,7 +9620,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const cySummary = y2px(value);
-                const halfWidth = Math.max(summaryCap, pointRadius * radiusMultiplier, 4);
+                const halfWidth = Math.max(summaryCap, (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius) * radiusMultiplier, 4);
                 summaryAdd('line',{ x1: cx - halfWidth, y1: cySummary, x2: cx + halfWidth, y2: cySummary, stroke: borderColor, 'stroke-width': summaryStrokeWidth });
                 return true;
               },
@@ -9732,7 +9770,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const valueRange = yScale.max - yScale.min || 1;
       const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
       const axisCount = Math.max(axisLabels.length, 1);
-      let bandH = plotHLocal / axisCount;
+      // Add a small gap between adjacent category bands so datasets don't touch
+      const rawBandH = plotHLocal / axisCount;
+      const datasetGapFractionH = 0.06;
+      const datasetGapPxH = Math.max(2, Math.min(40, rawBandH * datasetGapFractionH));
+      let bandH = (plotHLocal - datasetGapPxH * Math.max(0, axisCount - 1)) / axisCount;
       const separatedSpacing = separatedCategoryUnits
         ? scaleSeparatedCategoryUnits(separatedCategoryUnits, plotHLocal, marginLocal.top)
         : null;
@@ -9767,7 +9809,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
         }
         const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
-        return marginLocal.top + (categoryIdx + 0.5) * bandH;
+        // account for vertical gap between bands
+        return marginLocal.top + categoryIdx * (bandH + datasetGapPxH) + bandH / 2;
       };
       const addAxisElement = (tag, attrs) => appendToLayer(axisLayer || svg, tag, attrs);
       let stackOffsets = null;
@@ -10171,7 +10214,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const traceStyleH = (state.pointStyles && state.pointStyles[i]) ? state.pointStyles[i] : null;
           pointEntries.forEach(entry => {
             const offset = swarm.offsets[entry.index] || 0;
-            const effectiveR = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : pointRadius;
+            const effectiveR = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
             const effectiveFill = (traceStyleH && traceStyleH.fill) ? traceStyleH.fill : fillColor;
             const effectiveStroke = (traceStyleH && traceStyleH.stroke) ? traceStyleH.stroke : 'none';
             const effectiveOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
@@ -10260,7 +10303,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const xVal = valueToX(value);
-                const halfWidth = Math.max(summaryCap, pointRadius * radiusMultiplier, 4);
+                const halfWidth = Math.max(summaryCap, (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius) * radiusMultiplier, 4);
                 summaryAdd('line',{ x1: xVal - halfWidth, y1: cy, x2: xVal + halfWidth, y2: cy, stroke: borderColor, 'stroke-width': summaryStrokeWidth });
                 return true;
               },
