@@ -4507,7 +4507,19 @@
         container: '#boxExportControls',
         svgSelector: '#boxSvg',
         fileName: 'boxplot',
-        contextLabel: 'box-export'
+        contextLabel: 'box-export',
+        hybridOptions: {
+          label: 'SVG (points as PNG)',
+          fileNameSuffix: '-light',
+          layers: [
+            {
+              selector: '[data-export-layer="box-points"]',
+              label: 'box-points',
+              padding: 2,
+              scale: 4
+            }
+          ]
+        }
       });
       console.debug('Debug: box export controls mounted', { hasExporter: true }); // Debug: box export mount
     } else {
@@ -9605,7 +9617,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && (effectiveShape === 'circle' || effectiveShape === 'square')){
             const pts = pointEntries.map(e => ({ x: cx + (swarm.offsets[e.index] || 0), y: e.coord }));
             const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveR * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: i });
-            const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
+            const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true', 'data-export-layer': 'box-points' });
             stripGroup.appendChild(pathNode);
           }else{
             const frag = document.createDocumentFragment();
@@ -9654,7 +9666,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 frag.appendChild(node);
               }
             });
-            const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
+            const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true', 'data-export-layer': 'box-points' });
             stripGroup.appendChild(frag);
           }
           if(individualSummaryMode !== 'none'){
@@ -9733,7 +9745,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               ptIdx++;
             }
             const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(pointRadius * 2)), { fill: fillColor, fillOpacity: pointMode === 'overlay' ? 0.6 : 1, stroke: borderColor, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: i });
-            add('g',{ 'data-trace': i }).appendChild(pathNode);
+            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(pathNode);
           }else if(pointMode === 'outliers'){
             for(const v of outliers){
               const c = document.createElementNS(NS, 'circle');
@@ -9757,7 +9769,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token });
               }
             }
-            add('g',{ 'data-trace': i }).appendChild(frag);
+            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           }else{
             for(const v of valueList){
               const cy = y2px(v);
@@ -9790,7 +9802,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token });
               }
             }
-            add('g',{ 'data-trace': i }).appendChild(frag);
+            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           }
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
@@ -10355,7 +10367,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               frag.appendChild(node);
             }
           });
-          const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true' });
+          const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true', 'data-export-layer': 'box-points' });
           stripGroup.appendChild(frag);
           if(individualSummaryMode !== 'none'){
             const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode });
@@ -10475,7 +10487,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               }
             }
           }
-          add('g',{ 'data-trace': i }).appendChild(frag);
+          add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
       }
