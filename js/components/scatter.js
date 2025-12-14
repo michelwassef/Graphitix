@@ -2511,12 +2511,9 @@
         }
         const hasFile = !!(scatterFileInput?.files && scatterFileInput.files[0]);
         let forcedOverlay = false;
-        const ensureForcedOverlay = () => {
-          if(forcedOverlay){ return; }
-          forcedOverlay = !!forceScatterOverlay('file-import-start', { message: 'Importing table data...' });
-        };
         if(hasFile){
-          ensureForcedOverlay();
+          forcedOverlay = !!forceScatterOverlay('file-import', { message: 'Importing table data...' });
+          markScatterOverlayPending('file-import');
         }
         const importPromise = tableImport.openFile(scatterFileInput, {
           hot: scatterHot,
@@ -2524,10 +2521,16 @@
           minRows: DEFAULT_ROWS,
           scheduleDraw: () => {
             markScatterOverlayPending('file-import');
-            scheduleDrawScatter();
+            scheduleDrawScatter({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'scatter',
-          onProcessed: info => console.log('scatter data imported',{rows: info?.rows, cols: info?.cols})
+          onProcessed: info => console.log('scatter data imported',{rows: info?.rows, cols: info?.cols}),
+          onCompleted: () => {
+            const renderReason = 'import-load';
+            markScatterOverlayPending(renderReason);
+            forceScatterOverlay(renderReason, { message: 'Rendering scatter plot...' });
+            // Do not resolve here; final resolve happens after draw completes.
+          }
         });
         Promise.resolve(importPromise).then(result => {
           if(!result && forcedOverlay){

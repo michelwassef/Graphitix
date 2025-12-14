@@ -1245,14 +1245,26 @@
         }
       }
     }
-    if(Number.isFinite(pcaState.lastDataShape?.rows) && pcaState.lastDataShape.rows > rawRows){
-      rawRows = pcaState.lastDataShape.rows;
+    const fallbackRows = Number.isFinite(pcaState.lastDataShape?.rows) ? pcaState.lastDataShape.rows : 0;
+    const fallbackCols = Number.isFinite(pcaState.lastDataShape?.cols) ? pcaState.lastDataShape.cols : 0;
+    if(!Number.isFinite(rawRows) || rawRows < 0){
+      rawRows = fallbackRows;
     }
-    if(Number.isFinite(pcaState.lastDataShape?.cols) && pcaState.lastDataShape.cols > rawCols){
-      rawCols = pcaState.lastDataShape.cols;
+    if(!Number.isFinite(rawCols) || rawCols < 0){
+      rawCols = fallbackCols;
     }
     totalRows = Number.isFinite(rawRows) ? rawRows : 0;
     totalCols = Number.isFinite(rawCols) ? rawCols : 0;
+    // Re-evaluate shape using filled cells to avoid stale counts after large->small dataset swaps
+    if(typeof Shared.hot?.estimateFilledShape === 'function'){
+      const filled = Shared.hot.estimateFilledShape(hot);
+      if(Number.isFinite(filled?.rows) && filled.rows >= 0 && filled.rows < totalRows){
+        totalRows = filled.rows;
+      }
+      if(Number.isFinite(filled?.cols) && filled.cols >= 0 && filled.cols < totalCols){
+        totalCols = filled.cols;
+      }
+    }
     featureEstimate = totalRows > 0 ? totalRows - 1 : 0;
     cellEstimate = totalRows * Math.max(1, totalCols);
     thresholdExceeded = featureEstimate >= PCA_AUTO_DRAW_FEATURE_THRESHOLD
@@ -1265,6 +1277,7 @@
       cellEstimate,
       thresholdExceeded
     };
+    updatePcaDataShape({ rows: totalRows, cols: totalCols });
       debugLog('Debug: pca autoDraw evaluation', {
         totalRows,
         totalCols,
@@ -1291,8 +1304,12 @@
       }
       return finalize({ autoDrawEnabled: pcaState.autoDrawEnabled, disabledNow, reason: disabledReason });
     }
+    const needsUnlock = !thresholdExceeded
+      && pcaState.autoDrawReason?.type === 'threshold'
+      && !pcaState.autoDrawEnabled
+      && pcaState.autoDrawUserOverride !== 'off';
     pcaState.autoDrawLockedByThreshold = false;
-    if(previousLock && pcaState.autoDrawUserOverride !== 'off'){
+    if((previousLock || needsUnlock) && pcaState.autoDrawUserOverride !== 'off'){
       setAutoDrawEnabled(true, { reason: 'threshold-cleared' });
     }else{
       updateAutoDrawUi(meta);

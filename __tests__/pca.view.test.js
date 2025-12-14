@@ -247,6 +247,129 @@ describe('PCA view controls', () => {
       expect(updatedDrawPerf.renderMs).toBeLessThan(1500);
   });
 
+  test('live updates re-enable when switching from large to small PCA datasets in one tab', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const csvPath = path.join(__dirname, 'test-PCA.csv');
+    const csvText = fs.readFileSync(csvPath, 'utf8');
+    const rows = csvText
+      .split(/\r?\n/)
+      .filter(line => line.trim().length > 0)
+      .map(line => line.split(','));
+
+    const hot = window.Components?.pca?.getHotInstance?.();
+    expect(hot).toBeTruthy();
+
+    hot.loadData(rows);
+    await flushAll(200);
+
+    const liveToggle = document.getElementById('pcaLiveUpdate');
+    const renderButton = document.getElementById('pcaRenderButton');
+    const notice = document.getElementById('pcaAutoDrawNotice');
+    const state = window.Components?.pca?.__state;
+
+    expect(liveToggle).toBeTruthy();
+    expect(renderButton).toBeTruthy();
+    expect(notice).toBeTruthy();
+    expect(state).toBeTruthy();
+
+    await flushUntil(() => state.autoDrawLockedByThreshold === true && state.autoDrawEnabled === false, {
+      limit: 120,
+      step: 2
+    });
+    const heavyRows = state.lastAutoDrawEvaluation?.totalRows || rows.length;
+    const heavyCols = state.lastAutoDrawEvaluation?.totalCols || (rows[0]?.length || 0);
+    expect(liveToggle.checked).toBe(false);
+    expect(renderButton.hidden).toBe(false);
+    expect(notice.hidden).toBe(false);
+
+    const smallData = Array.from({ length: 10 }, (_, rowIdx) =>
+      Array.from({ length: 5 }, (_, colIdx) => (rowIdx === 0 ? `V${colIdx + 1}` : `${rowIdx}.${colIdx}`))
+    );
+    expect(smallData.length).toBe(10);
+    expect(smallData[0].length).toBe(5);
+    const smallRows = smallData.length;
+    const smallCols = smallData[0].length;
+    hot.loadData(smallData);
+    await flushAll(40);
+
+    await flushUntil(
+      () => state.autoDrawLockedByThreshold === false && state.autoDrawEnabled === true,
+      { limit: 120, step: 2 }
+    );
+
+    expect(state.lastAutoDrawEvaluation?.thresholdExceeded).toBe(false);
+    expect(state.lastDataShape?.rows).toBeLessThan(heavyRows);
+    expect(state.lastDataShape?.cols).toBeLessThanOrEqual(Math.max(heavyCols, smallCols));
+    expect(liveToggle.checked).toBe(true);
+    expect(renderButton.hidden).toBe(true);
+    expect(notice.hidden).toBe(true);
+  });
+
+  test('stale threshold lock clears after switching back to small PCA data', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const csvPath = path.join(__dirname, 'test-PCA.csv');
+    const csvText = fs.readFileSync(csvPath, 'utf8');
+    const rows = csvText
+      .split(/\r?\n/)
+      .filter(line => line.trim().length > 0)
+      .map(line => line.split(','));
+
+    const hot = window.Components?.pca?.getHotInstance?.();
+    expect(hot).toBeTruthy();
+
+    hot.loadData(rows);
+    await flushAll(200);
+
+    const liveToggle = document.getElementById('pcaLiveUpdate');
+    const renderButton = document.getElementById('pcaRenderButton');
+    const notice = document.getElementById('pcaAutoDrawNotice');
+    const state = window.Components?.pca?.__state;
+
+    expect(liveToggle).toBeTruthy();
+    expect(renderButton).toBeTruthy();
+    expect(notice).toBeTruthy();
+    expect(state).toBeTruthy();
+
+    await flushUntil(() => state.autoDrawLockedByThreshold === true && state.autoDrawEnabled === false, {
+      limit: 120,
+      step: 2
+    });
+    const heavyRows = state.lastAutoDrawEvaluation?.totalRows || rows.length;
+    const heavyCols = state.lastAutoDrawEvaluation?.totalCols || (rows[0]?.length || 0);
+
+    const smallData = Array.from({ length: 10 }, (_, rowIdx) =>
+      Array.from({ length: 5 }, (_, colIdx) => (rowIdx === 0 ? `V${colIdx + 1}` : `${rowIdx}.${colIdx}`))
+    );
+    const smallRows = smallData.length;
+    const smallCols = smallData[0].length;
+    hot.loadData(smallData);
+    await flushAll(40);
+
+    // Simulate a stale threshold lock that persists after a tab switch or state reuse.
+    state.autoDrawLockedByThreshold = true;
+    state.autoDrawEnabled = false;
+    state.autoDrawReason = { type: 'threshold', rows: heavyRows, cols: heavyCols };
+    state.lastDataShape = { rows: heavyRows, cols: heavyCols };
+    liveToggle.checked = false;
+    renderButton.hidden = false;
+    notice.hidden = false;
+
+    state.scheduleDraw({ reason: 'stale-threshold' });
+    await flushUntil(
+      () => state.autoDrawLockedByThreshold === false && state.autoDrawEnabled === true,
+      { limit: 120, step: 2 }
+    );
+
+    expect(state.lastAutoDrawEvaluation?.thresholdExceeded).toBe(false);
+    expect(state.lastDataShape?.rows).toBeLessThan(heavyRows);
+    expect(state.lastDataShape?.cols).toBeLessThanOrEqual(Math.max(heavyCols, smallCols));
+    expect(liveToggle.checked).toBe(true);
+    expect(renderButton.hidden).toBe(true);
+    expect(notice.hidden).toBe(true);
+  });
+
   test('view-only styling updates and 3D rotation reuse cached PCA geometry', async () => {
     const exampleBtn = document.getElementById('pcaLoadExample');
     expect(exampleBtn).toBeTruthy();
@@ -401,4 +524,3 @@ describe('PCA view controls', () => {
     expect(global.__svdCallCount).toBeGreaterThan(0);
   });
 });
-

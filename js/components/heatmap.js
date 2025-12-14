@@ -499,6 +499,15 @@
         totalCols = state.lastDataShape.cols;
       }
     }
+    if(typeof Shared.hot?.estimateFilledShape === 'function'){
+      const filled = Shared.hot.estimateFilledShape(hot);
+      if(Number.isFinite(filled?.rows) && filled.rows >= 0 && filled.rows < totalRows){
+        totalRows = filled.rows;
+      }
+      if(Number.isFinite(filled?.cols) && filled.cols >= 0 && filled.cols < totalCols){
+        totalCols = filled.cols;
+      }
+    }
     const cellEstimate = Math.max(0, totalRows) * Math.max(1, totalCols);
     const thresholdExceeded = totalRows >= HEATMAP_AUTO_DRAW_ROW_THRESHOLD
       || totalCols >= HEATMAP_AUTO_DRAW_COL_THRESHOLD
@@ -526,9 +535,12 @@
         reason: 'threshold'
       };
     }
+    const needsUnlock = !thresholdExceeded
+      && state.autoDrawReason?.type === 'threshold'
+      && !state.autoDrawEnabled;
     const previouslyLocked = !!state.autoDrawLockedByThreshold;
     state.autoDrawLockedByThreshold = false;
-    if(previouslyLocked){
+    if(previouslyLocked || needsUnlock){
       setAutoDrawEnabled(true, { reason: 'threshold-cleared', preserveReason: false });
     }
     return { autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null };
@@ -1041,7 +1053,8 @@
       const hasFile = !!(fileInput?.files && fileInput.files[0]);
       let forcedOverlay = false;
       if(hasFile){
-        forcedOverlay = !!forceHeatmapOverlay('file-import-start', { message: 'Importing table data...' });
+        forcedOverlay = !!forceHeatmapOverlay('file-import', { message: 'Importing table data...' });
+        markHeatmapOverlayPending('file-import');
       }
       try{
         const result = await tableImport.openFile(fileInput, {
@@ -1050,10 +1063,16 @@
           minRows: DEFAULT_ROWS,
           scheduleDraw: () => {
             markHeatmapOverlayPending('file-import');
-            state.scheduleDraw();
+            state.scheduleDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'heatmap',
-          onProcessed: info => console.log('heatmap data imported', info)
+          onProcessed: info => console.log('heatmap data imported', info),
+          onCompleted: () => {
+            const renderReason = 'import-load';
+            markHeatmapOverlayPending(renderReason);
+            forceHeatmapOverlay(renderReason, { message: 'Rendering heatmap...' });
+            // resolve after draw completes
+          }
         });
         if(!result && forcedOverlay){
           resolveHeatmapOverlay('file-import-empty');

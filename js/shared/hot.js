@@ -5581,6 +5581,57 @@
   hotNS.getIncludedColumn = getIncludedColumn;
   hotNS.getIncludedRow = getIncludedRow;
   hotNS.refreshHeaderWidths = refreshHeaderWidths;
+
+  const isMeaningfulCell = (value) => {
+    if(value === null || value === undefined){
+      return false;
+    }
+    if(typeof value === 'number'){
+      return Number.isFinite(value);
+    }
+    if(typeof value === 'string'){
+      return value.trim().length > 0;
+    }
+    return true;
+  };
+
+  const estimateFilledShape = (hot) => {
+    try{
+      const source = typeof hot?.getSourceData === 'function' ? hot.getSourceData() : null;
+      if(!Array.isArray(source)){
+        return { rows: 0, cols: 0 };
+      }
+      let lastRow = -1;
+      let lastCol = -1;
+      for(let r = source.length - 1; r >= 0; r -= 1){
+        const row = Array.isArray(source[r]) ? source[r] : [];
+        let rowHasData = false;
+        for(let c = row.length - 1; c >= 0; c -= 1){
+          if(!rowHasData && isMeaningfulCell(row[c])){
+            rowHasData = true;
+          }
+          if(isMeaningfulCell(row[c]) && c > lastCol){
+            lastCol = c;
+          }
+        }
+        if(rowHasData && lastRow < 0){
+          lastRow = r;
+          if(lastCol >= 0){
+            break;
+          }
+        }
+      }
+      return {
+        rows: Math.max(0, lastRow + 1),
+        cols: Math.max(0, lastCol + 1)
+      };
+    }catch(err){
+      console.debug('Debug: Shared.hot estimateFilledShape error', { message: err?.message || String(err) });
+      return { rows: 0, cols: 0 };
+    }
+  };
+
+  hotNS.estimateFilledShape = estimateFilledShape;
   const resolveAutoDrawElement = (value) => {
     if(typeof value === 'function'){
       try{
@@ -5813,6 +5864,16 @@
           totalCols = state.lastDataShape.cols;
         }
       }
+      // Re-evaluate shape using filled cells to avoid stale counts after large->small dataset swaps
+      if(typeof hotNS.estimateFilledShape === 'function'){
+        const filled = hotNS.estimateFilledShape(hot);
+        if(Number.isFinite(filled?.rows) && filled.rows >= 0 && filled.rows < totalRows){
+          totalRows = filled.rows;
+        }
+        if(Number.isFinite(filled?.cols) && filled.cols >= 0 && filled.cols < totalCols){
+          totalCols = filled.cols;
+        }
+      }
       const cellEstimate = Math.max(0, totalRows) * Math.max(1, totalCols);
       const thresholdExceeded = totalRows >= thresholds.rows
         || totalCols >= thresholds.cols
@@ -5840,9 +5901,12 @@
           reason: 'threshold'
         };
       }
+      const needsUnlock = !thresholdExceeded
+        && state.autoDrawReason?.type === 'threshold'
+        && !state.autoDrawEnabled;
       const previouslyLocked = !!state.autoDrawLockedByThreshold;
       state.autoDrawLockedByThreshold = false;
-      if(previouslyLocked){
+      if(previouslyLocked || needsUnlock){
         setEnabled(true, { reason: 'threshold-cleared', preserveReason: false });
       }
       return { autoDrawEnabled: state.autoDrawEnabled, disabledNow: false, reason: null };

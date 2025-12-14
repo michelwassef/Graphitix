@@ -111,7 +111,7 @@
     }catch(err){
       // ignore toggle errors and log by default
     }
-    console.debug(label, payload);
+      console.debug(label, payload, new Date().toISOString());
   }
 
   function ensureBoxTooltipHost(tooltip, doc){
@@ -1458,39 +1458,26 @@
       console.debug('Debug: computeSwarmOffsets empty',{ orientation, sampleSize, axisSpacing });
       return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
-    const bins = new Map();
-    entries.forEach(entry => {
-      if(!entry || typeof entry.index !== 'number'){
-        return;
-      }
-      const coord = Number(entry.coord) || 0;
-      const key = Math.round(coord);
-      if(!bins.has(key)){
-        bins.set(key, { count: 0, members: [] });
-      }
-      const bin = bins.get(key);
-      bin.count += 1;
-      bin.members.push(entry);
+    // Beeswarm packing: place points to avoid circle collisions while keeping
+    // the swarm as narrow as possible around the central axis (x=0).
+    // We'll iterate points in ascending coordinate order and greedily assign
+    // the smallest absolute horizontal offset that does not collide with
+    // previously placed points. This is O(n^2) but acceptable for typical
+    // individual value counts.
+    const PREFERRED_GAP_FACTOR = 1.6;
+    const MIN_GAP_FACTOR = 0.1;
+    let maxUsed = 0;
+    // Auto-adjust radius if many points are nearly identical in coord
+    // to avoid impossible packing within available width.
+    const coordCounts = new Map();
+    entries.forEach(e => {
+      const key = Math.round(Number(e.coord) || 0);
+      coordCounts.set(key, (coordCounts.get(key) || 0) + 1);
     });
-    let maxCount = 0;
-    bins.forEach(bin => {
-      if(bin.count > maxCount){
-        maxCount = bin.count;
-      }
-    });
-    if(maxCount <= 0){
-      console.debug('Debug: computeSwarmOffsets noBins',{ orientation, sampleSize, axisSpacing });
-      return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
-    }
-
-    // Robust auto-adjustment: when many points fall into the same rounded
-    // coordinate (pixel), reduce the requested point radius so the points
-    // can be laid out within the available half-width. This uses several
-    // heuristics for available space so it works even when axisBoundary is 0.
+    const maxCount = Math.max(0, ...Array.from(coordCounts.values()));
     if(maxCount > 1){
       const minRadius = 0.15;
-      const nominalGapFactor = 1.6; // min gap between centers = r * 1.6
-      const denomFactor = (maxCount - 1) * (nominalGapFactor / 2); // required half-width per unit radius
+      const denomFactor = (maxCount - 1) * (PREFERRED_GAP_FACTOR / 2);
       const axisHalf = Math.max(0, axisSpacing / 2);
       const altAvailable = Math.max(0, axisSpacing * stripScale * spreadFactor);
       const available = Math.max(axisHalf, altAvailable, 1) - 0.5;
@@ -1505,72 +1492,62 @@
         }
       }
     }
-    // Recompute derived span values after any radius adjustment
+    // Recompute spans after any radius change
     axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
     effectiveHalfSpan = axisBoundary > 0
       ? axisSpacing * stripScale * spreadFactor
       : pointRadiusValue * 2.2 * spreadFactor;
     globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
-    // minGap is the preferred minimum distance between point centers.
-    // For very dense bins we allow this to shrink (allow overlap) down to
-    // a conservative lower bound so all points can be placed horizontally.
-    const PREFERRED_GAP_FACTOR = 1.6;
-    const MIN_GAP_FACTOR = 0.1; // allow up to ~90% overlap when needed (more aggressive)
-    let maxUsed = 0;
-    bins.forEach(bin => {
-      const n = bin.count;
-      if(n <= 1){
-        const only = bin.members[0];
-        offsetsMap.set(only.index, 0);
-        return;
-      }
-      const normalized = maxCount ? n / maxCount : 1;
-      let halfWidth = globalMaxHalfWidth * normalized;
-      if(axisBoundary > 0){
-        halfWidth = Math.min(halfWidth, axisBoundary);
-      }
-      // compute required half-width given a gap factor; allow shrinking gap
-      // progressively if the preferred gap does not fit.
-      let gapFactor = PREFERRED_GAP_FACTOR;
-      let minGap = pointRadiusValue * gapFactor;
-      let requiredHalfWidth = (n - 1) * minGap / 2;
-      if(halfWidth < requiredHalfWidth){
-        // progressively reduce gapFactor down to MIN_GAP_FACTOR to try to fit
-        while(halfWidth < requiredHalfWidth && gapFactor > MIN_GAP_FACTOR){
-          gapFactor = Math.max(MIN_GAP_FACTOR, gapFactor * 0.85);
-          minGap = pointRadiusValue * gapFactor;
-          requiredHalfWidth = (n - 1) * minGap / 2;
-          // break if gapFactor can't reduce further
-          if(gapFactor === MIN_GAP_FACTOR) break;
-        }
-        // If still doesn't fit and axisBoundary is non-zero, clamp to axisBoundary.
-        if(halfWidth < requiredHalfWidth && axisBoundary > 0){
-          halfWidth = Math.min(requiredHalfWidth, axisBoundary);
-        } else if(halfWidth < requiredHalfWidth){
-          // allow halfWidth to remain smaller; we'll still compute offsets
-          // with the reduced gapFactor which permits overlap.
-          // keep halfWidth as-is (globalMaxHalfWidth * normalized)
-        }
-      }
-      if(!Number.isFinite(halfWidth) || halfWidth <= 0){
-        bin.members.forEach(member => {
-          offsetsMap.set(member.index, 0);
-        });
-        return;
-      }
-      const ordered = bin.members.slice().sort((a, b) => a.index - b.index);
-      // If we reduced gapFactor earlier, compute step based on the effective
-      // spacing implied by current halfWidth (may produce overlap if needed).
-      const step = n > 1 ? (halfWidth * 2) / (n - 1) : 0;
-      for(let i = 0; i < n; i++){
-        const offset = n === 1 ? 0 : -halfWidth + step * i;
-        offsetsMap.set(ordered[i].index, offset);
-        const abs = Math.abs(offset);
-        if(abs > maxUsed){
-          maxUsed = abs;
-        }
-      }
+
+    const placed = [];
+    // Sort entries by coordinate (primary axis) so nearby points are packed
+    // close in time giving a natural beeswarm look. Tie-break by index.
+    const orderedAll = entries.slice().sort((a, b) => {
+      const ca = Number(a.coord) || 0;
+      const cb = Number(b.coord) || 0;
+      if(ca !== cb) return ca - cb;
+      return a.index - b.index;
     });
+
+    // candidate offset generator: 0, -step, +step, -2*step, +2*step, ...
+    function* offsetSequence(step){
+      yield 0;
+      for(let k=1;;k++){
+        yield -step * k;
+        yield step * k;
+      }
+    }
+
+    const diameter = 2 * pointRadiusValue;
+    const stepBase = pointRadiusValue * PREFERRED_GAP_FACTOR;
+    for(const entry of orderedAll){
+      const y = Number(entry.coord) || 0;
+      // quick filter: only check placed points within vertical window
+      const verticalWindow = diameter + 1e-6;
+      // try offsets increasing distance from center
+      const step = Math.max(0.0001, stepBase);
+      let placedOffset = null;
+      for(const candidate of offsetSequence(step)){
+        // respect global half-width if possible
+        if(Math.abs(candidate) > Math.max(globalMaxHalfWidth, step * 100)){
+          // if we've searched far beyond reasonable span, accept candidate
+          placedOffset = candidate;
+          break;
+        }
+        let collides = false;
+        for(const p of placed){
+          const dy = Math.abs(y - p.coord);
+          if(dy >= diameter) continue; // vertical separation enough
+          const requiredDx = Math.sqrt(Math.max(0, diameter*diameter - dy*dy));
+          if(Math.abs(candidate - p.x) < requiredDx - 1e-9){ collides = true; break; }
+        }
+        if(!collides){ placedOffset = candidate; break; }
+      }
+      if(placedOffset === null){ placedOffset = 0; }
+      placed.push({ coord: y, x: placedOffset, index: entry.index });
+      offsetsMap.set(entry.index, placedOffset);
+      if(Math.abs(placedOffset) > maxUsed) maxUsed = Math.abs(placedOffset);
+    }
     const offsets = entries.map(entry => offsetsMap.get(entry.index) || 0);
     console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entries.length, maxBinSize: maxCount, adjustedRadius: pointRadiusValue });
     return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset: globalMaxHalfWidth, adjustedRadius: pointRadiusValue };
@@ -4041,7 +4018,8 @@
       const hasFile = !!(fileInput?.files && fileInput.files[0]);
       let forcedOverlay = false;
       if(hasFile){
-        forcedOverlay = !!forceBoxOverlay('file-import-start', { message: 'Importing table data...' });
+        forcedOverlay = !!forceBoxOverlay('file-import', { message: 'Importing table data...' });
+        markBoxOverlayPending('file-import');
       }
       const importPromise = tableImport.openFile(fileInput, {
         hot: state.hot,
@@ -4049,10 +4027,16 @@
         minRows: DEFAULT_ROWS,
         scheduleDraw: () => {
           markBoxOverlayPending('file-import');
-          state.scheduleDraw();
+          state.scheduleDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
         },
         debugLabel: 'box',
-        onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols})
+        onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols}),
+        onCompleted: () => {
+          const renderReason = 'import-load';
+          markBoxOverlayPending(renderReason);
+          forceBoxOverlay(renderReason, { message: 'Rendering box plot...' });
+          // Do not resolve here; final resolve occurs after draw.
+        }
       });
       Promise.resolve(importPromise).then(result => {
         if(!result && forcedOverlay){
@@ -11264,4 +11248,3 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts)
   });
 })(window);
-
