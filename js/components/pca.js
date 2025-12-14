@@ -5438,14 +5438,15 @@
       xScale.ticks.forEach((t, i) => {
         const x = x2px(t);
         add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
+        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
         const txt = add('text', {
           x,
-          y: margin.top + plotH + tickLen + tickGap,
+          y: margin.top + plotH + tickLen + tickGap + extra,
           'font-size': fs,
           'text-anchor': 'middle',
-          'dominant-baseline': 'hanging',
           fill: chartStyle.TEXT_COLOR,
         }, formatTick(t));
+        Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
         markFontEditable(txt,'xTick');
         xTickFontCount += 1;
         xTickNodes.push(txt);

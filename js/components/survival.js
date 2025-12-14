@@ -2475,14 +2475,15 @@
     xScale.ticks.forEach(value => {
       const x = x2px(value);
       add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
+      const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
       const text = add('text', {
         x,
-        y: xAxisY + tickLen + tickGap,
+        y: xAxisY + tickLen + tickGap + extra,
         'font-size': fs,
         'text-anchor': 'middle',
-        'dominant-baseline': 'hanging',
         fill: chartStyle.TEXT_COLOR || '#000'
       });
+      Shared.applyTextBaseline && Shared.applyTextBaseline(text, 'hanging', fs);
       text.textContent = formatNumber(value, 2);
       markFontEditable(text, 'xTick');
       xTickNodes.push(text);

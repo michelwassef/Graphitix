@@ -1725,7 +1725,9 @@
     xTicks.forEach(tick => {
       const x = xToPx(tick);
       add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
-      const txt = add('text', {x, y: margin.top + plotHeight + tickLen + tickGap, 'text-anchor': 'middle', 'font-size': fontSize, 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR}, formatTick(tick), { role: 'xTick' });
+      const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fontSize, tickLen, tickGap) : 0;
+      const txt = add('text', {x, y: margin.top + plotHeight + tickLen + tickGap + extra, 'text-anchor': 'middle', 'font-size': fontSize, fill: chartStyle.TEXT_COLOR}, formatTick(tick), { role: 'xTick' });
+      Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fontSize);
       xTickNodes.push(txt);
     });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});

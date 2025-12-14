@@ -1105,12 +1105,13 @@
         });
         const lbl=document.createElementNS(NS,'text');
         const lx=margin.left+barGap+j*(barWidth+barGap)+barWidth/2;
-        const ly=margin.top+chartHeight+tickLen+tickGap;
+        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+        const ly=margin.top+chartHeight+tickLen+tickGap+extra;
         lbl.setAttribute('x',lx);
         lbl.setAttribute('y',ly);
         lbl.setAttribute('text-anchor','middle');
         lbl.setAttribute('font-size',fs);
-        lbl.setAttribute('dominant-baseline','hanging');
+        Shared.applyTextBaseline && Shared.applyTextBaseline(lbl,'hanging',fs);
         lbl.textContent=bh;
         markFontEditable(lbl,'xTick');
         stackedXTickCount+=1;

@@ -432,6 +432,53 @@
     });
   };
 
+  const applyTextBaseline = (el, baseline, /* optional */ fontSize) => {
+    if (!el || typeof el.setAttribute !== 'function') { return; }
+    try {
+      // Remove fragile dominant-baseline usage for editors that mishandle it.
+      // For the historical 'hanging' intent, approximate with a small dy shift.
+      el.removeAttribute('dominant-baseline');
+      el.removeAttribute('dy');
+      if (baseline === 'hanging') {
+        // Use 0.35em which aligns well with existing label offsets used elsewhere.
+        el.setAttribute('dy', '0.35em');
+      } else if (baseline) {
+        // Preserve other baselines by setting the attribute as-is.
+        el.setAttribute('dominant-baseline', baseline);
+      }
+    } catch (err) {
+      console.error('Shared.applyTextBaseline error', err);
+    }
+  };
+
+  const computeAxisLabelYOffset = (fontSizeValue, tickLen = 0, tickGap = 0) => {
+    try {
+      const parsed = parseFontSizeValue(fontSizeValue);
+      let px = 12;
+      if (parsed && Number.isFinite(parsed.numeric)) {
+        if (!parsed.unit || parsed.unit === 'px') {
+          px = parsed.numeric;
+        } else if (parsed.unit === 'em') {
+          px = parsed.numeric * 16; // assume 1em ~= 16px
+        } else if (parsed.unit === 'rem') {
+          px = parsed.numeric * 16;
+        } else {
+          px = parsed.numeric; // best-effort
+        }
+      }
+      // Base extra spacing proportional to font size; clamp to sensible min/max
+      const extra = Math.round(Math.max(2, Math.min(24, px * 0.35)));
+      return extra;
+    } catch (err) {
+      console.error('Shared.computeAxisLabelYOffset error', err);
+      return 4;
+    }
+  };
+
+  // expose helpers
+  Shared.applyTextBaseline = applyTextBaseline;
+  Shared.computeAxisLabelYOffset = computeAxisLabelYOffset;
+
   function makeEditable(el, onChange, options = {}) {
     if (!el) {
       logDebug('makeEditable skipped (no element)', { hasElement: false });

@@ -5649,7 +5649,17 @@
         // Frame closes scatter plot using axis styling continuity
         const xTickNodes=[];
         let xTickFontCount=0;
-        xScale.ticks.forEach((t,i)=>{const x=x2px(t);add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTickX(logX?Math.pow(10,t):t);markFontEditable(txt,'xTick');xTickFontCount+=1;xTickNodes.push(txt);});
+        xScale.ticks.forEach((t,i)=>{
+          const x = x2px(t);
+          add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+          const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+          const txt = add('text',{x, y: xAxisY + tickLen + tickGap + extra, 'font-size': fs, 'text-anchor':'middle', fill: chartStyle.TEXT_COLOR});
+          txt.textContent = formatTickX(logX ? Math.pow(10, t) : t);
+          Shared.applyTextBaseline && Shared.applyTextBaseline(txt,'hanging',fs);
+          markFontEditable(txt,'xTick');
+          xTickFontCount += 1;
+          xTickNodes.push(txt);
+        });
         chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
         let yTickFontCount=0;
         yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTickY(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});

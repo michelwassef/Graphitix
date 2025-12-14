@@ -9257,8 +9257,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const x = separatedSpacing ? separatedSpacing.centers[i] : marginLocal.left + i * (bandW + datasetGapPx) + bandW / 2;
         addAxisElement('line',{ x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const labelText = lab || `Category ${i + 1}`;
-        const t = addAxisElement('text',{ x, y: xAxisY + xLabelOffset, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
+        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+        const t = addAxisElement('text',{ x, y: xAxisY + xLabelOffset + extra, 'font-size': fs, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
         t.textContent = labelText;
+        Shared.applyTextBaseline && Shared.applyTextBaseline(t, 'hanging', fs);
         markFontEditable(t,'xTick');
         xTickFontCount += 1;
         if(isGroupedMode){
@@ -9958,8 +9960,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       yScale.ticks.forEach(t => {
         const x = valueToX(t);
         addAxisElement('line',{ x1: x, y1: xAxisBottom, x2: x, y2: xAxisBottom + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
-        const txt = addAxisElement('text',{ x, y: xAxisBottom + tickLen + tickGap, 'font-size': fs, 'text-anchor': 'middle', 'dominant-baseline': 'hanging', fill: chartStyle.TEXT_COLOR });
+        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+        const txt = addAxisElement('text',{ x, y: xAxisBottom + tickLen + tickGap + extra, 'font-size': fs, 'text-anchor': 'middle', fill: chartStyle.TEXT_COLOR });
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
+        Shared.applyTextBaseline && Shared.applyTextBaseline(txt, 'hanging', fs);
       });
       const xAxisLine = addAxisElement('line',{ x1: yAxisLeft, y1: xAxisBottom, x2: marginLocal.left + plotWLocal, y2: xAxisBottom, stroke: axisStroke, 'stroke-linecap': 'square', 'stroke-width': axisStrokeWidth });
       if(axisControls && typeof axisControls.registerAxisElement === 'function'){

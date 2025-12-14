@@ -4088,8 +4088,10 @@
         }
         const x=x2px(t);
         add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
-        const txt=add('text',{x,y:xAxisY+tickLen+tickGap,'font-size':fs,'text-anchor':'middle','dominant-baseline':'hanging',fill:chartStyle.TEXT_COLOR});
+        const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
+        const txt=add('text',{x,y:xAxisY+tickLen+tickGap+extra,'font-size':fs,'text-anchor':'middle',fill:chartStyle.TEXT_COLOR});
         txt.textContent=formatTickX(logX?Math.pow(10,t):t);
+        Shared.applyTextBaseline && Shared.applyTextBaseline(txt,'hanging',fs);
         markFontEditable(txt,'xTick');
         xTickFontCount+=1;
         xTickNodes.push(txt);
