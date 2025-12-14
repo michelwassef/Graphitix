@@ -516,6 +516,65 @@ select {
     outline: 2px dotted var(--hot-copy-highlight-color, #1a73e8);
     outline-offset: -2px;
 }
+/* Make single-cell focus look like multi-cell selection (light blue)
+   and remove the darker focus outline applied by ag-theme-balham. */
+.ag-theme-balham .ag-cell.ag-cell-focus,
+.ag-theme-balham .ag-cell:focus,
+.ag-theme-balham .ag-cell.ag-cell-range-selected {
+    background: rgba(26, 115, 232, 0.12) !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.ag-theme-balham .ag-cell.ag-cell-focus .ag-cell-focus-inner,
+.ag-theme-balham .ag-cell.ag-cell-focus .ag-focus-wrapper {
+    outline: none !important;
+}
+
+/* Stronger overrides to remove any remaining focus ring or dark border
+   applied to a single focused cell by AG Grid's theme. Covers pseudo
+   elements, borders and box-shadows used by different ag-grid versions. */
+.ag-theme-balham .ag-cell.ag-cell-focus,
+.ag-theme-balham .ag-cell.ag-cell-focus *,
+.ag-theme-balham .ag-cell.ag-cell-focus::before,
+.ag-theme-balham .ag-cell.ag-cell-focus::after,
+.ag-theme-balham .ag-cell.ag-cell-range-selected,
+.ag-theme-balham .ag-cell-range-selected,
+.ag-theme-balham .ag-range-selected .ag-cell,
+.ag-theme-balham .ag-row-selected .ag-cell,
+.ag-theme-balham .ag-cell.ag-cell-focus .ag-focus-wrapper::before,
+.ag-theme-balham .ag-cell.ag-cell-focus .ag-focus-wrapper::after {
+    background: rgba(26, 115, 232, 0.12) !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* In case AG Grid adds an inner highlight element, hide its border */
+.ag-theme-balham .ag-cell .ag-focus-wrapper,
+.ag-theme-balham .ag-cell .ag-cell-focus-inner {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* Catch-all: remove inline-style focus rings or shadows applied by JS
+   so a single focused cell visually matches range selection. */
+.ag-theme-balham .ag-cell[style],
+.ag-theme-balham .ag-cell[style]::before,
+.ag-theme-balham .ag-cell[style]::after,
+.ag-theme-balham .ag-cell[style] * {
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+.ag-theme-balham .ag-focused,
+.ag-theme-balham .ag-cell.ag-focused,
+.ag-theme-balham .ag-cell-focus,
+.ag-theme-balham .ag-focus {
+    background: rgba(26, 115, 232, 0.12) !important;
+    box-shadow: none !important;
+    outline: none !important;
+    border-color: transparent !important;
+}
 .ag-theme-balham .ag-cell.hot-cell-excluded {
     background-color: rgba(220, 53, 69, 0.08) !important;
     color: #6c757d !important;
