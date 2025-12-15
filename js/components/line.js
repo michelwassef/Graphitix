@@ -1261,7 +1261,6 @@
     const scopeSelect = doc.createElement('select');
     scopeSelect.name = scopeName;
     scopeSelect.className = 'workspace-toolbar__select';
-    scopeSelect.style.minWidth = '120px';
     const optSeries = doc.createElement('option');
     optSeries.value = 'series';
     optSeries.textContent = 'Series';

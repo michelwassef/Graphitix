@@ -525,7 +525,7 @@
     const scopeField = doc.createElement('label');
     scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
     const scopeLabel = doc.createElement('span'); scopeLabel.className = 'workspace-toolbar__input-label'; scopeLabel.textContent = 'Scope';
-    const scopeSelect = doc.createElement('select'); scopeSelect.className = 'workspace-toolbar__select'; scopeSelect.style.minWidth = '120px';
+    const scopeSelect = doc.createElement('select'); scopeSelect.className = 'workspace-toolbar__select';
     const optSeries = doc.createElement('option'); optSeries.value = 'series'; optSeries.textContent = 'Series'; optSeries.disabled = !distKey;
     const optGlobal = doc.createElement('option'); optGlobal.value = 'global'; optGlobal.textContent = 'Global';
     scopeSelect.appendChild(optSeries); scopeSelect.appendChild(optGlobal);
@@ -1970,4 +1970,3 @@
   };
 
 })(window);
-

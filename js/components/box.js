@@ -471,7 +471,6 @@
     const scopeSelect = doc.createElement('select');
     scopeSelect.name = scopeName;
     scopeSelect.className = 'workspace-toolbar__select';
-    scopeSelect.style.minWidth = '120px';
     const optTrace = doc.createElement('option');
     optTrace.value = 'trace';
     optTrace.textContent = 'Trace';
@@ -929,7 +928,6 @@
     const scopeSelect = doc.createElement('select');
     scopeSelect.name = scopeName;
     scopeSelect.className = 'workspace-toolbar__select';
-    scopeSelect.style.minWidth = '120px';
     const optTrace = doc.createElement('option');
     optTrace.value = 'trace';
     optTrace.textContent = 'Trace';
@@ -1148,7 +1146,6 @@
     const scopeSelect = doc.createElement('select');
     scopeSelect.name = scopeName;
     scopeSelect.className = 'workspace-toolbar__select';
-    scopeSelect.style.minWidth = '120px';
     const optTrace = doc.createElement('option');
     optTrace.value = 'trace';
     optTrace.textContent = 'Trace';

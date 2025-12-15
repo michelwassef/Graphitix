@@ -1886,7 +1886,6 @@
     const scopeSelect = doc.createElement('select');
     scopeSelect.name = scopeName;
     scopeSelect.className = 'workspace-toolbar__select';
-    scopeSelect.style.minWidth = '120px';
     const optLabel = doc.createElement('option');
     optLabel.value = 'label';
     optLabel.textContent = 'Label';
