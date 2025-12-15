@@ -417,6 +417,7 @@
   function showHistBarFormatControls(target){
     const doc = global.document;
     if(!doc) return;
+    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
     const anchor = doc.getElementById('histFontHost');
     if(!anchor) return;
     let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
@@ -481,7 +482,7 @@
 
     try{
       if(toolbarHost.__histDocClickHandler){ document.removeEventListener('click', toolbarHost.__histDocClickHandler); toolbarHost.__histDocClickHandler=null; }
-      const onDocClick = function(evt){ try{ const tgt = evt && evt.target ? evt.target : null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__histDocClickHandler=null; }catch(err){ console.warn('hist.bar format docClick error', err); } };
+      const onDocClick = function(evt){ try{ const tgt = evt && evt.target ? evt.target : null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){} const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__histDocClickHandler=null; }catch(err){ console.warn('hist.bar format docClick error', err); } };
       document.addEventListener('click', onDocClick);
       toolbarHost.__histDocClickHandler = onDocClick;
     }catch(err){ console.warn('hist attach doc click failed', err); }
@@ -491,6 +492,7 @@
   function showHistOverlayFormatControls(target){
     const doc = global.document;
     if(!doc) return;
+    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
     const anchor = doc.getElementById('histFontHost');
     if(!anchor) return;
     let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
@@ -606,7 +608,7 @@
     toolbarHost.style.display = 'block'; toolbarHost.classList.add('font-toolbar-host--visible');
     const dock = toolbarHost.closest('.workspace-toolbar__dock'); if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
 
-    try{ if(toolbarHost.__histDocClickHandler){ document.removeEventListener('click', toolbarHost.__histDocClickHandler); toolbarHost.__histDocClickHandler=null; } const onDocClick = function(evt){ try{ const tgt = evt && evt.target ? evt.target : null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__histDocClickHandler=null; }catch(err){ console.warn('hist.overlay format docClick error', err); } }; document.addEventListener('click', onDocClick); toolbarHost.__histDocClickHandler = onDocClick; }catch(err){ console.warn('attach doc click for hist overlay controls failed', err); }
+    try{ if(toolbarHost.__histDocClickHandler){ document.removeEventListener('click', toolbarHost.__histDocClickHandler); toolbarHost.__histDocClickHandler=null; } const onDocClick = function(evt){ try{ const tgt = evt && evt.target ? evt.target : null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){} const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__histDocClickHandler=null; }catch(err){ console.warn('hist.overlay format docClick error', err); } }; document.addEventListener('click', onDocClick); toolbarHost.__histDocClickHandler = onDocClick; }catch(err){ console.warn('attach doc click for hist overlay controls failed', err); }
   }
 
   function clampUnit(value){

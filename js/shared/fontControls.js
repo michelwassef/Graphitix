@@ -1117,6 +1117,53 @@
     logDebug('toolbar host hidden', { scopeId: host.dataset?.fontToolbarScope || null });
   }
 
+  // Hide all component-created toolbar hosts (do not close the singleton font panel)
+  function hideComponentHosts(){
+    if(!global.document) return;
+    try{
+      const doc = global.document;
+      const hosts = Array.from(doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible'));
+      hosts.forEach(h => {
+        try{
+          // attempt to remove any attached doc click handlers stored on the host
+          for(const k in h){
+            try{
+              if(k && typeof k === 'string' && (k.toLowerCase().includes('docclick') || k.toLowerCase().includes('docclickhandler'))){
+                const fn = h[k];
+                if(typeof fn === 'function'){
+                  document.removeEventListener('click', fn);
+                }
+                try{ h[k] = null; }catch(e){}
+              }
+            }catch(e){}
+          }
+        }catch(e){}
+        try{ hideToolbarHost(h); }catch(e){}
+      });
+    }catch(err){
+      logDebug('hideComponentHosts error', { err: String(err) });
+    }
+  }
+
+  // Close the singleton font panel and hide component hosts
+  function hideAllFormatControls(){
+    try{
+      // close the font controls panel
+      try{ closePanel('hideAll'); }catch(e){}
+      // hide any per-component toolbar hosts
+      hideComponentHosts();
+      // also close axis controls if present to avoid mixed toolbar UI
+      try{
+        const axisControls = Shared?.axisControls || (global && global.Shared && global.Shared.axisControls);
+        if(axisControls && typeof axisControls.close === 'function'){
+          try{ axisControls.close('hideAllFromFont'); }catch(e){}
+        }
+      }catch(e){}
+    }catch(err){
+      logDebug('hideAllFormatControls error', { err: String(err) });
+    }
+  }
+
   function syncFontInputValue(rawValue, meta){
     if(!fontInput){ return; }
     const sanitized = (rawValue || '').replace(/"/g, '').trim();
@@ -2646,8 +2693,8 @@
   function openPanelForTarget(target, options){
     if(!target){ return; }
     ensurePanel();
-    // Allow axis controls to remain visible when opening the font (FORMAT) panel.
-    // Do not forcibly close axisControls here so both panels can be shown together.
+    // Ensure axis controls are closed when opening the font (FORMAT) panel.
+    // Prevent mixed UI (axis + font + per-component hosts) by closing axisControls.
     currentTarget = target;
     currentScope = options?.scopeId || target.dataset?.fontScope || null;
     currentKey = options?.key || target.dataset?.fontKey || null;
@@ -2661,11 +2708,26 @@
       console.error('fontControls.openPanelForTarget highlight error', highlightErr);
     }
     if(!panelEl){ return; }
+    // ensure any per-component toolbar hosts are hidden before opening the font panel
+    try{ hideComponentHosts(); }catch(e){}
+    // also close axis controls so the font panel is the only active FORMAT UI
+    try{
+      const axisControls = Shared?.axisControls || (global && global.Shared && global.Shared.axisControls);
+      if(axisControls && typeof axisControls.close === 'function'){
+        try{ axisControls.close('font-open'); }catch(e){}
+      }
+    }catch(e){}
     const host = resolveToolbarHost(currentScope);
     if(host){
       if(activeHost && activeHost !== host){
         hideToolbarHost(activeHost);
       }
+      // remove any per-component toolbar form nodes from this host so the
+      // font panel does not share the same host DOM with component controls.
+      try{
+        const removable = host.querySelectorAll('.workspace-toolbar__form, [data-point-controls="1"]');
+        removable.forEach(n => { try{ n.remove(); }catch(e){} });
+      }catch(e){}
       if(panelEl.parentElement !== host){
         host.appendChild(panelEl);
       }
@@ -2796,6 +2858,10 @@
   fontControls.exportScopeStyles = exportScopeStyles;
   fontControls.importScopeStyles = importScopeStyles;
   fontControls.close = closePanel;
+  fontControls.hideComponentHosts = hideComponentHosts;
+  fontControls.hideAllFormatControls = hideAllFormatControls;
+  // also expose as Shared helpers for components to call
+  try{ Shared.hideComponentHosts = hideComponentHosts; Shared.hideAllFormatControls = hideAllFormatControls; }catch(e){}
 
   ensurePanel();
 })(typeof window !== 'undefined' ? window : globalThis);

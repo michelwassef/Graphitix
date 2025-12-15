@@ -417,6 +417,7 @@
   function showPointFormatControls(el, data){
     const doc = global.document;
     if(!doc){ return; }
+    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
     const anchor = doc.getElementById('boxFontHost');
     if(!anchor){ return; }
 
@@ -862,6 +863,7 @@
           // hide the toolbar host
           toolbarHost.classList.remove('font-toolbar-host--visible');
           toolbarHost.style.display = 'none';
+          try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
           const d = toolbarHost.closest('.workspace-toolbar__dock');
           if(d){ d.classList.remove('workspace-toolbar__dock--active'); }
           document.removeEventListener('click', onDocClick);
@@ -876,6 +878,7 @@
   function showSummaryFormatControls(target){
     const doc = global.document;
     if(!doc || !target){ return; }
+    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
     const anchor = doc.getElementById('boxFontHost');
     if(!anchor){ return; }
 
@@ -1072,6 +1075,7 @@
           if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
           toolbarHost.classList.remove('font-toolbar-host--visible');
           toolbarHost.style.display = 'none';
+          try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
           const d = toolbarHost.closest('.workspace-toolbar__dock');
           if(d){ d.classList.remove('workspace-toolbar__dock--active'); }
           document.removeEventListener('click', onDocClick);
@@ -1086,6 +1090,7 @@
   function showBoxShapeFormatControls(target){
     const doc = global.document;
     if(!doc || !target){ return; }
+    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
     const anchor = doc.getElementById('boxFontHost');
     if(!anchor){ return; }
 

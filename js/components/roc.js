@@ -20,6 +20,8 @@
   function showRocStrokeFormatControls(target){
     const doc = global.document;
     if(!doc) return;
+    // ensure no other format controls remain visible
+    try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
     const anchor = doc.getElementById('rocFontHost');
     if(!anchor) return;
     let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
@@ -71,7 +73,7 @@
     wrap.appendChild(makeInput('Thickness', widthInput));
 
     toolbarHost.appendChild(wrap); toolbarHost.style.display='block'; toolbarHost.classList.add('font-toolbar-host--visible'); const dock = toolbarHost.closest('.workspace-toolbar__dock'); if(dock) dock.classList.add('workspace-toolbar__dock--active');
-    try{ if(toolbarHost.__rocDocClickHandler){ document.removeEventListener('click', toolbarHost.__rocDocClickHandler); toolbarHost.__rocDocClickHandler=null; } const onDocClick = function(evt){ try{ const tgt=evt && evt.target?evt.target:null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__rocDocClickHandler=null; }catch(err){ console.warn('roc.stroke format docClick error', err); } }; document.addEventListener('click', onDocClick); toolbarHost.__rocDocClickHandler = onDocClick; }catch(err){ console.warn('attach doc click for roc stroke controls failed', err); }
+    try{ if(toolbarHost.__rocDocClickHandler){ document.removeEventListener('click', toolbarHost.__rocDocClickHandler); toolbarHost.__rocDocClickHandler=null; } const onDocClick = function(evt){ try{ const tgt=evt && evt.target?evt.target:null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){} const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__rocDocClickHandler=null; }catch(err){ console.warn('roc.stroke format docClick error', err); } }; document.addEventListener('click', onDocClick); toolbarHost.__rocDocClickHandler = onDocClick; }catch(err){ console.warn('attach doc click for roc stroke controls failed', err); }
   }
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};

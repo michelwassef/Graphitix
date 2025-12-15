@@ -1132,8 +1132,13 @@
   function openPanel(config){
     ensurePanel();
     if(!panelEl){ return; }
-    // Do not forcibly close font controls here — allow font (FORMAT) panel to remain visible
-    // so axis and font panels can be shown simultaneously when appropriate.
+    // Close any existing font/per-component FORMAT controls to avoid mixed UI
+    try{
+      if(Shared && typeof Shared.hideAllFormatControls === 'function'){
+        try{ Shared.hideAllFormatControls(); }catch(e){}
+      }
+    }catch(e){}
+    // (axis panel will open after hiding other FORMAT controls)
     activeConfig = config;
     brokenAxisConfigExpanded = false;
     const host = resolveToolbarHost(config.scopeId);
