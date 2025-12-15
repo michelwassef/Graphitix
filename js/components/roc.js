@@ -471,8 +471,8 @@
   }
 
   function createRocTableInstance(container){
-    if(!container || !global.Handsontable){
-      console.warn('ROC hot container or Handsontable missing');
+    if(!container || typeof Shared?.hot?.createStandardTable !== 'function'){
+      console.warn('ROC hot container or table factory missing');
       return null;
     }
     if(typeof Shared.hot?.createStandardTable !== 'function'){
@@ -2370,4 +2370,3 @@
     }
   };
 })(window);
-

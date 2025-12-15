@@ -4537,8 +4537,10 @@
     if(line.ready){ console.debug('Debug: Components.line.setup skipped'); return; }
     console.debug('Debug: Components.line.setup start'); // Debug: setup entry
     const document = global.document;
-    const Handsontable = global.Handsontable;
-    if(!document || !Handsontable){ console.error('Line component dependencies missing'); return; }
+    if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
+      console.error('Line component dependencies missing');
+      return;
+    }
     ensureLineAxisSettings();
     const $ = global.$ || (sel=>document.querySelector(sel));
     refs.tablePanel=document.getElementById('lineTablePanel');

@@ -664,6 +664,7 @@
     const userBeforeKeyDown = hotOptions.beforeKeyDown;
     let colHeadersSetting = hotOptions.colHeaders;
     let rowHeadersSetting = hotOptions.rowHeaders;
+    let nestedHeadersSetting = hotOptions.nestedHeaders;
     const headerWidthManager = { invalidateColumns: noop, reset: noop }; // placeholder for compat
     const hasEnterprise = !!(global.agGrid?.ModuleRegistry?.registeredModules && global.agGrid.ModuleRegistry.registeredModules.some(mod => /Enterprise/i.test(mod?.moduleName || '')));
 
@@ -1228,6 +1229,88 @@
       };
     };
 
+    const applyNestedHeadersToDefs = (defs)=>{
+      const nested = nestedHeadersSetting;
+      if(!nested || nested === false){
+        return defs;
+      }
+      if(!Array.isArray(nested) || !Array.isArray(nested[0])){
+        return defs;
+      }
+
+      const normalizeEntry = (entry)=>{
+        if(typeof entry === 'string'){
+          return { label: entry, colspan: 1 };
+        }
+        if(!entry || typeof entry !== 'object'){
+          return null;
+        }
+        const label = entry.label != null ? String(entry.label) : '';
+        const colspan = Math.max(1, Number(entry.colspan) || 1);
+        return { label, colspan };
+      };
+
+      const leafCount = (def)=>{
+        if(def && typeof def === 'object' && Array.isArray(def.children)){
+          return def.children.reduce((acc, child)=>acc + leafCount(child), 0);
+        }
+        return 1;
+      };
+
+      const groupRow = (currentDefs, rowEntries)=>{
+        if(!Array.isArray(currentDefs) || !currentDefs.length){
+          return currentDefs;
+        }
+        const normalizedRow = (Array.isArray(rowEntries) ? rowEntries : []).map(normalizeEntry).filter(Boolean);
+        if(!normalizedRow.length){
+          return currentDefs;
+        }
+        let cursor = 0;
+        const nextDefs = [];
+        for(let i = 0; i < normalizedRow.length && cursor < currentDefs.length; i++){
+          const entry = normalizedRow[i];
+          const span = entry.colspan;
+          const headerName = entry.label;
+
+          let remaining = span;
+          const children = [];
+          while(remaining > 0 && cursor < currentDefs.length){
+            const candidate = currentDefs[cursor];
+            const candidateLeafCount = leafCount(candidate);
+            if(candidateLeafCount > remaining){
+              return currentDefs;
+            }
+            children.push(candidate);
+            cursor += 1;
+            remaining -= candidateLeafCount;
+          }
+          if(!children.length){
+            continue;
+          }
+          if(span === 1 && (!headerName || headerName.trim() === '')){
+            nextDefs.push(children[0]);
+            continue;
+          }
+          nextDefs.push({ headerName: headerName || '', children });
+        }
+        while(cursor < currentDefs.length){
+          nextDefs.push(currentDefs[cursor]);
+          cursor += 1;
+        }
+        return nextDefs;
+      };
+
+      const rows = nested.filter(Array.isArray);
+      if(!rows.length){
+        return defs;
+      }
+      let result = defs;
+      for(let rowIndex = rows.length - 1; rowIndex >= 0; rowIndex--){
+        result = groupRow(result, rows[rowIndex]);
+      }
+      return result;
+    };
+
     const buildColumnDefs = ()=>{
       const dataColumnDefs = Shared.agGrid?.createColumnDefs
         ? Shared.agGrid.createColumnDefs(colCount, { dataHandle, colHeaders })
@@ -1352,7 +1435,8 @@
         return def;
       });
       const rowHeaderCol = buildRowHeaderColDef();
-      return rowHeaderCol ? [rowHeaderCol, ...enhancedDataColumnDefs] : enhancedDataColumnDefs;
+      const withNested = applyNestedHeadersToDefs(enhancedDataColumnDefs);
+      return rowHeaderCol ? [rowHeaderCol, ...withNested] : withNested;
     };
     let columnDefs = buildColumnDefs();
 
@@ -1448,6 +1532,171 @@
           console.debug('Debug: ag focused cell not available', err);
         }
       }
+    };
+
+    const resolveViewport = ()=>{
+      if(!container || typeof container.querySelector !== 'function'){
+        return null;
+      }
+      return container.querySelector('.ag-body-viewport');
+    };
+
+    const captureViewportScroll = ()=>{
+      const viewport = resolveViewport();
+      if(!viewport){
+        return null;
+      }
+      return {
+        top: viewport.scrollTop,
+        left: viewport.scrollLeft,
+        scrollHeight: viewport.scrollHeight,
+        clientHeight: viewport.clientHeight,
+        capturedAt: Date.now()
+      };
+    };
+
+    let pendingViewportRestore = null;
+    const restoreViewportScroll = ()=>{
+      if(!pendingViewportRestore){
+        return;
+      }
+      const snapshot = pendingViewportRestore;
+      pendingViewportRestore = null;
+      const viewport = resolveViewport();
+      if(!viewport){
+        return;
+      }
+      const doc = viewport.ownerDocument || document;
+      const win = doc.defaultView || global;
+      const rafLocal = typeof win?.requestAnimationFrame === 'function'
+        ? win.requestAnimationFrame.bind(win)
+        : (fn)=>win.setTimeout(fn, 16);
+      rafLocal(()=>{
+        const prevHeight = snapshot.scrollHeight || 0;
+        const newHeight = viewport.scrollHeight || prevHeight;
+        const deltaHeight = newHeight - prevHeight;
+        const prevTop = snapshot.top || 0;
+        const prevClient = snapshot.clientHeight || viewport.clientHeight || 0;
+        const prevRemaining = Math.max(0, (prevHeight - prevClient) - prevTop);
+        const nearBottom = prevRemaining <= (autoGrowthConfig.rowThresholdPx * 2);
+        let targetTop;
+        if(nearBottom){
+          targetTop = Math.max(0, newHeight - viewport.clientHeight);
+        }else{
+          targetTop = Math.max(0, prevTop + deltaHeight);
+        }
+        viewport.scrollTop = targetTop;
+        viewport.scrollLeft = snapshot.left || 0;
+      });
+    };
+
+    const autoGrowthDefaults = {
+      enabled: true,
+      rowThresholdPx: 200,
+      colThresholdPx: 200,
+      rowBatchSize: 50,
+      colBatchSize: 5,
+      rowCap: Math.max(rowCount, 50000),
+      colCap: Math.max(colCount, 200),
+      selectionThreshold: 2
+    };
+    const autoGrowthConfig = Object.assign({}, autoGrowthDefaults, overrides?.autoGrowth || {});
+    autoGrowthConfig.rowBatchSize = Math.max(1, autoGrowthConfig.rowBatchSize | 0);
+    autoGrowthConfig.colBatchSize = Math.max(1, autoGrowthConfig.colBatchSize | 0);
+    autoGrowthConfig.rowCap = Math.max(rowCount, autoGrowthConfig.rowCap | 0 || rowCount);
+    autoGrowthConfig.colCap = Math.max(colCount, autoGrowthConfig.colCap | 0 || colCount);
+    autoGrowthConfig.selectionThreshold = Math.max(0, autoGrowthConfig.selectionThreshold | 0);
+
+    const autoGrowthState = { viewportScrollAttached: false, viewportScrollHandler: null };
+
+    const shouldGrowRows = ()=>{
+      if(!autoGrowthConfig.enabled){
+        return false;
+      }
+      const totalRows = dataHandle.current.length;
+      if(totalRows >= autoGrowthConfig.rowCap){
+        return false;
+      }
+      const selection = normalizedSelectionRange || normalizeRange(lastRange);
+      let nearSelection = false;
+      if(selection && Number.isInteger(selection.to?.row)){
+        nearSelection = (totalRows - 1 - selection.to.row) <= autoGrowthConfig.selectionThreshold;
+      }
+      let nearScroll = false;
+      const viewport = resolveViewport();
+      if(viewport){
+        const remaining = viewport.scrollHeight - (viewport.scrollTop + viewport.clientHeight);
+        nearScroll = remaining <= autoGrowthConfig.rowThresholdPx;
+      }
+      return nearSelection || nearScroll;
+    };
+
+    const shouldGrowCols = ()=>{
+      if(!autoGrowthConfig.enabled){
+        return false;
+      }
+      if(colCount >= autoGrowthConfig.colCap){
+        return false;
+      }
+      const selection = normalizedSelectionRange || normalizeRange(lastRange);
+      let nearSelection = false;
+      if(selection && Number.isInteger(selection.to?.col)){
+        nearSelection = (colCount - 1 - selection.to.col) <= autoGrowthConfig.selectionThreshold;
+      }
+      let nearScroll = false;
+      const viewport = resolveViewport();
+      if(viewport){
+        const remaining = viewport.scrollWidth - (viewport.scrollLeft + viewport.clientWidth);
+        nearScroll = remaining <= autoGrowthConfig.colThresholdPx;
+      }
+      return nearSelection || nearScroll;
+    };
+
+    const maybeGrowRows = (reason)=>{
+      if(!shouldGrowRows()){
+        return;
+      }
+      const totalRows = dataHandle.current.length;
+      const amount = Math.min(autoGrowthConfig.rowBatchSize, autoGrowthConfig.rowCap - totalRows);
+      if(amount <= 0){
+        return;
+      }
+      appendRows(amount);
+      triggerSchedule('autoGrowRows', { amount, reason });
+    };
+
+    const maybeGrowCols = (reason)=>{
+      if(!shouldGrowCols()){
+        return;
+      }
+      const prevScroll = captureViewportScroll();
+      const insertAt = Math.max(0, colCount - 1);
+      const amount = Math.min(autoGrowthConfig.colBatchSize, autoGrowthConfig.colCap - colCount);
+      if(amount <= 0){
+        return;
+      }
+      instance.alter('insert_col_end', insertAt, amount, 'autoGrow');
+      if(prevScroll){
+        pendingViewportRestore = prevScroll;
+      }
+      triggerSchedule('autoGrowCols', { amount, reason });
+    };
+
+    const ensureViewportScrollHandler = ()=>{
+      if(autoGrowthState.viewportScrollAttached){
+        return;
+      }
+      const viewport = resolveViewport();
+      if(!viewport){
+        return;
+      }
+      const onScroll = ()=>{
+        maybeGrowRows('scroll');
+        maybeGrowCols('scroll');
+      };
+      viewport.addEventListener('scroll', onScroll, { passive: true });
+      autoGrowthState.viewportScrollAttached = true;
+      autoGrowthState.viewportScrollHandler = onScroll;
     };
 
     let batchDepth = 0;
@@ -1614,7 +1863,39 @@
         return;
       }
       applyRowData(api, rowData);
+      restoreViewportScroll();
       scheduleAutoSizeColumns('rowData');
+    };
+
+    const appendRows = (count)=>{
+      const amount = Math.max(0, Number(count) || 0);
+      if(amount <= 0){
+        return;
+      }
+      const startIndex = dataHandle.current.length;
+      const cols = Math.max(colCount, MIN_INPUT_COLS);
+      for(let i = 0; i < amount; i++){
+        const row = Array.from({ length: cols }, ()=>'');
+        dataHandle.current.push(row);
+      }
+      rowCount = dataHandle.current.length;
+      colCount = cols;
+      const newRowData = Array.from({ length: amount }, (_, idx)=>({ __rowIndex: startIndex + idx }));
+      rowData.push(...newRowData);
+
+      const api = instance.gridApi;
+      let usedTransaction = false;
+      if(api && typeof api.applyTransaction === 'function'){
+        try{
+          api.applyTransaction({ add: newRowData });
+          usedTransaction = true;
+        }catch(err){
+          console.debug('Debug: ag appendRows transaction failed, falling back', { debugLabel, err });
+        }
+      }
+      if(!usedTransaction){
+        applyRowData(api, rowData);
+      }
     };
 
     const flushBatch = ()=>{
@@ -1625,6 +1906,7 @@
       if(pendingSyncRowData){
         pendingSyncRowData = false;
         applyRowData(api, rowData);
+        restoreViewportScroll();
       }
       if(pendingRebuildColumns){
         pendingRebuildColumns = false;
@@ -1718,6 +2000,7 @@
           needsSchedule = true;
         }
         if(Object.prototype.hasOwnProperty.call(opts, 'nestedHeaders')){
+          nestedHeadersSetting = opts.nestedHeaders;
           instance.__agNestedHeaders = opts.nestedHeaders;
           needsRebuild = true;
         }
@@ -2170,6 +2453,12 @@
       destroy(){
         flushPendingCutMove('destroy');
         runCleanup();
+        if(autoGrowthState.viewportScrollAttached){
+          const viewport = resolveViewport();
+          if(viewport && autoGrowthState.viewportScrollHandler){
+            viewport.removeEventListener('scroll', autoGrowthState.viewportScrollHandler);
+          }
+        }
         if(instance.gridApi && typeof instance.gridApi.destroy === 'function'){
           instance.gridApi.destroy();
         }
@@ -2354,9 +2643,13 @@
         instance.columnApi = params.columnApi;
         updateSelectionFromApi(params.api);
         scheduleAutoSizeColumns('gridReady');
+        ensureViewportScrollHandler();
+        maybeGrowRows('gridReady');
+        maybeGrowCols('gridReady');
       },
       onFirstDataRendered(){
         scheduleAutoSizeColumns('firstDataRendered');
+        ensureViewportScrollHandler();
       },
       onCellValueChanged(event){
         const rowIndex = event?.node?.rowIndex ?? event?.rowIndex ?? 0;
@@ -2382,6 +2675,8 @@
             : [];
           fireHook('afterPaste', dataBlocks, ranges);
           triggerSchedule('afterPaste', { source: 'paste' });
+          maybeGrowRows('paste');
+          maybeGrowCols('paste');
         }catch(err){
           console.error('Shared.hot AG paste handler error', err);
         }
@@ -2394,6 +2689,8 @@
           return;
         }
         updateSelectionFromApi(params.api);
+        maybeGrowRows('selection');
+        maybeGrowCols('selection');
       },
       onCellClicked(params){
         if(suppressNextCellClick){
@@ -2412,6 +2709,8 @@
         setLastRange({ from: { row, col }, to: { row, col } });
         renderAg(params?.api || instance.gridApi);
         fireHook('afterSelectionEnd', row, col, row, col);
+        maybeGrowRows('click');
+        maybeGrowCols('click');
       },
       onColumnMoved(){
         fireHook('afterColumnMove');
@@ -2440,6 +2739,8 @@
           to: { row: params?.node?.rowIndex ?? 0, col: colIdx }
         };
         const pairs = [];
+        const physicalRows = new Set();
+        const physicalCols = new Set();
         for(let r = sel.from.row; r <= sel.to.row; r++){
           for(let c = sel.from.col; c <= sel.to.col; c++){
             const physicalRow = toPhysicalRowIndex(r);
@@ -2447,9 +2748,22 @@
             if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
               continue;
             }
+            if(treatFirstRowAsHeader && physicalRow === 0){
+              continue;
+            }
             pairs.push({ row: physicalRow, col: physicalCol });
+            physicalRows.add(physicalRow);
+            physicalCols.add(physicalCol);
           }
         }
+        const rowList = Array.from(physicalRows);
+        const colList = Array.from(physicalCols);
+        const canExcludeRows = rowList.some(row => !exclusionController.isRowExcluded(row));
+        const canIncludeRows = rowList.some(row => exclusionController.isRowExcluded(row));
+        const canExcludeCols = colList.some(col => !exclusionController.isColumnExcluded(col));
+        const canIncludeCols = colList.some(col => exclusionController.isColumnExcluded(col));
+        const canExcludeCells = pairs.some(pair => !exclusionController.isCellExcluded(pair.row, pair.col));
+        const canIncludeCells = pairs.some(pair => exclusionController.isCellExcluded(pair.row, pair.col));
         const items = [
           {
             label: 'Paste -> Transposed',
@@ -2474,7 +2788,7 @@
           'separator',
           {
             label: 'Exclude selection from analysis',
-            disabled: !pairs.length,
+            disabled: !canExcludeCells,
             action: ()=>{
               exclusionController.markCells(pairs, true);
               triggerSchedule('exclusion-change', { scope: 'cell', exclude: true });
@@ -2482,10 +2796,42 @@
           },
           {
             label: 'Include selection in analysis',
-            disabled: !pairs.length,
+            disabled: !canIncludeCells,
             action: ()=>{
               exclusionController.markCells(pairs, false);
               triggerSchedule('exclusion-change', { scope: 'cell', exclude: false });
+            }
+          },
+          {
+            label: 'Exclude row(s) from analysis',
+            disabled: !canExcludeRows,
+            action: ()=>{
+              exclusionController.markRows(rowList, true);
+              triggerSchedule('exclusion-change', { scope: 'row', exclude: true });
+            }
+          },
+          {
+            label: 'Include row(s) in analysis',
+            disabled: !canIncludeRows,
+            action: ()=>{
+              exclusionController.markRows(rowList, false);
+              triggerSchedule('exclusion-change', { scope: 'row', exclude: false });
+            }
+          },
+          {
+            label: 'Exclude column(s) from analysis',
+            disabled: !canExcludeCols,
+            action: ()=>{
+              exclusionController.markColumns(colList, true);
+              triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
+            }
+          },
+          {
+            label: 'Include column(s) in analysis',
+            disabled: !canIncludeCols,
+            action: ()=>{
+              exclusionController.markColumns(colList, false);
+              triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
             }
           }
         ];

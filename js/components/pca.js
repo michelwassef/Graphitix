@@ -1792,13 +1792,9 @@
     console.debug('Debug: Components.pca.setup start');
     const $ = global.$;
     const document = global.document;
-    const Handsontable = global.Handsontable || globalThis.Handsontable;
-    if(!Handsontable){
-      console.error('Handsontable missing for PCA component');
+    if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
+      console.error('Table factory missing for PCA component');
       return;
-    }
-    if(!global.Handsontable){
-      global.Handsontable = Handsontable;
     }
     const ensureGraphViewport = Shared.graphViewport?.createEnsurer
       ? Shared.graphViewport.createEnsurer('pca')

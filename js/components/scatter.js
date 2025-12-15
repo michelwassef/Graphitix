@@ -2067,9 +2067,8 @@
     ensureScatterAxisSettings();
     const $ = global.$;
     const document = global.document;
-    const Handsontable = global.Handsontable;
-    if(!Handsontable){
-      console.error('Handsontable missing for scatter component');
+    if(!document || typeof Shared?.hot?.createStandardTable !== 'function'){
+      console.error('Table factory missing for scatter component');
       return;
     }
     const makeEditableLocal = (el,onChange,options) => {
