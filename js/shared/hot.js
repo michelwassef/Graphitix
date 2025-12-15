@@ -1311,6 +1311,51 @@
       return result;
     };
 
+    const valueComparator = (a, b, _nodeA, _nodeB, isDescending)=>{
+      const isEmpty = (v)=>v === null || v === undefined || v === '';
+      const aEmpty = isEmpty(a);
+      const bEmpty = isEmpty(b);
+      if(aEmpty && bEmpty){
+        return 0;
+      }
+      if(aEmpty){
+        // In descending, AG inverts comparator; return -1 so inversion pushes empty to bottom.
+        return isDescending ? -1 : 1;
+      }
+      if(bEmpty){
+        return isDescending ? 1 : -1;
+      }
+      const toNumber = (v)=>{
+        if(typeof v === 'number'){
+          return Number.isFinite(v) ? v : null;
+        }
+        if(typeof v === 'string'){
+          const trimmed = v.trim();
+          if(trimmed === ''){
+            return null;
+          }
+          const n = Number(trimmed);
+          return Number.isFinite(n) ? n : null;
+        }
+        return null;
+      };
+      const aNum = toNumber(a);
+      const bNum = toNumber(b);
+      if(aNum !== null && bNum !== null){
+        if(aNum === bNum){
+          return 0;
+        }
+        return aNum < bNum ? -1 : 1;
+      }
+      const aStr = String(a).toLowerCase();
+      const bStr = String(b).toLowerCase();
+      const cmp = aStr.localeCompare(bStr, undefined, { numeric: true, sensitivity: 'base' });
+      if(cmp !== 0){
+        return cmp;
+      }
+      return 0;
+    };
+
     const buildColumnDefs = ()=>{
       const dataColumnDefs = Shared.agGrid?.createColumnDefs
         ? Shared.agGrid.createColumnDefs(colCount, { dataHandle, colHeaders })
@@ -1322,6 +1367,7 @@
             field: `c${col}`,
             editable: true,
             resizable: true,
+            comparator: valueComparator,
             cellClass: params => {
               const physicalRow = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? 0;
               return (treatFirstRowAsHeader && physicalRow === 0) ? firstRowClassName : null;
@@ -2613,7 +2659,8 @@
         editable: true,
         resizable: true,
         minWidth: 40,
-        suppressHeaderMenuButton: true
+        suppressHeaderMenuButton: true,
+        comparator: valueComparator
       },
       rowSelection: { mode: 'multiRow', headerCheckbox: false },
       suppressRowHoverHighlight: true,
