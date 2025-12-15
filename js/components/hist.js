@@ -520,30 +520,33 @@
     };
 
     const distKey = target.getAttribute('data-dist') || null;
-    const scopeField = doc.createElement('div'); scopeField.className='workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
-    const scopeLabel = doc.createElement('span'); scopeLabel.className='workspace-toolbar__input-label'; scopeLabel.textContent='Scope';
-    const scopeSeries = doc.createElement('label'); scopeSeries.style.display = 'inline-flex'; scopeSeries.style.alignItems = 'center'; scopeSeries.style.gap = '4px';
-    const radioSeries = doc.createElement('input'); radioSeries.type = 'radio'; radioSeries.name = `histOverlayScope_${Date.now()}`; radioSeries.value = 'series'; radioSeries.checked = !!distKey; radioSeries.disabled = !distKey;
-    scopeSeries.appendChild(radioSeries); scopeSeries.appendChild(doc.createTextNode('Series'));
-    const scopeGlobal = doc.createElement('label'); scopeGlobal.style.display = 'inline-flex'; scopeGlobal.style.alignItems = 'center'; scopeGlobal.style.gap = '4px';
-    const radioGlobal = doc.createElement('input'); radioGlobal.type = 'radio'; radioGlobal.name = radioSeries.name; radioGlobal.value = 'global'; radioGlobal.checked = !distKey;
-    scopeGlobal.appendChild(radioGlobal); scopeGlobal.appendChild(doc.createTextNode('Global'));
-    scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSeries); scopeField.appendChild(scopeGlobal);
+    const scopeField = doc.createElement('label');
+    scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
+    const scopeLabel = doc.createElement('span'); scopeLabel.className = 'workspace-toolbar__input-label'; scopeLabel.textContent = 'Scope';
+    const scopeSelect = doc.createElement('select'); scopeSelect.className = 'workspace-toolbar__select'; scopeSelect.style.minWidth = '120px';
+    const optSeries = doc.createElement('option'); optSeries.value = 'series'; optSeries.textContent = 'Series'; optSeries.disabled = !distKey;
+    const optGlobal = doc.createElement('option'); optGlobal.value = 'global'; optGlobal.textContent = 'Global';
+    scopeSelect.appendChild(optSeries); scopeSelect.appendChild(optGlobal);
+    scopeSelect.value = distKey ? 'series' : 'global';
+    scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSelect);
     wrap.appendChild(scopeField);
 
     const colorInput = doc.createElement('input'); colorInput.type='color';
     try{ colorInput.value = target.getAttribute('stroke') || state.distributionOptions?.find(o=>o.key===distKey)?.color || '#d95f02'; }catch(e){}
     colorInput.addEventListener('input', ()=>{
       const v = colorInput.value;
-      if(scopeSelect.value === 'series' && distKey){
+      const scope = scopeSelect.value;
+      if(scope === 'series' && distKey){
         const opt = state.distributionOptions.find(o=>o.key===distKey);
         if(opt){ opt.color = v; }
         // immediate reflect on target
-        target.setAttribute('stroke', v);
+        try{ target.setAttribute('stroke', v); }catch(e){}
         state.scheduleDraw();
       }else{
         // apply globally
         state.distributionOptions.forEach(o=>{ o.color = v; });
+        // update existing overlay elements immediately
+        Array.from((state.svgBox || document).querySelectorAll('.hist-overlay')).forEach(el=>el.setAttribute('stroke', v));
         state.scheduleDraw();
       }
     });
@@ -557,10 +560,11 @@
     widthInput.addEventListener('input', ()=>{
       const next = Number(widthInput.value);
       if(!Number.isFinite(next)) return;
-      if(scopeSelect.value==='series' && distKey){
+      const scope = scopeSelect.value;
+      if(scope==='series' && distKey){
         const opt = state.distributionOptions.find(o=>o.key===distKey);
         if(opt){ opt.strokeWidth = next; }
-        target.setAttribute('stroke-width', String(next));
+        try{ target.setAttribute('stroke-width', String(next)); }catch(e){}
         state.scheduleDraw();
       }else{
         state.distributionOptions.forEach(o=>{ o.strokeWidth = next; });
@@ -581,7 +585,7 @@
       const pct = Number(alphaInput.value);
       const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
       alphaValue.textContent = `${Math.round(normalized * 100)}%`;
-      if(radioSeries.checked && distKey){
+      if(scopeSelect.value === 'series' && distKey){
         const opt = state.distributionOptions.find(o=>o.key===distKey);
         if(opt) opt.alpha = normalized;
         target.setAttribute('stroke-opacity', String(normalized));
@@ -638,11 +642,18 @@
         fitResult.label = option?.label || key;
       }
       const colorIndex = index % DEFAULT_DISTRIBUTION_COLORS.length;
-      fitResult.color = fitResult.color || option?.color || DEFAULT_DISTRIBUTION_COLORS[colorIndex];
+      // Prefer configured option color (user choice) over fit-provided color
+      fitResult.color = (option && option.color) || fitResult.color || DEFAULT_DISTRIBUTION_COLORS[colorIndex];
       fitResult.valid = fitResult.valid !== false && fitResult.params !== undefined ? true : fitResult.valid;
-      // carry optional strokeWidth from configured distribution options
-      if(option && Number.isFinite(Number(option.strokeWidth))){
-        fitResult.strokeWidth = Number(option.strokeWidth);
+      // carry optional strokeWidth and alpha from configured distribution options
+      if(option){
+        if(Number.isFinite(Number(option.strokeWidth))){
+          fitResult.strokeWidth = Number(option.strokeWidth);
+        }
+        if(Number.isFinite(Number(option.alpha))){
+          // store as normalized 0..1
+          fitResult.alpha = Math.min(1, Math.max(0, Number(option.alpha)));
+        }
       }
       results.push(fitResult);
       if(debugEnabled){
@@ -1636,9 +1647,11 @@
               'stroke-linejoin':'round',
               'stroke-linecap':'round',
               'data-dist':fit.key || fit.label,
+              'data-overlay-type':'pdf',
+              'pointer-events':'stroke',
               'class':'hist-overlay hist-overlay--pdf'
             });
-            try{ p.style.cursor='pointer'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }catch(e){}
+            try{ p.style.cursor='pointer'; p.style.pointerEvents = p.style.pointerEvents || 'stroke'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }catch(e){}
           }
         }
         if(includeCdf && typeof fit.cdf === 'function'){
@@ -1662,9 +1675,11 @@
               'stroke-linejoin':'round',
               'stroke-linecap':'round',
               'data-dist':fit.key || fit.label,
+              'data-overlay-type':'cdf',
+              'pointer-events':'stroke',
               'class':'hist-overlay hist-overlay--cdf'
             });
-            try{ p.style.cursor='pointer'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }catch(e){}
+            try{ p.style.cursor='pointer'; p.style.pointerEvents = p.style.pointerEvents || 'stroke'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }catch(e){}
           }
         }
       });
