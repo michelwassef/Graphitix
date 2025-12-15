@@ -1152,30 +1152,58 @@
     const fallbackFill = target.getAttribute('fill') || state.fillColors?.[colorIndex] || state.lastDefaultFill || '#4472c4';
     const fallbackBorder = target.getAttribute('stroke') || state.borderColors?.[colorIndex] || shadeColor(fallbackFill, -30);
 
+    const openColorPicker = (inputEl, opts = {}) => {
+      inputEl.addEventListener('click', evt => {
+        evt.preventDefault();
+        if(typeof Shared.openColorPicker === 'function'){
+          const current = inputEl.value;
+          Shared.openColorPicker({
+            anchor: inputEl,
+            color: current,
+            onInput(value){
+              if(!value){ return; }
+              inputEl.value = value;
+              if(typeof opts.onPreview === 'function') opts.onPreview(value);
+            },
+            onChange(value){
+              if(!value){ return; }
+              inputEl.value = value;
+              if(typeof opts.onCommit === 'function') opts.onCommit(value);
+            }
+          });
+          return;
+        }
+        if(typeof Shared.attachColorPickerNear === 'function'){
+          try{ Shared.attachColorPickerNear(inputEl); }catch(e){}
+        }
+      });
+    };
+
     // Fill
     const fillInput = doc.createElement('input');
     fillInput.type = 'color';
     try{ fillInput.value = currentStyle?.fill || fallbackFill; }catch(e){}
-    fillInput.addEventListener('input', ()=>{
-      const next = fillInput.value;
-      resolveTargets().forEach(node => node.setAttribute('fill', next));
-    });
-    fillInput.addEventListener('change', ()=>{
-      const next = fillInput.value;
-      if(scopeSelect.value === 'global'){
-        applyTraceShapeGlobalStyle({ fill: next });
-        if(Array.isArray(state.fillColors)){
-          for(let i=0;i<state.fillColors.length;i+=1){ state.fillColors[i] = next; }
+    openColorPicker(fillInput, {
+      onPreview(next){
+        resolveTargets().forEach(node => node.setAttribute('fill', next));
+      },
+      onCommit(next){
+        resolveTargets().forEach(node => node.setAttribute('fill', next));
+        if(scopeSelect.value === 'global'){
+          applyTraceShapeGlobalStyle({ fill: next });
+          if(Array.isArray(state.fillColors)){
+            for(let i=0;i<state.fillColors.length;i+=1){ state.fillColors[i] = next; }
+          }
+          if(els?.boxFill){ try{ els.boxFill.value = next; }catch(e){} }
+          state.lastDefaultFill = next;
+        }else if(traceIndex != null){
+          persistTraceShapeStyle(traceIndex, { fill: next });
+          if(colorIndex != null && colorIndex >= 0){
+            state.fillColors[colorIndex] = next;
+          }
         }
-        if(els?.boxFill){ try{ els.boxFill.value = next; }catch(e){} }
-        state.lastDefaultFill = next;
-      }else if(traceIndex != null){
-        persistTraceShapeStyle(traceIndex, { fill: next });
-        if(colorIndex != null && colorIndex >= 0){
-          state.fillColors[colorIndex] = next;
-        }
+        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
       }
-      if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
     });
     const fillLabel = makeInput('Fill', fillInput);
     fillLabel.classList.add('workspace-toolbar__input--color');
@@ -1185,25 +1213,26 @@
     const borderInput = doc.createElement('input');
     borderInput.type = 'color';
     try{ borderInput.value = currentStyle?.border || fallbackBorder; }catch(e){}
-    borderInput.addEventListener('input', ()=>{
-      const next = borderInput.value;
-      resolveTargets().forEach(node => node.setAttribute('stroke', next));
-    });
-    borderInput.addEventListener('change', ()=>{
-      const next = borderInput.value;
-      if(scopeSelect.value === 'global'){
-        applyTraceShapeGlobalStyle({ border: next });
-        if(Array.isArray(state.borderColors)){
-          for(let i=0;i<state.borderColors.length;i+=1){ state.borderColors[i] = next; }
+    openColorPicker(borderInput, {
+      onPreview(next){
+        resolveTargets().forEach(node => node.setAttribute('stroke', next));
+      },
+      onCommit(next){
+        resolveTargets().forEach(node => node.setAttribute('stroke', next));
+        if(scopeSelect.value === 'global'){
+          applyTraceShapeGlobalStyle({ border: next });
+          if(Array.isArray(state.borderColors)){
+            for(let i=0;i<state.borderColors.length;i+=1){ state.borderColors[i] = next; }
+          }
+          if(els?.boxBorder){ try{ els.boxBorder.value = next; }catch(e){} }
+        }else if(traceIndex != null){
+          persistTraceShapeStyle(traceIndex, { border: next });
+          if(colorIndex != null && colorIndex >= 0){
+            state.borderColors[colorIndex] = next;
+          }
         }
-        if(els?.boxBorder){ try{ els.boxBorder.value = next; }catch(e){} }
-      }else if(traceIndex != null){
-        persistTraceShapeStyle(traceIndex, { border: next });
-        if(colorIndex != null && colorIndex >= 0){
-          state.borderColors[colorIndex] = next;
-        }
+        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
       }
-      if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
     });
     const borderLabel = makeInput('Border', borderInput);
     borderLabel.classList.add('workspace-toolbar__input--color');
