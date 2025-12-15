@@ -4612,14 +4612,12 @@
         plotEl.style.aspectRatio = `${W3} / ${H3}`;
         plotEl.style.padding = plotEl.style.padding || '12px';
         debugLog('Debug: pca 3d dimensions resolved',{ availableWidth, availableHeight, width: W3, height: H3 }); // Debug: 3d plot sizing diagnostics
-        const svg3 = reuse3dSvg ? existingSvg : document.createElementNS(NS, 'svg');
-        if(!reuse3dSvg){
+        const svg3 = reuse3dSvg && existingSvg ? existingSvg : document.createElementNS(NS, 'svg');
+        if(!reuse3dSvg || !existingSvg){
           svg3.setAttribute('id', 'pcaSvg');
-          svg3.addEventListener('mouseleave', handlePcaPlotMouseLeave);
-          plotEl.appendChild(svg3);
-        } else {
-          svg3.addEventListener('mouseleave', handlePcaPlotMouseLeave);
         }
+        svg3.addEventListener('mouseleave', handlePcaPlotMouseLeave);
+        plotEl.appendChild(svg3);
         svg3.setAttribute('width', String(W3));
         svg3.setAttribute('height', String(H3));
         svg3.setAttribute('viewBox', `0 0 ${W3} ${H3}`);
