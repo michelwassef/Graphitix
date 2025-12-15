@@ -154,6 +154,8 @@
     lastAutoDrawEvaluation: null
   };
   let emptyPayloadTemplate = null;
+  let scatterLabelColors = {};
+  let scatterLabelShapes = {};
 
   function cloneSimple(value){
     if(!value) return null;
@@ -1800,6 +1802,208 @@
     el.addEventListener('mouseenter', handleScatterPointEnter);
     el.addEventListener('mousemove', handleScatterPointMove);
     el.addEventListener('mouseleave', handleScatterPointLeave);
+    el.addEventListener('click', handleScatterPointClick);
+  }
+
+  function handleScatterPointClick(evt){
+    const target = evt?.currentTarget;
+    if(!target){ return; }
+    try{ evt.stopPropagation(); }catch(e){}
+    showScatterFormatControls(target);
+  }
+
+  function showScatterFormatControls(target){
+    const doc = global.document;
+    if(!doc){ return; }
+    const anchor = doc.getElementById('scatterFontHost');
+    if(!anchor){ return; }
+    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
+      ? anchor.nextElementSibling
+      : null;
+    if(!toolbarHost){
+      toolbarHost = doc.createElement('div');
+      toolbarHost.className = 'font-toolbar-host';
+      toolbarHost.dataset.fontToolbarScope = 'scatter';
+      toolbarHost.style.display = 'none';
+      anchor.insertAdjacentElement('afterend', toolbarHost);
+    }
+    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h => {
+      if(h !== toolbarHost){
+        h.classList.remove('font-toolbar-host--visible');
+        h.style.display = 'none';
+      }
+    });
+
+    toolbarHost.innerHTML = '';
+    const wrap = doc.createElement('div');
+    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single scatter-format-controls';
+    wrap.dataset.scatterControls = '1';
+
+    const makeInput = (labelText, inputEl) => {
+      const lbl = doc.createElement('label');
+      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
+      const span = doc.createElement('span');
+      span.className = 'workspace-toolbar__input-label';
+      span.textContent = labelText;
+      lbl.appendChild(span);
+      lbl.appendChild(inputEl);
+      return lbl;
+    };
+
+    const scatterFillInput = doc.getElementById('scatterFill');
+    const scatterBorderInput = doc.getElementById('scatterBorder');
+    const scatterBorderWidthInput = doc.getElementById('scatterBorderWidth');
+    const scatterDotSizeInput = doc.getElementById('scatterDotSize');
+    const scatterAlphaInput = doc.getElementById('scatterAlpha');
+    const scatterAlphaVal = doc.getElementById('scatterAlphaVal');
+    const scatterLabelKey = target?.__scatterPointData?.label || null;
+
+    const applyAndDispatch = (inputEl, value, type = 'input') => {
+      if(!inputEl){ return; }
+      inputEl.value = value;
+      inputEl.dispatchEvent(new Event(type, { bubbles: true }));
+    };
+
+    // Fill color
+    const colorInput = doc.createElement('input');
+    colorInput.type = 'color';
+    const resolvedFill = scatterFillInput?.value || target.getAttribute('fill') || '#377eb8';
+    try{ colorInput.value = resolvedFill; }catch(e){}
+    colorInput.addEventListener('input', () => {
+      const nextColor = colorInput.value;
+      if(scatterLabelKey){
+        const prev = scatterLabelColors[scatterLabelKey] || '';
+        scatterLabelColors[scatterLabelKey] = nextColor;
+        target.setAttribute('fill', nextColor);
+        if(prev !== nextColor){
+          scheduleDrawScatter();
+        }
+      }else if(scatterFillInput){
+        applyAndDispatch(scatterFillInput, nextColor);
+      }
+    });
+    if(typeof Shared.attachColorPickerNear === 'function'){
+      try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
+    }
+    const colorLabel = makeInput('Color', colorInput);
+    colorLabel.classList.add('workspace-toolbar__input--color');
+    wrap.appendChild(colorLabel);
+
+    // Border color
+    const borderInput = doc.createElement('input');
+    borderInput.type = 'color';
+    const resolvedBorder = scatterBorderInput?.value || target.getAttribute('stroke') || '#000000';
+    try{ borderInput.value = resolvedBorder; }catch(e){}
+    borderInput.addEventListener('input', () => {
+      if(scatterBorderInput){
+        applyAndDispatch(scatterBorderInput, borderInput.value);
+      }
+    });
+    if(typeof Shared.attachColorPickerNear === 'function'){
+      try{ Shared.attachColorPickerNear(borderInput); }catch(e){}
+    }
+    const borderLabel = makeInput('Border', borderInput);
+    borderLabel.classList.add('workspace-toolbar__input--color');
+    wrap.appendChild(borderLabel);
+
+    // Border width
+    const borderWidthInput = doc.createElement('input');
+    borderWidthInput.type = 'number';
+    borderWidthInput.min = '0';
+    borderWidthInput.step = '0.5';
+    const resolvedBorderWidth = Number.isFinite(Number(scatterBorderWidthInput?.value))
+      ? Number(scatterBorderWidthInput.value)
+      : Number(target.getAttribute('stroke-width'));
+    if(Number.isFinite(resolvedBorderWidth)){
+      borderWidthInput.value = String(resolvedBorderWidth);
+    }
+    borderWidthInput.addEventListener('input', () => {
+      const numeric = Number(borderWidthInput.value);
+      const next = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+      if(scatterBorderWidthInput){
+        applyAndDispatch(scatterBorderWidthInput, String(next));
+      }
+    });
+    wrap.appendChild(makeInput('Border', borderWidthInput));
+
+    // Size
+    const sizeInput = doc.createElement('input');
+    sizeInput.type = 'number';
+    sizeInput.min = '0';
+    sizeInput.step = '0.5';
+    const derivedSize = Number.isFinite(Number(scatterDotSizeInput?.value))
+      ? Number(scatterDotSizeInput.value)
+      : Number(target.getAttribute('r'));
+    if(Number.isFinite(derivedSize)){
+      sizeInput.value = String(derivedSize);
+    }
+    sizeInput.addEventListener('input', () => {
+      const numeric = Number(sizeInput.value);
+      if(scatterDotSizeInput){
+        const next = Number.isFinite(numeric) ? Math.max(0, numeric) : '';
+        applyAndDispatch(scatterDotSizeInput, String(next));
+      }
+    });
+    wrap.appendChild(makeInput('Size', sizeInput));
+
+    // Opacity (transparency slider)
+    const opacityInput = doc.createElement('input');
+    opacityInput.type = 'range';
+    opacityInput.min = '0';
+    opacityInput.max = '100';
+    opacityInput.step = '1';
+    const currentAlpha = Number(scatterAlphaInput?.value);
+    const resolvedAlphaPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
+    opacityInput.value = String(resolvedAlphaPct);
+    const opacityValue = doc.createElement('span');
+    opacityValue.className = 'workspace-toolbar__input-value';
+    opacityValue.textContent = `${opacityInput.value}%`;
+    opacityInput.addEventListener('input', () => {
+      const pct = Number(opacityInput.value);
+      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 0;
+      if(scatterAlphaInput){
+        applyAndDispatch(scatterAlphaInput, String(normalized));
+      }
+      if(scatterAlphaVal){
+        scatterAlphaVal.textContent = String(normalized);
+      }
+      opacityValue.textContent = `${Math.round(normalized * 100)}%`;
+    });
+    const opacityWrap = doc.createElement('div');
+    opacityWrap.style.display = 'inline-flex';
+    opacityWrap.style.alignItems = 'center';
+    opacityWrap.appendChild(opacityInput);
+    opacityWrap.appendChild(opacityValue);
+    wrap.appendChild(makeInput('Transparency', opacityWrap));
+
+    toolbarHost.appendChild(wrap);
+    toolbarHost.style.display = 'block';
+    toolbarHost.classList.add('font-toolbar-host--visible');
+    const dock = toolbarHost.closest('.workspace-toolbar__dock');
+    if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
+
+    try{
+      if(toolbarHost.__scatterDocClickHandler){
+        document.removeEventListener('click', toolbarHost.__scatterDocClickHandler);
+        toolbarHost.__scatterDocClickHandler = null;
+      }
+      const onDocClick = function(evt){
+        try{
+          const tgt = evt && evt.target ? evt.target : null;
+          if(!tgt){ return; }
+          if(toolbarHost.contains(tgt)){ return; }
+          if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
+          toolbarHost.classList.remove('font-toolbar-host--visible');
+          toolbarHost.style.display = 'none';
+          const d = toolbarHost.closest('.workspace-toolbar__dock');
+          if(d){ d.classList.remove('workspace-toolbar__dock--active'); }
+          document.removeEventListener('click', onDocClick);
+          toolbarHost.__scatterDocClickHandler = null;
+        }catch(err){ console.warn('scatter.format docClick error', err); }
+      };
+      document.addEventListener('click', onDocClick);
+      toolbarHost.__scatterDocClickHandler = onDocClick;
+    }catch(err){ console.warn('attach doc click for scatter format controls failed', err); }
   }
 
   function attachScatterSelectAutoSize(select, label){
@@ -3280,8 +3484,6 @@
         }
         return{allowed:true};
       }
-      let scatterLabelColors={};
-      let scatterLabelShapes={};
       const scatterUndoManager = Shared.undoManager || null;
       function recordScatterChange(label, previous, next, apply){
         if(!scatterUndoManager || typeof scatterUndoManager.recordStateChange !== 'function'){

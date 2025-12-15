@@ -326,6 +326,33 @@
     showPointFormatControls(el, data);
   }
 
+  function handleBoxSummaryClick(evt){
+    const el = evt?.currentTarget;
+    if(!el){ return; }
+    try{ evt.stopPropagation(); }catch(e){}
+    showSummaryFormatControls(el);
+  }
+
+  function clampSummaryOpacity(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){ return null; }
+    return Math.min(1, Math.max(0, numeric));
+  }
+
+  function persistBoxSummaryStyle(traceIndexValue, patch){
+    if(traceIndexValue == null){ return; }
+    state.summaryStyles = state.summaryStyles || {};
+    const previous = cloneSimple(state.summaryStyles[traceIndexValue]) || {};
+    const next = Object.assign({}, previous, patch);
+    state.summaryStyles[traceIndexValue] = next;
+    try{
+      recordBoxChange(`box:summary-style:${traceIndexValue}`, previous, next, value => {
+        state.summaryStyles[traceIndexValue] = value || null;
+        if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
+      });
+    }catch(err){ console.warn('persistBoxSummaryStyle error', err); }
+  }
+
   function showPointFormatControls(el, data){
     const doc = global.document;
     if(!doc){ return; }
@@ -713,6 +740,156 @@
       document.addEventListener('click', onDocClick);
       toolbarHost.__boxDocClickHandler = onDocClick;
     }catch(err){ console.warn('attach doc click for box point controls failed', err); }
+  }
+
+  function showSummaryFormatControls(target){
+    const doc = global.document;
+    if(!doc || !target){ return; }
+    const anchor = doc.getElementById('boxFontHost');
+    if(!anchor){ return; }
+
+    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
+      ? anchor.nextElementSibling
+      : null;
+    if(!toolbarHost){
+      toolbarHost = doc.createElement('div');
+      toolbarHost.className = 'font-toolbar-host';
+      toolbarHost.dataset.fontToolbarScope = 'box';
+      toolbarHost.style.display = 'none';
+      anchor.insertAdjacentElement('afterend', toolbarHost);
+    }
+
+    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h => {
+      if(h !== toolbarHost){
+        h.classList.remove('font-toolbar-host--visible');
+        h.style.display = 'none';
+      }
+    });
+
+    toolbarHost.innerHTML = '';
+    const wrap = doc.createElement('div');
+    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single box-summary-controls';
+    wrap.dataset.summaryControls = '1';
+
+    const makeInput = (labelText, inputEl) => {
+      const lbl = doc.createElement('label');
+      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
+      const span = doc.createElement('span');
+      span.className = 'workspace-toolbar__input-label';
+      span.textContent = labelText;
+      lbl.appendChild(span);
+      lbl.appendChild(inputEl);
+      return lbl;
+    };
+
+    const parentGroup = target.closest && target.closest('g[data-trace]') ? target.closest('g[data-trace]') : null;
+    const traceIndex = parentGroup?.dataset?.trace != null ? String(parentGroup.dataset.trace) : null;
+    const resolveTargets = () => parentGroup ? Array.from(parentGroup.querySelectorAll('line[data-summary-line="1"]')) : [target];
+    const persisted = traceIndex != null && state.summaryStyles ? state.summaryStyles[traceIndex] : null;
+
+    // Color picker
+    const colorInput = doc.createElement('input');
+    colorInput.type = 'color';
+    const initialColor = persisted?.color || target.getAttribute('stroke') || '#000000';
+    try{ colorInput.value = initialColor; }catch(e){}
+    colorInput.addEventListener('input', () => {
+      resolveTargets().forEach(node => node.setAttribute('stroke', colorInput.value));
+    });
+    colorInput.addEventListener('change', () => {
+      if(traceIndex == null){ return; }
+      persistBoxSummaryStyle(traceIndex, { color: colorInput.value });
+    });
+    if(typeof Shared.attachColorPickerNear === 'function'){
+      try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
+    }
+    const colorLabel = makeInput('Color', colorInput);
+    colorLabel.classList.add('workspace-toolbar__input--color');
+    wrap.appendChild(colorLabel);
+
+    // Thickness
+    const thicknessInput = doc.createElement('input');
+    thicknessInput.type = 'number';
+    thicknessInput.min = '0.2';
+    thicknessInput.step = '0.1';
+    const derivedThickness = Number.isFinite(Number(persisted?.thickness))
+      ? Number(persisted.thickness)
+      : Number(target.getAttribute('stroke-width'));
+    if(Number.isFinite(derivedThickness)){
+      thicknessInput.value = String(derivedThickness);
+    }
+    thicknessInput.addEventListener('input', () => {
+      const numeric = Number(thicknessInput.value);
+      const value = Number.isFinite(numeric) ? Math.max(0.2, numeric) : 0.2;
+      resolveTargets().forEach(node => node.setAttribute('stroke-width', String(value)));
+    });
+    thicknessInput.addEventListener('change', () => {
+      const numeric = Number(thicknessInput.value);
+      if(traceIndex == null){ return; }
+      persistBoxSummaryStyle(traceIndex, { thickness: Number.isFinite(numeric) ? Math.max(0.2, numeric) : null });
+    });
+    wrap.appendChild(makeInput('Thickness', thicknessInput));
+
+    // Opacity
+    const opacityInput = doc.createElement('input');
+    opacityInput.type = 'range';
+    opacityInput.min = '0';
+    opacityInput.max = '100';
+    opacityInput.step = '1';
+    const initialOpacity = clampSummaryOpacity(persisted?.opacity);
+    const derivedOpacity = initialOpacity != null
+      ? initialOpacity
+      : clampSummaryOpacity(target.getAttribute('stroke-opacity'));
+    const opacityValue = doc.createElement('span');
+    opacityValue.className = 'workspace-toolbar__input-value';
+    opacityInput.value = String(Math.round((derivedOpacity != null ? derivedOpacity : 1) * 100));
+    opacityValue.textContent = `${opacityInput.value}%`;
+    opacityInput.addEventListener('input', () => {
+      const pct = Number(opacityInput.value);
+      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
+      resolveTargets().forEach(node => node.setAttribute('stroke-opacity', String(normalized)));
+      opacityValue.textContent = `${Math.round(normalized * 100)}%`;
+    });
+    opacityInput.addEventListener('change', () => {
+      const pct = Number(opacityInput.value);
+      if(traceIndex == null){ return; }
+      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
+      persistBoxSummaryStyle(traceIndex, { opacity: normalized });
+    });
+    const opacityWrap = doc.createElement('div');
+    opacityWrap.style.display = 'inline-flex';
+    opacityWrap.style.alignItems = 'center';
+    opacityWrap.appendChild(opacityInput);
+    opacityWrap.appendChild(opacityValue);
+    wrap.appendChild(makeInput('Opacity', opacityWrap));
+
+    toolbarHost.appendChild(wrap);
+    toolbarHost.style.display = 'block';
+    toolbarHost.classList.add('font-toolbar-host--visible');
+    const dock = toolbarHost.closest('.workspace-toolbar__dock');
+    if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
+
+    try{
+      if(toolbarHost.__boxDocClickHandler){
+        document.removeEventListener('click', toolbarHost.__boxDocClickHandler);
+        toolbarHost.__boxDocClickHandler = null;
+      }
+      const onDocClick = function(evt){
+        try{
+          const tgt = evt && evt.target ? evt.target : null;
+          if(!tgt){ return; }
+          if(toolbarHost.contains(tgt)){ return; }
+          if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
+          toolbarHost.classList.remove('font-toolbar-host--visible');
+          toolbarHost.style.display = 'none';
+          const d = toolbarHost.closest('.workspace-toolbar__dock');
+          if(d){ d.classList.remove('workspace-toolbar__dock--active'); }
+          document.removeEventListener('click', onDocClick);
+          toolbarHost.__boxDocClickHandler = null;
+        }catch(err){ console.warn('box.summary docClick error', err); }
+      };
+      document.addEventListener('click', onDocClick);
+      toolbarHost.__boxDocClickHandler = onDocClick;
+    }catch(err){ console.warn('attach doc click for box summary controls failed', err); }
   }
 
   function clampWhiskerMultiplier(value){
@@ -2808,7 +2985,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, summaryStyles: {} };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -9651,13 +9828,38 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           if(individualSummaryMode !== 'none'){
             const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode });
+            summaryGroup.dataset.boxSummary = '1';
+            summaryGroup.style.cursor = 'pointer';
+            summaryGroup.addEventListener('click', handleBoxSummaryClick);
             const summaryCap = Math.max(6, localBand * 0.12);
+            const summaryStyle = (state.summaryStyles && state.summaryStyles[i]) ? state.summaryStyles[i] : null;
+            const summaryColor = (summaryStyle && summaryStyle.color) ? summaryStyle.color : borderColor;
+            const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
+            const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
+            const summaryThicknessRaw = summaryStyle && Number.isFinite(Number(summaryStyle.thickness)) ? Number(summaryStyle.thickness) : null;
             const baseStroke = Math.max(errorBarWidthPx || 0, borderWidthPx || 0.8, 0.8);
-            const summaryStrokeWidth = baseStroke * 1.5;
+            const summaryStrokeWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : baseStroke * 1.5);
+            const summaryIntervalWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : (errorBarWidthPx || borderWidthPx || summaryStrokeWidth));
+            const summaryStrokeAttrs = width => {
+              const attrs = {
+                stroke: summaryColor,
+                'stroke-width': Math.max(0.2, Number.isFinite(width) ? width : summaryStrokeWidth),
+                'data-summary-line': '1'
+              };
+              if(summaryOpacity !== 1){
+                attrs['stroke-opacity'] = summaryOpacity;
+              }
+              return attrs;
+            };
             const summaryAdd = (tag, attrs) => {
               const node = document.createElementNS(NS, tag);
               for(const [key, value] of Object.entries(attrs)){
                 node.setAttribute(key, String(value));
+              }
+              if(tag === 'line' || tag === 'path' || tag === 'rect'){
+                const widthOverride = attrs['stroke-width'];
+                const merged = summaryStrokeAttrs(widthOverride);
+                Object.entries(merged).forEach(([k,v]) => node.setAttribute(k,String(v)));
               }
               summaryGroup.appendChild(node);
               return node;
@@ -9674,12 +9876,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 }
                 const yStart = y2px(end);
                 const yEnd = y2px(start);
-                summaryAdd('line',{ x1: cx, y1: yStart, x2: cx, y2: yEnd, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                summaryAdd('line',{ x1: cx, y1: yStart, x2: cx, y2: yEnd, ...summaryStrokeAttrs(summaryIntervalWidth) });
                 const capsEnabled = opts.caps !== false;
                 const capSize = opts.capSize ?? summaryCap;
                 if(capsEnabled && capSize > 0){
-                  summaryAdd('line',{ x1: cx - capSize / 2, y1: yStart, x2: cx + capSize / 2, y2: yStart, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                  summaryAdd('line',{ x1: cx - capSize / 2, y1: yEnd, x2: cx + capSize / 2, y2: yEnd, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                  summaryAdd('line',{ x1: cx - capSize / 2, y1: yStart, x2: cx + capSize / 2, y2: yStart, ...summaryStrokeAttrs(summaryIntervalWidth) });
+                  summaryAdd('line',{ x1: cx - capSize / 2, y1: yEnd, x2: cx + capSize / 2, y2: yEnd, ...summaryStrokeAttrs(summaryIntervalWidth) });
                 }
                 return true;
               },
@@ -9689,7 +9891,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 }
                 const cySummary = y2px(value);
                 const halfWidth = Math.max(summaryCap, (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius) * radiusMultiplier, 4);
-                summaryAdd('line',{ x1: cx - halfWidth, y1: cySummary, x2: cx + halfWidth, y2: cySummary, stroke: borderColor, 'stroke-width': summaryStrokeWidth });
+                summaryAdd('line',{ x1: cx - halfWidth, y1: cySummary, x2: cx + halfWidth, y2: cySummary, ...summaryStrokeAttrs(summaryStrokeWidth) });
                 return true;
               },
               drawMedianLine: value => {
@@ -9697,7 +9899,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const yMid = y2px(value);
-                summaryAdd('line',{ x1: cx - Math.max(summaryCap, 4), y1: yMid, x2: cx + Math.max(summaryCap, 4), y2: yMid, stroke: borderColor, 'stroke-width': summaryStrokeWidth });
+                summaryAdd('line',{ x1: cx - Math.max(summaryCap, 4), y1: yMid, x2: cx + Math.max(summaryCap, 4), y2: yMid, ...summaryStrokeAttrs(summaryStrokeWidth) });
                 return true;
               },
               debug: debugEnabled
@@ -10353,9 +10555,29 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           stripGroup.appendChild(frag);
           if(individualSummaryMode !== 'none'){
             const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode });
+            summaryGroup.dataset.boxSummary = '1';
+            summaryGroup.style.cursor = 'pointer';
+            summaryGroup.addEventListener('click', handleBoxSummaryClick);
             const summaryCap = Math.max(6, localBand * 0.12);
+            const summaryStyle = (state.summaryStyles && state.summaryStyles[i]) ? state.summaryStyles[i] : null;
+            const summaryColor = (summaryStyle && summaryStyle.color) ? summaryStyle.color : borderColor;
+            const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
+            const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
+            const summaryThicknessRaw = summaryStyle && Number.isFinite(Number(summaryStyle.thickness)) ? Number(summaryStyle.thickness) : null;
             const baseStroke = Math.max(errorBarWidthPx || 0, borderWidthPx || 0.8, 0.8);
-            const summaryStrokeWidth = baseStroke * 1.5;
+            const summaryStrokeWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : baseStroke * 1.5);
+            const summaryIntervalWidth = Math.max(0.2, summaryThicknessRaw != null ? summaryThicknessRaw : (errorBarWidthPx || borderWidthPx || summaryStrokeWidth));
+            const summaryStrokeAttrs = width => {
+              const attrs = {
+                stroke: summaryColor,
+                'stroke-width': Math.max(0.2, Number.isFinite(width) ? width : summaryStrokeWidth),
+                'data-summary-line': '1'
+              };
+              if(summaryOpacity !== 1){
+                attrs['stroke-opacity'] = summaryOpacity;
+              }
+              return attrs;
+            };
             const summaryAdd = (tag, attrs) => {
               const node = document.createElementNS(NS, tag);
               for(const [key, value] of Object.entries(attrs)){
@@ -10376,12 +10598,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 }
                 const xStart = valueToX(start);
                 const xEnd = valueToX(end);
-                summaryAdd('line',{ x1: xStart, y1: cy, x2: xEnd, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                summaryAdd('line',{ x1: xStart, y1: cy, x2: xEnd, y2: cy, ...summaryStrokeAttrs(summaryIntervalWidth) });
                 const capsEnabled = opts.caps !== false;
                 const capSize = opts.capSize ?? summaryCap;
                 if(capsEnabled && capSize > 0){
-                  summaryAdd('line',{ x1: xStart, y1: cy - capSize / 2, x2: xStart, y2: cy + capSize / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                  summaryAdd('line',{ x1: xEnd, y1: cy - capSize / 2, x2: xEnd, y2: cy + capSize / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                  summaryAdd('line',{ x1: xStart, y1: cy - capSize / 2, x2: xStart, y2: cy + capSize / 2, ...summaryStrokeAttrs(summaryIntervalWidth) });
+                  summaryAdd('line',{ x1: xEnd, y1: cy - capSize / 2, x2: xEnd, y2: cy + capSize / 2, ...summaryStrokeAttrs(summaryIntervalWidth) });
                 }
                 return true;
               },
@@ -10391,7 +10613,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 }
                 const xVal = valueToX(value);
                 const halfWidth = Math.max(summaryCap, (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius) * radiusMultiplier, 4);
-                summaryAdd('line',{ x1: xVal - halfWidth, y1: cy, x2: xVal + halfWidth, y2: cy, stroke: borderColor, 'stroke-width': summaryStrokeWidth });
+                summaryAdd('line',{ x1: xVal - halfWidth, y1: cy, x2: xVal + halfWidth, y2: cy, ...summaryStrokeAttrs(summaryStrokeWidth) });
                 return true;
               },
               drawMedianLine: value => {
@@ -10400,7 +10622,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                 }
                 const xMid = valueToX(value);
                 const cap = Math.max(summaryCap, 4);
-                summaryAdd('line',{ x1: xMid, y1: cy - cap, x2: xMid, y2: cy + cap, stroke: borderColor, 'stroke-width': summaryStrokeWidth });
+                summaryAdd('line',{ x1: xMid, y1: cy - cap, x2: xMid, y2: cy + cap, ...summaryStrokeAttrs(summaryStrokeWidth) });
                 return true;
               },
               debug: debugEnabled
@@ -10643,6 +10865,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         errorMode:els.boxErrorMode.value,
         colors:[...state.fillColors],
         borderColors:[...state.borderColors],
+        pointStyles: state.pointStyles || null,
+        summaryStyles: state.summaryStyles || null,
         yMin:els.boxYMin.value,
         yMax:els.boxYMax.value,
         flipAxes: state.flipAxes,
@@ -10937,6 +11161,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     state.fillColors=c.colors||[];
     state.borderColors=c.borderColors||[];
+    state.pointStyles = cloneSimple(c.pointStyles) || {};
+    state.summaryStyles = cloneSimple(c.summaryStyles) || {};
     if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; }
     toggleColorMode();
     const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
