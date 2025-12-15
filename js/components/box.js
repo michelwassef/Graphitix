@@ -414,6 +414,36 @@
     }catch(err){ console.warn('applyTraceShapeGlobalStyle error', err); }
   }
 
+  // Apply opacity to every box element (points, shapes, summaries) in a single frame
+  let pendingBoxGlobalOpacity = null;
+  const runBoxGlobalOpacityApply = () => {
+    if(pendingBoxGlobalOpacity == null){ return; }
+    const doc = global.document;
+    const plot = doc ? doc.getElementById('boxPlot') : null;
+    if(plot){
+      const nodes = plot.querySelectorAll('[data-box-shape],[data-export-layer="box-points"] circle,[data-export-layer="box-points"] path,[data-export-layer="box-points"] rect,[data-summary-line="1"]');
+      nodes.forEach(node => {
+        const next = String(pendingBoxGlobalOpacity);
+        const tag = (node.tagName || '').toLowerCase();
+        if(tag === 'line' || node.hasAttribute('stroke')){ node.setAttribute('stroke-opacity', next); }
+        if(tag === 'rect' || tag === 'path' || tag === 'circle' || node.hasAttribute('fill')){ node.setAttribute('fill-opacity', next); }
+      });
+    }
+    pendingBoxGlobalOpacity = null;
+  };
+  const scheduleBoxGlobalOpacityApply = (() => {
+    const runner = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(runBoxGlobalOpacityApply)
+      : (fn => () => {
+          if(typeof global.requestAnimationFrame === 'function'){ global.requestAnimationFrame(fn); }
+          else{ fn(); }
+        })(runBoxGlobalOpacityApply);
+    return (opacity) => {
+      pendingBoxGlobalOpacity = opacity;
+      runner();
+    };
+  })();
+
   function showPointFormatControls(el, data){
     const doc = global.document;
     if(!doc){ return; }
@@ -815,12 +845,26 @@
     const opValue = doc.createElement('span');
     opValue.className = 'workspace-toolbar__input-value';
     opValue.textContent = opInput.value + '%';
+    let pendingPointOpacity = null;
+    const applyPointOpacityLive = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(() => {
+          if(pendingPointOpacity == null){ return; }
+          resolveTargetPoints().forEach(p => p.setAttribute('fill-opacity', String(pendingPointOpacity)));
+        })
+      : null;
     opInput.addEventListener('input', ()=>{
       const pct = Number(opInput.value);
       const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
       const transparency = bounded / 100;
       const opacity = 1 - transparency;
-      resolveTargetPoints().forEach(p => p.setAttribute('fill-opacity', String(opacity)));
+      pendingPointOpacity = opacity;
+      if(scopeSelect.value === 'global'){
+        scheduleBoxGlobalOpacityApply(opacity);
+      }else if(applyPointOpacityLive){
+        applyPointOpacityLive();
+      }else{
+        resolveTargetPoints().forEach(p => p.setAttribute('fill-opacity', String(opacity)));
+      }
       opValue.textContent = `${Math.round(bounded)}%`;
     });
     opInput.addEventListener('change', ()=>{
@@ -830,6 +874,7 @@
       if(scopeSelect.value === 'trace'){
         try{ persistTraceStyle({ opacity: opacity }); }catch(e){console.warn(e);} 
       }else{
+        scheduleBoxGlobalOpacityApply(opacity);
         applyPointStyleGlobal({ opacity: opacity });
       }
     });
@@ -1023,12 +1068,26 @@
     opacityValue.className = 'workspace-toolbar__input-value';
     opacityInput.value = String(initialTransparency);
     opacityValue.textContent = `${opacityInput.value}%`;
+    let pendingSummaryOpacity = null;
+    const applySummaryOpacityLive = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(() => {
+          if(pendingSummaryOpacity == null){ return; }
+          resolveTargets().forEach(node => node.setAttribute('stroke-opacity', String(pendingSummaryOpacity)));
+        })
+      : null;
     opacityInput.addEventListener('input', () => {
       const pct = Number(opacityInput.value);
       const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
       const transparency = bounded / 100;
       const normalized = 1 - transparency;
-      resolveTargets().forEach(node => node.setAttribute('stroke-opacity', String(normalized)));
+      pendingSummaryOpacity = normalized;
+      if(scopeSelect.value === 'global'){
+        scheduleBoxGlobalOpacityApply(normalized);
+      }else if(applySummaryOpacityLive){
+        applySummaryOpacityLive();
+      }else{
+        resolveTargets().forEach(node => node.setAttribute('stroke-opacity', String(normalized)));
+      }
       opacityValue.textContent = `${Math.round(bounded)}%`;
     });
     opacityInput.addEventListener('change', () => {
@@ -1036,6 +1095,7 @@
       const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
       const normalized = 1 - (bounded / 100);
       if(scopeSelect.value === 'global'){
+        scheduleBoxGlobalOpacityApply(normalized);
         state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, { opacity: normalized });
         if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
         if(state.summaryStyles && typeof state.summaryStyles === 'object'){
@@ -1289,15 +1349,32 @@
     const opacityValue = doc.createElement('span');
     opacityValue.className = 'workspace-toolbar__input-value';
     opacityValue.textContent = `${opacityInput.value}%`;
+    let pendingShapeOpacity = null;
+    const applyShapeOpacityLive = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(() => {
+          if(pendingShapeOpacity == null){ return; }
+          resolveTargets().forEach(node => {
+            node.setAttribute('fill-opacity', String(pendingShapeOpacity));
+            node.setAttribute('stroke-opacity', String(pendingShapeOpacity));
+          });
+        })
+      : null;
     opacityInput.addEventListener('input', ()=>{
       const pct = Number(opacityInput.value);
       const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
       const transparency = bounded / 100;
       const normalized = 1 - transparency;
-      resolveTargets().forEach(node => {
-        node.setAttribute('fill-opacity', String(normalized));
-        node.setAttribute('stroke-opacity', String(normalized));
-      });
+      pendingShapeOpacity = normalized;
+      if(scopeSelect.value === 'global'){
+        scheduleBoxGlobalOpacityApply(normalized);
+      }else if(applyShapeOpacityLive){
+        applyShapeOpacityLive();
+      }else{
+        resolveTargets().forEach(node => {
+          node.setAttribute('fill-opacity', String(normalized));
+          node.setAttribute('stroke-opacity', String(normalized));
+        });
+      }
       opacityValue.textContent = `${Math.round(bounded)}%`;
     });
     opacityInput.addEventListener('change', ()=>{
@@ -1305,6 +1382,7 @@
       const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
       const normalized = 1 - (bounded / 100);
       if(scopeSelect.value === 'global'){
+        scheduleBoxGlobalOpacityApply(normalized);
         applyTraceShapeGlobalStyle({ opacity: normalized });
       }else if(traceIndex != null){
         persistTraceShapeStyle(traceIndex, { opacity: normalized });
@@ -2230,6 +2308,47 @@
     const offsets = entries.map(entry => offsetsMap.get(entry.index) || 0);
     console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entries.length, maxBinSize: maxCount, adjustedRadius: pointRadiusValue });
     return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset: globalMaxHalfWidth, adjustedRadius: pointRadiusValue };
+  }
+
+  function createViolinBoundLookup(densityInfo, halfSpanPx, peakOverride){
+    const positions = Array.isArray(densityInfo?.positions) ? densityInfo.positions : null;
+    const densities = Array.isArray(densityInfo?.densities) ? densityInfo.densities : null;
+    const valid = positions && densities && positions.length && positions.length === densities.length;
+    if(!valid || !Number.isFinite(halfSpanPx) || halfSpanPx <= 0){
+      return null;
+    }
+    const peak = Number.isFinite(peakOverride) && peakOverride > 0
+      ? peakOverride
+      : densities.reduce((max, v) => v > max ? v : max, 0);
+    if(!peak){
+      return null;
+    }
+    return value => {
+      if(!Number.isFinite(value)){
+        return 0;
+      }
+      let idx = positions.findIndex(p => p >= value);
+      if(idx === -1){
+        idx = positions.length - 1;
+      }
+      let densityAtValue;
+      if(idx === 0){
+        densityAtValue = densities[0];
+      }else{
+        const prevIdx = idx - 1;
+        const p0 = positions[prevIdx];
+        const p1 = positions[idx];
+        const d0 = densities[prevIdx];
+        const d1 = densities[idx];
+        const span = p1 - p0;
+        const tRaw = span > 0 ? (value - p0) / span : 0;
+        const t = tRaw < 0 ? 0 : tRaw > 1 ? 1 : tRaw;
+        densityAtValue = d0 + (d1 - d0) * t;
+      }
+      const normalized = densityAtValue / peak;
+      const width = normalized * halfSpanPx;
+      return Number.isFinite(width) && width > 0 ? width : 0;
+    };
   }
 
   function populateIndividualSummarySelect(selectEl){
@@ -9975,6 +10094,126 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
         });
       }
+      const renderSwarmPointsVertical = params => {
+        const {
+          valueList,
+          cx,
+          localBand,
+          sampleCount,
+          traceIndex,
+          tooltipSeriesName,
+          tooltipCategoryName,
+          tooltipGroupName,
+          fillColor,
+          borderColor,
+          violinBounds = null,
+          groupAttrs = {},
+          opacityMultiplier = 1,
+          debugLabel = 'individual',
+          mean: meanValue = null
+        } = params || {};
+        const pointEntries = Array.isArray(valueList) ? valueList.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value })) : [];
+        const swarm = computeSwarmOffsets(pointEntries, {
+          axisSpacing: localBand,
+          pointRadius,
+          sampleSize: sampleCount,
+          orientation: 'vertical'
+        });
+        const traceStyle = getPointStyle(traceIndex);
+        const baseRadius = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
+        const effectiveRadius = baseRadius != null ? baseRadius : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
+        const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
+        const effectiveStroke = (traceStyle && traceStyle.stroke) ? traceStyle.stroke : 'none';
+        const baseOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
+        const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
+        const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
+        const clampOffset = (offset, entry) => {
+          if(!violinBounds){
+            return offset;
+          }
+          const maxHalf = violinBounds(entry.raw);
+          if(!Number.isFinite(maxHalf) || maxHalf <= 0){
+            return 0;
+          }
+          const limit = Math.max(0, maxHalf - effectiveRadius);
+          if(limit <= 0){
+            return 0;
+          }
+          return Math.max(-limit, Math.min(limit, offset));
+        };
+        const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
+        const group = add('g', groupAttributes);
+        let maxOffsetUsed = 0;
+        if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && (effectiveShape === 'circle' || effectiveShape === 'square')){
+          const pts = pointEntries.map(entry => {
+            const offset = clampOffset(swarm.offsets[entry.index] || 0, entry);
+            const abs = Math.abs(offset);
+            if(abs > maxOffsetUsed){
+              maxOffsetUsed = abs;
+            }
+            return { x: cx + offset, y: entry.coord };
+          });
+          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: traceIndex });
+          group.appendChild(pathNode);
+        }else{
+          const frag = document.createDocumentFragment();
+          pointEntries.forEach(entry => {
+            const rawOffset = swarm.offsets[entry.index] || 0;
+            const offset = clampOffset(rawOffset, entry);
+            const abs = Math.abs(offset);
+            if(abs > maxOffsetUsed){
+              maxOffsetUsed = abs;
+            }
+            let node = null;
+            if(effectiveShape === 'circle'){
+              node = document.createElementNS(NS, 'circle');
+              node.setAttribute('cx', cx + offset);
+              node.setAttribute('cy', entry.coord);
+              node.setAttribute('r', effectiveRadius);
+            }else if(effectiveShape === 'square'){
+              node = document.createElementNS(NS, 'rect');
+              const size = effectiveRadius * 2;
+              node.setAttribute('x', String(cx + offset - effectiveRadius));
+              node.setAttribute('y', String(entry.coord - effectiveRadius));
+              node.setAttribute('width', String(size));
+              node.setAttribute('height', String(size));
+            }else if(effectiveShape === 'triangle'){
+              node = document.createElementNS(NS, 'path');
+              const d = `M ${cx + offset} ${entry.coord - effectiveRadius} L ${cx + offset + effectiveRadius} ${entry.coord + effectiveRadius} L ${cx + offset - effectiveRadius} ${entry.coord + effectiveRadius} Z`;
+              node.setAttribute('d', d);
+            }else if(effectiveShape === 'diamond'){
+              node = document.createElementNS(NS, 'path');
+              const d = `M ${cx + offset} ${entry.coord - effectiveRadius} L ${cx + offset + effectiveRadius} ${entry.coord} L ${cx + offset} ${entry.coord + effectiveRadius} L ${cx + offset - effectiveRadius} ${entry.coord} Z`;
+              node.setAttribute('d', d);
+            }else{
+              node = document.createElementNS(NS, 'circle');
+              node.setAttribute('cx', cx + offset);
+              node.setAttribute('cy', entry.coord);
+              node.setAttribute('r', effectiveRadius);
+            }
+            if(node){
+              node.setAttribute('fill', effectiveFill);
+              if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
+              node.setAttribute('fill-opacity', String(effectiveOpacity));
+              node.setAttribute('data-shape', effectiveShape);
+              attachBoxPointTooltip(node, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: entry.raw,
+                rawValue: entry.raw,
+                index: entry.index
+              });
+              frag.appendChild(node);
+            }
+          });
+          group.appendChild(frag);
+        }
+        if(debugEnabled){
+          console.debug('Debug: box individual vertical render',{ index: traceIndex, mean: meanValue, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), spreadFactor: swarm?.spreadFactor, pointCount: sampleCount, mode: debugLabel, bounded: !!violinBounds });
+        }
+        return { swarm, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), effectiveRadius };
+      };
       const stackedErrorQueue = [];
       const annotationMaxByTrace = new Array(traces.length).fill(null);
       for(let i = 0; i < traces.length; i++){
@@ -10046,6 +10285,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           : Math.max(0.5, Number.isFinite(borderWidthPx) && borderWidthPx > 0 ? borderWidthPx : 1);
         const opacityOverride = colorInfo.opacity != null ? Math.min(1, Math.max(0, Number(colorInfo.opacity))) : null;
         const yMean = y2px(mean);
+        let violinPointBounds = null;
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           annotationMaxByTrace[i] = wMax;
           if(graphTypeRaw === 'box'){
@@ -10237,6 +10477,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           annotationMaxByTrace[i] = Math.max(wMax, violinMaxValue);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
           const halfWidth = Math.max(6, Math.min(80, localBand * 0.45));
+          violinPointBounds = createViolinBoundLookup(densityInfo, halfWidth, peak) || (() => halfWidth);
           const pathParts = [];
           for(let idx = 0; idx < densityInfo.positions.length; idx++){
             const pos = densityInfo.positions[idx];
