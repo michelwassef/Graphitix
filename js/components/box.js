@@ -7091,35 +7091,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     state.statsContextVersion = version;
     state.statsContextSignature = signature;
     state.statsContext = { traces: traces.slice(), svg, helpers, version, signature };
-    const significanceFlag = helpers?.significance?.enabled ?? !!state.showSignificanceBars;
-    if(contextChanged){
-      clearStatsOutputs('Statistics will appear after calculation.');
-      setStatsStatus('Statistics ready to calculate.');
-      updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
-      updateSignificanceControlState({ statsReady: false });
-      return;
-    }
     const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
-    const canAutoRecompute = hasResults && state.statsLastRunVersion === version && !state.statsComputationPending;
-    if(significanceFlag && canAutoRecompute){
-      try{
-        console.debug('Debug: box stats auto recompute for significance',{ version, significanceFlag });
-        computeStats(traces, svg, helpers);
-        state.statsLastRunVersion = version;
-        setStatsStatus('Statistics up to date.');
-        updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
-        updateSignificanceControlState({ statsReady: true });
-      }catch(err){
-        console.error('box stats auto computation for significance failed', err);
-        setStatsStatus('Failed to compute statistics.');
-      }
-      return;
-    }
     if(state.statsLastRunVersion === version && hasResults){
       setStatsStatus('Statistics up to date.');
       updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
       updateSignificanceControlState({ statsReady: true });
-    }else if(!state.statsComputationPending){
+    }else{
+      clearStatsOutputs('Statistics will appear after calculation.');
       setStatsStatus('Statistics ready to calculate.');
       updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
       updateSignificanceControlState({ statsReady: false });

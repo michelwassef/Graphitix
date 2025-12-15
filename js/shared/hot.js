@@ -1542,6 +1542,19 @@
       return container.querySelector('.ag-body-viewport');
     };
 
+    const scrollViewportToTop = ()=>{
+      const viewport = resolveViewport();
+      if(!viewport){
+        return;
+      }
+      try{
+        viewport.scrollTop = 0;
+        viewport.scrollLeft = 0;
+      }catch(err){
+        // best effort
+      }
+    };
+
     const captureViewportScroll = ()=>{
       const viewport = resolveViewport();
       if(!viewport){
@@ -1657,12 +1670,16 @@
       if(!shouldGrowRows()){
         return;
       }
+      const prevScroll = captureViewportScroll();
       const totalRows = dataHandle.current.length;
       const amount = Math.min(autoGrowthConfig.rowBatchSize, autoGrowthConfig.rowCap - totalRows);
       if(amount <= 0){
         return;
       }
       appendRows(amount);
+      if(prevScroll){
+        pendingViewportRestore = prevScroll;
+      }
       triggerSchedule('autoGrowRows', { amount, reason });
     };
 
@@ -2008,6 +2025,7 @@
           }else{
             exclusionController.clearAll(true);
           }
+          pendingViewportRestore = null;
         }
         if(Number.isFinite(opts.minRows)){
           rowCount = Math.max(0, Number(opts.minRows));
@@ -2296,6 +2314,9 @@
         if(scheduleOnLoadData){
           triggerSchedule('afterLoadData', { source: 'loadData' });
         }
+        pendingViewportRestore = null;
+        scrollViewportToTop();
+        setLastRange({ from: { row: 0, col: 0 }, to: { row: 0, col: 0 } });
         renderAg(instance.gridApi);
       },
       alter(action, index, amount, source){
