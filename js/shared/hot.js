@@ -2809,7 +2809,7 @@
         fireHook('afterColumnMove');
         triggerSchedule('afterColumnMove', { source: 'columnMove' });
       },
-      onHeaderContextMenu(params){
+      onColumnHeaderContextMenu(params){
         if(hasEnterprise){
           return;
         }
