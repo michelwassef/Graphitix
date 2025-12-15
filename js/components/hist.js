@@ -575,24 +575,27 @@
     });
     wrap.appendChild(makeInput('Thickness', widthInput));
 
-    // Transparency (alpha)
+    // Transparency (alpha): slider indicates transparency (0 = opaque, 100 = fully transparent)
     const alphaInput = doc.createElement('input'); alphaInput.type='range'; alphaInput.min='0'; alphaInput.max='100'; alphaInput.step='1';
     const existingAlpha = Number(target.getAttribute('stroke-opacity'));
-    const resolvedAlphaPct = Number.isFinite(existingAlpha) ? Math.round(existingAlpha * 100) : 100;
-    alphaInput.value = String(resolvedAlphaPct);
+    // existingAlpha is opacity (0..1); convert to transparency percent
+    const resolvedTransparencyPct = Number.isFinite(existingAlpha) ? Math.round((1 - existingAlpha) * 100) : 0;
+    alphaInput.value = String(resolvedTransparencyPct);
     const alphaValue = doc.createElement('span'); alphaValue.className = 'workspace-toolbar__input-value'; alphaValue.textContent = `${alphaInput.value}%`;
     alphaInput.addEventListener('input', ()=>{
       const pct = Number(alphaInput.value);
-      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
-      alphaValue.textContent = `${Math.round(normalized * 100)}%`;
+      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+      const transparency = bounded / 100;
+      const opacity = 1 - transparency;
+      alphaValue.textContent = `${Math.round(bounded)}%`;
       if(scopeSelect.value === 'series' && distKey){
         const opt = state.distributionOptions.find(o=>o.key===distKey);
-        if(opt) opt.alpha = normalized;
-        target.setAttribute('stroke-opacity', String(normalized));
+        if(opt) opt.alpha = opacity;
+        target.setAttribute('stroke-opacity', String(opacity));
         state.scheduleDraw();
       }else{
-        state.distributionOptions.forEach(o=>{ o.alpha = normalized; });
-        Array.from((state.svgBox || document).querySelectorAll('.hist-overlay')).forEach(el=>el.setAttribute('stroke-opacity', String(normalized)));
+        state.distributionOptions.forEach(o=>{ o.alpha = opacity; });
+        Array.from((state.svgBox || document).querySelectorAll('.hist-overlay')).forEach(el=>el.setAttribute('stroke-opacity', String(opacity)));
         state.scheduleDraw();
       }
     });

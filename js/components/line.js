@@ -1375,21 +1375,23 @@
     });
     wrap.appendChild(makeInput('Size', sizeInput));
 
-    // Transparency (alpha)
+    // Transparency (alpha): slider indicates transparency (0 = opaque, 100 = fully transparent)
     const opacityInput = doc.createElement('input');
     opacityInput.type = 'range';
     opacityInput.min = '0';
     opacityInput.max = '100';
     opacityInput.step = '1';
     const currentAlpha = Number(alphaInput?.value);
-    const resolvedAlphaPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
-    opacityInput.value = String(resolvedAlphaPct);
+    let resolvedTransparencyPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
+    opacityInput.value = String(resolvedTransparencyPct);
     const opacityValue = doc.createElement('span');
     opacityValue.className = 'workspace-toolbar__input-value';
     opacityValue.textContent = `${opacityInput.value}%`;
     opacityInput.addEventListener('input', () => {
       const pct = Number(opacityInput.value);
-      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 0;
+      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+      const transparency = bounded / 100;
+      const normalized = transparency; // normalized transparency (0..1)
       if(useSeriesScopePoints() && seriesKey){
         applySeriesStylePatchPoints({ alpha: normalized });
       }else{
@@ -1401,7 +1403,7 @@
         }
         applyGlobalSeriesPatchPoints('alpha', normalized);
       }
-      opacityValue.textContent = `${Math.round(normalized * 100)}%`;
+      opacityValue.textContent = `${Math.round(bounded)}%`;
     });
     const opacityWrap = doc.createElement('div');
     opacityWrap.style.display = 'inline-flex';
@@ -1569,21 +1571,23 @@
     });
     wrap.appendChild(makeInput('Thickness', widthInput));
 
-    // Transparency
+    // Transparency: slider indicates transparency (0 = opaque, 100 = fully transparent)
     const opacityInput = doc.createElement('input');
     opacityInput.type = 'range';
     opacityInput.min = '0';
     opacityInput.max = '100';
     opacityInput.step = '1';
     const currentAlpha = Number(alphaInput?.value);
-    const resolvedAlphaPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
-    opacityInput.value = String(resolvedAlphaPct);
+    let resolvedTransparencyPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
+    opacityInput.value = String(resolvedTransparencyPct);
     const opacityValue = doc.createElement('span');
     opacityValue.className = 'workspace-toolbar__input-value';
     opacityValue.textContent = `${opacityInput.value}%`;
     opacityInput.addEventListener('input', () => {
       const pct = Number(opacityInput.value);
-      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 0;
+      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+      const transparency = bounded / 100;
+      const normalized = transparency; // normalized transparency (0..1)
       if(useSeriesScopeStroke() && seriesKey){
         applySeriesStylePatchStroke({ alpha: normalized });
       }else{
@@ -1595,7 +1599,7 @@
         }
         applyGlobalSeriesPatchStroke('alpha', normalized);
       }
-      opacityValue.textContent = `${Math.round(normalized * 100)}%`;
+      opacityValue.textContent = `${Math.round(bounded)}%`;
     });
     const opacityWrap = doc.createElement('div');
     opacityWrap.style.display = 'inline-flex';

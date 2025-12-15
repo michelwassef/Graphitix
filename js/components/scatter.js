@@ -2038,21 +2038,23 @@
     });
     wrap.appendChild(makeInput('Size', sizeInput));
 
-    // Opacity (transparency slider)
+    // Transparency slider: 0 = opaque, 100 = fully transparent
     const opacityInput = doc.createElement('input');
     opacityInput.type = 'range';
     opacityInput.min = '0';
     opacityInput.max = '100';
     opacityInput.step = '1';
     const currentAlpha = Number(scatterAlphaInput?.value);
-    const resolvedAlphaPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
-    opacityInput.value = String(resolvedAlphaPct);
+    const resolvedTransparencyPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
+    opacityInput.value = String(resolvedTransparencyPct);
     const opacityValue = doc.createElement('span');
     opacityValue.className = 'workspace-toolbar__input-value';
     opacityValue.textContent = `${opacityInput.value}%`;
     opacityInput.addEventListener('input', () => {
       const pct = Number(opacityInput.value);
-      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 0;
+      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+      const transparency = bounded / 100;
+      const normalized = transparency; // normalized transparency (0..1)
       if(useLabelScope() && scatterLabelKey){
         applyLabelStylePatch({ alpha: normalized });
       }else{
@@ -2064,7 +2066,7 @@
         }
         applyGlobalStylePatch('alpha', normalized);
       }
-      opacityValue.textContent = `${Math.round(normalized * 100)}%`;
+      opacityValue.textContent = `${Math.round(bounded)}%`;
     });
     const opacityWrap = doc.createElement('div');
     opacityWrap.style.display = 'inline-flex';

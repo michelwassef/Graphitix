@@ -806,25 +806,31 @@
     });
     wrap.appendChild(makeInput('Size', sizeSelect));
 
-    // Opacity slider (compact)
+    // Transparency slider (compact): 0 = opaque, 100 = fully transparent
     const opInput = doc.createElement('input');
     opInput.type = 'range'; opInput.min = '0'; opInput.max = '100';
     const currentOpacity = Number(el.getAttribute('fill-opacity'));
-    opInput.value = Number.isFinite(currentOpacity) ? Math.round(currentOpacity * 100) : 100;
+    const initialTransparency = Number.isFinite(currentOpacity) ? Math.round((1 - currentOpacity) * 100) : 0;
+    opInput.value = String(initialTransparency);
     const opValue = doc.createElement('span');
     opValue.className = 'workspace-toolbar__input-value';
     opValue.textContent = opInput.value + '%';
     opInput.addEventListener('input', ()=>{
-      const v = Number(opInput.value) / 100;
-      resolveTargetPoints().forEach(p => p.setAttribute('fill-opacity', String(v)));
-      opValue.textContent = opInput.value + '%';
+      const pct = Number(opInput.value);
+      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+      const transparency = bounded / 100;
+      const opacity = 1 - transparency;
+      resolveTargetPoints().forEach(p => p.setAttribute('fill-opacity', String(opacity)));
+      opValue.textContent = `${Math.round(bounded)}%`;
     });
     opInput.addEventListener('change', ()=>{
-      const v = Number(opInput.value) / 100;
+      const pct = Number(opInput.value);
+      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+      const opacity = 1 - (bounded / 100);
       if(scopeSelect.value === 'trace'){
-        try{ persistTraceStyle({ opacity: v }); }catch(e){console.warn(e);} 
+        try{ persistTraceStyle({ opacity: opacity }); }catch(e){console.warn(e);} 
       }else{
-        applyPointStyleGlobal({ opacity: v });
+        applyPointStyleGlobal({ opacity: opacity });
       }
     });
     const opWrap = doc.createElement('div');
@@ -832,7 +838,7 @@
     opWrap.style.alignItems = 'center';
     opWrap.appendChild(opInput);
     opWrap.appendChild(opValue);
-    wrap.appendChild(makeInput('Opacity', opWrap));
+    wrap.appendChild(makeInput('Transparency', opWrap));
 
     toolbarHost.appendChild(wrap);
     // show host and mark dock active
@@ -1001,7 +1007,7 @@
     });
     wrap.appendChild(makeInput('Thickness', thicknessInput));
 
-    // Opacity
+    // Transparency: slider indicates transparency (0 = opaque, 100 = fully transparent)
     const opacityInput = doc.createElement('input');
     opacityInput.type = 'range';
     opacityInput.min = '0';
@@ -1011,19 +1017,23 @@
     const derivedOpacity = initialOpacity != null
       ? initialOpacity
       : clampSummaryOpacity(target.getAttribute('stroke-opacity'));
+    const initialTransparency = Number.isFinite(derivedOpacity) ? Math.round((1 - derivedOpacity) * 100) : 0;
     const opacityValue = doc.createElement('span');
     opacityValue.className = 'workspace-toolbar__input-value';
-    opacityInput.value = String(Math.round((derivedOpacity != null ? derivedOpacity : 1) * 100));
+    opacityInput.value = String(initialTransparency);
     opacityValue.textContent = `${opacityInput.value}%`;
     opacityInput.addEventListener('input', () => {
       const pct = Number(opacityInput.value);
-      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
+      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+      const transparency = bounded / 100;
+      const normalized = 1 - transparency;
       resolveTargets().forEach(node => node.setAttribute('stroke-opacity', String(normalized)));
-      opacityValue.textContent = `${Math.round(normalized * 100)}%`;
+      opacityValue.textContent = `${Math.round(bounded)}%`;
     });
     opacityInput.addEventListener('change', () => {
       const pct = Number(opacityInput.value);
-      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
+      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+      const normalized = 1 - (bounded / 100);
       if(scopeSelect.value === 'global'){
         state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, { opacity: normalized });
         if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
@@ -1041,7 +1051,7 @@
     opacityWrap.style.alignItems = 'center';
     opacityWrap.appendChild(opacityInput);
     opacityWrap.appendChild(opacityValue);
-    wrap.appendChild(makeInput('Opacity', opacityWrap));
+    wrap.appendChild(makeInput('Transparency', opacityWrap));
 
     toolbarHost.appendChild(wrap);
     toolbarHost.style.display = 'block';
@@ -1264,7 +1274,7 @@
     });
     wrap.appendChild(makeInput('Thickness', thicknessInput));
 
-    // Opacity
+    // Transparency: slider indicates transparency (0 = opaque, 100 = fully transparent)
     const opacityInput = doc.createElement('input');
     opacityInput.type = 'range';
     opacityInput.min = '0';
@@ -1272,22 +1282,26 @@
     opacityInput.step = '1';
     const currentOpacity = currentStyle?.opacity != null ? currentStyle.opacity : target.getAttribute('fill-opacity');
     const derivedOpacity = Number.isFinite(Number(currentOpacity)) ? Number(currentOpacity) : 1;
-    opacityInput.value = String(Math.round(derivedOpacity * 100));
+    const initialTransparency = Math.round((1 - derivedOpacity) * 100);
+    opacityInput.value = String(initialTransparency);
     const opacityValue = doc.createElement('span');
     opacityValue.className = 'workspace-toolbar__input-value';
     opacityValue.textContent = `${opacityInput.value}%`;
     opacityInput.addEventListener('input', ()=>{
       const pct = Number(opacityInput.value);
-      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
+      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+      const transparency = bounded / 100;
+      const normalized = 1 - transparency;
       resolveTargets().forEach(node => {
         node.setAttribute('fill-opacity', String(normalized));
         node.setAttribute('stroke-opacity', String(normalized));
       });
-      opacityValue.textContent = `${Math.round(normalized * 100)}%`;
+      opacityValue.textContent = `${Math.round(bounded)}%`;
     });
     opacityInput.addEventListener('change', ()=>{
       const pct = Number(opacityInput.value);
-      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
+      const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+      const normalized = 1 - (bounded / 100);
       if(scopeSelect.value === 'global'){
         applyTraceShapeGlobalStyle({ opacity: normalized });
       }else if(traceIndex != null){
@@ -1300,7 +1314,7 @@
     opacityWrap.style.alignItems = 'center';
     opacityWrap.appendChild(opacityInput);
     opacityWrap.appendChild(opacityValue);
-    wrap.appendChild(makeInput('Opacity', opacityWrap));
+    wrap.appendChild(makeInput('Transparency', opacityWrap));
 
     toolbarHost.appendChild(wrap);
     toolbarHost.style.display = 'block';

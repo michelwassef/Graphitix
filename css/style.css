@@ -1810,16 +1810,85 @@ select {
 }
 .workspace-toolbar__input--compact{
     min-width:80px;
+    /* Force compact toolbar inputs (titles + small controls) to center their contents */
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:center !important;
 }
 .workspace-toolbar__input--color{
-    align-items:center;
+    /* Ensure strict centering for color inputs across all toolbars */
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:center !important;
+    justify-content:center !important;
     min-width:56px;
 }
+.workspace-toolbar__input--color .workspace-toolbar__input-label{
+    text-align:center;
+    width:100%;
+    display:block;
+    box-sizing:border-box;
+    margin:0 0 6px 0;
+}
+/* Make numeric size controls narrower (reduce perceived width) */
+.workspace-toolbar__input input[type="number"]{
+    width:48px;
+}
+
+/* Center size/number boxes and select controls under their labels in compact inputs */
+.workspace-toolbar__input--compact input[type="number"],
+.workspace-toolbar__input--compact input[type="range"],
+.workspace-toolbar__input--compact select,
+.workspace-toolbar__input--compact .workspace-toolbar__input-value{
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: block !important;
+}
+
+/* Ensure numeric boxes have consistent box-sizing and centered text */
+.workspace-toolbar__input--compact input[type="number"]{
+    box-sizing: border-box !important;
+    text-align: center !important;
+}
+/* Ensure range/opacity sliders have a sensible minimum visual width */
+.workspace-toolbar__input--range{
+    min-width:120px;
+}
 .workspace-toolbar__input--color input[type="color"]{
-    padding:2px;
-    width:28px;
-    height:22px;
-    border-radius:3px;
+    /* make color control a fixed swatch and center it rigidly */
+    -webkit-appearance:none;
+    appearance:none;
+    padding:0 !important;
+    margin:0 !important;
+    width: var(--color-swatch-size) !important;
+    height: var(--color-swatch-size) !important;
+    border-radius:3px !important;
+    border:1px solid rgba(15,23,42,0.12) !important;
+    display:block !important;
+    box-sizing:border-box !important;
+}
+
+/* Histogram distribution swatches and other standalone swatches */
+.hist-dist-option{
+    display:flex;
+    align-items:center;
+    gap:8px;
+}
+.hist-dist-swatch{
+    width: var(--color-swatch-size);
+    height: var(--color-swatch-size);
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border:1px solid rgba(15,23,42,0.12);
+    box-sizing:border-box;
+}
+
+/* Defensive: center any label-wrapped color inputs used elsewhere */
+.workspace-toolbar__input--color > input[type="color"],
+.workspace-toolbar__input--color > .hist-dist-swatch{
+    margin-left: auto !important;
+    margin-right: auto !important;
 }
 .workspace-toolbar__input--range{
     min-width:200px;
@@ -2457,6 +2526,26 @@ text[baseline-shift="sub"]:not([font-size]):not([style*="font-size" i]),text[bas
 .font-controls-panel__input--number::-webkit-outer-spin-button,.font-controls-panel__input--number::-webkit-inner-spin-button{appearance:none;margin:0}
 .font-controls-panel__color-input{height:34px;width:100%;padding:0;border-radius:10px;border:1px solid rgba(148,163,184,0.6);background:#ffffff;cursor:pointer;transition:border-color .2s ease,box-shadow .2s ease;max-width:120px}
 .font-controls-panel__color-input:focus{outline:none;border-color:rgba(59,130,246,0.8);box-shadow:0 0 0 2px rgba(147,197,253,0.45)}
+
+/* Ensure any color input or swatch inside font-toolbar / font-controls / workspace toolbar is centered */
+.font-toolbar-host input[type="color"],
+.font-controls-panel input[type="color"],
+.workspace-toolbar__form input[type="color"],
+.workspace-toolbar__input--color input[type="color"],
+.axis-controls-panel__color-input,
+.font-controls-panel__color-input {
+    display: block !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    box-sizing: border-box !important;
+}
+
+/* Defensive: ensure label/title above swatch is centered when using field layouts */
+.workspace-toolbar__input--color .workspace-toolbar__input-label,
+.font-controls-panel__field-label,
+.axis-controls-panel__field-label {
+    text-align: center !important;
+}
 .font-controls-panel__field--format{min-width:0;width:100%;margin-top:0}
 .font-controls-panel__format-buttons{display:flex;align-items:center;gap:2px;justify-content:flex-start}
 .font-controls-panel__format-button{width:25px;height:25px;border-radius:4px;border:none;background:transparent;color:#1e293b;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .2s ease,background .2s ease;margin:0;padding:0}

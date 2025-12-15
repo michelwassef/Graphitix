@@ -47,18 +47,27 @@
     }
     wrap.appendChild(makeInput('Line', colorInput));
 
-    // Transparency (alpha)
+    // Transparency (alpha): slider indicates transparency (0 = opaque, 100 = fully transparent)
     const alphaInput = doc.createElement('input'); alphaInput.type='range'; alphaInput.min='0'; alphaInput.max='100'; alphaInput.step='1';
-    const existingAlpha = Number(target.getAttribute('stroke-opacity'));
-    const resolvedAlphaPct = Number.isFinite(existingAlpha) ? Math.round(existingAlpha * 100) : 100;
-    alphaInput.value = String(resolvedAlphaPct);
+    // initialize from per-series state if present, otherwise read existing element attribute
+    const existingOpacityFromState = seriesKey ? state.labelOpacity[seriesKey] : undefined;
+    const existingAlphaAttr = Number(target.getAttribute('stroke-opacity'));
+    const existingOpacity = (typeof existingOpacityFromState !== 'undefined') ? Number(existingOpacityFromState) : (Number.isFinite(existingAlphaAttr) ? existingAlphaAttr : 1);
+    const resolvedTransparencyPct = Number.isFinite(existingOpacity) ? Math.round((1 - existingOpacity) * 100) : 0;
+    alphaInput.value = String(resolvedTransparencyPct);
     const alphaValue = doc.createElement('span'); alphaValue.className = 'workspace-toolbar__input-value'; alphaValue.textContent = `${alphaInput.value}%`;
-    alphaInput.addEventListener('input', ()=>{ const pct = Number(alphaInput.value); const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1; alphaValue.textContent = `${Math.round(normalized * 100)}%`; try{ target.setAttribute('stroke-opacity', String(normalized)); }catch(e){} state.scheduleDraw?.(); });
+    alphaInput.addEventListener('input', ()=>{ const pct = Number(alphaInput.value); const bounded = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0; const transparency = bounded / 100; const opacity = 1 - transparency; alphaValue.textContent = `${Math.round(bounded)}%`; try{ target.setAttribute('stroke-opacity', String(opacity)); }catch(e){} // persist per-series or apply globally
+      if(scopeSelect.value==='series' && seriesKey){ state.labelOpacity[seriesKey] = opacity; } else { Object.keys(state.labelColors).forEach(k=>state.labelOpacity[k]=opacity); }
+      state.scheduleDraw?.(); });
     const alphaWrap = doc.createElement('div'); alphaWrap.style.display='inline-flex'; alphaWrap.style.alignItems='center'; alphaWrap.appendChild(alphaInput); alphaWrap.appendChild(alphaValue);
     wrap.appendChild(makeInput('Transparency', alphaWrap));
 
-    const widthInput = doc.createElement('input'); widthInput.type='number'; widthInput.min='0'; widthInput.step='0.5'; try{ widthInput.value = String(target.getAttribute('stroke-width') || refs.borderWidth?.value || 1); }catch(e){}
-    widthInput.addEventListener('input', ()=>{ const next=Number(widthInput.value); if(!Number.isFinite(next)) return; try{ target.setAttribute('stroke-width', String(next)); }catch(e){} state.scheduleDraw?.(); });
+    const widthInput = doc.createElement('input'); widthInput.type='number'; widthInput.min='0'; widthInput.step='0.5';
+    // initialize from state if present
+    try{ const existingWidthFromState = seriesKey ? state.labelStrokeWidth[seriesKey] : undefined; const existingWidthAttr = Number(target.getAttribute('stroke-width')); const initialWidth = (typeof existingWidthFromState !== 'undefined') ? existingWidthFromState : (Number.isFinite(existingWidthAttr) ? existingWidthAttr : (refs.borderWidth?.value || 1)); widthInput.value = String(initialWidth); }catch(e){}
+    widthInput.addEventListener('input', ()=>{ const next=Number(widthInput.value); if(!Number.isFinite(next)) return; try{ target.setAttribute('stroke-width', String(next)); }catch(e){} // persist per-series or apply globally
+      if(scopeSelect.value==='series' && seriesKey){ state.labelStrokeWidth[seriesKey] = next; } else { Object.keys(state.labelColors).forEach(k=>state.labelStrokeWidth[k]=next); }
+      state.scheduleDraw?.(); });
     wrap.appendChild(makeInput('Thickness', widthInput));
 
     toolbarHost.appendChild(wrap); toolbarHost.style.display='block'; toolbarHost.classList.add('font-toolbar-host--visible'); const dock = toolbarHost.closest('.workspace-toolbar__dock'); if(dock) dock.classList.add('workspace-toolbar__dock--active');
@@ -156,6 +165,8 @@
     hot: null,
     scheduleDraw: null,
     labelColors: {},
+    labelStrokeWidth: {},
+    labelOpacity: {},
     diffMethod: 'delong',
     compareSel: null,
     compareLabel: null,
@@ -1965,13 +1976,16 @@
       });
 
       const color = state.labelColors[serie.name] || DEFAULT_SCATTER_COLORS[seriesIndex % DEFAULT_SCATTER_COLORS.length];
+      // per-series stroke width and opacity (fall back to global borderWidthPx / full opacity)
+      const seriesStrokeWidth = Number.isFinite(Number(state.labelStrokeWidth[serie.name])) ? Number(state.labelStrokeWidth[serie.name]) : borderWidthPx;
+      const seriesOpacity = (state.labelOpacity && typeof state.labelOpacity[serie.name] !== 'undefined') ? Number(state.labelOpacity[serie.name]) : 1;
       let path = '';
       points.forEach((point, idx) => {
         const x = xToPx(point.x);
         const y = yToPx(point.y);
         path += `${idx ? 'L' : 'M'}${x} ${y}`;
       });
-      const curveEl = add('path', {d: path, fill: 'none', stroke: color, 'stroke-width': borderWidthPx, 'data-series': serie.name});
+      const curveEl = add('path', {d: path, fill: 'none', stroke: color, 'stroke-width': seriesStrokeWidth, 'stroke-opacity': seriesOpacity, 'data-series': serie.name});
       try{ curveEl.style.cursor='pointer'; curveEl.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showRocStrokeFormatControls(evt.currentTarget); }); }catch(e){}
     });
 
