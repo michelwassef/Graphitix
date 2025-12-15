@@ -16,6 +16,54 @@
       fontControls.importScopeStyles(scopeId, styles, { prune: true });
     }
   };
+
+  function showRocStrokeFormatControls(target){
+    const doc = global.document;
+    if(!doc) return;
+    const anchor = doc.getElementById('rocFontHost');
+    if(!anchor) return;
+    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
+      ? anchor.nextElementSibling
+      : null;
+    if(!toolbarHost){ toolbarHost = doc.createElement('div'); toolbarHost.className='font-toolbar-host'; toolbarHost.dataset.fontToolbarScope='roc'; toolbarHost.style.display='none'; anchor.insertAdjacentElement('afterend', toolbarHost); }
+    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h=>{ if(h!==toolbarHost){ h.classList.remove('font-toolbar-host--visible'); h.style.display='none'; } });
+    toolbarHost.innerHTML='';
+    const wrap = doc.createElement('div'); wrap.className='workspace-toolbar__form workspace-toolbar__form--single roc-stroke-controls';
+    const makeInput=(labelText,inputEl)=>{ const lbl=doc.createElement('label'); lbl.className='workspace-toolbar__input workspace-toolbar__input--compact'; const span=doc.createElement('span'); span.className='workspace-toolbar__input-label'; span.textContent=labelText; lbl.appendChild(span); lbl.appendChild(inputEl); return lbl; };
+
+    const seriesKey = target.getAttribute('data-series') || null;
+    const scopeField = doc.createElement('label'); scopeField.className='workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
+    const scopeLabel = doc.createElement('span'); scopeLabel.className='workspace-toolbar__input-label'; scopeLabel.textContent='Scope';
+    const scopeSelect = doc.createElement('select'); scopeSelect.className='workspace-toolbar__select'; scopeSelect.style.minWidth='120px';
+    const optSeries = doc.createElement('option'); optSeries.value='series'; optSeries.textContent='Series'; optSeries.disabled = !seriesKey;
+    const optGlobal = doc.createElement('option'); optGlobal.value='global'; optGlobal.textContent='Global';
+    scopeSelect.appendChild(optSeries); scopeSelect.appendChild(optGlobal); scopeSelect.value = seriesKey ? 'series' : 'global';
+    scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSelect); wrap.appendChild(scopeField);
+
+    const colorInput = doc.createElement('input'); colorInput.type='color'; try{ colorInput.value = target.getAttribute('stroke') || state.labelColors[seriesKey] || '#377eb8'; }catch(e){}
+    colorInput.addEventListener('input', ()=>{ const v=colorInput.value; if(scopeSelect.value==='series'&&seriesKey){ state.labelColors[seriesKey]=v; } else { Object.keys(state.labelColors).forEach(k=>state.labelColors[k]=v); } try{ target.setAttribute('stroke', v); }catch(e){} state.scheduleDraw?.(); });
+    if(typeof Shared.attachColorPickerNear === 'function'){
+      try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
+    }
+    wrap.appendChild(makeInput('Line', colorInput));
+
+    // Transparency (alpha)
+    const alphaInput = doc.createElement('input'); alphaInput.type='range'; alphaInput.min='0'; alphaInput.max='100'; alphaInput.step='1';
+    const existingAlpha = Number(target.getAttribute('stroke-opacity'));
+    const resolvedAlphaPct = Number.isFinite(existingAlpha) ? Math.round(existingAlpha * 100) : 100;
+    alphaInput.value = String(resolvedAlphaPct);
+    const alphaValue = doc.createElement('span'); alphaValue.className = 'workspace-toolbar__input-value'; alphaValue.textContent = `${alphaInput.value}%`;
+    alphaInput.addEventListener('input', ()=>{ const pct = Number(alphaInput.value); const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1; alphaValue.textContent = `${Math.round(normalized * 100)}%`; try{ target.setAttribute('stroke-opacity', String(normalized)); }catch(e){} state.scheduleDraw?.(); });
+    const alphaWrap = doc.createElement('div'); alphaWrap.style.display='inline-flex'; alphaWrap.style.alignItems='center'; alphaWrap.appendChild(alphaInput); alphaWrap.appendChild(alphaValue);
+    wrap.appendChild(makeInput('Transparency', alphaWrap));
+
+    const widthInput = doc.createElement('input'); widthInput.type='number'; widthInput.min='0'; widthInput.step='0.5'; try{ widthInput.value = String(target.getAttribute('stroke-width') || refs.borderWidth?.value || 1); }catch(e){}
+    widthInput.addEventListener('input', ()=>{ const next=Number(widthInput.value); if(!Number.isFinite(next)) return; try{ target.setAttribute('stroke-width', String(next)); }catch(e){} state.scheduleDraw?.(); });
+    wrap.appendChild(makeInput('Thickness', widthInput));
+
+    toolbarHost.appendChild(wrap); toolbarHost.style.display='block'; toolbarHost.classList.add('font-toolbar-host--visible'); const dock = toolbarHost.closest('.workspace-toolbar__dock'); if(dock) dock.classList.add('workspace-toolbar__dock--active');
+    try{ if(toolbarHost.__rocDocClickHandler){ document.removeEventListener('click', toolbarHost.__rocDocClickHandler); toolbarHost.__rocDocClickHandler=null; } const onDocClick = function(evt){ try{ const tgt=evt && evt.target?evt.target:null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__rocDocClickHandler=null; }catch(err){ console.warn('roc.stroke format docClick error', err); } }; document.addEventListener('click', onDocClick); toolbarHost.__rocDocClickHandler = onDocClick; }catch(err){ console.warn('attach doc click for roc stroke controls failed', err); }
+  }
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   roc.__installed = true;
@@ -1923,7 +1971,8 @@
         const y = yToPx(point.y);
         path += `${idx ? 'L' : 'M'}${x} ${y}`;
       });
-      add('path', {d: path, fill: 'none', stroke: color, 'stroke-width': borderWidthPx});
+      const curveEl = add('path', {d: path, fill: 'none', stroke: color, 'stroke-width': borderWidthPx, 'data-series': serie.name});
+      try{ curveEl.style.cursor='pointer'; curveEl.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showRocStrokeFormatControls(evt.currentTarget); }); }catch(e){}
     });
 
     if(legendVisible){

@@ -413,6 +413,195 @@
     }
   };
 
+  // Format toolbar for histogram bars
+  function showHistBarFormatControls(target){
+    const doc = global.document;
+    if(!doc) return;
+    const anchor = doc.getElementById('histFontHost');
+    if(!anchor) return;
+    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
+      ? anchor.nextElementSibling
+      : null;
+    if(!toolbarHost){
+      toolbarHost = doc.createElement('div');
+      toolbarHost.className = 'font-toolbar-host';
+      toolbarHost.dataset.fontToolbarScope = 'hist';
+      toolbarHost.style.display = 'none';
+      anchor.insertAdjacentElement('afterend', toolbarHost);
+    }
+    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h => { if(h !== toolbarHost){ h.classList.remove('font-toolbar-host--visible'); h.style.display = 'none'; } });
+    toolbarHost.innerHTML = '';
+    const wrap = doc.createElement('div');
+    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single hist-bar-controls';
+
+    const makeInput = (labelText, inputEl) => {
+      const lbl = doc.createElement('label');
+      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
+      const span = doc.createElement('span');
+      span.className = 'workspace-toolbar__input-label';
+      span.textContent = labelText;
+      lbl.appendChild(span);
+      lbl.appendChild(inputEl);
+      return lbl;
+    };
+
+    const histFillInput = doc.getElementById('histFill');
+    const histBorderInput = doc.getElementById('histBorder');
+    const histBorderWidthInput = doc.getElementById('histBorderWidth');
+
+    // Fill color
+    const fillColor = doc.createElement('input'); fillColor.type='color';
+    try{ fillColor.value = histFillInput?.value || '#d95f02'; }catch(e){}
+    fillColor.addEventListener('input', ()=>{ const v = fillColor.value; if(histFillInput){ histFillInput.value = v; histFillInput.dispatchEvent(new Event('input',{bubbles:true})); } });
+    fillColor.className = 'hist-fill-color';
+    if(typeof Shared.attachColorPickerNear === 'function'){
+      try{ Shared.attachColorPickerNear(fillColor); }catch(e){}
+    }
+    wrap.appendChild(makeInput('Fill', fillColor));
+
+    // Border color
+    const borderColor = doc.createElement('input'); borderColor.type='color';
+    try{ borderColor.value = histBorderInput?.value || '#000000'; }catch(e){}
+    borderColor.addEventListener('input', ()=>{ const v = borderColor.value; if(histBorderInput){ histBorderInput.value = v; histBorderInput.dispatchEvent(new Event('input',{bubbles:true})); } });
+    if(typeof Shared.attachColorPickerNear === 'function'){
+      try{ Shared.attachColorPickerNear(borderColor); }catch(e){}
+    }
+    wrap.appendChild(makeInput('Border', borderColor));
+
+    // Border width
+    const widthInput = doc.createElement('input'); widthInput.type='number'; widthInput.min='0'; widthInput.step='0.5';
+    try{ if(histBorderWidthInput && Number.isFinite(Number(histBorderWidthInput.value))){ widthInput.value = String(histBorderWidthInput.value); } }catch(e){}
+    widthInput.addEventListener('input', ()=>{ const v = widthInput.value; if(histBorderWidthInput){ histBorderWidthInput.value = v; histBorderWidthInput.dispatchEvent(new Event('input',{bubbles:true})); } });
+    wrap.appendChild(makeInput('Thickness', widthInput));
+
+    toolbarHost.appendChild(wrap);
+    toolbarHost.style.display = 'block';
+    toolbarHost.classList.add('font-toolbar-host--visible');
+    const dock = toolbarHost.closest('.workspace-toolbar__dock'); if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
+
+    try{
+      if(toolbarHost.__histDocClickHandler){ document.removeEventListener('click', toolbarHost.__histDocClickHandler); toolbarHost.__histDocClickHandler=null; }
+      const onDocClick = function(evt){ try{ const tgt = evt && evt.target ? evt.target : null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__histDocClickHandler=null; }catch(err){ console.warn('hist.bar format docClick error', err); } };
+      document.addEventListener('click', onDocClick);
+      toolbarHost.__histDocClickHandler = onDocClick;
+    }catch(err){ console.warn('hist attach doc click failed', err); }
+  }
+
+  // Format toolbar for overlay (pdf/cdf) paths
+  function showHistOverlayFormatControls(target){
+    const doc = global.document;
+    if(!doc) return;
+    const anchor = doc.getElementById('histFontHost');
+    if(!anchor) return;
+    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
+      ? anchor.nextElementSibling
+      : null;
+    if(!toolbarHost){
+      toolbarHost = doc.createElement('div');
+      toolbarHost.className = 'font-toolbar-host';
+      toolbarHost.dataset.fontToolbarScope = 'hist';
+      toolbarHost.style.display = 'none';
+      anchor.insertAdjacentElement('afterend', toolbarHost);
+    }
+    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h => { if(h !== toolbarHost){ h.classList.remove('font-toolbar-host--visible'); h.style.display = 'none'; } });
+    toolbarHost.innerHTML = '';
+    const wrap = doc.createElement('div');
+    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single hist-overlay-controls';
+
+    const makeInput = (labelText, inputEl) => {
+      const lbl = doc.createElement('label');
+      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
+      const span = doc.createElement('span');
+      span.className = 'workspace-toolbar__input-label';
+      span.textContent = labelText;
+      lbl.appendChild(span);
+      lbl.appendChild(inputEl);
+      return lbl;
+    };
+
+    const distKey = target.getAttribute('data-dist') || null;
+    const scopeField = doc.createElement('div'); scopeField.className='workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
+    const scopeLabel = doc.createElement('span'); scopeLabel.className='workspace-toolbar__input-label'; scopeLabel.textContent='Scope';
+    const scopeSeries = doc.createElement('label'); scopeSeries.style.display = 'inline-flex'; scopeSeries.style.alignItems = 'center'; scopeSeries.style.gap = '4px';
+    const radioSeries = doc.createElement('input'); radioSeries.type = 'radio'; radioSeries.name = `histOverlayScope_${Date.now()}`; radioSeries.value = 'series'; radioSeries.checked = !!distKey; radioSeries.disabled = !distKey;
+    scopeSeries.appendChild(radioSeries); scopeSeries.appendChild(doc.createTextNode('Series'));
+    const scopeGlobal = doc.createElement('label'); scopeGlobal.style.display = 'inline-flex'; scopeGlobal.style.alignItems = 'center'; scopeGlobal.style.gap = '4px';
+    const radioGlobal = doc.createElement('input'); radioGlobal.type = 'radio'; radioGlobal.name = radioSeries.name; radioGlobal.value = 'global'; radioGlobal.checked = !distKey;
+    scopeGlobal.appendChild(radioGlobal); scopeGlobal.appendChild(doc.createTextNode('Global'));
+    scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSeries); scopeField.appendChild(scopeGlobal);
+    wrap.appendChild(scopeField);
+
+    const colorInput = doc.createElement('input'); colorInput.type='color';
+    try{ colorInput.value = target.getAttribute('stroke') || state.distributionOptions?.find(o=>o.key===distKey)?.color || '#d95f02'; }catch(e){}
+    colorInput.addEventListener('input', ()=>{
+      const v = colorInput.value;
+      if(scopeSelect.value === 'series' && distKey){
+        const opt = state.distributionOptions.find(o=>o.key===distKey);
+        if(opt){ opt.color = v; }
+        // immediate reflect on target
+        target.setAttribute('stroke', v);
+        state.scheduleDraw();
+      }else{
+        // apply globally
+        state.distributionOptions.forEach(o=>{ o.color = v; });
+        state.scheduleDraw();
+      }
+    });
+    if(typeof Shared.attachColorPickerNear === 'function'){
+      try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
+    }
+    wrap.appendChild(makeInput('Color', colorInput));
+
+    const widthInput = doc.createElement('input'); widthInput.type='number'; widthInput.min='0'; widthInput.step='0.5';
+    try{ const cur = Number(target.getAttribute('stroke-width')) || state.distributionOptions?.find(o=>o.key===distKey)?.strokeWidth; if(Number.isFinite(cur)) widthInput.value=String(cur); }catch(e){}
+    widthInput.addEventListener('input', ()=>{
+      const next = Number(widthInput.value);
+      if(!Number.isFinite(next)) return;
+      if(scopeSelect.value==='series' && distKey){
+        const opt = state.distributionOptions.find(o=>o.key===distKey);
+        if(opt){ opt.strokeWidth = next; }
+        target.setAttribute('stroke-width', String(next));
+        state.scheduleDraw();
+      }else{
+        state.distributionOptions.forEach(o=>{ o.strokeWidth = next; });
+        // update existing overlay elements immediately
+        Array.from((state.svgBox || document).querySelectorAll('.hist-overlay')).forEach(el=>el.setAttribute('stroke-width', String(next)));
+        state.scheduleDraw();
+      }
+    });
+    wrap.appendChild(makeInput('Thickness', widthInput));
+
+    // Transparency (alpha)
+    const alphaInput = doc.createElement('input'); alphaInput.type='range'; alphaInput.min='0'; alphaInput.max='100'; alphaInput.step='1';
+    const existingAlpha = Number(target.getAttribute('stroke-opacity'));
+    const resolvedAlphaPct = Number.isFinite(existingAlpha) ? Math.round(existingAlpha * 100) : 100;
+    alphaInput.value = String(resolvedAlphaPct);
+    const alphaValue = doc.createElement('span'); alphaValue.className = 'workspace-toolbar__input-value'; alphaValue.textContent = `${alphaInput.value}%`;
+    alphaInput.addEventListener('input', ()=>{
+      const pct = Number(alphaInput.value);
+      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
+      alphaValue.textContent = `${Math.round(normalized * 100)}%`;
+      if(radioSeries.checked && distKey){
+        const opt = state.distributionOptions.find(o=>o.key===distKey);
+        if(opt) opt.alpha = normalized;
+        target.setAttribute('stroke-opacity', String(normalized));
+        state.scheduleDraw();
+      }else{
+        state.distributionOptions.forEach(o=>{ o.alpha = normalized; });
+        Array.from((state.svgBox || document).querySelectorAll('.hist-overlay')).forEach(el=>el.setAttribute('stroke-opacity', String(normalized)));
+        state.scheduleDraw();
+      }
+    });
+    const alphaWrap = doc.createElement('div'); alphaWrap.style.display='inline-flex'; alphaWrap.style.alignItems='center'; alphaWrap.appendChild(alphaInput); alphaWrap.appendChild(alphaValue);
+    wrap.appendChild(makeInput('Transparency', alphaWrap));
+
+    toolbarHost.appendChild(wrap);
+    toolbarHost.style.display = 'block'; toolbarHost.classList.add('font-toolbar-host--visible');
+    const dock = toolbarHost.closest('.workspace-toolbar__dock'); if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
+
+    try{ if(toolbarHost.__histDocClickHandler){ document.removeEventListener('click', toolbarHost.__histDocClickHandler); toolbarHost.__histDocClickHandler=null; } const onDocClick = function(evt){ try{ const tgt = evt && evt.target ? evt.target : null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__histDocClickHandler=null; }catch(err){ console.warn('hist.overlay format docClick error', err); } }; document.addEventListener('click', onDocClick); toolbarHost.__histDocClickHandler = onDocClick; }catch(err){ console.warn('attach doc click for hist overlay controls failed', err); }
+  }
+
   function clampUnit(value){
     if(!Number.isFinite(value)) return 0;
     if(value < 0) return 0;
@@ -451,6 +640,10 @@
       const colorIndex = index % DEFAULT_DISTRIBUTION_COLORS.length;
       fitResult.color = fitResult.color || option?.color || DEFAULT_DISTRIBUTION_COLORS[colorIndex];
       fitResult.valid = fitResult.valid !== false && fitResult.params !== undefined ? true : fitResult.valid;
+      // carry optional strokeWidth from configured distribution options
+      if(option && Number.isFinite(Number(option.strokeWidth))){
+        fitResult.strokeWidth = Number(option.strokeWidth);
+      }
       results.push(fitResult);
       if(debugEnabled){
         console.debug('Debug: hist distribution fit',{ key: fitResult.key, valid: fitResult.valid !== false, message: fitResult.message || null });
@@ -1403,7 +1596,7 @@
     console.debug('Debug: hist ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
     const edges=Array.from({length:bins+1},(_,i)=>xScale.min+i*binWidth);
     const fill=histFill.value; const borderColor=histBorder.value;
-    counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill}); if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);} });
+    counts.forEach((c,i)=>{ const xStart=x2px(edges[i]); const xEnd=x2px(edges[i+1]); const barW=Math.max(0,xEnd-xStart); const val=logY?Math.log10(Math.max(c,yMin)):c; const y=y2px(val); const h=margin.top+plotH-y; const rect=add('rect',{x:xStart,y,width:barW,height:h,fill:fill}); if(borderWidthPx>0){rect.setAttribute('stroke',borderColor); rect.setAttribute('stroke-width',borderWidthPx);} try{ rect.style.cursor='pointer'; rect.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistBarFormatControls(evt.currentTarget); }); }catch(e){} });
     if(distributionFits.length && (includePdf || includeCdf)){
       const overlayGroup = add('g',{ 'class':'hist-overlay-group' });
       const sampleCount = values.length;
@@ -1421,7 +1614,7 @@
       distributionFits.forEach((fit,index)=>{
         if(!fit || fit.valid === false){ return; }
         const strokeColor = fit.color || DEFAULT_DISTRIBUTION_COLORS[index % DEFAULT_DISTRIBUTION_COLORS.length];
-        const strokeWidth = Math.max(axisStrokeWidth * 0.9, axisStrokeWidth / 2, 1);
+        const strokeWidth = Number.isFinite(Number(fit.strokeWidth)) ? Number(fit.strokeWidth) : Math.max(axisStrokeWidth * 0.9, axisStrokeWidth / 2, 1);
         if(includePdf && typeof fit.pdf === 'function' && effectiveBinWidth > 0){
           const parts=[];
           for(let step=0;step<sampleSteps;step++){
@@ -1434,17 +1627,18 @@
             parts.push(`${step===0?'M':'L'} ${x2px(x)} ${y2px(yDomain)}`);
           }
           if(parts.length>1){
-            add('path',{
+            const p = add('path',{
               d:parts.join(' '),
               fill:'none',
               stroke:strokeColor,
               'stroke-width':strokeWidth,
+              'stroke-opacity': Number.isFinite(Number(fit.alpha)) ? fit.alpha : 1,
               'stroke-linejoin':'round',
               'stroke-linecap':'round',
-              'pointer-events':'none',
               'data-dist':fit.key || fit.label,
               'class':'hist-overlay hist-overlay--pdf'
             });
+            try{ p.style.cursor='pointer'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }catch(e){}
           }
         }
         if(includeCdf && typeof fit.cdf === 'function'){
@@ -1458,18 +1652,19 @@
             parts.push(`${step===0?'M':'L'} ${x2px(x)} ${y2px(yDomain)}`);
           }
           if(parts.length>1){
-            add('path',{
+            const p = add('path',{
               d:parts.join(' '),
               fill:'none',
               stroke:strokeColor,
               'stroke-width':strokeWidth,
+              'stroke-opacity': Number.isFinite(Number(fit.alpha)) ? fit.alpha : 1,
               'stroke-dasharray':'6 3',
               'stroke-linejoin':'round',
               'stroke-linecap':'round',
-              'pointer-events':'none',
               'data-dist':fit.key || fit.label,
               'class':'hist-overlay hist-overlay--cdf'
             });
+            try{ p.style.cursor='pointer'; p.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showHistOverlayFormatControls(evt.currentTarget); }); }catch(e){}
           }
         }
       });

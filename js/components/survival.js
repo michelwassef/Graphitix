@@ -15,6 +15,80 @@
       fontControls.importScopeStyles(scopeId, styles, { prune: true });
     }
   };
+
+  function showSurvivalStrokeFormatControls(target){
+    const doc = global.document;
+    if(!doc) return;
+    const anchor = doc.getElementById('survivalFontHost');
+    if(!anchor) return;
+    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
+      ? anchor.nextElementSibling
+      : null;
+    if(!toolbarHost){
+      toolbarHost = doc.createElement('div');
+      toolbarHost.className = 'font-toolbar-host';
+      toolbarHost.dataset.fontToolbarScope = 'survival';
+      toolbarHost.style.display = 'none';
+      anchor.insertAdjacentElement('afterend', toolbarHost);
+    }
+    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h => { if(h !== toolbarHost){ h.classList.remove('font-toolbar-host--visible'); h.style.display = 'none'; } });
+    toolbarHost.innerHTML = '';
+    const wrap = doc.createElement('div'); wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single survival-stroke-controls';
+    const makeInput = (labelText, inputEl) => { const lbl = doc.createElement('label'); lbl.className='workspace-toolbar__input workspace-toolbar__input--compact'; const span = doc.createElement('span'); span.className='workspace-toolbar__input-label'; span.textContent = labelText; lbl.appendChild(span); lbl.appendChild(inputEl); return lbl; };
+
+    const seriesKey = target.getAttribute('data-group') || null;
+    const scopeField = doc.createElement('label'); scopeField.className='workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
+    const scopeLabel = doc.createElement('span'); scopeLabel.className='workspace-toolbar__input-label'; scopeLabel.textContent='Scope';
+    const scopeSelect = doc.createElement('select'); scopeSelect.className='workspace-toolbar__select'; scopeSelect.style.minWidth='120px';
+    const optSeries = doc.createElement('option'); optSeries.value='series'; optSeries.textContent='Series'; optSeries.disabled = !seriesKey;
+    const optGlobal = doc.createElement('option'); optGlobal.value='global'; optGlobal.textContent='Global';
+    scopeSelect.appendChild(optSeries); scopeSelect.appendChild(optGlobal); scopeSelect.value = seriesKey ? 'series' : 'global';
+    scopeField.appendChild(scopeLabel); scopeField.appendChild(scopeSelect); wrap.appendChild(scopeField);
+
+    const colorInput = doc.createElement('input'); colorInput.type='color'; try{ colorInput.value = target.getAttribute('stroke') || '#377eb8'; }catch(e){}
+    colorInput.addEventListener('input', ()=>{
+      const v = colorInput.value;
+      if(scopeSelect.value==='series' && seriesKey){ state.labelColors[seriesKey] = v; }
+      else { Object.keys(state.labelColors).forEach(k=>{ state.labelColors[k]=v; }); }
+      // immediate reflect
+      try{ target.setAttribute('stroke', v); }catch(e){}
+      state.scheduleDraw?.();
+    });
+    if(typeof Shared.attachColorPickerNear === 'function'){
+      try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
+    }
+    wrap.appendChild(makeInput('Line', colorInput));
+
+    // Transparency (alpha)
+    const alphaInput = doc.createElement('input'); alphaInput.type='range'; alphaInput.min='0'; alphaInput.max='100'; alphaInput.step='1';
+    const existingAlpha = Number(target.getAttribute('stroke-opacity'));
+    const resolvedAlphaPct = Number.isFinite(existingAlpha) ? Math.round(existingAlpha * 100) : 100;
+    alphaInput.value = String(resolvedAlphaPct);
+    const alphaValue = doc.createElement('span'); alphaValue.className = 'workspace-toolbar__input-value'; alphaValue.textContent = `${alphaInput.value}%`;
+    alphaInput.addEventListener('input', ()=>{
+      const pct = Number(alphaInput.value);
+      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
+      alphaValue.textContent = `${Math.round(normalized * 100)}%`;
+      try{ target.setAttribute('stroke-opacity', String(normalized)); }catch(e){}
+      state.scheduleDraw?.();
+    });
+    const alphaWrap = doc.createElement('div'); alphaWrap.style.display='inline-flex'; alphaWrap.style.alignItems='center'; alphaWrap.appendChild(alphaInput); alphaWrap.appendChild(alphaValue);
+    wrap.appendChild(makeInput('Transparency', alphaWrap));
+
+    const widthInput = doc.createElement('input'); widthInput.type='number'; widthInput.min='0'; widthInput.step='0.5'; try{ widthInput.value = String(target.getAttribute('stroke-width') || 2); }catch(e){}
+    widthInput.addEventListener('input', ()=>{
+      const next = Number(widthInput.value);
+      if(!Number.isFinite(next)) return;
+      // update immediate element
+      try{ target.setAttribute('stroke-width', String(next)); }catch(e){}
+      state.scheduleDraw?.();
+    });
+    wrap.appendChild(makeInput('Thickness', widthInput));
+
+    toolbarHost.appendChild(wrap); toolbarHost.style.display='block'; toolbarHost.classList.add('font-toolbar-host--visible');
+    const dock = toolbarHost.closest('.workspace-toolbar__dock'); if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
+    try{ if(toolbarHost.__survivalDocClickHandler){ document.removeEventListener('click', toolbarHost.__survivalDocClickHandler); toolbarHost.__survivalDocClickHandler=null; } const onDocClick = function(evt){ try{ const tgt=evt && evt.target?evt.target:null; if(!tgt) return; if(toolbarHost.contains(tgt)) return; if(tgt.closest && tgt.closest('.shared-color-picker')) return; toolbarHost.classList.remove('font-toolbar-host--visible'); toolbarHost.style.display='none'; const d = toolbarHost.closest('.workspace-toolbar__dock'); if(d) d.classList.remove('workspace-toolbar__dock--active'); document.removeEventListener('click', onDocClick); toolbarHost.__survivalDocClickHandler=null; }catch(err){ console.warn('survival.stroke format docClick error', err); } }; document.addEventListener('click', onDocClick); toolbarHost.__survivalDocClickHandler = onDocClick; }catch(err){ console.warn('attach doc click for survival stroke controls failed', err); }
+  }
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
   const fileIO = Shared.fileIO = Shared.fileIO || {};
@@ -2612,13 +2686,15 @@
       }
       const stepPath = buildStepPath(group.km.steps, xScale.max, x2px, y2px, pt => pt.survival ?? pt.value ?? 0);
       if(stepPath){
-        add('path', {
+        const curveEl = add('path', {
           d: stepPath,
           fill: 'none',
           stroke: group.color,
           'stroke-width': curveStrokeWidth,
-          'stroke-linejoin': 'bevel'
+          'stroke-linejoin': 'bevel',
+          'data-group': group.name
         });
+        try{ curveEl.style.cursor = 'pointer'; curveEl.addEventListener('click', evt=>{ try{ evt.stopPropagation(); }catch(e){} showSurvivalStrokeFormatControls(evt.currentTarget); }); }catch(e){}
       }
       if(showCensor && group.km.censor.length){
         const markerSize = Math.max(4, fs * 0.6);
