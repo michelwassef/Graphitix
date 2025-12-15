@@ -1384,7 +1384,8 @@
           if(!Number.isInteger(physicalCol) || physicalCol < 0){
             return false;
           }
-          return exclusionController.isCellExcluded(physicalRow, physicalCol);
+          const state = exclusionController.resolveCellState(physicalRow, physicalCol);
+          return state.fromCell || state.fromRow || state.fromCol;
         };
         existing['hot-cell-excluded-row'] = params=>{
           const physicalRow = params?.data?.__rowIndex;
@@ -1697,6 +1698,30 @@
       viewport.addEventListener('scroll', onScroll, { passive: true });
       autoGrowthState.viewportScrollAttached = true;
       autoGrowthState.viewportScrollHandler = onScroll;
+    };
+
+    const captureExclusionState = ()=>exclusionController.exportState();
+    const recordExclusionUndo = (label, prevState, nextState)=>{
+      const before = prevState || captureExclusionState();
+      const after = nextState || captureExclusionState();
+      if(JSON.stringify(before) === JSON.stringify(after)){
+        return;
+      }
+      if(hasGlobalUndo){
+        undoManager.record({
+          label: label || `table:${debugLabel}:exclusion`,
+          scope: undoScope,
+          undo: ()=>exclusionController.importState(before),
+          redo: ()=>exclusionController.importState(after)
+        });
+      }
+    };
+
+    const applyExclusionChange = (label, fn)=>{
+      const prev = captureExclusionState();
+      fn();
+      const next = captureExclusionState();
+      recordExclusionUndo(label, prev, next);
     };
 
     let batchDepth = 0;
@@ -2716,6 +2741,46 @@
         fireHook('afterColumnMove');
         triggerSchedule('afterColumnMove', { source: 'columnMove' });
       },
+      onHeaderContextMenu(params){
+        if(hasEnterprise){
+          return;
+        }
+        const event = params?.event;
+        if(event){
+          event.preventDefault?.();
+          event.stopPropagation?.();
+        }
+        const colIdRaw = params?.column?.getColId?.();
+        const colIdx = typeof colIdRaw === 'string' && colIdRaw.startsWith('c') ? Number(colIdRaw.slice(1)) : null;
+        if(!Number.isInteger(colIdx) || colIdx < 0){
+          return;
+        }
+        const canExclude = !exclusionController.isColumnExcluded(colIdx);
+        const canInclude = exclusionController.isColumnExcluded(colIdx);
+        const items = [
+          {
+            label: 'Exclude column from analysis',
+            disabled: !canExclude,
+            action: ()=>{
+              applyExclusionChange(`table:${debugLabel}:exclude-col`, ()=>{
+                exclusionController.markColumns([colIdx], true);
+              });
+              triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
+            }
+          },
+          {
+            label: 'Include column in analysis',
+            disabled: !canInclude,
+            action: ()=>{
+              applyExclusionChange(`table:${debugLabel}:include-col`, ()=>{
+                exclusionController.markColumns([colIdx], false);
+              });
+              triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
+            }
+          }
+        ];
+        openCustomMenu(event, items);
+      },
       getRowClass(params){
         const physicalRow = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? 0;
         if(treatFirstRowAsHeader && physicalRow === 0){
@@ -2733,6 +2798,39 @@
           event.stopPropagation?.();
         }
         const colIdRaw = params?.column?.getColId?.();
+        if(colIdRaw === '__rowHeader'){
+          const physicalRow = params?.node?.data?.__rowIndex ?? params?.node?.rowIndex;
+          if(!Number.isInteger(physicalRow) || physicalRow < 0 || (treatFirstRowAsHeader && physicalRow === 0)){
+            return;
+          }
+          const rowList = [physicalRow];
+          const canExcludeRow = !exclusionController.isRowExcluded(physicalRow);
+          const canIncludeRow = exclusionController.isRowExcluded(physicalRow);
+          const items = [
+            {
+              label: 'Exclude row(s) from analysis',
+              disabled: !canExcludeRow,
+              action: ()=>{
+                applyExclusionChange(`table:${debugLabel}:exclude-rows`, ()=>{
+                  exclusionController.markRows(rowList, true);
+                });
+                triggerSchedule('exclusion-change', { scope: 'row', exclude: true });
+              }
+            },
+            {
+              label: 'Include row(s) in analysis',
+              disabled: !canIncludeRow,
+              action: ()=>{
+                applyExclusionChange(`table:${debugLabel}:include-rows`, ()=>{
+                  exclusionController.markRows(rowList, false);
+                });
+                triggerSchedule('exclusion-change', { scope: 'row', exclude: false });
+              }
+            }
+          ];
+          openCustomMenu(event, items);
+          return;
+        }
         const colIdx = typeof colIdRaw === 'string' && colIdRaw.startsWith('c') ? Number(colIdRaw.slice(1)) : 0;
         const sel = normalizedSelectionRange || normalizeRange(lastRange) || {
           from: { row: params?.node?.rowIndex ?? 0, col: colIdx },
@@ -2790,7 +2888,9 @@
             label: 'Exclude selection from analysis',
             disabled: !canExcludeCells,
             action: ()=>{
-              exclusionController.markCells(pairs, true);
+              applyExclusionChange(`table:${debugLabel}:exclude-cells`, ()=>{
+                exclusionController.markCells(pairs, true);
+              });
               triggerSchedule('exclusion-change', { scope: 'cell', exclude: true });
             }
           },
@@ -2798,7 +2898,9 @@
             label: 'Include selection in analysis',
             disabled: !canIncludeCells,
             action: ()=>{
-              exclusionController.markCells(pairs, false);
+              applyExclusionChange(`table:${debugLabel}:include-cells`, ()=>{
+                exclusionController.markCells(pairs, false);
+              });
               triggerSchedule('exclusion-change', { scope: 'cell', exclude: false });
             }
           },
@@ -2806,7 +2908,9 @@
             label: 'Exclude row(s) from analysis',
             disabled: !canExcludeRows,
             action: ()=>{
-              exclusionController.markRows(rowList, true);
+              applyExclusionChange(`table:${debugLabel}:exclude-rows`, ()=>{
+                exclusionController.markRows(rowList, true);
+              });
               triggerSchedule('exclusion-change', { scope: 'row', exclude: true });
             }
           },
@@ -2814,7 +2918,9 @@
             label: 'Include row(s) in analysis',
             disabled: !canIncludeRows,
             action: ()=>{
-              exclusionController.markRows(rowList, false);
+              applyExclusionChange(`table:${debugLabel}:include-rows`, ()=>{
+                exclusionController.markRows(rowList, false);
+              });
               triggerSchedule('exclusion-change', { scope: 'row', exclude: false });
             }
           },
@@ -2822,7 +2928,9 @@
             label: 'Exclude column(s) from analysis',
             disabled: !canExcludeCols,
             action: ()=>{
-              exclusionController.markColumns(colList, true);
+              applyExclusionChange(`table:${debugLabel}:exclude-cols`, ()=>{
+                exclusionController.markColumns(colList, true);
+              });
               triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
             }
           },
@@ -2830,7 +2938,9 @@
             label: 'Include column(s) in analysis',
             disabled: !canIncludeCols,
             action: ()=>{
-              exclusionController.markColumns(colList, false);
+              applyExclusionChange(`table:${debugLabel}:include-cols`, ()=>{
+                exclusionController.markColumns(colList, false);
+              });
               triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
             }
           }
@@ -5357,7 +5467,9 @@
         return;
       }
       const targets = details.physicalPairs.map(pair=>({ row: pair.row, col: pair.col }));
-      exclusionController.markCells(targets, exclude);
+      applyExclusionChange(`table:${debugLabel}:exclude-cells`, ()=>{
+        exclusionController.markCells(targets, exclude);
+      });
     };
 
     const toggleSelectionRows = (exclude)=>{
@@ -5366,7 +5478,9 @@
         console.debug('Debug: Shared.hot toggleSelectionRows skipped', { debugLabel, exclude });
         return;
       }
-      exclusionController.markRows(details.physicalRows, exclude);
+      applyExclusionChange(`table:${debugLabel}:exclude-rows`, ()=>{
+        exclusionController.markRows(details.physicalRows, exclude);
+      });
     };
 
     const toggleSelectionCols = (exclude)=>{
@@ -5375,7 +5489,9 @@
         console.debug('Debug: Shared.hot toggleSelectionCols skipped', { debugLabel, exclude });
         return;
       }
-      exclusionController.markColumns(details.physicalCols, exclude);
+      applyExclusionChange(`table:${debugLabel}:exclude-cols`, ()=>{
+        exclusionController.markColumns(details.physicalCols, exclude);
+      });
     };
 
     const afterContextMenuDefaultOptionsBase = function(defaultOptions){
