@@ -333,10 +333,38 @@
     showSummaryFormatControls(el);
   }
 
+  function handleBoxShapeClick(evt){
+    const el = evt?.currentTarget;
+    if(!el){ return; }
+    try{ evt.stopPropagation(); }catch(e){}
+    showBoxShapeFormatControls(el);
+  }
+
+  function attachBoxShapeHandler(node){
+    if(!node){ return; }
+    try{ node.style.cursor = 'pointer'; }catch(e){}
+    node.addEventListener('click', handleBoxShapeClick);
+  }
+
   function clampSummaryOpacity(value){
     const numeric = Number(value);
     if(!Number.isFinite(numeric)){ return null; }
     return Math.min(1, Math.max(0, numeric));
+  }
+  function getTraceShapeStyle(index){
+    if(index == null){ return state.traceShapeGlobalStyle || null; }
+    const specific = state.traceShapeStyles && state.traceShapeStyles[index] ? state.traceShapeStyles[index] : null;
+    return specific || state.traceShapeGlobalStyle || null;
+  }
+  function getPointStyle(index){
+    if(index == null){ return state.pointGlobalStyle || null; }
+    const specific = state.pointStyles && state.pointStyles[index] ? state.pointStyles[index] : null;
+    return specific || state.pointGlobalStyle || null;
+  }
+  function getSummaryStyle(index){
+    if(index == null){ return state.summaryGlobalStyle || null; }
+    const specific = state.summaryStyles && state.summaryStyles[index] ? state.summaryStyles[index] : null;
+    return specific || state.summaryGlobalStyle || null;
   }
 
   function persistBoxSummaryStyle(traceIndexValue, patch){
@@ -351,6 +379,39 @@
         if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
       });
     }catch(err){ console.warn('persistBoxSummaryStyle error', err); }
+  }
+
+  function persistTraceShapeStyle(traceIndexValue, patch){
+    if(traceIndexValue == null){ return; }
+    state.traceShapeStyles = state.traceShapeStyles || {};
+    const previous = cloneSimple(state.traceShapeStyles[traceIndexValue]) || {};
+    const next = Object.assign({}, previous, patch);
+    state.traceShapeStyles[traceIndexValue] = next;
+    try{
+      recordBoxChange(`box:shape-style:${traceIndexValue}`, previous, next, value => {
+        state.traceShapeStyles[traceIndexValue] = value || null;
+        if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
+      });
+    }catch(err){ console.warn('persistTraceShapeStyle error', err); }
+  }
+
+  function applyTraceShapeGlobalStyle(patch){
+    const previous = cloneSimple(state.traceShapeStyles || {}) || {};
+    const nextStyles = cloneSimple(state.traceShapeStyles || {}) || {};
+    Object.keys(nextStyles).forEach(key => {
+      nextStyles[key] = Object.assign({}, nextStyles[key] || {}, patch);
+    });
+    state.traceShapeStyles = nextStyles;
+    state.traceShapeGlobalStyle = Object.assign({}, state.traceShapeGlobalStyle || {}, patch);
+    if(typeof state.scheduleDraw === 'function'){
+      try{ state.scheduleDraw(); }catch(err){ console.warn('applyTraceShapeGlobalStyle scheduleDraw error', err); }
+    }
+    try{
+      recordBoxChange('box:shape-style:global', previous, nextStyles, value => {
+        state.traceShapeStyles = value || {};
+        if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
+      });
+    }catch(err){ console.warn('applyTraceShapeGlobalStyle error', err); }
   }
 
   function showPointFormatControls(el, data){
@@ -398,7 +459,31 @@
 
     // Determine parent group for the points (all points in the same trace group if present)
     const parentGroup = el.closest && el.closest('g[data-trace]') ? el.closest('g[data-trace]') : null;
+    const traceIndex = parentGroup && parentGroup.dataset && parentGroup.dataset.trace != null ? String(parentGroup.dataset.trace) : null;
     const resolveTargetPoints = () => parentGroup ? Array.from(parentGroup.querySelectorAll('circle,rect,path')) : [el];
+    const scopeName = `boxPointScope_${Date.now()}`;
+    const scopeField = doc.createElement('label');
+    scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
+    const scopeLabel = doc.createElement('span');
+    scopeLabel.className = 'workspace-toolbar__input-label';
+    scopeLabel.textContent = 'Scope';
+    const scopeSelect = doc.createElement('select');
+    scopeSelect.name = scopeName;
+    scopeSelect.className = 'workspace-toolbar__select';
+    scopeSelect.style.minWidth = '120px';
+    const optTrace = doc.createElement('option');
+    optTrace.value = 'trace';
+    optTrace.textContent = 'Trace';
+    optTrace.disabled = traceIndex == null;
+    const optGlobal = doc.createElement('option');
+    optGlobal.value = 'global';
+    optGlobal.textContent = 'Global';
+    scopeSelect.appendChild(optTrace);
+    scopeSelect.appendChild(optGlobal);
+    scopeSelect.value = traceIndex != null ? 'trace' : 'global';
+    scopeField.appendChild(scopeLabel);
+    scopeField.appendChild(scopeSelect);
+    wrap.appendChild(scopeField);
 
     // Helper: create a new marker element for a given shape based on an existing point
     function createMarkerFor(shape, src){
@@ -522,7 +607,6 @@
     }
 
     // Helper: persist style for a trace index
-    const traceIndex = parentGroup && parentGroup.dataset && parentGroup.dataset.trace != null ? String(parentGroup.dataset.trace) : null;
     function persistTraceStyle(patch){
       if(traceIndex == null){ return; }
       state.pointStyles = state.pointStyles || {};
@@ -536,6 +620,25 @@
           if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
         });
       }catch(err){ console.warn('persistTraceStyle error', err); }
+    }
+
+    function applyPointStyleGlobal(patch){
+      const previous = cloneSimple(state.pointStyles || {}) || {};
+      const nextStyles = cloneSimple(state.pointStyles || {}) || {};
+      Object.keys(nextStyles).forEach(key => {
+        nextStyles[key] = Object.assign({}, nextStyles[key] || {}, patch);
+      });
+      state.pointStyles = nextStyles;
+      state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, patch);
+      if(typeof state.scheduleDraw === 'function'){
+        try{ state.scheduleDraw(); }catch(e){ console.warn('applyPointStyleGlobal scheduleDraw error', e); }
+      }
+      try{
+        recordBoxChange('box:point-style:global', previous, nextStyles, value => {
+          state.pointStyles = value || {};
+          if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
+        });
+      }catch(err){ console.warn('applyPointStyleGlobal error', err); }
     }
 
     // Fill color + shape
@@ -578,7 +681,11 @@
               onChange(nextShape){
                 if(!nextShape) return;
                 replacePointsWithShape(resolveTargetPoints(), nextShape);
-                try{ persistTraceStyle({ shape: nextShape }); }catch(e){console.warn(e);} 
+                if(scopeSelect.value === 'trace'){
+                  try{ persistTraceStyle({ shape: nextShape }); }catch(e){console.warn(e);} 
+                }else{
+                  applyPointStyleGlobal({ shape: nextShape });
+                }
               }
             },
             onInput(value, meta){
@@ -590,7 +697,11 @@
               if(nextValue !== prevColor){
                 prevColor = nextValue;
                 resolveTargetPoints().forEach(p => p.setAttribute('fill', nextValue));
-                try{ persistTraceStyle({ fill: nextValue }); }catch(e){console.warn(e);} 
+                if(scopeSelect.value === 'trace'){
+                  try{ persistTraceStyle({ fill: nextValue }); }catch(e){console.warn(e);} 
+                }else{
+                  applyPointStyleGlobal({ fill: nextValue });
+                }
               }
             }
           });
@@ -612,7 +723,13 @@
     const currentStroke = (el.getAttribute('stroke') && el.getAttribute('stroke') !== 'none') ? el.getAttribute('stroke') : '#000000';
     try{ borderInput.value = currentStroke; }catch(e){}
     borderInput.addEventListener('input', ()=>{ resolveTargetPoints().forEach(p => p.setAttribute('stroke', borderInput.value)); });
-    borderInput.addEventListener('change', ()=>{ try{ persistTraceStyle({ stroke: borderInput.value }); }catch(e){console.warn(e);} });
+    borderInput.addEventListener('change', ()=>{
+      if(scopeSelect.value === 'trace'){
+        try{ persistTraceStyle({ stroke: borderInput.value }); }catch(e){console.warn(e);} 
+      }else{
+        applyPointStyleGlobal({ stroke: borderInput.value });
+      }
+    });
     if(typeof Shared.attachColorPickerNear === 'function'){
       try{ Shared.attachColorPickerNear(borderInput); }catch(e){}
     }
@@ -681,7 +798,11 @@
     sizeSelect.addEventListener('change', ()=>{
       const v = Number(sizeSelect.value) || 4;
       updatePointsSize(resolveTargetPoints(), v);
-      try{ persistTraceStyle({ size: v }); }catch(e){console.warn(e);} 
+      if(scopeSelect.value === 'trace'){
+        try{ persistTraceStyle({ size: v }); }catch(e){console.warn(e);} 
+      }else{
+        applyPointStyleGlobal({ size: v });
+      }
     });
     wrap.appendChild(makeInput('Size', sizeSelect));
 
@@ -700,7 +821,11 @@
     });
     opInput.addEventListener('change', ()=>{
       const v = Number(opInput.value) / 100;
-      try{ persistTraceStyle({ opacity: v }); }catch(e){console.warn(e);} 
+      if(scopeSelect.value === 'trace'){
+        try{ persistTraceStyle({ opacity: v }); }catch(e){console.warn(e);} 
+      }else{
+        applyPointStyleGlobal({ opacity: v });
+      }
     });
     const opWrap = doc.createElement('div');
     opWrap.style.display = 'inline-flex';
@@ -946,6 +1071,235 @@
       document.addEventListener('click', onDocClick);
       toolbarHost.__boxDocClickHandler = onDocClick;
     }catch(err){ console.warn('attach doc click for box summary controls failed', err); }
+  }
+
+  function showBoxShapeFormatControls(target){
+    const doc = global.document;
+    if(!doc || !target){ return; }
+    const anchor = doc.getElementById('boxFontHost');
+    if(!anchor){ return; }
+
+    let toolbarHost = anchor.nextElementSibling && anchor.nextElementSibling.classList && anchor.nextElementSibling.classList.contains('font-toolbar-host')
+      ? anchor.nextElementSibling
+      : null;
+    if(!toolbarHost){
+      toolbarHost = doc.createElement('div');
+      toolbarHost.className = 'font-toolbar-host';
+      toolbarHost.dataset.fontToolbarScope = 'box';
+      toolbarHost.style.display = 'none';
+      anchor.insertAdjacentElement('afterend', toolbarHost);
+    }
+
+    doc.querySelectorAll('.font-toolbar-host.font-toolbar-host--visible').forEach(h => {
+      if(h !== toolbarHost){
+        h.classList.remove('font-toolbar-host--visible');
+        h.style.display = 'none';
+      }
+    });
+
+    toolbarHost.innerHTML = '';
+    const wrap = doc.createElement('div');
+    wrap.className = 'workspace-toolbar__form workspace-toolbar__form--single box-shape-controls';
+    wrap.dataset.shapeControls = '1';
+
+    const makeInput = (labelText, inputEl) => {
+      const lbl = doc.createElement('label');
+      lbl.className = 'workspace-toolbar__input workspace-toolbar__input--compact';
+      const span = doc.createElement('span');
+      span.className = 'workspace-toolbar__input-label';
+      span.textContent = labelText;
+      lbl.appendChild(span);
+      lbl.appendChild(inputEl);
+      return lbl;
+    };
+
+    const traceAttr = target.getAttribute('data-trace');
+    const traceIndex = traceAttr != null && traceAttr !== '' && traceAttr !== 'null' ? Number(traceAttr) : null;
+    const colorIndexAttr = target.getAttribute('data-color-index');
+    const colorIndex = colorIndexAttr != null && colorIndexAttr !== '' ? Number(colorIndexAttr) : (traceIndex != null ? traceIndex : null);
+    const plotRoot = doc.getElementById('boxPlot');
+    const resolveTargets = () => {
+      if(traceIndex == null){
+        return plotRoot ? Array.from(plotRoot.querySelectorAll('[data-box-shape=\"body\"]')) : [target];
+      }
+      return plotRoot ? Array.from(plotRoot.querySelectorAll(`[data-box-shape=\"body\"][data-trace=\"${traceIndex}\"]`)) : [target];
+    };
+    const scopeName = `boxShapeScope_${Date.now()}`;
+    const scopeField = doc.createElement('label');
+    scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
+    const scopeLabel = doc.createElement('span');
+    scopeLabel.className = 'workspace-toolbar__input-label';
+    scopeLabel.textContent = 'Scope';
+    const scopeSelect = doc.createElement('select');
+    scopeSelect.name = scopeName;
+    scopeSelect.className = 'workspace-toolbar__select';
+    scopeSelect.style.minWidth = '120px';
+    const optTrace = doc.createElement('option');
+    optTrace.value = 'trace';
+    optTrace.textContent = 'Trace';
+    optTrace.disabled = traceIndex == null;
+    const optGlobal = doc.createElement('option');
+    optGlobal.value = 'global';
+    optGlobal.textContent = 'Global';
+    scopeSelect.appendChild(optTrace);
+    scopeSelect.appendChild(optGlobal);
+    scopeSelect.value = traceIndex != null ? 'trace' : 'global';
+    scopeField.appendChild(scopeLabel);
+    scopeField.appendChild(scopeSelect);
+    wrap.appendChild(scopeField);
+
+    const currentStyle = getTraceShapeStyle(traceIndex);
+    const fallbackFill = target.getAttribute('fill') || state.fillColors?.[colorIndex] || state.lastDefaultFill || '#4472c4';
+    const fallbackBorder = target.getAttribute('stroke') || state.borderColors?.[colorIndex] || shadeColor(fallbackFill, -30);
+
+    // Fill
+    const fillInput = doc.createElement('input');
+    fillInput.type = 'color';
+    try{ fillInput.value = currentStyle?.fill || fallbackFill; }catch(e){}
+    fillInput.addEventListener('input', ()=>{
+      const next = fillInput.value;
+      resolveTargets().forEach(node => node.setAttribute('fill', next));
+    });
+    fillInput.addEventListener('change', ()=>{
+      const next = fillInput.value;
+      if(scopeSelect.value === 'global'){
+        applyTraceShapeGlobalStyle({ fill: next });
+        if(Array.isArray(state.fillColors)){
+          for(let i=0;i<state.fillColors.length;i+=1){ state.fillColors[i] = next; }
+        }
+        if(els?.boxFill){ try{ els.boxFill.value = next; }catch(e){} }
+        state.lastDefaultFill = next;
+      }else if(traceIndex != null){
+        persistTraceShapeStyle(traceIndex, { fill: next });
+        if(colorIndex != null && colorIndex >= 0){
+          state.fillColors[colorIndex] = next;
+        }
+      }
+      if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+    });
+    const fillLabel = makeInput('Fill', fillInput);
+    fillLabel.classList.add('workspace-toolbar__input--color');
+    wrap.appendChild(fillLabel);
+
+    // Border
+    const borderInput = doc.createElement('input');
+    borderInput.type = 'color';
+    try{ borderInput.value = currentStyle?.border || fallbackBorder; }catch(e){}
+    borderInput.addEventListener('input', ()=>{
+      const next = borderInput.value;
+      resolveTargets().forEach(node => node.setAttribute('stroke', next));
+    });
+    borderInput.addEventListener('change', ()=>{
+      const next = borderInput.value;
+      if(scopeSelect.value === 'global'){
+        applyTraceShapeGlobalStyle({ border: next });
+        if(Array.isArray(state.borderColors)){
+          for(let i=0;i<state.borderColors.length;i+=1){ state.borderColors[i] = next; }
+        }
+        if(els?.boxBorder){ try{ els.boxBorder.value = next; }catch(e){} }
+      }else if(traceIndex != null){
+        persistTraceShapeStyle(traceIndex, { border: next });
+        if(colorIndex != null && colorIndex >= 0){
+          state.borderColors[colorIndex] = next;
+        }
+      }
+      if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+    });
+    const borderLabel = makeInput('Border', borderInput);
+    borderLabel.classList.add('workspace-toolbar__input--color');
+    wrap.appendChild(borderLabel);
+
+    // Thickness
+    const thicknessInput = doc.createElement('input');
+    thicknessInput.type = 'number';
+    thicknessInput.min = '0';
+    thicknessInput.step = '0.1';
+    const fallbackThickness = currentStyle?.thickness != null
+      ? Number(currentStyle.thickness)
+      : Number(target.getAttribute('stroke-width')) || Number(els?.boxBorderWidth?.value) || 1;
+    if(Number.isFinite(fallbackThickness)){ thicknessInput.value = String(fallbackThickness); }
+    thicknessInput.addEventListener('input', ()=>{
+      const numeric = Number(thicknessInput.value);
+      const normalized = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
+      resolveTargets().forEach(node => node.setAttribute('stroke-width', String(normalized)));
+    });
+    thicknessInput.addEventListener('change', ()=>{
+      const numeric = Number(thicknessInput.value);
+      const normalized = Number.isFinite(numeric) ? Math.max(0, numeric) : null;
+      if(scopeSelect.value === 'global'){
+        applyTraceShapeGlobalStyle({ thickness: normalized });
+      }else if(traceIndex != null){
+        persistTraceShapeStyle(traceIndex, { thickness: normalized });
+      }
+      if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+    });
+    wrap.appendChild(makeInput('Thickness', thicknessInput));
+
+    // Opacity
+    const opacityInput = doc.createElement('input');
+    opacityInput.type = 'range';
+    opacityInput.min = '0';
+    opacityInput.max = '100';
+    opacityInput.step = '1';
+    const currentOpacity = currentStyle?.opacity != null ? currentStyle.opacity : target.getAttribute('fill-opacity');
+    const derivedOpacity = Number.isFinite(Number(currentOpacity)) ? Number(currentOpacity) : 1;
+    opacityInput.value = String(Math.round(derivedOpacity * 100));
+    const opacityValue = doc.createElement('span');
+    opacityValue.className = 'workspace-toolbar__input-value';
+    opacityValue.textContent = `${opacityInput.value}%`;
+    opacityInput.addEventListener('input', ()=>{
+      const pct = Number(opacityInput.value);
+      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
+      resolveTargets().forEach(node => {
+        node.setAttribute('fill-opacity', String(normalized));
+        node.setAttribute('stroke-opacity', String(normalized));
+      });
+      opacityValue.textContent = `${Math.round(normalized * 100)}%`;
+    });
+    opacityInput.addEventListener('change', ()=>{
+      const pct = Number(opacityInput.value);
+      const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
+      if(scopeSelect.value === 'global'){
+        applyTraceShapeGlobalStyle({ opacity: normalized });
+      }else if(traceIndex != null){
+        persistTraceShapeStyle(traceIndex, { opacity: normalized });
+      }
+      if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+    });
+    const opacityWrap = doc.createElement('div');
+    opacityWrap.style.display = 'inline-flex';
+    opacityWrap.style.alignItems = 'center';
+    opacityWrap.appendChild(opacityInput);
+    opacityWrap.appendChild(opacityValue);
+    wrap.appendChild(makeInput('Opacity', opacityWrap));
+
+    toolbarHost.appendChild(wrap);
+    toolbarHost.style.display = 'block';
+    toolbarHost.classList.add('font-toolbar-host--visible');
+    const dock = toolbarHost.closest('.workspace-toolbar__dock');
+    if(dock){ dock.classList.add('workspace-toolbar__dock--active'); }
+    try{
+      if(toolbarHost.__boxDocClickHandler){
+        document.removeEventListener('click', toolbarHost.__boxDocClickHandler);
+        toolbarHost.__boxDocClickHandler = null;
+      }
+      const onDocClick = function(evt){
+        try{
+          const tgt = evt && evt.target ? evt.target : null;
+          if(!tgt){ return; }
+          if(toolbarHost.contains(tgt)){ return; }
+          if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
+          toolbarHost.classList.remove('font-toolbar-host--visible');
+          toolbarHost.style.display = 'none';
+          const d = toolbarHost.closest('.workspace-toolbar__dock');
+          if(d){ d.classList.remove('workspace-toolbar__dock--active'); }
+          document.removeEventListener('click', onDocClick);
+          toolbarHost.__boxDocClickHandler = null;
+        }catch(err){ console.warn('box.format docClick error', err); }
+      };
+      document.addEventListener('click', onDocClick);
+      toolbarHost.__boxDocClickHandler = onDocClick;
+    }catch(err){ console.warn('attach doc click for box shape controls failed', err); }
   }
 
   function clampWhiskerMultiplier(value){
@@ -3041,7 +3395,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, summaryStyles: {}, summaryGlobalStyle: null };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: null, summaryStyles: {}, summaryGlobalStyle: null };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -8369,6 +8723,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const rawColorIndex = isGroupedMode && Number.isInteger(trace?.groupIndex) ? trace.groupIndex : index;
       const colorIndex = Number.isInteger(rawColorIndex) && rawColorIndex >= 0 ? rawColorIndex : 0;
       console.debug('Debug: box resolveTraceColor',{ traceIndex: index, colorIndex, rawColorIndex, groupName: trace?.groupName, grouped: isGroupedMode });
+      const styleOverride = getTraceShapeStyle(index);
       if(colorMode === 'individual'){
         let fillColor = state.fillColors[colorIndex];
         if(!fillColor){
@@ -8391,7 +8746,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         if(isGroupedMode && trace?.groupName){
           groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
         }
-        return { fillColor, borderColor };
+        const strokeWidth = styleOverride && styleOverride.thickness != null ? Number(styleOverride.thickness) : null;
+        const opacity = styleOverride && styleOverride.opacity != null ? Math.min(1, Math.max(0, Number(styleOverride.opacity))) : null;
+        const fillResolved = styleOverride && styleOverride.fill ? styleOverride.fill : fillColor;
+        const borderResolved = styleOverride && styleOverride.border ? styleOverride.border : borderColor;
+        return { fillColor: fillResolved, borderColor: borderResolved, colorIndex, strokeWidth, opacity };
       }
       const fillColor = defaultFill;
       const borderColor = defaultBorder;
@@ -8400,7 +8759,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           groupColorAssignments.set(trace.groupName, { fill: fillColor, border: borderColor, colorIndex });
         }
       }
-      return { fillColor, borderColor };
+      const strokeWidth = styleOverride && styleOverride.thickness != null ? Number(styleOverride.thickness) : null;
+      const opacity = styleOverride && styleOverride.opacity != null ? Math.min(1, Math.max(0, Number(styleOverride.opacity))) : null;
+      const fillResolved = styleOverride && styleOverride.fill ? styleOverride.fill : fillColor;
+      const borderResolved = styleOverride && styleOverride.border ? styleOverride.border : borderColor;
+      return { fillColor: fillResolved, borderColor: borderResolved, colorIndex, strokeWidth, opacity };
     };
     const isGroupedMode = state.tableFormat === 'grouped';
     if(isGroupedMode){
@@ -8600,6 +8963,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const colorInfo = resolveTraceColor(trace, index);
       trace.fillColor = colorInfo.fillColor;
       trace.borderColor = colorInfo.borderColor;
+      trace.colorIndex = colorInfo.colorIndex;
+      trace.shapeStyle = { strokeWidth: colorInfo.strokeWidth, opacity: colorInfo.opacity };
       if(colorPrimeSample.length < 5){
         colorPrimeSample.push({
           index,
@@ -9625,15 +9990,32 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const yQ3 = y2px(q3);
         const yWMin = y2px(wMin);
         const yWMax = y2px(wMax);
-        const fillColor = t.fillColor || resolveTraceColor(t, i).fillColor;
-        const borderColor = t.borderColor || resolveTraceColor(t, i).borderColor;
+        const colorInfo = resolveTraceColor(t, i);
+        const fillColor = t.fillColor || colorInfo.fillColor;
+        const borderColor = t.borderColor || colorInfo.borderColor || defaultBorder || '#000';
+        const strokeOverrideRaw = Number.isFinite(Number(colorInfo.strokeWidth))
+          ? Number(colorInfo.strokeWidth)
+          : (Number.isFinite(borderWidthPx) ? borderWidthPx : null);
+        const strokeWidthEffective = Number.isFinite(strokeOverrideRaw) && strokeOverrideRaw > 0
+          ? strokeOverrideRaw
+          : Math.max(0.5, Number.isFinite(borderWidthPx) && borderWidthPx > 0 ? borderWidthPx : 1);
+        const opacityOverride = colorInfo.opacity != null ? Math.min(1, Math.max(0, Number(colorInfo.opacity))) : null;
         const yMean = y2px(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           annotationMaxByTrace[i] = wMax;
           if(graphTypeRaw === 'box'){
-            const boxRect = add('rect',{ x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const boxAttrs = { x: x0, y: yQ3, width: boxW, height: Math.max(1, yQ1 - yQ3), fill: fillColor, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+            if(opacityOverride != null){
+              boxAttrs['fill-opacity'] = opacityOverride;
+              boxAttrs['stroke-opacity'] = opacityOverride;
+            }
+            const boxRect = add('rect', boxAttrs);
+            attachBoxShapeHandler(boxRect);
             annotateWithTitle(boxRect, whiskerAnnotation);
-            const medianLine = add('line',{ x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const medianAttrs = { x1: x0, y1: yMed, x2: x1, y2: yMed, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+            if(opacityOverride != null){ medianAttrs['stroke-opacity'] = opacityOverride; }
+            const medianLine = add('line', medianAttrs);
+            attachBoxShapeHandler(medianLine);
             annotateWithTitle(medianLine, whiskerAnnotation);
           }else{
             const notchSpan = 1.57 * (iqr) / Math.sqrt(sampleCount);
@@ -9661,20 +10043,41 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               `L ${x0} ${yNU}`,
               'Z'
             ].join(' ');
-            const notchPath = add('path',{ d, fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const notchAttrs = { d, fill: fillColor, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+            if(opacityOverride != null){
+              notchAttrs['fill-opacity'] = opacityOverride;
+              notchAttrs['stroke-opacity'] = opacityOverride;
+            }
+            const notchPath = add('path', notchAttrs);
+            attachBoxShapeHandler(notchPath);
             annotateWithTitle(notchPath, whiskerAnnotation);
-            const notchMedian = add('line',{ x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const notchMedianAttrs = { x1: xNL, y1: yMed, x2: xNR, y2: yMed, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+            if(opacityOverride != null){ notchMedianAttrs['stroke-opacity'] = opacityOverride; }
+            const notchMedian = add('line', notchMedianAttrs);
+            attachBoxShapeHandler(notchMedian);
             annotateWithTitle(notchMedian, whiskerAnnotation);
           }
-          const whiskerUpperLine = add('line',{ x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          const whiskerUpperAttrs = { x1: cx, y1: yQ3, x2: cx, y2: yWMax, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+          if(opacityOverride != null){ whiskerUpperAttrs['stroke-opacity'] = opacityOverride; }
+          const whiskerUpperLine = add('line', whiskerUpperAttrs);
+          attachBoxShapeHandler(whiskerUpperLine);
           annotateWithTitle(whiskerUpperLine, whiskerAnnotation);
-          const whiskerLowerLine = add('line',{ x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          const whiskerLowerAttrs = { x1: cx, y1: yQ1, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+          if(opacityOverride != null){ whiskerLowerAttrs['stroke-opacity'] = opacityOverride; }
+          const whiskerLowerLine = add('line', whiskerLowerAttrs);
+          attachBoxShapeHandler(whiskerLowerLine);
           annotateWithTitle(whiskerLowerLine, whiskerAnnotation);
           if(showCaps){
             const cap = Math.max(6, boxW * 0.4);
-            const capTop = add('line',{ x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            const capAttrsTop = { x1: cx - cap / 2, y1: yWMax, x2: cx + cap / 2, y2: yWMax, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+            if(opacityOverride != null){ capAttrsTop['stroke-opacity'] = opacityOverride; }
+            const capTop = add('line', capAttrsTop);
+            attachBoxShapeHandler(capTop);
             annotateWithTitle(capTop, whiskerAnnotation);
-            const capBottom = add('line',{ x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            const capAttrsBottom = { x1: cx - cap / 2, y1: yWMin, x2: cx + cap / 2, y2: yWMin, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+            if(opacityOverride != null){ capAttrsBottom['stroke-opacity'] = opacityOverride; }
+            const capBottom = add('line', capAttrsBottom);
+            attachBoxShapeHandler(capBottom);
             annotateWithTitle(capBottom, whiskerAnnotation);
           }
         }else if(graphTypeRaw === 'bar'){
@@ -9707,7 +10110,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const yEnd = y2px(barEndValue);
           const rawTop = Math.min(yStart, yEnd);
           const rawBottom = Math.max(yStart, yEnd);
-          const strokeInset = borderWidthPx > 0 ? borderWidthPx / 2 : 0;
+          const strokeInset = strokeWidthEffective > 0 ? strokeWidthEffective / 2 : 0;
           let rectY = rawTop + strokeInset;
           let rectBottom = rawBottom - strokeInset;
           if(rectBottom < rectY){
@@ -9716,15 +10119,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             rectBottom = mid;
           }
           const rectH = Math.max(0, rectBottom - rectY);
-          add('rect',{
+          const barAttrs = {
             x: x0,
             y: rectY,
             width: boxW,
             height: rectH,
             fill: fillColor,
             stroke: borderColor,
-            'stroke-width': borderWidthPx
-          });
+            'stroke-width': strokeWidthEffective,
+            'data-trace': i,
+            'data-color-index': colorInfo.colorIndex,
+            'data-box-shape': 'body'
+          };
+          if(opacityOverride != null){
+            barAttrs['fill-opacity'] = opacityOverride;
+            barAttrs['stroke-opacity'] = opacityOverride;
+          }
+          const barRect = add('rect', barAttrs);
+          attachBoxShapeHandler(barRect);
           console.debug('Debug: box bar vertical bounds adjusted',{ index: i, rawTop, rawBottom, rectY, rectBottom, strokeInset });
           {
             let maxVisualValue = Math.max(barStartValue, barEndValue);
@@ -9761,12 +10173,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               const ySdTop = y2px(mean + sd);
               if(errorMode === 'both'){
                 const ySdBottom = y2px(mean - sd);
-                add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: ySdBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                add('line',{ x1: cx - cap / 2, y1: ySdBottom, x2: cx + cap / 2, y2: ySdBottom, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: ySdBottom, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+                add('line',{ x1: cx - cap / 2, y1: ySdBottom, x2: cx + cap / 2, y2: ySdBottom, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
               }else{
-                add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: yMean, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                add('line',{ x1: cx, y1: ySdTop, x2: cx, y2: yMean, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
               }
-              add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+              add('line',{ x1: cx - cap / 2, y1: ySdTop, x2: cx + cap / 2, y2: ySdTop, stroke: borderColor, 'stroke-width': strokeWidthEffective != null ? strokeWidthEffective : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
             }
           }else{
             console.debug('Debug: box bar error bar skipped for single value',{ index: i, sampleCount: sampleCountBar, mean });
@@ -9798,15 +10210,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             pathParts.push(`L ${xRight} ${y}`);
           }
           pathParts.push('Z');
-          add('path',{ d: pathParts.join(' '), fill: fillColor, 'fill-opacity': 0.7, stroke: borderColor, 'stroke-width': borderWidthPx });
+          const violinAttrs = { d: pathParts.join(' '), fill: fillColor, 'fill-opacity': opacityOverride != null ? opacityOverride : 0.7, stroke: borderColor, 'stroke-width': strokeWidthEffective, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body' };
+          if(opacityOverride != null){ violinAttrs['stroke-opacity'] = opacityOverride; }
+          const violinPath = add('path', violinAttrs);
+          attachBoxShapeHandler(violinPath);
           const insetBoxWidth = Math.max(3, Math.min(halfWidth * 0.175, boxW * 0.1));
-          const insetStrokeWidth = Math.max(0.6, (borderWidthPx || 1) * 0.6);
-          const whiskerStrokeWidth = Math.max(0.6, (errorBarWidthPx || insetStrokeWidth) * 0.6);
+          const insetStrokeWidth = Math.max(0.6, (strokeWidthEffective || borderWidthPx || 1) * 0.6);
+          const whiskerStrokeWidth = Math.max(0.6, (strokeWidthEffective != null ? strokeWidthEffective : (errorBarWidthPx || insetStrokeWidth)));
           const insetX0 = cx - insetBoxWidth / 2;
           const insetX1 = insetX0 + insetBoxWidth;
-          add('line',{ x1: cx, y1: yWMax, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': whiskerStrokeWidth });
-          add('rect',{ x: insetX0, y: yQ3, width: insetBoxWidth, height: Math.max(1, yQ1 - yQ3), fill: '#fff', stroke: borderColor, 'stroke-width': insetStrokeWidth });
-          add('line',{ x1: insetX0, y1: yMed, x2: insetX1, y2: yMed, stroke: borderColor, 'stroke-width': insetStrokeWidth });
+          const violinWhisker = add('line',{ x1: cx, y1: yWMax, x2: cx, y2: yWMin, stroke: borderColor, 'stroke-width': whiskerStrokeWidth, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+          attachBoxShapeHandler(violinWhisker);
+          const violinRect = add('rect',{ x: insetX0, y: yQ3, width: insetBoxWidth, height: Math.max(1, yQ1 - yQ3), fill: '#fff', stroke: borderColor, 'stroke-width': insetStrokeWidth, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+          attachBoxShapeHandler(violinRect);
+          const violinMedian = add('line',{ x1: insetX0, y1: yMed, x2: insetX1, y2: yMed, stroke: borderColor, 'stroke-width': insetStrokeWidth, 'data-trace': i, 'data-color-index': colorInfo.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+          attachBoxShapeHandler(violinMedian);
           if(debugEnabled){
             console.debug('Debug: box violin vertical render',{ index: i, points: sampleCount, peak, halfWidth, insetBoxWidth });
           }
@@ -9820,7 +10238,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             orientation: 'vertical'
           });
           // apply per-trace persisted point styles if present
-          const traceStyle = (state.pointStyles && state.pointStyles[i]) ? state.pointStyles[i] : null;
+          const traceStyle = getPointStyle(i);
           const effectiveR = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
           const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
           const effectiveStroke = (traceStyle && traceStyle.stroke) ? traceStyle.stroke : 'none';
@@ -9888,7 +10306,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             summaryGroup.style.cursor = 'pointer';
             summaryGroup.addEventListener('click', handleBoxSummaryClick);
             const summaryCap = Math.max(6, localBand * 0.12);
-            const summaryStyle = (state.summaryStyles && state.summaryStyles[i]) ? state.summaryStyles[i] : null;
+            const summaryStyle = getSummaryStyle(i);
             const summaryColor = (summaryStyle && summaryStyle.color) ? summaryStyle.color : borderColor;
             const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
             const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
@@ -10339,17 +10757,34 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const xQ3 = valueToX(q3);
         const xWMin = valueToX(wMin);
         const xWMax = valueToX(wMax);
-        const fillColor = t.fillColor || resolveTraceColor(t, i).fillColor;
-        const borderColor = t.borderColor || resolveTraceColor(t, i).borderColor;
+        const colorInfoH = resolveTraceColor(t, i);
+        const fillColor = t.fillColor || colorInfoH.fillColor;
+        const borderColor = t.borderColor || colorInfoH.borderColor || defaultBorder || '#000';
+        const strokeOverrideRawH = Number.isFinite(Number(colorInfoH.strokeWidth))
+          ? Number(colorInfoH.strokeWidth)
+          : (Number.isFinite(borderWidthPx) ? borderWidthPx : null);
+        const strokeWidthEffectiveH = Number.isFinite(strokeOverrideRawH) && strokeOverrideRawH > 0
+          ? strokeOverrideRawH
+          : Math.max(0.5, Number.isFinite(borderWidthPx) && borderWidthPx > 0 ? borderWidthPx : 1);
+        const opacityOverride = colorInfoH.opacity != null ? Math.min(1, Math.max(0, Number(colorInfoH.opacity))) : null;
         const xMean = valueToX(mean);
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           annotationMaxByTrace[i] = wMax;
           const left = Math.min(xQ1, xQ3);
           const right = Math.max(xQ1, xQ3);
           if(graphTypeRaw === 'box'){
-            const boxRect = add('rect',{ x: left, y: y0, width: Math.max(1, right - left), height: Math.max(1, boxH), fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const boxAttrs = { x: left, y: y0, width: Math.max(1, right - left), height: Math.max(1, boxH), fill: fillColor, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
+            if(opacityOverride != null){
+              boxAttrs['fill-opacity'] = opacityOverride;
+              boxAttrs['stroke-opacity'] = opacityOverride;
+            }
+            const boxRect = add('rect', boxAttrs);
+            attachBoxShapeHandler(boxRect);
             annotateWithTitle(boxRect, whiskerAnnotation);
-            const medianLine = add('line',{ x1: xMed, y1: y0, x2: xMed, y2: y1, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const medianAttrs = { x1: xMed, y1: y0, x2: xMed, y2: y1, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
+            if(opacityOverride != null){ medianAttrs['stroke-opacity'] = opacityOverride; }
+            const medianLine = add('line', medianAttrs);
+            attachBoxShapeHandler(medianLine);
             annotateWithTitle(medianLine, whiskerAnnotation);
           }else{
             const notchSpan = 1.57 * (iqr) / Math.sqrt(sampleCount);
@@ -10384,22 +10819,33 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               `L ${left} ${y1}`,
               'Z'
             ].join(' ');
-            const notchPath = add('path',{ d, fill: fillColor, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const notchAttrs = { d, fill: fillColor, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
+            if(opacityOverride != null){
+              notchAttrs['fill-opacity'] = opacityOverride;
+              notchAttrs['stroke-opacity'] = opacityOverride;
+            }
+            const notchPath = add('path', notchAttrs);
+            attachBoxShapeHandler(notchPath);
             annotateWithTitle(notchPath, whiskerAnnotation);
-            const notchMedian = add('line',{ x1: xMed, y1: yNotchTop, x2: xMed, y2: yNotchBottom, stroke: borderColor, 'stroke-width': borderWidthPx });
+            const notchMedianAttrs = { x1: xMed, y1: yNotchTop, x2: xMed, y2: yNotchBottom, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
+            if(opacityOverride != null){ notchMedianAttrs['stroke-opacity'] = opacityOverride; }
+            const notchMedian = add('line', notchMedianAttrs);
+            attachBoxShapeHandler(notchMedian);
             annotateWithTitle(notchMedian, whiskerAnnotation);
             // Debug: log the horizontal notch geometry so future tweaks keep parity with vertical boxes.
             console.debug('Debug: box horizontal notch path',{ notchLower, notchUpper, xNotchLow, xNotchHigh, yNotchTop, yNotchBottom, boxHeight: boxH, token });
           }
-          const whiskerLeft = add('line',{ x1: xWMin, y1: cy, x2: left, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          const whiskerLeft = add('line',{ x1: xWMin, y1: cy, x2: left, y2: cy, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+          attachBoxShapeHandler(whiskerLeft);
           annotateWithTitle(whiskerLeft, whiskerAnnotation);
-          const whiskerRight = add('line',{ x1: right, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+          const whiskerRight = add('line',{ x1: right, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+          attachBoxShapeHandler(whiskerRight);
           annotateWithTitle(whiskerRight, whiskerAnnotation);
           if(showCaps){
             const cap = Math.max(6, boxH * 0.4);
-            const capLeft = add('line',{ x1: xWMin, y1: cy - cap / 2, x2: xWMin, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            const capLeft = add('line',{ x1: xWMin, y1: cy - cap / 2, x2: xWMin, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
             annotateWithTitle(capLeft, whiskerAnnotation);
-            const capRight = add('line',{ x1: xWMax, y1: cy - cap / 2, x2: xWMax, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+            const capRight = add('line',{ x1: xWMax, y1: cy - cap / 2, x2: xWMax, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
             annotateWithTitle(capRight, whiskerAnnotation);
           }
         }else if(graphTypeRaw === 'bar'){
@@ -10432,7 +10878,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           const xEnd = valueToX(barEndValue);
           const rawLeft = Math.min(xStart, xEnd);
           const rawRight = Math.max(xStart, xEnd);
-          const strokeInset = borderWidthPx > 0 ? borderWidthPx / 2 : 0;
+          const strokeInset = strokeWidthEffectiveH > 0 ? strokeWidthEffectiveH / 2 : 0;
           let rectX = rawLeft + strokeInset;
           let rectRight = rawRight - strokeInset;
           if(rectRight < rectX){
@@ -10449,15 +10895,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             rectBottom = midY;
           }
           const rectH = Math.max(0, rectBottom - rectY);
-          add('rect',{
+          const barAttrsH = {
             x: rectX,
             y: rectY,
             width: rectW,
             height: rectH,
             fill: fillColor,
             stroke: borderColor,
-            'stroke-width': borderWidthPx
-          });
+            'stroke-width': strokeWidthEffectiveH,
+            'data-trace': i,
+            'data-color-index': colorInfoH.colorIndex,
+            'data-box-shape': 'body'
+          };
+          if(opacityOverride != null){
+            barAttrsH['fill-opacity'] = opacityOverride;
+            barAttrsH['stroke-opacity'] = opacityOverride;
+          }
+          const barRectH = add('rect', barAttrsH);
+          attachBoxShapeHandler(barRectH);
           console.debug('Debug: box bar horizontal bounds adjusted',{ index: i, rawLeft, rawRight, rectX, rectRight, strokeInset, rectY, rectBottom });
           {
             let maxVisualValue = Math.max(barStartValue, barEndValue);
@@ -10493,13 +10948,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }else{
               const xSdPos = valueToX(mean + sd);
               if(errorMode === 'both'){
-                const xSdNeg = valueToX(mean - sd);
-                add('line',{ x1: xSdNeg, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
-                add('line',{ x1: xSdNeg, y1: cy - cap / 2, x2: xSdNeg, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+              const xSdNeg = valueToX(mean - sd);
+                add('line',{ x1: xSdNeg, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+                add('line',{ x1: xSdNeg, y1: cy - cap / 2, x2: xSdNeg, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
               }else{
-                add('line',{ x1: xMean, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+                add('line',{ x1: xMean, y1: cy, x2: xSdPos, y2: cy, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
               }
-              add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': errorBarWidthPx });
+              add('line',{ x1: xSdPos, y1: cy - cap / 2, x2: xSdPos, y2: cy + cap / 2, stroke: borderColor, 'stroke-width': strokeWidthEffectiveH != null ? strokeWidthEffectiveH : errorBarWidthPx, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
             }
           }else{
             console.debug('Debug: box horizontal bar error bar skipped for single value',{ index: i, sampleCount: sampleCountBar, mean });
@@ -10531,17 +10986,23 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             pathParts.push(`L ${x} ${yBottom}`);
           }
           pathParts.push('Z');
-          add('path',{ d: pathParts.join(' '), fill: fillColor, 'fill-opacity': 0.7, stroke: borderColor, 'stroke-width': borderWidthPx });
+          const violinAttrsH = { d: pathParts.join(' '), fill: fillColor, 'fill-opacity': opacityOverride != null ? opacityOverride : 0.7, stroke: borderColor, 'stroke-width': strokeOverride, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body' };
+          if(opacityOverride != null){ violinAttrsH['stroke-opacity'] = opacityOverride; }
+          const violinPathH = add('path', violinAttrsH);
+          attachBoxShapeHandler(violinPathH);
           const insetBoxHeight = Math.max(3, Math.min(halfHeight * 0.175, boxH * 0.1));
-          const insetStrokeWidth = Math.max(0.6, (borderWidthPx || 1) * 0.6);
-          const whiskerStrokeWidth = Math.max(0.6, (errorBarWidthPx || insetStrokeWidth) * 0.6);
+          const insetStrokeWidth = Math.max(0.6, (strokeOverride || borderWidthPx || 1) * 0.6);
+          const whiskerStrokeWidth = Math.max(0.6, (strokeOverride != null ? strokeOverride : (errorBarWidthPx || insetStrokeWidth)));
           const insetY0 = cy - insetBoxHeight / 2;
           const insetY1 = insetY0 + insetBoxHeight;
           const insetLeft = Math.min(xQ1, xQ3);
           const insetWidth = Math.max(1, Math.abs(xQ3 - xQ1));
-          add('line',{ x1: xWMin, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': whiskerStrokeWidth });
-          add('rect',{ x: insetLeft, y: insetY0, width: insetWidth, height: insetBoxHeight, fill: '#fff', stroke: borderColor, 'stroke-width': insetStrokeWidth });
-          add('line',{ x1: xMed, y1: insetY0, x2: xMed, y2: insetY1, stroke: borderColor, 'stroke-width': insetStrokeWidth });
+          const violinWhiskerH = add('line',{ x1: xWMin, y1: cy, x2: xWMax, y2: cy, stroke: borderColor, 'stroke-width': whiskerStrokeWidth, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+          attachBoxShapeHandler(violinWhiskerH);
+          const violinRectH = add('rect',{ x: insetLeft, y: insetY0, width: insetWidth, height: insetBoxHeight, fill: '#fff', stroke: borderColor, 'stroke-width': insetStrokeWidth, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+          attachBoxShapeHandler(violinRectH);
+          const violinMedianH = add('line',{ x1: xMed, y1: insetY0, x2: xMed, y2: insetY1, stroke: borderColor, 'stroke-width': insetStrokeWidth, 'data-trace': i, 'data-color-index': colorInfoH.colorIndex, 'data-box-shape': 'body', ...(opacityOverride != null ? { 'stroke-opacity': opacityOverride } : {}) });
+          attachBoxShapeHandler(violinMedianH);
           if(debugEnabled){
             console.debug('Debug: box violin horizontal render',{ index: i, points: sampleCount, peak, halfHeight, insetBoxHeight });
           }
@@ -10556,7 +11017,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           });
           const frag = document.createDocumentFragment();
           // apply per-trace persisted point styles if present
-          const traceStyleH = (state.pointStyles && state.pointStyles[i]) ? state.pointStyles[i] : null;
+          const traceStyleH = getPointStyle(i);
           pointEntries.forEach(entry => {
             const offset = swarm.offsets[entry.index] || 0;
             const effectiveR = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
@@ -10615,7 +11076,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             summaryGroup.style.cursor = 'pointer';
             summaryGroup.addEventListener('click', handleBoxSummaryClick);
             const summaryCap = Math.max(6, localBand * 0.12);
-            const summaryStyle = (state.summaryStyles && state.summaryStyles[i]) ? state.summaryStyles[i] : null;
+            const summaryStyle = getSummaryStyle(i);
             const summaryColor = (summaryStyle && summaryStyle.color) ? summaryStyle.color : borderColor;
             const summaryOpacityRaw = summaryStyle ? clampSummaryOpacity(summaryStyle.opacity) : null;
             const summaryOpacity = summaryOpacityRaw == null ? 1 : summaryOpacityRaw;
@@ -10921,8 +11382,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         errorMode:els.boxErrorMode.value,
         colors:[...state.fillColors],
         borderColors:[...state.borderColors],
+        shapeStyles: state.traceShapeStyles || null,
+        shapeGlobalStyle: state.traceShapeGlobalStyle || null,
         pointStyles: state.pointStyles || null,
+        pointGlobalStyle: state.pointGlobalStyle || null,
         summaryStyles: state.summaryStyles || null,
+        summaryGlobalStyle: state.summaryGlobalStyle || null,
         yMin:els.boxYMin.value,
         yMax:els.boxYMax.value,
         flipAxes: state.flipAxes,
@@ -11217,8 +11682,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     state.fillColors=c.colors||[];
     state.borderColors=c.borderColors||[];
+    state.traceShapeStyles = cloneSimple(c.shapeStyles) || {};
+    state.traceShapeGlobalStyle = cloneSimple(c.shapeGlobalStyle) || null;
     state.pointStyles = cloneSimple(c.pointStyles) || {};
+    state.pointGlobalStyle = cloneSimple(c.pointGlobalStyle) || null;
     state.summaryStyles = cloneSimple(c.summaryStyles) || {};
+    state.summaryGlobalStyle = cloneSimple(c.summaryGlobalStyle) || null;
     if(c.colorMode==='individual'){ els.boxColorIndividual.checked=true; } else { els.boxColorUnified.checked=true; }
     toggleColorMode();
     const restoredFormat = c.tableFormat === 'grouped' ? 'grouped' : 'single';
