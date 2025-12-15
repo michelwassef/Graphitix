@@ -3369,6 +3369,52 @@
         event.preventDefault?.();
       };
 
+      const handleHeaderContextMenuProxy = (event)=>{
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        if(!target || typeof target.closest !== 'function'){
+          return;
+        }
+        const headerCell = target.closest('.ag-header-cell');
+        if(!headerCell){
+          return;
+        }
+        const colIdAttr = headerCell.getAttribute('col-id');
+        if(!colIdAttr || colIdAttr === '__rowHeader'){
+          return;
+        }
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        const colIdx = colIdToIndex(colIdAttr);
+        if(!Number.isInteger(colIdx) || colIdx < 0){
+          return;
+        }
+        const canExclude = !exclusionController.isColumnExcluded(colIdx);
+        const canInclude = exclusionController.isColumnExcluded(colIdx);
+        const items = [
+          {
+            label: 'Exclude column from analysis',
+            disabled: !canExclude,
+            action: ()=>{
+              applyExclusionChange(`table:${debugLabel}:exclude-col`, ()=>{
+                exclusionController.markColumns([colIdx], true);
+              });
+              triggerSchedule('exclusion-change', { scope: 'column', exclude: true });
+            }
+          },
+          {
+            label: 'Include column in analysis',
+            disabled: !canInclude,
+            action: ()=>{
+              applyExclusionChange(`table:${debugLabel}:include-col`, ()=>{
+                exclusionController.markColumns([colIdx], false);
+              });
+              triggerSchedule('exclusion-change', { scope: 'column', exclude: false });
+            }
+          }
+        ];
+        openCustomMenu(event, items);
+      };
+
       container.addEventListener('mousedown', handleRowHeaderMouseDown, true);
       container.addEventListener('mousedown', handleColumnHeaderMouseDown, true);
       container.addEventListener('mousedown', handleMouseDown, true);
@@ -3378,6 +3424,7 @@
       doc.addEventListener('click', handleColumnHeaderClick, true);
       container.addEventListener('keydown', handleKeyDown, true);
       container.addEventListener('contextmenu', handleContextMenu, true);
+      container.addEventListener('contextmenu', handleHeaderContextMenuProxy, true);
       container.addEventListener('paste', handlePaste, true);
       cleanupFns.push(()=>{
         container.removeEventListener('mousedown', handleRowHeaderMouseDown, true);
@@ -3390,6 +3437,7 @@
         clearHeaderSortSuppression();
         container.removeEventListener('keydown', handleKeyDown, true);
         container.removeEventListener('contextmenu', handleContextMenu, true);
+        container.removeEventListener('contextmenu', handleHeaderContextMenuProxy, true);
         container.removeEventListener('paste', handlePaste, true);
       });
     }
