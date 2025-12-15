@@ -156,6 +156,25 @@
   let emptyPayloadTemplate = null;
   let scatterLabelColors = {};
   let scatterLabelShapes = {};
+  let scatterLabelStyles = {};
+
+  function clampScatterAlpha(value){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : null;
+  }
+  function clampScatterSize(value){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
+  }
+  function clampScatterBorderWidth(value){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
+  }
+  function getScatterLabelStyle(label){
+    if(!label){ return null; }
+    const style = scatterLabelStyles[label];
+    return style && typeof style === 'object' ? style : null;
+  }
 
   function cloneSimple(value){
     if(!value) return null;
@@ -1857,11 +1876,63 @@
     const scatterAlphaInput = doc.getElementById('scatterAlpha');
     const scatterAlphaVal = doc.getElementById('scatterAlphaVal');
     const scatterLabelKey = target?.__scatterPointData?.label || null;
+    const scopeName = `scatterScope_${Date.now()}`;
+    const scopeField = doc.createElement('label');
+    scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
+    const scopeLabel = doc.createElement('span');
+    scopeLabel.className = 'workspace-toolbar__input-label';
+    scopeLabel.textContent = 'Scope';
+    const scopeSelect = doc.createElement('select');
+    scopeSelect.name = scopeName;
+    scopeSelect.className = 'workspace-toolbar__select';
+    scopeSelect.style.minWidth = '120px';
+    const optLabel = doc.createElement('option');
+    optLabel.value = 'label';
+    optLabel.textContent = 'Label';
+    optLabel.disabled = !scatterLabelKey;
+    const optGlobal = doc.createElement('option');
+    optGlobal.value = 'global';
+    optGlobal.textContent = 'Global';
+    scopeSelect.appendChild(optLabel);
+    scopeSelect.appendChild(optGlobal);
+    scopeSelect.value = scatterLabelKey ? 'label' : 'global';
+    scopeField.appendChild(scopeLabel);
+    scopeField.appendChild(scopeSelect);
+    wrap.appendChild(scopeField);
 
     const applyAndDispatch = (inputEl, value, type = 'input') => {
       if(!inputEl){ return; }
       inputEl.value = value;
       inputEl.dispatchEvent(new Event(type, { bubbles: true }));
+    };
+    const useLabelScope = () => scopeSelect.value === 'label' && !!scatterLabelKey;
+    const ensureLabelStyle = () => {
+      if(!scatterLabelKey){ return null; }
+      const existing = scatterLabelStyles[scatterLabelKey];
+      if(existing && typeof existing === 'object'){
+        return existing;
+      }
+      scatterLabelStyles[scatterLabelKey] = {};
+      return scatterLabelStyles[scatterLabelKey];
+    };
+    const applyLabelStylePatch = patch => {
+      const style = ensureLabelStyle();
+      if(!style){ return; }
+      Object.assign(style, patch);
+      scheduleDrawScatter();
+    };
+    const applyGlobalStylePatch = (key, value) => {
+      Object.keys(scatterLabelStyles).forEach(k => {
+        scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { [key]: value });
+      });
+      scheduleDrawScatter();
+    };
+    const applyGlobalColor = value => {
+      if(scatterFillInput){
+        applyAndDispatch(scatterFillInput, value);
+      }
+      Object.keys(scatterLabelColors).forEach(k => { scatterLabelColors[k] = value; });
+      scheduleDrawScatter();
     };
 
     // Fill color
@@ -1871,15 +1942,15 @@
     try{ colorInput.value = resolvedFill; }catch(e){}
     colorInput.addEventListener('input', () => {
       const nextColor = colorInput.value;
-      if(scatterLabelKey){
+      if(useLabelScope() && scatterLabelKey){
         const prev = scatterLabelColors[scatterLabelKey] || '';
         scatterLabelColors[scatterLabelKey] = nextColor;
         target.setAttribute('fill', nextColor);
         if(prev !== nextColor){
           scheduleDrawScatter();
         }
-      }else if(scatterFillInput){
-        applyAndDispatch(scatterFillInput, nextColor);
+      }else{
+        applyGlobalColor(nextColor);
       }
     });
     if(typeof Shared.attachColorPickerNear === 'function'){
@@ -1895,8 +1966,15 @@
     const resolvedBorder = scatterBorderInput?.value || target.getAttribute('stroke') || '#000000';
     try{ borderInput.value = resolvedBorder; }catch(e){}
     borderInput.addEventListener('input', () => {
-      if(scatterBorderInput){
-        applyAndDispatch(scatterBorderInput, borderInput.value);
+      const next = borderInput.value;
+      if(useLabelScope() && scatterLabelKey){
+        applyLabelStylePatch({ borderColor: next });
+      }else if(scatterBorderInput){
+        applyAndDispatch(scatterBorderInput, next);
+        Object.keys(scatterLabelStyles).forEach(k => {
+          scatterLabelStyles[k] = Object.assign({}, scatterLabelStyles[k], { borderColor: next });
+        });
+        scheduleDrawScatter();
       }
     });
     if(typeof Shared.attachColorPickerNear === 'function'){
@@ -1920,8 +1998,13 @@
     borderWidthInput.addEventListener('input', () => {
       const numeric = Number(borderWidthInput.value);
       const next = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
-      if(scatterBorderWidthInput){
-        applyAndDispatch(scatterBorderWidthInput, String(next));
+      if(useLabelScope() && scatterLabelKey){
+        applyLabelStylePatch({ borderWidth: next });
+      }else{
+        if(scatterBorderWidthInput){
+          applyAndDispatch(scatterBorderWidthInput, String(next));
+        }
+        applyGlobalStylePatch('borderWidth', next);
       }
     });
     wrap.appendChild(makeInput('Border', borderWidthInput));
@@ -1939,9 +2022,18 @@
     }
     sizeInput.addEventListener('input', () => {
       const numeric = Number(sizeInput.value);
-      if(scatterDotSizeInput){
-        const next = Number.isFinite(numeric) ? Math.max(0, numeric) : '';
-        applyAndDispatch(scatterDotSizeInput, String(next));
+      const next = Number.isFinite(numeric) ? Math.max(0, numeric) : null;
+      if(useLabelScope() && scatterLabelKey){
+        if(next != null){
+          applyLabelStylePatch({ size: next });
+        }
+      }else{
+        if(scatterDotSizeInput && next != null){
+          applyAndDispatch(scatterDotSizeInput, String(next));
+        }
+        if(next != null){
+          applyGlobalStylePatch('size', next);
+        }
       }
     });
     wrap.appendChild(makeInput('Size', sizeInput));
@@ -1961,11 +2053,16 @@
     opacityInput.addEventListener('input', () => {
       const pct = Number(opacityInput.value);
       const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 0;
-      if(scatterAlphaInput){
-        applyAndDispatch(scatterAlphaInput, String(normalized));
-      }
-      if(scatterAlphaVal){
-        scatterAlphaVal.textContent = String(normalized);
+      if(useLabelScope() && scatterLabelKey){
+        applyLabelStylePatch({ alpha: normalized });
+      }else{
+        if(scatterAlphaInput){
+          applyAndDispatch(scatterAlphaInput, String(normalized));
+        }
+        if(scatterAlphaVal){
+          scatterAlphaVal.textContent = String(normalized);
+        }
+        applyGlobalStylePatch('alpha', normalized);
       }
       opacityValue.textContent = `${Math.round(normalized * 100)}%`;
     });
@@ -5489,15 +5586,20 @@
           svg3.appendChild(pointLayer);
           let maxPointRight=contentRightBound;
           sortedPoints.forEach(entry => {
+            const styleOverride = getScatterLabelStyle(entry.data?.label || null);
+            const markerAlpha = styleOverride && styleOverride.alpha != null ? clampScatterAlpha(styleOverride.alpha) : alpha;
+            const markerBorderWidth = styleOverride && styleOverride.borderWidth != null ? clampScatterBorderWidth(styleOverride.borderWidth) : borderWidthPx;
+            const markerSize = styleOverride && styleOverride.size != null ? clampScatterSize(styleOverride.size) : dotSizePx;
+            const markerBorderColor = styleOverride && styleOverride.borderColor ? styleOverride.borderColor : borderColor;
             const marker = createScatterMarkerElement(entry.shape, {
               cx: entry.projected.x,
               cy: entry.projected.y,
-              radius: dotSizePx,
+              radius: markerSize != null ? markerSize : dotSizePx,
               fill: entry.color,
-              stroke: borderWidthPx>0 ? borderColor : null,
-              strokeWidth: borderWidthPx>0 ? borderWidthPx : 0,
-              fillOpacity: 1 - alpha,
-              strokeOpacity: 1 - alpha
+              stroke: markerBorderWidth>0 ? markerBorderColor : null,
+              strokeWidth: markerBorderWidth>0 ? markerBorderWidth : 0,
+              fillOpacity: 1 - (markerAlpha != null ? markerAlpha : alpha),
+              strokeOpacity: 1 - (markerAlpha != null ? markerAlpha : alpha)
             });
             if(!marker){ return; }
             pointLayer.appendChild(marker);
@@ -5508,7 +5610,7 @@
               z: entry.data.z,
               graphType: 'scatter'
             });
-            const approxRight = entry.projected?.x + dotSizePx + (borderWidthPx>0 ? borderWidthPx : 0);
+            const approxRight = entry.projected?.x + (markerSize != null ? markerSize : dotSizePx) + (markerBorderWidth>0 ? markerBorderWidth : 0);
             if(Number.isFinite(approxRight)){
               maxPointRight = Math.max(maxPointRight, approxRight);
             }
@@ -5903,18 +6005,23 @@
           const markerShape = isBubbleView ? 'circle' : (scatterCurrentGraphType==='scatter'
             ? (useUniformLabelStyle ? 'circle' : (labelShapeLookup.get(p.label) || 'circle'))
             : 'circle');
+          const styleOverride = getScatterLabelStyle(p.label || null);
+          const markerAlpha = styleOverride && styleOverride.alpha != null ? clampScatterAlpha(styleOverride.alpha) : alpha;
+          const markerBorderWidth = styleOverride && styleOverride.borderWidth != null ? clampScatterBorderWidth(styleOverride.borderWidth) : borderWidthPx;
+          const radiusOverride = styleOverride && styleOverride.size != null ? clampScatterSize(styleOverride.size) : null;
           const markerRadius = isBubbleView && resolveBubbleRadius
             ? resolveBubbleRadius(p)
-            : dotSizePx;
+            : (radiusOverride != null ? radiusOverride : dotSizePx);
+          const markerBorderColor = styleOverride && styleOverride.borderColor ? styleOverride.borderColor : borderColor;
           const marker = createScatterMarkerElement(markerShape, {
             cx: cxVal,
             cy: cyVal,
             radius: markerRadius,
             fill: color,
-            stroke: borderWidthPx>0 ? borderColor : null,
-            strokeWidth: borderWidthPx>0 ? borderWidthPx : 0,
-            fillOpacity: 1 - alpha,
-            strokeOpacity: 1 - alpha
+            stroke: markerBorderWidth>0 ? markerBorderColor : null,
+            strokeWidth: markerBorderWidth>0 ? markerBorderWidth : 0,
+            fillOpacity: 1 - (markerAlpha != null ? markerAlpha : alpha),
+            strokeOpacity: 1 - (markerAlpha != null ? markerAlpha : alpha)
           });
           if(!marker){
             continue;
@@ -6567,8 +6674,9 @@
             border:scatterBorder.value,
             borderWidth:scatterBorderWidth.value,
             alpha:scatterAlpha.value,
-            labelColors:scatterLabelColors,
-            labelShapes:scatterLabelShapes,
+            labelColors:{ ...scatterLabelColors },
+            labelShapes:{ ...scatterLabelShapes },
+            labelStyles:{ ...scatterLabelStyles },
             showGrid:scatterShowGrid.checked,
             showFrame:scatterShowFrame.checked,
             showLegend:scatterShowLegend ? scatterShowLegend.checked : true,
@@ -6715,6 +6823,7 @@
         scatterAlpha.value=c.alpha||0;
         scatterAlphaVal.textContent=scatterAlpha.value;
         scatterLabelColors=c.labelColors||{};
+        scatterLabelStyles=c.labelStyles||{};
         scatterLabelShapes=c.labelShapes||{};
         scatterShowGrid.checked=!!c.showGrid;
         scatterShowFrame.checked=!!c.showFrame;

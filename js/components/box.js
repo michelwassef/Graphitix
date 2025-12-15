@@ -786,6 +786,29 @@
     const traceIndex = parentGroup?.dataset?.trace != null ? String(parentGroup.dataset.trace) : null;
     const resolveTargets = () => parentGroup ? Array.from(parentGroup.querySelectorAll('line[data-summary-line="1"]')) : [target];
     const persisted = traceIndex != null && state.summaryStyles ? state.summaryStyles[traceIndex] : null;
+    const scopeName = `boxSummaryScope_${Date.now()}`;
+    const scopeField = doc.createElement('label');
+    scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
+    const scopeLabel = doc.createElement('span');
+    scopeLabel.className = 'workspace-toolbar__input-label';
+    scopeLabel.textContent = 'Scope';
+    const scopeSelect = doc.createElement('select');
+    scopeSelect.name = scopeName;
+    scopeSelect.className = 'workspace-toolbar__select';
+    scopeSelect.style.minWidth = '120px';
+    const optTrace = doc.createElement('option');
+    optTrace.value = 'trace';
+    optTrace.textContent = 'Trace';
+    optTrace.disabled = traceIndex == null;
+    const optGlobal = doc.createElement('option');
+    optGlobal.value = 'global';
+    optGlobal.textContent = 'Global';
+    scopeSelect.appendChild(optTrace);
+    scopeSelect.appendChild(optGlobal);
+    scopeSelect.value = traceIndex != null ? 'trace' : 'global';
+    scopeField.appendChild(scopeLabel);
+    scopeField.appendChild(scopeSelect);
+    wrap.appendChild(scopeField);
 
     // Color picker
     const colorInput = doc.createElement('input');
@@ -793,11 +816,25 @@
     const initialColor = persisted?.color || target.getAttribute('stroke') || '#000000';
     try{ colorInput.value = initialColor; }catch(e){}
     colorInput.addEventListener('input', () => {
-      resolveTargets().forEach(node => node.setAttribute('stroke', colorInput.value));
+      const next = colorInput.value;
+      resolveTargets().forEach(node => node.setAttribute('stroke', next));
+      if(scopeSelect.value === 'global'){
+        state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, { color: next });
+        if(state.summaryStyles && typeof state.summaryStyles === 'object'){
+          Object.keys(state.summaryStyles).forEach(k => {
+            state.summaryStyles[k] = Object.assign({}, state.summaryStyles[k] || {}, { color: next });
+          });
+        }
+        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+      }
     });
     colorInput.addEventListener('change', () => {
-      if(traceIndex == null){ return; }
-      persistBoxSummaryStyle(traceIndex, { color: colorInput.value });
+      if(scopeSelect.value === 'global'){
+        state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, { color: colorInput.value });
+        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+      }else if(traceIndex != null){
+        persistBoxSummaryStyle(traceIndex, { color: colorInput.value });
+      }
     });
     if(typeof Shared.attachColorPickerNear === 'function'){
       try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
@@ -824,8 +861,18 @@
     });
     thicknessInput.addEventListener('change', () => {
       const numeric = Number(thicknessInput.value);
-      if(traceIndex == null){ return; }
-      persistBoxSummaryStyle(traceIndex, { thickness: Number.isFinite(numeric) ? Math.max(0.2, numeric) : null });
+      const normalized = Number.isFinite(numeric) ? Math.max(0.2, numeric) : null;
+      if(scopeSelect.value === 'global'){
+        state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, { thickness: normalized });
+        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+        if(state.summaryStyles && typeof state.summaryStyles === 'object'){
+          Object.keys(state.summaryStyles).forEach(k => {
+            state.summaryStyles[k] = Object.assign({}, state.summaryStyles[k] || {}, { thickness: normalized });
+          });
+        }
+      }else if(traceIndex != null){
+        persistBoxSummaryStyle(traceIndex, { thickness: normalized });
+      }
     });
     wrap.appendChild(makeInput('Thickness', thicknessInput));
 
@@ -851,9 +898,18 @@
     });
     opacityInput.addEventListener('change', () => {
       const pct = Number(opacityInput.value);
-      if(traceIndex == null){ return; }
       const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 1;
-      persistBoxSummaryStyle(traceIndex, { opacity: normalized });
+      if(scopeSelect.value === 'global'){
+        state.summaryGlobalStyle = Object.assign({}, state.summaryGlobalStyle || {}, { opacity: normalized });
+        if(typeof state.scheduleDraw === 'function'){ state.scheduleDraw(); }
+        if(state.summaryStyles && typeof state.summaryStyles === 'object'){
+          Object.keys(state.summaryStyles).forEach(k => {
+            state.summaryStyles[k] = Object.assign({}, state.summaryStyles[k] || {}, { opacity: normalized });
+          });
+        }
+      }else if(traceIndex != null){
+        persistBoxSummaryStyle(traceIndex, { opacity: normalized });
+      }
     });
     const opacityWrap = doc.createElement('div');
     opacityWrap.style.display = 'inline-flex';
@@ -2985,7 +3041,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, summaryStyles: {} };
+  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, summaryStyles: {}, summaryGlobalStyle: null };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){

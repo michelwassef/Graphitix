@@ -140,6 +140,7 @@
   let lineMinSvgWidth = 0;
   let lineLegendLayoutInfo = createDefaultLineLegendLayoutInfo();
   let lineLegendGuardWidth = chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320;
+  let lineSeriesStyles = {};
 
   function attachLineSelectAutoSize(select, label){
     if(!select){ return; }
@@ -209,6 +210,10 @@
       return max;
     }
     return min;
+  }
+  function clampLineAlpha(value){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : null;
   }
   let lineFileHandle = null;
   let lineFileName = 'line.graph';
@@ -1246,11 +1251,74 @@
     const alphaInput = doc.getElementById('lineAlpha');
     const alphaVal = doc.getElementById('lineAlphaVal');
     const seriesKey = target?.__linePointData?.seriesName || target?.dataset?.series || null;
+    const scopeName = `linePointScope_${Date.now()}`;
+    const scopeField = doc.createElement('label');
+    scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
+    const scopeLabel = doc.createElement('span');
+    scopeLabel.className = 'workspace-toolbar__input-label';
+    scopeLabel.textContent = 'Scope';
+    const scopeSelect = doc.createElement('select');
+    scopeSelect.name = scopeName;
+    scopeSelect.className = 'workspace-toolbar__select';
+    scopeSelect.style.minWidth = '120px';
+    const optSeries = doc.createElement('option');
+    optSeries.value = 'series';
+    optSeries.textContent = 'Series';
+    optSeries.disabled = !seriesKey;
+    const optGlobal = doc.createElement('option');
+    optGlobal.value = 'global';
+    optGlobal.textContent = 'Global';
+    scopeSelect.appendChild(optSeries);
+    scopeSelect.appendChild(optGlobal);
+    scopeSelect.value = seriesKey ? 'series' : 'global';
+    scopeField.appendChild(scopeLabel);
+    scopeField.appendChild(scopeSelect);
+    wrap.appendChild(scopeField);
 
     const applyAndDispatch = (inputEl, value, type = 'input') => {
       if(!inputEl){ return; }
       inputEl.value = value;
       inputEl.dispatchEvent(new Event(type, { bubbles: true }));
+    };
+    const useSeriesScopeStroke = () => scopeSelect.value === 'series' && !!seriesKey;
+    const applySeriesStylePatchStroke = patch => {
+      if(!seriesKey){ return; }
+      const prev = lineSeriesStyles[seriesKey] && typeof lineSeriesStyles[seriesKey] === 'object' ? lineSeriesStyles[seriesKey] : {};
+      lineSeriesStyles[seriesKey] = Object.assign({}, prev, patch);
+      scheduleLineDraw();
+    };
+    const applyGlobalSeriesPatchStroke = (key, value) => {
+      Object.keys(lineSeriesStyles).forEach(k => {
+        lineSeriesStyles[k] = Object.assign({}, lineSeriesStyles[k], { [key]: value });
+      });
+      scheduleLineDraw();
+    };
+    const applyGlobalStrokeColor = value => {
+      if(strokeInput){
+        applyAndDispatch(strokeInput, value);
+      }
+      Object.keys(lineLabelColors).forEach(k => { lineLabelColors[k] = value; });
+      scheduleLineDraw();
+    };
+    const useSeriesScopePoints = () => scopeSelect.value === 'series' && !!seriesKey;
+    const applySeriesStylePatchPoints = patch => {
+      if(!seriesKey){ return; }
+      const prev = lineSeriesStyles[seriesKey] && typeof lineSeriesStyles[seriesKey] === 'object' ? lineSeriesStyles[seriesKey] : {};
+      lineSeriesStyles[seriesKey] = Object.assign({}, prev, patch);
+      scheduleLineDraw();
+    };
+    const applyGlobalSeriesPatchPoints = (key, value) => {
+      Object.keys(lineSeriesStyles).forEach(k => {
+        lineSeriesStyles[k] = Object.assign({}, lineSeriesStyles[k], { [key]: value });
+      });
+      scheduleLineDraw();
+    };
+    const applyGlobalColorPoints = value => {
+      if(fillInput){
+        applyAndDispatch(fillInput, value);
+      }
+      Object.keys(lineLabelColors).forEach(k => { lineLabelColors[k] = value; });
+      scheduleLineDraw();
     };
 
     // Color
@@ -1260,15 +1328,15 @@
     try{ colorInput.value = resolvedFill; }catch(e){}
     colorInput.addEventListener('input', () => {
       const nextColor = colorInput.value;
-      if(seriesKey){
+      if(useSeriesScopePoints() && seriesKey){
         const prev = lineLabelColors[seriesKey] || '';
         lineLabelColors[seriesKey] = nextColor;
         target.setAttribute('fill', nextColor);
         if(prev !== nextColor){
           scheduleLineDraw();
         }
-      }else if(fillInput){
-        applyAndDispatch(fillInput, nextColor);
+      }else{
+        applyGlobalColorPoints(nextColor);
       }
     });
     if(typeof Shared.attachColorPickerNear === 'function'){
@@ -1291,9 +1359,18 @@
     }
     sizeInput.addEventListener('input', () => {
       const numeric = Number(sizeInput.value);
-      if(dotSizeInput){
-        const next = Number.isFinite(numeric) ? Math.max(0, numeric) : '';
-        applyAndDispatch(dotSizeInput, String(next));
+      const next = Number.isFinite(numeric) ? Math.max(0, numeric) : null;
+      if(useSeriesScopePoints() && seriesKey){
+        if(next != null){
+          applySeriesStylePatchPoints({ dotSize: next });
+        }
+      }else{
+        if(dotSizeInput && next != null){
+          applyAndDispatch(dotSizeInput, String(next));
+        }
+        if(next != null){
+          applyGlobalSeriesPatchPoints('dotSize', next);
+        }
       }
     });
     wrap.appendChild(makeInput('Size', sizeInput));
@@ -1313,11 +1390,16 @@
     opacityInput.addEventListener('input', () => {
       const pct = Number(opacityInput.value);
       const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 0;
-      if(alphaInput){
-        applyAndDispatch(alphaInput, String(normalized));
-      }
-      if(alphaVal){
-        alphaVal.textContent = String(normalized);
+      if(useSeriesScopePoints() && seriesKey){
+        applySeriesStylePatchPoints({ alpha: normalized });
+      }else{
+        if(alphaInput){
+          applyAndDispatch(alphaInput, String(normalized));
+        }
+        if(alphaVal){
+          alphaVal.textContent = String(normalized);
+        }
+        applyGlobalSeriesPatchPoints('alpha', normalized);
       }
       opacityValue.textContent = `${Math.round(normalized * 100)}%`;
     });
@@ -1401,6 +1483,35 @@
     const alphaInput = doc.getElementById('lineAlpha');
     const alphaVal = doc.getElementById('lineAlphaVal');
     const seriesKey = target?.dataset?.series || null;
+    const scopeName = `lineStrokeScope_${Date.now()}`;
+    const scopeField = doc.createElement('div');
+    scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
+    const scopeLabel = doc.createElement('span');
+    scopeLabel.className = 'workspace-toolbar__input-label';
+    scopeLabel.textContent = 'Scope';
+    const scopeSeries = doc.createElement('label');
+    scopeSeries.style.display = 'inline-flex';
+    scopeSeries.style.alignItems = 'center';
+    scopeSeries.style.gap = '4px';
+    const radioSeries = doc.createElement('input');
+    radioSeries.type = 'radio'; radioSeries.name = scopeName; radioSeries.value = 'series';
+    radioSeries.checked = !!seriesKey;
+    radioSeries.disabled = !seriesKey;
+    scopeSeries.appendChild(radioSeries);
+    scopeSeries.appendChild(doc.createTextNode('Series'));
+    const scopeGlobal = doc.createElement('label');
+    scopeGlobal.style.display = 'inline-flex';
+    scopeGlobal.style.alignItems = 'center';
+    scopeGlobal.style.gap = '4px';
+    const radioGlobal = doc.createElement('input');
+    radioGlobal.type = 'radio'; radioGlobal.name = scopeName; radioGlobal.value = 'global';
+    radioGlobal.checked = !seriesKey;
+    scopeGlobal.appendChild(radioGlobal);
+    scopeGlobal.appendChild(doc.createTextNode('Global'));
+    scopeField.appendChild(scopeLabel);
+    scopeField.appendChild(scopeSeries);
+    scopeField.appendChild(scopeGlobal);
+    wrap.appendChild(scopeField);
 
     const applyAndDispatch = (inputEl, value, type = 'input') => {
       if(!inputEl){ return; }
@@ -1415,15 +1526,15 @@
     try{ colorInput.value = resolvedStroke; }catch(e){}
     colorInput.addEventListener('input', () => {
       const nextColor = colorInput.value;
-      if(seriesKey){
+      if(useSeriesScopeStroke() && seriesKey){
         const prev = lineLabelColors[seriesKey] || '';
         lineLabelColors[seriesKey] = nextColor;
         target.setAttribute('stroke', nextColor);
         if(prev !== nextColor){
           scheduleLineDraw();
         }
-      }else if(strokeInput){
-        applyAndDispatch(strokeInput, nextColor);
+      }else{
+        applyGlobalStrokeColor(nextColor);
       }
     });
     if(typeof Shared.attachColorPickerNear === 'function'){
@@ -1447,8 +1558,13 @@
     widthInput.addEventListener('input', () => {
       const numeric = Number(widthInput.value);
       const next = Number.isFinite(numeric) ? Math.max(0, numeric) : 0;
-      if(strokeWidthInput){
-        applyAndDispatch(strokeWidthInput, String(next));
+      if(useSeriesScopeStroke() && seriesKey){
+        applySeriesStylePatchStroke({ strokeWidth: next });
+      }else{
+        if(strokeWidthInput){
+          applyAndDispatch(strokeWidthInput, String(next));
+        }
+        applyGlobalSeriesPatchStroke('strokeWidth', next);
       }
     });
     wrap.appendChild(makeInput('Thickness', widthInput));
@@ -1468,11 +1584,16 @@
     opacityInput.addEventListener('input', () => {
       const pct = Number(opacityInput.value);
       const normalized = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 0;
-      if(alphaInput){
-        applyAndDispatch(alphaInput, String(normalized));
-      }
-      if(alphaVal){
-        alphaVal.textContent = String(normalized);
+      if(useSeriesScopeStroke() && seriesKey){
+        applySeriesStylePatchStroke({ alpha: normalized });
+      }else{
+        if(alphaInput){
+          applyAndDispatch(alphaInput, String(normalized));
+        }
+        if(alphaVal){
+          alphaVal.textContent = String(normalized);
+        }
+        applyGlobalSeriesPatchStroke('alpha', normalized);
       }
       opacityValue.textContent = `${Math.round(normalized * 100)}%`;
     });
@@ -3242,7 +3363,8 @@
         borderWidth:refs.borderWidth?.value,
         errorBarWidth:refs.errorBarWidth?.value ?? refs.borderWidth?.value,
         alpha:refs.alpha?.value,
-        labelColors:lineLabelColors,
+        labelColors:{ ...lineLabelColors },
+        seriesStyles:{ ...lineSeriesStyles },
         displayMode: sanitizeLineDisplayMode(refs.displayMode?.value ?? lineDisplayMode),
         showGrid:refs.showGrid?.checked,
         showFrame:refs.showFrame?.checked,
@@ -3381,6 +3503,7 @@
     }
     lineDisplayMode = restoredDisplayMode;
     lineLabelColors=c.labelColors||{};
+    lineSeriesStyles=c.seriesStyles||{};
     if(refs.showGrid) refs.showGrid.checked=!!c.showGrid;
     if(refs.showFrame) refs.showFrame.checked=!!c.showFrame;
     if(refs.showLegend) refs.showLegend.checked=c.showLegend !== false;
@@ -4452,6 +4575,10 @@
       const seriesElems=[];
       seriesWithData.forEach((s,i)=>{
         const color=colors[i];
+        const styleOverride = lineSeriesStyles[s.name] || {};
+        const seriesAlpha = styleOverride && styleOverride.alpha != null ? clampLineAlpha(styleOverride.alpha) : alpha;
+        const seriesStrokeWidth = Number.isFinite(Number(styleOverride.strokeWidth)) ? Number(styleOverride.strokeWidth) : borderWidthPx;
+        const seriesDotSize = Number.isFinite(Number(styleOverride.dotSize)) ? Number(styleOverride.dotSize) : dotSizePx;
         if(showIntervals && s.regression?.intervals?.samples?.length){
           const intervalLayer=document.createElementNS(NS,'g');
           intervalLayer.setAttribute('data-layer',`interval-${i}`);
@@ -4568,13 +4695,13 @@
               const markerShape = seriesShapes[i] || s.shape || 'circle';
               const marker=createLineMarkerShape(document, markerShape, {
                 index: i,
-                radius: dotSizePx,
+                radius: seriesDotSize,
                 cx: px,
                 cy: py,
                 fill: lineLabelColors[s.name] || fill,
-                fillOpacity: 1 - alpha,
+                fillOpacity: 1 - (seriesAlpha != null ? seriesAlpha : alpha),
                 strokeWidth: 0,
-                strokeOpacity: 1 - alpha
+                strokeOpacity: 1 - (seriesAlpha != null ? seriesAlpha : alpha)
               });
               if(marker){
                 attachLineMarkerTooltip(marker, s, pt);
@@ -4625,8 +4752,8 @@
         const pathAttrs={
           d:pathStr,
           stroke:color,
-          'stroke-width':borderWidthPx,
-          'stroke-opacity':1-alpha,
+          'stroke-width':seriesStrokeWidth,
+          'stroke-opacity':1-(seriesAlpha != null ? seriesAlpha : alpha),
           fill:'none'
         };
         pathAttrs['data-render-mode']=displayModeCurrent;
