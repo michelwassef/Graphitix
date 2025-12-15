@@ -1138,14 +1138,21 @@
         try{ Shared.hideAllFormatControls(); }catch(e){}
       }
     }catch(e){}
+    // Also ensure component hosts are hidden and cleaned again before we attach
+    try{
+      if(Shared && typeof Shared.hideComponentHosts === 'function'){
+        try{ Shared.hideComponentHosts(); }catch(e){}
+      }
+    }catch(e){}
     // (axis panel will open after hiding other FORMAT controls)
     activeConfig = config;
     brokenAxisConfigExpanded = false;
     const host = resolveToolbarHost(config.scopeId);
     if(host){
-      // remove any point-format controls so axis open doesn't show point controls
+      // remove any point-format or workspace toolbar forms so axis open doesn't
+      // show lingering component controls in the same host
       try{
-        host.querySelectorAll('.box-point-controls, [data-point-controls="1"]').forEach(n => n.remove());
+        host.querySelectorAll('.box-point-controls, .workspace-toolbar__form, [data-point-controls="1"]').forEach(n => n.remove());
       }catch(e){}
       if(panelEl.parentElement !== host){
         host.appendChild(panelEl);
