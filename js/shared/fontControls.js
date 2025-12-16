@@ -2098,6 +2098,11 @@
     const scopeLabelEl = doc.createElement('span');
     scopeLabelEl.className = 'font-controls-panel__field-label';
     scopeLabelEl.textContent = 'Scope:';
+    const scopeWrapper = doc.createElement('div');
+    scopeWrapper.className = 'font-controls-panel__select-wrapper';
+    const scopeList = doc.createElement('div');
+    scopeList.className = 'font-controls-panel__select-menu';
+    scopeList.hidden = true;
     scopeSelectEl = doc.createElement('select');
     scopeSelectEl.className = 'font-controls-panel__select';
     const scopeSelectionOpt = doc.createElement('option');
@@ -2108,8 +2113,10 @@
     scopeGraphOpt.textContent = 'Graph';
     scopeSelectEl.appendChild(scopeSelectionOpt);
     scopeSelectEl.appendChild(scopeGraphOpt);
+    scopeWrapper.appendChild(scopeSelectEl);
+    scopeWrapper.appendChild(scopeList);
     scopeFieldEl.appendChild(scopeLabelEl);
-    scopeFieldEl.appendChild(scopeSelectEl);
+    scopeFieldEl.appendChild(scopeWrapper);
     controlsRow.appendChild(scopeFieldEl);
     scopeSelectEl.value = getScopeMode(currentScope);
     scopeSelectEl.addEventListener('change', () => {
