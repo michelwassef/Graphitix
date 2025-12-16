@@ -582,6 +582,8 @@
         : `${def.endIdx}-${def.startIdx}`;
       const isSilhouette = hullEdgeKeys.has(edgeKey);
       const isOccluded = depthAvg < centerDepth && !isSilhouette;
+      const startProj = project(startRot);
+      const endProj = project(endRot);
       const midRot = {
         x: ((startRot?.x || 0) + (endRot?.x || 0)) / 2,
         y: ((startRot?.y || 0) + (endRot?.y || 0)) / 2,
@@ -595,6 +597,8 @@
         edgeKey,
         isSilhouette,
         isOccluded,
+        startProj,
+        endProj,
         midProj
       });
     });
@@ -638,31 +642,39 @@
       for(let yi=0;yi<edgesByAxis.y.length;yi+=1){
         const ey = edgesByAxis.y[yi];
         for(let zi=0;zi<edgesByAxis.z.length;zi+=1){
-          const ez = edgesByAxis.z[zi];
-          const edgeSet = [ex, ey, ez];
-          if(!tripleConnected(edgeSet)){
-            continue;
-          }
-          const occludedCount = edgeSet.reduce((acc, e) => acc + (e.isOccluded ? 1 : 0), 0);
-          const allShareSameVertex = sharesVertex(ex, ey) && sharesVertex(ey, ez) && sharesVertex(ex, ez);
-          const avgLabelY = (ex.midProj.y + ey.midProj.y + ez.midProj.y) / 3;
-          const depthSum = ex.depthAvg + ey.depthAvg + ez.depthAvg;
-          const silhouetteCount = edgeSet.reduce((acc, e) => acc + (e.isSilhouette ? 1 : 0), 0);
-          combos.push({
-            edgeSet,
-            occludedCount,
-            allShareSameVertex,
-            avgLabelY,
-            depthSum,
-            silhouetteCount
-          });
+        const ez = edgesByAxis.z[zi];
+        const edgeSet = [ex, ey, ez];
+        if(!tripleConnected(edgeSet)){
+          continue;
         }
+        const occludedCount = edgeSet.reduce((acc, e) => acc + (e.isOccluded ? 1 : 0), 0);
+        const allShareSameVertex = sharesVertex(ex, ey) && sharesVertex(ey, ez) && sharesVertex(ex, ez);
+        const avgLabelY = (ex.midProj.y + ey.midProj.y + ez.midProj.y) / 3;
+        const avgLabelX = (ex.midProj.x + ey.midProj.x + ez.midProj.x) / 3;
+        const minLabelX = Math.min(
+          ex.startProj.x, ex.endProj.x, ey.startProj.x, ey.endProj.x, ez.startProj.x, ez.endProj.x
+        );
+        const depthSum = ex.depthAvg + ey.depthAvg + ez.depthAvg;
+        const silhouetteCount = edgeSet.reduce((acc, e) => acc + (e.isSilhouette ? 1 : 0), 0);
+        combos.push({
+          edgeSet,
+          occludedCount,
+          allShareSameVertex,
+          avgLabelY,
+          avgLabelX,
+          minLabelX,
+          depthSum,
+          silhouetteCount
+        });
       }
+    }
     }
     combos.sort((a, b) => {
       if(a.occludedCount !== b.occludedCount){ return a.occludedCount - b.occludedCount; }
       if(a.allShareSameVertex !== b.allShareSameVertex){ return a.allShareSameVertex ? 1 : -1; }
       if(a.avgLabelY !== b.avgLabelY){ return b.avgLabelY - a.avgLabelY; } // prefer lower on screen (larger y)
+      if(a.minLabelX !== b.minLabelX){ return a.minLabelX - b.minLabelX; } // push labels leftward when possible
+      if(a.avgLabelX !== b.avgLabelX){ return a.avgLabelX - b.avgLabelX; } // prefer left-most when ties remain
       if(a.depthSum !== b.depthSum){ return b.depthSum - a.depthSum; }
       if(a.silhouetteCount !== b.silhouetteCount){ return b.silhouetteCount - a.silhouetteCount; }
       return 0;
@@ -686,6 +698,8 @@
       occludedCount: combos[0] ? combos[0].occludedCount : null,
       allShareSameVertex: combos[0] ? combos[0].allShareSameVertex : null,
       avgLabelY: combos[0] ? combos[0].avgLabelY : null,
+      avgLabelX: combos[0] ? combos[0].avgLabelX : null,
+      minLabelX: combos[0] ? combos[0].minLabelX : null,
       depthSum: combos[0] ? combos[0].depthSum : null
     });
     const frameEdgeLines = new Map();
