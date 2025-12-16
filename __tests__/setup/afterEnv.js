@@ -5,7 +5,7 @@ const path = require('path');
 
 beforeEach(() => {
   // Reset HT call log
-  if (global.__resetHT__) global.__resetHT__();
+  if (global.__resetGrid__) global.__resetGrid__();
 
   // Load the real HTML body so querySelectors match what main.js expects
   const htmlPath = path.resolve(__dirname, '../../index.html');

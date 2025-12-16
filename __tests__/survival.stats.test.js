@@ -15,8 +15,8 @@ describe('Survival statistics pipeline', () => {
     if (typeof global.__restoreTestDebugLogs === 'function') {
       global.__restoreTestDebugLogs();
     }
-    if (typeof global.__resetHT__ === 'function') {
-      global.__resetHT__();
+    if (typeof global.__resetGrid__ === 'function') {
+      global.__resetGrid__();
     }
     require('../js/vendor.js');
     require('../js/shared/fileIO.js');

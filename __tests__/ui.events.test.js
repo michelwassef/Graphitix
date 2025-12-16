@@ -194,8 +194,8 @@ describe('UI events and example loaders', () => {
     if (typeof global.__restoreTestDebugLogs === 'function') {
       global.__restoreTestDebugLogs();
     }
-    if (typeof global.__resetHT__ === 'function') {
-      global.__resetHT__();
+    if (typeof global.__resetGrid__ === 'function') {
+      global.__resetGrid__();
     }
     // Ensure fresh app init
     require('../js/vendor.js');
@@ -251,7 +251,7 @@ describe('UI events and example loaders', () => {
     expect(btn).toBeTruthy();
     btn.click();
     await flushAsyncWork();
-    const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'hot');
+    const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'hot');
     // At least one loadData for #hot with header row ['Control', ...]
     expect(loads.length).toBeGreaterThan(0);
     const populated = loads.find(call => Array.isArray(call.firstRow) && call.firstRow.some(value => value === 'Control'));
@@ -553,7 +553,7 @@ describe('UI events and example loaders', () => {
     expect(btn).toBeTruthy();
     btn.click();
     await flushAsyncWork();
-    const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'histHot');
+    const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'histHot');
     expect(loads.length).toBeGreaterThan(0);
     const populated = loads.find(call => Array.isArray(call.firstRow) && call.firstRow.includes('Exam Score'));
     expect(populated?.firstRow).toEqual(expect.arrayContaining(['Exam Score']));
@@ -566,7 +566,7 @@ describe('UI events and example loaders', () => {
     expect(btn).toBeTruthy();
     btn.click();
     await flushAsyncWork();
-    const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'pieHot');
+    const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'pieHot');
     expect(loads.length).toBeGreaterThan(0);
     const populated = loads.find(call => {
       if (!Array.isArray(call.firstRow)) return false;
@@ -582,7 +582,7 @@ describe('UI events and example loaders', () => {
     expect(btn).toBeTruthy();
     btn.click();
     await flushAsyncWork();
-    const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'heatmapHot');
+    const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'heatmapHot');
     expect(loads.length).toBeGreaterThan(0);
     const populated = loads.find(call => {
       if (!Array.isArray(call.firstRow)) return false;
@@ -598,7 +598,7 @@ describe('UI events and example loaders', () => {
     expect(btn).toBeTruthy();
     btn.click();
     await flushAsyncWork();
-    const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'surfaceHot');
+    const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'surfaceHot');
     expect(loads.length).toBeGreaterThan(0);
   });
 
@@ -610,7 +610,7 @@ describe('UI events and example loaders', () => {
       expect(btn).toBeTruthy();
       btn.click();
       await flushAsyncWork();
-      const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'rocHot');
+      const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'rocHot');
       expect(loads.length).toBeGreaterThan(0);
       const firstRow = loads[loads.length - 1].firstRow;
       expect(firstRow).toEqual(expect.arrayContaining(['Label', 'Model1', 'Model2']));
@@ -667,7 +667,7 @@ describe('UI events and example loaders', () => {
     expect(btn).toBeTruthy();
     btn.click();
     await flushAsyncWork();
-    const loads = (global.__HT_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'survivalHot');
+    const loads = (global.__GRID_CALLS__ || []).filter(c => c.type === 'loadData' && c.containerId === 'survivalHot');
     expect(loads.length).toBeGreaterThan(0);
     const populated = loads.find(call => Array.isArray(call.firstRow) && call.firstRow[0] === 'Control');
     expect(populated?.firstRow).toEqual(['Control', 1.2, 1]);

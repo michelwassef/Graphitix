@@ -9,8 +9,8 @@ describe('App initialization', () => {
     if (typeof global.__restoreTestDebugLogs === 'function') {
       global.__restoreTestDebugLogs();
     }
-    if (typeof global.__resetHT__ === 'function') {
-      global.__resetHT__();
+    if (typeof global.__resetGrid__ === 'function') {
+      global.__resetGrid__();
     }
   });
 
@@ -71,7 +71,7 @@ describe('App initialization', () => {
     // Chart defaults should be set by main.js
     expect(global.Chart.defaults.locale).toBe('en-US');
 
-    const getConstructedIds = () => (global.__HT_CALLS__ || [])
+    const getConstructedIds = () => (global.__GRID_CALLS__ || [])
       .filter(c => c.type === 'construct')
       .map(c => c.containerId);
 

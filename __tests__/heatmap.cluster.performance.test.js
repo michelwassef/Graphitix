@@ -12,8 +12,8 @@ describe('heatmap hierarchical clustering performance', () => {
     if(typeof global.__restoreTestDebugLogs === 'function'){
       global.__restoreTestDebugLogs();
     }
-    if(typeof global.__resetHT__ === 'function'){
-      global.__resetHT__();
+    if(typeof global.__resetGrid__ === 'function'){
+      global.__resetGrid__();
     }
   });
 

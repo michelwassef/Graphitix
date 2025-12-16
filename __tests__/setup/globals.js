@@ -159,168 +159,59 @@ global.Chart = ChartStub;
 // Minimal XLSX namespace stub (only accessed dynamically; keep soft)
 global.XLSX = undefined; // main.js loads it dynamically when needed
 
-// Handsontable stub with basic grid behavior and call tracking
-const HT_CALLS = [];
-class HandsontableInstance {
-  constructor(container, opts = {}) {
-    this._container = container;
-    this._data = (opts && opts.data) || [];
-    this._settings = opts || {};
-    this._selected = null;
-    this.rootElement = container;
-    HT_CALLS.push({ type: 'construct', containerId: container?.id, opts });
-  }
-  loadData(d) { this._data = d; HT_CALLS.push({ type: 'loadData', containerId: this._container?.id, rows: d?.length, firstRow: Array.isArray(d?.[0]) ? d[0] : null }); }
-  getData() { return this._data; }
-  countRows() { return this._data?.length || 0; }
-  countCols() { return Array.isArray(this._data?.[0]) ? this._data[0].length : 0; }
-  getSelectedLast() { return this._selected; }
-  getDataAtRow(r) { return this._data?.[r] || []; }
-  getDataAtCell(r, c) {
-    const value = this._data?.[r]?.[c];
-    console.debug('Debug: Handsontable stub getDataAtCell',{ row: r, col: c, value });
-    return value;
-  }
-  getDataAtCol(c) { return (this._data || []).map(row => row?.[c]); }
-  updateSettings({ data, minRows, minCols } = {}) {
-    if (data) {
-      this._data = data;
-    }
-    if (typeof minRows === 'number') {
-      this._settings.minRows = minRows;
-    }
-    if (typeof minCols === 'number') {
-      this._settings.minCols = minCols;
-    }
-    HT_CALLS.push({
-      type: 'updateSettings',
-      containerId: this._container?.id,
-      hasData: !!data,
-      minRows: this._settings.minRows,
-      minCols: this._settings.minCols
-    });
-  }
-  getSettings() { return Object.assign({}, this._settings); }
-  setDataAtCell(rowOrChanges, col, value, source) {
-    let entries = [];
-    if (Array.isArray(rowOrChanges)) {
-      if (Array.isArray(rowOrChanges[0])) {
-        entries = rowOrChanges;
-        source = col;
-      } else if (typeof col === 'number') {
-        entries = [[rowOrChanges, col, value]];
+// AG Grid stub with basic grid behavior and call tracking
+const GRID_CALLS = [];
+const createGridApi = (options = {}) => {
+  const api = {
+    _columnDefs: options.columnDefs || [],
+    _rowData: Array.isArray(options.rowData) ? options.rowData : [],
+    setColumnDefs(defs) {
+      this._columnDefs = defs || [];
+      GRID_CALLS.push({ type: 'setColumnDefs' });
+    },
+    setRowData(rows) {
+      this._rowData = Array.isArray(rows) ? rows : [];
+      GRID_CALLS.push({ type: 'setRowData', rows: this._rowData.length });
+    },
+    setGridOption(key, value) {
+      if (key === 'columnDefs') { this.setColumnDefs(value); return; }
+      if (key === 'rowData') { this.setRowData(value); return; }
+      this[key] = value;
+    },
+    applyTransaction(tx = {}) {
+      if (Array.isArray(tx.add) && tx.add.length) {
+        this._rowData.push(...tx.add);
+        GRID_CALLS.push({ type: 'applyTransaction', add: tx.add.length });
       }
-    }
-    entries.forEach(([r, c, val]) => {
-      if (!Array.isArray(this._data[r])) {
-        const cols = Math.max(this.countCols(), (this._settings.minCols || 0));
-        this._data[r] = Array.from({ length: cols }, () => '');
-      }
-      if (this._data[r][c] === undefined) {
-        this._data[r][c] = '';
-      }
-      this._data[r][c] = val;
-    });
-    HT_CALLS.push({ type: 'setDataAtCell', containerId: this._container?.id, entries, source });
-  }
-  populateFromArray(row, col, input, endRow, endCol, _method, source) {
-    const rows = input || [];
-    const entries = [];
-    for (let r = 0; r < rows.length; r += 1) {
-      const srcRow = rows[r] || [];
-      for (let c = 0; c < srcRow.length; c += 1) {
-        const destRow = row + r;
-        const destCol = col + c;
-        if (!Array.isArray(this._data[destRow])) {
-          const cols = Math.max(this.countCols(), (this._settings.minCols || 0), (endCol || destCol) + 1);
-          this._data[destRow] = Array.from({ length: cols }, () => '');
-        }
-        this._data[destRow][destCol] = srcRow[c];
-        entries.push([destRow, destCol, srcRow[c]]);
-      }
-    }
-    HT_CALLS.push({ type: 'populateFromArray', containerId: this._container?.id, entries, source });
-  }
-  alter(action, index, amount = 1, source) {
-    const size = Math.max(0, amount);
-    const insertRowAt = (position) => {
-      const cols = Math.max(this.countCols(), this._settings.minCols || 0);
-      this._data.splice(position, 0, Array.from({ length: cols }, () => ''));
-    };
-    const insertColAt = (position) => {
-      const rows = Math.max(this.countRows(), this._settings.minRows || 0);
-      for (let r = 0; r < rows; r += 1) {
-        if (!Array.isArray(this._data[r])) {
-          this._data[r] = [];
-        }
-        this._data[r].splice(position, 0, ...Array.from({ length: size }, () => ''));
-      }
-    };
-    if (action === 'insert_row') {
-      for (let i = 0; i < size; i += 1) {
-        insertRowAt(index);
-      }
-    } else if (action === 'insert_row_above') {
-      const position = Math.max(0, index);
-      for (let i = 0; i < size; i += 1) {
-        insertRowAt(position);
-      }
-    } else if (action === 'insert_row_below') {
-      const position = Math.min(Math.max(0, index) + 1, this._data.length);
-      for (let i = 0; i < size; i += 1) {
-        insertRowAt(position);
-      }
-    } else if (action === 'remove_row') {
-      this._data.splice(index, size);
-    } else if (action === 'insert_col') {
-      insertColAt(index);
-    } else if (action === 'insert_col_start') {
-      insertColAt(0);
-    } else if (action === 'insert_col_end') {
-      const baseCols = Math.max(this.countCols(), this._settings.minCols || 0);
-      const position = Math.max(0, Math.min(baseCols, Math.max(0, index) + 1));
-      insertColAt(position);
-    } else if (action === 'remove_col') {
-      for (let r = 0; r < this.countRows(); r += 1) {
-        if (Array.isArray(this._data[r])) {
-          this._data[r].splice(index, size);
-        }
-      }
-    }
-    HT_CALLS.push({ type: 'alter', containerId: this._container?.id, action, index, amount: size, source });
-  }
-  batch(cb) {
-    HT_CALLS.push({ type: 'batch.start', containerId: this._container?.id });
-    try {
-      cb();
-    } finally {
-      HT_CALLS.push({ type: 'batch.end', containerId: this._container?.id });
-    }
-  }
-  render() {
-    HT_CALLS.push({ type: 'render', containerId: this._container?.id });
-  }
-}
-function Handsontable(container, opts) {
-  return new HandsontableInstance(container, opts);
-}
-Handsontable.helper = {
-  createEmptySpreadsheetData(rows = 0, cols = 0) {
-    const out = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ''));
-    return out;
-  }
+      return { add: tx.add || [] };
+    },
+    refreshCells() { GRID_CALLS.push({ type: 'refreshCells' }); },
+    setHeaderHeight(h) { this._headerHeight = h; GRID_CALLS.push({ type: 'setHeaderHeight', h }); },
+    getDisplayedRowAtIndex(index) { const data = this._rowData?.[index]; return data ? { data, rowIndex: index } : null; },
+    getDisplayedRowCount() { return Array.isArray(this._rowData) ? this._rowData.length : 0; },
+    ensureIndexVisible() {},
+    destroy() { GRID_CALLS.push({ type: 'destroy' }); }
+  };
+  api.columnApi = api;
+  return api;
 };
-Handsontable.renderers = {
-  TextRenderer: function() {}
+
+const createGrid = (container, options = {}) => {
+  const api = createGridApi(options);
+  GRID_CALLS.push({ type: 'construct', containerId: container?.id || null });
+  if (typeof options.onGridReady === 'function') {
+    options.onGridReady({ api, columnApi: api });
+  }
+  return api;
 };
-Handsontable.plugins = Handsontable.plugins || {};
-HandsontableInstance.prototype.constructor = Handsontable;
-global.Handsontable = Handsontable;
-if (global.window && !global.window.Handsontable) {
-  global.window.Handsontable = Handsontable;
+
+global.agGrid = {
+  createGrid,
+  Grid: function Grid(container, options) { return createGrid(container, options); },
+  ModuleRegistry: { registeredModules: [] }
+};
+if (global.window && !global.window.agGrid) {
+  global.window.agGrid = global.agGrid;
 }
-
-// Expose tracking for tests
-global.__HT_CALLS__ = HT_CALLS;
-global.__resetHT__ = () => { HT_CALLS.splice(0, HT_CALLS.length); };
-
+global.__GRID_CALLS__ = GRID_CALLS;
+global.__resetGrid__ = () => { GRID_CALLS.splice(0, GRID_CALLS.length); };
