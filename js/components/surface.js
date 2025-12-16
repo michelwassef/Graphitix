@@ -597,9 +597,20 @@
     for(let rowIndex = startRow; rowIndex < data.length; rowIndex += 1){
       const row = data[rowIndex];
       if(!row){ continue; }
-      const x = Number(row[cols.x]);
-      const y = Number(row[cols.y]);
-      const z = Number(row[cols.z]);
+      // Treat empty/whitespace cells as missing (skip) instead of coercing to 0
+      const rawX = row[cols.x];
+      const rawY = row[cols.y];
+      const rawZ = row[cols.z];
+      const sx = rawX == null ? '' : String(rawX).trim();
+      const sy = rawY == null ? '' : String(rawY).trim();
+      const sz = rawZ == null ? '' : String(rawZ).trim();
+      if(sx === '' || sy === '' || sz === ''){
+        skipped += 1;
+        continue;
+      }
+      const x = Number(sx);
+      const y = Number(sy);
+      const z = Number(sz);
       if(!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)){
         skipped += 1;
         continue;
