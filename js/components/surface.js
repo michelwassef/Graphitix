@@ -70,6 +70,9 @@
   const SURFACE_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const SURFACE_AUTO_DRAW_COL_THRESHOLD = 5000;
   const SURFACE_AUTO_DRAW_CELL_THRESHOLD = 50000;
+  // Parse safety caps to avoid blocking the main thread on extremely large tables
+  const SURFACE_MAX_PARSE_ROWS = 20000;
+  const SURFACE_MAX_PARSE_POINTS = 100000;
 
   const state = {
     hot: null,
@@ -93,6 +96,10 @@
     axisMap: { x: 0, y: 1, z: 2 },
     _listeners: [],
     _hotHooks: [],
+    _facePool: [],
+    _pointPool: [],
+    _facePoolUsed: 0,
+    _pointPoolUsed: 0,
     settings: {
       colorRamp: 'viridis',
       interpolation: 'grid',
@@ -132,6 +139,13 @@
   function markSurfaceOverlayPending(reason){
     surfaceOverlayController?.markPending(reason);
     debugLog('Debug: surface overlay pending flagged', { reason: reason || 'data-change' });
+    try{
+      if(_surfaceOverlayTimeout){ clearTimeout(_surfaceOverlayTimeout); }
+      _surfaceOverlayTimeout = (global.setTimeout || setTimeout)(() => {
+        try{ resolveSurfaceOverlay('timeout'); }catch(e){}
+        debugLog('Debug: surface overlay auto-resolved due to timeout', { reason });
+      }, SURFACE_OVERLAY_TIMEOUT_MS);
+    }catch(e){ /* ignore */ }
   }
 
   function queueSurfaceOverlay(reason, options = {}){
@@ -140,6 +154,7 @@
 
   function resolveSurfaceOverlay(reason){
     surfaceOverlayController?.resolve(reason);
+    try{ if(_surfaceOverlayTimeout){ clearTimeout(_surfaceOverlayTimeout); _surfaceOverlayTimeout = null; } }catch(e){}
   }
 
   function forceSurfaceOverlay(reason, options = {}){
@@ -556,6 +571,12 @@
     if(!Array.isArray(data) || !data.length){
       return { points: [], faces: [], ranges: null, stats: { skipped: 0 } };
     }
+    // Safety: avoid parsing extremely large tables synchronously
+    if(data.length > SURFACE_MAX_PARSE_ROWS){
+      const stats = { vertexCount: 0, faceCount: 0, gridColumns: 0, gridRows: 0, gridCells: 0, gridExpected: 0, gridComplete: false, skipped: data.length, zMin: NaN, zMax: NaN, tooLarge: true };
+      debugLog('Debug: surface parse aborted - table too large', { rows: data.length, threshold: SURFACE_MAX_PARSE_ROWS });
+      return { points: [], faces: [], ranges: null, stats };
+    }
     const cols = getSelectedColumns();
     const xValues = new Set();
     const yValues = new Set();
@@ -580,6 +601,11 @@
       const y = Number(row[cols.y]);
       const z = Number(row[cols.z]);
       if(!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)){
+        skipped += 1;
+        continue;
+      }
+      // Protect against extremely large point counts
+      if(points.length >= SURFACE_MAX_PARSE_POINTS){
         skipped += 1;
         continue;
       }
@@ -1043,17 +1069,32 @@
     if(fontControls && typeof fontControls.enableForSvg === 'function'){
       fontControls.enableForSvg(svg, { scopeId: 'surface' });
     }
-    while(svg.firstChild){ svg.removeChild(svg.firstChild); }
     const doc = svg.ownerDocument || global.document;
-    const backgroundLayer = doc.createElementNS(NS, 'g');
-    backgroundLayer.setAttribute('class', 'surface-layer surface-layer-background');
-    svg.appendChild(backgroundLayer);
-    const geometryLayer = doc.createElementNS(NS, 'g');
-    geometryLayer.setAttribute('class', 'surface-layer surface-layer-geometry');
-    svg.appendChild(geometryLayer);
-    const axisLayer = doc.createElementNS(NS, 'g');
-    axisLayer.setAttribute('class', 'surface-layer surface-layer-axes');
-    svg.appendChild(axisLayer);
+    // Ensure <defs> exists for gradients/etc
+    let defs = svg.querySelector('defs');
+    if(!defs){
+      defs = doc.createElementNS(NS, 'defs');
+      svg.insertBefore(defs, svg.firstChild || null);
+    }
+    // Reuse or create stable layer groups to avoid removing/recreating every draw
+    let backgroundLayer = svg.querySelector('g.surface-layer-background');
+    if(!backgroundLayer){
+      backgroundLayer = doc.createElementNS(NS, 'g');
+      backgroundLayer.setAttribute('class', 'surface-layer surface-layer-background');
+      svg.appendChild(backgroundLayer);
+    }
+    let geometryLayer = svg.querySelector('g.surface-layer-geometry');
+    if(!geometryLayer){
+      geometryLayer = doc.createElementNS(NS, 'g');
+      geometryLayer.setAttribute('class', 'surface-layer surface-layer-geometry');
+      svg.appendChild(geometryLayer);
+    }
+    let axisLayer = svg.querySelector('g.surface-layer-axes');
+    if(!axisLayer){
+      axisLayer = doc.createElementNS(NS, 'g');
+      axisLayer.setAttribute('class', 'surface-layer surface-layer-axes');
+      svg.appendChild(axisLayer);
+    }
     const fontInfo = typeof chartStyle.resolveScaledFontSize === 'function'
       ? chartStyle.resolveScaledFontSize({ rawSize: state.settings.fontSize, width, height, svgBox: state.svgBox, input: state.controls.fontSize })
       : { scaledPx: state.settings.fontSize, scaleInfo: null };
@@ -1139,6 +1180,10 @@
       z: clampTicks(scaleZ.ticks, ranges.z)
     };
     if(typeof plot3d.renderAxesAndGrid === 'function'){
+      // Clear previous render output from axis and background layers to avoid
+      // accumulation when renderers append new nodes each draw (e.g., on rotate).
+      try{ while(axisLayer.firstChild){ axisLayer.removeChild(axisLayer.firstChild); } }catch(e){}
+      try{ while(backgroundLayer.firstChild){ backgroundLayer.removeChild(backgroundLayer.firstChild); } }catch(e){}
       plot3d.renderAxesAndGrid({
         svg: axisLayer,
         project: projectRotated,
@@ -1222,36 +1267,67 @@
       ? 'grid'
       : (parsed.faces.length ? state.settings.interpolation : 'scatter');
     if(parsed.faces.length && effectiveMode === 'grid'){
-      const faceGroup = doc.createElementNS(NS, 'g');
-      faceGroup.setAttribute('class', 'surface-faces');
+      let faceGroup = geometryLayer.querySelector('g.surface-faces');
+      if(!faceGroup){
+        faceGroup = doc.createElementNS(NS, 'g');
+        faceGroup.setAttribute('class', 'surface-faces');
+        geometryLayer.appendChild(faceGroup);
+      }
       const projectedFaces = parsed.faces.map(face => {
         const rotated = face.vertices.map(rotatePoint);
         const projected = rotated.map(projectRotated);
         const depth = rotated.reduce((sum, value) => sum + value.z, 0) / rotated.length;
         return { projected, depth, value: face.value };
       }).sort((a, b) => a.depth - b.depth);
+      state._facePoolUsed = 0;
       projectedFaces.forEach(face => {
-        const polygon = doc.createElementNS(NS, 'polygon');
+        let polygon = state._facePool[state._facePoolUsed];
+        if(!polygon){
+          polygon = doc.createElementNS(NS, 'polygon');
+          polygon.setAttribute('class', 'surface-face');
+          state._facePool.push(polygon);
+        }
         polygon.setAttribute('points', face.projected.map(pt => `${pt.x.toFixed(2)},${pt.y.toFixed(2)}`).join(' '));
         polygon.setAttribute('fill', colorFor(face.value));
         polygon.setAttribute('fill-opacity', 0.95);
         polygon.setAttribute('stroke', 'rgba(0,0,0,0.25)');
         polygon.setAttribute('stroke-width', Math.max(axisStrokeWidth * 0.6, 0.6));
-        faceGroup.appendChild(polygon);
+        // append to group to ensure draw order
+        if(polygon.parentNode !== faceGroup){
+          faceGroup.appendChild(polygon);
+        } else {
+          faceGroup.appendChild(polygon);
+        }
+        polygon.style.display = '';
+        state._facePoolUsed += 1;
       });
-      geometryLayer.appendChild(faceGroup);
+      // hide any unused polygons but keep in pool
+      for(let i = state._facePoolUsed; i < state._facePool.length; i += 1){
+        const extra = state._facePool[i];
+        try{ if(extra && extra.style){ extra.style.display = 'none'; } }catch(e){}
+      }
     }
     if(state.settings.showPoints || effectiveMode !== 'grid'){
-      const pointGroup = doc.createElementNS(NS, 'g');
-      pointGroup.setAttribute('class', 'surface-points');
+      let pointGroup = geometryLayer.querySelector('g.surface-points');
+      if(!pointGroup){
+        pointGroup = doc.createElementNS(NS, 'g');
+        pointGroup.setAttribute('class', 'surface-points');
+        geometryLayer.appendChild(pointGroup);
+      }
       const projectedPoints = parsed.points.map(point => {
         const rotated = rotatePoint(point);
         const projected = projectRotated(rotated);
         return { x: projected.x, y: projected.y, depth: rotated.z, value: point.z };
       }).sort((a, b) => a.depth - b.depth);
       const radius = Math.max(2.5, Math.min(6, Math.sqrt(Math.max(plotWidth * plotHeight / Math.max(projectedPoints.length * 45, 1), 4))));
+      state._pointPoolUsed = 0;
       projectedPoints.forEach(entry => {
-        const circle = doc.createElementNS(NS, 'circle');
+        let circle = state._pointPool[state._pointPoolUsed];
+        if(!circle){
+          circle = doc.createElementNS(NS, 'circle');
+          circle.setAttribute('class', 'surface-point');
+          state._pointPool.push(circle);
+        }
         circle.setAttribute('cx', entry.x);
         circle.setAttribute('cy', entry.y);
         circle.setAttribute('r', radius);
@@ -1259,39 +1335,55 @@
         circle.setAttribute('stroke', 'rgba(0,0,0,0.25)');
         circle.setAttribute('stroke-width', Math.max(axisStrokeWidth * 0.4, 0.4));
         circle.setAttribute('opacity', effectiveMode === 'grid' ? 0.78 : 0.95);
-        pointGroup.appendChild(circle);
+        if(circle.parentNode !== pointGroup){
+          pointGroup.appendChild(circle);
+        } else {
+          pointGroup.appendChild(circle);
+        }
+        circle.style.display = '';
+        state._pointPoolUsed += 1;
       });
-      geometryLayer.appendChild(pointGroup);
+      for(let i = state._pointPoolUsed; i < state._pointPool.length; i += 1){
+        const extra = state._pointPool[i];
+        try{ if(extra && extra.style){ extra.style.display = 'none'; } }catch(e){}
+      }
     }
-    const title = doc.createElementNS(NS, 'text');
-    title.setAttribute('x', margin.left + plotWidth / 2);
+    let title = svg.querySelector('text[data-graph-title]');
     const titleBaseY = Math.max(fs, margin.top * 0.55);
-    title.setAttribute('y', titleBaseY);
-    title.setAttribute('text-anchor', 'middle');
-    title.setAttribute('font-size', fs);
-    title.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
-    title.textContent = state.labels.title;
-    markFontEditable(title, 'graphTitle', 'graphTitle');
     const applySurfaceTitle = value => {
       const trimmed = value != null ? String(value).trim() : '';
       const resolved = trimmed || 'Surface Plot';
       state.labels.title = resolved;
-      if(title.textContent !== resolved){
+      if(title && title.textContent !== resolved){
         title.textContent = resolved;
       }
       state.scheduleDraw?.();
       return resolved;
     };
-    makeEditableHelper(title, text => {
-      const previous = state.labels.title || 'Surface Plot';
-      const nextValue = applySurfaceTitle(text);
-      if(previous === nextValue){
-        return;
-      }
-      recordSurfaceChange('surface:title', previous, nextValue, val => { applySurfaceTitle(val); return true; });
-    }, { scopeId: 'surface', key: 'graphTitle' });
-    title.setAttribute('data-graph-title', '1');
-    svg.appendChild(title);
+    if(!title){
+      title = doc.createElementNS(NS, 'text');
+      title.setAttribute('x', margin.left + plotWidth / 2);
+      title.setAttribute('y', titleBaseY);
+      title.setAttribute('text-anchor', 'middle');
+      title.setAttribute('font-size', fs);
+      title.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
+      title.textContent = state.labels.title;
+      markFontEditable(title, 'graphTitle', 'graphTitle');
+      makeEditableHelper(title, text => {
+        const previous = state.labels.title || 'Surface Plot';
+        const nextValue = applySurfaceTitle(text);
+        if(previous === nextValue){ return; }
+        recordSurfaceChange('surface:title', previous, nextValue, val => { applySurfaceTitle(val); return true; });
+      }, { scopeId: 'surface', key: 'graphTitle' });
+      title.setAttribute('data-graph-title', '1');
+      svg.appendChild(title);
+    } else {
+      // update position/size and text only
+      try{ title.setAttribute('x', margin.left + plotWidth / 2); }catch(e){}
+      try{ title.setAttribute('y', titleBaseY); }catch(e){}
+      try{ title.setAttribute('font-size', fs); }catch(e){}
+      if(title.textContent !== state.labels.title){ title.textContent = state.labels.title; }
+    }
     if(axisLabelBounds.length && typeof title.getBBox === 'function'){
       try {
         const padding = Math.max(fs * 0.45, 10);
@@ -1488,6 +1580,24 @@
     if(typeof state.ensureHotForActiveTab === 'function'){
       state.ensureHotForActiveTab();
     }
+    // When switching to a tab, ensure any prior rendered geometry is cleared
+    try{
+      cacheDom();
+      if(state.svg){
+        const geometryLayer = state.svg.querySelector && state.svg.querySelector('g.surface-layer-geometry');
+        if(geometryLayer){
+          const faceGroup = geometryLayer.querySelector && geometryLayer.querySelector('g.surface-faces');
+          const pointGroup = geometryLayer.querySelector && geometryLayer.querySelector('g.surface-points');
+          try{ if(faceGroup){ while(faceGroup.firstChild){ faceGroup.removeChild(faceGroup.firstChild); } } }catch(e){}
+          try{ if(pointGroup){ while(pointGroup.firstChild){ pointGroup.removeChild(pointGroup.firstChild); } } }catch(e){}
+        }
+        // reset pools so we don't reuse nodes from previous tab
+        try{ if(Array.isArray(state._facePool)){ state._facePool.length = 0; state._facePoolUsed = 0; } }catch(e){}
+        try{ if(Array.isArray(state._pointPool)){ state._pointPool.length = 0; state._pointPoolUsed = 0; } }catch(e){}
+      }
+    }catch(e){ debugLog('Debug: surface prepareForTab clear failed', { message: e?.message || String(e) }); }
+    // schedule a fresh draw for the active tab
+    state.scheduleDraw?.();
   };
 
   function applySurfacePayload(payload, meta){
@@ -1714,6 +1824,9 @@
       if(state.svg){
         try{ while(state.svg.firstChild){ state.svg.removeChild(state.svg.firstChild); } }catch(e){ /* noop */ }
       }
+      // clear pooled elements arrays
+      try{ if(Array.isArray(state._facePool)){ state._facePool.length = 0; state._facePoolUsed = 0; } }catch(e){}
+      try{ if(Array.isArray(state._pointPool)){ state._pointPool.length = 0; state._pointPoolUsed = 0; } }catch(e){}
       try{ resolveSurfaceOverlay('destroy'); }catch(e){}
       if(fontControls && typeof fontControls.disableForSvg === 'function'){
         try{ fontControls.disableForSvg(state.svg, { scopeId: 'surface' }); }catch(e){}
