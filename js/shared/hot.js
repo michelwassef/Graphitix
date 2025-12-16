@@ -1,4 +1,4 @@
-// Shared helpers for Handsontable setup and wrapper sizing
+// Shared helpers for grid setup (AG Grid-backed) and wrapper sizing
 // Exposes Shared.ensureHotWrapperStyles(wrapper) and Shared.createEmptyData(rows, cols)
 (function(global){
   'use strict';
@@ -456,10 +456,6 @@
     const targetRows = Math.max(0, rows | 0);
     const enforcedCols = Math.max(MIN_INPUT_COLS, cols | 0);
     console.debug('Debug: createEmptyData enforcing minimum columns', { requestedRows: rows, requestedCols: cols, targetRows, enforcedCols }); // Debug: verify min column enforcement
-    if(global.Handsontable && global.Handsontable.helper && global.Handsontable.helper.createEmptySpreadsheetData){
-      return global.Handsontable.helper.createEmptySpreadsheetData(targetRows, enforcedCols);
-    }
-    // Fallback if Handsontable is not present yet (tests)
     return Array.from({length: targetRows}, () => Array.from({length: enforcedCols}, () => ''));
   }
 

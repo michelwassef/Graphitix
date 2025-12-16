@@ -90,7 +90,7 @@ async function flushAsyncWork(iterations = 10){
   }
 }
 
-describe('Workspace tab Handsontable defaults', () => {
+describe('Workspace tab grid defaults', () => {
   let restoreJStat;
 
   beforeEach(() => {
@@ -155,7 +155,7 @@ describe('Workspace tab Handsontable defaults', () => {
     console.log = originalLog;
   });
 
-  test('New PCA tab resets to default Handsontable dimensions after large dataset', async () => {
+  test('New PCA tab resets to default grid dimensions after large dataset', async () => {
     await activateWorkspace('pca');
     const defaultRows = window.Components?.pca?.createEmptyPayload?.().data.length || 0;
     const defaultCols = window.Components?.pca?.createEmptyPayload?.().data?.[0]?.length || 0;

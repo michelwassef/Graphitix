@@ -10516,77 +10516,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
         }else if(graphTypeRaw === 'strip'){
           annotationMaxByTrace[i] = summary.max;
-          const pointEntries = valueList.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value }));
-          const swarm = computeSwarmOffsets(pointEntries, {
-            axisSpacing: localBand,
-            pointRadius,
-            sampleSize: sampleCount,
-            orientation: 'vertical'
+          const swarmResult = renderSwarmPointsVertical({
+            valueList,
+            cx,
+            localBand,
+            sampleCount,
+            traceIndex: i,
+            tooltipSeriesName,
+            tooltipCategoryName,
+            tooltipGroupName,
+            fillColor,
+            borderColor,
+            groupAttrs: { 'data-individual': 'true' },
+            opacityMultiplier: 1,
+            debugLabel: 'individual',
+            mean
           });
-          // apply per-trace persisted point styles if present
-          const traceStyle = getPointStyle(i);
-          const effectiveR = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
-          const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
-          const effectiveStroke = (traceStyle && traceStyle.stroke) ? traceStyle.stroke : 'none';
-          const effectiveOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
-          const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
-          // If many points, batch them into a single path of small rects to reduce DOM nodes
-          if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && (effectiveShape === 'circle' || effectiveShape === 'square')){
-            const pts = pointEntries.map(e => ({ x: cx + (swarm.offsets[e.index] || 0), y: e.coord }));
-            const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveR * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: i });
-            const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true', 'data-export-layer': 'box-points' });
-            stripGroup.appendChild(pathNode);
-          }else{
-            const frag = document.createDocumentFragment();
-            pointEntries.forEach(entry => {
-              const offset = swarm.offsets[entry.index] || 0;
-              let node = null;
-              if(effectiveShape === 'circle'){
-                node = document.createElementNS(NS, 'circle');
-                node.setAttribute('cx', cx + offset);
-                node.setAttribute('cy', entry.coord);
-                node.setAttribute('r', effectiveR);
-              }else if(effectiveShape === 'square'){
-                node = document.createElementNS(NS, 'rect');
-                const size = effectiveR * 2;
-                node.setAttribute('x', String(cx + offset - effectiveR));
-                node.setAttribute('y', String(entry.coord - effectiveR));
-                node.setAttribute('width', String(size));
-                node.setAttribute('height', String(size));
-              }else if(effectiveShape === 'triangle'){
-                node = document.createElementNS(NS, 'path');
-                const d = `M ${cx + offset} ${entry.coord - effectiveR} L ${cx + offset + effectiveR} ${entry.coord + effectiveR} L ${cx + offset - effectiveR} ${entry.coord + effectiveR} Z`;
-                node.setAttribute('d', d);
-              }else if(effectiveShape === 'diamond'){
-                node = document.createElementNS(NS, 'path');
-                const d = `M ${cx + offset} ${entry.coord - effectiveR} L ${cx + offset + effectiveR} ${entry.coord} L ${cx + offset} ${entry.coord + effectiveR} L ${cx + offset - effectiveR} ${entry.coord} Z`;
-                node.setAttribute('d', d);
-              }else{
-                node = document.createElementNS(NS, 'circle');
-                node.setAttribute('cx', cx + offset);
-                node.setAttribute('cy', entry.coord);
-                node.setAttribute('r', effectiveR);
-              }
-              if(node){
-                node.setAttribute('fill', effectiveFill);
-                if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
-                node.setAttribute('fill-opacity', String(effectiveOpacity));
-                node.setAttribute('data-shape', effectiveShape);
-                attachBoxPointTooltip(node, {
-                  seriesName: tooltipSeriesName,
-                  categoryName: tooltipCategoryName,
-                  groupName: tooltipGroupName,
-                  value: entry.raw,
-                  rawValue: entry.raw,
-                  index: entry.index
-                });
-                frag.appendChild(node);
-              }
-            });
-            const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true', 'data-export-layer': 'box-points' });
-            stripGroup.appendChild(frag);
-          }
           if(individualSummaryMode !== 'none'){
+            const swarm = swarmResult?.swarm;
+            const summaryRadius = swarmResult?.effectiveRadius != null
+              ? swarmResult.effectiveRadius
+              : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
             const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode });
             summaryGroup.dataset.boxSummary = '1';
             summaryGroup.style.cursor = 'pointer';
@@ -10650,7 +10600,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const cySummary = y2px(value);
-                const halfWidth = Math.max(summaryCap, (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius) * radiusMultiplier, 4);
+                const halfWidth = Math.max(summaryCap, (summaryRadius || pointRadius) * radiusMultiplier, 4);
                 summaryAdd('line',{ x1: cx - halfWidth, y1: cySummary, x2: cx + halfWidth, y2: cySummary, ...summaryStrokeAttrs(summaryStrokeWidth) });
                 return true;
               },
@@ -10666,85 +10616,104 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             };
             applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
           }
-          console.debug('Debug: box individual vertical render',{ index: i, mean, maxOffsetUsed: swarm.maxOffsetUsed, spreadFactor: swarm.spreadFactor, pointCount: sampleCount });
         }
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
-          const frag = document.createDocumentFragment();
-          let ptIdx = 0;
-          // If many points, batch into a single path to reduce DOM size (no per-point tooltips in batched mode)
-          if(pointMode !== 'outliers' && valueList.length > BOX_POINT_BATCH_THRESHOLD){
-            const pts = [];
-            for(const v of valueList){
-              const cy = y2px(v);
-              let px;
-              if(pointMode === 'overlay'){
-                px = cx + (Math.random() - 0.5) * boxW * 0.6;
-              }else{
-                px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
-              }
-              pts.push({ x: px, y: cy });
-              ptIdx++;
-            }
-            const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(pointRadius * 2)), { fill: fillColor, fillOpacity: pointMode === 'overlay' ? 0.6 : 1, stroke: borderColor, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: i });
-            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(pathNode);
-          }else if(pointMode === 'outliers'){
-            for(const v of outliers){
-              const c = document.createElementNS(NS, 'circle');
-              c.setAttribute('cx', cx);
-              c.setAttribute('cy', y2px(v));
-              c.setAttribute('r', pointRadius);
-              c.setAttribute('fill', fillColor);
-              c.setAttribute('stroke', borderColor);
-              annotateWithTitle(c, outlierAnnotation);
-              attachBoxPointTooltip(c, {
-                seriesName: tooltipSeriesName,
-                categoryName: tooltipCategoryName,
-                groupName: tooltipGroupName,
-                value: v,
-                rawValue: v,
-                index: ptIdx
-              });
-              frag.appendChild(c);
-              ptIdx++;
-              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
-                console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token });
-              }
-            }
-            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
+          if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+            renderSwarmPointsVertical({
+              valueList,
+              cx,
+              localBand,
+              sampleCount,
+              traceIndex: i,
+              tooltipSeriesName,
+              tooltipCategoryName,
+              tooltipGroupName,
+              fillColor,
+              borderColor,
+              violinBounds: violinPointBounds,
+              groupAttrs: { 'data-individual': 'true' },
+              opacityMultiplier: 0.6,
+              debugLabel: 'violin-overlay',
+              mean
+            });
           }else{
-            for(const v of valueList){
-              const cy = y2px(v);
-              let px;
-              if(pointMode === 'overlay'){
-                px = cx + (Math.random() - 0.5) * boxW * 0.6;
-              }else{
-                px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
+            const frag = document.createDocumentFragment();
+            let ptIdx = 0;
+            // If many points, batch into a single path to reduce DOM size (no per-point tooltips in batched mode)
+            if(pointMode !== 'outliers' && valueList.length > BOX_POINT_BATCH_THRESHOLD){
+              const pts = [];
+              for(const v of valueList){
+                const cy = y2px(v);
+                let px;
+                if(pointMode === 'overlay'){
+                  px = cx + (Math.random() - 0.5) * boxW * 0.6;
+                }else{
+                  px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
+                }
+                pts.push({ x: px, y: cy });
+                ptIdx++;
               }
-              const c = document.createElementNS(NS, 'circle');
-              c.setAttribute('cx', px);
-              c.setAttribute('cy', cy);
-              c.setAttribute('r', pointRadius);
-              c.setAttribute('fill', fillColor);
-              c.setAttribute('stroke', borderColor);
-              if(pointMode === 'overlay'){
-                c.setAttribute('fill-opacity', 0.6);
+              const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(pointRadius * 2)), { fill: fillColor, fillOpacity: pointMode === 'overlay' ? 0.6 : 1, stroke: borderColor, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: i });
+              add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(pathNode);
+            }else if(pointMode === 'outliers'){
+              for(const v of outliers){
+                const c = document.createElementNS(NS, 'circle');
+                c.setAttribute('cx', cx);
+                c.setAttribute('cy', y2px(v));
+                c.setAttribute('r', pointRadius);
+                c.setAttribute('fill', fillColor);
+                c.setAttribute('stroke', borderColor);
+                annotateWithTitle(c, outlierAnnotation);
+                attachBoxPointTooltip(c, {
+                  seriesName: tooltipSeriesName,
+                  categoryName: tooltipCategoryName,
+                  groupName: tooltipGroupName,
+                  value: v,
+                  rawValue: v,
+                  index: ptIdx
+                });
+                frag.appendChild(c);
+                ptIdx++;
+                if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                  console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token });
+                }
               }
-              attachBoxPointTooltip(c, {
-                seriesName: tooltipSeriesName,
-                categoryName: tooltipCategoryName,
-                groupName: tooltipGroupName,
-                value: v,
-                rawValue: v,
-                index: ptIdx
-              });
-              frag.appendChild(c);
-              ptIdx++;
-              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
-                console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token });
+              add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
+            }else{
+              for(const v of valueList){
+                const cy = y2px(v);
+                let px;
+                if(pointMode === 'overlay'){
+                  px = cx + (Math.random() - 0.5) * boxW * 0.6;
+                }else{
+                  px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
+                }
+                const c = document.createElementNS(NS, 'circle');
+                c.setAttribute('cx', px);
+                c.setAttribute('cy', cy);
+                c.setAttribute('r', pointRadius);
+                c.setAttribute('fill', fillColor);
+                c.setAttribute('stroke', borderColor);
+                if(pointMode === 'overlay'){
+                  c.setAttribute('fill-opacity', 0.6);
+                }
+                attachBoxPointTooltip(c, {
+                  seriesName: tooltipSeriesName,
+                  categoryName: tooltipCategoryName,
+                  groupName: tooltipGroupName,
+                  value: v,
+                  rawValue: v,
+                  index: ptIdx
+                });
+                frag.appendChild(c);
+                ptIdx++;
+                if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                  console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token });
+                }
               }
+              add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
             }
-            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           }
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
@@ -10816,6 +10785,126 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       const valueRange = yScale.max - yScale.min || 1;
       const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
+      const renderSwarmPointsHorizontal = params => {
+        const {
+          valueList,
+          cy,
+          localBand,
+          sampleCount,
+          traceIndex,
+          tooltipSeriesName,
+          tooltipCategoryName,
+          tooltipGroupName,
+          fillColor,
+          borderColor,
+          violinBounds = null,
+          groupAttrs = {},
+          opacityMultiplier = 1,
+          debugLabel = 'individual',
+          mean: meanValue = null
+        } = params || {};
+        const pointEntries = Array.isArray(valueList) ? valueList.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value })) : [];
+        const swarm = computeSwarmOffsets(pointEntries, {
+          axisSpacing: localBand,
+          pointRadius,
+          sampleSize: sampleCount,
+          orientation: 'horizontal'
+        });
+        const traceStyleH = getPointStyle(traceIndex);
+        const baseRadius = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : null;
+        const effectiveRadius = baseRadius != null ? baseRadius : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
+        const effectiveFill = (traceStyleH && traceStyleH.fill) ? traceStyleH.fill : fillColor;
+        const effectiveStroke = (traceStyleH && traceStyleH.stroke) ? traceStyleH.stroke : 'none';
+        const baseOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
+        const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
+        const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
+        const clampOffset = (offset, entry) => {
+          if(!violinBounds){
+            return offset;
+          }
+          const maxHalf = violinBounds(entry.raw);
+          if(!Number.isFinite(maxHalf) || maxHalf <= 0){
+            return 0;
+          }
+          const limit = Math.max(0, maxHalf - effectiveRadius);
+          if(limit <= 0){
+            return 0;
+          }
+          return Math.max(-limit, Math.min(limit, offset));
+        };
+        const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
+        const group = add('g', groupAttributes);
+        let maxOffsetUsed = 0;
+        if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && (effectiveShape === 'circle' || effectiveShape === 'square')){
+          const pts = pointEntries.map(entry => {
+            const offset = clampOffset(swarm.offsets[entry.index] || 0, entry);
+            const abs = Math.abs(offset);
+            if(abs > maxOffsetUsed){
+              maxOffsetUsed = abs;
+            }
+            return { x: entry.coord, y: cy + offset };
+          });
+          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: traceIndex });
+          group.appendChild(pathNode);
+        }else{
+          const frag = document.createDocumentFragment();
+          pointEntries.forEach(entry => {
+            const rawOffset = swarm.offsets[entry.index] || 0;
+            const offset = clampOffset(rawOffset, entry);
+            const abs = Math.abs(offset);
+            if(abs > maxOffsetUsed){
+              maxOffsetUsed = abs;
+            }
+            let node = null;
+            if(effectiveShape === 'circle'){
+              node = document.createElementNS(NS, 'circle');
+              node.setAttribute('cx', entry.coord);
+              node.setAttribute('cy', cy + offset);
+              node.setAttribute('r', effectiveRadius);
+            }else if(effectiveShape === 'square'){
+              node = document.createElementNS(NS, 'rect');
+              const size = effectiveRadius * 2;
+              node.setAttribute('x', String(entry.coord - effectiveRadius));
+              node.setAttribute('y', String(cy + offset - effectiveRadius));
+              node.setAttribute('width', String(size));
+              node.setAttribute('height', String(size));
+            }else if(effectiveShape === 'triangle'){
+              node = document.createElementNS(NS, 'path');
+              const d = `M ${entry.coord} ${cy + offset - effectiveRadius} L ${entry.coord + effectiveRadius} ${cy + offset + effectiveRadius} L ${entry.coord - effectiveRadius} ${cy + offset + effectiveRadius} Z`;
+              node.setAttribute('d', d);
+            }else if(effectiveShape === 'diamond'){
+              node = document.createElementNS(NS, 'path');
+              const d = `M ${entry.coord} ${cy + offset - effectiveRadius} L ${entry.coord + effectiveRadius} ${cy + offset} L ${entry.coord} ${cy + offset + effectiveRadius} L ${entry.coord - effectiveRadius} ${cy + offset} Z`;
+              node.setAttribute('d', d);
+            }else{
+              node = document.createElementNS(NS, 'circle');
+              node.setAttribute('cx', entry.coord);
+              node.setAttribute('cy', cy + offset);
+              node.setAttribute('r', effectiveRadius);
+            }
+            if(node){
+              node.setAttribute('fill', effectiveFill);
+              if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
+              node.setAttribute('fill-opacity', String(effectiveOpacity));
+              node.setAttribute('data-shape', effectiveShape);
+              attachBoxPointTooltip(node, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: entry.raw,
+                rawValue: entry.raw,
+                index: entry.index
+              });
+              frag.appendChild(node);
+            }
+          });
+          group.appendChild(frag);
+        }
+        if(debugEnabled){
+          console.debug('Debug: box individual horizontal render',{ index: traceIndex, mean: meanValue, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), spreadFactor: swarm?.spreadFactor, pointCount: sampleCount, mode: debugLabel, bounded: !!violinBounds });
+        }
+        return { swarm, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), effectiveRadius };
+      };
       const axisCount = Math.max(axisLabels.length, 1);
       // Add a small gap between adjacent category bands so datasets don't touch
       const rawBandH = plotHLocal / axisCount;
@@ -11054,6 +11143,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           : Math.max(0.5, Number.isFinite(borderWidthPx) && borderWidthPx > 0 ? borderWidthPx : 1);
         const opacityOverride = colorInfoH.opacity != null ? Math.min(1, Math.max(0, Number(colorInfoH.opacity))) : null;
         const xMean = valueToX(mean);
+        let violinPointBounds = null;
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           annotationMaxByTrace[i] = wMax;
           const left = Math.min(xQ1, xQ3);
@@ -11254,6 +11344,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           annotationMaxByTrace[i] = Math.max(wMax, violinMaxValue);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
           const halfHeight = Math.max(6, Math.min(80, localBand * 0.45));
+          violinPointBounds = createViolinBoundLookup(densityInfo, halfHeight, peak) || (() => halfHeight);
           const pathParts = [];
           for(let idx = 0; idx < densityInfo.positions.length; idx++){
             const pos = densityInfo.positions[idx];
@@ -11294,69 +11385,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
         }else if(graphTypeRaw === 'strip'){
           annotationMaxByTrace[i] = summary.max;
-          const pointEntries = valueList.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value }));
-          const swarm = computeSwarmOffsets(pointEntries, {
-            axisSpacing: localBand,
-            pointRadius,
-            sampleSize: sampleCount,
-            orientation: 'horizontal'
+          const swarmResult = renderSwarmPointsHorizontal({
+            valueList,
+            cy,
+            localBand,
+            sampleCount,
+            traceIndex: i,
+            tooltipSeriesName,
+            tooltipCategoryName,
+            tooltipGroupName,
+            fillColor,
+            borderColor,
+            groupAttrs: { 'data-individual': 'true' },
+            opacityMultiplier: 1,
+            debugLabel: 'individual',
+            mean
           });
-          const frag = document.createDocumentFragment();
-          // apply per-trace persisted point styles if present
-          const traceStyleH = getPointStyle(i);
-          pointEntries.forEach(entry => {
-            const offset = swarm.offsets[entry.index] || 0;
-            const effectiveR = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
-            const effectiveFill = (traceStyleH && traceStyleH.fill) ? traceStyleH.fill : fillColor;
-            const effectiveStroke = (traceStyleH && traceStyleH.stroke) ? traceStyleH.stroke : 'none';
-            const effectiveOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
-            const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
-            let node = null;
-            if(effectiveShape === 'circle'){
-              node = document.createElementNS(NS, 'circle');
-              node.setAttribute('cx', entry.coord);
-              node.setAttribute('cy', cy + offset);
-              node.setAttribute('r', effectiveR);
-            }else if(effectiveShape === 'square'){
-              node = document.createElementNS(NS, 'rect');
-              const size = effectiveR * 2;
-              node.setAttribute('x', String(entry.coord - effectiveR));
-              node.setAttribute('y', String(cy + offset - effectiveR));
-              node.setAttribute('width', String(size));
-              node.setAttribute('height', String(size));
-            }else if(effectiveShape === 'triangle'){
-              node = document.createElementNS(NS, 'path');
-              const d = `M ${entry.coord} ${cy + offset - effectiveR} L ${entry.coord + effectiveR} ${cy + offset + effectiveR} L ${entry.coord - effectiveR} ${cy + offset + effectiveR} Z`;
-              node.setAttribute('d', d);
-            }else if(effectiveShape === 'diamond'){
-              node = document.createElementNS(NS, 'path');
-              const d = `M ${entry.coord} ${cy + offset - effectiveR} L ${entry.coord + effectiveR} ${cy + offset} L ${entry.coord} ${cy + offset + effectiveR} L ${entry.coord - effectiveR} ${cy + offset} Z`;
-              node.setAttribute('d', d);
-            }else{
-              node = document.createElementNS(NS, 'circle');
-              node.setAttribute('cx', entry.coord);
-              node.setAttribute('cy', cy + offset);
-              node.setAttribute('r', effectiveR);
-            }
-            if(node){
-              node.setAttribute('fill', effectiveFill);
-              if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
-              node.setAttribute('fill-opacity', String(effectiveOpacity));
-              node.setAttribute('data-shape', effectiveShape);
-              attachBoxPointTooltip(node, {
-                seriesName: tooltipSeriesName,
-                categoryName: tooltipCategoryName,
-                groupName: tooltipGroupName,
-                value: entry.raw,
-                rawValue: entry.raw,
-                index: entry.index
-              });
-              frag.appendChild(node);
-            }
-          });
-          const stripGroup = add('g',{ 'data-trace': i, 'data-individual': 'true', 'data-export-layer': 'box-points' });
-          stripGroup.appendChild(frag);
           if(individualSummaryMode !== 'none'){
+            const swarm = swarmResult?.swarm;
+            const summaryRadius = swarmResult?.effectiveRadius != null
+              ? swarmResult.effectiveRadius
+              : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
             const summaryGroup = add('g',{ 'data-trace': i, 'data-summary': individualSummaryMode });
             summaryGroup.dataset.boxSummary = '1';
             summaryGroup.style.cursor = 'pointer';
@@ -11415,7 +11464,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
                   return false;
                 }
                 const xVal = valueToX(value);
-                const halfWidth = Math.max(summaryCap, (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius) * radiusMultiplier, 4);
+                const halfWidth = Math.max(summaryCap, (summaryRadius || pointRadius) * radiusMultiplier, 4);
                 summaryAdd('line',{ x1: xVal - halfWidth, y1: cy, x2: xVal + halfWidth, y2: cy, ...summaryStrokeAttrs(summaryStrokeWidth) });
                 return true;
               },
@@ -11432,69 +11481,89 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             };
             applyIndividualSummaryOverlay(individualSummaryMode, summary, valueList, summaryOps);
           }
-          console.debug('Debug: box individual horizontal render',{ index: i, mean, maxOffsetUsed: swarm.maxOffsetUsed, spreadFactor: swarm.spreadFactor, pointCount: sampleCount });
         }
+
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
-          const frag = document.createDocumentFragment();
-          let ptIdx = 0;
-          if(pointMode === 'outliers'){
-            for(const v of outliers){
-              const c = document.createElementNS(NS, 'circle');
-              c.setAttribute('cx', valueToX(v));
-              c.setAttribute('cy', cy);
-              c.setAttribute('r', pointRadius);
-              c.setAttribute('fill', fillColor);
-              c.setAttribute('stroke', borderColor);
-              annotateWithTitle(c, outlierAnnotation);
-              attachBoxPointTooltip(c, {
-                seriesName: tooltipSeriesName,
-                categoryName: tooltipCategoryName,
-                groupName: tooltipGroupName,
-                value: v,
-                rawValue: v,
-                index: ptIdx
-              });
-              frag.appendChild(c);
-              ptIdx++;
-              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
-                console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
-              }
-            }
+          if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+            renderSwarmPointsHorizontal({
+              valueList,
+              cy,
+              localBand,
+              sampleCount,
+              traceIndex: i,
+              tooltipSeriesName,
+              tooltipCategoryName,
+              tooltipGroupName,
+              fillColor,
+              borderColor,
+              violinBounds: violinPointBounds,
+              groupAttrs: { 'data-individual': 'true' },
+              opacityMultiplier: 0.6,
+              debugLabel: 'violin-overlay',
+              mean
+            });
           }else{
-            for(const v of valueList){
-              const px = valueToX(v);
-              let py;
-              if(pointMode === 'overlay'){
-                py = cy + (Math.random() - 0.5) * boxH * 0.6;
-              }else{
-                py = y0 - boxH * 0.3 + (Math.random() - 0.5) * boxH * 0.2;
+            const frag = document.createDocumentFragment();
+            let ptIdx = 0;
+            if(pointMode === 'outliers'){
+              for(const v of outliers){
+                const c = document.createElementNS(NS, 'circle');
+                c.setAttribute('cx', valueToX(v));
+                c.setAttribute('cy', cy);
+                c.setAttribute('r', pointRadius);
+                c.setAttribute('fill', fillColor);
+                c.setAttribute('stroke', borderColor);
+                annotateWithTitle(c, outlierAnnotation);
+                attachBoxPointTooltip(c, {
+                  seriesName: tooltipSeriesName,
+                  categoryName: tooltipCategoryName,
+                  groupName: tooltipGroupName,
+                  value: v,
+                  rawValue: v,
+                  index: ptIdx
+                });
+                frag.appendChild(c);
+                ptIdx++;
+                if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                  console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
+                }
               }
-              const c = document.createElementNS(NS, 'circle');
-              c.setAttribute('cx', px);
-              c.setAttribute('cy', py);
-              c.setAttribute('r', pointRadius);
-              c.setAttribute('fill', fillColor);
-              c.setAttribute('stroke', borderColor);
-              if(pointMode === 'overlay'){
-                c.setAttribute('fill-opacity', 0.6);
-              }
-              attachBoxPointTooltip(c, {
-                seriesName: tooltipSeriesName,
-                categoryName: tooltipCategoryName,
-                groupName: tooltipGroupName,
-                value: v,
-                rawValue: v,
-                index: ptIdx
-              });
-              frag.appendChild(c);
-              ptIdx++;
-              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
-                console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
+            }else{
+              for(const v of valueList){
+                const px = valueToX(v);
+                let py;
+                if(pointMode === 'overlay'){
+                  py = cy + (Math.random() - 0.5) * boxH * 0.6;
+                }else{
+                  py = y0 - boxH * 0.3 + (Math.random() - 0.5) * boxH * 0.2;
+                }
+                const c = document.createElementNS(NS, 'circle');
+                c.setAttribute('cx', px);
+                c.setAttribute('cy', py);
+                c.setAttribute('r', pointRadius);
+                c.setAttribute('fill', fillColor);
+                c.setAttribute('stroke', borderColor);
+                if(pointMode === 'overlay'){
+                  c.setAttribute('fill-opacity', 0.6);
+                }
+                attachBoxPointTooltip(c, {
+                  seriesName: tooltipSeriesName,
+                  categoryName: tooltipCategoryName,
+                  groupName: tooltipGroupName,
+                  value: v,
+                  rawValue: v,
+                  index: ptIdx
+                });
+                frag.appendChild(c);
+                ptIdx++;
+                if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                  console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
+                }
               }
             }
+            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           }
-          add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
       }

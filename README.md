@@ -4,7 +4,7 @@ Venn is a browser-based analytics workspace that turns tabular data into publica
 
 ## Why Venn?
 - **One workspace, many charts.** Switch between Venn diagrams, box plots, scatter plots, 3D surfaces, dimensionality reduction, line charts, ROC/PR curves, histograms, and proportion plots without leaving the page.
-- **Spreadsheet comfort.** Each module embeds a Handsontable grid with undo/redo, paste-special helpers (including transpose), CSV/TSV/Excel/ODS import, and column reordering.
+- **Spreadsheet comfort.** Each module embeds an AG Grid table with undo/redo, paste-special helpers (including transpose), CSV/TSV/Excel/ODS import, and column reordering.
 - **Inline styling & stats.** Workspace toolbars with undo/redo, axis controls, typography tools, and per-module statistics live beside every chart so you can tune visuals and analyses in real time.
 - **Offline friendly.** Everything runs client-side in HTML, CSS, and vanilla JavaScript; only GO and STRING enrichment lookups require network access.
 - **Reusable sessions.** Save `.graph` files for individual charts or `.session` files for entire multi-tab workspaces, then reopen them later to pick up where you left off.
@@ -24,7 +24,7 @@ Venn is a browser-based analytics workspace that turns tabular data into publica
 | **Histogram** | Distribution summaries | Descriptive statistics (mean, median, SD, Q1, Q3), log scaling, auto binning, PDF/CDF overlays |
 | **Proportion (Pie/Donut/Stacked)** | Category proportions, Chi² tests | Chi² goodness-of-fit test, observed vs. expected frequencies, slice styling, stacked bar axis tools |
 
-All modules share a two-panel layout: Handsontable workspace on the left, responsive SVG canvas with contextual controls on the right. Drag the center divider or canvas resize handle to rebalance your layout per tab—the app remembers your choices for each workspace.
+All modules share a two-panel layout: AG Grid workspace on the left, responsive SVG canvas with contextual controls on the right. Drag the center divider or canvas resize handle to rebalance your layout per tab-the app remembers your choices for each workspace.
 
 ## Statistical Tests & Analyses
 
@@ -265,7 +265,7 @@ Some modules support multiple visualization variants accessible via dropdown con
 - No linting is configured; Jest is the authoritative automated check.
 
 ## Troubleshooting
-- **Large datasets:** Widen the Handsontable pane or SVG canvas using the resizer handles. For extremely wide tables, duplicate tabs to keep context while exploring subsets.
+- **Large datasets:** Widen the AG Grid pane or SVG canvas using the resizer handles. For extremely wide tables, duplicate tabs to keep context while exploring subsets.
 - **Slow renders:** Reduce point counts, enable transparency, or switch to log axes to maintain clarity on dense scatter plots. For volcano plots with thousands of points, consider filtering to show only significant genes.
 - **Network calls:** GO enrichment and STRING network fetches require internet access; all other features operate offline.
 - **Avoid redraw loops:** When modifying layouts from draw routines, call `Shared.syncPanelWidths({ skipSchedule: true })` to prevent recursive scheduling.
@@ -280,4 +280,3 @@ Some modules support multiple visualization variants accessible via dropdown con
 2. Gate verbose logging behind the shared debug toggle and reuse cached data helpers to keep the memory footprint low.
 3. Update automated tests or add new coverage for workflow changes.
 4. Submit pull requests with clear descriptions of user-facing changes and run `npm test` before committing.
-

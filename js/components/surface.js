@@ -22,6 +22,9 @@
 
   surface.__installed = true;
   surface.ready = false;
+  // Unique instance identifier for DOM ids and per-instance caching
+  const SURFACE_INSTANCE_ID = `${Date.now().toString(36)}-${Math.floor(Math.random() * 0xFFFFF).toString(36)}`;
+  surface.__instanceId = SURFACE_INSTANCE_ID;
 
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 80;
@@ -88,6 +91,8 @@
     axisSelects: { x: null, y: null, z: null },
     controls: {},
     axisMap: { x: 0, y: 1, z: 2 },
+    _listeners: [],
+    _hotHooks: [],
     settings: {
       colorRamp: 'viridis',
       interpolation: 'grid',
@@ -107,6 +112,12 @@
     fileName: DEFAULT_FILE_NAME,
     fileHandle: null
   };
+
+  function attachListener(node, type, handler, options){
+    if(!node || typeof node.addEventListener !== 'function'){ return; }
+    node.addEventListener(type, handler, options);
+    try{ state._listeners.push({ node, type, handler, options }); }catch(e){ /* ignore */ }
+  }
   const surfaceOverlayController = Shared.loadingOverlay?.createPendingController?.({
     component: 'surface',
     message: 'Rendering surface plot...',
@@ -254,11 +265,17 @@
   }
 
   function colorScaleFactory(min, max, rampKey){
+    // Memoize factories per range + ramp to avoid recomputing stops for many points
+    const cacheKey = `${min}|${max}|${String(rampKey)}`;
+    if(!colorScaleFactory._cache){ colorScaleFactory._cache = new Map(); }
+    if(colorScaleFactory._cache.has(cacheKey)){
+      return colorScaleFactory._cache.get(cacheKey);
+    }
     const ramp = COLOR_RAMPS[rampKey] || COLOR_RAMPS.viridis;
     const stops = Array.isArray(ramp.stops) && ramp.stops.length ? ramp.stops : COLOR_RAMPS.viridis.stops;
     const rgbStops = stops.map(hex => hexToRgb(hex));
     const span = max - min;
-    return (value) => {
+    const fn = (value) => {
       if(!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || span === 0){
         const mid = rgbStops[Math.floor(rgbStops.length / 2)] || { r: 128, g: 128, b: 128 };
         return `rgb(${mid.r},${mid.g},${mid.b})`;
@@ -272,6 +289,8 @@
       const mixed = mixColor(a, b, frac);
       return `rgb(${mixed.r},${mixed.g},${mixed.b})`;
     };
+    colorScaleFactory._cache.set(cacheKey, fn);
+    return fn;
   }
 
   function niceNum(range, round){
@@ -518,10 +537,13 @@
     state.ensureHotForActiveTab = ensureSurfaceHotForActiveTab;
     if(state.hot && typeof state.hot.addHook === 'function'){
       state.hot.addHook('afterCreateCol', updateAxisOptions);
+      state._hotHooks.push({ name: 'afterCreateCol', fn: updateAxisOptions });
       state.hot.addHook('afterRemoveCol', updateAxisOptions);
+      state._hotHooks.push({ name: 'afterRemoveCol', fn: updateAxisOptions });
       state.hot.addHook('afterColumnMove', updateAxisOptions);
+      state._hotHooks.push({ name: 'afterColumnMove', fn: updateAxisOptions });
     }
-    debugLog('Debug: surface Handsontable initialized', { hasHot: !!state.hot });
+    debugLog('Debug: surface grid initialized', { hasHot: !!state.hot });
     return state.hot;
   }
 
@@ -704,7 +726,7 @@
       defs = doc.createElementNS(NS, 'defs');
       svg.insertBefore(defs, svg.firstChild || null);
     }
-    const gradientId = 'surfaceGradientScale';
+    const gradientId = `surfaceGradientScale-${SURFACE_INSTANCE_ID}`;
     let gradient = defs.querySelector(`#${gradientId}`);
     if(!gradient){
       gradient = doc.createElementNS(NS, 'linearGradient');
@@ -734,6 +756,8 @@
     }
     targetLayer.appendChild(legend);
     while(legend.firstChild){ legend.removeChild(legend.firstChild); }
+    // mark which gradient id this legend relies on so we can safely remove it later
+    try{ legend.setAttribute('data-gradient-id', gradientId); }catch(e){}
     const marginTop = Number.isFinite(options?.margin?.top) ? options.margin.top : 0;
     const marginBottom = Number.isFinite(options?.margin?.bottom) ? options.margin.bottom : 0;
     const rawHeight = Number.isFinite(options?.height)
@@ -778,8 +802,18 @@
   }
 
   function removeLegend(svg){
-    const legend = svg && svg.querySelector('g.surface-legend');
+    if(!svg){ return; }
+    const legend = svg.querySelector('g.surface-legend');
     if(legend && legend.parentNode){
+      // remove associated gradient if present
+      try{
+        const gradId = legend.getAttribute && legend.getAttribute('data-gradient-id');
+        if(gradId){
+          const defs = svg.querySelector('defs');
+          const grad = defs && defs.querySelector && defs.querySelector(`#${gradId}`);
+          if(grad && grad.parentNode){ grad.parentNode.removeChild(grad); }
+        }
+      }catch(e){ /* defensive */ }
       legend.parentNode.removeChild(legend);
     }
   }
@@ -832,7 +866,7 @@
     applySettingsToControls();
     const colorRampSelect = state.controls.colorRamp;
     if(colorRampSelect){
-      colorRampSelect.addEventListener('change', () => {
+      attachListener(colorRampSelect, 'change', () => {
         const value = colorRampSelect.value;
         state.settings.colorRamp = COLOR_RAMPS[value] ? value : 'viridis';
         debugLog('Debug: surface color ramp updated', { value: state.settings.colorRamp });
@@ -841,7 +875,7 @@
     }
     const interpolationSelect = state.controls.interpolation;
     if(interpolationSelect){
-      interpolationSelect.addEventListener('change', () => {
+      attachListener(interpolationSelect, 'change', () => {
         const value = interpolationSelect.value;
         state.settings.interpolation = INTERPOLATION_OPTIONS[value] ? value : 'grid';
         debugLog('Debug: surface interpolation updated', { value: state.settings.interpolation });
@@ -849,7 +883,7 @@
       });
     }
     if(state.controls.fontSize){
-      state.controls.fontSize.addEventListener('input', () => {
+      attachListener(state.controls.fontSize, 'input', () => {
         state.settings.fontSize = Number(state.controls.fontSize.value) || 13;
         if(chartStyle.renderFontSizeLabel){
           chartStyle.renderFontSizeLabel({ element: state.controls.fontSizeVal, pt: state.settings.fontSize, input: state.controls.fontSize, manual: true });
@@ -858,7 +892,7 @@
       });
     }
     if(state.controls.axisStroke){
-      state.controls.axisStroke.addEventListener('input', () => {
+      attachListener(state.controls.axisStroke, 'input', () => {
         state.settings.axisStroke = Number(state.controls.axisStroke.value) || 1.2;
         if(state.controls.axisStrokeVal){ state.controls.axisStrokeVal.textContent = Number(state.settings.axisStroke).toFixed(2); }
         state.scheduleDraw();
@@ -868,7 +902,7 @@
       if(typeof Shared.attachColorPickerNear === 'function'){
         Shared.attachColorPickerNear(state.controls.axisColor);
       }
-      state.controls.axisColor.addEventListener('input', () => {
+      attachListener(state.controls.axisColor, 'input', () => {
         state.settings.axisColor = state.controls.axisColor.value || '#3b3b3b';
         state.scheduleDraw();
       });
@@ -876,7 +910,7 @@
     ['showGrid', 'showFrame', 'showPoints', 'showLegend'].forEach(key => {
       const control = state.controls[key];
       if(!control){ return; }
-      control.addEventListener('change', () => {
+      attachListener(control, 'change', () => {
         state.settings[key] = !!control.checked;
         state.scheduleDraw();
       });
@@ -884,13 +918,13 @@
     ['x', 'y', 'z'].forEach(axis => {
       const select = state.axisSelects[axis];
       if(!select){ return; }
-      select.addEventListener('change', () => {
+      attachListener(select, 'change', () => {
         state.axisMap[axis] = Number(select.value) || state.axisMap[axis];
         state.scheduleDraw();
       });
     });
     if(state.controls.loadExample){
-      state.controls.loadExample.addEventListener('click', () => {
+      attachListener(state.controls.loadExample, 'click', () => {
         const example = buildExampleDataset();
         if(state.hot && typeof state.hot.loadData === 'function'){
           markSurfaceOverlayPending('example-data');
@@ -902,11 +936,11 @@
       });
     }
     if(state.controls.importBtn && state.controls.importFile){
-      state.controls.importBtn.addEventListener('click', () => {
+      attachListener(state.controls.importBtn, 'click', () => {
         state.controls.importFile.value = '';
         state.controls.importFile.click();
       });
-      state.controls.importFile.addEventListener('change', () => {
+      attachListener(state.controls.importFile, 'change', () => {
         if(!tableImport || typeof tableImport.openFile !== 'function'){
           console.warn('surface import skipped: tableImport unavailable');
           return;
@@ -956,17 +990,11 @@
       });
     }
     const saveBtn = global.document.getElementById('saveSurfaceGraph');
-    if(saveBtn){
-      saveBtn.addEventListener('click', () => surface.save());
-    }
+    if(saveBtn){ attachListener(saveBtn, 'click', () => surface.save()); }
     const saveAsBtn = global.document.getElementById('saveAsSurface');
-    if(saveAsBtn){
-      saveAsBtn.addEventListener('click', () => surface.saveAs());
-    }
+    if(saveAsBtn){ attachListener(saveAsBtn, 'click', () => surface.saveAs()); }
     const openBtn = global.document.getElementById('openSurfaceGraph');
-    if(openBtn){
-      openBtn.addEventListener('click', () => surface.open());
-    }
+    if(openBtn){ attachListener(openBtn, 'click', () => surface.open()); }
   }
   function draw(){
     drawSurface();
@@ -1332,7 +1360,7 @@
     cacheDom();
     state.scheduleDraw = () => {};
     if(state.renderButton){
-      state.renderButton.addEventListener('click', () => {
+      attachListener(state.renderButton, 'click', () => {
         debugLog('Debug: surface manual render button');
         const overlayReason = 'manual-render';
         markSurfaceOverlayPending(overlayReason);
@@ -1648,6 +1676,71 @@
   };
 
   surface.__getState = () => state;
+
+  surface.destroy = function destroy(){
+    try{
+      if(state.layout && typeof state.layout.destroy === 'function'){
+        try{ state.layout.destroy(); }catch(e){ debugLog('Debug: surface layout.destroy failed', { message: e?.message || String(e) }); }
+      }
+      // remove any DOM listeners we attached
+      try{
+        if(Array.isArray(state._listeners)){
+          for(let i = 0; i < state._listeners.length; i += 1){
+            const rec = state._listeners[i];
+            try{ if(rec && rec.node && typeof rec.node.removeEventListener === 'function'){ rec.node.removeEventListener(rec.type, rec.handler, rec.options); } }catch(e){ /* ignore */ }
+          }
+        }
+      }catch(e){ /* ignore */ }
+
+      // remove registered hot hooks
+      try{
+        if(Array.isArray(state._hotHooks) && state.hot){
+          for(let i = 0; i < state._hotHooks.length; i += 1){
+            const h = state._hotHooks[i];
+            try{ if(h && typeof state.hot.removeHook === 'function'){ state.hot.removeHook(h.name, h.fn); } }catch(e){ /* ignore */ }
+          }
+        }
+      }catch(e){ /* ignore */ }
+      if(surfaceAutoDrawManager){
+        try{
+          if(typeof surfaceAutoDrawManager.dispose === 'function'){
+            surfaceAutoDrawManager.dispose();
+          } else if(typeof surfaceAutoDrawManager.destroy === 'function'){
+            surfaceAutoDrawManager.destroy();
+          }
+        }catch(e){ debugLog('Debug: surface autoDrawManager cleanup failed', { message: e?.message || String(e) }); }
+        surfaceAutoDrawManager = null;
+      }
+      if(state.svg){
+        try{ while(state.svg.firstChild){ state.svg.removeChild(state.svg.firstChild); } }catch(e){ /* noop */ }
+      }
+      try{ resolveSurfaceOverlay('destroy'); }catch(e){}
+      if(fontControls && typeof fontControls.disableForSvg === 'function'){
+        try{ fontControls.disableForSvg(state.svg, { scopeId: 'surface' }); }catch(e){}
+      }
+      // clear heavy references to allow GC
+      state.hot = null;
+      state.layout = null;
+      state.svg = null;
+      state.svgBox = null;
+      state.statsEl = null;
+      state.messageEl = null;
+      state.exportContainer = null;
+      state.renderRow = null;
+      state.renderButton = null;
+      state.autoDrawNotice = null;
+      state.scheduleDraw = () => {};
+      state.controls = {};
+      state.axisSelects = { x: null, y: null, z: null };
+      state.axisMap = { x: 0, y: 1, z: 2 };
+      // clear cached color factories
+      try{ if(colorScaleFactory._cache && typeof colorScaleFactory._cache.clear === 'function'){ colorScaleFactory._cache.clear(); } }catch(e){}
+      surface.ready = false;
+      debugLog('Debug: surface destroyed');
+    }catch(err){
+      console.error('surface.destroy error', err);
+    }
+  };
 
   if(typeof module !== 'undefined' && module.exports){
     module.exports = surface;

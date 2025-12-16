@@ -3,13 +3,13 @@
 This guide captures the conventions that keep the Venn dashboard consistent across its many visualization workspaces. Every rule applies repository-wide unless a component-specific note states otherwise.
 
 ## 1. Layout & UX Framework
-- **Two-panel structure:** The left third of each workspace hosts the full-height Handsontable input; the right two thirds contain visual output and controls. Keep a draggable divider (`.panel-resizer`) between the panels and mirror the sizing rules in `css/style.css` under `#<Name>Page` selectors.
+- **Two-panel structure:** The left third of each workspace hosts the full-height AG Grid input; the right two thirds contain visual output and controls. Keep a draggable divider (`.panel-resizer`) between the panels and mirror the sizing rules in `css/style.css` under `#<Name>Page` selectors.
 - **Right panel stack:** Place charts on the upper-left, chart controls to their upper-right, and derived statistics in the lower segment. New dashboards should follow the precedent set by the Line Graph page.
 
 ## 2. Coding Standards
 - **Debug instrumentation:** When implementing new logic, add `console.debug`/`console.log` statements gated by `Shared.isDebugEnabled()`. Offer toggle helpers through `Shared.enableDebugLogging()` / `Shared.disableDebugLogging()` and label the messages for easy filtering.
-- **Handsontable behavior:** Build grids through `Shared.hot.createStandardTable` so the grey header row remains intact. For fixed-schema datasets (e.g., survival analysis) disable header rows explicitly and provide `colHeaders`.
-- **Context menu:** Preserve the shared Handsontable context menu extension that injects the *Paste → Transposed* action.
+- **AG Grid behavior:** Build grids through `Shared.hot.createStandardTable` (AG Grid-backed) so the grey header row remains intact. For fixed-schema datasets (e.g., survival analysis) disable header rows explicitly and provide `colHeaders`.
+- **Context menu:** Preserve the shared AG Grid context menu extension that injects the *Paste → Transposed* action.
 - **Data reuse:** Use the cached parsing helpers (`ensureParsedLists`, `state.analysis.lastParsedLists`) instead of cloning large data sets. This keeps the memory footprint minimal.
 - **Error bars:** Suppress error bars when a series/category has a single valid value and log the skip for debugging clarity.
 - **Namespace access:** Expose new helpers through `window.Shared` or `window.Components`. Load lazily via `Main.components.ensureComponent` / `loadComponentBundle` rather than adding inline `<script>` tags.
@@ -40,14 +40,14 @@ This guide captures the conventions that keep the Venn dashboard consistent acro
 - `dom.js` – editable text, SVG autoresize, and sanitized SVG export helpers.
 - `chartStyle.js` – typography scaling, axis math, font normalization, and SVG default styling.
 - `colorPicker.js` – floating palette overlay with shared `<input type="color">` control.
-- `hot.js` – Handsontable styling helpers plus a `createEmptyData` fallback for tests.
+- `hot.js` – Grid wrapper that hosts AG Grid wiring plus a `createEmptyData` fallback for tests.
 - `fileIO.js` – `.graph` file persistence with File System Access API fallbacks and callbacks for saving handles.
 - `tableImport.js` – CSV/TSV/text/Excel/ODS ingestion, lazy XLSX loading, and hook-based preprocessing.
 - `goAnalysis.js`, `stringAnalysis.js`, `uniprot.js` – external API integrations with caching, SVG parsing, and dataset preparation utilities.
 
 ## 5. Component Playbooks
 - **Venn (`venn.js`):** Uses cached list parsing, integrates GO/STRING analysis via Chart.js and network SVGs, and coordinates PNG/SVG/`.graph` exports. Ensure layout sync and API caching stay intact.
-- **Box (`box.js`):** Manages Handsontable state, builds SVG box/violin charts, hooks jStat statistics (t-tests, ANOVA, etc.), and persists configuration/state.
+- **Box (`box.js`):** Manages AG Grid state, builds SVG box/violin charts, hooks jStat statistics (t-tests, ANOVA, etc.), and persists configuration/state.
 - **Scatter (`scatter.js`):** Three-column table, regression statistics, label-based color controls, and SVG exports with optional interval shading.
 - **PCA/MDS/t-SNE/UMAP (`pca.js`):** Multi-column table, solver selection, axis persistence, t-SNE/UMAP control sync, and optional 3D rotation for PCA/MDS.
 - **Line (`line.js`):** Multi-series plotting, regression diagnostics, ARIMA/Holt-Winters forecasting, and legend sizing via `chartStyle`.
@@ -57,7 +57,7 @@ This guide captures the conventions that keep the Venn dashboard consistent acro
 - **ROC/PR (`roc.js`):** Score-based tables, ROC/PR toggles, DeLong comparisons, and SVG export tools.
 
 ## 6. Data & External Integrations
-- **Handsontable:** Always style via `Shared.ensureHotWrapperStyles`. Maintain the clipboard importer and context menu consistency.
+- **AG Grid:** Always style via `Shared.ensureHotWrapperStyles`. Maintain the clipboard importer and context menu consistency.
 - **jStat:** Shared statistical backbone across components.
 - **Chart.js:** Primarily used within the Venn GO analysis; `Chart.defaults.locale` is set in `venn.js`.
 - **SVD-JS:** Powers PCA computations.

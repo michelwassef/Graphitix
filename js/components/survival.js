@@ -519,7 +519,7 @@
     };
     state.hot = ensureSurvivalHotForActiveTab();
     state.ensureHotForActiveTab = ensureSurvivalHotForActiveTab;
-    logDebug('Handsontable initialized', { hasHot: !!state.hot });
+    logDebug('Grid initialized', { hasHot: !!state.hot });
     refreshCovariateControls();
   }
 
@@ -2798,7 +2798,7 @@
       median: Number.isFinite(group.km?.median) ? formatNumber(group.km.median, 2) : 'Not reached'
     }));
     const footnotes = [
-      'Counts and medians derive from the filtered Handsontable input.',
+      'Counts and medians derive from the filtered grid input.',
       '"Not reached" indicates survival remained above 50% at the final timepoint.'
     ];
     renderStatsTableCard(refs.statsSummary, {

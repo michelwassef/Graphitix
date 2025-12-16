@@ -26,7 +26,7 @@ describe('Heatmap stats formatting', () => {
         const instance = originalCreateStandardTable.apply(this, arguments);
         if(instance && arguments?.[0]?.id === 'heatmapHot'){
           global.__LAST_HEATMAP_HOT__ = instance;
-          console.debug('Debug: heatmap stats test captured Handsontable instance', { hasInstance: !!instance }); // Debug: capture test hot instance
+          console.debug('Debug: heatmap stats test captured grid instance', { hasInstance: !!instance }); // Debug: capture test hot instance
         }
         return instance;
       };

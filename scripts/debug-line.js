@@ -98,7 +98,7 @@ async function activateWorkspace(type) {
   line.ensure?.();
   const hot = line.getHot?.();
   if (!hot) {
-    throw new Error('Line Handsontable missing');
+    throw new Error('Line grid missing');
   }
   const matrix = hot.getData();
   matrix[0][0] = 'X';
