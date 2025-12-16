@@ -229,6 +229,11 @@
     8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72
   ];
 
+  const FONT_SCOPE_SELECTION = 'selection';
+  const FONT_SCOPE_GRAPH = 'graph';
+  const GRAPH_SCOPE_TOKEN = '__graph__';
+  const scopeModePreferences = new Map();
+
   const styleStore = new Map();
   const svgRegistry = new WeakSet();
   const svgScopeMap = new WeakMap();
@@ -266,9 +271,13 @@
   let sizeInput = null;
   let previewTextEl = null;
   let targetLabelEl = null;
+  let scopeFieldEl = null;
+  let scopeSelectEl = null;
+  let footerEl = null;
   let currentTarget = null;
   let currentScope = null;
   let currentKey = null;
+  let activeScopeMode = FONT_SCOPE_SELECTION;
   let placementMonitoringAttached = false;
   let knownFontNames = null;
   let appendFontOption = null;
@@ -597,7 +606,12 @@
     } else {
       delete baseSnapshot.inlineSegments;
     }
-    storeStyleForNode(target, baseSnapshot);
+    const scopeId = dataset.fontScope || null;
+    const key = dataset.fontKey || null;
+    const hasSegments = baseSnapshot.inlineSegments && baseSnapshot.inlineSegments.length > 0;
+    const desiredMode = hasSegments ? FONT_SCOPE_SELECTION : getScopeMode(scopeId);
+    const storeContext = resolveStoreContext(target, { scopeId, key, mode: desiredMode });
+    storeStyleForNode(target, baseSnapshot, storeContext);
     logDebug('captureInlineStateForNode', {
       scope: dataset.fontScope || null,
       key: dataset.fontKey || null,
@@ -677,14 +691,19 @@
     return `font:${node.tagName || 'text'}`;
   }
 
-  function applyStyleSnapshot(node, snapshot){
+  function applyStyleSnapshot(node, snapshot, options){
     if(!node){ return; }
+    const storeContext = options?.storeContext || resolveStoreContext(node, {
+      scopeId: options?.scopeId,
+      key: options?.key,
+      mode: options?.mode
+    });
     if(!snapshot || isStyleEmpty(snapshot)){
       clearStyleFromNode(node);
     } else {
       applyStyleToNode(node, snapshot);
     }
-    storeStyleForNode(node, snapshot);
+    storeStyleForNode(node, snapshot, storeContext);
     if(node === currentTarget){
       syncPanelStateFromTarget();
       updatePreviewFromInputs();
@@ -696,6 +715,7 @@
     const manager = Shared.undoManager || undoManager;
     if(!manager || typeof manager.record !== 'function'){ return; }
     if(stylesAreEqual(prevSnapshot, nextSnapshot)){ return; }
+    const storeContext = meta?.storeContext || resolveStoreContext(node);
     const scope = inferUndoScopeForNode(node);
     const label = `font-controls:${describeUndoTarget(node, meta)}`;
     const prevClone = prevSnapshot ? { ...prevSnapshot } : null;
@@ -704,11 +724,11 @@
       label,
       scope,
       undo: () => {
-        applyStyleSnapshot(node, prevClone);
+        applyStyleSnapshot(node, prevClone, { storeContext });
         logDebug('undo applied for style change', { label, scope });
       },
       redo: () => {
-        applyStyleSnapshot(node, nextClone);
+        applyStyleSnapshot(node, nextClone, { storeContext });
         logDebug('redo applied for style change', { label, scope });
       }
     });
@@ -742,8 +762,76 @@
     return active;
   }
 
+  function scopePreferenceKey(scopeId){
+    return scopeId || '__global__';
+  }
+
+  function getScopeMode(scopeId){
+    const key = scopePreferenceKey(scopeId || currentScope);
+    return scopeModePreferences.get(key) || FONT_SCOPE_SELECTION;
+  }
+
+  function setScopeMode(scopeId, mode){
+    const normalized = mode === FONT_SCOPE_GRAPH ? FONT_SCOPE_GRAPH : FONT_SCOPE_SELECTION;
+    activeScopeMode = normalized;
+    scopeModePreferences.set(scopePreferenceKey(scopeId || currentScope), normalized);
+    if(scopeSelectEl && scopeSelectEl.value !== normalized){
+      scopeSelectEl.value = normalized;
+    }
+    if(panelEl){
+      panelEl.dataset.scopeMode = normalized;
+    }
+    refreshScopeFooter();
+    updatePanelContext();
+  }
+
+  function syncScopeModeForCurrentTarget(){
+    const mode = getScopeMode(currentScope);
+    activeScopeMode = mode;
+    if(scopeSelectEl){
+      scopeSelectEl.value = mode;
+    }
+    if(panelEl){
+      panelEl.dataset.scopeMode = mode;
+    }
+    refreshScopeFooter();
+    return mode;
+  }
+
+  function isGraphScopeMode(){
+    return activeScopeMode === FONT_SCOPE_GRAPH;
+  }
+
+  function resolveStoreContext(target, options){
+    const dataset = target?.dataset || {};
+    const scopeId = options?.scopeId ?? dataset.fontScope ?? currentScope ?? null;
+    const key = options?.key ?? dataset.fontKey ?? currentKey ?? null;
+    const mode = options?.mode || getScopeMode(scopeId);
+    if(mode === FONT_SCOPE_GRAPH){
+      return {
+        scopeId,
+        key: GRAPH_SCOPE_TOKEN,
+        mode,
+        storeKey: buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN)
+      };
+    }
+    return {
+      scopeId,
+      key,
+      mode: FONT_SCOPE_SELECTION,
+      storeKey: buildStoreKey(scopeId, key)
+    };
+  }
+
   function handleInlineSelectionPatch(patch, meta){
     if(!currentTarget){ return { handled: false }; }
+    if(isGraphScopeMode()){
+      logDebug('inline selection patch skipped (graph scope active)', {
+        meta,
+        patchKeys: Object.keys(patch || {})
+      });
+      return { handled: false };
+    }
     const inlineState = getInlineState(currentTarget);
     if(!inlineState){ return { handled: false }; }
     if(typeof inlineState.describeSelection === 'function'){
@@ -1498,6 +1586,8 @@
   function updatePanelContext(){
     if(!targetLabelEl){ return; }
     const parts = [];
+    const scopeModeLabel = isGraphScopeMode() ? 'Graph scope' : 'Selection scope';
+    parts.push(scopeModeLabel);
     if(currentTarget){
       const role = humanizeToken(currentTarget.dataset?.fontRole || currentTarget.dataset?.fontKey);
       const scope = humanizeToken(currentTarget.dataset?.fontScope);
@@ -1512,6 +1602,13 @@
     const description = parts.length ? parts.join(' • ') : 'Select text to edit';
     targetLabelEl.textContent = description;
     logDebug('panel context refreshed', { description });
+  }
+
+  function refreshScopeFooter(){
+    if(!footerEl){ return; }
+    footerEl.textContent = isGraphScopeMode()
+      ? 'Changes apply to all fonts in this graph.'
+      : 'Changes apply to the selected text group.';
   }
 
   function updatePreviewText(){
@@ -1775,11 +1872,12 @@
     logDebug('broadcastStyle', { storeKey, hasStyle: !isStyleEmpty(style || null) });
   }
 
-  function storeStyleForNode(node, style){
+  function storeStyleForNode(node, style, options){
     if(!node){ return; }
-    const scope = node.dataset?.fontScope || null;
-    const key = node.dataset?.fontKey || null;
     const dataset = node.dataset || {};
+    const scope = options?.scopeId ?? dataset.fontScope ?? null;
+    const key = options?.key ?? dataset.fontKey ?? null;
+    const storeKey = options?.storeKey || buildStoreKey(scope, key);
     const explicitEditable = dataset.fontEditable === '1';
     if(!explicitEditable && !scope && !key){
       logDebug('storeStyleForNode skipped (no scope/key for implicit node)', {
@@ -1788,18 +1886,18 @@
       });
       return;
     }
-    const storeKey = buildStoreKey(scope, key);
     const normalized = cloneStyleSnapshot(style);
     if(!normalized){
       styleStore.delete(storeKey);
       broadcastStyle(storeKey, null, node);
-      logDebug('storeStyleForNode cleared', { scope, key });
+      logDebug('storeStyleForNode cleared', { scope, key, storeKey });
     } else {
       styleStore.set(storeKey, normalized);
       broadcastStyle(storeKey, normalized, node);
       logDebug('storeStyleForNode saved', {
         scope,
         key,
+        storeKey,
         style: normalized,
         hasInlineSegments: styleHasInlineSegments(normalized)
       });
@@ -1878,7 +1976,8 @@
 
   function storeCurrentStyle(style){
     if(!currentTarget){ return; }
-    storeStyleForNode(currentTarget, style);
+    const context = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
+    storeStyleForNode(currentTarget, style, context);
   }
 
   function syncPanelStateFromTarget(){
@@ -1946,6 +2045,42 @@
 
     const controlsRow = doc.createElement('div');
     controlsRow.className = 'font-controls-panel__controls';
+
+    scopeFieldEl = doc.createElement('label');
+    scopeFieldEl.className = 'font-controls-panel__field font-controls-panel__field--scope';
+    const scopeLabelEl = doc.createElement('span');
+    scopeLabelEl.className = 'font-controls-panel__field-label';
+    scopeLabelEl.textContent = 'Scope';
+    scopeSelectEl = doc.createElement('select');
+    scopeSelectEl.className = 'font-controls-panel__select';
+    const scopeSelectionOpt = doc.createElement('option');
+    scopeSelectionOpt.value = FONT_SCOPE_SELECTION;
+    scopeSelectionOpt.textContent = 'Selection';
+    const scopeGraphOpt = doc.createElement('option');
+    scopeGraphOpt.value = FONT_SCOPE_GRAPH;
+    scopeGraphOpt.textContent = 'Graph';
+    scopeSelectEl.appendChild(scopeSelectionOpt);
+    scopeSelectEl.appendChild(scopeGraphOpt);
+    scopeFieldEl.appendChild(scopeLabelEl);
+    scopeFieldEl.appendChild(scopeSelectEl);
+    controlsRow.appendChild(scopeFieldEl);
+    scopeSelectEl.value = getScopeMode(currentScope);
+    scopeSelectEl.addEventListener('change', () => {
+      setScopeMode(currentScope, scopeSelectEl.value);
+      refreshScopeFooter();
+      updatePanelContext();
+      if(currentTarget){
+        const snapshot = captureStyleSnapshot(currentTarget);
+        if(snapshot){
+          const ctx = resolveStoreContext(currentTarget, {
+            scopeId: currentScope,
+            key: currentKey,
+            mode: scopeSelectEl.value
+          });
+          storeStyleForNode(currentTarget, snapshot, ctx);
+        }
+      }
+    });
 
     const fontField = doc.createElement('label');
     fontField.className = 'font-controls-panel__field font-controls-panel__field--font';
@@ -2385,10 +2520,10 @@
 
     panelEl.appendChild(body);
 
-    const footer = doc.createElement('div');
-    footer.className = 'font-controls-panel__footer';
-    footer.textContent = 'Changes cascade to every element in the selected group.';
-    panelEl.appendChild(footer);
+    footerEl = doc.createElement('div');
+    footerEl.className = 'font-controls-panel__footer';
+    panelEl.appendChild(footerEl);
+    refreshScopeFooter();
 
     updatePanelContext();
     console.debug('Debug: font controls layout refreshed', { sections: controlsRow.children.length, closeButton: false }); // Debug: layout ready
@@ -2403,6 +2538,7 @@
     function commitFontFamily(rawValue, meta){
       if(!currentTarget){ return; }
       const prevStyle = captureStyleSnapshot(currentTarget);
+      const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
       const value = (rawValue || '').trim();
       const inlineResult = handleInlineSelectionPatch({ fontFamily: value || null }, {
         source: meta?.source || 'unknown',
@@ -2422,7 +2558,7 @@
         ...nextStyle,
         fill: nextStyle?.fill || colorInput?.value || null
       };
-      storeCurrentStyle(storePayload);
+      storeStyleForNode(currentTarget, storePayload, storeContext);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -2430,7 +2566,7 @@
         }
       }
       updatePreviewFromInputs();
-      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'font-family' });
+      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'font-family', storeContext });
       logDebug('font family committed', {
         value: value || null,
         source: meta?.source || 'unknown',
@@ -2480,6 +2616,7 @@
     colorInput.addEventListener('input', () => {
       if(!currentTarget) return;
       const prevStyle = captureStyleSnapshot(currentTarget);
+      const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
       const val = colorInput.value;
       const inlineResult = handleInlineSelectionPatch({ fill: val }, {
         source: 'color-input',
@@ -2491,7 +2628,7 @@
       }
       currentTarget.setAttribute('fill', val);
       const nextStyle = captureStyleSnapshot(currentTarget);
-      storeCurrentStyle(nextStyle);
+      storeStyleForNode(currentTarget, nextStyle, storeContext);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -2499,13 +2636,14 @@
         }
       }
       updatePreviewFromInputs();
-      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'fill' });
+      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'fill', storeContext });
       logDebug('colorInput input', { value: val, text: currentTarget.textContent });
     });
 
     function applySizeValueChange(meta){
       if(!currentTarget || !sizeInput){ return; }
       const prevStyle = captureStyleSnapshot(currentTarget);
+      const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
       const normalized = normalizeFontSizeValue(sizeInput.value, { source: meta?.source || 'change' });
       sizeInput.value = normalized;
       highlightSizeMenuSelection(normalized);
@@ -2535,7 +2673,7 @@
         ...nextStyle,
         fill: nextStyle?.fill || colorInput?.value || null
       };
-      storeCurrentStyle(storePayload);
+      storeStyleForNode(currentTarget, storePayload, storeContext);
       if(inlineResult.entire){
         const inlineState = getInlineState(currentTarget);
         if(inlineState && inlineState.baseStyle){
@@ -2543,7 +2681,7 @@
         }
       }
       updatePreviewFromInputs();
-      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'font-size' });
+      recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: 'font-size', storeContext });
       logDebug('sizeInput change', { value: raw, applied: nextStyle?.fontSize || null, text: currentTarget.textContent });
     }
 
@@ -2568,6 +2706,7 @@
       btn.addEventListener('click', () => {
         if(!currentTarget) return;
         const prevStyle = captureStyleSnapshot(currentTarget);
+        const storeContext = resolveStoreContext(currentTarget, { scopeId: currentScope, key: currentKey });
         const isActive = btn.dataset.active === '1';
         const nextActive = !isActive;
         setToggleState(btn, nextActive);
@@ -2597,7 +2736,7 @@
           ...nextStyle,
           fill: nextStyle?.fill || colorInput?.value || null
         };
-        storeCurrentStyle(storePayload);
+        storeStyleForNode(currentTarget, storePayload, storeContext);
         if(inlineResult.entire && propKey){
           const inlineState = getInlineState(currentTarget);
           if(inlineState && inlineState.baseStyle){
@@ -2605,7 +2744,7 @@
           }
         }
         updatePreviewFromInputs();
-        recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: attr });
+        recordStyleUndo(currentTarget, prevStyle, nextStyle, { label: attr, storeContext });
         logDebug('toggle change', { attr, active: nextActive, text: currentTarget.textContent });
         if(typeof config.onToggleApplied === 'function'){
           config.onToggleApplied({ nextActive });
@@ -2698,6 +2837,7 @@
     currentTarget = target;
     currentScope = options?.scopeId || target.dataset?.fontScope || null;
     currentKey = options?.key || target.dataset?.fontKey || null;
+    syncScopeModeForCurrentTarget();
     try {
       const editHighlight = Shared.editHighlight;
       if(editHighlight && typeof editHighlight.highlightText === 'function'){
@@ -2832,7 +2972,14 @@
       if(key){ node.dataset.fontKey = key; }
     }
     const storeKey = buildStoreKey(scopeId, key);
+    const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN);
     registerNodeForKey(node, storeKey);
+    if(graphStoreKey !== storeKey){
+      registerNodeForKey(node, graphStoreKey);
+    }
+    if(styleStore.has(graphStoreKey)){
+      applyStyleToNode(node, styleStore.get(graphStoreKey));
+    }
     if(styleStore.has(storeKey)){
       applyStyleToNode(node, styleStore.get(storeKey));
     }
@@ -2844,6 +2991,10 @@
     const scopeId = node.dataset?.fontScope || null;
     const key = node.dataset?.fontKey || null;
     const storeKey = buildStoreKey(scopeId, key);
+    const graphStoreKey = buildStoreKey(scopeId, GRAPH_SCOPE_TOKEN);
+    if(styleStore.has(graphStoreKey)){
+      applyStyleToNode(node, styleStore.get(graphStoreKey));
+    }
     if(styleStore.has(storeKey)){
       applyStyleToNode(node, styleStore.get(storeKey));
     }
