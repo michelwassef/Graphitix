@@ -1554,8 +1554,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null },
-      y: { tickInterval: null }
+      x: { tickInterval: null, minorTicks: false },
+      y: { tickInterval: null, minorTicks: false }
     };
   }
 
@@ -1580,6 +1580,12 @@
     }
     if(!pcaState.axisSettings.y || typeof pcaState.axisSettings.y !== 'object'){
       pcaState.axisSettings.y = { tickInterval: null };
+    }
+    if(typeof pcaState.axisSettings.x.minorTicks !== 'boolean'){
+      pcaState.axisSettings.x.minorTicks = false;
+    }
+    if(typeof pcaState.axisSettings.y.minorTicks !== 'boolean'){
+      pcaState.axisSettings.y.minorTicks = false;
     }
     const numericStroke = Number(pcaState.axisSettings.strokeWidth);
     pcaState.axisSettings.strokeWidth = Number.isFinite(numericStroke) && numericStroke > 0 ? numericStroke : 1;
@@ -1611,6 +1617,24 @@
     }
     debugLog('Debug: pca axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
     requestPcaViewRefresh(`axis-ticks-${axis}`);
+  }
+
+  function getAxisMinorTicksEnabled(axis){
+    if(axis !== 'x' && axis !== 'y'){ return false; }
+    const settings = ensureAxisSettings();
+    return !!settings[axis]?.minorTicks;
+  }
+
+  function updateAxisMinorTicks(axis, enabled){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const nextValue = !!enabled;
+    if(settings[axis].minorTicks === nextValue){
+      return;
+    }
+    settings[axis].minorTicks = nextValue;
+    debugLog('Debug: pca minor ticks updated',{ axis, enabled: nextValue });
+    requestPcaViewRefresh(`axis-minor-ticks-${axis}`);
   }
 
   function getAxisStrokeWidthBase(){
@@ -1654,6 +1678,8 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
+      base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
     }
     pcaState.axisSettings = base;
     ensureAxisSettings();
@@ -5399,6 +5425,23 @@
       if(axisXStart === axisXEnd){ axisXStart = margin.left; axisXEnd = margin.left + plotW; }
       if(axisYStart === axisYEnd){ axisYStart = margin.top; axisYEnd = margin.top + plotH; }
       debugLog('Debug: pca axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
+      const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+      const minorTicksX = getAxisMinorTicksEnabled('x')
+        ? chartStyle.computeMinorTickPositions({
+            majorTicks: xScale.ticks,
+            min: Number.isFinite(xScale.min) ? xScale.min : xMin,
+            max: Number.isFinite(xScale.max) ? xScale.max : xMax,
+            scale: 'linear'
+          })
+        : [];
+      const minorTicksY = getAxisMinorTicksEnabled('y')
+        ? chartStyle.computeMinorTickPositions({
+            majorTicks: yScale.ticks,
+            min: Number.isFinite(yScale.min) ? yScale.min : yMin,
+            max: Number.isFinite(yScale.max) ? yScale.max : yMax,
+            scale: 'linear'
+          })
+        : [];
       const axisControlConfig = axis => ({
         axis,
         scopeId: 'pca',
@@ -5409,6 +5452,9 @@
         getTickIntervalDisabledMessage: () => 'Tick interval available for numeric axes.',
         tickPlaceholder: 'Auto',
         onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+        getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
+        onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
+        isMinorTicksSupported: () => true,
         onThicknessChange: value => updateAxisStrokeWidth(value),
         onColorChange: value => updateAxisColor(value)
       });
@@ -5429,6 +5475,21 @@
 
       const xTickNodes = [];
       let xTickFontCount = 0;
+      if(minorTicksX.length){
+        minorTicksX.forEach(value => {
+          const x = x2px(value);
+          add('line',{
+            x1: x,
+            y1: margin.top + plotH,
+            x2: x,
+            y2: margin.top + plotH + minorTickStyle.length,
+            stroke: axisStroke,
+            'stroke-width': minorTickStyle.strokeWidth,
+            'stroke-linecap': 'round',
+            opacity: minorTickStyle.opacity
+          });
+        });
+      }
       xScale.ticks.forEach((t, i) => {
         const x = x2px(t);
         add('line', {x1: x, y1: margin.top + plotH, x2: x, y2: margin.top + plotH + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
@@ -5448,6 +5509,21 @@
       chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
 
       let yTickFontCount = 0;
+      if(minorTicksY.length){
+        minorTicksY.forEach(value => {
+          const y = y2px(value);
+          add('line',{
+            x1: margin.left - minorTickStyle.length,
+            y1: y,
+            x2: margin.left,
+            y2: y,
+            stroke: axisStroke,
+            'stroke-width': minorTickStyle.strokeWidth,
+            'stroke-linecap': 'round',
+            opacity: minorTickStyle.opacity
+          });
+        });
+      }
       yScale.ticks.forEach((t, i) => {
         const y = y2px(t);
         add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
@@ -5844,7 +5920,9 @@
           strokeWidth: axisSettings?.strokeWidth,
           color: axisSettings?.color,
           tickIntervalX: axisSettings?.x?.tickInterval ?? null,
-          tickIntervalY: axisSettings?.y?.tickInterval ?? null
+          tickIntervalY: axisSettings?.y?.tickInterval ?? null,
+          minorTicksX: axisSettings?.x?.minorTicks ?? false,
+          minorTicksY: axisSettings?.y?.minorTicks ?? false
         },
         tsne:{
           perplexity:pcaTsnePerplexity?.value ?? DEFAULT_TSNE_SETTINGS.perplexity,

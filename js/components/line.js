@@ -252,8 +252,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } },
-      y: { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, minorTicks: false, notation: 'auto', brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, minorTicks: false, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -273,6 +273,12 @@
     }
     if(!lineAxisSettings.y || typeof lineAxisSettings.y !== 'object'){
       lineAxisSettings.y = { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
+    }
+    if(typeof lineAxisSettings.x.minorTicks !== 'boolean'){
+      lineAxisSettings.x.minorTicks = false;
+    }
+    if(typeof lineAxisSettings.y.minorTicks !== 'boolean'){
+      lineAxisSettings.y.minorTicks = false;
     }
     // Ensure broken axis structures
     if(!lineAxisSettings.x.brokenAxis || typeof lineAxisSettings.x.brokenAxis !== 'object'){
@@ -342,6 +348,26 @@
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
     console.debug('Debug: line axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    if(typeof scheduleLineDraw === 'function'){
+      scheduleLineDraw();
+    }
+  }
+
+  function getLineAxisMinorTicksEnabled(axis){
+    if(axis !== 'x' && axis !== 'y'){ return false; }
+    const settings = ensureLineAxisSettings();
+    return !!settings[axis]?.minorTicks;
+  }
+
+  function updateLineAxisMinorTicks(axis, enabled){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureLineAxisSettings();
+    const nextValue = !!enabled;
+    if(settings[axis].minorTicks === nextValue){
+      return;
+    }
+    settings[axis].minorTicks = nextValue;
+    console.debug('Debug: line minor ticks updated',{ axis, enabled: nextValue });
     if(typeof scheduleLineDraw === 'function'){
       scheduleLineDraw();
     }
@@ -704,6 +730,10 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      const xMinorTicks = settings.minorTicksX ?? settings.x?.minorTicks ?? false;
+      const yMinorTicks = settings.minorTicksY ?? settings.y?.minorTicks ?? false;
+      base.x.minorTicks = !!xMinorTicks;
+      base.y.minorTicks = !!yMinorTicks;
       const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'auto';
       const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
       base.x.notation = sanitizeLineAxisNotation(xNotation);
@@ -3406,6 +3436,8 @@
           color: axisSettings.color,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
+          minorTicksX: axisSettings.x?.minorTicks ?? false,
+          minorTicksY: axisSettings.y?.minorTicks ?? false,
           notationX: axisSettings.x?.notation ?? 'auto',
           notationY: axisSettings.y?.notation ?? 'auto',
           brokenAxis: {
@@ -3541,6 +3573,8 @@
         color: c.axis.color,
         tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
         tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null,
+        minorTicksX: c.axis.minorTicksX ?? c.axis?.x?.minorTicks ?? false,
+        minorTicksY: c.axis.minorTicksY ?? c.axis?.y?.minorTicks ?? false,
         notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'auto',
         notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'auto',
         brokenAxis: c.axis.brokenAxis || {}
@@ -4285,6 +4319,16 @@
         ySegments: brokenYSegments, 
         yBroken: brokenYScale?.isBroken
       });
+
+      const isXValueVisible = value => {
+        if(!brokenXScale || !brokenXScale.isBroken){ return true; }
+        return brokenXScale.segments.some(seg => value >= seg.start && value <= seg.end);
+      };
+
+      const isYValueVisible = value => {
+        if(!brokenYScale || !brokenYScale.isBroken){ return true; }
+        return brokenYScale.segments.some(seg => value >= seg.start && value <= seg.end);
+      };
       
       const x2px=v=>{
         const safeV = Math.min(Math.max(v, xScale.min), xScale.max);
@@ -4303,36 +4347,12 @@
       function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
       if(showGrid){
         xScale.ticks.forEach(t=>{
-          // Only draw grid line if tick falls within a valid segment (for broken axis)
-          if(brokenXScale && brokenXScale.isBroken){
-            let inSegment = false;
-            for(const seg of brokenXScale.segments){
-              if(t >= seg.start && t <= seg.end){
-                inSegment = true;
-                break;
-              }
-            }
-            if(!inSegment){
-              return; // Skip grid lines that fall in gaps
-            }
-          }
+          if(!isXValueVisible(t)){ return; }
           const x=x2px(t);
           add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});
         });
         yScale.ticks.forEach(t=>{
-          // Only draw grid line if tick falls within a valid segment (for broken axis)
-          if(brokenYScale && brokenYScale.isBroken){
-            let inSegment = false;
-            for(const seg of brokenYScale.segments){
-              if(t >= seg.start && t <= seg.end){
-                inSegment = true;
-                break;
-              }
-            }
-            if(!inSegment){
-              return; // Skip grid lines that fall in gaps
-            }
-          }
+          if(!isYValueVisible(t)){ return; }
           const y=y2px(t);
           add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});
         });
@@ -4390,6 +4410,29 @@
       if(axisXStart===axisXEnd){axisXStart=margin.left;axisXEnd=margin.left+plotW;}
       if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
       console.debug('Debug: line axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
+      const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+      const minorTicksX = getLineAxisMinorTicksEnabled('x')
+        ? chartStyle.computeMinorTickPositions({
+            majorTicks: xScale.ticks,
+            min: Number.isFinite(xScale.min) ? xScale.min : xMinT,
+            max: Number.isFinite(xScale.max) ? xScale.max : xMaxT,
+            scale: logX ? 'log' : 'linear',
+            domainMin: logX ? xMin : null,
+            domainMax: logX ? xMax : null,
+            logBase: 10
+          })
+        : [];
+      const minorTicksY = getLineAxisMinorTicksEnabled('y')
+        ? chartStyle.computeMinorTickPositions({
+            majorTicks: yScale.ticks,
+            min: Number.isFinite(yScale.min) ? yScale.min : yMinT,
+            max: Number.isFinite(yScale.max) ? yScale.max : yMaxT,
+            scale: logY ? 'log' : 'linear',
+            domainMin: logY ? yMin : null,
+            domainMax: logY ? yMax : null,
+            logBase: 10
+          })
+        : [];
       const axisControlConfig = axis => ({
         axis,
         scopeId: 'line',
@@ -4402,6 +4445,9 @@
           : 'Tick interval is disabled while the Y axis uses a logarithmic scale.',
         tickPlaceholder: 'Auto',
         onTickIntervalChange: value => updateLineAxisTickInterval(axis, value),
+        getMinorTicksEnabled: () => getLineAxisMinorTicksEnabled(axis),
+        onMinorTicksChange: value => updateLineAxisMinorTicks(axis, value),
+        isMinorTicksSupported: () => true,
         onThicknessChange: value => updateLineAxisStrokeWidth(value),
         onColorChange: value => updateLineAxisColor(value),
         getNotationMode: () => getLineAxisNotation(axis),
@@ -4527,19 +4573,25 @@
       // Frame closes plot area using existing axis styling for continuity
       const xTickNodes=[];
       let xTickFontCount=0;
+      if(minorTicksX.length){
+        minorTicksX.forEach(value => {
+          if(!isXValueVisible(value)){ return; }
+          const x = x2px(value);
+          add('line',{
+            x1: x,
+            y1: xAxisY,
+            x2: x,
+            y2: xAxisY + minorTickStyle.length,
+            stroke: axisStroke,
+            'stroke-width': minorTickStyle.strokeWidth,
+            'stroke-linecap': 'round',
+            opacity: minorTickStyle.opacity
+          });
+        });
+      }
       xScale.ticks.forEach((t,i)=>{
-        // Only draw tick if it falls within a valid segment (for broken axis)
-        if(brokenXScale && brokenXScale.isBroken){
-          let inSegment = false;
-          for(const seg of brokenXScale.segments){
-            if(t >= seg.start && t <= seg.end){
-              inSegment = true;
-              break;
-            }
-          }
-          if(!inSegment){
-            return; // Skip ticks that fall in gaps
-          }
+        if(!isXValueVisible(t)){
+          return; // Skip ticks that fall in gaps
         }
         const x=x2px(t);
         add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
@@ -4553,19 +4605,25 @@
       });
       chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
       let yTickFontCount=0;
+      if(minorTicksY.length){
+        minorTicksY.forEach(value => {
+          if(!isYValueVisible(value)){ return; }
+          const y = y2px(value);
+          add('line',{
+            x1: yAxisX - minorTickStyle.length,
+            y1: y,
+            x2: yAxisX,
+            y2: y,
+            stroke: axisStroke,
+            'stroke-width': minorTickStyle.strokeWidth,
+            'stroke-linecap': 'round',
+            opacity: minorTickStyle.opacity
+          });
+        });
+      }
       yScale.ticks.forEach((t,i)=>{
-        // Only draw tick if it falls within a valid segment (for broken axis)
-        if(brokenYScale && brokenYScale.isBroken){
-          let inSegment = false;
-          for(const seg of brokenYScale.segments){
-            if(t >= seg.start && t <= seg.end){
-              inSegment = true;
-              break;
-            }
-          }
-          if(!inSegment){
-            return; // Skip ticks that fall in gaps
-          }
+        if(!isYValueVisible(t)){
+          return; // Skip ticks that fall in gaps
         }
         const y=y2px(t);
         add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});

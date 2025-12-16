@@ -158,8 +158,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null },
-      y: { tickInterval: null }
+      x: { tickInterval: null, minorTicks: false },
+      y: { tickInterval: null, minorTicks: false }
     };
   }
 
@@ -363,6 +363,12 @@
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
       state.axisSettings.y = { tickInterval: null };
     }
+    if(typeof state.axisSettings.x.minorTicks !== 'boolean'){
+      state.axisSettings.x.minorTicks = false;
+    }
+    if(typeof state.axisSettings.y.minorTicks !== 'boolean'){
+      state.axisSettings.y.minorTicks = false;
+    }
     const numericStroke = Number(state.axisSettings.strokeWidth);
     state.axisSettings.strokeWidth = Number.isFinite(numericStroke) && numericStroke > 0 ? numericStroke : 1;
     if(typeof state.axisSettings.color !== 'string' || !state.axisSettings.color.trim()){
@@ -392,6 +398,24 @@
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
     console.debug('Debug: roc axis tick interval updated', { axis, tickInterval: settings[axis].tickInterval });
+    state.scheduleDraw?.();
+  }
+
+  function getAxisMinorTicksEnabled(axis){
+    if(axis !== 'x' && axis !== 'y'){ return false; }
+    const settings = ensureAxisSettings();
+    return !!settings[axis]?.minorTicks;
+  }
+
+  function updateAxisMinorTicks(axis, enabled){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const nextValue = !!enabled;
+    if(settings[axis].minorTicks === nextValue){
+      return;
+    }
+    settings[axis].minorTicks = nextValue;
+    console.debug('Debug: roc minor ticks updated',{ axis, enabled: nextValue });
     state.scheduleDraw?.();
   }
 
@@ -436,6 +460,8 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
+      base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
     }
     state.axisSettings = base;
     ensureAxisSettings();
@@ -1753,6 +1779,9 @@
       getTickIntervalDisabledMessage: () => 'Tick interval available for probability axes.',
       tickPlaceholder: 'Auto',
       onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+      getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
+      onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
+      isMinorTicksSupported: () => true,
       onThicknessChange: value => updateAxisStrokeWidth(value),
       onColorChange: value => updateAxisColor(value)
     });
@@ -1783,6 +1812,42 @@
     const xTickNodes = [];
     const tickLen = axisMetrics.tickLength;
     const tickGap = axisMetrics.tickLabelGap;
+    const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+    const xDomainMin = xTicks.length ? Math.min(...xTicks, 0) : 0;
+    const xDomainMax = xTicks.length ? Math.max(...xTicks, 1) : 1;
+    const yDomainMin = yTicks.length ? Math.min(...yTicks, 0) : 0;
+    const yDomainMax = yTicks.length ? Math.max(...yTicks, 1) : 1;
+    const minorTicksX = getAxisMinorTicksEnabled('x')
+      ? chartStyle.computeMinorTickPositions({
+          majorTicks: xTicks,
+          min: xDomainMin,
+          max: xDomainMax,
+          scale: 'linear'
+        })
+      : [];
+    const minorTicksY = getAxisMinorTicksEnabled('y')
+      ? chartStyle.computeMinorTickPositions({
+          majorTicks: yTicks,
+          min: yDomainMin,
+          max: yDomainMax,
+          scale: 'linear'
+        })
+      : [];
+    if(minorTicksX.length){
+      minorTicksX.forEach(value => {
+        const x = xToPx(value);
+        add('line',{
+          x1: x,
+          y1: margin.top + plotHeight,
+          x2: x,
+          y2: margin.top + plotHeight + minorTickStyle.length,
+          stroke: axisStroke,
+          'stroke-width': minorTickStyle.strokeWidth,
+          'stroke-linecap': 'round',
+          opacity: minorTickStyle.opacity
+        });
+      });
+    }
     xTicks.forEach(tick => {
       const x = xToPx(tick);
       add('line', {x1: x, y1: margin.top + plotHeight, x2: x, y2: margin.top + plotHeight + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
@@ -1792,6 +1857,21 @@
       xTickNodes.push(txt);
     });
     chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+    if(minorTicksY.length){
+      minorTicksY.forEach(value => {
+        const y = yToPx(value);
+        add('line',{
+          x1: margin.left - minorTickStyle.length,
+          y1: y,
+          x2: margin.left,
+          y2: y,
+          stroke: axisStroke,
+          'stroke-width': minorTickStyle.strokeWidth,
+          'stroke-linecap': 'round',
+          opacity: minorTickStyle.opacity
+        });
+      });
+    }
     yTicks.forEach(tick => {
       const y = yToPx(tick);
       add('line', {x1: margin.left - tickLen, y1: y, x2: margin.left, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth});
@@ -2074,7 +2154,9 @@
       strokeWidth: axisSettings.strokeWidth,
       color: axisSettings.color,
       tickIntervalX: axisSettings.x?.tickInterval ?? null,
-      tickIntervalY: axisSettings.y?.tickInterval ?? null
+      tickIntervalY: axisSettings.y?.tickInterval ?? null,
+      minorTicksX: axisSettings.x?.minorTicks ?? false,
+      minorTicksY: axisSettings.y?.minorTicks ?? false
     };
     payload.config.labelPositions = state.labelPositions || null;
     console.debug('Debug: roc.getPayload captured state', {

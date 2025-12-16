@@ -8,6 +8,10 @@
   let axisLabelEl = null;
   let tickFieldEl = null;
   let tickInput = null;
+  let minorTicksFieldEl = null;
+  let minorTicksSwitch = null;
+  let minorTicksToggleInput = null;
+  let minorTicksStatusEl = null;
   let thicknessInput = null;
   let colorInput = null;
   let notationFieldEl = null;
@@ -70,6 +74,17 @@
   function normalizeColorForCompare(value){
     const sanitized = sanitizeColorState(value);
     return sanitized ? sanitized.toLowerCase() : '';
+  }
+
+  function isMinorTicksSupported(config){
+    if(!config){ return false; }
+    if(typeof config.getMinorTicksEnabled !== 'function' || typeof config.onMinorTicksChange !== 'function'){
+      return false;
+    }
+    if(typeof config.isMinorTicksSupported === 'function'){
+      return config.isMinorTicksSupported(config.axis) !== false;
+    }
+    return true;
   }
 
   const AXIS_NOTATION_DEFAULT = 'auto';
@@ -387,6 +402,43 @@
       if(tickFieldEl){ tickFieldEl.dataset.disabled = '1'; }
       logDebug('tick interval disabled',{ axis: config.axis, scopeId: config.scopeId, reason: tickDisabledMessage });
     }
+    const minorTickSupported = isMinorTicksSupported(config);
+    if(minorTicksFieldEl){
+      if(minorTickSupported){
+        minorTicksFieldEl.hidden = false;
+        minorTicksFieldEl.dataset.disabled = '0';
+        if(minorTicksSwitch){ minorTicksSwitch.dataset.disabled = '0'; }
+        const enabled = config.getMinorTicksEnabled ? !!config.getMinorTicksEnabled(config.axis) : false;
+        if(minorTicksToggleInput){
+          minorTicksToggleInput.checked = enabled;
+          minorTicksToggleInput.disabled = false;
+          minorTicksToggleInput.setAttribute('aria-checked', enabled ? 'true' : 'false');
+        }
+        if(minorTicksSwitch){
+          minorTicksSwitch.dataset.checked = enabled ? '1' : '0';
+        }
+        if(minorTicksStatusEl){
+          minorTicksStatusEl.textContent = enabled ? 'On' : 'Off';
+          minorTicksStatusEl.dataset.active = enabled ? '1' : '0';
+        }
+      }else{
+        minorTicksFieldEl.hidden = true;
+        minorTicksFieldEl.dataset.disabled = '1';
+        if(minorTicksSwitch){
+          minorTicksSwitch.dataset.checked = '0';
+          minorTicksSwitch.dataset.disabled = '1';
+        }
+        if(minorTicksToggleInput){
+          minorTicksToggleInput.checked = false;
+          minorTicksToggleInput.disabled = true;
+          minorTicksToggleInput.setAttribute('aria-checked','false');
+        }
+        if(minorTicksStatusEl){
+          minorTicksStatusEl.textContent = 'N/A';
+          minorTicksStatusEl.dataset.active = '0';
+        }
+      }
+    }
     const thicknessValueRaw = config.getThickness ? config.getThickness() : null;
     const thicknessValue = sanitizeThicknessValue(thicknessValueRaw);
     thicknessInput.value = thicknessValue === null ? '' : String(thicknessValue);
@@ -644,6 +696,45 @@
     panelEl.appendChild(tickField);
     tickFieldEl = tickField;
 
+    const minorTicksField = doc.createElement('div');
+    minorTicksField.className = 'axis-controls-panel__field axis-controls-panel__field--toggle';
+    const minorTicksLabel = doc.createElement('span');
+    minorTicksLabel.className = 'axis-controls-panel__field-label';
+    minorTicksLabel.textContent = 'Minor Ticks';
+    minorTicksField.appendChild(minorTicksLabel);
+
+    const minorToggleRow = doc.createElement('div');
+    minorToggleRow.className = 'axis-controls-panel__toggle-row';
+
+    minorTicksSwitch = doc.createElement('label');
+    minorTicksSwitch.className = 'axis-controls-panel__switch';
+    minorTicksSwitch.dataset.checked = '0';
+    minorTicksSwitch.dataset.disabled = '0';
+
+    minorTicksToggleInput = doc.createElement('input');
+    minorTicksToggleInput.type = 'checkbox';
+    minorTicksToggleInput.className = 'axis-controls-panel__switch-input';
+    minorTicksToggleInput.setAttribute('aria-label', 'Toggle minor ticks');
+    minorTicksToggleInput.setAttribute('data-undo-ignore','1');
+    const minorToggleTrack = doc.createElement('span');
+    minorToggleTrack.className = 'axis-controls-panel__switch-track';
+    const minorToggleThumb = doc.createElement('span');
+    minorToggleThumb.className = 'axis-controls-panel__switch-thumb';
+    minorTicksSwitch.appendChild(minorTicksToggleInput);
+    minorTicksSwitch.appendChild(minorToggleTrack);
+    minorTicksSwitch.appendChild(minorToggleThumb);
+
+    minorTicksStatusEl = doc.createElement('span');
+    minorTicksStatusEl.className = 'axis-controls-panel__toggle-status';
+    minorTicksStatusEl.textContent = 'Off';
+    minorTicksStatusEl.dataset.active = '0';
+
+    minorToggleRow.appendChild(minorTicksSwitch);
+    minorToggleRow.appendChild(minorTicksStatusEl);
+    minorTicksField.appendChild(minorToggleRow);
+    panelEl.appendChild(minorTicksField);
+    minorTicksFieldEl = minorTicksField;
+
     const thicknessField = doc.createElement('label');
     thicknessField.className = 'axis-controls-panel__field';
     thicknessField.classList.add('axis-controls-panel__field--numeric');
@@ -887,6 +978,38 @@
         evt.stopPropagation();
       }
     });
+
+    if(minorTicksToggleInput){
+      minorTicksToggleInput.addEventListener('change', () => {
+        if(applyingFromUndo){ return; }
+        if(!activeConfig){ return; }
+        if(!isMinorTicksSupported(activeConfig)){
+          minorTicksToggleInput.checked = false;
+          return;
+        }
+        const config = activeConfig;
+        const previousValue = config.getMinorTicksEnabled ? !!config.getMinorTicksEnabled(config.axis) : false;
+        const requestedValue = !!minorTicksToggleInput.checked;
+        logDebug('minor ticks toggle change',{ axis: config.axis, requestedValue });
+        if(config.onMinorTicksChange){
+          config.onMinorTicksChange(requestedValue, config.axis);
+        }
+        const resolvedNext = config.getMinorTicksEnabled ? !!config.getMinorTicksEnabled(config.axis) : requestedValue;
+        syncPanelInputsFromConfig(config);
+        recordAxisStateChange(
+          config,
+          'minorTicks',
+          previousValue,
+          resolvedNext,
+          value => {
+            if(config.onMinorTicksChange){
+              config.onMinorTicksChange(!!value, config.axis);
+            }
+          },
+          (a, b) => !!a === !!b
+        );
+      });
+    }
 
     tickInput.addEventListener('change', () => {
       if(applyingFromUndo){ return; }
@@ -1204,6 +1327,9 @@
         tickIntervalDisabledMessage: config.tickIntervalDisabledMessage,
         tickPlaceholder: config.tickPlaceholder,
         onTickIntervalChange: config.onTickIntervalChange,
+        getMinorTicksEnabled: config.getMinorTicksEnabled,
+        onMinorTicksChange: config.onMinorTicksChange,
+        isMinorTicksSupported: config.isMinorTicksSupported,
         onThicknessChange: config.onThicknessChange,
         onColorChange: config.onColorChange,
         getNotationMode: config.getNotationMode,

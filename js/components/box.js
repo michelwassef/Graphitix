@@ -1959,8 +1959,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, notation: 'auto' },
-      y: { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, minorTicks: false, notation: 'auto' },
+      y: { tickInterval: null, minorTicks: false, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -3607,6 +3607,8 @@
     if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }; }
     if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
     if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
+    if(typeof settings.x.minorTicks !== 'boolean'){ settings.x.minorTicks = false; }
+    if(typeof settings.y.minorTicks !== 'boolean'){ settings.y.minorTicks = false; }
     settings.x.notation = sanitizeBoxAxisNotation(settings.x.notation);
     settings.y.notation = sanitizeBoxAxisNotation(settings.y.notation);
     // Ensure broken axis settings for y-axis
@@ -3652,6 +3654,29 @@
     if(axis === 'x'){ return !!state.flipAxes; }
     if(axis === 'y'){ return !state.flipAxes; }
     return false;
+  }
+
+  function getAxisMinorTicksEnabled(axis){
+    if(axis !== 'x' && axis !== 'y'){ return false; }
+    const settings = ensureAxisSettings();
+    if(!isAxisNumeric(axis)){
+      return false;
+    }
+    return !!settings[axis]?.minorTicks;
+  }
+
+  function updateAxisMinorTicks(axis, enabled){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const nextValue = !!enabled && isAxisNumeric(axis);
+    if(settings[axis].minorTicks === nextValue){
+      return;
+    }
+    settings[axis].minorTicks = nextValue;
+    console.debug('Debug: box minor ticks updated',{ axis, enabled: nextValue, flipAxes: state.flipAxes });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
   }
 
   function getAxisTickInterval(axis){
@@ -9630,6 +9655,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       },
       tickPlaceholder: 'Auto',
       onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+      getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
+      onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
+      isMinorTicksSupported: () => isAxisNumeric(axis),
       onThicknessChange: value => updateAxisStrokeWidth(value),
       onColorChange: value => updateAxisColor(value),
       getNotationMode: () => getAxisNotation(axis),
@@ -9790,6 +9818,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         : null;
       
       console.debug('Debug: box broken axis',{ enabled: brokenAxisEnabled, segments: brokenAxisSegments, isBroken: brokenScale?.isBroken });
+      const isYValueVisible = value => {
+        if(!brokenScale || !brokenScale.isBroken){ return true; }
+        return brokenScale.segments.some(seg => value >= seg.start && value <= seg.end);
+      };
       
       const valueRange = yScale.max - yScale.min || 1;
       const clampToScale = v => {
@@ -9815,6 +9847,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         return marginLocal.top + plotHLocal * (1 - (safeV - yScale.min) / valueRange);
       };
+      const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+      const minorTicksY = getAxisMinorTicksEnabled('y')
+        ? chartStyle.computeMinorTickPositions({
+            majorTicks: yScale.ticks,
+            min: Number.isFinite(yScale.min) ? yScale.min : ymin,
+            max: Number.isFinite(yScale.max) ? yScale.max : ymax,
+            scale: logScale ? 'log' : 'linear',
+            domainMin: logScale ? ymin : null,
+            domainMax: logScale ? ymax : null,
+            logBase: 10
+          }).filter(value => {
+            if(!brokenScale || !brokenScale.isBroken){ return true; }
+            return brokenScale.segments.some(seg => value >= seg.start && value <= seg.end);
+          })
+        : [];
       const boxWidthForTrace = () => Math.max(6, Math.min(60, perGroupBand * 0.6));
       const localBandWidthForTrace = () => {
         if(separatedSpacing){
@@ -9925,21 +9972,27 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
       }
       let yTickFontCount = 0;
+      if(minorTicksY.length){
+        minorTicksY.forEach(value => {
+          if(!isYValueVisible(value)){ return; }
+          const y = y2px(value);
+          addAxisElement('line',{
+            x1: yAxisX - minorTickStyle.length,
+            y1: y,
+            x2: yAxisX,
+            y2: y,
+            stroke: axisStroke,
+            'stroke-width': minorTickStyle.strokeWidth,
+            'stroke-linecap': 'round',
+            opacity: minorTickStyle.opacity
+          });
+        });
+      }
       yScale.ticks.forEach((t, i) => {
-        const y = y2px(t);
-        // Only draw tick if it falls within a valid segment (for broken axis)
-        if(brokenScale && brokenScale.isBroken){
-          let inSegment = false;
-          for(const seg of brokenScale.segments){
-            if(t >= seg.start && t <= seg.end){
-              inSegment = true;
-              break;
-            }
-          }
-          if(!inSegment){
-            return; // Skip ticks that fall in gaps
-          }
+        if(!isYValueVisible(t)){
+          return; // Skip ticks that fall in gaps
         }
+        const y = y2px(t);
         addAxisElement('line',{ x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
         const txt = addAxisElement('text',{ x: yAxisX - (tickLen + tickGap), y, 'font-size': fs, 'text-anchor': 'end', 'dominant-baseline': 'middle', fill: chartStyle.TEXT_COLOR });
         txt.textContent = formatTick(logScale ? Math.pow(10, t) : t);
@@ -10785,6 +10838,18 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       const valueRange = yScale.max - yScale.min || 1;
       const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
+      const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+      const minorTicksX = getAxisMinorTicksEnabled('x')
+        ? chartStyle.computeMinorTickPositions({
+            majorTicks: yScale.ticks,
+            min: Number.isFinite(yScale.min) ? yScale.min : ymin,
+            max: Number.isFinite(yScale.max) ? yScale.max : ymax,
+            scale: logScale ? 'log' : 'linear',
+            domainMin: logScale ? ymin : null,
+            domainMax: logScale ? ymax : null,
+            logBase: 10
+          })
+        : [];
       const renderSwarmPointsHorizontal = params => {
         const {
           valueList,
@@ -10985,6 +11050,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       });
       if(yInterval && axisLabels.length){
         console.debug('Debug: box y-axis tick filter',{ interval: yInterval, rendered: renderedYTicks, total: axisLabels.length });
+      }
+      if(minorTicksX.length){
+        minorTicksX.forEach(value => {
+          const x = valueToX(value);
+          addAxisElement('line',{
+            x1: x,
+            y1: xAxisBottom,
+            x2: x,
+            y2: xAxisBottom + minorTickStyle.length,
+            stroke: axisStroke,
+            'stroke-width': minorTickStyle.strokeWidth,
+            'stroke-linecap': 'round',
+            opacity: minorTickStyle.opacity
+          });
+        });
       }
       yScale.ticks.forEach(t => {
         const x = valueToX(t);
@@ -11769,6 +11849,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             x: axisSnapshot.x?.tickInterval ?? null,
             y: axisSnapshot.y?.tickInterval ?? null
           },
+          minorTicks: {
+            x: axisSnapshot.x?.minorTicks ?? false,
+            y: axisSnapshot.y?.minorTicks ?? false
+          },
           notation: {
             x: axisSnapshot.x?.notation ?? 'auto',
             y: axisSnapshot.y?.notation ?? 'auto'
@@ -12081,6 +12165,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const tickY = tickCfg.y;
       axisState.x.tickInterval = Number.isFinite(Number(tickX)) && Number(tickX) > 0 ? Math.max(1, Math.round(Number(tickX))) : null;
       axisState.y.tickInterval = Number.isFinite(Number(tickY)) && Number(tickY) > 0 ? Number(tickY) : null;
+      if(axisCfg.minorTicks){
+        axisState.x.minorTicks = !!axisCfg.minorTicks.x;
+        axisState.y.minorTicks = !!axisCfg.minorTicks.y;
+      }else{
+        axisState.x.minorTicks = !!axisState.x.minorTicks;
+        axisState.y.minorTicks = !!axisState.y.minorTicks;
+      }
       
       // Restore notation settings
       if(axisCfg.notation){

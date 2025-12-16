@@ -2149,8 +2149,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, notation: 'auto' },
-      y: { tickInterval: null, notation: 'auto' }
+      x: { tickInterval: null, minorTicks: false, notation: 'auto' },
+      y: { tickInterval: null, minorTicks: false, notation: 'auto' }
     };
   }
 
@@ -2170,6 +2170,12 @@
     }
     if(!scatterAxisSettings.y || typeof scatterAxisSettings.y !== 'object'){
       scatterAxisSettings.y = { tickInterval: null, notation: 'auto' };
+    }
+    if(typeof scatterAxisSettings.x.minorTicks !== 'boolean'){
+      scatterAxisSettings.x.minorTicks = false;
+    }
+    if(typeof scatterAxisSettings.y.minorTicks !== 'boolean'){
+      scatterAxisSettings.y.minorTicks = false;
     }
     const strokeNumeric = Number(scatterAxisSettings.strokeWidth);
     scatterAxisSettings.strokeWidth = Number.isFinite(strokeNumeric) && strokeNumeric > 0 ? strokeNumeric : 1;
@@ -2225,6 +2231,26 @@
     }
   }
 
+  function getScatterAxisMinorTicksEnabled(axis){
+    if(axis !== 'x' && axis !== 'y'){ return false; }
+    const settings = ensureScatterAxisSettings();
+    return !!settings[axis]?.minorTicks;
+  }
+
+  function updateScatterAxisMinorTicks(axis, enabled){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureScatterAxisSettings();
+    const nextValue = !!enabled;
+    if(settings[axis].minorTicks === nextValue){
+      return;
+    }
+    settings[axis].minorTicks = nextValue;
+    console.debug('Debug: scatter minor ticks updated',{ axis, enabled: nextValue });
+    if(typeof scheduleDrawScatter === 'function'){
+      scheduleDrawScatter();
+    }
+  }
+
   function getScatterAxisStrokeWidth(){
     const settings = ensureScatterAxisSettings();
     return settings.strokeWidth;
@@ -2272,6 +2298,8 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
+      base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
       const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'auto';
       const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
       base.x.notation = sanitizeScatterAxisNotation(xNotation);
@@ -5921,6 +5949,29 @@
         if(axisXStart===axisXEnd){axisXStart=axisXMinPos;axisXEnd=axisXMaxPos;}
         if(axisYStart===axisYEnd){axisYStart=axisYMinPos;axisYEnd=axisYMaxPos;}
         debug('Debug: scatter axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
+        const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+        const minorTicksX = getScatterAxisMinorTicksEnabled('x')
+          ? chartStyle.computeMinorTickPositions({
+              majorTicks: xScale.ticks,
+              min: Number.isFinite(xScale.min) ? xScale.min : xMinT,
+              max: Number.isFinite(xScale.max) ? xScale.max : xMaxT,
+              scale: logX ? 'log' : 'linear',
+              domainMin: logX ? xMin : null,
+              domainMax: logX ? xMax : null,
+              logBase: 10
+            })
+          : [];
+        const minorTicksY = getScatterAxisMinorTicksEnabled('y')
+          ? chartStyle.computeMinorTickPositions({
+              majorTicks: yScale.ticks,
+              min: Number.isFinite(yScale.min) ? yScale.min : yMinT,
+              max: Number.isFinite(yScale.max) ? yScale.max : yMaxT,
+              scale: logY ? 'log' : 'linear',
+              domainMin: logY ? yMin : null,
+              domainMax: logY ? yMax : null,
+              logBase: 10
+            })
+          : [];
         const axisControlConfig = axis => ({
           axis,
           scopeId: 'scatter',
@@ -5933,6 +5984,9 @@
             : 'Tick interval is disabled while the Y axis uses a logarithmic scale.',
           tickPlaceholder: 'Auto',
           onTickIntervalChange: value => updateScatterAxisTickInterval(axis, value),
+          getMinorTicksEnabled: () => getScatterAxisMinorTicksEnabled(axis),
+          onMinorTicksChange: value => updateScatterAxisMinorTicks(axis, value),
+          isMinorTicksSupported: () => true,
           onThicknessChange: value => updateScatterAxisStrokeWidth(value),
           onColorChange: value => updateScatterAxisColor(value),
           getNotationMode: () => getScatterAxisNotation(axis),
@@ -5955,6 +6009,21 @@
         // Frame closes scatter plot using axis styling continuity
         const xTickNodes=[];
         let xTickFontCount=0;
+        if(minorTicksX.length){
+          minorTicksX.forEach(value => {
+            const x = x2px(value);
+            add('line',{
+              x1: x,
+              y1: xAxisY,
+              x2: x,
+              y2: xAxisY + minorTickStyle.length,
+              stroke: axisStroke,
+              'stroke-width': minorTickStyle.strokeWidth,
+              'stroke-linecap': 'round',
+              opacity: minorTickStyle.opacity
+            });
+          });
+        }
         xScale.ticks.forEach((t,i)=>{
           const x = x2px(t);
           add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
@@ -5968,7 +6037,29 @@
         });
         chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
         let yTickFontCount=0;
-        yScale.ticks.forEach((t,i)=>{const y=y2px(t);add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});txt.textContent=formatTickY(logY?Math.pow(10,t):t);markFontEditable(txt,'yTick');yTickFontCount+=1;});
+        if(minorTicksY.length){
+          minorTicksY.forEach(value => {
+            const y = y2px(value);
+            add('line',{
+              x1: yAxisX - minorTickStyle.length,
+              y1: y,
+              x2: yAxisX,
+              y2: y,
+              stroke: axisStroke,
+              'stroke-width': minorTickStyle.strokeWidth,
+              'stroke-linecap': 'round',
+              opacity: minorTickStyle.opacity
+            });
+          });
+        }
+        yScale.ticks.forEach((t,i)=>{
+          const y=y2px(t);
+          add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
+          const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
+          txt.textContent=formatTickY(logY?Math.pow(10,t):t);
+          markFontEditable(txt,'yTick');
+          yTickFontCount+=1;
+        });
         debug('Debug: scatter font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
         debug('Debug: scatter ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
         time(`scatterSvgDraw_${token}`);
@@ -6711,6 +6802,8 @@
               color: axisSettings.color,
               tickIntervalX: axisSettings.x?.tickInterval ?? null,
               tickIntervalY: axisSettings.y?.tickInterval ?? null,
+              minorTicksX: axisSettings.x?.minorTicks ?? false,
+              minorTicksY: axisSettings.y?.minorTicks ?? false,
               notationX: axisSettings.x?.notation ?? 'auto',
               notationY: axisSettings.y?.notation ?? 'auto'
             },
@@ -6905,6 +6998,8 @@
             color: c.axis.color,
             tickIntervalX: c.axis.tickIntervalX ?? c.axis.xTickInterval ?? c.axis?.x?.tickInterval ?? null,
             tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null,
+            minorTicksX: c.axis.minorTicksX ?? c.axis?.x?.minorTicks ?? false,
+            minorTicksY: c.axis.minorTicksY ?? c.axis?.y?.minorTicks ?? false,
             notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'auto',
             notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'auto'
           });

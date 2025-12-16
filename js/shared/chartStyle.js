@@ -1521,6 +1521,120 @@
     applyLogTicks
   });
 
+  const DEFAULT_MINOR_TICK_SUBDIVISIONS = 3;
+  chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS = DEFAULT_MINOR_TICK_SUBDIVISIONS;
+
+  chartStyle.computeMinorTickPositions = function computeMinorTickPositions(options){
+    const opts = options || {};
+    const majorTicks = Array.isArray(opts.majorTicks)
+      ? opts.majorTicks.filter(v => Number.isFinite(v)).slice().sort((a, b) => a - b)
+      : [];
+    if(majorTicks.length < 2){
+      return [];
+    }
+    const min = Number.isFinite(opts.min) ? opts.min : majorTicks[0];
+    const max = Number.isFinite(opts.max) ? opts.max : majorTicks[majorTicks.length - 1];
+    const scale = opts.scale === 'log' ? 'log' : 'linear';
+    const subdivisionsRaw = Number.isFinite(opts.subdivisions) ? opts.subdivisions : DEFAULT_MINOR_TICK_SUBDIVISIONS;
+    const subdivisions = Math.max(1, Math.min(12, Math.round(subdivisionsRaw)));
+    const tolerance = Math.max(Math.abs(max - min) * 1e-9, 1e-9);
+    const minors = [];
+
+    if(
+      scale === 'log' &&
+      Number.isFinite(opts.domainMin) && opts.domainMin > 0 &&
+      Number.isFinite(opts.domainMax) && opts.domainMax > 0
+    ){
+      const base = Number.isFinite(opts.logBase) && opts.logBase > 1 ? opts.logBase : 10;
+      const logFn = typeof opts.logFn === 'function'
+        ? opts.logFn
+        : (value => Math.log(value) / Math.log(base));
+      const domainTicks = majorTicks.map(t => Math.pow(base, t));
+      for(let i = 0; i < domainTicks.length - 1; i += 1){
+        const start = domainTicks[i];
+        const end = domainTicks[i + 1];
+        if(!Number.isFinite(start) || !Number.isFinite(end) || !(start > 0) || !(end > start)){
+          continue;
+        }
+        for(let m = 2; m < base; m += 1){
+          const candidate = start * m;
+          if(candidate >= end - tolerance){
+            break;
+          }
+          if(candidate <= start + tolerance){
+            continue;
+          }
+          const logValue = logFn(candidate);
+          if(!Number.isFinite(logValue)){
+            continue;
+          }
+          if(logValue <= min - tolerance || logValue >= max + tolerance){
+            continue;
+          }
+          minors.push(logValue);
+        }
+      }
+    }else{
+      for(let i = 0; i < majorTicks.length - 1; i += 1){
+        const start = majorTicks[i];
+        const end = majorTicks[i + 1];
+        const span = end - start;
+        if(!Number.isFinite(span) || span <= tolerance){
+          continue;
+        }
+        const step = span / (subdivisions + 1);
+        for(let sub = 1; sub <= subdivisions; sub += 1){
+          const value = start + step * sub;
+          if(value <= min + tolerance || value >= max - tolerance){
+            continue;
+          }
+          minors.push(value);
+        }
+      }
+    }
+
+    const unique = [];
+    minors.forEach(value => {
+      if(!Number.isFinite(value)){
+        return;
+      }
+      if(value < min - tolerance || value > max + tolerance){
+        return;
+      }
+      const nearMajor = majorTicks.some(major => Math.abs(major - value) <= tolerance * 1.5);
+      if(nearMajor){
+        return;
+      }
+      const duplicate = unique.some(existing => Math.abs(existing - value) <= tolerance * 0.5);
+      if(!duplicate){
+        unique.push(value);
+      }
+    });
+    unique.sort((a, b) => a - b);
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: chartStyle.computeMinorTickPositions', {
+        majorCount: majorTicks.length,
+        minorCount: unique.length,
+        min,
+        max,
+        scale,
+        subdivisions,
+        domainMin: opts.domainMin ?? null,
+        domainMax: opts.domainMax ?? null
+      });
+    }
+    return unique;
+  };
+
+  chartStyle.resolveMinorTickStyle = function resolveMinorTickStyle(options){
+    const tickLength = Number.isFinite(options?.tickLength) ? options.tickLength : 6;
+    const axisStrokeWidth = Number.isFinite(options?.strokeWidth) ? options.strokeWidth : 1;
+    const length = Math.max(2, Math.round(tickLength * 0.55));
+    const strokeWidth = Math.max(0.5, Math.max(axisStrokeWidth * 0.75, axisStrokeWidth - 0.25));
+    const opacity = Number.isFinite(options?.opacity) ? options.opacity : 0.85;
+    return { length, strokeWidth, opacity };
+  };
+
   chartStyle.computeLabelPadding = function computeLabelPadding(options){
     const opts = options || {};
     const labels = Array.isArray(opts.labels) ? opts.labels.map(label => label == null ? '' : String(label)) : [];
@@ -1958,6 +2072,5 @@
     return drawn;
   };
 })(window);
-
 
 

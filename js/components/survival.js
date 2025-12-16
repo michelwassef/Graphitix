@@ -212,8 +212,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null },
-      y: { tickInterval: null }
+      x: { tickInterval: null, minorTicks: false },
+      y: { tickInterval: null, minorTicks: false }
     };
   }
 
@@ -264,6 +264,12 @@
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
       state.axisSettings.y = { tickInterval: null };
     }
+    if(typeof state.axisSettings.x.minorTicks !== 'boolean'){
+      state.axisSettings.x.minorTicks = false;
+    }
+    if(typeof state.axisSettings.y.minorTicks !== 'boolean'){
+      state.axisSettings.y.minorTicks = false;
+    }
     const numericStroke = Number(state.axisSettings.strokeWidth);
     state.axisSettings.strokeWidth = Number.isFinite(numericStroke) && numericStroke > 0 ? numericStroke : 1;
     if(typeof state.axisSettings.color !== 'string' || !state.axisSettings.color.trim()){
@@ -293,6 +299,24 @@
       settings[axis].tickInterval = Number.isFinite(numeric) && numeric > 0 ? numeric : null;
     }
     logDebug('axis tick interval updated',{ axis, tickInterval: settings[axis].tickInterval });
+    state.scheduleDraw?.();
+  }
+
+  function getAxisMinorTicksEnabled(axis){
+    if(axis !== 'x' && axis !== 'y'){ return false; }
+    const settings = ensureAxisSettings();
+    return !!settings[axis]?.minorTicks;
+  }
+
+  function updateAxisMinorTicks(axis, enabled){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const nextValue = !!enabled;
+    if(settings[axis].minorTicks === nextValue){
+      return;
+    }
+    settings[axis].minorTicks = nextValue;
+    logDebug('axis minor ticks updated',{ axis, enabled: nextValue });
     state.scheduleDraw?.();
   }
 
@@ -337,6 +361,8 @@
       const yInterval = settings.tickIntervalY ?? settings.yTickInterval ?? settings?.y?.tickInterval ?? null;
       base.x.tickInterval = xInterval === '' ? null : xInterval;
       base.y.tickInterval = yInterval === '' ? null : yInterval;
+      base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
+      base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
     }
     state.axisSettings = base;
     ensureAxisSettings();
@@ -2520,6 +2546,23 @@
 
     const xAxisY = margin.top + plotH;
     const yAxisX = margin.left;
+    const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+    const minorTicksX = getAxisMinorTicksEnabled('x')
+      ? chartStyle.computeMinorTickPositions({
+          majorTicks: xScale.ticks,
+          min: Number.isFinite(xScale.min) ? xScale.min : 0,
+          max: Number.isFinite(xScale.max) ? xScale.max : 1,
+          scale: 'linear'
+        })
+      : [];
+    const minorTicksY = getAxisMinorTicksEnabled('y')
+      ? chartStyle.computeMinorTickPositions({
+          majorTicks: yScale.ticks,
+          min: Number.isFinite(yScale.min) ? yScale.min : 0,
+          max: Number.isFinite(yScale.max) ? yScale.max : 1,
+          scale: 'linear'
+        })
+      : [];
     const axisControlConfig = axis => ({
       axis,
       scopeId: 'survival',
@@ -2530,6 +2573,9 @@
       getTickIntervalDisabledMessage: () => 'Tick interval available for numeric axes.',
       tickPlaceholder: 'Auto',
       onTickIntervalChange: value => updateAxisTickInterval(axis, value),
+      getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
+      onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
+      isMinorTicksSupported: () => true,
       onThicknessChange: value => updateAxisStrokeWidth(value),
       onColorChange: value => updateAxisColor(value)
     });
@@ -2549,6 +2595,21 @@
     }
 
     const xTickNodes = [];
+    if(minorTicksX.length){
+      minorTicksX.forEach(value => {
+        const x = x2px(value);
+        add('line', {
+          x1: x,
+          y1: xAxisY,
+          x2: x,
+          y2: xAxisY + minorTickStyle.length,
+          stroke: axisStroke,
+          'stroke-width': minorTickStyle.strokeWidth,
+          'stroke-linecap': 'round',
+          opacity: minorTickStyle.opacity
+        });
+      });
+    }
     xScale.ticks.forEach(value => {
       const x = x2px(value);
       add('line', { x1: x, y1: xAxisY, x2: x, y2: xAxisY + tickLen, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
@@ -2567,6 +2628,21 @@
     });
     chartStyle.applyLabelOrientation?.(xTickNodes, { angle: -45, anchor: 'end', dy: '0.35em', force: bottomLayout.shouldRotate });
 
+    if(minorTicksY.length){
+      minorTicksY.forEach(value => {
+        const y = y2px(value);
+        add('line', {
+          x1: yAxisX - minorTickStyle.length,
+          y1: y,
+          x2: yAxisX,
+          y2: y,
+          stroke: axisStroke,
+          'stroke-width': minorTickStyle.strokeWidth,
+          'stroke-linecap': 'round',
+          opacity: minorTickStyle.opacity
+        });
+      });
+    }
     yScale.ticks.forEach(value => {
       const y = y2px(value);
       add('line', { x1: yAxisX - tickLen, y1: y, x2: yAxisX, y2: y, stroke: axisStroke, 'stroke-width': axisStrokeWidth });
@@ -2975,7 +3051,9 @@
           strokeWidth: axisSettings.strokeWidth,
           color: axisSettings.color,
           tickIntervalX: axisSettings.x?.tickInterval ?? null,
-          tickIntervalY: axisSettings.y?.tickInterval ?? null
+          tickIntervalY: axisSettings.y?.tickInterval ?? null,
+          minorTicksX: axisSettings.x?.minorTicks ?? false,
+          minorTicksY: axisSettings.y?.minorTicks ?? false
         },
         labelPositions: state.labelPositions || null
       },
