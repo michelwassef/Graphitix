@@ -356,10 +356,16 @@
     return null;
   }
 
-  function applyInlineFontAutocomplete(rawValue){
+  function applyInlineFontAutocomplete(rawValue, meta){
     if(!fontInput){ return; }
-    const caretAtEnd = fontInput.selectionEnd === fontInput.value.length;
-    if(!caretAtEnd){ return; }
+    const reason = (meta && meta.reason) || '';
+    if(typeof reason === 'string' && /delete|backspace/i.test(reason)){
+      return; // do not re-suggest while user is deleting
+    }
+    const selectionStart = fontInput.selectionStart;
+    const selectionEnd = fontInput.selectionEnd;
+    // Only autocomplete when caret is at end and there is no selection.
+    if(selectionStart !== selectionEnd || selectionEnd !== fontInput.value.length){ return; }
     const query = (rawValue || '').trim();
     if(!query){ return; }
     const suggestion = suggestFontCompletion(query);
@@ -368,7 +374,7 @@
       try {
         fontInput.setSelectionRange(query.length, suggestion.length);
       } catch(rangeErr){
-        logDebug('autocomplete selection failed', { error: rangeErr?.message || String(rangeErr) });
+        logDebug('autocomplete selection failed', { error: rangeErr?.message || String(rangeErr), meta });
       }
     }
   }
@@ -2628,9 +2634,9 @@
       syncFontInputValue(value, { source: 'input-change' });
     });
 
-    fontInput.addEventListener('input', () => {
+    fontInput.addEventListener('input', (evt) => {
       const rawValue = fontInput.value;
-      applyInlineFontAutocomplete(rawValue);
+      applyInlineFontAutocomplete(rawValue, { reason: evt?.inputType || 'input' });
       updatePreviewFromInputs();
       if(fontMenuVisible){
         filterFontMenuOptions(fontInput.value);
