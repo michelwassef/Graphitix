@@ -304,6 +304,8 @@
   const windowsFontSet = new Set(WINDOWS_FONTS.map(f => f.toLowerCase()));
   const macFontSet = new Set(MAC_FONTS.map(f => f.toLowerCase()));
   const linuxFontSet = new Set(LINUX_FONTS.map(f => f.toLowerCase()));
+  const fontSuggestionList = [];
+  const fontSuggestionSet = new Set();
 
   function isLikelyFontForPlatform(name){
     if(!name){ return false; }
@@ -332,6 +334,43 @@
     fontMeasureProbe = probe;
     fontBaselineWidths = null;
     return probe;
+  }
+
+  function registerFontSuggestion(name){
+    if(!name){ return; }
+    const key = String(name).trim().toLowerCase();
+    if(!key || fontSuggestionSet.has(key)){ return; }
+    fontSuggestionSet.add(key);
+    fontSuggestionList.push(name);
+  }
+
+  function suggestFontCompletion(prefix){
+    const normalized = String(prefix || '').trim().toLowerCase();
+    if(!normalized){ return null; }
+    for(let i = 0; i < fontSuggestionList.length; i += 1){
+      const candidate = fontSuggestionList[i];
+      if(candidate && candidate.toLowerCase().startsWith(normalized)){
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  function applyInlineFontAutocomplete(rawValue){
+    if(!fontInput){ return; }
+    const caretAtEnd = fontInput.selectionEnd === fontInput.value.length;
+    if(!caretAtEnd){ return; }
+    const query = (rawValue || '').trim();
+    if(!query){ return; }
+    const suggestion = suggestFontCompletion(query);
+    if(suggestion && suggestion.toLowerCase() !== query.toLowerCase() && suggestion.length > query.length){
+      fontInput.value = suggestion;
+      try {
+        fontInput.setSelectionRange(query.length, suggestion.length);
+      } catch(rangeErr){
+        logDebug('autocomplete selection failed', { error: rangeErr?.message || String(rangeErr) });
+      }
+    }
   }
 
   function measureFontWidth(family, doc){
@@ -2096,7 +2135,8 @@
     fontInput.setAttribute('aria-label', 'Font family');
     const datalistId = 'font-controls-defaults';
     const menuId = 'font-controls-font-menu';
-    fontInput.setAttribute('list', datalistId);
+    // Intentionally omit the native datalist to avoid the default suggestion bubble;
+    // we drive autocompletion ourselves so the hint stays inside the input.
     fontInput.setAttribute('aria-haspopup', 'listbox');
     fontInput.setAttribute('aria-expanded', 'false');
     fontInput.setAttribute('aria-controls', menuId);
@@ -2121,6 +2161,7 @@
     defaultOption.value = '';
     defaultOption.label = 'Match chart default';
     fontDatalist.appendChild(defaultOption);
+    registerFontSuggestion('');
     const knownFontNames = new Set();
     const sourceFonts = (isFirefox ? CORE_FONTS : DEFAULT_FONTS).filter(isLikelyFontForPlatform);
     const uniqueFonts = Array.from(new Set(sourceFonts));
@@ -2134,6 +2175,8 @@
       return trimmed;
     };
     fontComboWrapper.appendChild(fontDatalist);
+    // Keep an offscreen menu container so legacy code paths remain safe,
+    // but rely on inline autocompletion for suggestions.
     fontMenuPopup = doc.createElement('div');
     fontMenuPopup.id = menuId;
     fontMenuPopup.className = 'font-controls-panel__combo-menu';
@@ -2146,6 +2189,7 @@
     fontMenuEmptyState.textContent = 'No matching fonts';
     fontMenuEmptyState.hidden = true;
     fontMenuPopup.appendChild(fontMenuEmptyState);
+
     appendFontOption = (fontName, opts) => {
       const normalized = normalizeFontName(fontName);
       if(!normalized || !fontDatalist || !fontMenuPopup){ return false; }
@@ -2163,6 +2207,7 @@
       fontDatalist.appendChild(option);
       const optionBtn = createFontMenuOption(normalized, normalized);
       fontMenuPopup.insertBefore(optionBtn, fontMenuEmptyState);
+      registerFontSuggestion(normalized);
       return true;
     };
     let appendedCount = 0;
@@ -2309,12 +2354,14 @@
     }
 
     const defaultMenuButton = createFontMenuOption('', 'Match chart default');
-    fontMenuPopup.insertBefore(defaultMenuButton, fontMenuEmptyState);
-    fontMenuEmptyState.hidden = true;
-    highlightFontMenuSelection('');
+    if(defaultMenuButton && fontMenuPopup && fontMenuEmptyState){
+      fontMenuPopup.insertBefore(defaultMenuButton, fontMenuEmptyState);
+      fontMenuEmptyState.hidden = true;
+      highlightFontMenuSelection('');
+    }
     computeComboFieldWidth();
     logDebug('font menu options created', {
-      count: fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option').length
+      count: fontMenuPopup ? fontMenuPopup.querySelectorAll('.font-controls-panel__combo-option').length : 0
     });
 
     fontMenuToggle.addEventListener('mousedown', (evt) => {
@@ -2582,6 +2629,8 @@
     });
 
     fontInput.addEventListener('input', () => {
+      const rawValue = fontInput.value;
+      applyInlineFontAutocomplete(rawValue);
       updatePreviewFromInputs();
       if(fontMenuVisible){
         filterFontMenuOptions(fontInput.value);
