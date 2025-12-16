@@ -150,6 +150,20 @@
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
   const DEFAULT_AXIS_COLOR = '#000000';
+  const MIN_MINOR_TICK_SUBDIVISIONS = 1;
+  const MAX_MINOR_TICK_SUBDIVISIONS = 9;
+  const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
+    ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
+    : 3;
+
+  function clampMinorTickSubdivisions(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return DEFAULT_MINOR_TICK_SUBDIVISIONS;
+    }
+    const rounded = Math.round(numeric);
+    return Math.max(MIN_MINOR_TICK_SUBDIVISIONS, Math.min(MAX_MINOR_TICK_SUBDIVISIONS, rounded));
+  }
   const ROC_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const ROC_AUTO_DRAW_COL_THRESHOLD = 5000;
   const ROC_AUTO_DRAW_CELL_THRESHOLD = 50000;
@@ -158,8 +172,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false },
-      y: { tickInterval: null, minorTicks: false }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
     };
   }
 
@@ -358,10 +372,10 @@
       state.axisSettings = createDefaultAxisSettings();
     }
     if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
-      state.axisSettings.x = { tickInterval: null };
+      state.axisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
-      state.axisSettings.y = { tickInterval: null };
+      state.axisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(typeof state.axisSettings.x.minorTicks !== 'boolean'){
       state.axisSettings.x.minorTicks = false;
@@ -369,6 +383,8 @@
     if(typeof state.axisSettings.y.minorTicks !== 'boolean'){
       state.axisSettings.y.minorTicks = false;
     }
+    state.axisSettings.x.minorTickSubdivisions = clampMinorTickSubdivisions(state.axisSettings.x.minorTickSubdivisions);
+    state.axisSettings.y.minorTickSubdivisions = clampMinorTickSubdivisions(state.axisSettings.y.minorTickSubdivisions);
     const numericStroke = Number(state.axisSettings.strokeWidth);
     state.axisSettings.strokeWidth = Number.isFinite(numericStroke) && numericStroke > 0 ? numericStroke : 1;
     if(typeof state.axisSettings.color !== 'string' || !state.axisSettings.color.trim()){
@@ -419,6 +435,24 @@
     state.scheduleDraw?.();
   }
 
+  function getAxisMinorTickSubdivisions(axis){
+    if(axis !== 'x' && axis !== 'y'){ return DEFAULT_MINOR_TICK_SUBDIVISIONS; }
+    const settings = ensureAxisSettings();
+    return clampMinorTickSubdivisions(settings[axis]?.minorTickSubdivisions);
+  }
+
+  function updateAxisMinorTickSubdivisions(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const nextValue = clampMinorTickSubdivisions(value);
+    if(settings[axis].minorTickSubdivisions === nextValue){
+      return;
+    }
+    settings[axis].minorTickSubdivisions = nextValue;
+    console.debug('Debug: roc minor tick subdivisions updated',{ axis, subdivisions: nextValue });
+    state.scheduleDraw?.();
+  }
+
   function getAxisStrokeWidthBase(){
     return ensureAxisSettings().strokeWidth;
   }
@@ -462,6 +496,10 @@
       base.y.tickInterval = yInterval === '' ? null : yInterval;
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
+      const xMinorSubdiv = settings.minorTickSubdivisionsX ?? settings.minorSubdivisionsX ?? settings.x?.minorTickSubdivisions ?? settings.x?.minorSubdivisions ?? null;
+      const yMinorSubdiv = settings.minorTickSubdivisionsY ?? settings.minorSubdivisionsY ?? settings.y?.minorTickSubdivisions ?? settings.y?.minorSubdivisions ?? null;
+      base.x.minorTickSubdivisions = clampMinorTickSubdivisions(xMinorSubdiv);
+      base.y.minorTickSubdivisions = clampMinorTickSubdivisions(yMinorSubdiv);
     }
     state.axisSettings = base;
     ensureAxisSettings();
@@ -1782,6 +1820,8 @@
       getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
       onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
       isMinorTicksSupported: () => true,
+      getMinorTickSubdivisions: () => getAxisMinorTickSubdivisions(axis),
+      onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axis, value),
       onThicknessChange: value => updateAxisStrokeWidth(value),
       onColorChange: value => updateAxisColor(value)
     });
@@ -1817,12 +1857,15 @@
     const xDomainMax = xTicks.length ? Math.max(...xTicks, 1) : 1;
     const yDomainMin = yTicks.length ? Math.min(...yTicks, 0) : 0;
     const yDomainMax = yTicks.length ? Math.max(...yTicks, 1) : 1;
+    const minorSubdivisionsX = getAxisMinorTickSubdivisions('x');
+    const minorSubdivisionsY = getAxisMinorTickSubdivisions('y');
     const minorTicksX = getAxisMinorTicksEnabled('x')
       ? chartStyle.computeMinorTickPositions({
           majorTicks: xTicks,
           min: xDomainMin,
           max: xDomainMax,
-          scale: 'linear'
+          scale: 'linear',
+          subdivisions: minorSubdivisionsX
         })
       : [];
     const minorTicksY = getAxisMinorTicksEnabled('y')
@@ -1830,7 +1873,8 @@
           majorTicks: yTicks,
           min: yDomainMin,
           max: yDomainMax,
-          scale: 'linear'
+          scale: 'linear',
+          subdivisions: minorSubdivisionsY
         })
       : [];
     if(minorTicksX.length){
@@ -2156,7 +2200,9 @@
       tickIntervalX: axisSettings.x?.tickInterval ?? null,
       tickIntervalY: axisSettings.y?.tickInterval ?? null,
       minorTicksX: axisSettings.x?.minorTicks ?? false,
-      minorTicksY: axisSettings.y?.minorTicks ?? false
+      minorTicksY: axisSettings.y?.minorTicks ?? false,
+      minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
+      minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions)
     };
     payload.config.labelPositions = state.labelPositions || null;
     console.debug('Debug: roc.getPayload captured state', {

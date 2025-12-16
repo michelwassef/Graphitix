@@ -90,6 +90,20 @@
   const PCA_3D_DEFAULTS={ rotationX: -0.31, rotationY: -0.48, aspectRatio: 4 / 3 };
   const MIN_VARIANCE_WEIGHT = 1e-3;
   const DEFAULT_AXIS_COLOR = '#000000';
+  const MIN_MINOR_TICK_SUBDIVISIONS = 1;
+  const MAX_MINOR_TICK_SUBDIVISIONS = 9;
+  const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
+    ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
+    : 3;
+
+  function clampMinorTickSubdivisions(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return DEFAULT_MINOR_TICK_SUBDIVISIONS;
+    }
+    const rounded = Math.round(numeric);
+    return Math.max(MIN_MINOR_TICK_SUBDIVISIONS, Math.min(MAX_MINOR_TICK_SUBDIVISIONS, rounded));
+  }
   const DEFAULT_TSNE_SETTINGS = Object.freeze({
     perplexity: 30,
     learningRate: 200,
@@ -1554,8 +1568,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false },
-      y: { tickInterval: null, minorTicks: false }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS }
     };
   }
 
@@ -1576,10 +1590,10 @@
       pcaState.axisSettings = createDefaultAxisSettings();
     }
     if(!pcaState.axisSettings.x || typeof pcaState.axisSettings.x !== 'object'){
-      pcaState.axisSettings.x = { tickInterval: null };
+      pcaState.axisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(!pcaState.axisSettings.y || typeof pcaState.axisSettings.y !== 'object'){
-      pcaState.axisSettings.y = { tickInterval: null };
+      pcaState.axisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS };
     }
     if(typeof pcaState.axisSettings.x.minorTicks !== 'boolean'){
       pcaState.axisSettings.x.minorTicks = false;
@@ -1587,6 +1601,8 @@
     if(typeof pcaState.axisSettings.y.minorTicks !== 'boolean'){
       pcaState.axisSettings.y.minorTicks = false;
     }
+    pcaState.axisSettings.x.minorTickSubdivisions = clampMinorTickSubdivisions(pcaState.axisSettings.x.minorTickSubdivisions);
+    pcaState.axisSettings.y.minorTickSubdivisions = clampMinorTickSubdivisions(pcaState.axisSettings.y.minorTickSubdivisions);
     const numericStroke = Number(pcaState.axisSettings.strokeWidth);
     pcaState.axisSettings.strokeWidth = Number.isFinite(numericStroke) && numericStroke > 0 ? numericStroke : 1;
     if(typeof pcaState.axisSettings.color !== 'string' || !pcaState.axisSettings.color.trim()){
@@ -1637,6 +1653,24 @@
     requestPcaViewRefresh(`axis-minor-ticks-${axis}`);
   }
 
+  function getAxisMinorTickSubdivisions(axis){
+    if(axis !== 'x' && axis !== 'y'){ return DEFAULT_MINOR_TICK_SUBDIVISIONS; }
+    const settings = ensureAxisSettings();
+    return clampMinorTickSubdivisions(settings[axis]?.minorTickSubdivisions);
+  }
+
+  function updateAxisMinorTickSubdivisions(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const nextValue = clampMinorTickSubdivisions(value);
+    if(settings[axis].minorTickSubdivisions === nextValue){
+      return;
+    }
+    settings[axis].minorTickSubdivisions = nextValue;
+    debugLog('Debug: pca minor tick subdivisions updated',{ axis, subdivisions: nextValue });
+    requestPcaViewRefresh(`axis-minor-subdivisions-${axis}`);
+  }
+
   function getAxisStrokeWidthBase(){
     return ensureAxisSettings().strokeWidth;
   }
@@ -1680,6 +1714,10 @@
       base.y.tickInterval = yInterval === '' ? null : yInterval;
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
+      const xMinorSubdiv = settings.minorTickSubdivisionsX ?? settings.minorSubdivisionsX ?? settings.x?.minorTickSubdivisions ?? settings.x?.minorSubdivisions ?? null;
+      const yMinorSubdiv = settings.minorTickSubdivisionsY ?? settings.minorSubdivisionsY ?? settings.y?.minorTickSubdivisions ?? settings.y?.minorSubdivisions ?? null;
+      base.x.minorTickSubdivisions = clampMinorTickSubdivisions(xMinorSubdiv);
+      base.y.minorTickSubdivisions = clampMinorTickSubdivisions(yMinorSubdiv);
     }
     pcaState.axisSettings = base;
     ensureAxisSettings();
@@ -5426,12 +5464,15 @@
       if(axisYStart === axisYEnd){ axisYStart = margin.top; axisYEnd = margin.top + plotH; }
       debugLog('Debug: pca axis span', { axisXStart, axisXEnd, axisYStart, axisYEnd });
       const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+      const minorSubdivisionsX = getAxisMinorTickSubdivisions('x');
+      const minorSubdivisionsY = getAxisMinorTickSubdivisions('y');
       const minorTicksX = getAxisMinorTicksEnabled('x')
         ? chartStyle.computeMinorTickPositions({
             majorTicks: xScale.ticks,
             min: Number.isFinite(xScale.min) ? xScale.min : xMin,
             max: Number.isFinite(xScale.max) ? xScale.max : xMax,
-            scale: 'linear'
+            scale: 'linear',
+            subdivisions: minorSubdivisionsX
           })
         : [];
       const minorTicksY = getAxisMinorTicksEnabled('y')
@@ -5439,7 +5480,8 @@
             majorTicks: yScale.ticks,
             min: Number.isFinite(yScale.min) ? yScale.min : yMin,
             max: Number.isFinite(yScale.max) ? yScale.max : yMax,
-            scale: 'linear'
+            scale: 'linear',
+            subdivisions: minorSubdivisionsY
           })
         : [];
       const axisControlConfig = axis => ({
@@ -5455,6 +5497,8 @@
         getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
         onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
         isMinorTicksSupported: () => true,
+        getMinorTickSubdivisions: () => getAxisMinorTickSubdivisions(axis),
+        onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axis, value),
         onThicknessChange: value => updateAxisStrokeWidth(value),
         onColorChange: value => updateAxisColor(value)
       });
@@ -5922,7 +5966,9 @@
           tickIntervalX: axisSettings?.x?.tickInterval ?? null,
           tickIntervalY: axisSettings?.y?.tickInterval ?? null,
           minorTicksX: axisSettings?.x?.minorTicks ?? false,
-          minorTicksY: axisSettings?.y?.minorTicks ?? false
+          minorTicksY: axisSettings?.y?.minorTicks ?? false,
+          minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings?.x?.minorTickSubdivisions),
+          minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings?.y?.minorTickSubdivisions)
         },
         tsne:{
           perplexity:pcaTsnePerplexity?.value ?? DEFAULT_TSNE_SETTINGS.perplexity,

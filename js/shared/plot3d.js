@@ -450,6 +450,7 @@
     const axisRanges = cfg.axisRanges || {};
     const axisTicks = cfg.axisTicks || {};
     const axisLabels = cfg.axisLabels || {};
+    let axisDefs = [];
     const fontSize = Number.isFinite(cfg.fontSize) ? cfg.fontSize : 12;
     const axisStrokeWidth = Number.isFinite(cfg.axisStrokeWidth) ? cfg.axisStrokeWidth : 1;
     const chartStyle = cfg.chartStyle || {};
@@ -502,42 +503,6 @@
     ];
     const cubeCenter = { x: axisCenters.x, y: axisCenters.y, z: axisCenters.z };
     const cubeCenter2D = project(rotatePoint(cubeCenter));
-    const depthFor = (point) => rotatePoint(point).z;
-    const frontIsMinY = depthFor({ x: axisCenters.x, y: axisRanges.y?.min, z: axisCenters.z }) >= depthFor({ x: axisCenters.x, y: axisRanges.y?.max, z: axisCenters.z });
-    const frontYValue = frontIsMinY ? axisRanges.y?.min : axisRanges.y?.max;
-    const backYValue = frontIsMinY ? axisRanges.y?.max : axisRanges.y?.min;
-    const bottomZValue = axisRanges.z?.min;
-    const topZValue = axisRanges.z?.max;
-    const leftCandidate = project(rotatePoint({ x: axisRanges.x?.min, y: frontYValue, z: bottomZValue }));
-    const rightCandidate = project(rotatePoint({ x: axisRanges.x?.max, y: frontYValue, z: bottomZValue }));
-    const leftXValue = leftCandidate.x <= rightCandidate.x ? axisRanges.x?.min : axisRanges.x?.max;
-    const rightXValue = leftXValue === axisRanges.x?.min ? axisRanges.x?.max : axisRanges.x?.min;
-    const axisDefs = [
-      {
-        key: 'x',
-        color: axisColor,
-        label: axisLabels.x || 'X',
-        start: { x: leftXValue, y: frontYValue, z: bottomZValue },
-        end: { x: rightXValue, y: frontYValue, z: bottomZValue },
-        ticks: axisTicks.x || []
-      },
-      {
-        key: 'y',
-        color: axisColor,
-        label: axisLabels.y || 'Y',
-        start: { x: rightXValue, y: frontYValue, z: bottomZValue },
-        end: { x: rightXValue, y: backYValue, z: bottomZValue },
-        ticks: axisTicks.y || []
-      },
-      {
-        key: 'z',
-        color: axisColor,
-        label: axisLabels.z || 'Z',
-        start: { x: leftXValue, y: frontYValue, z: bottomZValue },
-        end: { x: leftXValue, y: frontYValue, z: topZValue },
-        ticks: axisTicks.z || []
-      }
-    ];
     const doc = svg.ownerDocument || global.document;
     const rotatedCornerCache = new Array(allCorners.length);
     const projectedCornerCache = new Array(allCorners.length);
@@ -594,6 +559,135 @@
       }
     }
     const centerDepth = rotatePoint(cubeCenter).z || 0;
+    const edgeDefs = [
+      { key: 'x', startIdx: 0, endIdx: 1 },
+      { key: 'x', startIdx: 2, endIdx: 3 },
+      { key: 'x', startIdx: 4, endIdx: 5 },
+      { key: 'x', startIdx: 6, endIdx: 7 },
+      { key: 'y', startIdx: 0, endIdx: 2 },
+      { key: 'y', startIdx: 1, endIdx: 3 },
+      { key: 'y', startIdx: 4, endIdx: 6 },
+      { key: 'y', startIdx: 5, endIdx: 7 },
+      { key: 'z', startIdx: 0, endIdx: 4 },
+      { key: 'z', startIdx: 1, endIdx: 5 },
+      { key: 'z', startIdx: 2, endIdx: 6 },
+      { key: 'z', startIdx: 3, endIdx: 7 }
+    ];
+    const edgeMeta = edgeDefs.map((def) => {
+      const startRot = rotatedCornerCache[def.startIdx] || rotatePoint(allCorners[def.startIdx]);
+      const endRot = rotatedCornerCache[def.endIdx] || rotatePoint(allCorners[def.endIdx]);
+      const depthAvg = ((startRot?.z || 0) + (endRot?.z || 0)) / 2;
+      const edgeKey = def.startIdx < def.endIdx
+        ? `${def.startIdx}-${def.endIdx}`
+        : `${def.endIdx}-${def.startIdx}`;
+      const isSilhouette = hullEdgeKeys.has(edgeKey);
+      const isOccluded = depthAvg < centerDepth && !isSilhouette;
+      const midRot = {
+        x: ((startRot?.x || 0) + (endRot?.x || 0)) / 2,
+        y: ((startRot?.y || 0) + (endRot?.y || 0)) / 2,
+        z: ((startRot?.z || 0) + (endRot?.z || 0)) / 2
+      };
+      const midProj = project(midRot);
+      return Object.assign({}, def, {
+        startRot,
+        endRot,
+        depthAvg,
+        edgeKey,
+        isSilhouette,
+        isOccluded,
+        midProj
+      });
+    });
+    const edgesByAxis = { x: [], y: [], z: [] };
+    for(let i=0;i<edgeMeta.length;i+=1){
+      const em = edgeMeta[i];
+      edgesByAxis[em.key].push(em);
+    }
+    const sharesVertex = (a, b) => {
+      if(!a || !b){ return false; }
+      return a.startIdx === b.startIdx
+        || a.startIdx === b.endIdx
+        || a.endIdx === b.startIdx
+        || a.endIdx === b.endIdx;
+    };
+    const tripleConnected = (edges) => {
+      if(!edges || edges.length !== 3){ return false; }
+      const visitedEdges = new Set();
+      const visitedVertices = new Set([edges[0].startIdx, edges[0].endIdx]);
+      visitedEdges.add(0);
+      let grew = true;
+      while(grew){
+        grew = false;
+        for(let i=1;i<edges.length;i+=1){
+          if(visitedEdges.has(i)){ continue; }
+          const e = edges[i];
+          if(visitedVertices.has(e.startIdx) || visitedVertices.has(e.endIdx)){
+            visitedEdges.add(i);
+            visitedVertices.add(e.startIdx);
+            visitedVertices.add(e.endIdx);
+            grew = true;
+          }
+        }
+      }
+      return visitedEdges.size === edges.length;
+    };
+    // Choose one edge per axis that forms a connected triple; prioritize visible, lower-on-screen edges
+    const combos = [];
+    for(let xi=0;xi<edgesByAxis.x.length;xi+=1){
+      const ex = edgesByAxis.x[xi];
+      for(let yi=0;yi<edgesByAxis.y.length;yi+=1){
+        const ey = edgesByAxis.y[yi];
+        for(let zi=0;zi<edgesByAxis.z.length;zi+=1){
+          const ez = edgesByAxis.z[zi];
+          const edgeSet = [ex, ey, ez];
+          if(!tripleConnected(edgeSet)){
+            continue;
+          }
+          const occludedCount = edgeSet.reduce((acc, e) => acc + (e.isOccluded ? 1 : 0), 0);
+          const allShareSameVertex = sharesVertex(ex, ey) && sharesVertex(ey, ez) && sharesVertex(ex, ez);
+          const avgLabelY = (ex.midProj.y + ey.midProj.y + ez.midProj.y) / 3;
+          const depthSum = ex.depthAvg + ey.depthAvg + ez.depthAvg;
+          const silhouetteCount = edgeSet.reduce((acc, e) => acc + (e.isSilhouette ? 1 : 0), 0);
+          combos.push({
+            edgeSet,
+            occludedCount,
+            allShareSameVertex,
+            avgLabelY,
+            depthSum,
+            silhouetteCount
+          });
+        }
+      }
+    }
+    combos.sort((a, b) => {
+      if(a.occludedCount !== b.occludedCount){ return a.occludedCount - b.occludedCount; }
+      if(a.allShareSameVertex !== b.allShareSameVertex){ return a.allShareSameVertex ? 1 : -1; }
+      if(a.avgLabelY !== b.avgLabelY){ return b.avgLabelY - a.avgLabelY; } // prefer lower on screen (larger y)
+      if(a.depthSum !== b.depthSum){ return b.depthSum - a.depthSum; }
+      if(a.silhouetteCount !== b.silhouetteCount){ return b.silhouetteCount - a.silhouetteCount; }
+      return 0;
+    });
+    const fallbackAxisEdges = [
+      edgeDefs[0],
+      edgeDefs[4],
+      edgeDefs[8]
+    ];
+    const selectedEdges = (combos[0] && combos[0].edgeSet) || fallbackAxisEdges;
+    axisDefs = selectedEdges.map((edge) => ({
+      key: edge.key,
+      color: axisColor,
+      label: axisLabels[edge.key] || edge.key.toUpperCase(),
+      start: allCorners[edge.startIdx],
+      end: allCorners[edge.endIdx],
+      ticks: axisTicks[edge.key] || []
+    }));
+    debugLog('Debug: plot3d axis edges selected', {
+      label: debugLabel,
+      occludedCount: combos[0] ? combos[0].occludedCount : null,
+      allShareSameVertex: combos[0] ? combos[0].allShareSameVertex : null,
+      avgLabelY: combos[0] ? combos[0].avgLabelY : null,
+      depthSum: combos[0] ? combos[0].depthSum : null
+    });
     const frameEdgeLines = new Map();
     const frontWidth = Number.isFinite(cfg.frameFrontWidth) ? cfg.frameFrontWidth : axisStrokeWidth;
     const backWidth = Number.isFinite(cfg.frameBackWidth) ? cfg.frameBackWidth : axisStrokeWidth * 0.85;

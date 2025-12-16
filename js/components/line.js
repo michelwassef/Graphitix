@@ -247,13 +247,27 @@
   };
 
   const DEFAULT_AXIS_COLOR = '#000000';
+  const MIN_MINOR_TICK_SUBDIVISIONS = 1;
+  const MAX_MINOR_TICK_SUBDIVISIONS = 9;
+  const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
+    ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
+    : 3;
+
+  function clampMinorTickSubdivisions(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return DEFAULT_MINOR_TICK_SUBDIVISIONS;
+    }
+    const rounded = Math.round(numeric);
+    return Math.max(MIN_MINOR_TICK_SUBDIVISIONS, Math.min(MAX_MINOR_TICK_SUBDIVISIONS, rounded));
+  }
 
   function createLineAxisSettings(){
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, notation: 'auto', brokenAxis: { enabled: false, segments: [] } },
-      y: { tickInterval: null, minorTicks: false, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -269,10 +283,10 @@
       lineAxisSettings = createLineAxisSettings();
     }
     if(!lineAxisSettings.x || typeof lineAxisSettings.x !== 'object'){
-      lineAxisSettings.x = { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
+      lineAxisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
     }
     if(!lineAxisSettings.y || typeof lineAxisSettings.y !== 'object'){
-      lineAxisSettings.y = { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
+      lineAxisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
     }
     if(typeof lineAxisSettings.x.minorTicks !== 'boolean'){
       lineAxisSettings.x.minorTicks = false;
@@ -280,6 +294,8 @@
     if(typeof lineAxisSettings.y.minorTicks !== 'boolean'){
       lineAxisSettings.y.minorTicks = false;
     }
+    lineAxisSettings.x.minorTickSubdivisions = clampMinorTickSubdivisions(lineAxisSettings.x.minorTickSubdivisions);
+    lineAxisSettings.y.minorTickSubdivisions = clampMinorTickSubdivisions(lineAxisSettings.y.minorTickSubdivisions);
     // Ensure broken axis structures
     if(!lineAxisSettings.x.brokenAxis || typeof lineAxisSettings.x.brokenAxis !== 'object'){
       lineAxisSettings.x.brokenAxis = { enabled: false, segments: [] };
@@ -368,6 +384,26 @@
     }
     settings[axis].minorTicks = nextValue;
     console.debug('Debug: line minor ticks updated',{ axis, enabled: nextValue });
+    if(typeof scheduleLineDraw === 'function'){
+      scheduleLineDraw();
+    }
+  }
+
+  function getLineAxisMinorTickSubdivisions(axis){
+    if(axis !== 'x' && axis !== 'y'){ return DEFAULT_MINOR_TICK_SUBDIVISIONS; }
+    const settings = ensureLineAxisSettings();
+    return clampMinorTickSubdivisions(settings[axis]?.minorTickSubdivisions);
+  }
+
+  function updateLineAxisMinorTickSubdivisions(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureLineAxisSettings();
+    const nextValue = clampMinorTickSubdivisions(value);
+    if(settings[axis].minorTickSubdivisions === nextValue){
+      return;
+    }
+    settings[axis].minorTickSubdivisions = nextValue;
+    console.debug('Debug: line minor tick subdivisions updated',{ axis, subdivisions: nextValue });
     if(typeof scheduleLineDraw === 'function'){
       scheduleLineDraw();
     }
@@ -734,6 +770,10 @@
       const yMinorTicks = settings.minorTicksY ?? settings.y?.minorTicks ?? false;
       base.x.minorTicks = !!xMinorTicks;
       base.y.minorTicks = !!yMinorTicks;
+      const xMinorSubdiv = settings.minorTickSubdivisionsX ?? settings.minorSubdivisionsX ?? settings.x?.minorTickSubdivisions ?? settings.x?.minorSubdivisions ?? null;
+      const yMinorSubdiv = settings.minorTickSubdivisionsY ?? settings.minorSubdivisionsY ?? settings.y?.minorTickSubdivisions ?? settings.y?.minorSubdivisions ?? null;
+      base.x.minorTickSubdivisions = clampMinorTickSubdivisions(xMinorSubdiv);
+      base.y.minorTickSubdivisions = clampMinorTickSubdivisions(yMinorSubdiv);
       const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'auto';
       const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
       base.x.notation = sanitizeLineAxisNotation(xNotation);
@@ -3438,6 +3478,8 @@
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
           minorTicksX: axisSettings.x?.minorTicks ?? false,
           minorTicksY: axisSettings.y?.minorTicks ?? false,
+          minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
+          minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions),
           notationX: axisSettings.x?.notation ?? 'auto',
           notationY: axisSettings.y?.notation ?? 'auto',
           brokenAxis: {
@@ -3575,6 +3617,8 @@
         tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null,
         minorTicksX: c.axis.minorTicksX ?? c.axis?.x?.minorTicks ?? false,
         minorTicksY: c.axis.minorTicksY ?? c.axis?.y?.minorTicks ?? false,
+        minorTickSubdivisionsX: c.axis.minorTickSubdivisionsX ?? c.axis.minorSubdivisionsX ?? c.axis?.x?.minorTickSubdivisions ?? c.axis?.x?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
+        minorTickSubdivisionsY: c.axis.minorTickSubdivisionsY ?? c.axis.minorSubdivisionsY ?? c.axis?.y?.minorTickSubdivisions ?? c.axis?.y?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
         notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'auto',
         notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'auto',
         brokenAxis: c.axis.brokenAxis || {}
@@ -4411,6 +4455,8 @@
       if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
       console.debug('Debug: line axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
       const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+      const minorSubdivisionsX = getLineAxisMinorTickSubdivisions('x');
+      const minorSubdivisionsY = getLineAxisMinorTickSubdivisions('y');
       const minorTicksX = getLineAxisMinorTicksEnabled('x')
         ? chartStyle.computeMinorTickPositions({
             majorTicks: xScale.ticks,
@@ -4419,7 +4465,8 @@
             scale: logX ? 'log' : 'linear',
             domainMin: logX ? xMin : null,
             domainMax: logX ? xMax : null,
-            logBase: 10
+            logBase: 10,
+            subdivisions: minorSubdivisionsX
           })
         : [];
       const minorTicksY = getLineAxisMinorTicksEnabled('y')
@@ -4430,7 +4477,8 @@
             scale: logY ? 'log' : 'linear',
             domainMin: logY ? yMin : null,
             domainMax: logY ? yMax : null,
-            logBase: 10
+            logBase: 10,
+            subdivisions: minorSubdivisionsY
           })
         : [];
       const axisControlConfig = axis => ({
@@ -4448,6 +4496,8 @@
         getMinorTicksEnabled: () => getLineAxisMinorTicksEnabled(axis),
         onMinorTicksChange: value => updateLineAxisMinorTicks(axis, value),
         isMinorTicksSupported: () => true,
+        getMinorTickSubdivisions: () => getLineAxisMinorTickSubdivisions(axis),
+        onMinorTickSubdivisionsChange: value => updateLineAxisMinorTickSubdivisions(axis, value),
         onThicknessChange: value => updateLineAxisStrokeWidth(value),
         onColorChange: value => updateLineAxisColor(value),
         getNotationMode: () => getLineAxisNotation(axis),

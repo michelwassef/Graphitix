@@ -208,6 +208,20 @@
     : (value => (Number.isFinite(value) ? value : NaN));
 
   const DEFAULT_AXIS_COLOR = '#000000';
+  const MIN_MINOR_TICK_SUBDIVISIONS = 1;
+  const MAX_MINOR_TICK_SUBDIVISIONS = 9;
+  const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
+    ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
+    : 3;
+
+  function clampMinorTickSubdivisions(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return DEFAULT_MINOR_TICK_SUBDIVISIONS;
+    }
+    const rounded = Math.round(numeric);
+    return Math.max(MIN_MINOR_TICK_SUBDIVISIONS, Math.min(MAX_MINOR_TICK_SUBDIVISIONS, rounded));
+  }
 
   const scatterRefs = {};
   let scatterTooltipEl = null;
@@ -2149,8 +2163,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, notation: 'auto' },
-      y: { tickInterval: null, minorTicks: false, notation: 'auto' }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' }
     };
   }
 
@@ -2166,10 +2180,10 @@
       scatterAxisSettings = createScatterAxisSettings();
     }
     if(!scatterAxisSettings.x || typeof scatterAxisSettings.x !== 'object'){
-      scatterAxisSettings.x = { tickInterval: null, notation: 'auto' };
+      scatterAxisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' };
     }
     if(!scatterAxisSettings.y || typeof scatterAxisSettings.y !== 'object'){
-      scatterAxisSettings.y = { tickInterval: null, notation: 'auto' };
+      scatterAxisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' };
     }
     if(typeof scatterAxisSettings.x.minorTicks !== 'boolean'){
       scatterAxisSettings.x.minorTicks = false;
@@ -2177,6 +2191,8 @@
     if(typeof scatterAxisSettings.y.minorTicks !== 'boolean'){
       scatterAxisSettings.y.minorTicks = false;
     }
+    scatterAxisSettings.x.minorTickSubdivisions = clampMinorTickSubdivisions(scatterAxisSettings.x.minorTickSubdivisions);
+    scatterAxisSettings.y.minorTickSubdivisions = clampMinorTickSubdivisions(scatterAxisSettings.y.minorTickSubdivisions);
     const strokeNumeric = Number(scatterAxisSettings.strokeWidth);
     scatterAxisSettings.strokeWidth = Number.isFinite(strokeNumeric) && strokeNumeric > 0 ? strokeNumeric : 1;
     if(typeof scatterAxisSettings.color !== 'string' || !scatterAxisSettings.color){
@@ -2251,6 +2267,26 @@
     }
   }
 
+  function getScatterAxisMinorTickSubdivisions(axis){
+    if(axis !== 'x' && axis !== 'y'){ return DEFAULT_MINOR_TICK_SUBDIVISIONS; }
+    const settings = ensureScatterAxisSettings();
+    return clampMinorTickSubdivisions(settings[axis]?.minorTickSubdivisions);
+  }
+
+  function updateScatterAxisMinorTickSubdivisions(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureScatterAxisSettings();
+    const nextValue = clampMinorTickSubdivisions(value);
+    if(settings[axis].minorTickSubdivisions === nextValue){
+      return;
+    }
+    settings[axis].minorTickSubdivisions = nextValue;
+    console.debug('Debug: scatter minor tick subdivisions updated',{ axis, subdivisions: nextValue });
+    if(typeof scheduleDrawScatter === 'function'){
+      scheduleDrawScatter();
+    }
+  }
+
   function getScatterAxisStrokeWidth(){
     const settings = ensureScatterAxisSettings();
     return settings.strokeWidth;
@@ -2300,6 +2336,10 @@
       base.y.tickInterval = yInterval === '' ? null : yInterval;
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
+      const xMinorSubdiv = settings.minorTickSubdivisionsX ?? settings.minorSubdivisionsX ?? settings.x?.minorTickSubdivisions ?? settings.x?.minorSubdivisions ?? null;
+      const yMinorSubdiv = settings.minorTickSubdivisionsY ?? settings.minorSubdivisionsY ?? settings.y?.minorTickSubdivisions ?? settings.y?.minorSubdivisions ?? null;
+      base.x.minorTickSubdivisions = clampMinorTickSubdivisions(xMinorSubdiv);
+      base.y.minorTickSubdivisions = clampMinorTickSubdivisions(yMinorSubdiv);
       const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'auto';
       const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
       base.x.notation = sanitizeScatterAxisNotation(xNotation);
@@ -5950,6 +5990,8 @@
         if(axisYStart===axisYEnd){axisYStart=axisYMinPos;axisYEnd=axisYMaxPos;}
         debug('Debug: scatter axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
         const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+        const minorSubdivisionsX = getScatterAxisMinorTickSubdivisions('x');
+        const minorSubdivisionsY = getScatterAxisMinorTickSubdivisions('y');
         const minorTicksX = getScatterAxisMinorTicksEnabled('x')
           ? chartStyle.computeMinorTickPositions({
               majorTicks: xScale.ticks,
@@ -5958,7 +6000,8 @@
               scale: logX ? 'log' : 'linear',
               domainMin: logX ? xMin : null,
               domainMax: logX ? xMax : null,
-              logBase: 10
+              logBase: 10,
+              subdivisions: minorSubdivisionsX
             })
           : [];
         const minorTicksY = getScatterAxisMinorTicksEnabled('y')
@@ -5969,7 +6012,8 @@
               scale: logY ? 'log' : 'linear',
               domainMin: logY ? yMin : null,
               domainMax: logY ? yMax : null,
-              logBase: 10
+              logBase: 10,
+              subdivisions: minorSubdivisionsY
             })
           : [];
         const axisControlConfig = axis => ({
@@ -5987,6 +6031,8 @@
           getMinorTicksEnabled: () => getScatterAxisMinorTicksEnabled(axis),
           onMinorTicksChange: value => updateScatterAxisMinorTicks(axis, value),
           isMinorTicksSupported: () => true,
+          getMinorTickSubdivisions: () => getScatterAxisMinorTickSubdivisions(axis),
+          onMinorTickSubdivisionsChange: value => updateScatterAxisMinorTickSubdivisions(axis, value),
           onThicknessChange: value => updateScatterAxisStrokeWidth(value),
           onColorChange: value => updateScatterAxisColor(value),
           getNotationMode: () => getScatterAxisNotation(axis),
@@ -6804,6 +6850,8 @@
               tickIntervalY: axisSettings.y?.tickInterval ?? null,
               minorTicksX: axisSettings.x?.minorTicks ?? false,
               minorTicksY: axisSettings.y?.minorTicks ?? false,
+              minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
+              minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions),
               notationX: axisSettings.x?.notation ?? 'auto',
               notationY: axisSettings.y?.notation ?? 'auto'
             },
@@ -7000,6 +7048,8 @@
             tickIntervalY: c.axis.tickIntervalY ?? c.axis.yTickInterval ?? c.axis?.y?.tickInterval ?? null,
             minorTicksX: c.axis.minorTicksX ?? c.axis?.x?.minorTicks ?? false,
             minorTicksY: c.axis.minorTicksY ?? c.axis?.y?.minorTicks ?? false,
+            minorTickSubdivisionsX: c.axis.minorTickSubdivisionsX ?? c.axis.minorSubdivisionsX ?? c.axis?.x?.minorTickSubdivisions ?? c.axis?.x?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
+            minorTickSubdivisionsY: c.axis.minorTickSubdivisionsY ?? c.axis.minorSubdivisionsY ?? c.axis?.y?.minorTickSubdivisions ?? c.axis?.y?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
             notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'auto',
             notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'auto'
           });

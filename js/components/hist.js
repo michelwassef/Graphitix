@@ -78,13 +78,27 @@
   });
 
   const DEFAULT_AXIS_COLOR = '#000000';
+  const MIN_MINOR_TICK_SUBDIVISIONS = 1;
+  const MAX_MINOR_TICK_SUBDIVISIONS = 9;
+  const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
+    ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
+    : 3;
+
+  function clampMinorTickSubdivisions(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return DEFAULT_MINOR_TICK_SUBDIVISIONS;
+    }
+    const rounded = Math.round(numeric);
+    return Math.max(MIN_MINOR_TICK_SUBDIVISIONS, Math.min(MAX_MINOR_TICK_SUBDIVISIONS, rounded));
+  }
 
   function createDefaultAxisSettings(){
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, notation: 'auto' },
-      y: { tickInterval: null, minorTicks: false, notation: 'auto' }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' }
     };
   }
 
@@ -260,10 +274,10 @@
       state.axisSettings = createDefaultAxisSettings();
     }
     if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
-      state.axisSettings.x = { tickInterval: null, notation: 'auto' };
+      state.axisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' };
     }
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
-      state.axisSettings.y = { tickInterval: null, notation: 'auto' };
+      state.axisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' };
     }
     if(typeof state.axisSettings.x.minorTicks !== 'boolean'){
       state.axisSettings.x.minorTicks = false;
@@ -271,6 +285,8 @@
     if(typeof state.axisSettings.y.minorTicks !== 'boolean'){
       state.axisSettings.y.minorTicks = false;
     }
+    state.axisSettings.x.minorTickSubdivisions = clampMinorTickSubdivisions(state.axisSettings.x.minorTickSubdivisions);
+    state.axisSettings.y.minorTickSubdivisions = clampMinorTickSubdivisions(state.axisSettings.y.minorTickSubdivisions);
     const strokeNumeric = Number(state.axisSettings.strokeWidth);
     state.axisSettings.strokeWidth = Number.isFinite(strokeNumeric) && strokeNumeric > 0 ? strokeNumeric : 1;
     if(typeof state.axisSettings.color !== 'string' || !state.axisSettings.color){
@@ -345,6 +361,26 @@
     }
   }
 
+  function getAxisMinorTickSubdivisions(axis){
+    if(axis !== 'x' && axis !== 'y'){ return DEFAULT_MINOR_TICK_SUBDIVISIONS; }
+    const settings = ensureAxisSettings();
+    return clampMinorTickSubdivisions(settings[axis]?.minorTickSubdivisions);
+  }
+
+  function updateAxisMinorTickSubdivisions(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const nextValue = clampMinorTickSubdivisions(value);
+    if(settings[axis].minorTickSubdivisions === nextValue){
+      return;
+    }
+    settings[axis].minorTickSubdivisions = nextValue;
+    console.debug('Debug: hist minor tick subdivisions updated',{ axis, subdivisions: nextValue });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
   function getAxisStrokeWidthBase(){
     return ensureAxisSettings().strokeWidth;
   }
@@ -392,6 +428,10 @@
       base.y.tickInterval = yInterval === '' ? null : yInterval;
       base.x.minorTicks = !!(settings.minorTicksX ?? settings.x?.minorTicks ?? false);
       base.y.minorTicks = !!(settings.minorTicksY ?? settings.y?.minorTicks ?? false);
+      const xMinorSubdiv = settings.minorTickSubdivisionsX ?? settings.minorSubdivisionsX ?? settings.x?.minorTickSubdivisions ?? settings.x?.minorSubdivisions ?? null;
+      const yMinorSubdiv = settings.minorTickSubdivisionsY ?? settings.minorSubdivisionsY ?? settings.y?.minorTickSubdivisions ?? settings.y?.minorSubdivisions ?? null;
+      base.x.minorTickSubdivisions = clampMinorTickSubdivisions(xMinorSubdiv);
+      base.y.minorTickSubdivisions = clampMinorTickSubdivisions(yMinorSubdiv);
       const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'auto';
       const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
       base.x.notation = sanitizeHistAxisNotation(xNotation);
@@ -973,6 +1013,8 @@
           tickIntervalY: axisSettings.y?.tickInterval ?? null,
           minorTicksX: axisSettings.x?.minorTicks ?? false,
           minorTicksY: axisSettings.y?.minorTicks ?? false,
+          minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
+          minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions),
           notationX: axisSettings.x?.notation ?? 'auto',
           notationY: axisSettings.y?.notation ?? 'auto'
         },
@@ -1052,6 +1094,8 @@
           tickIntervalY: axisConfig.tickIntervalY ?? axisConfig.yTickInterval ?? axisConfig?.y?.tickInterval ?? null,
           minorTicksX: axisConfig.minorTicksX ?? axisConfig?.x?.minorTicks ?? false,
           minorTicksY: axisConfig.minorTicksY ?? axisConfig?.y?.minorTicks ?? false,
+          minorTickSubdivisionsX: axisConfig.minorTickSubdivisionsX ?? axisConfig.minorSubdivisionsX ?? axisConfig?.x?.minorTickSubdivisions ?? axisConfig?.x?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
+          minorTickSubdivisionsY: axisConfig.minorTickSubdivisionsY ?? axisConfig.minorSubdivisionsY ?? axisConfig?.y?.minorTickSubdivisions ?? axisConfig?.y?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
           notationX: axisConfig.notationX ?? axisConfig.axisNotationX ?? axisConfig?.x?.notation ?? 'auto',
           notationY: axisConfig.notationY ?? axisConfig.axisNotationY ?? axisConfig?.y?.notation ?? 'auto'
         });
@@ -1586,12 +1630,15 @@
     if(axisYStart===axisYEnd){axisYStart=margin.top;axisYEnd=margin.top+plotH;}
     console.debug('Debug: hist axis span',{axisXStart,axisXEnd,axisYStart,axisYEnd});
     const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+    const minorSubdivisionsX = getAxisMinorTickSubdivisions('x');
+    const minorSubdivisionsY = getAxisMinorTickSubdivisions('y');
     const minorTicksX = getAxisMinorTicksEnabled('x')
       ? chartStyle.computeMinorTickPositions({
           majorTicks: xScale.ticks,
           min: Number.isFinite(xScale.min) ? xScale.min : xMin,
           max: Number.isFinite(xScale.max) ? xScale.max : xMax,
-          scale: 'linear'
+          scale: 'linear',
+          subdivisions: minorSubdivisionsX
         })
       : [];
     const minorTicksY = getAxisMinorTicksEnabled('y')
@@ -1602,7 +1649,8 @@
           scale: logY ? 'log' : 'linear',
           domainMin: logY ? yMin : null,
           domainMax: logY ? yMax : null,
-          logBase: 10
+          logBase: 10,
+          subdivisions: minorSubdivisionsY
         })
       : [];
       const axisControlConfig = axis => ({
@@ -1620,6 +1668,8 @@
         getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
         onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
         isMinorTicksSupported: () => true,
+        getMinorTickSubdivisions: () => getAxisMinorTickSubdivisions(axis),
+        onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axis, value),
         onThicknessChange: value => updateAxisStrokeWidth(value),
         onColorChange: value => updateAxisColor(value),
         getNotationMode: () => getAxisNotation(axis),

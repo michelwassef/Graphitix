@@ -30,6 +30,20 @@
   const DEFAULT_BOX_COLORS=['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f','#e5c494','#b3b3b3'];
   const DEFAULT_ROWS=100, DEFAULT_COLS=10;
   const DEFAULT_AXIS_COLOR='#000000';
+  const MIN_MINOR_TICK_SUBDIVISIONS = 1;
+  const MAX_MINOR_TICK_SUBDIVISIONS = 9;
+  const DEFAULT_MINOR_TICK_SUBDIVISIONS = Number.isFinite(chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS)
+    ? chartStyle.DEFAULT_MINOR_TICK_SUBDIVISIONS
+    : 3;
+
+  function clampMinorTickSubdivisions(value){
+    const numeric = Number(value);
+    if(!Number.isFinite(numeric)){
+      return DEFAULT_MINOR_TICK_SUBDIVISIONS;
+    }
+    const rounded = Math.round(numeric);
+    return Math.max(MIN_MINOR_TICK_SUBDIVISIONS, Math.min(MAX_MINOR_TICK_SUBDIVISIONS, rounded));
+  }
   const DEFAULT_VIOLIN_BANDWIDTH=1;
   const DEFAULT_VIOLIN_SAMPLE_COUNT=80;
   const VIOLIN_SAMPLE_MIN=8;
@@ -1959,8 +1973,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, notation: 'auto' },
-      y: { tickInterval: null, minorTicks: false, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -3603,12 +3617,14 @@
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
-    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, notation: 'auto' }; }
-    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }; }
+    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' }; }
+    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }; }
     if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
     if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
     if(typeof settings.x.minorTicks !== 'boolean'){ settings.x.minorTicks = false; }
     if(typeof settings.y.minorTicks !== 'boolean'){ settings.y.minorTicks = false; }
+    settings.x.minorTickSubdivisions = clampMinorTickSubdivisions(settings.x.minorTickSubdivisions);
+    settings.y.minorTickSubdivisions = clampMinorTickSubdivisions(settings.y.minorTickSubdivisions);
     settings.x.notation = sanitizeBoxAxisNotation(settings.x.notation);
     settings.y.notation = sanitizeBoxAxisNotation(settings.y.notation);
     // Ensure broken axis settings for y-axis
@@ -3674,6 +3690,26 @@
     }
     settings[axis].minorTicks = nextValue;
     console.debug('Debug: box minor ticks updated',{ axis, enabled: nextValue, flipAxes: state.flipAxes });
+    if(typeof state.scheduleDraw === 'function'){
+      state.scheduleDraw();
+    }
+  }
+
+  function getAxisMinorTickSubdivisions(axis){
+    if(axis !== 'x' && axis !== 'y'){ return DEFAULT_MINOR_TICK_SUBDIVISIONS; }
+    const settings = ensureAxisSettings();
+    return clampMinorTickSubdivisions(settings[axis]?.minorTickSubdivisions);
+  }
+
+  function updateAxisMinorTickSubdivisions(axis, value){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureAxisSettings();
+    const nextValue = clampMinorTickSubdivisions(value);
+    if(settings[axis].minorTickSubdivisions === nextValue){
+      return;
+    }
+    settings[axis].minorTickSubdivisions = nextValue;
+    console.debug('Debug: box minor tick subdivisions updated',{ axis, subdivisions: nextValue });
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }
@@ -9658,6 +9694,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       getMinorTicksEnabled: () => getAxisMinorTicksEnabled(axis),
       onMinorTicksChange: value => updateAxisMinorTicks(axis, value),
       isMinorTicksSupported: () => isAxisNumeric(axis),
+      getMinorTickSubdivisions: () => getAxisMinorTickSubdivisions(axis),
+      onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axis, value),
       onThicknessChange: value => updateAxisStrokeWidth(value),
       onColorChange: value => updateAxisColor(value),
       getNotationMode: () => getAxisNotation(axis),
@@ -9848,6 +9886,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         return marginLocal.top + plotHLocal * (1 - (safeV - yScale.min) / valueRange);
       };
       const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+      const minorSubdivisionsY = getAxisMinorTickSubdivisions('y');
       const minorTicksY = getAxisMinorTicksEnabled('y')
         ? chartStyle.computeMinorTickPositions({
             majorTicks: yScale.ticks,
@@ -9856,7 +9895,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             scale: logScale ? 'log' : 'linear',
             domainMin: logScale ? ymin : null,
             domainMax: logScale ? ymax : null,
-            logBase: 10
+            logBase: 10,
+            subdivisions: minorSubdivisionsY
           }).filter(value => {
             if(!brokenScale || !brokenScale.isBroken){ return true; }
             return brokenScale.segments.some(seg => value >= seg.start && value <= seg.end);
@@ -10839,6 +10879,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       const valueRange = yScale.max - yScale.min || 1;
       const valueToX = v => marginLocal.left + ((v - yScale.min) / valueRange) * plotWLocal;
       const minorTickStyle = chartStyle.resolveMinorTickStyle({ tickLength: tickLen, strokeWidth: axisStrokeWidth });
+      const minorSubdivisionsX = getAxisMinorTickSubdivisions('x');
       const minorTicksX = getAxisMinorTicksEnabled('x')
         ? chartStyle.computeMinorTickPositions({
             majorTicks: yScale.ticks,
@@ -10847,7 +10888,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             scale: logScale ? 'log' : 'linear',
             domainMin: logScale ? ymin : null,
             domainMax: logScale ? ymax : null,
-            logBase: 10
+            logBase: 10,
+            subdivisions: minorSubdivisionsX
           })
         : [];
       const renderSwarmPointsHorizontal = params => {
@@ -11853,6 +11895,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             x: axisSnapshot.x?.minorTicks ?? false,
             y: axisSnapshot.y?.minorTicks ?? false
           },
+          minorTickSubdivisions: {
+            x: clampMinorTickSubdivisions(axisSnapshot.x?.minorTickSubdivisions),
+            y: clampMinorTickSubdivisions(axisSnapshot.y?.minorTickSubdivisions)
+          },
           notation: {
             x: axisSnapshot.x?.notation ?? 'auto',
             y: axisSnapshot.y?.notation ?? 'auto'
@@ -12171,6 +12217,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }else{
         axisState.x.minorTicks = !!axisState.x.minorTicks;
         axisState.y.minorTicks = !!axisState.y.minorTicks;
+      }
+      if(axisCfg.minorTickSubdivisions){
+        axisState.x.minorTickSubdivisions = clampMinorTickSubdivisions(
+          axisCfg.minorTickSubdivisions.x ?? axisCfg.minorTickSubdivisionsX ?? axisCfg.minorSubdivisionsX ?? axisCfg.minorTickSubdivisions
+        );
+        axisState.y.minorTickSubdivisions = clampMinorTickSubdivisions(
+          axisCfg.minorTickSubdivisions.y ?? axisCfg.minorTickSubdivisionsY ?? axisCfg.minorSubdivisionsY ?? axisCfg.minorTickSubdivisions
+        );
+      }else{
+        axisState.x.minorTickSubdivisions = clampMinorTickSubdivisions(axisState.x.minorTickSubdivisions);
+        axisState.y.minorTickSubdivisions = clampMinorTickSubdivisions(axisState.y.minorTickSubdivisions);
       }
       
       // Restore notation settings
