@@ -2050,7 +2050,7 @@
     scopeFieldEl.className = 'font-controls-panel__field font-controls-panel__field--scope';
     const scopeLabelEl = doc.createElement('span');
     scopeLabelEl.className = 'font-controls-panel__field-label';
-    scopeLabelEl.textContent = 'Scope';
+    scopeLabelEl.textContent = 'Scope:';
     scopeSelectEl = doc.createElement('select');
     scopeSelectEl.className = 'font-controls-panel__select';
     const scopeSelectionOpt = doc.createElement('option');
