@@ -1419,9 +1419,6 @@
 
   function openFontMenu(trigger, meta){
     if(!fontMenuPopup || fontMenuVisible){ return; }
-    if(typeof hydrateLocalFonts === 'function'){
-      hydrateLocalFonts(trigger || 'menu-open').catch(() => {});
-    }
     fontMenuPopup.hidden = false;
     fontMenuPopup.classList.add('font-controls-panel__combo-menu--open');
     fontMenuVisible = true;
@@ -1436,21 +1433,26 @@
     attachFontMenuDismissWatcher();
     const focusMode = meta?.focusOption || null;
     if(focusMode){
-      const focusTask = () => {
-        if(focusMode === 'first'){
+      if(focusMode === 'first'){
+        focusFirstFontOption();
+      } else if(focusMode === 'last'){
+        focusLastFontOption();
+      } else if(focusMode === 'active'){
+        const active = getActiveFontMenuOption();
+        if(active){
+          active.focus();
+        } else {
           focusFirstFontOption();
-        } else if(focusMode === 'last'){
-          focusLastFontOption();
-        } else if(focusMode === 'active'){
-          const active = getActiveFontMenuOption();
-          if(active){
-            active.focus();
-          } else {
-            focusFirstFontOption();
-          }
         }
-      };
-      setTimeout(focusTask, 0);
+      }
+    }
+    // Defer any local font hydration to avoid blocking menu open.
+    if(typeof hydrateLocalFonts === 'function' && !meta?.skipHydrate){
+      setTimeout(() => {
+        try{
+          hydrateLocalFonts(trigger || 'menu-open').catch(() => {});
+        }catch(e){}
+      }, 0);
     }
     logDebug('font menu opened', {
       trigger: trigger || 'unknown',
