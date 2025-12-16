@@ -113,11 +113,19 @@
     if(!Number.isFinite(num)){
       return String(value);
     }
-    if(num === 0){
-      return '0';
-    }
     const digits = clampSignificantDigits(options?.significantDigits);
     const fractionalDigits = Math.max(0, digits - 1);
+    const minPositiveValue = Number.isFinite(options?.minPositiveValue) && options.minPositiveValue > 0
+      ? options.minPositiveValue
+      : Number.MIN_VALUE;
+    if(num === 0){
+      const lowerBound = finalizeNumberString(minPositiveValue.toExponential(fractionalDigits));
+      const formattedZero = `< ${lowerBound}`;
+      if(statsDebugEnabled()){
+        console.debug('Debug: Shared.formatPValue underflow',{ input: value, formatted: formattedZero, options });
+      }
+      return formattedZero;
+    }
     const threshold = Number.isFinite(options?.scientificThreshold) && options.scientificThreshold > 0
       ? options.scientificThreshold
       : DEFAULT_PVALUE_SCI_THRESHOLD;
