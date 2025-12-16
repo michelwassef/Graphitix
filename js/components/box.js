@@ -3493,20 +3493,43 @@
     return { ...stats, positive, negative, ties, total:stats.n };
   }
   function computePairwiseCounts(a,b){
+    // Optimized pairwise counts: avoid O(nA * nB) loops by sorting and using binary searches.
     const arrA=(Array.isArray(a)?a:[]).map(Number).filter(v=>Number.isFinite(v));
     const arrB=(Array.isArray(b)?b:[]).map(Number).filter(v=>Number.isFinite(v));
-    let greater=0,less=0,equal=0;
-    for(let i=0;i<arrA.length;i++){
-      const av=arrA[i];
-      for(let j=0;j<arrB.length;j++){
-        const bv=arrB[j];
-        if(av>bv) greater++;
-        else if(av<bv) less++;
-        else equal++;
-      }
+    const nA=arrA.length; const nB=arrB.length;
+    if(nA===0 || nB===0){
+      return { greater:0, less:0, equal:0, totalPairs:0, nA, nB };
     }
-    const totalPairs=greater+less+equal;
-    return { greater, less, equal, totalPairs, nA:arrA.length, nB:arrB.length };
+    arrB.sort((x,y)=>x-y);
+    // binary search helpers
+    function lowerBound(arr, value){
+      let lo=0, hi=arr.length;
+      while(lo<hi){
+        const mid=(lo+hi)>>1;
+        if(arr[mid]<value) lo=mid+1; else hi=mid;
+      }
+      return lo;
+    }
+    function upperBound(arr, value){
+      let lo=0, hi=arr.length;
+      while(lo<hi){
+        const mid=(lo+hi)>>1;
+        if(arr[mid]<=value) lo=mid+1; else hi=mid;
+      }
+      return lo;
+    }
+    let greater=0, less=0, equal=0;
+    for(let i=0;i<nA;i++){
+      const av=arrA[i];
+      const lessCount = lowerBound(arrB, av); // number of b < av
+      const leCount = upperBound(arrB, av); // number of b <= av
+      const eq = leCount - lessCount;
+      greater += lessCount;
+      equal += eq;
+      less += (nB - leCount);
+    }
+    const totalPairs = greater + less + equal;
+    return { greater, less, equal, totalPairs, nA, nB };
   }
   function computeEffectSizeMetrics(a,b,options){
     const paired=!!options?.paired;
@@ -7889,7 +7912,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       updateSignificanceControlState({ statsReady: false });
       return;
     }
+    const previousContext = state.statsContext;
     const signature = buildStatsSignature(traces);
+    const svgChanged = previousContext?.svg && previousContext.svg !== svg;
     const contextChanged = signature !== state.statsContextSignature;
     let version = state.statsContextVersion || 0;
     if(contextChanged){
@@ -7913,6 +7938,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       setStatsStatus('Statistics ready to calculate.');
       updateStatsButtonState({ disabled: false, label: 'Calculate statistics' });
       updateSignificanceControlState({ statsReady: false });
+    }
+    const needsSvgReapply = svgChanged && (state.showSignificanceBars || state.statsLastSignificanceEnabled) && !state.statsComputationPending;
+    if(needsSvgReapply){
+      console.debug('Debug: box stats recompute for new svg',{ svgChanged, significance: state.showSignificanceBars, version });
+      handleStatsComputeClick();
     }
   }
 
@@ -7966,8 +7996,25 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       return false;
     }
-    console.debug('Debug: box stats context refresh requested',{ reason, traceCount: ctx.traces.length });
-    primeStatsComputation(ctx.traces, ctx.svg, ctx.helpers);
+    const mergedHelpers = {
+      ...(ctx.helpers || {}),
+      significance: {
+        ...(ctx.helpers?.significance || {}),
+        enabled: !!state.showSignificanceBars
+      }
+    };
+    console.debug('Debug: box stats context refresh requested',{
+      reason,
+      traceCount: ctx.traces.length,
+      significanceEnabled: mergedHelpers.significance.enabled
+    });
+    primeStatsComputation(ctx.traces, ctx.svg, mergedHelpers);
+    const significanceChanged = state.statsLastSignificanceEnabled !== !!state.showSignificanceBars;
+    const hasFreshResults = state.statsLastRunVersion === state.statsContextVersion && state.statsLastRunVersion > 0;
+    if(significanceChanged && hasFreshResults && !state.statsComputationPending){
+      console.debug('Debug: box stats auto-recompute for significance',{ significanceChanged, version: state.statsContextVersion });
+      handleStatsComputeClick();
+    }
     return true;
   }
 
