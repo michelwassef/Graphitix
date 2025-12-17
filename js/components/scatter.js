@@ -100,6 +100,11 @@
   const SCATTER_ANNOTATION_COMFORTABLE_COUNT = 8;
   const SCATTER_ANNOTATION_MIN_SCALE = 0.35;
 
+  const BROKEN_AXIS_GAP_SIZE_PX = 20;
+  const BROKEN_AXIS_BREAK_WIDTH = 8;
+  const BROKEN_AXIS_BREAK_HEIGHT = 6;
+  const BROKEN_AXIS_DEFAULT_SEGMENT = { start: 0, end: 1 };
+
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
@@ -2163,8 +2168,8 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
@@ -2180,16 +2185,34 @@
       scatterAxisSettings = createScatterAxisSettings();
     }
     if(!scatterAxisSettings.x || typeof scatterAxisSettings.x !== 'object'){
-      scatterAxisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' };
+      scatterAxisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
     }
     if(!scatterAxisSettings.y || typeof scatterAxisSettings.y !== 'object'){
-      scatterAxisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' };
+      scatterAxisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
     }
     if(typeof scatterAxisSettings.x.minorTicks !== 'boolean'){
       scatterAxisSettings.x.minorTicks = false;
     }
     if(typeof scatterAxisSettings.y.minorTicks !== 'boolean'){
       scatterAxisSettings.y.minorTicks = false;
+    }
+    if(!scatterAxisSettings.x.brokenAxis || typeof scatterAxisSettings.x.brokenAxis !== 'object'){
+      scatterAxisSettings.x.brokenAxis = { enabled: false, segments: [] };
+    }
+    if(typeof scatterAxisSettings.x.brokenAxis.enabled !== 'boolean'){
+      scatterAxisSettings.x.brokenAxis.enabled = false;
+    }
+    if(!Array.isArray(scatterAxisSettings.x.brokenAxis.segments)){
+      scatterAxisSettings.x.brokenAxis.segments = [];
+    }
+    if(!scatterAxisSettings.y.brokenAxis || typeof scatterAxisSettings.y.brokenAxis !== 'object'){
+      scatterAxisSettings.y.brokenAxis = { enabled: false, segments: [] };
+    }
+    if(typeof scatterAxisSettings.y.brokenAxis.enabled !== 'boolean'){
+      scatterAxisSettings.y.brokenAxis.enabled = false;
+    }
+    if(!Array.isArray(scatterAxisSettings.y.brokenAxis.segments)){
+      scatterAxisSettings.y.brokenAxis.segments = [];
     }
     scatterAxisSettings.x.minorTickSubdivisions = clampMinorTickSubdivisions(scatterAxisSettings.x.minorTickSubdivisions);
     scatterAxisSettings.y.minorTickSubdivisions = clampMinorTickSubdivisions(scatterAxisSettings.y.minorTickSubdivisions);
@@ -2320,6 +2343,50 @@
     }
   }
 
+  function getBrokenAxisEnabled(axis){
+    if(axis !== 'x' && axis !== 'y'){ return false; }
+    const settings = ensureScatterAxisSettings();
+    return !!settings[axis]?.brokenAxis?.enabled;
+  }
+
+  function updateBrokenAxisEnabled(axis, enabled){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureScatterAxisSettings();
+    const previousValue = !!settings[axis].brokenAxis.enabled;
+    settings[axis].brokenAxis.enabled = !!enabled;
+    console.debug('Debug: scatter broken axis enabled updated',{ axis, enabled: settings[axis].brokenAxis.enabled });
+    if(typeof scheduleDrawScatter === 'function'){
+      scheduleDrawScatter();
+    }
+    return previousValue;
+  }
+
+  function getBrokenAxisSegments(axis){
+    if(axis !== 'x' && axis !== 'y'){ return []; }
+    const settings = ensureScatterAxisSettings();
+    return settings[axis]?.brokenAxis?.segments || [];
+  }
+
+  function updateBrokenAxisSegments(axis, segments){
+    if(axis !== 'x' && axis !== 'y'){ return; }
+    const settings = ensureScatterAxisSettings();
+    if(!Array.isArray(segments)){
+      settings[axis].brokenAxis.segments = [];
+      return;
+    }
+    settings[axis].brokenAxis.segments = segments.filter(seg => {
+      return seg &&
+             typeof seg === 'object' &&
+             Number.isFinite(seg.start) &&
+             Number.isFinite(seg.end) &&
+             seg.start < seg.end;
+    }).map(seg => ({ start: Number(seg.start), end: Number(seg.end) }));
+    console.debug('Debug: scatter broken axis segments updated',{ axis, segments: settings[axis].brokenAxis.segments });
+    if(typeof scheduleDrawScatter === 'function'){
+      scheduleDrawScatter();
+    }
+  }
+
   function applyScatterAxisSettings(settings){
     const base = createScatterAxisSettings();
     if(settings && typeof settings === 'object'){
@@ -2344,6 +2411,34 @@
       const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
       base.x.notation = sanitizeScatterAxisNotation(xNotation);
       base.y.notation = sanitizeScatterAxisNotation(yNotation);
+      if(settings.brokenAxis){
+        if(settings.brokenAxis.x){
+          base.x.brokenAxis = {
+            enabled: !!settings.brokenAxis.x.enabled,
+            segments: Array.isArray(settings.brokenAxis.x.segments)
+              ? settings.brokenAxis.x.segments.filter(seg =>
+                  seg &&
+                  Number.isFinite(seg.start) &&
+                  Number.isFinite(seg.end) &&
+                  seg.start < seg.end
+                ).map(seg => ({ start: Number(seg.start), end: Number(seg.end) }))
+              : []
+          };
+        }
+        if(settings.brokenAxis.y){
+          base.y.brokenAxis = {
+            enabled: !!settings.brokenAxis.y.enabled,
+            segments: Array.isArray(settings.brokenAxis.y.segments)
+              ? settings.brokenAxis.y.segments.filter(seg =>
+                  seg &&
+                  Number.isFinite(seg.start) &&
+                  Number.isFinite(seg.end) &&
+                  seg.start < seg.end
+                ).map(seg => ({ start: Number(seg.start), end: Number(seg.end) }))
+              : []
+          };
+        }
+      }
     }
     scatterAxisSettings = base;
     ensureScatterAxisSettings();
@@ -2381,6 +2476,128 @@
       max: Number.isFinite(options?.manualMax) ? options.manualMax : Number(options?.dataMax) || 1,
       ticks: [Number(options?.manualMin) || 0, Number(options?.manualMax) || 1],
       step: Number(options?.fixedStep) || 1
+    };
+  }
+
+  function computeBrokenAxisScale(config){
+    const { dataMin, dataMax, segments, plotLength, orientation } = config;
+    const isHorizontal = orientation === 'horizontal';
+
+    if(!Array.isArray(segments) || segments.length === 0){
+      return {
+        isBroken: false,
+        min: dataMin,
+        max: dataMax,
+        valueToPixel: (value, basePos, plotLen) => {
+          const range = dataMax - dataMin || 1;
+          if(isHorizontal){
+            return basePos + plotLen * ((value - dataMin) / range);
+          }
+          return basePos + plotLen * (1 - (value - dataMin) / range);
+        },
+        segments: []
+      };
+    }
+
+    const validSegments = segments
+      .filter(seg => Number.isFinite(seg.start) && Number.isFinite(seg.end) && seg.start < seg.end)
+      .sort((a, b) => a.start - b.start);
+
+    if(validSegments.length === 0){
+      return {
+        isBroken: false,
+        min: dataMin,
+        max: dataMax,
+        valueToPixel: (value, basePos, plotLen) => {
+          const range = dataMax - dataMin || 1;
+          if(isHorizontal){
+            return basePos + plotLen * ((value - dataMin) / range);
+          }
+          return basePos + plotLen * (1 - (value - dataMin) / range);
+        },
+        segments: []
+      };
+    }
+
+    const mergedSegments = [];
+    let current = { ...validSegments[0] };
+    for(let i = 1; i < validSegments.length; i++){
+      const seg = validSegments[i];
+      if(seg.start <= current.end){
+        current.end = Math.max(current.end, seg.end);
+      }else{
+        mergedSegments.push(current);
+        current = { ...seg };
+      }
+    }
+    mergedSegments.push(current);
+
+    const totalDataRange = mergedSegments.reduce((sum, seg) => sum + (seg.end - seg.start), 0);
+    const gapSizePx = BROKEN_AXIS_GAP_SIZE_PX;
+    const numGaps = mergedSegments.length - 1;
+    const totalGapLength = numGaps * gapSizePx;
+    const availableLength = plotLength - totalGapLength;
+
+    const segmentMeta = mergedSegments.map(seg => {
+      const dataRange = seg.end - seg.start;
+      const lengthPx = (dataRange / totalDataRange) * availableLength;
+      return {
+        start: seg.start,
+        end: seg.end,
+        dataRange,
+        lengthPx,
+        pixelStart: 0,
+        pixelEnd: 0
+      };
+    });
+
+    let currentPixel = 0;
+    for(let i = 0; i < segmentMeta.length; i++){
+      segmentMeta[i].pixelStart = currentPixel;
+      segmentMeta[i].pixelEnd = currentPixel + segmentMeta[i].lengthPx;
+      currentPixel = segmentMeta[i].pixelEnd + gapSizePx;
+    }
+
+    const valueToPixel = (value, basePos, plotLen) => {
+      const mapPixel = pixel => {
+        if(isHorizontal){
+          return basePos + pixel;
+        }
+        return basePos + plotLen - pixel;
+      };
+
+      for(let i = 0; i < segmentMeta.length; i++){
+        const seg = segmentMeta[i];
+        if(value >= seg.start && value <= seg.end){
+          const fraction = seg.dataRange > 0 ? (value - seg.start) / seg.dataRange : 0;
+          const pixelInSegment = seg.pixelStart + fraction * seg.lengthPx;
+          return mapPixel(pixelInSegment);
+        }
+      }
+
+      if(value < segmentMeta[0].start){
+        return mapPixel(segmentMeta[0].pixelStart);
+      }
+      if(value > segmentMeta[segmentMeta.length - 1].end){
+        return mapPixel(segmentMeta[segmentMeta.length - 1].pixelEnd);
+      }
+
+      for(let i = 0; i < segmentMeta.length - 1; i++){
+        if(value > segmentMeta[i].end && value < segmentMeta[i + 1].start){
+          return mapPixel(segmentMeta[i].pixelEnd);
+        }
+      }
+
+      return mapPixel(segmentMeta[0].pixelStart);
+    };
+
+    return {
+      isBroken: true,
+      min: mergedSegments[0].start,
+      max: mergedSegments[mergedSegments.length - 1].end,
+      segments: segmentMeta,
+      gapSizePx,
+      valueToPixel
     };
   }
 
@@ -5960,12 +6177,66 @@
         }else{
           debug('Debug: scatter layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter free resize branch
         }
-        const x2px=v=>margin.left+plotW*(v-xScale.min)/(xScale.max-xScale.min);
-        const y2px=v=>margin.top+plotH*(1-(v-yScale.min)/(yScale.max-yScale.min));
+        const brokenXEnabled = getBrokenAxisEnabled('x');
+        const brokenXSegments = brokenXEnabled ? getBrokenAxisSegments('x') : [];
+        const brokenXScale = brokenXEnabled && brokenXSegments.length > 0
+          ? computeBrokenAxisScale({
+              dataMin: xScale.min,
+              dataMax: xScale.max,
+              segments: brokenXSegments,
+              plotLength: plotW,
+              orientation: 'horizontal'
+            })
+          : null;
+        const brokenYEnabled = getBrokenAxisEnabled('y');
+        const brokenYSegments = brokenYEnabled ? getBrokenAxisSegments('y') : [];
+        const brokenYScale = brokenYEnabled && brokenYSegments.length > 0
+          ? computeBrokenAxisScale({
+              dataMin: yScale.min,
+              dataMax: yScale.max,
+              segments: brokenYSegments,
+              plotLength: plotH,
+              orientation: 'vertical'
+            })
+          : null;
+        debug('Debug: scatter broken axis',{
+          xEnabled: brokenXEnabled,
+          xSegments: brokenXSegments,
+          xBroken: brokenXScale?.isBroken,
+          yEnabled: brokenYEnabled,
+          ySegments: brokenYSegments,
+          yBroken: brokenYScale?.isBroken
+        });
+        const isXValueVisible = value => {
+          if(!brokenXScale || !brokenXScale.isBroken){ return true; }
+          return brokenXScale.segments.some(seg => value >= seg.start && value <= seg.end);
+        };
+        const isYValueVisible = value => {
+          if(!brokenYScale || !brokenYScale.isBroken){ return true; }
+          return brokenYScale.segments.some(seg => value >= seg.start && value <= seg.end);
+        };
+        const x2px=v=>{
+          const safeV = Math.min(Math.max(v, xScale.min), xScale.max);
+          if(brokenXScale && brokenXScale.isBroken){
+            return brokenXScale.valueToPixel(safeV, margin.left, plotW);
+          }
+          return margin.left+plotW*(safeV-xScale.min)/(xScale.max-xScale.min);
+        };
+        const y2px=v=>{
+          const safeV = Math.min(Math.max(v, yScale.min), yScale.max);
+          if(brokenYScale && brokenYScale.isBroken){
+            return brokenYScale.valueToPixel(safeV, margin.top, plotH);
+          }
+          return margin.top+plotH*(1-(safeV-yScale.min)/(yScale.max-yScale.min));
+        };
         function add(tag,attrs){const el=document.createElementNS(NS,tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,String(v));svg.appendChild(el);return el;}
         if(showGrid){
-          xScale.ticks.forEach(t=>{const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});});
-          yScale.ticks.forEach(t=>{const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});});
+          xScale.ticks.forEach(t=>{
+            if(!isXValueVisible(t)){ return; }
+            const x=x2px(t);add('line',{x1:x,y1:margin.top,x2:x,y2:margin.top+plotH,stroke:'#ddd','stroke-width':axisStrokeWidth});});
+          yScale.ticks.forEach(t=>{
+            if(!isYValueVisible(t)){ return; }
+            const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});});
           debug('Debug: scatter grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,axisStrokeWidth});
         }
         let originXT,originYT;
@@ -6037,15 +6308,106 @@
           onColorChange: value => updateScatterAxisColor(value),
           getNotationMode: () => getScatterAxisNotation(axis),
           onNotationChange: value => updateScatterAxisNotation(axis, value),
-          isNotationSupported: () => true
+          isNotationSupported: () => true,
+          isBrokenAxisSupported: () => true,
+          getBrokenAxisEnabled: () => getBrokenAxisEnabled(axis),
+          onBrokenAxisEnabledChange: value => updateBrokenAxisEnabled(axis, value),
+          getBrokenAxisSegments: () => getBrokenAxisSegments(axis),
+          onBrokenAxisSegmentChange: (axisName, index, segment) => {
+            const segments = getBrokenAxisSegments(axis);
+            if(index >= 0 && index < segments.length){
+              segments[index] = segment;
+              updateBrokenAxisSegments(axis, segments);
+            }
+          },
+          onBrokenAxisAddSegment: () => {
+            const segments = getBrokenAxisSegments(axis);
+            segments.push({ ...BROKEN_AXIS_DEFAULT_SEGMENT });
+            updateBrokenAxisSegments(axis, segments);
+          },
+          onBrokenAxisRemoveSegment: (axisName, index) => {
+            const segments = getBrokenAxisSegments(axis);
+            if(index >= 0 && index < segments.length){
+              segments.splice(index, 1);
+              updateBrokenAxisSegments(axis, segments);
+            }
+          }
         });
-        const xAxisLine = add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
-        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-          axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+        if(brokenXScale && brokenXScale.isBroken){
+          let combinedLeft = Infinity;
+          let combinedRight = -Infinity;
+          brokenXScale.segments.forEach(seg => {
+            const segLeft = x2px(seg.start);
+            const segRight = x2px(seg.end);
+            add('line',{
+              x1: segLeft,
+              y1: xAxisY,
+              x2: segRight,
+              y2: xAxisY,
+              stroke: axisStroke,
+              'stroke-linecap': 'square',
+              'stroke-width': axisStrokeWidth
+            });
+            combinedLeft = Math.min(combinedLeft, segLeft);
+            combinedRight = Math.max(combinedRight, segRight);
+          });
+          if(isFinite(combinedLeft) && isFinite(combinedRight)){
+            const hitLine = add('line',{
+              x1: combinedLeft,
+              y1: xAxisY,
+              x2: combinedRight,
+              y2: xAxisY,
+              stroke: 'transparent',
+              'stroke-width': 20,
+              'pointer-events': 'stroke'
+            });
+            if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+              axisControls.registerAxisElement(hitLine, axisControlConfig('x'));
+            }
+          }
+        }else{
+          const xAxisLine = add('line',{x1:axisXStart,y1:xAxisY,x2:axisXEnd,y2:xAxisY,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+          if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+            axisControls.registerAxisElement(xAxisLine, axisControlConfig('x'));
+          }
         }
-        const yAxisLine = add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
-        if(axisControls && typeof axisControls.registerAxisElement === 'function'){
-          axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+        if(brokenYScale && brokenYScale.isBroken){
+          let combinedTop = Infinity;
+          let combinedBottom = -Infinity;
+          brokenYScale.segments.forEach(seg => {
+            const segTop = y2px(seg.end);
+            const segBottom = y2px(seg.start);
+            add('line',{
+              x1: yAxisX,
+              y1: segTop,
+              x2: yAxisX,
+              y2: segBottom,
+              stroke: axisStroke,
+              'stroke-linecap': 'square',
+              'stroke-width': axisStrokeWidth
+            });
+            combinedTop = Math.min(combinedTop, segTop);
+            combinedBottom = Math.max(combinedBottom, segBottom);
+          });
+          if(isFinite(combinedTop) && isFinite(combinedBottom)){
+            const hitLine = add('line',{
+              x1: yAxisX,
+              y1: combinedTop,
+              x2: yAxisX,
+              y2: combinedBottom,
+              stroke: 'transparent',
+              'stroke-width': 20,
+              'pointer-events': 'stroke'
+            });
+            if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+              axisControls.registerAxisElement(hitLine, axisControlConfig('y'));
+            }
+          }
+        }else{
+          const yAxisLine = add('line',{x1:yAxisX,y1:axisYStart,x2:yAxisX,y2:axisYEnd,stroke:axisStroke,'stroke-linecap':'square','stroke-width':axisStrokeWidth});
+          if(axisControls && typeof axisControls.registerAxisElement === 'function'){
+            axisControls.registerAxisElement(yAxisLine, axisControlConfig('y'));
+          }
         }
         debug('Debug: scatter axes stroke scaled',{ axisStrokeWidth, axisStrokeWidthBase, axisStroke });
         if(showFrame){
@@ -6057,6 +6419,7 @@
         let xTickFontCount=0;
         if(minorTicksX.length){
           minorTicksX.forEach(value => {
+            if(!isXValueVisible(value)){ return; }
             const x = x2px(value);
             add('line',{
               x1: x,
@@ -6071,6 +6434,9 @@
           });
         }
         xScale.ticks.forEach((t,i)=>{
+          if(!isXValueVisible(t)){
+            return;
+          }
           const x = x2px(t);
           add('line',{x1:x,y1:xAxisY,x2:x,y2:xAxisY+tickLen,stroke:axisStroke,'stroke-width':axisStrokeWidth});
           const extra = Shared.computeAxisLabelYOffset ? Shared.computeAxisLabelYOffset(fs, tickLen, tickGap) : 0;
@@ -6085,6 +6451,7 @@
         let yTickFontCount=0;
         if(minorTicksY.length){
           minorTicksY.forEach(value => {
+            if(!isYValueVisible(value)){ return; }
             const y = y2px(value);
             add('line',{
               x1: yAxisX - minorTickStyle.length,
@@ -6099,6 +6466,9 @@
           });
         }
         yScale.ticks.forEach((t,i)=>{
+          if(!isYValueVisible(t)){
+            return;
+          }
           const y=y2px(t);
           add('line',{x1:yAxisX - tickLen,y1:y,x2:yAxisX,y2:y,stroke:axisStroke,'stroke-width':axisStrokeWidth});
           const txt=add('text',{x:yAxisX-(tickLen+tickGap),y,'font-size':fs,'text-anchor':'end','dominant-baseline':'middle',fill:chartStyle.TEXT_COLOR});
@@ -6847,14 +7217,24 @@
               strokeWidth: axisSettings.strokeWidth,
               color: axisSettings.color,
               tickIntervalX: axisSettings.x?.tickInterval ?? null,
-              tickIntervalY: axisSettings.y?.tickInterval ?? null,
-              minorTicksX: axisSettings.x?.minorTicks ?? false,
-              minorTicksY: axisSettings.y?.minorTicks ?? false,
-              minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
-              minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions),
-              notationX: axisSettings.x?.notation ?? 'auto',
-              notationY: axisSettings.y?.notation ?? 'auto'
-            },
+            tickIntervalY: axisSettings.y?.tickInterval ?? null,
+            minorTicksX: axisSettings.x?.minorTicks ?? false,
+            minorTicksY: axisSettings.y?.minorTicks ?? false,
+            minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
+            minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions),
+            notationX: axisSettings.x?.notation ?? 'auto',
+            notationY: axisSettings.y?.notation ?? 'auto',
+            brokenAxis: {
+              x: {
+                enabled: axisSettings.x?.brokenAxis?.enabled ?? false,
+                segments: axisSettings.x?.brokenAxis?.segments ?? []
+              },
+              y: {
+                enabled: axisSettings.y?.brokenAxis?.enabled ?? false,
+                segments: axisSettings.y?.brokenAxis?.segments ?? []
+              }
+            }
+          },
             fontStyles: fontStyles || undefined,
             viewMode: scatterState.requestedViewMode || scatterState.viewMode,
             rotation: scatterState.rotation ? {
@@ -7051,7 +7431,8 @@
             minorTickSubdivisionsX: c.axis.minorTickSubdivisionsX ?? c.axis.minorSubdivisionsX ?? c.axis?.x?.minorTickSubdivisions ?? c.axis?.x?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
             minorTickSubdivisionsY: c.axis.minorTickSubdivisionsY ?? c.axis.minorSubdivisionsY ?? c.axis?.y?.minorTickSubdivisions ?? c.axis?.y?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
             notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'auto',
-            notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'auto'
+            notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'auto',
+            brokenAxis: c.axis.brokenAxis || {}
           });
           console.debug('Debug: scatter axis settings restored',{ axis: ensureScatterAxisSettings() });
         }

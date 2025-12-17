@@ -1275,7 +1275,7 @@
     const target = evt?.currentTarget;
     if(!target){ return; }
     try{ evt.stopPropagation(); }catch(e){}
-    showLineStrokeFormatControls(target);
+    showLinePointFormatControls(target);
   }
 
   function showLinePointFormatControls(target){
@@ -1319,9 +1319,16 @@
 
     const dotSizeInput = doc.getElementById('lineDotSize');
     const fillInput = doc.getElementById('lineFill');
+    const strokeInput = doc.getElementById('lineBorder');
     const alphaInput = doc.getElementById('lineAlpha');
     const alphaVal = doc.getElementById('lineAlphaVal');
     const seriesKey = target?.__linePointData?.seriesName || target?.dataset?.series || null;
+    const seriesStyle = seriesKey ? lineSeriesStyles[seriesKey] || {} : null;
+    const resolveAlpha = value => {
+      const n = Number(value);
+      return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : null;
+    };
+    const seriesAlpha = resolveAlpha(seriesStyle?.alpha);
     const scopeName = `linePointScope_${Date.now()}`;
     const scopeField = doc.createElement('label');
     scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
@@ -1394,7 +1401,20 @@
     // Color
     const colorInput = doc.createElement('input');
     colorInput.type = 'color';
-    const resolvedFill = fillInput?.value || target.getAttribute('fill') || '#377eb8';
+    const targetFill = target.getAttribute('fill');
+    const targetStroke = target.getAttribute('stroke');
+    const resolvedFill =
+      (targetFill && targetFill !== 'none' ? targetFill : null)
+      || (seriesKey && lineLabelColors[seriesKey] ? lineLabelColors[seriesKey] : null)
+      || (targetStroke && targetStroke !== 'none' ? targetStroke : null)
+      || (fillInput?.value || null)
+      || '#377eb8';
+    if(fillInput && resolvedFill){
+      try{ fillInput.value = resolvedFill; }catch(e){}
+    }
+    if(strokeInput && resolvedFill){
+      try{ strokeInput.value = resolvedFill; }catch(e){}
+    }
     try{ colorInput.value = resolvedFill; }catch(e){}
     colorInput.addEventListener('input', () => {
       const nextColor = colorInput.value;
@@ -1451,7 +1471,13 @@
     opacityInput.min = '0';
     opacityInput.max = '100';
     opacityInput.step = '1';
-    const currentAlpha = Number(alphaInput?.value);
+    const currentAlpha = seriesAlpha != null ? seriesAlpha : resolveAlpha(alphaInput?.value);
+    if(alphaInput && currentAlpha != null){
+      alphaInput.value = String(currentAlpha);
+      if(alphaVal){
+        alphaVal.textContent = String(currentAlpha);
+      }
+    }
     let resolvedTransparencyPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
     opacityInput.value = String(resolvedTransparencyPct);
     const opacityValue = doc.createElement('span');
@@ -4503,6 +4529,7 @@
         getNotationMode: () => getLineAxisNotation(axis),
         onNotationChange: value => updateLineAxisNotation(axis, value),
         isNotationSupported: () => true,
+        isBrokenAxisSupported: () => true,
         getBrokenAxisEnabled: () => getBrokenAxisEnabled(axis),
         onBrokenAxisEnabledChange: (enabled) => updateBrokenAxisEnabled(axis, enabled),
         getBrokenAxisSegments: () => getBrokenAxisSegments(axis),

@@ -9905,20 +9905,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       onMinorTickSubdivisionsChange: value => updateAxisMinorTickSubdivisions(axis, value),
       onThicknessChange: value => updateAxisStrokeWidth(value),
       onColorChange: value => updateAxisColor(value),
-      getNotationMode: () => getAxisNotation(axis),
-      onNotationChange: value => {
-        if(!isAxisNumeric(axis)){
-          console.debug('Debug: box axis notation ignored for categorical axis',{ axis, flipAxes: state.flipAxes, requested: value });
-          return;
-        }
-        updateAxisNotation(axis, value);
-      },
-      isNotationSupported: () => isAxisNumeric(axis),
-      getBrokenAxisEnabled: () => getBrokenAxisEnabled(axis),
-      onBrokenAxisEnabledChange: (enabled) => updateBrokenAxisEnabled(axis, enabled),
-      getBrokenAxisSegments: () => getBrokenAxisSegments(axis),
-      onBrokenAxisSegmentChange: (axis, index, segment) => {
-        const segments = getBrokenAxisSegments(axis);
+        getNotationMode: () => getAxisNotation(axis),
+        onNotationChange: value => {
+          if(!isAxisNumeric(axis)){
+            console.debug('Debug: box axis notation ignored for categorical axis',{ axis, flipAxes: state.flipAxes, requested: value });
+            return;
+          }
+          updateAxisNotation(axis, value);
+        },
+        isNotationSupported: () => isAxisNumeric(axis),
+        isBrokenAxisSupported: () => axis === 'y',
+        getBrokenAxisEnabled: () => getBrokenAxisEnabled(axis),
+        onBrokenAxisEnabledChange: (enabled) => updateBrokenAxisEnabled(axis, enabled),
+        getBrokenAxisSegments: () => getBrokenAxisSegments(axis),
+        onBrokenAxisSegmentChange: (axis, index, segment) => {
+          const segments = getBrokenAxisSegments(axis);
         if(index >= 0 && index < segments.length){
           segments[index] = segment;
           updateBrokenAxisSegments(axis, segments);

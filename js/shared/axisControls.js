@@ -501,7 +501,11 @@
     }
 
     // Update broken axis controls
-    const brokenAxisSupported = config.axis === 'y' && 
+    const brokenAxisSupported = (
+      typeof config.isBrokenAxisSupported === 'function'
+        ? config.isBrokenAxisSupported(config.axis) !== false
+        : true
+    ) &&
       typeof config.getBrokenAxisEnabled === 'function' &&
       typeof config.onBrokenAxisEnabledChange === 'function';
     if(brokenAxisFieldEl){
