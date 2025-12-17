@@ -4495,6 +4495,7 @@
           console.debug('Debug: box significance label mode changed',{ mode: raw });
           if(state.showSignificanceBars){
             requestStatsContextRefresh('significance-label-mode');
+            refreshSignificanceAnnotations('label-mode');
           }
         }
       });
