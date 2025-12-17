@@ -389,8 +389,20 @@
     const previousMinCols = typeof hotSettings?.minCols === 'number' ? hotSettings.minCols : currentCols;
     const minRows = options.minRows != null ? options.minRows : previousMinRows;
     const minCols = options.minCols != null ? options.minCols : previousMinCols;
-    const targetRows = Math.max(minRows, currentRows, startRow + incomingRows);
-    const targetCols = Math.max(minCols, currentCols, startCol + incomingCols);
+    const fullReplace = startRow === 0
+      && startCol === 0
+      && !options.selection
+      && options.preserveExisting !== true
+      && (!options.onRows || options.onRows === tableImport.processRows);
+    const allowShrink = options.allowShrink === true && fullReplace;
+    const baseTargetRows = startRow + incomingRows;
+    const baseTargetCols = startCol + incomingCols;
+    const targetRows = allowShrink
+      ? Math.max(minRows, baseTargetRows)
+      : Math.max(minRows, currentRows, baseTargetRows);
+    const targetCols = allowShrink
+      ? Math.max(minCols, baseTargetCols)
+      : Math.max(minCols, currentCols, baseTargetCols);
     const stats = {
       rowCount: incomingRows,
       colCount: incomingCols,
@@ -404,11 +416,6 @@
     if(typeof options.onBeforeProcess === 'function'){
       options.onBeforeProcess(stats);
     }
-    const fullReplace = startRow === 0
-      && startCol === 0
-      && !options.selection
-      && options.preserveExisting !== true
-      && (!options.onRows || options.onRows === tableImport.processRows);
     const resultMeta = {
       changes: [],
       insertedRows: null,
@@ -573,10 +580,11 @@
     debugLog('openFile.fileSelected', { name: file.name, size: file.size, ext }, debugLabel);
     const defaultStartRow = options.startRow ?? 0;
     const defaultStartCol = options.startCol ?? 0;
+    const allowShrink = options.allowShrink !== false;
     const applyRows = (rows, meta = {}) => {
       const handler = typeof options.onRows === 'function'
         ? options.onRows
-        : (parsedRows, metaInfo) => tableImport.processRows(parsedRows, options.hot, cloneOptions(options, Object.assign({ startRow: defaultStartRow, startCol: defaultStartCol }, metaInfo)));
+        : (parsedRows, metaInfo) => tableImport.processRows(parsedRows, options.hot, cloneOptions(options, Object.assign({ startRow: defaultStartRow, startCol: defaultStartCol, allowShrink }, metaInfo)));
       return handler(rows, meta);
     };
     if(['csv','tsv','txt'].includes(ext)){

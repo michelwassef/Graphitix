@@ -645,6 +645,7 @@
     const treatFirstRowAsHeader = overrides?.firstRowIsHeader !== false;
     const firstRowClassName = overrides?.firstRowClassName || 'hot-header-row';
     const preserveExclusionsOnLoad = overrides?.preserveExclusionsOnLoad === true;
+    const shrinkOnLoadData = overrides?.shrinkOnLoadData !== false;
     const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
     const hotOptions = overrides?.hotOptions || {};
     const userAfterChange = hotOptions.afterChange;
@@ -688,7 +689,23 @@
       return matrix;
     };
 
+    const getMatrixShape = (matrix)=>{
+      if(!Array.isArray(matrix)){
+        return { rows: 0, cols: 0 };
+      }
+      let maxCols = 0;
+      for(let r = 0; r < matrix.length; r++){
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        if(row.length > maxCols){
+          maxCols = row.length;
+        }
+      }
+      return { rows: matrix.length, cols: maxCols };
+    };
+
     let data = baseData ? ensureDims(baseData, rowCount, colCount) : createEmptyData(rowCount, colCount);
+    const baseRowCount = rowCount;
+    const baseColCount = colCount;
     const dataHandle = { current: data };
     recordCall('construct', { containerId: container?.id || null, rows: data.length, cols: colCount });
     const resolveColHeaders = (count)=>{
@@ -2337,7 +2354,28 @@
       },
       loadData(nextData){
         const existingExclusions = preserveExclusionsOnLoad ? exclusionController.exportState() : null;
-        data = Array.isArray(nextData) ? ensureDims(nextData, rowCount, colCount) : createEmptyData(rowCount, colCount);
+        const incoming = Array.isArray(nextData) ? nextData : null;
+        if(incoming && shrinkOnLoadData){
+          const shape = getMatrixShape(incoming);
+          const nextRows = Math.max(baseRowCount, shape.rows);
+          const nextCols = Math.max(baseColCount, shape.cols, MIN_INPUT_COLS);
+          if(nextRows !== rowCount || nextCols !== colCount){
+            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: Shared.hot loadData resized', {
+                debugLabel,
+                previousRows: rowCount,
+                previousCols: colCount,
+                nextRows,
+                nextCols,
+                incomingRows: shape.rows,
+                incomingCols: shape.cols
+              });
+            }
+            rowCount = nextRows;
+            colCount = nextCols;
+          }
+        }
+        data = incoming ? ensureDims(incoming, rowCount, colCount) : createEmptyData(rowCount, colCount);
         dataHandle.current = data;
         colHeaders = resolveColHeaders(colCount);
         if(existingExclusions){
