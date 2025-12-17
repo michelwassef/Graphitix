@@ -525,7 +525,71 @@
       console.debug('Debug: tab data inspection skipped', { tabId, reason: 'no-tab-or-payload' });
       return false;
     }
+    // Special-case: treat empty Venn workspaces (no input lists and zero counts)
+    // as having no data so they can be closed without prompting to save.
+    if (tab.type === 'venn') {
+      try {
+        const d = tab.payload.data || {};
+        const hasLabel = (d.labelA || '').toString().trim().length > 0
+          || (d.labelB || '').toString().trim().length > 0
+          || (d.labelC || '').toString().trim().length > 0;
+        const hasList = (d.listA || '').toString().trim().length > 0
+          || (d.listB || '').toString().trim().length > 0
+          || (d.listC || '').toString().trim().length > 0;
+        const counts = [d.nA, d.nB, d.nC, d.nAB, d.nAC, d.nBC, d.nABC];
+        const hasCounts = counts.some(n => Number(n) > 0);
+        if (!hasLabel && !hasList && !hasCounts) {
+          console.debug('Debug: venn tab considered empty (no input lists, labels, or counts)', { tabId });
+          return false;
+        }
+        // otherwise fall through to generic inspection
+      } catch (err) {
+        console.debug('Debug: venn empty-check error', { tabId, err });
+      }
+    }
+    // General header-detection heuristic for table-like payloads across
+    // components: if the first row appears to be textual headers (and
+    // contains no numeric values) treat it as a header and ignore it when
+    // deciding whether the workspace contains user-entered data. For the
+    // `line` component we also ignore a header row if it contains textual
+    // labels (legacy behavior).
     const matrix = tab.payload.data;
+    if (Array.isArray(matrix) && matrix.length > 0 && Array.isArray(matrix[0])) {
+      try {
+        const header = matrix[0];
+        const headerHasText = header.some(cell => typeof cell === 'string' && cell.trim().length > 0);
+        const headerHasNumeric = header.some(cell => {
+          if (typeof cell === 'number' && Number.isFinite(cell)) return true;
+          if (typeof cell === 'string' && cell.trim().length > 0) {
+            const n = Number(cell);
+            return !Number.isNaN(n) && Number.isFinite(n);
+          }
+          return false;
+        });
+        let startRow = 0;
+        if (tab.type === 'line' && headerHasText) {
+          startRow = 1;
+        } else if (headerHasText && !headerHasNumeric) {
+          startRow = 1;
+        }
+        if (startRow > 0) {
+          for (let r = startRow; r < matrix.length; r++) {
+            const row = matrix[r];
+            if (!Array.isArray(row)) continue;
+            for (let c = 0; c < row.length; c++) {
+              if (hasMeaningfulCellValue(row[c])) {
+                console.debug('Debug: tab data detected after header skip', { tabId, rowIndex: r, colIndex: c, type: tab.type });
+                return true;
+              }
+            }
+          }
+          console.debug('Debug: tab considered empty after header skip', { tabId, type: tab.type });
+          return false;
+        }
+      } catch (err) {
+        console.debug('Debug: header-detection error', { tabId, err, type: tab.type });
+      }
+    }
     if (Array.isArray(matrix)) {
       let rowCount = 0;
       let colCount = 0;
