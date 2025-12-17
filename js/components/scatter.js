@@ -1896,6 +1896,12 @@
     const scatterAlphaInput = doc.getElementById('scatterAlpha');
     const scatterAlphaVal = doc.getElementById('scatterAlphaVal');
     const scatterLabelKey = target?.__scatterPointData?.label || null;
+    const labelStyle = scatterLabelKey ? scatterLabelStyles[scatterLabelKey] || {} : null;
+    const resolveAlpha = value => {
+      const clamped = clampScatterAlpha(value);
+      return clamped != null ? clamped : null;
+    };
+    const labelAlpha = resolveAlpha(labelStyle?.alpha);
     const scopeName = `scatterScope_${Date.now()}`;
     const scopeField = doc.createElement('label');
     scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
@@ -1957,7 +1963,18 @@
     // Fill color
     const colorInput = doc.createElement('input');
     colorInput.type = 'color';
-    const resolvedFill = scatterFillInput?.value || target.getAttribute('fill') || '#377eb8';
+    const targetFill = target.getAttribute('fill');
+    const targetStroke = target.getAttribute('stroke');
+    const labelColor = scatterLabelKey ? scatterLabelColors[scatterLabelKey] : null;
+    const resolvedFill =
+      (targetFill && targetFill !== 'none' ? targetFill : null)
+      || (labelColor || null)
+      || (targetStroke && targetStroke !== 'none' ? targetStroke : null)
+      || (scatterFillInput?.value || null)
+      || '#377eb8';
+    if(scatterFillInput && resolvedFill){
+      try{ scatterFillInput.value = resolvedFill; }catch(e){}
+    }
     try{ colorInput.value = resolvedFill; }catch(e){}
     colorInput.addEventListener('input', () => {
       const nextColor = colorInput.value;
@@ -1982,7 +1999,14 @@
     // Border color
     const borderInput = doc.createElement('input');
     borderInput.type = 'color';
-    const resolvedBorder = scatterBorderInput?.value || target.getAttribute('stroke') || '#000000';
+    const resolvedBorder =
+      (targetStroke && targetStroke !== 'none' ? targetStroke : null)
+      || (labelStyle?.borderColor || null)
+      || (scatterBorderInput?.value || null)
+      || '#000000';
+    if(scatterBorderInput && resolvedBorder){
+      try{ scatterBorderInput.value = resolvedBorder; }catch(e){}
+    }
     try{ borderInput.value = resolvedBorder; }catch(e){}
     borderInput.addEventListener('input', () => {
       const next = borderInput.value;
@@ -2063,7 +2087,13 @@
     opacityInput.min = '0';
     opacityInput.max = '100';
     opacityInput.step = '1';
-    const currentAlpha = Number(scatterAlphaInput?.value);
+    const currentAlpha = labelAlpha != null ? labelAlpha : resolveAlpha(scatterAlphaInput?.value);
+    if(scatterAlphaInput && currentAlpha != null){
+      scatterAlphaInput.value = String(currentAlpha);
+      if(scatterAlphaVal){
+        scatterAlphaVal.textContent = String(currentAlpha);
+      }
+    }
     const resolvedTransparencyPct = Number.isFinite(currentAlpha) ? Math.round(currentAlpha * 100) : 0;
     opacityInput.value = String(resolvedTransparencyPct);
     const opacityValue = doc.createElement('span');
