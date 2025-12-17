@@ -1429,8 +1429,93 @@
         applyGlobalColorPoints(nextColor);
       }
     });
-    if(typeof Shared.attachColorPickerNear === 'function'){
-      try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
+    if(chartStyle?.normalizeColorInput){
+      try{ chartStyle.normalizeColorInput(colorInput, { reason: 'line.point.format-color' }); }catch(e){}
+    }
+    if(typeof Shared.openColorPicker === 'function'){
+      colorInput.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        if(!useSeriesScopePoints()){
+          const totalSeries = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0;
+          const shapes = ensureLineGroupShapeCapacity(totalSeries);
+          let initialShape = null;
+          if(shapes.length){
+            const unique = new Set(shapes.map((shapeValue, idx) => sanitizeLineGroupShape(shapeValue, idx)));
+            if(unique.size === 1){
+              initialShape = unique.values().next().value;
+            }
+          }
+          Shared.openColorPicker({
+            anchor: colorInput,
+            color: colorInput.value,
+            element: colorInput,
+            shapePicker: LINE_GROUP_SHAPE_OPTIONS?.length ? {
+              value: initialShape,
+              options: LINE_GROUP_SHAPE_OPTIONS,
+              onChange(nextShape){
+                const sanitized = sanitizeLineGroupShape(nextShape, 0);
+                let changed = false;
+                for(let i = 0; i < shapes.length; i += 1){
+                  if(shapes[i] !== sanitized){
+                    shapes[i] = sanitized;
+                    updateLineGroupShapeSelect(i, sanitized);
+                    changed = true;
+                  }
+                }
+                if(changed){
+                  lineGroupShapes = shapes;
+                  scheduleLineDraw();
+                }
+              }
+            } : null,
+            onInput(value){
+              colorInput.value = value;
+              colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+            },
+            onChange(value){
+              colorInput.value = value;
+              colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          });
+          return;
+        }
+
+        const seriesIndex = seriesKey && Array.isArray(lineSeriesGroupLabels)
+          ? lineSeriesGroupLabels.findIndex(name => name === seriesKey)
+          : -1;
+        const safeIndex = seriesIndex >= 0 ? seriesIndex : 0;
+        let previousShape = seriesIndex >= 0 ? sanitizeLineGroupShape(getLineGroupShape(seriesIndex), safeIndex) : null;
+        Shared.openColorPicker({
+          anchor: colorInput,
+          color: colorInput.value,
+          element: colorInput,
+          shapePicker: seriesIndex >= 0 && LINE_GROUP_SHAPE_OPTIONS?.length ? {
+            value: previousShape,
+            options: LINE_GROUP_SHAPE_OPTIONS,
+            onChange(nextShape){
+              const sanitized = sanitizeLineGroupShape(nextShape, safeIndex);
+              if(sanitized === previousShape){
+                return;
+              }
+              const shapes = ensureLineGroupShapeCapacity(Math.max(lineSeriesGroupLabels.length, safeIndex + 1));
+              shapes[safeIndex] = sanitized;
+              lineGroupShapes = shapes;
+              updateLineGroupShapeSelect(safeIndex, sanitized);
+              scheduleLineDraw();
+              previousShape = sanitized;
+            }
+          } : null,
+          onInput(value){
+            colorInput.value = value;
+            colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+          },
+          onChange(value){
+            colorInput.value = value;
+            colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        });
+      });
     }
     const colorLabel = makeInput('Color', colorInput);
     colorLabel.classList.add('workspace-toolbar__input--color');

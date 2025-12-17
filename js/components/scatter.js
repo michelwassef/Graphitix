@@ -1989,8 +1989,82 @@
         applyGlobalColor(nextColor);
       }
     });
-    if(typeof Shared.attachColorPickerNear === 'function'){
-      try{ Shared.attachColorPickerNear(colorInput); }catch(e){}
+    if(chartStyle?.normalizeColorInput){
+      try{ chartStyle.normalizeColorInput(colorInput, { reason: 'scatter.point.format-color' }); }catch(e){}
+    }
+    if(typeof Shared.openColorPicker === 'function'){
+      colorInput.addEventListener('click', (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        const enableShapePicker = scatterCurrentGraphType === 'scatter' && scatterState?.viewMode !== 'bubble' && Array.isArray(SCATTER_SHAPE_OPTIONS) && SCATTER_SHAPE_OPTIONS.length > 0;
+        const sanitizeCurrentShape = (shape, index = 0) => {
+          if(SCATTER_SHAPE_VALUES.has(shape)){
+            return shape;
+          }
+          const safeIndex = Number.isInteger(index) ? index : 0;
+          return SCATTER_SHAPE_DEFAULTS[safeIndex % SCATTER_SHAPE_DEFAULTS.length] || 'circle';
+        };
+        const openWithShape = (shapeValue, onShapeChange) => {
+          Shared.openColorPicker({
+            anchor: colorInput,
+            color: colorInput.value,
+            element: colorInput,
+            shapePicker: enableShapePicker ? {
+              value: shapeValue,
+              options: SCATTER_SHAPE_OPTIONS,
+              onChange: onShapeChange
+            } : null,
+            onInput(value){
+              colorInput.value = value;
+              colorInput.dispatchEvent(new Event('input', { bubbles: true }));
+            },
+            onChange(value){
+              colorInput.value = value;
+              colorInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          });
+        };
+
+        if(useLabelScope() && scatterLabelKey){
+          const labelIndex = 0;
+          let previousShape = sanitizeCurrentShape(scatterLabelShapes[scatterLabelKey], labelIndex);
+          openWithShape(previousShape, (nextShape) => {
+            const sanitized = sanitizeCurrentShape(nextShape, labelIndex);
+            if(sanitized === previousShape){
+              return;
+            }
+            scatterLabelShapes[scatterLabelKey] = sanitized;
+            scheduleDrawScatter();
+            previousShape = sanitized;
+          });
+          return;
+        }
+
+        if(!enableShapePicker){
+          openWithShape(null, null);
+          return;
+        }
+
+        const shapeKeys = Object.keys(scatterLabelShapes || {});
+        const unique = new Set(shapeKeys.map((key, idx) => sanitizeCurrentShape(scatterLabelShapes[key], idx)));
+        let initialShape = null;
+        if(unique.size === 1){
+          initialShape = unique.values().next().value;
+        }
+        openWithShape(initialShape, (nextShape) => {
+          const sanitized = sanitizeCurrentShape(nextShape, 0);
+          let changed = false;
+          shapeKeys.forEach((key, idx) => {
+            if(sanitizeCurrentShape(scatterLabelShapes[key], idx) !== sanitized){
+              scatterLabelShapes[key] = sanitized;
+              changed = true;
+            }
+          });
+          if(changed){
+            scheduleDrawScatter();
+          }
+        });
+      });
     }
     const colorLabel = makeInput('Color', colorInput);
     colorLabel.classList.add('workspace-toolbar__input--color');
