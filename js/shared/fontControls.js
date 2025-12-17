@@ -1292,6 +1292,12 @@
           try{ axisControls.close('hideAllFromFont'); }catch(e){}
         }
       }catch(e){}
+      try{
+        const significanceControls = Shared?.significanceControls || (global && global.Shared && global.Shared.significanceControls);
+        if(significanceControls && typeof significanceControls.close === 'function'){
+          try{ significanceControls.close('hideAllFromFont'); }catch(e){}
+        }
+      }catch(e){}
     }catch(err){
       logDebug('hideAllFormatControls error', { err: String(err) });
     }

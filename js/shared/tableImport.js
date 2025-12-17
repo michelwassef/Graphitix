@@ -542,7 +542,7 @@
     }
     if(typeof hot.updateSettings === 'function'){
       if(fullReplace){
-        hot.updateSettings({ data, minRows: targetRows, minCols: targetCols });
+        hot.updateSettings({ data, minRows: targetRows, minCols: targetCols, trimData: allowShrink });
       }else{
         hot.updateSettings({ minRows: targetRows, minCols: targetCols });
       }

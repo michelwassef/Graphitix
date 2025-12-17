@@ -63,6 +63,7 @@ describe('PCA view controls', () => {
     require('../js/shared/chartStyle.js');
     require('../js/shared/fontControls.js');
     require('../js/shared/axisControls.js');
+    require('../js/shared/significanceControls.js');
     require('../js/shared/formControls.js');
     require('../js/shared/dom.js');
     require('../js/components/pca.js');

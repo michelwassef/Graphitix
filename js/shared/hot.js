@@ -702,6 +702,60 @@
       }
       return { rows: matrix.length, cols: maxCols };
     };
+    const isMeaningfulValue = (value)=>{
+      if(value === null || value === undefined){
+        return false;
+      }
+      if(typeof value === 'number'){
+        return Number.isFinite(value);
+      }
+      if(typeof value === 'string'){
+        return value.trim().length > 0;
+      }
+      return true;
+    };
+    const getMatrixFilledShape = (matrix)=>{
+      if(!Array.isArray(matrix) || !matrix.length){
+        return { rows: 0, cols: 0 };
+      }
+      let lastRow = -1;
+      let lastCol = -1;
+      for(let r = matrix.length - 1; r >= 0; r -= 1){
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        let rowHasData = false;
+        for(let c = row.length - 1; c >= 0; c -= 1){
+          if(!rowHasData && isMeaningfulValue(row[c])){
+            rowHasData = true;
+          }
+          if(isMeaningfulValue(row[c]) && c > lastCol){
+            lastCol = c;
+          }
+        }
+        if(rowHasData){
+          lastRow = r;
+          if(lastCol >= 0){
+            break;
+          }
+        }
+      }
+      return { rows: Math.max(0, lastRow + 1), cols: Math.max(0, lastCol + 1) };
+    };
+    const trimMatrixToShape = (matrix, shape)=>{
+      if(!Array.isArray(matrix)){
+        return [];
+      }
+      const rows = Math.max(0, Number(shape?.rows) || 0);
+      const cols = Math.max(0, Number(shape?.cols) || 0);
+      if(rows === 0){
+        return [];
+      }
+      const trimmed = [];
+      for(let r = 0; r < rows; r++){
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        trimmed.push(cols > 0 ? row.slice(0, cols) : []);
+      }
+      return trimmed;
+    };
 
     let data = baseData ? ensureDims(baseData, rowCount, colCount) : createEmptyData(rowCount, colCount);
     const baseRowCount = rowCount;
@@ -2063,6 +2117,11 @@
         let needsSchedule = false;
         const hasIncomingData = Object.prototype.hasOwnProperty.call(opts, 'data') && Array.isArray(opts.data);
         const existingExclusions = hasIncomingData && preserveExclusionsOnLoad ? exclusionController.exportState() : null;
+        const hasMinRows = Number.isFinite(opts.minRows);
+        const hasMinCols = Number.isFinite(opts.minCols);
+        const trimIncoming = hasIncomingData && (opts.trimData === true || opts.allowShrink === true);
+        const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+        const prevColCount = colCount;
 
         if(Object.prototype.hasOwnProperty.call(opts, 'rowHeaders')){
           rowHeadersSetting = opts.rowHeaders;
@@ -2075,10 +2134,46 @@
           needsRebuild = true;
         }
         if(hasIncomingData){
-          data = ensureDims(opts.data, rowCount, colCount);
+          let incomingData = opts.data;
+          let nextRows = trimIncoming ? 0 : rowCount;
+          let nextCols = trimIncoming ? MIN_INPUT_COLS : colCount;
+          if(trimIncoming){
+            const shape = getMatrixShape(incomingData);
+            const filledShape = getMatrixFilledShape(incomingData);
+            const trimmedShape = {
+              rows: Math.max(0, Math.min(shape.rows, filledShape.rows)),
+              cols: Math.max(0, Math.min(shape.cols, filledShape.cols))
+            };
+            if(trimmedShape.rows < shape.rows || trimmedShape.cols < shape.cols){
+              incomingData = trimMatrixToShape(incomingData, trimmedShape);
+              if(debugEnabled){
+                console.debug('Debug: Shared.hot updateSettings trimmed', {
+                  debugLabel,
+                  previousRows: shape.rows,
+                  previousCols: shape.cols,
+                  trimmedRows: trimmedShape.rows,
+                  trimmedCols: trimmedShape.cols
+                });
+              }
+            }
+            nextRows = trimmedShape.rows;
+            nextCols = Math.max(trimmedShape.cols, MIN_INPUT_COLS);
+          }
+          if(hasMinRows){
+            nextRows = Math.max(nextRows, Math.max(0, Number(opts.minRows)));
+          }
+          if(hasMinCols){
+            nextCols = Math.max(nextCols, Math.max(MIN_INPUT_COLS, Number(opts.minCols)));
+          }
+          rowCount = Number.isFinite(nextRows) ? Math.max(0, nextRows) : rowCount;
+          colCount = Number.isFinite(nextCols) ? Math.max(MIN_INPUT_COLS, nextCols) : colCount;
+          data = ensureDims(incomingData, rowCount, colCount);
           dataHandle.current = data;
           needsSync = true;
           needsSchedule = true;
+          if(colCount !== prevColCount){
+            needsRebuild = true;
+          }
           if(existingExclusions){
             exclusionController.importState(existingExclusions);
           }else{
@@ -2086,14 +2181,14 @@
           }
           pendingViewportRestore = null;
         }
-        if(Number.isFinite(opts.minRows)){
+        if(!hasIncomingData && hasMinRows){
           rowCount = Math.max(0, Number(opts.minRows));
           ensureDims(data, rowCount, colCount);
           dataHandle.current = data;
           needsSync = true;
           needsSchedule = true;
         }
-        if(Number.isFinite(opts.minCols)){
+        if(!hasIncomingData && hasMinCols){
           colCount = Math.max(MIN_INPUT_COLS, Number(opts.minCols));
           ensureDims(data, rowCount, colCount);
           dataHandle.current = data;
@@ -2354,13 +2449,31 @@
       },
       loadData(nextData){
         const existingExclusions = preserveExclusionsOnLoad ? exclusionController.exportState() : null;
-        const incoming = Array.isArray(nextData) ? nextData : null;
+        let incoming = Array.isArray(nextData) ? nextData : null;
         if(incoming && shrinkOnLoadData){
+          const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
           const shape = getMatrixShape(incoming);
-          const nextRows = Math.max(baseRowCount, shape.rows);
-          const nextCols = Math.max(baseColCount, shape.cols, MIN_INPUT_COLS);
+          const filledShape = getMatrixFilledShape(incoming);
+          const trimmedShape = {
+            rows: Math.max(0, Math.min(shape.rows, filledShape.rows)),
+            cols: Math.max(0, Math.min(shape.cols, filledShape.cols))
+          };
+          if(trimmedShape.rows < shape.rows || trimmedShape.cols < shape.cols){
+            incoming = trimMatrixToShape(incoming, trimmedShape);
+            if(debugEnabled){
+              console.debug('Debug: Shared.hot loadData trimmed', {
+                debugLabel,
+                previousRows: shape.rows,
+                previousCols: shape.cols,
+                trimmedRows: trimmedShape.rows,
+                trimmedCols: trimmedShape.cols
+              });
+            }
+          }
+          const nextRows = Math.max(baseRowCount, trimmedShape.rows);
+          const nextCols = Math.max(baseColCount, trimmedShape.cols, MIN_INPUT_COLS);
           if(nextRows !== rowCount || nextCols !== colCount){
-            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            if(debugEnabled){
               console.debug('Debug: Shared.hot loadData resized', {
                 debugLabel,
                 previousRows: rowCount,
@@ -2368,7 +2481,9 @@
                 nextRows,
                 nextCols,
                 incomingRows: shape.rows,
-                incomingCols: shape.cols
+                incomingCols: shape.cols,
+                trimmedRows: trimmedShape.rows,
+                trimmedCols: trimmedShape.cols
               });
             }
             rowCount = nextRows;
