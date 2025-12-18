@@ -605,7 +605,7 @@
     const labelFontSize = Math.max(6, Number(options?.labelFontSize) || 10);
     const leaderGap = Math.max(2, Number(options?.leaderGap) || 2);
     const angleSteps = Math.max(8, Math.min(36, Number(options?.angleSteps) || 16));
-    const maxLeaderScale = Math.max(1, Math.min(3, Number(options?.maxLeaderScale) || 3));
+    const maxLeaderScale = Math.max(1, Math.min(5, Number(options?.maxLeaderScale) || 5));
     const pointBounds = Array.isArray(options?.pointBounds) ? options.pointBounds : [];
     const measureText = typeof options?.measureText === 'function' ? options.measureText : null;
     const font = options?.font || null;
@@ -635,6 +635,7 @@
       return overlapX * overlapY;
     };
     const placedBoxes = [];
+    const placedLeaders = [];
     const placements = [];
     const distancePointToSegment = (px, py, ax, ay, bx, by) => {
       const dx = bx - ax;
@@ -650,7 +651,27 @@
       const cy = ay + clamped * dy;
       return Math.hypot(px - cx, py - cy);
     };
-    const scaleSteps = maxLeaderScale <= 1 ? [1] : [1, 1.6, 2.2, maxLeaderScale];
+    const segmentsIntersect = (ax, ay, bx, by, cx, cy, dx, dy) => {
+      const eps = 1e-6;
+      const orient = (px, py, qx, qy, rx, ry) => (qy - py) * (rx - qx) - (qx - px) * (ry - qy);
+      const onSegment = (px, py, qx, qy, rx, ry) =>
+        Math.min(px, rx) - eps <= qx && qx <= Math.max(px, rx) + eps
+        && Math.min(py, ry) - eps <= qy && qy <= Math.max(py, ry) + eps;
+      const o1 = orient(ax, ay, bx, by, cx, cy);
+      const o2 = orient(ax, ay, bx, by, dx, dy);
+      const o3 = orient(cx, cy, dx, dy, ax, ay);
+      const o4 = orient(cx, cy, dx, dy, bx, by);
+      if(Math.abs(o1) < eps && onSegment(ax, ay, cx, cy, bx, by)) return true;
+      if(Math.abs(o2) < eps && onSegment(ax, ay, dx, dy, bx, by)) return true;
+      if(Math.abs(o3) < eps && onSegment(cx, cy, ax, ay, dx, dy)) return true;
+      if(Math.abs(o4) < eps && onSegment(cx, cy, bx, by, dx, dy)) return true;
+      return (o1 > 0 && o2 < 0 || o1 < 0 && o2 > 0)
+        && (o3 > 0 && o4 < 0 || o3 < 0 && o4 > 0);
+    };
+    const scaleSteps = [];
+    for(let scale = 1; scale <= maxLeaderScale; scale += 1){
+      scaleSteps.push(scale);
+    }
     entries.forEach(entry => {
       const cx = Number(entry?.cx) || 0;
       const cy = Number(entry?.cy) || 0;
@@ -658,7 +679,7 @@
       if(!textValue){
         return;
       }
-      const baseOffset = Math.max(minOffset, (Number(entry?.radius) || 0) * 1.6);
+      const baseOffset = Math.max(minOffset, (Number(entry?.radius) || 0) * 1.6) * 2;
       const textWidth = estimateWidth(textValue);
       let best = null;
       angles.forEach(angle => {
@@ -709,9 +730,19 @@
             }
             const leaderDist = distancePointToSegment(px, py, cx, cy, textX, textY);
             if(leaderDist < pr + 2){
-              score += 2 + (pr + 2 - leaderDist) * 0.4;
+              score += 1 + (pr + 2 - leaderDist) * 0.2;
             }
           });
+          const lineX2 = textX + (anchor === 'start' ? -leaderGap : leaderGap);
+          let leaderCross = false;
+          placedLeaders.forEach(seg => {
+            if(segmentsIntersect(seg.x1, seg.y1, seg.x2, seg.y2, cx, cy, lineX2, textY)){
+              leaderCross = true;
+            }
+          });
+          if(leaderCross){
+            score += 3;
+          }
           const overflow = Math.max(0, plotLeft - minX)
             + Math.max(0, maxX - plotRight)
             + Math.max(0, plotTop - minY)
@@ -728,7 +759,7 @@
               textX,
               textY,
               anchor,
-              lineX2: textX + (anchor === 'start' ? -leaderGap : leaderGap),
+              lineX2,
               lineY2: textY,
               bbox: { minX, maxX, minY, maxY },
               score
@@ -739,6 +770,7 @@
       if(best){
         placements.push({ entry, placement: best });
         placedBoxes.push(best.bbox);
+        placedLeaders.push({ x1: entry.cx, y1: entry.cy, x2: best.lineX2, y2: best.lineY2 });
       }
     });
     return placements;
