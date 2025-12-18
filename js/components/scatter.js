@@ -784,7 +784,7 @@
     const count = Math.max(0, Number(labelCount) || 0);
     const width = Math.max(1, Number(plotWidth) || 0);
     const height = Math.max(1, Number(plotHeight) || 0);
-    if(count <= 1){
+    if(count <= 0){
       return safeBase;
     }
     const area = width * height;
