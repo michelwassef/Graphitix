@@ -791,10 +791,12 @@
     const density = count / Math.max(1, area);
     const axisReference = 480;
     const axisScale = Math.max(0.2, Math.min(1.6, width / axisReference));
-    const countScale = 1 / Math.sqrt(1 + count / 6);
-    const densityScale = 1 / Math.sqrt(1 + density * 900);
-    const combinedScale = axisScale * countScale * densityScale;
-    const scale = Math.max(0.12, Math.min(1.6, combinedScale));
+    const countPenalty = Math.max(0, count - 6);
+    const countScale = 1 / Math.sqrt(1 + countPenalty / 16);
+    const densityScale = 1 / Math.sqrt(1 + density * 650);
+    const lowCountBoost = 1 + Math.max(0, 16 - count) * 0.04;
+    const combinedScale = axisScale * countScale * densityScale * lowCountBoost;
+    const scale = Math.max(0.12, Math.min(2.2, combinedScale));
     return Math.max(4, safeBase * scale);
   }
 
