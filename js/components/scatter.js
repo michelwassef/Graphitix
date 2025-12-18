@@ -780,17 +780,22 @@
   }
 
   function computeScatterManualLabelFontSize(baseFontSize, labelCount, plotWidth, plotHeight){
-    const safeBase = Math.max(6, Number(baseFontSize) || 10);
+    const safeBase = Math.max(5, Number(baseFontSize) || 10);
     const count = Math.max(0, Number(labelCount) || 0);
-    const area = Math.max(1, Number(plotWidth) || 0) * Math.max(1, Number(plotHeight) || 0);
-    if(count <= 1 || area <= 1){
+    const width = Math.max(1, Number(plotWidth) || 0);
+    const height = Math.max(1, Number(plotHeight) || 0);
+    if(count <= 1){
       return safeBase;
     }
-    const density = count / area;
-    const scaleByCount = 1 / Math.sqrt(1 + count / 10);
-    const scaleByArea = 1 / Math.sqrt(1 + density * 2600);
-    const scale = Math.max(0.35, Math.min(1, scaleByCount, scaleByArea));
-    return Math.max(6, safeBase * scale);
+    const area = width * height;
+    const density = count / Math.max(1, area);
+    const axisReference = 480;
+    const axisScale = Math.max(0.2, Math.min(1.6, width / axisReference));
+    const countScale = 1 / Math.sqrt(1 + count / 6);
+    const densityScale = 1 / Math.sqrt(1 + density * 900);
+    const combinedScale = axisScale * countScale * densityScale;
+    const scale = Math.max(0.12, Math.min(1.6, combinedScale));
+    return Math.max(4, safeBase * scale);
   }
 
   function parseScatterPointLabelFlag(value){
@@ -6523,7 +6528,7 @@
             const labelLayer = document.createElementNS(NS,'g');
             labelLayer.setAttribute('data-layer','point-labels');
             labelLayer.setAttribute('pointer-events','none');
-          const baseManualLabelSize = fs * 0.75;
+          const baseManualLabelSize = fs * 0.6;
           const labelFontSize = computeScatterManualLabelFontSize(baseManualLabelSize, manualLabelEntries3d.length, plotW3, plotH3);
           const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
           const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'scatter-point-label-3d', min: 0.25 });
@@ -7304,7 +7309,7 @@
           const labelLayer = document.createElementNS(NS,'g');
           labelLayer.setAttribute('data-layer','point-labels');
           labelLayer.setAttribute('pointer-events','none');
-          const baseManualLabelSize = fs * 0.75;
+          const baseManualLabelSize = fs * 0.6;
           const labelFontSize = computeScatterManualLabelFontSize(baseManualLabelSize, manualLabelEntries.length, plotW, plotH);
           const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
           const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'scatter-point-label', min: 0.25 });
