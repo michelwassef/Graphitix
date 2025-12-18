@@ -12660,6 +12660,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
           updateSignificanceControlState({ statsReady: true });
         }
+        // Ensure internal stats context matches restored controls and signature
+        try{
+          if(typeof requestStatsContextRefresh === 'function'){
+            requestStatsContextRefresh('payload-restored');
+          }
+        }catch(_e){ /* best-effort, don't fail payload apply */ }
       }
     }catch(err){
       console.debug('Debug: box restore stats results failed', { err: err?.message || String(err) });
