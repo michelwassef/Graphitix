@@ -788,6 +788,18 @@
     }
     console.debug('Debug: line stats context refresh',{ reason, seriesCount: refreshed.series.length });
     primeLineStatsContext(refreshed);
+    // Persist active tab state when this refresh is triggered by user control changes
+    try{
+      const skipPersist = String(reason || '').toLowerCase().includes('payload') || String(reason || '').toLowerCase().includes('payload-restored');
+      if(!skipPersist){
+        const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
+        if(sess && typeof sess.persistActiveTabState === 'function'){
+          sess.persistActiveTabState(undefined, { reason: 'stats-control-change' });
+        }
+      }
+    }catch(e){
+      console.debug('Debug: persistActiveTabState after stats control change failed', { err: e?.message || String(e) });
+    }
     return true;
   }
 
@@ -817,6 +829,18 @@
       updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
     }finally{
       lineStatsState.computationPending = false;
+      // Persist the tab payload immediately if the computed results belong to the current context
+      try{
+        const stillCurrent = lineStatsState.context === context && lineStatsState.signature === context.signature;
+        const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
+        if(stillCurrent && lineStatsState.lastRunVersion === context.version){
+          if(sess && typeof sess.persistActiveTabState === 'function'){
+            sess.persistActiveTabState(undefined, { reason: 'stats-computed' });
+          }
+        }
+      }catch(e){
+        console.debug('Debug: persistActiveTabState after stats compute failed', { err: e?.message || String(e) });
+      }
     }
   }
 
@@ -4380,7 +4404,27 @@
             }
           }
         },
-        labelPositions: lineLabelPositions || null
+        labelPositions: lineLabelPositions || null,
+        stats: {
+          resultsHtml: refs.statsResults ? refs.statsResults.innerHTML : null,
+          lastRunVersion: lineStatsState.lastRunVersion || 0,
+          signature: lineStatsState.signature || null,
+          version: lineStatsState.version || 0,
+          controls: {
+            method: refs.statType?.value || null,
+            regressionMode: refs.regressionMode?.value || null
+          },
+          statsOptions: {
+            showIntervals: !!refs.showIntervals?.checked,
+            showDiagnostics: !!refs.showDiagnostics?.checked,
+            forecast: {
+              horizon: refs.forecastHorizon?.value ?? null,
+              seasonLength: refs.forecastSeasonLength?.value ?? null,
+              autoTune: !!refs.forecastAuto?.checked,
+              criterion: refs.forecastCriterion?.value || null
+            }
+          }
+        }
       }
     };
   }
@@ -4729,13 +4773,58 @@
     }
     lineLastRegressionSummaries = Array.isArray(c.regression?.seriesSummaries) ? c.regression.seriesSummaries.slice() : [];
     // Restore label positions if saved
-    if(c.labelPositions){
+        if(c.labelPositions){
       lineLabelPositions = {
         title: c.labelPositions.title || null,
         xLabel: c.labelPositions.xLabel || null,
         yLabel: c.labelPositions.yLabel || null,
         legend: c.labelPositions.legend || null
       };
+    }
+    // restore persisted stats HTML and metadata if present
+    if(c.stats){
+      try{
+        const s = c.stats || {};
+        lineStatsState.signature = s.signature || lineStatsState.signature;
+        lineStatsState.version = Number(s.version) || lineStatsState.version || 0;
+        lineStatsState.lastRunVersion = Number(s.lastRunVersion) || 0;
+        if(refs.statsResults && typeof s.resultsHtml === 'string'){
+          refs.statsResults.innerHTML = s.resultsHtml;
+        }
+        // restore stat control values if saved
+        if(s.controls && typeof s.controls === 'object'){
+          if(typeof s.controls.method === 'string' && refs.statType){ refs.statType.value = s.controls.method; }
+          if(typeof s.controls.regressionMode === 'string' && refs.regressionMode){ refs.regressionMode.value = s.controls.regressionMode; }
+        }
+        if(lineStatsState.lastRunVersion && lineStatsState.lastRunVersion === lineStatsState.version){
+          setLineStatsStatus('Statistics up to date.');
+          updateLineStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+        }else{
+          // leave button enabled so user can (re)calculate
+          updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
+        }
+        console.debug('Debug: line stats restored from payload', { signature: s.signature, version: s.version, lastRunVersion: s.lastRunVersion });
+      }catch(e){
+        console.debug('Debug: restore line stats failed', e?.message || String(e));
+      }
+    }
+    else {
+      // no persisted stats in payload -> clear any previous results and state
+      try{
+        clearLineStatsOutputs(lineStatsEmptyPlaceholder);
+        lineStatsState.signature = null;
+        lineStatsState.version = 0;
+        lineStatsState.lastRunVersion = 0;
+        updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' });
+      }catch(err){
+        console.debug('Debug: clearing line stats during payload apply failed', { err: err?.message || String(err) });
+      }
+    }
+    // ensure stats context reflects restored control values and signature
+    try{
+      requestLineStatsContextRefresh('payload-restored');
+    }catch(err){
+      console.debug('Debug: requestLineStatsContextRefresh failed during payload apply', { err: err?.message || String(err) });
     }
     ensureLineLabelColors(Object.keys(lineLabelColors));
     ensureLineLegendControlPlacement();
@@ -7252,9 +7341,9 @@
     refs.saveAsBtn=document.getElementById('saveAsLine');
     refs.graphFileInput=document.getElementById('lineGraphFile');
 
-    global.lineStatType = refs.statType; // legacy compatibility
-    global.lineStatsResults = refs.statsResults; // legacy compatibility
-    global.lineRegressionMode = refs.regressionMode; // legacy compatibility for regression selector
+    if(typeof global.lineStatType === 'undefined') global.lineStatType = refs.statType; // legacy compatibility (guarded)
+    if(typeof global.lineStatsResults === 'undefined') global.lineStatsResults = refs.statsResults; // legacy compatibility (guarded)
+    if(typeof global.lineRegressionMode === 'undefined') global.lineRegressionMode = refs.regressionMode; // legacy compatibility (guarded)
 
     if(refs.forecastHorizon){
       refs.forecastHorizon.addEventListener('change',()=>{
