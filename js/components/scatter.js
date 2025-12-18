@@ -166,6 +166,7 @@
   let scatterLabelColors = {};
   let scatterLabelShapes = {};
   let scatterLabelStyles = {};
+  const scatterRowSelectionsByTab = new Map();
 
   function clampScatterAlpha(value){
     const numeric = Number(value);
@@ -695,6 +696,70 @@
       scatterDebug('Debug: scatter selected rows read failed', { message: err?.message || String(err) });
       return null;
     }
+  }
+
+  function resolveScatterTabId(hotInstance){
+    return hotInstance?.__scatterTabId
+      || Shared.hot?.resolveActiveTabId?.()
+      || null;
+  }
+
+  function storeScatterRowSelection(hotInstance, reason){
+    const tabId = resolveScatterTabId(hotInstance);
+    if(!tabId){
+      return;
+    }
+    const selected = getScatterSelectedRowSet(hotInstance);
+    if(selected && selected.size){
+      scatterRowSelectionsByTab.set(tabId, Array.from(selected).sort((a, b) => a - b));
+    }else{
+      scatterRowSelectionsByTab.delete(tabId);
+    }
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: scatter selection stored', { tabId, count: selected?.size || 0, reason: reason || 'unknown' });
+    }
+  }
+
+  function applyScatterRowSelection(hotInstance, tabIdOverride){
+    const tabId = tabIdOverride || resolveScatterTabId(hotInstance);
+    if(!tabId){
+      return;
+    }
+    const api = hotInstance?.gridApi;
+    if(!api || typeof api.deselectAll !== 'function'){
+      return;
+    }
+    const rows = scatterRowSelectionsByTab.get(tabId) || [];
+    api.deselectAll();
+    if(!rows.length || typeof api.forEachNode !== 'function'){
+      return;
+    }
+    const rowSet = new Set(rows);
+    api.forEachNode(node => {
+      const rowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
+      if(Number.isInteger(rowIndex) && rowSet.has(rowIndex) && typeof node.setSelected === 'function'){
+        node.setSelected(true);
+      }
+    });
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: scatter selection restored', { tabId, count: rows.length });
+    }
+  }
+
+  function scheduleScatterSelectionRestore(hotInstance, tabId){
+    let attempts = 0;
+    const tryRestore = () => {
+      attempts += 1;
+      const api = hotInstance?.gridApi;
+      if(api && typeof api.deselectAll === 'function'){
+        applyScatterRowSelection(hotInstance, tabId);
+        return;
+      }
+      if(attempts < 10){
+        setTimeout(tryRestore, 120);
+      }
+    };
+    setTimeout(tryRestore, 0);
   }
 
   function buildScatterAnnotationRequests(points, options){
@@ -3219,7 +3284,10 @@
             attempts += 1;
             const api = hotInstance?.gridApi;
             if(api && typeof api.addEventListener === 'function'){
-              const handler = () => scheduleDrawScatter({ reason: 'row-selection' });
+              const handler = () => {
+                storeScatterRowSelection(hotInstance, 'row-selection');
+                scheduleDrawScatter({ reason: 'row-selection' });
+              };
               api.addEventListener('selectionChanged', handler);
               api.addEventListener('rowSelected', handler);
               hotInstance.__scatterSelectionListenerBound = true;
@@ -3243,6 +3311,11 @@
           if(!scatterHot){
             scatterHot = createScatterTable(baseContainer);
           }
+          const activeTabId = Shared.hot.resolveActiveTabId?.() || 'scatter-default';
+          if(scatterHot){
+            scatterHot.__scatterTabId = activeTabId;
+            scheduleScatterSelectionRestore(scatterHot, activeTabId);
+          }
           return scatterHot;
         }
         const entry = Shared.hot.ensureTableForTab({
@@ -3254,6 +3327,11 @@
         });
         if(entry?.instance){
           scatterHot = entry.instance;
+        }
+        const activeTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'scatter-default';
+        if(scatterHot){
+          scatterHot.__scatterTabId = activeTabId;
+          scheduleScatterSelectionRestore(scatterHot, activeTabId);
         }
         const tableImport = Shared.tableImport;
         if(tableImport?.handlePaste && entry?.container && !entry.container.__scatterPasteBound){
