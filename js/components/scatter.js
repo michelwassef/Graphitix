@@ -718,7 +718,7 @@
           placedBoxes.forEach(box => {
             const area = overlapArea({ minX, maxX, minY, maxY }, box);
             if(area > 0){
-              score += (area / labelArea) * 8;
+              score += (area / labelArea) * 14;
             }
           });
           pointBounds.forEach(point => {
@@ -726,7 +726,7 @@
             const px = Number(point?.cx) || 0;
             const py = Number(point?.cy) || 0;
             if(px >= minX - pr && px <= maxX + pr && py >= minY - pr && py <= maxY + pr){
-              score += 1.5;
+              score += 3;
             }
             const leaderDist = distancePointToSegment(px, py, cx, cy, textX, textY);
             if(leaderDist < pr + 2){
