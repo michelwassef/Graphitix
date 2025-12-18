@@ -168,6 +168,7 @@
   let scatterLabelStyles = {};
   const scatterRowSelectionsByTab = new Map();
   let scatterSelectionSyncInProgress = false;
+  let scatterThresholdSelectionPending = false;
 
   function clampScatterAlpha(value){
     const numeric = Number(value);
@@ -963,7 +964,7 @@
     setTimeout(tryRestore, 0);
   }
 
-  function applyScatterVolcanoSelection(hotInstance, rowSet){
+  function applyScatterThresholdSelection(hotInstance, rowSet){
     const api = hotInstance?.gridApi;
     if(!api || typeof api.deselectAll !== 'function'){
       return;
@@ -981,11 +982,71 @@
         }
       });
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: scatter volcano selection applied', { count: rowSet.size });
+        console.debug('Debug: scatter threshold selection applied', { count: rowSet.size });
       }
     }finally{
       scatterSelectionSyncInProgress = false;
     }
+  }
+
+  function syncScatterThresholdSelection(hotInstance, graphType, log2fcThreshold, negLogPThreshold){
+    if(!hotInstance || (graphType !== 'volcano' && graphType !== 'ma')){
+      return;
+    }
+    const analysis = hotInstance?.getAnalysisData?.() || Shared.hot.getAnalysisData(hotInstance);
+    const rowCount = analysis?.rowCount || 0;
+    const colCount = analysis?.colCount || 0;
+    if(rowCount <= 1 || colCount < 3){
+      applyScatterThresholdSelection(hotInstance, new Set());
+      return;
+    }
+    const layout = resolveScatterColumnLayout(analysis.data, colCount);
+    const xCol = Number.isInteger(layout.xCol) ? layout.xCol : 1;
+    const yCol = Number.isInteger(layout.yCol) ? layout.yCol : 2;
+    const extraCol = Number.isInteger(layout.extraCol) ? layout.extraCol : 3;
+    const rows = new Set();
+    for(let r = 1; r < rowCount; r += 1){
+      const rawX = analysis.data?.[r]?.[xCol];
+      const rawY = analysis.data?.[r]?.[yCol];
+      if(rawX == null || rawY == null || rawX === '' || rawY === ''){
+        continue;
+      }
+      if(graphType === 'volcano'){
+        const log2fc = parseFloat(rawX);
+        const pRaw = parseFloat(rawY);
+        if(!Number.isFinite(log2fc) || !Number.isFinite(pRaw) || pRaw <= 0){
+          continue;
+        }
+        let negLogP = -Math.log10(pRaw);
+        if(!Number.isFinite(negLogP)){
+          negLogP = -Math.log10(Number.MIN_VALUE);
+        }
+        const isSignificant = Math.abs(log2fc) >= log2fcThreshold && negLogP >= negLogPThreshold;
+        if(isSignificant){
+          rows.add(r);
+        }
+        continue;
+      }
+      const meanExpr = parseFloat(rawX);
+      const log2fcVal = parseFloat(rawY);
+      if(!Number.isFinite(meanExpr) || !Number.isFinite(log2fcVal)){
+        continue;
+      }
+      const rawExtra = analysis.data?.[r]?.[extraCol];
+      const pRaw = rawExtra == null || rawExtra === '' ? NaN : parseFloat(rawExtra);
+      if(!Number.isFinite(pRaw) || pRaw <= 0){
+        continue;
+      }
+      let negLogP = -Math.log10(pRaw);
+      if(!Number.isFinite(negLogP)){
+        negLogP = -Math.log10(Number.MIN_VALUE);
+      }
+      const isSignificant = Math.abs(log2fcVal) >= log2fcThreshold && negLogP >= negLogPThreshold;
+      if(isSignificant){
+        rows.add(r);
+      }
+    }
+    applyScatterThresholdSelection(hotInstance, rows);
   }
 
   function buildScatterAnnotationRequests(points, options){
@@ -3314,6 +3375,13 @@
       if(scatterRenderButtonEl){
         scatterRenderButtonEl.addEventListener('click', () => {
           scatterDebug('Debug: scatter manual render button');
+          if(!scatterAutoDrawState.autoDrawEnabled){
+            const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType;
+            const log2fc = Number.isFinite(parseFloat(scatterLog2FCThreshold?.value)) ? parseFloat(scatterLog2FCThreshold.value) : 0;
+            const negLogP = Number.isFinite(parseFloat(scatterNegLogPThreshold?.value)) ? parseFloat(scatterNegLogPThreshold.value) : 0;
+            syncScatterThresholdSelection(scatterHot, graphType, log2fc, negLogP);
+            scatterThresholdSelectionPending = false;
+          }
           const overlayReason = 'manual-render';
           markScatterOverlayPending(overlayReason);
           forceScatterOverlay(overlayReason, { message: 'Rendering scatter plot...' });
@@ -5068,18 +5136,42 @@
           console.debug('Debug: scatter graph type change event',{value:scatterGraphTypeSelect.value});
           syncScatterGraphTypeUI();
           scheduleDrawScatter();
+          const graphType = scatterGraphTypeSelect.value;
+          const log2fc = Number.isFinite(parseFloat(scatterLog2FCThreshold?.value)) ? parseFloat(scatterLog2FCThreshold.value) : 0;
+          const negLogP = Number.isFinite(parseFloat(scatterNegLogPThreshold?.value)) ? parseFloat(scatterNegLogPThreshold.value) : 0;
+          if(!scatterAutoDrawState.autoDrawEnabled){
+            scatterThresholdSelectionPending = true;
+            return;
+          }
+          syncScatterThresholdSelection(scatterHot, graphType, log2fc, negLogP);
         });
       }
       if(scatterLog2FCThreshold){
         scatterLog2FCThreshold.addEventListener('input',()=>{
           console.debug('Debug: scatter log2FC threshold input',{value:scatterLog2FCThreshold.value});
           scheduleDrawScatter();
+          const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType;
+          const log2fc = Number.isFinite(parseFloat(scatterLog2FCThreshold.value)) ? parseFloat(scatterLog2FCThreshold.value) : 0;
+          const negLogP = Number.isFinite(parseFloat(scatterNegLogPThreshold?.value)) ? parseFloat(scatterNegLogPThreshold.value) : 0;
+          if(!scatterAutoDrawState.autoDrawEnabled){
+            scatterThresholdSelectionPending = true;
+            return;
+          }
+          syncScatterThresholdSelection(scatterHot, graphType, log2fc, negLogP);
         });
       }
       if(scatterNegLogPThreshold){
         scatterNegLogPThreshold.addEventListener('input',()=>{
           console.debug('Debug: scatter negLogP threshold input',{value:scatterNegLogPThreshold.value});
           scheduleDrawScatter();
+          const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType;
+          const log2fc = Number.isFinite(parseFloat(scatterLog2FCThreshold?.value)) ? parseFloat(scatterLog2FCThreshold.value) : 0;
+          const negLogP = Number.isFinite(parseFloat(scatterNegLogPThreshold.value)) ? parseFloat(scatterNegLogPThreshold.value) : 0;
+          if(!scatterAutoDrawState.autoDrawEnabled){
+            scatterThresholdSelectionPending = true;
+            return;
+          }
+          syncScatterThresholdSelection(scatterHot, graphType, log2fc, negLogP);
         });
       }
       if(scatterShowSignificantLabels){
@@ -5819,7 +5911,7 @@
         }
         timeEnd(`scatterCollectPoints_${token}`);
         if(graphType === 'volcano'){
-          applyScatterVolcanoSelection(scatterHot, volcanoSelectedRows);
+          applyScatterThresholdSelection(scatterHot, volcanoSelectedRows);
         }
         if(debugEnabled && rowSkipCounts && Object.keys(rowSkipCounts).length){
           debug('Debug: scatter row skip summary',{graphType,skippedRows,reasons:rowSkipCounts});
