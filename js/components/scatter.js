@@ -964,89 +964,8 @@
     setTimeout(tryRestore, 0);
   }
 
-  function applyScatterThresholdSelection(hotInstance, rowSet){
-    const api = hotInstance?.gridApi;
-    if(!api || typeof api.deselectAll !== 'function'){
-      return;
-    }
-    scatterSelectionSyncInProgress = true;
-    try{
-      api.deselectAll();
-      if(!rowSet || !rowSet.size || typeof api.forEachNode !== 'function'){
-        return;
-      }
-      api.forEachNode(node => {
-        const rowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
-        if(Number.isInteger(rowIndex) && rowSet.has(rowIndex) && typeof node.setSelected === 'function'){
-          node.setSelected(true);
-        }
-      });
-      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: scatter threshold selection applied', { count: rowSet.size });
-      }
-    }finally{
-      scatterSelectionSyncInProgress = false;
-    }
-  }
-
-  function syncScatterThresholdSelection(hotInstance, graphType, log2fcThreshold, negLogPThreshold){
-    if(!hotInstance || (graphType !== 'volcano' && graphType !== 'ma')){
-      return;
-    }
-    const analysis = hotInstance?.getAnalysisData?.() || Shared.hot.getAnalysisData(hotInstance);
-    const rowCount = analysis?.rowCount || 0;
-    const colCount = analysis?.colCount || 0;
-    if(rowCount <= 1 || colCount < 3){
-      applyScatterThresholdSelection(hotInstance, new Set());
-      return;
-    }
-    const layout = resolveScatterColumnLayout(analysis.data, colCount);
-    const xCol = Number.isInteger(layout.xCol) ? layout.xCol : 1;
-    const yCol = Number.isInteger(layout.yCol) ? layout.yCol : 2;
-    const extraCol = Number.isInteger(layout.extraCol) ? layout.extraCol : 3;
-    const rows = new Set();
-    for(let r = 1; r < rowCount; r += 1){
-      const rawX = analysis.data?.[r]?.[xCol];
-      const rawY = analysis.data?.[r]?.[yCol];
-      if(rawX == null || rawY == null || rawX === '' || rawY === ''){
-        continue;
-      }
-      if(graphType === 'volcano'){
-        const log2fc = parseFloat(rawX);
-        const pRaw = parseFloat(rawY);
-        if(!Number.isFinite(log2fc) || !Number.isFinite(pRaw) || pRaw <= 0){
-          continue;
-        }
-        let negLogP = -Math.log10(pRaw);
-        if(!Number.isFinite(negLogP)){
-          negLogP = -Math.log10(Number.MIN_VALUE);
-        }
-        const isSignificant = Math.abs(log2fc) >= log2fcThreshold && negLogP >= negLogPThreshold;
-        if(isSignificant){
-          rows.add(r);
-        }
-        continue;
-      }
-      const meanExpr = parseFloat(rawX);
-      const log2fcVal = parseFloat(rawY);
-      if(!Number.isFinite(meanExpr) || !Number.isFinite(log2fcVal)){
-        continue;
-      }
-      const rawExtra = analysis.data?.[r]?.[extraCol];
-      const pRaw = rawExtra == null || rawExtra === '' ? NaN : parseFloat(rawExtra);
-      if(!Number.isFinite(pRaw) || pRaw <= 0){
-        continue;
-      }
-      let negLogP = -Math.log10(pRaw);
-      if(!Number.isFinite(negLogP)){
-        negLogP = -Math.log10(Number.MIN_VALUE);
-      }
-      const isSignificant = Math.abs(log2fcVal) >= log2fcThreshold && negLogP >= negLogPThreshold;
-      if(isSignificant){
-        rows.add(r);
-      }
-    }
-    applyScatterThresholdSelection(hotInstance, rows);
+  function syncScatterThresholdSelection(){
+    // Significant label selection no longer controls table row selection.
   }
 
   function buildScatterAnnotationRequests(points, options){
@@ -3376,10 +3295,6 @@
         scatterRenderButtonEl.addEventListener('click', () => {
           scatterDebug('Debug: scatter manual render button');
           if(!scatterAutoDrawState.autoDrawEnabled){
-            const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType;
-            const log2fc = Number.isFinite(parseFloat(scatterLog2FCThreshold?.value)) ? parseFloat(scatterLog2FCThreshold.value) : 0;
-            const negLogP = Number.isFinite(parseFloat(scatterNegLogPThreshold?.value)) ? parseFloat(scatterNegLogPThreshold.value) : 0;
-            syncScatterThresholdSelection(scatterHot, graphType, log2fc, negLogP);
             scatterThresholdSelectionPending = false;
           }
           const overlayReason = 'manual-render';
@@ -5136,48 +5051,42 @@
           console.debug('Debug: scatter graph type change event',{value:scatterGraphTypeSelect.value});
           syncScatterGraphTypeUI();
           scheduleDrawScatter();
-          const graphType = scatterGraphTypeSelect.value;
-          const log2fc = Number.isFinite(parseFloat(scatterLog2FCThreshold?.value)) ? parseFloat(scatterLog2FCThreshold.value) : 0;
-          const negLogP = Number.isFinite(parseFloat(scatterNegLogPThreshold?.value)) ? parseFloat(scatterNegLogPThreshold.value) : 0;
           if(!scatterAutoDrawState.autoDrawEnabled){
             scatterThresholdSelectionPending = true;
             return;
           }
-          syncScatterThresholdSelection(scatterHot, graphType, log2fc, negLogP);
+          syncScatterThresholdSelection();
         });
       }
       if(scatterLog2FCThreshold){
         scatterLog2FCThreshold.addEventListener('input',()=>{
           console.debug('Debug: scatter log2FC threshold input',{value:scatterLog2FCThreshold.value});
           scheduleDrawScatter();
-          const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType;
-          const log2fc = Number.isFinite(parseFloat(scatterLog2FCThreshold.value)) ? parseFloat(scatterLog2FCThreshold.value) : 0;
-          const negLogP = Number.isFinite(parseFloat(scatterNegLogPThreshold?.value)) ? parseFloat(scatterNegLogPThreshold.value) : 0;
           if(!scatterAutoDrawState.autoDrawEnabled){
             scatterThresholdSelectionPending = true;
             return;
           }
-          syncScatterThresholdSelection(scatterHot, graphType, log2fc, negLogP);
+          syncScatterThresholdSelection();
         });
       }
       if(scatterNegLogPThreshold){
         scatterNegLogPThreshold.addEventListener('input',()=>{
           console.debug('Debug: scatter negLogP threshold input',{value:scatterNegLogPThreshold.value});
           scheduleDrawScatter();
-          const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType;
-          const log2fc = Number.isFinite(parseFloat(scatterLog2FCThreshold?.value)) ? parseFloat(scatterLog2FCThreshold.value) : 0;
-          const negLogP = Number.isFinite(parseFloat(scatterNegLogPThreshold.value)) ? parseFloat(scatterNegLogPThreshold.value) : 0;
           if(!scatterAutoDrawState.autoDrawEnabled){
             scatterThresholdSelectionPending = true;
             return;
           }
-          syncScatterThresholdSelection(scatterHot, graphType, log2fc, negLogP);
+          syncScatterThresholdSelection();
         });
       }
       if(scatterShowSignificantLabels){
         scatterShowSignificantLabels.addEventListener('change',()=>{
           console.debug('Debug: scatter significant label toggle',{checked:scatterShowSignificantLabels.checked});
           scheduleDrawScatter();
+          if(!scatterAutoDrawState.autoDrawEnabled){
+            scatterThresholdSelectionPending = true;
+          }
         });
       }
       if(scatterColorMode){
@@ -5758,7 +5667,6 @@
         let points=[];
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
         const labelSet=shouldCollectLabelSet ? new Set() : null;
-        const volcanoSelectedRows = graphType === 'volcano' ? new Set() : null;
         let annotationRequests = [];
         let annotationLeaderPadding = 0;
         let annotationTextPadding = 0;
@@ -5854,12 +5762,10 @@
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=Math.abs(log2fc)>=log2fcThreshold && negLogP>=negLogPThreshold;
-              points.push({x:log2fc,y:negLogP,label:'',pointName:lab,rowIndex:r,isManualLabel,isSignificant});
+              const isThresholdLabel = (scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true) && isSignificant;
+              points.push({x:log2fc,y:negLogP,label:'',pointName:lab,rowIndex:r,isManualLabel,isSignificant,isThresholdLabel});
               if(isSignificant){
                 significantCount++;
-                if(volcanoSelectedRows){
-                  volcanoSelectedRows.add(r);
-                }
               }
               if(labelSet && lab) labelSet.add(lab);
               if(log2fc<xMinRaw) xMinRaw=log2fc;
@@ -5887,8 +5793,9 @@
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=hasPositiveP && Math.abs(log2fcVal)>=log2fcThreshold && Number.isFinite(negLogP) && negLogP>=negLogPThreshold;
-              const labelValueFinal = lab && (shouldCollectLabelSet || isSignificant) ? lab : '';
-              points.push({x:meanExpr,y:log2fcVal,label:labelValueFinal,pointName:lab,rowIndex:r,isManualLabel,isSignificant});
+              const isThresholdLabel = (scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true) && isSignificant;
+              const labelValueFinal = lab && shouldCollectLabelSet ? lab : '';
+              points.push({x:meanExpr,y:log2fcVal,label:labelValueFinal,pointName:lab,rowIndex:r,isManualLabel,isSignificant,isThresholdLabel});
               if(isSignificant) significantCount++;
               if(!hasPositiveP){
                 maMissingPCount++;
@@ -5910,9 +5817,6 @@
           }
         }
         timeEnd(`scatterCollectPoints_${token}`);
-        if(graphType === 'volcano'){
-          applyScatterThresholdSelection(scatterHot, volcanoSelectedRows);
-        }
         if(debugEnabled && rowSkipCounts && Object.keys(rowSkipCounts).length){
           debug('Debug: scatter row skip summary',{graphType,skippedRows,reasons:rowSkipCounts});
         }else if(skippedRows>0){
@@ -5955,15 +5859,7 @@
         });
         info('scatter points collected',points.length,{xMinRaw,xMaxRaw,yMinRaw,yMaxRaw,graphType});
         const significanceLegendNeeded=scatterCurrentGraphType!=='scatter';
-        const shouldRenderSignificantLabels = (() => {
-          if(scatterCurrentGraphType === 'volcano'){
-            return false;
-          }
-          if(scatterCurrentGraphType === 'ma'){
-            return true;
-          }
-          return false;
-        })();
+        const shouldRenderSignificantLabels = false;
         if(token!==scatterDrawToken){info('scatter draw cancelled after collect',{token});return;}
         const plotEl=document.getElementById('scatterPlot');
         plotEl.style.display='block';
@@ -6600,7 +6496,7 @@
             const manualLabelText = (entry.data?.pointName || entry.data?.label || '').trim();
             const markerRadius = markerSize != null ? markerSize : dotSizePx;
             pointBounds3d.push({ cx: entry.projected?.x, cy: entry.projected?.y, r: markerRadius });
-            if(entry.data?.isManualLabel && manualLabelText){
+            if((entry.data?.isManualLabel || entry.data?.isThresholdLabel) && manualLabelText){
               manualLabelEntries3d.push({
                 text: manualLabelText,
                 cx: entry.projected?.x,
@@ -7332,7 +7228,7 @@
           bbox.minY=Math.min(bbox.minY,cyVal-bboxRadius);
           bbox.maxY=Math.max(bbox.maxY,cyVal+bboxRadius);
           const manualLabelText = (p.pointName || p.label || '').trim();
-          if(p.isManualLabel && manualLabelText){
+          if((p.isManualLabel || p.isThresholdLabel) && manualLabelText){
             manualLabelEntries.push({
               text: manualLabelText,
               cx: cxVal,
