@@ -594,6 +594,156 @@
     return value;
   }
 
+  function computeScatterManualLabelLayout(entries, options){
+    if(!Array.isArray(entries) || !entries.length){
+      return [];
+    }
+    const plotLeft = Number(options?.plotLeft) || 0;
+    const plotRight = Number(options?.plotRight) || 0;
+    const plotTop = Number(options?.plotTop) || 0;
+    const plotBottom = Number(options?.plotBottom) || 0;
+    const labelFontSize = Math.max(6, Number(options?.labelFontSize) || 10);
+    const leaderGap = Math.max(2, Number(options?.leaderGap) || 2);
+    const angleSteps = Math.max(8, Math.min(36, Number(options?.angleSteps) || 16));
+    const maxLeaderScale = Math.max(1, Math.min(3, Number(options?.maxLeaderScale) || 3));
+    const pointBounds = Array.isArray(options?.pointBounds) ? options.pointBounds : [];
+    const measureText = typeof options?.measureText === 'function' ? options.measureText : null;
+    const font = options?.font || null;
+    const labelHeight = Math.max(6, labelFontSize);
+    const minOffset = Math.max(labelFontSize * 0.85, 8);
+    const angles = [];
+    const tau = Math.PI * 2;
+    for(let i = 0; i < angleSteps; i += 1){
+      angles.push((i / angleSteps) * tau);
+    }
+    const estimateWidth = text => {
+      const value = text ? String(text) : '';
+      if(!value){
+        return labelFontSize * 0.5;
+      }
+      if(measureText && font){
+        const measured = measureText(value, font);
+        if(Number.isFinite(measured)){
+          return measured;
+        }
+      }
+      return Math.max(labelFontSize * 0.6, value.length * labelFontSize * 0.6);
+    };
+    const overlapArea = (a, b) => {
+      const overlapX = Math.max(0, Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX));
+      const overlapY = Math.max(0, Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY));
+      return overlapX * overlapY;
+    };
+    const placedBoxes = [];
+    const placements = [];
+    const distancePointToSegment = (px, py, ax, ay, bx, by) => {
+      const dx = bx - ax;
+      const dy = by - ay;
+      if(dx === 0 && dy === 0){
+        const rx = px - ax;
+        const ry = py - ay;
+        return Math.hypot(rx, ry);
+      }
+      const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+      const clamped = Math.max(0, Math.min(1, t));
+      const cx = ax + clamped * dx;
+      const cy = ay + clamped * dy;
+      return Math.hypot(px - cx, py - cy);
+    };
+    const scaleSteps = maxLeaderScale <= 1 ? [1] : [1, 1.6, 2.2, maxLeaderScale];
+    entries.forEach(entry => {
+      const cx = Number(entry?.cx) || 0;
+      const cy = Number(entry?.cy) || 0;
+      const textValue = entry?.text ? String(entry.text) : '';
+      if(!textValue){
+        return;
+      }
+      const baseOffset = Math.max(minOffset, (Number(entry?.radius) || 0) * 1.6);
+      const textWidth = estimateWidth(textValue);
+      let best = null;
+      angles.forEach(angle => {
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        scaleSteps.forEach(scale => {
+          let textX = cx + cos * (baseOffset * scale);
+          let textY = cy + sin * (baseOffset * scale);
+          const anchor = cos >= 0 ? 'start' : 'end';
+          let minX = anchor === 'start' ? textX : textX - textWidth;
+          let maxX = anchor === 'start' ? textX + textWidth : textX;
+          let minY = textY - labelHeight * 0.5;
+          let maxY = textY + labelHeight * 0.5;
+          let shiftX = 0;
+          if(minX < plotLeft + 2){
+            shiftX = (plotLeft + 2) - minX;
+          }else if(maxX > plotRight - 2){
+            shiftX = (plotRight - 2) - maxX;
+          }
+          let shiftY = 0;
+          if(minY < plotTop + 2){
+            shiftY = (plotTop + 2) - minY;
+          }else if(maxY > plotBottom - 2){
+            shiftY = (plotBottom - 2) - maxY;
+          }
+          if(shiftX || shiftY){
+            textX += shiftX;
+            textY += shiftY;
+            minX += shiftX;
+            maxX += shiftX;
+            minY += shiftY;
+            maxY += shiftY;
+          }
+          let score = 0;
+          const labelArea = Math.max(1, textWidth * labelHeight);
+          placedBoxes.forEach(box => {
+            const area = overlapArea({ minX, maxX, minY, maxY }, box);
+            if(area > 0){
+              score += (area / labelArea) * 8;
+            }
+          });
+          pointBounds.forEach(point => {
+            const pr = Math.max(0, Number(point?.r) || 0);
+            const px = Number(point?.cx) || 0;
+            const py = Number(point?.cy) || 0;
+            if(px >= minX - pr && px <= maxX + pr && py >= minY - pr && py <= maxY + pr){
+              score += 1.5;
+            }
+            const leaderDist = distancePointToSegment(px, py, cx, cy, textX, textY);
+            if(leaderDist < pr + 2){
+              score += 2 + (pr + 2 - leaderDist) * 0.4;
+            }
+          });
+          const overflow = Math.max(0, plotLeft - minX)
+            + Math.max(0, maxX - plotRight)
+            + Math.max(0, plotTop - minY)
+            + Math.max(0, maxY - plotBottom);
+          if(overflow > 0){
+            score += overflow * 0.2 + 6;
+          }
+          if(shiftX || shiftY){
+            score += 0.5;
+          }
+          score += (scale - 1) * 0.2;
+          if(best === null || score < best.score){
+            best = {
+              textX,
+              textY,
+              anchor,
+              lineX2: textX + (anchor === 'start' ? -leaderGap : leaderGap),
+              lineY2: textY,
+              bbox: { minX, maxX, minY, maxY },
+              score
+            };
+          }
+        });
+      });
+      if(best){
+        placements.push({ entry, placement: best });
+        placedBoxes.push(best.bbox);
+      }
+    });
+    return placements;
+  }
+
   function parseScatterPointLabelFlag(value){
     if(value === null || value === undefined){
       return false;
@@ -6248,6 +6398,7 @@
           const pointLayer = document.createElementNS(NS,'g');
           svg3.appendChild(pointLayer);
           const manualLabelEntries3d = [];
+          const pointBounds3d = [];
           let maxPointRight=contentRightBound;
           sortedPoints.forEach(entry => {
             const styleOverride = getScatterLabelStyle(entry.data?.label || null);
@@ -6269,6 +6420,7 @@
             pointLayer.appendChild(marker);
             const manualLabelText = (entry.data?.pointName || entry.data?.label || '').trim();
             const markerRadius = markerSize != null ? markerSize : dotSizePx;
+            pointBounds3d.push({ cx: entry.projected?.x, cy: entry.projected?.y, r: markerRadius });
             if(entry.data?.isManualLabel && manualLabelText){
               manualLabelEntries3d.push({
                 text: manualLabelText,
@@ -6303,25 +6455,35 @@
             const plotRight = margin3.left + plotW3;
             const plotTop = margin3.top;
             const plotBottom = margin3.top + plotH3;
-            manualLabelEntries3d.forEach(entry => {
+            const font = typeof chartStyle?.makeFont === 'function'
+              ? chartStyle.makeFont(labelFontSize)
+              : null;
+            const manualLabelLayout = computeScatterManualLabelLayout(manualLabelEntries3d, {
+              plotLeft,
+              plotRight,
+              plotTop,
+              plotBottom,
+              labelFontSize,
+              leaderGap: Math.max(2, Math.round(labelFontSize * 0.2)),
+              pointBounds: pointBounds3d,
+              measureText: chartStyle?.measureText,
+              font,
+              angleSteps: 16,
+              maxLeaderScale: 3
+            });
+            manualLabelLayout.forEach(result => {
+              const entry = result.entry;
+              const placement = result.placement;
               const cx = Number(entry?.cx) || 0;
               const cy = Number(entry?.cy) || 0;
               const textValue = entry?.text ? String(entry.text) : '';
-              if(!textValue){
+              if(!textValue || !placement){
                 return;
               }
-              const prefersLeft = cx > plotLeft + plotW3 * 0.72;
-              const prefersBelow = cy < plotTop + plotH3 * 0.2;
-              const baseOffset = Math.max(labelFontSize * 0.85, 8, (Number(entry?.radius) || 0) * 1.6);
-              const dx = prefersLeft ? -baseOffset : baseOffset;
-              const dy = prefersBelow ? baseOffset : -baseOffset;
-              let textX = cx + dx;
-              let textY = cy + dy;
-              textX = clampScatterValue(textX, plotLeft + 2, plotRight - 2);
-              textY = clampScatterValue(textY, plotTop + 2, plotBottom - 2);
-              const anchor = prefersLeft ? 'end' : 'start';
-              const leaderGap = Math.max(2, Math.round(labelFontSize * 0.2));
-              const lineX2 = prefersLeft ? (textX + leaderGap) : (textX - leaderGap);
+              const textX = placement.textX;
+              const textY = placement.textY;
+              const anchor = placement.anchor;
+              const lineX2 = placement.lineX2;
               const leader = document.createElementNS(NS,'line');
               leader.setAttribute('x1', String(cx));
               leader.setAttribute('y1', String(cy));
@@ -6937,6 +7099,7 @@
         const frag=document.createDocumentFragment();
         const labelBBox=new Map();
         const manualLabelEntries = [];
+        const pointBounds = [];
         let pointIndex=0;
         const isBubbleView = scatterCurrentGraphType==='scatter' && scatterState.viewMode === 'bubble';
         const resolveBubbleRadius = isBubbleView ? createBubbleRadiusScaler(points, dotSizePx) : null;
@@ -6978,6 +7141,7 @@
           if(!marker){
             continue;
           }
+          pointBounds.push({ cx: cxVal, cy: cyVal, r: markerRadius });
           let bbox=labelBBox.get(p.label||'__none');
           if(!bbox){bbox={minX:Infinity,maxX:-Infinity,minY:Infinity,maxY:-Infinity}; labelBBox.set(p.label||'__none',bbox);}
           const bboxRadius = markerRadius;
@@ -7069,25 +7233,35 @@
           const plotRight = margin.left + plotW;
           const plotTop = margin.top;
           const plotBottom = margin.top + plotH;
-          manualLabelEntries.forEach(entry => {
+          const font = typeof chartStyle?.makeFont === 'function'
+            ? chartStyle.makeFont(labelFontSize)
+            : null;
+          const manualLabelLayout = computeScatterManualLabelLayout(manualLabelEntries, {
+            plotLeft,
+            plotRight,
+            plotTop,
+            plotBottom,
+            labelFontSize,
+            leaderGap: Math.max(2, Math.round(labelFontSize * 0.2)),
+            pointBounds,
+            measureText: chartStyle?.measureText,
+            font,
+            angleSteps: 16,
+            maxLeaderScale: 3
+          });
+          manualLabelLayout.forEach(result => {
+            const entry = result.entry;
+            const placement = result.placement;
             const cx = Number(entry?.cx) || 0;
             const cy = Number(entry?.cy) || 0;
             const textValue = entry?.text ? String(entry.text) : '';
-            if(!textValue){
+            if(!textValue || !placement){
               return;
             }
-            const prefersLeft = cx > plotLeft + plotW * 0.72;
-            const prefersBelow = cy < plotTop + plotH * 0.2;
-            const baseOffset = Math.max(labelFontSize * 0.85, 8, (Number(entry?.radius) || 0) * 1.6);
-            const dx = prefersLeft ? -baseOffset : baseOffset;
-            const dy = prefersBelow ? baseOffset : -baseOffset;
-            let textX = cx + dx;
-            let textY = cy + dy;
-            textX = clampScatterValue(textX, plotLeft + 2, plotRight - 2);
-            textY = clampScatterValue(textY, plotTop + 2, plotBottom - 2);
-            const anchor = prefersLeft ? 'end' : 'start';
-            const leaderGap = Math.max(2, Math.round(labelFontSize * 0.2));
-            const lineX2 = prefersLeft ? (textX + leaderGap) : (textX - leaderGap);
+            const textX = placement.textX;
+            const textY = placement.textY;
+            const anchor = placement.anchor;
+            const lineX2 = placement.lineX2;
             const leader = document.createElementNS(NS,'line');
             leader.setAttribute('x1', String(cx));
             leader.setAttribute('y1', String(cy));
