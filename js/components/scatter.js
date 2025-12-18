@@ -167,6 +167,7 @@
   let scatterLabelShapes = {};
   let scatterLabelStyles = {};
   const scatterRowSelectionsByTab = new Map();
+  let scatterSelectionSyncInProgress = false;
 
   function clampScatterAlpha(value){
     const numeric = Number(value);
@@ -610,6 +611,7 @@
     const measureText = typeof options?.measureText === 'function' ? options.measureText : null;
     const font = options?.font || null;
     const labelHeight = Math.max(6, labelFontSize);
+    const leaderScale = Math.max(0.45, Math.min(1, Number(options?.leaderScale) || 1));
     const minOffset = Math.max(labelFontSize * 0.85, 8);
     const angles = [];
     const tau = Math.PI * 2;
@@ -679,7 +681,7 @@
       if(!textValue){
         return;
       }
-      const baseOffset = Math.max(minOffset, (Number(entry?.radius) || 0) * 1.6) * 2;
+      const baseOffset = Math.max(minOffset, (Number(entry?.radius) || 0) * 1.6) * 2 * leaderScale;
       const textWidth = estimateWidth(textValue);
       let best = null;
       angles.forEach(angle => {
@@ -774,6 +776,20 @@
       }
     });
     return placements;
+  }
+
+  function computeScatterManualLabelFontSize(baseFontSize, labelCount, plotWidth, plotHeight){
+    const safeBase = Math.max(6, Number(baseFontSize) || 10);
+    const count = Math.max(0, Number(labelCount) || 0);
+    const area = Math.max(1, Number(plotWidth) || 0) * Math.max(1, Number(plotHeight) || 0);
+    if(count <= 1 || area <= 1){
+      return safeBase;
+    }
+    const density = count / area;
+    const scaleByCount = 1 / Math.sqrt(1 + count / 18);
+    const scaleByArea = 1 / Math.sqrt(1 + density * 4200);
+    const scale = Math.max(0.45, Math.min(1, scaleByCount, scaleByArea));
+    return Math.max(6, safeBase * scale);
   }
 
   function parseScatterPointLabelFlag(value){
@@ -887,6 +903,9 @@
   }
 
   function storeScatterRowSelection(hotInstance, reason){
+    if(scatterSelectionSyncInProgress){
+      return;
+    }
     const tabId = resolveScatterTabId(hotInstance);
     if(!tabId){
       return;
@@ -942,6 +961,31 @@
       }
     };
     setTimeout(tryRestore, 0);
+  }
+
+  function applyScatterVolcanoSelection(hotInstance, rowSet){
+    const api = hotInstance?.gridApi;
+    if(!api || typeof api.deselectAll !== 'function'){
+      return;
+    }
+    scatterSelectionSyncInProgress = true;
+    try{
+      api.deselectAll();
+      if(!rowSet || !rowSet.size || typeof api.forEachNode !== 'function'){
+        return;
+      }
+      api.forEachNode(node => {
+        const rowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
+        if(Number.isInteger(rowIndex) && rowSet.has(rowIndex) && typeof node.setSelected === 'function'){
+          node.setSelected(true);
+        }
+      });
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: scatter volcano selection applied', { count: rowSet.size });
+      }
+    }finally{
+      scatterSelectionSyncInProgress = false;
+    }
   }
 
   function buildScatterAnnotationRequests(points, options){
@@ -3467,6 +3511,9 @@
             const api = hotInstance?.gridApi;
             if(api && typeof api.addEventListener === 'function'){
               const handler = () => {
+                if(scatterSelectionSyncInProgress){
+                  return;
+                }
                 storeScatterRowSelection(hotInstance, 'row-selection');
                 scheduleDrawScatter({ reason: 'row-selection' });
               };
@@ -5619,6 +5666,7 @@
         let points=[];
         const shouldCollectLabelSet = scatterCurrentGraphType === 'scatter';
         const labelSet=shouldCollectLabelSet ? new Set() : null;
+        const volcanoSelectedRows = graphType === 'volcano' ? new Set() : null;
         let annotationRequests = [];
         let annotationLeaderPadding = 0;
         let annotationTextPadding = 0;
@@ -5714,9 +5762,13 @@
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=Math.abs(log2fc)>=log2fcThreshold && negLogP>=negLogPThreshold;
-              const labelValueFinal = lab && (shouldCollectLabelSet || isSignificant) ? lab : '';
-              points.push({x:log2fc,y:negLogP,label:labelValueFinal,pointName:lab,rowIndex:r,isManualLabel,isSignificant});
-              if(isSignificant) significantCount++;
+              points.push({x:log2fc,y:negLogP,label:'',pointName:lab,rowIndex:r,isManualLabel,isSignificant});
+              if(isSignificant){
+                significantCount++;
+                if(volcanoSelectedRows){
+                  volcanoSelectedRows.add(r);
+                }
+              }
               if(labelSet && lab) labelSet.add(lab);
               if(log2fc<xMinRaw) xMinRaw=log2fc;
               if(log2fc>xMaxRaw) xMaxRaw=log2fc;
@@ -5766,6 +5818,9 @@
           }
         }
         timeEnd(`scatterCollectPoints_${token}`);
+        if(graphType === 'volcano'){
+          applyScatterVolcanoSelection(scatterHot, volcanoSelectedRows);
+        }
         if(debugEnabled && rowSkipCounts && Object.keys(rowSkipCounts).length){
           debug('Debug: scatter row skip summary',{graphType,skippedRows,reasons:rowSkipCounts});
         }else if(skippedRows>0){
@@ -5810,7 +5865,7 @@
         const significanceLegendNeeded=scatterCurrentGraphType!=='scatter';
         const shouldRenderSignificantLabels = (() => {
           if(scatterCurrentGraphType === 'volcano'){
-            return scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true;
+            return false;
           }
           if(scatterCurrentGraphType === 'ma'){
             return true;
@@ -6480,9 +6535,11 @@
             const labelLayer = document.createElementNS(NS,'g');
             labelLayer.setAttribute('data-layer','point-labels');
             labelLayer.setAttribute('pointer-events','none');
-            const labelFontSize = Math.max(7, fs * 0.75);
-            const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75, styleScaleInfo, { context: 'scatter-point-label-3d', min: 0.35 });
-            const labelColor = chartStyle.TEXT_COLOR || '#333333';
+          const baseManualLabelSize = fs * 0.75;
+          const labelFontSize = computeScatterManualLabelFontSize(baseManualLabelSize, manualLabelEntries3d.length, plotW3, plotH3);
+          const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
+          const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'scatter-point-label-3d', min: 0.25 });
+          const labelColor = chartStyle.TEXT_COLOR || '#333333';
             const plotLeft = margin3.left;
             const plotRight = margin3.left + plotW3;
             const plotTop = margin3.top;
@@ -6497,6 +6554,7 @@
               plotBottom,
               labelFontSize,
               leaderGap: Math.max(2, Math.round(labelFontSize * 0.2)),
+              leaderScale: labelScale,
               pointBounds: pointBounds3d,
               measureText: chartStyle?.measureText,
               font,
@@ -7258,8 +7316,10 @@
           const labelLayer = document.createElementNS(NS,'g');
           labelLayer.setAttribute('data-layer','point-labels');
           labelLayer.setAttribute('pointer-events','none');
-          const labelFontSize = Math.max(7, fs * 0.75);
-          const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75, styleScaleInfo, { context: 'scatter-point-label', min: 0.35 });
+          const baseManualLabelSize = fs * 0.75;
+          const labelFontSize = computeScatterManualLabelFontSize(baseManualLabelSize, manualLabelEntries.length, plotW, plotH);
+          const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
+          const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'scatter-point-label', min: 0.25 });
           const labelColor = chartStyle.TEXT_COLOR || '#333333';
           const plotLeft = margin.left;
           const plotRight = margin.left + plotW;
@@ -7275,6 +7335,7 @@
             plotBottom,
             labelFontSize,
             leaderGap: Math.max(2, Math.round(labelFontSize * 0.2)),
+            leaderScale: labelScale,
             pointBounds,
             measureText: chartStyle?.measureText,
             font,
