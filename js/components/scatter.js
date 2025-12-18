@@ -787,9 +787,9 @@
       return safeBase;
     }
     const density = count / area;
-    const scaleByCount = 1 / Math.sqrt(1 + count / 18);
-    const scaleByArea = 1 / Math.sqrt(1 + density * 4200);
-    const scale = Math.max(0.45, Math.min(1, scaleByCount, scaleByArea));
+    const scaleByCount = 1 / Math.sqrt(1 + count / 10);
+    const scaleByArea = 1 / Math.sqrt(1 + density * 2600);
+    const scale = Math.max(0.35, Math.min(1, scaleByCount, scaleByArea));
     return Math.max(6, safeBase * scale);
   }
 
