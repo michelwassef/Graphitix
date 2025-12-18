@@ -8291,6 +8291,16 @@
         }
         syncScatterGraphTypeUI();
         scheduleDrawScatter();
+        // Reapply saved stats HTML after draw completes to prevent draw from clearing restored results
+        try{
+          if(c.stats && typeof c.stats === 'object' && c.stats.resultsHtml != null){
+            const reapplyHtml = c.stats.resultsHtml;
+            setTimeout(()=>{
+              try{ if(scatterStatsResults) scatterStatsResults.innerHTML = reapplyHtml; }catch(e){ if(scatterStatsResults) scatterStatsResults.textContent = String(reapplyHtml || ''); }
+              try{ if(scatterState.statsLastRunVersion === scatterState.statsContextVersion){ setScatterStatsStatus('Statistics up to date.'); updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' }); syncScatterRegressionOptionVisibility(); } }catch(e){}
+            }, 60);
+          }
+        }catch(e){ console.debug('Debug: deferred stats reapply failed', { err: e?.message || String(e) }); }
         scatterDebug('Debug: scatter payload applied', { source: meta.source || 'unknown', rows: dataMatrix.length });
         return true;
       }
