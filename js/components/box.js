@@ -7421,6 +7421,17 @@
   optionWrap.style.flexDirection = 'column';
   optionWrap.style.gap = '8px';
 
+  function persistTabState(reason){
+    try{
+      const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
+      if(sess && typeof sess.persistActiveTabState === 'function'){
+        sess.persistActiveTabState(undefined, { reason: reason || 'stats-controls-change' });
+      }
+    }catch(e){
+      console.debug('Debug: persistTabState failed', { err: e?.message || String(e) });
+    }
+  }
+
   function appendInline(labelEl, inputEl){
     const row = document.createElement('div');
     row.style.display = 'flex';
@@ -7446,6 +7457,7 @@
     state.statsTest=testSel.value;
     console.log('boxplot statsTest changed', state.statsTest);
     requestStatsContextRefresh('stats-test-change');
+    persistTabState('stats-test-change');
     state.scheduleDraw();
   });
   appendInline(testLabel, testSel);
@@ -7464,6 +7476,7 @@
     state.statsPaired=pairedSel.value==='paired';
     console.log('boxplot statsPaired changed', state.statsPaired);
     requestStatsContextRefresh('stats-pairing-change');
+    persistTabState('stats-pairing-change');
     state.scheduleDraw();
   });
   appendInline(pairedLabel, pairedSel);
@@ -7490,6 +7503,7 @@
       }
     }
     requestStatsContextRefresh('stats-mode-change');
+    persistTabState('stats-mode-change');
     renderStatsControls(traces);
     state.scheduleDraw();
   });
@@ -7513,6 +7527,7 @@
     state.statsPostHoc=postHocSel.value;
     console.debug('Debug: box statsPostHoc changed',{ value:state.statsPostHoc });
     requestStatsContextRefresh('stats-posthoc-change');
+    persistTabState('stats-posthoc-change');
     renderStatsControls(traces);
     state.scheduleDraw();
   });
@@ -7534,6 +7549,7 @@
     console.debug('Debug: box statsCorrection changed',{ value, source:'main-controls' });
     updateStatsCorrectionSummary(0);
     requestStatsContextRefresh('stats-correction-change');
+    persistTabState('stats-correction-change');
     state.scheduleDraw();
   });
   correctionSel.disabled=state.statsPostHoc==='tukey' || state.statsPostHoc==='gamesHowell';
@@ -7562,6 +7578,7 @@
     state.statsEffectParametric=value;
     console.debug('Debug: box statsEffectParametric changed',{ value });
     requestStatsContextRefresh('stats-param-effect-change');
+    persistTabState('stats-param-effect-change');
     state.scheduleDraw();
   });
   appendInline(paramEffectLabel, paramEffectSel);
@@ -7582,6 +7599,7 @@
     state.statsEffectNonParametric=value;
     console.debug('Debug: box statsEffectNonParametric changed',{ value });
     requestStatsContextRefresh('stats-nonparam-effect-change');
+    persistTabState('stats-nonparam-effect-change');
     state.scheduleDraw();
   });
   appendInline(nonParamEffectLabel, nonParamEffectSel);
@@ -7606,6 +7624,7 @@
       state.statsRef=+refSel.value;
       console.log('boxplot statsRef changed', state.statsRef);
       requestStatsContextRefresh('stats-reference-change');
+      persistTabState('stats-reference-change');
       renderStatsControls(traces);
       state.scheduleDraw();
     });
@@ -7622,6 +7641,7 @@
       state.statsCustomPairs=parsePairString(state.statsPairsText,traces);
       console.log('boxplot custom pairs changed', state.statsPairsText);
       requestStatsContextRefresh('stats-custom-pairs-change');
+      persistTabState('stats-custom-pairs-change');
       state.scheduleDraw();
     });
     appendInline(pairLabel, pairInput);
@@ -7642,6 +7662,7 @@
       else state.selectedCols.delete(index);
       console.log('boxplot column toggle',{index,checked:checkbox.checked});
       requestStatsContextRefresh('stats-column-toggle');
+      persistTabState('stats-column-toggle');
       state.scheduleDraw();
     });
     const label=document.createElement('label');
@@ -8124,6 +8145,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       updateStatsButtonState({ disabled: !stillCurrent, label });
       if(!stillCurrent){
         updateSignificanceControlState({ statsReady: false });
+      }
+      // Persist the tab payload immediately if the computed results belong to the current context
+      try{
+        if(stillCurrent && state.statsLastRunVersion === context.version){
+          const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
+          if(sess && typeof sess.persistActiveTabState === 'function'){
+            sess.persistActiveTabState(undefined, { reason: 'stats-computed' });
+          }
+        }
+      }catch(e){
+        console.debug('Debug: persistActiveTabState after stats compute failed', { err: e?.message || String(e) });
       }
     }
   }
@@ -12137,7 +12169,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           parametricVariant: state.statsParametricVariant,
           groupedAnalysis: state.groupedStats?.analysis,
           selectedColumns,
-          assumptions: serializeAssumptions(state.assumptionDiagnostics)
+          assumptions: serializeAssumptions(state.assumptionDiagnostics),
+          // Persist last computed statistics output so each tab can restore its results
+          resultsHtml: (els.statsResults && typeof els.statsResults.innerHTML === 'string') ? els.statsResults.innerHTML : null,
+          lastRunVersion: Number.isFinite(Number(state.statsLastRunVersion)) ? Number(state.statsLastRunVersion) : 0,
+          contextSignature: state.statsContextSignature || null
         },
         labelPositions: state.labelPositions || null
       }
@@ -12605,6 +12641,28 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         yLabel: c.labelPositions.yLabel || null,
         legend: c.labelPositions.legend || null
       };
+    }
+    // Restore previously computed statistics results (if present in payload)
+    try{
+      if(c.stats && typeof c.stats === 'object'){
+        const savedHtml = c.stats.resultsHtml;
+        const savedVersion = Number.isFinite(Number(c.stats.lastRunVersion)) ? Number(c.stats.lastRunVersion) : 0;
+        const savedSig = typeof c.stats.contextSignature === 'string' ? c.stats.contextSignature : null;
+        if(els.statsResults && savedHtml != null){
+          try{ els.statsResults.innerHTML = savedHtml; }catch(e){ els.statsResults.textContent = String(savedHtml || ''); }
+        }
+        state.statsLastRunVersion = savedVersion;
+        state.statsContextVersion = Number.isFinite(Number(savedVersion)) ? Number(savedVersion) : state.statsContextVersion || 0;
+        state.statsContextSignature = savedSig;
+        const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
+        if(state.statsLastRunVersion === state.statsContextVersion && hasResults){
+          setStatsStatus('Statistics up to date.');
+          updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
+          updateSignificanceControlState({ statsReady: true });
+        }
+      }
+    }catch(err){
+      console.debug('Debug: box restore stats results failed', { err: err?.message || String(err) });
     }
     state.scheduleDraw();
     console.debug('Debug: box payload applied', { source: meta.source || 'unknown', rows: obj.data?.length || 0 });
