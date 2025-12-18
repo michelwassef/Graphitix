@@ -789,14 +789,16 @@
     }
     const area = width * height;
     const density = count / Math.max(1, area);
-    const axisReference = 480;
-    const axisScale = Math.max(0.2, Math.min(1.6, width / axisReference));
-    const countPenalty = Math.max(0, count - 6);
-    const countScale = 1 / Math.sqrt(1 + countPenalty / 16);
-    const densityScale = 1 / Math.sqrt(1 + density * 650);
-    const lowCountBoost = 1 + Math.max(0, 16 - count) * 0.04;
-    const combinedScale = axisScale * countScale * densityScale * lowCountBoost;
-    const scale = Math.max(0.12, Math.min(2.2, combinedScale));
+    const axisReference = 520;
+    const axisScale = Math.max(0.25, Math.min(2.2, width / axisReference));
+    const targetCount = 12;
+    const countRatio = (targetCount + 2) / (count + 2);
+    const countScale = Math.max(0.25, Math.min(3, countRatio * countRatio));
+    const targetDensity = 0.0008;
+    const densityRatio = density / targetDensity;
+    const densityScale = 1 / Math.sqrt(1 + densityRatio * densityRatio);
+    const combinedScale = axisScale * countScale * densityScale;
+    const scale = Math.max(0.12, Math.min(2.6, combinedScale));
     return Math.max(4, safeBase * scale);
   }
 
