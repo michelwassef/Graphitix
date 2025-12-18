@@ -55,6 +55,10 @@
   const NS = 'http://www.w3.org/2000/svg';
   const DEFAULT_ROWS = 100;
   const DEFAULT_COLS = 5;
+  const SCATTER_POINT_LABEL_COL = 4;
+  const SCATTER_POINT_LABEL_COL_ALT = 0;
+  const SCATTER_POINT_LABEL_MARK = '✓';
+  const SCATTER_POINT_LABEL_HEADER = 'Label point';
 
   const SCATTER_AUTO_DRAW_ROW_THRESHOLD = 8000;
   const SCATTER_AUTO_DRAW_COL_THRESHOLD = 200;
@@ -587,6 +591,110 @@
       return max;
     }
     return value;
+  }
+
+  function parseScatterPointLabelFlag(value){
+    if(value === null || value === undefined){
+      return false;
+    }
+    if(typeof value === 'boolean'){
+      return value;
+    }
+    if(typeof value === 'number'){
+      return Number.isFinite(value) && value !== 0;
+    }
+    const text = String(value).trim();
+    if(!text){
+      return false;
+    }
+    if(text === SCATTER_POINT_LABEL_MARK){
+      return true;
+    }
+    const normalized = text.toLowerCase();
+    return normalized === '1'
+      || normalized === 'true'
+      || normalized === 'yes'
+      || normalized === 'y'
+      || normalized === 'x';
+  }
+
+  function normalizeScatterHeader(value){
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  function isScatterLabelHeader(value){
+    const normalized = normalizeScatterHeader(value);
+    return normalized === 'label' || normalized === 'gene' || normalized === 'name';
+  }
+
+  function isScatterLabelFlagHeader(value){
+    const normalized = normalizeScatterHeader(value);
+    return normalized === 'label point'
+      || normalized === 'label points'
+      || normalized === 'labelpoint';
+  }
+
+  function resolveScatterColumnLayout(data, colCountOverride){
+    const headerRow = Array.isArray(data?.[0]) ? data[0] : [];
+    const colCount = Number.isInteger(colCountOverride) ? colCountOverride : headerRow.length;
+    const layout = {
+      labelCol: 0,
+      xCol: 1,
+      yCol: 2,
+      extraCol: 3,
+      pointLabelCol: null
+    };
+    if(colCount <= 4){
+      return layout;
+    }
+    const header0 = headerRow[0];
+    const header1 = headerRow[1];
+    const header4 = headerRow[4];
+    const header0Empty = header0 == null
+      || header0 === ''
+      || header0 === false
+      || header0 === 0
+      || normalizeScatterHeader(header0) === '';
+    const hasLeadingFlag = isScatterLabelFlagHeader(header0) || header0Empty;
+    const hasLabelSecond = isScatterLabelHeader(header1);
+    if(hasLeadingFlag && hasLabelSecond){
+      layout.pointLabelCol = SCATTER_POINT_LABEL_COL_ALT;
+      layout.labelCol = 1;
+      layout.xCol = 2;
+      layout.yCol = 3;
+      layout.extraCol = 4;
+      return layout;
+    }
+    if(isScatterLabelFlagHeader(header4)){
+      layout.pointLabelCol = SCATTER_POINT_LABEL_COL;
+      return layout;
+    }
+    layout.pointLabelCol = colCount > SCATTER_POINT_LABEL_COL ? SCATTER_POINT_LABEL_COL : null;
+    return layout;
+  }
+
+  function getScatterSelectedRowSet(hotInstance){
+    const api = hotInstance?.gridApi;
+    if(!api || typeof api.getSelectedNodes !== 'function'){
+      return null;
+    }
+    try{
+      const nodes = api.getSelectedNodes() || [];
+      if(!nodes.length){
+        return null;
+      }
+      const set = new Set();
+      nodes.forEach(node => {
+        const rowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
+        if(Number.isInteger(rowIndex) && rowIndex >= 0){
+          set.add(rowIndex);
+        }
+      });
+      return set.size ? set : null;
+    }catch(err){
+      scatterDebug('Debug: scatter selected rows read failed', { message: err?.message || String(err) });
+      return null;
+    }
   }
 
   function buildScatterAnnotationRequests(points, options){
@@ -3033,6 +3141,9 @@
         return;
       }
       const data = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
+      if(Array.isArray(data?.[0]) && data[0].length > SCATTER_POINT_LABEL_COL){
+        data[0][SCATTER_POINT_LABEL_COL] = SCATTER_POINT_LABEL_HEADER;
+      }
       let scatterScheduleProxyCount = 0;
       const scheduleDrawScatterProxy = () => {
         scatterScheduleProxyCount += 1;
@@ -3045,24 +3156,86 @@
         scheduleDrawScatter();
       };
 
-      const createScatterTable = (container) => Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatterProxy,{
-        debugLabel: 'scatter',
-        data,
-        hotOptions: {
-          afterChange(changes,source){
-            if(!changes||source==='loadData') return;
-            console.log('scatter afterChange', {count:changes.length, source});
-            revalidateActiveScatterLogAxis('x','data-edit');
-            revalidateActiveScatterLogAxis('y','data-edit');
-          },
-          afterUndo(){
-            console.log('scatter undo');
-          },
-          afterRedo(){
-            console.log('scatter redo');
+        const createScatterTable = (container) => {
+          let lastKeyDownAt = 0;
+          let hotInstance = null;
+          hotInstance = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatterProxy,{
+          debugLabel: 'scatter',
+          data,
+          hotOptions: {
+            beforeKeyDown(){
+              lastKeyDownAt = Date.now();
+            },
+            afterSelectionEnd(r1, c1, r2, c2){
+              const hot = hotInstance;
+              if(!hot || typeof hot.setDataAtCell !== 'function'){
+                return;
+              }
+              const now = Date.now();
+              if(now - lastKeyDownAt < 80){
+                return;
+              }
+              const fromRow = Math.min(r1, r2);
+              const toRow = Math.max(r1, r2);
+              const fromCol = Math.min(c1, c2);
+              const toCol = Math.max(c1, c2);
+              const layout = resolveScatterColumnLayout(hot.getData?.() || [], hot.countCols?.());
+              const labelCol = Number.isInteger(layout?.pointLabelCol) ? layout.pointLabelCol : null;
+              if(labelCol === null || fromCol !== labelCol || toCol !== labelCol){
+                return;
+              }
+              if(toRow < 1){
+                return;
+              }
+              const changes = [];
+              for(let r = Math.max(1, fromRow); r <= toRow; r += 1){
+                const current = typeof hot.getDataAtCell === 'function'
+                  ? hot.getDataAtCell(r, labelCol)
+                  : (hot.getData?.()?.[r]?.[labelCol]);
+                const next = parseScatterPointLabelFlag(current) ? '' : SCATTER_POINT_LABEL_MARK;
+                changes.push([r, labelCol, next]);
+              }
+              if(changes.length){
+                hot.setDataAtCell(changes, 'point-label-toggle');
+              }
+            },
+            afterChange(changes,source){
+              if(!changes||source==='loadData') return;
+              console.log('scatter afterChange', {count:changes.length, source});
+              revalidateActiveScatterLogAxis('x','data-edit');
+              revalidateActiveScatterLogAxis('y','data-edit');
+            },
+            afterUndo(){
+              console.log('scatter undo');
+            },
+            afterRedo(){
+              console.log('scatter redo');
+            }
           }
+        });
+        if(hotInstance && !hotInstance.__scatterSelectionListenerBound){
+          let attempts = 0;
+          const tryBind = () => {
+            attempts += 1;
+            const api = hotInstance?.gridApi;
+            if(api && typeof api.addEventListener === 'function'){
+              const handler = () => scheduleDrawScatter({ reason: 'row-selection' });
+              api.addEventListener('selectionChanged', handler);
+              api.addEventListener('rowSelected', handler);
+              hotInstance.__scatterSelectionListenerBound = true;
+              if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+                console.debug('Debug: scatter selection listener bound');
+              }
+              return;
+            }
+            if(attempts < 10){
+              setTimeout(tryBind, 120);
+            }
+          };
+          setTimeout(tryBind, 0);
         }
-      });
+        return hotInstance;
+      };
       const ensureScatterHotForActiveTab = () => {
         const wrapper = scatterHotWrapper || document.getElementById('scatterHotWrapper');
         const baseContainer = scatterHotContainer || document.getElementById('scatterHot');
@@ -3113,58 +3286,58 @@
       global.DEBUG_SCATTER=true;
       const scatterExamples={
         scatter:[
-          ['Label','X Value','Y Value',''],
-          ['Cat',4.5,23,''],
-          ['Dog',20,45,''],
-          ['Rabbit',2.5,35,''],
-          ['Cat',5,25,''],
-          ['Dog',22,50,''],
-          ['Rabbit',3,40,''],
-          ['Cat',4.8,24,''],
-          ['Dog',24,55,'']
+          ['Label','X Value','Y Value','',SCATTER_POINT_LABEL_HEADER],
+          ['Cat',4.5,23,'',''],
+          ['Dog',20,45,'',SCATTER_POINT_LABEL_MARK],
+          ['Rabbit',2.5,35,'',''],
+          ['Cat',5,25,'',''],
+          ['Dog',22,50,'',''],
+          ['Rabbit',3,40,'',''],
+          ['Cat',4.8,24,'',''],
+          ['Dog',24,55,'','']
         ],
         scatter3d:[
-          ['Label','X Value','Y Value','Z Value'],
-          ['Orion',2.5,18,4.5],
-          ['Lyra',6.2,25,9.1],
-          ['Cygnus',4.1,14,6.8],
-          ['Andromeda',8.6,32,12.4],
-          ['Cassiopeia',5.4,28,10.2],
-          ['Phoenix',7.9,20,7.3],
-          ['Delphinus',3.2,12,3.9],
-          ['Vela',9.4,36,13.6]
+          ['Label','X Value','Y Value','Z Value',SCATTER_POINT_LABEL_HEADER],
+          ['Orion',2.5,18,4.5,SCATTER_POINT_LABEL_MARK],
+          ['Lyra',6.2,25,9.1,''],
+          ['Cygnus',4.1,14,6.8,''],
+          ['Andromeda',8.6,32,12.4,''],
+          ['Cassiopeia',5.4,28,10.2,''],
+          ['Phoenix',7.9,20,7.3,''],
+          ['Delphinus',3.2,12,3.9,''],
+          ['Vela',9.4,36,13.6,'']
         ],
         scatterBubble:[
-          ['Label','X Value','Y Value','Bubble Size'],
-          ['Comet A',1.8,12,25],
-          ['Comet B',4.2,18,40],
-          ['Comet C',2.5,22,55],
-          ['Comet D',5.7,28,70],
-          ['Comet E',3.9,16,35],
-          ['Comet F',6.4,24,90],
-          ['Comet G',4.8,30,65],
-          ['Comet H',7.1,26,80]
+          ['Label','X Value','Y Value','Bubble Size',SCATTER_POINT_LABEL_HEADER],
+          ['Comet A',1.8,12,25,''],
+          ['Comet B',4.2,18,40,''],
+          ['Comet C',2.5,22,55,''],
+          ['Comet D',5.7,28,70,SCATTER_POINT_LABEL_MARK],
+          ['Comet E',3.9,16,35,''],
+          ['Comet F',6.4,24,90,''],
+          ['Comet G',4.8,30,65,''],
+          ['Comet H',7.1,26,80,'']
         ],
         volcano:[
-          ['Gene','log2FoldChange','pValue',''],
-          ['GeneA',1.6,0.0005,''],
-          ['GeneB',-1.2,0.002,''],
-          ['GeneC',0.2,0.8,''],
-          ['GeneD',-2.1,0.0001,''],
-          ['GeneE',0.5,0.4,''],
-          ['GeneF',1.1,0.03,''],
-          ['GeneG',-1.8,0.0008,'']
+          ['Gene','log2FoldChange','pValue','',SCATTER_POINT_LABEL_HEADER],
+          ['GeneA',1.6,0.0005,'',''],
+          ['GeneB',-1.2,0.002,'',''],
+          ['GeneC',0.2,0.8,'',SCATTER_POINT_LABEL_MARK],
+          ['GeneD',-2.1,0.0001,'',''],
+          ['GeneE',0.5,0.4,'',''],
+          ['GeneF',1.1,0.03,'',''],
+          ['GeneG',-1.8,0.0008,'','']
         ],
         ma:[
-          ['Gene','MeanExpression','log2FoldChange','pValue'],
-          ['GeneA',8.5,1.4,0.0005],
-          ['GeneB',5.3,-1.1,0.002],
-          ['GeneC',3.9,0.1,0.4],
-          ['GeneD',9.2,-2.0,0.00005],
-          ['GeneE',6.1,0.3,0.2],
-          ['GeneF',7.4,1.2,0.015],
-          ['GeneG',4.8,-1.5,0.0009],
-          ['GeneH',2.7,0.0,0.9]
+          ['Gene','MeanExpression','log2FoldChange','pValue',SCATTER_POINT_LABEL_HEADER],
+          ['GeneA',8.5,1.4,0.0005,''],
+          ['GeneB',5.3,-1.1,0.002,''],
+          ['GeneC',3.9,0.1,0.4,SCATTER_POINT_LABEL_MARK],
+          ['GeneD',9.2,-2.0,0.00005,''],
+          ['GeneE',6.1,0.3,0.2,''],
+          ['GeneF',7.4,1.2,0.015,''],
+          ['GeneG',4.8,-1.5,0.0009,''],
+          ['GeneH',2.7,0.0,0.9,'']
         ]
       };
       if(global.DEBUG_SCATTER) console.log('scatter example dataset map', scatterExamples);
@@ -5143,11 +5316,29 @@
           primeScatterStatsContext(null,{ placeholder:'Statistics unavailable until both axes are included.' });
           return;
         }
-        const labelCol = extractColumn(0);
-        const xCol = extractColumn(1);
-        const yCol = extractColumn(2);
-        const extraCol = extractColumn(3);
-        info('scatter column lengths',{label:labelCol.length,x:xCol.length,y:yCol.length,extra:extraCol.length});
+        const layout = resolveScatterColumnLayout(analysis.data, colCount);
+        const labelCol = extractColumn(layout.labelCol);
+        const xCol = extractColumn(layout.xCol);
+        const yCol = extractColumn(layout.yCol);
+        const extraCol = extractColumn(layout.extraCol);
+        const pointLabelCol = Number.isInteger(layout.pointLabelCol)
+          ? extractColumn(layout.pointLabelCol)
+          : [];
+        const selectedRowSet = getScatterSelectedRowSet(scatterHot);
+        const hasPointLabelFlags = pointLabelCol.some((value, idx) => (
+          idx > 0 && parseScatterPointLabelFlag(value)
+        ));
+        const useSelectionFallback = !hasPointLabelFlags
+          && selectedRowSet
+          && selectedRowSet.size > 0;
+        info('scatter column lengths',{
+          label:labelCol.length,
+          x:xCol.length,
+          y:yCol.length,
+          extra:extraCol.length,
+          pointLabel:pointLabelCol.length,
+          layout
+        });
         const xLabelRaw=xCol[0];
         const yLabelRaw=yCol[0];
         const extraLabelRaw=extraCol[0];
@@ -5196,6 +5387,8 @@
         for(let r=1;r<maxLen;r++){
           const labelValue = labelCol[r];
           const lab=labelValue ? String(labelValue).trim() : '';
+          const isManualLabel = parseScatterPointLabelFlag(pointLabelCol[r])
+            || (useSelectionFallback && selectedRowSet?.has(r));
           const rawX=xCol[r];
           const rawY=yCol[r];
           if(graphType==='scatter'){
@@ -5210,11 +5403,11 @@
             const hasZValue = hasZColumn && rawZ !== null && typeof rawZ !== 'undefined' && rawZ !== '';
             const zv = hasZValue ? Number(rawZ) : NaN;
             if(!Number.isNaN(xv) && Number.isFinite(xv) && !Number.isNaN(yv) && Number.isFinite(yv)){
-              const pointRecord = {x:xv,y:yv,label:lab};
+              const pointRecord = {x:xv,y:yv,label:lab,pointName:lab,rowIndex:r,isManualLabel};
               if(hasZValue && Number.isFinite(zv)){
                 pointRecord.z = zv;
                 pointRecord.bubbleValue = zv;
-                scatter3dCandidates.push({ x: xv, y: yv, z: zv, label: lab, index: scatter3dCandidates.length });
+                scatter3dCandidates.push({ x: xv, y: yv, z: zv, label: lab, pointName: lab, rowIndex: r, isManualLabel, index: scatter3dCandidates.length });
                 if(zv<zMinRaw) zMinRaw=zv;
                 if(zv>zMaxRaw) zMaxRaw=zv;
                 if(zv<bubbleMinRaw) bubbleMinRaw = zv;
@@ -5262,7 +5455,7 @@
               }
               const isSignificant=Math.abs(log2fc)>=log2fcThreshold && negLogP>=negLogPThreshold;
               const labelValueFinal = lab && (shouldCollectLabelSet || isSignificant) ? lab : '';
-              points.push({x:log2fc,y:negLogP,label:labelValueFinal,isSignificant});
+              points.push({x:log2fc,y:negLogP,label:labelValueFinal,pointName:lab,rowIndex:r,isManualLabel,isSignificant});
               if(isSignificant) significantCount++;
               if(labelSet && lab) labelSet.add(lab);
               if(log2fc<xMinRaw) xMinRaw=log2fc;
@@ -5291,7 +5484,7 @@
               }
               const isSignificant=hasPositiveP && Math.abs(log2fcVal)>=log2fcThreshold && Number.isFinite(negLogP) && negLogP>=negLogPThreshold;
               const labelValueFinal = lab && (shouldCollectLabelSet || isSignificant) ? lab : '';
-              points.push({x:meanExpr,y:log2fcVal,label:labelValueFinal,isSignificant});
+              points.push({x:meanExpr,y:log2fcVal,label:labelValueFinal,pointName:lab,rowIndex:r,isManualLabel,isSignificant});
               if(isSignificant) significantCount++;
               if(!hasPositiveP){
                 maMissingPCount++;
@@ -5976,6 +6169,7 @@
           }
           const pointLayer = document.createElementNS(NS,'g');
           svg3.appendChild(pointLayer);
+          const manualLabelEntries3d = [];
           let maxPointRight=contentRightBound;
           sortedPoints.forEach(entry => {
             const styleOverride = getScatterLabelStyle(entry.data?.label || null);
@@ -5995,18 +6189,83 @@
             });
             if(!marker){ return; }
             pointLayer.appendChild(marker);
+            const manualLabelText = (entry.data?.pointName || entry.data?.label || '').trim();
+            const markerRadius = markerSize != null ? markerSize : dotSizePx;
+            if(entry.data?.isManualLabel && manualLabelText){
+              manualLabelEntries3d.push({
+                text: manualLabelText,
+                cx: entry.projected?.x,
+                cy: entry.projected?.y,
+                radius: markerRadius
+              });
+            }
             attachScatterPointTooltip(marker, {
               label: entry.data.label || '',
+              pointName: entry.data.pointName || '',
+              rowIndex: Number.isInteger(entry.data.rowIndex) ? entry.data.rowIndex : undefined,
+              isManualLabel: !!entry.data.isManualLabel,
               x: entry.data.x,
               y: entry.data.y,
               z: entry.data.z,
               graphType: 'scatter'
             });
-            const approxRight = entry.projected?.x + (markerSize != null ? markerSize : dotSizePx) + (markerBorderWidth>0 ? markerBorderWidth : 0);
+            const approxRight = entry.projected?.x + markerRadius + (markerBorderWidth>0 ? markerBorderWidth : 0);
             if(Number.isFinite(approxRight)){
               maxPointRight = Math.max(maxPointRight, approxRight);
             }
           });
+          if(manualLabelEntries3d.length){
+            const labelLayer = document.createElementNS(NS,'g');
+            labelLayer.setAttribute('data-layer','point-labels');
+            labelLayer.setAttribute('pointer-events','none');
+            const labelFontSize = Math.max(7, fs * 0.75);
+            const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75, styleScaleInfo, { context: 'scatter-point-label-3d', min: 0.35 });
+            const labelColor = chartStyle.TEXT_COLOR || '#333333';
+            const plotLeft = margin3.left;
+            const plotRight = margin3.left + plotW3;
+            const plotTop = margin3.top;
+            const plotBottom = margin3.top + plotH3;
+            manualLabelEntries3d.forEach(entry => {
+              const cx = Number(entry?.cx) || 0;
+              const cy = Number(entry?.cy) || 0;
+              const textValue = entry?.text ? String(entry.text) : '';
+              if(!textValue){
+                return;
+              }
+              const prefersLeft = cx > plotLeft + plotW3 * 0.72;
+              const prefersBelow = cy < plotTop + plotH3 * 0.2;
+              const baseOffset = Math.max(labelFontSize * 0.85, 8, (Number(entry?.radius) || 0) * 1.6);
+              const dx = prefersLeft ? -baseOffset : baseOffset;
+              const dy = prefersBelow ? baseOffset : -baseOffset;
+              let textX = cx + dx;
+              let textY = cy + dy;
+              textX = clampScatterValue(textX, plotLeft + 2, plotRight - 2);
+              textY = clampScatterValue(textY, plotTop + 2, plotBottom - 2);
+              const anchor = prefersLeft ? 'end' : 'start';
+              const leaderGap = Math.max(2, Math.round(labelFontSize * 0.2));
+              const lineX2 = prefersLeft ? (textX + leaderGap) : (textX - leaderGap);
+              const leader = document.createElementNS(NS,'line');
+              leader.setAttribute('x1', String(cx));
+              leader.setAttribute('y1', String(cy));
+              leader.setAttribute('x2', String(lineX2));
+              leader.setAttribute('y2', String(textY));
+              leader.setAttribute('stroke', labelColor);
+              leader.setAttribute('stroke-width', String(leaderStrokeWidth));
+              leader.setAttribute('stroke-linecap', 'round');
+              labelLayer.appendChild(leader);
+              const textNode = document.createElementNS(NS,'text');
+              textNode.setAttribute('x', String(textX));
+              textNode.setAttribute('y', String(textY));
+              textNode.setAttribute('font-size', String(labelFontSize));
+              textNode.setAttribute('fill', labelColor);
+              textNode.setAttribute('text-anchor', anchor);
+              textNode.setAttribute('dominant-baseline', 'middle');
+              textNode.textContent = textValue;
+              labelLayer.appendChild(textNode);
+            });
+            svg3.appendChild(labelLayer);
+            debug('Debug: scatter 3d manual labels rendered', { count: manualLabelEntries3d.length });
+          }
           contentRightBound=Math.max(contentRightBound,maxPointRight);
           if(legendVisible){
             const legendContentWidth=Math.max(legendRenderer.width || 0,0);
@@ -6599,6 +6858,7 @@
         }
         const frag=document.createDocumentFragment();
         const labelBBox=new Map();
+        const manualLabelEntries = [];
         let pointIndex=0;
         const isBubbleView = scatterCurrentGraphType==='scatter' && scatterState.viewMode === 'bubble';
         const resolveBubbleRadius = isBubbleView ? createBubbleRadiusScaler(points, dotSizePx) : null;
@@ -6647,8 +6907,20 @@
           bbox.maxX=Math.max(bbox.maxX,cxVal+bboxRadius);
           bbox.minY=Math.min(bbox.minY,cyVal-bboxRadius);
           bbox.maxY=Math.max(bbox.maxY,cyVal+bboxRadius);
+          const manualLabelText = (p.pointName || p.label || '').trim();
+          if(p.isManualLabel && manualLabelText){
+            manualLabelEntries.push({
+              text: manualLabelText,
+              cx: cxVal,
+              cy: cyVal,
+              radius: markerRadius
+            });
+          }
           attachScatterPointTooltip(marker, {
             label: p.label || '',
+            pointName: p.pointName || '',
+            rowIndex: Number.isInteger(p.rowIndex) ? p.rowIndex : undefined,
+            isManualLabel: !!p.isManualLabel,
             x: p.x,
             y: p.y,
             logXValue: logX ? xv : undefined,
@@ -6707,6 +6979,58 @@
             svg.appendChild(annotationLayer);
             debug('Debug: scatter annotations rendered',{count:annotationLayout.length,graphType:scatterCurrentGraphType});
           }
+        }
+        if(manualLabelEntries.length){
+          const labelLayer = document.createElementNS(NS,'g');
+          labelLayer.setAttribute('data-layer','point-labels');
+          labelLayer.setAttribute('pointer-events','none');
+          const labelFontSize = Math.max(7, fs * 0.75);
+          const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75, styleScaleInfo, { context: 'scatter-point-label', min: 0.35 });
+          const labelColor = chartStyle.TEXT_COLOR || '#333333';
+          const plotLeft = margin.left;
+          const plotRight = margin.left + plotW;
+          const plotTop = margin.top;
+          const plotBottom = margin.top + plotH;
+          manualLabelEntries.forEach(entry => {
+            const cx = Number(entry?.cx) || 0;
+            const cy = Number(entry?.cy) || 0;
+            const textValue = entry?.text ? String(entry.text) : '';
+            if(!textValue){
+              return;
+            }
+            const prefersLeft = cx > plotLeft + plotW * 0.72;
+            const prefersBelow = cy < plotTop + plotH * 0.2;
+            const baseOffset = Math.max(labelFontSize * 0.85, 8, (Number(entry?.radius) || 0) * 1.6);
+            const dx = prefersLeft ? -baseOffset : baseOffset;
+            const dy = prefersBelow ? baseOffset : -baseOffset;
+            let textX = cx + dx;
+            let textY = cy + dy;
+            textX = clampScatterValue(textX, plotLeft + 2, plotRight - 2);
+            textY = clampScatterValue(textY, plotTop + 2, plotBottom - 2);
+            const anchor = prefersLeft ? 'end' : 'start';
+            const leaderGap = Math.max(2, Math.round(labelFontSize * 0.2));
+            const lineX2 = prefersLeft ? (textX + leaderGap) : (textX - leaderGap);
+            const leader = document.createElementNS(NS,'line');
+            leader.setAttribute('x1', String(cx));
+            leader.setAttribute('y1', String(cy));
+            leader.setAttribute('x2', String(lineX2));
+            leader.setAttribute('y2', String(textY));
+            leader.setAttribute('stroke', labelColor);
+            leader.setAttribute('stroke-width', String(leaderStrokeWidth));
+            leader.setAttribute('stroke-linecap', 'round');
+            labelLayer.appendChild(leader);
+            const textNode = document.createElementNS(NS,'text');
+            textNode.setAttribute('x', String(textX));
+            textNode.setAttribute('y', String(textY));
+            textNode.setAttribute('font-size', String(labelFontSize));
+            textNode.setAttribute('fill', labelColor);
+            textNode.setAttribute('text-anchor', anchor);
+            textNode.setAttribute('dominant-baseline', 'middle');
+            textNode.textContent = textValue;
+            labelLayer.appendChild(textNode);
+          });
+          svg.appendChild(labelLayer);
+          debug('Debug: scatter manual labels rendered', { count: manualLabelEntries.length });
         }
         timeEnd(`scatterSvgDraw_${token}`);
         if(legendVisible){
