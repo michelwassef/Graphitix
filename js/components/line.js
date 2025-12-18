@@ -15,6 +15,43 @@
   };
   const axisControls = Shared.axisControls = Shared.axisControls || {};
   const formControls = Shared.formControls = Shared.formControls || {};
+  const plot3d = Shared.plot3d = Shared.plot3d || {};
+  if(typeof plot3d.createRotationState !== 'function' && typeof require === 'function'){
+    try{
+      require('../shared/plot3d.js');
+    }catch(err){
+      console.debug('Debug: line component plot3d helper require failed', { message: err?.message || String(err) });
+    }
+  }
+  if(typeof plot3d.createRotationState !== 'function'){
+    plot3d.createRotationState = (defaults) => ({
+      x: Number.isFinite(defaults?.x) ? defaults.x : 0,
+      y: Number.isFinite(defaults?.y) ? defaults.y : 0,
+      z: Number.isFinite(defaults?.z) ? defaults.z : 0,
+      quaternion: null
+    });
+  }
+  if(typeof plot3d.rotatePoint !== 'function'){
+    plot3d.rotatePoint = (pt) => ({ x: Number(pt?.x) || 0, y: Number(pt?.y) || 0, z: Number(pt?.z) || 0 });
+  }
+  if(typeof plot3d.attachRotationControls !== 'function'){
+    plot3d.attachRotationControls = () => {};
+  }
+  if(typeof plot3d.renderAxesAndGrid !== 'function'){
+    plot3d.renderAxesAndGrid = () => null;
+  }
+  if(typeof plot3d.createProjector !== 'function'){
+    plot3d.createProjector = () => ({ project: () => ({ x: 0, y: 0, depth: 0 }), bounds: {}, scale: 1, offsets: { x: 0, y: 0 }, plotSize: { width: 1, height: 1 } });
+  }
+  if(typeof plot3d.applyLegendPointerGuards !== 'function'){
+    plot3d.applyLegendPointerGuards = () => {};
+  }
+  if(typeof plot3d.isLegendPointerTarget !== 'function'){
+    plot3d.isLegendPointerTarget = () => false;
+  }
+  if(typeof plot3d.isInteractivePointerTarget !== 'function'){
+    plot3d.isInteractivePointerTarget = target => plot3d.isLegendPointerTarget(target);
+  }
   const regressionTools = Shared.regressionTools = Shared.regressionTools || {};
   line.__installed = true;
   line.ready = false;
@@ -68,6 +105,11 @@
   const LINE_GROUP_SHAPE_DEFAULTS = LINE_GROUP_SHAPE_OPTIONS.map(opt => opt.value);
   const LINE_GROUP_SHAPE_VALUES = new Set(LINE_GROUP_SHAPE_DEFAULTS);
   const LINE_DISPLAY_MODE_OPTIONS = Object.freeze(['line','area']);
+  const LINE_3D_DEFAULTS = Object.freeze({
+    rotationX: -0.31,
+    rotationY: -0.48,
+    aspectRatio: 4 / 3
+  });
   let lineDisplayMode = 'line';
   const LINE_AUTO_DRAW_ROW_THRESHOLD = 5000;
   const LINE_AUTO_DRAW_COL_THRESHOLD = 5000;
@@ -89,14 +131,34 @@
   let scheduleLineDrawRaw = () => {};
   let lineAutoDrawManager = null;
   let lineHot = null;
+  const lineViewState = {
+    viewMode: '2d',
+    requestedViewMode: null,
+    rotation: plot3d.createRotationState({
+      x: LINE_3D_DEFAULTS.rotationX,
+      y: LINE_3D_DEFAULTS.rotationY
+    }),
+    rotationPending: false,
+    rotationPendingLogged: false
+  };
+  if(typeof plot3d.normalizeRotation === 'function'){
+    plot3d.normalizeRotation(lineViewState.rotation);
+  }
   let lineTitleText = 'Line graph';
   let lineXLabelText = 'X';
   let lineYLabelText = 'Y';
+  let lineZLabelText = 'Z';
   let lineLabelColors = {};
   let lineLabelPositions = { title: null, xLabel: null, yLabel: null, legend: null };
   let lineLegendControl = null;
   let lineLogPlusOneX = false;
   let lineLogPlusOneY = false;
+  let lineLast2dDisplayMode = 'line';
+  let lineLast2dLogX = false;
+  let lineLast2dLogY = false;
+  let lineLast2dShowFrame = false;
+  let lineLast2dShowIntervals = false;
+  let lineLast2dShowDiagnostics = false;
   const lineUndoManager = Shared.undoManager || null;
   function recordLineChange(label, previous, next, apply){
     if(!lineUndoManager || typeof lineUndoManager.recordStateChange !== 'function'){
@@ -141,6 +203,12 @@
   let lineLegendLayoutInfo = createDefaultLineLegendLayoutInfo();
   let lineLegendGuardWidth = chartStyle.LEGEND_LAYOUT_CONSTANTS?.basePlotMinWidth || 320;
   let lineSeriesStyles = {};
+  let line3dLastSeriesCount = null;
+  const lineModeCache = {
+    twoD: null,
+    threeD: null,
+    lastTwoDFormat: 'single'
+  };
 
   function attachLineSelectAutoSize(select, label){
     if(!select){ return; }
@@ -2873,9 +2941,14 @@
       existing,
       resolved
     });
-    updateLineNestedHeaders();
-    if(lineReplicates > LINE_MIN_REPLICATES){
-      renderLineGroupedList();
+    if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
+      updateLine3dNestedHeaders();
+      renderLine3dList();
+    }else{
+      updateLineNestedHeaders();
+      if(lineReplicates > LINE_MIN_REPLICATES){
+        renderLineGroupedList();
+      }
     }
     scheduleLineDraw();
   }
@@ -2920,7 +2993,10 @@
   }
 
   function updateLineReplicateModeControls(modeOverride){
-    const mode = modeOverride || (lineReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single');
+    const wants3d = modeOverride === '3d'
+      || lineViewState.viewMode === '3d'
+      || refs.replicateMode?.value === '3d';
+    const mode = wants3d ? '3d' : (modeOverride || (lineReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single'));
     if(refs.replicateMode && refs.replicateMode.value !== mode){
       refs.replicateMode.value = mode;
     }
@@ -2933,6 +3009,15 @@
         refs.replicatesContainer.setAttribute('aria-hidden', 'true');
       }
     }
+    if(refs.threeDControls){
+      if(mode === '3d'){
+        refs.threeDControls.style.display = '';
+        refs.threeDControls.setAttribute('aria-hidden', 'false');
+      }else{
+        refs.threeDControls.style.display = 'none';
+        refs.threeDControls.setAttribute('aria-hidden', 'true');
+      }
+    }
     if(refs.replicatesInput){
       refs.replicatesInput.disabled = mode !== 'grouped';
     }
@@ -2942,8 +3027,16 @@
     if(refs.groupedRemove){
       refs.groupedRemove.disabled = mode !== 'grouped';
     }
+    if(refs.threeDAdd){
+      refs.threeDAdd.disabled = mode !== '3d';
+    }
+    if(refs.threeDRemove){
+      refs.threeDRemove.disabled = mode !== '3d';
+    }
     if(mode === 'grouped'){
       renderLineGroupedList();
+    }else if(mode === '3d'){
+      renderLine3dList();
     }
   }
 
@@ -3053,6 +3146,674 @@
       refs.replicatesInput.value = String(lineReplicates);
     }
     console.debug('Debug: line grouped list rendered',{ groups: labels.length });
+  }
+
+  function inferLine3dSeriesCount(matrix){
+    if(!Array.isArray(matrix) || !matrix.length){
+      return 0;
+    }
+    const headerRow = Array.isArray(matrix[0]) ? matrix[0] : [];
+    const maxPairs = Math.max(0, Math.floor(((headerRow.length || 1) - 1) / 2));
+    if(maxPairs <= 0){
+      return 0;
+    }
+    let lastUsed = -1;
+    for(let s = 0; s < maxPairs; s += 1){
+      const yCol = 1 + s * 2;
+      const zCol = yCol + 1;
+      const headerY = headerRow[yCol] != null ? String(headerRow[yCol]).trim() : '';
+      const headerZ = headerRow[zCol] != null ? String(headerRow[zCol]).trim() : '';
+      let hasData = false;
+      for(let r = 1; r < matrix.length; r += 1){
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        const yVal = parseFloat(row[yCol]);
+        const zVal = parseFloat(row[zCol]);
+        if(Number.isFinite(yVal) || Number.isFinite(zVal)){
+          hasData = true;
+          break;
+        }
+      }
+      if(hasData || headerY || headerZ){
+        lastUsed = s;
+      }
+    }
+    return Math.max(0, lastUsed + 1);
+  }
+
+  function ensureLine3dGroupLabelCapacity(seriesCount){
+    const count = Math.max(0, Number(seriesCount) || 0);
+    if(!count){
+      lineSeriesGroupLabels = [];
+      return;
+    }
+    const matrixHeader = (() => {
+      try{
+        const data = lineHot?.getData?.();
+        return Array.isArray(data?.[0]) ? data[0] : null;
+      }catch(err){
+        return null;
+      }
+    })();
+    const inferLabel = (index) => {
+      if(!matrixHeader){
+        return null;
+      }
+      const yCol = 1 + index * 2;
+      const raw = matrixHeader[yCol] != null ? String(matrixHeader[yCol]).trim() : '';
+      if(!raw){
+        return null;
+      }
+      const base = raw.replace(/[\s_-]*\(?\s*[yz]\s*(?:values?)?\s*\)?\s*$/i, '').trim();
+      if(!base){
+        return null;
+      }
+      const lower = base.toLowerCase();
+      if(lower === 'y' || lower === 'z'){
+        return null;
+      }
+      return base;
+    };
+    const labels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    for(let i = 0; i < count; i += 1){
+      const existing = labels[i];
+      if(existing && String(existing).trim()){
+        continue;
+      }
+      labels[i] = inferLabel(i) || `Series ${i + 1}`;
+    }
+    if(labels.length > count){
+      labels.length = count;
+    }
+    lineSeriesGroupLabels = labels;
+  }
+
+  function updateLine3dNestedHeaders(structure){
+    if(!lineHot){
+      return;
+    }
+    const matrix = Array.isArray(structure?.data) ? structure.data : lineHot.getData();
+    const inferredCount = typeof structure?.seriesCount === 'number'
+      ? structure.seriesCount
+      : inferLine3dSeriesCount(matrix);
+    const seriesCount = Math.max(0, inferredCount);
+    if(seriesCount <= 0){
+      lineHot.updateSettings({ nestedHeaders: false });
+      return;
+    }
+    ensureLine3dGroupLabelCapacity(seriesCount);
+    ensureLineGroupShapeCapacity(seriesCount);
+    const nestedRow = [];
+    nestedRow.push({ label: 'X values', colspan: 1 });
+    for(let s = 0; s < seriesCount; s += 1){
+      const label = lineSeriesGroupLabels[s] || `Series ${s + 1}`;
+      nestedRow.push({ label, colspan: 2 });
+    }
+    lineHot.updateSettings({ nestedHeaders: [nestedRow] });
+    console.debug('Debug: updateLine3dNestedHeaders applied', { seriesCount, labels: lineSeriesGroupLabels.slice() });
+  }
+
+  function renderLine3dList(){
+    if(!refs.threeDList){
+      return;
+    }
+    const doc = global.document;
+    if(!doc){
+      return;
+    }
+    const matrix = lineHot ? lineHot.getData() : [];
+    const seriesCount = inferLine3dSeriesCount(matrix);
+    ensureLine3dGroupLabelCapacity(seriesCount);
+    ensureLineLabelColors(lineSeriesGroupLabels);
+    ensureLineGroupShapeCapacity(seriesCount);
+    refs.threeDList.innerHTML = '';
+    for(let idx = 0; idx < seriesCount; idx += 1){
+      const row = doc.createElement('div');
+      row.className = 'grouped-row';
+      row.dataset.groupIndex = String(idx);
+      const inputId = `line-3d-dataset-name-${idx}`;
+      const labelEl = doc.createElement('label');
+      labelEl.textContent = `Dataset ${idx + 1}`;
+      labelEl.setAttribute('for', inputId);
+      row.appendChild(labelEl);
+      const input = doc.createElement('input');
+      input.type = 'text';
+      input.value = lineSeriesGroupLabels[idx] || '';
+      input.id = inputId;
+      input.setAttribute('aria-label', `Display name for Dataset ${idx + 1}`);
+      input.addEventListener('change', e => {
+        updateLineSeriesGroupLabel(idx, e.target.value);
+        e.target.value = lineSeriesGroupLabels[idx] || '';
+        updateLine3dNestedHeaders();
+        renderLine3dList();
+      });
+      row.appendChild(input);
+      const labelKey = lineSeriesGroupLabels[idx] || `Series ${idx + 1}`;
+      const defaultColor = DEFAULT_SCATTER_COLORS[idx % DEFAULT_SCATTER_COLORS.length];
+      const existingColor = lineLabelColors[labelKey];
+      const resolvedColor = typeof existingColor === 'string' && existingColor ? existingColor : defaultColor;
+      lineLabelColors[labelKey] = resolvedColor;
+      const colorInput = doc.createElement('input');
+      colorInput.type = 'color';
+      colorInput.value = resolvedColor;
+      colorInput.dataset.groupIndex = String(idx);
+      colorInput.setAttribute('aria-label', `Color for ${labelKey}`);
+      colorInput.addEventListener('input', e => {
+        const targetLabel = lineSeriesGroupLabels[idx] || `Series ${idx + 1}`;
+        const value = typeof e.target.value === 'string' && e.target.value ? e.target.value : defaultColor;
+        lineLabelColors[targetLabel] = value;
+        scheduleLineDraw();
+      });
+      if(typeof Shared.attachColorPickerNear === 'function'){
+        Shared.attachColorPickerNear(colorInput);
+      }
+      row.appendChild(colorInput);
+      const shapeSelect = doc.createElement('select');
+      shapeSelect.dataset.groupIndex = String(idx);
+      shapeSelect.dataset.shapeControl = '1';
+      shapeSelect.setAttribute('aria-label', `Marker shape for ${labelKey}`);
+      LINE_GROUP_SHAPE_OPTIONS.forEach(opt => {
+        const option = doc.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        shapeSelect.appendChild(option);
+      });
+      const currentShape = getLineGroupShape(idx);
+      shapeSelect.value = currentShape;
+      shapeSelect.addEventListener('change', e => {
+        const sanitized = sanitizeLineGroupShape(e.target.value, idx);
+        lineGroupShapes[idx] = sanitized;
+        if(e.target.value !== sanitized){
+          e.target.value = sanitized;
+        }
+        scheduleLineDraw();
+      });
+      attachLineSelectAutoSize(shapeSelect, `line-3d-shape-${idx}`);
+      row.appendChild(shapeSelect);
+      const removeBtn = doc.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'grouped-remove';
+      removeBtn.textContent = 'z';
+      removeBtn.disabled = seriesCount <= 1;
+      removeBtn.addEventListener('click', () => {
+        removeLine3dDatasetAt(idx);
+      });
+      row.appendChild(removeBtn);
+      refs.threeDList.appendChild(row);
+    }
+    console.debug('Debug: line 3d dataset list rendered', { datasets: seriesCount });
+  }
+
+  const scheduleLine3dDatasetSync = (() => {
+    if(typeof Shared.debounceFrame === 'function'){
+      let lastReason = 'frame';
+      const debounced = Shared.debounceFrame(() => syncLine3dDatasetsFromTable(lastReason));
+      return reason => {
+        lastReason = reason || 'frame';
+        debounced();
+      };
+    }
+    return reason => syncLine3dDatasetsFromTable(reason || 'immediate');
+  })();
+
+  function syncLine3dDatasetsFromTable(reason){
+    if(!lineHot){
+      return;
+    }
+    const is3dMode = lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d';
+    if(!is3dMode){
+      line3dLastSeriesCount = null;
+      return;
+    }
+    const matrix = lineHot.getData();
+    const seriesCount = inferLine3dSeriesCount(matrix);
+    if(line3dLastSeriesCount === seriesCount){
+      return;
+    }
+    const previous = line3dLastSeriesCount;
+    line3dLastSeriesCount = seriesCount;
+    updateLine3dNestedHeaders({ seriesCount, data: matrix });
+    renderLine3dList();
+    lineDebug('Debug: line 3d dataset controls synced', { reason: reason || null, previous, seriesCount });
+  }
+
+  function applyLine3dHeaderRow(matrix, seriesCount){
+    if(!Array.isArray(matrix) || !matrix.length){
+      return matrix;
+    }
+    const headerRow = Array.isArray(matrix[0]) ? matrix[0].slice() : [];
+    headerRow[0] = headerRow[0] && String(headerRow[0]).trim() ? headerRow[0] : 'X';
+    const targetCols = 1 + Math.max(0, seriesCount) * 2;
+    const nextHeader = new Array(targetCols).fill('');
+    nextHeader[0] = headerRow[0];
+    for(let s = 0; s < seriesCount; s += 1){
+      nextHeader[1 + s * 2] = 'Y';
+      nextHeader[1 + s * 2 + 1] = 'Z';
+    }
+    const next = matrix.map((row, idx) => {
+      const safeRow = Array.isArray(row) ? row.slice() : [];
+      if(idx === 0){
+        return nextHeader;
+      }
+      if(safeRow.length < targetCols){
+        safeRow.length = targetCols;
+      }
+      for(let c = 0; c < targetCols; c += 1){
+        if(typeof safeRow[c] === 'undefined'){
+          safeRow[c] = '';
+        }
+      }
+      return safeRow.slice(0, targetCols);
+    });
+    return next;
+  }
+
+  function addLine3dDataset(){
+    if(!lineHot){
+      return;
+    }
+    const matrix = lineHot.getData();
+    const seriesCount = inferLine3dSeriesCount(matrix);
+    const nextIndex = seriesCount;
+    const labels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    labels[nextIndex] = labels[nextIndex] && String(labels[nextIndex]).trim() ? labels[nextIndex] : `Series ${nextIndex + 1}`;
+    lineSeriesGroupLabels = labels;
+    const shapes = ensureLineGroupShapeCapacity(labels.length);
+    if(shapes.length > nextIndex && (!shapes[nextIndex] || !LINE_GROUP_SHAPE_VALUES.has(shapes[nextIndex]))){
+      shapes[nextIndex] = LINE_GROUP_SHAPE_DEFAULTS[nextIndex % LINE_GROUP_SHAPE_DEFAULTS.length];
+      lineGroupShapes = shapes;
+    }
+    const insertAt = 1 + seriesCount * 2;
+    const newMatrix = matrix.map((row, idx) => {
+      const safeRow = Array.isArray(row) ? row.slice() : [];
+      const prefix = safeRow.slice(0, insertAt);
+      const suffix = safeRow.slice(insertAt);
+      const inserted = idx === 0 ? ['Y', 'Z'] : ['', ''];
+      return prefix.concat(inserted, suffix);
+    });
+    const normalizedMatrix = applyLine3dHeaderRow(newMatrix, labels.length);
+    lineHot.loadData(normalizedMatrix);
+    updateLine3dNestedHeaders({ seriesCount: labels.length, data: normalizedMatrix });
+    renderLine3dList();
+    scheduleLineDraw();
+  }
+
+  function removeLine3dDatasetAt(index){
+    if(!lineHot){
+      return;
+    }
+    const idx = Number(index);
+    if(!Number.isInteger(idx) || idx < 0){
+      return;
+    }
+    const matrix = lineHot.getData();
+    const seriesCount = inferLine3dSeriesCount(matrix);
+    if(seriesCount <= 1 || idx >= seriesCount){
+      return;
+    }
+    const start = 1 + idx * 2;
+    const end = start + 2;
+    const trimmed = matrix.map(row => {
+      const safeRow = Array.isArray(row) ? row.slice() : [];
+      return safeRow.slice(0, start).concat(safeRow.slice(end));
+    });
+    const labels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    if(labels.length > idx){
+      labels.splice(idx, 1);
+    }
+    lineSeriesGroupLabels = labels;
+    const shapes = Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [];
+    if(shapes.length > idx){
+      shapes.splice(idx, 1);
+    }
+    lineGroupShapes = shapes;
+    const normalizedMatrix = applyLine3dHeaderRow(trimmed, labels.length);
+    lineHot.loadData(normalizedMatrix);
+    updateLine3dNestedHeaders({ seriesCount: labels.length, data: normalizedMatrix });
+    renderLine3dList();
+    scheduleLineDraw();
+  }
+
+  function snapshotLineHotState(){
+    if(!lineHot){
+      return null;
+    }
+    const exclusions = typeof lineHot.exportExclusions === 'function'
+      ? lineHot.exportExclusions()
+      : Shared.hot.exportExclusions(lineHot);
+    return {
+      data: lineHot.getData(),
+      exclusions,
+      replicates: lineReplicates,
+      tableFormat: refs.replicateMode?.value || (lineReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single'),
+      groupLabels: Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [],
+      groupShapes: Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [],
+      labelColors: lineLabelColors && typeof lineLabelColors === 'object' ? { ...lineLabelColors } : {}
+    };
+  }
+
+  function restoreLineHotState(snapshot, options = {}){
+    if(!snapshot || !lineHot){
+      return false;
+    }
+    if(Array.isArray(snapshot.groupLabels)){
+      lineSeriesGroupLabels = snapshot.groupLabels.slice();
+    }
+    if(Array.isArray(snapshot.groupShapes)){
+      lineGroupShapes = snapshot.groupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+    }
+    if(snapshot.labelColors && typeof snapshot.labelColors === 'object'){
+      lineLabelColors = { ...snapshot.labelColors };
+    }
+    if(Number.isFinite(snapshot.replicates)){
+      lineReplicates = clampLineReplicateCount(snapshot.replicates);
+    }
+    if(Array.isArray(snapshot.data)){
+      lineHot.loadData(snapshot.data);
+    }
+    if(snapshot.exclusions){
+      lineHot.applyExclusions?.(snapshot.exclusions);
+    }
+    if(options.skipControls !== true){
+      if(refs.replicateMode && typeof snapshot.tableFormat === 'string'){
+        refs.replicateMode.value = snapshot.tableFormat;
+      }
+      updateLineReplicateModeControls();
+    }
+    return true;
+  }
+
+  function buildLine3dMatrixFrom2d(matrix, sourceReplicates){
+    const safeMatrix = Array.isArray(matrix) ? matrix : [];
+    const header = Array.isArray(safeMatrix[0]) ? safeMatrix[0] : [];
+    let xIndex = header.findIndex(h => String(h).trim().toLowerCase() === 'x');
+    if(xIndex < 0){
+      xIndex = 0;
+    }
+    const replicates = Math.max(LINE_MIN_REPLICATES, clampLineReplicateCount(sourceReplicates));
+    const maxSeries = Math.max(0, Math.floor(((header.length || 1) - 1) / replicates));
+    let lastSeriesWithValues = -1;
+    for(let s = 0; s < maxSeries; s += 1){
+      const baseCol = 1 + s * replicates;
+      const headerCell = header[baseCol] != null ? String(header[baseCol]).trim() : '';
+      let hasData = false;
+      for(let r = 1; r < safeMatrix.length; r += 1){
+        const row = Array.isArray(safeMatrix[r]) ? safeMatrix[r] : [];
+        for(let rep = 0; rep < replicates; rep += 1){
+          const colIndex = 1 + s * replicates + rep;
+          const value = parseFloat(row[colIndex]);
+          if(Number.isFinite(value)){
+            hasData = true;
+            break;
+          }
+        }
+        if(hasData){
+          break;
+        }
+      }
+      if(hasData || headerCell){
+        lastSeriesWithValues = s;
+      }
+    }
+    const seriesCount = Math.max(0, lastSeriesWithValues + 1);
+    const groupLabels = [];
+    for(let s = 0; s < seriesCount; s += 1){
+      const baseCol = 1 + s * replicates;
+      const fallback = `Series ${s + 1}`;
+      const stored = lineSeriesGroupLabels?.[s];
+      const storedTrimmed = stored && String(stored).trim() ? String(stored).trim() : null;
+      const headerLabel = baseCol < header.length ? String(header[baseCol] || '').trim() : '';
+      groupLabels.push(storedTrimmed || headerLabel || fallback);
+    }
+    const targetCols = 1 + seriesCount * 2;
+    const newData = new Array(safeMatrix.length);
+    const xHeader = header[xIndex] && String(header[xIndex]).trim() ? header[xIndex] : 'X';
+    const headerRow = new Array(targetCols).fill('');
+    headerRow[0] = xHeader;
+    for(let s = 0; s < seriesCount; s += 1){
+      headerRow[1 + s * 2] = 'Y';
+      headerRow[1 + s * 2 + 1] = 'Z';
+    }
+    newData[0] = headerRow;
+    for(let r = 1; r < safeMatrix.length; r += 1){
+      const srcRow = Array.isArray(safeMatrix[r]) ? safeMatrix[r] : [];
+      const outRow = new Array(targetCols).fill('');
+      outRow[0] = srcRow[xIndex] ?? '';
+      for(let s = 0; s < seriesCount; s += 1){
+        const values = [];
+        for(let rep = 0; rep < replicates; rep += 1){
+          const colIndex = 1 + s * replicates + rep;
+          const yVal = parseFloat(srcRow[colIndex]);
+          if(Number.isFinite(yVal)){
+            values.push(yVal);
+          }
+        }
+        const mean = values.length ? (values.reduce((sum, val)=>sum + val, 0) / values.length) : null;
+        outRow[1 + s * 2] = mean != null ? mean : '';
+        outRow[1 + s * 2 + 1] = mean != null ? 0 : '';
+      }
+      newData[r] = outRow;
+    }
+    return { data: newData, seriesCount, groupLabels };
+  }
+
+  function buildLine2dMatrixFrom3d(matrix){
+    const safeMatrix = Array.isArray(matrix) ? matrix : [];
+    const header = Array.isArray(safeMatrix[0]) ? safeMatrix[0] : [];
+    let xIndex = header.findIndex(h => String(h).trim().toLowerCase() === 'x');
+    if(xIndex < 0){
+      xIndex = 0;
+    }
+    const maxPairs = Math.max(0, Math.floor(((header.length || 1) - 1) / 2));
+    let lastSeriesWithValues = -1;
+    for(let s = 0; s < maxPairs; s += 1){
+      const yCol = 1 + s * 2;
+      const headerCell = header[yCol] != null ? String(header[yCol]).trim() : '';
+      let hasData = false;
+      for(let r = 1; r < safeMatrix.length; r += 1){
+        const row = Array.isArray(safeMatrix[r]) ? safeMatrix[r] : [];
+        const yVal = parseFloat(row[yCol]);
+        if(Number.isFinite(yVal)){
+          hasData = true;
+          break;
+        }
+      }
+      if(hasData || headerCell){
+        lastSeriesWithValues = s;
+      }
+    }
+    const seriesCount = Math.max(0, lastSeriesWithValues + 1);
+    const targetCols = 1 + seriesCount;
+    const newData = new Array(safeMatrix.length);
+    const xHeader = header[xIndex] && String(header[xIndex]).trim() ? header[xIndex] : 'X';
+    const headerRow = new Array(targetCols).fill('');
+    headerRow[0] = xHeader;
+    for(let s = 0; s < seriesCount; s += 1){
+      headerRow[1 + s] = lineSeriesGroupLabels?.[s] || `Series ${s + 1}`;
+    }
+    newData[0] = headerRow;
+    for(let r = 1; r < safeMatrix.length; r += 1){
+      const srcRow = Array.isArray(safeMatrix[r]) ? safeMatrix[r] : [];
+      const outRow = new Array(targetCols).fill('');
+      outRow[0] = srcRow[xIndex] ?? '';
+      for(let s = 0; s < seriesCount; s += 1){
+        const yCol = 1 + s * 2;
+        outRow[1 + s] = srcRow[yCol] ?? '';
+      }
+      newData[r] = outRow;
+    }
+    return { data: newData, seriesCount };
+  }
+
+  function enterLine3dMode(options = {}){
+    const skipDraw = options.skipDraw === true;
+    if(!lineHot){
+      lineViewState.viewMode = '3d';
+      updateLineReplicateModeControls('3d');
+      return;
+    }
+    if(lineViewState.viewMode !== '3d'){
+      const snapshot = snapshotLineHotState();
+      if(snapshot){
+        lineModeCache.twoD = snapshot;
+        lineModeCache.lastTwoDFormat = snapshot.tableFormat === 'grouped' ? 'grouped' : 'single';
+      }
+      lineLast2dDisplayMode = sanitizeLineDisplayMode(refs.displayMode?.value ?? lineDisplayMode);
+      lineLast2dLogX = !!refs.logX?.checked;
+      lineLast2dLogY = !!refs.logY?.checked;
+      lineLast2dShowFrame = !!refs.showFrame?.checked;
+      lineLast2dShowIntervals = !!refs.showIntervals?.checked;
+      lineLast2dShowDiagnostics = !!refs.showDiagnostics?.checked;
+    }
+    lineViewState.viewMode = '3d';
+    if(refs.viewMode){
+      refs.viewMode.value = '3d';
+    }
+    if(refs.replicateMode){
+      refs.replicateMode.value = '3d';
+    }
+    if(lineModeCache.threeD){
+      restoreLineHotState(lineModeCache.threeD, { skipControls: true });
+    }else{
+      const sourceMatrix = lineModeCache.twoD?.data || lineHot.getData();
+      const sourceReplicates = lineModeCache.twoD?.replicates ?? lineReplicates;
+      const converted = buildLine3dMatrixFrom2d(sourceMatrix, sourceReplicates);
+      lineSeriesGroupLabels = converted.groupLabels.slice();
+      ensureLineGroupShapeCapacity(converted.seriesCount);
+      lineHot.loadData(converted.data);
+    }
+    if(refs.displayMode){
+      refs.displayMode.disabled = true;
+      if(refs.displayMode.value !== 'line'){
+        refs.displayMode.value = 'line';
+      }
+      lineDisplayMode = 'line';
+    }
+    [refs.logX, refs.logY].forEach(cb => {
+      if(!cb){
+        return;
+      }
+      cb.disabled = true;
+      if(cb.checked){
+        cb.checked = false;
+      }
+    });
+    if(refs.showFrame && !refs.showFrame.checked){
+      refs.showFrame.checked = true;
+    }
+    if(refs.showFrame){
+      refs.showFrame.disabled = true;
+    }
+    if(refs.regressionMode){
+      refs.regressionMode.disabled = true;
+    }
+    if(refs.showIntervals){
+      refs.showIntervals.disabled = true;
+      if(refs.showIntervals.checked){
+        refs.showIntervals.checked = false;
+      }
+    }
+    if(refs.showDiagnostics){
+      refs.showDiagnostics.disabled = true;
+      if(refs.showDiagnostics.checked){
+        refs.showDiagnostics.checked = false;
+      }
+    }
+    if(refs.forecastFieldset){
+      refs.forecastFieldset.disabled = true;
+    }
+    updateLineReplicateModeControls('3d');
+    updateLine3dNestedHeaders();
+    renderLine3dList();
+    if(!skipDraw){
+      scheduleLineDraw();
+    }
+  }
+
+  function exitLine3dMode(options = {}){
+    const skipDraw = options.skipDraw === true;
+    if(!lineHot){
+      lineViewState.viewMode = '2d';
+      line3dLastSeriesCount = null;
+      updateLineReplicateModeControls();
+      return;
+    }
+    const snapshot3d = snapshotLineHotState();
+    if(snapshot3d){
+      lineModeCache.threeD = snapshot3d;
+    }
+    lineViewState.viewMode = '2d';
+    line3dLastSeriesCount = null;
+    if(refs.viewMode){
+      refs.viewMode.value = '2d';
+    }
+    const fallback2dFormat = lineModeCache.lastTwoDFormat === 'grouped' ? 'grouped' : 'single';
+    if(lineModeCache.twoD){
+      restoreLineHotState(lineModeCache.twoD, { skipControls: true });
+      if(refs.replicateMode){
+        refs.replicateMode.value = lineModeCache.twoD.tableFormat === 'grouped' ? 'grouped' : 'single';
+      }
+      lineReplicates = clampLineReplicateCount(lineModeCache.twoD.replicates ?? lineReplicates);
+    }else{
+      const converted = buildLine2dMatrixFrom3d(lineHot.getData());
+      lineReplicates = LINE_MIN_REPLICATES;
+      lineHot.loadData(converted.data);
+      if(refs.replicateMode){
+        refs.replicateMode.value = fallback2dFormat;
+      }
+    }
+    if(refs.displayMode){
+      refs.displayMode.disabled = false;
+      const restoredMode = sanitizeLineDisplayMode(lineLast2dDisplayMode);
+      refs.displayMode.value = restoredMode;
+      lineDisplayMode = restoredMode;
+    }
+    if(refs.logX){
+      refs.logX.disabled = false;
+      refs.logX.checked = !!lineLast2dLogX;
+    }
+    if(refs.logY){
+      refs.logY.disabled = false;
+      refs.logY.checked = !!lineLast2dLogY;
+    }
+    if(refs.showFrame){
+      refs.showFrame.disabled = false;
+      refs.showFrame.checked = !!lineLast2dShowFrame;
+    }
+    if(refs.regressionMode){
+      refs.regressionMode.disabled = false;
+    }
+    if(refs.showIntervals){
+      refs.showIntervals.disabled = false;
+      refs.showIntervals.checked = !!lineLast2dShowIntervals;
+    }
+    if(refs.showDiagnostics){
+      refs.showDiagnostics.disabled = false;
+      refs.showDiagnostics.checked = !!lineLast2dShowDiagnostics;
+    }
+    if(refs.forecastFieldset){
+      refs.forecastFieldset.disabled = false;
+    }
+    updateLineReplicateModeControls();
+    updateLineNestedHeaders();
+    if(!skipDraw){
+      scheduleLineDraw();
+    }
+  }
+
+  function scheduleLineRotationRedraw(){
+    if(lineViewState.rotationPending){
+      if(!lineViewState.rotationPendingLogged && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: line rotation redraw skipped', { reason: 'pending' });
+      }
+      lineViewState.rotationPendingLogged = true;
+      return;
+    }
+    lineViewState.rotationPending = true;
+    lineViewState.rotationPendingLogged = false;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: line rotation redraw scheduled');
+    }
+    scheduleLineDraw({ viewOnly: true, reason: 'rotation' });
   }
 
   function addLineGroup(){
@@ -3534,15 +4295,30 @@
     }
     const axisSettings = ensureLineAxisSettings();
     const fontStyles = exportFontStyles('line');
+    const viewMode = lineViewState.viewMode === '3d' ? '3d' : '2d';
     return {
       type:'line',
       data:lineHot.getData(),
       exclusions: lineHot?.exportExclusions?.() || Shared.hot.exportExclusions(lineHot),
       config:{
+        viewMode,
         title:lineTitleText,
         xLabel:lineXLabelText,
         yLabel:lineYLabelText,
-        replicates: lineReplicates,
+        zLabel: lineZLabelText,
+        rotation: lineViewState.rotation ? {
+          x: lineViewState.rotation.x,
+          y: lineViewState.rotation.y,
+          z: lineViewState.rotation.z,
+          quaternion: lineViewState.rotation.quaternion ? {
+            w: lineViewState.rotation.quaternion.w,
+            x: lineViewState.rotation.quaternion.x,
+            y: lineViewState.rotation.quaternion.y,
+            z: lineViewState.rotation.quaternion.z
+          } : null
+        } : null,
+        tableFormat: refs.replicateMode?.value || (lineReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single'),
+        replicates: viewMode === '3d' ? LINE_MIN_REPLICATES : lineReplicates,
         groupLabels: Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [],
         groupShapes: Array.isArray(lineGroupShapes) ? lineGroupShapes.slice() : [],
         dotSize:refs.dotSize?.value,
@@ -3625,10 +4401,24 @@
     console.debug('Debug: applyLineGraphPayload payload', obj);
     const c=obj.config||{};
     importFontStyles('line', c.fontStyles || null);
-    const storedReplicates = clampLineReplicateCount(c.replicates ?? lineReplicates);
+    const storedViewMode = typeof c.viewMode === 'string' ? String(c.viewMode).toLowerCase() : null;
+    const storedTableFormat = typeof c.tableFormat === 'string' ? String(c.tableFormat).toLowerCase() : null;
+    const wants3d = storedViewMode === '3d' || storedTableFormat === '3d';
+    const storedReplicates = wants3d
+      ? LINE_MIN_REPLICATES
+      : clampLineReplicateCount(c.replicates ?? lineReplicates);
     const matrixData = Array.isArray(obj.data) ? obj.data : null;
     const storedGroupLabels = Array.isArray(c.groupLabels) ? c.groupLabels.slice() : null;
     const storedGroupShapes = Array.isArray(c.groupShapes) ? c.groupShapes.slice() : null;
+    lineModeCache.twoD = null;
+    lineModeCache.threeD = null;
+    lineModeCache.lastTwoDFormat = storedTableFormat === 'grouped' ? 'grouped' : 'single';
+    lineLast2dDisplayMode = sanitizeLineDisplayMode(c.displayMode ?? lineLast2dDisplayMode);
+    lineLast2dLogX = !!c.logX;
+    lineLast2dLogY = !!c.logY;
+    lineLast2dShowFrame = !!c.showFrame;
+    lineLast2dShowIntervals = !!c.showIntervals;
+    lineLast2dShowDiagnostics = !!c.showDiagnostics;
     if(storedGroupLabels){
       lineSeriesGroupLabels = storedGroupLabels.slice();
       console.debug('Debug: line group labels restored from payload', { labels: storedGroupLabels });
@@ -3637,19 +4427,110 @@
       lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
       console.debug('Debug: line group shapes restored from payload', { shapes: lineGroupShapes.slice() });
     }
-    const inferredSeries = matrixData && Array.isArray(matrixData[0]) ? Math.max(1, Math.ceil(((matrixData[0].length || 1) - 1) / Math.max(storedReplicates, 1))) : undefined;
     if(lineHot && matrixData){
-      applyLineReplicateChange(storedReplicates, {
-        dataOverride: matrixData,
-        sourceReplicates: storedReplicates,
-        skipDraw: true,
-        minSeriesCount: inferredSeries,
-        groupLabels: storedGroupLabels || lineSeriesGroupLabels,
-        groupShapes: storedGroupShapes || lineGroupShapes,
-        resetGroupLabels: storedGroupLabels ? true : undefined
-      });
-      if(obj.exclusions){
-        lineHot.applyExclusions?.(obj.exclusions);
+      if(wants3d){
+        const inferredSeriesCount = inferLine3dSeriesCount(matrixData);
+        const seriesCount = Math.max(inferredSeriesCount, storedGroupLabels?.length || 0, storedGroupShapes?.length || 0);
+        const matrixForLoad = seriesCount > 0 ? applyLine3dHeaderRow(matrixData, seriesCount) : matrixData;
+        lineViewState.viewMode = '3d';
+        if(refs.viewMode){
+          refs.viewMode.value = '3d';
+        }
+        if(refs.replicateMode){
+          refs.replicateMode.value = '3d';
+        }
+        lineHot.loadData(matrixForLoad);
+        if(obj.exclusions){
+          lineHot.applyExclusions?.(obj.exclusions);
+        }
+        if(storedGroupLabels){
+          lineSeriesGroupLabels = storedGroupLabels.slice();
+        }
+        ensureLine3dGroupLabelCapacity(seriesCount);
+        if(storedGroupShapes){
+          lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+        }
+        ensureLineGroupShapeCapacity(seriesCount);
+        if(refs.displayMode){
+          refs.displayMode.disabled = true;
+          refs.displayMode.value = 'line';
+        }
+        [refs.logX, refs.logY].forEach(cb => {
+          if(!cb){
+            return;
+          }
+          cb.disabled = true;
+          cb.checked = false;
+        });
+        if(refs.showFrame){
+          refs.showFrame.checked = true;
+          refs.showFrame.disabled = true;
+        }
+        if(refs.regressionMode){
+          refs.regressionMode.disabled = true;
+        }
+        if(refs.showIntervals){
+          refs.showIntervals.disabled = true;
+          refs.showIntervals.checked = false;
+        }
+        if(refs.showDiagnostics){
+          refs.showDiagnostics.disabled = true;
+          refs.showDiagnostics.checked = false;
+        }
+        if(refs.forecastFieldset){
+          refs.forecastFieldset.disabled = true;
+        }
+        updateLineReplicateModeControls('3d');
+        updateLine3dNestedHeaders({ seriesCount, data: matrixForLoad });
+        renderLine3dList();
+      }else{
+        lineViewState.viewMode = '2d';
+        if(refs.viewMode){
+          refs.viewMode.value = '2d';
+        }
+        if(refs.showFrame){
+          refs.showFrame.disabled = false;
+        }
+        if(refs.displayMode){
+          refs.displayMode.disabled = false;
+        }
+        if(refs.regressionMode){
+          refs.regressionMode.disabled = false;
+        }
+        if(refs.showIntervals){
+          refs.showIntervals.disabled = false;
+        }
+        if(refs.showDiagnostics){
+          refs.showDiagnostics.disabled = false;
+        }
+        if(refs.forecastFieldset){
+          refs.forecastFieldset.disabled = false;
+        }
+        [refs.logX, refs.logY].forEach(cb => {
+          if(cb){
+            cb.disabled = false;
+          }
+        });
+        if(refs.replicateMode && refs.replicateMode.value === '3d'){
+          refs.replicateMode.value = storedTableFormat === 'grouped' ? 'grouped' : 'single';
+        }
+        const usedSeriesCols = computeUsedSeriesColumns(matrixData);
+        const inferredSeries = usedSeriesCols > 0
+          ? Math.ceil(usedSeriesCols / Math.max(storedReplicates, 1))
+          : 0;
+        const minSeriesCount = Math.max(1, inferredSeries, storedGroupLabels?.length || 0, storedGroupShapes?.length || 0);
+        applyLineReplicateChange(storedReplicates, {
+          dataOverride: matrixData,
+          sourceReplicates: storedReplicates,
+          skipDraw: true,
+          minSeriesCount,
+          groupLabels: storedGroupLabels || lineSeriesGroupLabels,
+          groupShapes: storedGroupShapes || lineGroupShapes,
+          resetGroupLabels: storedGroupLabels ? true : undefined
+        });
+        if(obj.exclusions){
+          lineHot.applyExclusions?.(obj.exclusions);
+        }
       }
     }else{
       lineReplicates = storedReplicates;
@@ -3659,7 +4540,12 @@
       if(lineReplicates > LINE_MIN_REPLICATES){
         lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
       }
-      updateLineReplicateModeControls();
+      if(wants3d){
+        lineViewState.viewMode = '3d';
+      }else{
+        lineViewState.viewMode = '2d';
+      }
+      updateLineReplicateModeControls(wants3d ? '3d' : undefined);
       if(storedGroupShapes){
         lineGroupShapes = storedGroupShapes.map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
       }
@@ -3672,6 +4558,20 @@
     lineTitleText=c.title||lineTitleText;
     lineXLabelText=c.xLabel||lineXLabelText;
     lineYLabelText=c.yLabel||lineYLabelText;
+    lineZLabelText=c.zLabel||lineZLabelText;
+    if(c.rotation){
+      try{
+        lineViewState.rotation = plot3d.createRotationState(c.rotation);
+        if(typeof plot3d.normalizeRotation === 'function'){
+          plot3d.normalizeRotation(lineViewState.rotation);
+        }
+      }catch(err){
+        lineViewState.rotation = plot3d.createRotationState({ x: LINE_3D_DEFAULTS.rotationX, y: LINE_3D_DEFAULTS.rotationY });
+        if(typeof plot3d.normalizeRotation === 'function'){
+          plot3d.normalizeRotation(lineViewState.rotation);
+        }
+      }
+    }
     if(refs.dotSize && c.dotSize!=null) refs.dotSize.value=c.dotSize;
     if(refs.fill && c.fill) refs.fill.value=c.fill;
     if(refs.border && c.border) refs.border.value=c.border;
@@ -3754,6 +4654,79 @@
     }
     resolveForecastOptions({ syncInputs: true });
     updateForecastVisibility();
+    if(wants3d){
+      lineDisplayMode = 'line';
+      if(refs.displayMode){
+        refs.displayMode.value = 'line';
+        refs.displayMode.disabled = true;
+      }
+      [refs.logX, refs.logY].forEach(cb => {
+        if(!cb){ return; }
+        cb.checked = false;
+        cb.disabled = true;
+      });
+      if(refs.showFrame){
+        refs.showFrame.checked = true;
+        refs.showFrame.disabled = true;
+      }
+      if(refs.regressionMode){
+        refs.regressionMode.disabled = true;
+      }
+      if(refs.showIntervals){
+        refs.showIntervals.checked = false;
+        refs.showIntervals.disabled = true;
+      }
+      if(refs.showDiagnostics){
+        refs.showDiagnostics.checked = false;
+        refs.showDiagnostics.disabled = true;
+      }
+      if(refs.forecastFieldset){
+        refs.forecastFieldset.disabled = true;
+      }
+      if(refs.replicateMode && refs.replicateMode.value !== '3d'){
+        refs.replicateMode.value = '3d';
+      }
+      if(refs.viewMode && refs.viewMode.value !== '3d'){
+        refs.viewMode.value = '3d';
+      }
+      lineViewState.viewMode = '3d';
+      updateLineReplicateModeControls('3d');
+    }else{
+      if(refs.displayMode){
+        refs.displayMode.disabled = false;
+      }
+      [refs.logX, refs.logY].forEach(cb => {
+        if(cb){
+          cb.disabled = false;
+        }
+      });
+      if(refs.showFrame){
+        refs.showFrame.disabled = false;
+      }
+      if(refs.regressionMode){
+        refs.regressionMode.disabled = false;
+      }
+      if(refs.showIntervals){
+        refs.showIntervals.disabled = false;
+      }
+      if(refs.showDiagnostics){
+        refs.showDiagnostics.disabled = false;
+      }
+      if(refs.forecastFieldset){
+        refs.forecastFieldset.disabled = false;
+      }
+      if(refs.replicateMode && refs.replicateMode.value === '3d'){
+        const fallbackFormat = storedTableFormat === 'grouped'
+          ? 'grouped'
+          : (storedReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single');
+        refs.replicateMode.value = fallbackFormat;
+      }
+      if(refs.viewMode && refs.viewMode.value !== '2d'){
+        refs.viewMode.value = '2d';
+      }
+      lineViewState.viewMode = '2d';
+      updateLineReplicateModeControls();
+    }
     lineLastRegressionSummaries = Array.isArray(c.regression?.seriesSummaries) ? c.regression.seriesSummaries.slice() : [];
     // Restore label positions if saved
     if(c.labelPositions){
@@ -3859,12 +4832,657 @@
     return clone;
   }
 
+  function drawLine3d(){
+    try{
+      const debugStamp = Date.now();
+      console.debug('Debug: drawLine3d start', { debugStamp });
+      hideLineTooltip('redraw-start');
+      if(!lineHot || !refs.plot){
+        return;
+      }
+      lineLastRegressionSummaries = [];
+      lineViewState.rotationPending = false;
+      lineViewState.rotationPendingLogged = false;
+      if(typeof plot3d.normalizeRotation === 'function'){
+        plot3d.normalizeRotation(lineViewState.rotation);
+      }
+      const fill = refs.fill?.value;
+      const alpha = Number(refs.alpha?.value) || 0;
+      const borderWidthRaw = Number(refs.borderWidth?.value);
+      const borderColor = refs.border?.value;
+      const containerRect = refs.svgBox?.getBoundingClientRect?.();
+      const fontInfo = chartStyle.resolveScaledFontSize({
+        rawSize: refs.fontSize?.value,
+        width: containerRect?.width,
+        height: containerRect?.height,
+        svgBox: refs.svgBox,
+        input: refs.fontSize
+      });
+      const fs = fontInfo.scaledPx;
+      const styleScaleInfo = fontInfo.scaleInfo;
+      const axisStrokeWidthBase = getLineAxisStrokeWidth();
+      const axisStrokeWidth = chartStyle.scaleStrokeWidth(axisStrokeWidthBase, styleScaleInfo, { context: 'line-axis-3d', min: 0.25 });
+      const axisStroke = getLineAxisColor();
+      const dotSizeRaw = Number(refs.dotSize?.value) || 0;
+      const dotSizePx = chartStyle.scaleRadius(dotSizeRaw, styleScaleInfo, { context: 'line-marker-3d', min: 0 });
+      const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'line-series-3d', min: 0 });
+      chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, fontInfo, input: refs.fontSize });
+      const showGrid = !!refs.showGrid?.checked;
+      const showFrame = true;
+      const showLegend = refs.showLegend ? !!refs.showLegend.checked : true;
+      ensureLineLegendControlPlacement();
+      const xMinManual = parseFloat(refs.xMin?.value);
+      const xMaxManual = parseFloat(refs.xMax?.value);
+      const yMinManual = parseFloat(refs.yMin?.value);
+      const yMaxManual = parseFloat(refs.yMax?.value);
+
+      const matrix = lineHot.getData();
+      if(!Array.isArray(matrix) || !matrix.length){
+        resetLineRenderState('line-3d-no-data-matrix');
+        handleLineStatsUnavailable(null, lineStatsEmptyPlaceholder);
+        return;
+      }
+      const header = Array.isArray(matrix[0]) ? matrix[0] : [];
+      let xIndex = header.findIndex(h => String(h).trim().toLowerCase() === 'x');
+      if(xIndex < 0){
+        xIndex = 0;
+      }
+      lineXLabelText = (header[xIndex] && String(header[xIndex]).trim()) || 'X';
+      const seriesCount = inferLine3dSeriesCount(matrix);
+      if(seriesCount <= 0){
+        resetLineRenderState('line-3d-no-series', { message: 'Add Y/Z dataset columns to render a 3D line plot.' });
+        handleLineStatsUnavailable(null, '3D line view requires paired Y and Z columns.');
+        return;
+      }
+      ensureLine3dGroupLabelCapacity(seriesCount);
+      ensureLineGroupShapeCapacity(seriesCount);
+      const series = [];
+      for(let s = 0; s < seriesCount; s += 1){
+        const stored = lineSeriesGroupLabels?.[s];
+        const resolvedName = stored && String(stored).trim() ? String(stored).trim() : `Series ${s + 1}`;
+        if(!lineSeriesGroupLabels[s]){
+          lineSeriesGroupLabels[s] = resolvedName;
+        }
+        series.push({ name: resolvedName, points: [], shape: getLineGroupShape(s), seriesIndex: s });
+      }
+      let xMinRaw = Infinity;
+      let xMaxRaw = -Infinity;
+      let yMinRaw = Infinity;
+      let yMaxRaw = -Infinity;
+      let zMinRaw = Infinity;
+      let zMaxRaw = -Infinity;
+      for(let r = 1; r < matrix.length; r += 1){
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        const xv = parseFloat(row[xIndex]);
+        const hasX = Number.isFinite(xv);
+        for(let s = 0; s < seriesCount; s += 1){
+          const yCol = 1 + s * 2;
+          const zCol = yCol + 1;
+          const yv = parseFloat(row[yCol]);
+          const zv = parseFloat(row[zCol]);
+          if(hasX && Number.isFinite(yv) && Number.isFinite(zv)){
+            const pt = { x: xv, y: yv, z: zv };
+            series[s].points.push(pt);
+            if(xv < xMinRaw){ xMinRaw = xv; }
+            if(xv > xMaxRaw){ xMaxRaw = xv; }
+            if(yv < yMinRaw){ yMinRaw = yv; }
+            if(yv > yMaxRaw){ yMaxRaw = yv; }
+            if(zv < zMinRaw){ zMinRaw = zv; }
+            if(zv > zMaxRaw){ zMaxRaw = zv; }
+          }else{
+            series[s].points.push(null);
+          }
+        }
+      }
+      let seriesWithData = series.filter(s => s.points.some(Boolean));
+      if(!seriesWithData.length){
+        resetLineRenderState('line-3d-no-valid-series', { message: 'Add numeric X, Y, and Z values (with at least two rows) to render a 3D line plot.' });
+        handleLineStatsUnavailable(null, '3D line view requires numeric X, Y, and Z values.');
+        return;
+      }
+      const anyLineReady = seriesWithData.some(s => s.points.filter(Boolean).length >= 2);
+      if(!anyLineReady){
+        resetLineRenderState('line-3d-not-enough-points', { message: 'Add at least two complete (X,Y,Z) rows in a dataset to render a 3D line.' });
+        handleLineStatsUnavailable(null, '3D line view requires at least two complete rows in a dataset.');
+        return;
+      }
+      let xMin = Number.isFinite(xMinManual) ? xMinManual : xMinRaw;
+      let xMax = Number.isFinite(xMaxManual) ? xMaxManual : xMaxRaw;
+      let yMin = Number.isFinite(yMinManual) ? yMinManual : yMinRaw;
+      let yMax = Number.isFinite(yMaxManual) ? yMaxManual : yMaxRaw;
+      let zMin = zMinRaw;
+      let zMax = zMaxRaw;
+      if(!Number.isFinite(zMin) || !Number.isFinite(zMax)){
+        zMin = -1;
+        zMax = 1;
+      }
+      if(xMin === xMax){ xMax = xMin + 1; }
+      if(yMin === yMax){ yMax = yMin + 1; }
+      if(zMin === zMax){
+        const pad = Math.abs(zMin) || 1;
+        zMin -= pad;
+        zMax += pad;
+      }
+      const filterPointByRange = (pt, range) => {
+        if(!pt){
+          return null;
+        }
+        if(pt.x < range.xMin || pt.x > range.xMax || pt.y < range.yMin || pt.y > range.yMax || pt.z < range.zMin || pt.z > range.zMax){
+          return null;
+        }
+        return pt;
+      };
+      const clipSeriesToRange = (inputSeries, range) => {
+        const clipped = [];
+        inputSeries.forEach(s => {
+          const clippedPoints = s.points.map(pt => filterPointByRange(pt, range));
+          if(clippedPoints.some(Boolean)){
+            clipped.push({ ...s, points: clippedPoints });
+          }
+        });
+        return clipped;
+      };
+      const range3d = { xMin, xMax, yMin, yMax, zMin, zMax };
+      seriesWithData = clipSeriesToRange(seriesWithData, range3d);
+      if(!seriesWithData.length){
+        resetLineRenderState('line-3d-no-series-after-clipping', { message: 'Adjust the axis range to render a 3D line plot.' });
+        handleLineStatsUnavailable(null, 'Adjust the axis range to render a 3D line plot.');
+        return;
+      }
+      const labelsUsed = seriesWithData.map(s => s.name);
+      ensureLineLabelColors(labelsUsed);
+      const colors = seriesWithData.map((s, i) => lineLabelColors[s.name] || borderColor || DEFAULT_SCATTER_COLORS[i % DEFAULT_SCATTER_COLORS.length]);
+      const seriesShapes = seriesWithData.map((s) => {
+        const idx = Number.isInteger(s.seriesIndex) ? s.seriesIndex : 0;
+        const resolvedShape = sanitizeLineGroupShape(s.shape, idx);
+        s.shape = resolvedShape;
+        return resolvedShape;
+      });
+      const legendEntries = seriesWithData.map((s, i) => ({
+        label: s.name,
+        fill: colors[i],
+        key: s.name,
+        editable: true,
+        shape: seriesShapes[i],
+        seriesIndex: Number.isInteger(s.seriesIndex) ? s.seriesIndex : i
+      }));
+      const legendLayout = chartStyle.computeLegendLayout({
+        entries: showLegend ? legendEntries : [],
+        fontSize: fs,
+        strokeWidth: borderWidthPx,
+        onSwatchClick: ({ entry, swatch, event, index }) => {
+          const legendKey = entry?.key || entry?.label;
+          if(!legendKey || !swatch){
+            return;
+          }
+          if(event){
+            event.stopPropagation();
+          }
+          const currentColor = lineLabelColors[legendKey] || entry.fill;
+          const seriesIndex = Number.isInteger(entry.seriesIndex) && entry.seriesIndex >= 0
+            ? entry.seriesIndex
+            : (Number.isInteger(index) ? index : -1);
+          const initialShape = Number.isInteger(seriesIndex) && seriesIndex >= 0
+            ? getLineGroupShape(seriesIndex)
+            : null;
+          const applyLegendColor = value => {
+            const nextValue = value != null ? String(value) : '';
+            const previousValue = lineLabelColors[legendKey] || '';
+            if(nextValue){
+              if(previousValue === nextValue){
+                return true;
+              }
+              lineLabelColors[legendKey] = nextValue;
+            }else if(previousValue){
+              delete lineLabelColors[legendKey];
+            }else{
+              return true;
+            }
+            scheduleLineDraw();
+            return true;
+          };
+          const applyLegendShape = value => {
+            if(!Number.isInteger(seriesIndex) || seriesIndex < 0){
+              return true;
+            }
+            const sanitized = sanitizeLineGroupShape(value, seriesIndex);
+            const shapes = ensureLineGroupShapeCapacity(Math.max(seriesCount, seriesIndex + 1));
+            if(shapes[seriesIndex] === sanitized){
+              return true;
+            }
+            shapes[seriesIndex] = sanitized;
+            lineGroupShapes = shapes;
+            scheduleLineDraw();
+            return true;
+          };
+          let previousColor = currentColor;
+          let previousShape = Number.isInteger(seriesIndex) && seriesIndex >= 0
+            ? sanitizeLineGroupShape(initialShape, seriesIndex)
+            : null;
+          Shared.openColorPicker({
+            anchor: swatch,
+            color: currentColor,
+            shapePicker: Number.isInteger(seriesIndex) && seriesIndex >= 0 ? {
+              value: previousShape,
+              options: LINE_GROUP_SHAPE_OPTIONS,
+              onChange(nextShape){
+                const sanitized = sanitizeLineGroupShape(nextShape, seriesIndex);
+                if(sanitized === previousShape){
+                  return;
+                }
+                applyLegendShape(sanitized);
+                recordLineChange(`line:legend-shape:${legendKey}`, previousShape, sanitized, applyLegendShape);
+                previousShape = sanitized;
+              }
+            } : null,
+            onInput(value){
+              applyLegendColor(value);
+            },
+            onChange(value){
+              const nextValue = value != null ? String(value) : '';
+              if(nextValue === previousColor){
+                return;
+              }
+              applyLegendColor(nextValue);
+              recordLineChange(`line:legend-color:${legendKey}`, previousColor, nextValue, applyLegendColor);
+              previousColor = nextValue;
+            }
+          });
+        }
+      });
+      lineLegendWidth = legendLayout.legendWidthForMargin;
+      lineLegendItems = showLegend ? legendEntries.map(item => ({ label: item.label, color: item.fill })) : [];
+      lineLegendLayoutInfo = {
+        entryCount: legendLayout.renderer.entries.length,
+        rendererWidth: legendLayout.renderer.width,
+        legendWidthForMargin: legendLayout.legendWidthForMargin,
+        legendGapPx: legendLayout.legendGapPx,
+        minSvgWidth: legendLayout.minSvgWidth,
+        basePlotWidth: legendLayout.basePlotWidth,
+        guardPaddingPx: legendLayout.guardPaddingPx,
+        swatchSize: legendLayout.renderer.swatchSize,
+        swatchGap: legendLayout.renderer.swatchGap,
+        rowGap: legendLayout.renderer.rowGap,
+        rowHeight: legendLayout.renderer.rowHeight,
+        fontSize: legendLayout.renderer.fontSize,
+        minWidth: legendLayout.renderer.minWidth,
+        maxLabelWidth: legendLayout.renderer.maxLabelWidth,
+        entries: legendLayout.renderer.entries.map(entry => ({ label: entry.label, key: entry.key, labelWidth: entry.labelWidth }))
+      };
+      applyLineLegendGuardWidth(legendLayout.minSvgWidth);
+
+      const plotEl = refs.plot;
+      const existingSvg = plotEl.querySelector('#lineSvg');
+      const reuse3dSvg = existingSvg && existingSvg.dataset.viewMode === '3d';
+      if(!reuse3dSvg){
+        while(plotEl.firstChild){
+          plotEl.removeChild(plotEl.firstChild);
+        }
+      }
+      const targetAspect = Number.isFinite(LINE_3D_DEFAULTS.aspectRatio) && LINE_3D_DEFAULTS.aspectRatio > 0 ? LINE_3D_DEFAULTS.aspectRatio : (4 / 3);
+      const fallbackWidth = 460;
+      const fallbackHeight = Math.round(fallbackWidth / targetAspect);
+      const bounds = typeof plotEl.getBoundingClientRect === 'function' ? plotEl.getBoundingClientRect() : { width: 0, height: 0 };
+      const availableWidth = Math.floor(bounds.width || plotEl.clientWidth || 0);
+      const availableHeight = Math.floor(bounds.height || plotEl.clientHeight || 0);
+      let W3 = availableWidth > 0 ? availableWidth : fallbackWidth;
+      let H3 = Math.round(W3 / targetAspect);
+      if(availableHeight > 0 && H3 > availableHeight){
+        H3 = Math.max(1, availableHeight);
+        W3 = Math.max(1, Math.round(H3 * targetAspect));
+        if(availableWidth > 0 && W3 > availableWidth){
+          W3 = Math.max(1, availableWidth);
+          H3 = Math.max(1, Math.round(W3 / targetAspect));
+        }
+      }
+      if(W3 <= 0 || H3 <= 0){
+        W3 = fallbackWidth;
+        H3 = fallbackHeight;
+      }
+      plotEl.style.display = 'block';
+      plotEl.style.position = 'relative';
+      plotEl.style.aspectRatio = `${W3} / ${H3}`;
+      plotEl.style.padding = plotEl.style.padding || '12px';
+      const svg3 = reuse3dSvg ? existingSvg : global.document.createElementNS(NS, 'svg');
+      if(!reuse3dSvg){
+        svg3.setAttribute('id', 'lineSvg');
+        plotEl.appendChild(svg3);
+      }
+      svg3.setAttribute('width', String(W3));
+      svg3.setAttribute('height', String(H3));
+      svg3.setAttribute('viewBox', `0 0 ${W3} ${H3}`);
+      svg3.setAttribute('font-family', chartStyle.FONT_FAMILY);
+      svg3.dataset.viewMode = '3d';
+      chartStyle.applySvgDefaults(svg3);
+      while(svg3.firstChild){
+        svg3.removeChild(svg3.firstChild);
+      }
+      svg3.addEventListener('mouseleave', handleLinePlotMouseLeave);
+      plot3d.attachRotationControls(svg3, {
+        state: lineViewState.rotation,
+        onChange: () => scheduleLineRotationRedraw(),
+        shouldIgnorePointer: (event) => {
+          if(typeof plot3d.isInteractivePointerTarget === 'function'){
+            return plot3d.isInteractivePointerTarget(event?.target);
+          }
+          return plot3d.isLegendPointerTarget(event?.target);
+        },
+        debugLabel: 'line-3d'
+      });
+      if(fontControls && typeof fontControls.enableForSvg === 'function'){
+        fontControls.enableForSvg(svg3, { scopeId: 'line' });
+      }
+
+      const legendAxisGap = Math.max(fs * 0.9, 18);
+      const appliedLegendAxisGap = showLegend ? legendAxisGap : 0;
+      const legendGapFor3d = legendLayout?.legendGapPx ?? 12;
+      const baseLegendMargin = Math.max(fs * 2.25, 28);
+      const legendMargin = showLegend ? lineLegendWidth + appliedLegendAxisGap + baseLegendMargin : baseLegendMargin;
+      const margin3 = {
+        top: Math.max(fs * 3.2, 36),
+        right: legendMargin,
+        bottom: Math.max(fs * 3.2, 40),
+        left: Math.max(fs * 3.2, 40)
+      };
+      const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
+      const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
+
+      const axisTickTools = chartStyle.axisTicks || null;
+      const buildAxisScale = opts => {
+        if(axisTickTools && typeof axisTickTools.buildScale === 'function'){
+          return axisTickTools.buildScale(opts);
+        }
+        const min = Number.isFinite(opts?.manualMin) ? opts.manualMin : Number(opts?.dataMin) || 0;
+        const max = Number.isFinite(opts?.manualMax) ? opts.manualMax : Number(opts?.dataMax) || min + 1;
+        return { min, max, ticks: [min, max], step: Math.max((max - min) || 1, 1) };
+      };
+      const tickTarget = chartStyle.estimateTickCount ? chartStyle.estimateTickCount(Math.max(plotW3, plotH3), { fallback: 6 }) : 6;
+      const xScale3d = buildAxisScale({
+        dataMin: xMin,
+        dataMax: xMax,
+        manualMin: Number.isFinite(xMinManual) ? xMinManual : null,
+        manualMax: Number.isFinite(xMaxManual) ? xMaxManual : null,
+        targetTickCount: tickTarget
+      });
+      const yScale3d = buildAxisScale({
+        dataMin: yMin,
+        dataMax: yMax,
+        manualMin: Number.isFinite(yMinManual) ? yMinManual : null,
+        manualMax: Number.isFinite(yMaxManual) ? yMaxManual : null,
+        targetTickCount: tickTarget
+      });
+      const zScale3d = buildAxisScale({
+        dataMin: zMin,
+        dataMax: zMax,
+        targetTickCount: tickTarget
+      });
+      const axisRanges3d = {
+        x: { min: Number.isFinite(xScale3d.min) ? xScale3d.min : xMin, max: Number.isFinite(xScale3d.max) ? xScale3d.max : xMax },
+        y: { min: Number.isFinite(yScale3d.min) ? yScale3d.min : yMin, max: Number.isFinite(yScale3d.max) ? yScale3d.max : yMax },
+        z: { min: Number.isFinite(zScale3d.min) ? zScale3d.min : zMin, max: Number.isFinite(zScale3d.max) ? zScale3d.max : zMax }
+      };
+      const allCorners = [
+        { x: axisRanges3d.x.min, y: axisRanges3d.y.min, z: axisRanges3d.z.min },
+        { x: axisRanges3d.x.max, y: axisRanges3d.y.min, z: axisRanges3d.z.min },
+        { x: axisRanges3d.x.min, y: axisRanges3d.y.max, z: axisRanges3d.z.min },
+        { x: axisRanges3d.x.max, y: axisRanges3d.y.max, z: axisRanges3d.z.min },
+        { x: axisRanges3d.x.min, y: axisRanges3d.y.min, z: axisRanges3d.z.max },
+        { x: axisRanges3d.x.max, y: axisRanges3d.y.min, z: axisRanges3d.z.max },
+        { x: axisRanges3d.x.min, y: axisRanges3d.y.max, z: axisRanges3d.z.max },
+        { x: axisRanges3d.x.max, y: axisRanges3d.y.max, z: axisRanges3d.z.max }
+      ];
+      const rotatePoint = (pt) => plot3d.rotatePoint(pt, lineViewState.rotation);
+      const rotatedCorners = allCorners.map(corner => rotatePoint(corner));
+      const rotatedPoints = [];
+      seriesWithData.forEach(s => {
+        s.points.forEach(pt => {
+          if(pt){
+            rotatedPoints.push(rotatePoint(pt));
+          }
+        });
+      });
+      const projector = plot3d.createProjector({
+        rotatedPoints,
+        rotatedCorners,
+        width: W3,
+        height: H3,
+        margin: margin3
+      });
+
+      const axisTicks3d = {
+        x: Array.isArray(xScale3d.ticks) ? xScale3d.ticks : [],
+        y: Array.isArray(yScale3d.ticks) ? yScale3d.ticks : [],
+        z: Array.isArray(zScale3d.ticks) ? zScale3d.ticks : []
+      };
+      plot3d.renderAxesAndGrid({
+        svg: svg3,
+        project: projector.project,
+        rotatePoint,
+        axisRanges: axisRanges3d,
+        axisTicks: axisTicks3d,
+        axisLabels: { x: lineXLabelText, y: lineYLabelText, z: lineZLabelText },
+        fontSize: fs,
+        axisStrokeWidth,
+        axisColor: axisStroke,
+        frameColor: axisStroke,
+        chartStyle,
+        showGrid,
+        showFrame,
+        debugLabel: 'line-3d',
+        onAxisLabel: (node, axisKey) => {
+          if(!node){
+            return;
+          }
+          const role = axisKey === 'z' ? 'zTitle' : (axisKey === 'y' ? 'yTitle' : 'xTitle');
+          const changeLabel = (value) => {
+            const nextValue = value != null ? String(value) : '';
+            if(axisKey === 'x'){ lineXLabelText = nextValue; }
+            else if(axisKey === 'y'){ lineYLabelText = nextValue; }
+            else { lineZLabelText = nextValue; }
+            if(node.textContent !== nextValue){
+              node.textContent = nextValue;
+            }
+            scheduleLineDraw();
+          };
+          markFontEditable(node, role, role);
+          makeEditableHelper(node, text => {
+            const previous = axisKey === 'x' ? (lineXLabelText ?? '') : (axisKey === 'y' ? (lineYLabelText ?? '') : (lineZLabelText ?? ''));
+            const nextValue = text != null ? String(text) : '';
+            if(previous === nextValue){
+              return;
+            }
+            changeLabel(nextValue);
+            recordLineChange(`line:${axisKey}-label`, previous, nextValue, changeLabel);
+          });
+        }
+      });
+
+      const seriesElems = new Array(seriesCount).fill(null);
+      const renderQueue = seriesWithData.map((s, idx) => {
+        const projectedPoints = s.points.map(pt => pt ? projector.project(rotatePoint(pt)) : null);
+        const depths = projectedPoints.filter(Boolean).map(pt => pt.depth);
+        const depthAvg = depths.length ? depths.reduce((sum, v)=>sum + v, 0) / depths.length : 0;
+        return { series: s, index: idx, projectedPoints, depthAvg };
+      }).sort((a, b) => (a.depthAvg || 0) - (b.depthAvg || 0));
+
+      const lineLayer = global.document.createElementNS(NS, 'g');
+      svg3.appendChild(lineLayer);
+      const markerLayer = global.document.createElementNS(NS, 'g');
+      svg3.appendChild(markerLayer);
+
+      renderQueue.forEach((entry, i) => {
+        const s = entry.series;
+        const color = colors[entry.index] || borderColor || DEFAULT_SCATTER_COLORS[i % DEFAULT_SCATTER_COLORS.length];
+        const styleOverride = lineSeriesStyles?.[s.name] || {};
+        const seriesAlpha = styleOverride && styleOverride.alpha != null ? clampLineAlpha(styleOverride.alpha) : alpha;
+        const seriesStrokeWidth = Number.isFinite(Number(styleOverride.strokeWidth)) ? Number(styleOverride.strokeWidth) : borderWidthPx;
+        const seriesDotSize = Number.isFinite(Number(styleOverride.dotSize)) ? Number(styleOverride.dotSize) : dotSizePx;
+        let pathStr = '';
+        let started = false;
+        for(let p = 0; p < entry.projectedPoints.length; p += 1){
+          const proj = entry.projectedPoints[p];
+          if(proj && Number.isFinite(proj.x) && Number.isFinite(proj.y)){
+            if(!started){
+              pathStr += `M${proj.x} ${proj.y}`;
+              started = true;
+            }else{
+              pathStr += `L${proj.x} ${proj.y}`;
+            }
+          }else{
+            started = false;
+          }
+        }
+        if(pathStr){
+          const path = global.document.createElementNS(NS, 'path');
+          path.setAttribute('d', pathStr);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', color);
+          path.setAttribute('stroke-width', String(seriesStrokeWidth));
+          path.setAttribute('stroke-opacity', String(Math.max(0, 1 - (seriesAlpha != null ? seriesAlpha : alpha))));
+          path.dataset.series = s.name || '';
+          path.dataset.viewMode = '3d';
+          path.style.cursor = 'pointer';
+          path.addEventListener('click', handleLinePathClick);
+          lineLayer.appendChild(path);
+          const mGroup = global.document.createElementNS(NS, 'g');
+          markerLayer.appendChild(mGroup);
+          if(dotSizePx > 0){
+            const markerEntries = [];
+            for(let p = 0; p < entry.projectedPoints.length; p += 1){
+              const proj = entry.projectedPoints[p];
+              const pt = s.points[p];
+              if(!proj || !pt){
+                continue;
+              }
+              markerEntries.push({ proj, pt });
+            }
+            markerEntries.sort((a, b) => (a.proj.depth || 0) - (b.proj.depth || 0));
+            markerEntries.forEach(markerEntry => {
+              const markerShape = s.shape || 'circle';
+              const marker = createLineMarkerShape(global.document, markerShape, {
+                index: s.seriesIndex,
+                radius: seriesDotSize,
+                cx: markerEntry.proj.x,
+                cy: markerEntry.proj.y,
+                fill: color,
+                fillOpacity: 1 - (seriesAlpha != null ? seriesAlpha : alpha),
+                strokeWidth: 0,
+                strokeOpacity: 1 - (seriesAlpha != null ? seriesAlpha : alpha)
+              });
+              if(marker){
+                attachLineMarkerTooltip(marker, s, markerEntry.pt);
+                mGroup.appendChild(marker);
+              }
+            });
+          }
+          seriesElems[s.seriesIndex] = { path, mGroup };
+        }
+      });
+
+      const toggleSeriesVisibility = seriesIndex => {
+        const target = seriesElems[seriesIndex];
+        if(!target){
+          return;
+        }
+        const currentlyVisible = target.path.style.display !== 'none';
+        const nextDisplay = currentlyVisible ? 'none' : 'inline';
+        target.path.style.display = nextDisplay;
+        target.mGroup.style.display = nextDisplay;
+      };
+
+      const legendRenderer = legendLayout.renderer;
+      if(showLegend && legendRenderer.entries.length){
+        const defaultLegendX = margin3.left + plotW3 + legendGapFor3d + appliedLegendAxisGap;
+        const defaultLegendY = margin3.top + legendRenderer.baselineOffset;
+        const legendPos = lineLabelPositions?.legend;
+        const legendGroup = legendRenderer.draw(svg3,{
+          x: Number.isFinite(legendPos?.x) ? legendPos.x : defaultLegendX,
+          y: Number.isFinite(legendPos?.y) ? legendPos.y : defaultLegendY
+        });
+        if(legendGroup){
+          if(typeof Shared.enableLegendDrag === 'function'){
+            Shared.enableLegendDrag(legendGroup, svg3, {
+              onDragEnd: pos => {
+                lineLabelPositions.legend = { x: pos.x, y: pos.y };
+                if(Shared.isDebugEnabled?.()){
+                  console.debug('Debug: line 3d legend position saved', pos);
+                }
+              }
+            });
+          }
+          if(typeof legendGroup.querySelectorAll === 'function'){
+            const interactiveNodes = legendGroup.querySelectorAll('[data-legend-key]');
+            interactiveNodes.forEach(node => {
+              plot3d.applyLegendPointerGuards(node, { label: node.dataset.legendKey || null });
+            });
+          }
+          const textNodes = legendGroup.querySelectorAll('text');
+          legendRenderer.entries.forEach((legendEntry, idx) => {
+            const textNode = textNodes[idx];
+            if(!textNode){
+              return;
+            }
+            markFontEditable(textNode, 'legend', `legend-${idx}`);
+            textNode.style.cursor = 'pointer';
+            const seriesIndex = Number.isInteger(legendEntry?.seriesIndex) ? legendEntry.seriesIndex : idx;
+            textNode.addEventListener('click', () => toggleSeriesVisibility(seriesIndex));
+          });
+        }
+      }
+
+      const titleY = Math.max(margin3.top * 0.4, fs * 1.6);
+      const titleX = margin3.left + plotW3 / 2;
+      const title3d = global.document.createElementNS(NS, 'text');
+      title3d.setAttribute('x', String(titleX));
+      title3d.setAttribute('y', String(titleY));
+      title3d.setAttribute('text-anchor', 'middle');
+      title3d.setAttribute('font-size', String(fs));
+      title3d.setAttribute('fill', chartStyle.TEXT_COLOR);
+      title3d.textContent = lineTitleText;
+      svg3.appendChild(title3d);
+      markFontEditable(title3d, 'graphTitle', 'graphTitle');
+      const applyLineTitle3d = value => {
+        const nextValue = value != null ? String(value) : '';
+        lineTitleText = nextValue;
+        if(title3d.textContent !== nextValue){
+          title3d.textContent = nextValue;
+        }
+        scheduleLineDraw();
+      };
+      makeEditableHelper(title3d, txt => {
+        const previous = lineTitleText != null ? String(lineTitleText) : '';
+        const nextValue = txt != null ? String(txt) : '';
+        if(previous === nextValue){
+          return;
+        }
+        applyLineTitle3d(nextValue);
+        recordLineChange('line:title', previous, nextValue, applyLineTitle3d);
+      });
+
+      handleLineStatsUnavailable(null, 'Statistics are available in 2D view.');
+      ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'line-3d-graph' });
+      lineLayout?.syncPanels?.({ skipSchedule: true });
+      scheduleLineNoticeWidth('draw-3d');
+      console.debug('Debug: drawLine3d complete', { debugStamp });
+    }catch(err){
+      console.error('drawLine3d error', err);
+    }
+  }
+
   function drawLine(){
     try{
       const debugStamp=Date.now();
       console.debug('Debug: drawLine start',{debugStamp}); // Debug: draw entry
       hideLineTooltip('redraw-start');
       if(!lineHot || !refs.plot) return;
+      if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
+        drawLine3d();
+        return;
+      }
+      if(refs.plot){
+        refs.plot.style.aspectRatio = '';
+        refs.plot.style.padding = '';
+      }
       lineLastRegressionSummaries = [];
       const fill=refs.fill?.value;
       const alpha=Number(refs.alpha?.value)||0;
@@ -5269,6 +6887,11 @@
     refs.groupedList=document.getElementById('lineGroupedList');
     refs.groupedAdd=document.getElementById('lineGroupedAdd');
     refs.groupedRemove=document.getElementById('lineGroupedRemove');
+    refs.threeDControls=document.getElementById('line3dControls');
+    refs.threeDList=document.getElementById('line3dList');
+    refs.threeDAdd=document.getElementById('line3dAdd');
+    refs.threeDRemove=document.getElementById('line3dRemove');
+    refs.viewMode=document.getElementById('lineViewMode');
     refs.fill=document.getElementById('lineFill');
     refs.border=document.getElementById('lineBorder');
     refs.borderWidth=document.getElementById('lineBorderWidth');
@@ -5327,24 +6950,62 @@
         }
       });
     }
+    if(refs.threeDAdd){
+      refs.threeDAdd.addEventListener('click', () => {
+        console.debug('Debug: line 3d add dataset button');
+        addLine3dDataset();
+      });
+    }
+    if(refs.threeDRemove){
+      refs.threeDRemove.addEventListener('click', () => {
+        const matrix = lineHot ? lineHot.getData() : [];
+        const seriesCount = inferLine3dSeriesCount(matrix);
+        const targetIndex = seriesCount > 0 ? seriesCount - 1 : -1;
+        console.debug('Debug: line 3d remove dataset button', { seriesCount, targetIndex });
+        if(targetIndex >= 0){
+          removeLine3dDatasetAt(targetIndex);
+        }
+      });
+    }
     if(refs.replicateMode){
       refs.replicateMode.addEventListener('change',e=>{
-        const nextMode = e.target.value === 'grouped' ? 'grouped' : 'single';
-        console.debug('Debug: line replicate mode change',{ mode: nextMode });
-        if(nextMode === 'single'){
+        const requested = e.target.value === '3d'
+          ? '3d'
+          : (e.target.value === 'grouped' ? 'grouped' : 'single');
+        console.debug('Debug: line table format change',{ mode: requested });
+        if(requested === '3d'){
+          enterLine3dMode();
+          return;
+        }
+        if(lineViewState.viewMode === '3d'){
+          exitLine3dMode({ skipDraw: true });
+        }
+        if(requested === 'single'){
           if(lineReplicates > LINE_MIN_REPLICATES){
             lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
             applyLineReplicateChange(LINE_MIN_REPLICATES);
           }else{
-            updateLineReplicateModeControls(nextMode);
+            updateLineReplicateModeControls(requested);
           }
         }else{
           const target = lineReplicates > LINE_MIN_REPLICATES ? lineReplicates : lineLastGroupedReplicateCount;
           if(target !== lineReplicates){
             applyLineReplicateChange(target);
           }else{
-            updateLineReplicateModeControls(nextMode);
+            updateLineReplicateModeControls(requested);
           }
+        }
+      });
+    }
+    if(refs.viewMode){
+      refs.viewMode.value = lineViewState.viewMode;
+      refs.viewMode.addEventListener('change', e => {
+        const requested = e.target.value === '3d' ? '3d' : '2d';
+        console.debug('Debug: line view mode change', { mode: requested });
+        if(requested === '3d'){
+          enterLine3dMode();
+        }else{
+          exitLine3dMode();
         }
       });
     }
@@ -5572,6 +7233,9 @@
       return{allowed:true};
     }
     const lineAutoSizeTargets=[
+      refs.replicateMode,
+      refs.viewMode,
+      refs.displayMode,
       refs.regressionMode,
       refs.statType,
       refs.originMode,
@@ -5679,6 +7343,9 @@
           console.debug('Debug: line scheduleLineDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
         }
       }
+      if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
+        scheduleLine3dDatasetSync('table-change');
+      }
       scheduleLineDraw();
     };
 
@@ -5757,6 +7424,9 @@
               minRows: DEFAULT_ROWS,
               scheduleDraw: () => {
                 markLineOverlayPending('table-paste');
+                if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
+                  scheduleLine3dDatasetSync('paste');
+                }
                 scheduleLineDraw();
               },
               debugLabel: 'line',
@@ -5841,10 +7511,41 @@
           [72,88,86,87,95,97,96],
           [96,105,104,106,112,113,111]
         ]
+      },
+      threeD:{
+        seriesCount:3,
+        groupLabels:['Curve A','Curve B','Curve C'],
+        groupShapes:LINE_GROUP_SHAPE_DEFAULTS.slice(0,3),
+        data:[
+          ['X','Y','Z','Y','Z','Y','Z'],
+          [0,0,0,0,1,0,2],
+          [1,0.84,0.54,0.91,1.54,0.14,2.54],
+          [2,0.91,-0.42,-0.76,0.58,-0.28,1.58],
+          [3,0.14,-0.99,-0.28,0.01,0.96,1.01],
+          [4,-0.76,-0.65,0.99,0.35,-0.54,1.35],
+          [5,-0.96,0.28,-0.54,1.28,-0.84,2.28],
+          [6,-0.28,0.96,-0.54,1.96,0.91,2.96]
+        ]
       }
     };
 
     refs.loadExample?.addEventListener('click',()=>{
+      const is3dMode = lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d' || refs.viewMode?.value === '3d';
+      if(is3dMode){
+        const example = lineExamples.threeD;
+        markLineOverlayPending('example-data');
+        enterLine3dMode({ skipDraw: true });
+        if(lineHot && Array.isArray(example?.data)){
+          lineHot.loadData(example.data);
+        }
+        lineSeriesGroupLabels = example.groupLabels.slice();
+        lineGroupShapes = example.groupShapes.slice().map((shape, idx)=>sanitizeLineGroupShape(shape, idx));
+        updateLine3dNestedHeaders({ seriesCount: example.seriesCount, data: example.data });
+        renderLine3dList();
+        console.debug('Debug: line 3d example loaded',{ key: 'threeD', seriesCount: example.seriesCount });
+        scheduleLineDraw();
+        return;
+      }
       const isGroupedMode = refs.replicateMode?.value === 'grouped';
       const key = isGroupedMode ? 'groupedDoseResponse' : 'standard';
       const example=lineExamples[key]||lineExamples.standard;

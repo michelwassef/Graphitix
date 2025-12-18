@@ -1083,6 +1083,7 @@
           <select id="lineTableFormat">
             <option value="single" selected>Single replicates</option>
             <option value="grouped">Grouped replicates</option>
+            <option value="3d">3D datasets (Y+Z columns)</option>
           </select>
         </div>
         <div id="lineGroupedControls" class="grouped-controls" style="display:none;" aria-hidden="true">
@@ -1096,6 +1097,16 @@
           <div class="grouped-actions">
             <button type="button" class="btn" id="lineGroupedAdd">Add group</button>
             <button type="button" class="btn" id="lineGroupedRemove">Remove group</button>
+          </div>
+        </div>
+        <div id="line3dControls" class="grouped-controls" style="display:none;" aria-hidden="true">
+          <div class="grouped-config-row">
+            <p style="margin:0; font-size:12px; color:#444;">3D datasets use paired columns per dataset: Y values then Z values.</p>
+          </div>
+          <div id="line3dList" class="grouped-list"></div>
+          <div class="grouped-actions">
+            <button type="button" class="btn" id="line3dAdd">Add dataset</button>
+            <button type="button" class="btn" id="line3dRemove">Remove dataset</button>
           </div>
         </div>
         <div id="lineHotWrapper" style="width:100%; height:100%; overflow:auto; flex:1 1 auto;">
@@ -1121,6 +1132,15 @@
           <div class="config-options">
             <fieldset>
               <legend>Display</legend>
+              <div class="control">
+                <label style="width:auto;">
+                  View
+                  <select id="lineViewMode">
+                    <option value="2d" selected>2D</option>
+                    <option value="3d">3D</option>
+                  </select>
+                </label>
+              </div>
               <div class="control">
                 <label style="width:auto;">
                   Mode
