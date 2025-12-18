@@ -374,12 +374,18 @@
       console.debug('Debug: preview cleared via assignTabPayload', { tabId: tab.id, reason: meta.reason || 'payload-null' });
     }
     const changed = previousSignature !== nextSignature;
-    console.debug('Debug: assignTabPayload applied', {
-      tabId: tab.id,
-      reason: meta.reason || 'unspecified',
-      changed,
-      hasPayload: !!payload
-    });
+    try{
+      const statsTest = payload && payload.config && payload.config.stats ? payload.config.stats.test : null;
+      console.debug('Debug: assignTabPayload applied', {
+        tabId: tab.id,
+        reason: meta.reason || 'unspecified',
+        changed,
+        hasPayload: !!payload,
+        statsTest
+      });
+    }catch(e){
+      console.debug('Debug: assignTabPayload applied (no stats)', { tabId: tab.id, reason: meta.reason || 'unspecified', changed, hasPayload: !!payload });
+    }
     return changed;
   }
 

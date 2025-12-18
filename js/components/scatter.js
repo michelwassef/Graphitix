@@ -3766,6 +3766,17 @@
       const scatterStatsStatus=document.getElementById('scatterStatsStatus');
       const scatterStatsPlaceholder='Statistics will appear after calculation.';
 
+      function persistTabState(reason){
+        try{
+          const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
+          if(sess && typeof sess.persistActiveTabState === 'function'){
+            sess.persistActiveTabState(undefined, { reason: reason || 'scatter-stats-change' });
+          }
+        }catch(e){
+          console.debug('Debug: persistTabState failed', { err: e?.message || String(e) });
+        }
+      }
+
       function setScatterStatsStatus(message){
         if(scatterStatsStatus){
           scatterStatsStatus.textContent = message || '';
@@ -3984,6 +3995,17 @@
         }finally{
           scatterState.statsComputationPending=false;
           syncScatterRegressionOptionVisibility();
+          try{
+            const stillCurrent = scatterState.statsContext === context && scatterState.statsContextVersion === context.version;
+            if(stillCurrent && scatterState.statsLastRunVersion === context.version){
+              const sess = (window && window.Main && window.Main.session) ? window.Main.session : null;
+              if(sess && typeof sess.persistActiveTabState === 'function'){
+                sess.persistActiveTabState(undefined, { reason: 'scatter-stats-computed' });
+              }
+            }
+          }catch(e){
+            console.debug('Debug: persistActiveTabState after scatter compute failed', { err: e?.message || String(e) });
+          }
         }
       }
 
@@ -5073,6 +5095,7 @@
           scheduleDrawScatter();
           if(!scatterAutoDrawState.autoDrawEnabled){
             scatterThresholdSelectionPending = true;
+            persistTabState('scatter-log2fc-input');
             return;
           }
           syncScatterThresholdSelection();
@@ -5084,6 +5107,7 @@
           scheduleDrawScatter();
           if(!scatterAutoDrawState.autoDrawEnabled){
             scatterThresholdSelectionPending = true;
+            persistTabState('scatter-neglogp-input');
             return;
           }
           syncScatterThresholdSelection();
@@ -5095,6 +5119,7 @@
           scheduleDrawScatter();
           if(!scatterAutoDrawState.autoDrawEnabled){
             scatterThresholdSelectionPending = true;
+            persistTabState('scatter-significant-labels-change');
           }
         });
       }
@@ -5104,6 +5129,7 @@
           scatterColorMode.value = scatterColorModeDesired;
           syncScatterColorModeUI(scatterColorModeApplied);
           console.debug('Debug: scatter color mode changed',{ value: scatterColorModeDesired });
+          persistTabState('scatter-color-mode-change');
           scheduleDrawScatter();
         });
       }
@@ -5152,6 +5178,7 @@
           }
           if(el===scatterStatType){
             requestScatterStatsContextRefresh(`${el.id||'scatter-control'}-change`);
+            persistTabState('scatter-stat-type-change');
           }else if(el===scatterShowDiagnostics && scatterHasComputedStats()){
             try{
               runScatterStatsComputation(scatterState.statsContext);
@@ -5222,6 +5249,7 @@
         scatterRegressionMode.addEventListener('change',()=>{
           console.debug('Debug: scatter regression mode change',{ value: scatterRegressionMode.value });
           requestScatterStatsContextRefresh('regression-mode-change');
+          persistTabState('scatter-regression-mode-change');
           scheduleDrawScatter();
         });
       }
@@ -8018,7 +8046,17 @@
                 z: scatterState.rotation.quaternion.z
               } : null
             } : null,
-            labelPositions: scatterLabelPositions || null
+            labelPositions: scatterLabelPositions || null,
+            stats: {
+              resultsHtml: (scatterStatsResults ? (scatterStatsResults.innerHTML || '') : null),
+              lastRunVersion: Number.isFinite(scatterState.statsLastRunVersion) ? scatterState.statsLastRunVersion : 0,
+              contextSignature: scatterState.statsContextSignature || null,
+              contextVersion: Number.isFinite(scatterState.statsContextVersion) ? scatterState.statsContextVersion : 0,
+              statType: scatterStatType ? scatterStatType.value : undefined,
+              regressionMode: scatterRegressionMode ? scatterRegressionMode.value : undefined,
+              showIntervals: scatterShowIntervals ? !!scatterShowIntervals.checked : undefined,
+              showDiagnostics: scatterShowDiagnostics ? !!scatterShowDiagnostics.checked : undefined
+            }
           }
         };
       }
@@ -8215,6 +8253,41 @@
             stats: c.labelPositions.stats || null,
             legend: c.labelPositions.legend || null
           };
+        }
+        // Restore previously computed statistics results (if present in payload)
+        try{
+          if(c.stats && typeof c.stats === 'object'){
+            const savedHtml = c.stats.resultsHtml;
+            const savedVersion = Number.isFinite(Number(c.stats.lastRunVersion)) ? Number(c.stats.lastRunVersion) : 0;
+            const savedSig = typeof c.stats.contextSignature === 'string' ? c.stats.contextSignature : null;
+            const savedCtxVer = Number.isFinite(Number(c.stats.contextVersion)) ? Number(c.stats.contextVersion) : 0;
+            const savedStatType = typeof c.stats.statType === 'string' ? c.stats.statType : null;
+            const savedRegressionMode = typeof c.stats.regressionMode === 'string' ? c.stats.regressionMode : null;
+            const savedShowIntervals = c.stats.showIntervals === true;
+            const savedShowDiagnostics = c.stats.showDiagnostics === true;
+            if(scatterStatsResults && savedHtml != null){
+              try{ scatterStatsResults.innerHTML = savedHtml; }catch(e){ scatterStatsResults.textContent = String(savedHtml || ''); }
+            }
+            // restore control values if present
+            if(savedStatType && scatterStatType){ scatterStatType.value = savedStatType; }
+            if(savedRegressionMode && scatterRegressionMode){ scatterRegressionMode.value = savedRegressionMode; }
+            if(typeof c.stats.showIntervals === 'boolean' && scatterShowIntervals){ scatterShowIntervals.checked = savedShowIntervals; }
+            if(typeof c.stats.showDiagnostics === 'boolean' && scatterShowDiagnostics){ scatterShowDiagnostics.checked = savedShowDiagnostics; }
+
+            scatterState.statsLastRunVersion = savedVersion;
+            scatterState.statsContextSignature = savedSig;
+            scatterState.statsContextVersion = savedCtxVer || scatterState.statsContextVersion;
+            const hasResults = !!(scatterStatsResults && scatterStatsResults.childNodes && scatterStatsResults.childNodes.length);
+            if(scatterState.statsLastRunVersion === scatterState.statsContextVersion && hasResults){
+              setScatterStatsStatus('Statistics up to date.');
+              updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
+              syncScatterRegressionOptionVisibility();
+            }
+            // ensure stats context reflects restored control values
+            requestScatterStatsContextRefresh('payload-restored');
+          }
+        }catch(err){
+          console.debug('Debug: scatter restore stats failed', { err: err?.message || String(err) });
         }
         syncScatterGraphTypeUI();
         scheduleDrawScatter();
