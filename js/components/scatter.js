@@ -110,17 +110,17 @@
   const BROKEN_AXIS_DEFAULT_SEGMENT = { start: 0, end: 1 };
 
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
-  global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
+  if(typeof global.DEFAULT_SCATTER_COLORS === 'undefined') global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
 
-  const SIGNIFICANT_COLOR = global.SIGNIFICANT_COLOR
-    || DEFAULT_SCATTER_COLORS[0]
-    || '#e41a1c';
-  global.SIGNIFICANT_COLOR = SIGNIFICANT_COLOR;
+  const SIGNIFICANT_COLOR = (typeof global.SIGNIFICANT_COLOR !== 'undefined' && global.SIGNIFICANT_COLOR) 
+    ? global.SIGNIFICANT_COLOR
+    : (DEFAULT_SCATTER_COLORS[0] || '#e41a1c');
+  if(typeof global.SIGNIFICANT_COLOR === 'undefined') global.SIGNIFICANT_COLOR = SIGNIFICANT_COLOR;
 
-  const DEFAULT_NON_SIG_COLOR = global.DEFAULT_NON_SIG_COLOR
-    || DEFAULT_SCATTER_COLORS[DEFAULT_SCATTER_COLORS.length - 1]
-    || '#999999';
-  global.DEFAULT_NON_SIG_COLOR = DEFAULT_NON_SIG_COLOR;
+  const DEFAULT_NON_SIG_COLOR = (typeof global.DEFAULT_NON_SIG_COLOR !== 'undefined' && global.DEFAULT_NON_SIG_COLOR)
+    ? global.DEFAULT_NON_SIG_COLOR
+    : (DEFAULT_SCATTER_COLORS[DEFAULT_SCATTER_COLORS.length - 1] || '#999999');
+  if(typeof global.DEFAULT_NON_SIG_COLOR === 'undefined') global.DEFAULT_NON_SIG_COLOR = DEFAULT_NON_SIG_COLOR;
 
   const GRAPH_TYPE_DEFAULTS = Object.freeze({
     scatter: Object.freeze({ title: 'Scatter plot' }),
@@ -131,7 +131,7 @@
   const MAX_SIGNIFICANT_ANNOTATIONS = Number.isFinite(global.MAX_SIGNIFICANT_ANNOTATIONS)
     ? global.MAX_SIGNIFICANT_ANNOTATIONS
     : 25;
-  global.MAX_SIGNIFICANT_ANNOTATIONS = MAX_SIGNIFICANT_ANNOTATIONS;
+  if(typeof global.MAX_SIGNIFICANT_ANNOTATIONS === 'undefined') global.MAX_SIGNIFICANT_ANNOTATIONS = MAX_SIGNIFICANT_ANNOTATIONS;
 
   const scatterState = {
     viewMode: '2d',
@@ -3582,7 +3582,7 @@
       };
       scatterHot = ensureScatterHotForActiveTab();
       scatter.__ensureHotForActiveTab = ensureScatterHotForActiveTab;
-      global.DEBUG_SCATTER=true;
+      if(typeof global.DEBUG_SCATTER === 'undefined') global.DEBUG_SCATTER = true;
       const scatterExamples={
         scatter:[
           ['Label','X Value','Y Value','',SCATTER_POINT_LABEL_HEADER],

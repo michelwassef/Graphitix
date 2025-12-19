@@ -4648,10 +4648,14 @@
   }
 
   function createSignificanceControlConfig(orientation){
+    const activeTab = (typeof Shared !== 'undefined' && Shared.hot && typeof Shared.hot.resolveActiveTabId === 'function')
+      ? Shared.hot.resolveActiveTabId()
+      : null;
+    const scopeId = activeTab ? `box-${activeTab}` : 'box';
     return {
       orientation: orientation === 'horizontal' ? 'horizontal' : 'vertical',
-      scopeId: 'box',
-      undoScope: 'boxGraphPanel',
+      scopeId: scopeId,
+      undoScope: `${scopeId}GraphPanel`,
       getThickness: () => getSignificanceThickness(),
       getColor: () => getSignificanceColor(),
       getWhiskers: () => getSignificanceWhiskers(),

@@ -7540,7 +7540,7 @@
     };
     lineHot = ensureLineHotForActiveTab();
     line.__ensureHotForActiveTab = ensureLineHotForActiveTab;
-    global.DEBUG_LINE=true;
+    if(typeof global.DEBUG_LINE === 'undefined') global.DEBUG_LINE = true;
     console.debug('Debug: lineHot initialized',{rows:DEFAULT_ROWS,cols:LINE_DEFAULT_COLS});
 
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
