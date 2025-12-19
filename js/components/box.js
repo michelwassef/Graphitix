@@ -4648,10 +4648,8 @@
   }
 
   function createSignificanceControlConfig(orientation){
-    const activeTab = (typeof Shared !== 'undefined' && Shared.hot && typeof Shared.hot.resolveActiveTabId === 'function')
-      ? Shared.hot.resolveActiveTabId()
-      : null;
-    const scopeId = activeTab ? `box-${activeTab}` : 'box';
+    // Use the shared 'box' toolbar scope so the FORMAT host exists
+    const scopeId = 'box';
     return {
       orientation: orientation === 'horizontal' ? 'horizontal' : 'vertical',
       scopeId: scopeId,
