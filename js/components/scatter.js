@@ -3721,8 +3721,9 @@
       const scatterColorModeRow=$('#scatterColorModeRow');
       let scatterColorModeApplied = 'solid';
       let scatterColorModeDesired = SCATTER_DENSITY_MODE_DEFAULT;
-      const scatterShowIntervals=$('#scatterShowIntervals');
-      const scatterStatsRegressionOptionsRow=(scatterShowIntervals||scatterShowLine)?.closest('.config-panel__line--checkboxes')||null;
+      const scatterShowCI = $('#scatterShowCI');
+      const scatterShowPI = $('#scatterShowPI');
+      const scatterStatsRegressionOptionsRow=(scatterShowLine)?.closest('.config-panel__line--checkboxes')||null;
       if(scatterStatsRegressionOptionsRow){
         scatterStatsRegressionOptionsRow.hidden=true;
         scatterStatsRegressionOptionsRow.style.display='none';
@@ -4054,7 +4055,9 @@
           }
           const method=scatterStatType?.value || 'pearson';
           const regressionModeValue=scatterRegressionMode ? (scatterRegressionMode.value || 'linear') : 'linear';
-          const showIntervals=!!scatterShowIntervals?.checked;
+          const showLineMaster = !!(scatterShowLine && scatterShowLine.checked);
+          const showCI = !!(showLineMaster && scatterShowCI && scatterShowCI.checked);
+          const showPI = !!(showLineMaster && scatterShowPI && scatterShowPI.checked);
           const showDiagnostics=!!scatterShowDiagnostics?.checked;
           const controlSignature=getScatterStatsControlSignature();
           let stats=context.precomputedStats;
@@ -4119,12 +4122,12 @@
             rows.push({ metric:'Residual mean', value:formatMetricValue(regressionModel.residuals.mean) });
             rows.push({ metric:'Residual SD', value:formatMetricValue(regressionModel.residuals.sd) });
           }
-          if(showIntervals && regressionModel?.intervals?.summary){
+          if((showCI || showPI) && regressionModel?.intervals?.summary){
             const summary=regressionModel.intervals.summary;
-            if(Number.isFinite(summary.ciMin) && Number.isFinite(summary.ciMax)){
+            if(showCI && Number.isFinite(summary.ciMin) && Number.isFinite(summary.ciMax)){
               rows.push({ metric:'Confidence interval (y)', value:`${formatMetricValue(summary.ciMin)} – ${formatMetricValue(summary.ciMax)}` });
             }
-            if(Number.isFinite(summary.piMin) && Number.isFinite(summary.piMax)){
+            if(showPI && Number.isFinite(summary.piMin) && Number.isFinite(summary.piMax)){
               rows.push({ metric:'Prediction interval (y)', value:`${formatMetricValue(summary.piMin)} – ${formatMetricValue(summary.piMax)}` });
             }
           }
@@ -4243,11 +4246,13 @@
             scatterShowPlotStats.checked = false;
           }
         }
-        if(scatterShowIntervals){
-          scatterShowIntervals.disabled = disableRegression;
-          if(disableRegression && scatterShowIntervals.checked){
-            scatterShowIntervals.checked = false;
-          }
+        if(scatterShowCI){
+          scatterShowCI.disabled = disableRegression;
+          if(disableRegression && scatterShowCI.checked){ scatterShowCI.checked = false; }
+        }
+        if(scatterShowPI){
+          scatterShowPI.disabled = disableRegression;
+          if(disableRegression && scatterShowPI.checked){ scatterShowPI.checked = false; }
         }
         if(scatterShowDiagnostics){
           scatterShowDiagnostics.disabled = disableRegression;
@@ -4564,8 +4569,13 @@
             scatterShowPlotStats.checked=false;
           }
         }
-        if(scatterShowIntervals){
-          scatterShowIntervals.disabled=disableRegressionControls;
+        if(scatterShowCI){
+          scatterShowCI.disabled = disableRegressionControls;
+          if(disableRegressionControls && scatterShowCI.checked){ scatterShowCI.checked = false; }
+        }
+        if(scatterShowPI){
+          scatterShowPI.disabled = disableRegressionControls;
+          if(disableRegressionControls && scatterShowPI.checked){ scatterShowPI.checked = false; }
         }
         if(scatterShowDiagnostics){
           scatterShowDiagnostics.disabled=disableRegressionControls;
@@ -4610,7 +4620,9 @@
           regressionMode: scatterRegressionMode?.value || 'linear',
           showLine: !!scatterShowLine?.checked,
           showLineStats: !!scatterShowPlotStats?.checked,
-          showIntervals: !!scatterShowIntervals?.checked,
+          showCI: !!(scatterShowLine && scatterShowCI && scatterShowCI.checked),
+          showPI: !!(scatterShowLine && scatterShowPI && scatterShowPI.checked),
+          showIntervals: !!(scatterShowLine && ((scatterShowCI && scatterShowCI.checked) || (scatterShowPI && scatterShowPI.checked))),
           showDiagnostics: !!scatterShowDiagnostics?.checked,
           logX: !!scatterLogX?.checked,
           logY: !!scatterLogY?.checked
@@ -5030,13 +5042,16 @@
                 scatterRegressionMode.value=recommendation.regression;
               }
               if(scatterShowLine){
-                scatterShowLine.checked=!!recommendation.showLine;
+                scatterShowLine.checked=!!recommendation.showLine || !!recommendation.showIntervals;
               }
               if(scatterShowPlotStats && typeof recommendation.showLineStats === 'boolean'){
                 scatterShowPlotStats.checked=recommendation.showLineStats;
               }
-              if(scatterShowIntervals){
-                scatterShowIntervals.checked=!!recommendation.showIntervals;
+              if(scatterShowCI){
+                scatterShowCI.checked = !!recommendation.showIntervals;
+              }
+              if(scatterShowPI){
+                scatterShowPI.checked = !!recommendation.showIntervals;
               }
               if(scatterShowDiagnostics){
                 scatterShowDiagnostics.checked=!!recommendation.showDiagnostics;
@@ -5166,7 +5181,7 @@
         chartStyle.renderFontSizeLabel({ element: scatterFontSizeVal, pt: Number(scatterFontSize.value), input: scatterFontSize, manual: true });
         scheduleDrawScatter();
       });
-      [scatterShowGrid,scatterStatType,scatterOriginMode,scatterShowLine,scatterShowPlotStats,scatterShowIntervals,scatterShowDiagnostics]
+      [scatterShowGrid,scatterStatType,scatterOriginMode,scatterShowLine,scatterShowPlotStats,scatterShowCI,scatterShowPI,scatterShowDiagnostics]
         .forEach(el=>el&&el.addEventListener('change',()=>{
           console.debug('Debug: scatter config changed', { id: el.id, checked: el.checked, value: el.value });
           if(el===scatterOriginMode){
@@ -5189,6 +5204,19 @@
           }
           scheduleDrawScatter();
         }));
+      // CI/PI controls depend on the trend line checkbox (scatterShowLine).
+      const updateCIEnabled = ()=>{
+        const masterOn = !!(scatterShowLine && scatterShowLine.checked);
+        const regressionDisabled = !!(scatterShowLine && scatterShowLine.disabled);
+        if(scatterShowCI){ scatterShowCI.disabled = regressionDisabled || !masterOn; }
+        if(scatterShowPI){ scatterShowPI.disabled = regressionDisabled || !masterOn; }
+      };
+      updateCIEnabled();
+      if(scatterShowLine){
+        scatterShowLine.addEventListener('change',()=>{ updateCIEnabled(); persistTabState('scatter-trendline-change'); scheduleDrawScatter(); });
+      }
+      if(scatterShowCI){ scatterShowCI.addEventListener('change',()=>{ persistTabState('scatter-interval-ci-change'); scheduleDrawScatter(); }); }
+      if(scatterShowPI){ scatterShowPI.addEventListener('change',()=>{ persistTabState('scatter-interval-pi-change'); scheduleDrawScatter(); }); }
       const handleScatterLogToggle=(axis,checkbox)=>{
         checkbox?.addEventListener('change',()=>{
           const enabling=!!checkbox.checked;
@@ -5588,7 +5616,7 @@
         debug('Debug: scatter legend toggle state',{ showLegend });
         let showLine=scatterShowLine.checked;
         let showLineStats = scatterShowPlotStats ? scatterShowPlotStats.checked : false;
-        const showIntervals = !!(scatterShowIntervals && scatterShowIntervals.checked);
+        const showIntervals = !!(showLine && ((scatterShowCI && scatterShowCI.checked) || (scatterShowPI && scatterShowPI.checked)));
         const showDiagnostics = !!(scatterShowDiagnostics && scatterShowDiagnostics.checked);
         const graphType=scatterGraphTypeSelect?.value || 'scatter';
         scatterCurrentGraphType=graphType;
@@ -7576,7 +7604,10 @@
             if(regressionModel){
               const intervalSamplesRaw = Array.isArray(regressionModel.intervals?.samples) ? regressionModel.intervals.samples.slice() : [];
               const intervalSamples = intervalSamplesRaw.sort((a,b)=> (a?.x ?? 0) - (b?.x ?? 0));
-              const intervalLayer = (showIntervals && intervalSamples.length >= 2) ? document.createElementNS(NS,'g') : null;
+              const showLineMaster = !!(scatterShowLine && scatterShowLine.checked);
+              const drawCI = !!(showLineMaster && scatterShowCI && scatterShowCI.checked);
+              const drawPI = !!(showLineMaster && scatterShowPI && scatterShowPI.checked);
+              const intervalLayer = ((drawCI || drawPI) && intervalSamples.length >= 2) ? document.createElementNS(NS,'g') : null;
               if(intervalLayer){
                 intervalLayer.setAttribute('data-layer','interval-bands');
                 svg.appendChild(intervalLayer);
@@ -7618,8 +7649,8 @@
                   commands.push('Z');
                   return commands.join(' ');
                 };
-                const confidencePath = buildIntervalPath('ciLow','ciHigh');
-                const predictionPath = buildIntervalPath('piLow','piHigh');
+                const confidencePath = drawCI ? buildIntervalPath('ciLow','ciHigh') : null;
+                const predictionPath = drawPI ? buildIntervalPath('piLow','piHigh') : null;
                 if(confidencePath){
                   const confEl=document.createElementNS(NS,'path');
                   confEl.setAttribute('d',confidencePath);
@@ -8001,7 +8032,8 @@
             originY:scatterOriginY.value,
             showLine:scatterShowLine.checked,
             showPlotStats:scatterShowPlotStats ? scatterShowPlotStats.checked : false,
-            showIntervals:scatterShowIntervals ? scatterShowIntervals.checked : false,
+            showCI: scatterShowCI ? !!scatterShowCI.checked : undefined,
+            showPI: scatterShowPI ? !!scatterShowPI.checked : undefined,
             showDiagnostics:scatterShowDiagnostics ? scatterShowDiagnostics.checked : false,
             graphType:scatterGraphTypeSelect?.value || 'scatter',
             log2fcThreshold:scatterLog2FCThreshold?.value || '',
@@ -8054,7 +8086,8 @@
               contextVersion: Number.isFinite(scatterState.statsContextVersion) ? scatterState.statsContextVersion : 0,
               statType: scatterStatType ? scatterStatType.value : undefined,
               regressionMode: scatterRegressionMode ? scatterRegressionMode.value : undefined,
-              showIntervals: scatterShowIntervals ? !!scatterShowIntervals.checked : undefined,
+              showCI: scatterShowCI ? !!scatterShowCI.checked : undefined,
+              showPI: scatterShowPI ? !!scatterShowPI.checked : undefined,
               showDiagnostics: scatterShowDiagnostics ? !!scatterShowDiagnostics.checked : undefined
             }
           }
@@ -8177,9 +8210,9 @@
         if(scatterShowPlotStats){
           scatterShowPlotStats.checked = typeof c.showPlotStats === 'boolean' ? c.showPlotStats : !!c.showLine;
         }
-        if(scatterShowIntervals){
-          scatterShowIntervals.checked=!!c.showIntervals;
-        }
+        if(typeof c.showCI === 'boolean' && scatterShowCI){ scatterShowCI.checked = !!c.showCI; }
+        if(typeof c.showPI === 'boolean' && scatterShowPI){ scatterShowPI.checked = !!c.showPI; }
+        if((c.showCI || c.showPI) && scatterShowLine){ scatterShowLine.checked = true; }
         if(scatterShowDiagnostics){
           scatterShowDiagnostics.checked=!!c.showDiagnostics;
         }
@@ -8263,7 +8296,8 @@
             const savedCtxVer = Number.isFinite(Number(c.stats.contextVersion)) ? Number(c.stats.contextVersion) : 0;
             const savedStatType = typeof c.stats.statType === 'string' ? c.stats.statType : null;
             const savedRegressionMode = typeof c.stats.regressionMode === 'string' ? c.stats.regressionMode : null;
-            const savedShowIntervals = c.stats.showIntervals === true;
+            const savedShowCI = c.stats.showCI === true;
+            const savedShowPI = c.stats.showPI === true;
             const savedShowDiagnostics = c.stats.showDiagnostics === true;
             if(scatterStatsResults && savedHtml != null){
               try{ scatterStatsResults.innerHTML = savedHtml; }catch(e){ scatterStatsResults.textContent = String(savedHtml || ''); }
@@ -8271,7 +8305,9 @@
             // restore control values if present
             if(savedStatType && scatterStatType){ scatterStatType.value = savedStatType; }
             if(savedRegressionMode && scatterRegressionMode){ scatterRegressionMode.value = savedRegressionMode; }
-            if(typeof c.stats.showIntervals === 'boolean' && scatterShowIntervals){ scatterShowIntervals.checked = savedShowIntervals; }
+            if(typeof c.stats.showCI === 'boolean' && scatterShowCI){ scatterShowCI.checked = savedShowCI; }
+            if(typeof c.stats.showPI === 'boolean' && scatterShowPI){ scatterShowPI.checked = savedShowPI; }
+            if((savedShowCI || savedShowPI) && scatterShowLine){ scatterShowLine.checked = true; }
             if(typeof c.stats.showDiagnostics === 'boolean' && scatterShowDiagnostics){ scatterShowDiagnostics.checked = savedShowDiagnostics; }
 
             scatterState.statsLastRunVersion = savedVersion;
