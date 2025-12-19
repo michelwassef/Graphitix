@@ -12658,18 +12658,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         state.statsLastRunVersion = savedVersion;
         state.statsContextVersion = Number.isFinite(Number(savedVersion)) ? Number(savedVersion) : state.statsContextVersion || 0;
         state.statsContextSignature = savedSig;
+        state.statsContext = null;
+        state.statsComputationPending = false;
         const hasResults = !!(els.statsResults && els.statsResults.childNodes && els.statsResults.childNodes.length);
         if(state.statsLastRunVersion === state.statsContextVersion && hasResults){
           setStatsStatus('Statistics up to date.');
           updateStatsButtonState({ disabled: false, label: 'Recalculate statistics' });
           updateSignificanceControlState({ statsReady: true });
         }
-        // Ensure internal stats context matches restored controls and signature
-        try{
-          if(typeof requestStatsContextRefresh === 'function'){
-            requestStatsContextRefresh('payload-restored');
-          }
-        }catch(_e){ /* best-effort, don't fail payload apply */ }
       }
     }catch(err){
       console.debug('Debug: box restore stats results failed', { err: err?.message || String(err) });

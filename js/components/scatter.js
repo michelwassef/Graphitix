@@ -8277,14 +8277,14 @@
             scatterState.statsLastRunVersion = savedVersion;
             scatterState.statsContextSignature = savedSig;
             scatterState.statsContextVersion = savedCtxVer || scatterState.statsContextVersion;
+            scatterState.statsContext = null;
+            scatterState.statsComputationPending = false;
             const hasResults = !!(scatterStatsResults && scatterStatsResults.childNodes && scatterStatsResults.childNodes.length);
             if(scatterState.statsLastRunVersion === scatterState.statsContextVersion && hasResults){
               setScatterStatsStatus('Statistics up to date.');
               updateScatterStatsButtonState({ disabled:false, label:'Recalculate statistics' });
               syncScatterRegressionOptionVisibility();
             }
-            // ensure stats context reflects restored control values
-            requestScatterStatsContextRefresh('payload-restored');
           }
         }catch(err){
           console.debug('Debug: scatter restore stats failed', { err: err?.message || String(err) });

@@ -4803,6 +4803,8 @@
           // leave button enabled so user can (re)calculate
           updateLineStatsButtonState({ disabled: false, label: 'Calculate statistics' });
         }
+        lineStatsState.context = null;
+        lineStatsState.computationPending = false;
         console.debug('Debug: line stats restored from payload', { signature: s.signature, version: s.version, lastRunVersion: s.lastRunVersion });
       }catch(e){
         console.debug('Debug: restore line stats failed', e?.message || String(e));
@@ -4815,16 +4817,12 @@
         lineStatsState.signature = null;
         lineStatsState.version = 0;
         lineStatsState.lastRunVersion = 0;
+        lineStatsState.context = null;
+        lineStatsState.computationPending = false;
         updateLineStatsButtonState({ disabled: true, label: 'Calculate statistics' });
       }catch(err){
         console.debug('Debug: clearing line stats during payload apply failed', { err: err?.message || String(err) });
       }
-    }
-    // ensure stats context reflects restored control values and signature
-    try{
-      requestLineStatsContextRefresh('payload-restored');
-    }catch(err){
-      console.debug('Debug: requestLineStatsContextRefresh failed during payload apply', { err: err?.message || String(err) });
     }
     ensureLineLabelColors(Object.keys(lineLabelColors));
     ensureLineLegendControlPlacement();
