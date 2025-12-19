@@ -3146,6 +3146,16 @@
     }
     applyConfig(payload.config);
     state.lastStats = payload.stats || null;
+    if(!payload.stats){
+      renderStatsLead(refs.statsSummary, 'Enter at least one group with time and event values to compute statistics.');
+      renderStatsLead(refs.statsLogRank, 'Log-rank test results will appear after statistics are calculated.');
+      if(refs.statsHazardRatios){
+        renderStatsLead(refs.statsHazardRatios, 'Enable "Show Hazard Ratios" above to compute pairwise comparisons.');
+      }
+      if(refs.statsCox){
+        renderStatsLead(refs.statsCox, 'Enable "Fit Cox Model" above to review coefficient estimates.');
+      }
+    }
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }

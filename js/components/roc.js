@@ -187,6 +187,7 @@
     compareSel: null,
     compareLabel: null,
     compareResult: null,
+    compareSelection: null,
     minSvgWidth: 0,
     layout: null,
     fileHandle: null,
@@ -204,6 +205,16 @@
   let rocAutoDrawManager = null;
   let scheduleDrawRocRaw = () => {};
   const rocUndoManager = Shared.undoManager || null;
+  function persistRocTabState(reason){
+    try{
+      const sess = window.Main?.session;
+      if(sess && typeof sess.persistActiveTabState === 'function'){
+        sess.persistActiveTabState(undefined, { reason: reason || 'roc-stats-change' });
+      }
+    }catch(err){
+      console.debug('Debug: persistRocTabState failed', { err: err?.message || String(err) });
+    }
+  }
   function recordRocChange(label, previous, next, apply){
     if(!rocUndoManager || typeof rocUndoManager.recordStateChange !== 'function'){
       return;
@@ -933,6 +944,7 @@
         state.diffMethod=recommendation.diffMethod;
         rocAdvisorState.lastApplied={ ...recommendation };
         console.debug('Debug: roc statsAdvisor applied',{ diffMethod:recommendation.diffMethod, answers:{ ...answers } });
+        persistRocTabState('roc-stats-advisor-apply');
         renderStatsControls();
         state.scheduleDraw?.();
       });
@@ -982,6 +994,7 @@
     });
     select.addEventListener('change', () => {
       state.diffMethod = select.value;
+      persistRocTabState('roc-diff-method-change');
       console.debug('Debug: ROC diff method change', state.diffMethod);
       state.scheduleDraw?.();
     });
@@ -993,6 +1006,8 @@
 
     state.compareSel = document.createElement('select');
     state.compareSel.addEventListener('change', () => {
+      state.compareSelection = state.compareSel.value;
+      persistRocTabState('roc-compare-change');
       console.debug('Debug: ROC compare pair change', state.compareSel.value);
       state.scheduleDraw?.();
     });
@@ -1586,7 +1601,7 @@
     ensureLabelColors(legendLabels);
 
     if(state.compareSel){
-      const previous = state.compareSel.value;
+      const previous = state.compareSelection || state.compareSel.value || '';
       state.compareSel.innerHTML = '';
       const options = [];
       for(let i = 0; i < series.length; i += 1){
@@ -1612,6 +1627,7 @@
       if(state.compareResult){
         state.compareResult.style.display = display;
       }
+      state.compareSelection = state.compareSel.value;
     }
 
     const plotEl = refs.plotDiv;
@@ -2204,6 +2220,10 @@
       minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
       minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions)
     };
+    payload.stats = {
+      diffMethod: state.diffMethod,
+      compareSelection: state.compareSelection || state.compareSel?.value || null
+    };
     payload.config.labelPositions = state.labelPositions || null;
     console.debug('Debug: roc.getPayload captured state', {
       rows: payload.data?.length || 0,
@@ -2265,6 +2285,20 @@
     if(axisConfig){
       applyAxisSettings(axisConfig);
     }
+    const statsConfig = payload.stats || null;
+    if(statsConfig){
+      if(typeof statsConfig.diffMethod === 'string'){
+        state.diffMethod = statsConfig.diffMethod;
+      }else{
+        state.diffMethod = 'delong';
+      }
+      state.compareSelection = typeof statsConfig.compareSelection === 'string'
+        ? statsConfig.compareSelection
+        : null;
+    }else{
+      state.diffMethod = 'delong';
+      state.compareSelection = null;
+    }
     // Restore label positions if saved
     if(config.labelPositions){
       state.labelPositions = {
@@ -2275,6 +2309,11 @@
       };
     }
     renderStatsControls();
+    if(refs.graphType){
+      renderRocStatsSummary([], refs.graphType.value || 'roc');
+    }else{
+      renderRocStatsSummary([], 'roc');
+    }
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }

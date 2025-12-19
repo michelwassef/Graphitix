@@ -4064,6 +4064,8 @@
       }
     }
     applyConfig(obj.config || {});
+    state.lastStats = null;
+    updateStats(null);
     state.scheduleDraw();
     debugLog('Debug: heatmap payload applied', {
       source: meta.source || 'unknown',

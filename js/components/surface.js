@@ -1652,6 +1652,8 @@
     }
     applySettingsToControls();
     updateAxisOptions();
+    state.lastStats = null;
+    updateStats(null);
     if(typeof state.scheduleDraw === 'function'){
       state.scheduleDraw();
     }

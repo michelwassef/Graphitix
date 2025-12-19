@@ -461,6 +461,10 @@
           console.debug('Debug: pie scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
         }
       }
+      const statsTarget = document.getElementById('pieStatsResults');
+      if(statsTarget){
+        statsTarget.innerHTML = '<div class="stats-table-message">Statistics will appear after rendering.</div>';
+      }
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw();
       }

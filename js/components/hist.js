@@ -785,6 +785,9 @@
           console.debug('Debug: hist scheduleDraw proxy suppressing further logs'); // Debug: proxy log suppression notice
         }
       }
+      if(document.getElementById('histStatsResults')){
+        updateHistStats([], []);
+      }
       if(typeof state.scheduleDraw === 'function'){
         state.scheduleDraw();
       }

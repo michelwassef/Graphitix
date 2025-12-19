@@ -6190,6 +6190,9 @@
             hasScree: Array.isArray(c.stats?.scree) && c.stats.scree.length > 0,
             method: c.stats?.method || null
           });
+        }else{
+          resetStatsPanel('');
+          lastPcaStats = null;
         }
         // Restore label positions if saved
         if(c.labelPositions){
