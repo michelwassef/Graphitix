@@ -250,7 +250,6 @@
       const menu = dom.tabContextMenu || null;
       const menuReuse = dom.tabContextDuplicateReuse || null;
       const menuEmpty = dom.tabContextDuplicateEmpty || null;
-      const menuCancel = dom.tabContextMenuCancel || null;
       let currentContextTabId = null;
 
       function hideTabContextMenu() {
@@ -258,16 +257,42 @@
         currentContextTabId = null;
       }
 
-      function showTabContextMenuAt(x, y, tabId) {
-        if (!menu) return;
+      function showTabContextMenuForButton(targetBtn, tabId) {
+        if (!menu || !targetBtn) return;
         currentContextTabId = tabId || null;
-        menu.style.left = `${x}px`;
-        menu.style.top = `${y}px`;
-        menu.removeAttribute('hidden');
-        // focus first actionable item for keyboard users
-        requestAnimationFrame(() => {
-          try { if (menuReuse) menuReuse.focus(); } catch (e) {}
-        });
+        // measure menu size by revealing it invisibly, then position so its bottom abuts the tab's bottom
+        try {
+          const rect = targetBtn.getBoundingClientRect();
+          // make menu available for measurement but keep it invisible
+          menu.style.visibility = 'hidden';
+          menu.removeAttribute('hidden');
+          requestAnimationFrame(() => {
+            const mRect = menu.getBoundingClientRect();
+            let left = rect.left;
+            // clamp horizontally to viewport with small padding
+            const pad = 8;
+            if (left + mRect.width > window.innerWidth - pad) {
+              left = Math.max(pad, window.innerWidth - mRect.width - pad);
+            }
+            if (left < pad) left = pad;
+            // position top so menu bottom equals tab bottom
+            let top = rect.bottom - mRect.height;
+            // if menu would overflow above viewport, fallback to placing below the tab
+            if (top < pad) {
+              top = rect.bottom + pad;
+            }
+            menu.style.left = `${Math.round(left)}px`;
+            menu.style.top = `${Math.round(top)}px`;
+            menu.style.visibility = '';
+            // focus first actionable item for keyboard users
+            try { if (menuReuse) menuReuse.focus(); } catch (e) {}
+          });
+        } catch (err) {
+          // fallback to cursor position if measurement fails
+          menu.style.left = `${Math.min(window.innerWidth - 16, 0)}px`;
+          menu.style.top = `${Math.min(window.innerHeight - 16, 0)}px`;
+          menu.removeAttribute('hidden');
+        }
       }
 
       function performDuplicateFromSource(sourceId, preferEmpty) {
@@ -332,16 +357,12 @@
         }
         event.preventDefault();
         const tabId = targetBtn.dataset.tabId;
-        const rect = dom.tabsList.getBoundingClientRect();
-        const x = Math.min(window.innerWidth - 16, event.clientX);
-        const y = Math.min(window.innerHeight - 16, event.clientY - 8);
-        showTabContextMenuAt(x, y, tabId);
+        showTabContextMenuForButton(targetBtn, tabId);
       }, true);
 
       // menu actions
       if (menuReuse) menuReuse.addEventListener('click', () => { performDuplicateFromSource(currentContextTabId, false); });
       if (menuEmpty) menuEmpty.addEventListener('click', () => { performDuplicateFromSource(currentContextTabId, true); });
-      if (menuCancel) menuCancel.addEventListener('click', hideTabContextMenu);
 
       // hide on outside click or escape
       document.addEventListener('mousedown', event => {

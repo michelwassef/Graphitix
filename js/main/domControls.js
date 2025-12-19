@@ -53,8 +53,7 @@
       ,
       tabContextMenu: document.getElementById('tabContextMenu'),
       tabContextDuplicateReuse: document.getElementById('tabContextDuplicateReuse'),
-      tabContextDuplicateEmpty: document.getElementById('tabContextDuplicateEmpty'),
-      tabContextMenuCancel: document.getElementById('tabContextMenuCancel')
+      tabContextDuplicateEmpty: document.getElementById('tabContextDuplicateEmpty')
     };
     console.debug('Debug: domControls.createDomHandles generated', { keys: Object.keys(handles) });
     return handles;
