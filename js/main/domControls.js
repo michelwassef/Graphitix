@@ -50,6 +50,11 @@
       styleSyncStatus: document.getElementById('styleSyncStatus'),
       styleSyncApply: document.querySelector('#styleSyncPrompt [data-style-sync-apply]'),
       styleSyncCancel: document.querySelector('#styleSyncPrompt [data-style-sync-cancel]')
+      ,
+      tabContextMenu: document.getElementById('tabContextMenu'),
+      tabContextDuplicateReuse: document.getElementById('tabContextDuplicateReuse'),
+      tabContextDuplicateEmpty: document.getElementById('tabContextDuplicateEmpty'),
+      tabContextMenuCancel: document.getElementById('tabContextMenuCancel')
     };
     console.debug('Debug: domControls.createDomHandles generated', { keys: Object.keys(handles) });
     return handles;

@@ -244,6 +244,115 @@
       hasUnsavedHelpers: !!showUnsavedPrompt,
       hasDuplicateHelpers: !!hideDuplicatePrompt
     });
+    // Tab context menu: right-click on a tab to duplicate it (reuse data or start empty)
+    (function setupTabContextMenu() {
+      if (!dom || !dom.tabsList) return;
+      const menu = dom.tabContextMenu || null;
+      const menuReuse = dom.tabContextDuplicateReuse || null;
+      const menuEmpty = dom.tabContextDuplicateEmpty || null;
+      const menuCancel = dom.tabContextMenuCancel || null;
+      let currentContextTabId = null;
+
+      function hideTabContextMenu() {
+        try { if (menu) menu.setAttribute('hidden', 'hidden'); } catch(e){}
+        currentContextTabId = null;
+      }
+
+      function showTabContextMenuAt(x, y, tabId) {
+        if (!menu) return;
+        currentContextTabId = tabId || null;
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+        menu.removeAttribute('hidden');
+        // focus first actionable item for keyboard users
+        requestAnimationFrame(() => {
+          try { if (menuReuse) menuReuse.focus(); } catch (e) {}
+        });
+      }
+
+      function performDuplicateFromSource(sourceId, preferEmpty) {
+        hideTabContextMenu();
+        if (!sourceId) return;
+        const sourceTab = getTabById(sourceId);
+        if (!sourceTab) return;
+        hideDuplicatePrompt();
+        // persist current active tab state so its live payload is captured before UI switches
+        try {
+          const currentActive = getActiveTab();
+          if (currentActive && !currentActive.isWelcome) {
+            session.persistActiveTabState(currentActive, withSessionContext({ reason: 'duplicate-before-create' }));
+          }
+        } catch (e) {
+          console.debug('Debug: duplicate persistActiveTabState failed', { err: e });
+        }
+        // create new tab and copy type/title
+        const newTab = session.createTab({ duplicateSource: sourceTab.id });
+        newTab.type = sourceTab.type || null;
+        newTab.title = typeof session.generateUniqueTabTitle === 'function'
+          ? session.generateUniqueTabTitle(sourceTab.title || (newTab.title || 'Workspace'), { excludeTabId: newTab.id })
+          : (sourceTab.title || newTab.title);
+        workspaceState.tabs.push(newTab);
+        workspaceState.activeTabId = newTab.id;
+        renderTabs();
+        if (preferEmpty) {
+          const emptyPayload = (typeof domControls.ensureDefaultPayload === 'function')
+            ? domControls.ensureDefaultPayload(session, newTab.type, workspaces?.[newTab.type])
+            : null;
+          session.assignTabPayload(newTab, emptyPayload, { reason: 'duplicate-context-empty' });
+          newTab.layoutState = null;
+          newTab.layoutSignature = null;
+          showWorkspaceForTab(newTab);
+          session.markSessionDirty('duplicate-created-empty', { tabId: newTab.id, sourceId });
+          return;
+        }
+        const cloneFn = session.fastClonePayload || session.clonePayload;
+        const clonedPayload = (typeof cloneFn === 'function' && sourceTab?.payload)
+          ? cloneFn.call(session, sourceTab.payload)
+          : null;
+        const clonedLayout = (typeof cloneFn === 'function' && sourceTab?.layoutState)
+          ? cloneFn.call(session, sourceTab.layoutState)
+          : null;
+        if (clonedPayload) {
+          session.assignTabPayload(newTab, clonedPayload, { reason: 'duplicate-context-reuse' });
+        }
+        newTab.layoutState = clonedLayout;
+        newTab.layoutSignature = session.serializePayloadSignature
+          ? session.serializePayloadSignature(clonedLayout)
+          : null;
+        showWorkspaceForTab(newTab);
+        session.markSessionDirty('duplicate-created-reuse', { tabId: newTab.id, sourceId });
+      }
+
+      // Disable native browser context menu on tabs list to avoid conflicts
+      dom.tabsList.addEventListener('contextmenu', event => {
+        const targetBtn = event.target && event.target.closest && event.target.closest('[data-tab-id]');
+        if (!targetBtn) {
+          // allow native menu elsewhere
+          return;
+        }
+        event.preventDefault();
+        const tabId = targetBtn.dataset.tabId;
+        const rect = dom.tabsList.getBoundingClientRect();
+        const x = Math.min(window.innerWidth - 16, event.clientX);
+        const y = Math.min(window.innerHeight - 16, event.clientY - 8);
+        showTabContextMenuAt(x, y, tabId);
+      }, true);
+
+      // menu actions
+      if (menuReuse) menuReuse.addEventListener('click', () => { performDuplicateFromSource(currentContextTabId, false); });
+      if (menuEmpty) menuEmpty.addEventListener('click', () => { performDuplicateFromSource(currentContextTabId, true); });
+      if (menuCancel) menuCancel.addEventListener('click', hideTabContextMenu);
+
+      // hide on outside click or escape
+      document.addEventListener('mousedown', event => {
+        if (!menu || menu.hasAttribute('hidden')) return;
+        if (event.target && menu.contains(event.target)) return;
+        hideTabContextMenu();
+      });
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') hideTabContextMenu();
+      });
+    })();
     function performTabRemoval(tab, meta = {}) {
       if (!tab) {
         return;
