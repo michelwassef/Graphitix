@@ -847,6 +847,11 @@
     let normalizedFillPreviewRange = null;
     let fillDragRafPending = false;
     let pendingFillTarget = null;
+    let fillDragButtonsSeen = false;
+    let fillDragLastPointer = null;
+    let fillAutoScrollRafId = null;
+    let selectionDragLastPointer = null;
+    let selectionAutoScrollRafId = null;
 
     const normalizeRange = (range)=>{
       if(!range || !range.from || !range.to){
@@ -1069,15 +1074,114 @@
       return null;
     };
 
-    const getSelectionValuesInOrder = (selection)=>{
+    const isEmptySeedValue = (value)=>{
+      if(value === null || typeof value === 'undefined'){
+        return true;
+      }
+      if(typeof value === 'string'){
+        return value.trim() === '';
+      }
+      return false;
+    };
+
+    const classifySeedValue = (value)=>{
+      if(isEmptySeedValue(value)){
+        return { type: 'EMPTY', raw: '' };
+      }
+      const numeric = coerceNumber(value);
+      if(numeric !== null){
+        return { type: 'NUMBER', raw: value, numeric };
+      }
+      return { type: 'TEXT', raw: value };
+    };
+
+    const computeFillValues = (seedSequence, direction, count)=>{
+      const results = [];
+      const total = Math.max(0, Number(count) || 0);
+      if(!seedSequence || seedSequence.length === 0 || total === 0){
+        return results;
+      }
+      const typed = seedSequence.map(classifySeedValue);
+      const hasNumber = typed.some(entry => entry.type === 'NUMBER');
+      const hasText = typed.some(entry => entry.type === 'TEXT');
+      const hasEmpty = typed.some(entry => entry.type === 'EMPTY');
+      const isForward = direction === 'down' || direction === 'right';
+
+      if(hasNumber && hasText){
+        const pattern = seedSequence.map(normalizeFillValue);
+        const len = pattern.length;
+        for(let i = 0; i < total; i++){
+          const idx = isForward ? (i % len) : ((len - 1 - (i % len) + len) % len);
+          results.push(pattern[idx]);
+        }
+        return results;
+      }
+
+      if(hasNumber){
+        const numericValues = typed.filter(entry => entry.type === 'NUMBER').map(entry => entry.numeric);
+        if(numericValues.length === 0){
+          for(let i = 0; i < total; i++){
+            results.push('');
+          }
+          return results;
+        }
+        if(numericValues.length === 1){
+          const val = numericValues[0];
+          for(let i = 0; i < total; i++){
+            results.push(val);
+          }
+          return results;
+        }
+        const step = numericValues[numericValues.length - 1] - numericValues[numericValues.length - 2];
+        const anchor = isForward ? numericValues[numericValues.length - 1] : numericValues[0];
+        const signedStep = isForward ? step : -step;
+        for(let i = 0; i < total; i++){
+          results.push(anchor + signedStep * (i + 1));
+        }
+        return results;
+      }
+
+      const textValues = typed.filter(entry => entry.type === 'TEXT').map(entry => entry.raw);
+      if(textValues.length === 0){
+        for(let i = 0; i < total; i++){
+          results.push('');
+        }
+        return results;
+      }
+      const allSameText = textValues.every(value => value === textValues[0]);
+      if(!hasEmpty && allSameText){
+        for(let i = 0; i < total; i++){
+          results.push(textValues[0]);
+        }
+        return results;
+      }
+      const pattern = seedSequence.map(normalizeFillValue);
+      const len = pattern.length;
+      for(let i = 0; i < total; i++){
+        const idx = isForward ? (i % len) : ((len - 1 - (i % len) + len) % len);
+        results.push(pattern[idx]);
+      }
+      return results;
+    };
+
+    const getSeedSequenceForColumn = (selection, col)=>{
       if(!selection){
         return [];
       }
       const values = [];
       for(let r = selection.from.row; r <= selection.to.row; r++){
-        for(let c = selection.from.col; c <= selection.to.col; c++){
-          values.push(instance.getDataAtCell(r, c));
-        }
+        values.push(instance.getDataAtCell(r, col));
+      }
+      return values;
+    };
+
+    const getSeedSequenceForRow = (selection, row)=>{
+      if(!selection){
+        return [];
+      }
+      const values = [];
+      for(let c = selection.from.col; c <= selection.to.col; c++){
+        values.push(instance.getDataAtCell(row, c));
       }
       return values;
     };
@@ -1181,46 +1285,6 @@
       return null;
     };
 
-    const buildFillCellList = (selection, direction, preview)=>{
-      if(!selection || !direction || !preview){
-        return [];
-      }
-      const cells = [];
-      if(direction === 'down'){
-        for(let r = preview.from.row; r <= preview.to.row; r++){
-          for(let c = selection.from.col; c <= selection.to.col; c++){
-            cells.push({ row: r, col: c });
-          }
-        }
-        return cells;
-      }
-      if(direction === 'up'){
-        for(let r = preview.to.row; r >= preview.from.row; r--){
-          for(let c = selection.from.col; c <= selection.to.col; c++){
-            cells.push({ row: r, col: c });
-          }
-        }
-        return cells;
-      }
-      if(direction === 'right'){
-        for(let c = preview.from.col; c <= preview.to.col; c++){
-          for(let r = selection.from.row; r <= selection.to.row; r++){
-            cells.push({ row: r, col: c });
-          }
-        }
-        return cells;
-      }
-      if(direction === 'left'){
-        for(let c = preview.to.col; c >= preview.from.col; c--){
-          for(let r = selection.from.row; r <= selection.to.row; r++){
-            cells.push({ row: r, col: c });
-          }
-        }
-        return cells;
-      }
-      return cells;
-    };
-
     const applyFillDragPreview = ()=>{
       const selection = fillDragStartSelection;
       const direction = fillDragDirection;
@@ -1228,40 +1292,56 @@
       if(!selection || !direction || !preview){
         return false;
       }
-      const selectionValues = getSelectionValuesInOrder(selection);
-      if(!selectionValues.length){
-        return false;
-      }
-      const firstValue = selectionValues[0];
-      const lastValue = selectionValues[selectionValues.length - 1];
-      const numericFirst = coerceNumber(firstValue);
-      const numericLast = coerceNumber(lastValue);
-      const useLinear = selectionValues.length === 2 && numericFirst !== null && numericLast !== null;
-      const diff = useLinear ? (numericLast - numericFirst) : null;
-      const fillCells = buildFillCellList(selection, direction, preview);
-      if(!fillCells.length){
-        return false;
-      }
       const changes = [];
-      for(let i = 0; i < fillCells.length; i++){
-        const cell = fillCells[i];
-        let nextValue;
-        if(useLinear && Number.isFinite(diff)){
-          nextValue = numericLast + diff * (i + 1);
+      if(direction === 'down' || direction === 'up'){
+        const targetRows = [];
+        if(direction === 'down'){
+          for(let r = preview.from.row; r <= preview.to.row; r++){
+            targetRows.push(r);
+          }
         }else{
-          const patternValue = selectionValues[i % selectionValues.length];
-          nextValue = normalizeFillValue(patternValue);
+          for(let r = preview.to.row; r >= preview.from.row; r--){
+            targetRows.push(r);
+          }
         }
-        changes.push([cell.row, cell.col, nextValue]);
+        if(!targetRows.length){
+          return false;
+        }
+        for(let c = selection.from.col; c <= selection.to.col; c++){
+          const seedSequence = getSeedSequenceForColumn(selection, c);
+          const fillValues = computeFillValues(seedSequence, direction, targetRows.length);
+          for(let i = 0; i < targetRows.length; i++){
+            changes.push([targetRows[i], c, fillValues[i]]);
+          }
+        }
+      }else{
+        const targetCols = [];
+        if(direction === 'right'){
+          for(let c = preview.from.col; c <= preview.to.col; c++){
+            targetCols.push(c);
+          }
+        }else{
+          for(let c = preview.to.col; c >= preview.from.col; c--){
+            targetCols.push(c);
+          }
+        }
+        if(!targetCols.length){
+          return false;
+        }
+        for(let r = selection.from.row; r <= selection.to.row; r++){
+          const seedSequence = getSeedSequenceForRow(selection, r);
+          const fillValues = computeFillValues(seedSequence, direction, targetCols.length);
+          for(let i = 0; i < targetCols.length; i++){
+            changes.push([r, targetCols[i], fillValues[i]]);
+          }
+        }
       }
       if(changes.length){
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           console.debug('Debug: Shared.hot fill applied', {
             debugLabel,
             direction,
-            cells: changes.length,
-            linear: !!useLinear,
-            diff: useLinear ? diff : null
+            cells: changes.length
           });
         }
         instance.setDataAtCell(changes, 'fill');
@@ -1277,9 +1357,17 @@
       fillDragStartPoint = null;
       fillDragRafPending = false;
       pendingFillTarget = null;
+      fillDragButtonsSeen = false;
+      fillDragLastPointer = null;
+      fillAutoScrollRafId = null;
       if(normalizedFillPreviewRange){
         setFillPreviewRange(null);
       }
+    };
+
+    const resetSelectionAutoScroll = ()=>{
+      selectionDragLastPointer = null;
+      selectionAutoScrollRafId = null;
     };
 
     function startFillHandleDrag(event){
@@ -1301,6 +1389,11 @@
         y: typeof event?.clientY === 'number' ? event.clientY : 0
       };
       pendingFillTarget = null;
+      fillDragButtonsSeen = false;
+      fillDragLastPointer = {
+        x: typeof event?.clientX === 'number' ? event.clientX : null,
+        y: typeof event?.clientY === 'number' ? event.clientY : null
+      };
       if(normalizedFillPreviewRange){
         setFillPreviewRange(null);
       }
@@ -4627,6 +4720,24 @@
       const resolveRowIndexFromEvent = (event)=>{
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
         if(!target || typeof target.closest !== 'function'){
+          const x = typeof event?.clientX === 'number' ? event.clientX : null;
+          const y = typeof event?.clientY === 'number' ? event.clientY : null;
+          if(x != null && y != null){
+            try{
+              const doc = container?.ownerDocument || document;
+              const hit = doc.elementFromPoint?.(x, y);
+              const coords = resolveCellCoordsFromNode(hit);
+              if(coords){
+                return coords.row;
+              }
+            }catch(err){
+              // ignore
+            }
+            const estimated = estimateRowIndexFromPointer(y);
+            if(estimated != null){
+              return estimated;
+            }
+          }
           return null;
         }
         const rowNode = target.closest('.ag-row');
@@ -4636,7 +4747,28 @@
           return row;
         }
         const coords = resolveCellCoords(event);
-        return coords ? coords.row : null;
+        if(coords){
+          return coords.row;
+        }
+        const x = typeof event?.clientX === 'number' ? event.clientX : null;
+        const y = typeof event?.clientY === 'number' ? event.clientY : null;
+        if(x != null && y != null){
+          try{
+            const doc = container?.ownerDocument || document;
+            const hit = doc.elementFromPoint?.(x, y);
+            const coordsFromPoint = resolveCellCoordsFromNode(hit);
+            if(coordsFromPoint){
+              return coordsFromPoint.row;
+            }
+          }catch(err){
+            // ignore
+          }
+          const estimated = estimateRowIndexFromPointer(y);
+          if(estimated != null){
+            return estimated;
+          }
+        }
+        return null;
       };
 
       const resolveColIndexFromEvent = (event)=>{
@@ -4691,6 +4823,400 @@
         return coords ? coords.col : null;
       };
 
+      const resolveCellCoordsFromPoint = (x, y)=>{
+        if(x == null || y == null){
+          return null;
+        }
+        try{
+          const doc = container?.ownerDocument || document;
+          const hit = doc.elementFromPoint?.(x, y);
+          return resolveCellCoordsFromNode(hit);
+        }catch(err){
+          return null;
+        }
+      };
+
+      const queueFillDragPreviewUpdate = (target)=>{
+        pendingFillTarget = target;
+        if(fillDragRafPending){
+          return;
+        }
+        fillDragRafPending = true;
+        raf(()=>{
+          fillDragRafPending = false;
+          const activeTarget = pendingFillTarget;
+          pendingFillTarget = null;
+          if(!isFillHandleDragging || !activeTarget){
+            return;
+          }
+          const selection = fillDragStartSelection;
+          if(!selection){
+            return;
+          }
+          const direction = resolveFillDirection(activeTarget);
+          if(direction){
+            fillDragDirection = direction;
+          }
+          const activeDirection = fillDragDirection;
+          if(!activeDirection){
+            if(normalizedFillPreviewRange){
+              setFillPreviewRange(null);
+            }
+            return;
+          }
+          if(activeDirection === 'down' || activeDirection === 'up'){
+            let row = activeTarget.row;
+            if(!Number.isInteger(row)){
+              row = estimateRowIndexFromPointer(activeTarget.clientY);
+            }
+            if(!Number.isInteger(row)){
+              return;
+            }
+            const cappedRow = Math.max(0, Math.min(row, Math.max(0, autoGrowthConfig.rowCap - 1)));
+            ensureRowsForTarget(cappedRow);
+            const preview = buildFillPreviewRange(selection, activeDirection, cappedRow);
+            if(!rangesEqual(preview, normalizedFillPreviewRange)){
+              setFillPreviewRange(preview);
+            }
+            return;
+          }
+          const col = activeTarget.col;
+          if(!Number.isInteger(col)){
+            return;
+          }
+          const cappedCol = Math.max(0, Math.min(col, Math.max(0, autoGrowthConfig.colCap - 1)));
+          ensureColsForTarget(cappedCol);
+          const preview = buildFillPreviewRange(selection, activeDirection, cappedCol);
+          if(!rangesEqual(preview, normalizedFillPreviewRange)){
+            setFillPreviewRange(preview);
+          }
+        });
+      };
+
+      const AUTO_SCROLL_THRESHOLD = 24;
+      const AUTO_SCROLL_MAX_STEP = 28;
+      const computeAutoScrollStep = (distance)=>{
+        const ratio = Math.min(1, Math.max(0, distance / AUTO_SCROLL_THRESHOLD));
+        return Math.max(4, Math.round(AUTO_SCROLL_MAX_STEP * ratio));
+      };
+
+      const resolveVerticalScrollTargets = ()=>{
+        const candidates = [
+          resolveViewport(),
+          container?.querySelector?.('.ag-body-viewport'),
+          container?.querySelector?.('.ag-center-cols-viewport'),
+          container?.querySelector?.('.ag-body-vertical-scroll-viewport'),
+          container?.querySelector?.('.ag-body-vertical-scroll')
+        ];
+        const unique = [];
+        candidates.forEach(el=>{
+          if(el && unique.indexOf(el) === -1){
+            unique.push(el);
+          }
+        });
+        return unique;
+      };
+
+      const resolveHorizontalScrollTargets = ()=>{
+        const candidates = [
+          container?.querySelector?.('.ag-body-horizontal-scroll-viewport'),
+          container?.querySelector?.('.ag-body-horizontal-scroll'),
+          resolveViewport()
+        ];
+        const unique = [];
+        candidates.forEach(el=>{
+          if(el && unique.indexOf(el) === -1){
+            unique.push(el);
+          }
+        });
+        return unique;
+      };
+
+      const applyScrollDelta = (targets, prop, delta)=>{
+        let moved = false;
+        (targets || []).forEach(el=>{
+          if(!el || typeof el[prop] !== 'number'){
+            return;
+          }
+          const prev = el[prop];
+          el[prop] = prev + delta;
+          if(el[prop] !== prev){
+            moved = true;
+          }
+        });
+        return moved;
+      };
+
+      const resolveEffectiveVerticalRect = (baseRect)=>{
+        if(!baseRect){
+          return null;
+        }
+        let bottom = baseRect.bottom;
+        const doc = container?.ownerDocument || document;
+        const dock = doc.getElementById('workspaceTabsDock') || doc.querySelector('.workspace-tabs-dock');
+        if(dock && typeof dock.getBoundingClientRect === 'function'){
+          const dockRect = dock.getBoundingClientRect();
+          if(dockRect.top < bottom && dockRect.bottom > baseRect.top){
+            bottom = Math.min(bottom, dockRect.top);
+          }
+        }
+        const win = doc.defaultView || global;
+        if(container && typeof doc.elementFromPoint === 'function' && win){
+          const maxX = Number.isFinite(win.innerWidth) ? win.innerWidth : baseRect.right;
+          const maxY = Number.isFinite(win.innerHeight) ? win.innerHeight : baseRect.bottom;
+          const sampleX = Math.min(Math.max(baseRect.left + 4, 0), Math.max(0, maxX - 1));
+          const sampleY = Math.min(Math.max(baseRect.bottom - 1, 0), Math.max(0, maxY - 1));
+          try{
+            const hit = doc.elementFromPoint(sampleX, sampleY);
+            if(hit && !container.contains(hit) && typeof hit.getBoundingClientRect === 'function'){
+              const hitRect = hit.getBoundingClientRect();
+              if(hitRect.top < bottom && hitRect.bottom > baseRect.top){
+                bottom = Math.min(bottom, hitRect.top);
+              }
+            }
+          }catch(err){
+            // ignore overlay hit-test failures
+          }
+        }
+        return {
+          top: baseRect.top,
+          bottom,
+          left: baseRect.left,
+          right: baseRect.right
+        };
+      };
+
+      const getGridRowHeight = ()=>{
+        const style = container ? (container.ownerDocument || document).defaultView?.getComputedStyle(container) : null;
+        if(style && typeof style.getPropertyValue === 'function'){
+          const raw = style.getPropertyValue('--ag-row-height') || '';
+          const parsed = Number.parseFloat(raw);
+          if(Number.isFinite(parsed) && parsed > 0){
+            return parsed;
+          }
+        }
+        return 28;
+      };
+
+      const getDisplayedRowRange = (api)=>{
+        const count = typeof api?.getDisplayedRowCount === 'function' ? api.getDisplayedRowCount() : dataHandle.current.length;
+        const total = Math.max(0, Number(count) || 0);
+        let first = typeof api?.getFirstDisplayedRow === 'function' ? api.getFirstDisplayedRow() : 0;
+        let last = typeof api?.getLastDisplayedRow === 'function' ? api.getLastDisplayedRow() : (total > 0 ? total - 1 : 0);
+        if(!Number.isInteger(first) || first < 0){
+          first = 0;
+        }
+        if(!Number.isInteger(last) || last < 0){
+          last = total > 0 ? total - 1 : 0;
+        }
+        return { first, last, count: total };
+      };
+
+      const estimateRowIndexFromPointer = (pointerY)=>{
+        const api = instance?.gridApi;
+        if(!api || pointerY == null){
+          return null;
+        }
+        const viewport = resolveViewport()
+          || container?.querySelector?.('.ag-body-viewport')
+          || container?.querySelector?.('.ag-center-cols-viewport')
+          || container?.querySelector?.('.ag-body-vertical-scroll-viewport');
+        if(!viewport || typeof viewport.getBoundingClientRect !== 'function'){
+          return null;
+        }
+        const rect = resolveEffectiveVerticalRect(viewport.getBoundingClientRect());
+        const rectHeight = rect ? (rect.bottom - rect.top) : 0;
+        if(!rect || rectHeight <= 0){
+          return null;
+        }
+        const rowHeight = getGridRowHeight();
+        let first = typeof api.getFirstDisplayedRow === 'function' ? api.getFirstDisplayedRow() : 0;
+        if(!Number.isInteger(first) || first < 0){
+          first = 0;
+        }
+        const count = typeof api.getDisplayedRowCount === 'function' ? api.getDisplayedRowCount() : dataHandle.current.length;
+        const maxIndex = Math.max(0, (Number(count) || 0) - 1);
+        const offset = pointerY - rect.top;
+        const delta = Math.floor(offset / Math.max(1, rowHeight));
+        let index = first + delta;
+        if(!Number.isFinite(index)){
+          return null;
+        }
+        index = Math.max(0, Math.min(maxIndex, Math.round(index)));
+        return index;
+      };
+
+      const scrollGridVerticallyByRows = (direction, distance)=>{
+        const api = instance?.gridApi;
+        if(!api || typeof api.ensureIndexVisible !== 'function'){
+          return false;
+        }
+        if(typeof api.getVerticalPixelRange === 'function' && typeof api.setVerticalScrollPosition === 'function'){
+          try{
+            const range = api.getVerticalPixelRange();
+            const delta = computeAutoScrollStep(distance) * (direction === 'up' ? -1 : 1);
+            api.setVerticalScrollPosition((range?.top || 0) + delta);
+            return true;
+          }catch(err){
+            // fall back to row-based scroll
+          }
+        }
+        const range = getDisplayedRowRange(api);
+        if(range.count <= 0){
+          return false;
+        }
+        const rowHeight = getGridRowHeight();
+        const stepRows = Math.max(1, Math.round(computeAutoScrollStep(distance) / Math.max(1, rowHeight)));
+        if(direction === 'up'){
+          const target = Math.max(0, range.first - stepRows);
+          try{
+            api.ensureIndexVisible(target, 'top');
+          }catch(err){
+            api.ensureIndexVisible(target);
+          }
+          return true;
+        }
+        if(direction === 'down'){
+          const maxIndex = Math.max(0, range.count - 1);
+          const target = Math.min(maxIndex, range.last + stepRows);
+          try{
+            api.ensureIndexVisible(target, 'bottom');
+          }catch(err){
+            api.ensureIndexVisible(target);
+          }
+          return true;
+        }
+        return false;
+      };
+
+      const maybeAutoScrollPointer = (pointer)=>{
+        if(!pointer){
+          return false;
+        }
+        const pointerX = pointer.x;
+        const pointerY = pointer.y;
+        if(pointerX == null && pointerY == null){
+          return false;
+        }
+        const verticalViewport = resolveViewport()
+          || container?.querySelector?.('.ag-body-viewport')
+          || container?.querySelector?.('.ag-center-cols-viewport')
+          || container?.querySelector?.('.ag-body-vertical-scroll-viewport')
+          || container;
+        const verticalRect = resolveEffectiveVerticalRect(verticalViewport?.getBoundingClientRect?.());
+        let scrolled = false;
+        if(verticalRect && pointerY != null){
+          const distTop = (verticalRect.top + AUTO_SCROLL_THRESHOLD) - pointerY;
+          const distBottom = pointerY - (verticalRect.bottom - AUTO_SCROLL_THRESHOLD);
+          if(distTop > 0){
+            const delta = -computeAutoScrollStep(distTop);
+            const moved = applyScrollDelta(resolveVerticalScrollTargets(), 'scrollTop', delta);
+            scrolled = moved || scrolled;
+            if(!moved){
+              scrolled = scrollGridVerticallyByRows('up', distTop) || scrolled;
+            }
+          }else if(distBottom > 0){
+            const delta = computeAutoScrollStep(distBottom);
+            const moved = applyScrollDelta(resolveVerticalScrollTargets(), 'scrollTop', delta);
+            scrolled = moved || scrolled;
+            if(!moved){
+              scrolled = scrollGridVerticallyByRows('down', distBottom) || scrolled;
+            }
+          }
+        }
+
+        const horizontalViewport = container?.querySelector?.('.ag-body-horizontal-scroll-viewport')
+          || container?.querySelector?.('.ag-body-horizontal-scroll')
+          || verticalViewport;
+        const horizontalRect = horizontalViewport?.getBoundingClientRect?.();
+        if(horizontalRect && pointerX != null){
+          const distLeft = (horizontalRect.left + AUTO_SCROLL_THRESHOLD) - pointerX;
+          const distRight = pointerX - (horizontalRect.right - AUTO_SCROLL_THRESHOLD);
+          if(distLeft > 0){
+            scrolled = applyScrollDelta(resolveHorizontalScrollTargets(), 'scrollLeft', -computeAutoScrollStep(distLeft)) || scrolled;
+          }else if(distRight > 0){
+            scrolled = applyScrollDelta(resolveHorizontalScrollTargets(), 'scrollLeft', computeAutoScrollStep(distRight)) || scrolled;
+          }
+        }
+        return scrolled;
+      };
+
+      const scheduleFillAutoScroll = ()=>{
+        if(fillAutoScrollRafId != null){
+          return;
+        }
+        fillAutoScrollRafId = raf(()=>{
+          fillAutoScrollRafId = null;
+          if(!isFillHandleDragging){
+            return;
+          }
+          const didScroll = maybeAutoScrollPointer(fillDragLastPointer);
+          if(didScroll && fillDragLastPointer){
+            const proxyEvent = { clientX: fillDragLastPointer.x, clientY: fillDragLastPointer.y, target: null };
+            const nextTarget = {
+              row: resolveRowIndexFromEvent(proxyEvent),
+              col: resolveColIndexFromEvent(proxyEvent),
+              clientX: fillDragLastPointer.x,
+              clientY: fillDragLastPointer.y
+            };
+            queueFillDragPreviewUpdate(nextTarget);
+          }
+          scheduleFillAutoScroll();
+        });
+      };
+
+      const queueSelectionDragUpdate = (coords)=>{
+        if(!coords){
+          return;
+        }
+        pendingDragCell = coords;
+        if(dragRafPending){
+          return;
+        }
+        dragRafPending = true;
+        raf(()=>{
+          dragRafPending = false;
+          if(!isDragSelecting || !pendingDragCell){
+            return;
+          }
+          const anchor = dragAnchor || pendingDragCell;
+          setLastRange({ from: anchor, to: pendingDragCell });
+          renderAg(instance.gridApi);
+        });
+      };
+
+      const scheduleSelectionAutoScroll = ()=>{
+        if(selectionAutoScrollRafId != null){
+          return;
+        }
+        selectionAutoScrollRafId = raf(()=>{
+          selectionAutoScrollRafId = null;
+          if(!isDragSelecting){
+            return;
+          }
+          const didScroll = maybeAutoScrollPointer(selectionDragLastPointer);
+          if(didScroll && selectionDragLastPointer){
+            let coords = resolveCellCoordsFromPoint(selectionDragLastPointer.x, selectionDragLastPointer.y);
+            if(!coords){
+              const row = estimateRowIndexFromPointer(selectionDragLastPointer.y);
+              let col = resolveColIndexFromEvent({ clientX: selectionDragLastPointer.x, clientY: selectionDragLastPointer.y, target: null });
+              if(Number.isInteger(row)){
+                if(!Number.isInteger(col)){
+                  col = pendingDragCell?.col ?? dragAnchor?.col ?? normalizedSelectionRange?.to?.col ?? null;
+                }
+                if(Number.isInteger(col)){
+                  coords = { row, col };
+                }
+              }
+            }
+            if(coords){
+              queueSelectionDragUpdate(coords);
+            }
+          }
+          scheduleSelectionAutoScroll();
+        });
+      };
+
       const handleMouseDown = (event)=>{
         if(event?.button !== 0){
           return;
@@ -4700,6 +5226,10 @@
           return;
         }
         isDragSelecting = true;
+        selectionDragLastPointer = {
+          x: typeof event?.clientX === 'number' ? event.clientX : null,
+          y: typeof event?.clientY === 'number' ? event.clientY : null
+        };
         pendingDragCell = coords;
         isHeaderDragSelecting = false;
         headerDragScope = null;
@@ -4715,66 +5245,26 @@
 
       const handleMouseMove = (event)=>{
         if(isFillHandleDragging){
+          const buttons = typeof event?.buttons === 'number' ? event.buttons : null;
+          if(buttons !== null){
+            if((buttons & 1) === 1){
+              fillDragButtonsSeen = true;
+            }else if(fillDragButtonsSeen){
+              resetFillHandleDrag('button-up');
+              return;
+            }
+          }
+          const clientX = typeof event?.clientX === 'number' ? event.clientX : null;
+          const clientY = typeof event?.clientY === 'number' ? event.clientY : null;
+          fillDragLastPointer = { x: clientX, y: clientY };
           const target = {
             row: resolveRowIndexFromEvent(event),
             col: resolveColIndexFromEvent(event),
-            clientX: typeof event?.clientX === 'number' ? event.clientX : null,
-            clientY: typeof event?.clientY === 'number' ? event.clientY : null
+            clientX,
+            clientY
           };
-          pendingFillTarget = target;
-          if(fillDragRafPending){
-            event.preventDefault?.();
-            event.stopPropagation?.();
-            event.stopImmediatePropagation?.();
-            return;
-          }
-          fillDragRafPending = true;
-          raf(()=>{ 
-            fillDragRafPending = false;
-            const activeTarget = pendingFillTarget;
-            pendingFillTarget = null;
-            if(!isFillHandleDragging || !activeTarget){
-              return;
-            }
-            const selection = fillDragStartSelection;
-            if(!selection){
-              return;
-            }
-            const direction = resolveFillDirection(activeTarget);
-            if(direction){
-              fillDragDirection = direction;
-            }
-            const activeDirection = fillDragDirection;
-            if(!activeDirection){
-              if(normalizedFillPreviewRange){
-                setFillPreviewRange(null);
-              }
-              return;
-            }
-            if(activeDirection === 'down' || activeDirection === 'up'){
-              const row = activeTarget.row;
-              if(!Number.isInteger(row)){
-                return;
-              }
-              const cappedRow = Math.max(0, Math.min(row, Math.max(0, autoGrowthConfig.rowCap - 1)));
-              ensureRowsForTarget(cappedRow);
-              const preview = buildFillPreviewRange(selection, activeDirection, cappedRow);
-              if(!rangesEqual(preview, normalizedFillPreviewRange)){
-                setFillPreviewRange(preview);
-              }
-              return;
-            }
-            const col = activeTarget.col;
-            if(!Number.isInteger(col)){
-              return;
-            }
-            const cappedCol = Math.max(0, Math.min(col, Math.max(0, autoGrowthConfig.colCap - 1)));
-            ensureColsForTarget(cappedCol);
-            const preview = buildFillPreviewRange(selection, activeDirection, cappedCol);
-            if(!rangesEqual(preview, normalizedFillPreviewRange)){
-              setFillPreviewRange(preview);
-            }
-          });
+          queueFillDragPreviewUpdate(target);
+          scheduleFillAutoScroll();
           event.preventDefault?.();
           event.stopPropagation?.();
           event.stopImmediatePropagation?.();
@@ -4938,24 +5428,29 @@
         if(!isDragSelecting){
           return;
         }
-        const coords = resolveCellCoords(event);
-        if(!coords){
-          return;
-        }
-        pendingDragCell = coords;
-        if(dragRafPending){
-          return;
-        }
-        dragRafPending = true;
-        raf(()=>{
-          dragRafPending = false;
-          if(!isDragSelecting || !pendingDragCell){
-            return;
+        const clientX = typeof event?.clientX === 'number' ? event.clientX : null;
+        const clientY = typeof event?.clientY === 'number' ? event.clientY : null;
+        let coords = resolveCellCoords(event);
+        if(!coords && clientX != null && clientY != null){
+          coords = resolveCellCoordsFromPoint(clientX, clientY);
+          if(!coords){
+            const row = estimateRowIndexFromPointer(clientY);
+            let col = resolveColIndexFromEvent({ clientX, clientY, target: null });
+            if(Number.isInteger(row)){
+              if(!Number.isInteger(col)){
+                col = pendingDragCell?.col ?? dragAnchor?.col ?? normalizedSelectionRange?.to?.col ?? null;
+              }
+              if(Number.isInteger(col)){
+                coords = { row, col };
+              }
+            }
           }
-          const anchor = dragAnchor || pendingDragCell;
-          setLastRange({ from: anchor, to: pendingDragCell });
-          renderAg(instance.gridApi);
-        });
+        }
+        selectionDragLastPointer = { x: clientX, y: clientY };
+        if(coords){
+          queueSelectionDragUpdate(coords);
+        }
+        scheduleSelectionAutoScroll();
       };
 
       const handleMouseUp = ()=>{
@@ -5019,6 +5514,7 @@
         }
         isDragSelecting = false;
         dragRafPending = false;
+        resetSelectionAutoScroll();
         const normalized = normalizedSelectionRange;
         if(normalized && (normalized.from.row !== normalized.to.row || normalized.from.col !== normalized.to.col)){
           suppressNextCellClick = true;
@@ -5340,7 +5836,10 @@
       container.addEventListener('mousedown', handleColumnHeaderMouseDown, true);
       container.addEventListener('mousedown', handleMouseDown, true);
       win?.addEventListener?.('mousemove', handleMouseMove, true);
+      win?.addEventListener?.('pointermove', handleMouseMove, true);
       win?.addEventListener?.('mouseup', handleMouseUp, true);
+      win?.addEventListener?.('pointerup', handleMouseUp, true);
+      win?.addEventListener?.('pointercancel', handleMouseUp, true);
       win?.addEventListener?.('mouseup', handleColumnHeaderMouseUp, true);
       doc.addEventListener('click', handleColumnHeaderClick, true);
       container.addEventListener('keydown', handleKeyDown, true);
@@ -5352,7 +5851,10 @@
         container.removeEventListener('mousedown', handleColumnHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleMouseDown, true);
         win?.removeEventListener?.('mousemove', handleMouseMove, true);
+        win?.removeEventListener?.('pointermove', handleMouseMove, true);
         win?.removeEventListener?.('mouseup', handleMouseUp, true);
+        win?.removeEventListener?.('pointerup', handleMouseUp, true);
+        win?.removeEventListener?.('pointercancel', handleMouseUp, true);
         win?.removeEventListener?.('mouseup', handleColumnHeaderMouseUp, true);
         doc.removeEventListener('click', handleColumnHeaderClick, true);
         clearHeaderSortSuppression();

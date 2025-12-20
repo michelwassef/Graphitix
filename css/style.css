@@ -505,8 +505,8 @@ select {
     outline-offset: -2px;
 }
 .ag-theme-balham .ag-cell.hot-fill-preview-cell {
-    background: rgba(26, 115, 232, 0.06);
-    outline: 1px dashed var(--hot-fill-handle-color, #1a73e8);
+    background: rgba(0, 0, 0, 0.08);
+    outline: 1px dashed rgba(0, 0, 0, 0.35);
     outline-offset: -2px;
 }
 .ag-theme-balham.hot-fill-handle-host {
@@ -516,10 +516,10 @@ select {
     position: absolute;
     width: 8px;
     height: 8px;
-    background: var(--hot-fill-handle-color, #1a73e8);
-    border: 1px solid #fff;
-    border-radius: 1px;
-    box-shadow: 0 0 0 1px var(--hot-fill-handle-color, #1a73e8);
+    background: var(--hot-fill-handle-color, #6aa9ff);
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
     transform: translate(-100%, -100%);
     z-index: 5;
     cursor: grab;
