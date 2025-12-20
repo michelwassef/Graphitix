@@ -891,7 +891,7 @@
     let headerDragMouseDown = false;
     let headerDragColId = null;
     let isColumnHandleDragging = false;
-    let columnHandleDragColId = null;
+    let columnHandleDragColIds = null;
     let columnHandleLastTargetIndex = null;
     let pendingColumnHandleMoveIndex = null;
     let columnHandleMoveRafPending = false;
@@ -2950,15 +2950,42 @@
       }
     };
 
-    const startColumnHandleDrag = (colId)=>{
-      if(typeof colId !== 'string' || !colId.startsWith('c')){
+    const resolveSelectedColumnGroup = (colIdx)=>{
+      const idx = Number(colIdx);
+      if(!Number.isInteger(idx) || idx < 0){
+        return null;
+      }
+      const normalized = normalizedSelectionRange;
+      if(!normalized){
+        return [idx];
+      }
+      const lastRow = Math.max(0, getVisualRowCount() - 1);
+      const isFullColumnSelection = normalized.from.row === 0 && normalized.to.row === lastRow;
+      if(!isFullColumnSelection){
+        return [idx];
+      }
+      if(idx < normalized.from.col || idx > normalized.to.col){
+        return [idx];
+      }
+      const cols = [];
+      for(let c = normalized.from.col; c <= normalized.to.col; c++){
+        cols.push(c);
+      }
+      return cols.length ? cols : [idx];
+    };
+
+    const startColumnHandleDrag = (colIds)=>{
+      const list = Array.isArray(colIds) ? colIds.filter(id => typeof id === 'string' && id.startsWith('c')) : [];
+      if(!list.length){
         return;
       }
       isColumnHandleDragging = true;
-      columnHandleDragColId = colId;
+      columnHandleDragColIds = Array.from(new Set(list));
       columnHandleLastTargetIndex = null;
+      pendingColumnHandleMoveIndex = null;
+      columnHandleMoveRafPending = false;
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot column handle drag start', { debugLabel, colId });
+        console.debug('Debug: Shared.hot column handle drag start', { debugLabel, colIds: columnHandleDragColIds.slice() });
       }
     };
 
@@ -2966,14 +2993,145 @@
       if(!isColumnHandleDragging){
         return;
       }
+      const movedCols = Array.isArray(columnHandleDragColIds) ? columnHandleDragColIds.slice() : null;
+      commitDisplayedColumnOrderToData('columnHandleDrag', movedCols);
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot column handle drag end', { debugLabel, colId: columnHandleDragColId });
+        console.debug('Debug: Shared.hot column handle drag end', { debugLabel, colIds: columnHandleDragColIds || null });
       }
       isColumnHandleDragging = false;
-      columnHandleDragColId = null;
+      columnHandleDragColIds = null;
       columnHandleLastTargetIndex = null;
       pendingColumnHandleMoveIndex = null;
       columnHandleMoveRafPending = false;
+    };
+
+    const moveDisplayedColumnsTo = (colIds, targetIndex)=>{
+      const ids = Array.isArray(colIds) ? colIds.filter(id => typeof id === 'string' && id.startsWith('c')) : [];
+      if(!ids.length){
+        return false;
+      }
+      const api = instance.gridApi || null;
+      const columnApi = instance.columnApi || api?.columnApi || null;
+      const toIndex = Number(targetIndex);
+      if(!Number.isInteger(toIndex) || toIndex < 0){
+        return false;
+      }
+      try{
+        const moved = (()=>{
+          if(columnApi && typeof columnApi.moveColumns === 'function'){
+            columnApi.moveColumns(ids, toIndex);
+            return true;
+          }
+          if(api && typeof api.moveColumns === 'function'){
+            api.moveColumns(ids, toIndex);
+            return true;
+          }
+          if(ids.length === 1){
+            return moveDisplayedColumnTo(ids[0], toIndex);
+          }
+          return false;
+        })();
+        if(!moved){
+          return false;
+        }
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot moved displayed columns', { debugLabel, colIds: ids.slice(), toIndex });
+        }
+        return true;
+      }catch(err){
+        return false;
+      }
+    };
+
+    const getDisplayedDataColumnOrder = ()=>{
+      const positions = getDisplayedDataColumnPositions();
+      if(!positions){
+        return null;
+      }
+      const colIds = positions.map(entry => entry.colId).filter(id => typeof id === 'string' && id.startsWith('c'));
+      return colIds.length ? colIds : null;
+    };
+
+    const commitDisplayedColumnOrderToData = (reason, movedColIds)=>{
+      const currentOrder = getDisplayedDataColumnOrder();
+      if(!currentOrder || currentOrder.length !== colCount){
+        return false;
+      }
+      const permutationOldByNew = currentOrder.map(id => Number(id.slice(1)));
+      if(!permutationOldByNew.every(idx => Number.isInteger(idx) && idx >= 0)){
+        return false;
+      }
+      const isIdentity = permutationOldByNew.every((oldIdx, newIdx)=>oldIdx === newIdx);
+      if(isIdentity){
+        return false;
+      }
+
+      const matrix = dataHandle.current;
+      for(let r = 0; r < matrix.length; r++){
+        const row = Array.isArray(matrix[r]) ? matrix[r] : [];
+        const nextRow = new Array(Math.max(row.length, colCount));
+        for(let c = 0; c < nextRow.length; c++){
+          const oldIndex = c < colCount ? permutationOldByNew[c] : c;
+          nextRow[c] = (oldIndex < row.length) ? row[oldIndex] : '';
+        }
+        matrix[r] = nextRow;
+      }
+
+      if(Array.isArray(colHeadersSetting)){
+        try{
+          const nextHeaders = new Array(colHeadersSetting.length);
+          for(let c = 0; c < colHeadersSetting.length; c++){
+            const oldIndex = c < colCount ? permutationOldByNew[c] : c;
+            nextHeaders[c] = (oldIndex < colHeadersSetting.length) ? colHeadersSetting[oldIndex] : `Column ${c + 1}`;
+          }
+          colHeadersSetting = nextHeaders;
+        }catch(err){
+          // ignore
+        }
+      }
+      colHeaders = resolveColHeaders(colCount);
+
+      const exclusionState = exclusionController.exportState();
+      const oldToNew = new Map();
+      for(let newIdx = 0; newIdx < permutationOldByNew.length; newIdx++){
+        oldToNew.set(permutationOldByNew[newIdx], newIdx);
+      }
+      const nextExcludedCols = (Array.isArray(exclusionState?.cols) ? exclusionState.cols : [])
+        .map(oldIdx => oldToNew.get(oldIdx))
+        .filter(idx => Number.isInteger(idx) && idx >= 0);
+      const nextExcludedCells = (Array.isArray(exclusionState?.cells) ? exclusionState.cells : [])
+        .map(cell => ({ row: cell?.row ?? cell?.[0], col: oldToNew.get(cell?.col ?? cell?.[1]) }))
+        .filter(cell => Number.isInteger(cell.row) && cell.row >= 0 && Number.isInteger(cell.col) && cell.col >= 0);
+      exclusionController.importState({
+        rows: Array.isArray(exclusionState?.rows) ? exclusionState.rows : [],
+        cols: nextExcludedCols,
+        cells: nextExcludedCells
+      });
+
+      // Reset column state to default c0.. ordering (data has been permuted to match the prior display order).
+      rebuildColumns(instance.gridApi);
+      renderAg(instance.gridApi);
+
+      if(Array.isArray(movedColIds) && movedColIds.length){
+        const movedOld = movedColIds
+          .map(id => Number(String(id).slice(1)))
+          .filter(idx => Number.isInteger(idx) && idx >= 0);
+        const movedNew = movedOld.map(oldIdx => oldToNew.get(oldIdx)).filter(idx => Number.isInteger(idx) && idx >= 0);
+        if(movedNew.length){
+          const minNew = Math.min(...movedNew);
+          const maxNew = Math.max(...movedNew);
+          const lastRow = Math.max(0, getVisualRowCount() - 1);
+          setLastRange({ from: { row: 0, col: minNew }, to: { row: lastRow, col: maxNew } });
+          renderAg(instance.gridApi);
+        }
+      }
+
+      fireHook('afterColumnMove');
+      triggerSchedule('afterColumnMove', { source: reason || 'columnOrderCommit' });
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot committed column order to data', { debugLabel, reason: reason || null });
+      }
+      return true;
     };
 
     const gridOptions = {
@@ -3155,14 +3313,18 @@
             label: 'Move column left',
             disabled: !moveState.canMoveLeft,
             action: ()=>{
-              moveDisplayedColumnTo(moveState.colId, moveState.targetIndexLeft);
+              if(moveDisplayedColumnTo(moveState.colId, moveState.targetIndexLeft)){
+                commitDisplayedColumnOrderToData('columnMenuMove', [moveState.colId]);
+              }
             }
           },
           {
             label: 'Move column right',
             disabled: !moveState.canMoveRight,
             action: ()=>{
-              moveDisplayedColumnTo(moveState.colId, moveState.targetIndexRight);
+              if(moveDisplayedColumnTo(moveState.colId, moveState.targetIndexRight)){
+                commitDisplayedColumnOrderToData('columnMenuMove', [moveState.colId]);
+              }
             }
           },
           'separator',
@@ -3538,7 +3700,10 @@
             headerDragAnchor = null;
             pendingHeaderDragIndex = null;
             headerDragRafPending = false;
-            startColumnHandleDrag(colId);
+            const colIdx = Number(colId.slice(1));
+            const selectedCols = resolveSelectedColumnGroup(colIdx) || [colIdx];
+            const dragColIds = selectedCols.map(idx => `c${idx}`);
+            startColumnHandleDrag(dragColIds);
           }
           return;
         }
@@ -3721,17 +3886,25 @@
             return;
           }
           const positions = getDisplayedDataColumnPositions();
-          if(!positions || !columnHandleDragColId){
-            return;
-          }
-          const draggedEntry = positions.find(entry => entry.colId === columnHandleDragColId) || null;
-          if(!draggedEntry){
+          if(!positions || !Array.isArray(columnHandleDragColIds) || !columnHandleDragColIds.length){
             return;
           }
 
+          const draggedEntries = positions
+            .filter(entry => columnHandleDragColIds.includes(entry.colId))
+            .sort((a, b)=>a.index - b.index);
+          if(!draggedEntries.length){
+            return;
+          }
+          const draggedColIdsOrdered = draggedEntries.map(entry => entry.colId);
+          const movingIndices = draggedEntries.map(entry => entry.index);
+          const minMovingIndex = movingIndices[0];
+          const maxMovingIndex = movingIndices[movingIndices.length - 1];
+          const movingCount = movingIndices.length;
+
           const minIndex = positions[0].index;
           const maxIndex = positions[positions.length - 1].index;
-          let targetIndex = null;
+          let targetBefore = null;
 
           const x = typeof event?.clientX === 'number' ? event.clientX : null;
           const y = typeof event?.clientY === 'number' ? event.clientY : null;
@@ -3742,48 +3915,51 @@
               const headerCell = hit?.closest?.('.ag-header-cell') || null;
               const hitColId = headerCell?.getAttribute?.('col-id') || null;
               const hoverEntry = positions.find(entry => entry.colId === hitColId) || null;
-              if(hoverEntry && hitColId !== columnHandleDragColId){
+              if(hoverEntry && !columnHandleDragColIds.includes(hitColId)){
                 const rect = headerCell.getBoundingClientRect?.();
                 const rectWidth = Number(rect?.width);
                 const rectLeft = Number(rect?.left);
                 const placeAfter = Number.isFinite(rectWidth) && rectWidth > 0 && Number.isFinite(rectLeft)
                   ? ((x - rectLeft) / rectWidth) >= 0.5
                   : false;
-
-                let adjustedHover = hoverEntry.index;
-                if(hoverEntry.index > draggedEntry.index){
-                  adjustedHover = Math.max(minIndex, adjustedHover - 1);
-                }
-                targetIndex = placeAfter ? adjustedHover + 1 : adjustedHover;
+                targetBefore = hoverEntry.index + (placeAfter ? 1 : 0);
               }
             }catch(err){
               // ignore hit-test failures; fall back to coarse targeting
             }
           }
 
-          if(targetIndex == null){
+          if(targetBefore == null){
             const overColIdx = resolveColIndexFromEvent(event);
             if(overColIdx == null){
               return;
             }
             const overColId = `c${overColIdx}`;
             const hoverEntry = positions.find(entry => entry.colId === overColId) || null;
-            if(!hoverEntry || overColId === columnHandleDragColId){
+            if(!hoverEntry || columnHandleDragColIds.includes(overColId)){
               return;
             }
-            targetIndex = hoverEntry.index;
+            targetBefore = hoverEntry.index;
           }
 
-          targetIndex = Math.min(maxIndex, Math.max(minIndex, targetIndex));
-          if(targetIndex === draggedEntry.index){
+          targetBefore = Math.min(maxIndex + 1, Math.max(minIndex, targetBefore));
+          if(targetBefore >= minMovingIndex && targetBefore <= (maxMovingIndex + 1)){
             return;
           }
-          pendingColumnHandleMoveIndex = targetIndex;
+
+          const countMovingBefore = movingIndices.filter(idx => idx < targetBefore).length;
+          let effectiveToIndex = targetBefore - countMovingBefore;
+          effectiveToIndex = Math.max(0, effectiveToIndex);
+
+          if(targetBefore > maxMovingIndex){
+            effectiveToIndex = Math.max(0, Math.min(effectiveToIndex, (maxIndex + 1) - movingCount));
+          }
+          pendingColumnHandleMoveIndex = effectiveToIndex;
           if(!columnHandleMoveRafPending){
             columnHandleMoveRafPending = true;
             raf(()=>{
               columnHandleMoveRafPending = false;
-              if(!isColumnHandleDragging || !columnHandleDragColId || pendingColumnHandleMoveIndex == null){
+              if(!isColumnHandleDragging || !Array.isArray(columnHandleDragColIds) || !columnHandleDragColIds.length || pendingColumnHandleMoveIndex == null){
                 return;
               }
               const nextTarget = pendingColumnHandleMoveIndex;
@@ -3792,7 +3968,7 @@
                 return;
               }
               columnHandleLastTargetIndex = nextTarget;
-              moveDisplayedColumnTo(columnHandleDragColId, nextTarget);
+              moveDisplayedColumnsTo(draggedColIdsOrdered, nextTarget);
             });
           }
           event.preventDefault?.();
@@ -4098,14 +4274,18 @@
             label: 'Move column left',
             disabled: !moveState.canMoveLeft,
             action: ()=>{
-              moveDisplayedColumnTo(moveState.colId, moveState.targetIndexLeft);
+              if(moveDisplayedColumnTo(moveState.colId, moveState.targetIndexLeft)){
+                commitDisplayedColumnOrderToData('columnMenuMove', [moveState.colId]);
+              }
             }
           },
           {
             label: 'Move column right',
             disabled: !moveState.canMoveRight,
             action: ()=>{
-              moveDisplayedColumnTo(moveState.colId, moveState.targetIndexRight);
+              if(moveDisplayedColumnTo(moveState.colId, moveState.targetIndexRight)){
+                commitDisplayedColumnOrderToData('columnMenuMove', [moveState.colId]);
+              }
             }
           },
           'separator',

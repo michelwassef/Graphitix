@@ -321,6 +321,174 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 0, 0, 0]);
   });
 
+  test('drag handle drag moves a selected column group together', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleGroupMoveHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-group-move',
+        data: Shared.createEmptyData(3, 4)
+      }
+    );
+
+    const lastRow = hot.countRows() - 1;
+    hot.selectCell(0, 1, lastRow, 2); // selects columns 1..2 (full height)
+
+    const moveColumnsSpy = jest.fn();
+    hot.columnApi = {
+      getAllDisplayedColumns: () => [
+        { getColId: () => 'c0' },
+        { getColId: () => 'c1' },
+        { getColId: () => 'c2' },
+        { getColId: () => 'c3' }
+      ],
+      moveColumns: moveColumnsSpy
+    };
+
+    const header1 = document.createElement('div');
+    header1.className = 'ag-header-cell';
+    header1.setAttribute('col-id', 'c1');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header1.appendChild(handle);
+    container.appendChild(header1);
+
+    const header3 = document.createElement('div');
+    header3.className = 'ag-header-cell';
+    header3.setAttribute('col-id', 'c3');
+    header3.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header3);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    handle.dispatchEvent(mouseDown);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header3;
+
+    const mouseMove = new global.window.MouseEvent('mousemove', {
+      bubbles: true,
+      cancelable: true,
+      buttons: 1,
+      clientX: 80,
+      clientY: 10
+    });
+    header3.dispatchEvent(mouseMove);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(moveColumnsSpy).toHaveBeenCalled();
+    expect(moveColumnsSpy.mock.calls[0][0]).toEqual(['c1', 'c2']);
+  });
+
+  test('drag handle commits new column order into underlying data', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleCommitHot';
+    document.body.appendChild(container);
+
+    // Track displayed order for the mocked columnApi (createStandardTable enforces MIN_INPUT_COLS).
+    let displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+
+    // Override grid creation to provide an api we can mutate for this test.
+    const originalAgGrid = global.window.agGrid;
+    global.window.agGrid = {
+      createGrid: (_container, gridOptions) => {
+        const api = {
+          refreshCells: jest.fn(),
+          setRowData: jest.fn(),
+          setColumnDefs: jest.fn(() => {
+            // Simulate AG Grid resetting order when defs are reapplied.
+            displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+          }),
+          destroy: jest.fn(),
+          getFocusedCell: jest.fn(() => null)
+        };
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-commit',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+
+    // Mock columnApi so handle-drag moves update the displayed order.
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: (ids, toIndex) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        const remaining = displayed.filter(id => !list.includes(id));
+        const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+        displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+      }
+    };
+
+    // Build minimal header nodes for hit-testing.
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    header2.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header2);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header2;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 80, clientY: 10 }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    // After commit, underlying data should match the new visual order and be stable.
+    // We dragged c0 to the right over c2 (after), so expected order is [c1, c2, c0].
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+    expect(hot.getDataAtCell(0, 1)).toBe('C0');
+    expect(hot.getDataAtCell(0, 2)).toBe('A0');
+
+    global.window.agGrid = originalAgGrid;
+  });
+
   test('postSortRows keeps the first data row anchored', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
