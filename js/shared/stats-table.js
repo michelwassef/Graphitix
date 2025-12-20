@@ -18,6 +18,8 @@
     footnoteGap: 12,
     outerPadding: 20,
     cellPaddingX: 14,
+    // Extra horizontal margin (px) to add on top of `cellPaddingX` for exported SVG tables
+    cellExtraMargin: 6,
     zebraFill: '#f8fbff',
     headerFill: '#e7eef7',
     borderColor: '#c5d1e0',
@@ -147,6 +149,7 @@
       fontFamily
     } = options;
 
+    const extraMargin = Number.isFinite(options.cellExtraMargin) ? Math.max(0, options.cellExtraMargin) : 6;
     const colWidths = columns.map((col, index) => {
       let maxWidth = measureText(col.label, headerFontSize, fontFamily);
       rows.forEach(row => {
@@ -154,8 +157,10 @@
         const width = measureText(candidate, bodyFontSize, fontFamily);
         if (width > maxWidth) maxWidth = width;
       });
-      const padded = Math.ceil(maxWidth + cellPaddingX * 2);
-      return Math.max(minColumnWidth, padded);
+      // Include horizontal padding on both sides plus a small extra margin for visual breathing room
+      const padded = Math.ceil(maxWidth + cellPaddingX * 2 + extraMargin);
+      // Allow columns to size exactly to the widest content (can shrink below minColumnWidth)
+      return padded;
     });
     const tableWidth = colWidths.reduce((sum, width) => sum + width, 0);
     const tableHeight = headerHeight + rows.length * rowHeight;
