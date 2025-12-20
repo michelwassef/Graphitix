@@ -327,11 +327,10 @@
     const toggleRow = doc.createElement('div');
     toggleRow.className = 'significance-controls-panel__toggle-row';
     const whiskerSwitch = doc.createElement('label');
-    whiskerSwitch.className = 'significance-controls-panel__checkbox-chip';
+    whiskerSwitch.className = 'config-panel__checkbox';
     whiskerSwitch.dataset.checked = '0';
     whiskerToggleInput = doc.createElement('input');
     whiskerToggleInput.type = 'checkbox';
-    whiskerToggleInput.className = 'significance-controls-panel__checkbox';
     whiskerToggleInput.setAttribute('aria-label', 'Toggle significance whiskers');
     whiskerToggleInput.setAttribute('data-undo-ignore','1');
     whiskerSwitch.appendChild(whiskerToggleInput);
@@ -345,7 +344,7 @@
     whiskerModeLabel.className = 'significance-controls-panel__field-label';
     whiskerModeLabel.textContent = 'Whisker Style';
     whiskerModeSelect = doc.createElement('select');
-    whiskerModeSelect.className = 'significance-controls-panel__input';
+    whiskerModeSelect.className = 'significance-controls-panel__input significance-controls-panel__input--square';
     whiskerModeSelect.setAttribute('aria-label', 'Significance whisker style');
     whiskerModeSelect.setAttribute('data-undo-ignore','1');
     const optionFixed = doc.createElement('option');

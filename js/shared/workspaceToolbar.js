@@ -142,7 +142,7 @@
     }
   });
 
-  const DEFAULT_HINT = 'Select chart text or an axis to reveal typography and tick options.';
+  const DEFAULT_HINT = 'Select any element of the graph to configure.';
   const NS = 'http://www.w3.org/2000/svg';
   const toolbarConfigs = new Map();
   const UNDO_BUTTON_SELECTOR = 'button[data-undo-command="undo"]';
