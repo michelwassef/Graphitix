@@ -882,6 +882,7 @@
     let suppressNextCellClick = false;
     let pendingDragCell = null;
     let dragRafPending = false;
+    let enterPressedDuringEdit = false;
     let pendingHeaderSortSuppression = null;
     let isHeaderDragSelecting = false;
     let headerDragScope = null; // 'row' | 'column'
@@ -3417,6 +3418,40 @@
         triggerSchedule('afterChange', { source: event.source || 'edit' });
         scheduleAutoSizeColumns('edit');
       },
+      onCellEditingStopped(event){
+        try{
+          if(!enterPressedDuringEdit){
+            return;
+          }
+          enterPressedDuringEdit = false;
+          const api = instance.gridApi;
+          const rowIndex = event?.node?.rowIndex ?? event?.rowIndex ?? 0;
+          const colId = event?.column?.getColId?.() ?? event?.colId;
+          const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : 0;
+          const nextRow = Number.isInteger(rowIndex) ? (rowIndex + 1) : null;
+          if(nextRow == null){
+            return;
+          }
+          // If moving past the last row, append one row so selection can move.
+          if(nextRow >= getVisualRowCount()){
+            try{ appendRows(1); }catch(err){}
+          }
+          setLastRange({ from: { row: nextRow, col }, to: { row: nextRow, col } });
+          renderAg(api);
+          try{
+            if(api && typeof api.setFocusedCell === 'function'){
+              api.setFocusedCell(nextRow, colId);
+              if(typeof api.ensureIndexVisible === 'function'){
+                api.ensureIndexVisible(nextRow);
+              }
+            }
+          }catch(err){
+            // best-effort focus move
+          }
+        }catch(err){
+          // swallow handler errors
+        }
+      },
       onPasteEnd(event){
         try{
           const dataBlocks = event?.data || [];
@@ -4467,6 +4502,11 @@
         if(isEnter && normalizedCopyHighlightRange){
           setCopyHighlightRange(null);
           renderAg(instance.gridApi);
+        }
+        // If Enter was pressed while editing an input (editable target), mark it
+        // so we can move the selection down after editing finishes.
+        if(isEnter && isEditableTarget(event.target)){
+          enterPressedDuringEdit = true;
         }
         const isDelete = key === 'Delete' || keyCode === 46;
         const isBackspace = key === 'Backspace' || keyCode === 8;
