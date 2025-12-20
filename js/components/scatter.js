@@ -237,6 +237,8 @@
 
   const scatterRefs = {};
   let scatterTooltipEl = null;
+  let scatterPointContextMenu = null;
+  let scatterPointContextMenuGlobalBound = false;
   const EMPTY_LEGEND_RENDERER = Object.freeze({
     entries: Object.freeze([]),
     width: 0,
@@ -2222,6 +2224,250 @@
     hideScatterTooltip('plot-leave');
   }
 
+  function isScatterContextMenuEventSuppressed(target){
+    if(!target){
+      return false;
+    }
+    if(target === scatterPointContextMenu){
+      return true;
+    }
+    if(typeof target.closest === 'function'){
+      return !!target.closest('.scatter-point-context-menu');
+    }
+    return false;
+  }
+
+  function ensureScatterPointContextMenu(){
+    const doc = global.document;
+    if(!doc){
+      return null;
+    }
+    if(scatterPointContextMenu && doc.body && doc.body.contains(scatterPointContextMenu)){
+      return scatterPointContextMenu;
+    }
+    const menu = doc.createElement('div');
+    menu.className = 'tab-context-menu scatter-point-context-menu';
+    menu.hidden = true;
+    menu.dataset.scatterContextMenu = '1';
+    menu.setAttribute('role', 'menu');
+    menu.style.position = 'absolute';
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+
+    const makeItem = (action, label) => {
+      const btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tab-context-menu__item';
+      btn.dataset.action = action;
+      btn.textContent = label;
+      return btn;
+    };
+
+    const labelItem = makeItem('toggle-label', 'Add label');
+    menu.appendChild(labelItem);
+
+    menu.addEventListener('contextmenu', evt => {
+      try{ evt.preventDefault(); }catch(e){}
+      try{ evt.stopPropagation(); }catch(e){}
+    }, true);
+
+    const hide = (reason) => hideScatterPointContextMenu(reason);
+    labelItem.addEventListener('click', evt => {
+      try{ evt.preventDefault(); }catch(e){}
+      try{ evt.stopPropagation(); }catch(e){}
+      const data = menu.__scatterPointData;
+      const rowIndex = Number.isInteger(data?.rowIndex) ? data.rowIndex : null;
+      if(rowIndex === null){
+        hide('no-row-index');
+        return;
+      }
+      const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+      const toggled = toggleScatterRowSelected(hot, rowIndex, { ensureVisible: true });
+      storeScatterRowSelection(hot, 'point-context-menu');
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: scatter context menu label toggle', { rowIndex, toggled });
+      }
+      scheduleDrawScatter({ reason: 'point-context-menu' });
+      hide('action-complete');
+    });
+
+    if(doc.body){
+      doc.body.appendChild(menu);
+    }
+    scatterPointContextMenu = menu;
+
+    if(!scatterPointContextMenuGlobalBound){
+      scatterPointContextMenuGlobalBound = true;
+      doc.addEventListener('pointerdown', evt => {
+        if(!scatterPointContextMenu || scatterPointContextMenu.hidden){
+          return;
+        }
+        const target = evt?.target;
+        if(target && scatterPointContextMenu.contains(target)){
+          return;
+        }
+        hideScatterPointContextMenu('outside-click');
+      }, true);
+      doc.addEventListener('keydown', evt => {
+        if(!scatterPointContextMenu || scatterPointContextMenu.hidden){
+          return;
+        }
+        if(evt?.key === 'Escape'){
+          hideScatterPointContextMenu('escape');
+        }
+      }, true);
+      global.addEventListener?.('resize', () => hideScatterPointContextMenu('resize'), true);
+      global.addEventListener?.('scroll', () => hideScatterPointContextMenu('scroll'), true);
+    }
+
+    return scatterPointContextMenu;
+  }
+
+  function hideScatterPointContextMenu(reason){
+    if(!scatterPointContextMenu || scatterPointContextMenu.hidden){
+      return;
+    }
+    scatterPointContextMenu.hidden = true;
+    scatterPointContextMenu.__scatterPointData = null;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: scatter point context menu hidden', { reason: reason || 'unknown' });
+    }
+  }
+
+  function positionScatterPointContextMenu(menu, pageX, pageY){
+    if(!menu){
+      return;
+    }
+    const x = Number(pageX) || 0;
+    const y = Number(pageY) || 0;
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    const rect = menu.getBoundingClientRect?.();
+    const docEl = global.document?.documentElement;
+    const viewportW = global.innerWidth || docEl?.clientWidth || 0;
+    const viewportH = global.innerHeight || docEl?.clientHeight || 0;
+    if(rect && viewportW && viewportH){
+      let nextLeft = x;
+      let nextTop = y;
+      if(rect.right > viewportW - 6){
+        nextLeft = Math.max(6, viewportW - rect.width - 6);
+      }
+      if(rect.bottom > viewportH - 6){
+        nextTop = Math.max(6, viewportH - rect.height - 6);
+      }
+      menu.style.left = `${nextLeft}px`;
+      menu.style.top = `${nextTop}px`;
+    }
+  }
+
+  function isScatterRowSelected(hotInstance, rowIndex){
+    const api = hotInstance?.gridApi;
+    if(!api || typeof api.forEachNode !== 'function'){
+      return false;
+    }
+    let selected = false;
+    api.forEachNode(node => {
+      if(selected){
+        return;
+      }
+      const nodeRowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
+      if(nodeRowIndex !== rowIndex){
+        return;
+      }
+      selected = !!node?.isSelected?.();
+    });
+    return selected;
+  }
+
+  function setScatterRowSelected(hotInstance, rowIndex, desiredSelected, options){
+    const api = hotInstance?.gridApi;
+    if(!api || typeof api.forEachNode !== 'function'){
+      return false;
+    }
+    const preserveExisting = options?.preserveExisting !== false;
+    let matched = false;
+    api.forEachNode(node => {
+      const nodeRowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
+      if(nodeRowIndex !== rowIndex){
+        return;
+      }
+      matched = true;
+      if(typeof node.setSelected === 'function'){
+        try{
+          node.setSelected(!!desiredSelected, !preserveExisting);
+        }catch(err){
+          node.setSelected(!!desiredSelected);
+        }
+      }
+    });
+    if(matched && desiredSelected && options?.ensureVisible){
+      if(typeof api.ensureIndexVisible === 'function'){
+        try{ api.ensureIndexVisible(rowIndex, 'middle'); }catch(e){ api.ensureIndexVisible(rowIndex); }
+      }else if(typeof api.ensureNodeVisible === 'function'){
+        api.forEachNode(node => {
+          const nodeRowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
+          if(nodeRowIndex === rowIndex){
+            try{ api.ensureNodeVisible(node); }catch(e){}
+          }
+        });
+      }
+    }
+    return matched;
+  }
+
+  function toggleScatterRowSelected(hotInstance, rowIndex, options){
+    const selected = isScatterRowSelected(hotInstance, rowIndex);
+    return setScatterRowSelected(hotInstance, rowIndex, !selected, options);
+  }
+
+  function showScatterPointContextMenu(evt, data){
+    const menu = ensureScatterPointContextMenu();
+    if(!menu){
+      return;
+    }
+    menu.__scatterPointData = data || null;
+    const rowIndex = Number.isInteger(data?.rowIndex) ? data.rowIndex : null;
+    const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+    const alreadySelected = rowIndex !== null && hot ? isScatterRowSelected(hot, rowIndex) : false;
+    const labelItem = menu.querySelector?.('button[data-action="toggle-label"]');
+    if(labelItem){
+      labelItem.textContent = alreadySelected ? 'Remove label' : 'Add label';
+      labelItem.disabled = rowIndex === null || !hot;
+    }
+    menu.hidden = false;
+    const pos = getScatterEventPagePosition(evt);
+    positionScatterPointContextMenu(menu, pos.x, pos.y);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: scatter point context menu shown', { rowIndex, alreadySelected });
+    }
+  }
+
+  function handleScatterPointContextMenu(evt){
+    const target = evt?.currentTarget;
+    const data = target?.__scatterPointData;
+    if(!data){
+      return;
+    }
+    try{ evt.preventDefault(); }catch(e){}
+    try{ evt.stopPropagation(); }catch(e){}
+    hideScatterTooltip('context-menu');
+    showScatterPointContextMenu(evt, data);
+  }
+
+  function bindScatterPlotContextMenuSuppression(node){
+    if(!node || node.__scatterContextMenuSuppressionBound){
+      return;
+    }
+    node.__scatterContextMenuSuppressionBound = true;
+    node.addEventListener('contextmenu', evt => {
+      const target = evt?.target;
+      if(isScatterContextMenuEventSuppressed(target)){
+        return;
+      }
+      try{ evt.preventDefault(); }catch(e){}
+    }, true);
+  }
+
   function attachScatterPointTooltip(el, data){
     if(!el || !data){ return; }
     el.__scatterPointData = data;
@@ -2229,6 +2475,7 @@
     el.addEventListener('mousemove', handleScatterPointMove);
     el.addEventListener('mouseleave', handleScatterPointLeave);
     el.addEventListener('click', handleScatterPointClick);
+    el.addEventListener('contextmenu', handleScatterPointContextMenu);
   }
 
   function handleScatterPointClick(evt){
@@ -3260,6 +3507,7 @@
       const scatterGraphPanel=document.getElementById('scatterGraphPanel');
       const scatterPanelResizer=document.getElementById('scatterPanelResizer');
       let scatterSvgBox=scatterGraphPanel?.querySelector('.svgbox');
+      bindScatterPlotContextMenuSuppression(scatterSvgBox);
       const scatterConfigPanel=scatterGraphPanel?.querySelector('.config-options');
       scatterRenderRowEl=document.getElementById('scatterRenderRow');
       scatterRenderButtonEl=document.getElementById('scatterRenderButton');
@@ -3390,6 +3638,7 @@
       });
       if(scatterLayout?.elements?.svgBox){
         scatterSvgBox = scatterLayout.elements.svgBox;
+        bindScatterPlotContextMenuSuppression(scatterSvgBox);
       }
       scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
       scatterLayout?.syncPanels?.();
@@ -3413,6 +3662,7 @@
             }else if(scatterLayout.elements?.svgBox){
               scatterSvgBox=scatterLayout.elements.svgBox;
             }
+            bindScatterPlotContextMenuSuppression(scatterSvgBox);
             ensureScatterLegendTrayPlacement();
             scheduleScatterNoticeWidth('update-svgbox');
           };
@@ -3496,6 +3746,9 @@
             }
           }
         });
+        if(hotInstance){
+          scatterRefs.hot = hotInstance;
+        }
         if(hotInstance && !hotInstance.__scatterSelectionListenerBound){
           let attempts = 0;
           const tryBind = () => {
@@ -3536,6 +3789,7 @@
           if(scatterHot){
             scatterHot.__scatterTabId = activeTabId;
             scheduleScatterSelectionRestore(scatterHot, activeTabId);
+            scatterRefs.hot = scatterHot;
           }
           return scatterHot;
         }
@@ -3548,11 +3802,13 @@
         });
         if(entry?.instance){
           scatterHot = entry.instance;
+          scatterRefs.hot = scatterHot;
         }
         const activeTabId = entry?.tabId || Shared.hot.resolveActiveTabId?.() || 'scatter-default';
         if(scatterHot){
           scatterHot.__scatterTabId = activeTabId;
           scheduleScatterSelectionRestore(scatterHot, activeTabId);
+          scatterRefs.hot = scatterHot;
         }
         const tableImport = Shared.tableImport;
         if(tableImport?.handlePaste && entry?.container && !entry.container.__scatterPasteBound){
@@ -3581,6 +3837,9 @@
         return scatterHot;
       };
       scatterHot = ensureScatterHotForActiveTab();
+      if(scatterHot){
+        scatterRefs.hot = scatterHot;
+      }
       scatter.__ensureHotForActiveTab = ensureScatterHotForActiveTab;
       if(typeof global.DEBUG_SCATTER === 'undefined') global.DEBUG_SCATTER = true;
       const scatterExamples={
@@ -8502,6 +8761,8 @@
     buildAnnotationRequests: (points, options) => buildScatterAnnotationRequests(points, options),
     layoutAnnotations: params => layoutScatterAnnotations(params),
     resolveAnnotationCrowdingScale: (count, options) => resolveScatterAnnotationCrowdingScale(count, options),
+    setRowSelected: (hotInstance, rowIndex, selected, options) => setScatterRowSelected(hotInstance, rowIndex, selected, options),
+    toggleRowSelected: (hotInstance, rowIndex, options) => toggleScatterRowSelected(hotInstance, rowIndex, options),
     constants: Object.assign({}, scatter.__testHooks?.constants, {
       MAX_SIGNIFICANT_ANNOTATIONS
     })
