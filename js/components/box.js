@@ -55,13 +55,14 @@
   const ASSUMPTION_ALPHA=0.05;
   const DEFAULT_WHISKER_RULE='iqr15';
   const DEFAULT_WHISKER_MULTIPLIER=1.5;
-  const DEFAULT_SIGNIFICANCE_COLOR = '#000000';
-  const DEFAULT_SIGNIFICANCE_THICKNESS = 1;
-  const DEFAULT_SIGNIFICANCE_WHISKERS = true;
-  const ASSUMPTION_QQ_SAMPLE_LIMIT=4000;
-  const BOX_AUTO_DRAW_ROW_THRESHOLD = 5000;
-  const BOX_AUTO_DRAW_COL_THRESHOLD = 5000;
-  const BOX_AUTO_DRAW_CELL_THRESHOLD = 50000;
+	  const DEFAULT_SIGNIFICANCE_COLOR = '#000000';
+	  const DEFAULT_SIGNIFICANCE_THICKNESS = 1;
+	  const DEFAULT_SIGNIFICANCE_WHISKERS = true;
+	  const DEFAULT_SIGNIFICANCE_WHISKER_MODE = 'fixed'; // 'fixed' | 'adaptive'
+	  const ASSUMPTION_QQ_SAMPLE_LIMIT=4000;
+	  const BOX_AUTO_DRAW_ROW_THRESHOLD = 5000;
+	  const BOX_AUTO_DRAW_COL_THRESHOLD = 5000;
+	  const BOX_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const BROKEN_AXIS_GAP_SIZE_PX = 20;
   const BROKEN_AXIS_BREAK_WIDTH = 8;
   const BROKEN_AXIS_BREAK_HEIGHT = 6;
@@ -3599,7 +3600,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: null, summaryStyles: {}, summaryGlobalStyle: null };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: null, summaryStyles: {}, summaryGlobalStyle: null };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -4544,24 +4545,31 @@
     });
   }
 
-  function ensureWhiskerState(ruleCandidate){
-    const meta=resolveWhiskerMeta(ruleCandidate || state.whiskerRule);
-    state.whiskerRule=meta.key;
-    state.whiskerCustomMultiplier=clampWhiskerMultiplier(state.whiskerCustomMultiplier);
-    return meta;
-  }
+	  function ensureWhiskerState(ruleCandidate){
+	    const meta=resolveWhiskerMeta(ruleCandidate || state.whiskerRule);
+	    state.whiskerRule=meta.key;
+	    state.whiskerCustomMultiplier=clampWhiskerMultiplier(state.whiskerCustomMultiplier);
+	    return meta;
+	  }
 
-  function ensureSignificanceStyle(){
-    const style = state.significanceStyle && typeof state.significanceStyle === 'object'
-      ? state.significanceStyle
-      : {};
-    const thickness = Number(style.thickness);
-    style.thickness = Number.isFinite(thickness) && thickness > 0 ? thickness : DEFAULT_SIGNIFICANCE_THICKNESS;
-    style.color = typeof style.color === 'string' && style.color.trim() ? style.color.trim() : DEFAULT_SIGNIFICANCE_COLOR;
-    style.showWhiskers = style.showWhiskers !== false;
-    state.significanceStyle = style;
-    return style;
-  }
+	  function normalizeSignificanceWhiskerMode(value){
+	    if(typeof value !== 'string'){ return DEFAULT_SIGNIFICANCE_WHISKER_MODE; }
+	    const trimmed = value.trim().toLowerCase();
+	    return trimmed === 'adaptive' ? 'adaptive' : 'fixed';
+	  }
+
+	  function ensureSignificanceStyle(){
+	    const style = state.significanceStyle && typeof state.significanceStyle === 'object'
+	      ? state.significanceStyle
+	      : {};
+	    const thickness = Number(style.thickness);
+	    style.thickness = Number.isFinite(thickness) && thickness > 0 ? thickness : DEFAULT_SIGNIFICANCE_THICKNESS;
+	    style.color = typeof style.color === 'string' && style.color.trim() ? style.color.trim() : DEFAULT_SIGNIFICANCE_COLOR;
+	    style.showWhiskers = style.showWhiskers !== false;
+	    style.whiskerMode = normalizeSignificanceWhiskerMode(style.whiskerMode);
+	    state.significanceStyle = style;
+	    return style;
+	  }
 
   function getSignificanceThickness(){
     return ensureSignificanceStyle().thickness;
@@ -4571,25 +4579,30 @@
     return ensureSignificanceStyle().color;
   }
 
-  function getSignificanceWhiskers(){
-    return ensureSignificanceStyle().showWhiskers;
-  }
+	  function getSignificanceWhiskers(){
+	    return ensureSignificanceStyle().showWhiskers;
+	  }
 
-  function syncSignificanceStyleToStatsContext(){
-    const ctx = state.statsContext;
-    if(!ctx || !ctx.helpers || !ctx.helpers.annotationStyle){
-      return false;
-    }
+	  function getSignificanceWhiskerMode(){
+	    return ensureSignificanceStyle().whiskerMode;
+	  }
+
+	  function syncSignificanceStyleToStatsContext(){
+	    const ctx = state.statsContext;
+	    if(!ctx || !ctx.helpers || !ctx.helpers.annotationStyle){
+	      return false;
+	    }
     const style = ensureSignificanceStyle();
     const annotationStyle = ctx.helpers.annotationStyle;
     const scaleInfo = annotationStyle.styleScaleInfo;
-    const scaledStroke = chartStyle.scaleStrokeWidth(style.thickness, scaleInfo, { context: 'box-annotation', min: 0.5 });
-    annotationStyle.strokeWidth = scaledStroke;
-    annotationStyle.color = style.color;
-    annotationStyle.showWhiskers = style.showWhiskers !== false;
-    annotationStyle.controlConfig = createSignificanceControlConfig(annotationStyle.orientation || 'vertical');
-    return true;
-  }
+	    const scaledStroke = chartStyle.scaleStrokeWidth(style.thickness, scaleInfo, { context: 'box-annotation', min: 0.5 });
+	    annotationStyle.strokeWidth = scaledStroke;
+	    annotationStyle.color = style.color;
+	    annotationStyle.showWhiskers = style.showWhiskers !== false;
+	    annotationStyle.whiskerMode = normalizeSignificanceWhiskerMode(style.whiskerMode);
+	    annotationStyle.controlConfig = createSignificanceControlConfig(annotationStyle.orientation || 'vertical');
+	    return true;
+	  }
 
   function refreshSignificanceAnnotations(reason){
     const hasContext = state.statsContext && Array.isArray(state.statsContext.traces) && state.statsContext.traces.length > 0;
@@ -4635,33 +4648,47 @@
     refreshSignificanceAnnotations('color');
   }
 
-  function updateSignificanceWhiskers(enabled){
-    const style = ensureSignificanceStyle();
-    style.showWhiskers = enabled !== false;
-    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: box significance whiskers updated',{ showWhiskers: style.showWhiskers });
-    }
-    if(typeof state.scheduleDraw === 'function'){
-      state.scheduleDraw();
-    }
-    refreshSignificanceAnnotations('whiskers');
-  }
+	  function updateSignificanceWhiskers(enabled){
+	    const style = ensureSignificanceStyle();
+	    style.showWhiskers = enabled !== false;
+	    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+	      console.debug('Debug: box significance whiskers updated',{ showWhiskers: style.showWhiskers });
+	    }
+	    if(typeof state.scheduleDraw === 'function'){
+	      state.scheduleDraw();
+	    }
+	    refreshSignificanceAnnotations('whiskers');
+	  }
 
-  function createSignificanceControlConfig(orientation){
-    // Use the shared 'box' toolbar scope so the FORMAT host exists
-    const scopeId = 'box';
-    return {
-      orientation: orientation === 'horizontal' ? 'horizontal' : 'vertical',
-      scopeId: scopeId,
-      undoScope: `${scopeId}GraphPanel`,
-      getThickness: () => getSignificanceThickness(),
-      getColor: () => getSignificanceColor(),
-      getWhiskers: () => getSignificanceWhiskers(),
-      onThicknessChange: value => updateSignificanceThickness(value),
-      onColorChange: value => updateSignificanceColor(value),
-      onWhiskersChange: value => updateSignificanceWhiskers(value)
-    };
-  }
+	  function updateSignificanceWhiskerMode(mode){
+	    const style = ensureSignificanceStyle();
+	    style.whiskerMode = normalizeSignificanceWhiskerMode(mode);
+	    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+	      console.debug('Debug: box significance whisker mode updated',{ whiskerMode: style.whiskerMode });
+	    }
+	    if(typeof state.scheduleDraw === 'function'){
+	      state.scheduleDraw();
+	    }
+	    refreshSignificanceAnnotations('whisker-mode');
+	  }
+
+	  function createSignificanceControlConfig(orientation){
+	    // Use the shared 'box' toolbar scope so the FORMAT host exists
+	    const scopeId = 'box';
+	    return {
+	      orientation: orientation === 'horizontal' ? 'horizontal' : 'vertical',
+	      scopeId: scopeId,
+	      undoScope: `${scopeId}GraphPanel`,
+	      getThickness: () => getSignificanceThickness(),
+	      getColor: () => getSignificanceColor(),
+	      getWhiskers: () => getSignificanceWhiskers(),
+	      getWhiskerMode: () => getSignificanceWhiskerMode(),
+	      onThicknessChange: value => updateSignificanceThickness(value),
+	      onColorChange: value => updateSignificanceColor(value),
+	      onWhiskersChange: value => updateSignificanceWhiskers(value),
+	      onWhiskerModeChange: value => updateSignificanceWhiskerMode(value)
+	    };
+	  }
 
   function syncWhiskerControlsFromState(){
     const debugActive=typeof Shared.isDebugEnabled==='function' && Shared.isDebugEnabled();
@@ -7750,56 +7777,107 @@ function renderGroupedStatsControls(traces, controls, precomputed){
   console.debug('Debug: renderGroupedStatsControls summary',{ analysis: state.groupedStats.analysis, rowsWithData: prepared.rowsWithData });
   updateStatsCorrectionSummary(prepared.conditionsCount>1?prepared.conditionsCount*(prepared.conditionsCount-1)/2:0);
 }
-  function annotatePair(svg,x1,x2,valueCoord,p,styleOptions){
-    const opts=styleOptions||{};
-    const orientation=opts.orientation==='horizontal'?'horizontal':'vertical';
-    const strokeWidth=typeof opts.strokeWidth==='number'
-      ? opts.strokeWidth
-      : chartStyle.scaleStrokeWidth(1, opts.styleScaleInfo, { context: 'box-annotation', min: 0.5 });
-    const bracketSize=Number.isFinite(opts.bracketSize)?opts.bracketSize:10;
-    const minY = Number.isFinite(opts.minY) ? opts.minY : null;
-    const color = typeof opts.color === 'string' && opts.color.trim()
-      ? opts.color.trim()
-      : DEFAULT_SIGNIFICANCE_COLOR;
-    const showWhiskers = opts.showWhiskers !== false;
-    const controlConfig = opts.controlConfig;
-    const path=document.createElementNS(NS,'path');
-    if(path.classList){
-      path.classList.add('box-significance-annotation');
-    }else{
-      path.setAttribute('class','box-significance-annotation');
-    }
-    let resolvedOuterY = null;
-    if(orientation==='horizontal'){
-      const outerX=valueCoord;
-      const innerX=outerX+bracketSize;
-      if(showWhiskers){
-        path.setAttribute('d',`M${outerX},${x1} L${innerX},${x1} L${innerX},${x2} L${outerX},${x2}`);
-      }else{
-        path.setAttribute('d',`M${innerX},${x1} L${innerX},${x2}`);
-      }
-    }else{
-      let outerY=valueCoord;
-      if(minY != null){
-        const fontSize = Number.isFinite(opts.fontSize) ? opts.fontSize : 12;
-        const textYOffset = Number.isFinite(opts.fontSize) ? opts.fontSize * 0.2 : 12;
-        const minOuterY = minY + bracketSize + textYOffset + Math.max(2, fontSize * 0.1);
-        if(Number.isFinite(minOuterY)){
-          outerY = Math.max(outerY, minOuterY);
-        }
-      }
-      resolvedOuterY = outerY;
-      const innerY=outerY-bracketSize;
-      if(showWhiskers){
-        path.setAttribute('d',`M${x1},${outerY} L${x1},${innerY} L${x2},${innerY} L${x2},${outerY}`);
-      }else{
-        path.setAttribute('d',`M${x1},${innerY} L${x2},${innerY}`);
-      }
-    }
-    path.setAttribute('stroke',color);
-    if(Number.isFinite(strokeWidth)){
-      path.setAttribute('stroke-width',strokeWidth);
-    }
+		  function buildSignificanceBracketGeometry(options){
+		    const opts = options || {};
+		    const orientation = opts.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+		    const x1 = opts.x1;
+		    const x2 = opts.x2;
+		    const valueCoord = opts.valueCoord;
+		    const bracketSize = Number.isFinite(opts.bracketSize) ? opts.bracketSize : 10;
+		    const showWhiskers = opts.showWhiskers !== false;
+		    const whiskerMode = opts.whiskerMode === 'adaptive' ? 'adaptive' : 'fixed';
+		    let outerCoordA = valueCoord;
+		    let outerCoordB = valueCoord;
+		    if(showWhiskers && whiskerMode === 'adaptive'){
+		      outerCoordA = Number.isFinite(opts.outerCoordA) ? opts.outerCoordA : valueCoord;
+		      outerCoordB = Number.isFinite(opts.outerCoordB) ? opts.outerCoordB : valueCoord;
+		    }
+		    if(orientation === 'horizontal'){
+		      const refOuter = valueCoord;
+		      const innerX = valueCoord + bracketSize;
+		      const d = showWhiskers
+		        ? `M${outerCoordA},${x1} L${innerX},${x1} L${innerX},${x2} L${outerCoordB},${x2}`
+		        : `M${innerX},${x1} L${innerX},${x2}`;
+		      return { d, refOuter, innerCoord: innerX, outerCoordA, outerCoordB };
+		    }
+		    const refOuter = valueCoord;
+		    const innerY = valueCoord - bracketSize;
+		    const d = showWhiskers
+		      ? `M${x1},${outerCoordA} L${x1},${innerY} L${x2},${innerY} L${x2},${outerCoordB}`
+		      : `M${x1},${innerY} L${x2},${innerY}`;
+		    return { d, refOuter, innerCoord: innerY, outerCoordA, outerCoordB };
+		  }
+
+		  function annotatePair(svg,x1,x2,valueCoord,p,styleOptions){
+		    const opts=styleOptions||{};
+		    const orientation=opts.orientation==='horizontal'?'horizontal':'vertical';
+		    const strokeWidth=typeof opts.strokeWidth==='number'
+		      ? opts.strokeWidth
+		      : chartStyle.scaleStrokeWidth(1, opts.styleScaleInfo, { context: 'box-annotation', min: 0.5 });
+		    const bracketSize=Number.isFinite(opts.bracketSize)?opts.bracketSize:10;
+		    const minY = Number.isFinite(opts.minY) ? opts.minY : null;
+		    const color = typeof opts.color === 'string' && opts.color.trim()
+		      ? opts.color.trim()
+		      : DEFAULT_SIGNIFICANCE_COLOR;
+		    const showWhiskers = opts.showWhiskers !== false;
+		    const whiskerMode = opts.whiskerMode === 'adaptive' ? 'adaptive' : 'fixed';
+		    const controlConfig = opts.controlConfig;
+		    const path=document.createElementNS(NS,'path');
+		    if(path.classList){
+		      path.classList.add('box-significance-annotation');
+	    }else{
+	      path.setAttribute('class','box-significance-annotation');
+	    }
+		    let bracketGeom = null;
+		    let labelOuterCoord = valueCoord;
+		    if(orientation==='horizontal'){
+		      bracketGeom = buildSignificanceBracketGeometry({
+		        orientation,
+		        x1,
+		        x2,
+		        valueCoord,
+		        bracketSize,
+		        showWhiskers,
+		        whiskerMode,
+		        outerCoordA: opts.outerCoordA,
+		        outerCoordB: opts.outerCoordB
+		      });
+		      labelOuterCoord = bracketGeom.refOuter;
+		      path.setAttribute('d', bracketGeom.d);
+		    }else{
+		      let outerY=valueCoord;
+		      if(minY != null){
+		        const fontSize = Number.isFinite(opts.fontSize) ? opts.fontSize : 12;
+	        const textYOffset = Number.isFinite(opts.fontSize) ? opts.fontSize * 0.2 : 12;
+	        const minOuterY = minY + bracketSize + textYOffset + Math.max(2, fontSize * 0.1);
+		        if(Number.isFinite(minOuterY)){
+		          outerY = Math.max(outerY, minOuterY);
+		        }
+		      }
+		      let outerCoordA = outerY;
+		      let outerCoordB = outerY;
+		      if(showWhiskers && whiskerMode === 'adaptive'){
+		        if(Number.isFinite(opts.outerCoordA)){ outerCoordA = Math.max(outerY, opts.outerCoordA); }
+		        if(Number.isFinite(opts.outerCoordB)){ outerCoordB = Math.max(outerY, opts.outerCoordB); }
+		      }
+		      bracketGeom = buildSignificanceBracketGeometry({
+		        orientation,
+		        x1,
+		        x2,
+		        valueCoord: outerY,
+		        bracketSize,
+		        showWhiskers,
+		        whiskerMode,
+		        outerCoordA,
+		        outerCoordB
+		      });
+		      labelOuterCoord = bracketGeom.refOuter;
+		      path.setAttribute('d', bracketGeom.d);
+		    }
+		    path.setAttribute('stroke',color);
+		    if(Number.isFinite(strokeWidth)){
+		      path.setAttribute('stroke-width',strokeWidth);
+	    }
     path.setAttribute('fill','none');
     svg.appendChild(path);
     const txt=document.createElementNS(NS,'text');
@@ -7807,20 +7885,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       txt.classList.add('box-significance-annotation');
     }else{
       txt.setAttribute('class','box-significance-annotation');
-    }
-    const labelText = formatSignificanceLabel(p, state.significanceLabelMode);
-    if(orientation==='horizontal'){
-      txt.setAttribute('x',valueCoord+bracketSize*1.4);
-      txt.setAttribute('y',(x1+x2)/2);
-      txt.setAttribute('text-anchor','start');
-      txt.setAttribute('dominant-baseline','middle');
-    }else{
-      const textYOffset=Number.isFinite(opts.fontSize)?opts.fontSize*0.2:12;
-      txt.setAttribute('x',(x1+x2)/2);
-      const safeOuterY = Number.isFinite(resolvedOuterY) ? resolvedOuterY : valueCoord;
-      txt.setAttribute('y',safeOuterY-bracketSize-textYOffset);
-      txt.setAttribute('text-anchor','middle');
-    }
+	    }
+	    const labelText = formatSignificanceLabel(p, state.significanceLabelMode);
+		    if(orientation==='horizontal'){
+		      txt.setAttribute('x',labelOuterCoord+bracketSize*1.4);
+		      txt.setAttribute('y',(x1+x2)/2);
+		      txt.setAttribute('text-anchor','start');
+		      txt.setAttribute('dominant-baseline','middle');
+		    }else{
+		      const textYOffset=Number.isFinite(opts.fontSize)?opts.fontSize*0.2:12;
+		      txt.setAttribute('x',(x1+x2)/2);
+		      txt.setAttribute('y',labelOuterCoord-bracketSize-textYOffset);
+		      txt.setAttribute('text-anchor','middle');
+		    }
     if(Number.isFinite(opts.fontSize)){
       txt.setAttribute('font-size',opts.fontSize);
     }
@@ -8315,19 +8392,84 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       }
       return fallbackTraceMax(idx);
     };
-    const getRenderedRangeMax = (idxA, idxB) => {
-      const start = Math.min(idxA, idxB);
-      const end = Math.max(idxA, idxB);
-      let max = -Infinity;
-      for(let k = start; k <= end; k++){
-        max = Math.max(max, getRenderedMaxValue(k));
-      }
-      return max;
-    };
-    if(state.tableFormat==='grouped'){
-      const prepared=prepareGroupedStatsData(traces, helpers || { axisLabels: state.lastAxisLabels });
-      statsDiv.innerHTML='';
-      const summary=document.createElement('div');
+	    const getRenderedRangeMax = (idxA, idxB) => {
+	      const start = Math.min(idxA, idxB);
+	      const end = Math.max(idxA, idxB);
+	      let max = -Infinity;
+	      for(let k = start; k <= end; k++){
+	        max = Math.max(max, getRenderedMaxValue(k));
+	      }
+	      return max;
+	    };
+	    const adaptiveWhiskersEnabled = annotationOpts.whiskerMode === 'adaptive' && annotationOpts.showWhiskers !== false;
+	    const annotationBracketSize = Number.isFinite(annotationOpts.bracketSize) ? annotationOpts.bracketSize : 10;
+	    const annotationStrokeWidth = Number.isFinite(annotationOpts.strokeWidth) ? annotationOpts.strokeWidth : 1;
+	    const minClearance = Math.max(2, annotationStrokeWidth * 1.5);
+	    const rawClearance = Math.max(minClearance, Math.min(annotationBracketSize, levelGap * 0.6));
+	    const maxClearance = Math.max(minClearance, levelGap - Math.max(2, annotationStrokeWidth));
+	    const adaptiveWhiskerClearance = Math.min(rawClearance, maxClearance);
+	    const resolveAdaptiveWhiskerOuterCoord = (traceIdx, level) => {
+	      if(!adaptiveWhiskersEnabled){ return null; }
+	      const renderedMaxValue = getRenderedMaxValue(traceIdx);
+	      if(!Number.isFinite(renderedMaxValue)){ return null; }
+	      const baseCoord = valueToCoord(renderedMaxValue);
+	      if(!Number.isFinite(baseCoord)){ return null; }
+	      const lvl = Number.isFinite(level) ? level : 0;
+	      return orientation === 'horizontal'
+	        ? baseCoord + baseOffset + lvl * levelGap
+	        : baseCoord - baseOffset - lvl * levelGap;
+	    };
+	    const resolveLowerInnerCoord = (traceIdx, level, placedPairs) => {
+	      if(!adaptiveWhiskersEnabled || !Array.isArray(placedPairs) || level <= 0){
+	        return null;
+	      }
+	      let candidate = null;
+	      for(let i = 0; i < placedPairs.length; i++){
+	        const pr = placedPairs[i];
+	        if(!pr || !Number.isFinite(pr.innerCoord) || pr.level == null){
+	          continue;
+	        }
+	        if(pr.level >= level){
+	          continue;
+	        }
+	        if(traceIdx < pr.ai || traceIdx > pr.bi){
+	          continue;
+	        }
+	        const coord = pr.innerCoord;
+	        if(orientation === 'horizontal'){
+	          candidate = candidate == null ? coord : Math.max(candidate, coord);
+	        }else{
+	          candidate = candidate == null ? coord : Math.min(candidate, coord);
+	        }
+	      }
+	      return candidate;
+	    };
+	    const clampAdaptiveOuterCoord = (outerCoord, lowerInnerCoord) => {
+	      if(!Number.isFinite(outerCoord) || !Number.isFinite(lowerInnerCoord)){
+	        return outerCoord;
+	      }
+	      return orientation === 'horizontal'
+	        ? Math.max(outerCoord, lowerInnerCoord + adaptiveWhiskerClearance)
+	        : Math.min(outerCoord, lowerInnerCoord - adaptiveWhiskerClearance);
+	    };
+	    const buildPairAnnotationStyle = (idxA, idxB, level, placedPairs) => {
+	      if(!adaptiveWhiskersEnabled){
+	        return helpers.annotationStyle;
+	      }
+	      const outerCoordA = resolveAdaptiveWhiskerOuterCoord(idxA, level);
+	      const outerCoordB = resolveAdaptiveWhiskerOuterCoord(idxB, level);
+	      const lowerInnerCoordA = resolveLowerInnerCoord(idxA, level, placedPairs);
+	      const lowerInnerCoordB = resolveLowerInnerCoord(idxB, level, placedPairs);
+	      return {
+	        ...helpers.annotationStyle,
+	        outerCoordA: clampAdaptiveOuterCoord(outerCoordA, lowerInnerCoordA),
+	        outerCoordB: clampAdaptiveOuterCoord(outerCoordB, lowerInnerCoordB)
+	      };
+	    };
+	    if(state.tableFormat==='grouped'){
+	      const prepared=prepareGroupedStatsData(traces, helpers || { axisLabels: state.lastAxisLabels });
+	      statsDiv.innerHTML='';
+	      const summary=document.createElement('div');
       summary.className='stats-table-lead';
       summary.textContent=`Groups: ${prepared.groupsCount} | Conditions: ${prepared.conditionsCount} | Rows with data: ${prepared.rowsWithData || 0}`;
       statsDiv.appendChild(summary);
@@ -8489,22 +8631,29 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           contextLabel:'box-custom'
         }
       });
-      if(pairs.length){
-        pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
-        const placed=[];
-        pairs.forEach(pr=>{
-          let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
-          const baseCoord=valueToCoord(pr.rangeMax);
-          const annotationCoord=orientation==='horizontal'
-            ? baseCoord+baseOffset+level*levelGap
-            : baseCoord-baseOffset-level*levelGap;
-          annotatePair(svg,categoryCenter(pr.ai),categoryCenter(pr.bi),annotationCoord,pr.p,helpers.annotationStyle);
-          pr.level=level; placed.push(pr);
-        });
-        if(significanceEnabled){
-          const maxLevel = Math.max(...pairs.map(pr=>pr.level));
-          state.significanceMaxLevel = Number.isFinite(maxLevel) ? maxLevel : 0;
-        }
+	      if(pairs.length){
+	        pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+	        const placed=[];
+	        pairs.forEach(pr=>{
+	          let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
+	          const baseCoord=valueToCoord(pr.rangeMax);
+	          const annotationCoord=orientation==='horizontal'
+	            ? baseCoord+baseOffset+level*levelGap
+	            : baseCoord-baseOffset-level*levelGap;
+	          const innerCoord=orientation==='horizontal'
+	            ? annotationCoord+annotationBracketSize
+	            : annotationCoord-annotationBracketSize;
+	          const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, level, placed);
+	          annotatePair(svg,categoryCenter(pr.ai),categoryCenter(pr.bi),annotationCoord,pr.p,annotationStyle);
+	          pr.level=level;
+	          pr.annotationCoord=annotationCoord;
+	          pr.innerCoord=innerCoord;
+	          placed.push(pr);
+	        });
+	        if(significanceEnabled){
+	          const maxLevel = Math.max(...pairs.map(pr=>pr.level));
+	          state.significanceMaxLevel = Number.isFinite(maxLevel) ? maxLevel : 0;
+	        }
       }
       return;
     }
@@ -8563,15 +8712,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       });
       const from=Math.min(indices[0],indices[1]);
       const to=Math.max(indices[0],indices[1]);
-      const rangeMax=getRenderedRangeMax(from,to);
-      const baseCoord=valueToCoord(rangeMax);
-      const annotationCoord=orientation==='horizontal'?baseCoord+baseOffset:baseCoord-baseOffset;
-      if(significanceEnabled){
-        annotatePair(svg,categoryCenter(indices[0]),categoryCenter(indices[1]),annotationCoord,res.p,helpers.annotationStyle);
-        state.significanceMaxLevel = 0;
-      }else{
-        console.debug('Debug: box significance annotation skipped for pair',{ p: res.p, significanceEnabled });
-      }
+	      const rangeMax=getRenderedRangeMax(from,to);
+	      const baseCoord=valueToCoord(rangeMax);
+	      const annotationCoord=orientation==='horizontal'?baseCoord+baseOffset:baseCoord-baseOffset;
+	      if(significanceEnabled){
+	        annotatePair(svg,categoryCenter(indices[0]),categoryCenter(indices[1]),annotationCoord,res.p,buildPairAnnotationStyle(indices[0], indices[1], 0, null));
+	        state.significanceMaxLevel = 0;
+	      }else{
+	        console.debug('Debug: box significance annotation skipped for pair',{ p: res.p, significanceEnabled });
+	      }
       return;
     }
     // Multi-group
@@ -9001,18 +9150,25 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           contextLabel:'box-pairs'
         }
       },appendForPairs);
-      if(significanceEnabled && pairs.length){
-        pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
-        const placed=[];
-        pairs.forEach(pr=>{
-          let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
-          const baseCoord=valueToCoord(pr.rangeMax);
-          const annotationCoord=orientation==='horizontal'
-            ? baseCoord+baseOffset+level*levelGap
-            : baseCoord-baseOffset-level*levelGap;
-          annotatePair(svg,categoryCenter(pr.ai),categoryCenter(pr.bi),annotationCoord,pr.p,helpers.annotationStyle);
-          pr.level=level; placed.push(pr);
-        });
+	      if(significanceEnabled && pairs.length){
+	        pairs.sort((a,b)=>(a.bi-a.ai)-(b.bi-b.ai));
+	        const placed=[];
+	        pairs.forEach(pr=>{
+	          let level=0; while(placed.some(pl=>!(pl.bi<pr.ai||pl.ai>pr.bi)&&pl.level===level)) level++;
+	          const baseCoord=valueToCoord(pr.rangeMax);
+	          const annotationCoord=orientation==='horizontal'
+	            ? baseCoord+baseOffset+level*levelGap
+	            : baseCoord-baseOffset-level*levelGap;
+	          const innerCoord=orientation==='horizontal'
+	            ? annotationCoord+annotationBracketSize
+	            : annotationCoord-annotationBracketSize;
+	          const annotationStyle = buildPairAnnotationStyle(pr.ai, pr.bi, level, placed);
+	          annotatePair(svg,categoryCenter(pr.ai),categoryCenter(pr.bi),annotationCoord,pr.p,annotationStyle);
+	          pr.level=level;
+	          pr.annotationCoord=annotationCoord;
+	          pr.innerCoord=innerCoord;
+	          placed.push(pr);
+	        });
         const maxLevel=Math.max(...pairs.map(pr=>pr.level));
         state.significanceMaxLevel = Number.isFinite(maxLevel) ? maxLevel : 0;
       }else{
@@ -9084,14 +9240,15 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       ? significanceStyle.thickness
       : DEFAULT_SIGNIFICANCE_THICKNESS;
     const annotationStrokeWidth = chartStyle.scaleStrokeWidth(annotationStrokeWidthBase, styleScaleInfo, { context: 'box-annotation', min: 0.5 });
-    const annotationColor = typeof significanceStyle.color === 'string' && significanceStyle.color.trim()
-      ? significanceStyle.color.trim()
-      : DEFAULT_SIGNIFICANCE_COLOR;
-    const annotationShowWhiskers = significanceStyle.showWhiskers !== false;
-    let annotationBaseOffset = chartStyle.scaleLength(ANN_BASE_OFFSET, styleScaleInfo, { context: 'box-annotation-offset', min: 10 });
-    const annotationLevelGap = chartStyle.scaleLength(ANN_LEVEL_GAP, styleScaleInfo, { context: 'box-annotation-gap', min: 8 });
-    const annotationBracketSize = chartStyle.scaleLength(12, styleScaleInfo, { context: 'box-annotation-bracket', min: 8 });
-    const showSignificance = !!state.showSignificanceBars;
+	    const annotationColor = typeof significanceStyle.color === 'string' && significanceStyle.color.trim()
+	      ? significanceStyle.color.trim()
+	      : DEFAULT_SIGNIFICANCE_COLOR;
+	    const annotationShowWhiskers = significanceStyle.showWhiskers !== false;
+	    const annotationWhiskerMode = normalizeSignificanceWhiskerMode(significanceStyle.whiskerMode);
+	    let annotationBaseOffset = chartStyle.scaleLength(ANN_BASE_OFFSET, styleScaleInfo, { context: 'box-annotation-offset', min: 10 });
+	    const annotationLevelGap = chartStyle.scaleLength(ANN_LEVEL_GAP, styleScaleInfo, { context: 'box-annotation-gap', min: 8 });
+	    const annotationBracketSize = chartStyle.scaleLength(12, styleScaleInfo, { context: 'box-annotation-bracket', min: 8 });
+	    const showSignificance = !!state.showSignificanceBars;
     console.debug('Debug: box showSignificance flag',{ showSignificance });
     chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, fontInfo, input: els.boxFontSize });
     console.debug('Debug: box font scaling applied',{
@@ -9853,18 +10010,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     const annotationOrientation = isFlipped ? 'horizontal' : 'vertical';
     const significanceControlConfig = createSignificanceControlConfig(annotationOrientation);
-    const annotationStyle = {
-      styleScaleInfo,
-      fontSize: fs,
-      strokeWidth: annotationStrokeWidth,
-      color: annotationColor,
-      showWhiskers: annotationShowWhiskers,
-      controlConfig: significanceControlConfig,
-      baseOffset: annotationBaseOffset,
-      levelGap: annotationLevelGap,
-      bracketSize: annotationBracketSize,
-      orientation: annotationOrientation
-    };
+	    const annotationStyle = {
+	      styleScaleInfo,
+	      fontSize: fs,
+	      strokeWidth: annotationStrokeWidth,
+	      color: annotationColor,
+	      showWhiskers: annotationShowWhiskers,
+	      whiskerMode: annotationWhiskerMode,
+	      controlConfig: significanceControlConfig,
+	      baseOffset: annotationBaseOffset,
+	      levelGap: annotationLevelGap,
+	      bracketSize: annotationBracketSize,
+	      orientation: annotationOrientation
+	    };
     const selectionCount = state.selectedCols.size || 0;
     let maxLevelEstimate = 0;
     if(showSignificance){
@@ -12099,11 +12257,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         pointMode:els.boxPointMode.value,
         showCaps:els.boxShowCaps.checked,
         showSignificanceBars: state.showSignificanceBars,
-        significance: {
-          thickness: significanceStyle.thickness,
-          color: significanceStyle.color,
-          showWhiskers: significanceStyle.showWhiskers
-        },
+	        significance: {
+	          thickness: significanceStyle.thickness,
+	          color: significanceStyle.color,
+	          showWhiskers: significanceStyle.showWhiskers,
+	          whiskerMode: significanceStyle.whiskerMode
+	        },
         errorMode:els.boxErrorMode.value,
         colors:[...state.fillColors],
         borderColors:[...state.borderColors],
@@ -12394,28 +12553,31 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     }
     const significanceConfig = c.significance && typeof c.significance === 'object' ? c.significance : null;
     const significanceStyle = ensureSignificanceStyle();
-    if(significanceConfig){
-      const thicknessValue = Number(significanceConfig.thickness);
-      significanceStyle.thickness = Number.isFinite(thicknessValue) && thicknessValue > 0
-        ? thicknessValue
-        : DEFAULT_SIGNIFICANCE_THICKNESS;
-      significanceStyle.color = typeof significanceConfig.color === 'string' && significanceConfig.color.trim()
-        ? significanceConfig.color.trim()
-        : DEFAULT_SIGNIFICANCE_COLOR;
-      significanceStyle.showWhiskers = significanceConfig.showWhiskers !== false;
-    }else{
-      significanceStyle.thickness = DEFAULT_SIGNIFICANCE_THICKNESS;
-      significanceStyle.color = DEFAULT_SIGNIFICANCE_COLOR;
-      significanceStyle.showWhiskers = DEFAULT_SIGNIFICANCE_WHISKERS;
-    }
+	    if(significanceConfig){
+	      const thicknessValue = Number(significanceConfig.thickness);
+	      significanceStyle.thickness = Number.isFinite(thicknessValue) && thicknessValue > 0
+	        ? thicknessValue
+	        : DEFAULT_SIGNIFICANCE_THICKNESS;
+	      significanceStyle.color = typeof significanceConfig.color === 'string' && significanceConfig.color.trim()
+	        ? significanceConfig.color.trim()
+	        : DEFAULT_SIGNIFICANCE_COLOR;
+	      significanceStyle.showWhiskers = significanceConfig.showWhiskers !== false;
+	      significanceStyle.whiskerMode = normalizeSignificanceWhiskerMode(significanceConfig.whiskerMode);
+	    }else{
+	      significanceStyle.thickness = DEFAULT_SIGNIFICANCE_THICKNESS;
+	      significanceStyle.color = DEFAULT_SIGNIFICANCE_COLOR;
+	      significanceStyle.showWhiskers = DEFAULT_SIGNIFICANCE_WHISKERS;
+	      significanceStyle.whiskerMode = DEFAULT_SIGNIFICANCE_WHISKER_MODE;
+	    }
     state.significanceStyle = significanceStyle;
-    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: box significance style restored', {
-        thickness: significanceStyle.thickness,
-        color: significanceStyle.color,
-        showWhiskers: significanceStyle.showWhiskers
-      });
-    }
+	    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+	      console.debug('Debug: box significance style restored', {
+	        thickness: significanceStyle.thickness,
+	        color: significanceStyle.color,
+	        showWhiskers: significanceStyle.showWhiskers,
+	        whiskerMode: significanceStyle.whiskerMode
+	      });
+	    }
     els.boxErrorMode.value=c.errorMode||els.boxErrorMode.value;
     if(c.whisker){
       if(c.whisker.customMultiplier != null){
@@ -12863,20 +13025,21 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     console.debug('Debug: box.__getState invoked');
     return state;
   };
-  box.__testHooks = Object.assign({}, box.__testHooks, {
-    tTest:(a,b)=>tTest(a,b),
-    tTestPaired:(a,b)=>tTestPaired(a,b),
-    mannWhitney:(a,b)=>mannWhitney(a,b),
-    wilcoxonSignedRank:(a,b)=>wilcoxonSignedRank(a,b),
-    anova:groups=>anova(groups),
-    kruskalWallis:groups=>kruskalWallis(groups),
-    computeWhiskerFences:ctx=>computeWhiskerFences(ctx),
-    resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options),
-    computeTraceSummary:(values,opts)=>computeTraceSummary(values,opts),
-    benchmarkSummaries:opts=>benchmarkTraceSummaries(opts),
-    benchmarkDatasetLoad:opts=>benchmarkDatasetLoad(opts),
-    computeDagostino:(values,summary)=>computeDagostino(values,summary),
-    computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
-    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts)
-  });
+	  box.__testHooks = Object.assign({}, box.__testHooks, {
+	    tTest:(a,b)=>tTest(a,b),
+	    tTestPaired:(a,b)=>tTestPaired(a,b),
+	    mannWhitney:(a,b)=>mannWhitney(a,b),
+	    wilcoxonSignedRank:(a,b)=>wilcoxonSignedRank(a,b),
+	    anova:groups=>anova(groups),
+	    kruskalWallis:groups=>kruskalWallis(groups),
+	    computeWhiskerFences:ctx=>computeWhiskerFences(ctx),
+	    resolveWhiskerExtents:(values,fences,options)=>resolveWhiskerExtents(values,fences,options),
+	    computeTraceSummary:(values,opts)=>computeTraceSummary(values,opts),
+	    benchmarkSummaries:opts=>benchmarkTraceSummaries(opts),
+	    benchmarkDatasetLoad:opts=>benchmarkDatasetLoad(opts),
+	    computeDagostino:(values,summary)=>computeDagostino(values,summary),
+	    computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
+	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
+	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts)
+	  });
 })(window);

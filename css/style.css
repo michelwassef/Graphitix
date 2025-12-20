@@ -371,6 +371,34 @@ html, body {
     background: var(--bg-color);
     color: var(--fg-color);
     font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+input,
+textarea,
+select,
+option,
+[contenteditable="true"],
+[contenteditable=""],
+.allow-text-selection,
+.allow-text-selection * {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+}
+
+.svgbox,
+.svgbox svg,
+.svgbox text,
+.svgbox tspan {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
 }
 
 select {
@@ -399,14 +427,25 @@ select {
     background: #f5f5f5;
     font-weight: 600;
 }
+.ag-theme-balham .ag-header-cell {
+    padding: 0;
+}
+.ag-theme-balham .ag-header-cell-comp-wrapper {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
 .ag-theme-balham .hot-ag-header {
     display: flex;
     align-items: center;
     gap: 4px;
     width: 100%;
     height: 100%;
-    margin-left: -6px;
+    margin-left: 0;
+    margin-right: 0;
     padding-left: 2px;
+    padding-right: 1px;
+    box-sizing: border-box;
 }
 .ag-theme-balham .hot-col-drag-handle {
     width: 10px;
@@ -427,6 +466,32 @@ select {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1 1 auto;
+}
+.ag-theme-balham .hot-sort-indicator {
+    margin-left: auto;
+    margin-right: 0;
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+}
+.ag-theme-balham .hot-sort-indicator::before {
+    content: "";
+    display: block;
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    opacity: 0.8;
+}
+.ag-theme-balham .hot-sort-indicator.is-asc::before {
+    border-bottom: 8px solid #444;
+}
+.ag-theme-balham .hot-sort-indicator.is-desc::before {
+    border-top: 8px solid #444;
 }
 .ag-theme-balham .hot-header-row .ag-cell {
     background: #f5f5f5;

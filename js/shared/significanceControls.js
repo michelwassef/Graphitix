@@ -9,6 +9,8 @@
   let thicknessInput = null;
   let colorInput = null;
   let whiskerToggleInput = null;
+  let whiskerModeField = null;
+  let whiskerModeSelect = null;
   let activeConfig = null;
   let activeHost = null;
   let hasDocListener = false;
@@ -75,6 +77,12 @@
     return value !== false;
   }
 
+  function sanitizeWhiskerMode(value){
+    if(typeof value !== 'string'){ return 'fixed'; }
+    const trimmed = value.trim().toLowerCase();
+    return trimmed === 'adaptive' ? 'adaptive' : 'fixed';
+  }
+
   function getUndoScope(config){
     if(!config){ return null; }
     if(typeof config.undoScope === 'string' && config.undoScope){
@@ -99,6 +107,15 @@
     colorInput.value = toColorInputValue(colorValueRaw);
     const whiskerValueRaw = config.getWhiskers ? config.getWhiskers() : true;
     whiskerToggleInput.checked = sanitizeWhiskerValue(whiskerValueRaw);
+
+    const hasWhiskerMode = !!(whiskerModeField && whiskerModeSelect && (config.getWhiskerMode || config.onWhiskerModeChange));
+    if(hasWhiskerMode){
+      whiskerModeField.style.display = '';
+      const whiskerModeRaw = config.getWhiskerMode ? config.getWhiskerMode() : 'fixed';
+      whiskerModeSelect.value = sanitizeWhiskerMode(whiskerModeRaw);
+    }else if(whiskerModeField){
+      whiskerModeField.style.display = 'none';
+    }
   }
 
   function syncPanelInputsFromConfig(config){
@@ -322,6 +339,28 @@
     whiskerField.appendChild(toggleRow);
     panelEl.appendChild(whiskerField);
 
+    whiskerModeField = doc.createElement('label');
+    whiskerModeField.className = 'significance-controls-panel__field significance-controls-panel__field--numeric';
+    const whiskerModeLabel = doc.createElement('span');
+    whiskerModeLabel.className = 'significance-controls-panel__field-label';
+    whiskerModeLabel.textContent = 'Whisker Style';
+    whiskerModeSelect = doc.createElement('select');
+    whiskerModeSelect.className = 'significance-controls-panel__input';
+    whiskerModeSelect.setAttribute('aria-label', 'Significance whisker style');
+    whiskerModeSelect.setAttribute('data-undo-ignore','1');
+    const optionFixed = doc.createElement('option');
+    optionFixed.value = 'fixed';
+    optionFixed.textContent = 'Fixed';
+    const optionAdaptive = doc.createElement('option');
+    optionAdaptive.value = 'adaptive';
+    optionAdaptive.textContent = 'Adaptive';
+    whiskerModeSelect.appendChild(optionFixed);
+    whiskerModeSelect.appendChild(optionAdaptive);
+    whiskerModeField.appendChild(whiskerModeLabel);
+    whiskerModeField.appendChild(whiskerModeSelect);
+    whiskerModeField.style.display = 'none';
+    panelEl.appendChild(whiskerModeField);
+
     thicknessInput.addEventListener('change', () => {
       if(applyingFromUndo){ return; }
       if(!activeConfig){ return; }
@@ -394,6 +433,31 @@
         value => {
           if(config.onWhiskersChange){
             config.onWhiskersChange(value);
+          }
+        }
+      );
+    });
+
+    whiskerModeSelect.addEventListener('change', () => {
+      if(applyingFromUndo){ return; }
+      if(!activeConfig){ return; }
+      const config = activeConfig;
+      if(!config.getWhiskerMode && !config.onWhiskerModeChange){ return; }
+      const previousValue = sanitizeWhiskerMode(config.getWhiskerMode ? config.getWhiskerMode() : null);
+      const nextValue = sanitizeWhiskerMode(whiskerModeSelect.value);
+      logDebug('whisker mode change',{ value: nextValue });
+      if(config.onWhiskerModeChange){
+        config.onWhiskerModeChange(nextValue);
+      }
+      syncPanelInputsFromConfig(config);
+      recordSignificanceStateChange(
+        config,
+        'whisker-mode',
+        previousValue,
+        nextValue,
+        value => {
+          if(config.onWhiskerModeChange){
+            config.onWhiskerModeChange(sanitizeWhiskerMode(value));
           }
         }
       );
@@ -567,9 +631,11 @@
         getThickness: config.getThickness,
         getColor: config.getColor,
         getWhiskers: config.getWhiskers,
+        getWhiskerMode: config.getWhiskerMode,
         onThicknessChange: config.onThicknessChange,
         onColorChange: config.onColorChange,
-        onWhiskersChange: config.onWhiskersChange
+        onWhiskersChange: config.onWhiskersChange,
+        onWhiskerModeChange: config.onWhiskerModeChange
       });
     };
     if(!element.__significanceControlHandler){

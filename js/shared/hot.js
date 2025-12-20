@@ -1471,14 +1471,58 @@
           label.className = 'hot-ag-header-label';
           label.textContent = params?.displayName ?? params?.column?.getColDef?.()?.headerName ?? '';
 
+          const sortIndicator = doc.createElement('span');
+          sortIndicator.className = 'hot-sort-indicator';
+
+          this.updateSortIndicator = ()=>{
+            const sort = params?.column?.getSort?.() || '';
+            sortIndicator.classList.toggle('is-asc', sort === 'asc');
+            sortIndicator.classList.toggle('is-desc', sort === 'desc');
+          };
+
+          this.sortListener = ()=>{
+            this.updateSortIndicator?.();
+          };
+
+          if(params?.api?.addEventListener){
+            params.api.addEventListener('sortChanged', this.sortListener);
+          }
+
+          root.addEventListener('click', (event)=>{
+            if(event?.defaultPrevented){
+              return;
+            }
+            if(event?.target && typeof event.target.closest === 'function' && event.target.closest('.hot-col-drag-handle')){
+              return;
+            }
+            if(!params?.enableSorting){
+              return;
+            }
+            if(typeof params?.progressSort === 'function'){
+              params.progressSort(!!event.shiftKey);
+              return;
+            }
+            if(typeof params?.setSort === 'function'){
+              const current = params?.column?.getSort?.();
+              const next = current === 'asc' ? 'desc' : (current === 'desc' ? null : 'asc');
+              params.setSort(next, !!event.shiftKey);
+              return;
+            }
+          });
+
           root.appendChild(handle);
           root.appendChild(label);
+          root.appendChild(sortIndicator);
           this.eGui = root;
+          this.updateSortIndicator();
         }
         getGui(){
           return this.eGui;
         }
         destroy(){
+          if(this.params?.api?.removeEventListener && this.sortListener){
+            this.params.api.removeEventListener('sortChanged', this.sortListener);
+          }
           this.eGui = null;
           this.params = null;
         }
@@ -1493,6 +1537,9 @@
         if(isDataColumn){
           if(def.suppressMovable !== false){
             def.suppressMovable = true;
+          }
+          if(typeof def.sortable === 'undefined'){
+            def.sortable = true;
           }
           if(!def.headerComponent){
             def.headerComponent = HotAgColumnHeader;
@@ -1644,6 +1691,45 @@
         return null;
       }
       return col;
+    };
+
+    const resolveSelectedColumnSpanForHeader = (colIdx)=>{
+      const idx = Number(colIdx);
+      if(!Number.isInteger(idx) || idx < 0){
+        return { start: 0, count: 0 };
+      }
+      const normalized = normalizedSelectionRange;
+      const lastRow = Math.max(0, getVisualRowCount() - 1);
+      const isFullColumnSelection = normalized
+        && normalized.from.row === 0
+        && normalized.to.row === lastRow
+        && idx >= normalized.from.col
+        && idx <= normalized.to.col;
+      if(isFullColumnSelection){
+        const start = normalized.from.col;
+        const count = normalized.to.col - normalized.from.col + 1;
+        return { start, count };
+      }
+      return { start: idx, count: 1 };
+    };
+
+    const resolveSelectedRowSpanForHeader = (rowIdx)=>{
+      const idx = Number(rowIdx);
+      if(!Number.isInteger(idx) || idx < 0){
+        return { start: 0, count: 0 };
+      }
+      const normalized = normalizedSelectionRange;
+      const isFullRowSelection = normalized
+        && normalized.from.col === 0
+        && normalized.to.col === Math.max(0, colCount - 1)
+        && idx >= normalized.from.row
+        && idx <= normalized.to.row;
+      if(isFullRowSelection){
+        const start = normalized.from.row;
+        const count = normalized.to.row - normalized.from.row + 1;
+        return { start, count };
+      }
+      return { start: idx, count: 1 };
     };
 
     const getVisualRowCount = ()=>{
@@ -2577,6 +2663,7 @@
         }
         if(action === 'insert_row_above' || action === 'insert_row_below' || action === 'insert_row'){
           const insertAt = action === 'insert_row_above' ? at : at + (action === 'insert_row_below' ? 1 : 0);
+          exclusionController.shiftRowsForInsert(insertAt, safeAmount);
           const rows = Array.from({ length: safeAmount }, ()=>Array.from({ length: colCount }, ()=>''));
           data.splice(insertAt, 0, ...rows);
           ensureDims(data, data.length, colCount);
@@ -2598,6 +2685,7 @@
             : (action === 'insert_col_left'
               ? at
               : at + (action === 'insert_col_right' || action === 'insert_col_end' ? 1 : 0));
+          exclusionController.shiftColsForInsert(insertAt, safeAmount);
           for(let r = 0; r < data.length; r++){
             const row = data[r] || [];
             const emptyCols = Array.from({ length: safeAmount }, ()=>'');
@@ -2605,8 +2693,12 @@
             data[r] = row;
           }
           dataHandle.current = data;
-          colHeaders = resolveColHeaders(colCount + safeAmount);
+          if(Array.isArray(colHeadersSetting)){
+            colHeadersSetting.splice(insertAt, 0, ...Array.from({ length: safeAmount }, ()=>''));
+          }
           colCount = Math.max(colCount + safeAmount, MIN_INPUT_COLS);
+          ensureDims(data, data.length, colCount);
+          colHeaders = resolveColHeaders(colCount);
           rebuildColumns(instance.gridApi);
           renderAg(instance.gridApi);
           fireHook('afterCreateCol', insertAt, safeAmount, changeSource);
@@ -2622,9 +2714,13 @@
           for(let k = 0; k < safeAmount; k++){
             removedCols.push(at + k);
           }
+          if(Array.isArray(colHeadersSetting)){
+            colHeadersSetting.splice(at, safeAmount);
+          }
           exclusionController.shiftColsForRemoval(removedCols);
           dataHandle.current = data;
           colCount = Math.max(MIN_INPUT_COLS, colCount - safeAmount);
+          ensureDims(data, data.length, colCount);
           colHeaders = resolveColHeaders(colCount);
           rebuildColumns(instance.gridApi);
           renderAg(instance.gridApi);
@@ -3211,6 +3307,36 @@
           if(!Array.isArray(nodes) || nodes.length < 2){
             return;
           }
+          const sortModel = params?.api?.getSortModel?.();
+          let hasSort = Array.isArray(sortModel) && sortModel.length > 0;
+          if(!hasSort){
+            const columnState = params?.columnApi?.getColumnState?.();
+            hasSort = Array.isArray(columnState) && columnState.some(state => state?.sort === 'asc' || state?.sort === 'desc');
+          }
+          const headerNodes = [];
+          const dataNodes = [];
+          if(treatFirstRowAsHeader){
+            for(let i = 0; i < nodes.length; i++){
+              const node = nodes[i];
+              const physicalRow = node?.data?.__rowIndex ?? node?.rowIndex;
+              if(physicalRow === 0){
+                headerNodes.push(node);
+              }else{
+                dataNodes.push(node);
+              }
+            }
+          }else{
+            dataNodes.push(...nodes);
+          }
+          if(!hasSort){
+            if(!headerNodes.length){
+              return;
+            }
+            nodes.length = 0;
+            headerNodes.forEach(node => nodes.push(node));
+            dataNodes.forEach(node => nodes.push(node));
+            return;
+          }
           const matrix = dataHandle.current;
           const isValueEmpty = (value)=>{
             if(value == null){
@@ -3234,16 +3360,11 @@
             return true;
           };
 
-          const headerNodes = [];
           const nonEmptyNodes = [];
           const emptyNodes = [];
-          for(let i = 0; i < nodes.length; i++){
-            const node = nodes[i];
+          for(let i = 0; i < dataNodes.length; i++){
+            const node = dataNodes[i];
             const physicalRow = node?.data?.__rowIndex ?? node?.rowIndex;
-            if(treatFirstRowAsHeader && physicalRow === 0){
-              headerNodes.push(node);
-              continue;
-            }
             if(isPhysicalRowAllEmpty(physicalRow)){
               emptyNodes.push(node);
             }else{
@@ -3361,9 +3482,93 @@
           return;
         }
         const moveState = getMoveColumnState(colIdx);
+        const selectionSpan = resolveSelectedColumnSpanForHeader(colIdx);
+        const canDelete = selectionSpan.count > 0;
+        const insertLabelCount = selectionSpan.count || 1;
+        const selectionStart = selectionSpan.start;
+        const selectionEnd = selectionSpan.start + selectionSpan.count - 1;
         const canExclude = !exclusionController.isColumnExcluded(colIdx);
         const canInclude = exclusionController.isColumnExcluded(colIdx);
         const items = [
+          {
+            label: `Insert ${insertLabelCount} column(s) before`,
+            disabled: selectionSpan.count <= 0,
+            action: ()=>{
+              const prevExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              instance.alter('insert_col_left', selectionStart, insertLabelCount, 'header-menu');
+              const nextExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              if(hasGlobalUndo){
+                undoManager.record({
+                  label: `table:${debugLabel}:insert-cols`,
+                  scope: undoScope,
+                  undo: ()=>{ exclusionController.importState(prevExclusions); instance.alter('remove_col', selectionStart, insertLabelCount, 'undo:insert-cols'); exclusionController.importState(prevExclusions); },
+                  redo: ()=>{ instance.alter('insert_col_left', selectionStart, insertLabelCount, 'redo:insert-cols'); if(nextExclusions) exclusionController.importState(nextExclusions); }
+                });
+              }
+            }
+          },
+          {
+            label: `Insert ${insertLabelCount} column(s) after`,
+            disabled: selectionSpan.count <= 0,
+            action: ()=>{
+              const prevExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'header-menu');
+              const nextExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              if(hasGlobalUndo){
+                const insertAt = selectionEnd + 1;
+                undoManager.record({
+                  label: `table:${debugLabel}:insert-cols`,
+                  scope: undoScope,
+                  undo: ()=>{ exclusionController.importState(prevExclusions); instance.alter('remove_col', insertAt, insertLabelCount, 'undo:insert-cols'); exclusionController.importState(prevExclusions); },
+                  redo: ()=>{ instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'redo:insert-cols'); if(nextExclusions) exclusionController.importState(nextExclusions); }
+                });
+              }
+            }
+          },
+          {
+            label: `Delete ${selectionSpan.count || 1} column(s)`,
+            disabled: !canDelete,
+            action: ()=>{
+              const at = selectionStart;
+              const count = selectionSpan.count || 1;
+              const beforeExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              const beforeHeaders = Array.isArray(colHeadersSetting) ? colHeadersSetting.slice(at, at + count) : null;
+              const beforeData = dataHandle.current.map(row => (Array.isArray(row) ? row.slice(at, at + count) : Array.from({ length: count }, ()=>'')));
+              instance.alter('remove_col', at, count, 'header-menu');
+              const afterExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              if(hasGlobalUndo){
+                undoManager.record({
+                  label: `table:${debugLabel}:delete-cols`,
+                  scope: undoScope,
+                  undo: ()=>{
+                    instance.alter('insert_col_left', at, count, 'undo:delete-cols');
+                    const matrix = dataHandle.current;
+                    for(let r = 0; r < matrix.length; r++){
+                      const row = matrix[r] || [];
+                      for(let c = 0; c < count; c++){
+                        row[at + c] = beforeData[r]?.[c] ?? '';
+                      }
+                    }
+                    if(Array.isArray(colHeadersSetting) && Array.isArray(beforeHeaders)){
+                      colHeadersSetting.splice(at, count, ...beforeHeaders);
+                      colHeaders = resolveColHeaders(colCount);
+                    }
+                    exclusionController.importState(beforeExclusions);
+                    rebuildColumns(instance.gridApi);
+                    renderAg(instance.gridApi);
+                  },
+                  redo: ()=>{
+                    instance.alter('remove_col', at, count, 'redo:delete-cols');
+                    if(afterExclusions){
+                      exclusionController.importState(afterExclusions);
+                      renderAg(instance.gridApi);
+                    }
+                  }
+                });
+              }
+            }
+          },
+          'separator',
           {
             label: 'Move column left',
             disabled: !moveState.canMoveLeft,
@@ -3424,20 +3629,113 @@
         }
         const colIdRaw = params?.column?.getColId?.();
         if(colIdRaw === '__rowHeader'){
-          const physicalRow = params?.node?.data?.__rowIndex ?? params?.node?.rowIndex;
+          const visualRow = params?.node?.rowIndex ?? 0;
+          const physicalRow = params?.node?.data?.__rowIndex ?? visualRow;
           if(!Number.isInteger(physicalRow) || physicalRow < 0 || (treatFirstRowAsHeader && physicalRow === 0)){
             return;
           }
-          const rowList = [physicalRow];
-          const canExcludeRow = !exclusionController.isRowExcluded(physicalRow);
-          const canIncludeRow = exclusionController.isRowExcluded(physicalRow);
+          const selectionSpan = resolveSelectedRowSpanForHeader(visualRow);
+          const visualStart = selectionSpan.start;
+          const visualEnd = selectionSpan.start + selectionSpan.count - 1;
+          const rowCountToAct = Math.max(1, selectionSpan.count || 1);
+          const rowStart = Math.max(0, visualStart);
+          const rowEnd = rowStart + rowCountToAct - 1;
+          const rowList = [];
+          for(let r = visualStart; r <= visualEnd; r++){
+            const pr = toPhysicalRowIndex(r);
+            if(!Number.isInteger(pr) || pr < 0){
+              continue;
+            }
+            if(treatFirstRowAsHeader && pr === 0){
+              continue;
+            }
+            rowList.push(pr);
+          }
+          const uniqueRowList = Array.from(new Set(rowList));
+          const canExcludeRow = uniqueRowList.some(row => !exclusionController.isRowExcluded(row));
+          const canIncludeRow = uniqueRowList.some(row => exclusionController.isRowExcluded(row));
           const items = [
+            {
+              label: `Insert ${rowCountToAct} row(s) above`,
+              disabled: rowCountToAct <= 0,
+              action: ()=>{
+                const beforeExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+                instance.alter('insert_row_above', rowStart, rowCountToAct, 'row-header-menu');
+                const afterExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+                if(hasGlobalUndo){
+                  undoManager.record({
+                    label: `table:${debugLabel}:insert-rows`,
+                    scope: undoScope,
+                    undo: ()=>{ instance.alter('remove_row', rowStart, rowCountToAct, 'undo:insert-rows'); if(beforeExclusions) exclusionController.importState(beforeExclusions); },
+                    redo: ()=>{ instance.alter('insert_row_above', rowStart, rowCountToAct, 'redo:insert-rows'); if(afterExclusions) exclusionController.importState(afterExclusions); }
+                  });
+                }
+              }
+            },
+            {
+              label: `Insert ${rowCountToAct} row(s) below`,
+              disabled: rowCountToAct <= 0,
+              action: ()=>{
+                const beforeExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+                instance.alter('insert_row_below', rowEnd, rowCountToAct, 'row-header-menu');
+                const afterExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+                if(hasGlobalUndo){
+                  const insertAt = rowEnd + 1;
+                  undoManager.record({
+                    label: `table:${debugLabel}:insert-rows`,
+                    scope: undoScope,
+                    undo: ()=>{ instance.alter('remove_row', insertAt, rowCountToAct, 'undo:insert-rows'); if(beforeExclusions) exclusionController.importState(beforeExclusions); },
+                    redo: ()=>{ instance.alter('insert_row_below', rowEnd, rowCountToAct, 'redo:insert-rows'); if(afterExclusions) exclusionController.importState(afterExclusions); }
+                  });
+                }
+              }
+            },
+            {
+              label: `Delete ${rowCountToAct} row(s)`,
+              disabled: rowCountToAct <= 0,
+              action: ()=>{
+                const at = rowStart;
+                const count = rowCountToAct;
+                const beforeExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+                const beforeData = dataHandle.current.slice(at, at + count).map(row => Array.isArray(row) ? row.slice() : []);
+                instance.alter('remove_row', at, count, 'row-header-menu');
+                const afterExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+                if(hasGlobalUndo){
+                  undoManager.record({
+                    label: `table:${debugLabel}:delete-rows`,
+                    scope: undoScope,
+                    undo: ()=>{
+                      instance.alter('insert_row_above', at, count, 'undo:delete-rows');
+                      const matrix = dataHandle.current;
+                      for(let r = 0; r < count; r++){
+                        matrix[at + r] = Array.isArray(beforeData[r]) ? beforeData[r].slice() : [];
+                      }
+                      ensureDims(matrix, matrix.length, colCount);
+                      dataHandle.current = matrix;
+                      syncRowData(instance.gridApi);
+                      if(beforeExclusions){
+                        exclusionController.importState(beforeExclusions);
+                      }
+                      renderAg(instance.gridApi);
+                    },
+                    redo: ()=>{
+                      instance.alter('remove_row', at, count, 'redo:delete-rows');
+                      if(afterExclusions){
+                        exclusionController.importState(afterExclusions);
+                        renderAg(instance.gridApi);
+                      }
+                    }
+                  });
+                }
+              }
+            },
+            'separator',
             {
               label: 'Exclude row(s) from analysis',
               disabled: !canExcludeRow,
               action: ()=>{
                 applyExclusionChange(`table:${debugLabel}:exclude-rows`, ()=>{
-                  exclusionController.markRows(rowList, true);
+                  exclusionController.markRows(uniqueRowList, true);
                 });
                 triggerSchedule('exclusion-change', { scope: 'row', exclude: true });
               }
@@ -3447,7 +3745,7 @@
               disabled: !canIncludeRow,
               action: ()=>{
                 applyExclusionChange(`table:${debugLabel}:include-rows`, ()=>{
-                  exclusionController.markRows(rowList, false);
+                  exclusionController.markRows(uniqueRowList, false);
                 });
                 triggerSchedule('exclusion-change', { scope: 'row', exclude: false });
               }
@@ -4322,9 +4620,94 @@
           return;
         }
         const moveState = getMoveColumnState(colIdx);
+        const selectionSpan = resolveSelectedColumnSpanForHeader(colIdx);
+        const insertLabelCount = selectionSpan.count || 1;
+        const selectionStart = selectionSpan.start;
+        const selectionEnd = selectionSpan.start + selectionSpan.count - 1;
         const canExclude = !exclusionController.isColumnExcluded(colIdx);
         const canInclude = exclusionController.isColumnExcluded(colIdx);
         const items = [
+          {
+            label: `Insert ${insertLabelCount} column(s) before`,
+            disabled: selectionSpan.count <= 0,
+            action: ()=>{
+              const prevExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              instance.alter('insert_col_left', selectionStart, insertLabelCount, 'header-menu');
+              const nextExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              if(hasGlobalUndo){
+                undoManager.record({
+                  label: `table:${debugLabel}:insert-cols`,
+                  scope: undoScope,
+                  undo: ()=>{ instance.alter('remove_col', selectionStart, insertLabelCount, 'undo:insert-cols'); if(prevExclusions) exclusionController.importState(prevExclusions); },
+                  redo: ()=>{ instance.alter('insert_col_left', selectionStart, insertLabelCount, 'redo:insert-cols'); if(nextExclusions) exclusionController.importState(nextExclusions); }
+                });
+              }
+            }
+          },
+          {
+            label: `Insert ${insertLabelCount} column(s) after`,
+            disabled: selectionSpan.count <= 0,
+            action: ()=>{
+              const prevExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'header-menu');
+              const nextExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              if(hasGlobalUndo){
+                const insertAt = selectionEnd + 1;
+                undoManager.record({
+                  label: `table:${debugLabel}:insert-cols`,
+                  scope: undoScope,
+                  undo: ()=>{ instance.alter('remove_col', insertAt, insertLabelCount, 'undo:insert-cols'); if(prevExclusions) exclusionController.importState(prevExclusions); },
+                  redo: ()=>{ instance.alter('insert_col_right', selectionEnd, insertLabelCount, 'redo:insert-cols'); if(nextExclusions) exclusionController.importState(nextExclusions); }
+                });
+              }
+            }
+          },
+          {
+            label: `Delete ${selectionSpan.count || 1} column(s)`,
+            disabled: selectionSpan.count <= 0,
+            action: ()=>{
+              const at = selectionStart;
+              const count = selectionSpan.count || 1;
+              const beforeExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              const beforeHeaders = Array.isArray(colHeadersSetting) ? colHeadersSetting.slice(at, at + count) : null;
+              const beforeData = dataHandle.current.map(row => (Array.isArray(row) ? row.slice(at, at + count) : Array.from({ length: count }, ()=>'')));
+              instance.alter('remove_col', at, count, 'header-menu');
+              const afterExclusions = hasGlobalUndo ? exclusionController.exportState() : null;
+              if(hasGlobalUndo){
+                undoManager.record({
+                  label: `table:${debugLabel}:delete-cols`,
+                  scope: undoScope,
+                  undo: ()=>{
+                    instance.alter('insert_col_left', at, count, 'undo:delete-cols');
+                    const matrix = dataHandle.current;
+                    for(let r = 0; r < matrix.length; r++){
+                      const row = matrix[r] || [];
+                      for(let c = 0; c < count; c++){
+                        row[at + c] = beforeData[r]?.[c] ?? '';
+                      }
+                    }
+                    if(Array.isArray(colHeadersSetting) && Array.isArray(beforeHeaders)){
+                      colHeadersSetting.splice(at, count, ...beforeHeaders);
+                      colHeaders = resolveColHeaders(colCount);
+                    }
+                    if(beforeExclusions){
+                      exclusionController.importState(beforeExclusions);
+                    }
+                    rebuildColumns(instance.gridApi);
+                    renderAg(instance.gridApi);
+                  },
+                  redo: ()=>{
+                    instance.alter('remove_col', at, count, 'redo:delete-cols');
+                    if(afterExclusions){
+                      exclusionController.importState(afterExclusions);
+                      renderAg(instance.gridApi);
+                    }
+                  }
+                });
+              }
+            }
+          },
+          'separator',
           {
             label: 'Move column left',
             disabled: !moveState.canMoveLeft,

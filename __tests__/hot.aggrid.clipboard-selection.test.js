@@ -584,6 +584,97 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     global.window.agGrid = originalAgGrid;
   });
 
+  test('column header context menu supports insert/delete for selected columns', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderContextMenuColsHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 4 },
+      () => {},
+      {
+        debugLabel: 'ag-header-contextmenu-cols',
+        data: [
+          ['A0', 'B0', 'C0', 'D0'],
+          ['A1', 'B1', 'C1', 'D1']
+        ]
+      }
+    );
+
+    const lastRow = hot.countRows() - 1;
+    hot.selectCell(0, 1, lastRow, 2); // full-height selection for columns 1..2
+
+    const header = document.createElement('div');
+    header.className = 'ag-header-cell';
+    header.setAttribute('col-id', 'c1');
+    container.appendChild(header);
+
+    const evt = new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 });
+    header.dispatchEvent(evt);
+
+    const menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    const labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    expect(labels).toContain('Insert 2 column(s) before');
+    expect(labels).toContain('Insert 2 column(s) after');
+    expect(labels).toContain('Delete 2 column(s)');
+
+    const deleteEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Delete 2 column(s)');
+    expect(deleteEntry).toBeTruthy();
+    deleteEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+
+    // After deleting cols 1..2, col1 should now contain former col3 (D0).
+    expect(hot.getDataAtCell(0, 1)).toBe('D0');
+  });
+
+  test('row header context menu supports insert/delete for selected rows', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderContextMenuRowsHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 4, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-contextmenu-rows',
+        data: [
+          ['R0', 'x', 'x'],
+          ['R1', 'x', 'x'],
+          ['R2', 'x', 'x'],
+          ['R3', 'x', 'x']
+        ]
+      }
+    );
+
+    const lastCol = hot.countCols() - 1;
+    hot.selectCell(1, 0, 2, lastCol); // full-width selection for rows 1..2
+
+    const evt = new global.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 });
+    capturedGridOptions.onCellContextMenu({
+      event: evt,
+      column: { getColId: () => '__rowHeader' },
+      node: { rowIndex: 1, data: { __rowIndex: 1 } }
+    });
+
+    const menu = document.querySelector('.ag-hot-menu');
+    expect(menu).toBeTruthy();
+    const labels = Array.from(menu.querySelectorAll('div')).map(node => node.textContent).filter(Boolean);
+    expect(labels).toContain('Insert 2 row(s) above');
+    expect(labels).toContain('Insert 2 row(s) below');
+    expect(labels).toContain('Delete 2 row(s)');
+
+    const deleteEntry = Array.from(menu.querySelectorAll('div')).find(node => node.textContent === 'Delete 2 row(s)');
+    expect(deleteEntry).toBeTruthy();
+    deleteEntry.dispatchEvent(new global.window.MouseEvent('click', { bubbles: true }));
+
+    // After deleting rows 1..2, visual row 1 should now contain former row 3 (R3).
+    expect(hot.getDataAtCell(1, 0)).toBe('R3');
+  });
+
   test('postSortRows keeps the first data row anchored', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
@@ -607,7 +698,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       { data: { __rowIndex: 0 } },
       { data: { __rowIndex: 1 } }
     ];
-    capturedGridOptions.postSortRows({ nodes });
+    capturedGridOptions.postSortRows({ nodes, api: { getSortModel: () => [{ colId: 'c0', sort: 'asc' }] } });
 
     expect(nodes[0]?.data?.__rowIndex).toBe(0);
   });
@@ -641,7 +732,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
       { data: { __rowIndex: 1 } },
       { data: { __rowIndex: 0 } }
     ];
-    capturedGridOptions.postSortRows({ nodes });
+    capturedGridOptions.postSortRows({ nodes, api: { getSortModel: () => [{ colId: 'c0', sort: 'asc' }] } });
 
     expect(nodes.map(node => node?.data?.__rowIndex)).toEqual([0, 3, 1, 2]);
   });
