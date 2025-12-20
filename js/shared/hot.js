@@ -5544,6 +5544,35 @@
           setCopyHighlightRange(null);
           renderAg(instance.gridApi);
         }
+        if(isEnter && !isEditableTarget(event.target)){
+          const selection = normalizedSelectionRange || normalizeRange(lastRange);
+          if(selection
+            && selection.from.row === selection.to.row
+            && selection.from.col === selection.to.col){
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            event.stopImmediatePropagation?.();
+            const nextRow = selection.to.row + 1;
+            if(nextRow >= getVisualRowCount()){
+              try{ appendRows(1); }catch(err){}
+            }
+            setLastRange({ from: { row: nextRow, col: selection.to.col }, to: { row: nextRow, col: selection.to.col } });
+            renderAg(instance.gridApi);
+            try{
+              const api = instance.gridApi;
+              if(api && typeof api.setFocusedCell === 'function'){
+                const colId = `c${selection.to.col}`;
+                api.setFocusedCell(nextRow, colId);
+                if(typeof api.ensureIndexVisible === 'function'){
+                  api.ensureIndexVisible(nextRow);
+                }
+              }
+            }catch(err){
+              // best-effort focus move
+            }
+            return;
+          }
+        }
         // If Enter was pressed while editing an input (editable target), mark it
         // so we can move the selection down after editing finishes.
         if(isEnter && isEditableTarget(event.target)){
