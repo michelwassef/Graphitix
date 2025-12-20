@@ -6267,7 +6267,7 @@
       tr.appendChild(badgeCell);
       const pCell=document.createElement('td');
       const pValue=group.normality?.pValue;
-      pCell.className='stats-table__cell stats-table__cell--right stats-assumption__pvalue';
+      pCell.className='stats-table__cell stats-table__cell--left stats-assumption__pvalue';
       pCell.textContent=Number.isFinite(pValue)?formatP(pValue):'—';
       tr.appendChild(pCell);
       const sparkCell=document.createElement('td');

@@ -53,7 +53,8 @@
   const normalizeColumns = columns => {
     return (Array.isArray(columns) ? columns : []).map((col, index) => {
       const key = col && col.key != null ? col.key : index;
-      const align = (col && col.align) ? String(col.align) : (col && col.numeric ? 'right' : 'left');
+      // Always default to left alignment unless explicitly specified.
+      const align = (col && col.align) ? String(col.align) : 'left';
       const tooltip = col && col.tooltip != null ? String(col.tooltip) : '';
       const normalized = {
         key,
@@ -248,16 +249,11 @@
       cursor += colWidths[index];
     });
 
+    // Always left-align header text in exported SVGs to match on-screen tables
     columns.forEach((col, index) => {
-      const cellWidth = colWidths[index];
-      const anchor = col.align === 'right' ? 'end' : (col.align === 'center' ? 'middle' : 'start');
-      const x = col.align === 'right'
-        ? colPositions[index] + cellWidth - cellPaddingX
-        : col.align === 'center'
-          ? colPositions[index] + cellWidth / 2
-          : colPositions[index] + cellPaddingX;
+      const x = colPositions[index] + cellPaddingX;
       const y = tableTop + headerHeight / 2;
-      svg.push(`<text x="${x}" y="${y}" font-family="${escapeXml(fontFamily)}" font-size="${headerFontSize}" font-weight="600" fill="${textColor}" text-anchor="${anchor}" dominant-baseline="middle">${escapeXml(col.label)}</text>`);
+      svg.push(`<text x="${x}" y="${y}" font-family="${escapeXml(fontFamily)}" font-size="${headerFontSize}" font-weight="600" fill="${textColor}" text-anchor="start" dominant-baseline="middle">${escapeXml(col.label)}</text>`);
     });
 
     rows.forEach((row, rowIndex) => {
@@ -266,15 +262,10 @@
         svg.push(`<rect x="${outerPadding}" y="${rowY}" width="${tableWidth}" height="${rowHeight}" fill="${zebraFill}"/>`);
       }
       columns.forEach((col, colIndex) => {
-        const anchor = col.align === 'right' ? 'end' : (col.align === 'center' ? 'middle' : 'start');
-        const cellWidth = colWidths[colIndex];
-        const x = col.align === 'right'
-          ? colPositions[colIndex] + cellWidth - cellPaddingX
-          : col.align === 'center'
-            ? colPositions[colIndex] + cellWidth / 2
-            : colPositions[colIndex] + cellPaddingX;
+        // Force left alignment for cell text in exported SVGs
+        const x = colPositions[colIndex] + cellPaddingX;
         const y = rowY + rowHeight / 2;
-        svg.push(`<text x="${x}" y="${y}" font-family="${escapeXml(fontFamily)}" font-size="${bodyFontSize}" fill="${textColor}" text-anchor="${anchor}" dominant-baseline="middle">${escapeXml(row[colIndex])}</text>`);
+        svg.push(`<text x="${x}" y="${y}" font-family="${escapeXml(fontFamily)}" font-size="${bodyFontSize}" fill="${textColor}" text-anchor="start" dominant-baseline="middle">${escapeXml(row[colIndex])}</text>`);
       });
     });
 

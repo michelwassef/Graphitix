@@ -2011,7 +2011,8 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .stats-table__header{font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#42526b}
 .stats-table__cell--left{text-align:left}
 .stats-table__cell--center{text-align:center}
-.stats-table__cell--right{text-align:right}
+.stats-table__cell--right{text-align:left}
+.stats-table__cell--left{text-align:left}
 .stats-table tbody tr:nth-child(even){background:#f9fbff}
 .stats-table tbody tr:last-child .stats-table__cell{border-bottom:0}
 .stats-table-footnotes{padding:12px 20px;border-top:1px solid #d7e0ef;background:#f6f8fb;color:#3b4758;font-size:12px;line-height:1.4}
