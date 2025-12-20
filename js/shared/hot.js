@@ -1095,6 +1095,68 @@
       return { type: 'TEXT', raw: value };
     };
 
+    const parseTextNumericSuffix = (value)=>{
+      if(typeof value !== 'string'){
+        return null;
+      }
+      const match = value.match(/^(.*?)(-?\d+(?:\.\d+)?)$/);
+      if(!match){
+        return null;
+      }
+      return { prefix: match[1], numberText: match[2] };
+    };
+
+    const countDecimalPlaces = (value)=>{
+      const str = String(value);
+      const dot = str.indexOf('.');
+      if(dot === -1){
+        return 0;
+      }
+      return str.length - dot - 1;
+    };
+
+    const formatNumericSuffix = (value, decimals)=>{
+      if(decimals > 0){
+        return Number(value).toFixed(decimals);
+      }
+      const num = Number(value);
+      return Number.isFinite(num) && Math.floor(num) === num ? String(num) : String(value);
+    };
+
+    const computeTextNumberSeries = (typed, direction, count)=>{
+      const entries = typed.filter(entry => entry.type === 'TEXT');
+      if(entries.length < 2){
+        return null;
+      }
+      const parsed = entries.map(entry => {
+        const raw = String(entry.raw ?? '');
+        const info = parseTextNumericSuffix(raw);
+        return info ? { raw, prefix: info.prefix, numberText: info.numberText } : null;
+      });
+      if(parsed.some(item => !item)){
+        return null;
+      }
+      const prefix = parsed[0].prefix;
+      if(!parsed.every(item => item.prefix === prefix)){
+        return null;
+      }
+      const numericValues = parsed.map(item => Number(item.numberText)).filter(num => Number.isFinite(num));
+      if(numericValues.length < 2){
+        return null;
+      }
+      const decimals = Math.max(...parsed.map(item => countDecimalPlaces(item.numberText)));
+      const isForward = direction === 'down' || direction === 'right';
+      const step = numericValues[numericValues.length - 1] - numericValues[numericValues.length - 2];
+      const anchor = isForward ? numericValues[numericValues.length - 1] : numericValues[0];
+      const signedStep = isForward ? step : -step;
+      const results = [];
+      for(let i = 0; i < count; i++){
+        const nextValue = anchor + signedStep * (i + 1);
+        results.push(`${prefix}${formatNumericSuffix(nextValue, decimals)}`);
+      }
+      return results;
+    };
+
     const computeFillValues = (seedSequence, direction, count)=>{
       const results = [];
       const total = Math.max(0, Number(count) || 0);
@@ -1147,6 +1209,12 @@
           results.push('');
         }
         return results;
+      }
+      if(!hasEmpty){
+        const series = computeTextNumberSeries(typed, direction, total);
+        if(series){
+          return series;
+        }
       }
       const allSameText = textValues.every(value => value === textValues[0]);
       if(!hasEmpty && allSameText){
