@@ -238,7 +238,7 @@
     if (caption) {
       svg.push(`<text x="${outerPadding}" y="${captionY}" font-family="${escapeXml(fontFamily)}" font-size="${captionFontSize}" font-weight="600" fill="${textColor}">${escapeXml(caption)}</text>`);
     }
-    svg.push(`<rect x="${outerPadding}" y="${tableTop}" width="${tableWidth}" height="${headerHeight + rowAreaHeight}" fill="none" stroke="${borderColor}" stroke-width="1" rx="0" ry="0"/>`);
+    svg.push(`<rect x="${outerPadding}" y="${tableTop}" width="${tableWidth}" height="${headerHeight + rowAreaHeight}" fill="none" rx="0" ry="0"/>`);
     svg.push(`<rect x="${outerPadding}" y="${tableTop}" width="${tableWidth}" height="${headerHeight}" fill="${headerFill}"/>`);
 
     const colPositions = [];
@@ -265,7 +265,6 @@
       if (rowIndex % 2 === 1) {
         svg.push(`<rect x="${outerPadding}" y="${rowY}" width="${tableWidth}" height="${rowHeight}" fill="${zebraFill}"/>`);
       }
-      svg.push(`<line x1="${outerPadding}" y1="${rowY}" x2="${outerPadding + tableWidth}" y2="${rowY}" stroke="${borderColor}" stroke-width="1"/>`);
       columns.forEach((col, colIndex) => {
         const anchor = col.align === 'right' ? 'end' : (col.align === 'center' ? 'middle' : 'start');
         const cellWidth = colWidths[colIndex];
@@ -278,7 +277,23 @@
         svg.push(`<text x="${x}" y="${y}" font-family="${escapeXml(fontFamily)}" font-size="${bodyFontSize}" fill="${textColor}" text-anchor="${anchor}" dominant-baseline="middle">${escapeXml(row[colIndex])}</text>`);
       });
     });
-    svg.push(`<line x1="${outerPadding}" y1="${bodyTop + rowAreaHeight}" x2="${outerPadding + tableWidth}" y2="${bodyTop + rowAreaHeight}" stroke="${borderColor}" stroke-width="1"/>`);
+
+    // Draw grid lines on the foreground so they are not masked by later elements
+    const gridStroke = borderColor;
+    const gridStrokeWidth = 1;
+    // Horizontal separators: header bottom + each row boundary
+    const totalRows = rows.length;
+    for (let i = 0; i <= totalRows; i += 1) {
+      const y = bodyTop + i * rowHeight;
+      svg.push(`<line x1="${outerPadding}" y1="${y}" x2="${outerPadding + tableWidth}" y2="${y}" stroke="${gridStroke}" stroke-width="${gridStrokeWidth}"/>`);
+    }
+    // Vertical separators between columns (draw inside table bounds)
+    for (let ci = 1; ci < colPositions.length; ci += 1) {
+      const x = colPositions[ci];
+      svg.push(`<line x1="${x}" y1="${tableTop}" x2="${x}" y2="${tableTop + headerHeight + rowAreaHeight}" stroke="${gridStroke}" stroke-width="${gridStrokeWidth}"/>`);
+    }
+    // Outer border drawn last so it appears on top of table content
+    svg.push(`<rect x="${outerPadding}" y="${tableTop}" width="${tableWidth}" height="${headerHeight + rowAreaHeight}" fill="none" stroke="${gridStroke}" stroke-width="${gridStrokeWidth}"/>`);
 
     if (footnotes.length) {
       let y = footnoteStart + footnoteFontSize;
