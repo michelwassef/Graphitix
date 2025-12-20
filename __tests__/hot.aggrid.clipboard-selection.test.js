@@ -149,6 +149,172 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 0, 1, 1]);
   });
 
+  test('dragging column headers selects a multi-column range', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragColsHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-cols',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+    const lastRow = hot.countRows() - 1;
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    container.appendChild(header0);
+
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    header0.dispatchEvent(mouseDown);
+
+    const mouseMove = new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1 });
+    header2.dispatchEvent(mouseMove);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+
+    expect(hot.getSelectedLast()).toEqual([0, 0, lastRow, 2]);
+  });
+
+  test('dragging row headers selects a multi-row range', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragRowsHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-rows',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+    const lastCol = hot.countCols() - 1;
+
+    const row0 = document.createElement('div');
+    row0.className = 'ag-row';
+    row0.setAttribute('row-index', '0');
+    const row0Header = document.createElement('div');
+    row0Header.className = 'ag-cell';
+    row0Header.setAttribute('col-id', '__rowHeader');
+    row0.appendChild(row0Header);
+    container.appendChild(row0);
+
+    const row2 = document.createElement('div');
+    row2.className = 'ag-row';
+    row2.setAttribute('row-index', '2');
+    const row2Header = document.createElement('div');
+    row2Header.className = 'ag-cell';
+    row2Header.setAttribute('col-id', '__rowHeader');
+    row2.appendChild(row2Header);
+    container.appendChild(row2);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    row0Header.dispatchEvent(mouseDown);
+
+    const mouseMove = new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true });
+    row2Header.dispatchEvent(mouseMove);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+
+    expect(hot.getSelectedLast()).toEqual([0, 0, 2, lastCol]);
+  });
+
+  test('drag handle drag moves a column without affecting selection', () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleMoveHot';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-move',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    const moveColumnSpy = jest.fn();
+    const moveColumnsSpy = jest.fn();
+    hot.columnApi = {
+      getAllDisplayedColumns: () => [
+        { getColId: () => 'c0' },
+        { getColId: () => 'c1' },
+        { getColId: () => 'c2' }
+      ],
+      moveColumns: moveColumnsSpy,
+      moveColumn: moveColumnSpy
+    };
+
+    hot.selectCell(0, 0);
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    container.appendChild(header2);
+
+    const mouseDown = new global.window.MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0
+    });
+    handle.dispatchEvent(mouseDown);
+
+    const mouseMove = new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1 });
+    header2.dispatchEvent(mouseMove);
+
+    const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
+    global.window.dispatchEvent(mouseUp);
+
+    expect(moveColumnsSpy).toHaveBeenCalled();
+    expect(hot.getSelectedLast()).toEqual([0, 0, 0, 0]);
+  });
+
   test('postSortRows keeps the first data row anchored', () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');

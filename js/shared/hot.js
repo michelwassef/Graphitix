@@ -883,6 +883,16 @@
     let pendingDragCell = null;
     let dragRafPending = false;
     let pendingHeaderSortSuppression = null;
+    let isHeaderDragSelecting = false;
+    let headerDragScope = null; // 'row' | 'column'
+    let headerDragAnchor = null;
+    let pendingHeaderDragIndex = null;
+    let headerDragRafPending = false;
+    let headerDragMouseDown = false;
+    let headerDragColId = null;
+    let isColumnHandleDragging = false;
+    let columnHandleDragColId = null;
+    let columnHandleLastTargetIndex = null;
 
     const MAX_CLIPBOARD_CELLS = 200000;
 
@@ -1441,9 +1451,50 @@
             }
           };
         });
+
+      class HotAgColumnHeader{
+        init(params){
+          this.params = params;
+          const doc = container?.ownerDocument || document;
+          const root = doc.createElement('div');
+          root.className = 'hot-ag-header';
+
+          const handle = doc.createElement('span');
+          handle.className = 'hot-col-drag-handle';
+          handle.setAttribute('title', 'Drag to reorder columns');
+          handle.setAttribute('aria-label', 'Drag to reorder columns');
+          handle.tabIndex = -1;
+
+          const label = doc.createElement('span');
+          label.className = 'hot-ag-header-label';
+          label.textContent = params?.displayName ?? params?.column?.getColDef?.()?.headerName ?? '';
+
+          root.appendChild(handle);
+          root.appendChild(label);
+          this.eGui = root;
+        }
+        getGui(){
+          return this.eGui;
+        }
+        destroy(){
+          this.eGui = null;
+          this.params = null;
+        }
+      }
+
       const enhancedDataColumnDefs = dataColumnDefs.map(def=>{
         if(!def || typeof def !== 'object'){
           return def;
+        }
+        const colId = def.colId ?? null;
+        const isDataColumn = typeof colId === 'string' && colId.startsWith('c');
+        if(isDataColumn){
+          if(def.suppressMovable !== false){
+            def.suppressMovable = true;
+          }
+          if(!def.headerComponent){
+            def.headerComponent = HotAgColumnHeader;
+          }
         }
         const existing = def.cellClassRules && typeof def.cellClassRules === 'object'
           ? Object.assign({}, def.cellClassRules)
@@ -2801,6 +2852,126 @@
       doc.addEventListener('click', closeCustomMenu, { once: true });
     };
 
+    const getDisplayedDataColumnPositions = ()=>{
+      const api = instance.gridApi || null;
+      const columnApi = instance.columnApi || api?.columnApi || null;
+      const getAllDisplayedColumns = (columnApi && typeof columnApi.getAllDisplayedColumns === 'function')
+        ? columnApi.getAllDisplayedColumns.bind(columnApi)
+        : (api && typeof api.getAllDisplayedColumns === 'function')
+          ? api.getAllDisplayedColumns.bind(api)
+          : null;
+      if(!getAllDisplayedColumns){
+        return null;
+      }
+      try{
+        const displayed = getAllDisplayedColumns();
+        if(!Array.isArray(displayed) || !displayed.length){
+          return null;
+        }
+        const dataPositions = [];
+        const idAt = (col)=>{
+          try{
+            return typeof col?.getColId === 'function' ? col.getColId() : (col?.colId ?? null);
+          }catch(err){
+            return null;
+          }
+        };
+        for(let i = 0; i < displayed.length; i++){
+          const colId = idAt(displayed[i]);
+          if(typeof colId === 'string' && colId.startsWith('c')){
+            dataPositions.push({ index: i, colId });
+          }
+        }
+        return dataPositions.length ? dataPositions : null;
+      }catch(err){
+        return null;
+      }
+    };
+
+    const getMoveColumnState = (colIdx)=>{
+      const positions = getDisplayedDataColumnPositions();
+      const colId = `c${colIdx}`;
+      if(!positions){
+        return { colId, canMoveLeft: false, canMoveRight: false, targetIndexLeft: null, targetIndexRight: null };
+      }
+      const currentDataIdx = positions.findIndex(entry => entry.colId === colId);
+      if(currentDataIdx < 0){
+        return { colId, canMoveLeft: false, canMoveRight: false, targetIndexLeft: null, targetIndexRight: null };
+      }
+      const canMoveLeft = currentDataIdx > 0;
+      const canMoveRight = currentDataIdx < positions.length - 1;
+      return {
+        colId,
+        canMoveLeft,
+        canMoveRight,
+        targetIndexLeft: canMoveLeft ? positions[currentDataIdx - 1].index : null,
+        targetIndexRight: canMoveRight ? positions[currentDataIdx + 1].index : null
+      };
+    };
+
+    const moveDisplayedColumnTo = (colId, targetIndex)=>{
+      const api = instance.gridApi || null;
+      const columnApi = instance.columnApi || api?.columnApi || null;
+      const toIndex = Number(targetIndex);
+      if(!Number.isInteger(toIndex) || toIndex < 0){
+        return false;
+      }
+      try{
+        const moved = (()=>{
+          if(columnApi && typeof columnApi.moveColumns === 'function'){
+            columnApi.moveColumns([colId], toIndex);
+            return true;
+          }
+          if(columnApi && typeof columnApi.moveColumn === 'function'){
+            columnApi.moveColumn(colId, toIndex); // deprecated in AG Grid >=31.1, retained as fallback
+            return true;
+          }
+          if(api && typeof api.moveColumns === 'function'){
+            api.moveColumns([colId], toIndex);
+            return true;
+          }
+          if(api && typeof api.moveColumn === 'function'){
+            api.moveColumn(colId, toIndex); // deprecated in AG Grid >=31.1, retained as fallback
+            return true;
+          }
+          return false;
+        })();
+        if(!moved){
+          return false;
+        }
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot moved displayed column', { debugLabel, colId, toIndex });
+        }
+        return true;
+      }catch(err){
+        return false;
+      }
+    };
+
+    const startColumnHandleDrag = (colId)=>{
+      if(typeof colId !== 'string' || !colId.startsWith('c')){
+        return;
+      }
+      isColumnHandleDragging = true;
+      columnHandleDragColId = colId;
+      columnHandleLastTargetIndex = null;
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot column handle drag start', { debugLabel, colId });
+      }
+    };
+
+    const stopColumnHandleDrag = ()=>{
+      if(!isColumnHandleDragging){
+        return;
+      }
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot column handle drag end', { debugLabel, colId: columnHandleDragColId });
+      }
+      isColumnHandleDragging = false;
+      columnHandleDragColId = null;
+      columnHandleLastTargetIndex = null;
+    };
+
     const gridOptions = {
       rowData,
       columnDefs,
@@ -2972,9 +3143,25 @@
         if(!Number.isInteger(colIdx) || colIdx < 0){
           return;
         }
+        const moveState = getMoveColumnState(colIdx);
         const canExclude = !exclusionController.isColumnExcluded(colIdx);
         const canInclude = exclusionController.isColumnExcluded(colIdx);
         const items = [
+          {
+            label: 'Move column left',
+            disabled: !moveState.canMoveLeft,
+            action: ()=>{
+              moveDisplayedColumnTo(moveState.colId, moveState.targetIndexLeft);
+            }
+          },
+          {
+            label: 'Move column right',
+            disabled: !moveState.canMoveRight,
+            action: ()=>{
+              moveDisplayedColumnTo(moveState.colId, moveState.targetIndexRight);
+            }
+          },
+          'separator',
           {
             label: 'Exclude column from analysis',
             disabled: !canExclude,
@@ -3286,12 +3473,12 @@
         pendingHeaderSortSuppression = null;
       };
 
-      const armHeaderSortSuppression = (colId)=>{
+      const armHeaderSortSuppression = (colId, options)=>{
         if(typeof colId !== 'string' || !colId){
           return;
         }
         clearHeaderSortSuppression();
-        pendingHeaderSortSuppression = { colId };
+        pendingHeaderSortSuppression = { colId, any: !!options?.any };
       };
 
       const handleRowHeaderMouseDown = (event)=>{
@@ -3314,6 +3501,14 @@
         isDragSelecting = false;
         dragAnchor = null;
         pendingDragCell = null;
+        isHeaderDragSelecting = true;
+        headerDragScope = 'row';
+        headerDragAnchor = { row: (event.shiftKey && normalizedSelectionRange) ? normalizedSelectionRange.from.row : row };
+        pendingHeaderDragIndex = row;
+        headerDragRafPending = false;
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot header drag selection start', { debugLabel, scope: 'row', row });
+        }
         selectRowByHeader(row, !!event.shiftKey);
       };
 
@@ -3323,6 +3518,27 @@
         }
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
         if(!target || typeof target.closest !== 'function'){
+          return;
+        }
+        if(target.closest('.hot-col-drag-handle')){
+          const headerCell = target.closest('.ag-header-cell');
+          const colId = headerCell?.getAttribute?.('col-id');
+          if(typeof colId === 'string' && colId.startsWith('c')){
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            event.stopImmediatePropagation?.();
+            isDragSelecting = false;
+            isHeaderDragSelecting = false;
+            headerDragMouseDown = false;
+            headerDragScope = null;
+            headerDragAnchor = null;
+            pendingHeaderDragIndex = null;
+            headerDragRafPending = false;
+            startColumnHandleDrag(colId);
+          }
+          return;
+        }
+        if(target.closest('.ag-header-cell-resize') || target.closest('.ag-header-icon') || target.closest('.ag-header-cell-menu-button')){
           return;
         }
         const headerCell = target.closest('.ag-header-cell');
@@ -3336,6 +3552,22 @@
         const col = Number(colId.slice(1));
         if(!Number.isInteger(col) || col < 0){
           return;
+        }
+        if(event.altKey){
+          return;
+        }
+        isDragSelecting = false;
+        dragAnchor = null;
+        pendingDragCell = null;
+        isHeaderDragSelecting = false;
+        headerDragScope = 'column';
+        headerDragAnchor = { col: (event.shiftKey && normalizedSelectionRange) ? normalizedSelectionRange.from.col : col };
+        pendingHeaderDragIndex = col;
+        headerDragRafPending = false;
+        headerDragMouseDown = true;
+        headerDragColId = colId;
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot header drag selection armed', { debugLabel, scope: 'column', col });
         }
         const selectionBefore = normalizedSelectionRange;
         selectColumnByHeader(col, !!event.shiftKey);
@@ -3374,15 +3606,84 @@
           clearHeaderSortSuppression();
           return;
         }
-        const colId = headerCell.getAttribute('col-id');
-        if(colId !== suppression.colId){
-          clearHeaderSortSuppression();
-          return;
+        if(!suppression.any){
+          const colId = headerCell.getAttribute('col-id');
+          if(colId !== suppression.colId){
+            clearHeaderSortSuppression();
+            return;
+          }
         }
         clearHeaderSortSuppression();
         event.preventDefault?.();
         event.stopPropagation?.();
         event.stopImmediatePropagation?.();
+      };
+
+      const resolveRowIndexFromEvent = (event)=>{
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        if(!target || typeof target.closest !== 'function'){
+          return null;
+        }
+        const rowNode = target.closest('.ag-row');
+        const rowAttr = rowNode?.getAttribute?.('row-index');
+        const row = Number(rowAttr);
+        if(Number.isInteger(row) && row >= 0){
+          return row;
+        }
+        const coords = resolveCellCoords(event);
+        return coords ? coords.row : null;
+      };
+
+      const resolveColIndexFromEvent = (event)=>{
+        const resolveFromNode = (node)=>{
+          if(!node || typeof node.closest !== 'function'){
+            return null;
+          }
+          const headerCell = node.closest('.ag-header-cell');
+          if(headerCell){
+            const colId = headerCell.getAttribute('col-id');
+            if(typeof colId === 'string' && colId.startsWith('c')){
+              const col = Number(colId.slice(1));
+              if(Number.isInteger(col) && col >= 0){
+                return col;
+              }
+            }
+          }
+          const cell = node.closest('.ag-cell');
+          if(cell){
+            const colId = cell.getAttribute('col-id');
+            if(typeof colId === 'string' && colId.startsWith('c')){
+              const col = Number(colId.slice(1));
+              if(Number.isInteger(col) && col >= 0){
+                return col;
+              }
+            }
+          }
+          return null;
+        };
+
+        const target = event?.target && event.target.nodeType === 1 ? event.target : null;
+        const fromTarget = resolveFromNode(target);
+        if(fromTarget != null){
+          return fromTarget;
+        }
+
+        const x = typeof event?.clientX === 'number' ? event.clientX : null;
+        const y = typeof event?.clientY === 'number' ? event.clientY : null;
+        if(x != null && y != null){
+          try{
+            const doc = container?.ownerDocument || document;
+            const hit = doc.elementFromPoint?.(x, y);
+            const fromPoint = resolveFromNode(hit);
+            if(fromPoint != null){
+              return fromPoint;
+            }
+          }catch(err){
+            // ignore
+          }
+        }
+        const coords = resolveCellCoords(event);
+        return coords ? coords.col : null;
       };
 
       const handleMouseDown = (event)=>{
@@ -3395,12 +3696,105 @@
         }
         isDragSelecting = true;
         pendingDragCell = coords;
+        isHeaderDragSelecting = false;
+        headerDragScope = null;
+        headerDragAnchor = null;
+        pendingHeaderDragIndex = null;
+        headerDragRafPending = false;
+        headerDragMouseDown = false;
+        headerDragColId = null;
         dragAnchor = (event.shiftKey && normalizedSelectionRange) ? normalizedSelectionRange.from : coords;
         setLastRange({ from: dragAnchor, to: coords });
         renderAg(instance.gridApi);
       };
 
       const handleMouseMove = (event)=>{
+        if(isColumnHandleDragging){
+          const buttons = typeof event?.buttons === 'number' ? event.buttons : null;
+          const leftDown = buttons !== null ? ((buttons & 1) === 1) : true;
+          if(!leftDown){
+            stopColumnHandleDrag();
+            return;
+          }
+          const overColIdx = resolveColIndexFromEvent(event);
+          if(overColIdx == null){
+            return;
+          }
+          const positions = getDisplayedDataColumnPositions();
+          if(!positions || !columnHandleDragColId){
+            return;
+          }
+          const overColId = `c${overColIdx}`;
+          const target = positions.find(entry => entry.colId === overColId);
+          if(!target){
+            return;
+          }
+          if(columnHandleLastTargetIndex !== target.index){
+            columnHandleLastTargetIndex = target.index;
+            moveDisplayedColumnTo(columnHandleDragColId, target.index);
+          }
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          event.stopImmediatePropagation?.();
+          return;
+        }
+        if(headerDragMouseDown && headerDragScope === 'column' && !isHeaderDragSelecting){
+          const buttons = typeof event?.buttons === 'number' ? event.buttons : null;
+          const leftDown = buttons !== null ? ((buttons & 1) === 1) : !!(event?.which === 1);
+          if(leftDown){
+            isHeaderDragSelecting = true;
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            event.stopImmediatePropagation?.();
+            if(headerDragColId){
+              armHeaderSortSuppression(headerDragColId, { any: true });
+            }
+            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: Shared.hot header drag selection start', { debugLabel, scope: 'column' });
+            }
+          }
+        }
+        if(isHeaderDragSelecting){
+          const scope = headerDragScope;
+          const anchor = headerDragAnchor;
+          if(!scope || !anchor){
+            return;
+          }
+          const nextIndex = scope === 'row' ? resolveRowIndexFromEvent(event) : resolveColIndexFromEvent(event);
+          if(nextIndex == null){
+            return;
+          }
+          pendingHeaderDragIndex = nextIndex;
+          if(headerDragRafPending){
+            return;
+          }
+          headerDragRafPending = true;
+          raf(()=>{
+            headerDragRafPending = false;
+            if(!isHeaderDragSelecting || pendingHeaderDragIndex == null || !headerDragAnchor){
+              return;
+            }
+            if(headerDragScope === 'row'){
+              const nextRow = pendingHeaderDragIndex;
+              const anchorRow = Number(headerDragAnchor.row ?? nextRow);
+              const fromRow = Math.min(anchorRow, nextRow);
+              const toRow = Math.max(anchorRow, nextRow);
+              const fromCol = 0;
+              const toCol = Math.max(0, colCount - 1);
+              setLastRange({ from: { row: fromRow, col: fromCol }, to: { row: toRow, col: toCol } });
+              renderAg(instance.gridApi);
+              return;
+            }
+            const nextCol = pendingHeaderDragIndex;
+            const anchorCol = Number(headerDragAnchor.col ?? nextCol);
+            const lastRow = Math.max(0, getVisualRowCount() - 1);
+            const fromCol = Math.min(anchorCol, nextCol);
+            const toCol = Math.max(anchorCol, nextCol);
+            setLastRange({ from: { row: 0, col: fromCol }, to: { row: lastRow, col: toCol } });
+            renderAg(instance.gridApi);
+          });
+          return;
+        }
         if(!isDragSelecting){
           return;
         }
@@ -3425,6 +3819,35 @@
       };
 
       const handleMouseUp = ()=>{
+        if(isHeaderDragSelecting){
+          isHeaderDragSelecting = false;
+          headerDragScope = null;
+          headerDragAnchor = null;
+          pendingHeaderDragIndex = null;
+          headerDragRafPending = false;
+          headerDragMouseDown = false;
+          headerDragColId = null;
+          const normalized = normalizedSelectionRange;
+          if(normalized){
+            fireHook('afterSelectionEnd', normalized.from.row, normalized.from.col, normalized.to.row, normalized.to.col);
+            if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: Shared.hot header drag selection end', { debugLabel, selection: normalized });
+            }
+          }
+          return;
+        }
+        if(isColumnHandleDragging){
+          stopColumnHandleDrag();
+          return;
+        }
+        if(headerDragMouseDown){
+          headerDragMouseDown = false;
+          headerDragColId = null;
+          headerDragScope = null;
+          headerDragAnchor = null;
+          pendingHeaderDragIndex = null;
+          headerDragRafPending = false;
+        }
         if(!isDragSelecting){
           return;
         }
@@ -3605,9 +4028,25 @@
         if(!Number.isInteger(colIdx) || colIdx < 0){
           return;
         }
+        const moveState = getMoveColumnState(colIdx);
         const canExclude = !exclusionController.isColumnExcluded(colIdx);
         const canInclude = exclusionController.isColumnExcluded(colIdx);
         const items = [
+          {
+            label: 'Move column left',
+            disabled: !moveState.canMoveLeft,
+            action: ()=>{
+              moveDisplayedColumnTo(moveState.colId, moveState.targetIndexLeft);
+            }
+          },
+          {
+            label: 'Move column right',
+            disabled: !moveState.canMoveRight,
+            action: ()=>{
+              moveDisplayedColumnTo(moveState.colId, moveState.targetIndexRight);
+            }
+          },
+          'separator',
           {
             label: 'Exclude column from analysis',
             disabled: !canExclude,
