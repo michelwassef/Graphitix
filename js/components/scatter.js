@@ -4246,13 +4246,10 @@
             scatterShowPlotStats.checked = false;
           }
         }
-        if(scatterShowCI){
-          scatterShowCI.disabled = disableRegression;
-          if(disableRegression && scatterShowCI.checked){ scatterShowCI.checked = false; }
-        }
-        if(scatterShowPI){
-          scatterShowPI.disabled = disableRegression;
-          if(disableRegression && scatterShowPI.checked){ scatterShowPI.checked = false; }
+        // Update CI/PI enabled state and visual class
+        try{ updateCIEnabled(); }catch(e){
+          if(scatterShowCI){ scatterShowCI.disabled = disableRegression; if(disableRegression && scatterShowCI.checked){ scatterShowCI.checked = false; } }
+          if(scatterShowPI){ scatterShowPI.disabled = disableRegression; if(disableRegression && scatterShowPI.checked){ scatterShowPI.checked = false; } }
         }
         if(scatterShowDiagnostics){
           scatterShowDiagnostics.disabled = disableRegression;
@@ -4569,13 +4566,10 @@
             scatterShowPlotStats.checked=false;
           }
         }
-        if(scatterShowCI){
-          scatterShowCI.disabled = disableRegressionControls;
-          if(disableRegressionControls && scatterShowCI.checked){ scatterShowCI.checked = false; }
-        }
-        if(scatterShowPI){
-          scatterShowPI.disabled = disableRegressionControls;
-          if(disableRegressionControls && scatterShowPI.checked){ scatterShowPI.checked = false; }
+        // Update CI/PI enabled state and visual class
+        try{ updateCIEnabled(); }catch(e){
+          if(scatterShowCI){ scatterShowCI.disabled = disableRegressionControls; if(disableRegressionControls && scatterShowCI.checked){ scatterShowCI.checked = false; } }
+          if(scatterShowPI){ scatterShowPI.disabled = disableRegressionControls; if(disableRegressionControls && scatterShowPI.checked){ scatterShowPI.checked = false; } }
         }
         if(scatterShowDiagnostics){
           scatterShowDiagnostics.disabled=disableRegressionControls;
@@ -5208,15 +5202,44 @@
       const updateCIEnabled = ()=>{
         const masterOn = !!(scatterShowLine && scatterShowLine.checked);
         const regressionDisabled = !!(scatterShowLine && scatterShowLine.disabled);
-        if(scatterShowCI){ scatterShowCI.disabled = regressionDisabled || !masterOn; }
-        if(scatterShowPI){ scatterShowPI.disabled = regressionDisabled || !masterOn; }
+        const disabledState = regressionDisabled || !masterOn;
+        if(scatterShowCI){
+          scatterShowCI.disabled = disabledState;
+          const lab = scatterShowCI.closest && scatterShowCI.closest('label');
+          if(lab){ lab.classList.toggle('config-panel__checkbox--disabled', !!disabledState); }
+        }
+        if(scatterShowPI){
+          scatterShowPI.disabled = disabledState;
+          const lab = scatterShowPI.closest && scatterShowPI.closest('label');
+          if(lab){ lab.classList.toggle('config-panel__checkbox--disabled', !!disabledState); }
+        }
       };
       updateCIEnabled();
       if(scatterShowLine){
         scatterShowLine.addEventListener('change',()=>{ updateCIEnabled(); persistTabState('scatter-trendline-change'); scheduleDrawScatter(); });
       }
-      if(scatterShowCI){ scatterShowCI.addEventListener('change',()=>{ persistTabState('scatter-interval-ci-change'); scheduleDrawScatter(); }); }
-      if(scatterShowPI){ scatterShowPI.addEventListener('change',()=>{ persistTabState('scatter-interval-pi-change'); scheduleDrawScatter(); }); }
+      if(scatterShowCI){
+        scatterShowCI.addEventListener('change',()=>{
+          // Prevent enabling CI unless the trend line is active
+          if(!(scatterShowLine && scatterShowLine.checked)){
+            if(scatterShowCI.checked){ scatterShowCI.checked = false; }
+            return;
+          }
+          persistTabState('scatter-interval-ci-change');
+          scheduleDrawScatter();
+        });
+      }
+      if(scatterShowPI){
+        scatterShowPI.addEventListener('change',()=>{
+          // Prevent enabling PI unless the trend line is active
+          if(!(scatterShowLine && scatterShowLine.checked)){
+            if(scatterShowPI.checked){ scatterShowPI.checked = false; }
+            return;
+          }
+          persistTabState('scatter-interval-pi-change');
+          scheduleDrawScatter();
+        });
+      }
       const handleScatterLogToggle=(axis,checkbox)=>{
         checkbox?.addEventListener('change',()=>{
           const enabling=!!checkbox.checked;
@@ -8206,13 +8229,19 @@
         scatterOriginMode.value=c.originMode||scatterOriginMode.value;
         scatterOriginX.value=c.originX||'';
         scatterOriginY.value=c.originY||'';
-        scatterShowLine.checked=!!c.showLine;
+        // If the payload requests CI/PI, ensure the trend line is enabled first
+        if((c.showCI || c.showPI) && scatterShowLine){
+          scatterShowLine.checked = true;
+        } else {
+          scatterShowLine.checked = !!c.showLine;
+        }
         if(scatterShowPlotStats){
-          scatterShowPlotStats.checked = typeof c.showPlotStats === 'boolean' ? c.showPlotStats : !!c.showLine;
+          scatterShowPlotStats.checked = typeof c.showPlotStats === 'boolean' ? c.showPlotStats : !!scatterShowLine.checked;
         }
         if(typeof c.showCI === 'boolean' && scatterShowCI){ scatterShowCI.checked = !!c.showCI; }
         if(typeof c.showPI === 'boolean' && scatterShowPI){ scatterShowPI.checked = !!c.showPI; }
-        if((c.showCI || c.showPI) && scatterShowLine){ scatterShowLine.checked = true; }
+        // Ensure CI/PI controls reflect enabled/disabled state after payload applied
+        try{ updateCIEnabled(); }catch(e){ /* ignore if unavailable */ }
         if(scatterShowDiagnostics){
           scatterShowDiagnostics.checked=!!c.showDiagnostics;
         }

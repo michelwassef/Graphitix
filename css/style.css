@@ -2011,6 +2011,8 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 .config-panel__checkbox input[type=checkbox],
 .config-options .control input[type=checkbox]{margin:0}
 .config-panel__checkbox--inline{margin-left:auto}
+.config-panel__checkbox--disabled{opacity:0.48;filter:grayscale(60%);background:#f3f5f7;border-color:#d6dde5;color:#6b7785;cursor:not-allowed;pointer-events:none}
+.config-panel__checkbox--disabled input[type=checkbox]{cursor:not-allowed}
 .config-options .color-pickers{display:flex;flex-direction:column;gap:8px}
 .config-options .color-pickers label{display:flex;align-items:center;gap:6px;font-size:12px;color:#1c2534}
 .config-options .control input[type=range]{flex:1 1 auto;min-width:var(--config-panel-range-min-width,120px)}
