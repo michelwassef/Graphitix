@@ -117,6 +117,11 @@
     : (DEFAULT_SCATTER_COLORS[0] || '#e41a1c');
   if(typeof global.SIGNIFICANT_COLOR === 'undefined') global.SIGNIFICANT_COLOR = SIGNIFICANT_COLOR;
 
+  const SIGNIFICANT_NEGATIVE_COLOR = (typeof global.SIGNIFICANT_NEGATIVE_COLOR !== 'undefined' && global.SIGNIFICANT_NEGATIVE_COLOR)
+    ? global.SIGNIFICANT_NEGATIVE_COLOR
+    : (DEFAULT_SCATTER_COLORS[1] || '#377eb8');
+  if(typeof global.SIGNIFICANT_NEGATIVE_COLOR === 'undefined') global.SIGNIFICANT_NEGATIVE_COLOR = SIGNIFICANT_NEGATIVE_COLOR;
+
   const DEFAULT_NON_SIG_COLOR = (typeof global.DEFAULT_NON_SIG_COLOR !== 'undefined' && global.DEFAULT_NON_SIG_COLOR)
     ? global.DEFAULT_NON_SIG_COLOR
     : (DEFAULT_SCATTER_COLORS[DEFAULT_SCATTER_COLORS.length - 1] || '#999999');
@@ -6410,8 +6415,14 @@
               });
             }
           }else if(significanceLegendNeeded){
-            legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
-            legendEntries.push({label:'Not significant',fill});
+            if(scatterCurrentGraphType === 'volcano'){
+              legendEntries.push({label:'Significant (positive)',fill:SIGNIFICANT_COLOR});
+              legendEntries.push({label:'Significant (negative)',fill:SIGNIFICANT_NEGATIVE_COLOR});
+              legendEntries.push({label:'Not significant',fill});
+            }else{
+              legendEntries.push({label:'Significant',fill:SIGNIFICANT_COLOR});
+              legendEntries.push({label:'Not significant',fill});
+            }
           }
           legendLayout = chartStyle.computeLegendLayout({
             entries:legendEntries,
@@ -7267,6 +7278,58 @@
             const y=y2px(t);add('line',{x1:margin.left,y1:y,x2:margin.left+plotW,y2:y,stroke:'#ddd','stroke-width':axisStrokeWidth});});
           debug('Debug: scatter grid stroke scaled',{vertical:xScale.ticks.length,horizontal:yScale.ticks.length,axisStrokeWidth});
         }
+        if(scatterCurrentGraphType === 'volcano'){
+          const thresholdStroke = '#9b9b9b';
+          const thresholdWidth = chartStyle.scaleStrokeWidth(0.85, styleScaleInfo, { context: 'scatter-threshold', min: 0.35 });
+          const dashSize = Math.max(2, Math.round(thresholdWidth * 3));
+          const dashArray = `${dashSize},${dashSize}`;
+          const absLog2fc = Number.isFinite(log2fcThreshold) ? Math.abs(log2fcThreshold) : NaN;
+          if(Number.isFinite(absLog2fc) && absLog2fc > 0){
+            const thresholdXT = logX ? Math.log10(absLog2fc) : absLog2fc;
+            if(Number.isFinite(thresholdXT) && thresholdXT >= xScale.min && thresholdXT <= xScale.max && isXValueVisible(thresholdXT)){
+              const xPos = x2px(thresholdXT);
+              add('line',{
+                x1: xPos,
+                y1: margin.top,
+                x2: xPos,
+                y2: margin.top + plotH,
+                stroke: thresholdStroke,
+                'stroke-width': thresholdWidth,
+                'stroke-dasharray': dashArray
+              });
+            }
+            if(!logX){
+              const negXT = -absLog2fc;
+              if(negXT >= xScale.min && negXT <= xScale.max && isXValueVisible(negXT)){
+                const xNegPos = x2px(negXT);
+                add('line',{
+                  x1: xNegPos,
+                  y1: margin.top,
+                  x2: xNegPos,
+                  y2: margin.top + plotH,
+                  stroke: thresholdStroke,
+                  'stroke-width': thresholdWidth,
+                  'stroke-dasharray': dashArray
+                });
+              }
+            }
+          }
+          if(Number.isFinite(negLogPThreshold) && negLogPThreshold > 0){
+            const thresholdYT = logY ? Math.log10(negLogPThreshold) : negLogPThreshold;
+            if(Number.isFinite(thresholdYT) && thresholdYT >= yScale.min && thresholdYT <= yScale.max && isYValueVisible(thresholdYT)){
+              const yPos = y2px(thresholdYT);
+              add('line',{
+                x1: margin.left,
+                y1: yPos,
+                x2: margin.left + plotW,
+                y2: yPos,
+                stroke: thresholdStroke,
+                'stroke-width': thresholdWidth,
+                'stroke-dasharray': dashArray
+              });
+            }
+          }
+        }
         let originXT,originYT;
         if(originMode==='custom'){originXT=logX?Math.log10(isFinite(originXInput)?originXInput:0):(isFinite(originXInput)?originXInput:0);originYT=logY?Math.log10(isFinite(originYInput)?originYInput:0):(isFinite(originYInput)?originYInput:0);}else{originXT=xScale.min;originYT=yScale.min;}
         const clampedXT=Math.min(Math.max(originXT,xScale.min),xScale.max);
@@ -7521,6 +7584,15 @@
           densityInfo = computeScatterDensityValues(densityPoints, { width: plotW, height: plotH });
           debug('Debug: scatter density computed',{ max: densityInfo.max, count: densityPoints.length });
         }
+        const resolveNonScatterColor = point => {
+          if(!point || !point.isSignificant){
+            return fill;
+          }
+          if(scatterCurrentGraphType === 'volcano' && Number.isFinite(point.x) && point.x < 0){
+            return SIGNIFICANT_NEGATIVE_COLOR;
+          }
+          return SIGNIFICANT_COLOR;
+        };
         const frag=document.createDocumentFragment();
         const labelBBox=new Map();
         const manualLabelEntries = [];
@@ -7541,7 +7613,7 @@
             ? (scatterColorModeApplied === 'density'
               ? (densityColorFor ? densityColorFor(densityRatio) : fill)
               : (useUniformLabelStyle ? fill : (scatterLabelColors[p.label]||fill)))
-            : (p.isSignificant?SIGNIFICANT_COLOR:fill);
+            : resolveNonScatterColor(p);
           const markerShape = isBubbleView ? 'circle' : (scatterCurrentGraphType==='scatter'
             ? (useUniformLabelStyle ? 'circle' : (labelShapeLookup.get(p.label) || 'circle'))
             : 'circle');
@@ -7580,7 +7652,10 @@
               text: manualLabelText,
               cx: cxVal,
               cy: cyVal,
-              radius: markerRadius
+              radius: markerRadius,
+              labelColor: scatterCurrentGraphType === 'volcano' && p.isSignificant
+                ? (Number.isFinite(p.x) && p.x < 0 ? SIGNIFICANT_NEGATIVE_COLOR : SIGNIFICANT_COLOR)
+                : null
             });
           }
           attachScatterPointTooltip(marker, {
@@ -7683,6 +7758,7 @@
             const cx = Number(entry?.cx) || 0;
             const cy = Number(entry?.cy) || 0;
             const textValue = entry?.text ? String(entry.text) : '';
+            const entryColor = entry?.labelColor || labelColor;
             if(!textValue || !placement){
               return;
             }
@@ -7695,7 +7771,7 @@
             leader.setAttribute('y1', String(cy));
             leader.setAttribute('x2', String(lineX2));
             leader.setAttribute('y2', String(textY));
-            leader.setAttribute('stroke', labelColor);
+            leader.setAttribute('stroke', entryColor);
             leader.setAttribute('stroke-width', String(leaderStrokeWidth));
             leader.setAttribute('stroke-linecap', 'round');
             labelLayer.appendChild(leader);
@@ -7703,7 +7779,7 @@
             textNode.setAttribute('x', String(textX));
             textNode.setAttribute('y', String(textY));
             textNode.setAttribute('font-size', String(labelFontSize));
-            textNode.setAttribute('fill', labelColor);
+            textNode.setAttribute('fill', entryColor);
             textNode.setAttribute('text-anchor', anchor);
             textNode.setAttribute('dominant-baseline', 'middle');
             textNode.textContent = textValue;
