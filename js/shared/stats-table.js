@@ -234,11 +234,11 @@
     const rowAreaHeight = rows.length * rowHeight;
     const svg = [];
     svg.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`);
-    svg.push(`<rect width="${width}" height="${height}" fill="${backgroundFill}" rx="8" ry="8"/>`);
+    svg.push(`<rect width="${width}" height="${height}" fill="${backgroundFill}" rx="0" ry="0"/>`);
     if (caption) {
       svg.push(`<text x="${outerPadding}" y="${captionY}" font-family="${escapeXml(fontFamily)}" font-size="${captionFontSize}" font-weight="600" fill="${textColor}">${escapeXml(caption)}</text>`);
     }
-    svg.push(`<rect x="${outerPadding}" y="${tableTop}" width="${tableWidth}" height="${headerHeight + rowAreaHeight}" fill="none" stroke="${borderColor}" stroke-width="1" rx="6" ry="6"/>`);
+    svg.push(`<rect x="${outerPadding}" y="${tableTop}" width="${tableWidth}" height="${headerHeight + rowAreaHeight}" fill="none" stroke="${borderColor}" stroke-width="1" rx="0" ry="0"/>`);
     svg.push(`<rect x="${outerPadding}" y="${tableTop}" width="${tableWidth}" height="${headerHeight}" fill="${headerFill}"/>`);
 
     const colPositions = [];

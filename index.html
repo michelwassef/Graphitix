@@ -213,7 +213,7 @@
         </div>
         <div id="regionListContainer" style="position:relative; margin-top:6px;">
           <button class="btn" id="copyRegionBtn" style="position:absolute; top:4px; right:24px; display:none; font-size:12px; padding:4px 8px;">Copy List</button>
-          <div id="regionList" style="background:#ffffff; border:1px solid #ddd; border-radius:8px; padding:24px 8px 8px; max-height:190px; overflow:auto;"></div>
+          <div id="regionList" style="background:#ffffff; border:1px solid #ddd; border-radius:0; padding:24px 8px 8px; max-height:190px; overflow:auto;"></div>
         </div>
         <details id="significanceSection" style="margin-top:8px;">
           <summary>Overlap Significance</summary>
@@ -243,7 +243,7 @@
           <button class="btn" id="stringBtn">STRING Analysis</button>
           <button class="btn" id="stringOptsBtn" aria-label="STRING analysis options">⚙️</button>
         </div>
-        <div id="goOptions" class="analysis-options" style="display:none; margin-top:4px; background:#f9f9f9; border:1px solid #ddd; border-radius:4px; padding:4px;">
+        <div id="goOptions" class="analysis-options" style="display:none; margin-top:4px; background:#f9f9f9; border:1px solid #ddd; border-radius:0; padding:4px;">
           <label>
             <input type="checkbox" id="goUseAllBackground" /> Use Union of All Input Genes as Background
           </label>
@@ -254,7 +254,7 @@
             <label><input type="checkbox" class="goCategory" value="GO:CC" checked /> Cellular Component</label>
           </div>
         </div>
-        <div id="stringOptions" class="analysis-options" style="display:none; margin-top:4px; background:#f9f9f9; border:1px solid #ddd; border-radius:4px; padding:4px;">
+        <div id="stringOptions" class="analysis-options" style="display:none; margin-top:4px; background:#f9f9f9; border:1px solid #ddd; border-radius:0; padding:4px;">
           <div style="margin-bottom:4px;">
             <strong>Network Type:</strong>
             <label><input type="radio" name="stringNetworkType" value="full" checked /> Full STRING Network</label>
@@ -273,7 +273,7 @@
             <label><input type="checkbox" class="stringSource" value="databases" checked /> Databases</label>
           </div>
         </div>
-        <div id="analysisResults" style="background:#ffffff; border:1px solid #ddd; border-radius:8px; padding:8px; max-height:400px; overflow:auto; margin-top:6px;">
+        <div id="analysisResults" style="background:#ffffff; border:1px solid #ddd; border-radius:0; padding:8px; max-height:400px; overflow:auto; margin-top:6px;">
           <div id="goResults"></div>
           <canvas id="goChart" style="display:none; width:100%; height:300px; margin-top:8px;"></canvas>
           <div class="row" id="goChartExport" style="display:none; justify-content:flex-end; margin-top:6px;"></div>
