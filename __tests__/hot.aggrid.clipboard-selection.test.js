@@ -255,7 +255,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getSelectedLast()).toEqual([0, 0, 2, lastCol]);
   });
 
-  test('drag handle drag moves a column without affecting selection', () => {
+  test('drag handle drag moves a column without affecting selection', async () => {
     const Shared = global.window.Shared;
     const container = document.createElement('div');
     container.id = 'agHeaderDragHandleMoveHot';
@@ -307,6 +307,12 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
 
     const mouseMove = new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1 });
     header2.dispatchEvent(mouseMove);
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
 
     const mouseUp = new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 });
     global.window.dispatchEvent(mouseUp);

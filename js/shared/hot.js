@@ -893,6 +893,8 @@
     let isColumnHandleDragging = false;
     let columnHandleDragColId = null;
     let columnHandleLastTargetIndex = null;
+    let pendingColumnHandleMoveIndex = null;
+    let columnHandleMoveRafPending = false;
 
     const MAX_CLIPBOARD_CELLS = 200000;
 
@@ -2970,6 +2972,8 @@
       isColumnHandleDragging = false;
       columnHandleDragColId = null;
       columnHandleLastTargetIndex = null;
+      pendingColumnHandleMoveIndex = null;
+      columnHandleMoveRafPending = false;
     };
 
     const gridOptions = {
@@ -3716,22 +3720,80 @@
             stopColumnHandleDrag();
             return;
           }
-          const overColIdx = resolveColIndexFromEvent(event);
-          if(overColIdx == null){
-            return;
-          }
           const positions = getDisplayedDataColumnPositions();
           if(!positions || !columnHandleDragColId){
             return;
           }
-          const overColId = `c${overColIdx}`;
-          const target = positions.find(entry => entry.colId === overColId);
-          if(!target){
+          const draggedEntry = positions.find(entry => entry.colId === columnHandleDragColId) || null;
+          if(!draggedEntry){
             return;
           }
-          if(columnHandleLastTargetIndex !== target.index){
-            columnHandleLastTargetIndex = target.index;
-            moveDisplayedColumnTo(columnHandleDragColId, target.index);
+
+          const minIndex = positions[0].index;
+          const maxIndex = positions[positions.length - 1].index;
+          let targetIndex = null;
+
+          const x = typeof event?.clientX === 'number' ? event.clientX : null;
+          const y = typeof event?.clientY === 'number' ? event.clientY : null;
+          const docLocal = container?.ownerDocument || document;
+          if(x != null && y != null && typeof docLocal?.elementFromPoint === 'function'){
+            try{
+              const hit = docLocal.elementFromPoint(x, y);
+              const headerCell = hit?.closest?.('.ag-header-cell') || null;
+              const hitColId = headerCell?.getAttribute?.('col-id') || null;
+              const hoverEntry = positions.find(entry => entry.colId === hitColId) || null;
+              if(hoverEntry && hitColId !== columnHandleDragColId){
+                const rect = headerCell.getBoundingClientRect?.();
+                const rectWidth = Number(rect?.width);
+                const rectLeft = Number(rect?.left);
+                const placeAfter = Number.isFinite(rectWidth) && rectWidth > 0 && Number.isFinite(rectLeft)
+                  ? ((x - rectLeft) / rectWidth) >= 0.5
+                  : false;
+
+                let adjustedHover = hoverEntry.index;
+                if(hoverEntry.index > draggedEntry.index){
+                  adjustedHover = Math.max(minIndex, adjustedHover - 1);
+                }
+                targetIndex = placeAfter ? adjustedHover + 1 : adjustedHover;
+              }
+            }catch(err){
+              // ignore hit-test failures; fall back to coarse targeting
+            }
+          }
+
+          if(targetIndex == null){
+            const overColIdx = resolveColIndexFromEvent(event);
+            if(overColIdx == null){
+              return;
+            }
+            const overColId = `c${overColIdx}`;
+            const hoverEntry = positions.find(entry => entry.colId === overColId) || null;
+            if(!hoverEntry || overColId === columnHandleDragColId){
+              return;
+            }
+            targetIndex = hoverEntry.index;
+          }
+
+          targetIndex = Math.min(maxIndex, Math.max(minIndex, targetIndex));
+          if(targetIndex === draggedEntry.index){
+            return;
+          }
+          pendingColumnHandleMoveIndex = targetIndex;
+          if(!columnHandleMoveRafPending){
+            columnHandleMoveRafPending = true;
+            raf(()=>{
+              columnHandleMoveRafPending = false;
+              if(!isColumnHandleDragging || !columnHandleDragColId || pendingColumnHandleMoveIndex == null){
+                return;
+              }
+              const nextTarget = pendingColumnHandleMoveIndex;
+              pendingColumnHandleMoveIndex = null;
+              if(columnHandleLastTargetIndex === nextTarget){
+                return;
+              }
+              columnHandleLastTargetIndex = nextTarget;
+              moveDisplayedColumnTo(columnHandleDragColId, nextTarget);
+            });
           }
           event.preventDefault?.();
           event.stopPropagation?.();
