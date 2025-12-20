@@ -33,6 +33,7 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     };
 
     require('../js/vendor.js');
+    require('../js/shared/undo.js');
     require('../js/shared/agGridAdapter.js');
     require('../js/shared/hot.js');
   });
@@ -485,6 +486,100 @@ describe('Shared.hot AG Grid clipboard + selection behaviors', () => {
     expect(hot.getDataAtCell(0, 0)).toBe('B0');
     expect(hot.getDataAtCell(0, 1)).toBe('C0');
     expect(hot.getDataAtCell(0, 2)).toBe('A0');
+
+    global.window.agGrid = originalAgGrid;
+  });
+
+  test('column reorder commit records undo/redo steps', async () => {
+    const Shared = global.window.Shared;
+    const undoManager = Shared.undoManager;
+    const container = document.createElement('div');
+    container.id = 'agHeaderDragHandleUndoHot';
+    document.body.appendChild(container);
+
+    let displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+
+    const originalAgGrid = global.window.agGrid;
+    global.window.agGrid = {
+      createGrid: (_container, gridOptions) => {
+        const api = {
+          refreshCells: jest.fn(),
+          setRowData: jest.fn(),
+          setColumnDefs: jest.fn(() => {
+            displayed = Array.from({ length: 12 }, (_, idx) => `c${idx}`);
+          }),
+          destroy: jest.fn(),
+          getFocusedCell: jest.fn(() => null)
+        };
+        capturedApi = api;
+        capturedGridOptions = gridOptions;
+        gridOptions?.onGridReady?.({ api, columnApi: {} });
+        return api;
+      }
+    };
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 2, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-header-drag-handle-undo',
+        data: [
+          ['A0', 'B0', 'C0'],
+          ['A1', 'B1', 'C1']
+        ]
+      }
+    );
+
+    hot.columnApi = {
+      getAllDisplayedColumns: () => displayed.map(id => ({ getColId: () => id })),
+      moveColumns: (ids, toIndex) => {
+        const list = Array.isArray(ids) ? ids : [ids];
+        const remaining = displayed.filter(id => !list.includes(id));
+        const idx = Math.max(0, Math.min(Number(toIndex) || 0, remaining.length));
+        displayed = remaining.slice(0, idx).concat(list).concat(remaining.slice(idx));
+      }
+    };
+
+    const header0 = document.createElement('div');
+    header0.className = 'ag-header-cell';
+    header0.setAttribute('col-id', 'c0');
+    const handle = document.createElement('span');
+    handle.className = 'hot-col-drag-handle';
+    header0.appendChild(handle);
+    container.appendChild(header0);
+
+    const header2 = document.createElement('div');
+    header2.className = 'ag-header-cell';
+    header2.setAttribute('col-id', 'c2');
+    header2.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 });
+    container.appendChild(header2);
+
+    const originalElementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => header2;
+
+    handle.dispatchEvent(new global.window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    header2.dispatchEvent(new global.window.MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 1, clientX: 80, clientY: 10 }));
+
+    if(typeof global.window.requestAnimationFrame === 'function'){
+      await new Promise(resolve => global.window.requestAnimationFrame(resolve));
+    }else{
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+
+    global.window.dispatchEvent(new global.window.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    document.elementFromPoint = originalElementFromPoint;
+
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
+
+    expect(typeof undoManager?.undo).toBe('function');
+    expect(typeof undoManager?.redo).toBe('function');
+
+    undoManager.undo();
+    expect(hot.getDataAtCell(0, 0)).toBe('A0');
+
+    undoManager.redo();
+    expect(hot.getDataAtCell(0, 0)).toBe('B0');
 
     global.window.agGrid = originalAgGrid;
   });

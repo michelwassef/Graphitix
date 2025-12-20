@@ -3052,17 +3052,16 @@
       return colIds.length ? colIds : null;
     };
 
-    const commitDisplayedColumnOrderToData = (reason, movedColIds)=>{
-      const currentOrder = getDisplayedDataColumnOrder();
-      if(!currentOrder || currentOrder.length !== colCount){
+    const applyColumnPermutationToData = (permutationOldByNew)=>{
+      if(!Array.isArray(permutationOldByNew) || permutationOldByNew.length !== colCount){
         return false;
       }
-      const permutationOldByNew = currentOrder.map(id => Number(id.slice(1)));
-      if(!permutationOldByNew.every(idx => Number.isInteger(idx) && idx >= 0)){
+      const permutation = permutationOldByNew.map(idx => Number(idx));
+      if(!permutation.every(idx => Number.isInteger(idx) && idx >= 0)){
         return false;
       }
-      const isIdentity = permutationOldByNew.every((oldIdx, newIdx)=>oldIdx === newIdx);
-      if(isIdentity){
+      const seen = new Set(permutation);
+      if(seen.size !== permutation.length){
         return false;
       }
 
@@ -3071,7 +3070,7 @@
         const row = Array.isArray(matrix[r]) ? matrix[r] : [];
         const nextRow = new Array(Math.max(row.length, colCount));
         for(let c = 0; c < nextRow.length; c++){
-          const oldIndex = c < colCount ? permutationOldByNew[c] : c;
+          const oldIndex = c < colCount ? permutation[c] : c;
           nextRow[c] = (oldIndex < row.length) ? row[oldIndex] : '';
         }
         matrix[r] = nextRow;
@@ -3081,7 +3080,7 @@
         try{
           const nextHeaders = new Array(colHeadersSetting.length);
           for(let c = 0; c < colHeadersSetting.length; c++){
-            const oldIndex = c < colCount ? permutationOldByNew[c] : c;
+            const oldIndex = c < colCount ? permutation[c] : c;
             nextHeaders[c] = (oldIndex < colHeadersSetting.length) ? colHeadersSetting[oldIndex] : `Column ${c + 1}`;
           }
           colHeadersSetting = nextHeaders;
@@ -3093,8 +3092,8 @@
 
       const exclusionState = exclusionController.exportState();
       const oldToNew = new Map();
-      for(let newIdx = 0; newIdx < permutationOldByNew.length; newIdx++){
-        oldToNew.set(permutationOldByNew[newIdx], newIdx);
+      for(let newIdx = 0; newIdx < permutation.length; newIdx++){
+        oldToNew.set(permutation[newIdx], newIdx);
       }
       const nextExcludedCols = (Array.isArray(exclusionState?.cols) ? exclusionState.cols : [])
         .map(oldIdx => oldToNew.get(oldIdx))
@@ -3108,11 +3107,28 @@
         cells: nextExcludedCells
       });
 
-      // Reset column state to default c0.. ordering (data has been permuted to match the prior display order).
+      // Reset column state to default c0.. ordering (data has been permuted to match the requested order).
       rebuildColumns(instance.gridApi);
       renderAg(instance.gridApi);
+      return true;
+    };
 
-      if(Array.isArray(movedColIds) && movedColIds.length){
+    const applyColumnPermutation = (permutationOldByNew, options)=>{
+      const reason = options?.reason || null;
+      const movedColIds = Array.isArray(options?.movedColIds) ? options.movedColIds : null;
+      const skipSelection = options?.skipSelection === true;
+
+      const applied = applyColumnPermutationToData(permutationOldByNew);
+      if(!applied){
+        return false;
+      }
+
+      if(!skipSelection && Array.isArray(movedColIds) && movedColIds.length){
+        const permutation = permutationOldByNew.map(idx => Number(idx));
+        const oldToNew = new Map();
+        for(let newIdx = 0; newIdx < permutation.length; newIdx++){
+          oldToNew.set(permutation[newIdx], newIdx);
+        }
         const movedOld = movedColIds
           .map(id => Number(String(id).slice(1)))
           .filter(idx => Number.isInteger(idx) && idx >= 0);
@@ -3127,7 +3143,46 @@
       }
 
       fireHook('afterColumnMove');
-      triggerSchedule('afterColumnMove', { source: reason || 'columnOrderCommit' });
+      triggerSchedule('afterColumnMove', { source: reason || 'columnPermutation' });
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot applied column permutation', { debugLabel, reason: reason || null });
+      }
+      return true;
+    };
+
+    const commitDisplayedColumnOrderToData = (reason, movedColIds)=>{
+      const currentOrder = getDisplayedDataColumnOrder();
+      if(!currentOrder || currentOrder.length !== colCount){
+        return false;
+      }
+      const permutationOldByNew = currentOrder.map(id => Number(id.slice(1)));
+      if(!permutationOldByNew.every(idx => Number.isInteger(idx) && idx >= 0)){
+        return false;
+      }
+      const isIdentity = permutationOldByNew.every((oldIdx, newIdx)=>oldIdx === newIdx);
+      if(isIdentity){
+        return false;
+      }
+
+      const inverse = new Array(permutationOldByNew.length);
+      for(let newIdx = 0; newIdx < permutationOldByNew.length; newIdx++){
+        inverse[permutationOldByNew[newIdx]] = newIdx;
+      }
+
+      const applied = applyColumnPermutation(permutationOldByNew, { reason: reason || 'columnOrderCommit', movedColIds });
+      if(!applied){
+        return false;
+      }
+
+      if(hasGlobalUndo){
+        undoManager.record({
+          label: `table:${debugLabel}:reorder-columns`,
+          scope: undoScope,
+          undo: ()=>applyColumnPermutation(inverse, { reason: 'undo:reorder-columns', skipSelection: true }),
+          redo: ()=>applyColumnPermutation(permutationOldByNew, { reason: 'redo:reorder-columns', skipSelection: true })
+        });
+      }
+
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
         console.debug('Debug: Shared.hot committed column order to data', { debugLabel, reason: reason || null });
       }
