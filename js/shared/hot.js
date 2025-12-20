@@ -837,6 +837,16 @@
     let copyHighlightRange = null;
     let normalizedSelectionRange = null;
     let normalizedCopyHighlightRange = null;
+    let fillHandle = null;
+    let fillHandleUpdatePending = false;
+    let isFillHandleDragging = false;
+    let fillDragStartSelection = null;
+    let fillDragDirection = null;
+    let fillDragStartPoint = null;
+    let fillPreviewRange = null;
+    let normalizedFillPreviewRange = null;
+    let fillDragRafPending = false;
+    let pendingFillTarget = null;
 
     const normalizeRange = (range)=>{
       if(!range || !range.from || !range.to){
@@ -858,11 +868,20 @@
     const setLastRange = (range)=>{
       lastRange = range || null;
       normalizedSelectionRange = normalizeRange(lastRange);
+      scheduleFillHandleUpdate('selection');
     };
 
     const setCopyHighlightRange = (range)=>{
       copyHighlightRange = range || null;
       normalizedCopyHighlightRange = normalizeRange(copyHighlightRange);
+    };
+
+    const setFillPreviewRange = (range, options)=>{
+      fillPreviewRange = range || null;
+      normalizedFillPreviewRange = normalizeRange(fillPreviewRange);
+      if(options?.render !== false){
+        renderAg(instance.gridApi);
+      }
     };
 
     const cleanupFns = [];
@@ -876,6 +895,419 @@
         }
       }
     };
+
+    const ensureFillHandle = ()=>{
+      if(fillHandle){
+        return fillHandle;
+      }
+      if(!container || typeof container.appendChild !== 'function'){
+        return null;
+      }
+      const doc = container.ownerDocument || document;
+      const handle = doc.createElement('div');
+      handle.className = 'hot-fill-handle';
+      handle.setAttribute('aria-hidden', 'true');
+      handle.tabIndex = -1;
+      const stopEvent = (event)=>{
+        if(event?.type === 'pointerdown' || event?.type === 'mousedown'){
+          startFillHandleDrag(event);
+        }
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        event?.stopImmediatePropagation?.();
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot fill handle pointerdown', { debugLabel });
+        }
+      };
+      handle.addEventListener('pointerdown', stopEvent);
+      handle.addEventListener('mousedown', stopEvent);
+      if(container.classList){
+        container.classList.add('hot-fill-handle-host');
+      }
+      container.appendChild(handle);
+      fillHandle = handle;
+      cleanupFns.push(()=>{
+        handle.removeEventListener('pointerdown', stopEvent);
+        handle.removeEventListener('mousedown', stopEvent);
+        if(handle.parentNode){
+          handle.parentNode.removeChild(handle);
+        }
+        if(container.classList){
+          container.classList.remove('hot-fill-handle-host');
+        }
+        if(fillHandle === handle){
+          fillHandle = null;
+        }
+      });
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot fill handle created', { debugLabel });
+      }
+      return handle;
+    };
+
+    const resolveCellCoordsFromNode = (node)=>{
+      const target = node && node.nodeType === 1 ? node : null;
+      if(!target || typeof target.closest !== 'function'){
+        return null;
+      }
+      const cell = target.closest('.ag-cell');
+      if(!cell){
+        return null;
+      }
+      if(cell.getAttribute('col-id') === '__rowHeader'){
+        return null;
+      }
+      const rowAttr = cell.getAttribute('row-index') ?? cell.closest('.ag-row')?.getAttribute?.('row-index');
+      const colAttr = cell.getAttribute('col-id');
+      if(rowAttr == null || colAttr == null){
+        return null;
+      }
+      const row = Number(rowAttr);
+      const col = colIdToIndex(colAttr);
+      if(!Number.isInteger(row) || row < 0){
+        return null;
+      }
+      if(!Number.isInteger(col) || col < 0){
+        return null;
+      }
+      return { row, col };
+    };
+
+    const resolveFillHandleCell = (row, col)=>{
+      if(!container || !Number.isInteger(row) || !Number.isInteger(col)){
+        return null;
+      }
+      const colId = `c${col}`;
+      const direct = container.querySelector(`.ag-cell[row-index="${row}"][col-id="${colId}"]`);
+      if(direct){
+        return direct;
+      }
+      return container.querySelector(`.ag-row[row-index="${row}"] .ag-cell[col-id="${colId}"]`);
+    };
+
+    const hideFillHandle = ()=>{
+      if(fillHandle && fillHandle.style.display !== 'none'){
+        fillHandle.style.display = 'none';
+      }
+    };
+
+    const updateFillHandlePosition = (reason)=>{
+      const selection = normalizedSelectionRange;
+      if(!selection){
+        hideFillHandle();
+        return;
+      }
+      const handle = ensureFillHandle();
+      if(!handle){
+        return;
+      }
+      const cell = resolveFillHandleCell(selection.to.row, selection.to.col);
+      if(!cell){
+        hideFillHandle();
+        return;
+      }
+      const cellRect = cell.getBoundingClientRect();
+      const hostRect = container.getBoundingClientRect();
+      if(!cellRect || cellRect.width === 0 || cellRect.height === 0){
+        hideFillHandle();
+        return;
+      }
+      const viewport = resolveViewport();
+      if(viewport && typeof viewport.getBoundingClientRect === 'function'){
+        const viewportRect = viewport.getBoundingClientRect();
+        const intersects = cellRect.right > viewportRect.left
+          && cellRect.left < viewportRect.right
+          && cellRect.bottom > viewportRect.top
+          && cellRect.top < viewportRect.bottom;
+        if(!intersects){
+          hideFillHandle();
+          return;
+        }
+      }
+      handle.style.display = 'block';
+      handle.style.left = `${cellRect.right - hostRect.left}px`;
+      handle.style.top = `${cellRect.bottom - hostRect.top}px`;
+    };
+
+    const scheduleFillHandleUpdate = (reason)=>{
+      if(fillHandleUpdatePending || !container){
+        return;
+      }
+      fillHandleUpdatePending = true;
+      const doc = container.ownerDocument || document;
+      const win = doc.defaultView || global;
+      const rafLocal = typeof win?.requestAnimationFrame === 'function'
+        ? win.requestAnimationFrame.bind(win)
+        : (fn)=>win.setTimeout(fn, 16);
+      rafLocal(()=>{
+        fillHandleUpdatePending = false;
+        updateFillHandlePosition(reason);
+      });
+    };
+
+    const FILL_DRAG_THRESHOLD = 4;
+
+    const normalizeFillValue = (value)=>{
+      if(value === null || typeof value === 'undefined'){
+        return '';
+      }
+      return value;
+    };
+
+    const coerceNumber = (value)=>{
+      if(typeof value === 'number'){
+        return Number.isFinite(value) ? value : null;
+      }
+      if(typeof value === 'string'){
+        const trimmed = value.trim();
+        if(trimmed === ''){
+          return null;
+        }
+        const num = Number(trimmed);
+        return Number.isFinite(num) ? num : null;
+      }
+      return null;
+    };
+
+    const getSelectionValuesInOrder = (selection)=>{
+      if(!selection){
+        return [];
+      }
+      const values = [];
+      for(let r = selection.from.row; r <= selection.to.row; r++){
+        for(let c = selection.from.col; c <= selection.to.col; c++){
+          values.push(instance.getDataAtCell(r, c));
+        }
+      }
+      return values;
+    };
+
+    const ensureRowsForTarget = (targetRow)=>{
+      if(!Number.isInteger(targetRow) || targetRow < 0){
+        return;
+      }
+      const currentRows = dataHandle.current.length;
+      const rowCap = autoGrowthConfig.rowCap || currentRows;
+      if(targetRow < currentRows || currentRows >= rowCap){
+        return;
+      }
+      const needed = targetRow + 1 - currentRows;
+      const allowed = Math.max(0, rowCap - currentRows);
+      const amount = Math.min(needed, allowed);
+      if(amount > 0){
+        appendRows(amount);
+      }
+    };
+
+    const ensureColsForTarget = (targetCol)=>{
+      if(!Number.isInteger(targetCol) || targetCol < 0){
+        return;
+      }
+      const colCap = autoGrowthConfig.colCap || colCount;
+      if(targetCol < colCount || colCount >= colCap){
+        return;
+      }
+      const needed = targetCol + 1 - colCount;
+      const allowed = Math.max(0, colCap - colCount);
+      const amount = Math.min(needed, allowed);
+      if(amount > 0){
+        instance.alter('insert_col_end', Math.max(0, colCount - 1), amount, 'fillGrow');
+      }
+    };
+
+    const resolveFillDirection = (target)=>{
+      if(fillDragDirection){
+        return fillDragDirection;
+      }
+      const start = fillDragStartPoint;
+      if(!start || typeof target?.clientX !== 'number' || typeof target?.clientY !== 'number'){
+        return null;
+      }
+      const dx = target.clientX - start.x;
+      const dy = target.clientY - start.y;
+      if(Math.abs(dx) < FILL_DRAG_THRESHOLD && Math.abs(dy) < FILL_DRAG_THRESHOLD){
+        return null;
+      }
+      if(Math.abs(dx) >= Math.abs(dy)){
+        return dx >= 0 ? 'right' : 'left';
+      }
+      return dy >= 0 ? 'down' : 'up';
+    };
+
+    const buildFillPreviewRange = (selection, direction, target)=>{
+      if(!selection || !direction){
+        return null;
+      }
+      if(direction === 'down'){
+        const targetRow = Number(target);
+        if(!Number.isInteger(targetRow) || targetRow <= selection.to.row){
+          return null;
+        }
+        return {
+          from: { row: selection.to.row + 1, col: selection.from.col },
+          to: { row: targetRow, col: selection.to.col }
+        };
+      }
+      if(direction === 'up'){
+        const targetRow = Number(target);
+        if(!Number.isInteger(targetRow) || targetRow >= selection.from.row){
+          return null;
+        }
+        return {
+          from: { row: targetRow, col: selection.from.col },
+          to: { row: selection.from.row - 1, col: selection.to.col }
+        };
+      }
+      if(direction === 'right'){
+        const targetCol = Number(target);
+        if(!Number.isInteger(targetCol) || targetCol <= selection.to.col){
+          return null;
+        }
+        return {
+          from: { row: selection.from.row, col: selection.to.col + 1 },
+          to: { row: selection.to.row, col: targetCol }
+        };
+      }
+      if(direction === 'left'){
+        const targetCol = Number(target);
+        if(!Number.isInteger(targetCol) || targetCol >= selection.from.col){
+          return null;
+        }
+        return {
+          from: { row: selection.from.row, col: targetCol },
+          to: { row: selection.to.row, col: selection.from.col - 1 }
+        };
+      }
+      return null;
+    };
+
+    const buildFillCellList = (selection, direction, preview)=>{
+      if(!selection || !direction || !preview){
+        return [];
+      }
+      const cells = [];
+      if(direction === 'down'){
+        for(let r = preview.from.row; r <= preview.to.row; r++){
+          for(let c = selection.from.col; c <= selection.to.col; c++){
+            cells.push({ row: r, col: c });
+          }
+        }
+        return cells;
+      }
+      if(direction === 'up'){
+        for(let r = preview.to.row; r >= preview.from.row; r--){
+          for(let c = selection.from.col; c <= selection.to.col; c++){
+            cells.push({ row: r, col: c });
+          }
+        }
+        return cells;
+      }
+      if(direction === 'right'){
+        for(let c = preview.from.col; c <= preview.to.col; c++){
+          for(let r = selection.from.row; r <= selection.to.row; r++){
+            cells.push({ row: r, col: c });
+          }
+        }
+        return cells;
+      }
+      if(direction === 'left'){
+        for(let c = preview.to.col; c >= preview.from.col; c--){
+          for(let r = selection.from.row; r <= selection.to.row; r++){
+            cells.push({ row: r, col: c });
+          }
+        }
+        return cells;
+      }
+      return cells;
+    };
+
+    const applyFillDragPreview = ()=>{
+      const selection = fillDragStartSelection;
+      const direction = fillDragDirection;
+      const preview = normalizedFillPreviewRange;
+      if(!selection || !direction || !preview){
+        return false;
+      }
+      const selectionValues = getSelectionValuesInOrder(selection);
+      if(!selectionValues.length){
+        return false;
+      }
+      const firstValue = selectionValues[0];
+      const lastValue = selectionValues[selectionValues.length - 1];
+      const numericFirst = coerceNumber(firstValue);
+      const numericLast = coerceNumber(lastValue);
+      const useLinear = selectionValues.length === 2 && numericFirst !== null && numericLast !== null;
+      const diff = useLinear ? (numericLast - numericFirst) : null;
+      const fillCells = buildFillCellList(selection, direction, preview);
+      if(!fillCells.length){
+        return false;
+      }
+      const changes = [];
+      for(let i = 0; i < fillCells.length; i++){
+        const cell = fillCells[i];
+        let nextValue;
+        if(useLinear && Number.isFinite(diff)){
+          nextValue = numericLast + diff * (i + 1);
+        }else{
+          const patternValue = selectionValues[i % selectionValues.length];
+          nextValue = normalizeFillValue(patternValue);
+        }
+        changes.push([cell.row, cell.col, nextValue]);
+      }
+      if(changes.length){
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot fill applied', {
+            debugLabel,
+            direction,
+            cells: changes.length,
+            linear: !!useLinear,
+            diff: useLinear ? diff : null
+          });
+        }
+        instance.setDataAtCell(changes, 'fill');
+        return true;
+      }
+      return false;
+    };
+
+    const resetFillHandleDrag = (reason)=>{
+      isFillHandleDragging = false;
+      fillDragStartSelection = null;
+      fillDragDirection = null;
+      fillDragStartPoint = null;
+      fillDragRafPending = false;
+      pendingFillTarget = null;
+      if(normalizedFillPreviewRange){
+        setFillPreviewRange(null);
+      }
+    };
+
+    function startFillHandleDrag(event){
+      if(isFillHandleDragging){
+        return;
+      }
+      const selection = normalizedSelectionRange;
+      if(!selection){
+        return;
+      }
+      isFillHandleDragging = true;
+      fillDragStartSelection = {
+        from: { row: selection.from.row, col: selection.from.col },
+        to: { row: selection.to.row, col: selection.to.col }
+      };
+      fillDragDirection = null;
+      fillDragStartPoint = {
+        x: typeof event?.clientX === 'number' ? event.clientX : 0,
+        y: typeof event?.clientY === 'number' ? event.clientY : 0
+      };
+      pendingFillTarget = null;
+      if(normalizedFillPreviewRange){
+        setFillPreviewRange(null);
+      }
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot fill handle drag start', { debugLabel, selection: fillDragStartSelection });
+      }
+    }
 
     let isDragSelecting = false;
     let dragAnchor = null;
@@ -1585,6 +2017,31 @@
             && col >= normalizedCopyHighlightRange.from.col
             && col <= normalizedCopyHighlightRange.to.col;
         };
+        existing['hot-fill-preview-cell'] = params=>{
+          if(!normalizedFillPreviewRange){
+            return false;
+          }
+          const rowIndex = params?.node?.rowIndex ?? params?.rowIndex;
+          const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
+          if(!Number.isInteger(rowIndex)){
+            return false;
+          }
+          const col = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : null;
+          if(!Number.isInteger(col)){
+            return false;
+          }
+          if(normalizedSelectionRange
+            && rowIndex >= normalizedSelectionRange.from.row
+            && rowIndex <= normalizedSelectionRange.to.row
+            && col >= normalizedSelectionRange.from.col
+            && col <= normalizedSelectionRange.to.col){
+            return false;
+          }
+          return rowIndex >= normalizedFillPreviewRange.from.row
+            && rowIndex <= normalizedFillPreviewRange.to.row
+            && col >= normalizedFillPreviewRange.from.col
+            && col <= normalizedFillPreviewRange.to.col;
+        };
         existing['hot-cell-excluded'] = params=>{
           const physicalRow = params?.data?.__rowIndex;
           if(!Number.isInteger(physicalRow) || physicalRow < 0){
@@ -1874,7 +2331,7 @@
     autoGrowthConfig.colCap = Math.max(colCount, autoGrowthConfig.colCap | 0 || colCount);
     autoGrowthConfig.selectionThreshold = Math.max(0, autoGrowthConfig.selectionThreshold | 0);
 
-    const autoGrowthState = { viewportScrollAttached: false, viewportScrollHandler: null };
+    const autoGrowthState = { viewportScrollAttached: false, viewportScrollHandler: null, scrollElements: [] };
 
     const shouldGrowRows = ()=>{
       if(!autoGrowthConfig.enabled){
@@ -1954,20 +2411,30 @@
     };
 
     const ensureViewportScrollHandler = ()=>{
-      if(autoGrowthState.viewportScrollAttached){
-        return;
-      }
       const viewport = resolveViewport();
-      if(!viewport){
+      if(!viewport || !container || typeof container.querySelector !== 'function'){
         return;
       }
-      const onScroll = ()=>{
-        maybeGrowRows('scroll');
-        maybeGrowCols('scroll');
-      };
-      viewport.addEventListener('scroll', onScroll, { passive: true });
-      autoGrowthState.viewportScrollAttached = true;
-      autoGrowthState.viewportScrollHandler = onScroll;
+      const horizontalViewport = container.querySelector('.ag-body-horizontal-scroll-viewport');
+      const horizontalScroll = container.querySelector('.ag-body-horizontal-scroll');
+      if(!autoGrowthState.viewportScrollHandler){
+        autoGrowthState.viewportScrollHandler = ()=>{
+          maybeGrowRows('scroll');
+          maybeGrowCols('scroll');
+          scheduleFillHandleUpdate('scroll');
+        };
+      }
+      const handler = autoGrowthState.viewportScrollHandler;
+      const existing = Array.isArray(autoGrowthState.scrollElements) ? autoGrowthState.scrollElements : [];
+      const elements = [viewport, horizontalViewport, horizontalScroll].filter((el, idx, list)=>el && list.indexOf(el) === idx);
+      elements.forEach(el=>{
+        if(existing.indexOf(el) === -1){
+          el.addEventListener('scroll', handler, { passive: true });
+          existing.push(el);
+        }
+      });
+      autoGrowthState.viewportScrollAttached = existing.length > 0;
+      autoGrowthState.scrollElements = existing;
     };
 
     const captureExclusionState = ()=>exclusionController.exportState();
@@ -2079,6 +2546,7 @@
           console.error('Shared.hot AG refreshCells error', err);
         }
       }
+      scheduleFillHandleUpdate('render');
     };
 
     const autoSizeColumnsEnabled = overrides?.autoSizeColumns !== false;
@@ -2845,10 +3313,13 @@
         flushPendingCutMove('destroy');
         runCleanup();
         if(autoGrowthState.viewportScrollAttached){
-          const viewport = resolveViewport();
-          if(viewport && autoGrowthState.viewportScrollHandler){
-            viewport.removeEventListener('scroll', autoGrowthState.viewportScrollHandler);
+          const handler = autoGrowthState.viewportScrollHandler;
+          if(handler){
+            (autoGrowthState.scrollElements || []).forEach(el=>{
+              el?.removeEventListener?.('scroll', handler);
+            });
           }
+          autoGrowthState.scrollElements = [];
         }
         if(instance.gridApi && typeof instance.gridApi.destroy === 'function'){
           instance.gridApi.destroy();
@@ -3952,30 +4423,7 @@
 
       const resolveCellCoords = (event)=>{
         const target = event?.target && event.target.nodeType === 1 ? event.target : null;
-        if(!target || typeof target.closest !== 'function'){
-          return null;
-        }
-        const cell = target.closest('.ag-cell');
-        if(!cell){
-          return null;
-        }
-        if(cell.getAttribute('col-id') === '__rowHeader'){
-          return null;
-        }
-        const rowAttr = cell.getAttribute('row-index') ?? cell.closest('.ag-row')?.getAttribute?.('row-index');
-        const colAttr = cell.getAttribute('col-id');
-        if(rowAttr == null || colAttr == null){
-          return null;
-        }
-        const row = Number(rowAttr);
-        const col = colIdToIndex(colAttr);
-        if(!Number.isInteger(row) || row < 0){
-          return null;
-        }
-        if(!Number.isInteger(col) || col < 0){
-          return null;
-        }
-        return { row, col };
+        return resolveCellCoordsFromNode(target);
       };
 
       const selectRowByHeader = (row, extend)=>{
@@ -4266,6 +4714,72 @@
       };
 
       const handleMouseMove = (event)=>{
+        if(isFillHandleDragging){
+          const target = {
+            row: resolveRowIndexFromEvent(event),
+            col: resolveColIndexFromEvent(event),
+            clientX: typeof event?.clientX === 'number' ? event.clientX : null,
+            clientY: typeof event?.clientY === 'number' ? event.clientY : null
+          };
+          pendingFillTarget = target;
+          if(fillDragRafPending){
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            event.stopImmediatePropagation?.();
+            return;
+          }
+          fillDragRafPending = true;
+          raf(()=>{ 
+            fillDragRafPending = false;
+            const activeTarget = pendingFillTarget;
+            pendingFillTarget = null;
+            if(!isFillHandleDragging || !activeTarget){
+              return;
+            }
+            const selection = fillDragStartSelection;
+            if(!selection){
+              return;
+            }
+            const direction = resolveFillDirection(activeTarget);
+            if(direction){
+              fillDragDirection = direction;
+            }
+            const activeDirection = fillDragDirection;
+            if(!activeDirection){
+              if(normalizedFillPreviewRange){
+                setFillPreviewRange(null);
+              }
+              return;
+            }
+            if(activeDirection === 'down' || activeDirection === 'up'){
+              const row = activeTarget.row;
+              if(!Number.isInteger(row)){
+                return;
+              }
+              const cappedRow = Math.max(0, Math.min(row, Math.max(0, autoGrowthConfig.rowCap - 1)));
+              ensureRowsForTarget(cappedRow);
+              const preview = buildFillPreviewRange(selection, activeDirection, cappedRow);
+              if(!rangesEqual(preview, normalizedFillPreviewRange)){
+                setFillPreviewRange(preview);
+              }
+              return;
+            }
+            const col = activeTarget.col;
+            if(!Number.isInteger(col)){
+              return;
+            }
+            const cappedCol = Math.max(0, Math.min(col, Math.max(0, autoGrowthConfig.colCap - 1)));
+            ensureColsForTarget(cappedCol);
+            const preview = buildFillPreviewRange(selection, activeDirection, cappedCol);
+            if(!rangesEqual(preview, normalizedFillPreviewRange)){
+              setFillPreviewRange(preview);
+            }
+          });
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          event.stopImmediatePropagation?.();
+          return;
+        }
         if(isColumnHandleDragging){
           const buttons = typeof event?.buttons === 'number' ? event.buttons : null;
           const leftDown = buttons !== null ? ((buttons & 1) === 1) : true;
@@ -4445,6 +4959,32 @@
       };
 
       const handleMouseUp = ()=>{
+        if(isFillHandleDragging){
+          const selection = fillDragStartSelection;
+          const preview = normalizedFillPreviewRange;
+          const applied = applyFillDragPreview();
+          if(selection){
+            if(preview){
+              const nextSelection = {
+                from: {
+                  row: Math.min(selection.from.row, preview.from.row),
+                  col: Math.min(selection.from.col, preview.from.col)
+                },
+                to: {
+                  row: Math.max(selection.to.row, preview.to.row),
+                  col: Math.max(selection.to.col, preview.to.col)
+                }
+              };
+              setLastRange(nextSelection);
+              renderAg(instance.gridApi);
+              fireHook('afterSelectionEnd', nextSelection.from.row, nextSelection.from.col, nextSelection.to.row, nextSelection.to.col);
+            }else if(applied){
+              fireHook('afterSelectionEnd', selection.from.row, selection.from.col, selection.to.row, selection.to.col);
+            }
+          }
+          resetFillHandleDrag('mouseup');
+          return;
+        }
         if(isHeaderDragSelecting){
           isHeaderDragSelecting = false;
           headerDragScope = null;
@@ -4498,6 +5038,11 @@
         fireHook('beforeKeyDown', event);
         const key = event.key || '';
         const keyCode = typeof event.keyCode === 'number' ? event.keyCode : null;
+        const isEscape = key === 'Escape' || keyCode === 27;
+        if(isEscape && isFillHandleDragging){
+          resetFillHandleDrag('escape');
+          return;
+        }
         const isEnter = key === 'Enter' || key === 'NumpadEnter' || keyCode === 13;
         if(isEnter && normalizedCopyHighlightRange){
           setCopyHighlightRange(null);
