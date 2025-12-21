@@ -7388,14 +7388,14 @@
         lineMinSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: line layout min width update', { value: lineMinSvgWidth });
       },
-      resizableBoxOptions: {
-        onResize: () => {
-          console.debug('Debug: line layout onResize schedule trigger');
-          scheduleLineNoticeWidth('resize');
-          scheduleLineDraw();
+        resizableBoxOptions: {
+          onResize: () => {
+            console.debug('Debug: line layout onResize schedule trigger');
+            scheduleLineNoticeWidth('resize');
+            scheduleLineDraw({ viewOnly: true, reason: 'resize' });
+          }
         }
-      }
-    });
+      });
     if(lineLayout?.elements?.svgBox){
       refs.svgBox = lineLayout.elements.svgBox;
     }

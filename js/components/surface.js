@@ -1489,6 +1489,7 @@
           onResize: () => {
             debugLog('Debug: surface layout onResize schedule trigger');
             scheduleSurfaceNoticeWidth('resize');
+            state.scheduleDraw?.({ viewOnly: true, reason: 'resize' });
           }
         }
       })

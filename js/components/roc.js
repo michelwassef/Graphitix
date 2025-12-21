@@ -2556,7 +2556,7 @@
           console.debug('Debug: roc layout onResize schedule trigger');
           ensureRocLegendControlPlacement();
           scheduleRocNoticeWidth('resize');
-          state.scheduleDraw?.();
+          state.scheduleDraw?.({ viewOnly: true, reason: 'resize' });
         }
       }
     });

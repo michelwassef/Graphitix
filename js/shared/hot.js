@@ -6636,6 +6636,13 @@
         viewOnly: !!opts.viewOnly,
         skipThresholdEvaluation: !!opts.skipThresholdEvaluation
       });
+      if(opts.viewOnly){
+        scheduleRaw(opts);
+        debugLog(`Debug: ${component} autoDraw view-only dispatched`, {
+          reason: opts.reason || null
+        });
+        return;
+      }
       if(opts.force){
         if(!opts.skipThresholdEvaluation){
           evaluateThresholds();

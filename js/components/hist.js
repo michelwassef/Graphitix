@@ -1999,6 +1999,7 @@
         onResize: () => {
           console.debug('Debug: hist layout onResize schedule trigger');
           scheduleHistNoticeWidth('resize');
+          state.scheduleDraw?.({ viewOnly: true, reason: 'resize' });
         }
       }
     });

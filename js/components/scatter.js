@@ -3637,7 +3637,7 @@
           onResize: () => {
             console.debug('Debug: scatter layout onResize schedule trigger');
             scheduleScatterNoticeWidth('resize');
-            scheduleDrawScatter();
+            scheduleDrawScatter({ viewOnly: true, reason: 'resize' });
           }
         }
       });

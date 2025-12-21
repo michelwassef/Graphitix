@@ -12928,6 +12928,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         onResize: () => {
           boxDebug('Debug: box layout onResize schedule trigger');
           scheduleBoxNoticeWidth('resize');
+          state.scheduleDraw?.({ viewOnly: true, reason: 'resize' });
         }
       }
     });
