@@ -2870,12 +2870,15 @@
     const adjustY = scaleY > 0 ? uniform / scaleY : 1;
     const texts = svg.querySelectorAll ? svg.querySelectorAll('text') : [];
     texts.forEach(text => {
+      const baseTransform = text.dataset.heatmapBaseTransform ?? text.getAttribute('transform') ?? '';
+      if(text.dataset.heatmapBaseTransform == null){
+        text.dataset.heatmapBaseTransform = baseTransform;
+      }
       const x = Number(text.getAttribute('x'));
       const y = Number(text.getAttribute('y'));
       if(!Number.isFinite(x) || !Number.isFinite(y)){ return; }
       const matrix = `matrix(${adjustX},0,0,${adjustY},${x - adjustX * x},${y - adjustY * y})`;
-      const existing = text.getAttribute('transform');
-      text.setAttribute('transform', existing ? `${matrix} ${existing}` : matrix);
+      text.setAttribute('transform', baseTransform ? `${matrix} ${baseTransform}` : matrix);
       text.dataset.heatmapAspectCorrected = '1';
     });
     console.debug('Debug: heatmap text aspect correction applied', {
@@ -3109,36 +3112,30 @@
     const scaledFontSize = Number.isFinite(fontInfo?.scaledPx) ? fontInfo.scaledPx : fontSize;
     const heatmapWidth = columnCount * cellSize;
     const heatmapHeight = rowCount * cellSize;
+    const svgBox = state.svgBox || state.svg?.closest('.svgbox') || null;
+    const aspectLocked = isSvgBoxAspectLocked(svgBox);
+    const labelFontSize = Math.max(6, Math.round(scaledFontSize));
     // Define label measurement helpers early for margin calculation
     const labelMeasureFont = chartStyle.makeFont
-      ? chartStyle.makeFont(Math.max(4, Math.round(scaledFontSize)))
-      : `${Math.max(4, Math.round(scaledFontSize))}px sans-serif`;
-    const measureColumnLabelWidth = label => {
+      ? chartStyle.makeFont(Math.max(4, Math.round(labelFontSize)))
+      : `${Math.max(4, Math.round(labelFontSize))}px sans-serif`;
+    const measureLabelWidth = label => {
       if(typeof chartStyle.measureText === 'function'){
         try{
           return chartStyle.measureText(label || '', labelMeasureFont);
         }catch(err){
-          console.warn('heatmap column label measureText error', err);
+          console.warn('heatmap label measureText error', err);
         }
       }
-      return String(label || '').length * scaledFontSize * 0.6;
+      return String(label || '').length * labelFontSize * 0.6;
     };
-    let marginLeft = 160;
-    let marginTop = 160;
     let marginRight = 120;
     let marginBottom = 120;
-    const maxRowLabelLength = orderedRowLabels.reduce((acc, label) => Math.max(acc, String(label || '').length), 0);
-    const maxColumnLabelLength = orderedColumnLabels.reduce((acc, label) => Math.max(acc, String(label || '').length), 0);
-    // Calculate maximum measured column label width (becomes height when rotated vertically)
-    const maxColumnLabelWidth = orderedColumnLabels.reduce((acc, label) => Math.max(acc, measureColumnLabelWidth(label)), 0);
-    marginLeft = Math.max(marginLeft, Math.min(280, scaledFontSize * (maxRowLabelLength * 0.6 + 4)));
-    // Constants for title positioning relative to column labels
-    const labelGap = 12;
-    const titleGap = Math.max(scaledFontSize * 0.5, 8);
-    const minTitleY = scaledFontSize * 1.2; // Minimum distance from top of SVG
-    // marginTop must accommodate: label gap + full label height + title gap + minimum title position
-    const requiredMarginForLabels = labelGap + maxColumnLabelWidth + titleGap + minTitleY;
-    marginTop = Math.max(marginTop, requiredMarginForLabels, Math.min(260, scaledFontSize * (maxColumnLabelLength * 0.6 + 4)));
+    const outerPadding = Math.max(24, Math.round(scaledFontSize * 1.25));
+    const titleGap = Math.max(8, Math.round(scaledFontSize * 0.6));
+    const titleHeight = Math.max(16, Math.round(scaledFontSize * 1.1));
+    const matrixLeft = outerPadding;
+    const matrixTop = outerPadding + titleHeight + titleGap;
     const dendroHeatmapGap = 0;
     const rowDendroWidth = showRowDendrogram && rowClustering?.tree
       ? Math.min(320, Math.max(60, Math.round(Math.max(cellSize * 1.6, heatmapWidth * 0.18))))
@@ -3153,18 +3150,79 @@
     if(columnDendroHeight){
       marginBottom += columnDendroHeight + dendroPadding;
     }
-    const titlePadding = Math.max(scaledFontSize * 2, 28);
-    marginTop += titlePadding;
     const scaleWidth = 36;
     const scalePadding = 24;
     const scaleLabelGap = 48;
     marginRight += scaleWidth + scalePadding + scaleLabelGap;
-    const totalWidth = marginLeft + heatmapWidth + marginRight;
-    const totalHeight = marginTop + heatmapHeight + marginBottom;
+    const maxRowLabelWidth = orderedRowLabels.reduce((acc, label) => Math.max(acc, measureLabelWidth(label)), 0);
+    const maxColumnLabelWidth = orderedColumnLabels.reduce((acc, label) => Math.max(acc, measureLabelWidth(label)), 0);
+    const labelPadding = Math.max(6, Math.round(labelFontSize * 0.35));
+    const labelDescenderPad = Math.max(4, Math.ceil(labelFontSize * 0.25));
+    const computeAspectAdjust = (viewWidth, viewHeight) => {
+      if(aspectLocked){
+        return { adjustX: 1, adjustY: 1 };
+      }
+      const displayWidth = Number(containerRect?.width);
+      const displayHeight = Number(containerRect?.height);
+      if(!Number.isFinite(displayWidth) || !Number.isFinite(displayHeight) || displayWidth <= 0 || displayHeight <= 0){
+        return { adjustX: 1, adjustY: 1 };
+      }
+      const scaleX = viewWidth > 0 ? displayWidth / viewWidth : 1;
+      const scaleY = viewHeight > 0 ? displayHeight / viewHeight : 1;
+      if(!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0){
+        return { adjustX: 1, adjustY: 1 };
+      }
+      const uniform = Math.sqrt(Math.max(scaleX * scaleY, 0)) || 1;
+      const adjustX = scaleX > 0 ? uniform / scaleX : 1;
+      const adjustY = scaleY > 0 ? uniform / scaleY : 1;
+      return {
+        adjustX: Math.max(1, adjustX),
+        adjustY: Math.max(1, adjustY),
+        scaleX,
+        scaleY,
+        uniform
+      };
+    };
+    const buildLayout = (adjustX, adjustY) => {
+      const paddingX = labelPadding * adjustX;
+      const paddingY = labelPadding * adjustY;
+      const descenderY = labelDescenderPad * adjustY;
+      const labelColumnWidth = Math.max(cellSize, Math.ceil(maxRowLabelWidth * adjustX + paddingX * 2));
+      const labelRowHeight = Math.max(cellSize, Math.ceil(maxColumnLabelWidth * adjustY + paddingY * 2 + descenderY));
+      return {
+        labelColumnWidth,
+        labelRowHeight,
+        matrixLeft,
+        matrixTop,
+        totalWidth: matrixLeft + labelColumnWidth + heatmapWidth + marginRight,
+        totalHeight: matrixTop + labelRowHeight + heatmapHeight + marginBottom,
+        paddingX,
+        paddingY,
+        descenderY
+      };
+    };
+    let layout = buildLayout(1, 1);
+    let aspectAdjust = computeAspectAdjust(layout.totalWidth, layout.totalHeight);
+    if(aspectAdjust.adjustX > 1 || aspectAdjust.adjustY > 1){
+      layout = buildLayout(aspectAdjust.adjustX, aspectAdjust.adjustY);
+      const refinedAdjust = computeAspectAdjust(layout.totalWidth, layout.totalHeight);
+      const finalAdjustX = Math.max(aspectAdjust.adjustX, refinedAdjust.adjustX);
+      const finalAdjustY = Math.max(aspectAdjust.adjustY, refinedAdjust.adjustY);
+      if(finalAdjustX > aspectAdjust.adjustX + 0.01 || finalAdjustY > aspectAdjust.adjustY + 0.01){
+        layout = buildLayout(finalAdjustX, finalAdjustY);
+      }
+      aspectAdjust = { ...aspectAdjust, adjustX: finalAdjustX, adjustY: finalAdjustY };
+    }
+    const labelColumnWidth = layout.labelColumnWidth;
+    const labelRowHeight = layout.labelRowHeight;
+    const labelPaddingX = layout.paddingX;
+    const labelPaddingY = layout.paddingY;
+    const labelDescenderPadY = layout.descenderY;
+    const totalWidth = layout.totalWidth;
+    const totalHeight = layout.totalHeight;
+    // Label row/column are part of the matrix layout so font changes expand the overall bounds.
     state.svg.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
 
-    const svgBox = state.svgBox || state.svg?.closest('.svgbox') || null;
-    const aspectLocked = isSvgBoxAspectLocked(svgBox);
     const preserveAspect = aspectLocked ? 'xMidYMid meet' : 'none';
     state.svg.setAttribute('preserveAspectRatio', preserveAspect);
     applySvgBoxAspect(svgBox, { locked: aspectLocked, width: totalWidth, height: totalHeight });
@@ -3177,12 +3235,7 @@
     });
     const title = doc.createElementNS(NS, 'text');
     const defaultTitleX = totalWidth / 2;
-    // Calculate title position to remain above all column labels
-    // Column labels after -90 rotation have their top at: marginTop - labelGap - maxColumnLabelWidth
-    // Title baseline should be above this with titleGap, using constants defined earlier
-    const columnLabelTopExtent = marginTop - labelGap - maxColumnLabelWidth;
-    // Title y should be above labels (smaller y = higher up) but not above minimum
-    const defaultTitleY = Math.max(minTitleY, columnLabelTopExtent - titleGap);
+    const defaultTitleY = matrixTop - titleGap;
     const titlePos = state.labelPositions?.title;
     title.setAttribute('x', String(titlePos?.x ?? defaultTitleX));
     title.setAttribute('y', String(titlePos?.y ?? defaultTitleY));
@@ -3224,6 +3277,28 @@
     
     
     state.svg.appendChild(defs);
+    const labelRowClipId = `heatmap-label-row-${Math.floor((global.performance?.now?.() || Date.now()) * 1000)}`;
+    const labelColClipId = `heatmap-label-col-${Math.floor((global.performance?.now?.() || Date.now()) * 1000)}`;
+    const labelRowClip = doc.createElementNS(NS, 'clipPath');
+    labelRowClip.setAttribute('id', labelRowClipId);
+    labelRowClip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+    const labelRowRect = doc.createElementNS(NS, 'rect');
+    labelRowRect.setAttribute('x', String(matrixLeft));
+    labelRowRect.setAttribute('y', String(matrixTop));
+    labelRowRect.setAttribute('width', String(labelColumnWidth + heatmapWidth));
+    labelRowRect.setAttribute('height', String(labelRowHeight));
+    labelRowClip.appendChild(labelRowRect);
+    defs.appendChild(labelRowClip);
+    const labelColClip = doc.createElementNS(NS, 'clipPath');
+    labelColClip.setAttribute('id', labelColClipId);
+    labelColClip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+    const labelColRect = doc.createElementNS(NS, 'rect');
+    labelColRect.setAttribute('x', String(matrixLeft));
+    labelColRect.setAttribute('y', String(matrixTop));
+    labelColRect.setAttribute('width', String(labelColumnWidth));
+    labelColRect.setAttribute('height', String(labelRowHeight + heatmapHeight));
+    labelColClip.appendChild(labelColRect);
+    defs.appendChild(labelColClip);
     const gradientId = `heatmap-scale-${Math.floor((global.performance?.now?.() || Date.now()) * 1000)}`;
     const gradient = doc.createElementNS(NS, 'linearGradient');
     gradient.setAttribute('id', gradientId);
@@ -3240,32 +3315,90 @@
     defs.appendChild(gradient);
     const g = doc.createElementNS(NS, 'g');
     state.svg.appendChild(g);
+    const dataStartX = matrixLeft + labelColumnWidth;
+    const dataStartY = matrixTop + labelRowHeight;
+    debugLog('Debug: heatmap label layout', {
+      labelRowHeight,
+      labelColumnWidth,
+      labelFontSize,
+      labelPaddingX,
+      labelPaddingY,
+      labelDescenderPadY,
+      aspectAdjust,
+      dataStartX,
+      dataStartY,
+      rowCount,
+      columnCount
+    });
+    const rowLabelGroup = doc.createElementNS(NS, 'g');
+    rowLabelGroup.setAttribute('data-layer', 'row-labels');
+    rowLabelGroup.setAttribute('clip-path', `url(#${labelColClipId})`);
+    g.appendChild(rowLabelGroup);
+    const columnLabelGroup = doc.createElementNS(NS, 'g');
+    columnLabelGroup.setAttribute('data-layer', 'column-labels');
+    columnLabelGroup.setAttribute('clip-path', `url(#${labelRowClipId})`);
+    g.appendChild(columnLabelGroup);
+    const rowLabelMaxWidth = Math.max(0, labelColumnWidth - labelPaddingX * 2);
+    const columnLabelMaxHeight = Math.max(0, labelRowHeight - labelPaddingY * 2 - labelDescenderPadY);
+    const fitLabelText = (adjustX, adjustY) => {
+      const rowScale = Number.isFinite(adjustX) ? Math.max(1, adjustX) : 1;
+      const columnScale = Number.isFinite(adjustY) ? Math.max(1, adjustY) : 1;
+      if(rowLabelGroup){
+        rowLabelGroup.querySelectorAll('text').forEach(text => {
+          const labelWidth = measureLabelWidth(text.textContent || '');
+          const effectiveWidth = labelWidth * rowScale;
+          if(effectiveWidth > rowLabelMaxWidth && rowScale > 0){
+            text.setAttribute('textLength', String(rowLabelMaxWidth / rowScale));
+            text.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+          }else{
+            text.removeAttribute('textLength');
+            text.removeAttribute('lengthAdjust');
+          }
+        });
+      }
+      if(columnLabelGroup){
+        columnLabelGroup.querySelectorAll('text').forEach(text => {
+          const labelWidth = measureLabelWidth(text.textContent || '');
+          const effectiveWidth = labelWidth * columnScale;
+          if(effectiveWidth > columnLabelMaxHeight && columnScale > 0){
+            text.setAttribute('textLength', String(columnLabelMaxHeight / columnScale));
+            text.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+          }else{
+            text.removeAttribute('textLength');
+            text.removeAttribute('lengthAdjust');
+          }
+        });
+      }
+    };
     orderedRowLabels.forEach((label, index) => {
       const text = doc.createElementNS(NS, 'text');
-      text.setAttribute('x', String(marginLeft - 12));
-      text.setAttribute('y', String(marginTop + index * cellSize + cellSize / 2));
+      const x = matrixLeft + labelColumnWidth - labelPaddingX;
+      const y = dataStartY + index * cellSize + cellSize / 2;
+      text.setAttribute('x', String(x));
+      text.setAttribute('y', String(y));
       text.setAttribute('text-anchor', 'end');
       text.setAttribute('dominant-baseline', 'middle');
-      text.setAttribute('font-size', String(scaledFontSize));
+      text.setAttribute('font-size', String(labelFontSize));
       text.textContent = label;
       markFontEditable(text, 'rowLabel', `row-label-${index}`);
-      g.appendChild(text);
+      rowLabelGroup.appendChild(text);
     });
     orderedColumnLabels.forEach((label, index) => {
       const text = doc.createElementNS(NS, 'text');
-      const x = marginLeft + index * cellSize + cellSize / 2;
-      const labelWidth = measureColumnLabelWidth(label);
-      const y = marginTop - 12 - labelWidth / 2;
+      const x = dataStartX + index * cellSize + cellSize / 2;
+      const y = matrixTop + labelRowHeight - labelPaddingY;
       text.setAttribute('x', String(x));
       text.setAttribute('y', String(y));
-      text.setAttribute('font-size', String(scaledFontSize));
-      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('font-size', String(labelFontSize));
+      // Anchor the start at the row floor so text flows upward inside the label row.
+      text.setAttribute('text-anchor', 'start');
       text.setAttribute('dominant-baseline', 'middle');
       text.setAttribute('transform', `rotate(-90 ${x} ${y})`);
       text.textContent = label;
       markFontEditable(text, 'columnLabel', `column-label-${index}`);
-      g.appendChild(text);
+      columnLabelGroup.appendChild(text);
     });
+    fitLabelText(aspectAdjust?.adjustX, aspectAdjust?.adjustY);
     // Create a separate layer for the data matrix cells to support composite export (PNG matrix + SVG labels)
     const cellLayer = doc.createElementNS(NS, 'g');
     cellLayer.setAttribute('data-export-layer', 'heatmap-cells');
@@ -3277,8 +3410,8 @@
           continue;
         }
         const cell = orderedCells[rowIndex]?.[columnIndex] || {};
-        const x = marginLeft + columnIndex * cellSize;
-        const y = marginTop + rowIndex * cellSize;
+        const x = dataStartX + columnIndex * cellSize;
+        const y = dataStartY + rowIndex * cellSize;
         const rect = doc.createElementNS(NS, 'rect');
         rect.setAttribute('x', String(x));
         rect.setAttribute('y', String(y));
@@ -3299,7 +3432,10 @@
           text.setAttribute('y', String(y + cellSize / 2));
           text.setAttribute('text-anchor', 'middle');
           text.setAttribute('dominant-baseline', 'middle');
-          const cellFont = Math.max(8, Math.round(scaledFontSize * 0.85));
+          const cellFont = Math.min(
+            Math.max(8, Math.round(scaledFontSize * 0.85)),
+            Math.max(6, Math.floor(cellSize - 4))
+          );
           text.setAttribute('font-size', String(cellFont));
           text.setAttribute('fill', textColorForBackground(cell.fill || '#d0d0d0'));
           text.textContent = cell.value.toFixed(decimals ?? 2);
@@ -3308,8 +3444,8 @@
         }
       }
     }
-    const scaleStartX = marginLeft + heatmapWidth + (rowDendroWidth ? rowDendroWidth + dendroPadding : 0) + scalePadding;
-    const scaleStartY = marginTop;
+    const scaleStartX = dataStartX + heatmapWidth + (rowDendroWidth ? rowDendroWidth + dendroPadding : 0) + scalePadding;
+    const scaleStartY = dataStartY;
     const scaleHeight = heatmapHeight;
     // Scale strokes using a uniform factor to avoid X/Y distortion when the SVG is resized non-uniformly
     const scaleX = containerRect?.width && totalWidth ? containerRect.width / totalWidth : 1;
@@ -3366,8 +3502,8 @@
         parent: g,
         tree: rowClustering.tree,
         order: rowOrder,
-        startX: marginLeft + heatmapWidth + dendroHeatmapGap,
-        startY: marginTop,
+        startX: dataStartX + heatmapWidth + dendroHeatmapGap,
+        startY: dataStartY,
         length: rowDendroWidth,
         cellSize,
         maxDistance: rowClustering.maxDistance,
@@ -3381,8 +3517,8 @@
         parent: g,
         tree: columnClustering.tree,
         order: columnOrder,
-        startX: marginLeft,
-        startY: marginTop + heatmapHeight + dendroHeatmapGap,
+        startX: dataStartX,
+        startY: dataStartY + heatmapHeight + dendroHeatmapGap,
         length: columnDendroHeight,
         cellSize,
         maxDistance: columnClustering.maxDistance,
@@ -3390,7 +3526,6 @@
         strokeWidth: dendrogramStroke
       });
     }
-    ensureGraphViewport(state.svg, { padding: Math.max(fontSize, 16), debugLabel: 'heatmap-graph' });
     if(!aspectLocked){
       applyTextAspectCorrection({
         svg: state.svg,
@@ -3399,8 +3534,23 @@
         viewBoxHeight: totalHeight,
         displayWidth: containerRect?.width,
         displayHeight: containerRect?.height,
+        debugLabel: 'heatmap-text-correction-pre'
+      });
+      ensureGraphViewport(state.svg, { padding: Math.max(fontSize, 16), debugLabel: 'heatmap-graph-corrected' });
+      applyTextAspectCorrection({
+        svg: state.svg,
+        svgBox,
+        viewBoxWidth: state.svg.viewBox?.baseVal?.width ?? totalWidth,
+        viewBoxHeight: state.svg.viewBox?.baseVal?.height ?? totalHeight,
+        displayWidth: containerRect?.width,
+        displayHeight: containerRect?.height,
         debugLabel: 'heatmap-text-correction'
       });
+      const finalViewBox = state.svg.viewBox?.baseVal;
+      const finalAdjust = computeAspectAdjust(finalViewBox?.width ?? totalWidth, finalViewBox?.height ?? totalHeight);
+      fitLabelText(finalAdjust.adjustX, finalAdjust.adjustY);
+    }else{
+      ensureGraphViewport(state.svg, { padding: Math.max(fontSize, 16), debugLabel: 'heatmap-graph' });
     }
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHeatmapAutoDrawNoticeWidth('draw');
