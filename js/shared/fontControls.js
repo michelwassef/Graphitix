@@ -1955,6 +1955,24 @@
         hasInlineSegments: styleHasInlineSegments(normalized)
       });
     }
+    try{
+      if(global.document && typeof global.document.dispatchEvent === 'function'){
+        const detail = { scopeId: scope || null, key: key || null, storeKey, style: normalized || null };
+        let evt;
+        if(typeof global.CustomEvent === 'function'){
+          evt = new global.CustomEvent('fontControls:styleChanged', { detail });
+        }else if(typeof global.document.createEvent === 'function'){
+          evt = global.document.createEvent('Event');
+          evt.initEvent('fontControls:styleChanged', false, false);
+          evt.detail = detail;
+        }
+        if(evt){
+          global.document.dispatchEvent(evt);
+        }
+      }
+    }catch(dispatchErr){
+      logDebug('storeStyleForNode dispatch error', { error: dispatchErr?.message || String(dispatchErr) });
+    }
   }
 
   function exportScopeStyles(scopeId){

@@ -74,6 +74,88 @@
     return undefined;
   };
 
+  let heatmapFontObserver = null;
+  let heatmapFontEventBound = false;
+  let heatmapFontRefreshDebounced = null;
+  let heatmapFontRefreshReason = null;
+  const scheduleHeatmapFontRefresh = (reason) => {
+    heatmapFontRefreshReason = reason || heatmapFontRefreshReason || 'font-style-change';
+    const trigger = () => {
+      if(state.isRendering){
+        const retry = () => scheduleHeatmapFontRefresh(heatmapFontRefreshReason || 'font-style-change');
+        if(typeof global.requestAnimationFrame === 'function'){
+          global.requestAnimationFrame(retry);
+        }else{
+          (global.setTimeout || setTimeout)(retry, 16);
+        }
+        return;
+      }
+      const nextReason = heatmapFontRefreshReason || 'font-style-change';
+      heatmapFontRefreshReason = null;
+      state.scheduleDraw({ viewOnly: true, reason: nextReason });
+    };
+    if(typeof Shared.debounceFrame === 'function'){
+      if(!heatmapFontRefreshDebounced){
+        heatmapFontRefreshDebounced = Shared.debounceFrame(trigger);
+      }
+      heatmapFontRefreshDebounced();
+      return;
+    }
+    if(typeof global.requestAnimationFrame === 'function'){
+      global.requestAnimationFrame(trigger);
+    }else{
+      (global.setTimeout || setTimeout)(trigger, 16);
+    }
+  };
+
+  const ensureHeatmapFontObserver = () => {
+    if(heatmapFontObserver || typeof global.MutationObserver !== 'function' || !state.svg){
+      return;
+    }
+    heatmapFontObserver = new global.MutationObserver(mutations => {
+      if(state.isRendering){ return; }
+      let shouldRefresh = false;
+      for(const mutation of mutations){
+        if(mutation.type !== 'attributes'){ continue; }
+        const target = mutation.target;
+        const nodeName = target?.nodeName?.toLowerCase?.() || '';
+        if(nodeName !== 'text' && nodeName !== 'tspan'){ continue; }
+        const scope = target?.dataset?.fontScope || target?.closest?.('svg')?.dataset?.fontScope || null;
+        if(scope === 'heatmap'){
+          shouldRefresh = true;
+          break;
+        }
+      }
+      if(shouldRefresh){
+        debugLog('Debug: heatmap font mutation detected', { count: mutations.length });
+        scheduleHeatmapFontRefresh('font-mutation');
+      }
+    });
+    heatmapFontObserver.observe(state.svg, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['font-size', 'style', 'font-family', 'font-weight', 'font-style', 'text-decoration', 'baseline-shift']
+    });
+    debugLog('Debug: heatmap font observer attached');
+  };
+
+  const ensureHeatmapFontEventListener = () => {
+    if(heatmapFontEventBound || !global.document || typeof global.document.addEventListener !== 'function'){
+      return;
+    }
+    global.document.addEventListener('fontControls:styleChanged', event => {
+      if(state.isRendering){ return; }
+      const detail = event?.detail || {};
+      const scopeId = detail.scopeId || null;
+      const storeKey = detail.storeKey || '';
+      if(scopeId === 'heatmap' || (typeof storeKey === 'string' && storeKey.startsWith('heatmap::'))){
+        scheduleHeatmapFontRefresh('font-style-event');
+      }
+    });
+    heatmapFontEventBound = true;
+    debugLog('Debug: heatmap font style listener attached');
+  };
+
   const DEFAULT_ROWS = 100;
   const DEFAULT_COLS = 6;
   let emptyPayloadTemplate = null;
@@ -131,6 +213,7 @@
     lastViewOptions: null,
     lastStats: null,
     logPlusOne: false,
+    isRendering: false,
     dendrogramSettings: {
       thickness: DEFAULT_DENDROGRAM_THICKNESS,
       color: DEFAULT_DENDROGRAM_COLOR
@@ -3083,6 +3166,8 @@
     decimals,
     colorScale
   }){
+    state.isRendering = true;
+    try{
     const rowCount = orderedRowLabels.length;
     const columnCount = orderedColumnLabels.length;
     if(rowCount === 0 || columnCount === 0){
@@ -3114,20 +3199,44 @@
     const heatmapHeight = rowCount * cellSize;
     const svgBox = state.svgBox || state.svg?.closest('.svgbox') || null;
     const aspectLocked = isSvgBoxAspectLocked(svgBox);
-    const labelFontSize = Math.max(6, Math.round(scaledFontSize));
+    const baseLabelFontSize = Math.max(6, Math.round(scaledFontSize));
+    const parseFontSizePx = value => {
+      if(value == null){ return NaN; }
+      if(typeof value === 'number'){ return value; }
+      const raw = String(value).trim();
+      if(!raw){ return NaN; }
+      const numeric = Number.parseFloat(raw);
+      if(!Number.isFinite(numeric)){ return NaN; }
+      if(raw.endsWith('pt')){
+        return typeof chartStyle.ptToPx === 'function' ? chartStyle.ptToPx(numeric) : numeric * 1.3333;
+      }
+      return numeric;
+    };
+    const fontStyles = exportFontStyles('heatmap') || null;
+    const graphFontSize = parseFontSizePx(fontStyles?.__graph__?.fontSize);
+    const resolveLabelFontSize = (key, fallback) => {
+      const override = parseFontSizePx(fontStyles?.[key]?.fontSize);
+      return Number.isFinite(override) ? override : (Number.isFinite(graphFontSize) ? graphFontSize : fallback);
+    };
+    const rowLabelFontSizes = orderedRowLabels.map((_, index) => resolveLabelFontSize(`row-label-${index}`, baseLabelFontSize));
+    const columnLabelFontSizes = orderedColumnLabels.map((_, index) => resolveLabelFontSize(`column-label-${index}`, baseLabelFontSize));
+    const maxRowLabelFontSize = rowLabelFontSizes.reduce((acc, value) => Math.max(acc, value), baseLabelFontSize);
+    const maxColumnLabelFontSize = columnLabelFontSizes.reduce((acc, value) => Math.max(acc, value), baseLabelFontSize);
     // Define label measurement helpers early for margin calculation
-    const labelMeasureFont = chartStyle.makeFont
-      ? chartStyle.makeFont(Math.max(4, Math.round(labelFontSize)))
-      : `${Math.max(4, Math.round(labelFontSize))}px sans-serif`;
-    const measureLabelWidth = label => {
+    const labelMeasureFont = size => {
+      const safeSize = Math.max(4, Math.round(size || baseLabelFontSize));
+      return chartStyle.makeFont ? chartStyle.makeFont(safeSize) : `${safeSize}px sans-serif`;
+    };
+    const measureLabelWidth = (label, size) => {
       if(typeof chartStyle.measureText === 'function'){
         try{
-          return chartStyle.measureText(label || '', labelMeasureFont);
+          return chartStyle.measureText(label || '', labelMeasureFont(size));
         }catch(err){
           console.warn('heatmap label measureText error', err);
         }
       }
-      return String(label || '').length * labelFontSize * 0.6;
+      const fallbackSize = Number.isFinite(size) ? size : baseLabelFontSize;
+      return String(label || '').length * fallbackSize * 0.6;
     };
     let marginRight = 120;
     let marginBottom = 120;
@@ -3154,10 +3263,11 @@
     const scalePadding = 24;
     const scaleLabelGap = 48;
     marginRight += scaleWidth + scalePadding + scaleLabelGap;
-    const maxRowLabelWidth = orderedRowLabels.reduce((acc, label) => Math.max(acc, measureLabelWidth(label)), 0);
-    const maxColumnLabelWidth = orderedColumnLabels.reduce((acc, label) => Math.max(acc, measureLabelWidth(label)), 0);
-    const labelPadding = Math.max(6, Math.round(labelFontSize * 0.35));
-    const labelDescenderPad = Math.max(4, Math.ceil(labelFontSize * 0.25));
+    const maxRowLabelWidth = orderedRowLabels.reduce((acc, label, index) => Math.max(acc, measureLabelWidth(label, rowLabelFontSizes[index])), 0);
+    const maxColumnLabelWidth = orderedColumnLabels.reduce((acc, label, index) => Math.max(acc, measureLabelWidth(label, columnLabelFontSizes[index])), 0);
+    const rowLabelPadding = Math.max(6, Math.round(maxRowLabelFontSize * 0.35));
+    const columnLabelPadding = Math.max(6, Math.round(maxColumnLabelFontSize * 0.35));
+    const columnLabelDescenderPad = Math.max(4, Math.ceil(maxColumnLabelFontSize * 0.25));
     const computeAspectAdjust = (viewWidth, viewHeight) => {
       if(aspectLocked){
         return { adjustX: 1, adjustY: 1 };
@@ -3184,11 +3294,13 @@
       };
     };
     const buildLayout = (adjustX, adjustY) => {
-      const paddingX = labelPadding * adjustX;
-      const paddingY = labelPadding * adjustY;
-      const descenderY = labelDescenderPad * adjustY;
-      const labelColumnWidth = Math.max(cellSize, Math.ceil(maxRowLabelWidth * adjustX + paddingX * 2));
-      const labelRowHeight = Math.max(cellSize, Math.ceil(maxColumnLabelWidth * adjustY + paddingY * 2 + descenderY));
+      const lengthScale = Number.isFinite(adjustX) ? adjustX : 1;
+      const paddingX = rowLabelPadding * lengthScale;
+      const paddingY = columnLabelPadding * lengthScale;
+      const descenderY = columnLabelDescenderPad * lengthScale;
+      // Column labels are rotated; their length scales with X correction.
+      const labelColumnWidth = Math.max(cellSize, Math.ceil(maxRowLabelWidth * lengthScale + paddingX * 2));
+      const labelRowHeight = Math.max(cellSize, Math.ceil(maxColumnLabelWidth * lengthScale + paddingY * 2 + descenderY));
       return {
         labelColumnWidth,
         labelRowHeight,
@@ -3320,7 +3432,9 @@
     debugLog('Debug: heatmap label layout', {
       labelRowHeight,
       labelColumnWidth,
-      labelFontSize,
+      baseLabelFontSize,
+      maxRowLabelFontSize,
+      maxColumnLabelFontSize,
       labelPaddingX,
       labelPaddingY,
       labelDescenderPadY,
@@ -3338,42 +3452,11 @@
     columnLabelGroup.setAttribute('data-layer', 'column-labels');
     columnLabelGroup.setAttribute('clip-path', `url(#${labelRowClipId})`);
     g.appendChild(columnLabelGroup);
-    const rowLabelMaxWidth = Math.max(0, labelColumnWidth - labelPaddingX * 2);
-    const columnLabelMaxHeight = Math.max(0, labelRowHeight - labelPaddingY * 2 - labelDescenderPadY);
-    const fitLabelText = (adjustX, adjustY) => {
-      const rowScale = Number.isFinite(adjustX) ? Math.max(1, adjustX) : 1;
-      const columnScale = Number.isFinite(adjustY) ? Math.max(1, adjustY) : 1;
-      if(rowLabelGroup){
-        rowLabelGroup.querySelectorAll('text').forEach(text => {
-          const labelWidth = measureLabelWidth(text.textContent || '');
-          const effectiveWidth = labelWidth * rowScale;
-          if(effectiveWidth > rowLabelMaxWidth && rowScale > 0){
-            text.setAttribute('textLength', String(rowLabelMaxWidth / rowScale));
-            text.setAttribute('lengthAdjust', 'spacingAndGlyphs');
-          }else{
-            text.removeAttribute('textLength');
-            text.removeAttribute('lengthAdjust');
-          }
-        });
-      }
-      if(columnLabelGroup){
-        columnLabelGroup.querySelectorAll('text').forEach(text => {
-          const labelWidth = measureLabelWidth(text.textContent || '');
-          const effectiveWidth = labelWidth * columnScale;
-          if(effectiveWidth > columnLabelMaxHeight && columnScale > 0){
-            text.setAttribute('textLength', String(columnLabelMaxHeight / columnScale));
-            text.setAttribute('lengthAdjust', 'spacingAndGlyphs');
-          }else{
-            text.removeAttribute('textLength');
-            text.removeAttribute('lengthAdjust');
-          }
-        });
-      }
-    };
     orderedRowLabels.forEach((label, index) => {
       const text = doc.createElementNS(NS, 'text');
       const x = matrixLeft + labelColumnWidth - labelPaddingX;
       const y = dataStartY + index * cellSize + cellSize / 2;
+      const labelFontSize = rowLabelFontSizes[index] || baseLabelFontSize;
       text.setAttribute('x', String(x));
       text.setAttribute('y', String(y));
       text.setAttribute('text-anchor', 'end');
@@ -3387,6 +3470,7 @@
       const text = doc.createElementNS(NS, 'text');
       const x = dataStartX + index * cellSize + cellSize / 2;
       const y = matrixTop + labelRowHeight - labelPaddingY;
+      const labelFontSize = columnLabelFontSizes[index] || baseLabelFontSize;
       text.setAttribute('x', String(x));
       text.setAttribute('y', String(y));
       text.setAttribute('font-size', String(labelFontSize));
@@ -3398,7 +3482,6 @@
       markFontEditable(text, 'columnLabel', `column-label-${index}`);
       columnLabelGroup.appendChild(text);
     });
-    fitLabelText(aspectAdjust?.adjustX, aspectAdjust?.adjustY);
     // Create a separate layer for the data matrix cells to support composite export (PNG matrix + SVG labels)
     const cellLayer = doc.createElementNS(NS, 'g');
     cellLayer.setAttribute('data-export-layer', 'heatmap-cells');
@@ -3536,7 +3619,12 @@
         displayHeight: containerRect?.height,
         debugLabel: 'heatmap-text-correction-pre'
       });
-      ensureGraphViewport(state.svg, { padding: Math.max(fontSize, 16), debugLabel: 'heatmap-graph-corrected' });
+      ensureGraphViewport(state.svg, {
+        padding: Math.max(fontSize, 16),
+        minWidth: totalWidth,
+        minHeight: totalHeight,
+        debugLabel: 'heatmap-graph-corrected'
+      });
       applyTextAspectCorrection({
         svg: state.svg,
         svgBox,
@@ -3546,11 +3634,13 @@
         displayHeight: containerRect?.height,
         debugLabel: 'heatmap-text-correction'
       });
-      const finalViewBox = state.svg.viewBox?.baseVal;
-      const finalAdjust = computeAspectAdjust(finalViewBox?.width ?? totalWidth, finalViewBox?.height ?? totalHeight);
-      fitLabelText(finalAdjust.adjustX, finalAdjust.adjustY);
     }else{
-      ensureGraphViewport(state.svg, { padding: Math.max(fontSize, 16), debugLabel: 'heatmap-graph' });
+      ensureGraphViewport(state.svg, {
+        padding: Math.max(fontSize, 16),
+        minWidth: totalWidth,
+        minHeight: totalHeight,
+        debugLabel: 'heatmap-graph'
+      });
     }
     state.layout?.syncPanels?.({ skipSchedule: true });
     syncHeatmapAutoDrawNoticeWidth('draw');
@@ -3560,6 +3650,9 @@
       showRowDendrogram,
       showColumnDendrogram
     });
+    } finally {
+      state.isRendering = false;
+    }
   }
 
   function renderCorrelationHeatmap(processed, settings){
@@ -4273,6 +4366,8 @@
       } else {
         console.debug('Debug: heatmap fontControls enableForSvg missing', { hasFontControls: !!fontControls });
       }
+      ensureHeatmapFontObserver();
+      ensureHeatmapFontEventListener();
     }
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'heatmap',
