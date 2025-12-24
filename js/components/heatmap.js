@@ -156,6 +156,125 @@
     debugLog('Debug: heatmap font style listener attached');
   };
 
+  let heatmapTextResizeObserver = null;
+  let heatmapTextScaleDebounced = null;
+  const stripAspectMatrixTransform = (transform) => {
+    const trimmed = typeof transform === 'string' ? transform.trim() : '';
+    if(!trimmed){ return ''; }
+    const withoutLeading = trimmed.replace(/^matrix\([^)]*\)\s*/i, '');
+    const withoutTrailing = withoutLeading.replace(/\s*matrix\([^)]*\)\s*$/i, '');
+    return withoutTrailing.trim();
+  };
+  const setHeatmapBaseTransform = (text, base) => {
+    if(!text || typeof text.setAttribute !== 'function'){ return; }
+    const value = typeof base === 'string' ? base : '';
+    const existingAttr = text.getAttribute('data-heatmap-base-transform');
+    const shouldSetAttr = existingAttr == null || (existingAttr === '' && value !== '');
+    if(shouldSetAttr){
+      text.setAttribute('data-heatmap-base-transform', value);
+    }
+    if(text.dataset){
+      const existingDataset = text.dataset.heatmapBaseTransform;
+      const shouldSetDataset = existingDataset == null || (existingDataset === '' && value !== '');
+      if(shouldSetDataset){
+        text.dataset.heatmapBaseTransform = value;
+      }
+    }
+  };
+  const getHeatmapBaseTransform = (text) => {
+    if(!text){ return ''; }
+    const datasetValue = text.dataset?.heatmapBaseTransform;
+    if(typeof datasetValue === 'string' && datasetValue.length > 0){
+      const currentTransform = typeof text.getAttribute === 'function' ? text.getAttribute('transform') : '';
+      const cleanedCurrent = stripAspectMatrixTransform(currentTransform || '');
+      if(cleanedCurrent && cleanedCurrent !== datasetValue){
+        setHeatmapBaseTransform(text, cleanedCurrent);
+        return cleanedCurrent;
+      }
+      return datasetValue;
+    }
+    const attrValue = typeof text.getAttribute === 'function'
+      ? text.getAttribute('data-heatmap-base-transform')
+      : null;
+    if(typeof attrValue === 'string' && attrValue.length > 0){
+      if(text.dataset && (datasetValue == null || datasetValue === '')){
+        text.dataset.heatmapBaseTransform = attrValue;
+      }
+      return attrValue;
+    }
+    const transform = typeof text.getAttribute === 'function' ? text.getAttribute('transform') : '';
+    const cleaned = stripAspectMatrixTransform(transform || '');
+    if(cleaned || (datasetValue == null && attrValue == null)){
+      setHeatmapBaseTransform(text, cleaned);
+    }
+    return cleaned;
+  };
+  const resetHeatmapTextAspect = (svg) => {
+    const root = svg || state.svg;
+    if(!root || !root.querySelectorAll){ return; }
+    root.querySelectorAll('text').forEach(text => {
+      const base = getHeatmapBaseTransform(text);
+      if(base){
+        text.setAttribute('transform', base);
+      }else{
+        text.removeAttribute('transform');
+      }
+      if(text.dataset){
+        delete text.dataset.heatmapAspectCorrected;
+      }
+    });
+  };
+  const applyHeatmapTextAspect = (reason) => {
+    const svg = state.svg;
+    if(!svg){ return; }
+    const svgBox = state.svgBox || svg.closest?.('.svgbox') || null;
+    const svgRect = svg.getBoundingClientRect ? svg.getBoundingClientRect() : null;
+    const aspectLocked = isSvgBoxAspectLocked(svgBox);
+    if(aspectLocked){
+      resetHeatmapTextAspect(svg);
+      debugLog('Debug: heatmap text aspect reset', { reason: reason || 'aspect-locked' });
+      return;
+    }
+    const viewBox = svg.viewBox?.baseVal;
+    applyTextAspectCorrection({
+      svg,
+      svgBox,
+      viewBoxWidth: viewBox?.width,
+      viewBoxHeight: viewBox?.height,
+      displayWidth: svgRect?.width,
+      displayHeight: svgRect?.height,
+      debugLabel: reason || 'heatmap-text-resize',
+      textScaleMode: 'min'
+    });
+  };
+  const scheduleHeatmapTextAspect = (reason) => {
+    const trigger = () => applyHeatmapTextAspect(reason || 'heatmap-text-resize');
+    if(typeof Shared.debounceFrame === 'function'){
+      if(!heatmapTextScaleDebounced){
+        heatmapTextScaleDebounced = Shared.debounceFrame(trigger);
+      }
+      heatmapTextScaleDebounced();
+      return;
+    }
+    if(typeof global.requestAnimationFrame === 'function'){
+      global.requestAnimationFrame(trigger);
+    }else{
+      (global.setTimeout || setTimeout)(trigger, 16);
+    }
+  };
+  const ensureHeatmapTextResizeObserver = () => {
+    if(heatmapTextResizeObserver || typeof global.ResizeObserver !== 'function'){
+      return;
+    }
+    const target = state.svgBox || state.svg?.closest?.('.svgbox') || null;
+    if(!target){ return; }
+    heatmapTextResizeObserver = new global.ResizeObserver(() => {
+      scheduleHeatmapTextAspect('heatmap-resize');
+    });
+    heatmapTextResizeObserver.observe(target);
+    debugLog('Debug: heatmap text resize observer attached');
+  };
+
   const DEFAULT_ROWS = 100;
   const DEFAULT_COLS = 6;
   let emptyPayloadTemplate = null;
@@ -2945,7 +3064,6 @@
     const scaleX = Number(viewScale?.scaleX);
     const scaleY = Number(viewScale?.scaleY);
     if(!Number.isFinite(scaleX) || !Number.isFinite(scaleY)){ return; }
-    if(Math.abs(scaleX - scaleY) < 0.001){ return; }
     const mode = opts.textScaleMode || 'uniform';
     const uniform = Number.isFinite(viewScale.scale) && viewScale.scale > 0
       ? viewScale.scale
@@ -2958,10 +3076,7 @@
     const adjustY = scaleY > 0 ? textScale / scaleY : 1;
     const texts = svg.querySelectorAll ? svg.querySelectorAll('text') : [];
     texts.forEach(text => {
-      const baseTransform = text.dataset.heatmapBaseTransform ?? text.getAttribute('transform') ?? '';
-      if(text.dataset.heatmapBaseTransform == null){
-        text.dataset.heatmapBaseTransform = baseTransform;
-      }
+      const baseTransform = getHeatmapBaseTransform(text);
       const x = Number(text.getAttribute('x'));
       const y = Number(text.getAttribute('y'));
       if(!Number.isFinite(x) || !Number.isFinite(y)){ return; }
@@ -3187,6 +3302,7 @@
       state.svg.removeChild(state.svg.firstChild);
     }
     const containerRect = state.svgBox?.getBoundingClientRect?.();
+    const svgRect = state.svg?.getBoundingClientRect?.();
     let fontInfo = null;
     if(typeof chartStyle.resolveScaledFontSize === 'function'){
       fontInfo = chartStyle.resolveScaledFontSize({
@@ -3476,6 +3592,7 @@
       text.setAttribute('text-anchor', 'end');
       text.setAttribute('dominant-baseline', 'middle');
       text.setAttribute('font-size', String(labelFontSize));
+      setHeatmapBaseTransform(text, text.getAttribute('transform') || '');
       text.textContent = label;
       markFontEditable(text, 'rowLabel', `row-label-${index}`);
       rowLabelGroup.appendChild(text);
@@ -3492,6 +3609,7 @@
       text.setAttribute('text-anchor', 'start');
       text.setAttribute('dominant-baseline', 'middle');
       text.setAttribute('transform', `rotate(-90 ${x} ${y})`);
+      setHeatmapBaseTransform(text, text.getAttribute('transform') || '');
       text.textContent = label;
       markFontEditable(text, 'columnLabel', `column-label-${index}`);
       columnLabelGroup.appendChild(text);
@@ -3629,8 +3747,8 @@
         svgBox,
         viewBoxWidth: totalWidth,
         viewBoxHeight: totalHeight,
-        displayWidth: containerRect?.width,
-        displayHeight: containerRect?.height,
+        displayWidth: svgRect?.width,
+        displayHeight: svgRect?.height,
         debugLabel: 'heatmap-text-correction-pre',
         textScaleMode: 'min'
       });
@@ -3645,8 +3763,8 @@
         svgBox,
         viewBoxWidth: state.svg.viewBox?.baseVal?.width ?? totalWidth,
         viewBoxHeight: state.svg.viewBox?.baseVal?.height ?? totalHeight,
-        displayWidth: containerRect?.width,
-        displayHeight: containerRect?.height,
+        displayWidth: svgRect?.width,
+        displayHeight: svgRect?.height,
         debugLabel: 'heatmap-text-correction',
         textScaleMode: 'min'
       });
@@ -4494,10 +4612,12 @@
         onResize: () => {
           debugLog('Debug: heatmap layout onResize schedule trigger');
           scheduleHeatmapNoticeWidth('resize');
+          scheduleHeatmapTextAspect('resize');
         }
       }
     });
     state.svgBox = state.layout?.elements?.svgBox || state.svg?.closest('.svgbox') || null;
+    ensureHeatmapTextResizeObserver();
     heatmapRenderRowEl = $('heatmapRenderRow');
     heatmapRenderButtonEl = $('heatmapRenderButton');
     heatmapAutoDrawNoticeEl = $('heatmapAutoDrawNotice');
