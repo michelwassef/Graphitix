@@ -42,6 +42,97 @@
     return text.split(/\r?\n/).map(line => line.split(delimiter));
   }
 
+  async function getClipboardTextFromEvent(event){
+    if(!event){
+      return '';
+    }
+    try{
+      const cd = event.clipboardData || event.originalEvent?.clipboardData || null;
+      console.debug('Debug: tableImport.getClipboardTextFromEvent entry', { hasEvent: !!event, hasClipboardData: !!cd });
+      if(cd){
+        // Prefer DataTransferItemList handling (works well in Firefox/Chrome)
+        if(cd.items && cd.items.length){
+          console.debug('Debug: tableImport.getClipboardTextFromEvent using DataTransferItemList', { items: cd.items.length });
+          for(let i = 0; i < cd.items.length; i++){
+            const item = cd.items[i];
+            try{
+              if(item && item.kind === 'string' && typeof item.getAsString === 'function'){
+                const text = await new Promise(resolve => item.getAsString(s => resolve(s)));
+                console.debug('Debug: tableImport.getClipboardTextFromEvent item.string', { index: i, length: (text || '').length, snippet: (text||'').slice(0,200) });
+                if(text) return text;
+              }
+              if(item && item.kind === 'file' && typeof item.getAsFile === 'function'){
+                const file = item.getAsFile();
+                if(file){
+                  console.debug('Debug: tableImport.getClipboardTextFromEvent item.file', { index: i, name: file.name, size: file.size });
+                  const txt = await readFileAsText(file);
+                  if(txt) return txt;
+                }
+              }
+            }catch(e){/* ignore individual item errors */}
+          }
+        }
+        // Then try getData for common types, preferring plain text then HTML
+        const tryTypes = ['text/plain','text','Text','text/unicode','text/html'];
+        for(const t of tryTypes){
+          try{
+            const v = cd.getData(t);
+            if(v){
+              console.debug('Debug: tableImport.getClipboardTextFromEvent getData', { type: t, length: (v || '').length, snippet: (v||'').slice(0,200) });
+              if(t === 'text/html' && typeof global.document !== 'undefined'){
+                const div = global.document.createElement('div');
+                div.innerHTML = v;
+                const vtext = div.innerText || div.textContent || '';
+                if(vtext) return vtext;
+              }else{
+                return v;
+              }
+            }
+          }catch(e){/* ignore */}
+        }
+      }
+    }catch(e){/* ignore */}
+    // IE/old fallback
+    try{
+      if(global.window && typeof global.window.clipboardData === 'object' && typeof global.window.clipboardData.getData === 'function'){
+        const v = global.window.clipboardData.getData('Text');
+        console.debug('Debug: tableImport.getClipboardTextFromEvent window.clipboardData', { length: (v || '').length });
+        if(v) return v;
+      }
+    }catch(e){/* ignore */}
+    // Clipboard API: try read() to obtain ClipboardItems, then readText()
+    try{
+      const nav = global.navigator?.clipboard;
+      if(nav){
+        if(typeof nav.read === 'function'){
+          const items = await nav.read();
+          console.debug('Debug: tableImport.getClipboardTextFromEvent navigator.read', { items: (items || []).length });
+          for(const clipboardItem of items){
+            for(const type of clipboardItem.types || []){
+              try{
+                if(type && type.startsWith('text')){
+                  const blob = await clipboardItem.getType(type);
+                  const s = await blob.text();
+                  console.debug('Debug: tableImport.getClipboardTextFromEvent navigator.read.type', { type, length: (s || '').length, snippet: (s||'').slice(0,200) });
+                  if(s) return s;
+                }
+              }catch(e){/* ignore per-type errors */}
+            }
+          }
+        }
+        if(typeof nav.readText === 'function'){
+          const v = await nav.readText();
+          console.debug('Debug: tableImport.getClipboardTextFromEvent navigator.readText', { length: (v || '').length, snippet: (v||'').slice(0,200) });
+          if(v) return v;
+        }
+      }
+    }catch(e){/* ignore */}
+    return '';
+  }
+
+  // expose helper so other modules (e.g., Shared.hot) can reuse robust clipboard logic
+  tableImport.getClipboardTextFromEvent = getClipboardTextFromEvent;
+
   function readFileAsText(file){
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -654,19 +745,7 @@
       clearedHighlight = true;
     };
     try{
-      let text = event.clipboardData?.getData('text/plain');
-      if(!text){
-        try{
-          const clip = global.navigator?.clipboard;
-          if(clip && typeof clip.readText === 'function'){
-            text = await clip.readText();
-            debugLog('handlePaste.fallback', { usedNavigator: true }, debugLabel);
-          }
-        }catch(err){
-          notifyError(options, 'Failed to read clipboard text', err);
-          return null;
-        }
-      }
+      let text = await getClipboardTextFromEvent(event);
       if(!text){
         debugLog('handlePaste.noText', {}, debugLabel);
         return null;

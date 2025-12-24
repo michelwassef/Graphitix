@@ -5713,7 +5713,7 @@
         }).filter(row => Array.isArray(row) && row.some(cell => String(cell ?? '').trim() !== ''));
       };
 
-      const handlePaste = (event)=>{
+      const handlePaste = async (event)=>{
         if(!event || event.defaultPrevented){
           return;
         }
@@ -5731,9 +5731,62 @@
         if(!selection){
           return;
         }
-        const plain = event.clipboardData?.getData?.('text/plain')
-          || event.clipboardData?.getData?.('text')
-          || '';
+        let plain = '';
+        try{
+          plain = event.clipboardData?.getData?.('text/plain') || event.clipboardData?.getData?.('text') || '';
+        }catch(e){ plain = '' }
+        // prevent default immediately so async clipboard reads don't allow the
+        // browser to perform its native paste before we handle it (Firefox)
+        try{ event.preventDefault?.(); event.stopImmediatePropagation?.(); event.stopPropagation?.(); }catch(e){}
+
+        // Try shared tableImport helper first (centralized, robust logic)
+        try{
+          if(typeof Shared?.tableImport?.getClipboardTextFromEvent === 'function'){
+            console.debug('Debug: hot.handlePaste calling Shared.tableImport.getClipboardTextFromEvent');
+            plain = await Shared.tableImport.getClipboardTextFromEvent(event);
+            console.debug('Debug: hot.handlePaste helper returned', { length: (plain || '').length });
+          }
+        }catch(e){
+          console.debug('Debug: hot.handlePaste helper threw', { message: e?.message || String(e) });
+        }
+
+        // Fallback: if helper didn't return anything, keep the previous local fallbacks
+        if(!plain){
+          try{
+            const items = event.clipboardData?.items;
+            if(items && items.length){
+              for(let i = 0; i < items.length; i++){
+                const item = items[i];
+                try{
+                  if(item && item.kind === 'string' && typeof item.getAsString === 'function'){
+                    plain = await new Promise(resolve => item.getAsString(s => resolve(s)));
+                    if(plain) break;
+                  }
+                  if(item && item.kind === 'file' && typeof item.getAsFile === 'function'){
+                    const file = item.getAsFile();
+                    if(file){
+                      plain = await new Promise(res => {
+                        const reader = new FileReader();
+                        reader.onload = e => res(e.target?.result || '');
+                        reader.onerror = () => res('');
+                        reader.readAsText(file);
+                      });
+                      if(plain) break;
+                    }
+                  }
+                }catch(e){/* ignore item errors */}
+              }
+            }
+          }catch(e){/* ignore */}
+        }
+        if(!plain){
+          try{
+            const nav = globalThis.navigator?.clipboard;
+            if(nav && typeof nav.readText === 'function'){
+              plain = await nav.readText();
+            }
+          }catch(e){/* ignore */}
+        }
         pendingPasteText = normalizeClipboardText(plain);
         const rows = parsePastedText(plain);
         if(!rows.length){
@@ -5943,6 +5996,12 @@
       container.addEventListener('contextmenu', handleContextMenu, true);
       container.addEventListener('contextmenu', handleHeaderContextMenuProxy, true);
       container.addEventListener('paste', handlePaste, true);
+      try{
+        document.addEventListener('paste', handlePaste, true);
+        console.debug('Debug: hot.js registered document paste listener for hot container', { containerId: container?.id || null });
+      }catch(e){
+        console.debug('Debug: hot.js failed to register document paste listener', { message: e?.message || String(e) });
+      }
       cleanupFns.push(()=>{
         container.removeEventListener('mousedown', handleRowHeaderMouseDown, true);
         container.removeEventListener('mousedown', handleColumnHeaderMouseDown, true);
@@ -5959,6 +6018,7 @@
         container.removeEventListener('contextmenu', handleContextMenu, true);
         container.removeEventListener('contextmenu', handleHeaderContextMenuProxy, true);
         container.removeEventListener('paste', handlePaste, true);
+        try{ document.removeEventListener('paste', handlePaste, true); }catch(e){}
       });
     }
 
