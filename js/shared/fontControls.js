@@ -226,7 +226,7 @@
   ];
 
   const PRESET_FONT_SIZES = [
-    8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72
+    5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72
   ];
 
   const FONT_SCOPE_SELECTION = 'selection';
@@ -2479,7 +2479,7 @@
 
     sizeInput = doc.createElement('input');
     sizeInput.type = 'number';
-    sizeInput.min = '6';
+    sizeInput.min = '5';
     sizeInput.max = '96';
     sizeInput.step = '0.5';
     sizeInput.placeholder = '14';
