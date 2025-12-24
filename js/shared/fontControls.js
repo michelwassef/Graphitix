@@ -1145,6 +1145,18 @@
     return rounded.toFixed(2).replace(/\.00$/, '').replace(/(\.\d*?)0+$/, '$1');
   }
 
+  function pxToPt(px){
+    const n = Number(px);
+    if(!Number.isFinite(n)) return null;
+    return n * 0.75; // 1px = 0.75pt (96px == 72pt)
+  }
+
+  function ptToPx(pt){
+    const n = Number(pt);
+    if(!Number.isFinite(n)) return null;
+    return n * (96/72); // 1pt = 1.333333...px
+  }
+
   function normalizeFontSizeValue(value, meta){
     const fixed = formatFontSizeToken(value);
     if(!fixed){ return ''; }
@@ -1688,7 +1700,11 @@
         explicitSize = numericSize;
       }
     }
-    let basePreviewSize = explicitSize;
+    let basePreviewSize = null;
+    if(Number.isFinite(explicitSize)){
+      const pxFromPt = ptToPx(explicitSize);
+      basePreviewSize = Number.isFinite(pxFromPt) ? pxFromPt : explicitSize;
+    }
     if(!Number.isFinite(basePreviewSize)){
       const computedPreview = parseFloat(global.getComputedStyle(previewTextEl).fontSize || '');
       basePreviewSize = Number.isFinite(computedPreview) ? computedPreview : 14;
@@ -2067,8 +2083,21 @@
       colorInput.value = parseColorToHex(attrFill);
     }
     if(sizeInput){
-      const sizeNum = parseFloat(String(attrSize).replace(/px$/, ''));
-      sizeInput.value = Number.isFinite(sizeNum) ? normalizeFontSizeValue(sizeNum, { source: 'target-sync' }) : '';
+      let displayVal = '';
+      const raw = String(attrSize || '').trim();
+      const m = raw.match(/^(-?\d*\.?\d+)\s*(px|pt)?$/i);
+      if(m){
+        const num = parseFloat(m[1]);
+        const unit = (m[2] || '').toLowerCase();
+        if(unit === 'pt'){
+          displayVal = Number.isFinite(num) ? normalizeFontSizeValue(num, { source: 'target-sync' }) : '';
+        } else {
+          // treat px (or unspecified unit) as px and convert to pt for display
+          const ptVal = pxToPt(num);
+          displayVal = Number.isFinite(ptVal) ? normalizeFontSizeValue(ptVal, { source: 'target-sync' }) : '';
+        }
+      }
+      sizeInput.value = displayVal;
       highlightSizeMenuSelection(sizeInput.value || '');
     }
     const boldActive = /bold|700|800|900/.test(String(attrWeight));
@@ -2740,7 +2769,9 @@
       if(raw){
         const numeric = parseFloat(raw);
         if(Number.isFinite(numeric)){
-          val = `${numeric}px`;
+          const pxVal = ptToPx(numeric);
+          const roundedPx = Number.isFinite(pxVal) ? Math.round(pxVal * 100) / 100 : pxVal;
+          val = `${roundedPx}px`;
         }
       }
       const inlineResult = handleInlineSelectionPatch({ fontSize: val }, {
