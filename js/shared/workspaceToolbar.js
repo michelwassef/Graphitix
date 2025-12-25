@@ -147,7 +147,7 @@
   const toolbarConfigs = new Map();
   const UNDO_BUTTON_SELECTOR = 'button[data-undo-command="undo"]';
   const REDO_BUTTON_SELECTOR = 'button[data-undo-command="redo"]';
-  const IMPORT_TOOLTIP_TEXT = 'Import CSV, TSV, TXT, XLS, XLSX, ODS, or ODG files';
+  const IMPORT_TOOLTIP_TEXT = 'Import CSV, TSV, TXT, XLS, XLSX, ODS, ODG, or PRISM files';
   const MENU_WRAPPER_SELECTOR = '.workspace-toolbar__menu';
   const MENU_TRIGGER_SELECTOR = '.workspace-toolbar__button[data-menu-id]';
   const MENU_OPEN_CLASS = 'workspace-toolbar__menu--open';

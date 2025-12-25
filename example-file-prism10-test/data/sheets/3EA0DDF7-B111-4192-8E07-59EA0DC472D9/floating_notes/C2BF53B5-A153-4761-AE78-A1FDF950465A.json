@@ -1,0 +1,78 @@
+{
+	"@class": "FloatingNote",
+	"$id": "floating_note/floating_note.schema.json",
+	"color": "yellow",
+	"text": {
+		"string": "How the data are organized\rThe three columns define three groups. The replicate values are stacked in each column\r\rHow to graph these data\rLook in the navigator to the left and find the Graphs folder. Click on the graph in bold. Prism will present several choices for graphing these data. With small numbers of values (like here), it is best to create a scatter plot that shows every value. \r\rNotes\r\r-Unlike many statistics programs, Prism does not define groups using a grouping variable. Instead, the groups are defined by which column each value is entered into. \r\r-When you make a graph, you can choose to plot a column scatter graph (showing each value) or various kinds of graphs that summarize the data (bar graphs, box-and-whisker graphs, violin plots). ",
+		"version": 1,
+		"formatting": [
+			{
+				"range": "0~25",
+				"attributes": {
+					"fontSize": 11.0,
+					"fontWeight": "bold"
+				}
+			},
+			{
+				"range": "26~112",
+				"attributes": {
+					"fontSize": 11.0
+				}
+			},
+			{
+				"range": "113~137",
+				"attributes": {
+					"fontSize": 11.0,
+					"fontWeight": "bold"
+				}
+			},
+			{
+				"range": "138~390",
+				"attributes": {
+					"fontSize": 11.0
+				}
+			},
+			{
+				"range": "391~397",
+				"attributes": {
+					"fontSize": 11.0,
+					"fontWeight": "bold"
+				}
+			},
+			{
+				"range": "398~565",
+				"attributes": {
+					"fontSize": 11.0
+				}
+			},
+			{
+				"range": "566~761",
+				"attributes": {
+					"fontSize": 11.0
+				}
+			}
+		]
+	},
+	"position": "1182;505",
+	"positionCollapsed": "1182;505",
+	"size": {
+		"width": 166.0,
+		"height": 860.0
+	},
+	"screenWidth": {
+		"width": 1366.0,
+		"height": 768.0
+	},
+	"screenDPI": 96,
+	"isAuto": false,
+	"isCollapsed": true,
+	"isReadOnly": false,
+	"isCompatibilityNote": false,
+	"webLink": {
+		"url": "@help:column_tables",
+		"title": "More about Column tables",
+		"toolTip": "@help:column_tables"
+	},
+	"uid": "C2BF53B5-A153-4761-AE78-A1FDF950465A",
+	"fenID": 0
+}

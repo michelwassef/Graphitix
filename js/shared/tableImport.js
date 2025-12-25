@@ -4,6 +4,7 @@
   const tableImport = Shared.tableImport = Shared.tableImport || {};
 
   let xlsxLoaderPromise = null;
+  let zipLoaderPromise = null;
   const DEFAULT_SNAPSHOT_CELL_THRESHOLD = 12000;
   tableImport.snapshotCellThreshold = DEFAULT_SNAPSHOT_CELL_THRESHOLD;
 
@@ -190,6 +191,195 @@
       global.document.head.appendChild(script);
     });
     return xlsxLoaderPromise;
+  }
+
+  async function ensureZip(){
+    if(global.JSZip){
+      return global.JSZip;
+    }
+    if(typeof Shared.lazyZip === 'function'){
+      if(!zipLoaderPromise){
+        zipLoaderPromise = Shared.lazyZip().catch(err => {
+          zipLoaderPromise = null;
+          throw err;
+        });
+      }
+      return zipLoaderPromise;
+    }
+    if(zipLoaderPromise){
+      return zipLoaderPromise;
+    }
+    if(!global.document){
+      throw new Error('Document unavailable for ZIP loading');
+    }
+    zipLoaderPromise = new Promise((resolve, reject) => {
+      const script = global.document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+      script.onload = () => resolve(global.JSZip);
+      script.onerror = () => reject(new Error('Failed to load ZIP script'));
+      global.document.head.appendChild(script);
+    });
+    return zipLoaderPromise;
+  }
+
+  function prismDebug(message, payload){
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: tableImport.prism ' + message, payload || {});
+    }
+  }
+
+  function extractPrismText(value, depth = 0){
+    if(typeof value === 'string'){
+      return value;
+    }
+    if(typeof value === 'number' || typeof value === 'boolean'){
+      return String(value);
+    }
+    if(!value || typeof value !== 'object' || depth > 4){
+      return '';
+    }
+    if(Array.isArray(value)){
+      for(const item of value){
+        const found = extractPrismText(item, depth + 1);
+        if(found){
+          return found;
+        }
+      }
+      return '';
+    }
+    const directKeys = ['string', 'text', 'value', 'title', 'label'];
+    for(const key of directKeys){
+      if(Object.prototype.hasOwnProperty.call(value, key)){
+        const found = extractPrismText(value[key], depth + 1);
+        if(found){
+          return found;
+        }
+      }
+    }
+    for(const key of Object.keys(value)){
+      const found = extractPrismText(value[key], depth + 1);
+      if(found){
+        return found;
+      }
+    }
+    return '';
+  }
+
+  async function readZipText(zip, path){
+    const entry = zip?.file ? zip.file(path) : null;
+    if(!entry){
+      return null;
+    }
+    return entry.async('string');
+  }
+
+  async function readZipBuffer(zip, path){
+    const entry = zip?.file ? zip.file(path) : null;
+    if(!entry){
+      return null;
+    }
+    return entry.async('arraybuffer');
+  }
+
+  function normalizePrismString(value){
+    if(value == null){
+      return '';
+    }
+    let text = String(value);
+    text = text.replace(/\0/g, '').trim();
+    if(text.endsWith('-')){
+      text = text.slice(0, -1).trim();
+    }
+    return text;
+  }
+
+  function isPrismColorToken(value){
+    if(!value){
+      return false;
+    }
+    const raw = String(value).trim();
+    const stripped = raw.startsWith('@') ? raw.slice(1) : raw;
+    return /^[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(stripped);
+  }
+
+  function extractPrismStringsFromBuffer(buffer){
+    if(!buffer){
+      return { text: '', strings: [] };
+    }
+    let decoded = '';
+    try{
+      const decoder = new TextDecoder('utf-8');
+      decoded = decoder.decode(buffer instanceof ArrayBuffer ? buffer : new Uint8Array(buffer));
+    }catch(err){
+      prismDebug('decodeError', { message: err?.message || String(err) });
+      return { text: '', strings: [] };
+    }
+    const matches = decoded.match(/[\x20-\x7E]{4,}/g) || [];
+    const strings = [];
+    const seen = new Set();
+    for(const raw of matches){
+      const normalized = normalizePrismString(raw);
+      if(!normalized || seen.has(normalized)){
+        continue;
+      }
+      seen.add(normalized);
+      strings.push(normalized);
+    }
+    return { text: decoded, strings };
+  }
+
+  function findPrismLabelAfterMarker(text, marker){
+    if(!text || !marker){
+      return '';
+    }
+    const idx = text.indexOf(marker);
+    if(idx < 0){
+      return '';
+    }
+    const slice = text.slice(idx + marker.length);
+    const match = slice.match(/[\x20-\x7E]{4,}/);
+    return match ? normalizePrismString(match[0]) : '';
+  }
+
+  function filterPrismGraphCandidates(strings, options = {}){
+    const sheetTitle = normalizePrismString(options.sheetTitle || '');
+    const dataSetTitles = Array.isArray(options.dataSetTitles)
+      ? options.dataSetTitles.map(title => normalizePrismString(title)).filter(Boolean)
+      : [];
+    const excluded = new Set(['PCFFGRA4','Y1Title','Zval','Zend']);
+    if(sheetTitle){
+      excluded.add(sheetTitle);
+    }
+    dataSetTitles.forEach(title => excluded.add(title));
+    return (strings || []).filter(value => {
+      const normalized = normalizePrismString(value);
+      if(!normalized){
+        return false;
+      }
+      if(isPrismColorToken(normalized)){
+        return false;
+      }
+      if(excluded.has(normalized)){
+        return false;
+      }
+      if(/^[0-9a-f]{8}-[0-9a-f-]{8,}$/i.test(normalized)){
+        return false;
+      }
+      return true;
+    });
+  }
+
+  async function readZipJson(zip, path){
+    const text = await readZipText(zip, path);
+    if(!text){
+      return null;
+    }
+    try{
+      return JSON.parse(text);
+    }catch(err){
+      prismDebug('parseJsonError', { path, message: err?.message || String(err) });
+      throw err;
+    }
   }
 
   function notifyError(options, message, err){
@@ -678,6 +868,90 @@
         : (parsedRows, metaInfo) => tableImport.processRows(parsedRows, options.hot, cloneOptions(options, Object.assign({ startRow: defaultStartRow, startCol: defaultStartCol, allowShrink }, metaInfo)));
       return handler(rows, meta);
     };
+    if(ext === 'prism'){
+      try{
+        const buffer = await readFileAsArrayBuffer(file);
+        const JSZip = await ensureZip();
+        prismDebug('zip.load', { name: file.name, size: file.size });
+        const zip = await JSZip.loadAsync(buffer);
+        const document = await readZipJson(zip, 'document.json');
+        if(!document){
+          throw new Error('Prism document.json not found');
+        }
+        const dataSheetId = document?.uiSettings?.currentSheets?.data
+          || (Array.isArray(document?.sheets?.data) ? document.sheets.data[0] : null);
+        if(!dataSheetId){
+          throw new Error('Prism data sheet not found');
+        }
+        const sheet = await readZipJson(zip, `data/sheets/${dataSheetId}/sheet.json`);
+        const tableId = sheet?.table?.uid || null;
+        if(!tableId){
+          throw new Error('Prism data table not found');
+        }
+        const dataCsv = await readZipText(zip, `data/tables/${tableId}/data.csv`);
+        if(dataCsv == null){
+          throw new Error('Prism data CSV not found');
+        }
+        const delimiter = detectDelimiter(dataCsv, ',');
+        const rows = parseDelimitedText(dataCsv, delimiter);
+        const filtered = filterRows(rows);
+        const dataSetIds = Array.isArray(sheet?.table?.dataSets) ? sheet.table.dataSets : [];
+        let dataSetTitles = [];
+        if(dataSetIds.length){
+          const titlePromises = dataSetIds.map(async uid => {
+            const setInfo = await readZipJson(zip, `data/sets/${uid}.json`);
+            const rawTitle = setInfo?.title;
+            const title = extractPrismText(rawTitle);
+            prismDebug('dataset.title', { uid, rawType: typeof rawTitle, title });
+            return title;
+          });
+          const titles = await Promise.all(titlePromises);
+          dataSetTitles = titles.map(title => normalizePrismString(title)).filter(Boolean);
+          if(titles.some(title => String(title).trim() !== '')){
+            filtered.unshift(titles);
+          }
+        }
+        let prismStyle = null;
+        const graphSheetId = document?.uiSettings?.currentSheets?.graph
+          || (Array.isArray(document?.sheets?.graphs) ? document.sheets.graphs[0] : null);
+        if(graphSheetId){
+          const graphBuffer = await readZipBuffer(zip, `graphs/${graphSheetId}/data.bin`);
+          if(graphBuffer){
+          const parsed = extractPrismStringsFromBuffer(graphBuffer);
+          const candidates = filterPrismGraphCandidates(parsed.strings, {
+            sheetTitle: sheet?.title || '',
+            dataSetTitles
+          });
+          let yLabel = normalizePrismString(findPrismLabelAfterMarker(parsed.text, 'Y1Title'));
+          if(yLabel && (dataSetTitles.includes(yLabel) || isPrismColorToken(yLabel) || yLabel === 'Zval' || yLabel === 'Zend')){
+            yLabel = '';
+          }
+          const remaining = candidates.filter(item => item !== yLabel);
+            const title = remaining[0] || '';
+            const xLabel = remaining[1] || '';
+            if(!yLabel && remaining.length > 2){
+              yLabel = remaining[2];
+            }
+            if(title || xLabel || yLabel){
+              prismStyle = { title, xLabel, yLabel };
+              prismDebug('graph.style', { graphSheetId, title, xLabel, yLabel, candidateCount: candidates.length });
+            }
+          }
+        }
+        const result = await applyRows(filtered, { delimiter });
+        if(result && prismStyle){
+          result.prismStyle = prismStyle;
+          if(typeof options.onPrismStyle === 'function'){
+            options.onPrismStyle(prismStyle);
+          }
+        }
+        prismDebug('import.complete', { rows: result?.rows || 0, cols: result?.cols || 0 });
+        return result;
+      }catch(err){
+        notifyError(options, 'Failed to import Prism file', err);
+        return null;
+      }
+    }
     if(['csv','tsv','txt'].includes(ext)){
       try{
         const text = await readFileAsText(file);

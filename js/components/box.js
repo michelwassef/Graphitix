@@ -5035,6 +5035,23 @@
     });
     importBtn.addEventListener('click',()=>{ fileInput.value=''; fileInput.click(); });
     const tableImport = Shared.tableImport;
+    const applyBoxPrismStyle = style => {
+      if(!style || typeof style !== 'object'){
+        return;
+      }
+      const title = style.title != null ? String(style.title).trim() : '';
+      const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
+      if(title){
+        state.titleText = title;
+      }
+      if(yLabel){
+        state.yLabelText = yLabel;
+      }
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: box prism style applied', { title, yLabel });
+      }
+      state.scheduleDraw({ force: true, reason: 'import-prism-style', skipThresholdEvaluation: true });
+    };
     fileInput.addEventListener('change',()=>{
       if(!tableImport || typeof tableImport.openFile !== 'function'){
         console.warn('boxplot import skipped: Shared.tableImport.openFile unavailable');
@@ -5055,6 +5072,7 @@
           state.scheduleDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
         },
         debugLabel: 'box',
+        onPrismStyle: applyBoxPrismStyle,
         onProcessed: info => console.log('boxplot data imported', {rows: info?.rows, cols: info?.cols}),
         onCompleted: () => {
           const renderReason = 'import-load';

@@ -75,4 +75,10 @@
     url: 'libs/xlsx.full.min.js',
     globalKey: 'XLSX'
   });
+
+  Shared.lazyZip = Shared.lazyZip || createScriptLoader({
+    name: 'zip',
+    url: 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
+    globalKey: 'JSZip'
+  });
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

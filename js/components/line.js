@@ -7674,6 +7674,27 @@
       }
       console.debug('Debug: line import start',{fileName}); // Debug: import start trace
       try{
+        const applyLinePrismStyle = style => {
+          if(!style || typeof style !== 'object'){
+            return;
+          }
+          const title = style.title != null ? String(style.title).trim() : '';
+          const xLabel = style.xLabel != null ? String(style.xLabel).trim() : '';
+          const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
+          if(title){
+            lineTitleText = title;
+          }
+          if(xLabel){
+            lineXLabelText = xLabel;
+          }
+          if(yLabel){
+            lineYLabelText = yLabel;
+          }
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: line prism style applied', { title, xLabel, yLabel });
+          }
+          scheduleLineDraw({ force: true, reason: 'import-prism-style', skipThresholdEvaluation: true });
+        };
         const result = await tableImport.openFile(refs.fileInput,{
           hot: lineHot,
           minCols: LINE_DEFAULT_COLS,
@@ -7683,6 +7704,7 @@
             scheduleLineDraw({ force: true, reason: 'import-load', skipThresholdEvaluation: true });
           },
           debugLabel: 'line',
+          onPrismStyle: applyLinePrismStyle,
           onProcessed: info => {
             console.debug('Debug: line tableImport processed', info || {}); // Debug: processed callback
           },
