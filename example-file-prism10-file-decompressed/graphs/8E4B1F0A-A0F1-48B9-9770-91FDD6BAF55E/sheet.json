@@ -1,0 +1,9 @@
+{
+	"@class": "FENGraphSheet",
+	"$id": "sheets/graph_sheet.schema.json",
+	"uid": "8E4B1F0A-A0F1-48B9-9770-91FDD6BAF55E",
+	"fenID": 0,
+	"title": "Col: Entering replicate data",
+	"isAutoCreated": true,
+	"inputDataSets": []
+}

@@ -1,0 +1,24 @@
+{
+	"@class": "DataSet",
+	"$id": "sheets/data_sheet/data_table/data_set.schema.json",
+	"uid": "C42BF6E3-CA4B-4EAC-99A2-91C92FD983F6",
+	"fenID": 1,
+	"format": "y_single",
+	"title": "Placebo",
+	"attributes": [
+		"DS_ATTR_Y"
+	],
+	"replicates": [
+		{
+			"@class": "DriverReplicate",
+			"valueType": "real",
+			"commonAttributes": [
+				"NUMERIC"
+			],
+			"decimalsLength": 1,
+			"significantDigitsCount": 7,
+			"lastRow": 4,
+			"firstRow": 0
+		}
+	]
+}
