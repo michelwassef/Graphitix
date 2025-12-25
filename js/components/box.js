@@ -5041,14 +5041,38 @@
       }
       const title = style.title != null ? String(style.title).trim() : '';
       const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
+      const fontFamily = style.fontFamily != null ? String(style.fontFamily).trim() : '';
+      const fontColor = style.fontColor != null ? String(style.fontColor).trim() : '';
+      const axisColor = style.axisColor != null ? String(style.axisColor).trim() : '';
+      const fontSizeValue = Number(style.fontSize);
       if(title){
         state.titleText = title;
       }
       if(yLabel){
         state.yLabelText = yLabel;
       }
+      if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && els.boxFontSize){
+        els.boxFontSize.value = String(fontSizeValue);
+        if(els.boxFontSize.dataset){
+          els.boxFontSize.dataset.fontBasePt = String(fontSizeValue);
+        }
+        chartStyle.renderFontSizeLabel({ element: els.boxFontSizeVal, pt: fontSizeValue, input: els.boxFontSize, manual: true });
+      }
+      if(axisColor){
+        updateAxisColor(axisColor);
+      }
+      if(fontFamily || fontColor){
+        const graphStyle = {};
+        if(fontFamily){
+          graphStyle.fontFamily = fontFamily;
+        }
+        if(fontColor){
+          graphStyle.fill = fontColor;
+        }
+        importFontStyles('box', { __graph__: graphStyle });
+      }
       if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: box prism style applied', { title, yLabel });
+        console.debug('Debug: box prism style applied', { title, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
       }
       state.scheduleDraw({ force: true, reason: 'import-prism-style', skipThresholdEvaluation: true });
     };

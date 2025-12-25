@@ -341,6 +341,115 @@
     return match ? normalizePrismString(match[0]) : '';
   }
 
+  function readInt32LE(bytes, offset){
+    return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
+  }
+
+  function findZlibHeader(bytes){
+    if(!bytes || bytes.length < 2){
+      return -1;
+    }
+    for(let i = 0; i < bytes.length - 1; i += 1){
+      if(bytes[i] === 0x78 && (bytes[i + 1] === 0x9C || bytes[i + 1] === 0xDA || bytes[i + 1] === 0x01)){
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  async function inflatePrismGraphData(buffer){
+    if(!buffer){
+      return null;
+    }
+    if(typeof global.DecompressionStream !== 'function'){
+      prismDebug('inflate.skip', { reason: 'noDecompressionStream' });
+      return null;
+    }
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    const zlibOffset = findZlibHeader(bytes);
+    if(zlibOffset < 0){
+      prismDebug('inflate.skip', { reason: 'zlibHeaderMissing' });
+      return null;
+    }
+    const payload = bytes.subarray(zlibOffset + 2, bytes.length > 4 ? bytes.length - 4 : bytes.length);
+    try{
+      const stream = new Blob([payload]).stream().pipeThrough(new global.DecompressionStream('deflate'));
+      const arrayBuffer = await new Response(stream).arrayBuffer();
+      return new Uint8Array(arrayBuffer);
+    }catch(err){
+      prismDebug('inflate.error', { message: err?.message || String(err) });
+      return null;
+    }
+  }
+
+  function parsePrismColorBytes(bytes){
+    if(!bytes || bytes.length < 4){
+      return '';
+    }
+    const b = bytes[0];
+    const g = bytes[1];
+    const r = bytes[2];
+    const a = bytes[3];
+    if(a === 0){
+      return '';
+    }
+    const hex = value => value.toString(16).padStart(2, '0');
+    return `#${hex(r)}${hex(g)}${hex(b)}`;
+  }
+
+  function collectPrismColorValues(data, key){
+    if(!data || !key){
+      return [];
+    }
+    const encoder = global.TextEncoder ? new global.TextEncoder() : null;
+    if(!encoder){
+      return [];
+    }
+    const pattern = encoder.encode(`${key}DvalMval`);
+    const values = [];
+    for(let i = 0; i <= data.length - pattern.length - 8; i += 1){
+      let match = true;
+      for(let j = 0; j < pattern.length; j += 1){
+        if(data[i + j] !== pattern[j]){
+          match = false;
+          break;
+        }
+      }
+      if(!match){
+        continue;
+      }
+      const type = readInt32LE(data, i + pattern.length);
+      const len = readInt32LE(data, i + pattern.length + 4);
+      if(type !== 1 || len < 4 || i + pattern.length + 8 + len > data.length){
+        continue;
+      }
+      const slice = data.subarray(i + pattern.length + 8, i + pattern.length + 12);
+      const color = parsePrismColorBytes(slice);
+      if(color){
+        values.push(color);
+      }
+    }
+    return values;
+  }
+
+  function pickMostCommon(values){
+    if(!Array.isArray(values) || !values.length){
+      return '';
+    }
+    const counts = new Map();
+    let best = '';
+    let bestCount = 0;
+    values.forEach(value => {
+      const next = (counts.get(value) || 0) + 1;
+      counts.set(value, next);
+      if(next > bestCount){
+        bestCount = next;
+        best = value;
+      }
+    });
+    return best;
+  }
+
   function filterPrismGraphCandidates(strings, options = {}){
     const sheetTitle = normalizePrismString(options.sheetTitle || '');
     const dataSetTitles = Array.isArray(options.dataSetTitles)
@@ -888,6 +997,9 @@
         if(!tableId){
           throw new Error('Prism data table not found');
         }
+        const fontFamily = typeof sheet?.font?.family === 'string' ? sheet.font.family.trim() : '';
+        const fontSizeRaw = Number(sheet?.font?.size);
+        const fontSize = Number.isFinite(fontSizeRaw) && fontSizeRaw > 0 ? fontSizeRaw : null;
         const dataCsv = await readZipText(zip, `data/tables/${tableId}/data.csv`);
         if(dataCsv == null){
           throw new Error('Prism data CSV not found');
@@ -917,24 +1029,49 @@
         if(graphSheetId){
           const graphBuffer = await readZipBuffer(zip, `graphs/${graphSheetId}/data.bin`);
           if(graphBuffer){
-          const parsed = extractPrismStringsFromBuffer(graphBuffer);
-          const candidates = filterPrismGraphCandidates(parsed.strings, {
-            sheetTitle: sheet?.title || '',
-            dataSetTitles
-          });
-          let yLabel = normalizePrismString(findPrismLabelAfterMarker(parsed.text, 'Y1Title'));
-          if(yLabel && (dataSetTitles.includes(yLabel) || isPrismColorToken(yLabel) || yLabel === 'Zval' || yLabel === 'Zend')){
-            yLabel = '';
-          }
-          const remaining = candidates.filter(item => item !== yLabel);
+            const parsed = extractPrismStringsFromBuffer(graphBuffer);
+            const candidates = filterPrismGraphCandidates(parsed.strings, {
+              sheetTitle: sheet?.title || '',
+              dataSetTitles
+            });
+            let yLabel = normalizePrismString(findPrismLabelAfterMarker(parsed.text, 'Y1Title'));
+            if(yLabel && (dataSetTitles.includes(yLabel) || isPrismColorToken(yLabel) || yLabel === 'Zval' || yLabel === 'Zend')){
+              yLabel = '';
+            }
+            const remaining = candidates.filter(item => item !== yLabel);
             const title = remaining[0] || '';
             const xLabel = remaining[1] || '';
             if(!yLabel && remaining.length > 2){
               yLabel = remaining[2];
             }
-            if(title || xLabel || yLabel){
-              prismStyle = { title, xLabel, yLabel };
-              prismDebug('graph.style', { graphSheetId, title, xLabel, yLabel, candidateCount: candidates.length });
+            const inflated = await inflatePrismGraphData(graphBuffer);
+            let fontColor = '';
+            let axisColor = '';
+            if(inflated){
+              fontColor = pickMostCommon(collectPrismColorValues(inflated, 'IPGAxSeg::textcolor'));
+              axisColor = pickMostCommon(collectPrismColorValues(inflated, 'PCFF_LineStyle::linecolor'));
+            }
+            if(title || xLabel || yLabel || fontFamily || fontSize || fontColor || axisColor){
+              prismStyle = {
+                title,
+                xLabel,
+                yLabel,
+                fontFamily: fontFamily || undefined,
+                fontSize: fontSize || undefined,
+                fontColor: fontColor || undefined,
+                axisColor: axisColor || fontColor || undefined
+              };
+              prismDebug('graph.style', {
+                graphSheetId,
+                title,
+                xLabel,
+                yLabel,
+                fontFamily,
+                fontSize,
+                fontColor,
+                axisColor,
+                candidateCount: candidates.length
+              });
             }
           }
         }

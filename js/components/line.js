@@ -7681,6 +7681,10 @@
           const title = style.title != null ? String(style.title).trim() : '';
           const xLabel = style.xLabel != null ? String(style.xLabel).trim() : '';
           const yLabel = style.yLabel != null ? String(style.yLabel).trim() : '';
+          const fontFamily = style.fontFamily != null ? String(style.fontFamily).trim() : '';
+          const fontColor = style.fontColor != null ? String(style.fontColor).trim() : '';
+          const axisColor = style.axisColor != null ? String(style.axisColor).trim() : '';
+          const fontSizeValue = Number(style.fontSize);
           if(title){
             lineTitleText = title;
           }
@@ -7690,8 +7694,28 @@
           if(yLabel){
             lineYLabelText = yLabel;
           }
+          if(Number.isFinite(fontSizeValue) && fontSizeValue > 0 && refs.fontSize){
+            refs.fontSize.value = String(fontSizeValue);
+            if(refs.fontSize.dataset){
+              refs.fontSize.dataset.fontBasePt = String(fontSizeValue);
+            }
+            chartStyle.renderFontSizeLabel({ element: refs.fontSizeVal, pt: fontSizeValue, input: refs.fontSize, manual: true });
+          }
+          if(axisColor){
+            updateLineAxisColor(axisColor);
+          }
+          if(fontFamily || fontColor){
+            const graphStyle = {};
+            if(fontFamily){
+              graphStyle.fontFamily = fontFamily;
+            }
+            if(fontColor){
+              graphStyle.fill = fontColor;
+            }
+            importFontStyles('line', { __graph__: graphStyle });
+          }
           if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: line prism style applied', { title, xLabel, yLabel });
+            console.debug('Debug: line prism style applied', { title, xLabel, yLabel, fontFamily, fontSize: fontSizeValue, fontColor, axisColor });
           }
           scheduleLineDraw({ force: true, reason: 'import-prism-style', skipThresholdEvaluation: true });
         };
