@@ -7024,6 +7024,11 @@
               interactiveNodes.forEach(node=>{
                 plot3d.applyLegendPointerGuards(node,{ label: node.dataset.legendKey || null });
               });
+              // Mark legend text nodes editable so graph-scope font styles apply
+              const textNodes = legendGroup.querySelectorAll('text');
+              Array.from(textNodes).forEach((node, idx) => {
+                try{ markFontEditable(node, 'legend', `legend-${idx}`); }catch(e){}
+              });
             }
           }
           const title3d = add3('text',{ x: margin3.left + plotW3 / 2, y: Math.max(margin3.top * 0.4, fs * 1.6), 'text-anchor':'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR }, scatterTitleText);
@@ -7806,6 +7811,13 @@
                   console.debug('Debug: scatter legend position saved', pos);
                 }
               }
+            });
+          }
+          // Mark legend text nodes editable so graph-scope font styles apply
+          if(legendGroup && typeof legendGroup.querySelectorAll === 'function'){
+            const textNodes = legendGroup.querySelectorAll('text');
+            Array.from(textNodes).forEach((node, idx) => {
+              try{ markFontEditable(node, 'legend', `legend-${idx}`); }catch(e){}
             });
           }
           debug('Debug: scatter legend rendered shared helper',{
