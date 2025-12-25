@@ -4,6 +4,9 @@
 	"uid": "8E4B1F0A-A0F1-48B9-9770-91FDD6BAF55E",
 	"fenID": 0,
 	"title": "Col: Entering replicate data",
-	"isAutoCreated": true,
-	"inputDataSets": []
+	"inputDataSets": [
+		"C2B9624D-443D-4EAE-8B0E-7518A5864B18",
+		"C42BF6E3-CA4B-4EAC-99A2-91C92FD983F6",
+		"111A6A00-2933-4EFD-85FE-4673348D1ED7"
+	]
 }

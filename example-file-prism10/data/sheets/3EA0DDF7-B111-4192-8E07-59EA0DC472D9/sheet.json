@@ -27,18 +27,18 @@
 		"HIDE_ROW_TITLES"
 	],
 	"titleWidth": 32,
-	"xSubColWidth": 32,
+	"xSubColWidth": 113,
 	"maxDataSets": 2048,
 	"maxRow": 500000,
 	"selectionRange": {
 		"startCell": {
-			"row": 4,
-			"column": 0,
+			"row": 8,
+			"column": 6,
 			"subcolumn": 0
 		},
 		"endCell": {
-			"row": 4,
-			"column": 0,
+			"row": 8,
+			"column": 6,
 			"subcolumn": 0
 		}
 	},

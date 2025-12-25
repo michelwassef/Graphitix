@@ -1,8 +1,8 @@
 {
 	"@class": "Document",
 	"$id": "document.schema.json",
-	"creationDate": "2025-12-24T09:48:20Z",
-	"modificationDate": "2025-12-24T09:48:51Z",
+	"creationDate": "2025-12-24T00:00:00Z",
+	"modificationDate": "2025-12-25T09:44:52Z",
 	"createdBy": {
 		"name": "Prism",
 		"user": "33683",
@@ -36,8 +36,9 @@
 		]
 	},
 	"uiSettings": {
-		"currentSheetType": "Data",
+		"currentSheetType": "Graph",
 		"viewMode": "sheet",
+		"galleryScaleFactor": 100,
 		"nextDataSheetNumber": 1,
 		"printer": {
 			"defaultPaperSize": {
@@ -68,34 +69,15 @@
 			"info": "86A41586-31B3-488A-A019-E5FE54EB8F26"
 		}
 	},
-	"customColors": [
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff",
-		"#ffffffff"
-	],
 	"sheetAttributesMap": {
-		"86A41586-31B3-488A-A019-E5FE54EB8F26": {
-			"title": "Project info 1"
-		},
-		"8E4B1F0A-A0F1-48B9-9770-91FDD6BAF55E": {
-			"title": "Col: Entering replicate data",
-			"highlightColor": "#ffffffff"
-		},
 		"3EA0DDF7-B111-4192-8E07-59EA0DC472D9": {
 			"title": "Col: Entering replicate data"
+		},
+		"8E4B1F0A-A0F1-48B9-9770-91FDD6BAF55E": {
+			"title": "Col: Entering replicate data"
+		},
+		"86A41586-31B3-488A-A019-E5FE54EB8F26": {
+			"title": "Project info 1"
 		}
 	}
 }
