@@ -4240,6 +4240,19 @@
       dpiY: config.dpiY,
       pngScale: config.pngScale
     });
+    if (Array.isArray(config.extraActions) && config.extraActions.length) {
+      config.extraActions.forEach(extra => {
+        if (!extra || !extra.key) {
+          return;
+        }
+        const match = actions.find(action => action.key === extra.key);
+        if (match && Array.isArray(match.formats) && Array.isArray(extra.formats)) {
+          match.formats.push(...extra.formats);
+        } else {
+          actions.push(extra);
+        }
+      });
+    }
     mountControls({ container: config.container, actions, contextLabel: config.contextLabel || config.fileName || 'svg-string' });
   };
 

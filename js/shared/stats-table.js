@@ -52,6 +52,177 @@
       .replace(/'/g, '&#39;');
   };
 
+  const escapeDelimited = (value, delimiter) => {
+    const text = String(value ?? '');
+    if (text.includes('"') || text.includes('\n') || text.includes('\r') || text.includes(delimiter)) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  };
+
+  const buildDelimitedText = (model, delimiter) => {
+    const header = model.columns.map(col => escapeDelimited(col.label, delimiter)).join(delimiter);
+    const body = model.rows.map(row => row.map(cell => escapeDelimited(cell, delimiter)).join(delimiter)).join('\r\n');
+    if (body) {
+      return `${header}\r\n${body}`;
+    }
+    return header;
+  };
+
+  const buildSheetData = model => {
+    const header = model.columns.map(col => col.label);
+    const rows = model.rows.map(row => row.map(cell => cell ?? ''));
+    return [header, ...rows];
+  };
+
+  const ensureXlsx = async () => {
+    if (global.XLSX) {
+      return global.XLSX;
+    }
+    if (Shared && typeof Shared.lazyXlsx === 'function') {
+      return Shared.lazyXlsx();
+    }
+    throw new Error('XLSX loader unavailable');
+  };
+
+  const buildXlsxBlob = async (model, sheetName) => {
+    const XLSX = await ensureXlsx();
+    const data = buildSheetData(model);
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName || 'Statistics');
+    const array = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    return new Blob([array], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  };
+
+  const downloadBlob = (blob, fileName, contextLabel) => {
+    if (Shared.exporter && typeof Shared.exporter.downloadBlob === 'function') {
+      Shared.exporter.downloadBlob(blob, fileName, contextLabel);
+      return;
+    }
+    if (!doc || !doc.createElement) {
+      return;
+    }
+    const link = doc.createElement('a');
+    const url = global.URL && typeof global.URL.createObjectURL === 'function' ? global.URL.createObjectURL(blob) : '';
+    link.href = url;
+    link.download = fileName;
+    link.style.display = 'none';
+    doc.body.appendChild(link);
+    link.click();
+    doc.body.removeChild(link);
+    if (url && global.URL && typeof global.URL.revokeObjectURL === 'function') {
+      global.URL.revokeObjectURL(url);
+    }
+  };
+
+  const copyTextToClipboard = async text => {
+    if (global.navigator?.clipboard?.writeText) {
+      await global.navigator.clipboard.writeText(text);
+      return true;
+    }
+    if (!doc || !doc.createElement) {
+      return false;
+    }
+    const textarea = doc.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    textarea.style.pointerEvents = 'none';
+    doc.body.appendChild(textarea);
+    textarea.select();
+    const ok = typeof doc.execCommand === 'function' ? doc.execCommand('copy') : false;
+    doc.body.removeChild(textarea);
+    return ok;
+  };
+
+  const copyBlobMap = async (blobMap, contextLabel) => {
+    if (Shared.exporter && typeof Shared.exporter.copyBlobMap === 'function') {
+      return Shared.exporter.copyBlobMap(blobMap, contextLabel);
+    }
+    return false;
+  };
+
+  const createDataActions = (model, config) => {
+    const fileName = model.options.fileName || 'statistics-table';
+    const contextLabel = config?.contextLabel || model.options.contextLabel || fileName;
+    const debugEnabled = typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const log = (label, payload) => {
+      if (!debugEnabled) return;
+      try {
+        console.debug(`Debug: statsTable ${label}`, payload || {});
+      } catch (err) {}
+    };
+    const csvText = () => buildDelimitedText(model, ',');
+    const tsvText = () => buildDelimitedText(model, '\t');
+    async function handle(mode, format) {
+      try {
+        if (format === 'csv') {
+          const text = csvText();
+          if (mode === 'download') {
+            const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+            downloadBlob(blob, `${fileName}.csv`, `${contextLabel}-csv`);
+          } else {
+            const ok = await copyTextToClipboard(text);
+            if (!ok && typeof global.alert === 'function') {
+              global.alert('Copying CSV to the clipboard is not supported in this browser.');
+            }
+          }
+          log('data csv handled', { mode, length: text.length });
+          return;
+        }
+        if (format === 'excel') {
+          if (mode === 'download') {
+            const blob = await buildXlsxBlob(model, 'Statistics');
+            downloadBlob(blob, `${fileName}.xlsx`, `${contextLabel}-xlsx`);
+            log('data excel downloaded', { mode });
+            return;
+          }
+          const blob = await buildXlsxBlob(model, 'Statistics');
+          const copied = await copyBlobMap({
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': blob
+          }, `${contextLabel}-xlsx`);
+          if (copied) {
+            log('data excel copied', { mode });
+            return;
+          }
+          const fallback = tsvText();
+          const ok = await copyTextToClipboard(fallback);
+          if (!ok && typeof global.alert === 'function') {
+            global.alert('Copying Excel data is not supported in this browser.');
+          } else if (typeof global.alert === 'function') {
+            global.alert('Excel copy is not supported here. TSV data was copied instead.');
+          }
+          log('data excel fallback copy', { mode, copied: ok });
+        }
+      } catch (err) {
+        log('data export error', { mode, format, message: err?.message });
+        if (typeof global.alert === 'function') {
+          global.alert('Unable to export the statistics table. Please try again.');
+        }
+      }
+    }
+    return [
+      {
+        key: 'download',
+        label: 'Download',
+        formats: [
+          { key: 'csv', label: 'CSV', handler: () => handle('download', 'csv') },
+          { key: 'excel', label: 'Excel', handler: () => handle('download', 'excel') }
+        ]
+      },
+      {
+        key: 'copy',
+        label: 'Copy',
+        formats: [
+          { key: 'csv', label: 'CSV', handler: () => handle('copy', 'csv') },
+          { key: 'excel', label: 'Excel', handler: () => handle('copy', 'excel') }
+        ]
+      }
+    ];
+  };
+
   const normalizeColumns = columns => {
     return (Array.isArray(columns) ? columns : []).map((col, index) => {
       const key = col && col.key != null ? col.key : index;
@@ -387,7 +558,8 @@
         getSvgString: () => statsTable.buildSvgString(model),
         getDimensions: () => statsTable.measureSvgDimensions(model),
         fileName: model.options.fileName,
-        contextLabel: config?.contextLabel || model.options.contextLabel
+        contextLabel: config?.contextLabel || model.options.contextLabel,
+        extraActions: createDataActions(model, config)
       });
       logDebug('render export controls attached', { fileName: model.options.fileName });
     } else {
