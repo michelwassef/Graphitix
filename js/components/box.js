@@ -903,10 +903,23 @@
     sizeMenuPopup.hidden = true;
     sizeCombo.appendChild(sizeMenuPopup);
 
+    const schedulePointSizeRelayout = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(() => {
+          if(typeof state.scheduleDraw === 'function'){
+            state.scheduleDraw();
+          }
+        })
+      : () => {
+          if(typeof state.scheduleDraw === 'function'){
+            state.scheduleDraw();
+          }
+        };
+
     const applySizeValue = (value, persist) => {
       const v = Number(value);
       if(!Number.isFinite(v) || v <= 0){ return; }
       updatePointsSize(resolveTargetPoints(), v);
+      schedulePointSizeRelayout();
       if(persist){
         if(scopeSelect.value === 'trace'){
           try{ persistTraceStyle({ size: v }); }catch(e){console.warn(e);} 
@@ -2375,13 +2388,15 @@
       console.debug('Debug: computeSwarmOffsets empty',{ orientation, sampleSize, axisSpacing });
       return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
+    const PREFERRED_GAP_FACTOR = 2.1;
+    const MIN_GAP_FACTOR = 0.1;
     const buildOverlapBins = radius => {
       const bins = new Map();
       if(!entries.length){
         return { bins, maxCount: 0, overlapDistance: 0, overlapThreshold: 0, clusterCount: 0 };
       }
       const absRadius = Math.abs(Number(radius) || 0);
-      const overlapDistance = Math.max(0.5, absRadius * 2);
+      const overlapDistance = Math.max(0.5, absRadius * PREFERRED_GAP_FACTOR);
       const overlapThreshold = overlapDistance + Math.max(0.1, absRadius * 0.05);
       const sorted = [];
       entries.forEach(entry => {
@@ -2418,9 +2433,81 @@
       });
       return { bins, maxCount, overlapDistance, overlapThreshold, clusterCount: clusterIndex };
     };
+    const buildCenterOutOffsets = (count, halfWidth, startPositive) => {
+      if(count <= 1 || !Number.isFinite(halfWidth)){
+        return [0];
+      }
+      const step = count > 1 ? (halfWidth * 2) / (count - 1) : 0;
+      const offsets = new Array(count);
+      for(let i = 0; i < count; i++){
+        offsets[i] = -halfWidth + step * i;
+      }
+      const ordered = offsets
+        .map((offset, i) => ({ offset, abs: Math.abs(offset), i }))
+        .sort((a, b) => {
+          if(a.abs !== b.abs){
+            return a.abs - b.abs;
+          }
+          if(a.offset === b.offset){
+            return a.i - b.i;
+          }
+          if(a.abs === 0 || b.abs === 0){
+            return a.i - b.i;
+          }
+          const signA = a.offset >= 0 ? 1 : -1;
+          const signB = b.offset >= 0 ? 1 : -1;
+          if(signA === signB){
+            return a.i - b.i;
+          }
+          return startPositive ? (signB - signA) : (signA - signB);
+        });
+      return ordered.map(item => item.offset);
+    };
+    const buildCenterOutIndices = (count, startUpper) => {
+      const order = [];
+      if(count <= 0){
+        return order;
+      }
+      if(count % 2 === 1){
+        const center = Math.floor(count / 2);
+        order.push(center);
+        for(let step = 1; step <= center; step++){
+          const upper = center + step;
+          const lower = center - step;
+          if(startUpper){
+            if(upper < count) order.push(upper);
+            if(lower >= 0) order.push(lower);
+          }else{
+            if(lower >= 0) order.push(lower);
+            if(upper < count) order.push(upper);
+          }
+        }
+      }else{
+        const left = count / 2 - 1;
+        const right = count / 2;
+        if(startUpper){
+          order.push(right, left);
+        }else{
+          order.push(left, right);
+        }
+        for(let step = 1; step <= left; step++){
+          const upper = right + step;
+          const lower = left - step;
+          if(startUpper){
+            if(upper < count) order.push(upper);
+            if(lower >= 0) order.push(lower);
+          }else{
+            if(lower >= 0) order.push(lower);
+            if(upper < count) order.push(upper);
+          }
+        }
+      }
+      return order;
+    };
     let binInfo = buildOverlapBins(pointRadiusValue);
     let bins = binInfo.bins;
     let maxCount = binInfo.maxCount;
+    let overlapDistance = binInfo.overlapDistance;
     if(debugEnabled && maxCount > 1){
       console.debug('Debug: computeSwarmOffsets overlap bins',{
         orientation,
@@ -2462,6 +2549,7 @@
         binInfo = buildOverlapBins(pointRadiusValue);
         bins = binInfo.bins;
         maxCount = binInfo.maxCount;
+        overlapDistance = binInfo.overlapDistance;
         if(debugEnabled && maxCount > 1){
           console.debug('Debug: computeSwarmOffsets overlap bins adjusted',{
             orientation,
@@ -2483,8 +2571,6 @@
     // minGap is the preferred minimum distance between point centers.
     // For very dense bins we allow this to shrink (allow overlap) down to
     // a conservative lower bound so all points can be placed horizontally.
-    const PREFERRED_GAP_FACTOR = 1.6;
-    const MIN_GAP_FACTOR = 0.1; // allow up to ~90% overlap when needed (more aggressive)
     let maxUsed = 0;
     bins.forEach(bin => {
       const n = bin.count;
@@ -2499,26 +2585,23 @@
         halfWidth = Math.min(halfWidth, axisBoundary);
       }
       // compute required half-width given a gap factor; allow shrinking gap
-      // progressively if the preferred gap does not fit.
+      // if the preferred gap does not fit within the available band.
       let gapFactor = PREFERRED_GAP_FACTOR;
       let minGap = pointRadiusValue * gapFactor;
       let requiredHalfWidth = (n - 1) * minGap / 2;
-      if(halfWidth < requiredHalfWidth){
-        // progressively reduce gapFactor down to MIN_GAP_FACTOR to try to fit
-        while(halfWidth < requiredHalfWidth && gapFactor > MIN_GAP_FACTOR){
-          gapFactor = Math.max(MIN_GAP_FACTOR, gapFactor * 0.85);
+      if(axisBoundary > 0 && requiredHalfWidth > axisBoundary){
+        const maxGapFactor = (axisBoundary * 2) / ((n - 1) * pointRadiusValue);
+        if(Number.isFinite(maxGapFactor)){
+          gapFactor = Math.max(MIN_GAP_FACTOR, Math.min(gapFactor, maxGapFactor));
           minGap = pointRadiusValue * gapFactor;
           requiredHalfWidth = (n - 1) * minGap / 2;
-          // break if gapFactor can't reduce further
-          if(gapFactor === MIN_GAP_FACTOR) break;
         }
-        // If still doesn't fit and axisBoundary is non-zero, clamp to axisBoundary.
-        if(halfWidth < requiredHalfWidth && axisBoundary > 0){
-          halfWidth = Math.min(requiredHalfWidth, axisBoundary);
-        } else if(halfWidth < requiredHalfWidth){
-          // allow halfWidth to remain smaller; we'll still compute offsets
-          // with the reduced gapFactor which permits overlap.
-          // keep halfWidth as-is (globalMaxHalfWidth * normalized)
+      }
+      if(Number.isFinite(requiredHalfWidth) && requiredHalfWidth > 0){
+        if(axisBoundary > 0){
+          halfWidth = Math.min(axisBoundary, Math.max(halfWidth, requiredHalfWidth));
+        }else{
+          halfWidth = Math.max(halfWidth, requiredHalfWidth);
         }
       }
       if(!Number.isFinite(halfWidth) || halfWidth <= 0){
@@ -2527,13 +2610,18 @@
         });
         return;
       }
-      const ordered = bin.members.slice().sort((a, b) => a.index - b.index);
-      // If we reduced gapFactor earlier, compute step based on the effective
-      // spacing implied by current halfWidth (may produce overlap if needed).
-      const step = n > 1 ? (halfWidth * 2) / (n - 1) : 0;
+      const ordered = bin.members.slice().sort((a, b) => (a.coord - b.coord) || (a.index - b.index));
+      const seedBase = ordered.reduce((acc, entry) => acc + (entry.index + 1) * 3 + Math.round(entry.coord || 0), 0);
+      const seed = seedBase + Math.round((ordered[0]?.coord || 0) / (overlapDistance || 1));
+      const startPositive = seed % 2 === 0;
+      const startUpper = seed % 3 === 0;
+      const entryOrder = buildCenterOutIndices(n, startUpper);
+      const offsetOrder = buildCenterOutOffsets(n, halfWidth, startPositive);
       for(let i = 0; i < n; i++){
-        const offset = n === 1 ? 0 : -halfWidth + step * i;
-        offsetsMap.set(ordered[i].index, offset);
+        const entryIdx = entryOrder[i] != null ? entryOrder[i] : i;
+        const entry = ordered[entryIdx];
+        const offset = offsetOrder[i] != null ? offsetOrder[i] : 0;
+        offsetsMap.set(entry.index, offset);
         const abs = Math.abs(offset);
         if(abs > maxUsed){
           maxUsed = abs;
