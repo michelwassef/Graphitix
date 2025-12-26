@@ -2412,7 +2412,8 @@
         const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
         if (fontControls && typeof fontControls.markText === 'function') {
           fontControls.markText(node, { scopeId: 'pca', role, key });
-        } else if (node.dataset) {
+        }
+        if (node.dataset) {
           node.dataset.fontEditable = '1';
           node.dataset.fontScope = 'pca';
           if (role) node.dataset.fontRole = role;
@@ -4893,9 +4894,13 @@
             }
           }
         }
-        const titleY3 = Math.max(fs, margin3.top * 0.5);
+        const defaultTitleY3 = Math.max(fs, margin3.top * 0.5);
+        const defaultTitleX3 = margin3.left + plotW3 / 2;
+        const titlePos = pcaState.labelPositions?.title;
+        const hasTitlePos = Number.isFinite(titlePos?.x) && Number.isFinite(titlePos?.y);
+        const titleY3 = hasTitlePos ? titlePos.y : defaultTitleY3;
         const title3d = add3('text', {
-          x: margin3.left + plotW3 / 2,
+          x: hasTitlePos ? titlePos.x : defaultTitleX3,
           y: titleY3,
           'text-anchor': 'middle',
           'font-size': fs,
@@ -4903,17 +4908,28 @@
         }, pcaTitleText);
         markFontEditable(title3d, 'graphTitle', 'graphTitle');
         makeEditableHelper(title3d, text => commitTitleChange(text, '3d-title'));
+        plot3d.applyLegendPointerGuards(title3d, { label: 'pca-title-3d' });
         if(typeof title3d.setAttribute === 'function'){
           title3d.setAttribute('data-graph-title', '1');
         }
-        if(typeof title3d.getBBox === 'function' && axisLabelBounds.length){
+        if(typeof Shared.enableLabelDrag === 'function'){
+          Shared.enableLabelDrag(title3d, svg3, {
+            onDragEnd: pos => {
+              pcaState.labelPositions.title = { x: pos.x, y: pos.y };
+              if(Shared.isDebugEnabled?.()){
+                console.debug('Debug: pca 3d title position saved', pos);
+              }
+            }
+          });
+        }
+        if(!hasTitlePos && typeof title3d.getBBox === 'function' && axisLabelBounds.length){
           try {
             const titlePadding = Math.max(fs * 0.45, 10);
             const minAxisTop = axisLabelBounds.reduce((min, bounds) => (
               Number.isFinite(bounds?.y) ? Math.min(min, bounds.y) : min
             ), Number.POSITIVE_INFINITY);
             if(Number.isFinite(minAxisTop)){
-              const baseY = Number(title3d.getAttribute('y')) || titleY3;
+              const baseY = Number(title3d.getAttribute('y')) || defaultTitleY3;
               let titleBox = title3d.getBBox();
               const desiredBottom = minAxisTop - titlePadding;
               if(Number.isFinite(desiredBottom)){
@@ -5093,6 +5109,9 @@
             'data-role': 'pca-legend',
             transform: `translate(${legendX3},${legendStartY})`
           });
+          if(legendGroup){
+            plot3d.applyLegendPointerGuards(legendGroup, { label: 'pca-legend-3d' });
+          }
           const legendAdd = (tag, attrs, text) => add3(tag, attrs, text, legendGroup);
           legendEntries.forEach((entry, i) => {
             const itemY = i * (legendMarkerSize3 + legendSpacing3);

@@ -3489,7 +3489,8 @@
       const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
       if (fontControls && typeof fontControls.markText === 'function') {
         fontControls.markText(node, { scopeId: 'scatter', role, key });
-      } else if (node.dataset) {
+      }
+      if (node.dataset) {
         node.dataset.fontEditable = '1';
         node.dataset.fontScope = 'scatter';
         if (role) node.dataset.fontRole = role;
@@ -7009,6 +7010,9 @@
             }
             scatterDebug('Debug: scatter legend placement resolved',{ legendX: legendX3, legendY: legendStartY, legendHeight, axisLabels: axisLabelBounds.length });
             const legendGroup=legendRenderer.draw(svg3,{ x:legendX3, y:legendStartY });
+            if(legendGroup){
+              plot3d.applyLegendPointerGuards(legendGroup, { label: 'scatter-legend-3d' });
+            }
             if(legendGroup && typeof Shared.enableLegendDrag === 'function'){
               Shared.enableLegendDrag(legendGroup, svg3, {
                 onDragEnd: pos => {
@@ -7031,8 +7035,18 @@
               });
             }
           }
-          const title3d = add3('text',{ x: margin3.left + plotW3 / 2, y: Math.max(margin3.top * 0.4, fs * 1.6), 'text-anchor':'middle', 'font-size': fs, fill: chartStyle.TEXT_COLOR }, scatterTitleText);
+          const defaultTitleX = margin3.left + plotW3 / 2;
+          const defaultTitleY = Math.max(margin3.top * 0.4, fs * 1.6);
+          const titlePos = scatterLabelPositions?.title;
+          const title3d = add3('text',{
+            x: Number.isFinite(titlePos?.x) ? titlePos.x : defaultTitleX,
+            y: Number.isFinite(titlePos?.y) ? titlePos.y : defaultTitleY,
+            'text-anchor':'middle',
+            'font-size': fs,
+            fill: chartStyle.TEXT_COLOR
+          }, scatterTitleText);
           markFontEditable(title3d,'graphTitle','graphTitle');
+          plot3d.applyLegendPointerGuards(title3d, { label: 'scatter-title-3d' });
           const applyScatterTitle3d=value=>{
             const nextValue=value!=null?String(value):'';
             scatterTitleText=nextValue;
@@ -7050,6 +7064,16 @@
             applyScatterTitle3d(nextValue);
             recordScatterChange('scatter:title',previous,nextValue,applyScatterTitle3d);
           });
+          if(typeof Shared.enableLabelDrag === 'function'){
+            Shared.enableLabelDrag(title3d, svg3, {
+              onDragEnd: pos => {
+                scatterLabelPositions.title = { x: pos.x, y: pos.y };
+                if(Shared.isDebugEnabled?.()){
+                  console.debug('Debug: scatter 3d title position saved', pos);
+                }
+              }
+            });
+          }
           ensureGraphViewport(svg3,{ padding: Math.max(fs, 18), debugLabel: 'scatter-3d-graph' });
           return;
         }

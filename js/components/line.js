@@ -1961,7 +1961,8 @@
     const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
     if (fontControls && typeof fontControls.markText === 'function') {
       fontControls.markText(node, { scopeId: 'line', role, key });
-    } else if (node.dataset) {
+    }
+    if (node.dataset) {
       node.dataset.fontEditable = '1';
       node.dataset.fontScope = 'line';
       if (role) node.dataset.fontRole = role;
@@ -5487,6 +5488,7 @@
           y: Number.isFinite(legendPos?.y) ? legendPos.y : defaultLegendY
         });
         if(legendGroup){
+          plot3d.applyLegendPointerGuards(legendGroup, { label: 'line-legend-3d' });
           if(typeof Shared.enableLegendDrag === 'function'){
             Shared.enableLegendDrag(legendGroup, svg3, {
               onDragEnd: pos => {
@@ -5517,8 +5519,11 @@
         }
       }
 
-      const titleY = Math.max(margin3.top * 0.4, fs * 1.6);
-      const titleX = margin3.left + plotW3 / 2;
+      const defaultTitleY = Math.max(margin3.top * 0.4, fs * 1.6);
+      const defaultTitleX = margin3.left + plotW3 / 2;
+      const titlePos = lineLabelPositions?.title;
+      const titleX = Number.isFinite(titlePos?.x) ? titlePos.x : defaultTitleX;
+      const titleY = Number.isFinite(titlePos?.y) ? titlePos.y : defaultTitleY;
       const title3d = global.document.createElementNS(NS, 'text');
       title3d.setAttribute('x', String(titleX));
       title3d.setAttribute('y', String(titleY));
@@ -5528,6 +5533,7 @@
       title3d.textContent = lineTitleText;
       svg3.appendChild(title3d);
       markFontEditable(title3d, 'graphTitle', 'graphTitle');
+      plot3d.applyLegendPointerGuards(title3d, { label: 'line-title-3d' });
       const applyLineTitle3d = value => {
         const nextValue = value != null ? String(value) : '';
         lineTitleText = nextValue;
@@ -5545,6 +5551,16 @@
         applyLineTitle3d(nextValue);
         recordLineChange('line:title', previous, nextValue, applyLineTitle3d);
       });
+      if(typeof Shared.enableLabelDrag === 'function'){
+        Shared.enableLabelDrag(title3d, svg3, {
+          onDragEnd: pos => {
+            lineLabelPositions.title = { x: pos.x, y: pos.y };
+            if(Shared.isDebugEnabled?.()){
+              console.debug('Debug: line 3d title position saved', pos);
+            }
+          }
+        });
+      }
 
       handleLineStatsUnavailable(null, 'Statistics are available in 2D view.');
       ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'line-3d-graph' });
