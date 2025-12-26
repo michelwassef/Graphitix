@@ -3686,6 +3686,7 @@
       closeAllMenus(state);
       state.wrapper.classList.add('is-open');
       state.menu.hidden = false;
+      updateMenuDirection(state);
       state.trigger.setAttribute('aria-expanded', 'true');
       openStates.add(state);
     } else {
@@ -3695,6 +3696,48 @@
       openStates.delete(state);
     }
     logDebug('menuToggle', { contextLabel: state.contextLabel, actionKey: state.actionKey, open });
+  }
+
+  function updateMenuDirection(state) {
+    if (!state?.menu || !state?.trigger) return;
+    const menu = state.menu;
+    const trigger = state.trigger;
+    const resolveBottomBoundary = () => {
+      const viewportHeight = global.innerHeight || doc?.documentElement?.clientHeight || 0;
+      if (!doc?.getElementById) {
+        return viewportHeight;
+      }
+      const dock = doc.getElementById('workspaceTabsDock') || doc.querySelector?.('.workspace-tabs-dock');
+      if (!dock || typeof dock.getBoundingClientRect !== 'function') {
+        return viewportHeight;
+      }
+      const rect = dock.getBoundingClientRect();
+      if (!rect || rect.height <= 0) {
+        return viewportHeight;
+      }
+      const styles = global.getComputedStyle ? global.getComputedStyle(dock) : null;
+      if (styles && (styles.display === 'none' || styles.visibility === 'hidden')) {
+        return viewportHeight;
+      }
+      return Math.min(viewportHeight, rect.top);
+    };
+    let menuRect = null;
+    const prevVisibility = menu.style.visibility;
+    menu.style.visibility = 'hidden';
+    menuRect = menu.getBoundingClientRect();
+    menu.style.visibility = prevVisibility || '';
+    const triggerRect = trigger.getBoundingClientRect();
+    const bottomBoundary = resolveBottomBoundary();
+    const spaceBelow = bottomBoundary - triggerRect.bottom;
+    const spaceAbove = triggerRect.top;
+    let direction = 'down';
+    if (menuRect?.height && (menuRect.height > spaceBelow) && spaceAbove >= menuRect.height) {
+      direction = 'up';
+    } else if (menuRect?.height && (spaceBelow < menuRect.height) && spaceAbove > spaceBelow) {
+      direction = 'up';
+    }
+    state.wrapper.dataset.menuDirection = direction;
+    logDebug('menuDirection', { contextLabel: state.contextLabel, actionKey: state.actionKey, direction, spaceAbove, spaceBelow, menuHeight: menuRect?.height || 0, bottomBoundary });
   }
 
   function ensureDocumentListeners() {
