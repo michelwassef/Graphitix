@@ -4891,7 +4891,7 @@
           gridColor: 'rgba(0,0,0,0.12)',
           gridDash: [Math.max(1, axisStrokeWidth * 2.5), Math.max(1, axisStrokeWidth * 1.5)],
           gridOutlineColors: { primary: 'rgba(0,0,0,0.1)', secondary: 'rgba(0,0,0,0.08)' },
-          frameColor: 'rgba(0,0,0,0.45)',
+          frameColor: '#000000',
           axisColor: neutralAxisColor,
           debugLabel: 'pca-3d',
           onAxisLabel: (el, axisKey, labelText) => { markFontEditable(el, 'axis3d', labelText); },

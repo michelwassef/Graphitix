@@ -463,7 +463,7 @@
     const gridColor = cfg.gridColor || 'rgba(0,0,0,0.12)';
     const gridDash = cfg.gridDash || null;
     const gridOutlineColors = cfg.gridOutlineColors || { primary: 'rgba(0,0,0,0.1)', secondary: 'rgba(0,0,0,0.08)' };
-    const frameColor = cfg.frameColor || 'rgba(0,0,0,0.45)';
+    const frameColor = cfg.frameColor || '#000000';
     const onAxisLabel = typeof cfg.onAxisLabel === 'function' ? cfg.onAxisLabel : null;
     const debugLabel = cfg.debugLabel || 'plot3d';
     const paneTarget = cfg.paneTarget || svg;
