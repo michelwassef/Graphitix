@@ -43,6 +43,44 @@
     return text.split(/\r?\n/).map(line => line.split(delimiter));
   }
 
+  function normalizeDecimalSeparators(rows, delimiter, options = {}){
+    if(!Array.isArray(rows)){
+      return rows;
+    }
+    if(delimiter !== '\t' && delimiter !== ';'){
+      return rows;
+    }
+    const regex = /^(\s*-?\d+),(\d+(?:[eE][+-]?\d+)?\s*)$/;
+    let changed = 0;
+    for(let r = 0; r < rows.length; r++){
+      const row = rows[r];
+      if(!Array.isArray(row)){
+        continue;
+      }
+      for(let c = 0; c < row.length; c++){
+        const cell = row[c];
+        if(typeof cell !== 'string' || cell.indexOf(',') === -1 || cell.indexOf('.') !== -1){
+          continue;
+        }
+        const match = cell.match(regex);
+        if(match){
+          row[c] = `${match[1]}.${match[2]}`;
+          changed += 1;
+        }
+      }
+    }
+    if(changed && typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: tableImport.normalizeDecimalSeparators', {
+        delimiter,
+        changed,
+        debugLabel: options.debugLabel || null
+      });
+    }
+    return rows;
+  }
+
+  tableImport.normalizeDecimalSeparators = normalizeDecimalSeparators;
+
   async function getClipboardTextFromEvent(event){
     if(!event){
       return '';
@@ -1163,7 +1201,7 @@
       }
       const delimiter = detectDelimiter(text, options.delimiter);
       debugLog('handlePaste.delimiter', { delimiter }, debugLabel);
-      const rows = parseDelimitedText(text, delimiter);
+      const rows = normalizeDecimalSeparators(parseDelimitedText(text, delimiter), delimiter, { debugLabel });
       const filtered = filterRows(rows);
       if(!filtered.length){
         debugLog('handlePaste.filteredEmpty', { delimiter }, debugLabel);

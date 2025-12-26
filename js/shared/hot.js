@@ -5683,6 +5683,38 @@
         }
       };
 
+      const normalizeDecimalSeparators = (rows, delimiter)=>{
+        if(!Array.isArray(rows)){
+          return rows;
+        }
+        if(delimiter !== '\t' && delimiter !== ';'){
+          return rows;
+        }
+        const regex = /^(\s*-?\d+),(\d+(?:[eE][+-]?\d+)?\s*)$/;
+        let changed = 0;
+        for(let r = 0; r < rows.length; r++){
+          const row = rows[r];
+          if(!Array.isArray(row)){
+            continue;
+          }
+          for(let c = 0; c < row.length; c++){
+            const cell = row[c];
+            if(typeof cell !== 'string' || cell.indexOf(',') === -1 || cell.indexOf('.') !== -1){
+              continue;
+            }
+            const match = cell.match(regex);
+            if(match){
+              row[c] = `${match[1]}.${match[2]}`;
+              changed += 1;
+            }
+          }
+        }
+        if(changed && typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: hot.normalizeDecimalSeparators', { delimiter, changed, debugLabel });
+        }
+        return rows;
+      };
+
       const parsePastedText = (text)=>{
         if(typeof text !== 'string' || !text){
           return [];
@@ -5705,12 +5737,13 @@
             delimiter = commaCount >= semicolonCount ? ',' : ';';
           }
         }
-        return lines.map(line => {
+        const rows = lines.map(line => {
           if(delimiter){
             return line.split(delimiter);
           }
           return [line];
         }).filter(row => Array.isArray(row) && row.some(cell => String(cell ?? '').trim() !== ''));
+        return normalizeDecimalSeparators(rows, delimiter);
       };
 
       const handlePaste = async (event)=>{
