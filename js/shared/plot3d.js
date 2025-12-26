@@ -485,6 +485,32 @@
       (target || labelTarget || svg).appendChild(el);
       return el;
     };
+    const axisTickFormatters = cfg.axisTickFormatters || {};
+    const tickFontSize = Number.isFinite(cfg.tickFontSize) ? cfg.tickFontSize : Math.max(9, Math.round(fontSize * 0.85));
+    const tickLength = Number.isFinite(cfg.tickLength) ? cfg.tickLength : Math.max(4, Math.round(fontSize * 0.5));
+    const tickLabelGap = Number.isFinite(cfg.tickLabelGap) ? cfg.tickLabelGap : Math.max(2, Math.round(fontSize * 0.3));
+    const axisTitleGap = Number.isFinite(cfg.axisTitleGap) ? cfg.axisTitleGap : Math.max(4, Math.round(fontSize * 0.75));
+    const tickTextColor = cfg.tickTextColor || chartStyle.TEXT_COLOR || '#333';
+    const formatTickLabel = (axisKey, value) => {
+      const formatter = axisTickFormatters && axisTickFormatters[axisKey];
+      if(typeof formatter === 'function'){
+        try {
+          return formatter(value);
+        } catch(err){
+          debugLog('Debug: plot3d tick formatter error', { label: debugLabel, axis: axisKey, message: err && err.message });
+        }
+      }
+      if(typeof chartStyle.formatAxisValue === 'function'){
+        return chartStyle.formatAxisValue(value, { maxDecimals: 2 });
+      }
+      if(typeof chartStyle.formatScientific === 'function'){
+        return chartStyle.formatScientific(value, { maxDecimals: 2 });
+      }
+      if(!Number.isFinite(value)){
+        return '';
+      }
+      return String(value);
+    };
     const rotatePoint = rotatePointFn || function(pt){ return plot3d.rotatePoint(pt, cfg.rotation); };
     const axisCenters = {
       x: (axisRanges.x?.min + axisRanges.x?.max) / 2 || 0,
@@ -962,8 +988,10 @@
       const labelRot = rotatePoint(labelPointRaw);
       const labelBasePos = project(labelRot);
       const axisVec2d = { x: endPos.x - startPos.x, y: endPos.y - startPos.y };
-      const axisVecLength = Math.hypot(axisVec2d.x, axisVec2d.y) || 1;
-      const unitAxis2d = { x: axisVec2d.x / axisVecLength, y: axisVec2d.y / axisVecLength };
+      const axisVecLength = Math.hypot(axisVec2d.x, axisVec2d.y);
+      const unitAxis2d = axisVecLength > 1e-6
+        ? { x: axisVec2d.x / axisVecLength, y: axisVec2d.y / axisVecLength }
+        : { x: 1, y: 0 };
       const perp2d = { x: -unitAxis2d.y, y: unitAxis2d.x };
       const axisMid3d = {
         x: (def.start.x + def.end.x) / 2,
@@ -974,16 +1002,91 @@
       const toCenter = { x: cubeCenter2D.x - axisMidPos.x, y: cubeCenter2D.y - axisMidPos.y };
       const perpDot = perp2d.x * toCenter.x + perp2d.y * toCenter.y;
       const outwardPerp = perpDot > 0 ? { x: -perp2d.x, y: -perp2d.y } : perp2d;
-      const offsetMagnitude = Math.max(fontSize * 1.2, 12);
-      const labelPos = {
-        x: labelBasePos.x + outwardPerp.x * offsetMagnitude,
-        y: labelBasePos.y + outwardPerp.y * offsetMagnitude
-      };
-      const angleDeg = Math.atan2(endPos.y - startPos.y, endPos.x - startPos.x) * (180 / Math.PI);
+      const angleDeg = Math.atan2(axisVec2d.y, axisVec2d.x) * (180 / Math.PI);
       let readableAngle = angleDeg;
       if(readableAngle > 90 || readableAngle < -90){
         readableAngle += readableAngle > 0 ? -180 : 180;
       }
+      const tickValues = Array.isArray(def.ticks) ? def.ticks : [];
+      const startAxisValue = Number(def.start[def.key]);
+      const endAxisValue = Number(def.end[def.key]);
+      const axisSpan = endAxisValue - startAxisValue;
+      const tickStrokeWidth = Math.max(0.6, axisStrokeWidth * 0.8);
+      const tickLabelOffset = tickLength + tickLabelGap;
+      let tickCount = 0;
+      if(Number.isFinite(axisSpan) && Math.abs(axisSpan) > 0 && tickValues.length){
+        const seen = new Set();
+        for(let tIdx = 0; tIdx < tickValues.length; tIdx += 1){
+          const tickValue = tickValues[tIdx];
+          if(!Number.isFinite(tickValue)){ continue; }
+          const dedupeKey = String(tickValue);
+          if(seen.has(dedupeKey)){ continue; }
+          seen.add(dedupeKey);
+          const t = (tickValue - startAxisValue) / axisSpan;
+          if(!Number.isFinite(t) || t < -0.001 || t > 1.001){ continue; }
+          const tickPoint = {
+            x: def.start.x + axisVector.x * t,
+            y: def.start.y + axisVector.y * t,
+            z: def.start.z + axisVector.z * t
+          };
+          const tickPos = project(rotatePoint(tickPoint));
+          const tickEnd = {
+            x: tickPos.x + outwardPerp.x * tickLength,
+            y: tickPos.y + outwardPerp.y * tickLength
+          };
+          const tickLineAttrs = {
+            x1: tickPos.x,
+            y1: tickPos.y,
+            x2: tickEnd.x,
+            y2: tickEnd.y,
+            stroke: axisStroke,
+            'stroke-width': tickStrokeWidth,
+            'data-axis-tick': '1',
+            'data-axis-key': def.key
+          };
+          if(isOccludedAxis){
+            if(backDash && backDash.length){
+              tickLineAttrs['stroke-dasharray'] = backDash.join(' ');
+            }
+            if(Number.isFinite(backOpacity)){
+              tickLineAttrs['stroke-opacity'] = backOpacity;
+            }
+          } else if(showFrame && Number.isFinite(frontOpacity) && frontOpacity < 1){
+            tickLineAttrs['stroke-opacity'] = frontOpacity;
+          }
+          createElement('line', tickLineAttrs, null, axisTarget);
+          const labelText = formatTickLabel(def.key, tickValue);
+          if(labelText !== '' && labelText != null){
+            const labelX = tickPos.x + outwardPerp.x * tickLabelOffset;
+            const labelY = tickPos.y + outwardPerp.y * tickLabelOffset;
+            const labelAttrs = {
+              x: labelX,
+              y: labelY,
+              'font-size': tickFontSize,
+              'text-anchor': 'middle',
+              'dominant-baseline': 'middle',
+              fill: tickTextColor,
+              transform: `rotate(${readableAngle} ${labelX} ${labelY})`,
+              'data-axis-tick-label': '1',
+              'data-axis-key': def.key
+            };
+            if(isOccludedAxis && Number.isFinite(backOpacity)){
+              labelAttrs['fill-opacity'] = backOpacity;
+            }
+            createElement('text', labelAttrs, labelText, labelTarget);
+          }
+          tickCount += 1;
+        }
+      }
+      if(tickCount){
+        debugLog('Debug: plot3d ticks rendered', { label: debugLabel, axis: def.key, count: tickCount });
+      }
+      const minLabelOffset = tickLabelOffset + tickFontSize + axisTitleGap;
+      const offsetMagnitude = Math.max(fontSize * 1.2, minLabelOffset);
+      const labelPos = {
+        x: labelBasePos.x + outwardPerp.x * offsetMagnitude,
+        y: labelBasePos.y + outwardPerp.y * offsetMagnitude
+      };
       const axisLabelAttrs = {
         x: labelPos.x,
         y: labelPos.y,
