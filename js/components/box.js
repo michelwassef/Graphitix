@@ -834,25 +834,158 @@
         }
       }
     }catch(e){}
-    const sizeSelect = doc.createElement('select');
-    const sizes = [2,4,6,8,10,12,16,20,24,30];
-    sizes.forEach(s => {
-      const opt = doc.createElement('option');
-      opt.value = String(s);
-      opt.textContent = `${s}px`;
-      if(Math.round(derivedSize) === s) opt.selected = true;
-      sizeSelect.appendChild(opt);
-    });
-    sizeSelect.addEventListener('change', ()=>{
-      const v = Number(sizeSelect.value) || 4;
+    const sizeValues = [2,4,6,8,10,12,16,20,24,30];
+    const sizeCombo = doc.createElement('div');
+    sizeCombo.className = 'font-controls-panel__combo font-controls-panel__combo--size';
+    const sizeRow = doc.createElement('div');
+    sizeRow.className = 'font-controls-panel__combo-row';
+    const sizeInput = doc.createElement('input');
+    sizeInput.type = 'number';
+    sizeInput.min = '1';
+    sizeInput.step = '0.5';
+    sizeInput.className = 'font-controls-panel__input font-controls-panel__input--combo font-controls-panel__input--number';
+    sizeInput.setAttribute('aria-label', 'Point size');
+    sizeInput.setAttribute('aria-haspopup', 'listbox');
+    sizeInput.setAttribute('aria-expanded', 'false');
+    const sizeMenuId = `box-point-size-menu-${Date.now()}`;
+    sizeInput.setAttribute('aria-controls', sizeMenuId);
+    const normalizedDerived = Number.isFinite(derivedSize) ? Math.round(derivedSize * 10) / 10 : 4;
+    sizeInput.value = String(normalizedDerived);
+    sizeRow.appendChild(sizeInput);
+
+    const sizeMenuToggle = doc.createElement('button');
+    sizeMenuToggle.type = 'button';
+    sizeMenuToggle.className = 'font-controls-panel__combo-toggle';
+    sizeMenuToggle.setAttribute('aria-label', 'Show preset sizes');
+    sizeMenuToggle.setAttribute('aria-haspopup', 'listbox');
+    sizeMenuToggle.setAttribute('aria-expanded', 'false');
+    sizeMenuToggle.setAttribute('aria-controls', sizeMenuId);
+    const sizeMenuIcon = doc.createElement('span');
+    sizeMenuIcon.className = 'font-controls-panel__combo-toggle-icon';
+    sizeMenuIcon.textContent = '?';
+    sizeMenuIcon.setAttribute('aria-hidden', 'true');
+    sizeMenuToggle.appendChild(sizeMenuIcon);
+    sizeRow.appendChild(sizeMenuToggle);
+    sizeCombo.appendChild(sizeRow);
+
+    const sizeMenuPopup = doc.createElement('div');
+    sizeMenuPopup.id = sizeMenuId;
+    sizeMenuPopup.className = 'font-controls-panel__combo-menu';
+    sizeMenuPopup.setAttribute('role', 'listbox');
+    sizeMenuPopup.setAttribute('aria-label', 'Point sizes');
+    sizeMenuPopup.hidden = true;
+    sizeCombo.appendChild(sizeMenuPopup);
+
+    const applySizeValue = (value, persist) => {
+      const v = Number(value);
+      if(!Number.isFinite(v) || v <= 0){ return; }
       updatePointsSize(resolveTargetPoints(), v);
-      if(scopeSelect.value === 'trace'){
-        try{ persistTraceStyle({ size: v }); }catch(e){console.warn(e);} 
+      if(persist){
+        if(scopeSelect.value === 'trace'){
+          try{ persistTraceStyle({ size: v }); }catch(e){console.warn(e);} 
+        }else{
+          applyPointStyleGlobal({ size: v });
+        }
+      }
+    };
+
+    const syncSizeMenuActive = () => {
+      const current = Number(sizeInput.value);
+      const rounded = Number.isFinite(current) ? Math.round(current) : null;
+      const options = sizeMenuPopup.querySelectorAll('.font-controls-panel__combo-option');
+      options.forEach(option => {
+        const value = Number(option.dataset.value);
+        const isActive = rounded != null && Number.isFinite(value) && value === rounded;
+        option.classList.toggle('font-controls-panel__combo-option--active', isActive);
+      });
+    };
+
+    let sizeMenuVisible = false;
+    const openSizeMenu = () => {
+      if(sizeMenuVisible){ return; }
+      sizeMenuVisible = true;
+      sizeMenuPopup.hidden = false;
+      sizeMenuPopup.classList.add('font-controls-panel__combo-menu--open');
+      sizeInput.setAttribute('aria-expanded', 'true');
+      sizeMenuToggle.setAttribute('aria-expanded', 'true');
+      syncSizeMenuActive();
+    };
+    const closeSizeMenu = () => {
+      if(!sizeMenuVisible){ return; }
+      sizeMenuVisible = false;
+      sizeMenuPopup.classList.remove('font-controls-panel__combo-menu--open');
+      sizeMenuPopup.hidden = true;
+      sizeInput.setAttribute('aria-expanded', 'false');
+      sizeMenuToggle.setAttribute('aria-expanded', 'false');
+    };
+    const toggleSizeMenu = () => {
+      if(sizeMenuVisible){
+        closeSizeMenu();
       }else{
-        applyPointStyleGlobal({ size: v });
+        openSizeMenu();
+      }
+    };
+
+    const createSizeOption = value => {
+      const optionBtn = doc.createElement('button');
+      optionBtn.type = 'button';
+      optionBtn.className = 'font-controls-panel__combo-option';
+      optionBtn.dataset.value = String(value);
+      optionBtn.dataset.label = `${value}px`;
+      optionBtn.textContent = `${value}px`;
+      optionBtn.setAttribute('role', 'option');
+      optionBtn.setAttribute('tabindex', '-1');
+      optionBtn.addEventListener('mousedown', evt => {
+        evt.preventDefault();
+      });
+      optionBtn.addEventListener('click', () => {
+        sizeInput.value = String(value);
+        applySizeValue(value, true);
+        syncSizeMenuActive();
+        closeSizeMenu();
+        try{
+          sizeInput.focus({ preventScroll: true });
+        }catch(focusErr){
+          sizeInput.focus();
+        }
+      });
+      return optionBtn;
+    };
+
+    sizeValues.forEach(value => {
+      sizeMenuPopup.appendChild(createSizeOption(value));
+    });
+
+    sizeInput.addEventListener('input', () => {
+      applySizeValue(sizeInput.value, false);
+      syncSizeMenuActive();
+    });
+    sizeInput.addEventListener('change', () => {
+      applySizeValue(sizeInput.value, true);
+      syncSizeMenuActive();
+    });
+
+    sizeMenuToggle.addEventListener('mousedown', evt => {
+      evt.preventDefault();
+    });
+    sizeMenuToggle.addEventListener('click', () => {
+      toggleSizeMenu();
+      try{
+        sizeInput.focus({ preventScroll: true });
+      }catch(focusErr){
+        sizeInput.focus();
       }
     });
-    wrap.appendChild(makeInput('Size', sizeSelect));
+
+    wrap.addEventListener('click', evt => {
+      if(!sizeMenuVisible){ return; }
+      const target = evt?.target;
+      if(target && sizeCombo.contains(target)){ return; }
+      closeSizeMenu();
+    });
+
+    const sizeLabel = makeInput('Size', sizeCombo);
+    wrap.appendChild(sizeLabel);
 
     // Transparency slider (compact): 0 = opaque, 100 = fully transparent
     const opInput = doc.createElement('input');
@@ -923,6 +1056,7 @@
           // ignore clicks inside the shared color picker overlay
           if(tgt.closest && tgt.closest('.shared-color-picker')){ return; }
           // hide the toolbar host
+          closeSizeMenu();
           toolbarHost.classList.remove('font-toolbar-host--visible');
           toolbarHost.style.display = 'none';
           try{ if(typeof Shared.hideAllFormatControls === 'function') Shared.hideAllFormatControls(); }catch(e){}
@@ -3600,7 +3734,7 @@
     return { ...metrics, statsA, statsB, diffStats, counts };
   }
   // Local state and element cache
-	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: null, summaryStyles: {}, summaryGlobalStyle: null };
+	  const state = { hot: null, scheduleDraw: function(){}, fileHandle: null, fileName: 'box.graph', titleText: 'Boxplot', yLabelText: 'Value', lastDefaultFill: '#4472c4', selectedCols: new Set(), statsTest: 'parametric', statsMode: 'all', statsRef: 0, statsPaired: false, statsPairsText: '', statsCustomPairs: [], statsCorrection: DEFAULT_CORRECTION, statsEffectParametric: EFFECT_SIZE_PARAM_OPTIONS[0].value, statsEffectNonParametric: EFFECT_SIZE_NONPARAM_OPTIONS[0].value, statsPostHoc: POST_HOC_ORDER[0], statsParametricVariant: 'classic', colOrder: [], fillColors: [], borderColors: [], drawToken: 0, flipAxes: false, tableFormat: 'single', grouped: { replicatesPerGroup: 3, groups: ['Control', 'Treated'] }, groupedStats: { analysis: 'twoWayAnova' }, layout: null, minSvgWidth: 0, individualSummary: INDIVIDUAL_SUMMARY_DEFAULT, lastAxisLabels: [], showSignificanceBars: false, significanceLabelMode: 'stars', significanceStyle: { thickness: DEFAULT_SIGNIFICANCE_THICKNESS, color: DEFAULT_SIGNIFICANCE_COLOR, showWhiskers: DEFAULT_SIGNIFICANCE_WHISKERS, whiskerMode: DEFAULT_SIGNIFICANCE_WHISKER_MODE }, statsAdvisor: { open: false, answers: {} }, axisSettings: createDefaultAxisSettings(), groupLayout: 'interleaved', violin: { autoBandwidth: true, bandwidth: null, sampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT, lastUsedBandwidth: null, lastSampleCount: DEFAULT_VIOLIN_SAMPLE_COUNT }, whiskerRule: DEFAULT_WHISKER_RULE, whiskerCustomMultiplier: DEFAULT_WHISKER_MULTIPLIER, drawPending: false, autoDrawEnabled: true, autoDrawReason: null, autoDrawLockedByThreshold: false, lastDataShape: { rows: 0, cols: 0 }, lastAutoDrawEvaluation: null, logPlusOne: false, labelPositions: { title: null, xLabel: null, yLabel: null, legend: null }, statsContext: null, statsContextVersion: 0, statsComputationPending: false, statsLastRunVersion: 0, statsContextSignature: null, statsLastSignificanceEnabled: false, significanceMaxLevel: null, traceShapeStyles: {}, traceShapeGlobalStyle: null, pointGlobalStyle: { fill: '#000000', size: 5 }, summaryStyles: {}, summaryGlobalStyle: null };
   let emptyPayloadTemplate = null;
 
   function cloneSimple(value){
@@ -4909,6 +5043,7 @@
     const createBoxTable = (container) => Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, scheduleBoxDrawProxy, {
       debugLabel: 'box',
       data,
+      disablePaste: true,
       hotOptions: {
         manualColumnMove: true,
         afterChange(changes, source){
@@ -9277,7 +9412,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const gridStrokeWidth = chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-grid', min: 0.25 });
     const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'box-border', min: 0 });
     const errorBarWidthPx = chartStyle.scaleStrokeWidth(errorBarWidthRaw, styleScaleInfo, { context: 'box-errorbar', min: 0 });
-    const pointRadius = chartStyle.scaleRadius(3, styleScaleInfo, { context: 'box-point', min: 0.75 });
+    const pointRadius = chartStyle.scaleRadius(5, styleScaleInfo, { context: 'box-point', min: 0.75 });
     const annotationStrokeWidthBase = Number.isFinite(significanceStyle.thickness) && significanceStyle.thickness > 0
       ? significanceStyle.thickness
       : DEFAULT_SIGNIFICANCE_THICKNESS;
