@@ -2388,81 +2388,7 @@
       console.debug('Debug: computeSwarmOffsets empty',{ orientation, sampleSize, axisSpacing });
       return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
-    const PREFERRED_GAP_FACTOR = 2.1;
-    const MIN_GAP_FACTOR = 0.1;
-    const buildOverlapBins = radius => {
-      const bins = new Map();
-      if(!entries.length){
-        return { bins, maxCount: 0, overlapDistance: 0, overlapThreshold: 0, clusterCount: 0 };
-      }
-      const absRadius = Math.abs(Number(radius) || 0);
-      const overlapDistance = Math.max(0.5, absRadius * PREFERRED_GAP_FACTOR);
-      const overlapThreshold = overlapDistance + Math.max(0.1, absRadius * 0.05);
-      const sorted = [];
-      entries.forEach(entry => {
-        if(!entry || typeof entry.index !== 'number'){
-          return;
-        }
-        const coord = Number(entry.coord);
-        sorted.push({ entry, coord: Number.isFinite(coord) ? coord : 0 });
-      });
-      sorted.sort((a, b) => (a.coord - b.coord) || (a.entry.index - b.entry.index));
-      let clusterIndex = 0;
-      let current = { count: 0, members: [] };
-      let prevCoord = null;
-      sorted.forEach(item => {
-        if(prevCoord == null || Math.abs(item.coord - prevCoord) <= overlapThreshold){
-          current.count += 1;
-          current.members.push(item.entry);
-        }else{
-          bins.set(clusterIndex, current);
-          clusterIndex += 1;
-          current = { count: 1, members: [item.entry] };
-        }
-        prevCoord = item.coord;
-      });
-      if(current.count){
-        bins.set(clusterIndex, current);
-        clusterIndex += 1;
-      }
-      let maxCount = 0;
-      bins.forEach(bin => {
-        if(bin.count > maxCount){
-          maxCount = bin.count;
-        }
-      });
-      return { bins, maxCount, overlapDistance, overlapThreshold, clusterCount: clusterIndex };
-    };
-    const buildCenterOutOffsets = (count, halfWidth, startPositive) => {
-      if(count <= 1 || !Number.isFinite(halfWidth)){
-        return [0];
-      }
-      const step = count > 1 ? (halfWidth * 2) / (count - 1) : 0;
-      const offsets = new Array(count);
-      for(let i = 0; i < count; i++){
-        offsets[i] = -halfWidth + step * i;
-      }
-      const ordered = offsets
-        .map((offset, i) => ({ offset, abs: Math.abs(offset), i }))
-        .sort((a, b) => {
-          if(a.abs !== b.abs){
-            return a.abs - b.abs;
-          }
-          if(a.offset === b.offset){
-            return a.i - b.i;
-          }
-          if(a.abs === 0 || b.abs === 0){
-            return a.i - b.i;
-          }
-          const signA = a.offset >= 0 ? 1 : -1;
-          const signB = b.offset >= 0 ? 1 : -1;
-          if(signA === signB){
-            return a.i - b.i;
-          }
-          return startPositive ? (signB - signA) : (signA - signB);
-        });
-      return ordered.map(item => item.offset);
-    };
+    const PREFERRED_GAP_FACTOR = 2.05;
     const buildEntryJitterKey = (entry, seed) => {
       const raw = Number(entry?.raw);
       const baseValue = Number.isFinite(raw) ? raw : Number(entry?.coord) || 0;
@@ -2474,17 +2400,47 @@
       hash = (hash + (Number(entry?.index) + 1) * 1013) >>> 0;
       return hash;
     };
-    let binInfo = buildOverlapBins(pointRadiusValue);
-    let bins = binInfo.bins;
-    let maxCount = binInfo.maxCount;
-    let overlapDistance = binInfo.overlapDistance;
+    const buildSortedEntries = seed => {
+      const sorted = [];
+      entries.forEach(entry => {
+        if(!entry || typeof entry.index !== 'number'){
+          return;
+        }
+        const coord = Number(entry.coord);
+        const safeCoord = Number.isFinite(coord) ? coord : 0;
+        const jitter = buildEntryJitterKey(entry, seed);
+        sorted.push({ entry, coord: safeCoord, jitter });
+      });
+      sorted.sort((a, b) => (a.coord - b.coord) || (a.jitter - b.jitter) || (a.entry.index - b.entry.index));
+      return sorted;
+    };
+    const getMaxOverlapCount = (sorted, distance) => {
+      if(!sorted.length || !Number.isFinite(distance) || distance <= 0){
+        return 0;
+      }
+      let maxCount = 0;
+      let start = 0;
+      for(let i = 0; i < sorted.length; i++){
+        const coord = sorted[i].coord;
+        while(start < i && coord - sorted[start].coord > distance){
+          start += 1;
+        }
+        const count = i - start + 1;
+        if(count > maxCount){
+          maxCount = count;
+        }
+      }
+      return maxCount;
+    };
+    let seedBase = Math.round((sampleSize || entries.length) * 17 + pointRadiusValue * 1000);
+    let sortedEntries = buildSortedEntries(seedBase);
+    let collisionDistance = Math.max(0.5, pointRadiusValue * PREFERRED_GAP_FACTOR);
+    let maxCount = getMaxOverlapCount(sortedEntries, collisionDistance);
     if(debugEnabled && maxCount > 1){
-      console.debug('Debug: computeSwarmOffsets overlap bins',{
+      console.debug('Debug: computeSwarmOffsets overlap scan',{
         orientation,
         pointRadius: pointRadiusValue,
-        overlapDistance: binInfo.overlapDistance,
-        overlapThreshold: binInfo.overlapThreshold,
-        clusterCount: binInfo.clusterCount,
+        collisionDistance,
         maxCount
       });
     }
@@ -2493,109 +2449,165 @@
       return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
 
-    // Robust auto-adjustment: when many points fall into the same overlap
-    // cluster, reduce the requested point radius so the points
-    // can be laid out within the available half-width. This uses several
-    // heuristics for available space so it works even when axisBoundary is 0.
     if(maxCount > 1){
       const initialRadius = pointRadiusValue;
       const minRadius = 0.15;
-      const nominalGapFactor = 1.6; // min gap between centers = r * 1.6
-      const denomFactor = (maxCount - 1) * (nominalGapFactor / 2); // required half-width per unit radius
-      const axisHalf = Math.max(0, axisSpacing / 2);
-      const altAvailable = Math.max(0, axisSpacing * stripScale * spreadFactor);
-      const available = Math.max(axisHalf, altAvailable, 1) - 0.5;
-      if(denomFactor > 0 && available > 0){
-        const maxAllowedRadius = available / denomFactor;
-        if(maxAllowedRadius < pointRadiusValue){
-          const adjusted = Math.max(minRadius, Math.min(pointRadiusValue, maxAllowedRadius));
-          if(adjusted < pointRadiusValue){
-            console.debug('Debug: computeSwarmOffsets auto-adjust radius',{ previousRadius: pointRadiusValue, adjustedRadius: adjusted, available, maxCount });
-            pointRadiusValue = adjusted;
-          }
+      const maxAllowedRadius = (globalMaxHalfWidth * 2) / ((maxCount - 1) * PREFERRED_GAP_FACTOR);
+      if(Number.isFinite(maxAllowedRadius) && maxAllowedRadius < pointRadiusValue){
+        const adjusted = Math.max(minRadius, Math.min(pointRadiusValue, maxAllowedRadius));
+        if(adjusted < pointRadiusValue){
+          console.debug('Debug: computeSwarmOffsets auto-adjust radius',{ previousRadius: pointRadiusValue, adjustedRadius: adjusted, maxCount });
+          pointRadiusValue = adjusted;
         }
       }
       if(pointRadiusValue !== initialRadius){
-        binInfo = buildOverlapBins(pointRadiusValue);
-        bins = binInfo.bins;
-        maxCount = binInfo.maxCount;
-        overlapDistance = binInfo.overlapDistance;
+        axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
+        effectiveHalfSpan = axisBoundary > 0
+          ? axisSpacing * stripScale * spreadFactor
+          : pointRadiusValue * 2.2 * spreadFactor;
+        globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
+        seedBase = Math.round((sampleSize || entries.length) * 17 + pointRadiusValue * 1000);
+        sortedEntries = buildSortedEntries(seedBase);
+        collisionDistance = Math.max(0.5, pointRadiusValue * PREFERRED_GAP_FACTOR);
+        maxCount = getMaxOverlapCount(sortedEntries, collisionDistance);
         if(debugEnabled && maxCount > 1){
-          console.debug('Debug: computeSwarmOffsets overlap bins adjusted',{
+          console.debug('Debug: computeSwarmOffsets overlap scan adjusted',{
             orientation,
             pointRadius: pointRadiusValue,
-            overlapDistance: binInfo.overlapDistance,
-            overlapThreshold: binInfo.overlapThreshold,
-            clusterCount: binInfo.clusterCount,
+            collisionDistance,
             maxCount
           });
         }
       }
     }
-    // Recompute derived span values after any radius adjustment
-    axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
-    effectiveHalfSpan = axisBoundary > 0
-      ? axisSpacing * stripScale * spreadFactor
-      : pointRadiusValue * 2.2 * spreadFactor;
-    globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
-    // minGap is the preferred minimum distance between point centers.
-    // For very dense bins we allow this to shrink (allow overlap) down to
-    // a conservative lower bound so all points can be placed horizontally.
+
+    const collisionDistanceSq = collisionDistance * collisionDistance;
     let maxUsed = 0;
-    bins.forEach(bin => {
-      const n = bin.count;
-      if(n <= 1){
-        const only = bin.members[0];
-        offsetsMap.set(only.index, 0);
-        return;
+    const placed = [];
+    let activeStart = 0;
+    sortedEntries.forEach((item, idx) => {
+      const coord = item.coord;
+      while(activeStart < placed.length && coord - placed[activeStart].coord > collisionDistance){
+        activeStart += 1;
       }
-      let halfWidth = globalMaxHalfWidth;
-      if(axisBoundary > 0){
-        halfWidth = Math.min(halfWidth, axisBoundary);
-      }
-      // compute required half-width given a gap factor; allow shrinking gap
-      // if the preferred gap does not fit within the available band.
-      let gapFactor = PREFERRED_GAP_FACTOR;
-      let minGap = pointRadiusValue * gapFactor;
-      let requiredHalfWidth = (n - 1) * minGap / 2;
-      if(axisBoundary > 0 && requiredHalfWidth > axisBoundary){
-        const maxGapFactor = (axisBoundary * 2) / ((n - 1) * pointRadiusValue);
-        if(Number.isFinite(maxGapFactor)){
-          gapFactor = Math.max(MIN_GAP_FACTOR, Math.min(gapFactor, maxGapFactor));
-          minGap = pointRadiusValue * gapFactor;
-          requiredHalfWidth = (n - 1) * minGap / 2;
+      const maxHalfWidth = globalMaxHalfWidth;
+      const intervals = [];
+      for(let j = activeStart; j < placed.length; j++){
+        const neighbor = placed[j];
+        const dy = coord - neighbor.coord;
+        const absDy = Math.abs(dy);
+        if(absDy >= collisionDistance){
+          continue;
+        }
+        const dx = Math.sqrt(Math.max(0, collisionDistanceSq - dy * dy));
+        let start = neighbor.offset - dx;
+        let end = neighbor.offset + dx;
+        if(end < -maxHalfWidth || start > maxHalfWidth){
+          continue;
+        }
+        if(start < -maxHalfWidth){ start = -maxHalfWidth; }
+        if(end > maxHalfWidth){ end = maxHalfWidth; }
+        if(end > start){
+          intervals.push({ start, end });
         }
       }
-      if(Number.isFinite(requiredHalfWidth) && requiredHalfWidth > 0){
-        halfWidth = Math.min(halfWidth, requiredHalfWidth);
-      }
-      if(!Number.isFinite(halfWidth) || halfWidth <= 0){
-        bin.members.forEach(member => {
-          offsetsMap.set(member.index, 0);
-        });
-        return;
-      }
-      const ordered = bin.members.slice().sort((a, b) => (a.coord - b.coord) || (a.index - b.index));
-      const seedBase = ordered.reduce((acc, entry) => acc + (entry.index + 1) * 3 + Math.round(entry.coord || 0), 0);
-      const seed = seedBase + Math.round((ordered[0]?.coord || 0) / (overlapDistance || 1));
-      const startPositive = seed % 2 === 0;
-      const offsetOrder = buildCenterOutOffsets(n, halfWidth, startPositive);
-      const jittered = bin.members.slice().sort((a, b) => {
-        const ha = buildEntryJitterKey(a, seed);
-        const hb = buildEntryJitterKey(b, seed);
-        if(ha !== hb){
-          return ha - hb;
+      let freeIntervals = null;
+      if(intervals.length){
+        intervals.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+        freeIntervals = [];
+        let cursor = -maxHalfWidth;
+        let curStart = intervals[0].start;
+        let curEnd = intervals[0].end;
+        for(let i = 1; i < intervals.length; i++){
+          const next = intervals[i];
+          if(next.start <= curEnd){
+            curEnd = Math.max(curEnd, next.end);
+          }else{
+            if(curStart > cursor){
+              freeIntervals.push({ start: cursor, end: curStart });
+            }
+            cursor = curEnd;
+            curStart = next.start;
+            curEnd = next.end;
+          }
         }
-        return (a.index - b.index);
-      });
-      for(let i = 0; i < n; i++){
-        const entry = jittered[i] || ordered[i];
-        const offset = offsetOrder[i] != null ? offsetOrder[i] : 0;
-        offsetsMap.set(entry.index, offset);
-        const abs = Math.abs(offset);
-        if(abs > maxUsed){
-          maxUsed = abs;
+        if(curStart > cursor){
+          freeIntervals.push({ start: cursor, end: curStart });
         }
+        cursor = Math.max(cursor, curEnd);
+        if(cursor < maxHalfWidth){
+          freeIntervals.push({ start: cursor, end: maxHalfWidth });
+        }
+      }else{
+        freeIntervals = [{ start: -maxHalfWidth, end: maxHalfWidth }];
+      }
+      freeIntervals = freeIntervals.filter(interval => interval.end - interval.start > 0.0001);
+      let chosen = null;
+      if(freeIntervals.length){
+        const totalFree = freeIntervals.reduce((sum, interval) => sum + (interval.end - interval.start), 0);
+        const candidateCount = Math.min(9, Math.max(5, Math.round(Math.log(entries.length + 2) * 2)));
+        let rng = (item.jitter ^ (seedBase + idx * 2654435761)) >>> 0;
+        const nextRand = () => {
+          rng = (rng * 1664525 + 1013904223) >>> 0;
+          return rng / 4294967295;
+        };
+        const candidates = [];
+        const addCandidate = cand => {
+          if(Number.isFinite(cand)){
+            candidates.push(cand);
+          }
+        };
+        for(let i = 0; i < candidateCount; i++){
+          const u = nextRand();
+          let target = u * totalFree;
+          for(let k = 0; k < freeIntervals.length; k++){
+            const interval = freeIntervals[k];
+            const length = interval.end - interval.start;
+            if(target <= length || k === freeIntervals.length - 1){
+              const cand = interval.start + Math.min(length, Math.max(0, target));
+              addCandidate(cand);
+              break;
+            }
+            target -= length;
+          }
+        }
+        for(let k = 0; k < freeIntervals.length; k++){
+          const interval = freeIntervals[k];
+          if(interval.start <= 0 && interval.end >= 0){
+            addCandidate(0);
+            break;
+          }
+        }
+        let bestScore = -Infinity;
+        let bestAbs = Infinity;
+        for(let i = 0; i < candidates.length; i++){
+          const cand = candidates[i];
+          let minDistSq = Infinity;
+          for(let j = activeStart; j < placed.length; j++){
+            const neighbor = placed[j];
+            const dx = cand - neighbor.offset;
+            const dy = coord - neighbor.coord;
+            const distSq = dx * dx + dy * dy;
+            if(distSq < minDistSq){
+              minDistSq = distSq;
+            }
+          }
+          const abs = Math.abs(cand);
+          if(minDistSq > bestScore + 0.0001 || (Math.abs(minDistSq - bestScore) <= 0.0001 && abs < bestAbs)){
+            bestScore = minDistSq;
+            bestAbs = abs;
+            chosen = cand;
+          }
+        }
+      }
+      if(chosen == null){
+        chosen = Math.max(-maxHalfWidth, Math.min(maxHalfWidth, 0));
+      }
+      offsetsMap.set(item.entry.index, chosen);
+      placed.push({ coord, offset: chosen });
+      const abs = Math.abs(chosen);
+      if(abs > maxUsed){
+        maxUsed = abs;
       }
     });
     const offsets = entries.map(entry => offsetsMap.get(entry.index) || 0);
