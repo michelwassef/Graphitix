@@ -2354,10 +2354,14 @@
   function computeSwarmOffsets(points, options){
     const entries = Array.isArray(points) ? points.slice() : [];
     const sampleSize = Number(options?.sampleSize) || entries.length;
-    let pointRadiusValue = Number(options?.pointRadius) || 1;
+    let pointRadiusValue = Number(options?.pointRadius);
+    if(!Number.isFinite(pointRadiusValue) || pointRadiusValue <= 0){
+      pointRadiusValue = 1;
+    }
     const axisSpacing = Number(options?.axisSpacing) || 0;
     const orientation = options?.orientation || 'vertical';
     const spreadFactor = computeSampleSpreadFactor(sampleSize);
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     let axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
     const violinScale = 0.45;
     const stripScale = 0.18;
@@ -2371,36 +2375,73 @@
       console.debug('Debug: computeSwarmOffsets empty',{ orientation, sampleSize, axisSpacing });
       return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
-    const bins = new Map();
-    entries.forEach(entry => {
-      if(!entry || typeof entry.index !== 'number'){
-        return;
+    const buildOverlapBins = radius => {
+      const bins = new Map();
+      if(!entries.length){
+        return { bins, maxCount: 0, overlapDistance: 0, overlapThreshold: 0, clusterCount: 0 };
       }
-      const coord = Number(entry.coord) || 0;
-      const key = Math.round(coord);
-      if(!bins.has(key)){
-        bins.set(key, { count: 0, members: [] });
+      const absRadius = Math.abs(Number(radius) || 0);
+      const overlapDistance = Math.max(0.5, absRadius * 2);
+      const overlapThreshold = overlapDistance + Math.max(0.1, absRadius * 0.05);
+      const sorted = [];
+      entries.forEach(entry => {
+        if(!entry || typeof entry.index !== 'number'){
+          return;
+        }
+        const coord = Number(entry.coord);
+        sorted.push({ entry, coord: Number.isFinite(coord) ? coord : 0 });
+      });
+      sorted.sort((a, b) => (a.coord - b.coord) || (a.entry.index - b.entry.index));
+      let clusterIndex = 0;
+      let current = { count: 0, members: [] };
+      let prevCoord = null;
+      sorted.forEach(item => {
+        if(prevCoord == null || Math.abs(item.coord - prevCoord) <= overlapThreshold){
+          current.count += 1;
+          current.members.push(item.entry);
+        }else{
+          bins.set(clusterIndex, current);
+          clusterIndex += 1;
+          current = { count: 1, members: [item.entry] };
+        }
+        prevCoord = item.coord;
+      });
+      if(current.count){
+        bins.set(clusterIndex, current);
+        clusterIndex += 1;
       }
-      const bin = bins.get(key);
-      bin.count += 1;
-      bin.members.push(entry);
-    });
-    let maxCount = 0;
-    bins.forEach(bin => {
-      if(bin.count > maxCount){
-        maxCount = bin.count;
-      }
-    });
+      let maxCount = 0;
+      bins.forEach(bin => {
+        if(bin.count > maxCount){
+          maxCount = bin.count;
+        }
+      });
+      return { bins, maxCount, overlapDistance, overlapThreshold, clusterCount: clusterIndex };
+    };
+    let binInfo = buildOverlapBins(pointRadiusValue);
+    let bins = binInfo.bins;
+    let maxCount = binInfo.maxCount;
+    if(debugEnabled && maxCount > 1){
+      console.debug('Debug: computeSwarmOffsets overlap bins',{
+        orientation,
+        pointRadius: pointRadiusValue,
+        overlapDistance: binInfo.overlapDistance,
+        overlapThreshold: binInfo.overlapThreshold,
+        clusterCount: binInfo.clusterCount,
+        maxCount
+      });
+    }
     if(maxCount <= 0){
       console.debug('Debug: computeSwarmOffsets noBins',{ orientation, sampleSize, axisSpacing });
       return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
 
-    // Robust auto-adjustment: when many points fall into the same rounded
-    // coordinate (pixel), reduce the requested point radius so the points
+    // Robust auto-adjustment: when many points fall into the same overlap
+    // cluster, reduce the requested point radius so the points
     // can be laid out within the available half-width. This uses several
     // heuristics for available space so it works even when axisBoundary is 0.
     if(maxCount > 1){
+      const initialRadius = pointRadiusValue;
       const minRadius = 0.15;
       const nominalGapFactor = 1.6; // min gap between centers = r * 1.6
       const denomFactor = (maxCount - 1) * (nominalGapFactor / 2); // required half-width per unit radius
@@ -2415,6 +2456,21 @@
             console.debug('Debug: computeSwarmOffsets auto-adjust radius',{ previousRadius: pointRadiusValue, adjustedRadius: adjusted, available, maxCount });
             pointRadiusValue = adjusted;
           }
+        }
+      }
+      if(pointRadiusValue !== initialRadius){
+        binInfo = buildOverlapBins(pointRadiusValue);
+        bins = binInfo.bins;
+        maxCount = binInfo.maxCount;
+        if(debugEnabled && maxCount > 1){
+          console.debug('Debug: computeSwarmOffsets overlap bins adjusted',{
+            orientation,
+            pointRadius: pointRadiusValue,
+            overlapDistance: binInfo.overlapDistance,
+            overlapThreshold: binInfo.overlapThreshold,
+            clusterCount: binInfo.clusterCount,
+            maxCount
+          });
         }
       }
     }
@@ -10810,14 +10866,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           mean: meanValue = null
         } = params || {};
         const pointEntries = Array.isArray(valueList) ? valueList.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value })) : [];
+        const traceStyle = getPointStyle(traceIndex);
+        const baseRadius = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
         const swarm = computeSwarmOffsets(pointEntries, {
           axisSpacing: localBand,
-          pointRadius,
+          pointRadius: baseRadius != null ? baseRadius : pointRadius,
           sampleSize: sampleCount,
           orientation: 'vertical'
         });
-        const traceStyle = getPointStyle(traceIndex);
-        const baseRadius = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
         const effectiveRadius = baseRadius != null ? baseRadius : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
         const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
         const effectiveStroke = (traceStyle && traceStyle.stroke) ? traceStyle.stroke : 'none';
@@ -11515,14 +11571,14 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           mean: meanValue = null
         } = params || {};
         const pointEntries = Array.isArray(valueList) ? valueList.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value })) : [];
+        const traceStyleH = getPointStyle(traceIndex);
+        const baseRadius = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : null;
         const swarm = computeSwarmOffsets(pointEntries, {
           axisSpacing: localBand,
-          pointRadius,
+          pointRadius: baseRadius != null ? baseRadius : pointRadius,
           sampleSize: sampleCount,
           orientation: 'horizontal'
         });
-        const traceStyleH = getPointStyle(traceIndex);
-        const baseRadius = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : null;
         const effectiveRadius = baseRadius != null ? baseRadius : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
         const effectiveFill = (traceStyleH && traceStyleH.fill) ? traceStyleH.fill : fillColor;
         const effectiveStroke = (traceStyleH && traceStyleH.stroke) ? traceStyleH.stroke : 'none';
