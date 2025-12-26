@@ -2371,22 +2371,25 @@
     if(!Number.isFinite(pointRadiusValue) || pointRadiusValue <= 0){
       pointRadiusValue = 1;
     }
+    const basePointRadius = pointRadiusValue;
     const axisSpacing = Number(options?.axisSpacing) || 0;
     const orientation = options?.orientation || 'vertical';
     const widthScaleMode = options?.widthScaleMode || 'none';
     const maxHalfWidthOverride = Number(options?.maxHalfWidth);
     const spreadFactor = computeSampleSpreadFactor(sampleSize);
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
-    let axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
+    const PREFERRED_GAP_FACTOR = 2.05;
+    const densityDistance = Math.max(0.5, basePointRadius * PREFERRED_GAP_FACTOR);
+    let axisBoundary = Math.max(0, axisSpacing / 2 - basePointRadius);
     const violinScale = 0.45;
     const stripScale = 0.18;
     const baseScale = stripScale / violinScale;
     let effectiveHalfSpan = axisBoundary > 0
       ? axisSpacing * stripScale * spreadFactor
-      : pointRadiusValue * 2.2 * spreadFactor;
-    let globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
+      : basePointRadius * 2.2 * spreadFactor;
+    let globalMaxHalfWidth = Math.max(basePointRadius * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
     if(Number.isFinite(maxHalfWidthOverride) && maxHalfWidthOverride > 0){
-      globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, maxHalfWidthOverride);
+      globalMaxHalfWidth = Math.max(basePointRadius * 1.05, maxHalfWidthOverride);
       if(axisBoundary > 0){
         globalMaxHalfWidth = Math.min(globalMaxHalfWidth, axisBoundary);
       }
@@ -2396,7 +2399,6 @@
       console.debug('Debug: computeSwarmOffsets empty',{ orientation, sampleSize, axisSpacing });
       return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
-    const PREFERRED_GAP_FACTOR = 2.05;
     const buildEntryJitterKey = (entry, seed) => {
       const raw = Number(entry?.raw);
       const baseValue = Number.isFinite(raw) ? raw : Number(entry?.coord) || 0;
@@ -2469,17 +2471,6 @@
         }
       }
       if(pointRadiusValue !== initialRadius){
-        axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
-        effectiveHalfSpan = axisBoundary > 0
-          ? axisSpacing * stripScale * spreadFactor
-          : pointRadiusValue * 2.2 * spreadFactor;
-        globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
-        if(Number.isFinite(maxHalfWidthOverride) && maxHalfWidthOverride > 0){
-          globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, maxHalfWidthOverride);
-          if(axisBoundary > 0){
-            globalMaxHalfWidth = Math.min(globalMaxHalfWidth, axisBoundary);
-          }
-        }
         seedBase = Math.round((sampleSize || entries.length) * 17 + pointRadiusValue * 1000);
         sortedEntries = buildSortedEntries(seedBase);
         collisionDistance = Math.max(0.5, pointRadiusValue * PREFERRED_GAP_FACTOR);
@@ -2507,10 +2498,10 @@
         if(right < i){
           right = i;
         }
-        while(right + 1 < sortedEntries.length && sortedEntries[right + 1].coord - coord <= collisionDistance){
+        while(right + 1 < sortedEntries.length && sortedEntries[right + 1].coord - coord <= densityDistance){
           right += 1;
         }
-        while(coord - sortedEntries[left].coord > collisionDistance){
+        while(coord - sortedEntries[left].coord > densityDistance){
           left += 1;
         }
         const count = right - left + 1;
@@ -2562,39 +2553,40 @@
             intervals.push({ start, end });
           }
         }
+        if(!intervals.length){
+          return 0;
+        }
         let freeIntervals = null;
-        if(intervals.length){
-          intervals.sort((a, b) => (a.start - b.start) || (a.end - b.end));
-          freeIntervals = [];
-          let cursor = -maxHalfWidthValue;
-          let curStart = intervals[0].start;
-          let curEnd = intervals[0].end;
-          for(let i = 1; i < intervals.length; i++){
-            const next = intervals[i];
-            if(next.start <= curEnd){
-              curEnd = Math.max(curEnd, next.end);
-            }else{
-              if(curStart > cursor){
-                freeIntervals.push({ start: cursor, end: curStart });
-              }
-              cursor = curEnd;
-              curStart = next.start;
-              curEnd = next.end;
+        intervals.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+        freeIntervals = [];
+        let cursor = -maxHalfWidthValue;
+        let curStart = intervals[0].start;
+        let curEnd = intervals[0].end;
+        for(let i = 1; i < intervals.length; i++){
+          const next = intervals[i];
+          if(next.start <= curEnd){
+            curEnd = Math.max(curEnd, next.end);
+          }else{
+            if(curStart > cursor){
+              freeIntervals.push({ start: cursor, end: curStart });
             }
+            cursor = curEnd;
+            curStart = next.start;
+            curEnd = next.end;
           }
-          if(curStart > cursor){
-            freeIntervals.push({ start: cursor, end: curStart });
-          }
-          cursor = Math.max(cursor, curEnd);
-          if(cursor < maxHalfWidthValue){
-            freeIntervals.push({ start: cursor, end: maxHalfWidthValue });
-          }
-        }else{
-          freeIntervals = [{ start: -maxHalfWidthValue, end: maxHalfWidthValue }];
+        }
+        if(curStart > cursor){
+          freeIntervals.push({ start: cursor, end: curStart });
+        }
+        cursor = Math.max(cursor, curEnd);
+        if(cursor < maxHalfWidthValue){
+          freeIntervals.push({ start: cursor, end: maxHalfWidthValue });
         }
         freeIntervals = freeIntervals.filter(interval => interval.end - interval.start > 0.0001);
+        let allowOverlap = false;
         if(!freeIntervals.length){
-          return null;
+          allowOverlap = true;
+          freeIntervals = [{ start: -maxHalfWidthValue, end: maxHalfWidthValue }];
         }
         const totalFree = freeIntervals.reduce((sum, interval) => sum + (interval.end - interval.start), 0);
         if(!Number.isFinite(totalFree) || totalFree <= 0){
@@ -2625,6 +2617,10 @@
             }
             target -= length;
           }
+        }
+        if(allowOverlap){
+          addCandidate(-maxHalfWidthValue);
+          addCandidate(maxHalfWidthValue);
         }
         for(let k = 0; k < freeIntervals.length; k++){
           const interval = freeIntervals[k];
@@ -2661,7 +2657,7 @@
         return chosenLocal;
       };
       let chosen = resolveOffset(maxHalfWidth);
-      if(chosen == null && maxHalfWidth < globalMaxHalfWidth){
+      if(chosen == null && widthScaleMode !== 'density' && maxHalfWidth < globalMaxHalfWidth){
         chosen = resolveOffset(globalMaxHalfWidth);
         maxHalfWidth = globalMaxHalfWidth;
       }
@@ -2676,7 +2672,7 @@
       }
     });
     const offsets = entries.map(entry => offsetsMap.get(entry.index) || 0);
-    console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entries.length, maxBinSize: maxCount, adjustedRadius: pointRadiusValue });
+    console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entries.length, maxBinSize: maxCount, adjustedRadius: pointRadiusValue, densityDistance, basePointRadius });
     return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset: globalMaxHalfWidth, adjustedRadius: pointRadiusValue };
   }
 
