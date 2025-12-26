@@ -2350,7 +2350,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #surfacePage .surface-message[hidden]{display:none}
 #surfacePage .surface-stats .stats-summary{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#3b4758}
 #surfacePage .surface-stats .stats-summary strong{font-weight:600;color:#1f2a3d}
-#surfacePage .surface-legend{pointer-events:none}
+#surfacePage .surface-legend{pointer-events:auto}
 #surfacePage .surface-legend rect{stroke:#cbd5e1;stroke-width:.6}
 #surfacePage .surface-legend text{fill:#1f2a3d;font-size:11px;dominant-baseline:middle}
 #surfacePage .stats-summary span{display:flex;justify-content:space-between}

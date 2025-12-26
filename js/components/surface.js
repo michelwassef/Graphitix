@@ -94,6 +94,8 @@
     axisSelects: { x: null, y: null, z: null },
     controls: {},
     axisMap: { x: 0, y: 1, z: 2 },
+    legendPosition: null,
+    labelPositions: { title: null },
     _listeners: [],
     _hotHooks: [],
     _facePool: [],
@@ -232,7 +234,8 @@
     const payload = { role: role || null, key: key || role || null, text: node?.textContent || null };
     if(fontControls && typeof fontControls.markText === 'function'){
       fontControls.markText(node, { scopeId: 'surface', role, key });
-    } else if(node.dataset){
+    }
+    if(node.dataset){
       node.dataset.fontEditable = '1';
       node.dataset.fontScope = 'surface';
       if(role){ node.dataset.fontRole = role; }
@@ -788,10 +791,14 @@
     if(!legend){
       legend = doc.createElementNS(NS, 'g');
       legend.setAttribute('class', 'surface-legend');
+      legend.setAttribute('data-legend-key', 'surface-scale');
     } else if(legend.parentNode !== targetLayer){
       legend.parentNode.removeChild(legend);
     }
     targetLayer.appendChild(legend);
+    if(!legend.getAttribute('data-legend-key')){
+      legend.setAttribute('data-legend-key', 'surface-scale');
+    }
     while(legend.firstChild){ legend.removeChild(legend.firstChild); }
     // mark which gradient id this legend relies on so we can safely remove it later
     try{ legend.setAttribute('data-gradient-id', gradientId); }catch(e){}
@@ -807,8 +814,12 @@
     }
     barHeight = Math.max(60, barHeight);
     const barWidth = Math.max(14, options.fontSize * 0.8);
-    const legendX = options.width - options.margin.right + 12;
-    const legendY = options.margin.top;
+    const defaultLegendX = options.width - options.margin.right + 12;
+    const defaultLegendY = options.margin.top;
+    const position = options.position || null;
+    const hasPosition = Number.isFinite(position?.x) && Number.isFinite(position?.y);
+    const legendX = hasPosition ? position.x : defaultLegendX;
+    const legendY = hasPosition ? position.y : defaultLegendY;
     legend.setAttribute('transform', `translate(${legendX},${legendY})`);
     const rect = doc.createElementNS(NS, 'rect');
     rect.setAttribute('width', barWidth);
@@ -816,6 +827,7 @@
     rect.setAttribute('fill', `url(#${gradientId})`);
     rect.setAttribute('stroke', '#cbd5e1');
     rect.setAttribute('stroke-width', Math.max(0.6, options.fontSize * 0.04));
+    rect.setAttribute('data-legend-key', 'surface-scale');
     legend.appendChild(rect);
     const minText = doc.createElementNS(NS, 'text');
     const legendFontSize = Math.max(9, options.fontSize * 0.75);
@@ -825,6 +837,7 @@
     minText.setAttribute('font-size', legendFontSize);
     minText.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
     minText.setAttribute('text-anchor', 'middle');
+    minText.setAttribute('data-legend-key', 'surface-scale');
     minText.textContent = formatNumber(options.min);
     legend.appendChild(minText);
     const maxText = doc.createElementNS(NS, 'text');
@@ -834,8 +847,29 @@
     maxText.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
     maxText.setAttribute('text-anchor', 'middle');
     maxText.setAttribute('dominant-baseline', 'baseline');
+    maxText.setAttribute('data-legend-key', 'surface-scale');
     maxText.textContent = formatNumber(options.max);
     legend.appendChild(maxText);
+
+    if(typeof plot3d.applyLegendPointerGuards === 'function'){
+      plot3d.applyLegendPointerGuards(legend, { label: 'surface-scale' });
+      plot3d.applyLegendPointerGuards(rect, { label: 'surface-scale' });
+      plot3d.applyLegendPointerGuards(minText, { label: 'surface-scale' });
+      plot3d.applyLegendPointerGuards(maxText, { label: 'surface-scale' });
+    }
+
+    if(typeof Shared.enableLegendDrag === 'function' && legend.dataset){
+      if(legend.dataset.dragBound !== '1'){
+        legend.dataset.dragBound = '1';
+        Shared.enableLegendDrag(legend, svg, {
+          onDragEnd: pos => {
+            state.legendPosition = { x: pos.x, y: pos.y };
+            debugLog('Debug: surface legend position saved', pos);
+          },
+          undoLabel: 'surface-legend-position'
+        });
+      }
+    }
   }
 
   function removeLegend(svg){
@@ -1361,6 +1395,9 @@
     }
     let title = svg.querySelector('text[data-graph-title]');
     const titleBaseY = Math.max(fs, margin.top * 0.55);
+    const titleBaseX = margin.left + plotWidth / 2;
+    const titlePos = state.labelPositions?.title;
+    const hasTitlePos = Number.isFinite(titlePos?.x) && Number.isFinite(titlePos?.y);
     const applySurfaceTitle = value => {
       const trimmed = value != null ? String(value).trim() : '';
       const resolved = trimmed || 'Surface Plot';
@@ -1373,8 +1410,8 @@
     };
     if(!title){
       title = doc.createElementNS(NS, 'text');
-      title.setAttribute('x', margin.left + plotWidth / 2);
-      title.setAttribute('y', titleBaseY);
+      title.setAttribute('x', hasTitlePos ? titlePos.x : titleBaseX);
+      title.setAttribute('y', hasTitlePos ? titlePos.y : titleBaseY);
       title.setAttribute('text-anchor', 'middle');
       title.setAttribute('font-size', fs);
       title.setAttribute('fill', chartStyle.TEXT_COLOR || '#1f2a3d');
@@ -1386,16 +1423,27 @@
         if(previous === nextValue){ return; }
         recordSurfaceChange('surface:title', previous, nextValue, val => { applySurfaceTitle(val); return true; });
       }, { scopeId: 'surface', key: 'graphTitle' });
+      if(typeof Shared.enableLabelDrag === 'function'){
+        Shared.enableLabelDrag(title, svg, {
+          onDragEnd: pos => {
+            state.labelPositions.title = { x: pos.x, y: pos.y };
+            debugLog('Debug: surface title position saved', pos);
+          }
+        });
+      }
+      if(typeof plot3d.applyLegendPointerGuards === 'function'){
+        plot3d.applyLegendPointerGuards(title, { label: 'surface-title' });
+      }
       title.setAttribute('data-graph-title', '1');
       svg.appendChild(title);
     } else {
       // update position/size and text only
-      try{ title.setAttribute('x', margin.left + plotWidth / 2); }catch(e){}
-      try{ title.setAttribute('y', titleBaseY); }catch(e){}
+      try{ title.setAttribute('x', hasTitlePos ? titlePos.x : titleBaseX); }catch(e){}
+      try{ title.setAttribute('y', hasTitlePos ? titlePos.y : titleBaseY); }catch(e){}
       try{ title.setAttribute('font-size', fs); }catch(e){}
       if(title.textContent !== state.labels.title){ title.textContent = state.labels.title; }
     }
-    if(axisLabelBounds.length && typeof title.getBBox === 'function'){
+    if(!hasTitlePos && axisLabelBounds.length && typeof title.getBBox === 'function'){
       try {
         const padding = Math.max(fs * 0.45, 10);
         const minAxisTop = axisLabelBounds.reduce((min, bounds) => (
@@ -1439,7 +1487,16 @@
       }
     }
     if(state.settings.showLegend && Number.isFinite(parsed.stats.zMin) && Number.isFinite(parsed.stats.zMax) && parsed.stats.zMin !== parsed.stats.zMax){
-      renderLegend(svg, { min: parsed.stats.zMin, max: parsed.stats.zMax, colorRamp: state.settings.colorRamp, width, margin, fontSize: fs, layer: axisLayer });
+      renderLegend(svg, {
+        min: parsed.stats.zMin,
+        max: parsed.stats.zMax,
+        colorRamp: state.settings.colorRamp,
+        width,
+        margin,
+        fontSize: fs,
+        layer: axisLayer,
+        position: state.legendPosition
+      });
     } else {
       removeLegend(svg);
     }
@@ -1635,6 +1692,18 @@
     if(config.labels && typeof config.labels === 'object'){
       state.labels = Object.assign({}, state.labels, config.labels);
     }
+    if(Object.prototype.hasOwnProperty.call(config, 'legendPosition')){
+      const pos = config.legendPosition;
+      const x = Number(pos?.x);
+      const y = Number(pos?.y);
+      state.legendPosition = (Number.isFinite(x) && Number.isFinite(y)) ? { x, y } : null;
+    }
+    if(config.labelPositions && typeof config.labelPositions === 'object'){
+      const titlePos = config.labelPositions.title;
+      const x = Number(titlePos?.x);
+      const y = Number(titlePos?.y);
+      state.labelPositions.title = (Number.isFinite(x) && Number.isFinite(y)) ? { x, y } : null;
+    }
     ensureHeaderRowFromConfig(config);
     if(config.rotation && typeof plot3d.createRotationState === 'function'){
       const restored = plot3d.createRotationState(config.rotation);
@@ -1674,6 +1743,10 @@
         axisMap: Object.assign({}, state.axisMap),
         settings: Object.assign({}, state.settings),
         labels: Object.assign({}, state.labels),
+        legendPosition: state.legendPosition ? { x: state.legendPosition.x, y: state.legendPosition.y } : null,
+        labelPositions: {
+          title: state.labelPositions?.title ? { x: state.labelPositions.title.x, y: state.labelPositions.title.y } : null
+        },
         rotation: {
           x: state.rotation.x,
           y: state.rotation.y,
