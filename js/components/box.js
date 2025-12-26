@@ -2373,6 +2373,8 @@
     }
     const axisSpacing = Number(options?.axisSpacing) || 0;
     const orientation = options?.orientation || 'vertical';
+    const widthScaleMode = options?.widthScaleMode || 'none';
+    const maxHalfWidthOverride = Number(options?.maxHalfWidth);
     const spreadFactor = computeSampleSpreadFactor(sampleSize);
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     let axisBoundary = Math.max(0, axisSpacing / 2 - pointRadiusValue);
@@ -2383,6 +2385,12 @@
       ? axisSpacing * stripScale * spreadFactor
       : pointRadiusValue * 2.2 * spreadFactor;
     let globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
+    if(Number.isFinite(maxHalfWidthOverride) && maxHalfWidthOverride > 0){
+      globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, maxHalfWidthOverride);
+      if(axisBoundary > 0){
+        globalMaxHalfWidth = Math.min(globalMaxHalfWidth, axisBoundary);
+      }
+    }
     const offsetsMap = new Map();
     if(!entries.length || !Number.isFinite(globalMaxHalfWidth) || globalMaxHalfWidth <= 0){
       console.debug('Debug: computeSwarmOffsets empty',{ orientation, sampleSize, axisSpacing });
@@ -2466,6 +2474,12 @@
           ? axisSpacing * stripScale * spreadFactor
           : pointRadiusValue * 2.2 * spreadFactor;
         globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(effectiveHalfSpan, axisBoundary || effectiveHalfSpan));
+        if(Number.isFinite(maxHalfWidthOverride) && maxHalfWidthOverride > 0){
+          globalMaxHalfWidth = Math.max(pointRadiusValue * 1.05, maxHalfWidthOverride);
+          if(axisBoundary > 0){
+            globalMaxHalfWidth = Math.min(globalMaxHalfWidth, axisBoundary);
+          }
+        }
         seedBase = Math.round((sampleSize || entries.length) * 17 + pointRadiusValue * 1000);
         sortedEntries = buildSortedEntries(seedBase);
         collisionDistance = Math.max(0.5, pointRadiusValue * PREFERRED_GAP_FACTOR);
@@ -2481,6 +2495,33 @@
       }
     }
 
+    let localCounts = null;
+    let densityMax = maxCount;
+    if(widthScaleMode === 'density' && sortedEntries.length){
+      localCounts = new Map();
+      let left = 0;
+      let right = 0;
+      let maxLocal = 0;
+      for(let i = 0; i < sortedEntries.length; i++){
+        const coord = sortedEntries[i].coord;
+        if(right < i){
+          right = i;
+        }
+        while(right + 1 < sortedEntries.length && sortedEntries[right + 1].coord - coord <= collisionDistance){
+          right += 1;
+        }
+        while(coord - sortedEntries[left].coord > collisionDistance){
+          left += 1;
+        }
+        const count = right - left + 1;
+        localCounts.set(sortedEntries[i].entry.index, count);
+        if(count > maxLocal){
+          maxLocal = count;
+        }
+      }
+      densityMax = Math.max(1, maxLocal);
+    }
+
     const collisionDistanceSq = collisionDistance * collisionDistance;
     let maxUsed = 0;
     const placed = [];
@@ -2490,61 +2531,75 @@
       while(activeStart < placed.length && coord - placed[activeStart].coord > collisionDistance){
         activeStart += 1;
       }
-      const maxHalfWidth = globalMaxHalfWidth;
-      const intervals = [];
-      for(let j = activeStart; j < placed.length; j++){
-        const neighbor = placed[j];
-        const dy = coord - neighbor.coord;
-        const absDy = Math.abs(dy);
-        if(absDy >= collisionDistance){
-          continue;
-        }
-        const dx = Math.sqrt(Math.max(0, collisionDistanceSq - dy * dy));
-        let start = neighbor.offset - dx;
-        let end = neighbor.offset + dx;
-        if(end < -maxHalfWidth || start > maxHalfWidth){
-          continue;
-        }
-        if(start < -maxHalfWidth){ start = -maxHalfWidth; }
-        if(end > maxHalfWidth){ end = maxHalfWidth; }
-        if(end > start){
-          intervals.push({ start, end });
-        }
+      let maxHalfWidth = globalMaxHalfWidth;
+      if(widthScaleMode === 'density' && localCounts){
+        const localCount = localCounts.get(item.entry.index) || 1;
+        const scale = densityMax > 1 ? (localCount / densityMax) : 1;
+        const scaledWidth = globalMaxHalfWidth * scale;
+        maxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(globalMaxHalfWidth, scaledWidth));
       }
-      let freeIntervals = null;
-      if(intervals.length){
-        intervals.sort((a, b) => (a.start - b.start) || (a.end - b.end));
-        freeIntervals = [];
-        let cursor = -maxHalfWidth;
-        let curStart = intervals[0].start;
-        let curEnd = intervals[0].end;
-        for(let i = 1; i < intervals.length; i++){
-          const next = intervals[i];
-          if(next.start <= curEnd){
-            curEnd = Math.max(curEnd, next.end);
-          }else{
-            if(curStart > cursor){
-              freeIntervals.push({ start: cursor, end: curStart });
-            }
-            cursor = curEnd;
-            curStart = next.start;
-            curEnd = next.end;
+      const resolveOffset = maxHalfWidthValue => {
+        if(!Number.isFinite(maxHalfWidthValue) || maxHalfWidthValue <= 0){
+          return null;
+        }
+        const intervals = [];
+        for(let j = activeStart; j < placed.length; j++){
+          const neighbor = placed[j];
+          const dy = coord - neighbor.coord;
+          const absDy = Math.abs(dy);
+          if(absDy >= collisionDistance){
+            continue;
+          }
+          const dx = Math.sqrt(Math.max(0, collisionDistanceSq - dy * dy));
+          let start = neighbor.offset - dx;
+          let end = neighbor.offset + dx;
+          if(end < -maxHalfWidthValue || start > maxHalfWidthValue){
+            continue;
+          }
+          if(start < -maxHalfWidthValue){ start = -maxHalfWidthValue; }
+          if(end > maxHalfWidthValue){ end = maxHalfWidthValue; }
+          if(end > start){
+            intervals.push({ start, end });
           }
         }
-        if(curStart > cursor){
-          freeIntervals.push({ start: cursor, end: curStart });
+        let freeIntervals = null;
+        if(intervals.length){
+          intervals.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+          freeIntervals = [];
+          let cursor = -maxHalfWidthValue;
+          let curStart = intervals[0].start;
+          let curEnd = intervals[0].end;
+          for(let i = 1; i < intervals.length; i++){
+            const next = intervals[i];
+            if(next.start <= curEnd){
+              curEnd = Math.max(curEnd, next.end);
+            }else{
+              if(curStart > cursor){
+                freeIntervals.push({ start: cursor, end: curStart });
+              }
+              cursor = curEnd;
+              curStart = next.start;
+              curEnd = next.end;
+            }
+          }
+          if(curStart > cursor){
+            freeIntervals.push({ start: cursor, end: curStart });
+          }
+          cursor = Math.max(cursor, curEnd);
+          if(cursor < maxHalfWidthValue){
+            freeIntervals.push({ start: cursor, end: maxHalfWidthValue });
+          }
+        }else{
+          freeIntervals = [{ start: -maxHalfWidthValue, end: maxHalfWidthValue }];
         }
-        cursor = Math.max(cursor, curEnd);
-        if(cursor < maxHalfWidth){
-          freeIntervals.push({ start: cursor, end: maxHalfWidth });
+        freeIntervals = freeIntervals.filter(interval => interval.end - interval.start > 0.0001);
+        if(!freeIntervals.length){
+          return null;
         }
-      }else{
-        freeIntervals = [{ start: -maxHalfWidth, end: maxHalfWidth }];
-      }
-      freeIntervals = freeIntervals.filter(interval => interval.end - interval.start > 0.0001);
-      let chosen = null;
-      if(freeIntervals.length){
         const totalFree = freeIntervals.reduce((sum, interval) => sum + (interval.end - interval.start), 0);
+        if(!Number.isFinite(totalFree) || totalFree <= 0){
+          return null;
+        }
         const candidateCount = Math.min(9, Math.max(5, Math.round(Math.log(entries.length + 2) * 2)));
         let rng = (item.jitter ^ (seedBase + idx * 2654435761)) >>> 0;
         const nextRand = () => {
@@ -2578,8 +2633,12 @@
             break;
           }
         }
+        if(!candidates.length){
+          return null;
+        }
         let bestScore = -Infinity;
         let bestAbs = Infinity;
+        let chosenLocal = null;
         for(let i = 0; i < candidates.length; i++){
           const cand = candidates[i];
           let minDistSq = Infinity;
@@ -2596,9 +2655,15 @@
           if(minDistSq > bestScore + 0.0001 || (Math.abs(minDistSq - bestScore) <= 0.0001 && abs < bestAbs)){
             bestScore = minDistSq;
             bestAbs = abs;
-            chosen = cand;
+            chosenLocal = cand;
           }
         }
+        return chosenLocal;
+      };
+      let chosen = resolveOffset(maxHalfWidth);
+      if(chosen == null && maxHalfWidth < globalMaxHalfWidth){
+        chosen = resolveOffset(globalMaxHalfWidth);
+        maxHalfWidth = globalMaxHalfWidth;
       }
       if(chosen == null){
         chosen = Math.max(-maxHalfWidth, Math.min(maxHalfWidth, 0));
@@ -10933,7 +10998,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           groupAttrs = {},
           opacityMultiplier = 1,
           debugLabel = 'individual',
-          mean: meanValue = null
+          mean: meanValue = null,
+          widthScaleMode = 'none',
+          maxHalfWidth = null
         } = params || {};
         const pointEntries = Array.isArray(valueList) ? valueList.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value })) : [];
         const traceStyle = getPointStyle(traceIndex);
@@ -10942,7 +11009,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           axisSpacing: localBand,
           pointRadius: baseRadius != null ? baseRadius : pointRadius,
           sampleSize: sampleCount,
-          orientation: 'vertical'
+          orientation: 'vertical',
+          widthScaleMode,
+          maxHalfWidth
         });
         const effectiveRadius = baseRadius != null ? baseRadius : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
         const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
@@ -11353,7 +11422,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             groupAttrs: { 'data-individual': 'true' },
             opacityMultiplier: 1,
             debugLabel: 'individual',
-            mean
+            mean,
+            widthScaleMode: 'density'
           });
           if(individualSummaryMode !== 'none'){
             const swarm = swarmResult?.swarm;
@@ -11442,7 +11512,33 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
-          if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+          if(pointMode === 'outliers'){
+            const frag = document.createDocumentFragment();
+            let ptIdx = 0;
+            for(const v of outliers){
+              const c = document.createElementNS(NS, 'circle');
+              c.setAttribute('cx', cx);
+              c.setAttribute('cy', y2px(v));
+              c.setAttribute('r', pointRadius);
+              c.setAttribute('fill', fillColor);
+              c.setAttribute('stroke', borderColor);
+              annotateWithTitle(c, outlierAnnotation);
+              attachBoxPointTooltip(c, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: v,
+                rawValue: v,
+                index: ptIdx
+              });
+              frag.appendChild(c);
+              ptIdx++;
+              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token });
+              }
+            }
+            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
+          }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
             renderSwarmPointsVertical({
               valueList,
               cx,
@@ -11461,82 +11557,28 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               mean
             });
           }else{
-            const frag = document.createDocumentFragment();
-            let ptIdx = 0;
-            // If many points, batch into a single path to reduce DOM size (no per-point tooltips in batched mode)
-            if(pointMode !== 'outliers' && valueList.length > BOX_POINT_BATCH_THRESHOLD){
-              const pts = [];
-              for(const v of valueList){
-                const cy = y2px(v);
-                let px;
-                if(pointMode === 'overlay'){
-                  px = cx + (Math.random() - 0.5) * boxW * 0.6;
-                }else{
-                  px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
-                }
-                pts.push({ x: px, y: cy });
-                ptIdx++;
-              }
-              const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(pointRadius * 2)), { fill: fillColor, fillOpacity: pointMode === 'overlay' ? 0.6 : 1, stroke: borderColor, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: i });
-              add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(pathNode);
-            }else if(pointMode === 'outliers'){
-              for(const v of outliers){
-                const c = document.createElementNS(NS, 'circle');
-                c.setAttribute('cx', cx);
-                c.setAttribute('cy', y2px(v));
-                c.setAttribute('r', pointRadius);
-                c.setAttribute('fill', fillColor);
-                c.setAttribute('stroke', borderColor);
-                annotateWithTitle(c, outlierAnnotation);
-                attachBoxPointTooltip(c, {
-                  seriesName: tooltipSeriesName,
-                  categoryName: tooltipCategoryName,
-                  groupName: tooltipGroupName,
-                  value: v,
-                  rawValue: v,
-                  index: ptIdx
-                });
-                frag.appendChild(c);
-                ptIdx++;
-                if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
-                  console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token });
-                }
-              }
-              add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
-            }else{
-              for(const v of valueList){
-                const cy = y2px(v);
-                let px;
-                if(pointMode === 'overlay'){
-                  px = cx + (Math.random() - 0.5) * boxW * 0.6;
-                }else{
-                  px = x0 - boxW * 0.3 + (Math.random() - 0.5) * boxW * 0.2;
-                }
-                const c = document.createElementNS(NS, 'circle');
-                c.setAttribute('cx', px);
-                c.setAttribute('cy', cy);
-                c.setAttribute('r', pointRadius);
-                c.setAttribute('fill', fillColor);
-                c.setAttribute('stroke', borderColor);
-                if(pointMode === 'overlay'){
-                  c.setAttribute('fill-opacity', 0.6);
-                }
-                attachBoxPointTooltip(c, {
-                  seriesName: tooltipSeriesName,
-                  categoryName: tooltipCategoryName,
-                  groupName: tooltipGroupName,
-                  value: v,
-                  rawValue: v,
-                  index: ptIdx
-                });
-                frag.appendChild(c);
-                ptIdx++;
-                if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
-                  console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token });
-                }
-              }
-              add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
-            }
+            const overlayMode = pointMode === 'overlay';
+            const centerX = overlayMode ? cx : (x0 - boxW * 0.3);
+            const halfWidth = overlayMode
+              ? Math.max(pointRadius * 1.1, boxW * 0.3)
+              : Math.max(pointRadius * 1.1, boxW * 0.1);
+            renderSwarmPointsVertical({
+              valueList,
+              cx: centerX,
+              localBand,
+              sampleCount,
+              traceIndex: i,
+              tooltipSeriesName,
+              tooltipCategoryName,
+              tooltipGroupName,
+              fillColor,
+              borderColor,
+              groupAttrs: { 'data-individual': 'true' },
+              opacityMultiplier: overlayMode ? 0.6 : 1,
+              debugLabel: overlayMode ? 'overlay' : 'side',
+              mean,
+              maxHalfWidth: halfWidth
+            });
           }
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
@@ -11638,7 +11680,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           groupAttrs = {},
           opacityMultiplier = 1,
           debugLabel = 'individual',
-          mean: meanValue = null
+          mean: meanValue = null,
+          widthScaleMode = 'none',
+          maxHalfWidth = null
         } = params || {};
         const pointEntries = Array.isArray(valueList) ? valueList.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value })) : [];
         const traceStyleH = getPointStyle(traceIndex);
@@ -11647,7 +11691,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           axisSpacing: localBand,
           pointRadius: baseRadius != null ? baseRadius : pointRadius,
           sampleSize: sampleCount,
-          orientation: 'horizontal'
+          orientation: 'horizontal',
+          widthScaleMode,
+          maxHalfWidth
         });
         const effectiveRadius = baseRadius != null ? baseRadius : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
         const effectiveFill = (traceStyleH && traceStyleH.fill) ? traceStyleH.fill : fillColor;
@@ -12251,7 +12297,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             groupAttrs: { 'data-individual': 'true' },
             opacityMultiplier: 1,
             debugLabel: 'individual',
-            mean
+            mean,
+            widthScaleMode: 'density'
           });
           if(individualSummaryMode !== 'none'){
             const swarm = swarmResult?.swarm;
@@ -12337,7 +12384,33 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 
         if(pointMode !== 'none' && graphTypeRaw !== 'strip'){
           console.time(`boxplotPoints_${token}_${i}`);
-          if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+          if(pointMode === 'outliers'){
+            const frag = document.createDocumentFragment();
+            let ptIdx = 0;
+            for(const v of outliers){
+              const c = document.createElementNS(NS, 'circle');
+              c.setAttribute('cx', valueToX(v));
+              c.setAttribute('cy', cy);
+              c.setAttribute('r', pointRadius);
+              c.setAttribute('fill', fillColor);
+              c.setAttribute('stroke', borderColor);
+              annotateWithTitle(c, outlierAnnotation);
+              attachBoxPointTooltip(c, {
+                seriesName: tooltipSeriesName,
+                categoryName: tooltipCategoryName,
+                groupName: tooltipGroupName,
+                value: v,
+                rawValue: v,
+                index: ptIdx
+              });
+              frag.appendChild(c);
+              ptIdx++;
+              if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
+                console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
+              }
+            }
+            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
+          }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
             renderSwarmPointsHorizontal({
               valueList,
               cy,
@@ -12356,65 +12429,28 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               mean
             });
           }else{
-            const frag = document.createDocumentFragment();
-            let ptIdx = 0;
-            if(pointMode === 'outliers'){
-              for(const v of outliers){
-                const c = document.createElementNS(NS, 'circle');
-                c.setAttribute('cx', valueToX(v));
-                c.setAttribute('cy', cy);
-                c.setAttribute('r', pointRadius);
-                c.setAttribute('fill', fillColor);
-                c.setAttribute('stroke', borderColor);
-                annotateWithTitle(c, outlierAnnotation);
-                attachBoxPointTooltip(c, {
-                  seriesName: tooltipSeriesName,
-                  categoryName: tooltipCategoryName,
-                  groupName: tooltipGroupName,
-                  value: v,
-                  rawValue: v,
-                  index: ptIdx
-                });
-                frag.appendChild(c);
-                ptIdx++;
-                if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
-                  console.debug('boxplot outlier progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
-                }
-              }
-            }else{
-              for(const v of valueList){
-                const px = valueToX(v);
-                let py;
-                if(pointMode === 'overlay'){
-                  py = cy + (Math.random() - 0.5) * boxH * 0.6;
-                }else{
-                  py = y0 - boxH * 0.3 + (Math.random() - 0.5) * boxH * 0.2;
-                }
-                const c = document.createElementNS(NS, 'circle');
-                c.setAttribute('cx', px);
-                c.setAttribute('cy', py);
-                c.setAttribute('r', pointRadius);
-                c.setAttribute('fill', fillColor);
-                c.setAttribute('stroke', borderColor);
-                if(pointMode === 'overlay'){
-                  c.setAttribute('fill-opacity', 0.6);
-                }
-                attachBoxPointTooltip(c, {
-                  seriesName: tooltipSeriesName,
-                  categoryName: tooltipCategoryName,
-                  groupName: tooltipGroupName,
-                  value: v,
-                  rawValue: v,
-                  index: ptIdx
-                });
-                frag.appendChild(c);
-                ptIdx++;
-                if(ptIdx % 10000 === 0 && Shared.isDebugEnabled?.()){
-                  console.debug('boxplot point progress',{ component: 'box', index: i, ptIdx, token, orientation: 'horizontal' });
-                }
-              }
-            }
-            add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
+            const overlayMode = pointMode === 'overlay';
+            const centerY = overlayMode ? cy : (y0 - boxH * 0.3);
+            const halfHeight = overlayMode
+              ? Math.max(pointRadius * 1.1, boxH * 0.3)
+              : Math.max(pointRadius * 1.1, boxH * 0.1);
+            renderSwarmPointsHorizontal({
+              valueList,
+              cy: centerY,
+              localBand,
+              sampleCount,
+              traceIndex: i,
+              tooltipSeriesName,
+              tooltipCategoryName,
+              tooltipGroupName,
+              fillColor,
+              borderColor,
+              groupAttrs: { 'data-individual': 'true' },
+              opacityMultiplier: overlayMode ? 0.6 : 1,
+              debugLabel: overlayMode ? 'overlay' : 'side',
+              mean,
+              maxHalfWidth: halfHeight
+            });
           }
           console.timeEnd(`boxplotPoints_${token}_${i}`);
         }
