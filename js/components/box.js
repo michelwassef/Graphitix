@@ -2463,46 +2463,16 @@
         });
       return ordered.map(item => item.offset);
     };
-    const buildCenterOutIndices = (count, startUpper) => {
-      const order = [];
-      if(count <= 0){
-        return order;
-      }
-      if(count % 2 === 1){
-        const center = Math.floor(count / 2);
-        order.push(center);
-        for(let step = 1; step <= center; step++){
-          const upper = center + step;
-          const lower = center - step;
-          if(startUpper){
-            if(upper < count) order.push(upper);
-            if(lower >= 0) order.push(lower);
-          }else{
-            if(lower >= 0) order.push(lower);
-            if(upper < count) order.push(upper);
-          }
-        }
-      }else{
-        const left = count / 2 - 1;
-        const right = count / 2;
-        if(startUpper){
-          order.push(right, left);
-        }else{
-          order.push(left, right);
-        }
-        for(let step = 1; step <= left; step++){
-          const upper = right + step;
-          const lower = left - step;
-          if(startUpper){
-            if(upper < count) order.push(upper);
-            if(lower >= 0) order.push(lower);
-          }else{
-            if(lower >= 0) order.push(lower);
-            if(upper < count) order.push(upper);
-          }
-        }
-      }
-      return order;
+    const buildEntryJitterKey = (entry, seed) => {
+      const raw = Number(entry?.raw);
+      const baseValue = Number.isFinite(raw) ? raw : Number(entry?.coord) || 0;
+      const scaled = Math.round(baseValue * 1000);
+      let hash = (scaled ^ (seed || 0)) >>> 0;
+      hash = ((hash >>> 16) ^ hash) * 0x45d9f3b;
+      hash = ((hash >>> 16) ^ hash) * 0x45d9f3b;
+      hash = ((hash >>> 16) ^ hash) >>> 0;
+      hash = (hash + (Number(entry?.index) + 1) * 1013) >>> 0;
+      return hash;
     };
     let binInfo = buildOverlapBins(pointRadiusValue);
     let bins = binInfo.bins;
@@ -2579,8 +2549,7 @@
         offsetsMap.set(only.index, 0);
         return;
       }
-      const normalized = maxCount ? n / maxCount : 1;
-      let halfWidth = globalMaxHalfWidth * normalized;
+      let halfWidth = globalMaxHalfWidth;
       if(axisBoundary > 0){
         halfWidth = Math.min(halfWidth, axisBoundary);
       }
@@ -2598,11 +2567,7 @@
         }
       }
       if(Number.isFinite(requiredHalfWidth) && requiredHalfWidth > 0){
-        if(axisBoundary > 0){
-          halfWidth = Math.min(axisBoundary, Math.max(halfWidth, requiredHalfWidth));
-        }else{
-          halfWidth = Math.max(halfWidth, requiredHalfWidth);
-        }
+        halfWidth = Math.min(halfWidth, requiredHalfWidth);
       }
       if(!Number.isFinite(halfWidth) || halfWidth <= 0){
         bin.members.forEach(member => {
@@ -2614,12 +2579,17 @@
       const seedBase = ordered.reduce((acc, entry) => acc + (entry.index + 1) * 3 + Math.round(entry.coord || 0), 0);
       const seed = seedBase + Math.round((ordered[0]?.coord || 0) / (overlapDistance || 1));
       const startPositive = seed % 2 === 0;
-      const startUpper = seed % 3 === 0;
-      const entryOrder = buildCenterOutIndices(n, startUpper);
       const offsetOrder = buildCenterOutOffsets(n, halfWidth, startPositive);
+      const jittered = bin.members.slice().sort((a, b) => {
+        const ha = buildEntryJitterKey(a, seed);
+        const hb = buildEntryJitterKey(b, seed);
+        if(ha !== hb){
+          return ha - hb;
+        }
+        return (a.index - b.index);
+      });
       for(let i = 0; i < n; i++){
-        const entryIdx = entryOrder[i] != null ? entryOrder[i] : i;
-        const entry = ordered[entryIdx];
+        const entry = jittered[i] || ordered[i];
         const offset = offsetOrder[i] != null ? offsetOrder[i] : 0;
         offsetsMap.set(entry.index, offset);
         const abs = Math.abs(offset);
