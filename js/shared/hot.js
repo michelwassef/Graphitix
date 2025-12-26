@@ -648,6 +648,7 @@
     const shrinkOnLoadData = overrides?.shrinkOnLoadData !== false;
     const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
     const hotOptions = overrides?.hotOptions || {};
+    const disableBuiltInPaste = overrides?.disablePaste === true || hotOptions.disablePaste === true;
     const userAfterChange = hotOptions.afterChange;
     const userAfterLoadData = hotOptions.afterLoadData;
     const userAfterSelectionEnd = hotOptions.afterSelectionEnd;
@@ -6028,12 +6029,16 @@
       container.addEventListener('keydown', handleKeyDown, true);
       container.addEventListener('contextmenu', handleContextMenu, true);
       container.addEventListener('contextmenu', handleHeaderContextMenuProxy, true);
-      container.addEventListener('paste', handlePaste, true);
-      try{
-        document.addEventListener('paste', handlePaste, true);
-        console.debug('Debug: hot.js registered document paste listener for hot container', { containerId: container?.id || null });
-      }catch(e){
-        console.debug('Debug: hot.js failed to register document paste listener', { message: e?.message || String(e) });
+      if(!disableBuiltInPaste){
+        container.addEventListener('paste', handlePaste, true);
+        try{
+          document.addEventListener('paste', handlePaste, true);
+          console.debug('Debug: hot.js registered document paste listener for hot container', { containerId: container?.id || null });
+        }catch(e){
+          console.debug('Debug: hot.js failed to register document paste listener', { message: e?.message || String(e) });
+        }
+      }else if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: hot.js paste handler disabled', { containerId: container?.id || null, debugLabel });
       }
       cleanupFns.push(()=>{
         container.removeEventListener('mousedown', handleRowHeaderMouseDown, true);
@@ -6050,8 +6055,10 @@
         container.removeEventListener('keydown', handleKeyDown, true);
         container.removeEventListener('contextmenu', handleContextMenu, true);
         container.removeEventListener('contextmenu', handleHeaderContextMenuProxy, true);
-        container.removeEventListener('paste', handlePaste, true);
-        try{ document.removeEventListener('paste', handlePaste, true); }catch(e){}
+        if(!disableBuiltInPaste){
+          container.removeEventListener('paste', handlePaste, true);
+          try{ document.removeEventListener('paste', handlePaste, true); }catch(e){}
+        }
       });
     }
 

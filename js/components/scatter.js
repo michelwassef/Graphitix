@@ -3758,9 +3758,10 @@
         const createScatterTable = (container) => {
           let lastKeyDownAt = 0;
           let hotInstance = null;
-          hotInstance = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatterProxy,{
+        hotInstance = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawScatterProxy,{
           debugLabel: 'scatter',
           data,
+          disablePaste: true,
           hotOptions: {
             colHeaders: ['Labels','X values','Y values','Z values'],
             beforeKeyDown(){

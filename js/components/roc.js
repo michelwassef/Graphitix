@@ -633,6 +633,7 @@
     const instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: ROC_DEFAULT_COLS }, scheduleRocDrawProxy, {
       debugLabel: 'roc',
       data,
+      disablePaste: true,
       scheduleOnLoadData: true,
       hotOptions: {
         stretchH: 'all',

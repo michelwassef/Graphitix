@@ -207,6 +207,7 @@
     const pcaHot = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPcaProxy,{
       debugLabel: 'pca',
       data: pcaData,
+      disablePaste: true,
       firstRowClassName: 'htCenter',
       scheduleOnLoadData: true,
       hotOptions: {

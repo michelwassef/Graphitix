@@ -861,6 +861,7 @@
     const createHeatmapTable = (container) => Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: DEFAULT_COLS }, () => state.scheduleDraw(), {
       debugLabel: 'heatmap',
       data,
+      disablePaste: true,
       scheduleOnLoadData: true,
       hotOptions: {
         stretchH: 'all',

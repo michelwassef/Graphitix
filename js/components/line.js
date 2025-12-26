@@ -7485,6 +7485,7 @@
       const instance = Shared.hot.createStandardTable(container, { rows: DEFAULT_ROWS, cols: LINE_DEFAULT_COLS }, scheduleLineDrawProxy, {
         debugLabel: 'line',
         data,
+        disablePaste: true,
         hotOptions: {
           stretchH: 'all',
           afterChange(changes, source){
