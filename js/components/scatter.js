@@ -874,6 +874,36 @@
       || normalized === 'labelpoint';
   }
 
+  function ensureScatterHeaderTitles(hotInstance, options = {}){
+    const hot = hotInstance;
+    if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+      return;
+    }
+    const data = hot.getData() || [];
+    const headerRow = Array.isArray(data[0]) ? data[0] : [];
+    const shouldFill = value => value == null || String(value).trim() === '';
+    const changes = [];
+    if(isScatterLabelFlagHeader(headerRow[SCATTER_POINT_LABEL_COL])){
+      changes.push([0, SCATTER_POINT_LABEL_COL, '']);
+    }
+    const hasHeaderValues = [0, 1, 2, 3].some(idx => !shouldFill(headerRow[idx]));
+    const hasData = data.some((row, rowIdx) => {
+      if(rowIdx === 0 || !Array.isArray(row)){
+        return false;
+      }
+      return row.some(cell => !shouldFill(cell));
+    });
+    if(!hasHeaderValues && !hasData){
+      changes.push([0, 1, 'X title']);
+      changes.push([0, 2, 'Y title']);
+      changes.push([0, 3, 'Z title']);
+    }
+    if(!changes.length){
+      return;
+    }
+    hot.setDataAtCell(changes, 'scatter-header-init');
+  }
+
   function resolveScatterColumnLayout(data, colCountOverride){
     const headerRow = Array.isArray(data?.[0]) ? data[0] : [];
     const colCount = Number.isInteger(colCountOverride) ? colCountOverride : headerRow.length;
@@ -3704,8 +3734,14 @@
         return;
       }
       const data = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
-      if(Array.isArray(data?.[0]) && data[0].length > SCATTER_POINT_LABEL_COL){
-        data[0][SCATTER_POINT_LABEL_COL] = SCATTER_POINT_LABEL_HEADER;
+      if(Array.isArray(data?.[0])){
+        data[0][0] = '';
+        data[0][1] = 'X title';
+        data[0][2] = 'Y title';
+        data[0][3] = 'Z title';
+        if(data[0].length > SCATTER_POINT_LABEL_COL){
+          data[0][SCATTER_POINT_LABEL_COL] = '';
+        }
       }
       let scatterScheduleProxyCount = 0;
       const scheduleDrawScatterProxy = () => {
@@ -3726,6 +3762,7 @@
           debugLabel: 'scatter',
           data,
           hotOptions: {
+            colHeaders: ['Labels','X values','Y values','Z values'],
             beforeKeyDown(){
               lastKeyDownAt = Date.now();
             },
@@ -3820,6 +3857,7 @@
             scatterHot.__scatterTabId = activeTabId;
             scheduleScatterSelectionRestore(scatterHot, activeTabId);
             scatterRefs.hot = scatterHot;
+            ensureScatterHeaderTitles(scatterHot, { viewMode: scatterState.viewMode });
           }
           return scatterHot;
         }
@@ -3839,6 +3877,7 @@
           scatterHot.__scatterTabId = activeTabId;
           scheduleScatterSelectionRestore(scatterHot, activeTabId);
           scatterRefs.hot = scatterHot;
+          ensureScatterHeaderTitles(scatterHot, { viewMode: scatterState.viewMode });
         }
         const tableImport = Shared.tableImport;
         if(tableImport?.handlePaste && entry?.container && !entry.container.__scatterPasteBound){
@@ -3874,7 +3913,7 @@
       if(typeof global.DEBUG_SCATTER === 'undefined') global.DEBUG_SCATTER = true;
       const scatterExamples={
         scatter:[
-          ['Label','X Value','Y Value','',SCATTER_POINT_LABEL_HEADER],
+          ['','X title','Y title','Z title',''],
           ['Cat',4.5,23,'',''],
           ['Dog',20,45,'',SCATTER_POINT_LABEL_MARK],
           ['Rabbit',2.5,35,'',''],
@@ -3885,7 +3924,7 @@
           ['Dog',24,55,'','']
         ],
         scatter3d:[
-          ['Label','X Value','Y Value','Z Value',SCATTER_POINT_LABEL_HEADER],
+          ['','X title','Y title','Z title',''],
           ['Orion',2.5,18,4.5,SCATTER_POINT_LABEL_MARK],
           ['Lyra',6.2,25,9.1,''],
           ['Cygnus',4.1,14,6.8,''],
@@ -3896,7 +3935,7 @@
           ['Vela',9.4,36,13.6,'']
         ],
         scatterBubble:[
-          ['Label','X Value','Y Value','Bubble Size',SCATTER_POINT_LABEL_HEADER],
+          ['','X title','Y title','Z title',''],
           ['Comet A',1.8,12,25,''],
           ['Comet B',4.2,18,40,''],
           ['Comet C',2.5,22,55,''],
@@ -3907,7 +3946,7 @@
           ['Comet H',7.1,26,80,'']
         ],
         volcano:[
-          ['Gene','log2FoldChange','pValue','',SCATTER_POINT_LABEL_HEADER],
+          ['Gene','log2FoldChange','pValue','',''],
           ['GeneA',1.6,0.0005,'',''],
           ['GeneB',-1.2,0.002,'',''],
           ['GeneC',0.2,0.8,'',SCATTER_POINT_LABEL_MARK],
@@ -3917,7 +3956,7 @@
           ['GeneG',-1.8,0.0008,'','']
         ],
         ma:[
-          ['Gene','MeanExpression','log2FoldChange','pValue',SCATTER_POINT_LABEL_HEADER],
+          ['Gene','MeanExpression','log2FoldChange','pValue',''],
           ['GeneA',8.5,1.4,0.0005,''],
           ['GeneB',5.3,-1.1,0.002,''],
           ['GeneC',3.9,0.1,0.4,SCATTER_POINT_LABEL_MARK],
@@ -4552,6 +4591,9 @@
         updateScatterViewModeOptionVisibility();
         if(changed && !skipSchedule){
           scheduleDrawScatter();
+        }
+        if(normalized === '3d'){
+          ensureScatterHeaderTitles(scatterRefs.hot || scatterHot, { viewMode: normalized });
         }
         return normalized;
       }
@@ -8582,13 +8624,14 @@
           const overlayReason = meta?.overlayReason || (typeof meta?.source === 'string' ? `payload-${meta.source}` : 'payload');
           markScatterOverlayPending(overlayReason);
         }
-        const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
-        if(scatterHot && typeof scatterHot.loadData === 'function'){
-          scatterHot.loadData(dataMatrix);
-          if(obj.exclusions){
-            scatterHot.applyExclusions?.(obj.exclusions);
-          }
+      const dataMatrix = Array.isArray(obj.data) ? obj.data : [];
+      if(scatterHot && typeof scatterHot.loadData === 'function'){
+        scatterHot.loadData(dataMatrix);
+        if(obj.exclusions){
+          scatterHot.applyExclusions?.(obj.exclusions);
         }
+        ensureScatterHeaderTitles(scatterHot);
+      }
         const c=obj.config||{};
         importFontStyles('scatter', c.fontStyles || null);
         scatterTitleText=c.title||scatterTitleText;
@@ -8826,6 +8869,15 @@
       const emptyData = typeof createEmpty === 'function'
         ? createEmpty(DEFAULT_ROWS, DEFAULT_COLS)
         : Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+      if(Array.isArray(emptyData?.[0])){
+        emptyData[0][0] = '';
+        emptyData[0][1] = 'X title';
+        emptyData[0][2] = 'Y title';
+        emptyData[0][3] = 'Z title';
+        if(emptyData[0].length > SCATTER_POINT_LABEL_COL){
+          emptyData[0][SCATTER_POINT_LABEL_COL] = '';
+        }
+      }
       payload.data = emptyData;
       payload.exclusions = [];
       payload.series = Array.isArray(payload.series) ? [] : [];
