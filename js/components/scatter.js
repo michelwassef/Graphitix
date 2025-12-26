@@ -96,8 +96,8 @@
   ]);
 
   const SCATTER_3D_DEFAULTS = Object.freeze({
-    rotationX: -22.5,
-    rotationY: 32,
+    rotationX: 0.24,
+    rotationY: 1.96,
     aspectRatio: 4 / 3
   });
 
@@ -159,6 +159,30 @@
     statsLastRunVersion: 0,
     statsComputationPending: false
   };
+  function resetScatterRotation(reason){
+    if(typeof plot3d.createRotationState !== 'function'){
+      scatterState.rotation.x = SCATTER_3D_DEFAULTS.rotationX;
+      scatterState.rotation.y = SCATTER_3D_DEFAULTS.rotationY;
+      scatterState.rotation.z = 0;
+      scatterState.rotation.quaternion = null;
+      scatterDebug('Debug: scatter rotation reset (fallback)', { reason, rotation: { x: scatterState.rotation.x, y: scatterState.rotation.y, z: scatterState.rotation.z } });
+      return;
+    }
+    const defaults = plot3d.createRotationState({
+      x: SCATTER_3D_DEFAULTS.rotationX,
+      y: SCATTER_3D_DEFAULTS.rotationY
+    });
+    scatterState.rotation.x = defaults.x;
+    scatterState.rotation.y = defaults.y;
+    scatterState.rotation.z = defaults.z || 0;
+    scatterState.rotation.quaternion = defaults.quaternion
+      ? { w: defaults.quaternion.w, x: defaults.quaternion.x, y: defaults.quaternion.y, z: defaults.quaternion.z }
+      : null;
+    if(typeof plot3d.normalizeRotation === 'function'){
+      plot3d.normalizeRotation(scatterState.rotation);
+    }
+    scatterDebug('Debug: scatter rotation reset', { reason, rotation: { x: scatterState.rotation.x, y: scatterState.rotation.y, z: scatterState.rotation.z } });
+  }
   const scatterAutoDrawState = {
     autoDrawEnabled: true,
     autoDrawReason: null,
@@ -4548,9 +4572,12 @@
       }
       if(scatterViewMode){
         scatterViewMode.value = scatterState.viewMode;
-        scatterViewMode.addEventListener('change', () => {
+        scatterViewMode.addEventListener('change', event => {
           const requested = scatterViewMode.value;
           const next = requested === '3d' ? '3d' : (requested === 'bubble' ? 'bubble' : '2d');
+          if(event?.isTrusted && next === '3d' && scatterState.viewMode !== '3d'){
+            resetScatterRotation('view-mode-change');
+          }
           const applied = applyScatterViewMode(next, {
             allow3d: scatterCurrentGraphType === 'scatter',
             allowBubble: scatterCurrentGraphType === 'scatter',

@@ -87,7 +87,7 @@
   const DEFAULT_ROWS=100;
   const DEFAULT_COLS=9;
   const DEFAULT_VIEW_MODE='2d';
-  const PCA_3D_DEFAULTS={ rotationX: -0.31, rotationY: -0.48, aspectRatio: 4 / 3 };
+  const PCA_3D_DEFAULTS={ rotationX: 0.24, rotationY: 1.96, aspectRatio: 4 / 3 };
   const MIN_VARIANCE_WEIGHT = 1e-3;
   const DEFAULT_AXIS_COLOR = '#000000';
   const MIN_MINOR_TICK_SUBDIVISIONS = 1;
@@ -1437,6 +1437,30 @@
   };
   pcaState.scheduleDraw = (opts) => scheduleDrawPca(opts);
   let emptyPayloadTemplate = null;
+  function resetPcaRotation(reason){
+    if(typeof plot3d.createRotationState !== 'function'){
+      pcaState.rotation.x = PCA_3D_DEFAULTS.rotationX;
+      pcaState.rotation.y = PCA_3D_DEFAULTS.rotationY;
+      pcaState.rotation.z = 0;
+      pcaState.rotation.quaternion = null;
+      debugLog('Debug: pca rotation reset (fallback)', { reason, rotation: { x: pcaState.rotation.x, y: pcaState.rotation.y, z: pcaState.rotation.z } });
+      return;
+    }
+    const defaults = plot3d.createRotationState({
+      x: PCA_3D_DEFAULTS.rotationX,
+      y: PCA_3D_DEFAULTS.rotationY
+    });
+    pcaState.rotation.x = defaults.x;
+    pcaState.rotation.y = defaults.y;
+    pcaState.rotation.z = defaults.z || 0;
+    pcaState.rotation.quaternion = defaults.quaternion
+      ? { w: defaults.quaternion.w, x: defaults.quaternion.x, y: defaults.quaternion.y, z: defaults.quaternion.z }
+      : null;
+    if(typeof plot3d.normalizeRotation === 'function'){
+      plot3d.normalizeRotation(pcaState.rotation);
+    }
+    debugLog('Debug: pca rotation reset', { reason, rotation: { x: pcaState.rotation.x, y: pcaState.rotation.y, z: pcaState.rotation.z } });
+  }
 
   function cloneSimple(value){
     if(!value) return null;
@@ -2669,6 +2693,7 @@
         pcaYAxis,
         pcaZAxis
       ];
+      let lastPcaViewMode = pcaViewMode?.value || DEFAULT_VIEW_MODE;
       pcaAutoSizeTargets.filter(Boolean).forEach(select=>{
         attachPcaSelectAutoSize(select, 'pca');
       });
@@ -2747,6 +2772,7 @@
           });
           if(!supports3d && pcaViewMode.value !== '2d'){
             pcaViewMode.value = '2d';
+            lastPcaViewMode = '2d';
             debugLog('Debug: pca view mode coerced to 2d',{ method: methodName });
           }
         }
@@ -3358,8 +3384,12 @@
       };
       pcaAlphaVal.textContent=pcaAlpha.value;
       if(pcaViewMode){
-        pcaViewMode.addEventListener('change',()=>{
+        pcaViewMode.addEventListener('change', event => {
           const mode = (pcaViewMode.value || DEFAULT_VIEW_MODE);
+          if(event?.isTrusted && mode === '3d' && lastPcaViewMode !== '3d'){
+            resetPcaRotation('view-mode-change');
+          }
+          lastPcaViewMode = mode;
           debugLog('Debug: pca viewMode change',{ mode }); // Debug: view mode toggle listener
           applyAxisVisibility(mode);
           requestPcaViewRefresh('view-mode-change');

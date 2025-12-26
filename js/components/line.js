@@ -106,8 +106,8 @@
   const LINE_GROUP_SHAPE_VALUES = new Set(LINE_GROUP_SHAPE_DEFAULTS);
   const LINE_DISPLAY_MODE_OPTIONS = Object.freeze(['line','area']);
   const LINE_3D_DEFAULTS = Object.freeze({
-    rotationX: -0.31,
-    rotationY: -0.48,
+    rotationX: 0.24,
+    rotationY: 1.96,
     aspectRatio: 4 / 3
   });
   let lineDisplayMode = 'line';
@@ -143,6 +143,30 @@
   };
   if(typeof plot3d.normalizeRotation === 'function'){
     plot3d.normalizeRotation(lineViewState.rotation);
+  }
+  function resetLine3dRotation(reason){
+    if(typeof plot3d.createRotationState !== 'function'){
+      lineViewState.rotation.x = LINE_3D_DEFAULTS.rotationX;
+      lineViewState.rotation.y = LINE_3D_DEFAULTS.rotationY;
+      lineViewState.rotation.z = 0;
+      lineViewState.rotation.quaternion = null;
+      lineDebug('Debug: line rotation reset (fallback)', { reason, rotation: { x: lineViewState.rotation.x, y: lineViewState.rotation.y, z: lineViewState.rotation.z } });
+      return;
+    }
+    const defaults = plot3d.createRotationState({
+      x: LINE_3D_DEFAULTS.rotationX,
+      y: LINE_3D_DEFAULTS.rotationY
+    });
+    lineViewState.rotation.x = defaults.x;
+    lineViewState.rotation.y = defaults.y;
+    lineViewState.rotation.z = defaults.z || 0;
+    lineViewState.rotation.quaternion = defaults.quaternion
+      ? { w: defaults.quaternion.w, x: defaults.quaternion.x, y: defaults.quaternion.y, z: defaults.quaternion.z }
+      : null;
+    if(typeof plot3d.normalizeRotation === 'function'){
+      plot3d.normalizeRotation(lineViewState.rotation);
+    }
+    lineDebug('Debug: line rotation reset', { reason, rotation: { x: lineViewState.rotation.x, y: lineViewState.rotation.y, z: lineViewState.rotation.z } });
   }
   let lineTitleText = 'Line graph';
   let lineXLabelText = 'X';
@@ -3671,6 +3695,11 @@
 
   function enterLine3dMode(options = {}){
     const skipDraw = options.skipDraw === true;
+    const resetRotation = options.resetRotation === true;
+    const was3d = lineViewState.viewMode === '3d';
+    if(resetRotation && !was3d){
+      resetLine3dRotation('view-mode-change');
+    }
     if(!lineHot){
       lineViewState.viewMode = '3d';
       updateLineReplicateModeControls('3d');
@@ -7077,7 +7106,7 @@
           : (e.target.value === 'grouped' ? 'grouped' : 'single');
         console.debug('Debug: line table format change',{ mode: requested });
         if(requested === '3d'){
-          enterLine3dMode();
+          enterLine3dMode({ resetRotation: !!e?.isTrusted });
           return;
         }
         if(lineViewState.viewMode === '3d'){
@@ -7106,7 +7135,7 @@
         const requested = e.target.value === '3d' ? '3d' : '2d';
         console.debug('Debug: line view mode change', { mode: requested });
         if(requested === '3d'){
-          enterLine3dMode();
+          enterLine3dMode({ resetRotation: !!e?.isTrusted });
         }else{
           exitLine3dMode();
         }

@@ -51,7 +51,7 @@
     }
   }
   const DEFAULT_FILE_NAME = 'surface.graph';
-  const DEFAULT_ROTATION = { x: -0.6, y: 0.9 };
+  const DEFAULT_ROTATION = { x: 0.24, y: 1.96 };
 
   const COLOR_RAMPS = Object.freeze({
     viridis: { label: 'Viridis', stops: ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'] },
