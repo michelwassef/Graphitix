@@ -369,20 +369,40 @@
     if(!Number.isFinite(numeric)){ return null; }
     return Math.min(1, Math.max(0, numeric));
   }
+  function isEmptyStyleObject(value){
+    return !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0;
+  }
+
+  function normalizeStyleObject(value){
+    if(!value || typeof value !== 'object' || Array.isArray(value)){
+      return null;
+    }
+    return isEmptyStyleObject(value) ? null : value;
+  }
+
+  function mergePointStyles(localStyle){
+    const globalStyle = normalizeStyleObject(state.pointGlobalStyle);
+    const specific = normalizeStyleObject(localStyle);
+    if(!globalStyle && !specific){
+      return null;
+    }
+    return Object.assign({}, globalStyle || {}, specific || {});
+  }
+
   function getTraceShapeStyle(index){
     if(index == null){ return state.traceShapeGlobalStyle || null; }
     const specific = state.traceShapeStyles && state.traceShapeStyles[index] ? state.traceShapeStyles[index] : null;
-    return specific || state.traceShapeGlobalStyle || null;
+    return normalizeStyleObject(specific) || state.traceShapeGlobalStyle || null;
   }
   function getPointStyle(index){
     if(index == null){ return state.pointGlobalStyle || null; }
     const specific = state.pointStyles && state.pointStyles[index] ? state.pointStyles[index] : null;
-    return specific || state.pointGlobalStyle || null;
+    return mergePointStyles(specific);
   }
   function getSummaryStyle(index){
     if(index == null){ return state.summaryGlobalStyle || null; }
     const specific = state.summaryStyles && state.summaryStyles[index] ? state.summaryStyles[index] : null;
-    return specific || state.summaryGlobalStyle || null;
+    return normalizeStyleObject(specific) || state.summaryGlobalStyle || null;
   }
 
   function persistBoxSummaryStyle(traceIndexValue, patch){
@@ -658,20 +678,23 @@
     function persistTraceStyle(patch){
       if(traceIndex == null){ return; }
       state.pointStyles = state.pointStyles || {};
-      const previous = cloneSimple(state.pointStyles[traceIndex]) || {};
-      const next = Object.assign({}, previous, patch);
+      const previous = normalizeStyleObject(cloneSimple(state.pointStyles[traceIndex]));
+      const next = Object.assign({}, previous || {}, patch);
       state.pointStyles[traceIndex] = next;
       // record undoable change
       try{
         recordBoxChange(`box:point-style:${traceIndex}`, previous, next, value => {
-          state.pointStyles[traceIndex] = value || null;
+          state.pointStyles[traceIndex] = normalizeStyleObject(value);
           if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
         });
       }catch(err){ console.warn('persistTraceStyle error', err); }
     }
 
     function applyPointStyleGlobal(patch){
-      const previous = cloneSimple(state.pointStyles || {}) || {};
+      const previous = {
+        pointStyles: cloneSimple(state.pointStyles || {}) || {},
+        pointGlobalStyle: normalizeStyleObject(cloneSimple(state.pointGlobalStyle))
+      };
       const nextStyles = cloneSimple(state.pointStyles || {}) || {};
       Object.keys(nextStyles).forEach(key => {
         nextStyles[key] = Object.assign({}, nextStyles[key] || {}, patch);
@@ -682,8 +705,12 @@
         try{ state.scheduleDraw(); }catch(e){ console.warn('applyPointStyleGlobal scheduleDraw error', e); }
       }
       try{
-        recordBoxChange('box:point-style:global', previous, nextStyles, value => {
-          state.pointStyles = value || {};
+        recordBoxChange('box:point-style:global', previous, {
+          pointStyles: nextStyles,
+          pointGlobalStyle: normalizeStyleObject(cloneSimple(state.pointGlobalStyle))
+        }, value => {
+          state.pointStyles = value?.pointStyles || {};
+          state.pointGlobalStyle = normalizeStyleObject(value?.pointGlobalStyle);
           if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
         });
       }catch(err){ console.warn('applyPointStyleGlobal error', err); }
