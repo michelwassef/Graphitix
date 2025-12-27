@@ -68,6 +68,7 @@
   const BROKEN_AXIS_BREAK_HEIGHT = 6;
   const BROKEN_AXIS_DEFAULT_SEGMENT = { start: 0, end: 1 };
   const BOX_POINT_BATCH_THRESHOLD = 1500; // when exceeded, batch points into a single path
+  const BATCHABLE_POINT_SHAPES = new Set(['circle','square','triangle','diamond','cross','plus','star']);
   const WHISKER_RULE_META=Object.freeze({
     iqr15:{ key:'iqr15', mode:'iqr', multiplier:1.5, label:'1.5×IQR (Tukey)' },
     iqr3:{ key:'iqr3', mode:'iqr', multiplier:3, label:'3×IQR' },
@@ -667,6 +668,15 @@
       points.forEach(oldPt => {
         const parent = oldPt.parentElement;
         if(!parent){ return; }
+        const tag = (oldPt.tagName || '').toLowerCase();
+        if(tag === 'path' && Array.isArray(oldPt.__batchedPoints)){
+          const size = Number(oldPt.__batchedSize) || Math.max(1, Math.round((Number(oldPt.getAttribute('stroke-width')) || 1) * 2));
+          const normalizedShape = typeof shape === 'string' ? shape : 'square';
+          oldPt.setAttribute('d', buildBatchedPointPathD(oldPt.__batchedPoints, size, normalizedShape));
+          oldPt.setAttribute('data-shape', normalizedShape);
+          oldPt.__batchedShape = normalizedShape;
+          return;
+        }
         const newNode = createMarkerFor(shape, oldPt);
         if(!newNode){ return; }
         // insert new node at same position
@@ -1894,6 +1904,49 @@
         if(r > 0){
           parts.push(`M ${x + r} ${y} a ${r} ${r} 0 1 0 ${-2 * r} 0 a ${r} ${r} 0 1 0 ${2 * r} 0`);
         }
+      }else if(normalizedShape === 'triangle'){
+        const r = half;
+        const x = pt.x;
+        const y = pt.y;
+        parts.push(`M ${x} ${y - r} L ${x + r} ${y + r} L ${x - r} ${y + r} Z`);
+      }else if(normalizedShape === 'diamond'){
+        const r = half;
+        const x = pt.x;
+        const y = pt.y;
+        parts.push(`M ${x} ${y - r} L ${x + r} ${y} L ${x} ${y + r} L ${x - r} ${y} Z`);
+      }else if(normalizedShape === 'cross'){
+        const r = half;
+        const sizeVal = Math.max(Math.round(r * 2), 2);
+        const halfVal = sizeVal / 2;
+        const bar = Math.max(Math.round(sizeVal / 3), 2);
+        const halfBar = bar / 2;
+        const x = pt.x;
+        const y = pt.y;
+        const top = y - halfVal; const bottom = y + halfVal; const left = x - halfVal; const right = x + halfVal;
+        parts.push(`M ${x - halfBar} ${top} H ${x + halfBar} V ${y - halfBar} H ${right} V ${y + halfBar} H ${x + halfBar} V ${bottom} H ${x - halfBar} V ${y + halfBar} H ${left} V ${y - halfBar} H ${x - halfBar} Z`);
+      }else if(normalizedShape === 'plus'){
+        const r = half;
+        const arm = Math.max(Math.round(r * 1.2), 2);
+        const halfVal = arm / 2;
+        const thick = Math.max(Math.round(arm / 3), 1);
+        const t = Math.round(thick / 2);
+        const x = pt.x;
+        const y = pt.y;
+        parts.push(`M ${x - t} ${y - halfVal} H ${x + t} V ${y - t} H ${x + halfVal} V ${y + t} H ${x + t} V ${y + halfVal} H ${x - t} V ${y + t} H ${x - halfVal} V ${y - t} H ${x - t} Z`);
+      }else if(normalizedShape === 'star'){
+        const r = half;
+        const r2 = Math.max(r * 0.45, 1);
+        const x = pt.x;
+        const y = pt.y;
+        const starPoints = [];
+        for(let k = 0; k < 5; k += 1){
+          const a = (Math.PI * 2 * k) / 5 - Math.PI / 2;
+          starPoints.push({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r });
+          const b = a + Math.PI / 5;
+          starPoints.push({ x: x + Math.cos(b) * r2, y: y + Math.sin(b) * r2 });
+        }
+        const d = starPoints.map((ptVal, idx) => `${idx === 0 ? 'M' : 'L'} ${ptVal.x} ${ptVal.y}`).join(' ') + ' Z';
+        parts.push(d);
       }else{
         const x0 = pt.x - half;
         const y0 = pt.y - half;
@@ -11379,7 +11432,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
         let maxOffsetUsed = 0;
-        if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && (effectiveShape === 'circle' || effectiveShape === 'square')){
+        if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape)){
           const pts = pointEntries.map(entry => {
             const offset = clampOffset(swarm.offsets[entry.index] || 0, entry);
             const abs = Math.abs(offset);
@@ -12070,7 +12123,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
         let maxOffsetUsed = 0;
-        if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && (effectiveShape === 'circle' || effectiveShape === 'square')){
+        if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape)){
           const pts = pointEntries.map(entry => {
             const offset = clampOffset(swarm.offsets[entry.index] || 0, entry);
             const abs = Math.abs(offset);
