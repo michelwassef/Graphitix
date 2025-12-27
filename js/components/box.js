@@ -11517,6 +11517,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const opacityOverride = colorInfo.opacity != null ? Math.min(1, Math.max(0, Number(colorInfo.opacity))) : null;
         const yMean = y2px(mean);
         let violinPointBounds = null;
+        let violinPointMaxHalfHeight = null;
+        let violinPointMaxHalfWidth = null;
         if(graphTypeRaw === 'box' || graphTypeRaw === 'notched'){
           annotationMaxByTrace[i] = wMax;
           if(graphTypeRaw === 'box'){
@@ -11707,8 +11709,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             : summary.max;
           annotationMaxByTrace[i] = Math.max(wMax, violinMaxValue);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
-          const halfWidth = Math.max(6, Math.min(80, localBand * 0.45));
+          const halfWidth = Math.max(3, Math.min(40, localBand * 0.225));
           violinPointBounds = createViolinBoundLookup(densityInfo, halfWidth, peak) || (() => halfWidth);
+          violinPointMaxHalfWidth = halfWidth;
           const pathParts = [];
           for(let idx = 0; idx < densityInfo.positions.length; idx++){
             const pos = densityInfo.positions[idx];
@@ -11894,7 +11897,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               opacityMultiplier: 0.6,
               debugLabel: 'violin-overlay',
               mean,
-              widthScaleMode: 'density'
+              widthScaleMode: 'density',
+              maxHalfWidth: violinPointMaxHalfWidth
             });
           }else{
             const overlayMode = pointMode === 'overlay';
@@ -12593,8 +12597,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             : summary.max;
           annotationMaxByTrace[i] = Math.max(wMax, violinMaxValue);
           const peak = densityInfo.densities.length ? densityInfo.densities.reduce((max, d) => (d > max ? d : max), 0) : 1;
-          const halfHeight = Math.max(6, Math.min(80, localBand * 0.45));
+          const halfHeight = Math.max(3, Math.min(40, localBand * 0.225));
           violinPointBounds = createViolinBoundLookup(densityInfo, halfHeight, peak) || (() => halfHeight);
+          violinPointMaxHalfHeight = halfHeight;
           const pathParts = [];
           for(let idx = 0; idx < densityInfo.positions.length; idx++){
             const pos = densityInfo.positions[idx];
@@ -12779,7 +12784,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               opacityMultiplier: 0.6,
               debugLabel: 'violin-overlay',
               mean,
-              widthScaleMode: 'density'
+              widthScaleMode: 'density',
+              maxHalfWidth: violinPointMaxHalfHeight
             });
           }else{
             const overlayMode = pointMode === 'overlay';
