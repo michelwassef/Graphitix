@@ -2513,12 +2513,38 @@
       densityMax = Math.max(1, maxLocal);
     }
 
+    const groupMetaByIndex = new Map();
+    const groupBuckets = new Map();
+    if(sortedEntries.length){
+      const coordQuantum = 1;
+      sortedEntries.forEach(item => {
+        const coord = Number(item?.coord);
+        const coordKey = Number.isFinite(coord)
+          ? Math.round(coord / coordQuantum) * coordQuantum
+          : coord;
+        let bucket = groupBuckets.get(coordKey);
+        if(!bucket){
+          bucket = [];
+          groupBuckets.set(coordKey, bucket);
+        }
+        bucket.push(item.entry.index);
+      });
+      groupBuckets.forEach(bucket => {
+        const size = bucket.length;
+        for(let i = 0; i < size; i++){
+          groupMetaByIndex.set(bucket[i], { size, index: i });
+        }
+      });
+    }
+
     const collisionDistanceSq = collisionDistance * collisionDistance;
     let maxUsed = 0;
     const placed = [];
+    const maxHalfWidthByIndex = new Map();
     let activeStart = 0;
     sortedEntries.forEach((item, idx) => {
       const coord = item.coord;
+      const groupMeta = groupMetaByIndex.get(item.entry.index) || null;
       while(activeStart < placed.length && coord - placed[activeStart].coord > collisionDistance){
         activeStart += 1;
       }
@@ -2529,10 +2555,15 @@
         const scaledWidth = globalMaxHalfWidth * scale;
         maxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(globalMaxHalfWidth, scaledWidth));
       }
+      maxHalfWidthByIndex.set(item.entry.index, maxHalfWidth);
       const resolveOffset = maxHalfWidthValue => {
         if(!Number.isFinite(maxHalfWidthValue) || maxHalfWidthValue <= 0){
           return null;
         }
+        const groupSize = groupMeta && Number.isFinite(groupMeta.size) ? groupMeta.size : 1;
+        const groupIndex = groupMeta && Number.isFinite(groupMeta.index) ? groupMeta.index : 0;
+        const preferSymmetric = groupSize > 1;
+        const evenGroup = preferSymmetric && groupSize % 2 === 0;
         const intervals = [];
         for(let j = activeStart; j < placed.length; j++){
           const neighbor = placed[j];
@@ -2553,34 +2584,38 @@
             intervals.push({ start, end });
           }
         }
-        if(!intervals.length){
+        if(!intervals.length && !preferSymmetric){
           return 0;
         }
         let freeIntervals = null;
-        intervals.sort((a, b) => (a.start - b.start) || (a.end - b.end));
-        freeIntervals = [];
-        let cursor = -maxHalfWidthValue;
-        let curStart = intervals[0].start;
-        let curEnd = intervals[0].end;
-        for(let i = 1; i < intervals.length; i++){
-          const next = intervals[i];
-          if(next.start <= curEnd){
-            curEnd = Math.max(curEnd, next.end);
-          }else{
-            if(curStart > cursor){
-              freeIntervals.push({ start: cursor, end: curStart });
+        if(!intervals.length){
+          freeIntervals = [{ start: -maxHalfWidthValue, end: maxHalfWidthValue }];
+        }else{
+          intervals.sort((a, b) => (a.start - b.start) || (a.end - b.end));
+          freeIntervals = [];
+          let cursor = -maxHalfWidthValue;
+          let curStart = intervals[0].start;
+          let curEnd = intervals[0].end;
+          for(let i = 1; i < intervals.length; i++){
+            const next = intervals[i];
+            if(next.start <= curEnd){
+              curEnd = Math.max(curEnd, next.end);
+            }else{
+              if(curStart > cursor){
+                freeIntervals.push({ start: cursor, end: curStart });
+              }
+              cursor = curEnd;
+              curStart = next.start;
+              curEnd = next.end;
             }
-            cursor = curEnd;
-            curStart = next.start;
-            curEnd = next.end;
           }
-        }
-        if(curStart > cursor){
-          freeIntervals.push({ start: cursor, end: curStart });
-        }
-        cursor = Math.max(cursor, curEnd);
-        if(cursor < maxHalfWidthValue){
-          freeIntervals.push({ start: cursor, end: maxHalfWidthValue });
+          if(curStart > cursor){
+            freeIntervals.push({ start: cursor, end: curStart });
+          }
+          cursor = Math.max(cursor, curEnd);
+          if(cursor < maxHalfWidthValue){
+            freeIntervals.push({ start: cursor, end: maxHalfWidthValue });
+          }
         }
         freeIntervals = freeIntervals.filter(interval => interval.end - interval.start > 0.0001);
         let allowOverlap = false;
@@ -2598,12 +2633,28 @@
           rng = (rng * 1664525 + 1013904223) >>> 0;
           return rng / 4294967295;
         };
-        const candidates = [];
+        let candidates = [];
         const addCandidate = cand => {
           if(Number.isFinite(cand)){
             candidates.push(cand);
           }
         };
+        let preferredOffset = null;
+        if(preferSymmetric){
+          const gapLimit = groupSize > 1 ? (maxHalfWidthValue * 2) / Math.max(1, groupSize - 1) : 0;
+          const preferredGap = Math.min(collisionDistance, Number.isFinite(gapLimit) && gapLimit > 0 ? gapLimit : collisionDistance);
+          const centerIndex = (groupSize - 1) / 2;
+          preferredOffset = (groupIndex - centerIndex) * preferredGap;
+          if(!Number.isFinite(preferredOffset)){
+            preferredOffset = 0;
+          }
+          if(preferredOffset > maxHalfWidthValue){
+            preferredOffset = maxHalfWidthValue;
+          }else if(preferredOffset < -maxHalfWidthValue){
+            preferredOffset = -maxHalfWidthValue;
+          }
+          addCandidate(preferredOffset);
+        }
         for(let i = 0; i < candidateCount; i++){
           const u = nextRand();
           let target = u * totalFree;
@@ -2624,7 +2675,7 @@
         }
         for(let k = 0; k < freeIntervals.length; k++){
           const interval = freeIntervals[k];
-          if(interval.start <= 0 && interval.end >= 0){
+          if(!evenGroup && interval.start <= 0 && interval.end >= 0){
             addCandidate(0);
             break;
           }
@@ -2632,8 +2683,16 @@
         if(!candidates.length){
           return null;
         }
+        if(evenGroup){
+          const zeroEps = 0.0001;
+          const nonZero = candidates.filter(cand => Math.abs(cand) > zeroEps);
+          if(nonZero.length){
+            candidates = nonZero;
+          }
+        }
         let bestScore = -Infinity;
         let bestAbs = Infinity;
+        let bestPreferredDist = Infinity;
         let chosenLocal = null;
         for(let i = 0; i < candidates.length; i++){
           const cand = candidates[i];
@@ -2648,10 +2707,30 @@
             }
           }
           const abs = Math.abs(cand);
-          if(minDistSq > bestScore + 0.0001 || (Math.abs(minDistSq - bestScore) <= 0.0001 && abs < bestAbs)){
+          const preferredDist = Number.isFinite(preferredOffset) ? Math.abs(cand - preferredOffset) : Infinity;
+          const scoreDelta = minDistSq - bestScore;
+          if(scoreDelta > 0.0001){
             bestScore = minDistSq;
             bestAbs = abs;
+            bestPreferredDist = preferredDist;
             chosenLocal = cand;
+            continue;
+          }
+          if(Math.abs(scoreDelta) <= 0.0001){
+            if(preferSymmetric && preferredDist + 0.0001 < bestPreferredDist){
+              bestScore = minDistSq;
+              bestAbs = abs;
+              bestPreferredDist = preferredDist;
+              chosenLocal = cand;
+              continue;
+            }
+            if((!preferSymmetric || Math.abs(preferredDist - bestPreferredDist) <= 0.0001) && abs < bestAbs){
+              bestScore = minDistSq;
+              bestAbs = abs;
+              bestPreferredDist = preferredDist;
+              chosenLocal = cand;
+              continue;
+            }
           }
         }
         return chosenLocal;
@@ -2671,6 +2750,47 @@
         maxUsed = abs;
       }
     });
+    if(groupBuckets.size){
+      groupBuckets.forEach(bucket => {
+        if(!Array.isArray(bucket) || bucket.length <= 1){
+          return;
+        }
+        let sum = 0;
+        let minShift = -Infinity;
+        let maxShift = Infinity;
+        for(let i = 0; i < bucket.length; i++){
+          const index = bucket[i];
+          const offset = offsetsMap.get(index) || 0;
+          sum += offset;
+          const limit = maxHalfWidthByIndex.has(index)
+            ? maxHalfWidthByIndex.get(index)
+            : globalMaxHalfWidth;
+          if(Number.isFinite(limit) && limit > 0){
+            minShift = Math.max(minShift, -limit - offset);
+            maxShift = Math.min(maxShift, limit - offset);
+          }
+        }
+        const mean = sum / bucket.length;
+        let shift = -mean;
+        if(Number.isFinite(minShift) && Number.isFinite(maxShift)){
+          shift = Math.max(minShift, Math.min(maxShift, shift));
+        }
+        if(!Number.isFinite(shift) || Math.abs(shift) < 0.0001){
+          return;
+        }
+        for(let i = 0; i < bucket.length; i++){
+          const index = bucket[i];
+          offsetsMap.set(index, (offsetsMap.get(index) || 0) + shift);
+        }
+      });
+      maxUsed = 0;
+      offsetsMap.forEach(value => {
+        const abs = Math.abs(value || 0);
+        if(abs > maxUsed){
+          maxUsed = abs;
+        }
+      });
+    }
     const offsets = entries.map(entry => offsetsMap.get(entry.index) || 0);
     console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entries.length, maxBinSize: maxCount, adjustedRadius: pointRadiusValue, densityDistance, basePointRadius });
     return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset: globalMaxHalfWidth, adjustedRadius: pointRadiusValue };
