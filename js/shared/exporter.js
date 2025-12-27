@@ -42,6 +42,8 @@
   const SVG_MIME_TYPE = 'image/svg+xml';
   const EMF_MIME_TYPE = 'image/emf';
   const EMF_MIME_FALLBACK = 'image/x-emf';
+  const PDF_MIME_TYPE = 'application/pdf';
+  const TIFF_MIME_TYPE = 'image/tiff';
   const EMR_HEADER = 0x00000001;
   const EMR_STRETCHDIBITS = 0x00000051;
   const EMR_EOF = 0x0000000E;
@@ -2530,7 +2532,12 @@
       }
     }
     const normalized = type.toLowerCase();
-    return normalized === 'text/plain' || normalized === 'text/html' || normalized === SVG_MIME_TYPE || normalized === 'image/png';
+    return normalized === 'text/plain'
+      || normalized === 'text/html'
+      || normalized === SVG_MIME_TYPE
+      || normalized === 'image/png'
+      || normalized === PDF_MIME_TYPE
+      || normalized === TIFF_MIME_TYPE;
   };
 
   function resolveBackgroundColor(explicitColor, element) {
@@ -3523,6 +3530,304 @@
     }
   }
 
+  function formatPdfNumber(value) {
+    if (!Number.isFinite(value)) return '0';
+    const rounded = Math.round(value * 1000) / 1000;
+    return String(rounded);
+  }
+
+  function concatUint8Arrays(chunks) {
+    const total = chunks.reduce((sum, chunk) => sum + (chunk?.length || 0), 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    chunks.forEach(chunk => {
+      if (!chunk || !chunk.length) return;
+      out.set(chunk, offset);
+      offset += chunk.length;
+    });
+    return out;
+  }
+
+  function buildPdfBlobFromJpeg(jpegBytes, options = {}) {
+    if (!jpegBytes || typeof Blob !== 'function') {
+      return null;
+    }
+    const imageWidth = Number.isFinite(options.imageWidth) ? options.imageWidth : 0;
+    const imageHeight = Number.isFinite(options.imageHeight) ? options.imageHeight : 0;
+    const pageWidth = Number.isFinite(options.pageWidth) ? options.pageWidth : imageWidth;
+    const pageHeight = Number.isFinite(options.pageHeight) ? options.pageHeight : imageHeight;
+    if (imageWidth <= 0 || imageHeight <= 0 || pageWidth <= 0 || pageHeight <= 0) {
+      warn('buildPdfBlobFromJpeg invalid size', { imageWidth, imageHeight, pageWidth, pageHeight });
+      return null;
+    }
+    const dpiX = resolveDpiValue(options.dpiX || options.dpi);
+    const dpiY = resolveDpiValue(options.dpiY || options.dpi);
+    const widthPt = (pageWidth / dpiX) * 72;
+    const heightPt = (pageHeight / dpiY) * 72;
+    const encoder = typeof global.TextEncoder === 'function' ? new global.TextEncoder() : null;
+    const encode = text => encoder
+      ? encoder.encode(text)
+      : new Uint8Array(Array.from(text, ch => ch.charCodeAt(0) & 0xFF));
+    const parts = [];
+    const offsets = [0];
+    let offset = 0;
+    const pushText = text => {
+      const bytes = encode(text);
+      parts.push(bytes);
+      offset += bytes.length;
+    };
+    const pushBytes = bytes => {
+      parts.push(bytes);
+      offset += bytes.length;
+    };
+    const startObj = id => {
+      offsets[id] = offset;
+      pushText(`${id} 0 obj\n`);
+    };
+    const endObj = () => pushText('\nendobj\n');
+
+    pushText('%PDF-1.4\n');
+
+    startObj(1);
+    pushText('<< /Type /Catalog /Pages 2 0 R >>');
+    endObj();
+
+    startObj(2);
+    pushText('<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+    endObj();
+
+    startObj(3);
+    pushText(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${formatPdfNumber(widthPt)} ${formatPdfNumber(heightPt)}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
+    endObj();
+
+    startObj(4);
+    pushText(`<< /Type /XObject /Subtype /Image /Width ${Math.round(imageWidth)} /Height ${Math.round(imageHeight)} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`);
+    pushBytes(jpegBytes);
+    pushText('\nendstream');
+    endObj();
+
+    const content = `q ${formatPdfNumber(widthPt)} 0 0 ${formatPdfNumber(heightPt)} 0 0 cm /Im0 Do Q`;
+    const contentBytes = encode(content);
+    startObj(5);
+    pushText(`<< /Length ${contentBytes.length} >>\nstream\n`);
+    pushBytes(contentBytes);
+    pushText('\nendstream');
+    endObj();
+
+    const xrefOffset = offset;
+    pushText('xref\n0 6\n');
+    pushText('0000000000 65535 f \n');
+    for (let i = 1; i <= 5; i += 1) {
+      const off = String(offsets[i] || 0).padStart(10, '0');
+      pushText(`${off} 00000 n \n`);
+    }
+    pushText(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`);
+    const pdfBytes = concatUint8Arrays(parts);
+    try {
+      return new Blob([pdfBytes], { type: PDF_MIME_TYPE });
+    } catch (err) {
+      console.error('exporter buildPdfBlobFromJpeg blob error', err);
+      return null;
+    }
+  }
+
+  async function canvasToJpegBlob(canvas, options = {}) {
+    if (!canvas || typeof canvas.getContext !== 'function') {
+      return null;
+    }
+    if (!doc?.createElement) {
+      return null;
+    }
+    const quality = Number.isFinite(options.quality) ? Math.min(1, Math.max(0, options.quality)) : 0.92;
+    const output = doc.createElement('canvas');
+    output.width = canvas.width;
+    output.height = canvas.height;
+    const ctx = output.getContext('2d');
+    if (!ctx) {
+      return null;
+    }
+    const parsed = options.backgroundColor ? parseCssColor(options.backgroundColor) : null;
+    if (parsed?.css) {
+      ctx.save();
+      ctx.fillStyle = parsed.css;
+      ctx.fillRect(0, 0, output.width, output.height);
+      ctx.restore();
+    }
+    ctx.drawImage(canvas, 0, 0);
+    return new Promise(resolve => {
+      try {
+        output.toBlob(blob => resolve(blob || null), 'image/jpeg', quality);
+      } catch (err) {
+        console.error('exporter canvasToJpegBlob error', err);
+        resolve(null);
+      }
+    });
+  }
+
+  async function canvasToPdfBlob(canvas, options = {}) {
+    if (!canvas || typeof Blob !== 'function') {
+      return null;
+    }
+    const backgroundColor = options.backgroundColor || '#ffffff';
+    const jpegBlob = await canvasToJpegBlob(canvas, {
+      backgroundColor,
+      quality: options.jpegQuality
+    });
+    if (!jpegBlob) {
+      return null;
+    }
+    let jpegBytes;
+    try {
+      jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer());
+    } catch (err) {
+      console.error('exporter canvasToPdfBlob arrayBuffer error', err);
+      return null;
+    }
+    const pageWidth = Number.isFinite(options.logicalWidth) ? options.logicalWidth : canvas.width;
+    const pageHeight = Number.isFinite(options.logicalHeight) ? options.logicalHeight : canvas.height;
+    const pdfBlob = buildPdfBlobFromJpeg(jpegBytes, {
+      imageWidth: canvas.width,
+      imageHeight: canvas.height,
+      pageWidth,
+      pageHeight,
+      dpi: options.dpi,
+      dpiX: options.dpiX,
+      dpiY: options.dpiY
+    });
+    if (typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()) {
+      console.debug('Debug: exporter canvasToPdfBlob complete', {
+        pageWidth,
+        pageHeight,
+        imageWidth: canvas.width,
+        imageHeight: canvas.height,
+        dpiX: resolveDpiValue(options.dpiX || options.dpi),
+        dpiY: resolveDpiValue(options.dpiY || options.dpi),
+        hasBlob: !!pdfBlob
+      });
+    }
+    return pdfBlob;
+  }
+
+  function canvasToTiffBlob(canvas, options = {}) {
+    if (!canvas || typeof canvas.getContext !== 'function' || typeof Blob !== 'function') {
+      return null;
+    }
+    const width = canvas.width | 0;
+    const height = canvas.height | 0;
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      return null;
+    }
+    let imageData;
+    try {
+      imageData = ctx.getImageData(0, 0, width, height);
+    } catch (err) {
+      console.error('exporter canvasToTiffBlob imageData error', err);
+      return null;
+    }
+    const src = imageData.data;
+    const rgb = new Uint8Array(width * height * 3);
+    const bg = options.backgroundColor ? parseCssColor(options.backgroundColor) : null;
+    const bgR = bg?.r ?? 255;
+    const bgG = bg?.g ?? 255;
+    const bgB = bg?.b ?? 255;
+    const applyBackground = !!bg && bg.a > 0;
+    for (let i = 0, j = 0; i < src.length; i += 4, j += 3) {
+      if (applyBackground) {
+        const alpha = src[i + 3] / 255;
+        const inv = 1 - alpha;
+        rgb[j] = Math.round(src[i] * alpha + bgR * inv);
+        rgb[j + 1] = Math.round(src[i + 1] * alpha + bgG * inv);
+        rgb[j + 2] = Math.round(src[i + 2] * alpha + bgB * inv);
+      } else {
+        rgb[j] = src[i];
+        rgb[j + 1] = src[i + 1];
+        rgb[j + 2] = src[i + 2];
+      }
+    }
+
+    const entryCount = 13;
+    const headerSize = 8;
+    const imageDataOffset = headerSize;
+    const imageDataSize = rgb.length;
+    const ifdOffset = imageDataOffset + imageDataSize;
+    const ifdSize = 2 + entryCount * 12 + 4;
+    const extraOffset = ifdOffset + ifdSize;
+    const bitsPerSampleOffset = extraOffset;
+    const xResOffset = bitsPerSampleOffset + 6;
+    const yResOffset = xResOffset + 8;
+    const totalSize = yResOffset + 8;
+    const buffer = new ArrayBuffer(totalSize);
+    const view = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+    let offset = 0;
+
+    const writeUint16 = value => { view.setUint16(offset, value, true); offset += 2; };
+    const writeUint32 = value => { view.setUint32(offset, value >>> 0, true); offset += 4; };
+
+    // Header
+    bytes[offset++] = 0x49;
+    bytes[offset++] = 0x49;
+    writeUint16(42);
+    writeUint32(ifdOffset);
+
+    // Image data
+    bytes.set(rgb, imageDataOffset);
+
+    // IFD
+    offset = ifdOffset;
+    writeUint16(entryCount);
+    const writeEntry = (tag, type, count, value) => {
+      writeUint16(tag);
+      writeUint16(type);
+      writeUint32(count);
+      if (type === 3 && count === 1) {
+        writeUint16(value);
+        writeUint16(0);
+      } else {
+        writeUint32(value);
+      }
+    };
+    writeEntry(256, 4, 1, width);
+    writeEntry(257, 4, 1, height);
+    writeEntry(258, 3, 3, bitsPerSampleOffset);
+    writeEntry(259, 3, 1, 1);
+    writeEntry(262, 3, 1, 2);
+    writeEntry(273, 4, 1, imageDataOffset);
+    writeEntry(277, 3, 1, 3);
+    writeEntry(278, 4, 1, height);
+    writeEntry(279, 4, 1, imageDataSize);
+    writeEntry(282, 5, 1, xResOffset);
+    writeEntry(283, 5, 1, yResOffset);
+    writeEntry(296, 3, 1, 2);
+    writeEntry(284, 3, 1, 1);
+    writeUint32(0);
+
+    offset = bitsPerSampleOffset;
+    writeUint16(8);
+    writeUint16(8);
+    writeUint16(8);
+
+    const dpiX = Math.round(resolveDpiValue(options.dpiX || options.dpi));
+    const dpiY = Math.round(resolveDpiValue(options.dpiY || options.dpi));
+    offset = xResOffset;
+    writeUint32(dpiX);
+    writeUint32(1);
+    offset = yResOffset;
+    writeUint32(dpiY);
+    writeUint32(1);
+
+    try {
+      return new Blob([buffer], { type: TIFF_MIME_TYPE });
+    } catch (err) {
+      console.error('exporter canvasToTiffBlob blob error', err);
+      return null;
+    }
+  }
+
   async function svgStringToEmfBlob(xml, options = {}) {
     const scene = buildVectorSceneFromSvg(xml, options);
     if (scene) {
@@ -3575,6 +3880,34 @@
     return blob;
   }
 
+  async function svgStringToPdfBlob(xml, options = {}) {
+    const rendered = await renderSvgStringToCanvas(xml, options);
+    if (!rendered) {
+      return null;
+    }
+    try {
+      return await canvasToPdfBlob(rendered.canvas, {
+        ...options,
+        logicalWidth: rendered.logicalWidth,
+        logicalHeight: rendered.logicalHeight
+      });
+    } finally {
+      rendered.release();
+    }
+  }
+
+  async function svgStringToTiffBlob(xml, options = {}) {
+    const rendered = await renderSvgStringToCanvas(xml, options);
+    if (!rendered) {
+      return null;
+    }
+    try {
+      return canvasToTiffBlob(rendered.canvas, options);
+    } finally {
+      rendered.release();
+    }
+  }
+
   async function svgElementToPngBlob(svgEl, options = {}) {
     if (!svgEl) {
       logDebug('svgElementToPngBlob skipped', { contextLabel: options.contextLabel, reason: 'no element' });
@@ -3618,6 +3951,58 @@
       dpiX: options.dpiX,
       dpiY: options.dpiY,
       backgroundColor
+    });
+  }
+
+  async function svgElementToPdfBlob(svgEl, options = {}) {
+    if (!svgEl) {
+      logDebug('svgElementToPdfBlob skipped', { contextLabel: options.contextLabel, reason: 'no element' });
+      return null;
+    }
+    const xml = svgToXml(svgEl, options.contextLabel);
+    if (!xml) return null;
+    const dims = computeSvgDimensions(svgEl, options.fallbackWidth, options.fallbackHeight);
+    let backgroundColor = resolveBackgroundColor(options.backgroundColor, svgEl);
+    if (!backgroundColor) {
+      backgroundColor = '#ffffff';
+    }
+    return svgStringToPdfBlob(xml, {
+      width: dims.width,
+      height: dims.height,
+      fallbackWidth: dims.width,
+      fallbackHeight: dims.height,
+      contextLabel: options.contextLabel,
+      dpi: options.dpi,
+      dpiX: options.dpiX,
+      dpiY: options.dpiY,
+      backgroundColor,
+      pngScale: options.pngScale
+    });
+  }
+
+  async function svgElementToTiffBlob(svgEl, options = {}) {
+    if (!svgEl) {
+      logDebug('svgElementToTiffBlob skipped', { contextLabel: options.contextLabel, reason: 'no element' });
+      return null;
+    }
+    const xml = svgToXml(svgEl, options.contextLabel);
+    if (!xml) return null;
+    const dims = computeSvgDimensions(svgEl, options.fallbackWidth, options.fallbackHeight);
+    let backgroundColor = resolveBackgroundColor(options.backgroundColor, svgEl);
+    if (!backgroundColor) {
+      backgroundColor = '#ffffff';
+    }
+    return svgStringToTiffBlob(xml, {
+      width: dims.width,
+      height: dims.height,
+      fallbackWidth: dims.width,
+      fallbackHeight: dims.height,
+      contextLabel: options.contextLabel,
+      dpi: options.dpi,
+      dpiX: options.dpiX,
+      dpiY: options.dpiY,
+      backgroundColor,
+      pngScale: options.pngScale
     });
   }
 
@@ -3945,6 +4330,52 @@
             }
           }
         }
+      } else if (format === 'pdf') {
+        const blob = await svgElementToPdfBlob(svgEl, {
+          contextLabel: `${contextLabel}-pdf`,
+          fallbackWidth,
+          fallbackHeight,
+          dpi,
+          dpiX,
+          dpiY,
+          pngScale
+        });
+        if (!blob) return;
+        if (mode === 'download') {
+          downloadBlob(blob, `${fileName}.pdf`, `${contextLabel}-pdf`);
+        } else {
+          const copied = await copyBlobMap({ [PDF_MIME_TYPE]: blob }, `${contextLabel}-pdf`);
+          if (!copied) {
+            warn('svgActions pdf copy unsupported', { contextLabel: `${contextLabel}-pdf` });
+            downloadBlob(blob, `${fileName}.pdf`, `${contextLabel}-pdf`);
+            if (typeof global.alert === 'function') {
+              global.alert('Copying PDF images to the clipboard is not supported in this browser. The PDF file was downloaded instead.');
+            }
+          }
+        }
+      } else if (format === 'tiff') {
+        const blob = await svgElementToTiffBlob(svgEl, {
+          contextLabel: `${contextLabel}-tiff`,
+          fallbackWidth,
+          fallbackHeight,
+          dpi,
+          dpiX,
+          dpiY,
+          pngScale
+        });
+        if (!blob) return;
+        if (mode === 'download') {
+          downloadBlob(blob, `${fileName}.tiff`, `${contextLabel}-tiff`);
+        } else {
+          const copied = await copyBlobMap({ [TIFF_MIME_TYPE]: blob }, `${contextLabel}-tiff`);
+          if (!copied) {
+            warn('svgActions tiff copy unsupported', { contextLabel: `${contextLabel}-tiff` });
+            downloadBlob(blob, `${fileName}.tiff`, `${contextLabel}-tiff`);
+            if (typeof global.alert === 'function') {
+              global.alert('Copying TIFF images to the clipboard is not supported in this browser. The TIFF file was downloaded instead.');
+            }
+          }
+        }
       }
     }
     const hybridLabel = hybridConfig?.label || 'SVG (rasterized)';
@@ -3956,7 +4387,9 @@
           { key: 'png', label: 'PNG', handler: () => handle('download', 'png') },
           { key: 'svg', label: 'SVG', handler: () => handle('download', 'svg') },
           ...(hybridConfig ? [{ key: 'svg-hybrid', label: hybridLabel, handler: () => handle('download', 'svg-hybrid') }] : []),
-          { key: 'emf', label: 'EMF', handler: () => handle('download', 'emf') }
+          { key: 'emf', label: 'EMF', handler: () => handle('download', 'emf') },
+          { key: 'pdf', label: 'PDF', handler: () => handle('download', 'pdf') },
+          { key: 'tiff', label: 'TIFF', handler: () => handle('download', 'tiff') }
         ]
       },
       {
@@ -4031,6 +4464,17 @@
       }
       return blob;
     }
+    function resolveCanvasBackground(canvas) {
+      let backgroundSource = config.backgroundColor;
+      if (!backgroundSource && typeof config.getBackgroundColor === 'function') {
+        backgroundSource = config.getBackgroundColor();
+      }
+      let backgroundColor = resolveBackgroundColor(backgroundSource, canvas);
+      if (!backgroundColor) {
+        backgroundColor = '#ffffff';
+      }
+      return backgroundColor;
+    }
 
     async function handle(mode, format) {
       if (format === 'png') {
@@ -4083,6 +4527,48 @@
             }
           }
         }
+      } else if (format === 'pdf') {
+        const canvas = resolveCanvas();
+        if (!canvas) {
+          logDebug('canvasActions missing canvas', { contextLabel, format: 'pdf' });
+          return;
+        }
+        const backgroundColor = resolveCanvasBackground(canvas);
+        const blob = await canvasToPdfBlob(canvas, { dpi, dpiX, dpiY, backgroundColor });
+        if (!blob) return;
+        if (mode === 'download') {
+          downloadBlob(blob, `${fileName}.pdf`, `${contextLabel}-pdf`);
+        } else {
+          const copied = await copyBlobMap({ [PDF_MIME_TYPE]: blob }, `${contextLabel}-pdf`);
+          if (!copied) {
+            warn('canvasActions pdf copy unsupported', { contextLabel: `${contextLabel}-pdf` });
+            downloadBlob(blob, `${fileName}.pdf`, `${contextLabel}-pdf`);
+            if (typeof global.alert === 'function') {
+              global.alert('Copying PDF images to the clipboard is not supported in this browser. The PDF file was downloaded instead.');
+            }
+          }
+        }
+      } else if (format === 'tiff') {
+        const canvas = resolveCanvas();
+        if (!canvas) {
+          logDebug('canvasActions missing canvas', { contextLabel, format: 'tiff' });
+          return;
+        }
+        const backgroundColor = resolveCanvasBackground(canvas);
+        const blob = canvasToTiffBlob(canvas, { dpi, dpiX, dpiY, backgroundColor });
+        if (!blob) return;
+        if (mode === 'download') {
+          downloadBlob(blob, `${fileName}.tiff`, `${contextLabel}-tiff`);
+        } else {
+          const copied = await copyBlobMap({ [TIFF_MIME_TYPE]: blob }, `${contextLabel}-tiff`);
+          if (!copied) {
+            warn('canvasActions tiff copy unsupported', { contextLabel: `${contextLabel}-tiff` });
+            downloadBlob(blob, `${fileName}.tiff`, `${contextLabel}-tiff`);
+            if (typeof global.alert === 'function') {
+              global.alert('Copying TIFF images to the clipboard is not supported in this browser. The TIFF file was downloaded instead.');
+            }
+          }
+        }
       }
     }
     return [
@@ -4092,7 +4578,9 @@
         formats: [
           { key: 'png', label: 'PNG', handler: () => handle('download', 'png') },
           { key: 'svg', label: 'SVG', handler: () => handle('download', 'svg') },
-          { key: 'emf', label: 'EMF', handler: () => handle('download', 'emf') }
+          { key: 'emf', label: 'EMF', handler: () => handle('download', 'emf') },
+          { key: 'pdf', label: 'PDF', handler: () => handle('download', 'pdf') },
+          { key: 'tiff', label: 'TIFF', handler: () => handle('download', 'tiff') }
         ]
       },
       {
@@ -4219,6 +4707,66 @@
             }
           }
         }
+      } else if (format === 'pdf') {
+        const xml = await resolveSvgString();
+        if (!xml) return;
+        const dims = await resolveDims();
+        const backgroundColor = resolveBackground() || '#ffffff';
+        const blob = await svgStringToPdfBlob(xml, {
+          width: dims.width,
+          height: dims.height,
+          fallbackWidth: dims.width,
+          fallbackHeight: dims.height,
+          contextLabel: `${contextLabel}-pdf`,
+          dpi,
+          dpiX,
+          dpiY,
+          backgroundColor,
+          pngScale
+        });
+        if (!blob) return;
+        if (mode === 'download') {
+          downloadBlob(blob, `${fileName}.pdf`, `${contextLabel}-pdf`);
+        } else {
+          const copied = await copyBlobMap({ [PDF_MIME_TYPE]: blob }, `${contextLabel}-pdf`);
+          if (!copied) {
+            warn('svgStringActions pdf copy unsupported', { contextLabel: `${contextLabel}-pdf` });
+            downloadBlob(blob, `${fileName}.pdf`, `${contextLabel}-pdf`);
+            if (typeof global.alert === 'function') {
+              global.alert('Copying PDF images to the clipboard is not supported in this browser. The PDF file was downloaded instead.');
+            }
+          }
+        }
+      } else if (format === 'tiff') {
+        const xml = await resolveSvgString();
+        if (!xml) return;
+        const dims = await resolveDims();
+        const backgroundColor = resolveBackground() || '#ffffff';
+        const blob = await svgStringToTiffBlob(xml, {
+          width: dims.width,
+          height: dims.height,
+          fallbackWidth: dims.width,
+          fallbackHeight: dims.height,
+          contextLabel: `${contextLabel}-tiff`,
+          dpi,
+          dpiX,
+          dpiY,
+          backgroundColor,
+          pngScale
+        });
+        if (!blob) return;
+        if (mode === 'download') {
+          downloadBlob(blob, `${fileName}.tiff`, `${contextLabel}-tiff`);
+        } else {
+          const copied = await copyBlobMap({ [TIFF_MIME_TYPE]: blob }, `${contextLabel}-tiff`);
+          if (!copied) {
+            warn('svgStringActions tiff copy unsupported', { contextLabel: `${contextLabel}-tiff` });
+            downloadBlob(blob, `${fileName}.tiff`, `${contextLabel}-tiff`);
+            if (typeof global.alert === 'function') {
+              global.alert('Copying TIFF images to the clipboard is not supported in this browser. The TIFF file was downloaded instead.');
+            }
+          }
+        }
       }
     }
     return [
@@ -4228,7 +4776,9 @@
         formats: [
           { key: 'png', label: 'PNG', handler: () => handle('download', 'png') },
           { key: 'svg', label: 'SVG', handler: () => handle('download', 'svg') },
-          { key: 'emf', label: 'EMF', handler: () => handle('download', 'emf') }
+          { key: 'emf', label: 'EMF', handler: () => handle('download', 'emf') },
+          { key: 'pdf', label: 'PDF', handler: () => handle('download', 'pdf') },
+          { key: 'tiff', label: 'TIFF', handler: () => handle('download', 'tiff') }
         ]
       },
       {
@@ -4309,10 +4859,16 @@
 
   exporter.svgElementToPngBlob = svgElementToPngBlob;
   exporter.svgElementToEmfBlob = svgElementToEmfBlob;
+  exporter.svgElementToPdfBlob = svgElementToPdfBlob;
+  exporter.svgElementToTiffBlob = svgElementToTiffBlob;
   exporter.svgElementToXml = svgToXml;
   exporter.svgStringToPngBlob = svgStringToPngBlob;
   exporter.svgStringToEmfBlob = svgStringToEmfBlob;
+  exporter.svgStringToPdfBlob = svgStringToPdfBlob;
+  exporter.svgStringToTiffBlob = svgStringToTiffBlob;
   exporter.canvasToEmfBlob = canvasToEmfBlob;
+  exporter.canvasToPdfBlob = canvasToPdfBlob;
+  exporter.canvasToTiffBlob = canvasToTiffBlob;
   exporter.downloadBlob = downloadBlob;
   exporter.copyBlobMap = copyBlobMap;
   exporter.buildHybridSvg = buildHybridSvg;
