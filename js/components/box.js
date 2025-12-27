@@ -732,6 +732,9 @@
     ];
     const fillInput = doc.createElement('input');
     fillInput.type = 'color';
+    fillInput.className = 'box-point-fill-input';
+    fillInput.tabIndex = -1;
+    fillInput.setAttribute('aria-hidden', 'true');
     const currentFill = (resolveTargetPoints()[0]?.getAttribute('fill') || el.getAttribute('fill') || '#000000');
     try{ fillInput.value = currentFill; }catch(e){}
     // determine current shape from element tag or data attribute
@@ -744,22 +747,105 @@
       if(tag === 'path') return node.getAttribute('data-shape') || 'circle';
       return 'circle';
     };
-    const currentShape = detectShape(resolveTargetPoints()[0]);
-    fillInput.addEventListener('click', (evt)=>{
+    let currentShape = detectShape(resolveTargetPoints()[0]);
+    const fillSwatch = doc.createElement('button');
+    fillSwatch.type = 'button';
+    fillSwatch.className = 'box-point-fill-swatch';
+    fillSwatch.setAttribute('aria-label', 'Fill/Shape');
+    const fillSwatchWrap = doc.createElement('div');
+    fillSwatchWrap.className = 'box-point-fill-control';
+    fillSwatchWrap.appendChild(fillSwatch);
+    fillSwatchWrap.appendChild(fillInput);
+    const updateFillSwatch = (color, shape) => {
+      const normalizedColor = color || '#000000';
+      const normalizedShape = shape || 'circle';
+      fillSwatch.innerHTML = '';
+      const svg = doc.createElementNS(NS, 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('focusable', 'false');
+      const center = 12;
+      const radius = 7;
+      const normalized = normalizedShape.toLowerCase();
+      const applyFill = node => {
+        node.setAttribute('fill', normalizedColor);
+        return node;
+      };
+      if(normalized === 'square'){
+        const rect = doc.createElementNS(NS, 'rect');
+        rect.setAttribute('x', String(center - radius));
+        rect.setAttribute('y', String(center - radius));
+        rect.setAttribute('width', String(radius * 2));
+        rect.setAttribute('height', String(radius * 2));
+        svg.appendChild(applyFill(rect));
+      }else if(normalized === 'triangle'){
+        const path = doc.createElementNS(NS, 'path');
+        path.setAttribute('d', `M ${center} ${center - radius} L ${center + radius} ${center + radius} L ${center - radius} ${center + radius} Z`);
+        svg.appendChild(applyFill(path));
+      }else if(normalized === 'diamond'){
+        const path = doc.createElementNS(NS, 'path');
+        path.setAttribute('d', `M ${center} ${center - radius} L ${center + radius} ${center} L ${center} ${center + radius} L ${center - radius} ${center} Z`);
+        svg.appendChild(applyFill(path));
+      }else if(normalized === 'cross'){
+        const size = radius * 2;
+        const half = size / 2;
+        const bar = Math.max(Math.round(size / 3), 4);
+        const halfBar = bar / 2;
+        const top = center - half;
+        const bottom = center + half;
+        const left = center - half;
+        const right = center + half;
+        const path = doc.createElementNS(NS, 'path');
+        path.setAttribute('d', `M ${center - halfBar} ${top} H ${center + halfBar} V ${center - halfBar} H ${right} V ${center + halfBar} H ${center + halfBar} V ${bottom} H ${center - halfBar} V ${center + halfBar} H ${left} V ${center - halfBar} H ${center - halfBar} Z`);
+        svg.appendChild(applyFill(path));
+      }else if(normalized === 'plus'){
+        const arm = Math.max(Math.round(radius * 0.7), 4);
+        const half = Math.round(arm / 2);
+        const path = doc.createElementNS(NS, 'path');
+        path.setAttribute('d', `M ${center - half} ${center - radius} H ${center + half} V ${center - half} H ${center + radius} V ${center + half} H ${center + half} V ${center + radius} H ${center - half} V ${center + half} H ${center - radius} V ${center - half} H ${center - half} Z`);
+        svg.appendChild(applyFill(path));
+      }else if(normalized === 'star'){
+        const outer = radius;
+        const inner = Math.max(radius * 0.45, 2);
+        const points = [];
+        for(let i = 0; i < 5; i += 1){
+          const a = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+          points.push({ x: center + Math.cos(a) * outer, y: center + Math.sin(a) * outer });
+          const b = a + Math.PI / 5;
+          points.push({ x: center + Math.cos(b) * inner, y: center + Math.sin(b) * inner });
+        }
+        const path = doc.createElementNS(NS, 'path');
+        const d = points.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' ') + ' Z';
+        path.setAttribute('d', d);
+        svg.appendChild(applyFill(path));
+      }else{
+        const circle = doc.createElementNS(NS, 'circle');
+        circle.setAttribute('cx', String(center));
+        circle.setAttribute('cy', String(center));
+        circle.setAttribute('r', String(radius));
+        svg.appendChild(applyFill(circle));
+      }
+      fillSwatch.appendChild(svg);
+      fillSwatch.dataset.shape = normalizedShape;
+      fillSwatch.dataset.color = normalizedColor;
+    };
+    updateFillSwatch(currentFill, currentShape);
+    const openFillPicker = (evt) => {
       evt.preventDefault();
       try{
         if(typeof Shared.openColorPicker === 'function'){
           let prevColor = fillInput.value;
-          let prevShape = currentShape;
           Shared.openColorPicker({
-            anchor: fillInput,
+            anchor: fillSwatch,
             color: fillInput.value,
             shapePicker: {
               value: currentShape,
               options: BOX_SHAPE_OPTIONS,
               onChange(nextShape){
                 if(!nextShape) return;
+                currentShape = nextShape;
                 replacePointsWithShape(resolveTargetPoints(), nextShape);
+                updateFillSwatch(fillInput.value, currentShape);
                 if(scopeSelect.value === 'trace'){
                   try{ persistTraceStyle({ shape: nextShape }); }catch(e){console.warn(e);} 
                 }else{
@@ -770,12 +856,14 @@
             onInput(value, meta){
               fillInput.value = value;
               resolveTargetPoints().forEach(p => p.setAttribute('fill', value));
+              updateFillSwatch(value, currentShape);
             },
             onChange(value, meta){
               const nextValue = value != null ? String(value) : '';
               if(nextValue !== prevColor){
                 prevColor = nextValue;
                 resolveTargetPoints().forEach(p => p.setAttribute('fill', nextValue));
+                updateFillSwatch(nextValue, currentShape);
                 if(scopeSelect.value === 'trace'){
                   try{ persistTraceStyle({ fill: nextValue }); }catch(e){console.warn(e);} 
                 }else{
@@ -787,12 +875,25 @@
           return;
         }
       }catch(err){ console.warn('openColorPicker error', err); }
-      // Fallback: attached simple picker
-      if(typeof Shared.attachColorPickerNear === 'function'){
-        try{ Shared.attachColorPickerNear(fillInput); }catch(e){}
+      try{ fillInput.click(); }catch(e){}
+    };
+    fillSwatch.addEventListener('click', openFillPicker);
+    fillInput.addEventListener('input', () => {
+      const value = fillInput.value;
+      resolveTargetPoints().forEach(p => p.setAttribute('fill', value));
+      updateFillSwatch(value, currentShape);
+    });
+    fillInput.addEventListener('change', () => {
+      const value = fillInput.value;
+      resolveTargetPoints().forEach(p => p.setAttribute('fill', value));
+      updateFillSwatch(value, currentShape);
+      if(scopeSelect.value === 'trace'){
+        try{ persistTraceStyle({ fill: value }); }catch(e){console.warn(e);} 
+      }else{
+        applyPointStyleGlobal({ fill: value });
       }
     });
-    const fillLabelEl = makeInput('Fill/Shape', fillInput);
+    const fillLabelEl = makeInput('Fill/Shape', fillSwatchWrap);
     fillLabelEl.classList.add('workspace-toolbar__input--color');
     wrap.appendChild(fillLabelEl);
 
@@ -815,6 +916,28 @@
     const borderLabelEl = makeInput('Border', borderInput);
     borderLabelEl.classList.add('workspace-toolbar__input--color');
     wrap.appendChild(borderLabelEl);
+    const syncFillSwatchSize = () => {
+      if(!fillSwatch || !fillSwatchWrap || !borderInput){ return; }
+      const rect = borderInput.getBoundingClientRect();
+      if(!rect || !Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0){
+        return;
+      }
+      const widthPx = `${Math.round(rect.width)}px`;
+      const heightPx = `${Math.round(rect.height)}px`;
+      fillSwatch.style.width = widthPx;
+      fillSwatch.style.height = heightPx;
+      fillSwatchWrap.style.width = widthPx;
+      fillSwatchWrap.style.height = heightPx;
+    };
+    const scheduleFillSwatchSync = typeof Shared.debounceFrame === 'function'
+      ? Shared.debounceFrame(syncFillSwatchSize)
+      : () => {
+          if(typeof global.requestAnimationFrame === 'function'){
+            global.requestAnimationFrame(syncFillSwatchSize);
+          }else{
+            syncFillSwatchSize();
+          }
+        };
 
     // Size slider (compact)
     function updatePointsSize(points, newSize){
@@ -1093,6 +1216,7 @@
     wrap.appendChild(makeInput('Transparency', opWrap));
 
     toolbarHost.appendChild(wrap);
+    scheduleFillSwatchSync();
     // show host and mark dock active
     toolbarHost.style.display = 'block';
     toolbarHost.classList.add('font-toolbar-host--visible');

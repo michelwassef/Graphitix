@@ -1888,6 +1888,45 @@ select {
     display:block !important;
     box-sizing:border-box !important;
 }
+.workspace-toolbar__input--color .box-point-fill-control{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:var(--color-swatch-size);
+    height:var(--color-swatch-size);
+    box-sizing:border-box;
+}
+.box-point-fill-swatch{
+    width:var(--color-swatch-size);
+    height:var(--color-swatch-size);
+    min-width:var(--color-swatch-size);
+    min-height:var(--color-swatch-size);
+    border-radius:3px;
+    border:1px solid rgba(15,23,42,0.12);
+    background:#ffffff;
+    padding:0;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    box-sizing:border-box;
+}
+.box-point-fill-swatch svg{
+    width:100%;
+    height:100%;
+    display:block;
+}
+.box-point-fill-swatch:focus-visible{
+    outline:2px solid #1f6bff;
+    outline-offset:2px;
+}
+.box-point-fill-input{
+    position:absolute;
+    opacity:0;
+    width:0;
+    height:0;
+    pointer-events:none;
+}
 
 /* Histogram distribution swatches and other standalone swatches */
 .hist-dist-option{
