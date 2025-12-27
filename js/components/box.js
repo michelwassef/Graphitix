@@ -526,10 +526,14 @@
       return lbl;
     };
 
-    // Determine parent group for the points (all points in the same trace group if present)
-    const parentGroup = el.closest && el.closest('g[data-trace]') ? el.closest('g[data-trace]') : null;
+    // Determine parent group for the points (all points in the same point layer if present)
+    const parentGroup = el.closest
+      ? (el.closest('g[data-export-layer="box-points"]') || el.closest('g[data-trace]'))
+      : null;
     const traceIndex = parentGroup && parentGroup.dataset && parentGroup.dataset.trace != null ? String(parentGroup.dataset.trace) : null;
-    const resolveTargetPoints = () => parentGroup ? Array.from(parentGroup.querySelectorAll('circle,rect,path')) : [el];
+    const resolveTargetPoints = () => parentGroup
+      ? Array.from(parentGroup.querySelectorAll('circle,rect,path'))
+      : [el];
     const scopeName = `boxPointScope_${Date.now()}`;
     const scopeField = doc.createElement('label');
     scopeField.className = 'workspace-toolbar__input workspace-toolbar__input--compact workspace-toolbar__input--scope';
@@ -854,13 +858,17 @@
       });
     }
 
+    const targetPoints = resolveTargetPoints();
+
     // Size selection box
     // derive current size
     let derivedSize = 4;
     try{
       if(targetPoints[0]){
         const t0 = targetPoints[0];
-        if((t0.tagName||'').toLowerCase() === 'circle'){
+        if((t0.tagName||'').toLowerCase() === 'path' && Number.isFinite(t0.__batchedSize)){
+          derivedSize = t0.__batchedSize / 2;
+        }else if((t0.tagName||'').toLowerCase() === 'circle'){
           const r0 = Number(t0.getAttribute('r'));
           if(Number.isFinite(r0) && r0 > 0) derivedSize = r0;
         }else{
