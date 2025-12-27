@@ -49,7 +49,7 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 6px;
-    color: #475569;
+    color: #111827;
 }
 
 .shared-color-picker__section--shapes {
@@ -308,6 +308,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
+    .shared-color-picker {
         border: 1px solid #c7ccd3;
         border-radius: 4px;
         padding: 4px 8px;
@@ -319,7 +320,7 @@
     }
 
     .shared-color-picker__section-title {
-        color: #cbd5f5;
+        color: #e2e8f0;
     }
 
     .shared-color-picker__swatch {
@@ -1888,7 +1889,8 @@ select {
     display:block !important;
     box-sizing:border-box !important;
 }
-.workspace-toolbar__input--color .box-point-fill-control{
+.workspace-toolbar__input--color .box-point-fill-control,
+.workspace-toolbar__input--color .shared-shape-color-control{
     display:inline-flex;
     align-items:center;
     justify-content:center;
@@ -1896,7 +1898,8 @@ select {
     height:var(--color-swatch-size);
     box-sizing:border-box;
 }
-.box-point-fill-swatch{
+.box-point-fill-swatch,
+.shared-shape-color-swatch{
     width:var(--color-swatch-size);
     height:var(--color-swatch-size);
     min-width:var(--color-swatch-size);
@@ -1911,16 +1914,19 @@ select {
     cursor:pointer;
     box-sizing:border-box;
 }
-.box-point-fill-swatch svg{
+.box-point-fill-swatch svg,
+.shared-shape-color-swatch svg{
     width:100%;
     height:100%;
     display:block;
 }
-.box-point-fill-swatch:focus-visible{
+.box-point-fill-swatch:focus-visible,
+.shared-shape-color-swatch:focus-visible{
     outline:2px solid #1f6bff;
     outline-offset:2px;
 }
-.box-point-fill-input{
+.box-point-fill-input,
+.shared-shape-color-input{
     position:absolute;
     opacity:0;
     width:0;

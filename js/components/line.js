@@ -95,15 +95,19 @@
   const MAX_FORECAST_HORIZON = 120;
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
   global.DEFAULT_SCATTER_COLORS = DEFAULT_SCATTER_COLORS;
-  const LINE_GROUP_SHAPE_OPTIONS = Object.freeze([
-    { value: 'circle', label: 'Circle' },
-    { value: 'square', label: 'Square' },
-    { value: 'triangle', label: 'Triangle' },
-    { value: 'diamond', label: 'Diamond' },
-    { value: 'cross', label: 'Cross' }
-  ]);
+  const LINE_GROUP_SHAPE_OPTIONS = Shared.getShapePickerOptions
+    ? Shared.getShapePickerOptions()
+    : Object.freeze([
+        { value: 'circle', label: 'Circle' },
+        { value: 'square', label: 'Square' },
+        { value: 'triangle', label: 'Triangle' },
+        { value: 'diamond', label: 'Diamond' },
+        { value: 'cross', label: 'Cross' }
+      ]);
   const LINE_GROUP_SHAPE_DEFAULTS = LINE_GROUP_SHAPE_OPTIONS.map(opt => opt.value);
-  const LINE_GROUP_SHAPE_VALUES = new Set(LINE_GROUP_SHAPE_DEFAULTS);
+  const LINE_GROUP_SHAPE_VALUES = Shared.getShapePickerValues
+    ? Shared.getShapePickerValues()
+    : new Set(LINE_GROUP_SHAPE_DEFAULTS);
   const LINE_DISPLAY_MODE_OPTIONS = Object.freeze(['line','area']);
   const LINE_3D_DEFAULTS = Object.freeze({
     rotationX: 0.24,

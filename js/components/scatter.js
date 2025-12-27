@@ -83,17 +83,21 @@
   const SCATTER_ADAPTIVE_SIZE_THRESHOLD_LOW = 50;
   const SCATTER_ADAPTIVE_SIZE_THRESHOLD_HIGH = 5000;
 
-  const SCATTER_SHAPE_DEFAULTS = Object.freeze(['circle','triangle','square','diamond','cross','plus','star']);
-  const SCATTER_SHAPE_VALUES = new Set(SCATTER_SHAPE_DEFAULTS);
-  const SCATTER_SHAPE_OPTIONS = Object.freeze([
-    { value: 'circle', label: 'Circle' },
-    { value: 'triangle', label: 'Triangle' },
-    { value: 'square', label: 'Square' },
-    { value: 'diamond', label: 'Diamond' },
-    { value: 'cross', label: 'Cross' },
-    { value: 'plus', label: 'Plus' },
-    { value: 'star', label: 'Star' }
-  ]);
+  const SCATTER_SHAPE_OPTIONS = Shared.getShapePickerOptions
+    ? Shared.getShapePickerOptions()
+    : Object.freeze([
+        { value: 'circle', label: 'Circle' },
+        { value: 'triangle', label: 'Triangle' },
+        { value: 'square', label: 'Square' },
+        { value: 'diamond', label: 'Diamond' },
+        { value: 'cross', label: 'Cross' },
+        { value: 'plus', label: 'Plus' },
+        { value: 'star', label: 'Star' }
+      ]);
+  const SCATTER_SHAPE_DEFAULTS = Object.freeze(SCATTER_SHAPE_OPTIONS.map(opt => opt.value));
+  const SCATTER_SHAPE_VALUES = Shared.getShapePickerValues
+    ? Shared.getShapePickerValues()
+    : new Set(SCATTER_SHAPE_DEFAULTS);
 
   const SCATTER_3D_DEFAULTS = Object.freeze({
     rotationX: 0.24,

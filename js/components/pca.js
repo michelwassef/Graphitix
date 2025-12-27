@@ -119,15 +119,19 @@
     negativeSampleRate: 5
   });
   const DEFAULT_SCATTER_COLORS = global.DEFAULT_SCATTER_COLORS || ['#e41a1c','#377eb8','#4daf4a','#984ea3','#ff7f00','#ffff33','#a65628','#f781bf','#999999'];
-  const GROUP_SHAPE_OPTIONS = Object.freeze([
-    { value: 'circle', label: 'Circle' },
-    { value: 'square', label: 'Square' },
-    { value: 'triangle', label: 'Triangle' },
-    { value: 'diamond', label: 'Diamond' },
-    { value: 'cross', label: 'Cross' }
-  ]);
+  const GROUP_SHAPE_OPTIONS = Shared.getShapePickerOptions
+    ? Shared.getShapePickerOptions()
+    : Object.freeze([
+        { value: 'circle', label: 'Circle' },
+        { value: 'square', label: 'Square' },
+        { value: 'triangle', label: 'Triangle' },
+        { value: 'diamond', label: 'Diamond' },
+        { value: 'cross', label: 'Cross' }
+      ]);
   const GROUP_SHAPE_DEFAULTS = GROUP_SHAPE_OPTIONS.map(opt => opt.value);
-  const GROUP_SHAPE_VALUES = new Set(GROUP_SHAPE_DEFAULTS);
+  const GROUP_SHAPE_VALUES = Shared.getShapePickerValues
+    ? Shared.getShapePickerValues()
+    : new Set(GROUP_SHAPE_DEFAULTS);
   const PCA_DEFAULT_TITLES = Object.freeze({
     pca: 'PCA Plot',
     mds: 'MDS Plot',

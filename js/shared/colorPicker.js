@@ -10,6 +10,16 @@
   const MORE_TOGGLE_LABELS = { show: 'Show more', hide: 'Hide' };
   const RECENT_LIMIT = 12;
   const SVG_NS = 'http://www.w3.org/2000/svg';
+  const SHARED_SHAPE_OPTIONS = Object.freeze([
+    Object.freeze({ value: 'circle', label: 'Circle' }),
+    Object.freeze({ value: 'triangle', label: 'Triangle' }),
+    Object.freeze({ value: 'square', label: 'Square' }),
+    Object.freeze({ value: 'diamond', label: 'Diamond' }),
+    Object.freeze({ value: 'cross', label: 'Cross' }),
+    Object.freeze({ value: 'plus', label: 'Plus' }),
+    Object.freeze({ value: 'star', label: 'Star' })
+  ]);
+  const SHARED_SHAPE_VALUES = new Set(SHARED_SHAPE_OPTIONS.map(opt => opt.value));
 
   let moreSectionIdCounter = 0;
 
@@ -539,6 +549,154 @@
     svg.appendChild(circle);
     return svg;
   }
+
+  Shared.getShapePickerOptions = function getShapePickerOptions(){
+    return SHARED_SHAPE_OPTIONS;
+  };
+
+  Shared.getShapePickerValues = function getShapePickerValues(){
+    return SHARED_SHAPE_VALUES;
+  };
+
+  Shared.createShapeColorSwatch = function createShapeColorSwatch(options){
+    const opts = options || {};
+    const doc = opts.document || documentRef;
+    if(!doc){
+      return null;
+    }
+    const container = doc.createElement('div');
+    container.className = 'shared-shape-color-control';
+    const swatch = doc.createElement('button');
+    swatch.type = 'button';
+    swatch.className = 'shared-shape-color-swatch';
+    swatch.setAttribute('aria-label', opts.label || 'Fill/Shape');
+    const input = doc.createElement('input');
+    input.type = 'color';
+    input.className = 'shared-shape-color-input';
+    input.tabIndex = -1;
+    input.setAttribute('aria-hidden', 'true');
+    container.appendChild(swatch);
+    container.appendChild(input);
+
+    const normalizeShape = shapeValue => {
+      const normalized = typeof shapeValue === 'string' ? shapeValue.toLowerCase() : '';
+      return SHARED_SHAPE_VALUES.has(normalized) ? normalized : 'circle';
+    };
+    let currentColor = normalizeHex(opts.color) || '#000000';
+    let currentShape = normalizeShape(opts.shape);
+    input.value = currentColor;
+
+    const renderSwatch = () => {
+      swatch.textContent = '';
+      const svg = createShapePreview(currentShape);
+      svg.style.color = currentColor;
+      swatch.appendChild(svg);
+      swatch.dataset.shape = currentShape;
+      swatch.dataset.color = currentColor;
+      try{ input.value = currentColor; }catch(e){}
+    };
+
+    const update = (nextColor, nextShape) => {
+      if(nextColor){
+        const normalized = normalizeHex(nextColor);
+        if(normalized){
+          currentColor = normalized;
+        }
+      }
+      if(nextShape){
+        currentShape = normalizeShape(nextShape);
+      }
+      renderSwatch();
+    };
+
+    const openPicker = (evt) => {
+      if(evt && typeof evt.preventDefault === 'function'){
+        evt.preventDefault();
+      }
+      if(typeof Shared.openColorPicker === 'function'){
+        const shapeOptions = Array.isArray(opts.shapeOptions) && opts.shapeOptions.length
+          ? opts.shapeOptions
+          : SHARED_SHAPE_OPTIONS;
+        let previousColor = currentColor;
+        Shared.openColorPicker({
+          anchor: opts.anchor || swatch,
+          color: currentColor,
+          closeOnSelect: opts.closeOnSelect === true,
+          shapePicker: {
+            value: currentShape,
+            options: shapeOptions,
+            onChange(nextShape){
+              const normalized = normalizeShape(nextShape);
+              if(normalized === currentShape){
+                return;
+              }
+              currentShape = normalized;
+              renderSwatch();
+              if(typeof opts.onShapeChange === 'function'){
+                opts.onShapeChange(currentShape);
+              }
+            }
+          },
+          onInput(value){
+            const normalized = normalizeHex(value);
+            if(!normalized){
+              return;
+            }
+            currentColor = normalized;
+            renderSwatch();
+            if(typeof opts.onColorInput === 'function'){
+              opts.onColorInput(currentColor);
+            }
+          },
+          onChange(value){
+            const normalized = normalizeHex(value);
+            if(!normalized){
+              return;
+            }
+            currentColor = normalized;
+            renderSwatch();
+            if(typeof opts.onColorChange === 'function'){
+              opts.onColorChange(currentColor, previousColor);
+            }
+            previousColor = currentColor;
+          }
+        });
+      }else{
+        try{ input.click(); }catch(e){}
+      }
+    };
+
+    swatch.addEventListener('click', openPicker);
+    input.addEventListener('input', () => {
+      const normalized = normalizeHex(input.value);
+      if(normalized){
+        currentColor = normalized;
+        renderSwatch();
+        if(typeof opts.onColorInput === 'function'){
+          opts.onColorInput(currentColor);
+        }
+      }
+    });
+    input.addEventListener('change', () => {
+      const normalized = normalizeHex(input.value);
+      if(normalized){
+        currentColor = normalized;
+        renderSwatch();
+        if(typeof opts.onColorChange === 'function'){
+          opts.onColorChange(currentColor);
+        }
+      }
+    });
+
+    renderSwatch();
+    return {
+      element: container,
+      swatch,
+      input,
+      update,
+      open: openPicker
+    };
+  };
 
   function createShapeSection(){
     const section = documentRef.createElement('section');
