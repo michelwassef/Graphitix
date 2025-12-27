@@ -574,19 +574,19 @@
       ctx.closePath();
     }else if(normalized === 'cross'){
       const bar = Math.max(size / 3, 2);
-      const halfBar = bar / 2;
-      ctx.moveTo(cx - halfBar, cy - half);
-      ctx.lineTo(cx + halfBar, cy - half);
-      ctx.lineTo(cx + halfBar, cy - halfBar);
-      ctx.lineTo(cx + half, cy - halfBar);
-      ctx.lineTo(cx + half, cy + halfBar);
-      ctx.lineTo(cx + halfBar, cy + halfBar);
-      ctx.lineTo(cx + halfBar, cy + half);
-      ctx.lineTo(cx - halfBar, cy + half);
-      ctx.lineTo(cx - halfBar, cy + halfBar);
-      ctx.lineTo(cx - half, cy + halfBar);
-      ctx.lineTo(cx - half, cy - halfBar);
-      ctx.lineTo(cx - halfBar, cy - halfBar);
+      const hb = bar / 2;
+      ctx.moveTo(cx - half, cy - half + hb);
+      ctx.lineTo(cx - half + hb, cy - half);
+      ctx.lineTo(cx, cy - hb);
+      ctx.lineTo(cx + half - hb, cy - half);
+      ctx.lineTo(cx + half, cy - half + hb);
+      ctx.lineTo(cx + hb, cy);
+      ctx.lineTo(cx + half, cy + half - hb);
+      ctx.lineTo(cx + half - hb, cy + half);
+      ctx.lineTo(cx, cy + hb);
+      ctx.lineTo(cx - half + hb, cy + half);
+      ctx.lineTo(cx - half, cy + half - hb);
+      ctx.lineTo(cx - hb, cy);
       ctx.closePath();
     }else{
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -2369,8 +2369,22 @@
           const size = Math.max(radius * 2, 2);
           const half = size / 2;
           const bar = Math.max(size / 3, 2);
-          const halfBar = bar / 2;
-          const path = `M ${cx - halfBar} ${cy - half} L ${cx + halfBar} ${cy - half} L ${cx + halfBar} ${cy - halfBar} L ${cx + half} ${cy - halfBar} L ${cx + half} ${cy + halfBar} L ${cx + halfBar} ${cy + halfBar} L ${cx + halfBar} ${cy + half} L ${cx - halfBar} ${cy + half} L ${cx - halfBar} ${cy + halfBar} L ${cx - half} ${cy + halfBar} L ${cx - half} ${cy - halfBar} L ${cx - halfBar} ${cy - halfBar} Z`;
+          const hb = bar / 2;
+          const path = [
+            `M ${cx - half} ${cy - half + hb}`,
+            `L ${cx - half + hb} ${cy - half}`,
+            `L ${cx} ${cy - hb}`,
+            `L ${cx + half - hb} ${cy - half}`,
+            `L ${cx + half} ${cy - half + hb}`,
+            `L ${cx + hb} ${cy}`,
+            `L ${cx + half} ${cy + half - hb}`,
+            `L ${cx + half - hb} ${cy + half}`,
+            `L ${cx} ${cy + hb}`,
+            `L ${cx - half + hb} ${cy + half}`,
+            `L ${cx - half} ${cy + half - hb}`,
+            `L ${cx - hb} ${cy}`,
+            'Z'
+          ].join(' ');
           return addFunction('path',{ d: path, fill, stroke, 'stroke-width': strokeWidth, opacity });
         }
         return addFunction('circle',{ cx, cy, r: radius, fill, stroke, 'stroke-width': strokeWidth, opacity });

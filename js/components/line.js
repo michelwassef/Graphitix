@@ -2741,8 +2741,22 @@
       const size = Math.max(radius * 2, 2);
       const half = size / 2;
       const bar = Math.max(size / 3, 2);
-      const halfBar = bar / 2;
-      const path = `M ${cx - halfBar} ${cy - half} L ${cx + halfBar} ${cy - half} L ${cx + halfBar} ${cy - halfBar} L ${cx + half} ${cy - halfBar} L ${cx + half} ${cy + halfBar} L ${cx + halfBar} ${cy + halfBar} L ${cx + halfBar} ${cy + half} L ${cx - halfBar} ${cy + half} L ${cx - halfBar} ${cy + halfBar} L ${cx - half} ${cy + halfBar} L ${cx - half} ${cy - halfBar} L ${cx - halfBar} ${cy - halfBar} Z`;
+      const hb = bar / 2;
+      const path = [
+        `M ${cx - half} ${cy - half + hb}`,
+        `L ${cx - half + hb} ${cy - half}`,
+        `L ${cx} ${cy - hb}`,
+        `L ${cx + half - hb} ${cy - half}`,
+        `L ${cx + half} ${cy - half + hb}`,
+        `L ${cx + hb} ${cy}`,
+        `L ${cx + half} ${cy + half - hb}`,
+        `L ${cx + half - hb} ${cy + half}`,
+        `L ${cx} ${cy + hb}`,
+        `L ${cx - half + hb} ${cy + half}`,
+        `L ${cx - half} ${cy + half - hb}`,
+        `L ${cx - hb} ${cy}`,
+        'Z'
+      ].join(' ');
       return create('path', {
         d: path,
         fill,

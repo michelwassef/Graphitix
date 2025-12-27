@@ -508,7 +508,22 @@
       const left = center - half;
       const right = center + half;
       const path = documentRef.createElementNS(SVG_NS, 'path');
-      path.setAttribute('d', `M ${center - halfBar} ${top} H ${center + halfBar} V ${center - halfBar} H ${right} V ${center + halfBar} H ${center + halfBar} V ${bottom} H ${center - halfBar} V ${center + halfBar} H ${left} V ${center - halfBar} H ${center - halfBar} Z`);
+      const d = [
+        `M ${left} ${top + halfBar}`,
+        `L ${left + halfBar} ${top}`,
+        `L ${center} ${center - halfBar}`,
+        `L ${right - halfBar} ${top}`,
+        `L ${right} ${top + halfBar}`,
+        `L ${center + halfBar} ${center}`,
+        `L ${right} ${bottom - halfBar}`,
+        `L ${right - halfBar} ${bottom}`,
+        `L ${center} ${center + halfBar}`,
+        `L ${left + halfBar} ${bottom}`,
+        `L ${left} ${bottom - halfBar}`,
+        `L ${center - halfBar} ${center}`,
+        'Z'
+      ].join(' ');
+      path.setAttribute('d', d);
       path.setAttribute('fill', 'currentColor');
       svg.appendChild(path);
       return svg;

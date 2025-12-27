@@ -5832,13 +5832,27 @@
           const size = Math.max(radius * 2, 2);
           const half = size / 2;
           const bar = Math.max(size / 3, 2);
-          const halfBar = bar / 2;
+          const hb = bar / 2;
           const top = cy - half;
           const bottom = cy + half;
           const left = cx - half;
           const right = cx + half;
           const path = doc.createElementNS(NS, 'path');
-          const d = `M ${cx - halfBar} ${top} H ${cx + halfBar} V ${cy - halfBar} H ${right} V ${cy + halfBar} H ${cx + halfBar} V ${bottom} H ${cx - halfBar} V ${cy + halfBar} H ${left} V ${cy - halfBar} H ${cx - halfBar} Z`;
+          const d = [
+            `M ${left} ${top + hb}`,
+            `L ${left + hb} ${top}`,
+            `L ${cx} ${cy - hb}`,
+            `L ${right - hb} ${top}`,
+            `L ${right} ${top + hb}`,
+            `L ${cx + hb} ${cy}`,
+            `L ${right} ${bottom - hb}`,
+            `L ${right - hb} ${bottom}`,
+            `L ${cx} ${cy + hb}`,
+            `L ${left + hb} ${bottom}`,
+            `L ${left} ${bottom - hb}`,
+            `L ${cx - hb} ${cy}`,
+            'Z'
+          ].join(' ');
           path.setAttribute('d', d);
           return applyCommonAttributes(path);
         }

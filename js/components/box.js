@@ -622,12 +622,26 @@
         node.setAttribute('d', d);
       }else if(normalized === 'cross'){
         node = document.createElementNS(NS, 'path');
-        const s = Math.max(Math.round(r * 1.2), 2);
-        const half = Math.round(s / 2);
+        const size = Math.max(r * 2, 2);
+        const half = size / 2;
+        const bar = Math.max(Math.round(size / 3), 2);
+        const hb = bar / 2;
         const top = cy - half; const bottom = cy + half; const left = cx - half; const right = cx + half;
-        const bar = Math.max(Math.round(s / 3), 2);
-        const hb = Math.round(bar / 2);
-        const d = `M ${cx - hb} ${top} H ${cx + hb} V ${cy - hb} H ${right} V ${cy + hb} H ${cx + hb} V ${bottom} H ${cx - hb} V ${cy + hb} H ${left} V ${cy - hb} H ${cx - hb} Z`;
+        const d = [
+          `M ${left} ${top + hb}`,
+          `L ${left + hb} ${top}`,
+          `L ${cx} ${cy - hb}`,
+          `L ${right - hb} ${top}`,
+          `L ${right} ${top + hb}`,
+          `L ${cx + hb} ${cy}`,
+          `L ${right} ${bottom - hb}`,
+          `L ${right - hb} ${bottom}`,
+          `L ${cx} ${cy + hb}`,
+          `L ${left + hb} ${bottom}`,
+          `L ${left} ${bottom - hb}`,
+          `L ${cx - hb} ${cy}`,
+          'Z'
+        ].join(' ');
         node.setAttribute('d', d);
       }else if(normalized === 'plus'){
         node = document.createElementNS(NS, 'path');
@@ -1799,14 +1813,28 @@
         parts.push(`M ${x} ${y - r} L ${x + r} ${y} L ${x} ${y + r} L ${x - r} ${y} Z`);
       }else if(normalizedShape === 'cross'){
         const r = half;
-        const sizeVal = Math.max(Math.round(r * 2), 2);
+        const sizeVal = Math.max(r * 2, 2);
         const halfVal = sizeVal / 2;
-        const bar = Math.max(Math.round(sizeVal / 3), 2);
-        const halfBar = bar / 2;
+        const bar = Math.max(sizeVal / 3, 2);
+        const hb = bar / 2;
         const x = pt.x;
         const y = pt.y;
         const top = y - halfVal; const bottom = y + halfVal; const left = x - halfVal; const right = x + halfVal;
-        parts.push(`M ${x - halfBar} ${top} H ${x + halfBar} V ${y - halfBar} H ${right} V ${y + halfBar} H ${x + halfBar} V ${bottom} H ${x - halfBar} V ${y + halfBar} H ${left} V ${y - halfBar} H ${x - halfBar} Z`);
+        parts.push([
+          `M ${left} ${top + hb}`,
+          `L ${left + hb} ${top}`,
+          `L ${x} ${y - hb}`,
+          `L ${right - hb} ${top}`,
+          `L ${right} ${top + hb}`,
+          `L ${x + hb} ${y}`,
+          `L ${right} ${bottom - hb}`,
+          `L ${right - hb} ${bottom}`,
+          `L ${x} ${y + hb}`,
+          `L ${left + hb} ${bottom}`,
+          `L ${left} ${bottom - hb}`,
+          `L ${x - hb} ${y}`,
+          'Z'
+        ].join(' '));
       }else if(normalizedShape === 'plus'){
         const r = half;
         const arm = Math.max(Math.round(r * 1.2), 2);
