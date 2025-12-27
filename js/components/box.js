@@ -818,6 +818,14 @@
       points.forEach(pt => {
         const parent = pt.parentElement;
         if(!parent) return;
+        const tag = (pt.tagName || '').toLowerCase();
+        if(tag === 'path' && Array.isArray(pt.__batchedPoints)){
+          const nextSize = Math.max(1, Math.round(numeric * 2));
+          const shape = pt.getAttribute('data-shape') || pt.__batchedShape || 'square';
+          pt.setAttribute('d', buildBatchedPointPathD(pt.__batchedPoints, nextSize, shape));
+          pt.__batchedSize = nextSize;
+          return;
+        }
         let bbox;
         try{ bbox = pt.getBBox(); }catch(e){ bbox = null; }
         const cx = bbox ? (bbox.x + bbox.width / 2) : (Number(pt.getAttribute('cx')) || 0);
@@ -1740,24 +1748,43 @@
 
   // Create a compact SVG path representing many small squares (approximate points).
   // Returns an SVGPathElement. Points is array of { x, y } in user coordinates.
-  function createBatchedPointPath(doc, points, size, opts){
+  function buildBatchedPointPathD(points, size, shape){
     const half = size / 2;
+    const normalizedShape = typeof shape === 'string' ? shape : 'square';
     const parts = [];
     for(let i = 0; i < points.length; i++){
       const pt = points[i];
       if(!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) continue;
-      const x0 = pt.x - half;
-      const y0 = pt.y - half;
-      // draw small rect using relative h/v commands for compactness
-      parts.push(`M ${x0} ${y0} h ${size} v ${size} h -${size} Z`);
+      if(normalizedShape === 'circle'){
+        const r = half;
+        const x = pt.x;
+        const y = pt.y;
+        if(r > 0){
+          parts.push(`M ${x + r} ${y} a ${r} ${r} 0 1 0 ${-2 * r} 0 a ${r} ${r} 0 1 0 ${2 * r} 0`);
+        }
+      }else{
+        const x0 = pt.x - half;
+        const y0 = pt.y - half;
+        // draw small rect using relative h/v commands for compactness
+        parts.push(`M ${x0} ${y0} h ${size} v ${size} h -${size} Z`);
+      }
     }
+    return parts.join(' ');
+  }
+
+  function createBatchedPointPath(doc, points, size, opts){
+    const shape = typeof opts?.shape === 'string' ? opts.shape : 'square';
     const path = doc.createElementNS(NS, 'path');
-    path.setAttribute('d', parts.join(' '));
+    path.setAttribute('d', buildBatchedPointPathD(points, size, shape));
     if(opts?.fill) path.setAttribute('fill', opts.fill);
     if(opts?.fillOpacity != null) path.setAttribute('fill-opacity', String(opts.fillOpacity));
     if(opts?.stroke) path.setAttribute('stroke', opts.stroke);
     if(opts?.strokeWidth) path.setAttribute('stroke-width', String(opts.strokeWidth));
     if(opts?.dataTrace != null) path.setAttribute('data-trace', String(opts.dataTrace));
+    if(opts?.shape) path.setAttribute('data-shape', String(opts.shape));
+    path.__batchedPoints = points;
+    path.__batchedShape = shape;
+    path.__batchedSize = size;
     return path;
   }
 
@@ -11229,8 +11256,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
             return { x: cx + offset, y: entry.coord };
           });
-          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: traceIndex });
+          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: traceIndex, shape: effectiveShape });
+          pathNode.__batchedPoints = pts;
           group.appendChild(pathNode);
+          attachBoxPointTooltip(pathNode, {
+            seriesName: tooltipSeriesName,
+            categoryName: tooltipCategoryName,
+            groupName: tooltipGroupName,
+            value: null,
+            rawValue: null,
+            index: null
+          });
         }else{
           const frag = document.createDocumentFragment();
           pointEntries.forEach(entry => {
@@ -11911,8 +11947,17 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
             return { x: entry.coord, y: cy + offset };
           });
-          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: traceIndex });
+          const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: traceIndex, shape: effectiveShape });
+          pathNode.__batchedPoints = pts;
           group.appendChild(pathNode);
+          attachBoxPointTooltip(pathNode, {
+            seriesName: tooltipSeriesName,
+            categoryName: tooltipCategoryName,
+            groupName: tooltipGroupName,
+            value: null,
+            rawValue: null,
+            index: null
+          });
         }else{
           const frag = document.createDocumentFragment();
           pointEntries.forEach(entry => {
