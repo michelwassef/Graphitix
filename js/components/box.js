@@ -11893,7 +11893,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               groupAttrs: { 'data-individual': 'true' },
               opacityMultiplier: 0.6,
               debugLabel: 'violin-overlay',
-              mean
+              mean,
+              widthScaleMode: 'density'
             });
           }else{
             const overlayMode = pointMode === 'overlay';
@@ -12777,7 +12778,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               groupAttrs: { 'data-individual': 'true' },
               opacityMultiplier: 0.6,
               debugLabel: 'violin-overlay',
-              mean
+              mean,
+              widthScaleMode: 'density'
             });
           }else{
             const overlayMode = pointMode === 'overlay';
