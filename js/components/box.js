@@ -600,6 +600,18 @@
           r = Number(src.getAttribute('r')) || r;
         }
       }
+      const sizeAttrRaw = Number(src?.getAttribute?.('data-point-size'));
+      if(Number.isFinite(sizeAttrRaw) && sizeAttrRaw > 0){
+        r = sizeAttrRaw / 2;
+      }
+      if((!Number.isFinite(cx) || !Number.isFinite(cy)) || (cx === 0 && cy === 0)){
+        const cxAttr = Number(src?.getAttribute?.('data-point-cx'));
+        const cyAttr = Number(src?.getAttribute?.('data-point-cy'));
+        if(Number.isFinite(cxAttr) && Number.isFinite(cyAttr)){
+          cx = cxAttr;
+          cy = cyAttr;
+        }
+      }
       const fill = src.getAttribute('fill') || 'black';
       const stroke = src.getAttribute('stroke') || 'none';
       const fillOpacity = src.getAttribute('fill-opacity') || src.style?.opacity || '1';
@@ -645,11 +657,11 @@
         node.setAttribute('d', d);
       }else if(normalized === 'plus'){
         node = document.createElementNS(NS, 'path');
-        const size = Math.max(Math.round(r * 1.2), 2);
-        const half = Math.round(size / 2);
-        const thick = Math.max(Math.round(size / 3), 1);
-        const t = Math.round(thick / 2);
-        const d = `M ${cx - t} ${cy - half} H ${cx + t} V ${cy - t} H ${cx + half} V ${cy + t} H ${cx + t} V ${cy + half} H ${cx - t} V ${cy + t} H ${cx - half} V ${cy - t} H ${cx - t} Z`;
+        const size = Math.max(r * 2, 2);
+        const half = size / 2;
+        const bar = Math.max(size / 3, 2);
+        const hb = bar / 2;
+        const d = `M ${cx - hb} ${cy - half} H ${cx + hb} V ${cy - hb} H ${cx + half} V ${cy + hb} H ${cx + hb} V ${cy + half} H ${cx - hb} V ${cy + hb} H ${cx - half} V ${cy - hb} H ${cx - hb} Z`;
         node.setAttribute('d', d);
       }else if(normalized === 'star'){
         node = document.createElementNS(NS, 'path');
@@ -675,6 +687,11 @@
       if(stroke && stroke !== 'none') node.setAttribute('stroke', stroke);
       node.setAttribute('fill-opacity', String(fillOpacity));
       node.setAttribute('data-shape', normalized || 'circle');
+      if(Number.isFinite(r) && r > 0){
+        node.setAttribute('data-point-size', String(r * 2));
+        node.setAttribute('data-point-cx', String(cx));
+        node.setAttribute('data-point-cy', String(cy));
+      }
       return node;
     }
 
@@ -896,7 +913,10 @@
     try{
       if(targetPoints[0]){
         const t0 = targetPoints[0];
-        if((t0.tagName||'').toLowerCase() === 'path' && Number.isFinite(t0.__batchedSize)){
+        const explicitSize = Number(t0.getAttribute('data-point-size'));
+        if(Number.isFinite(explicitSize) && explicitSize > 0){
+          derivedSize = explicitSize / 2;
+        }else if((t0.tagName||'').toLowerCase() === 'path' && Number.isFinite(t0.__batchedSize)){
           derivedSize = t0.__batchedSize / 2;
         }else if((t0.tagName||'').toLowerCase() === 'circle'){
           const r0 = Number(t0.getAttribute('r'));
@@ -1837,10 +1857,10 @@
         ].join(' '));
       }else if(normalizedShape === 'plus'){
         const r = half;
-        const arm = Math.max(Math.round(r * 1.2), 2);
-        const halfVal = arm / 2;
-        const thick = Math.max(Math.round(arm / 3), 1);
-        const t = Math.round(thick / 2);
+        const sizeVal = Math.max(r * 2, 2);
+        const halfVal = sizeVal / 2;
+        const bar = Math.max(sizeVal / 3, 2);
+        const t = bar / 2;
         const x = pt.x;
         const y = pt.y;
         parts.push(`M ${x - t} ${y - halfVal} H ${x + t} V ${y - t} H ${x + halfVal} V ${y + t} H ${x + t} V ${y + halfVal} H ${x - t} V ${y + t} H ${x - halfVal} V ${y - t} H ${x - t} Z`);
@@ -11404,6 +11424,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
               node.setAttribute('fill-opacity', String(effectiveOpacity));
               node.setAttribute('data-shape', effectiveShape);
+              node.setAttribute('data-point-size', String(effectiveRadius * 2));
+              node.setAttribute('data-point-cx', String(cx + offset));
+              node.setAttribute('data-point-cy', String(entry.coord));
               attachBoxPointTooltip(node, {
                 seriesName: tooltipSeriesName,
                 categoryName: tooltipCategoryName,
@@ -12095,6 +12118,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               if(effectiveStroke && effectiveStroke !== 'none') node.setAttribute('stroke', effectiveStroke);
               node.setAttribute('fill-opacity', String(effectiveOpacity));
               node.setAttribute('data-shape', effectiveShape);
+              node.setAttribute('data-point-size', String(effectiveRadius * 2));
+              node.setAttribute('data-point-cx', String(entry.coord));
+              node.setAttribute('data-point-cy', String(cy + offset));
               attachBoxPointTooltip(node, {
                 seriesName: tooltipSeriesName,
                 categoryName: tooltipCategoryName,

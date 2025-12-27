@@ -588,6 +588,40 @@
       ctx.lineTo(cx - half, cy + half - hb);
       ctx.lineTo(cx - hb, cy);
       ctx.closePath();
+    }else if(normalized === 'plus'){
+      const bar = Math.max(size / 3, 2);
+      const hb = bar / 2;
+      ctx.moveTo(cx - hb, cy - half);
+      ctx.lineTo(cx + hb, cy - half);
+      ctx.lineTo(cx + hb, cy - hb);
+      ctx.lineTo(cx + half, cy - hb);
+      ctx.lineTo(cx + half, cy + hb);
+      ctx.lineTo(cx + hb, cy + hb);
+      ctx.lineTo(cx + hb, cy + half);
+      ctx.lineTo(cx - hb, cy + half);
+      ctx.lineTo(cx - hb, cy + hb);
+      ctx.lineTo(cx - half, cy + hb);
+      ctx.lineTo(cx - half, cy - hb);
+      ctx.lineTo(cx - hb, cy - hb);
+      ctx.closePath();
+    }else if(normalized === 'star'){
+      const outer = Math.max(radius, 1);
+      const inner = Math.max(outer * 0.45, 1);
+      for(let i = 0; i < 5; i += 1){
+        const a = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+        const x1 = cx + Math.cos(a) * outer;
+        const y1 = cy + Math.sin(a) * outer;
+        if(i === 0){
+          ctx.moveTo(x1, y1);
+        }else{
+          ctx.lineTo(x1, y1);
+        }
+        const b = a + Math.PI / 5;
+        const x2 = cx + Math.cos(b) * inner;
+        const y2 = cy + Math.sin(b) * inner;
+        ctx.lineTo(x2, y2);
+      }
+      ctx.closePath();
     }else{
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     }
@@ -2385,6 +2419,27 @@
             `L ${cx - hb} ${cy}`,
             'Z'
           ].join(' ');
+          return addFunction('path',{ d: path, fill, stroke, 'stroke-width': strokeWidth, opacity });
+        }
+        if(normalized === 'plus'){
+          const size = Math.max(radius * 2, 2);
+          const half = size / 2;
+          const bar = Math.max(size / 3, 2);
+          const hb = bar / 2;
+          const path = `M ${cx - hb} ${cy - half} H ${cx + hb} V ${cy - hb} H ${cx + half} V ${cy + hb} H ${cx + hb} V ${cy + half} H ${cx - hb} V ${cy + hb} H ${cx - half} V ${cy - hb} H ${cx - hb} Z`;
+          return addFunction('path',{ d: path, fill, stroke, 'stroke-width': strokeWidth, opacity });
+        }
+        if(normalized === 'star'){
+          const outer = Math.max(radius, 1);
+          const inner = Math.max(outer * 0.45, 1);
+          const points = [];
+          for(let i = 0; i < 5; i += 1){
+            const a = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+            points.push({ x: cx + Math.cos(a) * outer, y: cy + Math.sin(a) * outer });
+            const b = a + Math.PI / 5;
+            points.push({ x: cx + Math.cos(b) * inner, y: cy + Math.sin(b) * inner });
+          }
+          const path = points.map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' ') + ' Z';
           return addFunction('path',{ d: path, fill, stroke, 'stroke-width': strokeWidth, opacity });
         }
         return addFunction('circle',{ cx, cy, r: radius, fill, stroke, 'stroke-width': strokeWidth, opacity });
