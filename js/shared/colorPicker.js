@@ -503,6 +503,34 @@
       svg.appendChild(path);
       return svg;
     }
+    if(normalized === 'plus'){
+      const size = radius * 2;
+      const half = size / 2;
+      const bar = Math.max(Math.round(size / 3), 4);
+      const halfBar = bar / 2;
+      const path = documentRef.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', `M ${center - halfBar} ${center - half} H ${center + halfBar} V ${center - halfBar} H ${center + half} V ${center + halfBar} H ${center + halfBar} V ${center + half} H ${center - halfBar} V ${center + halfBar} H ${center - half} V ${center - halfBar} H ${center - halfBar} Z`);
+      path.setAttribute('fill', 'currentColor');
+      svg.appendChild(path);
+      return svg;
+    }
+    if(normalized === 'star'){
+      const outer = radius;
+      const inner = Math.max(radius * 0.45, 2);
+      const points = [];
+      for(let i = 0; i < 5; i += 1){
+        const a = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+        points.push({ x: center + Math.cos(a) * outer, y: center + Math.sin(a) * outer });
+        const b = a + Math.PI / 5;
+        points.push({ x: center + Math.cos(b) * inner, y: center + Math.sin(b) * inner });
+      }
+      const path = documentRef.createElementNS(SVG_NS, 'path');
+      const d = points.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' ') + ' Z';
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'currentColor');
+      svg.appendChild(path);
+      return svg;
+    }
     const circle = documentRef.createElementNS(SVG_NS, 'circle');
     circle.setAttribute('cx', String(center));
     circle.setAttribute('cy', String(center));

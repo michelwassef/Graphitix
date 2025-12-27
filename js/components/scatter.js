@@ -5838,6 +5838,31 @@
           path.setAttribute('d', d);
           return applyCommonAttributes(path);
         }
+        if(normalized === 'plus'){
+          const size = Math.max(radius * 2, 2);
+          const half = size / 2;
+          const bar = Math.max(size / 3, 2);
+          const halfBar = bar / 2;
+          const path = doc.createElementNS(NS, 'path');
+          const d = `M ${cx - halfBar} ${cy - half} H ${cx + halfBar} V ${cy - halfBar} H ${cx + half} V ${cy + halfBar} H ${cx + halfBar} V ${cy + half} H ${cx - halfBar} V ${cy + halfBar} H ${cx - half} V ${cy - halfBar} H ${cx - halfBar} Z`;
+          path.setAttribute('d', d);
+          return applyCommonAttributes(path);
+        }
+        if(normalized === 'star'){
+          const outer = Math.max(radius, 1);
+          const inner = Math.max(outer * 0.45, 1);
+          const points = [];
+          for(let i = 0; i < 5; i += 1){
+            const a = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+            points.push({ x: cx + Math.cos(a) * outer, y: cy + Math.sin(a) * outer });
+            const b = a + Math.PI / 5;
+            points.push({ x: cx + Math.cos(b) * inner, y: cy + Math.sin(b) * inner });
+          }
+          const path = doc.createElementNS(NS, 'path');
+          const d = points.map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' ') + ' Z';
+          path.setAttribute('d', d);
+          return applyCommonAttributes(path);
+        }
         const circle = doc.createElementNS(NS, 'circle');
         circle.setAttribute('cx', String(cx));
         circle.setAttribute('cy', String(cy));
