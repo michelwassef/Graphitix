@@ -2515,6 +2515,7 @@
 
     const groupMetaByIndex = new Map();
     const groupBuckets = new Map();
+    const coordGroupSizeByIndex = new Map();
     if(sortedEntries.length){
       const coordQuantum = 1;
       sortedEntries.forEach(item => {
@@ -2533,8 +2534,64 @@
         const size = bucket.length;
         for(let i = 0; i < size; i++){
           groupMetaByIndex.set(bucket[i], { size, index: i });
+          coordGroupSizeByIndex.set(bucket[i], size);
         }
       });
+    }
+
+    const pairBuckets = [];
+    if(sortedEntries.length > 1){
+      const neighborInfoByIndex = new Map();
+      let left = 0;
+      let right = 0;
+      for(let i = 0; i < sortedEntries.length; i++){
+        const coord = sortedEntries[i].coord;
+        if(right < i){
+          right = i;
+        }
+        while(right + 1 < sortedEntries.length && sortedEntries[right + 1].coord - coord <= collisionDistance){
+          right += 1;
+        }
+        while(coord - sortedEntries[left].coord > collisionDistance){
+          left += 1;
+        }
+        neighborInfoByIndex.set(sortedEntries[i].entry.index, { left, right, count: right - left + 1 });
+      }
+      const paired = new Set();
+      for(let i = 0; i < sortedEntries.length; i++){
+        const entryIndex = sortedEntries[i].entry.index;
+        if(paired.has(entryIndex)){
+          continue;
+        }
+        if((coordGroupSizeByIndex.get(entryIndex) || 0) > 1){
+          continue;
+        }
+        const info = neighborInfoByIndex.get(entryIndex);
+        if(!info || info.count !== 2){
+          continue;
+        }
+        let otherIndex = null;
+        for(let k = info.left; k <= info.right; k++){
+          const candidate = sortedEntries[k].entry.index;
+          if(candidate !== entryIndex){
+            otherIndex = candidate;
+            break;
+          }
+        }
+        if(otherIndex == null || paired.has(otherIndex)){
+          continue;
+        }
+        if((coordGroupSizeByIndex.get(otherIndex) || 0) > 1){
+          continue;
+        }
+        const otherInfo = neighborInfoByIndex.get(otherIndex);
+        if(!otherInfo || otherInfo.count !== 2){
+          continue;
+        }
+        paired.add(entryIndex);
+        paired.add(otherIndex);
+        pairBuckets.push([entryIndex, otherIndex]);
+      }
     }
 
     const collisionDistanceSq = collisionDistance * collisionDistance;
@@ -2750,8 +2807,19 @@
         maxUsed = abs;
       }
     });
+    const centerBuckets = [];
     if(groupBuckets.size){
       groupBuckets.forEach(bucket => {
+        centerBuckets.push(bucket);
+      });
+    }
+    if(pairBuckets.length){
+      pairBuckets.forEach(bucket => {
+        centerBuckets.push(bucket);
+      });
+    }
+    if(centerBuckets.length){
+      centerBuckets.forEach(bucket => {
         if(!Array.isArray(bucket) || bucket.length <= 1){
           return;
         }
