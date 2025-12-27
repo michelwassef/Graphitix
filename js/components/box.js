@@ -557,6 +557,84 @@
     scopeField.appendChild(scopeLabel);
     scopeField.appendChild(scopeSelect);
     wrap.appendChild(scopeField);
+    const shouldApplyPointStyleDirectly = () => state && state.autoDrawEnabled === false;
+    const resolveAllPointNodes = () => {
+      const plot = doc.getElementById('boxPlot');
+      if(!plot){
+        return resolveTargetPoints();
+      }
+      return Array.from(plot.querySelectorAll('g[data-export-layer="box-points"] circle, g[data-export-layer="box-points"] rect, g[data-export-layer="box-points"] path'));
+    };
+    const resolveTracePointNodes = (indexValue) => {
+      const plot = doc.getElementById('boxPlot');
+      if(!plot || indexValue == null){
+        return resolveTargetPoints();
+      }
+      const group = plot.querySelector(`g[data-export-layer="box-points"][data-trace="${indexValue}"]`);
+      if(!group){
+        return resolveTargetPoints();
+      }
+      return Array.from(group.querySelectorAll('circle,rect,path'));
+    };
+    const applyPointStyleToNodes = (nodes, style, refetch) => {
+      if(!nodes || !nodes.length || !style){
+        return;
+      }
+      const normalized = normalizeStyleObject(style) || style;
+      if(normalized.fill != null){
+        nodes.forEach(node => node.setAttribute('fill', normalized.fill));
+      }
+      if(normalized.stroke != null){
+        nodes.forEach(node => node.setAttribute('stroke', normalized.stroke));
+      }
+      if(normalized.opacity != null){
+        const opacityValue = Math.min(1, Math.max(0, Number(normalized.opacity)));
+        if(Number.isFinite(opacityValue)){
+          nodes.forEach(node => {
+            node.setAttribute('fill-opacity', String(opacityValue));
+            if(node.getAttribute('stroke') && node.getAttribute('stroke') !== 'none'){
+              node.setAttribute('stroke-opacity', String(opacityValue));
+            }
+          });
+        }
+      }
+      let nextNodes = nodes;
+      if(normalized.shape != null){
+        replacePointsWithShape(nextNodes, normalized.shape);
+        if(typeof refetch === 'function'){
+          nextNodes = refetch() || nextNodes;
+        }
+      }
+      if(normalized.size != null){
+        updatePointsSize(nextNodes, normalized.size);
+      }
+    };
+    const applyPointStateToDom = () => {
+      if(!shouldApplyPointStyleDirectly()){
+        return;
+      }
+      const plot = doc.getElementById('boxPlot');
+      if(!plot){
+        return;
+      }
+      const groups = Array.from(plot.querySelectorAll('g[data-export-layer="box-points"][data-trace]'));
+      if(!groups.length){
+        applyPointStyleToNodes(resolveAllPointNodes(), state.pointGlobalStyle || {}, resolveAllPointNodes);
+        return;
+      }
+      groups.forEach(group => {
+        const indexValue = group.dataset ? group.dataset.trace : null;
+        const style = getPointStyle(indexValue);
+        if(!style){
+          return;
+        }
+        applyPointStyleToNodes(
+          Array.from(group.querySelectorAll('circle,rect,path')),
+          style,
+          () => Array.from(group.querySelectorAll('circle,rect,path'))
+        );
+      });
+    };
 
     // Helper: create a new marker element for a given shape based on an existing point
     function createMarkerFor(shape, src){
@@ -726,11 +804,26 @@
       const previous = normalizeStyleObject(cloneSimple(state.pointStyles[traceIndex]));
       const next = Object.assign({}, previous || {}, patch);
       state.pointStyles[traceIndex] = next;
+      if(shouldApplyPointStyleDirectly()){
+        applyPointStyleToNodes(
+          resolveTracePointNodes(traceIndex),
+          patch,
+          () => resolveTracePointNodes(traceIndex)
+        );
+      }
       // record undoable change
       try{
         recordBoxChange(`box:point-style:${traceIndex}`, previous, next, value => {
           state.pointStyles[traceIndex] = normalizeStyleObject(value);
-          if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
+          if(shouldApplyPointStyleDirectly()){
+            applyPointStyleToNodes(
+              resolveTracePointNodes(traceIndex),
+              getPointStyle(traceIndex) || {},
+              () => resolveTracePointNodes(traceIndex)
+            );
+          }else if(typeof state.scheduleDraw === 'function'){
+            state.scheduleDraw();
+          }
         });
       }catch(err){ console.warn('persistTraceStyle error', err); }
     }
@@ -746,7 +839,9 @@
       });
       state.pointStyles = nextStyles;
       state.pointGlobalStyle = Object.assign({}, state.pointGlobalStyle || {}, patch);
-      if(typeof state.scheduleDraw === 'function'){
+      if(shouldApplyPointStyleDirectly()){
+        applyPointStateToDom();
+      }else if(typeof state.scheduleDraw === 'function'){
         try{ state.scheduleDraw(); }catch(e){ console.warn('applyPointStyleGlobal scheduleDraw error', e); }
       }
       try{
@@ -756,7 +851,11 @@
         }, value => {
           state.pointStyles = value?.pointStyles || {};
           state.pointGlobalStyle = normalizeStyleObject(value?.pointGlobalStyle);
-          if(typeof state.scheduleDraw === 'function') state.scheduleDraw();
+          if(shouldApplyPointStyleDirectly()){
+            applyPointStateToDom();
+          }else if(typeof state.scheduleDraw === 'function'){
+            state.scheduleDraw();
+          }
         });
       }catch(err){ console.warn('applyPointStyleGlobal error', err); }
     }
