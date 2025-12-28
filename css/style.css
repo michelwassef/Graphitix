@@ -2358,8 +2358,8 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #vennPage .diagram-area .config-options{flex:0 0 auto}
 #vennPage .panel{display:flex;flex-direction:column;min-width:0}
 #vennPage #analysisResults,#vennPage #stringSection,#vennPage #stringResults,#vennPage #stringNetwork{min-width:0;max-width:100%}
-#vennPage #stringNetwork{width:100%;overflow:auto}
-#vennPage #stringNetwork svg{width:100%;max-width:100%;height:auto}
+#vennPage #stringNetwork{width:100%;overflow:visible}
+#vennPage #stringNetwork svg{width:100%;max-width:100%;height:auto;display:block;position:relative;overflow:visible}
 @media (max-width:1000px){#vennPage .wrap{flex-direction:column}#vennPage #vennInputPanel,#vennPage #vennGraphPanel{flex:1 1 auto;max-width:none}}
 #boxPage .wrap{display:flex;align-items:stretch;gap:0}
 #boxPage #boxTablePanel{flex:1 1 33%;min-width:150px}

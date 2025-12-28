@@ -648,6 +648,7 @@
     const shrinkOnLoadData = overrides?.shrinkOnLoadData !== false;
     const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
     const hotOptions = overrides?.hotOptions || {};
+    let instance;
     const disableBuiltInPaste = overrides?.disablePaste === true || hotOptions.disablePaste === true;
     const userAfterChange = hotOptions.afterChange;
     const userAfterLoadData = hotOptions.afterLoadData;
@@ -1985,6 +1986,121 @@
       return result;
     };
 
+    const autoSizeColumnsEnabled = overrides?.autoSizeColumns !== false;
+    let autoSizeScheduled = false;
+    let uniformDataColWidth = null;
+    let uniformWidthApplyLock = false;
+
+    const resolveUniformDataColWidth = (reason, preferredWidth)=>{
+      let width = Number.isFinite(preferredWidth) && preferredWidth > 0 ? preferredWidth : null;
+      if(!Number.isFinite(width) || width <= 0){
+        width = uniformDataColWidth;
+      }
+      const api = instance?.gridApi || null;
+      const columnApi = instance?.columnApi || api?.columnApi || null;
+      if((!Number.isFinite(width) || width <= 0) && columnApi){
+        let columns = [];
+        if(typeof columnApi.getAllDisplayedColumns === 'function'){
+          columns = columnApi.getAllDisplayedColumns() || [];
+        }else if(typeof columnApi.getAllColumns === 'function'){
+          columns = columnApi.getAllColumns() || [];
+        }
+        const dataCol = columns.find(col => {
+          const colId = typeof col?.getColId === 'function' ? col.getColId() : col?.colId;
+          return colId && colId !== '__rowHeader' && String(colId).startsWith('c');
+        });
+        width = typeof dataCol?.getActualWidth === 'function' ? dataCol.getActualWidth() : null;
+        if(!Number.isFinite(width) || width <= 0){
+          if(typeof columnApi.getColumnState === 'function'){
+            const state = columnApi.getColumnState() || [];
+            const match = state.find(entry => typeof entry?.colId === 'string' && entry.colId.startsWith('c') && Number.isFinite(entry.width) && entry.width > 0);
+            width = match?.width;
+          }
+        }
+      }
+      if(Number.isFinite(width) && width > 0){
+        const changed = width !== uniformDataColWidth;
+        uniformDataColWidth = width;
+        instance.__hotUniformColWidth = width;
+        if(changed && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.hot uniform column width updated', { debugLabel, reason: reason || null, width });
+        }
+      }
+      return Number.isFinite(uniformDataColWidth) && uniformDataColWidth > 0 ? uniformDataColWidth : null;
+    };
+
+    const applyUniformDataColumnWidths = (reason, preferredWidth)=>{
+      const api = instance?.gridApi || null;
+      const columnApi = instance?.columnApi || api?.columnApi || null;
+      if(!columnApi || typeof columnApi.setColumnWidth !== 'function'){
+        return false;
+      }
+      const uniformWidth = resolveUniformDataColWidth(reason, preferredWidth);
+      if(!Number.isFinite(uniformWidth) || uniformWidth <= 0){
+        return false;
+      }
+      let columns = [];
+      if(typeof columnApi.getAllColumns === 'function'){
+        columns = columnApi.getAllColumns() || [];
+      }else if(typeof columnApi.getAllDisplayedColumns === 'function'){
+        columns = columnApi.getAllDisplayedColumns() || [];
+      }
+      const dataColumns = columns.filter(col => {
+        const colId = typeof col?.getColId === 'function' ? col.getColId() : col?.colId;
+        return colId && colId !== '__rowHeader' && String(colId).startsWith('c');
+      });
+      if(!dataColumns.length){
+        return false;
+      }
+      uniformWidthApplyLock = true;
+      try{
+        if(typeof columnApi.applyColumnState === 'function'){
+          const state = dataColumns.map(col => ({
+            colId: typeof col?.getColId === 'function' ? col.getColId() : col?.colId,
+            width: uniformWidth
+          }));
+          columnApi.applyColumnState({ state, applyOrder: false });
+        }else{
+          dataColumns.forEach(col => {
+            const colId = typeof col?.getColId === 'function' ? col.getColId() : col?.colId;
+            columnApi.setColumnWidth(colId, uniformWidth, false);
+          });
+        }
+      }finally{
+        const doc = container?.ownerDocument || document;
+        const win = doc.defaultView || global;
+        const rafLocal = typeof win?.requestAnimationFrame === 'function'
+          ? win.requestAnimationFrame.bind(win)
+          : (fn)=>win.setTimeout(fn, 16);
+        rafLocal(()=>{
+          uniformWidthApplyLock = false;
+        });
+      }
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot uniform column widths applied', { debugLabel, reason: reason || null, width: uniformWidth, count: dataColumns.length });
+      }
+      return true;
+    };
+
+    const scheduleUniformDataColumnWidths = (reason, preferredWidth, attempt = 0)=>{
+      const maxAttempts = 6;
+      const doc = container?.ownerDocument || document;
+      const win = doc.defaultView || global;
+      const rafLocal = typeof win?.requestAnimationFrame === 'function'
+        ? win.requestAnimationFrame.bind(win)
+        : (fn)=>win.setTimeout(fn, 16);
+      rafLocal(()=>{
+        rafLocal(()=>{
+          const applied = applyUniformDataColumnWidths(reason, preferredWidth);
+          if(!applied && attempt < maxAttempts){
+            scheduleUniformDataColumnWidths(reason, preferredWidth, attempt + 1);
+          }else if(!applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot uniform column widths skipped', { debugLabel, reason: reason || null, attempts: attempt + 1 });
+          }
+        });
+      });
+    };
+
     const valueComparator = (a, b, _nodeA, _nodeB, isDescending)=>{
       const isEmpty = (v)=>v === null || v === undefined || v === '';
       const aEmpty = isEmpty(a);
@@ -2031,6 +2147,7 @@
     };
 
     const buildColumnDefs = ()=>{
+      const uniformWidth = resolveUniformDataColWidth('buildColumnDefs') || undefined;
       const dataColumnDefs = Shared.agGrid?.createColumnDefs
         ? Shared.agGrid.createColumnDefs(colCount, { dataHandle, colHeaders })
         : Array.from({ length: colCount }, (_, col)=>{
@@ -2048,6 +2165,14 @@
             }
           };
         });
+
+      if(Number.isFinite(uniformWidth) && uniformWidth > 0){
+        dataColumnDefs.forEach(def=>{
+          if(def && typeof def === 'object' && def.colId && def.colId !== '__rowHeader'){
+            def.width = uniformWidth;
+          }
+        });
+      }
 
       class HotAgColumnHeader{
         init(params){
@@ -2583,6 +2708,7 @@
         autoGrowthState.viewportScrollHandler = ()=>{
           maybeGrowRows('scroll');
           maybeGrowCols('scroll');
+          scheduleAutoSizeColumns('scroll');
           scheduleFillHandleUpdate('scroll');
         };
       }
@@ -2711,14 +2837,12 @@
       scheduleFillHandleUpdate('render');
     };
 
-    const autoSizeColumnsEnabled = overrides?.autoSizeColumns !== false;
-    let autoSizeScheduled = false;
     const autoSizeColumnsNow = (reason)=>{
       if(!autoSizeColumnsEnabled){
         return;
       }
-      const api = instance.gridApi;
-      const columnApi = instance.columnApi || api?.columnApi || null;
+      const api = instance?.gridApi || null;
+      const columnApi = instance?.columnApi || api?.columnApi || null;
       if(!columnApi){
         return;
       }
@@ -2745,6 +2869,7 @@
         if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
           console.debug('Debug: Shared.hot AG autoSizeColumns', { debugLabel, reason: reason || null, colCount: colIds.length });
         }
+        scheduleUniformDataColumnWidths(reason || 'autoSize');
       }catch(err){
         // best-effort only
       }
@@ -2769,6 +2894,7 @@
         });
       });
     };
+
 
     const rebuildColumns = (api)=>{
       columnDefs = buildColumnDefs();
@@ -2864,7 +2990,7 @@
       return colHeaders.slice();
     };
 
-    const instance = {
+    instance = {
       rootElement: container,
       __hotDebugLabel: debugLabel,
       __hotExclusionController: exclusionController,
@@ -3310,12 +3436,12 @@
           syncRowData(instance.gridApi);
           fireHook('afterRemoveRow', at, safeAmount, Array.isArray(removed) ? removed.map((_, idx)=>at + idx) : null, changeSource);
           triggerSchedule('afterRemoveRow', { source: changeSource });
-        }else if(action === 'insert_col' || action === 'insert_col_right' || action === 'insert_col_left' || action === 'insert_col_start' || action === 'insert_col_end'){
-          const insertAt = action === 'insert_col_start'
-            ? 0
-            : (action === 'insert_col_left'
-              ? at
-              : at + (action === 'insert_col_right' || action === 'insert_col_end' ? 1 : 0));
+          }else if(action === 'insert_col' || action === 'insert_col_right' || action === 'insert_col_left' || action === 'insert_col_start' || action === 'insert_col_end'){
+            const insertAt = action === 'insert_col_start'
+              ? 0
+              : (action === 'insert_col_left'
+                ? at
+                : at + (action === 'insert_col_right' || action === 'insert_col_end' ? 1 : 0));
           exclusionController.shiftColsForInsert(insertAt, safeAmount);
           for(let r = 0; r < data.length; r++){
             const row = data[r] || [];
@@ -3327,13 +3453,14 @@
           if(Array.isArray(colHeadersSetting)){
             colHeadersSetting.splice(insertAt, 0, ...Array.from({ length: safeAmount }, ()=>''));
           }
-          colCount = Math.max(colCount + safeAmount, MIN_INPUT_COLS);
-          ensureDims(data, data.length, colCount);
-          colHeaders = resolveColHeaders(colCount);
-          rebuildColumns(instance.gridApi);
-          renderAg(instance.gridApi);
-          fireHook('afterCreateCol', insertAt, safeAmount, changeSource);
-          triggerSchedule('afterCreateCol', { source: changeSource });
+            colCount = Math.max(colCount + safeAmount, MIN_INPUT_COLS);
+            ensureDims(data, data.length, colCount);
+            colHeaders = resolveColHeaders(colCount);
+            rebuildColumns(instance.gridApi);
+            renderAg(instance.gridApi);
+            scheduleUniformDataColumnWidths(changeSource);
+            fireHook('afterCreateCol', insertAt, safeAmount, changeSource);
+            triggerSchedule('afterCreateCol', { source: changeSource });
         }else if(action === 'remove_col'){
           const removedCols = [];
           for(let r = 0; r < data.length; r++){
@@ -3926,6 +4053,7 @@
         editable: true,
         resizable: true,
         minWidth: 40,
+        width: resolveUniformDataColWidth('gridOptions') || 80,
         suppressHeaderMenuButton: true,
         comparator: valueComparator
       },
@@ -4024,19 +4152,33 @@
           console.debug('Debug: Shared.hot AG postSortRows error', { debugLabel, err });
         }
       },
-      onGridReady(params){
-        instance.gridApi = params.api;
-        instance.columnApi = params.columnApi;
-        updateSelectionFromApi(params.api);
-        scheduleAutoSizeColumns('gridReady');
-        ensureViewportScrollHandler();
-        maybeGrowRows('gridReady');
-        maybeGrowCols('gridReady');
-      },
-      onFirstDataRendered(){
-        scheduleAutoSizeColumns('firstDataRendered');
-        ensureViewportScrollHandler();
-      },
+        onGridReady(params){
+          instance.gridApi = params.api;
+          instance.columnApi = params.columnApi;
+          updateSelectionFromApi(params.api);
+          scheduleAutoSizeColumns('gridReady');
+          scheduleUniformDataColumnWidths('gridReady');
+          ensureViewportScrollHandler();
+          maybeGrowRows('gridReady');
+          maybeGrowCols('gridReady');
+        },
+        onFirstDataRendered(){
+          scheduleAutoSizeColumns('firstDataRendered');
+          scheduleUniformDataColumnWidths('firstDataRendered');
+          ensureViewportScrollHandler();
+        },
+        onColumnResized(params){
+          if(params?.finished === false || uniformWidthApplyLock){
+            return;
+          }
+          const colId = params?.column?.getColId?.() ?? params?.column?.colId;
+          if(colId && colId !== '__rowHeader' && String(colId).startsWith('c')){
+            const resizedWidth = typeof params?.column?.getActualWidth === 'function'
+              ? params.column.getActualWidth()
+              : params?.width;
+            scheduleUniformDataColumnWidths('columnResized', resizedWidth);
+          }
+        },
       onCellValueChanged(event){
         const rowIndex = event?.node?.rowIndex ?? event?.rowIndex ?? 0;
         const colId = event?.column?.getColId?.() ?? event?.colId;
