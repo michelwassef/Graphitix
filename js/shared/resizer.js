@@ -1034,6 +1034,7 @@
     const debugLabel = opts.debugLabel || 'panel';
     const preserveGraphContent = opts.preserveGraphContent === true;
     const disableAutoWidthClamp = opts.disableAutoWidthClamp === true;
+    const forceDefaultWidth = opts.forceDefaultWidth === true;
     const lockGraphPanelWidth = opts.lockGraphPanelWidth !== false;
     if(!tablePanel || !graphPanel || !configPanel){
       console.debug('Debug: Shared.syncPanelWidths skipped', {
@@ -1134,6 +1135,7 @@
     const preferredAutoWidth = Number.isFinite(autoDefaultWidth) && autoDefaultWidth > 0
       ? autoDefaultWidth
       : (Number.isFinite(storedAutoWidth) && storedAutoWidth > 0 ? storedAutoWidth : NaN);
+    const shouldForceDefaultWidth = forceDefaultWidth && !isManualResize && Number.isFinite(preferredAutoWidth) && preferredAutoWidth > 0;
     const tableWidth = tablePanel.getBoundingClientRect().width;
     const tableDataset = tablePanel.dataset || {};
     let defaultTableWidth = parsePositive(tableDataset.panelDefaultWidth);
@@ -1244,7 +1246,7 @@
     if(isManualResize && Number.isFinite(manualWidth)){
       maxAvailable = Math.max(manualWidth, maxAvailable || 0);
     }
-    if((!Number.isFinite(availableRaw) || maxAvailable <= 0) && !(isManualResize && Number.isFinite(manualWidth) && manualWidth > 0)){
+    if((!Number.isFinite(availableRaw) || maxAvailable <= 0) && !(isManualResize && Number.isFinite(manualWidth) && manualWidth > 0) && !shouldForceDefaultWidth){
       console.debug('Debug: Shared.syncPanelWidths skipped (no width available)', {
         label: debugLabel,
         available: availableRaw,
@@ -1266,7 +1268,16 @@
       baseWidth = svgCurrentWidth;
     }else{
       const fallbackWidth = Number.isFinite(tableWidth) && tableWidth > 0 ? tableWidth : svgCurrentWidth;
-      if(Number.isFinite(maxAvailable) && maxAvailable > 0){
+      if(shouldForceDefaultWidth){
+        baseWidth = preferredAutoWidth;
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+          console.debug('Debug: Shared.syncPanelWidths force default width', {
+            label: debugLabel,
+            preferredAutoWidth,
+            baseWidth
+          });
+        }
+      }else if(Number.isFinite(maxAvailable) && maxAvailable > 0){
         baseWidth = maxAvailable;
         if(!disableAutoWidthClamp && !isManualResize && Number.isFinite(preferredAutoWidth) && preferredAutoWidth > 0){
           baseWidth = Math.min(baseWidth, preferredAutoWidth);
@@ -1319,12 +1330,13 @@
         baseWidth = 0;
       }
     }
+    const allowOverflow = unlimitedWidth || shouldForceDefaultWidth;
     let appliedWidth = baseWidth;
-    if(!unlimitedWidth && Number.isFinite(maxAvailable)){
+    if(!allowOverflow && Number.isFinite(maxAvailable)){
       appliedWidth = Math.min(appliedWidth, maxAvailable);
     }
     const minTarget = Number.isFinite(minSvgWidth) && minSvgWidth > 0 ? minSvgWidth : 0;
-    if(!unlimitedWidth && Number.isFinite(maxAvailable) && maxAvailable >= 0 && maxAvailable < minTarget){
+    if(!allowOverflow && Number.isFinite(maxAvailable) && maxAvailable >= 0 && maxAvailable < minTarget){
       appliedWidth = maxAvailable;
     }else if(appliedWidth < minTarget){
       appliedWidth = minTarget;
@@ -1335,7 +1347,7 @@
         minWidthConstraint = Number.isFinite(minWidthConstraint) ? Math.max(minWidthConstraint, minSvgWidth) : minSvgWidth;
       }
       let maxWidthConstraint = Number.isFinite(datasetMaxWidth) ? datasetMaxWidth : NaN;
-      if(!unlimitedWidth && Number.isFinite(maxAvailable) && maxAvailable > 0){
+      if(!allowOverflow && Number.isFinite(maxAvailable) && maxAvailable > 0){
         maxWidthConstraint = Number.isFinite(maxWidthConstraint) ? Math.min(maxWidthConstraint, maxAvailable) : maxAvailable;
       }
       if(Number.isFinite(minWidthConstraint) && Number.isFinite(maxWidthConstraint) && maxWidthConstraint < minWidthConstraint){
@@ -1385,7 +1397,7 @@
         widthToApply = Math.min(widthToApply, Math.round(maxWidthConstraint));
       }
       svgBox.style.width = widthToApply + 'px';
-      if(unlimitedWidth){
+      if(allowOverflow){
         svgBox.style.maxWidth = 'none';
       }else{
         svgBox.style.maxWidth = Math.max(widthToApply, Number.isFinite(datasetDefaultWidth) ? datasetDefaultWidth : widthToApply) + 'px';

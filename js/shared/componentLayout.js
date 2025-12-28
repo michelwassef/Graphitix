@@ -100,7 +100,7 @@
         console.debug('Debug: componentLayout scheduleDraw invoked', { component: componentName });
         scheduleDrawFn();
       } : null;
-      const syncOptions = Object.assign({}, config?.panelSyncOptions || {});
+      const syncOptions = Object.assign({ forceDefaultWidth: true }, config?.panelSyncOptions || {});
       Object.assign(syncOptions, {
         svgBox: elements.svgBox,
         minSvgWidth: panelState.minSvgWidth,
