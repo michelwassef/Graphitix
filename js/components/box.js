@@ -14330,8 +14330,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         svgBox: () => els.graphPanel?.querySelector('.svgbox'),
         resizeTarget: () => els.plotDiv?.closest('.svgbox') || els.graphPanel?.querySelector('.svgbox')
       },
-      scheduleDraw: state.scheduleDraw,
-      onAfterSync: () => syncBoxAutoDrawNoticeWidth('panel-sync'),
+        scheduleDraw: state.scheduleDraw,
+        preserveGraphContent: false,
+        panelSyncOptions: {
+          disableAutoWidthClamp: true,
+          lockGraphPanelWidth: false
+        },
+        onAfterSync: () => syncBoxAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: box layout min width update', { value: state.minSvgWidth });

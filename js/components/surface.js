@@ -1541,6 +1541,11 @@
         resizeTarget: () => global.document.querySelector('#surfaceGraphPanel .svgbox')
       },
         scheduleDraw: state.scheduleDraw,
+        preserveGraphContent: false,
+        panelSyncOptions: {
+          disableAutoWidthClamp: true,
+          lockGraphPanelWidth: false
+        },
         onAfterSync: () => syncSurfaceAutoDrawNoticeWidth('panel-sync'),
         resizableBoxOptions: {
           onResize: () => {

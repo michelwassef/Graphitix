@@ -100,7 +100,8 @@
         console.debug('Debug: componentLayout scheduleDraw invoked', { component: componentName });
         scheduleDrawFn();
       } : null;
-      Shared.syncPanelWidths(elements.tablePanel, elements.graphPanel, elements.configPanel, scheduleWrapper, {
+      const syncOptions = Object.assign({}, config?.panelSyncOptions || {});
+      Object.assign(syncOptions, {
         svgBox: elements.svgBox,
         minSvgWidth: panelState.minSvgWidth,
         debugLabel: componentName,
@@ -108,6 +109,7 @@
         skipSchedule,
         preserveGraphContent: config?.preserveGraphContent !== false
       });
+      Shared.syncPanelWidths(elements.tablePanel, elements.graphPanel, elements.configPanel, scheduleWrapper, syncOptions);
       console.debug('Debug: componentLayout syncPanels complete', { component: componentName, minSvgWidth: panelState.minSvgWidth });
       if(typeof config?.onAfterSync === 'function'){
         try{

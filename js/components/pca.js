@@ -2012,9 +2012,14 @@
           hotWrapper: '#pcaHotWrapper',
           hotContainer: '#pcaHot',
           svgBox: () => pcaGraphPanel?.querySelector('.svgbox'),
-        resizeTarget: () => pcaGraphPanel?.querySelector('.svgbox')
-      },
+          resizeTarget: () => pcaGraphPanel?.querySelector('.svgbox')
+        },
         scheduleDraw: () => scheduleDrawPca(),
+        preserveGraphContent: false,
+        panelSyncOptions: {
+          disableAutoWidthClamp: true,
+          lockGraphPanelWidth: false
+        },
         onAfterSync: () => syncPcaAutoDrawNoticeWidth('panel-sync'),
         resizableBoxOptions: {
           onResize: () => {

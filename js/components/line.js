@@ -7445,8 +7445,13 @@
         svgBox: () => refs.graphPanel?.querySelector('.svgbox'),
         resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
       },
-      scheduleDraw: scheduleLineDraw,
-      onAfterSync: () => syncLineAutoDrawNoticeWidth('panel-sync'),
+        scheduleDraw: scheduleLineDraw,
+        preserveGraphContent: false,
+        panelSyncOptions: {
+          disableAutoWidthClamp: true,
+          lockGraphPanelWidth: false
+        },
+        onAfterSync: () => syncLineAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         lineMinSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: line layout min width update', { value: lineMinSvgWidth });

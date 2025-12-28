@@ -1558,17 +1558,22 @@
     state.scheduleDraw = ()=>{};
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'pie',
-      selectors: {
-        tablePanel: '#pieTablePanel',
-        graphPanel: '#pieGraphPanel',
-        panelResizer: '#piePanelResizer',
-        hotWrapper: '#pieHotWrapper',
-        hotContainer: '#pieHot',
-        svgBox: () => document.querySelector('#pieGraphPanel .svgbox'),
-        resizeTarget: () => document.querySelector('#pieGraphPanel .svgbox')
-      },
-      scheduleDraw: state.scheduleDraw,
-      onMinSvgWidth: value => {
+        selectors: {
+          tablePanel: '#pieTablePanel',
+          graphPanel: '#pieGraphPanel',
+          panelResizer: '#piePanelResizer',
+          hotWrapper: '#pieHotWrapper',
+          hotContainer: '#pieHot',
+          svgBox: () => document.querySelector('#pieGraphPanel .svgbox'),
+          resizeTarget: () => document.querySelector('#pieGraphPanel .svgbox')
+        },
+        scheduleDraw: state.scheduleDraw,
+        preserveGraphContent: false,
+        panelSyncOptions: {
+          disableAutoWidthClamp: true,
+          lockGraphPanelWidth: false
+        },
+        onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: pie layout min width update', { value: state.minSvgWidth });
       }

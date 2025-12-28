@@ -3406,6 +3406,9 @@
   let scheduleDrawScatter = () => {};
   let scheduleDrawScatterRaw = () => {};
   let scatterAutoDrawManager = null;
+  let scatterLayout = null;
+  let scatterLayoutWasHidden = true;
+  let scatterLayoutDeferredSync = false;
   let scatterCurrentGraphType='scatter';
   let scatterLastGraphType='scatter';
   let scatterLastRegressionSummary=null;
@@ -3678,7 +3681,7 @@
           scatterLegendControl.dataset.scatterLegendTray='true';
         }
       };
-      const scatterLayout = Shared.componentLayout?.createStandardPanels({
+      scatterLayout = Shared.componentLayout?.createStandardPanels({
         componentName: 'scatter',
         selectors: {
           tablePanel: '#scatterTablePanel',
@@ -3691,6 +3694,11 @@
           resizeTarget: () => scatterGraphPanel?.querySelector('.svgbox')
         },
         scheduleDraw: () => scheduleDrawScatter(),
+        preserveGraphContent: false,
+        panelSyncOptions: {
+          disableAutoWidthClamp: true,
+          lockGraphPanelWidth: false
+        },
         onAfterSync: () => syncScatterAutoDrawNoticeWidth('panel-sync'),
         resizableBoxOptions: {
           onResize: () => {
@@ -8944,11 +8952,35 @@
       scatter.init();
       return;
     }
+    scatterLayoutWasHidden = true;
     if(typeof scatter.__ensureHotForActiveTab === 'function'){
       scatter.__ensureHotForActiveTab();
     }
   };
-  scatter.draw = function draw(){ ensureReady(); scheduleDrawScatter && scheduleDrawScatter(); };
+  scatter.draw = function draw(){
+    ensureReady();
+    if(scatterLayout && typeof scatterLayout.syncPanels === 'function'){
+      const graphPanel = scatterLayout.elements?.graphPanel || null;
+      const isVisible = !!(graphPanel && graphPanel.offsetParent !== null);
+      scatterLayout.syncPanels({ skipSchedule: true });
+      if(isVisible && scatterLayoutWasHidden && !scatterLayoutDeferredSync){
+        scatterLayoutWasHidden = false;
+        scatterLayoutDeferredSync = true;
+        const scheduleSync = () => {
+          scatterLayoutDeferredSync = false;
+          scatterLayout?.syncPanels?.({ skipSchedule: true });
+        };
+        if(typeof global.requestAnimationFrame === 'function'){
+          global.requestAnimationFrame(scheduleSync);
+        }else{
+          (global.setTimeout || setTimeout)(scheduleSync, 0);
+        }
+      }else if(!isVisible){
+        scatterLayoutWasHidden = true;
+      }
+    }
+    scheduleDrawScatter && scheduleDrawScatter();
+  };
 
   function benchmarkScatterLoad(config){
     const points = Math.max(1, Math.floor(Number(config?.points) || 1000));

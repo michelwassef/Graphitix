@@ -3459,17 +3459,22 @@
     logDebug('scheduleDraw configured', { hasDebounce: typeof Shared.debounceFrame === 'function' });
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'survival',
-      selectors: {
-        tablePanel: '#survivalTablePanel',
-        graphPanel: '#survivalGraphPanel',
-        panelResizer: '#survivalPanelResizer',
-        hotWrapper: '#survivalHotWrapper',
-        hotContainer: '#survivalHot',
-        svgBox: () => refs.graphPanel?.querySelector('.svgbox'),
-        resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
-      },
-      scheduleDraw: state.scheduleDraw,
-      onMinSvgWidth: value => {
+        selectors: {
+          tablePanel: '#survivalTablePanel',
+          graphPanel: '#survivalGraphPanel',
+          panelResizer: '#survivalPanelResizer',
+          hotWrapper: '#survivalHotWrapper',
+          hotContainer: '#survivalHot',
+          svgBox: () => refs.graphPanel?.querySelector('.svgbox'),
+          resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
+        },
+        scheduleDraw: state.scheduleDraw,
+        preserveGraphContent: false,
+        panelSyncOptions: {
+          disableAutoWidthClamp: true,
+          lockGraphPanelWidth: false
+        },
+        onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         logDebug('layout onMinSvgWidth', { value: state.minSvgWidth });
       }

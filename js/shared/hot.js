@@ -3930,10 +3930,11 @@
         comparator: valueComparator
       },
       rowSelection: { mode: 'multiRow', headerCheckbox: false },
-      suppressRowHoverHighlight: true,
-      suppressMenuHide: true,
-      ensureDomOrder: true,
-      headerHeight: colHeadersEnabled ? 24 : 0,
+        suppressRowHoverHighlight: true,
+        suppressMenuHide: true,
+        ensureDomOrder: true,
+        alwaysShowHorizontalScroll: true,
+        headerHeight: colHeadersEnabled ? 24 : 0,
       autoSizeStrategy: autoSizeColumnsEnabled ? { type: 'fitCellContents' } : undefined,
       postSortRows: function(params){
         try{

@@ -663,7 +663,67 @@ select {
 
 #vennPage {
     min-width: 100%;
-    width: max-content;
+    width: 100%;
+    max-width: none;
+}
+
+#boxPage {
+    min-width: 100%;
+    width: 100%;
+    max-width: none;
+}
+
+#pcaPage {
+    min-width: 100%;
+    width: 100%;
+    max-width: none;
+}
+
+#linePage {
+    min-width: 100%;
+    width: 100%;
+    max-width: none;
+}
+
+#heatmapPage {
+    min-width: 100%;
+    width: 100%;
+    max-width: none;
+}
+
+#surfacePage {
+    min-width: 100%;
+    width: 100%;
+    max-width: none;
+}
+
+#rocPage {
+    min-width: 100%;
+    width: 100%;
+    max-width: none;
+}
+
+#survivalPage {
+    min-width: 100%;
+    width: 100%;
+    max-width: none;
+}
+
+#histPage {
+    min-width: 100%;
+    width: 100%;
+    max-width: none;
+}
+
+#piePage {
+    min-width: 100%;
+    width: 100%;
+    max-width: none;
+}
+
+#scatterPage {
+    min-width: 100%;
+    width: 100%;
     max-width: none;
 }
 
@@ -2282,9 +2342,9 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 .analysis-options strong{font-size:13px}
 #analysisResults{font-size:13px}
 #analysisResults canvas{font-size:initial}
-#vennPage{min-width:100%;width:fit-content;max-width:none;display:flex;flex-direction:column;align-items:stretch}
+#vennPage{min-width:100%;width:100%;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #vennPage .workspace-page__topbar{width:100%;max-width:none;box-sizing:border-box}
-#vennPage .wrap{--venn-input-default:clamp(320px,33%,420px);display:flex;align-items:stretch;gap:0;flex:1 1 auto;width:auto;max-width:none;min-width:0;padding-left:10px}
+#vennPage .wrap{--venn-input-default:clamp(320px,33%,420px);display:flex;align-items:stretch;gap:0;flex:1 1 auto;width:100%;max-width:100%;min-width:0;padding-left:10px}
 #vennPage #vennInputPanel{flex:0 0 var(--venn-input-default);min-width:150px;display:flex;flex-direction:column;min-height:0}
 #vennPage #vennGraphPanel{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;max-width:none}
 #vennPage .venn-inline-controls{align-items:center;gap:12px;flex-wrap:wrap}
@@ -2293,7 +2353,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #vennPage .venn-delimiter-group{display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
 #vennPage .venn-delimiter-group label{margin:0}
 #vennPage .venn-delimiter-group select{min-width:110px}
-#vennPage .diagram-area .svgbox{flex:0 0 auto}
+#vennPage .diagram-area .svgbox{flex:1 1 auto;min-width:0}
 #vennPage .diagram-area .config-options{flex:0 0 auto}
 #vennPage .panel{display:flex;flex-direction:column;min-width:0}
 #vennPage #analysisResults,#vennPage #stringSection,#vennPage #stringResults,#vennPage #stringNetwork{min-width:0;max-width:100%}
@@ -2302,7 +2362,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 @media (max-width:1000px){#vennPage .wrap{flex-direction:column}#vennPage #vennInputPanel,#vennPage #vennGraphPanel{flex:1 1 auto;max-width:none}}
 #boxPage .wrap{display:flex;align-items:stretch;gap:0}
 #boxPage #boxTablePanel{flex:1 1 33%;min-width:150px}
-#boxPage #boxGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#boxPage #boxGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #boxPage .diagram-area .svgbox{flex:1 1 auto}
 #boxPage .diagram-area .config-options{flex:0 0 auto}
 #boxWhiskerRuleCtl .whisker-custom-input{display:flex;align-items:center;gap:6px;font-size:11px;color:#111b29;white-space:nowrap}
@@ -2331,10 +2391,18 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 @media (max-width:1000px){#boxPage .wrap{grid-template-columns:1fr}}
 #scatterPage .wrap{display:flex;align-items:stretch;gap:0}
 #scatterPage #scatterTablePanel{flex:1 1 33%;min-width:150px}
-#scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #scatterPage .diagram-area .svgbox{flex:1 1 auto}
 #scatterPage .diagram-area .config-panel{flex:0 0 auto}
 #boxPage .diagram-area .box-plot-stack,#scatterPage .diagram-area .scatter-plot-stack,#surfacePage .diagram-area .surface-plot-stack,#rocPage .diagram-area .roc-plot-stack,#histPage .diagram-area .hist-plot-stack{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#boxPage .diagram-area .box-plot-stack{flex:1 0 auto;min-width:max-content}
+#scatterPage .diagram-area .scatter-plot-stack{flex:1 0 auto;min-width:max-content}
+#linePage .diagram-area .line-plot-stack{flex:1 0 auto;min-width:max-content}
+#rocPage .diagram-area .roc-plot-stack{flex:1 0 auto;min-width:max-content}
+#histPage .diagram-area .hist-plot-stack{flex:1 0 auto;min-width:max-content}
+#surfacePage .diagram-area .surface-plot-stack{flex:1 0 auto;min-width:max-content}
+#heatmapPage .diagram-area .heatmap-plot-stack{flex:1 0 auto;min-width:max-content}
+#pcaPage .diagram-area .pca-plot-stack{flex:1 0 auto;min-width:max-content}
 #boxPage .box-plot-stack .svgbox,#scatterPage .scatter-plot-stack .svgbox,#surfacePage .surface-plot-stack .svgbox,#rocPage .roc-plot-stack .svgbox,#histPage .hist-plot-stack .svgbox,#linePage .line-plot-stack .svgbox{flex:1 1 auto;min-width:0}
 .config-panel input[type=number],
 .config-panel select,
@@ -2393,9 +2461,9 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #pcaPage .wrap{display:flex;align-items:stretch;gap:0;min-width:0}
 #pcaPage #pcaTablePanel{flex:0 1 var(--pca-input-default);min-width:150px;max-width:65%}
 #pcaPage #pcaHotWrapper{min-width:0;max-width:100%}
-#pcaPage #pcaGraphPanel{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+#pcaPage #pcaGraphPanel{flex:1 1 auto;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #pcaPage .diagram-area .svgbox{flex:0 0 auto}
-#pcaPage .diagram-area .pca-plot-stack{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#pcaPage .diagram-area .pca-plot-stack{flex:1 0 auto;min-width:max-content;display:flex;flex-direction:column;gap:4px}
 #pcaPage .pca-plot-stack .svgbox{flex:1 1 auto}
 #pcaPage .diagram-area .config-options{flex:0 1 360px;max-width:360px}
 #pcaPage .panel{display:flex;flex-direction:column;min-width:0}
@@ -2406,7 +2474,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #surfacePage .wrap{display:flex;align-items:stretch;gap:0}
 #surfacePage .panel{display:flex;flex-direction:column;min-width:0}
 #surfacePage #surfaceTablePanel{flex:1 1 33%;min-width:180px}
-#surfacePage #surfaceGraphPanel{flex:2 1 67%;min-width:220px;display:flex;flex-direction:column;gap:12px}
+#surfacePage #surfaceGraphPanel{flex:2 1 67%;min-width:0;max-width:none;display:flex;flex-direction:column;gap:12px;align-items:stretch}
 #surfacePage #surfaceHotWrapper{flex:1 1 auto;min-height:0}
 #surfacePage .diagram-area .config-options{flex:0 1 320px;min-width:220px}
 #surfacePage .surface-message{position:absolute;top:12px;left:12px;right:12px;bottom:52px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:#3b4758;background:rgba(255,255,255,0.86);border:1px dashed #b6c2d3;border-radius:4px;padding:12px;pointer-events:none}
@@ -2453,19 +2521,19 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 @media (max-width:1000px){#pcaPage .wrap{grid-template-columns:1fr}}
 #linePage .wrap{display:flex;align-items:stretch;gap:0}
 #linePage #lineTablePanel{flex:1 1 33%;min-width:150px}
-#linePage #lineGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#linePage #lineGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #linePage .diagram-area .svgbox{flex:1 1 auto}
 #linePage .diagram-area .config-options{flex:0 0 auto}
 #linePage .panel{display:flex;flex-direction:column;min-width:0}
 #linePage #linePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
-#linePage .line-plot-stack{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#linePage .line-plot-stack{flex:1 0 auto;min-width:max-content;display:flex;flex-direction:column;gap:4px}
 #linePage .line-render-row{display:flex;align-items:flex-start;gap:10px;margin-top:0;width:100%;flex-wrap:wrap}
 #linePage .line-auto-draw-notice{margin:0;font-size:12px;color:#444;line-height:1.35;flex:1 1 260px;min-width:240px}
 @media (max-width:1000px){#linePage .wrap{grid-template-columns:1fr}}
 #heatmapPage .wrap{display:flex;align-items:stretch;gap:0}
 #heatmapPage #heatmapTablePanel{flex:1 1 33%;min-width:150px}
-#heatmapPage #heatmapGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
-#heatmapPage .diagram-area .heatmap-plot-stack{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#heatmapPage #heatmapGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
+#heatmapPage .diagram-area .heatmap-plot-stack{flex:1 0 auto;min-width:max-content;display:flex;flex-direction:column;gap:4px}
 #heatmapPage .heatmap-plot-stack .svgbox{flex:1 1 auto}
 #heatmapPage .diagram-area .svgbox{flex:0 0 auto}
 #heatmapPage .diagram-area .config-options{flex:0 0 auto}
@@ -2484,7 +2552,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #boxPage .box-plot-stack,#scatterPage .scatter-plot-stack,#surfacePage .surface-plot-stack,#rocPage .roc-plot-stack,#histPage .hist-plot-stack{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #rocPage .wrap{display:flex;align-items:stretch;gap:0}
 #rocPage #rocTablePanel{flex:1 1 33%;min-width:150px}
-#rocPage #rocGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#rocPage #rocGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #rocPage .diagram-area .svgbox{flex:1 1 auto}
 #rocPage .diagram-area .config-options{flex:0 0 auto}
 #rocPage .panel{display:flex;flex-direction:column;min-width:0}
@@ -2492,7 +2560,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 @media (max-width:1000px){#rocPage .wrap{grid-template-columns:1fr}}
 #survivalPage .wrap{display:flex;align-items:stretch;gap:0}
 #survivalPage #survivalTablePanel{flex:1 1 33%;min-width:150px}
-#survivalPage #survivalGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#survivalPage #survivalGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #survivalPage .diagram-area .svgbox{flex:0 0 auto}
 #survivalPage .diagram-area .config-options{flex:0 0 auto}
 #survivalPage .panel{display:flex;flex-direction:column;min-width:0}
@@ -2501,7 +2569,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 @media (max-width:1000px){#survivalPage .wrap{grid-template-columns:1fr}}
 #histPage .wrap{display:flex;align-items:stretch;gap:0}
 #histPage #histTablePanel{flex:1 1 33%;min-width:150px}
-#histPage #histGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#histPage #histGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #histGraphPanel .hist-dist-list{display:flex;flex-direction:column;gap:6px;width:100%;}
 #histGraphPanel .hist-dist-option{display:flex;align-items:center;gap:6px;font-size:0.9rem;line-height:1.4;}
 #histGraphPanel .hist-dist-option input[type="checkbox"]{margin:0;}
@@ -2514,7 +2582,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 @media (max-width:1000px){#histPage .wrap{grid-template-columns:1fr}}
 #piePage .wrap{display:flex;align-items:stretch;gap:0}
 #piePage #pieTablePanel{flex:1 1 33%;min-width:150px}
-#piePage #pieGraphPanel{flex:2 1 66%;min-width:150px;display:flex;flex-direction:column}
+#piePage #pieGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #piePage .diagram-area .svgbox{flex:0 0 auto}
 #piePage .diagram-area .config-options{flex:0 1 280px;min-width:220px}
 #piePage .panel{display:flex;flex-direction:column;min-width:0}

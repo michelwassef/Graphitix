@@ -2825,6 +2825,11 @@
         resizeTarget: () => doc?.querySelector('#vennGraphPanel .svgbox')
       },
       scheduleDraw: () => { state.ui.scheduleDraw?.(); },
+      preserveGraphContent: false,
+      panelSyncOptions: {
+        disableAutoWidthClamp: true,
+        lockGraphPanelWidth: false
+      },
       resizableBoxOptions: {
         onResize: phase => {
           debugLog('layout onResize', { phase });

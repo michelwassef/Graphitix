@@ -2543,8 +2543,13 @@
         svgBox: () => refs.graphPanel?.querySelector('.svgbox'),
         resizeTarget: () => refs.graphPanel?.querySelector('.svgbox')
       },
-      scheduleDraw: state.scheduleDraw,
-      onAfterSync: () => {
+        scheduleDraw: state.scheduleDraw,
+        preserveGraphContent: false,
+        panelSyncOptions: {
+          disableAutoWidthClamp: true,
+          lockGraphPanelWidth: false
+        },
+        onAfterSync: () => {
         syncRocAutoDrawNoticeWidth('panel-sync');
         ensureRocLegendControlPlacement();
       },

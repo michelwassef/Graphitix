@@ -1980,17 +1980,22 @@
     state.scheduleDraw = ()=>{};
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'hist',
-      selectors: {
-        tablePanel: '#histTablePanel',
-        graphPanel: '#histGraphPanel',
-        panelResizer: '#histPanelResizer',
-        hotWrapper: '#histHotWrapper',
-        hotContainer: '#histHot',
-        svgBox: () => document.querySelector('#histGraphPanel .svgbox'),
-        resizeTarget: () => document.querySelector('#histGraphPanel .svgbox')
-      },
-      scheduleDraw: state.scheduleDraw,
-      onAfterSync: () => syncHistAutoDrawNoticeWidth('panel-sync'),
+        selectors: {
+          tablePanel: '#histTablePanel',
+          graphPanel: '#histGraphPanel',
+          panelResizer: '#histPanelResizer',
+          hotWrapper: '#histHotWrapper',
+          hotContainer: '#histHot',
+          svgBox: () => document.querySelector('#histGraphPanel .svgbox'),
+          resizeTarget: () => document.querySelector('#histGraphPanel .svgbox')
+        },
+        scheduleDraw: state.scheduleDraw,
+        preserveGraphContent: false,
+        panelSyncOptions: {
+          disableAutoWidthClamp: true,
+          lockGraphPanelWidth: false
+        },
+        onAfterSync: () => syncHistAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         state.minSvgWidth = Math.max(0, Number(value) || 0);
         console.debug('Debug: hist layout min width update', { value: state.minSvgWidth });

@@ -4595,16 +4595,21 @@
     }
     state.layout = Shared.componentLayout?.createStandardPanels({
       componentName: 'heatmap',
-      selectors: {
-        tablePanel: '#heatmapTablePanel',
-        graphPanel: '#heatmapGraphPanel',
-        panelResizer: '#heatmapPanelResizer',
-        hotWrapper: '#heatmapHotWrapper',
-        hotContainer: '#heatmapHot',
-        svgBox: () => state.svg?.closest('.svgbox'),
-        resizeTarget: () => state.svg?.closest('.svgbox')
-      },
-      onAfterSync: () => syncHeatmapAutoDrawNoticeWidth('panel-sync'),
+        selectors: {
+          tablePanel: '#heatmapTablePanel',
+          graphPanel: '#heatmapGraphPanel',
+          panelResizer: '#heatmapPanelResizer',
+          hotWrapper: '#heatmapHotWrapper',
+          hotContainer: '#heatmapHot',
+          svgBox: () => state.svg?.closest('.svgbox'),
+          resizeTarget: () => state.svg?.closest('.svgbox')
+        },
+        preserveGraphContent: false,
+        panelSyncOptions: {
+          disableAutoWidthClamp: true,
+          lockGraphPanelWidth: false
+        },
+        onAfterSync: () => syncHeatmapAutoDrawNoticeWidth('panel-sync'),
       onMinSvgWidth: value => {
         state.minSvgWidth = value;
         console.debug('Debug: heatmap layout minSvgWidth updated', { value });
