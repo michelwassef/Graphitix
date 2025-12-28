@@ -77,6 +77,20 @@ const BENCHMARKS = [
     defaults: { rows: 2000, cols: 25 }
   },
   {
+    id: 'box-swarm',
+    label: 'Box swarm spacing',
+    module: path.join(__dirname, '..', 'js', 'components', 'box.js'),
+    resolveHook: () => global.window?.Components?.box?.__testHooks?.benchmarkSwarmOffsets,
+    defaults: { points: 12000, clusters: 8, axisSpacing: 120, radius: 2, widthScaleMode: 'density' }
+  },
+  {
+    id: 'box-swarm-modes',
+    label: 'Box swarm modes',
+    module: path.join(__dirname, '..', 'js', 'components', 'box.js'),
+    resolveHook: () => global.window?.Components?.box?.__testHooks?.benchmarkSwarmModes,
+    defaults: { points: 12000, clusters: 8, axisSpacing: 120, radius: 5, overlayRadius: 2, height: 600, violinSamples: 80 }
+  },
+  {
     id: 'scatter',
     label: 'Scatter plot prep',
     module: path.join(__dirname, '..', 'js', 'components', 'scatter.js'),

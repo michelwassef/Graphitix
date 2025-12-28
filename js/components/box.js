@@ -2309,6 +2309,309 @@
     };
   }
 
+  function benchmarkSwarmOffsets(config){
+    const pointCount = Math.max(1, Math.floor(Number(config?.points) || 12000));
+    const clusterCount = Math.max(1, Math.floor(Number(config?.clusters) || 8));
+    const radiusRaw = Number(config?.radius);
+    const pointRadius = Number.isFinite(radiusRaw) && radiusRaw > 0 ? radiusRaw : 2;
+    const axisSpacingRaw = Number(config?.axisSpacing);
+    const axisSpacing = Number.isFinite(axisSpacingRaw) && axisSpacingRaw > 0 ? axisSpacingRaw : 120;
+    const widthScaleMode = typeof config?.widthScaleMode === 'string' ? config.widthScaleMode : 'density';
+    const seed = Number.isFinite(Number(config?.seed)) ? Number(config.seed) : 1337;
+    const clusterSpreadRaw = Number(config?.clusterSpread);
+    const clusterSpread = Number.isFinite(clusterSpreadRaw) && clusterSpreadRaw > 0 ? clusterSpreadRaw : pointRadius * 3;
+    const jitterRaw = Number(config?.jitter);
+    const jitter = Number.isFinite(jitterRaw) ? jitterRaw : pointRadius * 1.1;
+    const quantizeRaw = Number(config?.quantize);
+    const quantize = Number.isFinite(quantizeRaw) && quantizeRaw > 0 ? quantizeRaw : null;
+    const orientation = config?.orientation === 'horizontal' ? 'horizontal' : 'vertical';
+    let rng = seed >>> 0;
+    const nextRand = () => {
+      rng = (rng * 1664525 + 1013904223) >>> 0;
+      return rng / 4294967295;
+    };
+    const centers = new Array(clusterCount);
+    const centerOffset = (clusterCount - 1) / 2;
+    for(let i = 0; i < clusterCount; i++){
+      centers[i] = (i - centerOffset) * clusterSpread;
+    }
+    const points = new Array(pointCount);
+    for(let i = 0; i < pointCount; i++){
+      const clusterIdx = Math.floor(nextRand() * clusterCount);
+      const offset = (nextRand() * 2 - 1) * jitter;
+      let coord = centers[clusterIdx] + offset;
+      if(quantize != null){
+        coord = Math.round(coord / quantize) * quantize;
+      }
+      points[i] = { index: i, coord, raw: coord };
+    }
+    const perf = global.performance;
+    const start = perf?.now ? perf.now() : Date.now();
+    const result = computeSwarmOffsets(points, {
+      axisSpacing,
+      pointRadius,
+      sampleSize: pointCount,
+      orientation,
+      widthScaleMode,
+      maxHalfWidth: config?.maxHalfWidth
+    });
+    const end = perf?.now ? perf.now() : Date.now();
+    return {
+      points: pointCount,
+      clusters: clusterCount,
+      axisSpacing,
+      pointRadius,
+      widthScaleMode,
+      orientation,
+      durationMs: Number((end - start).toFixed(3)),
+      maxOffsetUsed: result?.maxOffsetUsed ?? null
+    };
+  }
+
+  function benchmarkSwarmModes(config){
+    const pointCount = Math.max(1, Math.floor(Number(config?.points) || 12000));
+    const clusterCount = Math.max(1, Math.floor(Number(config?.clusters) || 8));
+    const baseRadiusRaw = Number(config?.radius);
+    const baseRadius = Number.isFinite(baseRadiusRaw) && baseRadiusRaw > 0 ? baseRadiusRaw : 5;
+    const overlayRadiusRaw = Number(config?.overlayRadius);
+    const overlayRadius = Number.isFinite(overlayRadiusRaw) && overlayRadiusRaw > 0 ? overlayRadiusRaw : 2;
+    const axisSpacingRaw = Number(config?.axisSpacing);
+    const axisSpacing = Number.isFinite(axisSpacingRaw) && axisSpacingRaw > 0 ? axisSpacingRaw : 120;
+    const heightRaw = Number(config?.height);
+    const height = Number.isFinite(heightRaw) && heightRaw > 0 ? heightRaw : 600;
+    const seed = Number.isFinite(Number(config?.seed)) ? Number(config.seed) : 1337;
+    const clusterSpreadRaw = Number(config?.clusterSpread);
+    const clusterSpread = Number.isFinite(clusterSpreadRaw) && clusterSpreadRaw > 0 ? clusterSpreadRaw : baseRadius * 3;
+    const jitterRaw = Number(config?.jitter);
+    const jitter = Number.isFinite(jitterRaw) ? jitterRaw : baseRadius * 1.1;
+    const quantizeRaw = Number(config?.quantize);
+    const quantize = Number.isFinite(quantizeRaw) && quantizeRaw > 0 ? quantizeRaw : null;
+    const centerRaw = Number(config?.center);
+    const center = Number.isFinite(centerRaw) ? centerRaw : height / 2;
+    const violinSampleRaw = Number(config?.violinSamples);
+    const violinSamples = clampViolinSampleCount(Number.isFinite(violinSampleRaw) && violinSampleRaw > 0 ? violinSampleRaw : DEFAULT_VIOLIN_SAMPLE_COUNT);
+    const manualBandwidthRaw = Number(config?.bandwidth);
+    const manualBandwidth = Number.isFinite(manualBandwidthRaw) && manualBandwidthRaw > 0 ? manualBandwidthRaw : null;
+    let rng = seed >>> 0;
+    const nextRand = () => {
+      rng = (rng * 1664525 + 1013904223) >>> 0;
+      return rng / 4294967295;
+    };
+    const centers = new Array(clusterCount);
+    const centerOffset = (clusterCount - 1) / 2;
+    for(let i = 0; i < clusterCount; i++){
+      centers[i] = center + (i - centerOffset) * clusterSpread;
+    }
+    const values = new Array(pointCount);
+    for(let i = 0; i < pointCount; i++){
+      const clusterIdx = Math.floor(nextRand() * clusterCount);
+      const offset = (nextRand() * 2 - 1) * jitter;
+      let value = centers[clusterIdx] + offset;
+      if(quantize != null){
+        value = Math.round(value / quantize) * quantize;
+      }
+      values[i] = value;
+    }
+    const perf = global.performance;
+    const now = perf?.now ? () => perf.now() : () => Date.now();
+    const duration = total => Number(total.toFixed(3));
+    const createValueToCoord = (minVal, maxVal) => {
+      const range = Number.isFinite(maxVal - minVal) && (maxVal - minVal) !== 0 ? (maxVal - minVal) : 1;
+      return value => {
+        const numeric = Number(value);
+        if(!Number.isFinite(numeric)){
+          return height / 2;
+        }
+        return (height * (maxVal - numeric)) / range;
+      };
+    };
+    const buildCoords = (list, valueToCoord) => {
+      const coords = new Float64Array(list.length);
+      for(let i = 0; i < list.length; i++){
+        coords[i] = valueToCoord(list[i]);
+      }
+      return coords;
+    };
+    const clampOffsets = (rawValues, offsets, bounds, radius) => {
+      if(!rawValues.length || !offsets){ return 0; }
+      let maxUsed = 0;
+      for(let i = 0; i < rawValues.length; i++){
+        let offset = offsets[i] || 0;
+        if(bounds){
+          const maxHalf = bounds(rawValues[i]);
+          if(!Number.isFinite(maxHalf) || maxHalf <= 0){
+            offset = 0;
+          }else{
+            const limit = Math.max(0, maxHalf - radius);
+            if(limit <= 0){
+              offset = 0;
+            }else{
+              offset = Math.max(-limit, Math.min(limit, offset));
+            }
+          }
+        }
+        const abs = Math.abs(offset);
+        if(abs > maxUsed){
+          maxUsed = abs;
+        }
+      }
+      return maxUsed;
+    };
+    const estimateBandwidth = sorted => {
+      if(!sorted.length) return 1;
+      const n = sorted.length;
+      const meanVal = sorted.reduce((acc, v) => acc + v, 0) / n;
+      const variance = sorted.reduce((acc, v) => acc + Math.pow(v - meanVal, 2), 0) / (n - 1 || 1);
+      const sigma = Math.sqrt(variance) || 0;
+      const iqrVal = percentileFromSorted(sorted, 0.75) - percentileFromSorted(sorted, 0.25);
+      const scale = Math.min(sigma, iqrVal / 1.349 || Infinity) || sigma || Math.abs(sorted[0]) || 1;
+      const bandwidth = 0.9 * scale * Math.pow(n, -0.2);
+      const fallback = (sorted[n - 1] - sorted[0]) / (Math.sqrt(n) || 1) || 1;
+      const resolved = Number.isFinite(bandwidth) && bandwidth > 0 ? bandwidth : fallback;
+      return resolved;
+    };
+    const resolveBandwidth = sorted => {
+      if(manualBandwidth != null){
+        return manualBandwidth;
+      }
+      return estimateBandwidth(sorted);
+    };
+    const computeDensityBenchmark = (sorted, minVal, maxVal, sampleCount) => {
+      const count = clampViolinSampleCount(Number.isFinite(sampleCount) && sampleCount > 0 ? sampleCount : DEFAULT_VIOLIN_SAMPLE_COUNT);
+      if(!sorted.length){
+        const bandwidth = resolveBandwidth(sorted);
+        return { positions: [], densities: [], bandwidth, domainMin: NaN, domainMax: NaN, peak: 0 };
+      }
+      const bandwidth = resolveBandwidth(sorted);
+      const dataMin = sorted[0];
+      const dataMax = sorted[sorted.length - 1];
+      const dataSpan = dataMax - dataMin;
+      const pad = Math.max(bandwidth * 3, (Number.isFinite(dataSpan) ? dataSpan : 0) * 0.05);
+      let domainMin = dataMin - pad;
+      let domainMax = dataMax + pad;
+      if(Number.isFinite(minVal)){
+        domainMin = Math.max(domainMin, minVal);
+      }
+      if(Number.isFinite(maxVal)){
+        domainMax = Math.min(domainMax, maxVal);
+      }
+      if(!isFinite(domainMin) || !isFinite(domainMax)){
+        domainMin = dataMin;
+        domainMax = dataMax;
+      }
+      if(domainMax === domainMin){
+        domainMin -= 0.5;
+        domainMax += 0.5;
+      }
+      const positions = new Array(count);
+      const densities = new Array(count);
+      const step = (domainMax - domainMin) / Math.max(count - 1, 1);
+      const denom = sorted.length * bandwidth * Math.sqrt(2 * Math.PI);
+      let peak = 0;
+      for(let idx = 0; idx < count; idx++){
+        const x = domainMin + step * idx;
+        let sum = 0;
+        for(let j = 0; j < sorted.length; j++){
+          const u = (x - sorted[j]) / bandwidth;
+          sum += Math.exp(-0.5 * u * u);
+        }
+        const density = denom ? sum / denom : 0;
+        positions[idx] = x;
+        densities[idx] = density;
+        if(density > peak){
+          peak = density;
+        }
+      }
+      return { positions, densities, bandwidth, domainMin, domainMax, peak };
+    };
+    const individualStart = now();
+    const individualSummary = computeTraceSummary(values, { requireSorted: false, assumeFiniteValues: true });
+    const individualValueToCoord = createValueToCoord(individualSummary.min, individualSummary.max);
+    const individualCoords = buildCoords(values, individualValueToCoord);
+    const individualSwarmStart = now();
+    const individualSwarm = computeSwarmOffsets({ coords: individualCoords, raws: values }, {
+      axisSpacing,
+      pointRadius: baseRadius,
+      sampleSize: pointCount,
+      orientation: 'vertical',
+      widthScaleMode: 'density'
+    });
+    const individualSwarmEnd = now();
+    const individualEnd = now();
+    const boxStart = now();
+    const boxSummary = computeTraceSummary(values, { requireSorted: false, assumeFiniteValues: true });
+    const boxValueToCoord = createValueToCoord(boxSummary.min, boxSummary.max);
+    const boxCoords = buildCoords(values, boxValueToCoord);
+    const boxW = Math.max(6, Math.min(60, axisSpacing * 0.6));
+    const boxHalfWidth = Math.max(baseRadius * 1.1, boxW * 0.3);
+    const boxSwarmStart = now();
+    const boxSwarm = computeSwarmOffsets({ coords: boxCoords, raws: values }, {
+      axisSpacing,
+      pointRadius: overlayRadius,
+      sampleSize: pointCount,
+      orientation: 'vertical',
+      widthScaleMode: 'none',
+      maxHalfWidth: boxHalfWidth
+    });
+    const boxSwarmEnd = now();
+    const boxEnd = now();
+    const violinStart = now();
+    const violinSummary = computeTraceSummary(values, { requireSorted: true, assumeFiniteValues: true });
+    const sortedValues = Array.isArray(violinSummary.sortedValues) && violinSummary.sortedValues.length
+      ? violinSummary.sortedValues
+      : values.slice().sort((a, b) => a - b);
+    const densityStart = now();
+    const densityInfo = computeDensityBenchmark(sortedValues, null, null, violinSamples);
+    const densityEnd = now();
+    const violinScaleMin = Number.isFinite(densityInfo.domainMin) ? densityInfo.domainMin : violinSummary.min;
+    const violinScaleMax = Number.isFinite(densityInfo.domainMax) ? densityInfo.domainMax : violinSummary.max;
+    const violinValueToCoord = createValueToCoord(violinScaleMin, violinScaleMax);
+    const violinCoords = buildCoords(sortedValues, violinValueToCoord);
+    const violinHalfWidth = Math.max(3, Math.min(40, axisSpacing * 0.225));
+    const violinBounds = createViolinBoundLookup(densityInfo, violinHalfWidth, densityInfo.peak) || (() => violinHalfWidth);
+    const violinSwarmStart = now();
+    const violinSwarm = computeSwarmOffsets({ coords: violinCoords, raws: sortedValues }, {
+      axisSpacing,
+      pointRadius: overlayRadius,
+      sampleSize: pointCount,
+      orientation: 'vertical',
+      widthScaleMode: 'density',
+      maxHalfWidth: violinHalfWidth
+    });
+    const violinSwarmEnd = now();
+    const clampStart = now();
+    const violinClampMax = clampOffsets(sortedValues, violinSwarm?.offsets, violinBounds, overlayRadius);
+    const clampEnd = now();
+    const violinEnd = now();
+    const individualMsRaw = individualEnd - individualStart;
+    const boxMsRaw = boxEnd - boxStart;
+    const violinMsRaw = violinEnd - violinStart;
+    const totalMsRaw = individualMsRaw + boxMsRaw + violinMsRaw;
+    return {
+      points: pointCount,
+      clusters: clusterCount,
+      axisSpacing,
+      baseRadius,
+      overlayRadius,
+      height,
+      durationMs: duration(totalMsRaw),
+      individualMs: duration(individualMsRaw),
+      individualSwarmMs: duration(individualSwarmEnd - individualSwarmStart),
+      boxOverlayMs: duration(boxMsRaw),
+      boxOverlaySwarmMs: duration(boxSwarmEnd - boxSwarmStart),
+      violinOverlayMs: duration(violinMsRaw),
+      violinDensityMs: duration(densityEnd - densityStart),
+      violinSwarmMs: duration(violinSwarmEnd - violinSwarmStart),
+      violinClampMs: duration(clampEnd - clampStart),
+      maxOffsets: {
+        individual: individualSwarm?.maxOffsetUsed ?? null,
+        boxOverlay: boxSwarm?.maxOffsetUsed ?? null,
+        violinOverlay: violinSwarm?.maxOffsetUsed ?? null,
+        violinClamped: Number.isFinite(violinClampMax) ? violinClampMax : null
+      }
+    };
+  }
+
   function computeSeparatedCategoryUnits(groupIndices){
     if(!Array.isArray(groupIndices) || !groupIndices.length){
       return null;
@@ -2594,21 +2897,33 @@
     return newColor;
   }
 
-  function computeSampleSpreadFactor(sampleSize){
+  function computeSampleSpreadFactor(sampleSize, debugEnabled){
     const n = Number(sampleSize) || 0;
     if(n <= 1){
-      console.debug('Debug: computeSampleSpreadFactor minimal',{ sampleSize: n, factor: 0.2 });
+      if(debugEnabled){
+        console.debug('Debug: computeSampleSpreadFactor minimal',{ sampleSize: n, factor: 0.2 });
+      }
       return 0.2;
     }
     const sqrtScaled = Math.sqrt(n) / 7;
     const factor = Math.min(1, Math.max(0.2, sqrtScaled));
-    console.debug('Debug: computeSampleSpreadFactor',{ sampleSize: n, sqrtScaled, factor });
+    if(debugEnabled){
+      console.debug('Debug: computeSampleSpreadFactor',{ sampleSize: n, sqrtScaled, factor });
+    }
     return factor;
   }
 
   function computeSwarmOffsets(points, options){
-    const entries = Array.isArray(points) ? points.slice() : [];
-    const sampleSize = Number(options?.sampleSize) || entries.length;
+    const isArrayLike = value => Array.isArray(value) || ArrayBuffer.isView(value);
+    const coordsSource = points ? points.coords : null;
+    const isCompact = !!points && !Array.isArray(points) && isArrayLike(coordsSource);
+    const coordsInput = isCompact ? coordsSource : null;
+    const rawInput = isCompact
+      ? (isArrayLike(points.raws) ? points.raws : (isArrayLike(points.rawValues) ? points.rawValues : coordsInput))
+      : null;
+    const entries = Array.isArray(points) ? points : [];
+    const entryCount = isCompact ? (coordsInput ? coordsInput.length : 0) : entries.length;
+    const sampleSize = Number(options?.sampleSize) || entryCount;
     let pointRadiusValue = Number(options?.pointRadius);
     if(!Number.isFinite(pointRadiusValue) || pointRadiusValue <= 0){
       pointRadiusValue = 1;
@@ -2618,8 +2933,8 @@
     const orientation = options?.orientation || 'vertical';
     const widthScaleMode = options?.widthScaleMode || 'none';
     const maxHalfWidthOverride = Number(options?.maxHalfWidth);
-    const spreadFactor = computeSampleSpreadFactor(sampleSize);
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    const spreadFactor = computeSampleSpreadFactor(sampleSize, debugEnabled);
     const PREFERRED_GAP_FACTOR = 2.05;
     const densityDistance = Math.max(0.5, basePointRadius * PREFERRED_GAP_FACTOR);
     let axisBoundary = Math.max(0, axisSpacing / 2 - basePointRadius);
@@ -2636,34 +2951,64 @@
         globalMaxHalfWidth = Math.min(globalMaxHalfWidth, axisBoundary);
       }
     }
-    const offsetsMap = new Map();
-    if(!entries.length || !Number.isFinite(globalMaxHalfWidth) || globalMaxHalfWidth <= 0){
-      console.debug('Debug: computeSwarmOffsets empty',{ orientation, sampleSize, axisSpacing });
-      return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
+    if(!entryCount || !Number.isFinite(globalMaxHalfWidth) || globalMaxHalfWidth <= 0){
+      if(debugEnabled){
+        console.debug('Debug: computeSwarmOffsets empty',{ orientation, sampleSize, axisSpacing });
+      }
+      return { offsets: new Array(entryCount).fill(0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
-    const buildEntryJitterKey = (entry, seed) => {
-      const raw = Number(entry?.raw);
-      const baseValue = Number.isFinite(raw) ? raw : Number(entry?.coord) || 0;
+    const offsetsByIndex = new Array(entryCount);
+    const maxHalfWidthByIndex = new Array(entryCount);
+    const coords = new Float64Array(entryCount);
+    const jitters = new Uint32Array(entryCount);
+    const fastThresholdRaw = Number(options?.fastThreshold);
+    const fastThreshold = Number.isFinite(fastThresholdRaw) && fastThresholdRaw > 0 ? fastThresholdRaw : 20000;
+    const fastMode = options?.fastMode;
+    const useFastPlacement = fastMode === true
+      ? true
+      : (fastMode === false ? false : entryCount >= fastThreshold);
+    const buildEntryJitterKey = (rawValue, coordValue, index, seed) => {
+      const raw = Number(rawValue);
+      const baseValue = Number.isFinite(raw) ? raw : (Number.isFinite(coordValue) ? coordValue : 0);
       const scaled = Math.round(baseValue * 1000);
       let hash = (scaled ^ (seed || 0)) >>> 0;
       hash = ((hash >>> 16) ^ hash) * 0x45d9f3b;
       hash = ((hash >>> 16) ^ hash) * 0x45d9f3b;
       hash = ((hash >>> 16) ^ hash) >>> 0;
-      hash = (hash + (Number(entry?.index) + 1) * 1013) >>> 0;
+      hash = (hash + (Number(index) + 1) * 1013) >>> 0;
       return hash;
     };
-    const buildSortedEntries = seed => {
-      const sorted = [];
-      entries.forEach(entry => {
-        if(!entry || typeof entry.index !== 'number'){
-          return;
+    const buildSortedIndices = seed => {
+      const sorted = new Array(entryCount);
+      let sortedCount = 0;
+      if(isCompact){
+        for(let i = 0; i < entryCount; i++){
+          const coord = Number(coordsInput[i]);
+          const safeCoord = Number.isFinite(coord) ? coord : 0;
+          coords[i] = safeCoord;
+          jitters[i] = buildEntryJitterKey(rawInput ? rawInput[i] : safeCoord, safeCoord, i, seed);
+          sorted[sortedCount] = i;
+          sortedCount += 1;
         }
-        const coord = Number(entry.coord);
-        const safeCoord = Number.isFinite(coord) ? coord : 0;
-        const jitter = buildEntryJitterKey(entry, seed);
-        sorted.push({ entry, coord: safeCoord, jitter });
-      });
-      sorted.sort((a, b) => (a.coord - b.coord) || (a.jitter - b.jitter) || (a.entry.index - b.entry.index));
+      }else{
+        for(let i = 0; i < entries.length; i++){
+          const entry = entries[i];
+          if(!entry || typeof entry.index !== 'number'){
+            continue;
+          }
+          const coord = Number(entry.coord);
+          const safeCoord = Number.isFinite(coord) ? coord : 0;
+          const idx = entry.index;
+          coords[idx] = safeCoord;
+          jitters[idx] = buildEntryJitterKey(entry.raw, safeCoord, idx, seed);
+          sorted[sortedCount] = idx;
+          sortedCount += 1;
+        }
+      }
+      if(sortedCount !== sorted.length){
+        sorted.length = sortedCount;
+      }
+      sorted.sort((a, b) => (coords[a] - coords[b]) || (jitters[a] - jitters[b]) || (a - b));
       return sorted;
     };
     const getMaxOverlapCount = (sorted, distance) => {
@@ -2673,8 +3018,8 @@
       let maxCount = 0;
       let start = 0;
       for(let i = 0; i < sorted.length; i++){
-        const coord = sorted[i].coord;
-        while(start < i && coord - sorted[start].coord > distance){
+        const coord = coords[sorted[i]];
+        while(start < i && coord - coords[sorted[start]] > distance){
           start += 1;
         }
         const count = i - start + 1;
@@ -2685,9 +3030,9 @@
       return maxCount;
     };
     let seedBase = Math.round((sampleSize || entries.length) * 17 + pointRadiusValue * 1000);
-    let sortedEntries = buildSortedEntries(seedBase);
+    let sortedIndices = buildSortedIndices(seedBase);
     let collisionDistance = Math.max(0.5, pointRadiusValue * PREFERRED_GAP_FACTOR);
-    let maxCount = getMaxOverlapCount(sortedEntries, collisionDistance);
+    let maxCount = getMaxOverlapCount(sortedIndices, collisionDistance);
     if(debugEnabled && maxCount > 1){
       console.debug('Debug: computeSwarmOffsets overlap scan',{
         orientation,
@@ -2697,7 +3042,9 @@
       });
     }
     if(maxCount <= 0){
-      console.debug('Debug: computeSwarmOffsets noBins',{ orientation, sampleSize, axisSpacing });
+      if(debugEnabled){
+        console.debug('Debug: computeSwarmOffsets noBins',{ orientation, sampleSize, axisSpacing });
+      }
       return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
 
@@ -2708,15 +3055,17 @@
       if(Number.isFinite(maxAllowedRadius) && maxAllowedRadius < pointRadiusValue){
         const adjusted = Math.max(minRadius, Math.min(pointRadiusValue, maxAllowedRadius));
         if(adjusted < pointRadiusValue){
-          console.debug('Debug: computeSwarmOffsets auto-adjust radius',{ previousRadius: pointRadiusValue, adjustedRadius: adjusted, maxCount });
+          if(debugEnabled){
+            console.debug('Debug: computeSwarmOffsets auto-adjust radius',{ previousRadius: pointRadiusValue, adjustedRadius: adjusted, maxCount });
+          }
           pointRadiusValue = adjusted;
         }
       }
       if(pointRadiusValue !== initialRadius){
         seedBase = Math.round((sampleSize || entries.length) * 17 + pointRadiusValue * 1000);
-        sortedEntries = buildSortedEntries(seedBase);
+        sortedIndices = buildSortedIndices(seedBase);
         collisionDistance = Math.max(0.5, pointRadiusValue * PREFERRED_GAP_FACTOR);
-        maxCount = getMaxOverlapCount(sortedEntries, collisionDistance);
+        maxCount = getMaxOverlapCount(sortedIndices, collisionDistance);
         if(debugEnabled && maxCount > 1){
           console.debug('Debug: computeSwarmOffsets overlap scan adjusted',{
             orientation,
@@ -2730,24 +3079,24 @@
 
     let localCounts = null;
     let densityMax = maxCount;
-    if(widthScaleMode === 'density' && sortedEntries.length){
-      localCounts = new Map();
+    if(widthScaleMode === 'density' && sortedIndices.length){
+      localCounts = new Array(entryCount);
       let left = 0;
       let right = 0;
       let maxLocal = 0;
-      for(let i = 0; i < sortedEntries.length; i++){
-        const coord = sortedEntries[i].coord;
+      for(let i = 0; i < sortedIndices.length; i++){
+        const coord = coords[sortedIndices[i]];
         if(right < i){
           right = i;
         }
-        while(right + 1 < sortedEntries.length && sortedEntries[right + 1].coord - coord <= densityDistance){
+        while(right + 1 < sortedIndices.length && coords[sortedIndices[right + 1]] - coord <= densityDistance){
           right += 1;
         }
-        while(coord - sortedEntries[left].coord > densityDistance){
+        while(coord - coords[sortedIndices[left]] > densityDistance){
           left += 1;
         }
         const count = right - left + 1;
-        localCounts.set(sortedEntries[i].entry.index, count);
+        localCounts[sortedIndices[i]] = count;
         if(count > maxLocal){
           maxLocal = count;
         }
@@ -2755,143 +3104,275 @@
       densityMax = Math.max(1, maxLocal);
     }
 
-    const groupMetaByIndex = new Map();
-    const groupBuckets = new Map();
-    const coordGroupSizeByIndex = new Map();
-    if(sortedEntries.length){
+    const groupSizeByIndex = new Array(entryCount);
+    const groupIndexByIndex = new Array(entryCount);
+    const centerBuckets = [];
+    if(sortedIndices.length){
       const coordQuantum = 1;
-      sortedEntries.forEach(item => {
-        const coord = Number(item?.coord);
+      let bucket = [];
+      let lastKey = null;
+      for(let i = 0; i < sortedIndices.length; i++){
+        const index = sortedIndices[i];
+        const coord = coords[index];
         const coordKey = Number.isFinite(coord)
           ? Math.round(coord / coordQuantum) * coordQuantum
           : coord;
-        let bucket = groupBuckets.get(coordKey);
-        if(!bucket){
-          bucket = [];
-          groupBuckets.set(coordKey, bucket);
+        if(!bucket.length){
+          bucket.push(index);
+          lastKey = coordKey;
+          continue;
         }
-        bucket.push(item.entry.index);
-      });
-      groupBuckets.forEach(bucket => {
+        if(coordKey === lastKey){
+          bucket.push(index);
+          continue;
+        }
+        if(bucket.length > 1){
+          centerBuckets.push(bucket);
+          const size = bucket.length;
+          for(let j = 0; j < size; j++){
+            const idx = bucket[j];
+            groupSizeByIndex[idx] = size;
+            groupIndexByIndex[idx] = j;
+          }
+        }
+        bucket = [index];
+        lastKey = coordKey;
+      }
+      if(bucket.length > 1){
+        centerBuckets.push(bucket);
         const size = bucket.length;
-        for(let i = 0; i < size; i++){
-          groupMetaByIndex.set(bucket[i], { size, index: i });
-          coordGroupSizeByIndex.set(bucket[i], size);
+        for(let j = 0; j < size; j++){
+          const idx = bucket[j];
+          groupSizeByIndex[idx] = size;
+          groupIndexByIndex[idx] = j;
         }
-      });
+      }
     }
 
     const pairBuckets = [];
-    if(sortedEntries.length > 1){
-      const neighborInfoByIndex = new Map();
+    if(sortedIndices.length > 1){
+      const neighborLeftByIndex = new Array(entryCount);
+      const neighborRightByIndex = new Array(entryCount);
+      const neighborCountByIndex = new Array(entryCount);
       let left = 0;
       let right = 0;
-      for(let i = 0; i < sortedEntries.length; i++){
-        const coord = sortedEntries[i].coord;
+      for(let i = 0; i < sortedIndices.length; i++){
+        const coord = coords[sortedIndices[i]];
         if(right < i){
           right = i;
         }
-        while(right + 1 < sortedEntries.length && sortedEntries[right + 1].coord - coord <= collisionDistance){
+        while(right + 1 < sortedIndices.length && coords[sortedIndices[right + 1]] - coord <= collisionDistance){
           right += 1;
         }
-        while(coord - sortedEntries[left].coord > collisionDistance){
+        while(coord - coords[sortedIndices[left]] > collisionDistance){
           left += 1;
         }
-        neighborInfoByIndex.set(sortedEntries[i].entry.index, { left, right, count: right - left + 1 });
+        const index = sortedIndices[i];
+        neighborLeftByIndex[index] = left;
+        neighborRightByIndex[index] = right;
+        neighborCountByIndex[index] = right - left + 1;
       }
-      const paired = new Set();
-      for(let i = 0; i < sortedEntries.length; i++){
-        const entryIndex = sortedEntries[i].entry.index;
-        if(paired.has(entryIndex)){
+      const paired = new Uint8Array(entryCount);
+      for(let i = 0; i < sortedIndices.length; i++){
+        const entryIndex = sortedIndices[i];
+        if(paired[entryIndex]){
           continue;
         }
-        if((coordGroupSizeByIndex.get(entryIndex) || 0) > 1){
+        if((groupSizeByIndex[entryIndex] || 0) > 1){
           continue;
         }
-        const info = neighborInfoByIndex.get(entryIndex);
-        if(!info || info.count !== 2){
+        const count = neighborCountByIndex[entryIndex];
+        if(count !== 2){
           continue;
         }
         let otherIndex = null;
-        for(let k = info.left; k <= info.right; k++){
-          const candidate = sortedEntries[k].entry.index;
+        const leftIdx = neighborLeftByIndex[entryIndex];
+        const rightIdx = neighborRightByIndex[entryIndex];
+        for(let k = leftIdx; k <= rightIdx; k++){
+          const candidate = sortedIndices[k];
           if(candidate !== entryIndex){
             otherIndex = candidate;
             break;
           }
         }
-        if(otherIndex == null || paired.has(otherIndex)){
+        if(otherIndex == null || paired[otherIndex]){
           continue;
         }
-        if((coordGroupSizeByIndex.get(otherIndex) || 0) > 1){
+        if((groupSizeByIndex[otherIndex] || 0) > 1){
           continue;
         }
-        const otherInfo = neighborInfoByIndex.get(otherIndex);
-        if(!otherInfo || otherInfo.count !== 2){
+        if(neighborCountByIndex[otherIndex] !== 2){
           continue;
         }
-        paired.add(entryIndex);
-        paired.add(otherIndex);
+        paired[entryIndex] = 1;
+        paired[otherIndex] = 1;
         pairBuckets.push([entryIndex, otherIndex]);
       }
     }
 
     const collisionDistanceSq = collisionDistance * collisionDistance;
     let maxUsed = 0;
-    const placed = [];
-    const maxHalfWidthByIndex = new Map();
+    const placedCoord = new Float64Array(entryCount);
+    const placedOffset = new Float64Array(entryCount);
+    let placedCount = 0;
     let activeStart = 0;
-    sortedEntries.forEach((item, idx) => {
-      const coord = item.coord;
-      const groupMeta = groupMetaByIndex.get(item.entry.index) || null;
-      while(activeStart < placed.length && coord - placed[activeStart].coord > collisionDistance){
+    const candidateCount = Math.min(9, Math.max(5, Math.round(Math.log(entryCount + 2) * 2)));
+    const intervalPool = [];
+    const freeIntervalPool = [];
+    const intervals = [];
+    const freeIntervals = [];
+    const candidates = [];
+    for(let idx = 0; idx < sortedIndices.length; idx++){
+      const index = sortedIndices[idx];
+      const coord = coords[index];
+      while(activeStart < placedCount && coord - placedCoord[activeStart] > collisionDistance){
         activeStart += 1;
       }
       let maxHalfWidth = globalMaxHalfWidth;
       if(widthScaleMode === 'density' && localCounts){
-        const localCount = localCounts.get(item.entry.index) || 1;
+        const localCount = localCounts[index] || 1;
         const scale = densityMax > 1 ? (localCount / densityMax) : 1;
         const scaledWidth = globalMaxHalfWidth * scale;
         maxHalfWidth = Math.max(pointRadiusValue * 1.05, Math.min(globalMaxHalfWidth, scaledWidth));
       }
-      maxHalfWidthByIndex.set(item.entry.index, maxHalfWidth);
+      maxHalfWidthByIndex[index] = maxHalfWidth;
+      const groupSize = Number.isFinite(groupSizeByIndex[index]) ? groupSizeByIndex[index] : 1;
+      const groupIndex = Number.isFinite(groupIndexByIndex[index]) ? groupIndexByIndex[index] : 0;
       const resolveOffset = maxHalfWidthValue => {
         if(!Number.isFinite(maxHalfWidthValue) || maxHalfWidthValue <= 0){
           return null;
         }
-        const groupSize = groupMeta && Number.isFinite(groupMeta.size) ? groupMeta.size : 1;
-        const groupIndex = groupMeta && Number.isFinite(groupMeta.index) ? groupMeta.index : 0;
         const preferSymmetric = groupSize > 1;
         const evenGroup = preferSymmetric && groupSize % 2 === 0;
-        const intervals = [];
-        for(let j = activeStart; j < placed.length; j++){
-          const neighbor = placed[j];
-          const dy = coord - neighbor.coord;
-          const absDy = Math.abs(dy);
-          if(absDy >= collisionDistance){
+        if(useFastPlacement){
+          let preferredOffset = null;
+          if(preferSymmetric){
+            const gapLimit = groupSize > 1 ? (maxHalfWidthValue * 2) / Math.max(1, groupSize - 1) : 0;
+            const preferredGap = Math.min(collisionDistance, Number.isFinite(gapLimit) && gapLimit > 0 ? gapLimit : collisionDistance);
+            const centerIndex = (groupSize - 1) / 2;
+            preferredOffset = (groupIndex - centerIndex) * preferredGap;
+            if(!Number.isFinite(preferredOffset)){
+              preferredOffset = 0;
+            }
+            if(preferredOffset > maxHalfWidthValue){
+              preferredOffset = maxHalfWidthValue;
+            }else if(preferredOffset < -maxHalfWidthValue){
+              preferredOffset = -maxHalfWidthValue;
+            }
+          }
+          if(activeStart >= placedCount){
+            if(preferSymmetric && Number.isFinite(preferredOffset)){
+              return preferredOffset;
+            }
+            return 0;
+          }
+          candidates.length = 0;
+          const addCandidate = cand => {
+            if(Number.isFinite(cand)){
+              candidates.push(cand);
+            }
+          };
+          if(preferSymmetric && Number.isFinite(preferredOffset)){
+            addCandidate(preferredOffset);
+          }
+          if(!evenGroup){
+            addCandidate(0);
+          }
+          addCandidate(-maxHalfWidthValue);
+          addCandidate(maxHalfWidthValue);
+          let rng = (jitters[index] ^ (seedBase + idx * 2654435761)) >>> 0;
+          const nextRand = () => {
+            rng = (rng * 1664525 + 1013904223) >>> 0;
+            return rng / 4294967295;
+          };
+          for(let i = 0; i < candidateCount; i++){
+            const u = nextRand();
+            addCandidate(-maxHalfWidthValue + u * (maxHalfWidthValue * 2));
+          }
+          if(!candidates.length){
+            return 0;
+          }
+          let bestFree = -Infinity;
+          let bestOverlap = -Infinity;
+          let chosenLocal = null;
+          for(let i = 0; i < candidates.length; i++){
+            const cand = candidates[i];
+            let minDistSq = Infinity;
+            for(let j = activeStart; j < placedCount; j++){
+              const dx = cand - placedOffset[j];
+              const dy = coord - placedCoord[j];
+              const distSq = dx * dx + dy * dy;
+              if(distSq < minDistSq){
+                minDistSq = distSq;
+                if(bestFree > -Infinity && minDistSq < collisionDistanceSq){
+                  break;
+                }
+              }
+            }
+            if(minDistSq >= collisionDistanceSq){
+              if(minDistSq > bestFree){
+                bestFree = minDistSq;
+                chosenLocal = cand;
+              }
+            }else if(bestFree === -Infinity && minDistSq > bestOverlap){
+              bestOverlap = minDistSq;
+              chosenLocal = cand;
+            }
+          }
+          return chosenLocal == null ? 0 : chosenLocal;
+        }
+        intervals.length = 0;
+        let intervalCount = 0;
+        for(let j = activeStart; j < placedCount; j++){
+          const dy = coord - placedCoord[j];
+          if(dy >= collisionDistance || dy <= -collisionDistance){
             continue;
           }
           const dx = Math.sqrt(Math.max(0, collisionDistanceSq - dy * dy));
-          let start = neighbor.offset - dx;
-          let end = neighbor.offset + dx;
+          let start = placedOffset[j] - dx;
+          let end = placedOffset[j] + dx;
           if(end < -maxHalfWidthValue || start > maxHalfWidthValue){
             continue;
           }
           if(start < -maxHalfWidthValue){ start = -maxHalfWidthValue; }
           if(end > maxHalfWidthValue){ end = maxHalfWidthValue; }
           if(end > start){
-            intervals.push({ start, end });
+            const interval = intervalPool[intervalCount] || (intervalPool[intervalCount] = { start: 0, end: 0 });
+            interval.start = start;
+            interval.end = end;
+            intervals[intervalCount] = interval;
+            intervalCount += 1;
           }
         }
+        intervals.length = intervalCount;
         if(!intervals.length && !preferSymmetric){
           return 0;
         }
-        let freeIntervals = null;
+        if(!intervals.length && preferSymmetric){
+          const gapLimit = groupSize > 1 ? (maxHalfWidthValue * 2) / Math.max(1, groupSize - 1) : 0;
+          const preferredGap = Math.min(collisionDistance, Number.isFinite(gapLimit) && gapLimit > 0 ? gapLimit : collisionDistance);
+          const centerIndex = (groupSize - 1) / 2;
+          let preferredOffset = (groupIndex - centerIndex) * preferredGap;
+          if(!Number.isFinite(preferredOffset)){
+            preferredOffset = 0;
+          }
+          if(preferredOffset > maxHalfWidthValue){
+            preferredOffset = maxHalfWidthValue;
+          }else if(preferredOffset < -maxHalfWidthValue){
+            preferredOffset = -maxHalfWidthValue;
+          }
+          return preferredOffset;
+        }
+        freeIntervals.length = 0;
+        let freeCount = 0;
         if(!intervals.length){
-          freeIntervals = [{ start: -maxHalfWidthValue, end: maxHalfWidthValue }];
+          const full = freeIntervalPool[freeCount] || (freeIntervalPool[freeCount] = { start: 0, end: 0 });
+          full.start = -maxHalfWidthValue;
+          full.end = maxHalfWidthValue;
+          freeIntervals[freeCount] = full;
+          freeCount += 1;
         }else{
           intervals.sort((a, b) => (a.start - b.start) || (a.end - b.end));
-          freeIntervals = [];
           let cursor = -maxHalfWidthValue;
           let curStart = intervals[0].start;
           let curEnd = intervals[0].end;
@@ -2901,7 +3382,11 @@
               curEnd = Math.max(curEnd, next.end);
             }else{
               if(curStart > cursor){
-                freeIntervals.push({ start: cursor, end: curStart });
+                const interval = freeIntervalPool[freeCount] || (freeIntervalPool[freeCount] = { start: 0, end: 0 });
+                interval.start = cursor;
+                interval.end = curStart;
+                freeIntervals[freeCount] = interval;
+                freeCount += 1;
               }
               cursor = curEnd;
               curStart = next.start;
@@ -2909,30 +3394,55 @@
             }
           }
           if(curStart > cursor){
-            freeIntervals.push({ start: cursor, end: curStart });
+            const interval = freeIntervalPool[freeCount] || (freeIntervalPool[freeCount] = { start: 0, end: 0 });
+            interval.start = cursor;
+            interval.end = curStart;
+            freeIntervals[freeCount] = interval;
+            freeCount += 1;
           }
           cursor = Math.max(cursor, curEnd);
           if(cursor < maxHalfWidthValue){
-            freeIntervals.push({ start: cursor, end: maxHalfWidthValue });
+            const interval = freeIntervalPool[freeCount] || (freeIntervalPool[freeCount] = { start: 0, end: 0 });
+            interval.start = cursor;
+            interval.end = maxHalfWidthValue;
+            freeIntervals[freeCount] = interval;
+            freeCount += 1;
           }
         }
-        freeIntervals = freeIntervals.filter(interval => interval.end - interval.start > 0.0001);
+        freeIntervals.length = freeCount;
+        if(freeIntervals.length){
+          let write = 0;
+          for(let i = 0; i < freeIntervals.length; i++){
+            const interval = freeIntervals[i];
+            if(interval.end - interval.start > 0.0001){
+              freeIntervals[write] = interval;
+              write += 1;
+            }
+          }
+          freeIntervals.length = write;
+        }
         let allowOverlap = false;
         if(!freeIntervals.length){
           allowOverlap = true;
-          freeIntervals = [{ start: -maxHalfWidthValue, end: maxHalfWidthValue }];
+          const full = freeIntervalPool[0] || (freeIntervalPool[0] = { start: 0, end: 0 });
+          full.start = -maxHalfWidthValue;
+          full.end = maxHalfWidthValue;
+          freeIntervals[0] = full;
+          freeIntervals.length = 1;
         }
-        const totalFree = freeIntervals.reduce((sum, interval) => sum + (interval.end - interval.start), 0);
+        let totalFree = 0;
+        for(let i = 0; i < freeIntervals.length; i++){
+          totalFree += (freeIntervals[i].end - freeIntervals[i].start);
+        }
         if(!Number.isFinite(totalFree) || totalFree <= 0){
           return null;
         }
-        const candidateCount = Math.min(9, Math.max(5, Math.round(Math.log(entries.length + 2) * 2)));
-        let rng = (item.jitter ^ (seedBase + idx * 2654435761)) >>> 0;
+        let rng = (jitters[index] ^ (seedBase + idx * 2654435761)) >>> 0;
         const nextRand = () => {
           rng = (rng * 1664525 + 1013904223) >>> 0;
           return rng / 4294967295;
         };
-        let candidates = [];
+        candidates.length = 0;
         const addCandidate = cand => {
           if(Number.isFinite(cand)){
             candidates.push(cand);
@@ -2984,9 +3494,16 @@
         }
         if(evenGroup){
           const zeroEps = 0.0001;
-          const nonZero = candidates.filter(cand => Math.abs(cand) > zeroEps);
-          if(nonZero.length){
-            candidates = nonZero;
+          let write = 0;
+          for(let i = 0; i < candidates.length; i++){
+            const cand = candidates[i];
+            if(Math.abs(cand) > zeroEps){
+              candidates[write] = cand;
+              write += 1;
+            }
+          }
+          if(write){
+            candidates.length = write;
           }
         }
         let bestScore = -Infinity;
@@ -2996,13 +3513,18 @@
         for(let i = 0; i < candidates.length; i++){
           const cand = candidates[i];
           let minDistSq = Infinity;
-          for(let j = activeStart; j < placed.length; j++){
-            const neighbor = placed[j];
-            const dx = cand - neighbor.offset;
-            const dy = coord - neighbor.coord;
+          for(let j = activeStart; j < placedCount; j++){
+            const dx = cand - placedOffset[j];
+            const dy = coord - placedCoord[j];
             const distSq = dx * dx + dy * dy;
             if(distSq < minDistSq){
               minDistSq = distSq;
+              if(bestScore > -Infinity && minDistSq <= bestScore - 0.0001){
+                break;
+              }
+              if(distSq <= 0){
+                break;
+              }
             }
           }
           const abs = Math.abs(cand);
@@ -3042,38 +3564,35 @@
       if(chosen == null){
         chosen = Math.max(-maxHalfWidth, Math.min(maxHalfWidth, 0));
       }
-      offsetsMap.set(item.entry.index, chosen);
-      placed.push({ coord, offset: chosen });
+      offsetsByIndex[index] = chosen;
+      placedCoord[placedCount] = coord;
+      placedOffset[placedCount] = chosen;
+      placedCount += 1;
       const abs = Math.abs(chosen);
       if(abs > maxUsed){
         maxUsed = abs;
       }
-    });
-    const centerBuckets = [];
-    if(groupBuckets.size){
-      groupBuckets.forEach(bucket => {
-        centerBuckets.push(bucket);
-      });
     }
     if(pairBuckets.length){
-      pairBuckets.forEach(bucket => {
-        centerBuckets.push(bucket);
-      });
+      for(let i = 0; i < pairBuckets.length; i++){
+        centerBuckets.push(pairBuckets[i]);
+      }
     }
     if(centerBuckets.length){
-      centerBuckets.forEach(bucket => {
+      for(let b = 0; b < centerBuckets.length; b++){
+        const bucket = centerBuckets[b];
         if(!Array.isArray(bucket) || bucket.length <= 1){
-          return;
+          continue;
         }
         let sum = 0;
         let minShift = -Infinity;
         let maxShift = Infinity;
         for(let i = 0; i < bucket.length; i++){
           const index = bucket[i];
-          const offset = offsetsMap.get(index) || 0;
+          const offset = offsetsByIndex[index] || 0;
           sum += offset;
-          const limit = maxHalfWidthByIndex.has(index)
-            ? maxHalfWidthByIndex.get(index)
+          const limit = Number.isFinite(maxHalfWidthByIndex[index])
+            ? maxHalfWidthByIndex[index]
             : globalMaxHalfWidth;
           if(Number.isFinite(limit) && limit > 0){
             minShift = Math.max(minShift, -limit - offset);
@@ -3086,23 +3605,39 @@
           shift = Math.max(minShift, Math.min(maxShift, shift));
         }
         if(!Number.isFinite(shift) || Math.abs(shift) < 0.0001){
-          return;
+          continue;
         }
         for(let i = 0; i < bucket.length; i++){
           const index = bucket[i];
-          offsetsMap.set(index, (offsetsMap.get(index) || 0) + shift);
+          offsetsByIndex[index] = (offsetsByIndex[index] || 0) + shift;
         }
-      });
+      }
       maxUsed = 0;
-      offsetsMap.forEach(value => {
+      for(let i = 0; i < offsetsByIndex.length; i++){
+        const value = offsetsByIndex[i];
+        if(!Number.isFinite(value)){
+          continue;
+        }
         const abs = Math.abs(value || 0);
         if(abs > maxUsed){
           maxUsed = abs;
         }
-      });
+      }
     }
-    const offsets = entries.map(entry => offsetsMap.get(entry.index) || 0);
-    console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entries.length, maxBinSize: maxCount, adjustedRadius: pointRadiusValue, densityDistance, basePointRadius });
+    const offsets = new Array(entryCount);
+    if(isCompact){
+      for(let i = 0; i < entryCount; i++){
+        offsets[i] = offsetsByIndex[i] || 0;
+      }
+    }else{
+      for(let i = 0; i < entries.length; i++){
+        const entry = entries[i];
+        offsets[i] = offsetsByIndex[entry.index] || 0;
+      }
+    }
+    if(debugEnabled){
+      console.debug('Debug: computeSwarmOffsets density',{ orientation, sampleSize, spreadFactor, axisSpacing, axisBoundary, globalMaxHalfWidth, maxOffsetUsed: maxUsed, pointCount: entryCount, maxBinSize: maxCount, adjustedRadius: pointRadiusValue, densityDistance, basePointRadius });
+    }
     return { offsets, maxOffsetUsed: maxUsed, spreadFactor, maxOffset: globalMaxHalfWidth, adjustedRadius: pointRadiusValue };
   }
 
@@ -11442,7 +11977,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           maxHalfWidth = null,
           pointRadiusOverride = null
         } = params || {};
-        const pointEntries = Array.isArray(valueList) ? valueList.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value })) : [];
+        const rawValues = Array.isArray(valueList) ? valueList : [];
+        const pointCount = rawValues.length;
+        const pointCoords = new Float64Array(pointCount);
+        for(let idx = 0; idx < pointCount; idx++){
+          pointCoords[idx] = y2px(rawValues[idx]);
+        }
         const traceStyle = getPointStyle(traceIndex);
         const overrideRadius = Number(pointRadiusOverride);
         const styleRadius = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
@@ -11450,7 +11990,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           ? overrideRadius
           : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
         const fallbackRadius = pointRadius;
-        const swarm = computeSwarmOffsets(pointEntries, {
+        const swarm = computeSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
           sampleSize: sampleCount,
@@ -11466,11 +12006,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const baseOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
         const effectiveShape = traceStyle && traceStyle.shape ? traceStyle.shape : 'circle';
-        const clampOffset = (offset, entry) => {
+        const clampOffset = (offset, rawValue) => {
           if(!violinBounds){
             return offset;
           }
-          const maxHalf = violinBounds(entry.raw);
+          const maxHalf = violinBounds(rawValue);
           if(!Number.isFinite(maxHalf) || maxHalf <= 0){
             return 0;
           }
@@ -11483,15 +12023,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
         let maxOffsetUsed = 0;
-        if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape)){
-          const pts = pointEntries.map(entry => {
-            const offset = clampOffset(swarm.offsets[entry.index] || 0, entry);
+        if(pointCount > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape)){
+          const pts = new Array(pointCount);
+          for(let idx = 0; idx < pointCount; idx++){
+            const offset = clampOffset(swarm.offsets[idx] || 0, rawValues[idx]);
             const abs = Math.abs(offset);
             if(abs > maxOffsetUsed){
               maxOffsetUsed = abs;
             }
-            return { x: cx + offset, y: entry.coord };
-          });
+            pts[idx] = { x: cx + offset, y: pointCoords[idx] };
+          }
           const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: traceIndex, shape: effectiveShape });
           pathNode.__batchedPoints = pts;
           group.appendChild(pathNode);
@@ -11505,9 +12046,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           });
         }else{
           const frag = document.createDocumentFragment();
-          pointEntries.forEach(entry => {
-            const rawOffset = swarm.offsets[entry.index] || 0;
-            const offset = clampOffset(rawOffset, entry);
+          for(let idx = 0; idx < pointCount; idx++){
+            const rawOffset = swarm.offsets[idx] || 0;
+            const offset = clampOffset(rawOffset, rawValues[idx]);
             const abs = Math.abs(offset);
             if(abs > maxOffsetUsed){
               maxOffsetUsed = abs;
@@ -11516,27 +12057,29 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             if(effectiveShape === 'circle'){
               node = document.createElementNS(NS, 'circle');
               node.setAttribute('cx', cx + offset);
-              node.setAttribute('cy', entry.coord);
+              node.setAttribute('cy', pointCoords[idx]);
               node.setAttribute('r', effectiveRadius);
             }else if(effectiveShape === 'square'){
               node = document.createElementNS(NS, 'rect');
               const size = effectiveRadius * 2;
               node.setAttribute('x', String(cx + offset - effectiveRadius));
-              node.setAttribute('y', String(entry.coord - effectiveRadius));
+              node.setAttribute('y', String(pointCoords[idx] - effectiveRadius));
               node.setAttribute('width', String(size));
               node.setAttribute('height', String(size));
             }else if(effectiveShape === 'triangle'){
               node = document.createElementNS(NS, 'path');
-              const d = `M ${cx + offset} ${entry.coord - effectiveRadius} L ${cx + offset + effectiveRadius} ${entry.coord + effectiveRadius} L ${cx + offset - effectiveRadius} ${entry.coord + effectiveRadius} Z`;
+              const coord = pointCoords[idx];
+              const d = `M ${cx + offset} ${coord - effectiveRadius} L ${cx + offset + effectiveRadius} ${coord + effectiveRadius} L ${cx + offset - effectiveRadius} ${coord + effectiveRadius} Z`;
               node.setAttribute('d', d);
             }else if(effectiveShape === 'diamond'){
               node = document.createElementNS(NS, 'path');
-              const d = `M ${cx + offset} ${entry.coord - effectiveRadius} L ${cx + offset + effectiveRadius} ${entry.coord} L ${cx + offset} ${entry.coord + effectiveRadius} L ${cx + offset - effectiveRadius} ${entry.coord} Z`;
+              const coord = pointCoords[idx];
+              const d = `M ${cx + offset} ${coord - effectiveRadius} L ${cx + offset + effectiveRadius} ${coord} L ${cx + offset} ${coord + effectiveRadius} L ${cx + offset - effectiveRadius} ${coord} Z`;
               node.setAttribute('d', d);
             }else{
               node = document.createElementNS(NS, 'circle');
               node.setAttribute('cx', cx + offset);
-              node.setAttribute('cy', entry.coord);
+              node.setAttribute('cy', pointCoords[idx]);
               node.setAttribute('r', effectiveRadius);
             }
             if(node){
@@ -11546,18 +12089,18 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               node.setAttribute('data-shape', effectiveShape);
               node.setAttribute('data-point-size', String(effectiveRadius * 2));
               node.setAttribute('data-point-cx', String(cx + offset));
-              node.setAttribute('data-point-cy', String(entry.coord));
+              node.setAttribute('data-point-cy', String(pointCoords[idx]));
               attachBoxPointTooltip(node, {
                 seriesName: tooltipSeriesName,
                 categoryName: tooltipCategoryName,
                 groupName: tooltipGroupName,
-                value: entry.raw,
-                rawValue: entry.raw,
-                index: entry.index
+                value: rawValues[idx],
+                rawValue: rawValues[idx],
+                index: idx
               });
               frag.appendChild(node);
             }
-          });
+          }
           group.appendChild(frag);
         }
         if(debugEnabled){
@@ -12153,7 +12696,12 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           maxHalfWidth = null,
           pointRadiusOverride = null
         } = params || {};
-        const pointEntries = Array.isArray(valueList) ? valueList.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value })) : [];
+        const rawValues = Array.isArray(valueList) ? valueList : [];
+        const pointCount = rawValues.length;
+        const pointCoords = new Float64Array(pointCount);
+        for(let idx = 0; idx < pointCount; idx++){
+          pointCoords[idx] = valueToX(rawValues[idx]);
+        }
         const traceStyleH = getPointStyle(traceIndex);
         const overrideRadius = Number(pointRadiusOverride);
         const styleRadius = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : null;
@@ -12161,7 +12709,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           ? overrideRadius
           : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
         const fallbackRadius = pointRadius;
-        const swarm = computeSwarmOffsets(pointEntries, {
+        const swarm = computeSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
           sampleSize: sampleCount,
@@ -12177,11 +12725,11 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const baseOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
         const effectiveOpacity = Math.max(0, Math.min(1, baseOpacity * (opacityMultiplier != null ? opacityMultiplier : 1)));
         const effectiveShape = traceStyleH && traceStyleH.shape ? traceStyleH.shape : 'circle';
-        const clampOffset = (offset, entry) => {
+        const clampOffset = (offset, rawValue) => {
           if(!violinBounds){
             return offset;
           }
-          const maxHalf = violinBounds(entry.raw);
+          const maxHalf = violinBounds(rawValue);
           if(!Number.isFinite(maxHalf) || maxHalf <= 0){
             return 0;
           }
@@ -12194,15 +12742,16 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const groupAttributes = { 'data-trace': traceIndex, 'data-export-layer': 'box-points', ...groupAttrs };
         const group = add('g', groupAttributes);
         let maxOffsetUsed = 0;
-        if(pointEntries.length > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape)){
-          const pts = pointEntries.map(entry => {
-            const offset = clampOffset(swarm.offsets[entry.index] || 0, entry);
+        if(pointCount > BOX_POINT_BATCH_THRESHOLD && BATCHABLE_POINT_SHAPES.has(effectiveShape)){
+          const pts = new Array(pointCount);
+          for(let idx = 0; idx < pointCount; idx++){
+            const offset = clampOffset(swarm.offsets[idx] || 0, rawValues[idx]);
             const abs = Math.abs(offset);
             if(abs > maxOffsetUsed){
               maxOffsetUsed = abs;
             }
-            return { x: entry.coord, y: cy + offset };
-          });
+            pts[idx] = { x: pointCoords[idx], y: cy + offset };
+          }
           const pathNode = createBatchedPointPath(document, pts, Math.max(1, Math.round(effectiveRadius * 2)), { fill: effectiveFill, fillOpacity: effectiveOpacity, stroke: effectiveStroke, strokeWidth: Math.max(0.2, borderWidthPx || 0.6), dataTrace: traceIndex, shape: effectiveShape });
           pathNode.__batchedPoints = pts;
           group.appendChild(pathNode);
@@ -12216,9 +12765,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           });
         }else{
           const frag = document.createDocumentFragment();
-          pointEntries.forEach(entry => {
-            const rawOffset = swarm.offsets[entry.index] || 0;
-            const offset = clampOffset(rawOffset, entry);
+          for(let idx = 0; idx < pointCount; idx++){
+            const rawOffset = swarm.offsets[idx] || 0;
+            const offset = clampOffset(rawOffset, rawValues[idx]);
             const abs = Math.abs(offset);
             if(abs > maxOffsetUsed){
               maxOffsetUsed = abs;
@@ -12226,27 +12775,29 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             let node = null;
             if(effectiveShape === 'circle'){
               node = document.createElementNS(NS, 'circle');
-              node.setAttribute('cx', entry.coord);
+              node.setAttribute('cx', pointCoords[idx]);
               node.setAttribute('cy', cy + offset);
               node.setAttribute('r', effectiveRadius);
             }else if(effectiveShape === 'square'){
               node = document.createElementNS(NS, 'rect');
               const size = effectiveRadius * 2;
-              node.setAttribute('x', String(entry.coord - effectiveRadius));
+              node.setAttribute('x', String(pointCoords[idx] - effectiveRadius));
               node.setAttribute('y', String(cy + offset - effectiveRadius));
               node.setAttribute('width', String(size));
               node.setAttribute('height', String(size));
             }else if(effectiveShape === 'triangle'){
               node = document.createElementNS(NS, 'path');
-              const d = `M ${entry.coord} ${cy + offset - effectiveRadius} L ${entry.coord + effectiveRadius} ${cy + offset + effectiveRadius} L ${entry.coord - effectiveRadius} ${cy + offset + effectiveRadius} Z`;
+              const coord = pointCoords[idx];
+              const d = `M ${coord} ${cy + offset - effectiveRadius} L ${coord + effectiveRadius} ${cy + offset + effectiveRadius} L ${coord - effectiveRadius} ${cy + offset + effectiveRadius} Z`;
               node.setAttribute('d', d);
             }else if(effectiveShape === 'diamond'){
               node = document.createElementNS(NS, 'path');
-              const d = `M ${entry.coord} ${cy + offset - effectiveRadius} L ${entry.coord + effectiveRadius} ${cy + offset} L ${entry.coord} ${cy + offset + effectiveRadius} L ${entry.coord - effectiveRadius} ${cy + offset} Z`;
+              const coord = pointCoords[idx];
+              const d = `M ${coord} ${cy + offset - effectiveRadius} L ${coord + effectiveRadius} ${cy + offset} L ${coord} ${cy + offset + effectiveRadius} L ${coord - effectiveRadius} ${cy + offset} Z`;
               node.setAttribute('d', d);
             }else{
               node = document.createElementNS(NS, 'circle');
-              node.setAttribute('cx', entry.coord);
+              node.setAttribute('cx', pointCoords[idx]);
               node.setAttribute('cy', cy + offset);
               node.setAttribute('r', effectiveRadius);
             }
@@ -12256,19 +12807,19 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               node.setAttribute('fill-opacity', String(effectiveOpacity));
               node.setAttribute('data-shape', effectiveShape);
               node.setAttribute('data-point-size', String(effectiveRadius * 2));
-              node.setAttribute('data-point-cx', String(entry.coord));
+              node.setAttribute('data-point-cx', String(pointCoords[idx]));
               node.setAttribute('data-point-cy', String(cy + offset));
               attachBoxPointTooltip(node, {
                 seriesName: tooltipSeriesName,
                 categoryName: tooltipCategoryName,
                 groupName: tooltipGroupName,
-                value: entry.raw,
-                rawValue: entry.raw,
-                index: entry.index
+                value: rawValues[idx],
+                rawValue: rawValues[idx],
+                index: idx
               });
               frag.appendChild(node);
             }
-          });
+          }
           group.appendChild(frag);
         }
         if(debugEnabled){
@@ -13899,9 +14450,13 @@ function renderGroupedStatsControls(traces, controls, precomputed){
 	    computeTraceSummary:(values,opts)=>computeTraceSummary(values,opts),
 	    benchmarkSummaries:opts=>benchmarkTraceSummaries(opts),
 	    benchmarkDatasetLoad:opts=>benchmarkDatasetLoad(opts),
+	    benchmarkSwarmOffsets:opts=>benchmarkSwarmOffsets(opts),
+	    benchmarkSwarmModes:opts=>benchmarkSwarmModes(opts),
 	    computeDagostino:(values,summary)=>computeDagostino(values,summary),
 	    computeQQPoints:(values,opts)=>computeQQPoints(values,opts),
 	    computeVarianceDiagnostics:(groups,labels,opts)=>computeVarianceDiagnostics(groups,labels,opts),
 	    buildSignificanceBracketGeometry:opts=>buildSignificanceBracketGeometry(opts)
 	  });
 })(window);
+
+
