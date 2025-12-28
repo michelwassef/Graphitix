@@ -6223,6 +6223,7 @@
       debugLabel: 'box',
       data,
       disablePaste: true,
+      pinFirstRow: true,
       hotOptions: {
         manualColumnMove: true,
         afterChange(changes, source){

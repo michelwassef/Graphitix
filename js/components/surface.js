@@ -509,6 +509,7 @@
     }
     const overrides = {
       data: baseData,
+      pinFirstRow: true,
       columns: [
         { type: 'numeric', numericFormat: { pattern: '0[.]0000' } },
         { type: 'numeric', numericFormat: { pattern: '0[.]0000' } },

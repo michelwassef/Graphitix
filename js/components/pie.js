@@ -474,6 +474,7 @@
       debugLabel: 'pie',
       data,
       firstRowClassName: 'htCenter',
+      pinFirstRow: true,
       scheduleOnLoadData: true,
       hotOptions: {
         stretchH: 'all',

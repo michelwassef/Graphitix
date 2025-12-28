@@ -634,6 +634,7 @@
       debugLabel: 'roc',
       data,
       disablePaste: true,
+      pinFirstRow: true,
       scheduleOnLoadData: true,
       hotOptions: {
         stretchH: 'all',

@@ -3774,6 +3774,7 @@
           debugLabel: 'scatter',
           data,
           disablePaste: true,
+          pinFirstRow: true,
           hotOptions: {
             colHeaders: ['Labels','X values','Y values','Z values'],
             beforeKeyDown(){

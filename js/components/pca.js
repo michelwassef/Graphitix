@@ -213,6 +213,7 @@
       data: pcaData,
       disablePaste: true,
       firstRowClassName: 'htCenter',
+      pinFirstRow: true,
       scheduleOnLoadData: true,
       hotOptions: {
         contextMenu: true,
