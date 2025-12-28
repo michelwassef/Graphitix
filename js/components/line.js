@@ -7510,6 +7510,7 @@
         data,
         disablePaste: true,
         pinFirstColumn: true,
+        pinFirstRow: true,
         rowSelection: null,
         hotOptions: {
           stretchH: 'all',
