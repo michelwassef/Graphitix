@@ -131,13 +131,21 @@
         const clientX = Number(ev?.clientX) || 0;
         const dx = clientX - startX;
         const proposedTable = startTable + dx;
-        const maxTable = Number.isFinite(total) ? Math.max(total, startTable + Math.max(0, dx)) : proposedTable;
-        const clampedBase = Number.isFinite(maxTable) ? Math.min(maxTable, proposedTable) : proposedTable;
+        const clampedBase = Number.isFinite(total) ? Math.min(total, proposedTable) : proposedTable;
         const newTable = Math.max(minTable, clampedBase);
-        const growRight = dx > 0;
-        const newGraph = growRight
-          ? Math.max(startGraph, total - newTable)
-          : Math.max(0, total - newTable);
+        const newGraph = Number.isFinite(total)
+          ? Math.max(0, total - newTable)
+          : Math.max(0, startGraph - dx);
+        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled() && Number.isFinite(total) && clampedBase !== proposedTable){
+          console.debug('Debug: Shared.resizer.attachPanelDragResizer table clamp', {
+            label,
+            proposedTable,
+            clampedTable: clampedBase,
+            total,
+            newTable,
+            newGraph
+          });
+        }
         if(tablePanel?.style){
           const tablePx = `${Math.round(newTable)}px`;
           tablePanel.style.flex = `0 0 ${tablePx}`;
