@@ -1868,10 +1868,44 @@
       return true;
     };
 
+
+    const pinFirstRow = overrides?.pinFirstRow === true;
+
     const buildRowData = ()=>Shared.agGrid?.buildRowData
       ? Shared.agGrid.buildRowData(dataHandle.current)
       : Array.from({ length: dataHandle.current.length }, (_, idx)=>({ __rowIndex: idx }));
     let rowData = buildRowData();
+    if(pinFirstRow && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: Shared.hot pinFirstRow enabled', { debugLabel });
+    }
+
+    const getPinnedTopRowData = ()=>{
+      if(!pinFirstRow){
+        return null;
+      }
+      if(!Array.isArray(rowData) || !rowData.length){
+        return [];
+      }
+      return [rowData[0]];
+    };
+
+    const applyPinnedTopRowData = (api)=>{
+      if(!pinFirstRow || !api){
+        return;
+      }
+      const pinned = getPinnedTopRowData() || [];
+      try{
+        if(typeof api.setPinnedTopRowData === 'function'){
+          api.setPinnedTopRowData(pinned);
+          return;
+        }
+        if(typeof api.setGridOption === 'function'){
+          api.setGridOption('pinnedTopRowData', pinned);
+        }
+      }catch(err){
+        console.error('Shared.hot AG pinned top row update error', err);
+      }
+    };
 
     const buildRowHeaderColDef = ()=>{
       if(!rowHeadersEnabled){
@@ -2702,11 +2736,13 @@
       try{
         if(typeof api.setGridOption === 'function'){
           api.setGridOption('rowData', rows);
+          applyPinnedTopRowData(api);
           return;
         }
         if(typeof api.setRowData === 'function'){
           api.setRowData(rows);
         }
+        applyPinnedTopRowData(api);
       }catch(err){
         console.error('Shared.hot AG applyRowData error', err);
       }
@@ -3910,6 +3946,7 @@
 
     const gridOptions = {
       rowData,
+      pinnedTopRowData: pinFirstRow ? getPinnedTopRowData() : null,
       columnDefs,
       defaultColDef: {
         editable: true,
@@ -3918,6 +3955,20 @@
         width: fixedDataColWidth,
         suppressHeaderMenuButton: true,
         comparator: valueComparator
+      },
+      getRowHeight(params){
+        if(!pinFirstRow){
+          return undefined;
+        }
+        const node = params?.node;
+        if(node?.rowPinned){
+          return undefined;
+        }
+        const physicalRow = node?.data?.__rowIndex ?? node?.rowIndex ?? null;
+        if(physicalRow === 0){
+          return 0;
+        }
+        return undefined;
       },
       rowSelection: rowSelectionConfig || undefined,
         suppressRowHoverHighlight: true,
