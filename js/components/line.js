@@ -7509,6 +7509,8 @@
         debugLabel: 'line',
         data,
         disablePaste: true,
+        pinFirstColumn: true,
+        rowSelection: null,
         hotOptions: {
           stretchH: 'all',
           afterChange(changes, source){

@@ -1989,6 +1989,10 @@
     const fixedDataColWidth = Math.round((Number.isFinite(overrides?.fixedColumnWidth) && overrides.fixedColumnWidth > 0
       ? overrides.fixedColumnWidth
       : 80) * 1.2);
+    const pinFirstDataColumn = overrides?.pinFirstColumn === true;
+    const rowSelectionConfig = (Object.prototype.hasOwnProperty.call(overrides || {}, 'rowSelection'))
+      ? overrides.rowSelection
+      : { mode: 'multiRow', headerCheckbox: false };
 
     const valueComparator = (a, b, _nodeA, _nodeB, isDescending)=>{
       const isEmpty = (v)=>v === null || v === undefined || v === '';
@@ -2136,6 +2140,10 @@
         const isDataColumn = typeof colId === 'string' && colId.startsWith('c');
         if(isDataColumn){
           def.width = fixedDataColWidth;
+          if(pinFirstDataColumn && colId === 'c0'){
+            def.pinned = 'left';
+            def.lockPinned = true;
+          }
           if(def.suppressMovable !== false){
             def.suppressMovable = true;
           }
@@ -3911,7 +3919,7 @@
         suppressHeaderMenuButton: true,
         comparator: valueComparator
       },
-      rowSelection: { mode: 'multiRow', headerCheckbox: false },
+      rowSelection: rowSelectionConfig || undefined,
         suppressRowHoverHighlight: true,
         suppressMenuHide: true,
         ensureDomOrder: true,
