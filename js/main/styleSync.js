@@ -572,7 +572,11 @@
       }
       if (patch?.layout && typeof config.applyLayoutState === 'function') {
         try {
-          config.applyLayoutState(layoutClone ? cloneValue(layoutClone) : tab.layoutState, { reason: 'style-sync' });
+          config.applyLayoutState(layoutClone ? cloneValue(layoutClone) : tab.layoutState, {
+            reason: 'style-sync',
+            resetStyles: true,
+            resetDataset: true
+          });
         } catch (err) {
           console.error('styleSync applyLayoutState error', { type: tab.type, err });
         }

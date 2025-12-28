@@ -160,9 +160,12 @@
       }
       moduleState.workspaceDefaults[type] = cloneFn.call(session, payload);
       console.debug('Debug: workspace default captured', { type, hasPayload: !!moduleState.workspaceDefaults[type] });
-      if (typeof config.getLayoutState === 'function') {
+      const layoutGetter = (typeof config.getDefaultLayoutState === 'function')
+        ? config.getDefaultLayoutState
+        : (typeof config.getLayoutState === 'function' ? config.getLayoutState : null);
+      if (layoutGetter) {
         try {
-          const layout = config.getLayoutState();
+          const layout = layoutGetter();
           moduleState.workspaceLayoutDefaults[type] = cloneFn.call(session, layout);
           console.debug('Debug: workspace layout default captured', {
             type,
@@ -313,12 +316,25 @@
         namespace.applyWorkspacePayload(config, payload);
       }
       if (typeof config.applyLayoutState === 'function') {
+        let defaultLayout = moduleState.workspaceLayoutDefaults[tab.type] || null;
+        if (!defaultLayout && typeof config.getDefaultLayoutState === 'function') {
+          try {
+            defaultLayout = config.getDefaultLayoutState();
+            if (defaultLayout) {
+              moduleState.workspaceLayoutDefaults[tab.type] = cloneFn?.(defaultLayout) || defaultLayout;
+            }
+          } catch (err) {
+            console.error('workspace layout default fallback error', { type: tab.type, err });
+          }
+        }
         const layoutSource = tab.layoutState
           ? cloneFn?.(tab.layoutState)
-          : (moduleState.workspaceLayoutDefaults[tab.type]
-            ? cloneFn?.(moduleState.workspaceLayoutDefaults[tab.type])
-            : null);
-        const applied = config.applyLayoutState(layoutSource, { reason: options.reason || 'workspace-view' });
+          : (defaultLayout ? cloneFn?.(defaultLayout) : null);
+        const applied = config.applyLayoutState(layoutSource, {
+          reason: options.reason || 'workspace-view',
+          resetStyles: true,
+          resetDataset: true
+        });
         console.debug('Debug: workspace layout applied', {
           tabId: tab.id,
           type: tab.type,

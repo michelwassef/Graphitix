@@ -317,8 +317,19 @@
       return state;
     };
 
-    const applyStyle = (element, map, contextLabel) => {
-      if(!element || !map){ return; }
+    const applyStyle = (element, map, contextLabel, options = {}) => {
+      if(!element){ return; }
+      const reset = options.reset === true;
+      if(reset && element.style){
+        STYLE_PROPS.forEach(prop => {
+          try{
+            element.style[prop] = '';
+          }catch(err){
+            console.error('Shared.componentLayout applyStyle reset error', { component: componentName, prop, context: contextLabel, err });
+          }
+        });
+      }
+      if(!map){ return; }
       Object.entries(map).forEach(([prop, value]) => {
         try{
           element.style[prop] = value || '';
@@ -328,8 +339,22 @@
       });
     };
 
-    const applyDataset = (element, map, contextLabel) => {
-      if(!element || !element.dataset || !map){ return; }
+    const applyDataset = (element, map, contextLabel, options = {}) => {
+      if(!element || !element.dataset){ return; }
+      const reset = options.reset === true;
+      if(reset){
+        const keys = Object.keys(element.dataset);
+        keys.forEach(key => {
+          if(!map || !Object.prototype.hasOwnProperty.call(map, key)){
+            try{
+              delete element.dataset[key];
+            }catch(err){
+              console.error('Shared.componentLayout applyDataset reset error', { component: componentName, key, context: contextLabel, err });
+            }
+          }
+        });
+      }
+      if(!map){ return; }
       Object.entries(map).forEach(([key, value]) => {
         try{
           if(value === undefined || value === null || value === ''){
@@ -344,18 +369,40 @@
     };
 
     const applyState = (state, options = {}) => {
-      if(!state || typeof state !== 'object'){ return false; }
+      const resetStyles = options.resetStyles === true;
+      const resetDataset = options.resetDataset === true;
+      if(!state || typeof state !== 'object'){
+        if(resetStyles || resetDataset){
+          applyStyle(elements.tablePanel, null, 'table', { reset: resetStyles });
+          applyDataset(elements.tablePanel, null, 'table', { reset: resetDataset });
+          applyStyle(elements.graphPanel, null, 'graph', { reset: resetStyles });
+          applyDataset(elements.graphPanel, null, 'graph', { reset: resetDataset });
+          applyStyle(elements.configPanel, null, 'config', { reset: resetStyles });
+          applyStyle(elements.svgBox, null, 'svg', { reset: resetStyles });
+          applyDataset(elements.svgBox, null, 'svg', { reset: resetDataset });
+          const skipSchedule = options.skipSchedule === true;
+          syncPanels({ skipSchedule });
+          console.debug('Debug: componentLayout applyState reset', {
+            component: componentName,
+            resetStyles,
+            resetDataset,
+            skipSchedule
+          });
+          return true;
+        }
+        return false;
+      }
       const clonedState = state;
       if(Number.isFinite(clonedState.minSvgWidth)){
         updateMinSvgWidth(clonedState.minSvgWidth);
       }
-      applyStyle(elements.tablePanel, clonedState.tablePanel?.style, 'table');
-      applyDataset(elements.tablePanel, clonedState.tablePanel?.dataset, 'table');
-      applyStyle(elements.graphPanel, clonedState.graphPanel?.style, 'graph');
-      applyDataset(elements.graphPanel, clonedState.graphPanel?.dataset, 'graph');
-      applyStyle(elements.configPanel, clonedState.configPanel?.style, 'config');
-      applyStyle(elements.svgBox, clonedState.svgBox?.style, 'svg');
-      applyDataset(elements.svgBox, clonedState.svgBox?.dataset, 'svg');
+      applyStyle(elements.tablePanel, clonedState.tablePanel?.style, 'table', { reset: resetStyles });
+      applyDataset(elements.tablePanel, clonedState.tablePanel?.dataset, 'table', { reset: resetDataset });
+      applyStyle(elements.graphPanel, clonedState.graphPanel?.style, 'graph', { reset: resetStyles });
+      applyDataset(elements.graphPanel, clonedState.graphPanel?.dataset, 'graph', { reset: resetDataset });
+      applyStyle(elements.configPanel, clonedState.configPanel?.style, 'config', { reset: resetStyles });
+      applyStyle(elements.svgBox, clonedState.svgBox?.style, 'svg', { reset: resetStyles });
+      applyDataset(elements.svgBox, clonedState.svgBox?.dataset, 'svg', { reset: resetDataset });
       const skipSchedule = options.skipSchedule === true;
       syncPanels({ skipSchedule });
       console.debug('Debug: componentLayout applyState', {
@@ -368,6 +415,7 @@
 
     syncPanels();
 
+    const defaultState = captureState();
     const layoutApi = {
       elements,
       syncPanels,
@@ -385,6 +433,7 @@
       updateMinSvgWidth,
       captureState,
       applyState,
+      defaultState,
       destroy(){
         if(panelState.resizeObserver){
           try{
@@ -434,5 +483,15 @@
     }
     console.debug('Debug: componentLayout.applyStateFor skipped', { component: componentName, hasEntry: !!entry });
     return false;
+  };
+
+  componentLayout.getDefaultStateFor = function getDefaultStateFor(componentName){
+    if(!componentName){ return null; }
+    const entry = layoutRegistry[componentName];
+    if(entry && entry.defaultState){
+      return entry.defaultState;
+    }
+    console.debug('Debug: componentLayout getDefaultStateFor skipped', { component: componentName, hasEntry: !!entry });
+    return null;
   };
 })(window);

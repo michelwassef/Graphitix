@@ -167,6 +167,7 @@
       loadFromPayload: payload => window.Components?.venn?.loadFromPayload?.(payload),
       createEmptyPayload: () => window.Components?.venn?.createEmptyPayload?.(),
       getLayoutState: () => componentLayout.captureStateFor?.('venn'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('venn'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('venn', state, options || {})
     },
     box: {
@@ -181,6 +182,7 @@
       createEmptyPayload: () => window.Components?.box?.createEmptyPayload?.(),
       prepareForTab: tab => window.Components?.box?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('box'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('box'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('box', state, options || {})
     },
     scatter: {
@@ -195,6 +197,7 @@
       createEmptyPayload: () => window.Components?.scatter?.createEmptyPayload?.(),
       prepareForTab: tab => window.Components?.scatter?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('scatter'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('scatter'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('scatter', state, options || {})
     },
     pca: {
@@ -209,6 +212,7 @@
       createEmptyPayload: () => window.Components?.pca?.createEmptyPayload?.(),
       prepareForTab: tab => window.Components?.pca?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('pca'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('pca'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pca', state, options || {})
     },
     line: {
@@ -223,6 +227,7 @@
       createEmptyPayload: () => window.Components?.line?.createEmptyPayload?.(),
       prepareForTab: tab => window.Components?.line?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('line'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('line'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('line', state, options || {})
     },
     heatmap: {
@@ -237,6 +242,7 @@
       createEmptyPayload: () => window.Components?.heatmap?.createEmptyPayload?.(),
       prepareForTab: tab => window.Components?.heatmap?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('heatmap'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('heatmap'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('heatmap', state, options || {})
     },
     surface: {
@@ -251,6 +257,7 @@
       createEmptyPayload: () => window.Components?.surface?.createEmptyPayload?.(),
       prepareForTab: tab => window.Components?.surface?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('surface'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('surface'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('surface', state, options || {})
     },
     roc: {
@@ -265,6 +272,7 @@
       createEmptyPayload: () => window.Components?.roc?.createEmptyPayload?.(),
       prepareForTab: tab => window.Components?.roc?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('roc'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('roc'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('roc', state, options || {})
     },
     survival: {
@@ -279,6 +287,7 @@
       createEmptyPayload: () => window.Components?.survival?.createEmptyPayload?.(),
       prepareForTab: tab => window.Components?.survival?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('survival'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('survival'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('survival', state, options || {})
     },
     hist: {
@@ -293,6 +302,7 @@
       createEmptyPayload: () => window.Components?.hist?.createEmptyPayload?.(),
       prepareForTab: tab => window.Components?.hist?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('hist'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('hist'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('hist', state, options || {})
     },
     pie: {
@@ -307,6 +317,7 @@
       createEmptyPayload: () => window.Components?.pie?.createEmptyPayload?.(),
       prepareForTab: tab => window.Components?.pie?.prepareForTab?.(tab),
       getLayoutState: () => componentLayout.captureStateFor?.('pie'),
+      getDefaultLayoutState: () => componentLayout.getDefaultStateFor?.('pie'),
       applyLayoutState: (state, options) => componentLayout.applyStateFor?.('pie', state, options || {})
     }
   };
