@@ -1640,14 +1640,19 @@
 
   function positionTooltip(x, y) {
     if (!state.ui.tooltip) return;
+    const padding = 16;
     let left = x, top = y;
     state.ui.tooltip.style.left = left + 'px';
     state.ui.tooltip.style.top = top + 'px';
     const rect = state.ui.tooltip.getBoundingClientRect();
-    const rightBound = window.scrollX + window.innerWidth - 16;
-    const bottomBound = window.scrollY + window.innerHeight - 8;
-    if (rect.right > rightBound) { left = Math.max(window.scrollX + 8, rightBound - rect.width); }
-    if (rect.bottom > bottomBound) { top = Math.max(window.scrollY + 8, bottomBound - rect.height); }
+    const leftBound = window.scrollX + padding;
+    const topBound = window.scrollY + padding;
+    const rightBound = window.scrollX + window.innerWidth - padding;
+    const bottomBound = window.scrollY + window.innerHeight - padding;
+    if (rect.right > rightBound) { left = Math.max(leftBound, rightBound - rect.width); }
+    if (rect.left < leftBound) { left = leftBound; }
+    if (rect.bottom > bottomBound) { top = Math.max(topBound, bottomBound - rect.height); }
+    if (rect.top < topBound) { top = topBound; }
     state.ui.tooltip.style.left = left + 'px';
     state.ui.tooltip.style.top = top + 'px';
   }
@@ -3265,9 +3270,33 @@
         requestAnimationFrame(() => {
           const w = state.ui.tooltip.scrollWidth;
           const h = state.ui.tooltip.scrollHeight;
-          state.ui.tooltip.style.width = w + 'px';
-          state.ui.tooltip.style.height = h + 'px';
+          const maxWidth = Math.max(0, window.innerWidth - 32);
+          const maxHeight = Math.max(0, window.innerHeight - 32);
+          state.ui.tooltip.style.maxWidth = maxWidth + 'px';
+          state.ui.tooltip.style.maxHeight = maxHeight + 'px';
+          state.ui.tooltip.style.overflow = 'auto';
+          state.ui.tooltip.style.width = Math.min(w, maxWidth || w) + 'px';
+          state.ui.tooltip.style.height = Math.min(h, maxHeight || h) + 'px';
           positionTooltip(left, top);
+          const linkRect = link.getBoundingClientRect();
+          let tipRect = state.ui.tooltip.getBoundingClientRect();
+          const overlaps = !(tipRect.right < linkRect.left || tipRect.left > linkRect.right || tipRect.bottom < linkRect.top || tipRect.top > linkRect.bottom);
+          if (overlaps) {
+            left = linkRect.left + window.scrollX - tipRect.width - 8;
+            top = linkRect.top + window.scrollY;
+            state.ui.tooltip.style.left = left + 'px';
+            state.ui.tooltip.style.top = top + 'px';
+            positionTooltip(left, top);
+            tipRect = state.ui.tooltip.getBoundingClientRect();
+            const stillOverlaps = !(tipRect.right < linkRect.left || tipRect.left > linkRect.right || tipRect.bottom < linkRect.top || tipRect.top > linkRect.bottom);
+            if (stillOverlaps) {
+              left = linkRect.left + window.scrollX;
+              top = linkRect.top + window.scrollY - tipRect.height - 8;
+              state.ui.tooltip.style.left = left + 'px';
+              state.ui.tooltip.style.top = top + 'px';
+              positionTooltip(left, top);
+            }
+          }
         });
         console.debug('Debug: venn handleRegionListMouseover', { gene, hasFn: !!fn }); // Debug: tooltip gene lookup
       }
