@@ -10056,7 +10056,20 @@ function renderGroupedStatsControls(traces, controls, precomputed){
     const gridStrokeWidth = chartStyle.scaleStrokeWidth(1, styleScaleInfo, { context: 'box-grid', min: 0.25 });
     const borderWidthPx = chartStyle.scaleStrokeWidth(borderWidthRaw, styleScaleInfo, { context: 'box-border', min: 0 });
     const errorBarWidthPx = chartStyle.scaleStrokeWidth(errorBarWidthRaw, styleScaleInfo, { context: 'box-errorbar', min: 0 });
-    const pointRadius = chartStyle.scaleRadius(5, styleScaleInfo, { context: 'box-point', min: 0.75 });
+    const DEFAULT_POINT_SIZE = 5;
+    const pointRadius = chartStyle.scaleRadius(DEFAULT_POINT_SIZE, styleScaleInfo, { context: 'box-point', min: 0.75 });
+    const overlayPointRadius = chartStyle.scaleRadius(2, styleScaleInfo, { context: 'box-point-overlay', min: 0.5 });
+    const hasExplicitPointSize = (traceIndex) => {
+      const perTraceSize = state.pointStyles && traceIndex != null ? state.pointStyles[traceIndex]?.size : null;
+      if(Number.isFinite(Number(perTraceSize)) && Number(perTraceSize) > 0){
+        return true;
+      }
+      const globalSize = state.pointGlobalStyle?.size;
+      if(Number.isFinite(Number(globalSize)) && Number(globalSize) > 0){
+        return Number(globalSize) !== DEFAULT_POINT_SIZE;
+      }
+      return false;
+    };
     const annotationStrokeWidthBase = Number.isFinite(significanceStyle.thickness) && significanceStyle.thickness > 0
       ? significanceStyle.thickness
       : DEFAULT_SIGNIFICANCE_THICKNESS;
@@ -11426,20 +11439,28 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           debugLabel = 'individual',
           mean: meanValue = null,
           widthScaleMode = 'none',
-          maxHalfWidth = null
+          maxHalfWidth = null,
+          pointRadiusOverride = null
         } = params || {};
         const pointEntries = Array.isArray(valueList) ? valueList.map((value, idx)=>({ index: idx, coord: y2px(value), raw: value })) : [];
         const traceStyle = getPointStyle(traceIndex);
-        const baseRadius = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
+        const overrideRadius = Number(pointRadiusOverride);
+        const styleRadius = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
+        const resolvedRadius = Number.isFinite(overrideRadius) && overrideRadius > 0
+          ? overrideRadius
+          : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
+        const fallbackRadius = pointRadius;
         const swarm = computeSwarmOffsets(pointEntries, {
           axisSpacing: localBand,
-          pointRadius: baseRadius != null ? baseRadius : pointRadius,
+          pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
           sampleSize: sampleCount,
           orientation: 'vertical',
           widthScaleMode,
           maxHalfWidth
         });
-        const effectiveRadius = baseRadius != null ? baseRadius : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
+        const effectiveRadius = resolvedRadius != null
+          ? resolvedRadius
+          : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
         const effectiveFill = (traceStyle && traceStyle.fill) ? traceStyle.fill : fillColor;
         const effectiveStroke = (traceStyle && traceStyle.stroke) ? traceStyle.stroke : 'none';
         const baseOpacity = traceStyle && traceStyle.opacity != null ? Number(traceStyle.opacity) : 1;
@@ -11980,6 +12001,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
             add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+            const overlayRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
             renderSwarmPointsVertical({
               valueList,
               cx,
@@ -11997,7 +12019,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               debugLabel: 'violin-overlay',
               mean,
               widthScaleMode: 'density',
-              maxHalfWidth: violinPointMaxHalfWidth
+              maxHalfWidth: violinPointMaxHalfWidth,
+              pointRadiusOverride: overlayRadius
             });
           }else{
             const overlayMode = pointMode === 'overlay';
@@ -12005,6 +12028,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             const halfWidth = overlayMode
               ? Math.max(pointRadius * 1.1, boxW * 0.3)
               : Math.max(pointRadius * 1.1, boxW * 0.1);
+            const overlayRadius = overlayMode && !hasExplicitPointSize(i) ? overlayPointRadius : null;
             renderSwarmPointsVertical({
               valueList,
               cx: centerX,
@@ -12020,6 +12044,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               opacityMultiplier: overlayMode ? 0.6 : 1,
               debugLabel: overlayMode ? 'overlay' : 'side',
               mean,
+              pointRadiusOverride: overlayRadius,
               maxHalfWidth: halfWidth
             });
           }
@@ -12125,20 +12150,28 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           debugLabel = 'individual',
           mean: meanValue = null,
           widthScaleMode = 'none',
-          maxHalfWidth = null
+          maxHalfWidth = null,
+          pointRadiusOverride = null
         } = params || {};
         const pointEntries = Array.isArray(valueList) ? valueList.map((value, idx)=>({ index: idx, coord: valueToX(value), raw: value })) : [];
         const traceStyleH = getPointStyle(traceIndex);
-        const baseRadius = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : null;
+        const overrideRadius = Number(pointRadiusOverride);
+        const styleRadius = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : null;
+        const resolvedRadius = Number.isFinite(overrideRadius) && overrideRadius > 0
+          ? overrideRadius
+          : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
+        const fallbackRadius = pointRadius;
         const swarm = computeSwarmOffsets(pointEntries, {
           axisSpacing: localBand,
-          pointRadius: baseRadius != null ? baseRadius : pointRadius,
+          pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
           sampleSize: sampleCount,
           orientation: 'horizontal',
           widthScaleMode,
           maxHalfWidth
         });
-        const effectiveRadius = baseRadius != null ? baseRadius : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : pointRadius);
+        const effectiveRadius = resolvedRadius != null
+          ? resolvedRadius
+          : (swarm && Number.isFinite(Number(swarm.adjustedRadius)) ? swarm.adjustedRadius : fallbackRadius);
         const effectiveFill = (traceStyleH && traceStyleH.fill) ? traceStyleH.fill : fillColor;
         const effectiveStroke = (traceStyleH && traceStyleH.stroke) ? traceStyleH.stroke : 'none';
         const baseOpacity = traceStyleH && traceStyleH.opacity != null ? Number(traceStyleH.opacity) : 1;
@@ -12867,6 +12900,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
             add('g',{ 'data-trace': i, 'data-export-layer': 'box-points' }).appendChild(frag);
           }else if(graphTypeRaw === 'violin' && pointMode === 'overlay'){
+            const overlayRadius = hasExplicitPointSize(i) ? null : overlayPointRadius;
             renderSwarmPointsHorizontal({
               valueList,
               cy,
@@ -12884,7 +12918,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               debugLabel: 'violin-overlay',
               mean,
               widthScaleMode: 'density',
-              maxHalfWidth: violinPointMaxHalfHeight
+              maxHalfWidth: violinPointMaxHalfHeight,
+              pointRadiusOverride: overlayRadius
             });
           }else{
             const overlayMode = pointMode === 'overlay';
@@ -12892,6 +12927,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             const halfHeight = overlayMode
               ? Math.max(pointRadius * 1.1, boxH * 0.3)
               : Math.max(pointRadius * 1.1, boxH * 0.1);
+            const overlayRadius = overlayMode && !hasExplicitPointSize(i) ? overlayPointRadius : null;
             renderSwarmPointsHorizontal({
               valueList,
               cy: centerY,
@@ -12907,6 +12943,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
               opacityMultiplier: overlayMode ? 0.6 : 1,
               debugLabel: overlayMode ? 'overlay' : 'side',
               mean,
+              pointRadiusOverride: overlayRadius,
               maxHalfWidth: halfHeight
             });
           }
