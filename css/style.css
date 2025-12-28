@@ -2395,15 +2395,15 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #scatterPage #scatterGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #scatterPage .diagram-area .svgbox{flex:0 0 auto}
 #scatterPage .diagram-area .config-panel{flex:0 0 auto}
-#boxPage .diagram-area .box-plot-stack,#scatterPage .diagram-area .scatter-plot-stack,#surfacePage .diagram-area .surface-plot-stack,#rocPage .diagram-area .roc-plot-stack,#histPage .diagram-area .hist-plot-stack{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
-#boxPage .diagram-area .box-plot-stack{flex:1 0 auto;min-width:max-content}
-#scatterPage .diagram-area .scatter-plot-stack{flex:1 0 auto;min-width:max-content}
-#linePage .diagram-area .line-plot-stack{flex:1 0 auto;min-width:max-content}
-#rocPage .diagram-area .roc-plot-stack{flex:1 0 auto;min-width:max-content}
-#histPage .diagram-area .hist-plot-stack{flex:1 0 auto;min-width:max-content}
-#surfacePage .diagram-area .surface-plot-stack{flex:1 0 auto;min-width:max-content}
-#heatmapPage .diagram-area .heatmap-plot-stack{flex:1 0 auto;min-width:max-content}
-#pcaPage .diagram-area .pca-plot-stack{flex:1 0 auto;min-width:max-content}
+#boxPage .diagram-area .box-plot-stack,#scatterPage .diagram-area .scatter-plot-stack,#surfacePage .diagram-area .surface-plot-stack,#rocPage .diagram-area .roc-plot-stack,#histPage .diagram-area .hist-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#boxPage .diagram-area .box-plot-stack{flex:0 0 auto;min-width:0}
+#scatterPage .diagram-area .scatter-plot-stack{flex:0 0 auto;min-width:0}
+#linePage .diagram-area .line-plot-stack{flex:0 0 auto;min-width:0}
+#rocPage .diagram-area .roc-plot-stack{flex:0 0 auto;min-width:0}
+#histPage .diagram-area .hist-plot-stack{flex:0 0 auto;min-width:0}
+#surfacePage .diagram-area .surface-plot-stack{flex:0 0 auto;min-width:0}
+#heatmapPage .diagram-area .heatmap-plot-stack{flex:0 0 auto;min-width:0}
+#pcaPage .diagram-area .pca-plot-stack{flex:0 0 auto;min-width:0}
 #boxPage .box-plot-stack .svgbox,#scatterPage .scatter-plot-stack .svgbox,#surfacePage .surface-plot-stack .svgbox,#rocPage .roc-plot-stack .svgbox,#histPage .hist-plot-stack .svgbox,#linePage .line-plot-stack .svgbox{flex:0 0 auto;min-width:0}
 .config-panel input[type=number],
 .config-panel select,
@@ -2464,7 +2464,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #pcaPage #pcaHotWrapper{min-width:0;max-width:100%}
 #pcaPage #pcaGraphPanel{flex:1 1 auto;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
 #pcaPage .diagram-area .svgbox{flex:0 0 auto}
-#pcaPage .diagram-area .pca-plot-stack{flex:1 0 auto;min-width:max-content;display:flex;flex-direction:column;gap:4px}
+#pcaPage .diagram-area .pca-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #pcaPage .pca-plot-stack .svgbox{flex:0 0 auto}
 #pcaPage .diagram-area .config-options{flex:0 1 360px;max-width:360px}
 #pcaPage .panel{display:flex;flex-direction:column;min-width:0}
@@ -2527,14 +2527,14 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 #linePage .diagram-area .config-options{flex:0 0 auto}
 #linePage .panel{display:flex;flex-direction:column;min-width:0}
 #linePage #linePlot{width:100%;height:auto;min-width:0;min-height:0;resize:none;overflow:hidden;flex:1 1 auto}
-#linePage .line-plot-stack{flex:1 0 auto;min-width:max-content;display:flex;flex-direction:column;gap:4px}
+#linePage .line-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #linePage .line-render-row{display:flex;align-items:flex-start;gap:10px;margin-top:0;width:100%;flex-wrap:wrap}
 #linePage .line-auto-draw-notice{margin:0;font-size:12px;color:#444;line-height:1.35;flex:1 1 260px;min-width:240px}
 @media (max-width:1000px){#linePage .wrap{grid-template-columns:1fr}}
 #heatmapPage .wrap{display:flex;align-items:stretch;gap:0}
 #heatmapPage #heatmapTablePanel{flex:1 1 33%;min-width:150px}
 #heatmapPage #heatmapGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
-#heatmapPage .diagram-area .heatmap-plot-stack{flex:1 0 auto;min-width:max-content;display:flex;flex-direction:column;gap:4px}
+#heatmapPage .diagram-area .heatmap-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #heatmapPage .heatmap-plot-stack .svgbox{flex:0 0 auto}
 #heatmapPage .diagram-area .svgbox{flex:0 0 auto}
 #heatmapPage .diagram-area .config-options{flex:0 0 auto}
@@ -2550,7 +2550,7 @@ details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
 @media (max-width:1000px){#heatmapPage .wrap{grid-template-columns:1fr}}
 #boxPage .box-render-row,#scatterPage .scatter-render-row,#surfacePage .surface-render-row,#rocPage .roc-render-row,#histPage .hist-render-row{display:flex;align-items:flex-start;gap:10px;margin-top:0;width:100%;flex-wrap:wrap}
 #boxPage .box-auto-draw-notice,#scatterPage .scatter-auto-draw-notice,#surfacePage .surface-auto-draw-notice,#rocPage .roc-auto-draw-notice,#histPage .hist-auto-draw-notice{margin:0;font-size:12px;color:#444;line-height:1.35;flex:1 1 260px;min-width:240px}
-#boxPage .box-plot-stack,#scatterPage .scatter-plot-stack,#surfacePage .surface-plot-stack,#rocPage .roc-plot-stack,#histPage .hist-plot-stack{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
+#boxPage .box-plot-stack,#scatterPage .scatter-plot-stack,#surfacePage .surface-plot-stack,#rocPage .roc-plot-stack,#histPage .hist-plot-stack{flex:0 0 auto;min-width:0;display:flex;flex-direction:column;gap:4px}
 #rocPage .wrap{display:flex;align-items:stretch;gap:0}
 #rocPage #rocTablePanel{flex:1 1 33%;min-width:150px}
 #rocPage #rocGraphPanel{flex:2 1 66%;min-width:0;max-width:none;display:flex;flex-direction:column;align-items:stretch}
