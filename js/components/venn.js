@@ -1644,7 +1644,7 @@
     state.ui.tooltip.style.left = left + 'px';
     state.ui.tooltip.style.top = top + 'px';
     const rect = state.ui.tooltip.getBoundingClientRect();
-    const rightBound = window.scrollX + window.innerWidth - 8;
+    const rightBound = window.scrollX + window.innerWidth - 16;
     const bottomBound = window.scrollY + window.innerHeight - 8;
     if (rect.right > rightBound) { left = Math.max(window.scrollX + 8, rightBound - rect.width); }
     if (rect.bottom > bottomBound) { top = Math.max(window.scrollY + 8, bottomBound - rect.height); }
