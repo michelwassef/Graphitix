@@ -1421,7 +1421,7 @@
     return genes.join('\n');
   }
 
-  function populateRegion(code) {
+  function populateRegion(code, options = {}) {
     if (!state.analysis.lastRegions || !state.ui.regionList) {
       console.debug('Debug: venn populateRegion skipped', { hasRegions: !!state.analysis.lastRegions });
       return;
@@ -1438,7 +1438,7 @@
     const arr = [...(map[code] || new Set())].sort();
     const signature = `${code || ''}::${arr.join('|')}`;
     const shouldClear = signature !== state.analysis.lastRegionSignature;
-    if (shouldClear) {
+    if (shouldClear && !options.skipClear) {
       clearAnalysis();
       console.debug('Debug: venn populateRegion cleared analysis', {
         code,
@@ -1735,6 +1735,15 @@
     if (Array.isArray(analysis.stringEnrichment)) {
       state.analysis.lastStringEnrichment = cloneSimple(analysis.stringEnrichment) || analysis.stringEnrichment;
       renderStringResults(state.analysis.lastStringEnrichment, analysis.stringLimit || 5);
+    }
+    if (state.ui.regionSelect) {
+      const hasRegion = Object.prototype.hasOwnProperty.call(analysis, 'regionSelectValue');
+      let targetValue = hasRegion ? (analysis.regionSelectValue || '') : '';
+      if (!targetValue) {
+        targetValue = state.ui.regionSelect.options[0]?.value || '';
+      }
+      state.ui.regionSelect.value = targetValue;
+      populateRegion(state.ui.regionSelect.value, { skipClear: true });
     }
   }
 
@@ -2738,7 +2747,11 @@
       else if (inA && inC && !inB) region = 'AC';
       else if (inB && inC && !inA) region = 'BC';
       else if (inA && inB && inC) region = 'ABC';
-      if (region && state.ui.regionSelect) { state.ui.regionSelect.value = region; populateRegion(region); }
+      if (region && state.ui.regionSelect) {
+        state.ui.regionSelect.value = region;
+        populateRegion(region);
+        syncActiveVennPayload('venn-region-hit');
+      }
     };
     ensureGraphViewport(stage, { padding: Math.max(style.fontSizePx || 12, 20), debugLabel: 'venn-diagram' });
     if(typeof chartStyle.applyTextAspectCorrection === 'function'){
@@ -3131,7 +3144,8 @@
         goLimit,
         stringSvg: state.analysis.lastStringSVG || '',
         stringEnrichment: state.analysis.lastStringEnrichment ? cloneSimple(state.analysis.lastStringEnrichment) : null,
-        stringLimit: 5
+        stringLimit: 5,
+        regionSelectValue: state.ui.regionSelect ? state.ui.regionSelect.value || '' : ''
       } : null
     };
     console.debug('Debug: venn.getPayload captured state', {
@@ -3171,7 +3185,8 @@
       goLimit: 5,
       stringSvg: '',
       stringEnrichment: null,
-      stringLimit: 5
+      stringLimit: 5,
+      regionSelectValue: ''
     };
     return payload;
   };
@@ -3447,6 +3462,7 @@
   function handleRegionSelectChange() {
     populateRegion(state.ui.regionSelect.value);
     console.debug('Debug: venn handleRegionSelectChange', { value: state.ui.regionSelect.value }); // Debug: region selection change
+    syncActiveVennPayload('venn-region-select');
   }
 
   function handleDocumentClick(e) {
