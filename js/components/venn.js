@@ -401,6 +401,7 @@
         goChart: null,
         goChartLocaleApplied: false,
         lastStringSVG: null,
+        lastStringEnrichment: null,
         lastRegions: null,
         lastCounts: null,
         lastDrawMode: null,
@@ -529,13 +530,15 @@
     if(!payload) return null;
     const data = payload.data ? { ...payload.data } : {};
     const style = payload.style ? { ...payload.style } : {};
+    const analysis = payload.analysis ? cloneSimple(payload.analysis) : null;
     if(style.fontStyles){
       style.fontStyles = cloneFontStyles(style.fontStyles);
     }
     return {
       type: payload.type || 'venn',
       data,
-      style
+      style,
+      analysis
     };
   }
 
@@ -748,6 +751,58 @@
       return Number.isFinite(numeric) && numeric > 0 ? numeric : NaN;
     }
     return NaN;
+  }
+
+  function parseViewBox(value) {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const parts = value.trim().split(/[,\s]+/).map(Number.parseFloat).filter(Number.isFinite);
+    if (parts.length < 4) {
+      return null;
+    }
+    const [x, y, width, height] = parts;
+    if (!Number.isFinite(width) || !Number.isFinite(height)) {
+      return null;
+    }
+    return { x, y, width, height };
+  }
+
+  function padStringNetworkViewport(svgEl, options = {}) {
+    if (!svgEl) {
+      return;
+    }
+    const exportHost = options.exportHost || null;
+    const exportRect = exportHost?.getBoundingClientRect?.();
+    const exportHeight = Number.isFinite(exportRect?.height) ? exportRect.height : 0;
+    const padding = Math.max(24, Math.round(exportHeight + 12));
+    const viewBox = parseViewBox(svgEl.getAttribute('viewBox'));
+    const widthAttr = parsePositiveFloat(svgEl.getAttribute('width'));
+    const heightAttr = parsePositiveFloat(svgEl.getAttribute('height'));
+    const baseWidth = Number.isFinite(viewBox?.width) ? viewBox.width : widthAttr;
+    const baseHeight = Number.isFinite(viewBox?.height) ? viewBox.height : heightAttr;
+    if (!Number.isFinite(baseWidth) || !Number.isFinite(baseHeight)) {
+      return;
+    }
+    const nextHeight = Math.round(baseHeight + padding);
+    const nextViewBox = viewBox
+      ? `${viewBox.x} ${viewBox.y} ${baseWidth} ${nextHeight}`
+      : `0 0 ${baseWidth} ${nextHeight}`;
+    svgEl.setAttribute('viewBox', nextViewBox);
+    svgEl.setAttribute('height', String(nextHeight));
+    svgEl.style.setProperty('overflow', 'visible');
+    svgEl.setAttribute('overflow', 'visible');
+    const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
+    if (debugEnabled) {
+      console.debug('Debug: venn string network viewport padded', {
+        padding,
+        exportHeight,
+        baseWidth,
+        baseHeight,
+        nextHeight,
+        hasViewBox: !!viewBox
+      });
+    }
   }
 
   // --- Core Functions ---
@@ -1515,11 +1570,172 @@
     if (state.ui.stringResults) state.ui.stringResults.innerHTML = '';
     if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
     if (state.analysis.goChart) { state.analysis.goChart.destroy(); state.analysis.goChart = null; }
+    state.analysis.lastGOResult = null;
+    state.analysis.lastGOFormatted = [];
+    state.analysis.lastStringSVG = null;
+    state.analysis.lastStringEnrichment = null;
     const canvas = document.getElementById('goChart');
     if (canvas) canvas.style.display = 'none';
     if (state.ui.goChartExport) state.ui.goChartExport.style.display = 'none';
     if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
     console.debug('Debug: venn clearAnalysis invoked'); // Debug: analysis outputs cleared
+  }
+
+  function resolveActiveVennTabId() {
+    const active = global.Main?.session?.getActiveTab?.();
+    if (!active || active.type !== 'venn') return null;
+    return active.id || null;
+  }
+
+  function getVennTabById(tabId) {
+    if (!tabId) return null;
+    const tabs = global.Main?.session?.workspaceState?.tabs;
+    if (!Array.isArray(tabs)) return null;
+    return tabs.find(tab => tab && tab.id === tabId && tab.type === 'venn') || null;
+  }
+
+  function syncActiveVennPayload(reason) {
+    const session = global.Main?.session;
+    const active = resolveActiveVennTabId();
+    if (!session || !active || typeof getVennGraphPayload !== 'function') return false;
+    const tab = getVennTabById(active);
+    if (!tab || typeof session.assignTabPayload !== 'function') return false;
+    const payload = getVennGraphPayload();
+    session.assignTabPayload(tab, payload, { reason: reason || 'venn-analysis-sync' });
+    debugLog('venn tab payload synced', { tabId: active, reason: reason || 'venn-analysis-sync' });
+    return true;
+  }
+
+  function updateTabAnalysisPayload(tabId, analysisPatch, meta = {}) {
+    const session = global.Main?.session;
+    if (!session || !tabId || !analysisPatch || typeof analysisPatch !== 'object') return false;
+    const tab = getVennTabById(tabId);
+    if (!tab || typeof session.assignTabPayload !== 'function') return false;
+    const cloneFn = session.fastClonePayload || session.clonePayload;
+    let payload = tab.payload ? (cloneFn ? cloneFn(tab.payload) : cloneSimple(tab.payload)) : null;
+    if (!payload && typeof venn.createEmptyPayload === 'function') {
+      payload = venn.createEmptyPayload();
+    }
+    if (!payload) return false;
+    payload.analysis = payload.analysis && typeof payload.analysis === 'object' ? payload.analysis : {};
+    Object.assign(payload.analysis, analysisPatch);
+    session.assignTabPayload(tab, payload, { reason: meta.reason || 'venn-analysis-update' });
+    debugLog('venn tab analysis patched', {
+      tabId,
+      reason: meta.reason || 'venn-analysis-update',
+      keys: Object.keys(analysisPatch || {})
+    });
+    return true;
+  }
+
+  function renderStringResults(items, limit = 5) {
+    if (!state.ui.stringResults) return;
+    if (!Array.isArray(items) || !items.length) {
+      state.ui.stringResults.innerHTML = '<div>No STRING results</div>';
+      return;
+    }
+    const sliceLimit = Number.isFinite(limit) && limit > 0 ? limit : 5;
+    const rows = items.slice(0, sliceLimit).map(r => {
+      const desc = r.termDescription || r.description || 'unknown term';
+      return '<div>' + desc + ' (FDR=' + formatSharedPValue(r.fdr) + ')</div>';
+    }).join('');
+    state.ui.stringResults.innerHTML = '<strong>STRING enrichment</strong>' + rows;
+  }
+
+  function renderStringNetwork(svgMarkup) {
+    if (!state.ui.stringNetwork) return;
+    state.ui.stringNetwork.innerHTML = '';
+    if (!svgMarkup) {
+      state.ui.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
+      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+      return;
+    }
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = svgMarkup;
+    const svgEl = wrapper.querySelector('svg');
+    if (!svgEl) {
+      state.ui.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
+      if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
+      return;
+    }
+    const scopeAttr = 'data-string-network-scope';
+    const scopeToken = `scope-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    svgEl.setAttribute(scopeAttr, scopeToken);
+    const styleEls = Array.from(svgEl.querySelectorAll('style'));
+    let scopedStyles = 0;
+    const scopeSelector = `[${scopeAttr}="${scopeToken}"]`;
+    styleEls.forEach(styleEl => {
+      const original = styleEl.textContent || '';
+      if (!original.trim()) {
+        return;
+      }
+      const scoped = original.replace(/(^|})\s*([^@{}][^{}]*)\s*\{/g, (match, prefix, selector) => {
+        const trimmed = (selector || '').trim();
+        if (!trimmed) {
+          return match;
+        }
+        const parts = trimmed.split(',').map(part => part.trim()).filter(Boolean);
+        if (!parts.length) {
+          return match;
+        }
+        const rewritten = parts.map(part => `${scopeSelector} ${part}`).join(', ');
+        return `${prefix} ${rewritten} {`;
+      });
+      if (scoped !== original) {
+        styleEl.textContent = scoped;
+        scopedStyles += 1;
+      }
+    });
+    svgEl.style.width = '100%';
+    svgEl.style.maxWidth = '100%';
+    svgEl.style.height = 'auto';
+    svgEl.style.display = 'block';
+    svgEl.style.position = 'relative';
+    if (!svgEl.getAttribute('preserveAspectRatio')) {
+      svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    }
+    state.ui.stringNetwork.appendChild(svgEl);
+    if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'flex';
+    const scheduleViewport = () => padStringNetworkViewport(svgEl, { exportHost: state.ui.stringNetworkExport });
+    if (typeof global.requestAnimationFrame === 'function') {
+      global.requestAnimationFrame(scheduleViewport);
+    } else {
+      scheduleViewport();
+    }
+    console.debug('Debug: venn string network sizing applied', {
+      viewBox: svgEl.getAttribute('viewBox') || null,
+      widthAttr: svgEl.getAttribute('width') || null,
+      scopeApplied: scopedStyles > 0,
+      scopedStyleCount: scopedStyles,
+      totalStyleCount: styleEls.length
+    }); // Debug: ensure network svg stays responsive and scoped
+  }
+
+  function applyAnalysisPayload(analysis) {
+    clearAnalysis();
+    if (!analysis || typeof analysis !== 'object') {
+      return;
+    }
+    const goResult = Array.isArray(analysis.goResult) ? analysis.goResult : null;
+    if (goResult && goResult.length) {
+      state.analysis.lastGOResult = cloneSimple(goResult) || goResult;
+      state.analysis.lastGOFormatted = Array.isArray(analysis.goFormatted) ? analysis.goFormatted.slice() : [];
+      if (analysis.goOrganism) {
+        state.analysis.lastGOOrganism = analysis.goOrganism;
+      }
+      const limit = Number.isFinite(analysis.goLimit) && analysis.goLimit > 0
+        ? analysis.goLimit
+        : Math.min(5, state.analysis.lastGOResult.length);
+      renderGOResults(limit);
+    }
+    if (analysis.stringSvg) {
+      state.analysis.lastStringSVG = analysis.stringSvg;
+      renderStringNetwork(analysis.stringSvg);
+    }
+    if (Array.isArray(analysis.stringEnrichment)) {
+      state.analysis.lastStringEnrichment = cloneSimple(analysis.stringEnrichment) || analysis.stringEnrichment;
+      renderStringResults(state.analysis.lastStringEnrichment, analysis.stringLimit || 5);
+    }
   }
 
   function applyGoChartDefaults(ChartCtor) {
@@ -1954,6 +2170,7 @@
   }
 
   async function runGOAnalysis(genes, organism) {
+    const originTabId = resolveActiveVennTabId();
     const formatted = genes.map(g => g.trim().toUpperCase()).filter(x => x);
     if (!formatted.length) { if (state.ui.goResults) state.ui.goResults.innerHTML = '<i>No genes for analysis</i>'; return; }
     const org = organism || state.ui.speciesSelect.value;
@@ -1995,20 +2212,42 @@
         domainScope,
         fetch
       });
-      state.analysis.lastGOResult = response.result || [];
+      const results = response.result || [];
+      const activeTabId = resolveActiveVennTabId();
+      if (originTabId && activeTabId !== originTabId) {
+        updateTabAnalysisPayload(originTabId, {
+          goResult: results,
+          goFormatted: formatted,
+          goOrganism: org,
+          goLimit: Math.min(5, results.length || 5)
+        }, { reason: 'venn-go-analysis-background' });
+        return;
+      }
+      state.analysis.lastGOResult = results;
       if (state.analysis.lastGOResult.length) {
         renderGOResults(5);
       } else if (state.ui.goResults) {
         state.ui.goResults.innerHTML = '<div>No GO results</div>';
       }
+      syncActiveVennPayload('venn-go-analysis-complete');
     } catch (err) {
       console.error('runGOAnalysis error', err);
+      const activeTabId = resolveActiveVennTabId();
+      if (originTabId && activeTabId !== originTabId) {
+        updateTabAnalysisPayload(originTabId, {
+          goResult: null,
+          goFormatted: formatted,
+          goOrganism: org
+        }, { reason: 'venn-go-analysis-error' });
+        return;
+      }
       if (state.ui.goResults) state.ui.goResults.innerHTML = '<div>Error fetching GO analysis</div>';
     }
     debugLog('runGOAnalysis invoked', { organism: org, geneCount: formatted.length });
   }
 
   async function runStringAnalysis(genes, organism) {
+    const originTabId = resolveActiveVennTabId();
     const formatted = genes.map(g => g.trim().toUpperCase()).filter(x => x);
     if (!formatted.length) {
       if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
@@ -2052,78 +2291,56 @@
     };
     try {
       const network = await service.fetchNetwork(requestOptions);
-      state.analysis.lastStringSVG = network.svg;
-      const wrapper = document.createElement('div');
-      wrapper.innerHTML = network.svg;
-      const svgEl = wrapper.querySelector('svg');
-      if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '';
-      if (svgEl) {
-        const scopeAttr = 'data-string-network-scope';
-        const scopeToken = `scope-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        svgEl.setAttribute(scopeAttr, scopeToken);
-        const styleEls = Array.from(svgEl.querySelectorAll('style'));
-        let scopedStyles = 0;
-        const scopeSelector = `[${scopeAttr}="${scopeToken}"]`;
-        styleEls.forEach(styleEl => {
-          const original = styleEl.textContent || '';
-          if (!original.trim()) {
-            return;
-          }
-          const scoped = original.replace(/(^|})\s*([^@{}][^{}]*)\s*\{/g, (match, prefix, selector) => {
-            const trimmed = (selector || '').trim();
-            if (!trimmed) {
-              return match;
-            }
-            const parts = trimmed.split(',').map(part => part.trim()).filter(Boolean);
-            if (!parts.length) {
-              return match;
-            }
-            const rewritten = parts.map(part => `${scopeSelector} ${part}`).join(', ');
-            return `${prefix} ${rewritten} {`;
-          });
-          if (scoped !== original) {
-            styleEl.textContent = scoped;
-            scopedStyles += 1;
-          }
-        });
-        svgEl.style.width = '100%';
-        svgEl.style.maxWidth = '100%';
-        svgEl.style.height = 'auto';
-        if (!svgEl.getAttribute('preserveAspectRatio')) {
-          svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-        }
-        state.ui.stringNetwork?.appendChild(svgEl);
-        console.debug('Debug: venn string network sizing applied', {
-          viewBox: svgEl.getAttribute('viewBox') || null,
-          widthAttr: svgEl.getAttribute('width') || null,
-          scopeApplied: scopedStyles > 0,
-          scopedStyleCount: scopedStyles,
-          totalStyleCount: styleEls.length
-        }); // Debug: ensure network svg stays responsive and scoped
-        if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'flex';
-      } else if (state.ui.stringNetwork) {
-        state.ui.stringNetwork.innerHTML = '<div>Failed to load STRING network</div>';
+      const activeTabId = resolveActiveVennTabId();
+      if (originTabId && activeTabId !== originTabId) {
+        updateTabAnalysisPayload(originTabId, {
+          stringSvg: network.svg
+        }, { reason: 'venn-string-network-background' });
+      } else {
+        state.analysis.lastStringSVG = network.svg;
+        renderStringNetwork(network.svg);
       }
     } catch (err) {
       console.error('runStringAnalysis network error', err);
+      const activeTabId = resolveActiveVennTabId();
+      if (originTabId && activeTabId !== originTabId) {
+        updateTabAnalysisPayload(originTabId, {
+          stringSvg: ''
+        }, { reason: 'venn-string-network-error' });
+        return;
+      }
       state.analysis.lastStringSVG = null;
+      state.analysis.lastStringEnrichment = null;
       if (state.ui.stringNetwork) state.ui.stringNetwork.innerHTML = '<div>Error loading STRING network</div>';
       if (state.ui.stringNetworkExport) state.ui.stringNetworkExport.style.display = 'none';
     }
     try {
       const enrichment = await service.fetchEnrichment(requestOptions);
-      if (enrichment.items.length) {
-        const items = enrichment.items.slice(0, 5).map(r => {
-          const desc = r.termDescription || r.description || 'unknown term';
-          return '<div>' + desc + ' (FDR=' + formatSharedPValue(r.fdr) + ')</div>';
-        }).join('');
-        if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<strong>STRING enrichment</strong>' + items;
-      } else if (state.ui.stringResults) {
-        state.ui.stringResults.innerHTML = '<div>No STRING results</div>';
+      const items = Array.isArray(enrichment.items) ? enrichment.items : [];
+      const activeTabId = resolveActiveVennTabId();
+      if (originTabId && activeTabId !== originTabId) {
+        updateTabAnalysisPayload(originTabId, {
+          stringEnrichment: items,
+          stringLimit: 5
+        }, { reason: 'venn-string-enrichment-background' });
+      } else {
+        state.analysis.lastStringEnrichment = items;
+        renderStringResults(items, 5);
       }
     } catch (err) {
       console.error('runStringAnalysis enrichment error', err);
+      const activeTabId = resolveActiveVennTabId();
+      if (originTabId && activeTabId !== originTabId) {
+        updateTabAnalysisPayload(originTabId, {
+          stringEnrichment: null
+        }, { reason: 'venn-string-enrichment-error' });
+        return;
+      }
+      state.analysis.lastStringEnrichment = null;
       if (state.ui.stringResults) state.ui.stringResults.innerHTML = '<div>Error fetching STRING analysis</div>';
+    }
+    if (originTabId && originTabId === resolveActiveVennTabId()) {
+      syncActiveVennPayload('venn-string-analysis-complete');
     }
     debugLog('runStringAnalysis invoked', {
       organism: org,
@@ -2867,12 +3084,17 @@
     });
   }
 
-  function getVennGraphPayload() {
+  function getVennGraphPayload(options = {}) {
     const inputs = state.ui.inputs;
     if (!inputs) {
       console.debug('Debug: venn.getPayload skipped - missing inputs reference');
       return null;
     }
+    const includeAnalysis = options.includeAnalysis !== false;
+    const goToggle = state.ui.goResults?.querySelector?.('#toggleGoResults');
+    const goLimit = goToggle?.dataset?.state === 'all'
+      ? (state.analysis.lastGOResult?.length || 5)
+      : 5;
     const payload = {
       type: 'venn',
       data: {
@@ -2901,7 +3123,16 @@
         fontStyles: exportFontStyles('venn') || undefined,
         title: state.titleText,
         labelPositions: state.labelPositions || null
-      }
+      },
+      analysis: includeAnalysis ? {
+        goResult: state.analysis.lastGOResult ? cloneSimple(state.analysis.lastGOResult) : null,
+        goFormatted: state.analysis.lastGOFormatted ? state.analysis.lastGOFormatted.slice() : [],
+        goOrganism: state.analysis.lastGOOrganism || '',
+        goLimit,
+        stringSvg: state.analysis.lastStringSVG || '',
+        stringEnrichment: state.analysis.lastStringEnrichment ? cloneSimple(state.analysis.lastStringEnrichment) : null,
+        stringLimit: 5
+      } : null
     };
     console.debug('Debug: venn.getPayload captured state', {
       labelA: payload.data.labelA,
@@ -2933,6 +3164,15 @@
       nABC: 0
     };
     payload.style = payload.style || {};
+    payload.analysis = {
+      goResult: null,
+      goFormatted: [],
+      goOrganism: '',
+      goLimit: 5,
+      stringSvg: '',
+      stringEnrichment: null,
+      stringLimit: 5
+    };
     return payload;
   };
 
@@ -3060,6 +3300,7 @@
       };
     }
     refreshDiagram();
+    applyAnalysisPayload(obj.analysis);
     if(meta.recordUndo !== false){
       const undoPrevious = meta.undoPrevious || captureVennSnapshot();
       const next = captureVennSnapshot();
