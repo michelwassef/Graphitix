@@ -1986,120 +1986,9 @@
       return result;
     };
 
-    const autoSizeColumnsEnabled = overrides?.autoSizeColumns !== false;
-    let autoSizeScheduled = false;
-    let uniformDataColWidth = null;
-    let uniformWidthApplyLock = false;
-
-    const resolveUniformDataColWidth = (reason, preferredWidth)=>{
-      let width = Number.isFinite(preferredWidth) && preferredWidth > 0 ? preferredWidth : null;
-      if(!Number.isFinite(width) || width <= 0){
-        width = uniformDataColWidth;
-      }
-      const api = instance?.gridApi || null;
-      const columnApi = instance?.columnApi || api?.columnApi || null;
-      if((!Number.isFinite(width) || width <= 0) && columnApi){
-        let columns = [];
-        if(typeof columnApi.getAllDisplayedColumns === 'function'){
-          columns = columnApi.getAllDisplayedColumns() || [];
-        }else if(typeof columnApi.getAllColumns === 'function'){
-          columns = columnApi.getAllColumns() || [];
-        }
-        const dataCol = columns.find(col => {
-          const colId = typeof col?.getColId === 'function' ? col.getColId() : col?.colId;
-          return colId && colId !== '__rowHeader' && String(colId).startsWith('c');
-        });
-        width = typeof dataCol?.getActualWidth === 'function' ? dataCol.getActualWidth() : null;
-        if(!Number.isFinite(width) || width <= 0){
-          if(typeof columnApi.getColumnState === 'function'){
-            const state = columnApi.getColumnState() || [];
-            const match = state.find(entry => typeof entry?.colId === 'string' && entry.colId.startsWith('c') && Number.isFinite(entry.width) && entry.width > 0);
-            width = match?.width;
-          }
-        }
-      }
-      if(Number.isFinite(width) && width > 0){
-        const changed = width !== uniformDataColWidth;
-        uniformDataColWidth = width;
-        instance.__hotUniformColWidth = width;
-        if(changed && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot uniform column width updated', { debugLabel, reason: reason || null, width });
-        }
-      }
-      return Number.isFinite(uniformDataColWidth) && uniformDataColWidth > 0 ? uniformDataColWidth : null;
-    };
-
-    const applyUniformDataColumnWidths = (reason, preferredWidth)=>{
-      const api = instance?.gridApi || null;
-      const columnApi = instance?.columnApi || api?.columnApi || null;
-      if(!columnApi || typeof columnApi.setColumnWidth !== 'function'){
-        return false;
-      }
-      const uniformWidth = resolveUniformDataColWidth(reason, preferredWidth);
-      if(!Number.isFinite(uniformWidth) || uniformWidth <= 0){
-        return false;
-      }
-      let columns = [];
-      if(typeof columnApi.getAllColumns === 'function'){
-        columns = columnApi.getAllColumns() || [];
-      }else if(typeof columnApi.getAllDisplayedColumns === 'function'){
-        columns = columnApi.getAllDisplayedColumns() || [];
-      }
-      const dataColumns = columns.filter(col => {
-        const colId = typeof col?.getColId === 'function' ? col.getColId() : col?.colId;
-        return colId && colId !== '__rowHeader' && String(colId).startsWith('c');
-      });
-      if(!dataColumns.length){
-        return false;
-      }
-      uniformWidthApplyLock = true;
-      try{
-        if(typeof columnApi.applyColumnState === 'function'){
-          const state = dataColumns.map(col => ({
-            colId: typeof col?.getColId === 'function' ? col.getColId() : col?.colId,
-            width: uniformWidth
-          }));
-          columnApi.applyColumnState({ state, applyOrder: false });
-        }else{
-          dataColumns.forEach(col => {
-            const colId = typeof col?.getColId === 'function' ? col.getColId() : col?.colId;
-            columnApi.setColumnWidth(colId, uniformWidth, false);
-          });
-        }
-      }finally{
-        const doc = container?.ownerDocument || document;
-        const win = doc.defaultView || global;
-        const rafLocal = typeof win?.requestAnimationFrame === 'function'
-          ? win.requestAnimationFrame.bind(win)
-          : (fn)=>win.setTimeout(fn, 16);
-        rafLocal(()=>{
-          uniformWidthApplyLock = false;
-        });
-      }
-      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-        console.debug('Debug: Shared.hot uniform column widths applied', { debugLabel, reason: reason || null, width: uniformWidth, count: dataColumns.length });
-      }
-      return true;
-    };
-
-    const scheduleUniformDataColumnWidths = (reason, preferredWidth, attempt = 0)=>{
-      const maxAttempts = 6;
-      const doc = container?.ownerDocument || document;
-      const win = doc.defaultView || global;
-      const rafLocal = typeof win?.requestAnimationFrame === 'function'
-        ? win.requestAnimationFrame.bind(win)
-        : (fn)=>win.setTimeout(fn, 16);
-      rafLocal(()=>{
-        rafLocal(()=>{
-          const applied = applyUniformDataColumnWidths(reason, preferredWidth);
-          if(!applied && attempt < maxAttempts){
-            scheduleUniformDataColumnWidths(reason, preferredWidth, attempt + 1);
-          }else if(!applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-            console.debug('Debug: Shared.hot uniform column widths skipped', { debugLabel, reason: reason || null, attempts: attempt + 1 });
-          }
-        });
-      });
-    };
+    const fixedDataColWidth = Number.isFinite(overrides?.fixedColumnWidth) && overrides.fixedColumnWidth > 0
+      ? Math.round(overrides.fixedColumnWidth)
+      : 80;
 
     const valueComparator = (a, b, _nodeA, _nodeB, isDescending)=>{
       const isEmpty = (v)=>v === null || v === undefined || v === '';
@@ -2147,7 +2036,6 @@
     };
 
     const buildColumnDefs = ()=>{
-      const uniformWidth = resolveUniformDataColWidth('buildColumnDefs') || undefined;
       const dataColumnDefs = Shared.agGrid?.createColumnDefs
         ? Shared.agGrid.createColumnDefs(colCount, { dataHandle, colHeaders })
         : Array.from({ length: colCount }, (_, col)=>{
@@ -2165,14 +2053,6 @@
             }
           };
         });
-
-      if(Number.isFinite(uniformWidth) && uniformWidth > 0){
-        dataColumnDefs.forEach(def=>{
-          if(def && typeof def === 'object' && def.colId && def.colId !== '__rowHeader'){
-            def.width = uniformWidth;
-          }
-        });
-      }
 
       class HotAgColumnHeader{
         init(params){
@@ -2255,6 +2135,7 @@
         const colId = def.colId ?? null;
         const isDataColumn = typeof colId === 'string' && colId.startsWith('c');
         if(isDataColumn){
+          def.width = fixedDataColWidth;
           if(def.suppressMovable !== false){
             def.suppressMovable = true;
           }
@@ -2708,7 +2589,6 @@
         autoGrowthState.viewportScrollHandler = ()=>{
           maybeGrowRows('scroll');
           maybeGrowCols('scroll');
-          scheduleAutoSizeColumns('scroll');
           scheduleFillHandleUpdate('scroll');
         };
       }
@@ -2769,6 +2649,41 @@
         }
       }catch(err){
         console.error('Shared.hot AG applyColumnDefs error', err);
+      }
+    };
+
+    const captureColumnWidths = (api)=>{
+      const columnApi = api?.columnApi || instance?.columnApi || null;
+      if(!columnApi || typeof columnApi.getColumnState !== 'function'){
+        return null;
+      }
+      try{
+        const state = columnApi.getColumnState() || [];
+        const widths = new Map();
+        state.forEach(entry=>{
+          if(entry?.colId && Number.isFinite(entry.width) && entry.width > 0){
+            widths.set(entry.colId, entry.width);
+          }
+        });
+        return widths.size ? widths : null;
+      }catch(err){
+        return null;
+      }
+    };
+
+    const applyCapturedColumnWidths = (api, widths)=>{
+      if(!api || !widths || !widths.size){
+        return;
+      }
+      const columnApi = api?.columnApi || instance?.columnApi || null;
+      if(!columnApi || typeof columnApi.applyColumnState !== 'function'){
+        return;
+      }
+      try{
+        const state = Array.from(widths.entries()).map(([colId, width])=>({ colId, width }));
+        columnApi.applyColumnState({ state, applyOrder: false });
+      }catch(err){
+        // best-effort only
       }
     };
 
@@ -2837,63 +2752,7 @@
       scheduleFillHandleUpdate('render');
     };
 
-    const autoSizeColumnsNow = (reason)=>{
-      if(!autoSizeColumnsEnabled){
-        return;
-      }
-      const api = instance?.gridApi || null;
-      const columnApi = instance?.columnApi || api?.columnApi || null;
-      if(!columnApi){
-        return;
-      }
-      try{
-        let columns = [];
-        if(typeof columnApi.getAllDisplayedColumns === 'function'){
-          columns = columnApi.getAllDisplayedColumns() || [];
-        }else if(typeof columnApi.getAllColumns === 'function'){
-          columns = columnApi.getAllColumns() || [];
-        }
-        const colIds = columns
-          .map(col => (typeof col?.getColId === 'function' ? col.getColId() : (col?.colId ?? null)))
-          .filter(id => id && id !== '__rowHeader' && String(id).startsWith('c'));
-        if(!colIds.length){
-          return;
-        }
-        if(typeof columnApi.autoSizeColumns === 'function'){
-          columnApi.autoSizeColumns(colIds, false);
-        }else if(typeof api?.autoSizeColumns === 'function'){
-          api.autoSizeColumns(colIds, false);
-        }else if(typeof api?.autoSizeAllColumns === 'function'){
-          api.autoSizeAllColumns(false);
-        }
-        if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-          console.debug('Debug: Shared.hot AG autoSizeColumns', { debugLabel, reason: reason || null, colCount: colIds.length });
-        }
-        scheduleUniformDataColumnWidths(reason || 'autoSize');
-      }catch(err){
-        // best-effort only
-      }
-    };
-
-    const scheduleAutoSizeColumns = (reason)=>{
-      if(!autoSizeColumnsEnabled || autoSizeScheduled){
-        return;
-      }
-      autoSizeScheduled = true;
-      const doc = container?.ownerDocument || document;
-      const win = doc.defaultView || global;
-      const rafLocal = typeof win?.requestAnimationFrame === 'function'
-        ? win.requestAnimationFrame.bind(win)
-        : (fn)=>win.setTimeout(fn, 16);
-
-      // Two RAFs makes this more reliable when the grid is inside a flex layout or just became visible.
-      rafLocal(()=>{
-        rafLocal(()=>{
-          autoSizeScheduled = false;
-          autoSizeColumnsNow(reason);
-        });
-      });
-    };
+ 
 
 
     const rebuildColumns = (api)=>{
@@ -2902,9 +2761,10 @@
         pendingRebuildColumns = true;
         return;
       }
+      const preservedWidths = captureColumnWidths(api);
       applyColumnDefs(api, columnDefs);
       applyHeaderHeight(api, colHeadersEnabled ? 24 : 0);
-      scheduleAutoSizeColumns('rebuildColumns');
+      applyCapturedColumnWidths(api, preservedWidths);
     };
 
     const syncRowData = (api)=>{
@@ -2915,7 +2775,6 @@
       }
       applyRowData(api, rowData);
       restoreViewportScroll();
-      scheduleAutoSizeColumns('rowData');
     };
 
     const appendRows = (count)=>{
@@ -2968,7 +2827,6 @@
         pendingRender = false;
         renderAg(api);
       }
-      scheduleAutoSizeColumns('batch');
       if(pendingSchedulePayload){
         const payload = pendingSchedulePayload;
         pendingSchedulePayload = null;
@@ -3308,7 +3166,6 @@
           }
           fireHook('afterChange', changesForHook, changeSource);
           triggerSchedule('afterChange', { source: changeSource });
-          scheduleAutoSizeColumns(changeSource);
           renderAg(instance.gridApi);
           return;
         }
@@ -3340,7 +3197,6 @@
         }
         fireHook('afterChange', [[r, c, prev, value]], changeSource);
         triggerSchedule('afterChange', { source: changeSource });
-        scheduleAutoSizeColumns(changeSource);
         renderAg(instance.gridApi);
       },
       loadData(nextData){
@@ -3458,7 +3314,6 @@
             colHeaders = resolveColHeaders(colCount);
             rebuildColumns(instance.gridApi);
             renderAg(instance.gridApi);
-            scheduleUniformDataColumnWidths(changeSource);
             fireHook('afterCreateCol', insertAt, safeAmount, changeSource);
             triggerSchedule('afterCreateCol', { source: changeSource });
         }else if(action === 'remove_col'){
@@ -3566,7 +3421,6 @@
         }
         fireHook('afterPaste', block, [{ startRow: sr, startCol: sc, endRow: er, endCol: ec }]);
         triggerSchedule('afterPaste', { source: source || 'populateFromArray' });
-        scheduleAutoSizeColumns(source || 'paste');
         renderAg(instance.gridApi);
       },
       render(){
@@ -4053,7 +3907,7 @@
         editable: true,
         resizable: true,
         minWidth: 40,
-        width: resolveUniformDataColWidth('gridOptions') || 80,
+        width: fixedDataColWidth,
         suppressHeaderMenuButton: true,
         comparator: valueComparator
       },
@@ -4063,7 +3917,6 @@
         ensureDomOrder: true,
         alwaysShowHorizontalScroll: true,
         headerHeight: colHeadersEnabled ? 24 : 0,
-      autoSizeStrategy: autoSizeColumnsEnabled ? { type: 'fitCellContents' } : undefined,
       postSortRows: function(params){
         try{
           const nodes = params?.nodes;
@@ -4156,27 +4009,16 @@
           instance.gridApi = params.api;
           instance.columnApi = params.columnApi;
           updateSelectionFromApi(params.api);
-          scheduleAutoSizeColumns('gridReady');
-          scheduleUniformDataColumnWidths('gridReady');
           ensureViewportScrollHandler();
           maybeGrowRows('gridReady');
           maybeGrowCols('gridReady');
         },
         onFirstDataRendered(){
-          scheduleAutoSizeColumns('firstDataRendered');
-          scheduleUniformDataColumnWidths('firstDataRendered');
           ensureViewportScrollHandler();
         },
         onColumnResized(params){
-          if(params?.finished === false || uniformWidthApplyLock){
+          if(params?.finished === false){
             return;
-          }
-          const colId = params?.column?.getColId?.() ?? params?.column?.colId;
-          if(colId && colId !== '__rowHeader' && String(colId).startsWith('c')){
-            const resizedWidth = typeof params?.column?.getActualWidth === 'function'
-              ? params.column.getActualWidth()
-              : params?.width;
-            scheduleUniformDataColumnWidths('columnResized', resizedWidth);
           }
         },
       onCellValueChanged(event){
@@ -4192,7 +4034,6 @@
         }
         fireHook('afterChange', [[rowIndex, colIndex, event.oldValue, event.newValue]], event.source || 'edit');
         triggerSchedule('afterChange', { source: event.source || 'edit' });
-        scheduleAutoSizeColumns('edit');
       },
       onCellEditingStopped(event){
         try{
