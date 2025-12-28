@@ -5775,16 +5775,16 @@
     const exampleSingle=[
       ['Control','Treatment A','Treatment B'],
       [12,15,14],
-      [14,17,15],
-      [11,14,13],
-      [13,16,16],
-      [15,18,18],
-      [16,19,17],
-      [14,16,15],
-      [13,15,14],
-      [12,14,13],
-      [15,17,16],
-      [17,20,21]
+      [14.3,17,15.3],
+      [11,14.6,13],
+      [13.3,16,16.3],
+      [15.6,18,18.4],
+      [16.2,19,17.2],
+      [14.9,16.5,15.9],
+      [13.6,15.2,14.2],
+      [12.3,14.5,13.9],
+      [15.5,17.3,16.6],
+      [17.6,20,21.1]
     ];
     const exampleGrouped=[['Wild type','Knock-out A','Knock-out B','Wild type','Knock-out A','Knock-out B'],[23,24,21,67,29,65],[21,23,25,79,31,69],[19,25,27,98,32,71],[22,26,24,88,30,67]];
     console.debug('Debug: example datasets prepared',{ singleCols: exampleSingle[0]?.length, groupedCols: exampleGrouped[0]?.length });
