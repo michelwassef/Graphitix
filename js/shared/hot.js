@@ -1986,9 +1986,9 @@
       return result;
     };
 
-    const fixedDataColWidth = Number.isFinite(overrides?.fixedColumnWidth) && overrides.fixedColumnWidth > 0
-      ? Math.round(overrides.fixedColumnWidth)
-      : 80;
+    const fixedDataColWidth = Math.round((Number.isFinite(overrides?.fixedColumnWidth) && overrides.fixedColumnWidth > 0
+      ? overrides.fixedColumnWidth
+      : 80) * 1.2);
 
     const valueComparator = (a, b, _nodeA, _nodeB, isDescending)=>{
       const isEmpty = (v)=>v === null || v === undefined || v === '';
