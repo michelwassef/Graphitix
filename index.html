@@ -1344,29 +1344,34 @@
             <fieldset>
               <legend>View</legend>
               <div class="heatmap-control-list">
-                <label class="heatmap-control-block">
-                  <span class="heatmap-nowrap">Heatmap type</span>
-                  <select id="heatmapView">
-                    <option value="values">Data values</option>
-                    <option value="corr-columns" selected>Correlation (arrays)</option>
-                    <option value="corr-rows">Correlation (genes)</option>
-                  </select>
-                </label>
-                <label class="heatmap-control-block">
-                  <span class="heatmap-nowrap">Correlation method</span>
-                  <select id="heatmapMethod">
-                    <option value="pearson" selected>Pearson</option>
-                    <option value="spearman">Spearman</option>
-                  </select>
-                </label>
-                <label class="heatmap-inline-group">
-                  <input type="checkbox" id="heatmapAbsValues" />
-                  <span class="heatmap-nowrap">Use absolute correlations</span>
-                </label>
-                <label class="heatmap-inline-group">
-                  <input type="checkbox" id="heatmapMaskLower" />
-                  <span class="heatmap-nowrap">Hide lower triangle (correlation)</span>
-                </label>
+                <div class="heatmap-row-inline">
+                  <label class="heatmap-control-block">
+                    <span class="heatmap-nowrap">Heatmap type</span>
+                    <select id="heatmapView">
+                      <option value="values">Data values</option>
+                      <option value="corr-columns" selected>Correlation (arrays)</option>
+                      <option value="corr-rows">Correlation (genes)</option>
+                    </select>
+                  </label>
+                  <label class="heatmap-inline-group heatmap-inline-right">
+                    <input type="checkbox" id="heatmapMaskLower" />
+                    <span class="heatmap-nowrap">Hide lower triangle (correlation)</span>
+                  </label>
+                </div>
+                <div class="heatmap-row-inline">
+                  <label class="heatmap-control-block">
+                    <span class="heatmap-nowrap">Correlation method</span>
+                    <select id="heatmapMethod">
+                      <option value="pearson" selected>Pearson</option>
+                      <option value="spearman">Spearman</option>
+                    </select>
+                  </label>
+                  <label class="heatmap-inline-group heatmap-inline-right">
+                    <input type="checkbox" id="heatmapAbsValues" />
+                    <span class="heatmap-nowrap">Use absolute correlations</span>
+                  </label>
+                </div>
+                <!-- moved above for inline alignment -->
                 <label class="heatmap-inline-group">
                   <input type="checkbox" id="heatmapShowValues" checked />
                   <span class="heatmap-nowrap">Show cell values</span>
