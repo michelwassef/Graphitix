@@ -1031,6 +1031,25 @@
       if(refs.showValues){
         refs.showValues.disabled = false;
       }
+      // Disable the resizer "Lock ratio" control when showing Data values
+      try {
+        const svgBox = state.svgBox
+          || (global.document.getElementById && global.document.getElementById('heatmapGraphPanel')?.querySelector('.svgbox'))
+          || (state.svg && state.svg.closest && state.svg.closest('.svgbox'));
+        const aspectCheckbox = svgBox ? svgBox.querySelector('.resizer-aspect-checkbox') : null;
+        if(aspectCheckbox){
+          if(!isCorrelation){
+            aspectCheckbox.checked = false;
+            if(svgBox && svgBox.dataset){
+              svgBox.dataset.resizerAspectLocked = 'false';
+            }
+            try{ applySvgBoxAspect(svgBox, { locked: false }); }catch(e){}
+          }
+          // Do not disable the control, just leave it enabled always
+        }
+      }catch(err){
+        console.debug('Debug: heatmap updateViewControlState aspect toggle error', err?.message || err);
+      }
       console.debug('Debug: heatmap view state updated', { view, isCorrelation });
     };
 
