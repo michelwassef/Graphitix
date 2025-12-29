@@ -1045,8 +1045,12 @@
             }
             try{ applySvgBoxAspect(svgBox, { locked: false }); }catch(e){}
           }
-          // Do not disable the control, just leave it enabled always
         }
+
+      // Uncheck Show cell values by default for Data values
+      if(refs.showValues && !isCorrelation){
+        refs.showValues.checked = false;
+      }
       }catch(err){
         console.debug('Debug: heatmap updateViewControlState aspect toggle error', err?.message || err);
       }
