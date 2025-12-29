@@ -212,6 +212,8 @@
       debugLabel: 'pca',
       data: pcaData,
       disablePaste: true,
+      pinFirstColumn: true,
+      rowSelection: null,
       firstRowClassName: 'htCenter',
       pinFirstRow: true,
       scheduleOnLoadData: true,

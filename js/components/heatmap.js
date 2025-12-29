@@ -862,6 +862,8 @@
       debugLabel: 'heatmap',
       data,
       disablePaste: true,
+      pinFirstColumn: true,
+      rowSelection: null,
       pinFirstRow: true,
       scheduleOnLoadData: true,
       hotOptions: {
