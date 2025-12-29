@@ -1,41 +1,3 @@
-/* Ensure checkboxes are always left of label text in heatmap controls */
-.heatmap-inline-group, .heatmap-row-inline > .heatmap-inline-group, .heatmap-row-inline label.heatmap-inline-group {
-    display: inline-flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    gap: 6px !important;
-    vertical-align: middle;
-}
-.heatmap-row-inline {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 4px;
-}
-/* Inline row for heatmap controls */
-.heatmap-row-inline {
-    display: grid;
-    grid-template-columns: auto auto;
-    align-items: end;
-    gap: 16px;
-    margin-bottom: 4px;
-}
-.heatmap-row-inline label.heatmap-control-block,
-.heatmap-row-inline label.heatmap-inline-group {
-    width: auto;
-    min-width: 0;
-    margin: 0;
-}
-.heatmap-inline-group {
-    display: inline-flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-}
-.heatmap-inline-right {
-    margin-left: 12px;
-}
 /* Minimal central stylesheet to be expanded. Move inline styles here for maintainability. */
 :root {
     --bg-color: #fff;
@@ -2339,19 +2301,14 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
     font-size:12px;
     color:#444;
 }
-#heatmapGraphPanel .config-options{display:flex;flex-direction:column;gap:16px}
+#heatmapGraphPanel .config-options{display:flex;flex-direction:column;gap:16px;align-self:flex-start;width:fit-content;max-width:100%}
 #heatmapGraphPanel .config-options .heatmap-control-list{display:flex;flex-direction:column;align-items:flex-start;gap:8px;font-size:12px;color:#1c2534;width:100%}
 #heatmapGraphPanel .config-options .heatmap-control-block{display:flex;flex-direction:column;gap:4px;width:100%;font-size:12px;color:#1c2534}
 #heatmapGraphPanel .config-options .heatmap-control-block select{width:100%}
-#heatmapGraphPanel .config-options .heatmap-inline-group{
-    display: inline-flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    font-size: 12px;
-    color: #1c2534;
-}
+#heatmapGraphPanel .config-options .heatmap-control-row{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;width:100%}
+#heatmapGraphPanel .config-options .heatmap-control-grow{flex:1 1 220px;min-width:200px}
+#heatmapGraphPanel .config-options .heatmap-control-inline{flex:0 0 auto}
+#heatmapGraphPanel .config-options .heatmap-inline-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:#1c2534}
 #heatmapGraphPanel .config-options .heatmap-inline-group>input[type=checkbox],
 #heatmapGraphPanel .config-options .heatmap-inline-group>input[type=radio]{margin:0}
 #heatmapGraphPanel .config-options .heatmap-inline-group:has(> input[type=checkbox]):not(:has(input[type=number],input[type=range],select)),
