@@ -954,7 +954,6 @@
     refs.colorPositive = $('heatmapColorPositive');
     refs.cellSize = $('heatmapCellSize');
     refs.cellSizeVal = $('heatmapCellSizeVal');
-    refs.labelAngle = $('heatmapLabelAngle');
     refs.fontSize = $('heatmapFontSize');
     refs.fontSizeVal = $('heatmapFontSizeVal');
     refs.filterPresentEnable = $('heatmapFilterPresentEnable');
@@ -988,14 +987,6 @@
     });
     refs.showRowDendrogram = $('heatmapShowRowDendrogram');
     refs.showColumnDendrogram = $('heatmapShowColumnDendrogram');
-    if(refs.labelAngle){
-      refs.labelAngle.value = String(COLUMN_LABEL_VERTICAL_ANGLE);
-      refs.labelAngle.setAttribute('disabled', 'disabled');
-      refs.labelAngle.setAttribute('title', 'Column labels render vertically to avoid overlap.');
-      console.debug('Debug: heatmap label angle control locked vertical', {
-        enforced: COLUMN_LABEL_VERTICAL_ANGLE
-      });
-    }
     state.statsEl = $('heatmapStatsContent');
 
     if(refs.cellSizeVal && refs.cellSize){
@@ -1221,16 +1212,6 @@
         console.debug('Debug: heatmap font size changed', { value: refs.fontSize.value });
       }
       scheduleViewOnly('font-size');
-    });
-    refs.labelAngle?.addEventListener('input', () => {
-      if(refs.labelAngle){
-        const attempted = Number(refs.labelAngle.value);
-        if(attempted !== COLUMN_LABEL_VERTICAL_ANGLE){
-          console.debug('Debug: heatmap label angle input overridden', { attempted, enforced: COLUMN_LABEL_VERTICAL_ANGLE });
-        }
-        refs.labelAngle.value = String(COLUMN_LABEL_VERTICAL_ANGLE);
-      }
-      schedule();
     });
 
     registerFilter(refs.filterPresentEnable, [refs.filterPresentValue]);

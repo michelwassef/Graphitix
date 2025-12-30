@@ -1371,13 +1371,15 @@
                     <span class="heatmap-nowrap">Use absolute correlations</span>
                   </label>
                 </div>
-                <label class="heatmap-inline-group">
-                  <input type="checkbox" id="heatmapShowValues" checked />
-                  <span class="heatmap-nowrap">Show cell values</span>
-                </label>
-                <div class="heatmap-inline-group">
-                  <span class="heatmap-nowrap">Decimals</span>
-                  <input type="number" id="heatmapDecimals" value="2" min="0" max="6" class="heatmap-size-input" />
+                <div class="heatmap-control-row">
+                  <label class="heatmap-inline-group">
+                    <input type="checkbox" id="heatmapShowValues" checked />
+                    <span class="heatmap-nowrap">Show cell values</span>
+                  </label>
+                  <div class="heatmap-inline-group">
+                    <span class="heatmap-nowrap">Decimals</span>
+                    <input type="number" id="heatmapDecimals" value="2" min="0" max="6" class="heatmap-size-input" />
+                  </div>
                 </div>
               </div>
             </fieldset>
@@ -1389,11 +1391,6 @@
                     <span class="heatmap-nowrap">Cell Size</span>
                     <input type="range" id="heatmapCellSize" min="30" max="120" step="5" value="60" />
                     <output id="heatmapCellSizeVal">60</output>
-                  </div>
-                  <div class="heatmap-inline-group">
-                    <span class="heatmap-nowrap">Label Orientation</span>
-                    <input type="number" id="heatmapLabelAngle" value="90" min="90" max="90" class="heatmap-size-input" disabled />
-                    <span class="heatmap-hint">Vertical</span>
                   </div>
                   <div class="heatmap-inline-group">
                     <span class="heatmap-nowrap">Font Size</span>
