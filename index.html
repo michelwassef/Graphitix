@@ -1422,33 +1422,6 @@
         <div class="heatmap-lower-panels">
           <div class="heatmap-lower-left">
             <fieldset>
-              <legend>Filter Genes</legend>
-              <div class="heatmap-control-list">
-                <label class="heatmap-inline-group">
-                  <input type="checkbox" id="heatmapFilterPresentEnable" />
-                  <span class="heatmap-nowrap">% Present &gt;=</span>
-                  <input type="number" id="heatmapFilterPresentValue" value="80" min="0" max="100" step="1" />
-                </label>
-                <label class="heatmap-inline-group">
-                  <input type="checkbox" id="heatmapFilterSdEnable" />
-                  <span class="heatmap-nowrap">SD (Gene Vector) &gt;=</span>
-                  <input type="number" id="heatmapFilterSdValue" value="2" step="0.1" />
-                </label>
-                <div class="heatmap-inline-group">
-                  <input type="checkbox" id="heatmapFilterAbsEnable" />
-                  <span class="heatmap-nowrap">At least</span>
-                  <input type="number" id="heatmapFilterAbsCount" value="1" min="1" step="1" class="heatmap-count-field" />
-                  <span class="heatmap-nowrap">observations with abs(val) &gt;=</span>
-                  <input type="number" id="heatmapFilterAbsValue" value="2" step="0.1" />
-                </div>
-                <label class="heatmap-inline-group">
-                  <input type="checkbox" id="heatmapFilterRangeEnable" />
-                  <span class="heatmap-nowrap">MaxVal - MinVal &gt;=</span>
-                  <input type="number" id="heatmapFilterRangeValue" value="2" step="0.1" />
-                </label>
-              </div>
-            </fieldset>
-            <fieldset>
               <legend>Adjust Data</legend>
               <div class="heatmap-control-list">
                 <label class="heatmap-inline-group">
@@ -1494,6 +1467,33 @@
                 <label class="heatmap-inline-group">
                   <input type="checkbox" id="heatmapNormalizeArrays" />
                   <span class="heatmap-nowrap">Normalize arrays (z-score)</span>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Filter Genes</legend>
+              <div class="heatmap-control-list">
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapFilterPresentEnable" />
+                  <span class="heatmap-nowrap">% Present &gt;=</span>
+                  <input type="number" id="heatmapFilterPresentValue" value="80" min="0" max="100" step="1" />
+                </label>
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapFilterSdEnable" />
+                  <span class="heatmap-nowrap">SD (Gene Vector) &gt;=</span>
+                  <input type="number" id="heatmapFilterSdValue" value="2" step="0.1" />
+                </label>
+                <div class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapFilterAbsEnable" />
+                  <span class="heatmap-nowrap">At least</span>
+                  <input type="number" id="heatmapFilterAbsCount" value="1" min="1" step="1" class="heatmap-count-field" />
+                  <span class="heatmap-nowrap">observations with abs(val) &gt;=</span>
+                  <input type="number" id="heatmapFilterAbsValue" value="2" step="0.1" />
+                </div>
+                <label class="heatmap-inline-group">
+                  <input type="checkbox" id="heatmapFilterRangeEnable" />
+                  <span class="heatmap-nowrap">MaxVal - MinVal &gt;=</span>
+                  <input type="number" id="heatmapFilterRangeValue" value="2" step="0.1" />
                 </label>
               </div>
             </fieldset>
