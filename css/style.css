@@ -2301,12 +2301,18 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
     font-size:12px;
     color:#444;
 }
-#heatmapGraphPanel .config-options{display:flex;flex-direction:column;gap:16px;align-self:flex-start;width:fit-content;max-width:100%}
+#heatmapGraphPanel .config-options{display:inline-grid;grid-template-columns:max-content;row-gap:16px;align-self:flex-start;justify-items:stretch;max-width:100%}
 #heatmapGraphPanel .config-options .heatmap-control-list{display:flex;flex-direction:column;align-items:flex-start;gap:8px;font-size:12px;color:#1c2534;width:100%}
 #heatmapGraphPanel .config-options .heatmap-control-block{display:flex;flex-direction:column;gap:4px;width:100%;font-size:12px;color:#1c2534}
 #heatmapGraphPanel .config-options .heatmap-control-block select{width:100%}
 #heatmapGraphPanel .config-options .heatmap-control-row{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;width:100%}
 #heatmapGraphPanel .config-options .heatmap-control-grow{flex:1 1 220px;min-width:200px}
+#heatmapGraphPanel .config-options .heatmap-view-panel{width:auto;max-width:100%}
+#heatmapGraphPanel .config-options .heatmap-view-panel .heatmap-control-list{width:auto;max-width:100%}
+#heatmapGraphPanel .config-options .heatmap-view-panel .heatmap-control-row{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;width:auto;max-width:100%}
+#heatmapGraphPanel .config-options .heatmap-view-panel .heatmap-control-block{width:auto}
+#heatmapGraphPanel .config-options .heatmap-view-panel .heatmap-control-block select{width:auto;min-width:fit-content}
+#heatmapGraphPanel .config-options .heatmap-view-panel .heatmap-control-grow{flex:0 1 auto;min-width:0}
 #heatmapGraphPanel .config-options .heatmap-control-inline{flex:0 0 auto}
 #heatmapGraphPanel .config-options .heatmap-inline-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:#1c2534}
 #heatmapGraphPanel .config-options .heatmap-inline-group>input[type=checkbox],
@@ -2325,11 +2331,11 @@ input[type=color]::-moz-color-swatch{border:none;border-radius:0}
 #heatmapGraphPanel .config-options .heatmap-subgroup{display:flex;flex-direction:column;gap:6px;align-items:flex-start;width:100%}
 #heatmapGraphPanel .config-options .heatmap-subgroup-options{margin-left:24px;gap:12px}
 #heatmapGraphPanel .config-options .heatmap-subgroup-title{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#555}
-#heatmapGraphPanel .heatmap-layout-colors-row{display:flex;gap:12px;align-items:stretch;flex-wrap:wrap}
-#heatmapGraphPanel .heatmap-layout-colors-row fieldset{flex:1 1 260px;min-width:220px}
-#heatmapGraphPanel .heatmap-layout-colors-row .heatmap-layout-panel{flex:1 1 320px;min-width:260px}
-#heatmapGraphPanel .heatmap-layout-colors-row .heatmap-colors-panel{flex:0 1 220px;min-width:200px;max-width:260px}
-#heatmapGraphPanel .heatmap-layout-colors-row .heatmap-color-pickers{height:100%}
+#heatmapGraphPanel .heatmap-layout-colors-row{display:flex;flex-direction:column;gap:12px;align-items:stretch;flex-wrap:nowrap;width:auto;max-width:100%}
+#heatmapGraphPanel .heatmap-layout-colors-row fieldset{flex:0 0 auto;min-width:0;width:auto;max-width:100%}
+#heatmapGraphPanel .heatmap-layout-colors-row .heatmap-layout-panel,
+#heatmapGraphPanel .heatmap-layout-colors-row .heatmap-colors-panel{flex:0 0 auto;min-width:0;width:auto;max-width:100%}
+#heatmapGraphPanel .heatmap-layout-colors-row .heatmap-color-pickers{height:auto}
 #heatmapGraphPanel .config-options .heatmap-metric-select{min-width:180px}
 .color-picker input[type=color]{flex:0 0 var(--color-swatch-size,20px)}
 details{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
