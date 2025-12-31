@@ -185,6 +185,29 @@
     return removed;
   }
 
+  function removeDendrogramControlOverlays(svgNode) {
+    if (!svgNode || !svgNode.querySelectorAll) {
+      return 0;
+    }
+    const candidates = svgNode.querySelectorAll('[data-dendrogram-control="1"]');
+    let removed = 0;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const node = candidates[i];
+      if (!node || typeof node.tagName !== 'string') {
+        continue;
+      }
+      const tag = node.tagName.toLowerCase();
+      if (tag !== 'rect') {
+        continue;
+      }
+      if (typeof node.remove === 'function') {
+        node.remove();
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
   /**
    * Threshold for triggering scatter point optimization.
    * When a scatter layer has more points than this, optimization is applied.
@@ -2710,6 +2733,35 @@
     return true;
   }
 
+  function applyExportViewportSize(svgNode, options, counters) {
+    if (!svgNode?.getAttribute || !svgNode?.setAttribute) return false;
+    const dims = options?.displayDimensions;
+    const width = Number(dims?.width);
+    const height = Number(dims?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return false;
+    }
+    const widthAttr = svgNode.getAttribute('width');
+    const heightAttr = svgNode.getAttribute('height');
+    const needsWidth = !widthAttr || /%$/.test(String(widthAttr).trim());
+    const needsHeight = !heightAttr || /%$/.test(String(heightAttr).trim());
+    if (!needsWidth && !needsHeight) {
+      return false;
+    }
+    const roundedWidth = Math.max(1, Math.round(width));
+    const roundedHeight = Math.max(1, Math.round(height));
+    if (needsWidth) {
+      svgNode.setAttribute('width', String(roundedWidth));
+    }
+    if (needsHeight) {
+      svgNode.setAttribute('height', String(roundedHeight));
+    }
+    if (counters) {
+      counters.exportViewportApplied = (counters.exportViewportApplied || 0) + 1;
+    }
+    return true;
+  }
+
   function hasExplicitFontFamily(node) {
     if (!node || typeof node.getAttribute !== 'function') {
       return false;
@@ -2751,7 +2803,7 @@
     return true;
   }
 
-  function prepareSvgForExport(svgNode, contextLabel) {
+  function prepareSvgForExport(svgNode, contextLabel, options = {}) {
     if (!svgNode) {
       logDebug('prepareSvgForExport skipped', { contextLabel, reason: 'no svg node' });
       return null;
@@ -2762,7 +2814,9 @@
       textFontApplied: 0,
       widthAttrNormalized: 0,
       heightAttrNormalized: 0,
+      exportViewportApplied: 0,
       axisHandlesRemoved: 0,
+      dendrogramOverlaysRemoved: 0,
       scatterOptimization: null
     };
     try {
@@ -2781,6 +2835,7 @@
         }
       }
 
+      applyExportViewportSize(svgNode, options, counters);
       applyNumericAttrWithPx(svgNode, 'width', counters, 'widthAttrNormalized');
       applyNumericAttrWithPx(svgNode, 'height', counters, 'heightAttrNormalized');
 
@@ -2792,6 +2847,7 @@
       }
 
       counters.axisHandlesRemoved = removeAxisInteractionHandles(svgNode);
+      counters.dendrogramOverlaysRemoved = removeDendrogramControlOverlays(svgNode);
 
       // Apply scatter point optimization for large datasets
       counters.scatterOptimization = optimizeScatterPoints(svgNode, { contextLabel });
@@ -3141,10 +3197,24 @@
       let xml = '';
       let prepStats = null;
 
+      const displayDimensions = (() => {
+        if (!svgEl || typeof svgEl.getBoundingClientRect !== 'function') {
+          return null;
+        }
+        const rect = svgEl.getBoundingClientRect();
+        if (!Number.isFinite(rect?.width) || !Number.isFinite(rect?.height)) {
+          return null;
+        }
+        if (rect.width <= 0 || rect.height <= 0) {
+          return null;
+        }
+        return { width: rect.width, height: rect.height };
+      })();
+
       const runPrepare = node => {
         try {
           // Your existing normalization
-          prepStats = prepareSvgForExport(node, contextLabel) || null;
+          prepStats = prepareSvgForExport(node, contextLabel, { displayDimensions }) || null;
           // NEW — group all drawable children so paste into Inkscape keeps consistent stroke widths
           const grp = groupNodeForPaste(node, { enabled: Shared?.exporter?.GROUP_FOR_PASTE ?? true });
           logDebug('svgToXml group-for-paste', { contextLabel, grouped: grp.grouped, moved: grp.moved });

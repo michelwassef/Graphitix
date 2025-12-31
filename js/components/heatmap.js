@@ -2900,11 +2900,10 @@
       const nodeX = startX + (distance / safeMaxDistance) * length;
       const nodeY = (leftPos.y + rightPos.y) / 2;
       const path = doc.createElementNS(NS, 'path');
-      path.setAttribute('d', [
-        `M ${leftPos.x} ${leftPos.y} H ${nodeX}`,
-        `M ${rightPos.x} ${rightPos.y} H ${nodeX}`,
-        `M ${nodeX} ${leftPos.y} V ${rightPos.y}`
-      ].join(' '));
+      path.setAttribute(
+        'd',
+        `M ${leftPos.x} ${leftPos.y} H ${nodeX} V ${rightPos.y} H ${rightPos.x}`
+      );
       group.appendChild(path);
       return { x: nodeX, y: nodeY };
     };
@@ -2925,11 +2924,10 @@
       const nodeY = startY + (distance / safeMaxDistance) * length;
       const nodeX = (leftPos.x + rightPos.x) / 2;
       const path = doc.createElementNS(NS, 'path');
-      path.setAttribute('d', [
-        `M ${leftPos.x} ${leftPos.y} V ${nodeY}`,
-        `M ${rightPos.x} ${rightPos.y} V ${nodeY}`,
-        `M ${leftPos.x} ${nodeY} H ${rightPos.x}`
-      ].join(' '));
+      path.setAttribute(
+        'd',
+        `M ${leftPos.x} ${leftPos.y} V ${nodeY} H ${rightPos.x} V ${rightPos.y}`
+      );
       group.appendChild(path);
       return { x: nodeX, y: nodeY };
     };
