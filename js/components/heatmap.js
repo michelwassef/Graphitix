@@ -1030,11 +1030,15 @@
         const aspectCheckbox = svgBox ? svgBox.querySelector('.resizer-aspect-checkbox') : null;
         if(aspectCheckbox){
           if(!isCorrelation){
+            const wasChecked = !!aspectCheckbox.checked;
             aspectCheckbox.checked = false;
             if(svgBox && svgBox.dataset){
               svgBox.dataset.resizerAspectLocked = 'false';
             }
             try{ applySvgBoxAspect(svgBox, { locked: false }); }catch(e){}
+            if(wasChecked){
+              aspectCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+            }
           }
         }
 
