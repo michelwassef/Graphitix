@@ -2904,6 +2904,7 @@
         'd',
         `M ${leftPos.x} ${leftPos.y} H ${nodeX} V ${rightPos.y} H ${rightPos.x}`
       );
+      path.setAttribute('vector-effect', 'non-scaling-stroke');
       group.appendChild(path);
       return { x: nodeX, y: nodeY };
     };
@@ -2928,6 +2929,7 @@
         'd',
         `M ${leftPos.x} ${leftPos.y} V ${nodeY} H ${rightPos.x} V ${rightPos.y}`
       );
+      path.setAttribute('vector-effect', 'non-scaling-stroke');
       group.appendChild(path);
       return { x: nodeX, y: nodeY };
     };
@@ -3668,10 +3670,13 @@
     const scaleStartX = dataStartX + heatmapWidth + (rowDendroWidth ? rowDendroWidth + dendroPadding : 0) + scalePadding;
     const scaleStartY = dataStartY;
     const scaleHeight = heatmapHeight;
-    // Scale strokes using a uniform factor to avoid X/Y distortion when the SVG is resized non-uniformly
+    // Scale strokes using the minimum axis factor so thickness only changes when both axes stretch.
     const scaleX = containerRect?.width && totalWidth ? containerRect.width / totalWidth : 1;
     const scaleY = containerRect?.height && totalHeight ? containerRect.height / totalHeight : 1;
-    const uniformScale = Math.sqrt(Math.max(scaleX * scaleY, 0)) || 1;
+    const minScale = Math.min(scaleX, scaleY);
+    const strokeScale = (Number.isFinite(scaleX) && Number.isFinite(scaleY) && scaleX > 1 && scaleY > 1)
+      ? minScale
+      : 1;
     // Compute auto-scaled dendrogram thickness based on cell size (original behavior)
     const autoScaledThickness = Math.max(1, Math.min(3, Math.round(cellSize * 0.025 * 10) / 10));
     // Use user-defined thickness from state if set, otherwise use auto-scaled value
@@ -3679,7 +3684,7 @@
     const userThickness = dendroSettings.thickness;
     // If user thickness is at default (1), use auto-scaling; otherwise use user value
     const dendrogramStrokeBase = (userThickness === DEFAULT_DENDROGRAM_THICKNESS) ? autoScaledThickness : userThickness;
-    const dendrogramStroke = dendrogramStrokeBase * uniformScale;
+    const dendrogramStroke = dendrogramStrokeBase * strokeScale;
     const scaleGroup = doc.createElementNS(NS, 'g');
     scaleGroup.setAttribute('class', 'heatmap-color-scale');
     const scaleRect = doc.createElementNS(NS, 'rect');
@@ -3689,7 +3694,8 @@
     scaleRect.setAttribute('height', String(scaleHeight));
     scaleRect.setAttribute('fill', `url(#${gradientId})`);
     scaleRect.setAttribute('stroke', '#333');
-    scaleRect.setAttribute('stroke-width', '1');
+    scaleRect.setAttribute('stroke-width', String(strokeScale));
+    scaleRect.setAttribute('vector-effect', 'non-scaling-stroke');
     scaleGroup.appendChild(scaleRect);
     const tickStartX = scaleStartX + scaleWidth;
     const tickLabelX = tickStartX + Math.max(8, Math.round(scaleLabelGap * 0.4));
@@ -3704,7 +3710,8 @@
       line.setAttribute('y1', String(y));
       line.setAttribute('y2', String(y));
       line.setAttribute('stroke', '#333');
-      line.setAttribute('stroke-width', '1');
+      line.setAttribute('stroke-width', String(strokeScale));
+      line.setAttribute('vector-effect', 'non-scaling-stroke');
       scaleGroup.appendChild(line);
       const tickLabel = doc.createElementNS(NS, 'text');
       tickLabel.setAttribute('x', String(tickLabelX));
