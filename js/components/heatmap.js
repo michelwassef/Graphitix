@@ -3674,9 +3674,11 @@
     const scaleX = containerRect?.width && totalWidth ? containerRect.width / totalWidth : 1;
     const scaleY = containerRect?.height && totalHeight ? containerRect.height / totalHeight : 1;
     const minScale = Math.min(scaleX, scaleY);
-    const strokeScale = (Number.isFinite(scaleX) && Number.isFinite(scaleY) && scaleX > 1 && scaleY > 1)
-      ? minScale
-      : 1;
+    const hasScaleX = Number.isFinite(scaleX) && scaleX > 0;
+    const hasScaleY = Number.isFinite(scaleY) && scaleY > 0;
+    const scalesUp = hasScaleX && hasScaleY && scaleX > 1 && scaleY > 1;
+    const scalesDown = hasScaleX && hasScaleY && scaleX < 1 && scaleY < 1;
+    const strokeScale = (scalesUp || scalesDown) ? minScale : 1;
     // Compute auto-scaled dendrogram thickness based on cell size (original behavior)
     const autoScaledThickness = Math.max(1, Math.min(3, Math.round(cellSize * 0.025 * 10) / 10));
     // Use user-defined thickness from state if set, otherwise use auto-scaled value
