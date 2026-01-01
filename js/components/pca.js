@@ -6561,19 +6561,18 @@
         if(!aspect){
           return { margin: baseMargin, plotW: innerW, plotH: innerH };
         }
-        let targetW = innerW;
-        let targetH = innerW / aspect;
-        if(!Number.isFinite(targetH) || targetH <= 0){
-          targetH = innerH;
-          targetW = targetH * aspect;
+        const squareSize = Math.min(innerW, innerH);
+        let targetW = squareSize;
+        let targetH = squareSize;
+        if(aspect >= 1){
+          targetW = squareSize;
+          targetH = squareSize / aspect;
+        }else{
+          targetH = squareSize;
+          targetW = squareSize * aspect;
         }
-        if(targetH > innerH){
-          targetH = innerH;
-          targetW = targetH * aspect;
-        }
-        if(targetW > innerW){
-          targetW = innerW;
-          targetH = targetW / aspect;
+        if(!Number.isFinite(targetW) || targetW <= 0 || !Number.isFinite(targetH) || targetH <= 0){
+          return { margin: baseMargin, plotW: innerW, plotH: innerH };
         }
         const adjusted = { ...baseMargin };
         if(innerW > targetW){
@@ -6602,20 +6601,18 @@
         const weightY = axisVarianceInfo?.weights?.y;
         if(Number.isFinite(weightX) && weightX > 0 && Number.isFinite(weightY) && weightY > 0){
           const desiredAspect = weightX / weightY;
+          const baseInnerW = Math.max(20, W - margin.left - margin.right);
+          const baseInnerH = Math.max(20, H - margin.top - margin.bottom);
+          const baseSquareSize = Math.min(baseInnerW, baseInnerH);
           const enforced = enforcePlotAspect(margin, W, H, desiredAspect);
           margin = enforced.margin;
           plotW = enforced.plotW;
           plotH = enforced.plotH;
           varianceAspectApplied = true;
-          if(aspectData){
-            const derivedRatio = plotH > 0 ? plotW / plotH : NaN;
-            if(Number.isFinite(derivedRatio)){
-              aspectData.resizerAspectRatio = String(derivedRatio);
-            }
-          }
           debugLog('Debug: pca layout (variance-enforced)',{
             desiredAspect,
             appliedAspect: plotH > 0 ? plotW / plotH : null,
+            squareSize: baseSquareSize,
             margin,
             plotW,
             plotH,
@@ -6631,12 +6628,6 @@
           margin = square.margin;
           plotW = square.plotW;
           plotH = square.plotH;
-          if(aspectData){
-            const derivedRatio = plotH > 0 ? plotW / plotH : NaN;
-            if(Number.isFinite(derivedRatio)){
-              aspectData.resizerAspectRatio = String(derivedRatio);
-            }
-          }
           debugLog('Debug: pca layout (equal-axes)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca square enforcement branch
         }else{
           debugLog('Debug: pca layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca free resize branch
