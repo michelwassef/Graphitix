@@ -499,6 +499,9 @@
   let pcaTooltipEl = null;
   let pcaLegendControl = null;
   let pcaShowLegendInput = null;
+  let pcaEqualAxesInput = null;
+  let pcaLockRatioInput = null;
+  let pcaVarianceAxisScaleInput = null;
   let pcaSvgBoxRef = null;
   let pcaPointContextMenu = null;
   let pcaPointContextMenuGlobalBound = false;
@@ -510,6 +513,8 @@
   let syncPcaAutoDrawNoticeWidth = () => {};
   let schedulePcaNoticeWidth = () => {};
   let pcaHotInstance = null;
+  let pcaAxesLengthLockRatioPrevious = null;
+  let pcaAspectSyncing = false;
   function createPcaTableInstance(container){
     if(!container || typeof Shared.hot?.createStandardTable !== 'function'){
       return null;
@@ -756,6 +761,183 @@
         debugLabel: 'pca-legend'
       });
     }
+  }
+
+  function getPcaLockRatioCheckbox(){
+    if(pcaLockRatioInput && pcaLockRatioInput.isConnected){
+      return pcaLockRatioInput;
+    }
+    const svgBox = pcaSvgBoxRef;
+    if(!svgBox){
+      return null;
+    }
+    const checkbox = svgBox.querySelector('.resizer-aspect-checkbox');
+    if(checkbox){
+      pcaLockRatioInput = checkbox;
+    }
+    return checkbox;
+  }
+
+  function syncPcaAspectControls(reason){
+    if(pcaAspectSyncing){
+      return;
+    }
+    pcaAspectSyncing = true;
+    try{
+      const equalAxesEnabled = !!pcaState.equalAxes;
+      const varianceAxesEnabled = !!pcaState.axesVarianceScaled;
+      const enforceLockRatio = equalAxesEnabled || varianceAxesEnabled;
+      if(pcaEqualAxesInput && pcaEqualAxesInput.checked !== equalAxesEnabled){
+        pcaEqualAxesInput.checked = equalAxesEnabled;
+      }
+      if(pcaVarianceAxisScaleInput && pcaVarianceAxisScaleInput.checked !== varianceAxesEnabled){
+        pcaVarianceAxisScaleInput.checked = varianceAxesEnabled;
+      }
+      const lockRatioCheckbox = getPcaLockRatioCheckbox();
+      if(lockRatioCheckbox){
+        const lockLabel = lockRatioCheckbox.closest('label');
+        if(enforceLockRatio){
+          if(pcaAxesLengthLockRatioPrevious === null){
+            pcaAxesLengthLockRatioPrevious = !!lockRatioCheckbox.checked;
+          }
+          if(!lockRatioCheckbox.checked){
+            lockRatioCheckbox.checked = true;
+            lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          lockRatioCheckbox.disabled = true;
+          if(lockLabel){
+            if(!lockLabel.__pcaOriginalTitle){
+              lockLabel.__pcaOriginalTitle = lockLabel.title || '';
+            }
+            lockLabel.title = 'Locked while axes length is constrained';
+          }
+        }else{
+          lockRatioCheckbox.disabled = false;
+          if(lockLabel && lockLabel.__pcaOriginalTitle !== undefined){
+            lockLabel.title = lockLabel.__pcaOriginalTitle;
+            delete lockLabel.__pcaOriginalTitle;
+          }
+          if(pcaAxesLengthLockRatioPrevious !== null){
+            const restoreValue = pcaAxesLengthLockRatioPrevious;
+            pcaAxesLengthLockRatioPrevious = null;
+            if(lockRatioCheckbox.checked !== restoreValue){
+              lockRatioCheckbox.checked = restoreValue;
+              lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }
+        }
+      }
+      debugLog('Debug: pca axes length sync',{
+        equalAxesEnabled,
+        varianceAxesEnabled,
+        lockRatioEnabled: lockRatioCheckbox ? !!lockRatioCheckbox.checked : null,
+        reason: reason || null
+      });
+    } finally {
+      pcaAspectSyncing = false;
+    }
+  }
+
+  function ensurePcaAxesLengthControlPlacement(){
+    if(!pcaSvgBoxRef){
+      return;
+    }
+    const doc = pcaSvgBoxRef.ownerDocument || global.document;
+    if(!doc){
+      return;
+    }
+    let tray = pcaSvgBoxRef.querySelector('.resizer-control-tray');
+    if(!tray){
+      tray = doc.createElement('div');
+      tray.className = 'resizer-control-tray';
+      pcaSvgBoxRef.appendChild(tray);
+      debugLog('Debug: pca axes length tray created', { trayChildren: tray.childElementCount });
+    }
+    const legacyEqualAxesControl = tray.querySelector('.resizer-equalaxes-control');
+    if(legacyEqualAxesControl){
+      legacyEqualAxesControl.remove();
+    }
+    let axesControl = tray.querySelector('.resizer-axeslength-control');
+    if(!axesControl){
+      axesControl = doc.createElement('details');
+      axesControl.className = 'resizer-axeslength-control';
+      const summary = doc.createElement('summary');
+      summary.className = 'resizer-axeslength-summary';
+      summary.textContent = 'Axes length';
+      const menu = doc.createElement('div');
+      menu.className = 'resizer-axeslength-menu';
+      axesControl.appendChild(summary);
+      axesControl.appendChild(menu);
+      const aspectControl = tray.querySelector('.resizer-aspect-control');
+      if(aspectControl && aspectControl.parentNode === tray){
+        tray.insertBefore(axesControl, aspectControl);
+      }else{
+        tray.appendChild(axesControl);
+      }
+      debugLog('Debug: pca axes length control created', { trayChildren: tray.childElementCount });
+    }
+    const menu = axesControl.querySelector('.resizer-axeslength-menu');
+    if(menu){
+      let equalItem = menu.querySelector('.resizer-axeslength-item--equal');
+      if(!equalItem){
+        equalItem = doc.createElement('label');
+        equalItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal';
+        equalItem.title = 'Force equal X and Y axis lengths';
+        const checkbox = doc.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal';
+        checkbox.setAttribute('aria-label', 'Force equal X and Y axis lengths');
+        const textSpan = doc.createElement('span');
+        textSpan.className = 'resizer-axeslength-text';
+        textSpan.textContent = 'Equal axes';
+        equalItem.appendChild(checkbox);
+        equalItem.appendChild(textSpan);
+        menu.insertBefore(equalItem, menu.firstChild);
+      }
+      const checkbox = equalItem.querySelector('input[type="checkbox"]');
+      if(checkbox){
+        pcaEqualAxesInput = checkbox;
+        if(checkbox.__pcaEqualAxesHandler){
+          checkbox.removeEventListener('change', checkbox.__pcaEqualAxesHandler);
+        }
+        const onChange = () => {
+          const enabled = !!checkbox.checked;
+          const previous = !!pcaState.equalAxes;
+          if(enabled && pcaState.axesVarianceScaled){
+            pcaState.axesVarianceScaled = false;
+            if(pcaVarianceAxisScaleInput){
+              pcaVarianceAxisScaleInput.checked = false;
+            }
+            debugLog('Debug: pca axes length exclusivity enforced',{ disabled: 'variance', reason: 'equal-axes-toggle' });
+          }
+          pcaState.equalAxes = enabled;
+          debugLog('Debug: pca equal axes toggled',{ enabled, previous });
+          syncPcaAspectControls('equal-axes-toggle');
+          requestPcaViewRefresh('equal-axes-toggle');
+        };
+        checkbox.addEventListener('change', onChange);
+        checkbox.__pcaEqualAxesHandler = onChange;
+      }
+      const varianceInput = pcaVarianceAxisScaleInput || doc.getElementById('pcaVarianceAxisScale');
+      if(varianceInput){
+        pcaVarianceAxisScaleInput = varianceInput;
+        const varianceLabel = varianceInput.closest('label');
+        if(varianceLabel){
+          varianceLabel.classList.add('resizer-axeslength-item', 'resizer-axeslength-item--variance');
+          varianceLabel.classList.remove('config-panel__checkbox', 'config-panel__checkbox--inline');
+          varianceLabel.removeAttribute('style');
+          if(varianceLabel.parentNode !== menu){
+            menu.appendChild(varianceLabel);
+          }
+        }
+      }
+    }
+    syncPcaAspectControls('axes-length-ensure');
+  }
+
+  function ensurePcaResizerControls(){
+    ensurePcaLegendControlPlacement();
+    ensurePcaAxesLengthControlPlacement();
   }
 
   function pcaTooltipDebug(label, payload){
@@ -2198,6 +2380,7 @@
     rotationPending: false,
     rotationPendingLogged: false,
     axesVarianceScaled: false,
+    equalAxes: false,
     axisSettings: createDefaultAxisSettings(),
     tableFormat: 'standard',
     grouped: {
@@ -2785,14 +2968,14 @@
       }
       pcaSvgBoxRef = pcaSvgBox;
       bindPcaPlotContextMenuSuppression(pcaSvgBox);
-      ensurePcaLegendControlPlacement();
+      ensurePcaResizerControls();
       const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
-        ? Shared.debounceFrame(()=>ensurePcaLegendControlPlacement())
+        ? Shared.debounceFrame(()=>ensurePcaResizerControls())
         : null;
       if(scheduleLegendPlacement){
         scheduleLegendPlacement();
       }else if(typeof global.requestAnimationFrame === 'function'){
-        global.requestAnimationFrame(()=>ensurePcaLegendControlPlacement());
+        global.requestAnimationFrame(()=>ensurePcaResizerControls());
       }
       pcaLayout?.setScheduleDraw?.(() => scheduleDrawPca());
       pcaLayout?.syncPanels?.();
@@ -3550,15 +3733,16 @@
         const legendHost=pcaShowLegend.closest('label');
         if(legendHost){
           pcaLegendControl=legendHost;
-          ensurePcaLegendControlPlacement();
+          ensurePcaResizerControls();
         }
         pcaShowLegend.addEventListener('change',()=>{
           debugLog('Debug: pca showLegend change',{checked:pcaShowLegend.checked});
-          ensurePcaLegendControlPlacement();
+          ensurePcaResizerControls();
           requestPcaViewRefresh('legend-toggle');
         });
       }
       const pcaVarianceAxisScale=$('#pcaVarianceAxisScale');
+      pcaVarianceAxisScaleInput = pcaVarianceAxisScale;
       const pcaScale=$('#pcaScale');
       const pcaStatsResults=document.getElementById('pcaStatsResults');
       const pcaStatsSummary=document.getElementById('pcaStatsSummary');
@@ -3690,9 +3874,17 @@
         pcaVarianceAxisScale.checked = !!pcaState.axesVarianceScaled;
         pcaVarianceAxisScale.addEventListener('change', () => {
           const enabled = !!pcaVarianceAxisScale.checked;
+          if(enabled && pcaState.equalAxes){
+            pcaState.equalAxes = false;
+            if(pcaEqualAxesInput){
+              pcaEqualAxesInput.checked = false;
+            }
+            debugLog('Debug: pca axes length exclusivity enforced',{ disabled: 'equal-axes', reason: 'variance-axis-toggle' });
+          }
           const previous = !!pcaState.axesVarianceScaled;
           pcaState.axesVarianceScaled = enabled;
           debugLog('Debug: pca variance axis scaling toggled',{ enabled, previous });
+          syncPcaAspectControls('variance-axis-scale');
           requestPcaViewRefresh('variance-axis-scale');
         });
         debugLog('Debug: pca variance axis toggle ready',{ initial: pcaVarianceAxisScale.checked });
@@ -4531,7 +4723,7 @@
       const debugStamp = Date.now();
       debugLog('Debug: drawPca invoked', { debugStamp }); // Debug: draw invocation marker
       hidePcaTooltip('draw-start');
-      ensurePcaLegendControlPlacement();
+      ensurePcaResizerControls();
       const showLegend = !pcaShowLegendInput || !!pcaShowLegendInput.checked;
       debugLog('Debug: pca showLegend state',{ showLegend });
 
@@ -6398,7 +6590,12 @@
       };
       const aspectData = pcaSvgBox?.dataset;
       const shouldLockAspect = aspectData?.resizerAspectLocked === 'true';
-      debugLog('Debug: pca aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: pca aspect toggle decision
+      const shouldEqualAxes = !!pcaState.equalAxes;
+      debugLog('Debug: pca aspect ratio decision',{
+        shouldEqualAxes,
+        lockRatioEnabled: shouldLockAspect,
+        storedRatio: aspectData?.resizerAspectRatio
+      }); // Debug: pca aspect toggle decision
       let varianceAspectApplied = false;
       if(pcaState.axesVarianceScaled){
         const weightX = axisVarianceInfo?.weights?.x;
@@ -6429,7 +6626,7 @@
         }
       }
       if(!varianceAspectApplied){
-        if(shouldLockAspect){
+        if(shouldEqualAxes){
           const square = chartStyle.ensureSquarePlot(W, H, margin);
           margin = square.margin;
           plotW = square.plotW;
@@ -6440,7 +6637,7 @@
               aspectData.resizerAspectRatio = String(derivedRatio);
             }
           }
-          debugLog('Debug: pca layout (locked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca square enforcement branch
+          debugLog('Debug: pca layout (equal-axes)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca square enforcement branch
         }else{
           debugLog('Debug: pca layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca free resize branch
         }
@@ -7054,6 +7251,7 @@
         showLegend: pcaShowLegendInput ? !!pcaShowLegendInput.checked : true,
         scale:pcaScale.checked,
         axesVarianceScaled:pcaState.axesVarianceScaled,
+        equalAxes: pcaState.equalAxes,
         fontSize:pcaFontSize.value,
         fontStyles: (exportFontStyles('pca') || undefined),
         labels: {
@@ -7236,13 +7434,24 @@
         pcaShowFrame.checked=!!c.showFrame;
         if(pcaShowLegendInput){
           pcaShowLegendInput.checked = c.showLegend !== false;
-          ensurePcaLegendControlPlacement();
+          ensurePcaResizerControls();
         }
         pcaScale.checked=!!c.scale;
         if(pcaVarianceAxisScale){
           pcaVarianceAxisScale.checked = !!c.axesVarianceScaled;
         }
         pcaState.axesVarianceScaled = !!c.axesVarianceScaled;
+        if(typeof c.equalAxes === 'boolean'){
+          pcaState.equalAxes = c.equalAxes;
+        }
+        if(pcaState.equalAxes && pcaState.axesVarianceScaled){
+          pcaState.axesVarianceScaled = false;
+          if(pcaVarianceAxisScale){
+            pcaVarianceAxisScale.checked = false;
+          }
+          debugLog('Debug: pca axes length payload exclusivity enforced',{ kept: 'equal-axes' });
+        }
+        ensurePcaAxesLengthControlPlacement();
         pcaFontSize.value=c.fontSize||pcaFontSize.value;
         if(pcaViewMode){
           const restoredView = c.viewMode || DEFAULT_VIEW_MODE;
