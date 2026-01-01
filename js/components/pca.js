@@ -376,6 +376,8 @@
   let pcaLegendControl = null;
   let pcaShowLegendInput = null;
   let pcaSvgBoxRef = null;
+  let pcaPointContextMenu = null;
+  let pcaPointContextMenuGlobalBound = false;
   let pcaLiveUpdateToggle = null;
   let pcaRenderRowEl = null;
   let pcaRenderButtonEl = null;
@@ -810,12 +812,291 @@
     hidePcaTooltip('plot-leave');
   }
 
+  function isPcaContextMenuEventSuppressed(target){
+    if(!target){
+      return false;
+    }
+    if(target === pcaPointContextMenu){
+      return true;
+    }
+    if(typeof target.closest === 'function'){
+      return !!target.closest('.pca-point-context-menu');
+    }
+    return false;
+  }
+
+  function ensurePcaPointContextMenu(){
+    const doc = global.document;
+    if(!doc){
+      return null;
+    }
+    if(pcaPointContextMenu && doc.body && doc.body.contains(pcaPointContextMenu)){
+      return pcaPointContextMenu;
+    }
+    const menu = doc.createElement('div');
+    menu.className = 'tab-context-menu pca-point-context-menu';
+    menu.hidden = true;
+    menu.dataset.pcaContextMenu = '1';
+    menu.setAttribute('role', 'menu');
+    menu.style.position = 'absolute';
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+
+    const makeItem = (action, label) => {
+      const btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tab-context-menu__item';
+      btn.dataset.action = action;
+      btn.textContent = label;
+      return btn;
+    };
+
+    const labelItem = makeItem('toggle-label', 'Add label');
+    menu.appendChild(labelItem);
+
+    menu.addEventListener('contextmenu', evt => {
+      try{ evt.preventDefault(); }catch(e){}
+      try{ evt.stopPropagation(); }catch(e){}
+    }, true);
+
+    const hide = (reason) => hidePcaPointContextMenu(reason);
+    labelItem.addEventListener('click', evt => {
+      try{ evt.preventDefault(); }catch(e){}
+      try{ evt.stopPropagation(); }catch(e){}
+      const data = menu.__pcaPointData;
+      const hot = pcaState.hot || pcaHotInstance || ensurePcaHotForActiveTab?.();
+      let columnIndex = Number.isInteger(data?.columnIndex) ? data.columnIndex : null;
+      if(columnIndex === null && hot && data?.label){
+        columnIndex = resolvePcaColumnIndexFromLabel(hot, data.label);
+      }
+      if(columnIndex === null){
+        hide('no-column-index');
+        return;
+      }
+      const toggled = togglePcaColumnLabel(hot, columnIndex, { ensureVisible: true });
+      if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        debugLog('Debug: pca context menu label toggle', { columnIndex, toggled });
+      }
+      scheduleDrawPca({ reason: 'point-context-menu' });
+      hide('action-complete');
+    });
+
+    if(doc.body){
+      doc.body.appendChild(menu);
+    }
+    pcaPointContextMenu = menu;
+
+    if(!pcaPointContextMenuGlobalBound){
+      pcaPointContextMenuGlobalBound = true;
+      doc.addEventListener('pointerdown', evt => {
+        if(!pcaPointContextMenu || pcaPointContextMenu.hidden){
+          return;
+        }
+        const target = evt?.target;
+        if(target && pcaPointContextMenu.contains(target)){
+          return;
+        }
+        hidePcaPointContextMenu('outside-click');
+      }, true);
+      doc.addEventListener('keydown', evt => {
+        if(!pcaPointContextMenu || pcaPointContextMenu.hidden){
+          return;
+        }
+        if(evt?.key === 'Escape'){
+          hidePcaPointContextMenu('escape');
+        }
+      }, true);
+      global.addEventListener?.('resize', () => hidePcaPointContextMenu('resize'), true);
+      global.addEventListener?.('scroll', () => hidePcaPointContextMenu('scroll'), true);
+    }
+
+    return pcaPointContextMenu;
+  }
+
+  function hidePcaPointContextMenu(reason){
+    if(!pcaPointContextMenu || pcaPointContextMenu.hidden){
+      return;
+    }
+    pcaPointContextMenu.hidden = true;
+    pcaPointContextMenu.__pcaPointData = null;
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      debugLog('Debug: pca point context menu hidden', { reason: reason || 'unknown' });
+    }
+  }
+
+  function positionPcaPointContextMenu(menu, pageX, pageY){
+    if(!menu){
+      return;
+    }
+    const x = Number(pageX) || 0;
+    const y = Number(pageY) || 0;
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    const rect = menu.getBoundingClientRect?.();
+    const docEl = global.document?.documentElement;
+    const viewportW = global.innerWidth || docEl?.clientWidth || 0;
+    const viewportH = global.innerHeight || docEl?.clientHeight || 0;
+    if(rect && viewportW && viewportH){
+      let nextLeft = x;
+      let nextTop = y;
+      if(rect.right > viewportW - 6){
+        nextLeft = Math.max(6, viewportW - rect.width - 6);
+      }
+      if(rect.bottom > viewportH - 6){
+        nextTop = Math.max(6, viewportH - rect.height - 6);
+      }
+      menu.style.left = `${nextLeft}px`;
+      menu.style.top = `${nextTop}px`;
+    }
+  }
+
+  function isPcaColumnLabelSelected(hotInstance, columnIndex){
+    if(!hotInstance || !Number.isInteger(columnIndex)){
+      return false;
+    }
+    const data = hotInstance.getData?.() || [];
+    const labelRowIndex = resolvePcaLabelRowIndex(data);
+    if(!Number.isInteger(labelRowIndex)){
+      return false;
+    }
+    const pinnedTopCount = Number.isFinite(hotInstance?.gridApi?.getPinnedTopRowCount?.())
+      ? hotInstance.gridApi.getPinnedTopRowCount()
+      : PCA_HEADER_ROW_INDEX + 1;
+    const isPinnedRow = labelRowIndex >= 0 && labelRowIndex < pinnedTopCount;
+    const current = isPinnedRow
+      ? data[labelRowIndex]?.[columnIndex]
+      : (typeof hotInstance.getDataAtCell === 'function'
+        ? hotInstance.getDataAtCell(labelRowIndex, columnIndex)
+        : data[labelRowIndex]?.[columnIndex]);
+    return parsePcaPointLabelFlag(current);
+  }
+
+  function togglePcaColumnLabel(hotInstance, columnIndex, options){
+    if(!hotInstance || !Number.isInteger(columnIndex)){
+      return false;
+    }
+    const data = hotInstance.getData?.() || [];
+    const labelRowIndex = (Array.isArray(data[PCA_LABEL_ROW_INDEX]) && isPcaLabelRowHeader(data[PCA_LABEL_ROW_INDEX]?.[0]))
+      ? PCA_LABEL_ROW_INDEX
+      : resolvePcaLabelRowIndex(data);
+    if(!Number.isInteger(labelRowIndex)){
+      return false;
+    }
+    const pinnedTopCount = Number.isFinite(hotInstance?.gridApi?.getPinnedTopRowCount?.())
+      ? hotInstance.gridApi.getPinnedTopRowCount()
+      : PCA_HEADER_ROW_INDEX + 1;
+    const isPinnedRow = labelRowIndex >= 0 && labelRowIndex < pinnedTopCount;
+    const current = isPinnedRow
+      ? data[labelRowIndex]?.[columnIndex]
+      : (typeof hotInstance.getDataAtCell === 'function'
+        ? hotInstance.getDataAtCell(labelRowIndex, columnIndex)
+        : data[labelRowIndex]?.[columnIndex]);
+    const next = !parsePcaPointLabelFlag(current);
+    if(isPinnedRow){
+      if(!Array.isArray(data[labelRowIndex])){
+        data[labelRowIndex] = [];
+      }
+      data[labelRowIndex][columnIndex] = next;
+      if(typeof hotInstance.render === 'function'){
+        hotInstance.render();
+      }
+    }else if(typeof hotInstance.setDataAtCell === 'function'){
+      hotInstance.setDataAtCell([[labelRowIndex, columnIndex, next]], 'pca-point-label-toggle');
+    }
+    if(options?.ensureVisible){
+      const api = hotInstance.gridApi;
+      if(api && typeof api.ensureColumnVisible === 'function'){
+        try{ api.ensureColumnVisible(columnIndex); }catch(e){}
+      }
+      if(api && typeof api.ensureIndexVisible === 'function'){
+        try{ api.ensureIndexVisible(labelRowIndex, 'middle'); }catch(e){ api.ensureIndexVisible(labelRowIndex); }
+      }
+    }
+    return next;
+  }
+
+  function resolvePcaColumnIndexFromLabel(hotInstance, labelText){
+    if(!hotInstance || !labelText){
+      return null;
+    }
+    const data = hotInstance.getData?.() || [];
+    const labelRowIndex = resolvePcaLabelRowIndex(data);
+    const headerRowIndex = resolvePcaHeaderRowIndex(data, labelRowIndex);
+    if(!Number.isInteger(headerRowIndex)){
+      return null;
+    }
+    const headerRow = Array.isArray(data[headerRowIndex]) ? data[headerRowIndex] : [];
+    const target = String(labelText).trim();
+    if(!target){
+      return null;
+    }
+    for(let c = 1; c < headerRow.length; c += 1){
+      const headerText = headerRow[c] == null ? '' : String(headerRow[c]).trim();
+      if(headerText === target){
+        return c;
+      }
+    }
+    return null;
+  }
+
+  function showPcaPointContextMenu(evt, data){
+    const menu = ensurePcaPointContextMenu();
+    if(!menu){
+      return;
+    }
+    menu.__pcaPointData = data || null;
+    const hot = pcaState.hot || pcaHotInstance || ensurePcaHotForActiveTab?.();
+    let columnIndex = Number.isInteger(data?.columnIndex) ? data.columnIndex : null;
+    if(columnIndex === null && hot && data?.label){
+      columnIndex = resolvePcaColumnIndexFromLabel(hot, data.label);
+    }
+    const alreadySelected = columnIndex !== null && hot ? isPcaColumnLabelSelected(hot, columnIndex) : false;
+    const labelItem = menu.querySelector?.('button[data-action="toggle-label"]');
+    if(labelItem){
+      labelItem.textContent = alreadySelected ? 'Remove label' : 'Add label';
+      labelItem.disabled = columnIndex === null || !hot;
+    }
+    menu.hidden = false;
+    const pos = getPcaEventPagePosition(evt);
+    positionPcaPointContextMenu(menu, pos.x, pos.y);
+    if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      debugLog('Debug: pca point context menu shown', { columnIndex, alreadySelected });
+    }
+  }
+
+  function handlePcaPointContextMenu(evt){
+    const target = evt?.currentTarget;
+    const data = target?.__pcaPointData;
+    if(!data){
+      return;
+    }
+    try{ evt.preventDefault(); }catch(e){}
+    try{ evt.stopPropagation(); }catch(e){}
+    hidePcaTooltip('context-menu');
+    showPcaPointContextMenu(evt, data);
+  }
+
+  function bindPcaPlotContextMenuSuppression(node){
+    if(!node || node.__pcaContextMenuSuppressionBound){
+      return;
+    }
+    node.__pcaContextMenuSuppressionBound = true;
+    node.addEventListener('contextmenu', evt => {
+      const target = evt?.target;
+      if(isPcaContextMenuEventSuppressed(target)){
+        return;
+      }
+      try{ evt.preventDefault(); }catch(e){}
+    }, true);
+  }
+
   function attachPcaPointTooltip(el, data){
     if(!el || !data){ return; }
     el.__pcaPointData = data;
     el.addEventListener('mouseenter', handlePcaPointEnter);
     el.addEventListener('mousemove', handlePcaPointMove);
     el.addEventListener('mouseleave', handlePcaPointLeave);
+    el.addEventListener('contextmenu', handlePcaPointContextMenu);
   }
 
   function drawShapeOnCanvas(ctx, shape, options){
@@ -2270,6 +2551,7 @@
       const pcaPanelResizer=document.getElementById('pcaPanelResizer');
       let pcaSvgBox=pcaGraphPanel?.querySelector('.svgbox');
       const pcaConfigPanel=pcaGraphPanel?.querySelector('.config-options');
+      bindPcaPlotContextMenuSuppression(pcaSvgBox);
       const pcaEls = {
         tableFormat: document.getElementById('pcaTableFormat'),
         groupedControls: document.getElementById('pcaGroupedControls'),
@@ -2351,6 +2633,7 @@
         pcaSvgBox = pcaLayout.elements.svgBox;
       }
       pcaSvgBoxRef = pcaSvgBox;
+      bindPcaPlotContextMenuSuppression(pcaSvgBox);
       ensurePcaLegendControlPlacement();
       const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
         ? Shared.debounceFrame(()=>ensurePcaLegendControlPlacement())
@@ -4561,6 +4844,7 @@
           y: axisIndices.y != null ? (row[axisIndices.y] || 0) : 0,
           label: labels[idx],
           index: idx,
+          columnIndex: Number.isInteger(numericColIndices?.[idx]) ? numericColIndices[idx] : null,
           isManualLabel: !!manualLabelFlags[idx]
         }));
 
@@ -4626,6 +4910,7 @@
             z: row[axisIndices.z] || 0,
             label: labels[idx],
             index: idx,
+            columnIndex: Number.isInteger(numericColIndices?.[idx]) ? numericColIndices[idx] : null,
             isManualLabel: !!manualLabelFlags[idx]
           }));
           console.debug('Debug: mds 3d coordinates prepared', { count: points3d.length, dimsToUse, axisIndices });
@@ -4672,6 +4957,7 @@
           y: coords[axisIndices.y] ?? 0,
           label: labels[idx],
           index: idx,
+          columnIndex: Number.isInteger(numericColIndices?.[idx]) ? numericColIndices[idx] : null,
           isManualLabel: !!manualLabelFlags[idx]
         }));
         points3d = [];
@@ -4727,6 +5013,7 @@
           y: coords[axisIndices.y] ?? 0,
           label: labels[idx],
           index: idx,
+          columnIndex: Number.isInteger(numericColIndices?.[idx]) ? numericColIndices[idx] : null,
           isManualLabel: !!manualLabelFlags[idx]
         }));
         points3d = [];
@@ -4887,6 +5174,7 @@
           y: s[axisIndices.y] ?? 0,
           label: labels[i],
           index: i,
+          columnIndex: Number.isInteger(numericColIndices?.[i]) ? numericColIndices[i] : null,
           isManualLabel: !!manualLabelFlags[i]
         }));
         if (typeof axisIndices.z === 'number' && dimensionMeta.length >= 3) {
@@ -4896,6 +5184,7 @@
             z: s[axisIndices.z] ?? 0,
             label: labels[i],
             index: i,
+            columnIndex: Number.isInteger(numericColIndices?.[i]) ? numericColIndices[i] : null,
             isManualLabel: !!manualLabelFlags[i]
           }));
           debugLog('Debug: pca 3d scores prepared',{ count: points3d.length, components: svd.q.length, selection: axisIndices });
@@ -5494,7 +5783,8 @@
               yLabel: pcaYLabelText,
               zLabel: pcaZLabelText,
               depth: pt.depth,
-              index: pt.index
+              index: pt.index,
+              columnIndex: Number.isInteger(original.columnIndex) ? original.columnIndex : null
             });
           }
           const approxRight = pt.x + markerRadius + borderWidthPx;
@@ -6331,7 +6621,8 @@
               y: pt.y,
               xLabel: pcaXLabelText,
               yLabel: pcaYLabelText,
-              index: pt.index
+              index: pt.index,
+              columnIndex: Number.isInteger(pt.columnIndex) ? pt.columnIndex : null
             });
           }
         });
