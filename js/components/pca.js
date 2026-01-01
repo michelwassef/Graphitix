@@ -502,6 +502,7 @@
   let pcaEqualAxesInput = null;
   let pcaLockRatioInput = null;
   let pcaVarianceAxisScaleInput = null;
+  let pcaViewModeInput = null;
   let pcaSvgBoxRef = null;
   let pcaPointContextMenu = null;
   let pcaPointContextMenuGlobalBound = false;
@@ -786,7 +787,9 @@
     try{
       const equalAxesEnabled = !!pcaState.equalAxes;
       const varianceAxesEnabled = !!pcaState.axesVarianceScaled;
-      const enforceLockRatio = equalAxesEnabled || varianceAxesEnabled;
+      const viewMode = pcaViewModeInput?.value || DEFAULT_VIEW_MODE;
+      const is3dView = String(viewMode).toLowerCase() === '3d';
+      const enforceLockRatio = equalAxesEnabled || varianceAxesEnabled || is3dView;
       if(pcaEqualAxesInput && pcaEqualAxesInput.checked !== equalAxesEnabled){
         pcaEqualAxesInput.checked = equalAxesEnabled;
       }
@@ -830,6 +833,7 @@
       debugLog('Debug: pca axes length sync',{
         equalAxesEnabled,
         varianceAxesEnabled,
+        is3dView,
         lockRatioEnabled: lockRatioCheckbox ? !!lockRatioCheckbox.checked : null,
         reason: reason || null
       });
@@ -2392,7 +2396,7 @@
     rotationPending: false,
     rotationPendingLogged: false,
     axesVarianceScaled: false,
-    equalAxes: false,
+    equalAxes: true,
     axisSettings: createDefaultAxisSettings(),
     tableFormat: 'standard',
     grouped: {
@@ -3708,6 +3712,7 @@
       const pcaVarianceSummary=document.getElementById('pcaVarianceSummary');
       const pcaVarianceList=document.getElementById('pcaVarianceList');
       const pcaViewMode=$('#pcaViewMode');
+      pcaViewModeInput = pcaViewMode;
       const pcaXAxis=$('#pcaXAxis');
       const pcaYAxis=$('#pcaYAxis');
       const pcaZAxis=$('#pcaZAxis');
@@ -3820,6 +3825,7 @@
           }
         }
         applyAxisVisibility(pcaViewMode?.value || DEFAULT_VIEW_MODE);
+        syncPcaAspectControls('method-ui-state');
         debugLog('Debug: pca method UI state',{ method: methodName, supports3d });
       }
       function updateAxisSelectOptions(options){
@@ -4443,6 +4449,7 @@
           lastPcaViewMode = mode;
           debugLog('Debug: pca viewMode change',{ mode }); // Debug: view mode toggle listener
           applyAxisVisibility(mode);
+          syncPcaAspectControls('view-mode-change');
           requestPcaViewRefresh('view-mode-change');
         });
       }
