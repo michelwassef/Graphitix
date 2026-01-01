@@ -643,11 +643,24 @@
     let colCount = Math.max(MIN_INPUT_COLS, requestedColCount);
     const scheduleOnLoadData = overrides?.scheduleOnLoadData ?? true;
     const treatFirstRowAsHeader = overrides?.firstRowIsHeader !== false;
+    const headerRowIndex = treatFirstRowAsHeader
+      ? (Number.isInteger(overrides?.headerRowIndex) ? Math.max(0, overrides.headerRowIndex) : 0)
+      : null;
+    const headerRowCount = treatFirstRowAsHeader
+      ? (Number.isInteger(overrides?.headerRowCount) ? Math.max(1, overrides.headerRowCount) : 1)
+      : 0;
+    const isHeaderRow = (physicalRow)=>(
+      treatFirstRowAsHeader
+      && Number.isInteger(physicalRow)
+      && physicalRow >= headerRowIndex
+      && physicalRow < headerRowIndex + headerRowCount
+    );
     const firstRowClassName = overrides?.firstRowClassName || 'hot-header-row';
     const preserveExclusionsOnLoad = overrides?.preserveExclusionsOnLoad === true;
     const shrinkOnLoadData = overrides?.shrinkOnLoadData !== false;
     const baseData = Array.isArray(overrides?.data) ? overrides.data : null;
     const hotOptions = overrides?.hotOptions || {};
+    const colDefEnhancer = typeof overrides?.colDefEnhancer === 'function' ? overrides.colDefEnhancer : null;
     let instance;
     const disableBuiltInPaste = overrides?.disablePaste === true || hotOptions.disablePaste === true;
     const userAfterChange = hotOptions.afterChange;
@@ -1869,28 +1882,35 @@
     };
 
 
-    const pinFirstRow = overrides?.pinFirstRow === true;
+    const pinFirstRow = overrides?.pinFirstRow;
+    const pinRowCount = Number.isInteger(pinFirstRow)
+      ? Math.max(0, pinFirstRow)
+      : (pinFirstRow === true ? 1 : 0);
+    const shouldPinRows = pinRowCount > 0;
+    const isPinnedTopRow = (physicalRow)=>(
+      Number.isInteger(physicalRow) && physicalRow >= 0 && physicalRow < pinRowCount
+    );
 
     const buildRowData = ()=>Shared.agGrid?.buildRowData
       ? Shared.agGrid.buildRowData(dataHandle.current)
       : Array.from({ length: dataHandle.current.length }, (_, idx)=>({ __rowIndex: idx }));
     let rowData = buildRowData();
-    if(pinFirstRow && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: Shared.hot pinFirstRow enabled', { debugLabel });
+    if(shouldPinRows && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+      console.debug('Debug: Shared.hot pinFirstRow enabled', { debugLabel, count: pinRowCount });
     }
 
     const getPinnedTopRowData = ()=>{
-      if(!pinFirstRow){
+      if(!shouldPinRows){
         return null;
       }
       if(!Array.isArray(rowData) || !rowData.length){
         return [];
       }
-      return [rowData[0]];
+      return rowData.slice(0, Math.min(pinRowCount, rowData.length));
     };
 
     const applyPinnedTopRowData = (api)=>{
-      if(!pinFirstRow || !api){
+      if(!shouldPinRows || !api){
         return;
       }
       const pinned = getPinnedTopRowData() || [];
@@ -2087,7 +2107,7 @@
             comparator: valueComparator,
             cellClass: params => {
               const physicalRow = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? 0;
-              return (treatFirstRowAsHeader && physicalRow === 0) ? firstRowClassName : null;
+              return isHeaderRow(physicalRow) ? firstRowClassName : null;
             }
           };
         });
@@ -2166,30 +2186,38 @@
         }
       }
 
-      const enhancedDataColumnDefs = dataColumnDefs.map(def=>{
-        if(!def || typeof def !== 'object'){
-          return def;
+      const enhancedDataColumnDefs = dataColumnDefs.map((def, colIndex)=>{
+        let colDef = def;
+        if(colDefEnhancer && colDef && typeof colDef === 'object'){
+          try{
+            colDef = colDefEnhancer(colDef, { colIndex, colId: colDef.colId, isRowHeader: false }) || colDef;
+          }catch(err){
+            console.error('Shared.hot column def enhancer error', err);
+          }
         }
-        const colId = def.colId ?? null;
+        if(!colDef || typeof colDef !== 'object'){
+          return colDef;
+        }
+        const colId = colDef.colId ?? null;
         const isDataColumn = typeof colId === 'string' && colId.startsWith('c');
         if(isDataColumn){
-          def.width = fixedDataColWidth;
+          colDef.width = fixedDataColWidth;
           if(pinFirstDataColumn && colId === 'c0'){
-            def.pinned = 'left';
-            def.lockPinned = true;
+            colDef.pinned = 'left';
+            colDef.lockPinned = true;
           }
-          if(def.suppressMovable !== false){
-            def.suppressMovable = true;
+          if(colDef.suppressMovable !== false){
+            colDef.suppressMovable = true;
           }
-          if(typeof def.sortable === 'undefined'){
-            def.sortable = true;
+          if(typeof colDef.sortable === 'undefined'){
+            colDef.sortable = true;
           }
-          if(!def.headerComponent){
-            def.headerComponent = HotAgColumnHeader;
+          if(!colDef.headerComponent){
+            colDef.headerComponent = HotAgColumnHeader;
           }
         }
-        const existing = def.cellClassRules && typeof def.cellClassRules === 'object'
-          ? Object.assign({}, def.cellClassRules)
+        const existing = colDef.cellClassRules && typeof colDef.cellClassRules === 'object'
+          ? Object.assign({}, colDef.cellClassRules)
           : {};
         existing['hot-selected-cell'] = params=>{
           if(!normalizedSelectionRange){
@@ -2257,7 +2285,7 @@
           if(!Number.isInteger(physicalRow) || physicalRow < 0){
             return false;
           }
-          if(treatFirstRowAsHeader && physicalRow === 0){
+          if(isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
             return false;
           }
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
@@ -2273,7 +2301,7 @@
           if(!Number.isInteger(physicalRow) || physicalRow < 0){
             return false;
           }
-          if(treatFirstRowAsHeader && physicalRow === 0){
+          if(isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
             return false;
           }
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
@@ -2288,7 +2316,7 @@
           if(!Number.isInteger(physicalRow) || physicalRow < 0){
             return false;
           }
-          if(treatFirstRowAsHeader && physicalRow === 0){
+          if(isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
             return false;
           }
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
@@ -2303,7 +2331,7 @@
           if(!Number.isInteger(physicalRow) || physicalRow < 0){
             return false;
           }
-          if(treatFirstRowAsHeader && physicalRow === 0){
+          if(isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
             return false;
           }
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
@@ -2313,8 +2341,8 @@
           }
           return exclusionController.resolveCellState(physicalRow, physicalCol).fromCell;
         };
-        def.cellClassRules = existing;
-        return def;
+        colDef.cellClassRules = existing;
+        return colDef;
       });
       const rowHeaderCol = buildRowHeaderColDef();
       const withNested = applyNestedHeadersToDefs(enhancedDataColumnDefs);
@@ -3946,7 +3974,7 @@
 
     const gridOptions = {
       rowData,
-      pinnedTopRowData: pinFirstRow ? getPinnedTopRowData() : null,
+      pinnedTopRowData: shouldPinRows ? getPinnedTopRowData() : null,
       columnDefs,
       defaultColDef: {
         editable: true,
@@ -3957,7 +3985,7 @@
         comparator: valueComparator
       },
       getRowHeight(params){
-        if(!pinFirstRow){
+        if(!shouldPinRows){
           return undefined;
         }
         const node = params?.node;
@@ -3965,7 +3993,7 @@
           return undefined;
         }
         const physicalRow = node?.data?.__rowIndex ?? node?.rowIndex ?? null;
-        if(physicalRow === 0){
+        if(isPinnedTopRow(physicalRow)){
           return 0;
         }
         return undefined;
@@ -3994,7 +4022,7 @@
             for(let i = 0; i < nodes.length; i++){
               const node = nodes[i];
               const physicalRow = node?.data?.__rowIndex ?? node?.rowIndex;
-              if(physicalRow === 0){
+              if(isHeaderRow(physicalRow)){
                 headerNodes.push(node);
               }else{
                 dataNodes.push(node);
@@ -4324,7 +4352,7 @@
       },
       getRowClass(params){
         const physicalRow = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? 0;
-        if(treatFirstRowAsHeader && physicalRow === 0){
+        if(isHeaderRow(physicalRow)){
           return firstRowClassName;
         }
         return null;
@@ -4342,7 +4370,7 @@
         if(colIdRaw === '__rowHeader'){
           const visualRow = params?.node?.rowIndex ?? 0;
           const physicalRow = params?.node?.data?.__rowIndex ?? visualRow;
-          if(!Number.isInteger(physicalRow) || physicalRow < 0 || (treatFirstRowAsHeader && physicalRow === 0)){
+          if(!Number.isInteger(physicalRow) || physicalRow < 0 || isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
             return;
           }
           const selectionSpan = resolveSelectedRowSpanForHeader(visualRow);
@@ -4357,7 +4385,7 @@
             if(!Number.isInteger(pr) || pr < 0){
               continue;
             }
-            if(treatFirstRowAsHeader && pr === 0){
+            if(isHeaderRow(pr) || isPinnedTopRow(pr)){
               continue;
             }
             rowList.push(pr);
@@ -4480,7 +4508,7 @@
             if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
               continue;
             }
-            if(treatFirstRowAsHeader && physicalRow === 0){
+            if(isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
               continue;
             }
             pairs.push({ row: physicalRow, col: physicalCol });

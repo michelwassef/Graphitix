@@ -143,6 +143,202 @@
   const PCA_AUTO_DRAW_CELL_THRESHOLD = 50000;
   const PCA_FAST_POINT_THRESHOLD = 20000;
   const PCA_LOADINGS_ROW_LIMIT = 100;
+  const PCA_POINT_LABEL_ROW_HEADER = 'Label point';
+  const PCA_POINT_LABEL_MARK = '✓';
+  const PCA_LABEL_ROW_INDEX = 0;
+  const PCA_HEADER_ROW_INDEX = 1;
+
+  function normalizePcaLabelHeader(value){
+    return String(value ?? '').trim().toLowerCase();
+  }
+
+  function isPcaLabelRowHeader(value){
+    const normalized = normalizePcaLabelHeader(value);
+    const base = normalizePcaLabelHeader(PCA_POINT_LABEL_ROW_HEADER);
+    return normalized === base
+      || normalized === `${base}s`
+      || normalized === 'labelpoint';
+  }
+
+  function parsePcaPointLabelFlag(value){
+    if(value === null || value === undefined){
+      return false;
+    }
+    if(typeof value === 'boolean'){
+      return value;
+    }
+    if(typeof value === 'number'){
+      return Number.isFinite(value) && value !== 0;
+    }
+    const text = String(value).trim();
+    if(!text){
+      return false;
+    }
+    if(text === PCA_POINT_LABEL_MARK){
+      return true;
+    }
+    const normalized = text.toLowerCase();
+    return normalized === '1'
+      || normalized === 'true'
+      || normalized === 'yes'
+      || normalized === 'y'
+      || normalized === 'x';
+  }
+
+  function resolvePcaLabelRowIndex(data){
+    if(!Array.isArray(data) || !data.length){
+      return null;
+    }
+    const firstRow = Array.isArray(data[PCA_LABEL_ROW_INDEX]) ? data[PCA_LABEL_ROW_INDEX] : null;
+    if(firstRow && isPcaLabelRowHeader(firstRow[0])){
+      return PCA_LABEL_ROW_INDEX;
+    }
+    const secondRow = Array.isArray(data[PCA_HEADER_ROW_INDEX]) ? data[PCA_HEADER_ROW_INDEX] : null;
+    if(secondRow && isPcaLabelRowHeader(secondRow[0])){
+      return PCA_HEADER_ROW_INDEX;
+    }
+    return null;
+  }
+
+  function resolvePcaHeaderRowIndex(data, labelRowIndex){
+    if(!Array.isArray(data) || !data.length){
+      return PCA_LABEL_ROW_INDEX;
+    }
+    if(Number.isInteger(labelRowIndex)){
+      return labelRowIndex === PCA_LABEL_ROW_INDEX ? PCA_HEADER_ROW_INDEX : PCA_LABEL_ROW_INDEX;
+    }
+    return PCA_LABEL_ROW_INDEX;
+  }
+
+  function resolvePcaDataStartRow(labelRowIndex, headerRowIndex){
+    const headerIdx = Number.isInteger(headerRowIndex) ? headerRowIndex : PCA_LABEL_ROW_INDEX;
+    const labelIdx = Number.isInteger(labelRowIndex) ? labelRowIndex : -1;
+    return Math.max(headerIdx, labelIdx) + 1;
+  }
+
+  function normalizePcaLabelRowValues(values, colCount){
+    const length = Math.max(1, colCount | 0);
+    const normalized = new Array(length).fill(false);
+    normalized[0] = PCA_POINT_LABEL_ROW_HEADER;
+    if(Array.isArray(values)){
+      for(let c = 1; c < length; c += 1){
+        normalized[c] = parsePcaPointLabelFlag(values[c]);
+      }
+    }
+    return normalized;
+  }
+
+  function ensurePcaLabelRow(hot, options = {}){
+    if(!hot || typeof hot.getData !== 'function'){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const colCount = typeof hot.countCols === 'function'
+      ? hot.countCols()
+      : (Array.isArray(data[0]) ? data[0].length : 0);
+    if(colCount <= 0){
+      return false;
+    }
+    const source = options.source || 'pca-label-row';
+    const setRowValues = (rowIndex, values)=>{
+      if(!Array.isArray(values) || typeof hot.setDataAtCell !== 'function'){
+        return;
+      }
+      const changes = [];
+      for(let c = 0; c < colCount; c += 1){
+        changes.push([rowIndex, c, values[c]]);
+      }
+      if(changes.length){
+        hot.setDataAtCell(changes, source);
+      }
+    };
+    const row0 = Array.isArray(data[PCA_LABEL_ROW_INDEX]) ? data[PCA_LABEL_ROW_INDEX] : null;
+    if(row0 && isPcaLabelRowHeader(row0[0])){
+      if(row0[0] !== PCA_POINT_LABEL_ROW_HEADER && typeof hot.setDataAtCell === 'function'){
+        hot.setDataAtCell([[PCA_LABEL_ROW_INDEX, 0, PCA_POINT_LABEL_ROW_HEADER]], source);
+        return true;
+      }
+      return false;
+    }
+    const row1 = Array.isArray(data[PCA_HEADER_ROW_INDEX]) ? data[PCA_HEADER_ROW_INDEX] : null;
+    if(row1 && isPcaLabelRowHeader(row1[0])){
+      const headerRow = Array.isArray(data[PCA_LABEL_ROW_INDEX]) ? data[PCA_LABEL_ROW_INDEX] : [];
+      const nextLabelRow = normalizePcaLabelRowValues(row1, colCount);
+      const nextHeaderRow = new Array(colCount).fill('');
+      for(let c = 0; c < colCount; c += 1){
+        if(headerRow[c] !== undefined){
+          nextHeaderRow[c] = headerRow[c];
+        }
+      }
+      if(typeof hot.batch === 'function'){
+        hot.batch(()=>{
+          setRowValues(PCA_LABEL_ROW_INDEX, nextLabelRow);
+          setRowValues(PCA_HEADER_ROW_INDEX, nextHeaderRow);
+        });
+      }else{
+        setRowValues(PCA_LABEL_ROW_INDEX, nextLabelRow);
+        setRowValues(PCA_HEADER_ROW_INDEX, nextHeaderRow);
+      }
+      return true;
+    }
+    const insertLabelRow = () => {
+      if(typeof hot.alter === 'function'){
+        hot.alter('insert_row_above', PCA_LABEL_ROW_INDEX, 1, source);
+      }
+      setRowValues(PCA_LABEL_ROW_INDEX, normalizePcaLabelRowValues(null, colCount));
+    };
+    if(typeof hot.batch === 'function'){
+      hot.batch(insertLabelRow);
+    }else{
+      insertLabelRow();
+    }
+    return true;
+  }
+
+  function PcaLabelCheckboxRenderer(){}
+  PcaLabelCheckboxRenderer.prototype.init = function(params){
+    this.params = params;
+    const doc = params?.eGridCell?.ownerDocument || global.document;
+    const wrapper = doc.createElement('span');
+    wrapper.className = 'ag-checkbox-input-wrapper';
+    wrapper.style.position = 'relative';
+    const input = doc.createElement('input');
+    input.type = 'checkbox';
+    input.className = 'ag-checkbox-input';
+    input.tabIndex = -1;
+    wrapper.appendChild(input);
+    this.eGui = wrapper;
+    this.input = input;
+    this.syncState = value => {
+      const checked = parsePcaPointLabelFlag(value);
+      input.checked = checked;
+      wrapper.classList.toggle('ag-checked', checked);
+    };
+    this.syncState(params?.value);
+    input.addEventListener('click', evt => {
+      evt.stopPropagation();
+    });
+    input.addEventListener('change', () => {
+      const checked = input.checked;
+      wrapper.classList.toggle('ag-checked', checked);
+      if(typeof this.params?.setValue === 'function'){
+        this.params.setValue(checked);
+      }else if(this.params?.node?.setDataValue && this.params?.column){
+        this.params.node.setDataValue(this.params.column, checked);
+      }
+    });
+  };
+  PcaLabelCheckboxRenderer.prototype.getGui = function(){
+    return this.eGui;
+  };
+  PcaLabelCheckboxRenderer.prototype.refresh = function(params){
+    this.params = params;
+    if(this.syncState){
+      this.syncState(params?.value);
+      return true;
+    }
+    return false;
+  };
 
   function getDefaultTitleForMethod(method){
     const key = typeof method === 'string' ? method.toLowerCase() : '';
@@ -193,10 +389,18 @@
       return null;
     }
     const pcaData = Shared.createEmptyData(DEFAULT_ROWS, DEFAULT_COLS);
+    if(Array.isArray(pcaData[0])){
+      pcaData[0][0] = PCA_POINT_LABEL_ROW_HEADER;
+      for(let c = 1; c < pcaData[0].length; c += 1){
+        pcaData[0][c] = false;
+      }
+    }
     debugLog('Debug: pca default header suppressed - awaiting user paste', {
       rows: pcaData.length, cols: pcaData[0]?.length || 0
     });
     let pcaScheduleProxyCount = 0;
+    let lastKeyDownAt = 0;
+    let pcaHot = null;
     const scheduleDrawPcaProxy = () => {
       pcaScheduleProxyCount += 1;
       if(pcaScheduleProxyCount <= 5){
@@ -208,17 +412,86 @@
       markPcaDataDirty('hot-change');
       scheduleDrawPca({ reason: 'hot-change' });
     };
-    const pcaHot = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPcaProxy,{
+    pcaHot = Shared.hot.createStandardTable(container,{ rows: DEFAULT_ROWS, cols: DEFAULT_COLS },scheduleDrawPcaProxy,{
       debugLabel: 'pca',
       data: pcaData,
       disablePaste: true,
       pinFirstColumn: true,
       rowSelection: null,
       firstRowClassName: 'htCenter',
-      pinFirstRow: true,
+      headerRowIndex: PCA_HEADER_ROW_INDEX,
+      pinFirstRow: PCA_HEADER_ROW_INDEX + 1,
       scheduleOnLoadData: true,
+      colDefEnhancer(def, meta){
+        const colIndex = meta?.colIndex;
+        if(!Number.isInteger(colIndex) || !def || typeof def !== 'object'){
+          return def;
+        }
+        const existingEditable = def.editable;
+        def.editable = params => {
+          const physicalRow = params?.data?.__rowIndex;
+          if(physicalRow === PCA_LABEL_ROW_INDEX){
+            return false;
+          }
+          return typeof existingEditable === 'function'
+            ? existingEditable(params)
+            : existingEditable !== false;
+        };
+        if(colIndex < 1){
+          return def;
+        }
+        const existingSelector = def.cellRendererSelector;
+        def.cellRendererSelector = params => {
+          const physicalRow = params?.data?.__rowIndex;
+          if(physicalRow === PCA_LABEL_ROW_INDEX){
+            return { component: PcaLabelCheckboxRenderer };
+          }
+          return typeof existingSelector === 'function' ? existingSelector(params) : undefined;
+        };
+        return def;
+      },
       hotOptions: {
         contextMenu: true,
+        beforeKeyDown(){
+          lastKeyDownAt = Date.now();
+        },
+        afterSelectionEnd(r1, c1, r2, c2){
+          const hot = pcaHot;
+          if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+            return;
+          }
+          const now = Date.now();
+          if(now - lastKeyDownAt < 80){
+            return;
+          }
+          const data = hot.getData() || [];
+          const labelRowIndex = resolvePcaLabelRowIndex(data);
+          if(!Number.isInteger(labelRowIndex)){
+            return;
+          }
+          const fromRow = Math.min(r1, r2);
+          const toRow = Math.max(r1, r2);
+          if(fromRow !== labelRowIndex || toRow !== labelRowIndex){
+            return;
+          }
+          const fromCol = Math.min(c1, c2);
+          const toCol = Math.max(c1, c2);
+          if(toCol < 1){
+            return;
+          }
+          const changes = [];
+          for(let c = Math.max(1, fromCol); c <= toCol; c += 1){
+            const current = typeof hot.getDataAtCell === 'function'
+              ? hot.getDataAtCell(labelRowIndex, c)
+              : (data[labelRowIndex]?.[c]);
+            const next = !parsePcaPointLabelFlag(current);
+            changes.push([labelRowIndex, c, next]);
+          }
+          if(changes.length){
+            hot.setDataAtCell(changes, 'pca-point-label-toggle');
+            debugLog('Debug: pca label row toggled', { row: labelRowIndex, fromCol, toCol });
+          }
+        },
         afterChange(changes,source){
           const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
           if(!debugEnabled){
@@ -254,6 +527,18 @@
         }
         const start = nowMs();
         const result = originalLoadData.apply(this, arguments);
+        const labelAdjusted = ensurePcaLabelRow(this, { source: 'pca-loadData' });
+        if(labelAdjusted){
+          const nextRows = typeof this.countRows === 'function'
+            ? this.countRows()
+            : (this.getData?.()?.length || rows);
+          const nextCols = typeof this.countCols === 'function'
+            ? this.countCols()
+            : cols;
+          rows = Math.max(rows, nextRows);
+          cols = Math.max(cols, nextCols);
+          updatePcaDataShape({ rows, cols });
+        }
         const afterLoad = nowMs();
         const evaluationStart = afterLoad;
         const evaluationMeta = rows || cols ? { source: 'load-data', shape: { rows, cols } } : { source: 'load-data' };
@@ -2532,6 +2817,7 @@
       document.getElementById('pcaLoadExample').addEventListener('click',()=>{
         const selectedFormat = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
         const pcaExample=[
+          [PCA_POINT_LABEL_ROW_HEADER,true,false,false,true,false,false,false,false],
           ['Variable','A','B','C','D','E','F','G','H'],
           ['Var1',1,2,3,2,10,20,30,20],
           ['Var2',2,3,2,3,20,10,20,30],
@@ -2582,7 +2868,11 @@
             debugLabel: 'pca',
             onProcessed: info => {
               console.log('pca data imported',{rows: info?.rows, cols: info?.cols});
-              updatePcaDataShape({ rows: info?.rows, cols: info?.cols });
+              const hot = ensurePcaHotForActiveTab();
+              ensurePcaLabelRow(hot, { source: 'pca-import' });
+              const nextRows = hot?.getData?.().length || info?.rows;
+              const nextCols = hot?.countCols?.() || info?.cols;
+              updatePcaDataShape({ rows: nextRows, cols: nextCols });
               evaluateAutoDrawThresholds();
             },
             onCompleted: () => {
@@ -2620,7 +2910,11 @@
               onBeforeProcess: meta => console.log('pca fast paste',{rows: meta.rowCount, cols: meta.colCount, startRow: meta.startRow, startCol: meta.startCol}),
               onProcessed: info => {
                 console.log('pca data imported',{rows: info?.rows, cols: info?.cols});
-                updatePcaDataShape({ rows: info?.rows, cols: info?.cols });
+                const hot = ensurePcaHotForActiveTab();
+                ensurePcaLabelRow(hot, { source: 'pca-paste' });
+                const nextRows = hot?.getData?.().length || info?.rows;
+                const nextCols = hot?.countCols?.() || info?.cols;
+                updatePcaDataShape({ rows: nextRows, cols: nextCols });
                 evaluateAutoDrawThresholds();
               }
             });
@@ -3752,6 +4046,7 @@
       let statsMethod = null;
       let dimensionMeta = [];
       let labels = [];
+      let manualLabelFlags = [];
       let points3d = [];
       let axisIndices = { x: 0, y: 1, z: null };
       let pcaXLabelText = 'PC1';
@@ -3962,7 +4257,11 @@
       } else {
       const hot = ensurePcaHotForActiveTab();
       const data = hot?.getData?.() || [];
-      const headerRow = Array.isArray(data[0]) ? data[0] : [];
+      const labelRowIndex = resolvePcaLabelRowIndex(data);
+      const headerRowIndex = resolvePcaHeaderRowIndex(data, labelRowIndex);
+      const labelRow = Number.isInteger(labelRowIndex) ? (Array.isArray(data[labelRowIndex]) ? data[labelRowIndex] : []) : [];
+      const dataStartRow = resolvePcaDataStartRow(labelRowIndex, headerRowIndex);
+      const headerRow = Number.isInteger(headerRowIndex) && Array.isArray(data[headerRowIndex]) ? data[headerRowIndex] : [];
       const candidateColCount = headerRow.length;
       const numericColIndices = [];
       for (let c = 1; c < candidateColCount; c++) {
@@ -3970,7 +4269,7 @@
         const headerText = typeof headerRaw === 'string' ? headerRaw.trim() : '';
         let hasNumericData = headerText.length > 0;
         if (!hasNumericData) {
-          for (let r = 1; r < data.length; r++) {
+          for (let r = dataStartRow; r < data.length; r++) {
             const cell = data[r] ? data[r][c] : undefined;
             if (cell === null || typeof cell === 'undefined') {
               continue;
@@ -4003,10 +4302,17 @@
         return headerText || `Condition ${idx + 1}`;
       });
       labels = conditionLabels.slice();
+      if(Number.isInteger(labelRowIndex)){
+        manualLabelFlags = numericColIndices.map(colIndex => parsePcaPointLabelFlag(labelRow?.[colIndex]));
+        const flaggedCount = manualLabelFlags.filter(Boolean).length;
+        debugLog('Debug: pca label row detected', { labelRowIndex, flaggedCount, columns: manualLabelFlags.length });
+      }else{
+        manualLabelFlags = new Array(numericColIndices.length).fill(false);
+      }
       const matrixByCondition = Array.from({ length: conditionLabels.length }, () => []);
       const featureLabelsAccumulator = [];
 
-      for (let r = 1; r < data.length; r++) {
+      for (let r = dataStartRow; r < data.length; r++) {
         const row = data[r];
         if (!row) continue;
 
@@ -4225,7 +4531,8 @@
           x: row[axisIndices.x] || 0,
           y: axisIndices.y != null ? (row[axisIndices.y] || 0) : 0,
           label: labels[idx],
-          index: idx
+          index: idx,
+          isManualLabel: !!manualLabelFlags[idx]
         }));
 
         const xMeta = dimensionMeta[axisIndices.x] || dimensionMeta[0] || null;
@@ -4289,7 +4596,8 @@
             y: axisIndices.y != null ? (row[axisIndices.y] || 0) : 0,
             z: row[axisIndices.z] || 0,
             label: labels[idx],
-            index: idx
+            index: idx,
+            isManualLabel: !!manualLabelFlags[idx]
           }));
           console.debug('Debug: mds 3d coordinates prepared', { count: points3d.length, dimsToUse, axisIndices });
         } else {
@@ -4334,7 +4642,8 @@
           x: coords[axisIndices.x] ?? 0,
           y: coords[axisIndices.y] ?? 0,
           label: labels[idx],
-          index: idx
+          index: idx,
+          isManualLabel: !!manualLabelFlags[idx]
         }));
         points3d = [];
         eigenSummaryData = [];
@@ -4388,7 +4697,8 @@
           x: coords[axisIndices.x] ?? 0,
           y: coords[axisIndices.y] ?? 0,
           label: labels[idx],
-          index: idx
+          index: idx,
+          isManualLabel: !!manualLabelFlags[idx]
         }));
         points3d = [];
         eigenSummaryData = [];
@@ -4547,7 +4857,8 @@
           x: s[axisIndices.x] ?? 0,
           y: s[axisIndices.y] ?? 0,
           label: labels[i],
-          index: i
+          index: i,
+          isManualLabel: !!manualLabelFlags[i]
         }));
         if (typeof axisIndices.z === 'number' && dimensionMeta.length >= 3) {
           points3d = scores.map((s, i) => ({
@@ -4555,7 +4866,8 @@
             y: s[axisIndices.y] ?? 0,
             z: s[axisIndices.z] ?? 0,
             label: labels[i],
-            index: i
+            index: i,
+            isManualLabel: !!manualLabelFlags[i]
           }));
           debugLog('Debug: pca 3d scores prepared',{ count: points3d.length, components: svd.q.length, selection: axisIndices });
         } else {
@@ -5092,6 +5404,9 @@
             original: points3d[idx]
           };
         }).sort((a,b)=>a.depth-b.depth);
+        const labelLayout = Shared.labelLayout;
+        const manualLabelEntries3d = [];
+        const pointBounds3d = [];
         let maxPointRight = contentRightBound;
         projectedPoints.forEach(pt => {
           const assignment = (groupMeta && Number.isInteger(pt.index)) ? groupMeta.assignments[pt.index] : null;
@@ -5099,10 +5414,22 @@
           const color = style?.color || (pt.label ? (pcaLabelColors[pt.label] || DEFAULT_SCATTER_COLORS[0]) : fill);
           const labelShape = pt.label ? pcaLabelShapes[pt.label] : null;
           const shape = style?.shape || labelShape || 'circle';
+          const original = pt.original || {};
+          const markerRadius = dotSizePx;
+          pointBounds3d.push({ cx: pt.x, cy: pt.y, r: markerRadius });
+          const manualLabelText = pt.label ? String(pt.label).trim() : '';
+          if(original.isManualLabel && manualLabelText){
+            manualLabelEntries3d.push({
+              text: manualLabelText,
+              cx: pt.x,
+              cy: pt.y,
+              radius: markerRadius
+            });
+          }
           const pointNode = drawShape(add3, shape, {
             cx: pt.x,
             cy: pt.y,
-            radius: dotSizePx,
+            radius: markerRadius,
             fill: color,
             stroke: alpha > 0 && borderWidthPx > 0 ? borderColor : 'none',
             strokeWidth: borderWidthPx,
@@ -5113,7 +5440,6 @@
             const groupLabel3d = Number.isInteger(assignment)
               ? (style?.label || groupMeta?.entries?.[assignment]?.label || '')
               : (style?.label || '');
-            const original = pt.original || {};
             attachPcaPointTooltip(pointNode, {
               label: pt.label || '',
               groupName: groupLabel3d,
@@ -5127,11 +5453,78 @@
               index: pt.index
             });
           }
-          const approxRight = pt.x + dotSizePx + borderWidthPx;
+          const approxRight = pt.x + markerRadius + borderWidthPx;
           if(Number.isFinite(approxRight)){
             maxPointRight = Math.max(maxPointRight, approxRight);
           }
         });
+        if(manualLabelEntries3d.length && labelLayout?.computePointLabelLayout && labelLayout?.computePointLabelFontSize){
+          const labelLayer = document.createElementNS(NS,'g');
+          labelLayer.setAttribute('data-layer','point-labels');
+          labelLayer.setAttribute('pointer-events','none');
+          const baseManualLabelSize = fs * 0.6;
+          const labelFontSize = labelLayout.computePointLabelFontSize(baseManualLabelSize, manualLabelEntries3d.length, plotW3, plotH3);
+          const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
+          const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'pca-point-label-3d', min: 0.25 });
+          const labelColor = chartStyle.TEXT_COLOR || '#333333';
+          const plotLeft = margin3.left;
+          const plotRight = margin3.left + plotW3;
+          const plotTop = margin3.top;
+          const plotBottom = margin3.top + plotH3;
+          const font = typeof chartStyle?.makeFont === 'function'
+            ? chartStyle.makeFont(labelFontSize)
+            : null;
+          const manualLabelLayout = labelLayout.computePointLabelLayout(manualLabelEntries3d, {
+            plotLeft,
+            plotRight,
+            plotTop,
+            plotBottom,
+            labelFontSize,
+            leaderGap: Math.max(2, Math.round(labelFontSize * 0.2)),
+            leaderScale: labelScale,
+            pointBounds: pointBounds3d,
+            measureText: chartStyle?.measureText,
+            font,
+            angleSteps: 16,
+            maxLeaderScale: 3
+          });
+          manualLabelLayout.forEach(result => {
+            const entry = result.entry;
+            const placement = result.placement;
+            const cx = Number(entry?.cx) || 0;
+            const cy = Number(entry?.cy) || 0;
+            const textValue = entry?.text ? String(entry.text) : '';
+            if(!textValue || !placement){
+              return;
+            }
+            const textX = placement.textX;
+            const textY = placement.textY;
+            const anchor = placement.anchor;
+            const lineX2 = placement.lineX2;
+            const leader = document.createElementNS(NS,'line');
+            leader.setAttribute('x1', String(cx));
+            leader.setAttribute('y1', String(cy));
+            leader.setAttribute('x2', String(lineX2));
+            leader.setAttribute('y2', String(textY));
+            leader.setAttribute('stroke', labelColor);
+            leader.setAttribute('stroke-width', String(leaderStrokeWidth));
+            leader.setAttribute('stroke-linecap', 'round');
+            labelLayer.appendChild(leader);
+            const textNode = document.createElementNS(NS,'text');
+            textNode.setAttribute('x', String(textX));
+            textNode.setAttribute('y', String(textY));
+            textNode.setAttribute('font-size', String(labelFontSize));
+            textNode.setAttribute('fill', labelColor);
+            textNode.setAttribute('text-anchor', anchor);
+            textNode.setAttribute('dominant-baseline', 'middle');
+            textNode.textContent = textValue;
+            labelLayer.appendChild(textNode);
+          });
+          svg3.appendChild(labelLayer);
+          debugLog('Debug: pca manual labels rendered', { count: manualLabelEntries3d.length, mode: '3d' });
+        }else if(manualLabelEntries3d.length){
+          debugLog('Debug: pca manual labels skipped', { count: manualLabelEntries3d.length, mode: '3d', reason: 'missing-layout-helper' });
+        }
         contentRightBound = Math.max(contentRightBound, maxPointRight);
         if(legendVisible){
           const horizontalBase = margin3.left + plotW3 + legendLayout.legendGapPx + appliedLegendAxisGap;
@@ -5886,6 +6279,94 @@
             });
           }
         });
+      }
+
+      const labelLayout2d = Shared.labelLayout;
+      const hasManualLabels = points.some(pt => pt?.isManualLabel && String(pt.label || '').trim());
+      if(hasManualLabels && labelLayout2d?.computePointLabelLayout && labelLayout2d?.computePointLabelFontSize){
+        const manualLabelEntries = [];
+        const pointBounds = [];
+        points.forEach(pt => {
+          const cx = x2px(pt.x);
+          const cy = y2px(pt.y);
+          pointBounds.push({ cx, cy, r: dotSizePx });
+          const labelText = pt.label ? String(pt.label).trim() : '';
+          if(pt.isManualLabel && labelText){
+            manualLabelEntries.push({
+              text: labelText,
+              cx,
+              cy,
+              radius: dotSizePx
+            });
+          }
+        });
+        if(manualLabelEntries.length){
+          const labelLayer = document.createElementNS(NS,'g');
+          labelLayer.setAttribute('data-layer','point-labels');
+          labelLayer.setAttribute('pointer-events','none');
+          const baseManualLabelSize = fs * 0.6;
+          const labelFontSize = labelLayout2d.computePointLabelFontSize(baseManualLabelSize, manualLabelEntries.length, plotW, plotH);
+          const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
+          const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'pca-point-label', min: 0.25 });
+          const labelColor = chartStyle.TEXT_COLOR || '#333333';
+          const plotLeft = margin.left;
+          const plotRight = margin.left + plotW;
+          const plotTop = margin.top;
+          const plotBottom = margin.top + plotH;
+          const font = typeof chartStyle?.makeFont === 'function'
+            ? chartStyle.makeFont(labelFontSize)
+            : null;
+          const manualLabelLayout = labelLayout2d.computePointLabelLayout(manualLabelEntries, {
+            plotLeft,
+            plotRight,
+            plotTop,
+            plotBottom,
+            labelFontSize,
+            leaderGap: Math.max(2, Math.round(labelFontSize * 0.2)),
+            leaderScale: labelScale,
+            pointBounds,
+            measureText: chartStyle?.measureText,
+            font,
+            angleSteps: 16,
+            maxLeaderScale: 3
+          });
+          manualLabelLayout.forEach(result => {
+            const entry = result.entry;
+            const placement = result.placement;
+            const cx = Number(entry?.cx) || 0;
+            const cy = Number(entry?.cy) || 0;
+            const textValue = entry?.text ? String(entry.text) : '';
+            if(!textValue || !placement){
+              return;
+            }
+            const textX = placement.textX;
+            const textY = placement.textY;
+            const anchor = placement.anchor;
+            const lineX2 = placement.lineX2;
+            const leader = document.createElementNS(NS,'line');
+            leader.setAttribute('x1', String(cx));
+            leader.setAttribute('y1', String(cy));
+            leader.setAttribute('x2', String(lineX2));
+            leader.setAttribute('y2', String(textY));
+            leader.setAttribute('stroke', labelColor);
+            leader.setAttribute('stroke-width', String(leaderStrokeWidth));
+            leader.setAttribute('stroke-linecap', 'round');
+            labelLayer.appendChild(leader);
+            const textNode = document.createElementNS(NS,'text');
+            textNode.setAttribute('x', String(textX));
+            textNode.setAttribute('y', String(textY));
+            textNode.setAttribute('font-size', String(labelFontSize));
+            textNode.setAttribute('fill', labelColor);
+            textNode.setAttribute('text-anchor', anchor);
+            textNode.setAttribute('dominant-baseline', 'middle');
+            textNode.textContent = textValue;
+            labelLayer.appendChild(textNode);
+          });
+          svg.appendChild(labelLayer);
+          debugLog('Debug: pca manual labels rendered', { count: manualLabelEntries.length, mode: '2d' });
+        }
+      }else if(hasManualLabels){
+        debugLog('Debug: pca manual labels skipped', { mode: '2d', reason: 'missing-layout-helper' });
       }
 
       if(legendVisible){
