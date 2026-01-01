@@ -948,6 +948,35 @@
     }
   }
 
+  function computePcaLabelBounds3d(corners, project){
+    if(!Array.isArray(corners) || typeof project !== 'function'){
+      return null;
+    }
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for(let i = 0; i < corners.length; i += 1){
+      const projected = project(corners[i]);
+      const x = Number(projected?.x);
+      const y = Number(projected?.y);
+      if(!Number.isFinite(x) || !Number.isFinite(y)){
+        continue;
+      }
+      if(x < minX){ minX = x; }
+      if(x > maxX){ maxX = x; }
+      if(y < minY){ minY = y; }
+      if(y > maxY){ maxY = y; }
+    }
+    if(!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY)){
+      return null;
+    }
+    if(minX === maxX || minY === maxY){
+      return null;
+    }
+    return { minX, maxX, minY, maxY };
+  }
+
   function attachPcaSelectAutoSize(select, label){
     if(!select){ return; }
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
@@ -5255,6 +5284,21 @@
           margin: margin3
         });
         const project3 = (pt) => projector.project(pt);
+        const labelBounds3d = computePcaLabelBounds3d(rotatedCorners, project3);
+        if(labelBounds3d){
+          debugLog('Debug: pca 3d label bounds resolved', {
+            minX: labelBounds3d.minX,
+            maxX: labelBounds3d.maxX,
+            minY: labelBounds3d.minY,
+            maxY: labelBounds3d.maxY
+          });
+        }
+        const labelHull3d = Shared.labelLayout && typeof Shared.labelLayout.computeConvexHull2d === 'function'
+          ? Shared.labelLayout.computeConvexHull2d(rotatedCorners.map(corner => project3(corner)))
+          : null;
+        if(labelHull3d && labelHull3d.length >= 3){
+          debugLog('Debug: pca 3d label hull resolved', { points: labelHull3d.length });
+        }
         const axisScales = {
           x: niceScale(axisRanges.x.min, axisRanges.x.max, 5),
           y: niceScale(axisRanges.y.min, axisRanges.y.max, 5),
@@ -5463,14 +5507,16 @@
           labelLayer.setAttribute('data-layer','point-labels');
           labelLayer.setAttribute('pointer-events','none');
           const baseManualLabelSize = fs * 0.6;
-          const labelFontSize = labelLayout.computePointLabelFontSize(baseManualLabelSize, manualLabelEntries3d.length, plotW3, plotH3);
+          const labelWidth = labelBounds3d ? Math.max(1, labelBounds3d.maxX - labelBounds3d.minX) : plotW3;
+          const labelHeight = labelBounds3d ? Math.max(1, labelBounds3d.maxY - labelBounds3d.minY) : plotH3;
+          const labelFontSize = labelLayout.computePointLabelFontSize(baseManualLabelSize, manualLabelEntries3d.length, labelWidth, labelHeight);
           const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
           const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'pca-point-label-3d', min: 0.25 });
           const labelColor = chartStyle.TEXT_COLOR || '#333333';
-          const plotLeft = margin3.left;
-          const plotRight = margin3.left + plotW3;
-          const plotTop = margin3.top;
-          const plotBottom = margin3.top + plotH3;
+          const plotLeft = labelBounds3d ? labelBounds3d.minX : margin3.left;
+          const plotRight = labelBounds3d ? labelBounds3d.maxX : margin3.left + plotW3;
+          const plotTop = labelBounds3d ? labelBounds3d.minY : margin3.top;
+          const plotBottom = labelBounds3d ? labelBounds3d.maxY : margin3.top + plotH3;
           const font = typeof chartStyle?.makeFont === 'function'
             ? chartStyle.makeFont(labelFontSize)
             : null;
@@ -5479,6 +5525,9 @@
             plotRight,
             plotTop,
             plotBottom,
+            plotHull: labelHull3d,
+            enforceHull: true,
+            hullPenalty: 18,
             labelFontSize,
             leaderGap: Math.max(2, Math.round(labelFontSize * 0.2)),
             leaderScale: labelScale,

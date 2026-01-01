@@ -2074,6 +2074,50 @@
 
   const labelLayout = Shared.labelLayout = Shared.labelLayout || {};
 
+  labelLayout.computeConvexHull2d = function computeConvexHull2d(points){
+    if(!Array.isArray(points) || points.length === 0){
+      return [];
+    }
+    const cleaned = [];
+    for(let i = 0; i < points.length; i += 1){
+      const pt = points[i];
+      const x = Number(pt?.x);
+      const y = Number(pt?.y);
+      if(Number.isFinite(x) && Number.isFinite(y)){
+        cleaned.push({ x, y });
+      }
+    }
+    if(cleaned.length <= 2){
+      return cleaned;
+    }
+    const sorted = cleaned.slice().sort((a, b) => {
+      if(a.x === b.x){
+        return a.y - b.y;
+      }
+      return a.x - b.x;
+    });
+    const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    const lower = [];
+    for(let i = 0; i < sorted.length; i += 1){
+      const p = sorted[i];
+      while(lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0){
+        lower.pop();
+      }
+      lower.push(p);
+    }
+    const upper = [];
+    for(let i = sorted.length - 1; i >= 0; i -= 1){
+      const p = sorted[i];
+      while(upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0){
+        upper.pop();
+      }
+      upper.push(p);
+    }
+    lower.pop();
+    upper.pop();
+    return lower.concat(upper);
+  };
+
   labelLayout.computePointLabelLayout = function computePointLabelLayout(entries, options){
     if(!Array.isArray(entries) || !entries.length){
       return [];
@@ -2092,6 +2136,24 @@
     const labelHeight = Math.max(6, labelFontSize);
     const leaderScale = Math.max(0.45, Math.min(1, Number(options?.leaderScale) || 1));
     const minOffset = Math.max(labelFontSize * 0.85, 8);
+    const plotHull = Array.isArray(options?.plotHull) ? options.plotHull : null;
+    const enforceHull = options?.enforceHull === true;
+    const hullPenalty = Number.isFinite(options?.hullPenalty) ? options.hullPenalty : 12;
+    let normalizedHull = null;
+    if(plotHull && plotHull.length >= 3){
+      normalizedHull = [];
+      for(let i = 0; i < plotHull.length; i += 1){
+        const pt = plotHull[i];
+        const x = Number(pt?.x);
+        const y = Number(pt?.y);
+        if(Number.isFinite(x) && Number.isFinite(y)){
+          normalizedHull.push({ x, y });
+        }
+      }
+      if(normalizedHull.length < 3){
+        normalizedHull = null;
+      }
+    }
     const angles = [];
     const tau = Math.PI * 2;
     for(let i = 0; i < angleSteps; i += 1){
@@ -2114,6 +2176,85 @@
       const overlapX = Math.max(0, Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX));
       const overlapY = Math.max(0, Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY));
       return overlapX * overlapY;
+    };
+    const pointOnSegment = (px, py, ax, ay, bx, by) => {
+      const crossVal = (px - ax) * (by - ay) - (py - ay) * (bx - ax);
+      if(Math.abs(crossVal) > 1e-6){
+        return false;
+      }
+      const dot = (px - ax) * (bx - ax) + (py - ay) * (by - ay);
+      if(dot < -1e-6){
+        return false;
+      }
+      const lenSq = (bx - ax) * (bx - ax) + (by - ay) * (by - ay);
+      if(dot - lenSq > 1e-6){
+        return false;
+      }
+      return true;
+    };
+    const pointInPolygon = (x, y, polygon) => {
+      if(!Array.isArray(polygon) || polygon.length < 3){
+        return true;
+      }
+      for(let i = 0, j = polygon.length - 1; i < polygon.length; j = i++){
+        const xi = polygon[i].x;
+        const yi = polygon[i].y;
+        const xj = polygon[j].x;
+        const yj = polygon[j].y;
+        if(pointOnSegment(x, y, xi, yi, xj, yj)){
+          return true;
+        }
+      }
+      let inside = false;
+      for(let i = 0, j = polygon.length - 1; i < polygon.length; j = i++){
+        const xi = polygon[i].x;
+        const yi = polygon[i].y;
+        const xj = polygon[j].x;
+        const yj = polygon[j].y;
+        const intersect = ((yi > y) !== (yj > y))
+          && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if(intersect){
+          inside = !inside;
+        }
+      }
+      return inside;
+    };
+    const boxInsideHull = (minX, maxX, minY, maxY) => {
+      if(!normalizedHull){
+        return true;
+      }
+      return pointInPolygon(minX, minY, normalizedHull)
+        && pointInPolygon(maxX, minY, normalizedHull)
+        && pointInPolygon(maxX, maxY, normalizedHull)
+        && pointInPolygon(minX, maxY, normalizedHull);
+    };
+    const tryNudgeBoxInsideHull = (box, cx, cy) => {
+      if(!normalizedHull){
+        return { shiftX: 0, shiftY: 0, inside: true };
+      }
+      if(boxInsideHull(box.minX, box.maxX, box.minY, box.maxY)){
+        return { shiftX: 0, shiftY: 0, inside: true };
+      }
+      const centerX = (box.minX + box.maxX) / 2;
+      const centerY = (box.minY + box.maxY) / 2;
+      const targetX = Number.isFinite(cx) ? cx : centerX;
+      const targetY = Number.isFinite(cy) ? cy : centerY;
+      const dx = targetX - centerX;
+      const dy = targetY - centerY;
+      const steps = 8;
+      for(let step = 1; step <= steps; step += 1){
+        const t = step / steps;
+        const shiftX = dx * t;
+        const shiftY = dy * t;
+        const nextMinX = box.minX + shiftX;
+        const nextMaxX = box.maxX + shiftX;
+        const nextMinY = box.minY + shiftY;
+        const nextMaxY = box.maxY + shiftY;
+        if(boxInsideHull(nextMinX, nextMaxX, nextMinY, nextMaxY)){
+          return { shiftX, shiftY, inside: true };
+        }
+      }
+      return { shiftX: 0, shiftY: 0, inside: false };
     };
     const placedBoxes = [];
     const placedLeaders = [];
@@ -2194,6 +2335,23 @@
             minY += shiftY;
             maxY += shiftY;
           }
+          let insideHull = true;
+          if(normalizedHull){
+            if(enforceHull){
+              const nudge = tryNudgeBoxInsideHull({ minX, maxX, minY, maxY }, cx, cy);
+              if(nudge.shiftX || nudge.shiftY){
+                textX += nudge.shiftX;
+                textY += nudge.shiftY;
+                minX += nudge.shiftX;
+                maxX += nudge.shiftX;
+                minY += nudge.shiftY;
+                maxY += nudge.shiftY;
+              }
+              insideHull = nudge.inside;
+            }else{
+              insideHull = boxInsideHull(minX, maxX, minY, maxY);
+            }
+          }
           let score = 0;
           const labelArea = Math.max(1, textWidth * labelHeight);
           placedBoxes.forEach(box => {
@@ -2230,6 +2388,9 @@
             + Math.max(0, maxY - plotBottom);
           if(overflow > 0){
             score += overflow * 0.2 + 6;
+          }
+          if(normalizedHull && !insideHull){
+            score += hullPenalty;
           }
           if(shiftX || shiftY){
             score += 0.5;
