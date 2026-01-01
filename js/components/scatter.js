@@ -4560,6 +4560,29 @@
         clearScatterLogWarning();
         return true;
       }
+      function isScatterLogAxisInputInProgress(inputEl){
+        if(!inputEl){
+          return false;
+        }
+        const doc = inputEl.ownerDocument || global.document;
+        if(doc.activeElement !== inputEl){
+          return false;
+        }
+        const raw = String(inputEl.value ?? '').trim();
+        if(raw === '' || raw === '-' || raw === '+'){
+          return true;
+        }
+        if(/[.,]$/.test(raw)){
+          return true;
+        }
+        if(/[eE]$/.test(raw) || /[eE][+-]$/.test(raw)){
+          return true;
+        }
+        if(/^[-+]?0+(?:[.,]0*)?(?:[eE][+-]?\d*)?$/.test(raw)){
+          return true;
+        }
+        return false;
+      }
       function validateScatterLogAxis(axis){
         const axisLabel=axis==='x'?'X':'Y';
         const minInput=axis==='x'?scatterXMin:scatterYMin;
@@ -5516,7 +5539,24 @@
         }
         el.addEventListener('input',()=>{
           console.log(logLabel, el.value);
+          const logActive = axis === 'x' ? scatterLogX?.checked : scatterLogY?.checked;
+          if(logActive && isScatterLogAxisInputInProgress(el)){
+            if(scatterDebugEnabled()){
+              console.debug('Debug: scatter log axis validation deferred',{ axis, context, value: el.value });
+            }
+            scheduleDrawScatter();
+            return;
+          }
           if(!revalidateActiveScatterLogAxis(axis,context)){
+            return;
+          }
+          if(!scatterLogX?.checked && !scatterLogY?.checked){
+            clearScatterLogWarning();
+          }
+          scheduleDrawScatter();
+        });
+        el.addEventListener('change',()=>{
+          if(!revalidateActiveScatterLogAxis(axis,`${context}-change`)){
             return;
           }
           if(!scatterLogX?.checked && !scatterLogY?.checked){

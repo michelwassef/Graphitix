@@ -5597,6 +5597,29 @@
     clearBoxLogWarning();
     return true;
   }
+  function isBoxLogAxisInputInProgress(inputEl){
+    if(!inputEl){
+      return false;
+    }
+    const doc = inputEl.ownerDocument || global.document;
+    if(doc.activeElement !== inputEl){
+      return false;
+    }
+    const raw = String(inputEl.value ?? '').trim();
+    if(raw === '' || raw === '-' || raw === '+'){
+      return true;
+    }
+    if(/[.,]$/.test(raw)){
+      return true;
+    }
+    if(/[eE]$/.test(raw) || /[eE][+-]$/.test(raw)){
+      return true;
+    }
+    if(/^[-+]?0+(?:[.,]0*)?(?:[eE][+-]?\d*)?$/.test(raw)){
+      return true;
+    }
+    return false;
+  }
 
   function updateViolinBandwidthDisplays(value){
     const resolved = Number.isFinite(value) && value > 0 ? value : DEFAULT_VIOLIN_BANDWIDTH;
@@ -6800,11 +6823,25 @@
       const target=event?.target;
       if(target===els.boxYMin){
         console.log('boxYMin changed', els.boxYMin.value);
+        if(els.boxLogScale?.checked && isBoxLogAxisInputInProgress(target)){
+          if(boxDebugEnabled()){
+            console.debug('Debug: box log scale validation deferred',{ context: 'axis-min-input', value: target.value });
+          }
+          state.scheduleDraw();
+          return;
+        }
         if(!revalidateActiveBoxLogScale('axis-min-input')){
           return;
         }
       }else if(target===els.boxYMax){
         console.log('boxYMax changed', els.boxYMax.value);
+        if(els.boxLogScale?.checked && isBoxLogAxisInputInProgress(target)){
+          if(boxDebugEnabled()){
+            console.debug('Debug: box log scale validation deferred',{ context: 'axis-max-input', value: target.value });
+          }
+          state.scheduleDraw();
+          return;
+        }
         if(!revalidateActiveBoxLogScale('axis-max-input')){
           return;
         }
@@ -6819,6 +6856,8 @@
     };
     els.boxYMin.addEventListener('input',handleBoxAxisLimitInput);
     els.boxYMax.addEventListener('input',handleBoxAxisLimitInput);
+    els.boxYMin.addEventListener('change',handleBoxAxisLimitInput);
+    els.boxYMax.addEventListener('change',handleBoxAxisLimitInput);
     if(els.boxFlipAxes){
       state.flipAxes = !!els.boxFlipAxes.checked;
       els.boxFlipAxes.addEventListener('change',()=>{

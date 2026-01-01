@@ -7257,6 +7257,29 @@
       clearLineLogWarning();
       return true;
     }
+    function isLineLogAxisInputInProgress(inputEl){
+      if(!inputEl){
+        return false;
+      }
+      const doc = inputEl.ownerDocument || global.document;
+      if(doc.activeElement !== inputEl){
+        return false;
+      }
+      const raw = String(inputEl.value ?? '').trim();
+      if(raw === '' || raw === '-' || raw === '+'){
+        return true;
+      }
+      if(/[.,]$/.test(raw)){
+        return true;
+      }
+      if(/[eE]$/.test(raw) || /[eE][+-]$/.test(raw)){
+        return true;
+      }
+      if(/^[-+]?0+(?:[.,]0*)?(?:[eE][+-]?\d*)?$/.test(raw)){
+        return true;
+      }
+      return false;
+    }
     function validateLineLogAxis(axis){
       const axisLabel=axis==='x'?'X':'Y';
       const minInput=axis==='x'?refs.xMin:refs.yMin;
@@ -7935,7 +7958,24 @@
       }
       el.addEventListener('input',()=>{
         console.log(logLabel, el.value);
+        const logActive = axis === 'x' ? refs.logX?.checked : refs.logY?.checked;
+        if(logActive && isLineLogAxisInputInProgress(el)){
+          if(lineDebugEnabled()){
+            console.debug('Debug: line log axis validation deferred',{ axis, context, value: el.value });
+          }
+          scheduleLineDraw();
+          return;
+        }
         if(!revalidateActiveLineLogAxis(axis,context)){
+          return;
+        }
+        if(!refs.logX?.checked && !refs.logY?.checked){
+          clearLineLogWarning();
+        }
+        scheduleLineDraw();
+      });
+      el.addEventListener('change',()=>{
+        if(!revalidateActiveLineLogAxis(axis,`${context}-change`)){
           return;
         }
         if(!refs.logX?.checked && !refs.logY?.checked){
