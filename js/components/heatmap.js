@@ -1030,11 +1030,15 @@
         const aspectCheckbox = svgBox ? svgBox.querySelector('.resizer-aspect-checkbox') : null;
         if(aspectCheckbox){
           if(!isCorrelation){
+            const wasChecked = !!aspectCheckbox.checked;
             aspectCheckbox.checked = false;
             if(svgBox && svgBox.dataset){
               svgBox.dataset.resizerAspectLocked = 'false';
             }
             try{ applySvgBoxAspect(svgBox, { locked: false }); }catch(e){}
+            if(wasChecked){
+              aspectCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+            }
           }
         }
 
@@ -2900,11 +2904,11 @@
       const nodeX = startX + (distance / safeMaxDistance) * length;
       const nodeY = (leftPos.y + rightPos.y) / 2;
       const path = doc.createElementNS(NS, 'path');
-      path.setAttribute('d', [
-        `M ${leftPos.x} ${leftPos.y} H ${nodeX}`,
-        `M ${rightPos.x} ${rightPos.y} H ${nodeX}`,
-        `M ${nodeX} ${leftPos.y} V ${rightPos.y}`
-      ].join(' '));
+      path.setAttribute(
+        'd',
+        `M ${leftPos.x} ${leftPos.y} H ${nodeX} V ${rightPos.y} H ${rightPos.x}`
+      );
+      path.setAttribute('vector-effect', 'non-scaling-stroke');
       group.appendChild(path);
       return { x: nodeX, y: nodeY };
     };
@@ -2925,11 +2929,11 @@
       const nodeY = startY + (distance / safeMaxDistance) * length;
       const nodeX = (leftPos.x + rightPos.x) / 2;
       const path = doc.createElementNS(NS, 'path');
-      path.setAttribute('d', [
-        `M ${leftPos.x} ${leftPos.y} V ${nodeY}`,
-        `M ${rightPos.x} ${rightPos.y} V ${nodeY}`,
-        `M ${leftPos.x} ${nodeY} H ${rightPos.x}`
-      ].join(' '));
+      path.setAttribute(
+        'd',
+        `M ${leftPos.x} ${leftPos.y} V ${nodeY} H ${rightPos.x} V ${rightPos.y}`
+      );
+      path.setAttribute('vector-effect', 'non-scaling-stroke');
       group.appendChild(path);
       return { x: nodeX, y: nodeY };
     };
@@ -3670,10 +3674,15 @@
     const scaleStartX = dataStartX + heatmapWidth + (rowDendroWidth ? rowDendroWidth + dendroPadding : 0) + scalePadding;
     const scaleStartY = dataStartY;
     const scaleHeight = heatmapHeight;
-    // Scale strokes using a uniform factor to avoid X/Y distortion when the SVG is resized non-uniformly
+    // Scale strokes using the minimum axis factor so thickness only changes when both axes stretch.
     const scaleX = containerRect?.width && totalWidth ? containerRect.width / totalWidth : 1;
     const scaleY = containerRect?.height && totalHeight ? containerRect.height / totalHeight : 1;
-    const uniformScale = Math.sqrt(Math.max(scaleX * scaleY, 0)) || 1;
+    const minScale = Math.min(scaleX, scaleY);
+    const hasScaleX = Number.isFinite(scaleX) && scaleX > 0;
+    const hasScaleY = Number.isFinite(scaleY) && scaleY > 0;
+    const scalesUp = hasScaleX && hasScaleY && scaleX > 1 && scaleY > 1;
+    const scalesDown = hasScaleX && hasScaleY && scaleX < 1 && scaleY < 1;
+    const strokeScale = (scalesUp || scalesDown) ? minScale : 1;
     // Compute auto-scaled dendrogram thickness based on cell size (original behavior)
     const autoScaledThickness = Math.max(1, Math.min(3, Math.round(cellSize * 0.025 * 10) / 10));
     // Use user-defined thickness from state if set, otherwise use auto-scaled value
@@ -3681,7 +3690,7 @@
     const userThickness = dendroSettings.thickness;
     // If user thickness is at default (1), use auto-scaling; otherwise use user value
     const dendrogramStrokeBase = (userThickness === DEFAULT_DENDROGRAM_THICKNESS) ? autoScaledThickness : userThickness;
-    const dendrogramStroke = dendrogramStrokeBase * uniformScale;
+    const dendrogramStroke = dendrogramStrokeBase * strokeScale;
     const scaleGroup = doc.createElementNS(NS, 'g');
     scaleGroup.setAttribute('class', 'heatmap-color-scale');
     const scaleRect = doc.createElementNS(NS, 'rect');
@@ -3691,7 +3700,8 @@
     scaleRect.setAttribute('height', String(scaleHeight));
     scaleRect.setAttribute('fill', `url(#${gradientId})`);
     scaleRect.setAttribute('stroke', '#333');
-    scaleRect.setAttribute('stroke-width', '1');
+    scaleRect.setAttribute('stroke-width', String(strokeScale));
+    scaleRect.setAttribute('vector-effect', 'non-scaling-stroke');
     scaleGroup.appendChild(scaleRect);
     const tickStartX = scaleStartX + scaleWidth;
     const tickLabelX = tickStartX + Math.max(8, Math.round(scaleLabelGap * 0.4));
@@ -3706,7 +3716,8 @@
       line.setAttribute('y1', String(y));
       line.setAttribute('y2', String(y));
       line.setAttribute('stroke', '#333');
-      line.setAttribute('stroke-width', '1');
+      line.setAttribute('stroke-width', String(strokeScale));
+      line.setAttribute('vector-effect', 'non-scaling-stroke');
       scaleGroup.appendChild(line);
       const tickLabel = doc.createElementNS(NS, 'text');
       tickLabel.setAttribute('x', String(tickLabelX));
