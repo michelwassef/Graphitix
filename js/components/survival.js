@@ -2449,8 +2449,11 @@
 
     const autoXMax = summary.maxTime > 0 ? summary.maxTime : 1;
     const manualXMax = Number.parseFloat(refs.timeMax?.value);
-    let xMax = Number.isFinite(manualXMax) && manualXMax > 0 ? manualXMax : autoXMax * 1.05;
+    let xMax = Number.isFinite(manualXMax) && manualXMax > 0 ? manualXMax : autoXMax;
     xMax = Math.max(xMax, autoXMax || 1);
+    if(Shared.isDebugEnabled?.()){
+      console.debug('Debug: survival x-axis max resolved', { autoXMax, manualXMax, xMax });
+    }
     const xMin = 0;
     const yMin = 0;
     const yMax = 1;
@@ -2796,8 +2799,12 @@
     const showCI = !!refs.showCI?.checked;
     const showCensor = !!refs.showCensor?.checked;
     groupsForDraw.forEach(group => {
+      const groupMaxTime = Number.isFinite(group.km?.maxTime) ? group.km.maxTime : xScale.max;
+      if(Shared.isDebugEnabled?.() && Number.isFinite(groupMaxTime) && Number.isFinite(xScale.max) && groupMaxTime < xScale.max){
+        console.debug('Debug: survival step extent clamped', { group: group.name, groupMaxTime, axisMax: xScale.max });
+      }
       if(showCI){
-        const ciPath = buildConfidencePath(group.km.upper, group.km.lower, xScale.max, x2px, y2px);
+        const ciPath = buildConfidencePath(group.km.upper, group.km.lower, groupMaxTime, x2px, y2px);
         if(ciPath){
           add('path', {
             d: ciPath,
@@ -2807,7 +2814,7 @@
           });
         }
       }
-      const stepPath = buildStepPath(group.km.steps, xScale.max, x2px, y2px, pt => pt.survival ?? pt.value ?? 0);
+      const stepPath = buildStepPath(group.km.steps, groupMaxTime, x2px, y2px, pt => pt.survival ?? pt.value ?? 0);
       if(stepPath){
         const curveEl = add('path', {
           d: stepPath,
