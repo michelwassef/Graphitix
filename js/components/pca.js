@@ -228,6 +228,141 @@
     return normalized;
   }
 
+  function getPcaPinnedTopRowCount(hot){
+    const count = Number.isFinite(hot?.gridApi?.getPinnedTopRowCount?.())
+      ? hot.gridApi.getPinnedTopRowCount()
+      : PCA_HEADER_ROW_INDEX + 1;
+    return Math.max(0, count | 0);
+  }
+
+  function isPcaPinnedRow(hot, rowIndex){
+    const count = getPcaPinnedTopRowCount(hot);
+    return Number.isInteger(rowIndex) && rowIndex >= 0 && rowIndex < count;
+  }
+
+  function applyPcaRowValues(hot, rowIndex, values, options = {}){
+    if(!hot || !Number.isInteger(rowIndex)){
+      return false;
+    }
+    const data = hot.getData?.() || [];
+    const colCount = typeof hot.countCols === 'function'
+      ? hot.countCols()
+      : (Array.isArray(data[0]) ? data[0].length : 0);
+    if(colCount <= 0){
+      return false;
+    }
+    const source = options.source || 'pca-row-values';
+    const render = options.render !== false;
+    if(isPcaPinnedRow(hot, rowIndex)){
+      if(!Array.isArray(data[rowIndex])){
+        data[rowIndex] = [];
+      }
+      for(let c = 0; c < colCount; c += 1){
+        data[rowIndex][c] = (Array.isArray(values) && c < values.length) ? values[c] : '';
+      }
+      if(render && typeof hot.render === 'function'){
+        hot.render();
+      }
+      return true;
+    }
+    if(typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    const changes = [];
+    for(let c = 0; c < colCount; c += 1){
+      changes.push([rowIndex, c, (Array.isArray(values) && c < values.length) ? values[c] : '']);
+    }
+    if(changes.length){
+      hot.setDataAtCell(changes, source);
+      return true;
+    }
+    return false;
+  }
+
+  function applyPcaCellValue(hot, rowIndex, colIndex, value, options = {}){
+    if(!hot || !Number.isInteger(rowIndex) || !Number.isInteger(colIndex)){
+      return false;
+    }
+    const data = hot.getData?.() || [];
+    const source = options.source || 'pca-cell-value';
+    const render = options.render !== false;
+    if(isPcaPinnedRow(hot, rowIndex)){
+      if(!Array.isArray(data[rowIndex])){
+        data[rowIndex] = [];
+      }
+      data[rowIndex][colIndex] = value;
+      if(render && typeof hot.render === 'function'){
+        hot.render();
+      }
+      return true;
+    }
+    if(typeof hot.setDataAtCell !== 'function'){
+      return false;
+    }
+    hot.setDataAtCell([[rowIndex, colIndex, value]], source);
+    return true;
+  }
+
+  function isPcaCellEmpty(value){
+    if(value === null || value === undefined){
+      return true;
+    }
+    const text = String(value).trim();
+    return text === '';
+  }
+
+  function ensurePcaEmptyTableDefaults(hot, options = {}){
+    if(!hot || typeof hot.getData !== 'function'){
+      return false;
+    }
+    const data = hot.getData() || [];
+    const colCount = typeof hot.countCols === 'function'
+      ? hot.countCols()
+      : (Array.isArray(data[0]) ? data[0].length : 0);
+    if(colCount <= 0){
+      return false;
+    }
+    const labelRowIndex = resolvePcaLabelRowIndex(data);
+    const headerRowIndex = resolvePcaHeaderRowIndex(data, labelRowIndex);
+    const dataStartRow = resolvePcaDataStartRow(labelRowIndex, headerRowIndex);
+    let hasData = false;
+    for(let r = dataStartRow; r < data.length; r += 1){
+      const row = Array.isArray(data[r]) ? data[r] : [];
+      for(let c = 0; c < row.length; c += 1){
+        if(!isPcaCellEmpty(row[c])){
+          hasData = true;
+          break;
+        }
+      }
+      if(hasData){
+        break;
+      }
+    }
+    let headerHasValue = false;
+    if(Number.isInteger(headerRowIndex) && Array.isArray(data[headerRowIndex])){
+      const headerRow = data[headerRowIndex];
+      for(let c = 0; c < headerRow.length; c += 1){
+        if(!isPcaCellEmpty(headerRow[c])){
+          headerHasValue = true;
+          break;
+        }
+      }
+    }
+    if(hasData || headerHasValue){
+      return false;
+    }
+    const labelRowValues = normalizePcaLabelRowValues(null, colCount);
+    const headerRowValues = new Array(colCount).fill('');
+    headerRowValues[0] = 'Variable';
+    const source = options.source || 'pca-empty-defaults';
+    const labelApplied = applyPcaRowValues(hot, PCA_LABEL_ROW_INDEX, labelRowValues, { source, render: false });
+    const headerApplied = applyPcaRowValues(hot, PCA_HEADER_ROW_INDEX, headerRowValues, { source, render: false });
+    if((labelApplied || headerApplied) && typeof hot.render === 'function'){
+      hot.render();
+    }
+    return labelApplied || headerApplied;
+  }
+
   function ensurePcaLabelRow(hot, options = {}){
     if(!hot || typeof hot.getData !== 'function'){
       return false;
@@ -241,22 +376,16 @@
     }
     const source = options.source || 'pca-label-row';
     const setRowValues = (rowIndex, values)=>{
-      if(!Array.isArray(values) || typeof hot.setDataAtCell !== 'function'){
+      if(!Array.isArray(values)){
         return;
       }
-      const changes = [];
-      for(let c = 0; c < colCount; c += 1){
-        changes.push([rowIndex, c, values[c]]);
-      }
-      if(changes.length){
-        hot.setDataAtCell(changes, source);
-      }
+      applyPcaRowValues(hot, rowIndex, values, { source, render: false });
     };
     const row0 = Array.isArray(data[PCA_LABEL_ROW_INDEX]) ? data[PCA_LABEL_ROW_INDEX] : null;
     if(row0 && isPcaLabelRowHeader(row0[0])){
-      if(row0[0] !== PCA_POINT_LABEL_ROW_HEADER && typeof hot.setDataAtCell === 'function'){
-        hot.setDataAtCell([[PCA_LABEL_ROW_INDEX, 0, PCA_POINT_LABEL_ROW_HEADER]], source);
-        return true;
+      if(row0[0] !== PCA_POINT_LABEL_ROW_HEADER){
+        const updated = applyPcaCellValue(hot, PCA_LABEL_ROW_INDEX, 0, PCA_POINT_LABEL_ROW_HEADER, { source, render: true });
+        return !!updated;
       }
       return false;
     }
@@ -270,14 +399,10 @@
           nextHeaderRow[c] = headerRow[c];
         }
       }
-      if(typeof hot.batch === 'function'){
-        hot.batch(()=>{
-          setRowValues(PCA_LABEL_ROW_INDEX, nextLabelRow);
-          setRowValues(PCA_HEADER_ROW_INDEX, nextHeaderRow);
-        });
-      }else{
-        setRowValues(PCA_LABEL_ROW_INDEX, nextLabelRow);
-        setRowValues(PCA_HEADER_ROW_INDEX, nextHeaderRow);
+      setRowValues(PCA_LABEL_ROW_INDEX, nextLabelRow);
+      setRowValues(PCA_HEADER_ROW_INDEX, nextHeaderRow);
+      if(typeof hot.render === 'function'){
+        hot.render();
       }
       return true;
     }
@@ -287,10 +412,9 @@
       }
       setRowValues(PCA_LABEL_ROW_INDEX, normalizePcaLabelRowValues(null, colCount));
     };
-    if(typeof hot.batch === 'function'){
-      hot.batch(insertLabelRow);
-    }else{
-      insertLabelRow();
+    insertLabelRow();
+    if(typeof hot.render === 'function'){
+      hot.render();
     }
     return true;
   }
@@ -459,7 +583,7 @@
         },
         afterSelectionEnd(r1, c1, r2, c2){
           const hot = pcaHot;
-          if(!hot || typeof hot.getData !== 'function' || typeof hot.setDataAtCell !== 'function'){
+          if(!hot || typeof hot.getData !== 'function'){
             return;
           }
           const now = Date.now();
@@ -481,6 +605,29 @@
           if(toCol < 1){
             return;
           }
+          const source = 'pca-point-label-toggle';
+          if(isPcaPinnedRow(hot, labelRowIndex)){
+            let changed = false;
+            for(let c = Math.max(1, fromCol); c <= toCol; c += 1){
+              const current = data[labelRowIndex]?.[c];
+              const next = !parsePcaPointLabelFlag(current);
+              if(applyPcaCellValue(hot, labelRowIndex, c, next, { source, render: false })){
+                changed = true;
+              }
+            }
+            if(changed){
+              if(typeof hot.render === 'function'){
+                hot.render();
+              }
+              markPcaDataDirty(source);
+              scheduleDrawPca({ reason: source });
+              debugLog('Debug: pca label row toggled', { row: labelRowIndex, fromCol, toCol });
+            }
+            return;
+          }
+          if(typeof hot.setDataAtCell !== 'function'){
+            return;
+          }
           const changes = [];
           for(let c = Math.max(1, fromCol); c <= toCol; c += 1){
             const current = typeof hot.getDataAtCell === 'function'
@@ -490,7 +637,7 @@
             changes.push([labelRowIndex, c, next]);
           }
           if(changes.length){
-            hot.setDataAtCell(changes, 'pca-point-label-toggle');
+            hot.setDataAtCell(changes, source);
             debugLog('Debug: pca label row toggled', { row: labelRowIndex, fromCol, toCol });
           }
         },
@@ -514,6 +661,9 @@
         }
       }
     });
+    if(pcaHot){
+      ensurePcaEmptyTableDefaults(pcaHot, { source: 'pca-init' });
+    }
     if(pcaHot && typeof pcaHot.loadData === 'function' && !pcaHot.__pcaPatched){
       const originalLoadData = pcaHot.loadData;
       pcaHot.loadData = function patchedPcaLoadData(){
@@ -530,6 +680,7 @@
         const start = nowMs();
         const result = originalLoadData.apply(this, arguments);
         const labelAdjusted = ensurePcaLabelRow(this, { source: 'pca-loadData' });
+        ensurePcaEmptyTableDefaults(this, { source: 'pca-loadData' });
         if(labelAdjusted){
           const nextRows = typeof this.countRows === 'function'
             ? this.countRows()
