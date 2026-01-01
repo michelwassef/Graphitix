@@ -940,6 +940,18 @@
     ensurePcaAxesLengthControlPlacement();
   }
 
+  function closePcaAxesLengthMenu(reason){
+    const svgBox = pcaSvgBoxRef;
+    if(!svgBox){
+      return;
+    }
+    const axesControl = svgBox.querySelector('.resizer-axeslength-control');
+    if(axesControl && axesControl.hasAttribute('open')){
+      axesControl.removeAttribute('open');
+      debugLog('Debug: pca axes length menu closed',{ reason: reason || null });
+    }
+  }
+
   function pcaTooltipDebug(label, payload){
     try{
       if(typeof Shared.isDebugEnabled === 'function' && !Shared.isDebugEnabled()){
@@ -2883,6 +2895,7 @@
       const pcaTablePanel=document.getElementById('pcaTablePanel');
       const pcaGraphPanel=document.getElementById('pcaGraphPanel');
       const pcaPanelResizer=document.getElementById('pcaPanelResizer');
+      const pcaPlotDiv=document.getElementById('pcaPlot');
       let pcaSvgBox=pcaGraphPanel?.querySelector('.svgbox');
       const pcaConfigPanel=pcaGraphPanel?.querySelector('.config-options');
       bindPcaPlotContextMenuSuppression(pcaSvgBox);
@@ -2981,6 +2994,13 @@
       pcaLayout?.syncPanels?.();
       syncPcaAutoDrawNoticeWidth('init');
       debugLog('Debug: pca initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
+      if(pcaPlotDiv && !pcaPlotDiv.__pcaAxesLengthCloseHandler){
+        const onPlotPointerDown = () => {
+          closePcaAxesLengthMenu('plot-pointer');
+        };
+        pcaPlotDiv.addEventListener('pointerdown', onPlotPointerDown);
+        pcaPlotDiv.__pcaAxesLengthCloseHandler = onPlotPointerDown;
+      }
       ensurePcaHotForActiveTab();
       ensurePcaHotForActiveTab();
       updateAutoDrawUi();
@@ -4668,7 +4688,6 @@
           }
         });
       }
-      const pcaPlotDiv=document.getElementById('pcaPlot');
       if(pcaPlotDiv?.style){
         pcaPlotDiv.style.removeProperty('background');
       }
