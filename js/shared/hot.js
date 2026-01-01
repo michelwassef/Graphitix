@@ -729,6 +729,44 @@
       }
       return true;
     };
+    const normalizeValueForComparison = (value)=>{
+      if(value === null || value === undefined){
+        return { type: 'empty', value: '' };
+      }
+      if(typeof value === 'number'){
+        return Number.isFinite(value)
+          ? { type: 'number', value }
+          : { type: 'other', value: String(value) };
+      }
+      if(typeof value === 'string'){
+        const trimmed = value.trim();
+        if(!trimmed){
+          return { type: 'empty', value: '' };
+        }
+        if(/^[-+]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[-+]?\d+)?$/i.test(trimmed)){
+          const num = Number(trimmed);
+          if(Number.isFinite(num)){
+            return { type: 'number', value: num };
+          }
+        }
+        return { type: 'string', value: trimmed };
+      }
+      if(typeof value === 'boolean'){
+        return { type: 'string', value: value ? 'true' : 'false' };
+      }
+      return { type: 'other', value: String(value) };
+    };
+    const valuesMatchForChange = (prevValue, nextValue)=>{
+      const prev = normalizeValueForComparison(prevValue);
+      const next = normalizeValueForComparison(nextValue);
+      if(prev.type !== next.type){
+        return false;
+      }
+      if(prev.type === 'number'){
+        return Object.is(prev.value, next.value);
+      }
+      return prev.value === next.value;
+    };
     const getMatrixFilledShape = (matrix)=>{
       if(!Array.isArray(matrix) || !matrix.length){
         return { rows: 0, cols: 0 };
@@ -2560,7 +2598,8 @@
       colBatchSize: 5,
       rowCap: Math.max(rowCount, 50000),
       colCap: Math.max(colCount, 200),
-      selectionThreshold: 2
+      selectionThreshold: 2,
+      scheduleOnGrow: false
     };
     const autoGrowthConfig = Object.assign({}, autoGrowthDefaults, overrides?.autoGrowth || {});
     autoGrowthConfig.rowBatchSize = Math.max(1, autoGrowthConfig.rowBatchSize | 0);
@@ -2568,6 +2607,10 @@
     autoGrowthConfig.rowCap = Math.max(rowCount, autoGrowthConfig.rowCap | 0 || rowCount);
     autoGrowthConfig.colCap = Math.max(colCount, autoGrowthConfig.colCap | 0 || colCount);
     autoGrowthConfig.selectionThreshold = Math.max(0, autoGrowthConfig.selectionThreshold | 0);
+
+    const shouldScheduleAutoGrowChange = (source)=>(
+      source !== 'autoGrow' || !!autoGrowthConfig.scheduleOnGrow
+    );
 
     const autoGrowthState = { viewportScrollAttached: false, viewportScrollHandler: null, scrollElements: [] };
 
@@ -2628,7 +2671,9 @@
       if(prevScroll){
         pendingViewportRestore = prevScroll;
       }
-      triggerSchedule('autoGrowRows', { amount, reason });
+      if(autoGrowthConfig.scheduleOnGrow){
+        triggerSchedule('autoGrowRows', { amount, reason });
+      }
     };
 
     const maybeGrowCols = (reason)=>{
@@ -2645,7 +2690,9 @@
       if(prevScroll){
         pendingViewportRestore = prevScroll;
       }
-      triggerSchedule('autoGrowCols', { amount, reason });
+      if(autoGrowthConfig.scheduleOnGrow){
+        triggerSchedule('autoGrowCols', { amount, reason });
+      }
     };
 
     const ensureViewportScrollHandler = ()=>{
@@ -3355,7 +3402,9 @@
           dataHandle.current = data;
           syncRowData(instance.gridApi);
           fireHook('afterCreateRow', insertAt, safeAmount, changeSource);
-          triggerSchedule('afterCreateRow', { source: changeSource });
+          if(shouldScheduleAutoGrowChange(changeSource)){
+            triggerSchedule('afterCreateRow', { source: changeSource });
+          }
         }else if(action === 'remove_row'){
           const removed = data.splice(at, safeAmount);
           exclusionController.shiftRowsForRemoval(Array.from({ length: safeAmount }, (_, idx)=>at + idx));
@@ -3387,7 +3436,9 @@
             rebuildColumns(instance.gridApi);
             renderAg(instance.gridApi);
             fireHook('afterCreateCol', insertAt, safeAmount, changeSource);
-            triggerSchedule('afterCreateCol', { source: changeSource });
+            if(shouldScheduleAutoGrowChange(changeSource)){
+              triggerSchedule('afterCreateCol', { source: changeSource });
+            }
         }else if(action === 'remove_col'){
           const removedCols = [];
           for(let r = 0; r < data.length; r++){
@@ -4109,6 +4160,17 @@
           }
         },
       onCellValueChanged(event){
+        const valuesMatch = valuesMatchForChange(event?.oldValue, event?.newValue);
+        if(valuesMatch){
+          if(typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+            console.debug('Debug: Shared.hot AG change ignored (no-op)', {
+              debugLabel,
+              row: event?.node?.rowIndex ?? event?.rowIndex,
+              colId: event?.column?.getColId?.() ?? event?.colId
+            });
+          }
+          return;
+        }
         const rowIndex = event?.node?.rowIndex ?? event?.rowIndex ?? 0;
         const colId = event?.column?.getColId?.() ?? event?.colId;
         const colIndex = typeof colId === 'string' && colId.startsWith('c') ? Number(colId.slice(1)) : 0;
