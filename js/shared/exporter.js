@@ -73,6 +73,8 @@
 
   // Default scale factor for PNG exports (2x for higher resolution)
   const DEFAULT_PNG_SCALE = 2;
+  const DEFAULT_EXPORT_VIEWBOX_PADDING = 4;
+  const EXPORT_VIEWBOX_EPSILON = 0.01;
 
   function isDebugEnabled() {
     try {
@@ -1442,6 +1444,232 @@
       return null;
     }
     return { minX: numbers[0], minY: numbers[1], width: numbers[2], height: numbers[3] };
+  }
+
+  function resolveExportViewBoxPadding() {
+    const candidate = Shared?.exporter?.EXPORT_VIEWBOX_PADDING;
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric)) {
+      return Math.max(0, numeric);
+    }
+    return DEFAULT_EXPORT_VIEWBOX_PADDING;
+  }
+
+  function shouldExpandExportViewBox(svgEl) {
+    if (!svgEl) return false;
+    if (Shared?.exporter?.EXPORT_VIEWBOX_ENABLED === false) return false;
+    const attr = svgEl.getAttribute?.('data-export-viewbox');
+    if (typeof attr === 'string' && attr.trim().toLowerCase() === 'off') return false;
+    return true;
+  }
+
+  function resolveExportBBoxTarget(svgEl) {
+    if (!svgEl) return svgEl;
+    const exportGroup = typeof svgEl.querySelector === 'function' ? svgEl.querySelector('#export-group') : null;
+    if (exportGroup && typeof exportGroup.getBBox === 'function') {
+      return exportGroup;
+    }
+    const children = Array.from(svgEl.children || []);
+    const nonMeta = children.filter(n => !/^(defs|title|desc)$/i.test(n.tagName || ''));
+    if (nonMeta.length === 1 && nonMeta[0].tagName && nonMeta[0].tagName.toLowerCase() === 'g' && typeof nonMeta[0].getBBox === 'function') {
+      return nonMeta[0];
+    }
+    return svgEl;
+  }
+
+  function resolveCurrentViewBox(svgEl) {
+    if (!svgEl) return null;
+    const base = svgEl.viewBox?.baseVal;
+    if (base && Number.isFinite(base.width) && base.width > 0 && Number.isFinite(base.height) && base.height > 0) {
+      return { minX: Number.isFinite(base.x) ? base.x : 0, minY: Number.isFinite(base.y) ? base.y : 0, width: base.width, height: base.height };
+    }
+    const parsed = parseViewBox(svgEl.getAttribute?.('viewBox'));
+    if (parsed && Number.isFinite(parsed.width) && parsed.width > 0 && Number.isFinite(parsed.height) && parsed.height > 0) {
+      return { minX: parsed.minX, minY: parsed.minY, width: parsed.width, height: parsed.height };
+    }
+    const fallbackWidth = parseDimension(svgEl.getAttribute?.('width')) || svgEl.clientWidth;
+    const fallbackHeight = parseDimension(svgEl.getAttribute?.('height')) || svgEl.clientHeight;
+    if (Number.isFinite(fallbackWidth) && fallbackWidth > 0 && Number.isFinite(fallbackHeight) && fallbackHeight > 0) {
+      return { minX: 0, minY: 0, width: fallbackWidth, height: fallbackHeight };
+    }
+    return null;
+  }
+
+  function expandViewBoxFromBounds(bounds, current, padding = 0) {
+    if (!bounds || !Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) {
+      return null;
+    }
+    const pad = Number.isFinite(padding) ? Math.max(0, padding) : 0;
+    const bboxMinX = bounds.x - pad;
+    const bboxMinY = bounds.y - pad;
+    const bboxMaxX = bounds.x + bounds.width + pad;
+    const bboxMaxY = bounds.y + bounds.height + pad;
+    let minX = bboxMinX;
+    let minY = bboxMinY;
+    let maxX = bboxMaxX;
+    let maxY = bboxMaxY;
+    if (current) {
+      minX = Math.min(current.minX, bboxMinX);
+      minY = Math.min(current.minY, bboxMinY);
+      maxX = Math.max(current.minX + current.width, bboxMaxX);
+      maxY = Math.max(current.minY + current.height, bboxMaxY);
+    }
+    const width = Math.max(1, maxX - minX);
+    const height = Math.max(1, maxY - minY);
+    if (current) {
+      const unchanged = Math.abs(minX - current.minX) <= EXPORT_VIEWBOX_EPSILON
+        && Math.abs(minY - current.minY) <= EXPORT_VIEWBOX_EPSILON
+        && Math.abs(width - current.width) <= EXPORT_VIEWBOX_EPSILON
+        && Math.abs(height - current.height) <= EXPORT_VIEWBOX_EPSILON;
+      if (unchanged) {
+        return null;
+      }
+    }
+    return { minX, minY, width, height, padding: pad, current };
+  }
+
+  function computeExportViewBox(svgEl, options = {}) {
+    if (!svgEl) {
+      return null;
+    }
+    const bboxTarget = options.bboxTarget && typeof options.bboxTarget.getBBox === 'function'
+      ? options.bboxTarget
+      : svgEl;
+    const padding = Number.isFinite(options.padding) ? Math.max(0, options.padding) : 0;
+    let bbox = null;
+    try {
+      if (typeof bboxTarget.getBBox === 'function') {
+        bbox = bboxTarget.getBBox();
+      }
+    } catch (err) {
+      debugLog('computeExportViewBox getBBox error', { contextLabel: options.contextLabel, error: err?.message });
+    }
+    if ((!bbox || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)) && bboxTarget !== svgEl && typeof svgEl.getBBox === 'function') {
+      try {
+        bbox = svgEl.getBBox();
+      } catch (err) {
+        debugLog('computeExportViewBox fallback getBBox error', { contextLabel: options.contextLabel, error: err?.message });
+      }
+    }
+    if (!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y) || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height)) {
+      return null;
+    }
+    const current = resolveCurrentViewBox(svgEl);
+    return expandViewBoxFromBounds({ x: bbox.x, y: bbox.y, width: bbox.width, height: bbox.height }, current, padding);
+  }
+
+  function computeExportViewBoxFromScreen(svgEl, options = {}) {
+    if (!svgEl || typeof svgEl.getScreenCTM !== 'function') {
+      return null;
+    }
+    const target = options.bboxTarget || resolveExportBBoxTarget(svgEl);
+    if (!target || typeof target.getBoundingClientRect !== 'function') {
+      return null;
+    }
+    const rect = target.getBoundingClientRect();
+    if (!rect || !Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    let inv = null;
+    try {
+      const ctm = svgEl.getScreenCTM();
+      inv = ctm && typeof ctm.inverse === 'function' ? ctm.inverse() : null;
+    } catch (err) {
+      debugLog('computeExportViewBoxFromScreen inverse error', { contextLabel: options.contextLabel, error: err?.message });
+    }
+    if (!inv) {
+      return null;
+    }
+    const matrix = [inv.a, inv.b, inv.c, inv.d, inv.e, inv.f];
+    const corners = [
+      applyMatrixToPoint(matrix, rect.left, rect.top),
+      applyMatrixToPoint(matrix, rect.right, rect.top),
+      applyMatrixToPoint(matrix, rect.right, rect.bottom),
+      applyMatrixToPoint(matrix, rect.left, rect.bottom)
+    ];
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    corners.forEach(pt => {
+      if (!pt) return;
+      minX = Math.min(minX, pt.x);
+      minY = Math.min(minY, pt.y);
+      maxX = Math.max(maxX, pt.x);
+      maxY = Math.max(maxY, pt.y);
+    });
+    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+      return null;
+    }
+    const bounds = { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+    const current = resolveCurrentViewBox(svgEl);
+    return expandViewBoxFromBounds(bounds, current, options.padding);
+  }
+
+  function measureExportViewBox(svgEl, options = {}) {
+    if (!svgEl) return null;
+    const padding = Number.isFinite(options.padding) ? Math.max(0, options.padding) : 0;
+    const bboxTarget = options.bboxTarget || resolveExportBBoxTarget(svgEl);
+    const payload = { ...options, padding, bboxTarget };
+    if (svgEl.isConnected) {
+      return computeExportViewBoxFromScreen(svgEl, payload) || computeExportViewBox(svgEl, payload);
+    }
+    const ownerDoc = svgEl.ownerDocument || doc;
+    const body = ownerDoc?.body;
+    if (!body || typeof body.appendChild !== 'function') {
+      return computeExportViewBoxFromScreen(svgEl, payload) || computeExportViewBox(svgEl, payload);
+    }
+    const host = ownerDoc.createElement('div');
+    const current = resolveCurrentViewBox(svgEl);
+    const hostWidth = Number.isFinite(current?.width) && current.width > 0 ? Math.ceil(current.width) : 800;
+    const hostHeight = Number.isFinite(current?.height) && current.height > 0 ? Math.ceil(current.height) : 400;
+    host.style.cssText = `position:absolute;left:-10000px;top:-10000px;width:${hostWidth}px;height:${hostHeight}px;overflow:visible;visibility:hidden;pointer-events:none;`;
+    let result = null;
+    let prevOverflowAttr = null;
+    let prevOverflowStyle = null;
+    try {
+      body.appendChild(host);
+      host.appendChild(svgEl);
+      prevOverflowAttr = svgEl.getAttribute?.('overflow');
+      prevOverflowStyle = svgEl.style ? svgEl.style.overflow : null;
+      if (svgEl.setAttribute) {
+        svgEl.setAttribute('overflow', 'visible');
+      }
+      if (svgEl.style) {
+        svgEl.style.overflow = 'visible';
+      }
+      result = computeExportViewBoxFromScreen(svgEl, payload) || computeExportViewBox(svgEl, payload);
+    } catch (err) {
+      debugLog('measureExportViewBox error', { contextLabel: options.contextLabel, error: err?.message });
+    } finally {
+      try {
+        if (svgEl.setAttribute) {
+          if (prevOverflowAttr == null) {
+            svgEl.removeAttribute('overflow');
+          } else {
+            svgEl.setAttribute('overflow', prevOverflowAttr);
+          }
+        }
+        if (svgEl.style) {
+          if (prevOverflowStyle == null) {
+            svgEl.style.removeProperty('overflow');
+          } else {
+            svgEl.style.overflow = prevOverflowStyle;
+          }
+        }
+      } catch (err) {}
+      try {
+        if (svgEl.parentNode === host) {
+          host.removeChild(svgEl);
+        }
+      } catch (err) {}
+      try {
+        if (host.parentNode === body) {
+          body.removeChild(host);
+        }
+      } catch (err) {}
+    }
+    return result;
   }
 
   function computeViewBoxMatrix(svgElement, width, height, viewBox) {
@@ -2896,18 +3124,27 @@
       return { width: fallbackWidth, height: fallbackHeight };
     }
     const viewBox = svgEl.viewBox?.baseVal;
+    const widthAttr = svgEl.getAttribute?.('width');
+    const heightAttr = svgEl.getAttribute?.('height');
+    const widthFromAttr = parseDimension(widthAttr);
+    const heightFromAttr = parseDimension(heightAttr);
+    const rect = typeof svgEl.getBoundingClientRect === 'function' ? svgEl.getBoundingClientRect() : null;
+    const rectWidth = rect?.width;
+    const rectHeight = rect?.height;
     const widthCandidates = [
-      viewBox?.width,
-      svgEl.width?.baseVal?.value,
-      parseDimension(svgEl.getAttribute?.('width')),
+      rectWidth,
+      widthFromAttr,
       svgEl.clientWidth,
+      svgEl.width?.baseVal?.value,
+      viewBox?.width,
       fallbackWidth
     ];
     const heightCandidates = [
-      viewBox?.height,
-      svgEl.height?.baseVal?.value,
-      parseDimension(svgEl.getAttribute?.('height')),
+      rectHeight,
+      heightFromAttr,
       svgEl.clientHeight,
+      svgEl.height?.baseVal?.value,
+      viewBox?.height,
       fallbackHeight
     ];
     const width = widthCandidates.find(v => Number.isFinite(v) && v > 0) || fallbackWidth;
@@ -3215,7 +3452,15 @@
         try {
           // Your existing normalization
           prepStats = prepareSvgForExport(node, contextLabel, { displayDimensions }) || null;
-          // NEW — group all drawable children so paste into Inkscape keeps consistent stroke widths
+          if (shouldExpandExportViewBox(node)) {
+            const bboxTarget = resolveExportBBoxTarget(node);
+            const exportViewBox = measureExportViewBox(node, { padding: resolveExportViewBoxPadding(), contextLabel, bboxTarget });
+            if (exportViewBox && node?.setAttribute) {
+              node.setAttribute('viewBox', `${exportViewBox.minX} ${exportViewBox.minY} ${exportViewBox.width} ${exportViewBox.height}`);
+              debugLog('svgToXml export viewBox applied', { contextLabel, viewBox: exportViewBox });
+            }
+          }
+          // NEW - group all drawable children so paste into Inkscape keeps consistent stroke widths
           const grp = groupNodeForPaste(node, { enabled: Shared?.exporter?.GROUP_FOR_PASTE ?? true });
           logDebug('svgToXml group-for-paste', { contextLabel, grouped: grp.grouped, moved: grp.moved });
         } catch (prepErr) {
