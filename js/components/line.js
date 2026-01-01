@@ -4956,11 +4956,14 @@
     const svgEl=document.getElementById('lineSvg');
     if(!svgEl) return null;
     const clone=svgEl.cloneNode(true);
-    const baseW=svgEl.viewBox.baseVal.width||svgEl.clientWidth||800;
-    const baseH=svgEl.viewBox.baseVal.height||svgEl.clientHeight||400;
+    const viewBox = svgEl.viewBox?.baseVal;
+    const minX = Number.isFinite(viewBox?.x) ? viewBox.x : 0;
+    const minY = Number.isFinite(viewBox?.y) ? viewBox.y : 0;
+    const baseW = Number.isFinite(viewBox?.width) && viewBox.width > 0 ? viewBox.width : (svgEl.clientWidth || 800);
+    const baseH = Number.isFinite(viewBox?.height) && viewBox.height > 0 ? viewBox.height : (svgEl.clientHeight || 400);
     clone.setAttribute('width',String(baseW));
     clone.setAttribute('height',String(baseH));
-    clone.setAttribute('viewBox',`0 0 ${baseW} ${baseH}`);
+    clone.setAttribute('viewBox',`${minX} ${minY} ${baseW} ${baseH}`);
     const exportFont = chartStyle.FONT_FAMILY || 'Arial, Helvetica, sans-serif';
     clone.setAttribute('font-family', exportFont);
     console.debug('Debug: buildLineExportSvg',{legendCount:lineLegendItems.length, exportFont}); // Debug: export clone info
