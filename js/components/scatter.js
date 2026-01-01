@@ -6862,7 +6862,13 @@
             const baseManualLabelSize = fs * 0.6;
             const labelWidth = labelBounds3d ? Math.max(1, labelBounds3d.maxX - labelBounds3d.minX) : plotW3;
             const labelHeight = labelBounds3d ? Math.max(1, labelBounds3d.maxY - labelBounds3d.minY) : plotH3;
-            const labelFontSize = computeScatterManualLabelFontSize(baseManualLabelSize, manualLabelEntries3d.length, labelWidth, labelHeight);
+            const labelLayout = Shared.labelLayout;
+            const tickFontSizeCap = labelLayout?.readFontSizeFromNodes
+              ? (labelLayout.readFontSizeFromNodes(svg3.querySelectorAll('[data-axis-tick-label]'))
+                || Math.max(9, Math.round(fs * 0.85)))
+              : Math.max(9, Math.round(fs * 0.85));
+            const labelFontSizeRaw = computeScatterManualLabelFontSize(baseManualLabelSize, manualLabelEntries3d.length, labelWidth, labelHeight);
+            const labelFontSize = Math.min(labelFontSizeRaw, tickFontSizeCap);
             const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
             const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'scatter-point-label-3d', min: 0.25 });
             const labelColor = chartStyle.TEXT_COLOR || '#333333';
@@ -7550,6 +7556,7 @@
           xTickNodes.push(txt);
         });
         chartStyle.applyLabelOrientation(xTickNodes,{angle:-45,anchor:'end',dy:'0.35em',force:bottomLayout.shouldRotate});
+        const yTickNodes=[];
         let yTickFontCount=0;
         if(minorTicksY.length){
           minorTicksY.forEach(value => {
@@ -7577,6 +7584,7 @@
           txt.textContent=formatTickY(logY?Math.pow(10,t):t);
           markFontEditable(txt,'yTick');
           yTickFontCount+=1;
+          yTickNodes.push(txt);
         });
         debug('Debug: scatter font tick binding',{ xTickFontCount, yTickFontCount }); // Debug: tick font binding counts
         debug('Debug: scatter ticks stroke scaled',{xTickCount:xScale.ticks.length,yTickCount:yScale.ticks.length,axisStrokeWidth});
@@ -7738,7 +7746,16 @@
           labelLayer.setAttribute('data-layer','point-labels');
           labelLayer.setAttribute('pointer-events','none');
           const baseManualLabelSize = fs * 0.6;
-          const labelFontSize = computeScatterManualLabelFontSize(baseManualLabelSize, manualLabelEntries.length, plotW, plotH);
+          const labelLayout = Shared.labelLayout;
+          const xTickFontSize = labelLayout?.readFontSizeFromNodes ? labelLayout.readFontSizeFromNodes(xTickNodes) : null;
+          const yTickFontSize = labelLayout?.readFontSizeFromNodes ? labelLayout.readFontSizeFromNodes(yTickNodes) : null;
+          const tickFontSizeCap = (Number.isFinite(xTickFontSize) && Number.isFinite(yTickFontSize))
+            ? Math.min(xTickFontSize, yTickFontSize)
+            : (Number.isFinite(xTickFontSize)
+              ? xTickFontSize
+              : (Number.isFinite(yTickFontSize) ? yTickFontSize : fs));
+          const labelFontSizeRaw = computeScatterManualLabelFontSize(baseManualLabelSize, manualLabelEntries.length, plotW, plotH);
+          const labelFontSize = Math.min(labelFontSizeRaw, tickFontSizeCap);
           const labelScale = Math.min(1, labelFontSize / Math.max(1, baseManualLabelSize));
           const leaderStrokeWidth = chartStyle.scaleStrokeWidth(0.75 * labelScale, styleScaleInfo, { context: 'scatter-point-label', min: 0.25 });
           const labelColor = chartStyle.TEXT_COLOR || '#333333';

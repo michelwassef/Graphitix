@@ -2118,6 +2118,29 @@
     return lower.concat(upper);
   };
 
+  labelLayout.readFontSizeFromNodes = function readFontSizeFromNodes(nodes){
+    if(!nodes || typeof nodes.length !== 'number'){
+      return null;
+    }
+    let minSize = Infinity;
+    let found = false;
+    for(let i = 0; i < nodes.length; i += 1){
+      const node = nodes[i];
+      const attr = node && typeof node.getAttribute === 'function' ? node.getAttribute('font-size') : null;
+      const size = Number.parseFloat(attr);
+      if(Number.isFinite(size) && size > 0){
+        found = true;
+        if(size < minSize){
+          minSize = size;
+        }
+      }
+    }
+    if(!found){
+      return null;
+    }
+    return minSize;
+  };
+
   labelLayout.computePointLabelLayout = function computePointLabelLayout(entries, options){
     if(!Array.isArray(entries) || !entries.length){
       return [];
