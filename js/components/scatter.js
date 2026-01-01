@@ -151,6 +151,8 @@
     }),
     rotationPending: false,
     rotationPendingLogged: false,
+    axesVarianceScaled: false,
+    equalAxes: true,
     supports3d: false,
     supportsBubble: false,
     dotSizeOverrideEnabled: false,
@@ -269,6 +271,14 @@
   }
 
   const scatterRefs = {};
+  let scatterSvgBoxRef = null;
+  let scatterLegendControl = null;
+  let scatterLockRatioInput = null;
+  let scatterEqualAxesInput = null;
+  let scatterVarianceAxisScaleInput = null;
+  let scatterAxesLengthLockRatioPrevious = null;
+  let scatterAspectSyncing = false;
+  let scatterViewModeInput = null;
   let scatterTooltipEl = null;
   let scatterPointContextMenu = null;
   let scatterPointContextMenuGlobalBound = false;
@@ -290,6 +300,269 @@
     console.debug(label, payload);
   }
 
+  function getScatterLockRatioCheckbox(){
+    if(scatterLockRatioInput && scatterLockRatioInput.isConnected){
+      return scatterLockRatioInput;
+    }
+    const svgBox = scatterSvgBoxRef;
+    if(!svgBox){
+      return null;
+    }
+    const checkbox = svgBox.querySelector('.resizer-aspect-checkbox');
+    if(checkbox){
+      scatterLockRatioInput = checkbox;
+    }
+    return checkbox;
+  }
+
+  function syncScatterAspectControls(reason){
+    if(scatterAspectSyncing){
+      return;
+    }
+    scatterAspectSyncing = true;
+    try{
+      const equalAxesEnabled = !!scatterState.equalAxes;
+      const varianceAxesEnabled = !!scatterState.axesVarianceScaled;
+      const viewMode = scatterViewModeInput?.value || scatterState.viewMode || '2d';
+      const is3dView = String(viewMode).toLowerCase() === '3d';
+      const enforceLockRatio = equalAxesEnabled || varianceAxesEnabled || is3dView;
+      if(scatterEqualAxesInput && scatterEqualAxesInput.checked !== equalAxesEnabled){
+        scatterEqualAxesInput.checked = equalAxesEnabled;
+      }
+      if(scatterVarianceAxisScaleInput && scatterVarianceAxisScaleInput.checked !== varianceAxesEnabled){
+        scatterVarianceAxisScaleInput.checked = varianceAxesEnabled;
+      }
+      const lockRatioCheckbox = getScatterLockRatioCheckbox();
+      if(lockRatioCheckbox){
+        const lockLabel = lockRatioCheckbox.closest('label');
+        if(enforceLockRatio){
+          if(scatterAxesLengthLockRatioPrevious === null){
+            scatterAxesLengthLockRatioPrevious = !!lockRatioCheckbox.checked;
+          }
+          if(!lockRatioCheckbox.checked){
+            lockRatioCheckbox.checked = true;
+            lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          lockRatioCheckbox.disabled = true;
+          if(lockLabel){
+            if(!lockLabel.__scatterOriginalTitle){
+              lockLabel.__scatterOriginalTitle = lockLabel.title || '';
+            }
+            lockLabel.title = 'Locked while axes length is constrained';
+          }
+        }else{
+          lockRatioCheckbox.disabled = false;
+          if(lockLabel && lockLabel.__scatterOriginalTitle !== undefined){
+            lockLabel.title = lockLabel.__scatterOriginalTitle;
+            delete lockLabel.__scatterOriginalTitle;
+          }
+          if(scatterAxesLengthLockRatioPrevious !== null){
+            const restoreValue = scatterAxesLengthLockRatioPrevious;
+            scatterAxesLengthLockRatioPrevious = null;
+            if(lockRatioCheckbox.checked !== restoreValue){
+              lockRatioCheckbox.checked = restoreValue;
+              lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }
+        }
+      }
+      scatterDebug('Debug: scatter axes length sync',{
+        equalAxesEnabled,
+        varianceAxesEnabled,
+        is3dView,
+        lockRatioEnabled: lockRatioCheckbox ? !!lockRatioCheckbox.checked : null,
+        reason: reason || null
+      });
+    } finally {
+      scatterAspectSyncing = false;
+    }
+  }
+
+  function ensureScatterLegendControlPlacement(){
+    if(!scatterLegendControl || !scatterSvgBoxRef){
+      return;
+    }
+    if(Shared.resizer && typeof Shared.resizer.ensureLegendControlPlacement === 'function'){
+      Shared.resizer.ensureLegendControlPlacement({
+        svgBox: scatterSvgBoxRef,
+        control: scatterLegendControl,
+        debugLabel: 'scatter-legend'
+      });
+      return;
+    }
+    const hostBox = scatterSvgBoxRef;
+    let tray = hostBox.querySelector('.resizer-control-tray');
+    if(!tray){
+      const doc = hostBox.ownerDocument || global.document;
+      if(doc){
+        tray = doc.createElement('div');
+        tray.className = 'resizer-control-tray';
+        hostBox.appendChild(tray);
+        console.debug('Debug: scatter legend tray fallback created',{ trayChildren: tray.childElementCount });
+      }
+    }
+    if(!tray){
+      return;
+    }
+    if(scatterLegendControl.parentNode !== tray){
+      tray.appendChild(scatterLegendControl);
+      console.debug('Debug: scatter legend control moved',{ trayChildren: tray.childElementCount });
+    }
+    scatterLegendControl.classList.remove('config-panel__checkbox','config-panel__checkbox--inline');
+    scatterLegendControl.classList.add('resizer-legend-control');
+    if(!scatterLegendControl.title){
+      scatterLegendControl.title = 'Toggle legend visibility';
+    }
+    if(scatterLegendControl.dataset){
+      scatterLegendControl.dataset.scatterLegendTray = 'true';
+    }
+  }
+
+  function ensureScatterAxesLengthControlPlacement(){
+    if(!scatterSvgBoxRef){
+      return;
+    }
+    const doc = scatterSvgBoxRef.ownerDocument || global.document;
+    if(!doc){
+      return;
+    }
+    let tray = scatterSvgBoxRef.querySelector('.resizer-control-tray');
+    if(!tray){
+      tray = doc.createElement('div');
+      tray.className = 'resizer-control-tray';
+      scatterSvgBoxRef.appendChild(tray);
+      scatterDebug('Debug: scatter axes length tray created', { trayChildren: tray.childElementCount });
+    }
+    const legacyEqualAxesControl = tray.querySelector('.resizer-equalaxes-control');
+    if(legacyEqualAxesControl){
+      legacyEqualAxesControl.remove();
+    }
+    let axesControl = tray.querySelector('.resizer-axeslength-control');
+    if(!axesControl){
+      axesControl = doc.createElement('details');
+      axesControl.className = 'resizer-axeslength-control';
+      const summary = doc.createElement('summary');
+      summary.className = 'resizer-axeslength-summary';
+      summary.textContent = 'Axes length';
+      const menu = doc.createElement('div');
+      menu.className = 'resizer-axeslength-menu';
+      axesControl.appendChild(summary);
+      axesControl.appendChild(menu);
+      const aspectControl = tray.querySelector('.resizer-aspect-control');
+      if(aspectControl && aspectControl.parentNode === tray){
+        tray.insertBefore(axesControl, aspectControl);
+      }else{
+        tray.appendChild(axesControl);
+      }
+      scatterDebug('Debug: scatter axes length control created', { trayChildren: tray.childElementCount });
+    }
+    const menu = axesControl.querySelector('.resizer-axeslength-menu');
+    if(menu){
+      let equalItem = menu.querySelector('.resizer-axeslength-item--equal');
+      if(!equalItem){
+        equalItem = doc.createElement('label');
+        equalItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal';
+        equalItem.title = 'Force equal X and Y axis lengths';
+        const checkbox = doc.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal';
+        checkbox.setAttribute('aria-label', 'Force equal X and Y axis lengths');
+        const textSpan = doc.createElement('span');
+        textSpan.className = 'resizer-axeslength-text';
+        textSpan.textContent = 'Equal axes';
+        equalItem.appendChild(checkbox);
+        equalItem.appendChild(textSpan);
+        menu.insertBefore(equalItem, menu.firstChild);
+      }
+      const equalCheckbox = equalItem.querySelector('input[type="checkbox"]');
+      if(equalCheckbox){
+        scatterEqualAxesInput = equalCheckbox;
+        if(equalCheckbox.__scatterEqualAxesHandler){
+          equalCheckbox.removeEventListener('change', equalCheckbox.__scatterEqualAxesHandler);
+        }
+        const onChange = () => {
+          const enabled = !!equalCheckbox.checked;
+          const previous = !!scatterState.equalAxes;
+          if(enabled && scatterState.axesVarianceScaled){
+            scatterState.axesVarianceScaled = false;
+            if(scatterVarianceAxisScaleInput){
+              scatterVarianceAxisScaleInput.checked = false;
+            }
+            scatterDebug('Debug: scatter axes length exclusivity enforced', { disabled: 'variance', reason: 'equal-axes-toggle' });
+          }
+          scatterState.equalAxes = enabled;
+          scatterDebug('Debug: scatter equal axes toggled', { enabled, previous });
+          syncScatterAspectControls('equal-axes-toggle');
+          if(typeof scheduleDrawScatter === 'function'){
+            scheduleDrawScatter({ reason: 'equal-axes-toggle' });
+          }
+        };
+        equalCheckbox.addEventListener('change', onChange);
+        equalCheckbox.__scatterEqualAxesHandler = onChange;
+      }
+      let varianceItem = menu.querySelector('.resizer-axeslength-item--variance');
+      if(!varianceItem){
+        varianceItem = doc.createElement('label');
+        varianceItem.className = 'resizer-axeslength-item resizer-axeslength-item--variance';
+        varianceItem.title = 'Scale axes by variance';
+        const checkbox = doc.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--variance';
+        checkbox.setAttribute('aria-label', 'Scale axes by variance');
+        const textSpan = doc.createElement('span');
+        textSpan.className = 'resizer-axeslength-text';
+        textSpan.textContent = 'Variance-scaled axes';
+        varianceItem.appendChild(checkbox);
+        varianceItem.appendChild(textSpan);
+        menu.appendChild(varianceItem);
+      }
+      const varianceCheckbox = varianceItem.querySelector('input[type="checkbox"]');
+      if(varianceCheckbox){
+        scatterVarianceAxisScaleInput = varianceCheckbox;
+        if(varianceCheckbox.__scatterVarianceAxesHandler){
+          varianceCheckbox.removeEventListener('change', varianceCheckbox.__scatterVarianceAxesHandler);
+        }
+        const onChange = () => {
+          const enabled = !!varianceCheckbox.checked;
+          const previous = !!scatterState.axesVarianceScaled;
+          if(enabled && scatterState.equalAxes){
+            scatterState.equalAxes = false;
+            if(scatterEqualAxesInput){
+              scatterEqualAxesInput.checked = false;
+            }
+            scatterDebug('Debug: scatter axes length exclusivity enforced', { disabled: 'equal-axes', reason: 'variance-axis-toggle' });
+          }
+          scatterState.axesVarianceScaled = enabled;
+          scatterDebug('Debug: scatter variance axis scaling toggled', { enabled, previous });
+          syncScatterAspectControls('variance-axis-scale');
+          if(typeof scheduleDrawScatter === 'function'){
+            scheduleDrawScatter({ reason: 'variance-axis-scale' });
+          }
+        };
+        varianceCheckbox.addEventListener('change', onChange);
+        varianceCheckbox.__scatterVarianceAxesHandler = onChange;
+      }
+    }
+    syncScatterAspectControls('axes-length-ensure');
+  }
+
+  function ensureScatterResizerControls(){
+    ensureScatterLegendControlPlacement();
+    ensureScatterAxesLengthControlPlacement();
+  }
+
+  function closeScatterAxesLengthMenu(reason){
+    const svgBox = scatterSvgBoxRef;
+    if(!svgBox){
+      return;
+    }
+    const axesControl = svgBox.querySelector('.resizer-axeslength-control');
+    if(axesControl && axesControl.hasAttribute('open')){
+      axesControl.removeAttribute('open');
+      scatterDebug('Debug: scatter axes length menu closed', { reason: reason || null });
+    }
+  }
+
   function normalizeScatterColorMode(value){
     const normalized = typeof value === 'string' ? value.toLowerCase() : '';
     if(normalized === 'density'){
@@ -304,6 +577,44 @@
   function normalizeScatterDensityPalette(value){
     const key = typeof value === 'string' ? value.toLowerCase() : '';
     return SCATTER_DENSITY_RAMPS[key] ? key : SCATTER_DENSITY_PALETTE_DEFAULT;
+  }
+
+  function resolveScatterAxisVariance(points){
+    if(!Array.isArray(points) || points.length < 2){
+      return null;
+    }
+    let count = 0;
+    let sumX = 0;
+    let sumY = 0;
+    let sumXX = 0;
+    let sumYY = 0;
+    for(let i = 0; i < points.length; i += 1){
+      const point = points[i];
+      const x = Number(point?.x);
+      const y = Number(point?.y);
+      if(!Number.isFinite(x) || !Number.isFinite(y)){
+        continue;
+      }
+      count += 1;
+      sumX += x;
+      sumY += y;
+      sumXX += x * x;
+      sumYY += y * y;
+    }
+    if(count < 2){
+      return null;
+    }
+    const meanX = sumX / count;
+    const meanY = sumY / count;
+    const varX = Math.max(0, (sumXX / count) - (meanX * meanX));
+    const varY = Math.max(0, (sumYY / count) - (meanY * meanY));
+    const info = {
+      count,
+      weights: { x: varX, y: varY },
+      ratio: varY > 0 ? varX / varY : null
+    };
+    scatterDebug('Debug: scatter resolveAxisVariance', info);
+    return info;
   }
 
   function scatterHexToRgb(hex){
@@ -3486,41 +3797,7 @@
         });
       }
       const scatterShowLegend=$('#scatterShowLegend');
-      const scatterLegendControl=scatterShowLegend?.closest('label')||null;
-      const ensureScatterLegendTrayPlacement=()=>{
-        if(!scatterLegendControl){
-          return;
-        }
-        const hostBox=scatterSvgBox||scatterGraphPanel?.querySelector?.('.svgbox');
-        if(!hostBox){
-          return;
-        }
-        let tray=hostBox.querySelector('.resizer-control-tray');
-        if(!tray){
-          const doc=hostBox.ownerDocument||global.document;
-          if(doc){
-            tray=doc.createElement('div');
-            tray.className='resizer-control-tray';
-            hostBox.appendChild(tray);
-            console.debug('Debug: scatter legend tray fallback created',{ trayChildren: tray.childElementCount });
-          }
-        }
-        if(!tray){
-          return;
-        }
-        if(scatterLegendControl.parentNode!==tray){
-          tray.appendChild(scatterLegendControl);
-          console.debug('Debug: scatter legend control moved',{ trayChildren: tray.childElementCount });
-        }
-        scatterLegendControl.classList.remove('config-panel__checkbox','config-panel__checkbox--inline');
-        scatterLegendControl.classList.add('resizer-legend-control');
-        if(!scatterLegendControl.title){
-          scatterLegendControl.title='Toggle legend visibility';
-        }
-        if(scatterLegendControl.dataset){
-          scatterLegendControl.dataset.scatterLegendTray='true';
-        }
-      };
+      scatterLegendControl = scatterShowLegend?.closest('label') || null;
       scatterLayout = Shared.componentLayout?.createStandardPanels({
         componentName: 'scatter',
         selectors: {
@@ -3552,33 +3829,33 @@
         scatterSvgBox = scatterLayout.elements.svgBox;
         bindScatterPlotContextMenuSuppression(scatterSvgBox);
       }
+      scatterSvgBoxRef = scatterSvgBox;
       scatterLayout?.setScheduleDraw?.(() => scheduleDrawScatter());
       scatterLayout?.syncPanels?.();
       syncScatterAutoDrawNoticeWidth('init');
-      if(scatterLegendControl){
-        ensureScatterLegendTrayPlacement();
-        const scheduleLegendPlacement=typeof Shared.debounceFrame==='function'
-          ? Shared.debounceFrame(()=>ensureScatterLegendTrayPlacement())
-          : null;
-        if(scheduleLegendPlacement){
-          scheduleLegendPlacement();
-        }else if(typeof global.requestAnimationFrame==='function'){
-          global.requestAnimationFrame(()=>ensureScatterLegendTrayPlacement());
-        }
-        if(scatterLayout && typeof scatterLayout.updateSvgBox==='function'){
-          const originalUpdateSvgBox=scatterLayout.updateSvgBox.bind(scatterLayout);
-          scatterLayout.updateSvgBox=node=>{
-            originalUpdateSvgBox(node);
-            if(node){
-              scatterSvgBox=node;
-            }else if(scatterLayout.elements?.svgBox){
-              scatterSvgBox=scatterLayout.elements.svgBox;
-            }
-            bindScatterPlotContextMenuSuppression(scatterSvgBox);
-            ensureScatterLegendTrayPlacement();
-            scheduleScatterNoticeWidth('update-svgbox');
-          };
-        }
+      ensureScatterResizerControls();
+      const scheduleLegendPlacement=typeof Shared.debounceFrame==='function'
+        ? Shared.debounceFrame(()=>ensureScatterResizerControls())
+        : null;
+      if(scheduleLegendPlacement){
+        scheduleLegendPlacement();
+      }else if(typeof global.requestAnimationFrame==='function'){
+        global.requestAnimationFrame(()=>ensureScatterResizerControls());
+      }
+      if(scatterLayout && typeof scatterLayout.updateSvgBox==='function'){
+        const originalUpdateSvgBox=scatterLayout.updateSvgBox.bind(scatterLayout);
+        scatterLayout.updateSvgBox=node=>{
+          originalUpdateSvgBox(node);
+          if(node){
+            scatterSvgBox=node;
+          }else if(scatterLayout.elements?.svgBox){
+            scatterSvgBox=scatterLayout.elements.svgBox;
+          }
+          scatterSvgBoxRef = scatterSvgBox;
+          bindScatterPlotContextMenuSuppression(scatterSvgBox);
+          ensureScatterResizerControls();
+          scheduleScatterNoticeWidth('update-svgbox');
+        };
       }
       console.debug('Debug: scatter initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
       if(typeof Shared.hot?.createStandardTable !== 'function'){
@@ -3844,6 +4121,7 @@
         }
         console.log('scatter example loaded',{type,viewMode,rows:dataset.length});
         syncScatterGraphTypeUI();
+        syncScatterAspectControls('payload');
         scheduleDrawScatter();
       });
       const scatterImportBtn=document.getElementById('scatterImport');
@@ -3944,6 +4222,7 @@
       const scatterRegressionMode=$('#scatterRegressionMode');
       const scatterViewMode=$('#scatterViewMode');
       const scatterViewControls=$('#scatterViewControls');
+      scatterViewModeInput = scatterViewMode;
       const scatterStatsResults=document.getElementById('scatterStatsResults');
       const scatterStatsButton=document.getElementById('scatterComputeStats');
       const scatterStatsStatus=document.getElementById('scatterStatsStatus');
@@ -4443,6 +4722,7 @@
           scatterShowFrame.checked = true;
         }
         updateScatterViewModeOptionVisibility();
+        syncScatterAspectControls('view-mode-change');
         if(changed && !skipSchedule){
           scheduleDrawScatter();
         }
@@ -5817,6 +6097,13 @@
 
     
       const scatterPlotDiv=document.getElementById('scatterPlot');
+      if(scatterPlotDiv && !scatterPlotDiv.__scatterAxesLengthCloseHandler){
+        const onPlotPointerDown = () => {
+          closeScatterAxesLengthMenu('plot-pointer');
+        };
+        scatterPlotDiv.addEventListener('pointerdown', onPlotPointerDown);
+        scatterPlotDiv.__scatterAxesLengthCloseHandler = onPlotPointerDown;
+      }
       const scatterContainer=scatterPlotDiv.closest('.svgbox')||scatterPlotDiv.parentElement;
       if(!scatterContainer){
         console.debug('Debug: scatter resizer container missing', { hasContainer: !!scatterContainer });
@@ -6305,6 +6592,9 @@
           primeScatterStatsContext(null,{ placeholder:'Adjust the axis range to enable statistics.' });
           return;
         }
+        const axisVarianceInfo = scatterState.axesVarianceScaled
+          ? resolveScatterAxisVariance(pointsInRange)
+          : null;
         scatterColorModeDesired = scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT;
         const colorModeSetting = resolveScatterColorMode({
           mode: scatterColorModeDesired,
@@ -7255,23 +7545,86 @@
           yTickTarget=refinedY;
         }
         debug('Debug: scatter layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth});
+        const enforcePlotAspect = (marginInput, totalWidth, totalHeight, aspectValue) => {
+          const aspect = Number.isFinite(aspectValue) && aspectValue > 0 ? aspectValue : null;
+          const baseMargin = { ...marginInput };
+          const innerW = Math.max(20, totalWidth - baseMargin.left - baseMargin.right);
+          const innerH = Math.max(20, totalHeight - baseMargin.top - baseMargin.bottom);
+          if(!aspect){
+            return { margin: baseMargin, plotW: innerW, plotH: innerH };
+          }
+          const squareSize = Math.min(innerW, innerH);
+          let targetW = squareSize;
+          let targetH = squareSize;
+          if(aspect >= 1){
+            targetW = squareSize;
+            targetH = squareSize / aspect;
+          }else{
+            targetH = squareSize;
+            targetW = squareSize * aspect;
+          }
+          if(!Number.isFinite(targetW) || targetW <= 0 || !Number.isFinite(targetH) || targetH <= 0){
+            return { margin: baseMargin, plotW: innerW, plotH: innerH };
+          }
+          const adjusted = { ...baseMargin };
+          if(innerW > targetW){
+            adjusted.right += innerW - targetW;
+          }
+          if(innerH > targetH){
+            adjusted.bottom += innerH - targetH;
+          }
+          return {
+            margin: adjusted,
+            plotW: Math.max(20, targetW),
+            plotH: Math.max(20, targetH)
+          };
+        };
         const aspectData=scatterSvgBox?.dataset;
         const shouldLockAspect=aspectData?.resizerAspectLocked==='true';
-        debug('Debug: scatter aspect ratio decision',{shouldLockAspect,storedRatio:aspectData?.resizerAspectRatio}); // Debug: scatter aspect toggle decision
-        if(shouldLockAspect){
-          const square=chartStyle.ensureSquarePlot(W,H,margin);
-          margin=square.margin;
-          plotW=square.plotW;
-          plotH=square.plotH;
-          if(aspectData){
-            const derivedRatio=plotH>0?plotW/plotH:NaN;
-            if(Number.isFinite(derivedRatio)){
-              aspectData.resizerAspectRatio=String(derivedRatio);
-            }
+        const shouldEqualAxes = !!scatterState.equalAxes;
+        debug('Debug: scatter aspect ratio decision',{
+          shouldEqualAxes,
+          varianceAxesEnabled: !!scatterState.axesVarianceScaled,
+          lockRatioEnabled: shouldLockAspect,
+          storedRatio: aspectData?.resizerAspectRatio
+        }); // Debug: scatter aspect toggle decision
+        let varianceAspectApplied = false;
+        if(scatterState.axesVarianceScaled){
+          const weightX = axisVarianceInfo?.weights?.x;
+          const weightY = axisVarianceInfo?.weights?.y;
+          if(Number.isFinite(weightX) && weightX > 0 && Number.isFinite(weightY) && weightY > 0){
+            const desiredAspect = weightX / weightY;
+            const baseInnerW = Math.max(20, W - margin.left - margin.right);
+            const baseInnerH = Math.max(20, H - margin.top - margin.bottom);
+            const baseSquareSize = Math.min(baseInnerW, baseInnerH);
+            const enforced = enforcePlotAspect(margin, W, H, desiredAspect);
+            margin = enforced.margin;
+            plotW = enforced.plotW;
+            plotH = enforced.plotH;
+            varianceAspectApplied = true;
+            debug('Debug: scatter layout (variance-enforced)',{
+              desiredAspect,
+              appliedAspect: plotH > 0 ? plotW / plotH : null,
+              squareSize: baseSquareSize,
+              margin,
+              plotW,
+              plotH,
+              weights: axisVarianceInfo.weights
+            });
+          } else {
+            debug('Debug: scatter variance aspect skipped',{ reason: 'insufficient-weights', weights: axisVarianceInfo?.weights });
           }
-          debug('Debug: scatter layout (locked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter square enforcement branch
-        }else{
-          debug('Debug: scatter layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter free resize branch
+        }
+        if(!varianceAspectApplied){
+          if(shouldEqualAxes){
+            const square=chartStyle.ensureSquarePlot(W,H,margin);
+            margin=square.margin;
+            plotW=square.plotW;
+            plotH=square.plotH;
+            debug('Debug: scatter layout (equal-axes)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter square enforcement branch
+          }else{
+            debug('Debug: scatter layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter free resize branch
+          }
         }
         const brokenXEnabled = getBrokenAxisEnabled('x');
         const brokenXSegments = brokenXEnabled ? getBrokenAxisSegments('x') : [];
@@ -8452,6 +8805,8 @@
             showGrid:scatterShowGrid.checked,
             showFrame:scatterShowFrame.checked,
             showLegend:scatterShowLegend ? scatterShowLegend.checked : true,
+            equalAxes: scatterState.equalAxes,
+            axesVarianceScaled: scatterState.axesVarianceScaled,
             logX:scatterLogX.checked,
             logY:scatterLogY.checked,
             logPlusOneX:!!scatterState.logPlusOneX,
@@ -8628,6 +8983,16 @@
         scatterShowFrame.checked=!!c.showFrame;
         if(scatterShowLegend){
           scatterShowLegend.checked = c.showLegend !== false;
+        }
+        if(typeof c.equalAxes === 'boolean'){
+          scatterState.equalAxes = c.equalAxes;
+        }
+        if(typeof c.axesVarianceScaled === 'boolean'){
+          scatterState.axesVarianceScaled = c.axesVarianceScaled;
+        }
+        if(scatterState.equalAxes && scatterState.axesVarianceScaled){
+          scatterState.axesVarianceScaled = false;
+          console.debug('Debug: scatter axes length payload exclusivity enforced',{ kept: 'equal-axes' });
         }
         scatterLogX.checked=!!c.logX;
         scatterLogY.checked=!!c.logY;
