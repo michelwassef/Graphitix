@@ -2810,14 +2810,14 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
   function sanitizeScatterAxisNotation(value){
-    if(value === 'decimal' || value === 'scientific'){ return value; }
-    return 'auto';
+    if(value === 'auto' || value === 'decimal' || value === 'scientific'){ return value; }
+    return 'decimal';
   }
 
   let scatterAxisSettings = createScatterAxisSettings();
@@ -2827,10 +2827,10 @@
       scatterAxisSettings = createScatterAxisSettings();
     }
     if(!scatterAxisSettings.x || typeof scatterAxisSettings.x !== 'object'){
-      scatterAxisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } };
     }
     if(!scatterAxisSettings.y || typeof scatterAxisSettings.y !== 'object'){
-      scatterAxisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } };
+      scatterAxisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } };
     }
     if(typeof scatterAxisSettings.x.minorTicks !== 'boolean'){
       scatterAxisSettings.x.minorTicks = false;
@@ -3049,8 +3049,8 @@
       const yMinorSubdiv = settings.minorTickSubdivisionsY ?? settings.minorSubdivisionsY ?? settings.y?.minorTickSubdivisions ?? settings.y?.minorSubdivisions ?? null;
       base.x.minorTickSubdivisions = clampMinorTickSubdivisions(xMinorSubdiv);
       base.y.minorTickSubdivisions = clampMinorTickSubdivisions(yMinorSubdiv);
-      const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'auto';
-      const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
+      const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'decimal';
+      const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'decimal';
       base.x.notation = sanitizeScatterAxisNotation(xNotation);
       base.y.notation = sanitizeScatterAxisNotation(yNotation);
       if(settings.brokenAxis){
@@ -8485,8 +8485,8 @@
             minorTicksY: axisSettings.y?.minorTicks ?? false,
             minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
             minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions),
-            notationX: axisSettings.x?.notation ?? 'auto',
-            notationY: axisSettings.y?.notation ?? 'auto',
+            notationX: axisSettings.x?.notation ?? 'decimal',
+            notationY: axisSettings.y?.notation ?? 'decimal',
             brokenAxis: {
               x: {
                 enabled: axisSettings.x?.brokenAxis?.enabled ?? false,
@@ -8711,8 +8711,8 @@
             minorTicksY: c.axis.minorTicksY ?? c.axis?.y?.minorTicks ?? false,
             minorTickSubdivisionsX: c.axis.minorTickSubdivisionsX ?? c.axis.minorSubdivisionsX ?? c.axis?.x?.minorTickSubdivisions ?? c.axis?.x?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
             minorTickSubdivisionsY: c.axis.minorTickSubdivisionsY ?? c.axis.minorSubdivisionsY ?? c.axis?.y?.minorTickSubdivisions ?? c.axis?.y?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
-            notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'auto',
-            notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'auto',
+            notationX: c.axis.notationX ?? c.axis.axisNotationX ?? c.axis?.x?.notation ?? 'decimal',
+            notationY: c.axis.notationY ?? c.axis.axisNotationY ?? c.axis?.y?.notation ?? 'decimal',
             brokenAxis: c.axis.brokenAxis || {}
           });
           console.debug('Debug: scatter axis settings restored',{ axis: ensureScatterAxisSettings() });

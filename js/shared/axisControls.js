@@ -21,7 +21,7 @@
   let notationMenuToggle = null;
   let notationMenuPopup = null;
   let notationMenuVisible = false;
-  let notationActiveValue = 'auto';
+  let notationActiveValue = 'decimal';
   let brokenAxisFieldEl = null;
   let brokenAxisCheckbox = null;
   let brokenAxisSegmentsContainer = null;
@@ -105,7 +105,7 @@
     return true;
   }
 
-  const AXIS_NOTATION_DEFAULT = 'auto';
+  const AXIS_NOTATION_DEFAULT = 'decimal';
   const AXIS_NOTATION_VALUES = new Set(['auto','decimal','scientific']);
   const AXIS_NOTATION_OPTIONS = [
     { value: 'auto', label: 'Automatic' },

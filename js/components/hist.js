@@ -97,14 +97,14 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' }
     };
   }
 
   function sanitizeHistAxisNotation(value){
-    if(value === 'decimal' || value === 'scientific'){ return value; }
-    return 'auto';
+    if(value === 'auto' || value === 'decimal' || value === 'scientific'){ return value; }
+    return 'decimal';
   }
 
   const DEFAULT_DISTRIBUTION_COLORS = ['#d95f02', '#1b9e77', '#7570b3', '#e7298a', '#66a61e'];
@@ -274,10 +274,10 @@
       state.axisSettings = createDefaultAxisSettings();
     }
     if(!state.axisSettings.x || typeof state.axisSettings.x !== 'object'){
-      state.axisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' };
+      state.axisSettings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' };
     }
     if(!state.axisSettings.y || typeof state.axisSettings.y !== 'object'){
-      state.axisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' };
+      state.axisSettings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' };
     }
     if(typeof state.axisSettings.x.minorTicks !== 'boolean'){
       state.axisSettings.x.minorTicks = false;
@@ -432,8 +432,8 @@
       const yMinorSubdiv = settings.minorTickSubdivisionsY ?? settings.minorSubdivisionsY ?? settings.y?.minorTickSubdivisions ?? settings.y?.minorSubdivisions ?? null;
       base.x.minorTickSubdivisions = clampMinorTickSubdivisions(xMinorSubdiv);
       base.y.minorTickSubdivisions = clampMinorTickSubdivisions(yMinorSubdiv);
-      const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'auto';
-      const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'auto';
+      const xNotation = settings.axisNotationX ?? settings.notationX ?? settings?.x?.notation ?? 'decimal';
+      const yNotation = settings.axisNotationY ?? settings.notationY ?? settings?.y?.notation ?? 'decimal';
       base.x.notation = sanitizeHistAxisNotation(xNotation);
       base.y.notation = sanitizeHistAxisNotation(yNotation);
     }
@@ -1019,8 +1019,8 @@
           minorTicksY: axisSettings.y?.minorTicks ?? false,
           minorTickSubdivisionsX: clampMinorTickSubdivisions(axisSettings.x?.minorTickSubdivisions),
           minorTickSubdivisionsY: clampMinorTickSubdivisions(axisSettings.y?.minorTickSubdivisions),
-          notationX: axisSettings.x?.notation ?? 'auto',
-          notationY: axisSettings.y?.notation ?? 'auto'
+          notationX: axisSettings.x?.notation ?? 'decimal',
+          notationY: axisSettings.y?.notation ?? 'decimal'
         },
         distributions:{
           selected:getActiveDistributionKeys(),
@@ -1100,8 +1100,8 @@
           minorTicksY: axisConfig.minorTicksY ?? axisConfig?.y?.minorTicks ?? false,
           minorTickSubdivisionsX: axisConfig.minorTickSubdivisionsX ?? axisConfig.minorSubdivisionsX ?? axisConfig?.x?.minorTickSubdivisions ?? axisConfig?.x?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
           minorTickSubdivisionsY: axisConfig.minorTickSubdivisionsY ?? axisConfig.minorSubdivisionsY ?? axisConfig?.y?.minorTickSubdivisions ?? axisConfig?.y?.minorSubdivisions ?? DEFAULT_MINOR_TICK_SUBDIVISIONS,
-          notationX: axisConfig.notationX ?? axisConfig.axisNotationX ?? axisConfig?.x?.notation ?? 'auto',
-          notationY: axisConfig.notationY ?? axisConfig.axisNotationY ?? axisConfig?.y?.notation ?? 'auto'
+        notationX: axisConfig.notationX ?? axisConfig.axisNotationX ?? axisConfig?.x?.notation ?? 'decimal',
+        notationY: axisConfig.notationY ?? axisConfig.axisNotationY ?? axisConfig?.y?.notation ?? 'decimal'
         });
         console.debug('Debug: hist axis settings restored',{ axis: ensureAxisSettings() });
       }

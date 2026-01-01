@@ -2696,14 +2696,14 @@
     return {
       strokeWidth: 1,
       color: DEFAULT_AXIS_COLOR,
-      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' },
-      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }
+      x: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' },
+      y: { tickInterval: null, minorTicks: false, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } }
     };
   }
 
   function sanitizeBoxAxisNotation(value){
-    if(value === 'decimal' || value === 'scientific'){ return value; }
-    return 'auto';
+    if(value === 'auto' || value === 'decimal' || value === 'scientific'){ return value; }
+    return 'decimal';
   }
   function fallbackSanitizeP(value){
     const num=Number(value);
@@ -4957,8 +4957,8 @@
 
   function ensureAxisSettings(){
     const settings = state.axisSettings && typeof state.axisSettings === 'object' ? state.axisSettings : createDefaultAxisSettings();
-    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto' }; }
-    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'auto', brokenAxis: { enabled: false, segments: [] } }; }
+    if(!settings.x || typeof settings.x !== 'object'){ settings.x = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal' }; }
+    if(!settings.y || typeof settings.y !== 'object'){ settings.y = { tickInterval: null, minorTickSubdivisions: DEFAULT_MINOR_TICK_SUBDIVISIONS, notation: 'decimal', brokenAxis: { enabled: false, segments: [] } }; }
     if(settings.x.tickInterval === undefined){ settings.x.tickInterval = null; }
     if(settings.y.tickInterval === undefined){ settings.y.tickInterval = null; }
     if(typeof settings.x.minorTicks !== 'boolean'){ settings.x.minorTicks = false; }
@@ -13759,8 +13759,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             y: clampMinorTickSubdivisions(axisSnapshot.y?.minorTickSubdivisions)
           },
           notation: {
-            x: axisSnapshot.x?.notation ?? 'auto',
-            y: axisSnapshot.y?.notation ?? 'auto'
+            x: axisSnapshot.x?.notation ?? 'decimal',
+            y: axisSnapshot.y?.notation ?? 'decimal'
           },
           brokenAxis: {
             y: {
