@@ -89,4 +89,43 @@ describe('tableImport.handlePaste with AG Grid hot instance', () => {
     expect(scheduleDraw).toHaveBeenCalled();
     expect(scheduleCalls.some(call => call && typeof call.reason === 'string')).toBe(true);
   });
+
+  test('overwrites an existing value when pasting a single cell', async () => {
+    const Shared = global.window.Shared;
+    const container = document.createElement('div');
+    container.id = 'agPasteHotSingle';
+    document.body.appendChild(container);
+
+    const hot = Shared.hot.createStandardTable(
+      container,
+      { rows: 3, cols: 3 },
+      () => {},
+      {
+        debugLabel: 'ag-paste-single',
+        data: Shared.createEmptyData(3, 3)
+      }
+    );
+
+    hot.setDataAtCell(0, 0, 'Existing', 'test');
+    expect(hot.getDataAtCell(0, 0)).toBe('Existing');
+
+    hot.selectCell(0, 0);
+
+    const pasteEvent = {
+      clipboardData: {
+        getData: () => 'New'
+      },
+      preventDefault: jest.fn(),
+      stopPropagation: jest.fn()
+    };
+
+    await Shared.tableImport.handlePaste(pasteEvent, hot, {
+      minCols: 3,
+      minRows: 3,
+      debugLabel: 'agPasteSingleTest'
+    });
+
+    expect(pasteEvent.preventDefault).toHaveBeenCalled();
+    expect(hot.getDataAtCell(0, 0)).toBe('New');
+  });
 });

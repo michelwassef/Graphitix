@@ -1210,11 +1210,7 @@
       const selection = options.selection || (hot && typeof hot.getSelectedLast === 'function' ? hot.getSelectedLast() : null);
       const startRow = options.startRow ?? (selection ? selection[0] : 0);
       const startCol = options.startCol ?? (selection ? selection[1] : 0);
-      const singleRowPaste = filtered.length === 1;
-      const selectionTuple = Array.isArray(selection) ? selection : null;
-      const singleRowSelection = selectionTuple ? selectionTuple[0] === selectionTuple[2] : false;
-      const shouldPreserveExisting = options.preserveExisting === true
-        || (singleRowPaste && singleRowSelection);
+      const shouldPreserveExisting = options.preserveExisting === true;
       debugLog('handlePaste.rows', {
         rows: filtered.length,
         cols: filtered[0]?.length || 0,
