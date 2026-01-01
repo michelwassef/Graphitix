@@ -153,6 +153,7 @@
     rotationPendingLogged: false,
     axesVarianceScaled: false,
     equalAxes: true,
+    equalScaleAxes: false,
     supports3d: false,
     supportsBubble: false,
     dotSizeOverrideEnabled: false,
@@ -275,6 +276,7 @@
   let scatterLegendControl = null;
   let scatterLockRatioInput = null;
   let scatterEqualAxesInput = null;
+  let scatterEqualScaleAxesInput = null;
   let scatterVarianceAxisScaleInput = null;
   let scatterAxesLengthLockRatioPrevious = null;
   let scatterAspectSyncing = false;
@@ -322,12 +324,16 @@
     scatterAspectSyncing = true;
     try{
       const equalAxesEnabled = !!scatterState.equalAxes;
+      const equalScaleEnabled = !!scatterState.equalScaleAxes;
       const varianceAxesEnabled = !!scatterState.axesVarianceScaled;
       const viewMode = scatterViewModeInput?.value || scatterState.viewMode || '2d';
       const is3dView = String(viewMode).toLowerCase() === '3d';
-      const enforceLockRatio = equalAxesEnabled || varianceAxesEnabled || is3dView;
+      const enforceLockRatio = equalAxesEnabled || equalScaleEnabled || varianceAxesEnabled || is3dView;
       if(scatterEqualAxesInput && scatterEqualAxesInput.checked !== equalAxesEnabled){
         scatterEqualAxesInput.checked = equalAxesEnabled;
+      }
+      if(scatterEqualScaleAxesInput && scatterEqualScaleAxesInput.checked !== equalScaleEnabled){
+        scatterEqualScaleAxesInput.checked = equalScaleEnabled;
       }
       if(scatterVarianceAxisScaleInput && scatterVarianceAxisScaleInput.checked !== varianceAxesEnabled){
         scatterVarianceAxisScaleInput.checked = varianceAxesEnabled;
@@ -368,6 +374,7 @@
       }
       scatterDebug('Debug: scatter axes length sync',{
         equalAxesEnabled,
+        equalScaleEnabled,
         varianceAxesEnabled,
         is3dView,
         lockRatioEnabled: lockRatioCheckbox ? !!lockRatioCheckbox.checked : null,
@@ -458,65 +465,152 @@
     }
     const menu = axesControl.querySelector('.resizer-axeslength-menu');
     if(menu){
-      let equalItem = menu.querySelector('.resizer-axeslength-item--equal');
-      if(!equalItem){
-        equalItem = doc.createElement('label');
-        equalItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal';
-        equalItem.title = 'Force equal X and Y axis lengths';
+      let equalScaleItem = menu.querySelector('.resizer-axeslength-item--equal-scale');
+      if(!equalScaleItem){
+        equalScaleItem = doc.createElement('label');
+        equalScaleItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal-scale';
         const checkbox = doc.createElement('input');
         checkbox.type = 'checkbox';
-        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal';
-        checkbox.setAttribute('aria-label', 'Force equal X and Y axis lengths');
+        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-scale';
         const textSpan = doc.createElement('span');
         textSpan.className = 'resizer-axeslength-text';
-        textSpan.textContent = 'Equal axes';
-        equalItem.appendChild(checkbox);
-        equalItem.appendChild(textSpan);
-        menu.insertBefore(equalItem, menu.firstChild);
+        equalScaleItem.appendChild(checkbox);
+        equalScaleItem.appendChild(textSpan);
+        menu.appendChild(equalScaleItem);
+      }else{
+        equalScaleItem.classList.add('resizer-axeslength-item');
       }
-      const equalCheckbox = equalItem.querySelector('input[type="checkbox"]');
-      if(equalCheckbox){
-        scatterEqualAxesInput = equalCheckbox;
-        if(equalCheckbox.__scatterEqualAxesHandler){
-          equalCheckbox.removeEventListener('change', equalCheckbox.__scatterEqualAxesHandler);
+      if(equalScaleItem){
+        equalScaleItem.title = 'Equal axis lengths with the same data scale';
+        const equalScaleCheckbox = equalScaleItem.querySelector('input[type="checkbox"]');
+        if(equalScaleCheckbox){
+          equalScaleCheckbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-scale';
+          equalScaleCheckbox.setAttribute('aria-label', 'Equal axis lengths with the same data scale');
+        }
+        const equalScaleText = equalScaleItem.querySelector('.resizer-axeslength-text');
+        if(equalScaleText){
+          equalScaleText.textContent = 'Equal length / same scale';
+        }
+      }
+      let equalLengthItem = menu.querySelector('.resizer-axeslength-item--equal-length');
+      const legacyEqualItem = equalLengthItem ? null : menu.querySelector('.resizer-axeslength-item--equal');
+      if(!equalLengthItem && legacyEqualItem){
+        equalLengthItem = legacyEqualItem;
+        equalLengthItem.classList.remove('resizer-axeslength-item--equal');
+        equalLengthItem.classList.add('resizer-axeslength-item--equal-length');
+      }
+      if(!equalLengthItem){
+        equalLengthItem = doc.createElement('label');
+        equalLengthItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal-length';
+        const checkbox = doc.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-length';
+        const textSpan = doc.createElement('span');
+        textSpan.className = 'resizer-axeslength-text';
+        equalLengthItem.appendChild(checkbox);
+        equalLengthItem.appendChild(textSpan);
+      }
+      if(equalLengthItem){
+        equalLengthItem.title = 'Equal axis lengths with independent scales';
+        const equalLengthCheckbox = equalLengthItem.querySelector('input[type="checkbox"]');
+        if(equalLengthCheckbox){
+          equalLengthCheckbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-length';
+          equalLengthCheckbox.setAttribute('aria-label', 'Equal axis lengths with independent scales');
+        }
+        const equalLengthText = equalLengthItem.querySelector('.resizer-axeslength-text');
+        if(equalLengthText){
+          equalLengthText.textContent = 'Equal length / different scale';
+        }
+        if(equalLengthItem.parentNode !== menu){
+          menu.appendChild(equalLengthItem);
+        }
+      }
+      const equalScaleCheckbox = equalScaleItem.querySelector('input[type="checkbox"]');
+      if(equalScaleCheckbox){
+        scatterEqualScaleAxesInput = equalScaleCheckbox;
+        if(equalScaleCheckbox.__scatterEqualScaleAxesHandler){
+          equalScaleCheckbox.removeEventListener('change', equalScaleCheckbox.__scatterEqualScaleAxesHandler);
         }
         const onChange = () => {
-          const enabled = !!equalCheckbox.checked;
-          const previous = !!scatterState.equalAxes;
-          if(enabled && scatterState.axesVarianceScaled){
+          const enabled = !!equalScaleCheckbox.checked;
+          const previous = !!scatterState.equalScaleAxes;
+          if(enabled){
+            scatterState.equalAxes = false;
             scatterState.axesVarianceScaled = false;
+            if(scatterEqualAxesInput){
+              scatterEqualAxesInput.checked = false;
+            }
             if(scatterVarianceAxisScaleInput){
               scatterVarianceAxisScaleInput.checked = false;
             }
-            scatterDebug('Debug: scatter axes length exclusivity enforced', { disabled: 'variance', reason: 'equal-axes-toggle' });
+            scatterDebug('Debug: scatter axes length exclusivity enforced', { disabled: 'equal-length/variance', reason: 'equal-scale-toggle' });
           }
-          scatterState.equalAxes = enabled;
-          scatterDebug('Debug: scatter equal axes toggled', { enabled, previous });
-          syncScatterAspectControls('equal-axes-toggle');
+          scatterState.equalScaleAxes = enabled;
+          scatterDebug('Debug: scatter equal scale toggled', { enabled, previous });
+          syncScatterAspectControls('equal-scale-toggle');
           if(typeof scheduleDrawScatter === 'function'){
-            scheduleDrawScatter({ reason: 'equal-axes-toggle' });
+            scheduleDrawScatter({ reason: 'equal-scale-toggle' });
           }
         };
-        equalCheckbox.addEventListener('change', onChange);
-        equalCheckbox.__scatterEqualAxesHandler = onChange;
+        equalScaleCheckbox.addEventListener('change', onChange);
+        equalScaleCheckbox.__scatterEqualScaleAxesHandler = onChange;
+      }
+      const equalLengthCheckbox = equalLengthItem ? equalLengthItem.querySelector('input[type="checkbox"]') : null;
+      if(equalLengthCheckbox){
+        scatterEqualAxesInput = equalLengthCheckbox;
+        if(equalLengthCheckbox.__scatterEqualAxesHandler){
+          equalLengthCheckbox.removeEventListener('change', equalLengthCheckbox.__scatterEqualAxesHandler);
+        }
+        const onChange = () => {
+          const enabled = !!equalLengthCheckbox.checked;
+          const previous = !!scatterState.equalAxes;
+          if(enabled){
+            scatterState.equalScaleAxes = false;
+            scatterState.axesVarianceScaled = false;
+            if(scatterEqualScaleAxesInput){
+              scatterEqualScaleAxesInput.checked = false;
+            }
+            if(scatterVarianceAxisScaleInput){
+              scatterVarianceAxisScaleInput.checked = false;
+            }
+            scatterDebug('Debug: scatter axes length exclusivity enforced', { disabled: 'equal-scale/variance', reason: 'equal-length-toggle' });
+          }
+          scatterState.equalAxes = enabled;
+          scatterDebug('Debug: scatter equal length toggled', { enabled, previous });
+          syncScatterAspectControls('equal-length-toggle');
+          if(typeof scheduleDrawScatter === 'function'){
+            scheduleDrawScatter({ reason: 'equal-length-toggle' });
+          }
+        };
+        equalLengthCheckbox.addEventListener('change', onChange);
+        equalLengthCheckbox.__scatterEqualAxesHandler = onChange;
       }
       let varianceItem = menu.querySelector('.resizer-axeslength-item--variance');
       if(!varianceItem){
         varianceItem = doc.createElement('label');
         varianceItem.className = 'resizer-axeslength-item resizer-axeslength-item--variance';
-        varianceItem.title = 'Scale axes by variance';
         const checkbox = doc.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--variance';
-        checkbox.setAttribute('aria-label', 'Scale axes by variance');
         const textSpan = doc.createElement('span');
         textSpan.className = 'resizer-axeslength-text';
-        textSpan.textContent = 'Variance-scaled axes';
         varianceItem.appendChild(checkbox);
         varianceItem.appendChild(textSpan);
         menu.appendChild(varianceItem);
       }
-      const varianceCheckbox = varianceItem.querySelector('input[type="checkbox"]');
+      if(varianceItem){
+        varianceItem.title = 'Scale axes by variance';
+        const varianceCheckbox = varianceItem.querySelector('input[type="checkbox"]');
+        if(varianceCheckbox){
+          varianceCheckbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--variance';
+          varianceCheckbox.setAttribute('aria-label', 'Scale axes by variance');
+        }
+        const varianceText = varianceItem.querySelector('.resizer-axeslength-text');
+        if(varianceText){
+          varianceText.textContent = 'Variance-scaled';
+        }
+      }
+      const varianceCheckbox = varianceItem ? varianceItem.querySelector('input[type="checkbox"]') : null;
       if(varianceCheckbox){
         scatterVarianceAxisScaleInput = varianceCheckbox;
         if(varianceCheckbox.__scatterVarianceAxesHandler){
@@ -525,12 +619,16 @@
         const onChange = () => {
           const enabled = !!varianceCheckbox.checked;
           const previous = !!scatterState.axesVarianceScaled;
-          if(enabled && scatterState.equalAxes){
+          if(enabled){
             scatterState.equalAxes = false;
+            scatterState.equalScaleAxes = false;
             if(scatterEqualAxesInput){
               scatterEqualAxesInput.checked = false;
             }
-            scatterDebug('Debug: scatter axes length exclusivity enforced', { disabled: 'equal-axes', reason: 'variance-axis-toggle' });
+            if(scatterEqualScaleAxesInput){
+              scatterEqualScaleAxesInput.checked = false;
+            }
+            scatterDebug('Debug: scatter axes length exclusivity enforced', { disabled: 'equal-length/equal-scale', reason: 'variance-axis-toggle' });
           }
           scatterState.axesVarianceScaled = enabled;
           scatterDebug('Debug: scatter variance axis scaling toggled', { enabled, previous });
@@ -541,6 +639,15 @@
         };
         varianceCheckbox.addEventListener('change', onChange);
         varianceCheckbox.__scatterVarianceAxesHandler = onChange;
+      }
+      if(equalScaleItem && equalScaleItem.parentNode === menu){
+        menu.appendChild(equalScaleItem);
+      }
+      if(equalLengthItem && equalLengthItem.parentNode === menu){
+        menu.appendChild(equalLengthItem);
+      }
+      if(varianceItem && varianceItem.parentNode === menu){
+        menu.appendChild(varianceItem);
       }
     }
     syncScatterAspectControls('axes-length-ensure');
@@ -7011,24 +7118,148 @@
             dataMax: dataBounds.zMax,
             targetTickCount: tickTarget3d
           });
-          const axisRanges3d = {
+          let axisRanges3d = {
             x: { min: Number.isFinite(xScale3d.min) ? xScale3d.min : dataBounds.xMin, max: Number.isFinite(xScale3d.max) ? xScale3d.max : dataBounds.xMax },
             y: { min: Number.isFinite(yScale3d.min) ? yScale3d.min : dataBounds.yMin, max: Number.isFinite(yScale3d.max) ? yScale3d.max : dataBounds.yMax },
             z: { min: Number.isFinite(zScale3d.min) ? zScale3d.min : dataBounds.zMin, max: Number.isFinite(zScale3d.max) ? zScale3d.max : dataBounds.zMax }
           };
+          const axisTicksOriginal3d = {
+            x: Array.isArray(xScale3d.ticks) ? xScale3d.ticks : [],
+            y: Array.isArray(yScale3d.ticks) ? yScale3d.ticks : [],
+            z: Array.isArray(zScale3d.ticks) ? zScale3d.ticks : []
+          };
+          let axisTicks3d = axisTicksOriginal3d;
+          let renderAxisRanges3d = axisRanges3d;
+          let renderPoints3d = points3dInRange;
+          let axisTickFormatters3d = null;
+          const equalScale3d = !!scatterState.equalScaleAxes;
+          const equalLength3d = !!scatterState.equalAxes;
+          if(equalScale3d){
+            const axisCenters3d = {
+              x: (axisRanges3d.x.min + axisRanges3d.x.max) / 2,
+              y: (axisRanges3d.y.min + axisRanges3d.y.max) / 2,
+              z: (axisRanges3d.z.min + axisRanges3d.z.max) / 2
+            };
+            const axisSpans3d = {
+              x: axisRanges3d.x.max - axisRanges3d.x.min,
+              y: axisRanges3d.y.max - axisRanges3d.y.min,
+              z: axisRanges3d.z.max - axisRanges3d.z.min
+            };
+            const maxSpan = Math.max(axisSpans3d.x, axisSpans3d.y, axisSpans3d.z, 1);
+            if(Number.isFinite(maxSpan) && maxSpan > 0){
+              const halfSpan = maxSpan / 2;
+              axisRanges3d = {
+                x: { min: axisCenters3d.x - halfSpan, max: axisCenters3d.x + halfSpan },
+                y: { min: axisCenters3d.y - halfSpan, max: axisCenters3d.y + halfSpan },
+                z: { min: axisCenters3d.z - halfSpan, max: axisCenters3d.z + halfSpan }
+              };
+              renderAxisRanges3d = axisRanges3d;
+              const xTicksScale3d = buildScatterScale({
+                dataMin: axisRanges3d.x.min,
+                dataMax: axisRanges3d.x.max,
+                manualMin: axisRanges3d.x.min,
+                manualMax: axisRanges3d.x.max,
+                targetTickCount: tickTarget3d
+              });
+              const yTicksScale3d = buildScatterScale({
+                dataMin: axisRanges3d.y.min,
+                dataMax: axisRanges3d.y.max,
+                manualMin: axisRanges3d.y.min,
+                manualMax: axisRanges3d.y.max,
+                targetTickCount: tickTarget3d
+              });
+              const zTicksScale3d = buildScatterScale({
+                dataMin: axisRanges3d.z.min,
+                dataMax: axisRanges3d.z.max,
+                manualMin: axisRanges3d.z.min,
+                manualMax: axisRanges3d.z.max,
+                targetTickCount: tickTarget3d
+              });
+              axisTicks3d = {
+                x: Array.isArray(xTicksScale3d.ticks) ? xTicksScale3d.ticks : [],
+                y: Array.isArray(yTicksScale3d.ticks) ? yTicksScale3d.ticks : [],
+                z: Array.isArray(zTicksScale3d.ticks) ? zTicksScale3d.ticks : []
+              };
+              scatterDebug('Debug: scatter 3d equal scale applied', {
+                maxSpan,
+                axisRanges: axisRanges3d
+              });
+            }else{
+              scatterDebug('Debug: scatter 3d equal scale skipped', { maxSpan, axisSpans: axisSpans3d });
+            }
+          }else if(equalLength3d){
+            const axisCenters3d = {
+              x: (axisRanges3d.x.min + axisRanges3d.x.max) / 2,
+              y: (axisRanges3d.y.min + axisRanges3d.y.max) / 2,
+              z: (axisRanges3d.z.min + axisRanges3d.z.max) / 2
+            };
+            const axisSpans3d = {
+              x: axisRanges3d.x.max - axisRanges3d.x.min,
+              y: axisRanges3d.y.max - axisRanges3d.y.min,
+              z: axisRanges3d.z.max - axisRanges3d.z.min
+            };
+            const maxSpan = Math.max(axisSpans3d.x, axisSpans3d.y, axisSpans3d.z, 1);
+            const scaleFactors = {
+              x: axisSpans3d.x > 0 ? (maxSpan / axisSpans3d.x) : 1,
+              y: axisSpans3d.y > 0 ? (maxSpan / axisSpans3d.y) : 1,
+              z: axisSpans3d.z > 0 ? (maxSpan / axisSpans3d.z) : 1
+            };
+            const scaleValue = (axisKey, value) => axisCenters3d[axisKey] + (value - axisCenters3d[axisKey]) * scaleFactors[axisKey];
+            const unscaleValue = (axisKey, value) => axisCenters3d[axisKey] + (value - axisCenters3d[axisKey]) / (scaleFactors[axisKey] || 1);
+            renderAxisRanges3d = {
+              x: { min: scaleValue('x', axisRanges3d.x.min), max: scaleValue('x', axisRanges3d.x.max) },
+              y: { min: scaleValue('y', axisRanges3d.y.min), max: scaleValue('y', axisRanges3d.y.max) },
+              z: { min: scaleValue('z', axisRanges3d.z.min), max: scaleValue('z', axisRanges3d.z.max) }
+            };
+            axisTicks3d = {
+              x: axisTicksOriginal3d.x.map(value => scaleValue('x', value)),
+              y: axisTicksOriginal3d.y.map(value => scaleValue('y', value)),
+              z: axisTicksOriginal3d.z.map(value => scaleValue('z', value))
+            };
+            const formatTick = (axisKey, scaledValue) => {
+              const originalValue = unscaleValue(axisKey, scaledValue);
+              if(typeof chartStyle.formatAxisValue === 'function'){
+                return chartStyle.formatAxisValue(originalValue, { maxDecimals: 2 });
+              }
+              if(typeof chartStyle.formatScientific === 'function'){
+                return chartStyle.formatScientific(originalValue, { maxDecimals: 2 });
+              }
+              if(!Number.isFinite(originalValue)){
+                return '';
+              }
+              return String(originalValue);
+            };
+            axisTickFormatters3d = {
+              x: value => formatTick('x', value),
+              y: value => formatTick('y', value),
+              z: value => formatTick('z', value)
+            };
+            renderPoints3d = points3dInRange.map(pt => ({
+              ...pt,
+              x: scaleValue('x', pt.x),
+              y: scaleValue('y', pt.y),
+              z: scaleValue('z', pt.z)
+            }));
+            scatterDebug('Debug: scatter 3d equal length applied', {
+              maxSpan,
+              axisRanges: axisRanges3d,
+              renderAxisRanges: renderAxisRanges3d,
+              scaleFactors
+            });
+          }
           const allCorners = [
-            { x: axisRanges3d.x.min, y: axisRanges3d.y.min, z: axisRanges3d.z.min },
-            { x: axisRanges3d.x.max, y: axisRanges3d.y.min, z: axisRanges3d.z.min },
-            { x: axisRanges3d.x.min, y: axisRanges3d.y.max, z: axisRanges3d.z.min },
-            { x: axisRanges3d.x.max, y: axisRanges3d.y.max, z: axisRanges3d.z.min },
-            { x: axisRanges3d.x.min, y: axisRanges3d.y.min, z: axisRanges3d.z.max },
-            { x: axisRanges3d.x.max, y: axisRanges3d.y.min, z: axisRanges3d.z.max },
-            { x: axisRanges3d.x.min, y: axisRanges3d.y.max, z: axisRanges3d.z.max },
-            { x: axisRanges3d.x.max, y: axisRanges3d.y.max, z: axisRanges3d.z.max }
+            { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.min },
+            { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.min },
+            { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.min },
+            { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.min },
+            { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.max },
+            { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.max },
+            { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.max },
+            { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.max }
           ];
           const rotatePoint = (pt) => plot3d.rotatePoint(pt, scatterState.rotation);
           const rotatedCorners = allCorners.map(corner => rotatePoint(corner));
-          const rotatedPoints = points3dInRange.map(pt => rotatePoint(pt));
+          const rotatedPoints = renderPoints3d.map(pt => rotatePoint(pt));
           const projector = plot3d.createProjector({
             rotatedPoints,
             rotatedCorners,
@@ -7051,10 +7282,11 @@
           if(labelHull3d && labelHull3d.length >= 3){
             scatterDebug('Debug: scatter 3d label hull resolved', { points: labelHull3d.length });
           }
-          const projectedPoints = points3dInRange.map((pt, idx) => {
+          const projectedPoints = renderPoints3d.map((pt, idx) => {
             const rotated = rotatedPoints[idx];
             const projected = projector.project(rotated);
-            return { original: pt, rotated, projected };
+            const original = points3dInRange[idx];
+            return { original, rotated, projected };
           });
           const sortedPoints = projectedPoints.map((entry, idx) => {
             const pt = entry.original;
@@ -7075,16 +7307,11 @@
             svg3.appendChild(el);
             return el;
           };
-          const axisTicks3d = {
-            x: Array.isArray(xScale3d.ticks) ? xScale3d.ticks : [],
-            y: Array.isArray(yScale3d.ticks) ? yScale3d.ticks : [],
-            z: Array.isArray(zScale3d.ticks) ? zScale3d.ticks : []
-          };
           plot3d.renderAxesAndGrid({
             svg: svg3,
             project: projector.project,
             rotatePoint,
-            axisRanges: axisRanges3d,
+            axisRanges: renderAxisRanges3d,
             axisTicks: axisTicks3d,
             axisLabels: { x: scatterXLabelText, y: scatterYLabelText, z: scatterZLabelText },
             fontSize: fs,
@@ -7092,6 +7319,7 @@
             chartStyle,
             showGrid,
             showFrame,
+            axisTickFormatters: axisTickFormatters3d || undefined,
             debugLabel: 'scatter-3d',
             onAxisLabel: (node, axisKey) => {
               if(!node){ return; }
@@ -7417,22 +7645,43 @@
         } else {
           debug('Debug: scatter fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
         }
-        const xMinT=logX?Math.log10(xMin):xMin;
-        const xMaxT=logX?Math.log10(xMax):xMax;
-        const yMinT=logY?Math.log10(yMin):yMin;
-        const yMaxT=logY?Math.log10(yMax):yMax;
-        const manualXMinValue=Number.isFinite(xMinManual) && (!logX || xMinManual > 0)
+        let xMinT=logX?Math.log10(xMin):xMin;
+        let xMaxT=logX?Math.log10(xMax):xMax;
+        let yMinT=logY?Math.log10(yMin):yMin;
+        let yMaxT=logY?Math.log10(yMax):yMax;
+        let manualXMinValue=Number.isFinite(xMinManual) && (!logX || xMinManual > 0)
           ? (logX ? Math.log10(xMinManual) : xMinManual)
           : null;
-        const manualXMaxValue=Number.isFinite(xMaxManual) && (!logX || xMaxManual > 0)
+        let manualXMaxValue=Number.isFinite(xMaxManual) && (!logX || xMaxManual > 0)
           ? (logX ? Math.log10(xMaxManual) : xMaxManual)
           : null;
-        const manualYMinValue=Number.isFinite(yMinManual) && (!logY || yMinManual > 0)
+        let manualYMinValue=Number.isFinite(yMinManual) && (!logY || yMinManual > 0)
           ? (logY ? Math.log10(yMinManual) : yMinManual)
           : null;
-        const manualYMaxValue=Number.isFinite(yMaxManual) && (!logY || yMaxManual > 0)
+        let manualYMaxValue=Number.isFinite(yMaxManual) && (!logY || yMaxManual > 0)
           ? (logY ? Math.log10(yMaxManual) : yMaxManual)
           : null;
+        const shouldEqualScale = !!scatterState.equalScaleAxes;
+        if(shouldEqualScale){
+          const spanX = Number.isFinite(xMaxT) && Number.isFinite(xMinT) ? (xMaxT - xMinT) : NaN;
+          const spanY = Number.isFinite(yMaxT) && Number.isFinite(yMinT) ? (yMaxT - yMinT) : NaN;
+          if(Number.isFinite(spanX) && Number.isFinite(spanY) && spanX > 0 && spanY > 0){
+            const maxSpan = Math.max(spanX, spanY);
+            const centerX = (xMaxT + xMinT) / 2;
+            const centerY = (yMaxT + yMinT) / 2;
+            xMinT = centerX - maxSpan / 2;
+            xMaxT = centerX + maxSpan / 2;
+            yMinT = centerY - maxSpan / 2;
+            yMaxT = centerY + maxSpan / 2;
+            manualXMinValue = null;
+            manualXMaxValue = null;
+            manualYMinValue = null;
+            manualYMaxValue = null;
+            debug('Debug: scatter equal scale ranges applied',{ spanX, spanY, maxSpan, xMinT, xMaxT, yMinT, yMaxT });
+          }else{
+            debug('Debug: scatter equal scale ranges skipped',{ spanX, spanY });
+          }
+        }
         const tickBaseSpacing=Math.max(48,Math.round(fs*3.2));
         const xTickEstimateOptions={axis:'x',fallback:6,baseSpacing:tickBaseSpacing,min:4};
         const yTickEstimateOptions={axis:'y',fallback:6,baseSpacing:tickBaseSpacing,min:4};
@@ -7584,6 +7833,7 @@
         const shouldEqualAxes = !!scatterState.equalAxes;
         debug('Debug: scatter aspect ratio decision',{
           shouldEqualAxes,
+          shouldEqualScale,
           varianceAxesEnabled: !!scatterState.axesVarianceScaled,
           lockRatioEnabled: shouldLockAspect,
           storedRatio: aspectData?.resizerAspectRatio
@@ -7616,12 +7866,12 @@
           }
         }
         if(!varianceAspectApplied){
-          if(shouldEqualAxes){
+          if(shouldEqualAxes || shouldEqualScale){
             const square=chartStyle.ensureSquarePlot(W,H,margin);
             margin=square.margin;
             plotW=square.plotW;
             plotH=square.plotH;
-            debug('Debug: scatter layout (equal-axes)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter square enforcement branch
+            debug('Debug: scatter layout (equal-length)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter square enforcement branch
           }else{
             debug('Debug: scatter layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: scatter free resize branch
           }
@@ -8806,6 +9056,7 @@
             showFrame:scatterShowFrame.checked,
             showLegend:scatterShowLegend ? scatterShowLegend.checked : true,
             equalAxes: scatterState.equalAxes,
+            equalScaleAxes: scatterState.equalScaleAxes,
             axesVarianceScaled: scatterState.axesVarianceScaled,
             logX:scatterLogX.checked,
             logY:scatterLogY.checked,
@@ -8987,12 +9238,19 @@
         if(typeof c.equalAxes === 'boolean'){
           scatterState.equalAxes = c.equalAxes;
         }
+        if(typeof c.equalScaleAxes === 'boolean'){
+          scatterState.equalScaleAxes = c.equalScaleAxes;
+        }
         if(typeof c.axesVarianceScaled === 'boolean'){
           scatterState.axesVarianceScaled = c.axesVarianceScaled;
         }
-        if(scatterState.equalAxes && scatterState.axesVarianceScaled){
+        if(scatterState.equalScaleAxes){
+          scatterState.equalAxes = false;
           scatterState.axesVarianceScaled = false;
-          console.debug('Debug: scatter axes length payload exclusivity enforced',{ kept: 'equal-axes' });
+          console.debug('Debug: scatter axes length payload exclusivity enforced',{ kept: 'equal-scale' });
+        }else if(scatterState.axesVarianceScaled && scatterState.equalAxes){
+          scatterState.equalAxes = false;
+          console.debug('Debug: scatter axes length payload exclusivity enforced',{ kept: 'variance' });
         }
         scatterLogX.checked=!!c.logX;
         scatterLogY.checked=!!c.logY;
