@@ -5887,6 +5887,20 @@
         if(isEditableTarget(event.target)){
           return;
         }
+        const targetNode = event?.target && event.target.nodeType === 1 ? event.target : null;
+        if(targetNode && !container.contains(targetNode)){
+          const activeEl = doc?.activeElement && doc.activeElement.nodeType === 1 ? doc.activeElement : null;
+          if(!activeEl || !container.contains(activeEl)){
+            if(typeof Shared?.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+              console.debug('Debug: hot.handlePaste ignored (outside container)', {
+                debugLabel,
+                target: targetNode?.tagName || null,
+                activeTag: activeEl?.tagName || null
+              });
+            }
+            return;
+          }
+        }
         let selection = normalizedSelectionRange || normalizeRange(lastRange);
         if(!selection){
           const coords = resolveCellCoords(event);
