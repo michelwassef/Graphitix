@@ -1326,7 +1326,18 @@
       spanCandidates.push(Math.abs(normalizedDataMax - normalizedDataMin));
     }
     spanCandidates.push(Math.abs(requiredUpper - requiredLower));
-    const span = Math.max(...spanCandidates.filter(v => Number.isFinite(v) && v > 0), 1);
+    const spanValues = spanCandidates.filter(v => Number.isFinite(v) && v > 0);
+    const span = spanValues.length ? Math.max(...spanValues) : 1;
+    if(!spanValues.length){
+      axisTicksDebug('Debug: chartStyle.axisTicks span fallback',{
+        dataMin,
+        dataMax,
+        manualMin: manualMinFinite ? normalizedManualMin : null,
+        manualMax: manualMaxFinite ? normalizedManualMax : null,
+        requiredLower,
+        requiredUpper
+      });
+    }
     const manualSpan = manualMinFinite && manualMaxFinite
       ? Math.abs(normalizedManualMax - normalizedManualMin)
       : NaN;
