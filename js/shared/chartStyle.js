@@ -1465,6 +1465,28 @@
     const fallbackMax = Number.isFinite(options?.fallbackMax) ? options.fallbackMax : null;
     let resolvedMin = Number.isFinite(scale.min) ? scale.min : fallbackMin;
     let resolvedMax = Number.isFinite(scale.max) ? scale.max : fallbackMax;
+    const autoRangeSource = { min: 'scale', max: 'scale' };
+    if(manualMin === null && Number.isFinite(fallbackMin)){
+      resolvedMin = fallbackMin;
+      autoRangeSource.min = 'fallback';
+    }
+    if(manualMax === null && Number.isFinite(fallbackMax)){
+      resolvedMax = fallbackMax;
+      autoRangeSource.max = 'fallback';
+    }
+    if((autoRangeSource.min !== 'scale' || autoRangeSource.max !== 'scale') && (fallbackMin !== null || fallbackMax !== null)){
+      axisTicksDebug('Debug: chartStyle.axisTicks log range source',{
+        resolvedMin,
+        resolvedMax,
+        fallbackMin,
+        fallbackMax,
+        scaleMin: Number.isFinite(scale.min) ? scale.min : null,
+        scaleMax: Number.isFinite(scale.max) ? scale.max : null,
+        manualMinApplied: manualMin !== null,
+        manualMaxApplied: manualMax !== null,
+        source: autoRangeSource
+      });
+    }
     if(!Number.isFinite(resolvedMin) || !Number.isFinite(resolvedMax) || resolvedMin >= resolvedMax){
       return false;
     }

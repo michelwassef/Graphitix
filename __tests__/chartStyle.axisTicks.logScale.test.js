@@ -55,4 +55,19 @@ describe('chartStyle.axisTicks.applyLogTicks', () => {
     expect(scale.min).toBe(0.3);
     expect(scale.max).toBe(0.6);
   });
+
+  test('aligns to fallback range when auto scale is wider than data', () => {
+    const { chartStyle } = window.Shared;
+    const axisTicks = chartStyle.axisTicks;
+    const scale = { min: -5, max: 0, ticks: [], step: 1 };
+    const applied = axisTicks.applyLogTicks(scale, {
+      fallbackMin: -3.2,
+      fallbackMax: -1.1
+    });
+    expect(applied).toBe(true);
+    expect(scale.min).toBe(-4);
+    expect(scale.max).toBe(-1);
+    expect(scale.ticks).toEqual([-4, -3, -2, -1]);
+    expect(scale.step).toBe(1);
+  });
 });
