@@ -2116,6 +2116,25 @@
     };
   }
 
+  function resolvePdfPaintColor(value, componentOpacity, overallOpacity, currentColor) {
+    if (!value || value === 'none' || value === 'transparent') {
+      return null;
+    }
+    const resolvedValue = value === 'currentColor' ? currentColor : value;
+    if (!resolvedValue || resolvedValue === 'none') {
+      return null;
+    }
+    const parsed = parseCssColor(resolvedValue);
+    if (!parsed) {
+      return null;
+    }
+    const alpha = ((parsed.a ?? 255) / 255) * (componentOpacity ?? 1) * (overallOpacity ?? 1);
+    if (alpha <= 0) {
+      return null;
+    }
+    return { r: parsed.r, g: parsed.g, b: parsed.b, alpha };
+  }
+
   function encodeColorRef(color) {
     return (color.b << 16) | (color.g << 8) | color.r;
   }
@@ -3946,6 +3965,254 @@
     }
   }
 
+  function escapePdfString(text) {
+    return String(text ?? '')
+      .replace(/\\/g, '\\\\')
+      .replace(/\(/g, '\\(')
+      .replace(/\)/g, '\\)');
+  }
+
+  function normalizePdfFontKey(weight, style) {
+    const weightValue = normalizeFontWeight(weight);
+    const isBold = weightValue >= 600;
+    const isItalic = String(style || '').toLowerCase() === 'italic' || String(style || '').toLowerCase() === 'oblique';
+    if (isBold && isItalic) return 'F4';
+    if (isBold) return 'F2';
+    if (isItalic) return 'F3';
+    return 'F1';
+  }
+
+  function toPdfColor(color) {
+    if (!color) return null;
+    return `${formatPdfNumber((color.r || 0) / 255)} ${formatPdfNumber((color.g || 0) / 255)} ${formatPdfNumber((color.b || 0) / 255)}`;
+  }
+
+  function vectorSceneToPdfBlob(scene, options = {}) {
+    if (!scene || !Array.isArray(scene.shapes) || !scene.width || !scene.height) {
+      return null;
+    }
+    const dpiX = resolveDpiValue(options.dpiX || options.dpi);
+    const dpiY = resolveDpiValue(options.dpiY || options.dpi);
+    const scaleX = 72 / dpiX;
+    const scaleY = 72 / dpiY;
+    const pageWidthPt = scene.width * scaleX;
+    const pageHeightPt = scene.height * scaleY;
+    const gStateMap = new Map();
+    const registerGState = (fillAlpha, strokeAlpha) => {
+      const fa = Number.isFinite(fillAlpha) ? Math.max(0, Math.min(1, fillAlpha)) : 1;
+      const sa = Number.isFinite(strokeAlpha) ? Math.max(0, Math.min(1, strokeAlpha)) : 1;
+      if (fa >= 0.999 && sa >= 0.999) {
+        return null;
+      }
+      const key = `${fa.toFixed(3)}|${sa.toFixed(3)}`;
+      if (!gStateMap.has(key)) {
+        const name = `GS${gStateMap.size + 1}`;
+        gStateMap.set(key, { fillAlpha: fa, strokeAlpha: sa, name });
+      }
+      return gStateMap.get(key).name;
+    };
+    const encoder = typeof global.TextEncoder === 'function' ? new global.TextEncoder() : null;
+    const encode = text => encoder
+      ? encoder.encode(text)
+      : new Uint8Array(Array.from(text, ch => ch.charCodeAt(0) & 0xFF));
+    const content = [];
+    const push = line => { content.push(line); };
+    const convertX = x => x * scaleX;
+    const convertY = y => (scene.height - y) * scaleY;
+    const strokeScale = (scaleX + scaleY) / 2;
+
+    for (const shape of scene.shapes) {
+      if (shape.type === 'path') {
+        const fillPaint = resolvePdfPaintColor(shape.fill, shape.fillOpacity, shape.opacity, shape.color);
+        const strokePaint = resolvePdfPaintColor(shape.stroke, shape.strokeOpacity, shape.opacity, shape.color);
+        const hasFill = !!fillPaint;
+        const hasStroke = !!strokePaint && shape.strokeWidth > 0;
+        if (!hasFill && !hasStroke) {
+          continue;
+        }
+        const gKey = registerGState(fillPaint?.alpha ?? 1, strokePaint?.alpha ?? 1);
+        push('q');
+        if (gKey) {
+          push(`/${gKey} gs`);
+        }
+        if (hasFill) {
+          const fillColor = toPdfColor(fillPaint);
+          if (fillColor) push(`${fillColor} rg`);
+        }
+        if (hasStroke) {
+          const strokeColor = toPdfColor(strokePaint);
+          if (strokeColor) push(`${strokeColor} RG`);
+          const width = Math.max(0.001, shape.strokeWidth * strokeScale);
+          push(`${formatPdfNumber(width)} w`);
+          if (shape.strokeLinecap) {
+            const cap = shape.strokeLinecap === 'round' ? 1 : (shape.strokeLinecap === 'square' ? 2 : 0);
+            push(`${cap} J`);
+          }
+          if (shape.strokeLinejoin) {
+            const join = shape.strokeLinejoin === 'round' ? 1 : (shape.strokeLinejoin === 'bevel' ? 2 : 0);
+            push(`${join} j`);
+          }
+          if (Number.isFinite(shape.strokeMiterlimit)) {
+            push(`${formatPdfNumber(shape.strokeMiterlimit)} M`);
+          }
+          if (shape.strokeDasharray && shape.strokeDasharray.length) {
+            const dash = shape.strokeDasharray.map(v => formatPdfNumber(v * strokeScale)).join(' ');
+            const dashOffset = Number.isFinite(shape.strokeDashoffset) ? shape.strokeDashoffset * strokeScale : 0;
+            push(`[${dash}] ${formatPdfNumber(dashOffset)} d`);
+          }
+        }
+        for (const sub of shape.subpaths || []) {
+          const pts = sub.points || [];
+          if (pts.length < 2) continue;
+          const first = pts[0];
+          push(`${formatPdfNumber(convertX(first.x))} ${formatPdfNumber(convertY(first.y))} m`);
+          for (let i = 1; i < pts.length; i += 1) {
+            const p = pts[i];
+            push(`${formatPdfNumber(convertX(p.x))} ${formatPdfNumber(convertY(p.y))} l`);
+          }
+          if (sub.closed) {
+            push('h');
+          }
+        }
+        if (hasFill && hasStroke) {
+          push('B');
+        } else if (hasFill) {
+          push(shape.fillRule === 'evenodd' ? 'f*' : 'f');
+        } else if (hasStroke) {
+          push('S');
+        }
+        push('Q');
+      } else if (shape.type === 'text') {
+        const fillPaint = resolvePdfPaintColor(shape.fill, shape.fillOpacity, shape.opacity, shape.color);
+        if (!fillPaint) {
+          continue;
+        }
+        const gKey = registerGState(fillPaint.alpha ?? 1, 1);
+        const fontKey = normalizePdfFontKey(shape.fontWeight, shape.fontStyle);
+        const fontScale = Math.abs(shape.scaleY || shape.scaleX || 1);
+        const fontSizePt = Math.max(1, shape.fontSize * fontScale * scaleY);
+        const angle = -(shape.rotation || 0);
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const posX = convertX(shape.position?.x || 0);
+        const posY = convertY(shape.position?.y || 0);
+        push('q');
+        if (gKey) {
+          push(`/${gKey} gs`);
+        }
+        const fillColor = toPdfColor(fillPaint);
+        if (fillColor) push(`${fillColor} rg`);
+        push('BT');
+        push(`/${fontKey} ${formatPdfNumber(fontSizePt)} Tf`);
+        push(`${formatPdfNumber(cos)} ${formatPdfNumber(sin)} ${formatPdfNumber(-sin)} ${formatPdfNumber(cos)} ${formatPdfNumber(posX)} ${formatPdfNumber(posY)} Tm`);
+        push(`(${escapePdfString(shape.text)}) Tj`);
+        push('ET');
+        push('Q');
+      }
+    }
+
+    const contentString = content.join('\n');
+    const contentBytes = encode(contentString);
+    const parts = [];
+    const offsets = [0];
+    let offset = 0;
+    const pushText = text => {
+      const bytes = encode(text);
+      parts.push(bytes);
+      offset += bytes.length;
+    };
+    const pushBytes = bytes => {
+      parts.push(bytes);
+      offset += bytes.length;
+    };
+    const startObj = id => {
+      offsets[id] = offset;
+      pushText(`${id} 0 obj\n`);
+    };
+    const endObj = () => pushText('\nendobj\n');
+
+    pushText('%PDF-1.4\n');
+
+    startObj(1);
+    pushText('<< /Type /Catalog /Pages 2 0 R >>');
+    endObj();
+
+    startObj(2);
+    pushText('<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+    endObj();
+
+    const fontObjects = [
+      { key: 'F1', base: 'Helvetica' },
+      { key: 'F2', base: 'Helvetica-Bold' },
+      { key: 'F3', base: 'Helvetica-Oblique' },
+      { key: 'F4', base: 'Helvetica-BoldOblique' }
+    ];
+    const fontIds = {};
+    let nextId = 5;
+    fontObjects.forEach(font => {
+      const id = nextId;
+      fontIds[font.key] = id;
+      startObj(id);
+      pushText(`<< /Type /Font /Subtype /Type1 /BaseFont /${font.base} >>`);
+      endObj();
+      nextId += 1;
+    });
+
+    const gStateIds = {};
+    const gStateKeys = Array.from(gStateMap.keys());
+    gStateKeys.forEach(key => {
+      const id = nextId;
+      const entry = gStateMap.get(key);
+      gStateIds[entry.name] = id;
+      startObj(id);
+      pushText(`<< /Type /ExtGState /CA ${formatPdfNumber(entry.strokeAlpha)} /ca ${formatPdfNumber(entry.fillAlpha)} >>`);
+      endObj();
+      nextId += 1;
+    });
+
+    const resourceLines = [];
+    resourceLines.push('<< /Font <<');
+    fontObjects.forEach(font => {
+      resourceLines.push(`/${font.key} ${fontIds[font.key]} 0 R`);
+    });
+    resourceLines.push('>>');
+    if (gStateKeys.length) {
+      resourceLines.push('/ExtGState <<');
+      gStateKeys.forEach(key => {
+        const entry = gStateMap.get(key);
+        resourceLines.push(`/${entry.name} ${gStateIds[entry.name]} 0 R`);
+      });
+      resourceLines.push('>>');
+    }
+    resourceLines.push('>>');
+
+    startObj(3);
+    pushText(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${formatPdfNumber(pageWidthPt)} ${formatPdfNumber(pageHeightPt)}] /Resources ${resourceLines.join(' ')} /Contents 4 0 R >>`);
+    endObj();
+
+    startObj(4);
+    pushText(`<< /Length ${contentBytes.length} >>\nstream\n`);
+    pushBytes(contentBytes);
+    pushText('\nendstream');
+    endObj();
+
+    const xrefOffset = offset;
+    pushText(`xref\n0 ${nextId}\n`);
+    pushText('0000000000 65535 f \n');
+    for (let i = 1; i < nextId; i += 1) {
+      const off = String(offsets[i] || 0).padStart(10, '0');
+      pushText(`${off} 00000 n \n`);
+    }
+    pushText(`trailer\n<< /Size ${nextId} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`);
+    const pdfBytes = concatUint8Arrays(parts);
+    try {
+      return new Blob([pdfBytes], { type: PDF_MIME_TYPE });
+    } catch (err) {
+      console.error('exporter vectorSceneToPdfBlob blob error', err);
+      return null;
+    }
+  }
+
   async function canvasToJpegBlob(canvas, options = {}) {
     if (!canvas || typeof canvas.getContext !== 'function') {
       return null;
@@ -4196,6 +4463,15 @@
   }
 
   async function svgStringToPdfBlob(xml, options = {}) {
+    const scene = buildVectorSceneFromSvg(xml, options);
+    if (scene) {
+      const vectorBlob = vectorSceneToPdfBlob(scene, options);
+      if (vectorBlob) {
+        debugLog('svgStringToPdfBlob vector', { width: scene.width, height: scene.height });
+        return vectorBlob;
+      }
+      debugLog('svgStringToPdfBlob vector fallback', { reason: 'vector blob unavailable' });
+    }
     const rendered = await renderSvgStringToCanvas(xml, options);
     if (!rendered) {
       return null;
