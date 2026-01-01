@@ -3452,6 +3452,8 @@
         try {
           // Your existing normalization
           prepStats = prepareSvgForExport(node, contextLabel, { displayDimensions }) || null;
+          // Group all drawable children so paste into Inkscape keeps consistent stroke widths
+          const grp = groupNodeForPaste(node, { enabled: Shared?.exporter?.GROUP_FOR_PASTE ?? true });
           if (shouldExpandExportViewBox(node)) {
             const bboxTarget = resolveExportBBoxTarget(node);
             const exportViewBox = measureExportViewBox(node, { padding: resolveExportViewBoxPadding(), contextLabel, bboxTarget });
@@ -3460,8 +3462,6 @@
               debugLog('svgToXml export viewBox applied', { contextLabel, viewBox: exportViewBox });
             }
           }
-          // NEW - group all drawable children so paste into Inkscape keeps consistent stroke widths
-          const grp = groupNodeForPaste(node, { enabled: Shared?.exporter?.GROUP_FOR_PASTE ?? true });
           logDebug('svgToXml group-for-paste', { contextLabel, grouped: grp.grouped, moved: grp.moved });
         } catch (prepErr) {
           console.error('exporter svgToXml prepare error', prepErr);
