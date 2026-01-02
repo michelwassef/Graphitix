@@ -5806,6 +5806,17 @@
           return;
         }
         const normalizedKey = typeof key === 'string' ? key.toLowerCase() : '';
+        if(normalizedKey === 'a'){
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          event.stopImmediatePropagation?.();
+          const lastRow = Math.max(0, getVisualRowCount() - 1);
+          const lastCol = Math.max(0, colCount - 1);
+          setLastRange({ from: { row: 0, col: 0 }, to: { row: lastRow, col: lastCol } });
+          renderAg(instance.gridApi);
+          fireHook('afterSelectionEnd', 0, 0, lastRow, lastCol);
+          return;
+        }
         if(normalizedKey === 'c'){
           event.preventDefault?.();
           event.stopPropagation?.();
