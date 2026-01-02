@@ -143,7 +143,10 @@
       y: LINE_3D_DEFAULTS.rotationY
     }),
     rotationPending: false,
-    rotationPendingLogged: false
+    rotationPendingLogged: false,
+    axesVarianceScaled: false,
+    equalAxes: true,
+    equalScaleAxes: false
   };
   if(typeof plot3d.normalizeRotation === 'function'){
     plot3d.normalizeRotation(lineViewState.rotation);
@@ -179,6 +182,13 @@
   let lineLabelColors = {};
   let lineLabelPositions = { title: null, xLabel: null, yLabel: null, legend: null };
   let lineLegendControl = null;
+  let lineSvgBoxRef = null;
+  let lineLockRatioInput = null;
+  let lineEqualAxesInput = null;
+  let lineEqualScaleAxesInput = null;
+  let lineVarianceAxisScaleInput = null;
+  let lineAxesLengthLockRatioPrevious = null;
+  let lineAspectSyncing = false;
   let lineLogPlusOneX = false;
   let lineLogPlusOneY = false;
   let lineLast2dDisplayMode = 'line';
@@ -624,6 +634,90 @@
     console.debug('Debug: line legend guard width applied',{ requestedWidth: normalized, appliedWidth: effectiveWidth, cap: guardCap });
   }
 
+  function getLineLockRatioCheckbox(){
+    if(lineLockRatioInput && lineLockRatioInput.isConnected){
+      return lineLockRatioInput;
+    }
+    const svgBox = lineSvgBoxRef || refs.svgBox;
+    if(!svgBox){
+      return null;
+    }
+    const checkbox = svgBox.querySelector('.resizer-aspect-checkbox');
+    if(checkbox){
+      lineLockRatioInput = checkbox;
+    }
+    return checkbox;
+  }
+
+  function syncLineAspectControls(reason){
+    if(lineAspectSyncing){
+      return;
+    }
+    lineAspectSyncing = true;
+    try{
+      const equalAxesEnabled = !!lineViewState.equalAxes;
+      const equalScaleEnabled = !!lineViewState.equalScaleAxes;
+      const varianceAxesEnabled = !!lineViewState.axesVarianceScaled;
+      const viewModeValue = refs.viewMode?.value || lineViewState.viewMode || '2d';
+      const replicateModeValue = refs.replicateMode?.value;
+      const is3dView = String(viewModeValue).toLowerCase() === '3d' || String(replicateModeValue).toLowerCase() === '3d';
+      const enforceLockRatio = equalAxesEnabled || equalScaleEnabled || varianceAxesEnabled || is3dView;
+      if(lineEqualAxesInput && lineEqualAxesInput.checked !== equalAxesEnabled){
+        lineEqualAxesInput.checked = equalAxesEnabled;
+      }
+      if(lineEqualScaleAxesInput && lineEqualScaleAxesInput.checked !== equalScaleEnabled){
+        lineEqualScaleAxesInput.checked = equalScaleEnabled;
+      }
+      if(lineVarianceAxisScaleInput && lineVarianceAxisScaleInput.checked !== varianceAxesEnabled){
+        lineVarianceAxisScaleInput.checked = varianceAxesEnabled;
+      }
+      const lockRatioCheckbox = getLineLockRatioCheckbox();
+      if(lockRatioCheckbox){
+        const lockLabel = lockRatioCheckbox.closest('label');
+        if(enforceLockRatio){
+          if(lineAxesLengthLockRatioPrevious === null){
+            lineAxesLengthLockRatioPrevious = !!lockRatioCheckbox.checked;
+          }
+          if(!lockRatioCheckbox.checked){
+            lockRatioCheckbox.checked = true;
+            lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          lockRatioCheckbox.disabled = true;
+          if(lockLabel){
+            if(!lockLabel.__lineOriginalTitle){
+              lockLabel.__lineOriginalTitle = lockLabel.title || '';
+            }
+            lockLabel.title = 'Locked while axes length is constrained';
+          }
+        }else{
+          lockRatioCheckbox.disabled = false;
+          if(lockLabel && lockLabel.__lineOriginalTitle !== undefined){
+            lockLabel.title = lockLabel.__lineOriginalTitle;
+            delete lockLabel.__lineOriginalTitle;
+          }
+          if(lineAxesLengthLockRatioPrevious !== null){
+            const restoreValue = lineAxesLengthLockRatioPrevious;
+            lineAxesLengthLockRatioPrevious = null;
+            if(lockRatioCheckbox.checked !== restoreValue){
+              lockRatioCheckbox.checked = restoreValue;
+              lockRatioCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }
+        }
+      }
+      lineDebug('Debug: line axes length sync',{
+        equalAxesEnabled,
+        equalScaleEnabled,
+        varianceAxesEnabled,
+        is3dView,
+        lockRatioEnabled: lockRatioCheckbox ? !!lockRatioCheckbox.checked : null,
+        reason: reason || null
+      });
+    } finally {
+      lineAspectSyncing = false;
+    }
+  }
+
   function ensureLineLegendControlPlacement(){
     if(!lineLegendControl || !refs.svgBox){
       return;
@@ -635,6 +729,291 @@
         debugLabel: 'line-legend'
       });
     }
+  }
+
+  function ensureLineAxesLengthControlPlacement(){
+    const svgBox = lineSvgBoxRef || refs.svgBox;
+    if(!svgBox){
+      return;
+    }
+    lineSvgBoxRef = svgBox;
+    const doc = svgBox.ownerDocument || global.document;
+    if(!doc){
+      return;
+    }
+    let tray = svgBox.querySelector('.resizer-control-tray');
+    if(!tray){
+      tray = doc.createElement('div');
+      tray.className = 'resizer-control-tray';
+      svgBox.appendChild(tray);
+      lineDebug('Debug: line axes length tray created', { trayChildren: tray.childElementCount });
+    }
+    const legacyEqualAxesControl = tray.querySelector('.resizer-equalaxes-control');
+    if(legacyEqualAxesControl){
+      legacyEqualAxesControl.remove();
+    }
+    let axesControl = tray.querySelector('.resizer-axeslength-control');
+    if(!axesControl){
+      axesControl = doc.createElement('details');
+      axesControl.className = 'resizer-axeslength-control';
+      const summary = doc.createElement('summary');
+      summary.className = 'resizer-axeslength-summary';
+      summary.textContent = 'Axes length';
+      const menu = doc.createElement('div');
+      menu.className = 'resizer-axeslength-menu';
+      axesControl.appendChild(summary);
+      axesControl.appendChild(menu);
+      const aspectControl = tray.querySelector('.resizer-aspect-control');
+      if(aspectControl && aspectControl.parentNode === tray){
+        tray.insertBefore(axesControl, aspectControl);
+      }else{
+        tray.appendChild(axesControl);
+      }
+      lineDebug('Debug: line axes length control created', { trayChildren: tray.childElementCount });
+    }
+    const menu = axesControl.querySelector('.resizer-axeslength-menu');
+    if(menu){
+      let equalScaleItem = menu.querySelector('.resizer-axeslength-item--equal-scale');
+      if(!equalScaleItem){
+        equalScaleItem = doc.createElement('label');
+        equalScaleItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal-scale';
+        const checkbox = doc.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-scale';
+        const textSpan = doc.createElement('span');
+        textSpan.className = 'resizer-axeslength-text';
+        equalScaleItem.appendChild(checkbox);
+        equalScaleItem.appendChild(textSpan);
+        menu.appendChild(equalScaleItem);
+      }else{
+        equalScaleItem.classList.add('resizer-axeslength-item');
+      }
+      if(equalScaleItem){
+        equalScaleItem.title = 'Equal axis lengths with the same data scale';
+        const equalScaleCheckbox = equalScaleItem.querySelector('input[type="checkbox"]');
+        if(equalScaleCheckbox){
+          equalScaleCheckbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-scale';
+          equalScaleCheckbox.setAttribute('aria-label', 'Equal axis lengths with the same data scale');
+        }
+        const equalScaleText = equalScaleItem.querySelector('.resizer-axeslength-text');
+        if(equalScaleText){
+          equalScaleText.textContent = 'Equal length / same scale';
+        }
+      }
+      let equalLengthItem = menu.querySelector('.resizer-axeslength-item--equal-length');
+      const legacyEqualItem = equalLengthItem ? null : menu.querySelector('.resizer-axeslength-item--equal');
+      if(!equalLengthItem && legacyEqualItem){
+        equalLengthItem = legacyEqualItem;
+        equalLengthItem.classList.remove('resizer-axeslength-item--equal');
+        equalLengthItem.classList.add('resizer-axeslength-item--equal-length');
+      }
+      if(!equalLengthItem){
+        equalLengthItem = doc.createElement('label');
+        equalLengthItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal-length';
+        const checkbox = doc.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-length';
+        const textSpan = doc.createElement('span');
+        textSpan.className = 'resizer-axeslength-text';
+        equalLengthItem.appendChild(checkbox);
+        equalLengthItem.appendChild(textSpan);
+      }
+      if(equalLengthItem){
+        equalLengthItem.title = 'Equal axis lengths with independent scales';
+        const equalLengthCheckbox = equalLengthItem.querySelector('input[type="checkbox"]');
+        if(equalLengthCheckbox){
+          equalLengthCheckbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-length';
+          equalLengthCheckbox.setAttribute('aria-label', 'Equal axis lengths with independent scales');
+        }
+        const equalLengthText = equalLengthItem.querySelector('.resizer-axeslength-text');
+        if(equalLengthText){
+          equalLengthText.textContent = 'Equal length / different scale';
+        }
+        if(equalLengthItem.parentNode !== menu){
+          menu.appendChild(equalLengthItem);
+        }
+      }
+      const equalScaleCheckbox = equalScaleItem.querySelector('input[type="checkbox"]');
+      if(equalScaleCheckbox){
+        lineEqualScaleAxesInput = equalScaleCheckbox;
+        if(equalScaleCheckbox.__lineEqualScaleAxesHandler){
+          equalScaleCheckbox.removeEventListener('change', equalScaleCheckbox.__lineEqualScaleAxesHandler);
+        }
+        const onChange = () => {
+          const enabled = !!equalScaleCheckbox.checked;
+          const previous = !!lineViewState.equalScaleAxes;
+          if(enabled){
+            lineViewState.equalAxes = false;
+            lineViewState.axesVarianceScaled = false;
+            if(lineEqualAxesInput){
+              lineEqualAxesInput.checked = false;
+            }
+            if(lineVarianceAxisScaleInput){
+              lineVarianceAxisScaleInput.checked = false;
+            }
+            lineDebug('Debug: line axes length exclusivity enforced', { disabled: 'equal-length/variance', reason: 'equal-scale-toggle' });
+          }
+          lineViewState.equalScaleAxes = enabled;
+          lineDebug('Debug: line equal scale toggled', { enabled, previous });
+          syncLineAspectControls('equal-scale-toggle');
+          if(typeof scheduleLineDraw === 'function'){
+            scheduleLineDraw({ reason: 'equal-scale-toggle' });
+          }
+        };
+        equalScaleCheckbox.addEventListener('change', onChange);
+        equalScaleCheckbox.__lineEqualScaleAxesHandler = onChange;
+      }
+      const equalLengthCheckbox = equalLengthItem ? equalLengthItem.querySelector('input[type="checkbox"]') : null;
+      if(equalLengthCheckbox){
+        lineEqualAxesInput = equalLengthCheckbox;
+        if(equalLengthCheckbox.__lineEqualAxesHandler){
+          equalLengthCheckbox.removeEventListener('change', equalLengthCheckbox.__lineEqualAxesHandler);
+        }
+        const onChange = () => {
+          const enabled = !!equalLengthCheckbox.checked;
+          const previous = !!lineViewState.equalAxes;
+          if(enabled){
+            lineViewState.equalScaleAxes = false;
+            lineViewState.axesVarianceScaled = false;
+            if(lineEqualScaleAxesInput){
+              lineEqualScaleAxesInput.checked = false;
+            }
+            if(lineVarianceAxisScaleInput){
+              lineVarianceAxisScaleInput.checked = false;
+            }
+            lineDebug('Debug: line axes length exclusivity enforced', { disabled: 'equal-scale/variance', reason: 'equal-length-toggle' });
+          }
+          lineViewState.equalAxes = enabled;
+          lineDebug('Debug: line equal length toggled', { enabled, previous });
+          syncLineAspectControls('equal-length-toggle');
+          if(typeof scheduleLineDraw === 'function'){
+            scheduleLineDraw({ reason: 'equal-length-toggle' });
+          }
+        };
+        equalLengthCheckbox.addEventListener('change', onChange);
+        equalLengthCheckbox.__lineEqualAxesHandler = onChange;
+      }
+      let varianceItem = menu.querySelector('.resizer-axeslength-item--variance');
+      if(!varianceItem){
+        varianceItem = doc.createElement('label');
+        varianceItem.className = 'resizer-axeslength-item resizer-axeslength-item--variance';
+        const checkbox = doc.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--variance';
+        const textSpan = doc.createElement('span');
+        textSpan.className = 'resizer-axeslength-text';
+        varianceItem.appendChild(checkbox);
+        varianceItem.appendChild(textSpan);
+        menu.appendChild(varianceItem);
+      }
+      if(varianceItem){
+        varianceItem.title = 'Scale axes by variance';
+        const varianceCheckbox = varianceItem.querySelector('input[type="checkbox"]');
+        if(varianceCheckbox){
+          varianceCheckbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--variance';
+          varianceCheckbox.setAttribute('aria-label', 'Scale axes by variance');
+        }
+        const varianceText = varianceItem.querySelector('.resizer-axeslength-text');
+        if(varianceText){
+          varianceText.textContent = 'Variance-scaled';
+        }
+      }
+      const varianceCheckbox = varianceItem ? varianceItem.querySelector('input[type="checkbox"]') : null;
+      if(varianceCheckbox){
+        lineVarianceAxisScaleInput = varianceCheckbox;
+        if(varianceCheckbox.__lineVarianceAxesHandler){
+          varianceCheckbox.removeEventListener('change', varianceCheckbox.__lineVarianceAxesHandler);
+        }
+        const onChange = () => {
+          const enabled = !!varianceCheckbox.checked;
+          const previous = !!lineViewState.axesVarianceScaled;
+          if(enabled){
+            lineViewState.equalAxes = false;
+            lineViewState.equalScaleAxes = false;
+            if(lineEqualAxesInput){
+              lineEqualAxesInput.checked = false;
+            }
+            if(lineEqualScaleAxesInput){
+              lineEqualScaleAxesInput.checked = false;
+            }
+            lineDebug('Debug: line axes length exclusivity enforced', { disabled: 'equal-length/equal-scale', reason: 'variance-axis-toggle' });
+          }
+          lineViewState.axesVarianceScaled = enabled;
+          lineDebug('Debug: line variance axis scaling toggled', { enabled, previous });
+          syncLineAspectControls('variance-axis-scale');
+          if(typeof scheduleLineDraw === 'function'){
+            scheduleLineDraw({ reason: 'variance-axis-scale' });
+          }
+        };
+        varianceCheckbox.addEventListener('change', onChange);
+        varianceCheckbox.__lineVarianceAxesHandler = onChange;
+      }
+      if(equalScaleItem && equalScaleItem.parentNode === menu){
+        menu.appendChild(equalScaleItem);
+      }
+      if(equalLengthItem && equalLengthItem.parentNode === menu){
+        menu.appendChild(equalLengthItem);
+      }
+      if(varianceItem && varianceItem.parentNode === menu){
+        menu.appendChild(varianceItem);
+      }
+    }
+    syncLineAspectControls('axes-length-ensure');
+  }
+
+  function ensureLineResizerControls(){
+    ensureLineLegendControlPlacement();
+    ensureLineAxesLengthControlPlacement();
+  }
+
+  function closeLineAxesLengthMenu(reason){
+    const svgBox = lineSvgBoxRef || refs.svgBox;
+    if(!svgBox){
+      return;
+    }
+    const axesControl = svgBox.querySelector('.resizer-axeslength-control');
+    if(axesControl && axesControl.hasAttribute('open')){
+      axesControl.removeAttribute('open');
+      lineDebug('Debug: line axes length menu closed', { reason: reason || null });
+    }
+  }
+
+  function resolveLineAxisVariance(points){
+    if(!Array.isArray(points) || points.length < 2){
+      return null;
+    }
+    let count = 0;
+    let sumX = 0;
+    let sumY = 0;
+    let sumXX = 0;
+    let sumYY = 0;
+    for(let i = 0; i < points.length; i += 1){
+      const point = points[i];
+      const x = Number(point?.x);
+      const y = Number(point?.y);
+      if(!Number.isFinite(x) || !Number.isFinite(y)){
+        continue;
+      }
+      count += 1;
+      sumX += x;
+      sumY += y;
+      sumXX += x * x;
+      sumYY += y * y;
+    }
+    if(count < 2){
+      return null;
+    }
+    const meanX = sumX / count;
+    const meanY = sumY / count;
+    const varX = Math.max(0, (sumXX / count) - (meanX * meanX));
+    const varY = Math.max(0, (sumYY / count) - (meanY * meanY));
+    const info = {
+      count,
+      weights: { x: varX, y: varY },
+      ratio: varY > 0 ? varX / varY : null
+    };
+    lineDebug('Debug: line resolveAxisVariance', info);
+    return info;
   }
 
   function resetLineRenderState(reason, options = {}){
@@ -3796,6 +4175,7 @@
     updateLineReplicateModeControls('3d');
     updateLine3dNestedHeaders();
     renderLine3dList();
+    syncLineAspectControls('enter-3d');
     if(!skipDraw){
       scheduleLineDraw();
     }
@@ -3867,6 +4247,7 @@
     }
     updateLineReplicateModeControls();
     updateLineNestedHeaders();
+    syncLineAspectControls('exit-3d');
     if(!skipDraw){
       scheduleLineDraw();
     }
@@ -4405,6 +4786,9 @@
         showGrid:refs.showGrid?.checked,
         showFrame:refs.showFrame?.checked,
         showLegend:refs.showLegend ? !!refs.showLegend.checked : true,
+        equalAxes: lineViewState.equalAxes,
+        equalScaleAxes: lineViewState.equalScaleAxes,
+        axesVarianceScaled: lineViewState.axesVarianceScaled,
         logX:refs.logX?.checked,
         logY:refs.logY?.checked,
         logPlusOneX:!!lineLogPlusOneX,
@@ -4511,6 +4895,23 @@
     lineLast2dShowFrame = !!c.showFrame;
     lineLast2dShowIntervals = !!c.showIntervals;
     lineLast2dShowDiagnostics = !!c.showDiagnostics;
+    if(typeof c.equalAxes === 'boolean'){
+      lineViewState.equalAxes = c.equalAxes;
+    }
+    if(typeof c.equalScaleAxes === 'boolean'){
+      lineViewState.equalScaleAxes = c.equalScaleAxes;
+    }
+    if(typeof c.axesVarianceScaled === 'boolean'){
+      lineViewState.axesVarianceScaled = c.axesVarianceScaled;
+    }
+    if(lineViewState.equalScaleAxes){
+      lineViewState.equalAxes = false;
+      lineViewState.axesVarianceScaled = false;
+      lineDebug('Debug: line axes length payload exclusivity enforced', { kept: 'equal-scale' });
+    }else if(lineViewState.axesVarianceScaled && lineViewState.equalAxes){
+      lineViewState.equalAxes = false;
+      lineDebug('Debug: line axes length payload exclusivity enforced', { kept: 'variance' });
+    }
     if(storedGroupLabels){
       lineSeriesGroupLabels = storedGroupLabels.slice();
       console.debug('Debug: line group labels restored from payload', { labels: storedGroupLabels });
@@ -4873,7 +5274,8 @@
       }
     }
     ensureLineLabelColors(Object.keys(lineLabelColors));
-    ensureLineLegendControlPlacement();
+    ensureLineResizerControls();
+    syncLineAspectControls('payload');
     scheduleLineDraw();
     console.debug('Debug: line payload applied', { source: meta.source || 'unknown', hasData: !!matrixData });
     return true;
@@ -5008,7 +5410,7 @@
       const showGrid = !!refs.showGrid?.checked;
       const showFrame = true;
       const showLegend = refs.showLegend ? !!refs.showLegend.checked : true;
-      ensureLineLegendControlPlacement();
+      ensureLineResizerControls();
       const xMinManual = parseFloat(refs.xMin?.value);
       const xMaxManual = parseFloat(refs.xMax?.value);
       const yMinManual = parseFloat(refs.yMin?.value);
@@ -5359,21 +5761,152 @@
         y: { min: Number.isFinite(yScale3d.min) ? yScale3d.min : yMin, max: Number.isFinite(yScale3d.max) ? yScale3d.max : yMax },
         z: { min: Number.isFinite(zScale3d.min) ? zScale3d.min : zMin, max: Number.isFinite(zScale3d.max) ? zScale3d.max : zMax }
       };
+      const axisTicksOriginal3d = {
+        x: Array.isArray(xScale3d.ticks) ? xScale3d.ticks : [],
+        y: Array.isArray(yScale3d.ticks) ? yScale3d.ticks : [],
+        z: Array.isArray(zScale3d.ticks) ? zScale3d.ticks : []
+      };
+      let axisTicks3d = axisTicksOriginal3d;
+      let renderAxisRanges3d = axisRanges3d;
+      let renderSeries3d = seriesWithData;
+      let axisTickFormatters3d = null;
+      const equalScale3d = !!lineViewState.equalScaleAxes;
+      const equalLength3d = !!lineViewState.equalAxes;
+      if(equalScale3d){
+        const axisCenters3d = {
+          x: (axisRanges3d.x.min + axisRanges3d.x.max) / 2,
+          y: (axisRanges3d.y.min + axisRanges3d.y.max) / 2,
+          z: (axisRanges3d.z.min + axisRanges3d.z.max) / 2
+        };
+        const axisSpans3d = {
+          x: axisRanges3d.x.max - axisRanges3d.x.min,
+          y: axisRanges3d.y.max - axisRanges3d.y.min,
+          z: axisRanges3d.z.max - axisRanges3d.z.min
+        };
+        const maxSpan = Math.max(axisSpans3d.x, axisSpans3d.y, axisSpans3d.z, 1);
+        if(Number.isFinite(maxSpan) && maxSpan > 0){
+          const halfSpan = maxSpan / 2;
+          renderAxisRanges3d = {
+            x: { min: axisCenters3d.x - halfSpan, max: axisCenters3d.x + halfSpan },
+            y: { min: axisCenters3d.y - halfSpan, max: axisCenters3d.y + halfSpan },
+            z: { min: axisCenters3d.z - halfSpan, max: axisCenters3d.z + halfSpan }
+          };
+          const xTicksScale3d = buildAxisScale({
+            dataMin: renderAxisRanges3d.x.min,
+            dataMax: renderAxisRanges3d.x.max,
+            manualMin: renderAxisRanges3d.x.min,
+            manualMax: renderAxisRanges3d.x.max,
+            targetTickCount: tickTarget
+          });
+          const yTicksScale3d = buildAxisScale({
+            dataMin: renderAxisRanges3d.y.min,
+            dataMax: renderAxisRanges3d.y.max,
+            manualMin: renderAxisRanges3d.y.min,
+            manualMax: renderAxisRanges3d.y.max,
+            targetTickCount: tickTarget
+          });
+          const zTicksScale3d = buildAxisScale({
+            dataMin: renderAxisRanges3d.z.min,
+            dataMax: renderAxisRanges3d.z.max,
+            manualMin: renderAxisRanges3d.z.min,
+            manualMax: renderAxisRanges3d.z.max,
+            targetTickCount: tickTarget
+          });
+          axisTicks3d = {
+            x: Array.isArray(xTicksScale3d.ticks) ? xTicksScale3d.ticks : [],
+            y: Array.isArray(yTicksScale3d.ticks) ? yTicksScale3d.ticks : [],
+            z: Array.isArray(zTicksScale3d.ticks) ? zTicksScale3d.ticks : []
+          };
+          lineDebug('Debug: line 3d equal scale applied', {
+            maxSpan,
+            axisRanges: renderAxisRanges3d
+          });
+        }else{
+          lineDebug('Debug: line 3d equal scale skipped', { maxSpan, axisSpans: axisSpans3d });
+        }
+      }else if(equalLength3d){
+        const axisCenters3d = {
+          x: (axisRanges3d.x.min + axisRanges3d.x.max) / 2,
+          y: (axisRanges3d.y.min + axisRanges3d.y.max) / 2,
+          z: (axisRanges3d.z.min + axisRanges3d.z.max) / 2
+        };
+        const axisSpans3d = {
+          x: axisRanges3d.x.max - axisRanges3d.x.min,
+          y: axisRanges3d.y.max - axisRanges3d.y.min,
+          z: axisRanges3d.z.max - axisRanges3d.z.min
+        };
+        const maxSpan = Math.max(axisSpans3d.x, axisSpans3d.y, axisSpans3d.z, 1);
+        const scaleFactors = {
+          x: axisSpans3d.x > 0 ? (maxSpan / axisSpans3d.x) : 1,
+          y: axisSpans3d.y > 0 ? (maxSpan / axisSpans3d.y) : 1,
+          z: axisSpans3d.z > 0 ? (maxSpan / axisSpans3d.z) : 1
+        };
+        const scaleValue = (axisKey, value) => axisCenters3d[axisKey] + (value - axisCenters3d[axisKey]) * scaleFactors[axisKey];
+        const unscaleValue = (axisKey, value) => axisCenters3d[axisKey] + (value - axisCenters3d[axisKey]) / (scaleFactors[axisKey] || 1);
+        renderAxisRanges3d = {
+          x: { min: scaleValue('x', axisRanges3d.x.min), max: scaleValue('x', axisRanges3d.x.max) },
+          y: { min: scaleValue('y', axisRanges3d.y.min), max: scaleValue('y', axisRanges3d.y.max) },
+          z: { min: scaleValue('z', axisRanges3d.z.min), max: scaleValue('z', axisRanges3d.z.max) }
+        };
+        axisTicks3d = {
+          x: axisTicksOriginal3d.x.map(value => scaleValue('x', value)),
+          y: axisTicksOriginal3d.y.map(value => scaleValue('y', value)),
+          z: axisTicksOriginal3d.z.map(value => scaleValue('z', value))
+        };
+        const formatTick = (axisKey, scaledValue) => {
+          const originalValue = unscaleValue(axisKey, scaledValue);
+          if(typeof chartStyle.formatAxisValue === 'function'){
+            return chartStyle.formatAxisValue(originalValue, { maxDecimals: 2 });
+          }
+          if(typeof chartStyle.formatScientific === 'function'){
+            return chartStyle.formatScientific(originalValue, { maxDecimals: 2 });
+          }
+          if(!Number.isFinite(originalValue)){
+            return '';
+          }
+          return String(originalValue);
+        };
+        axisTickFormatters3d = {
+          x: value => formatTick('x', value),
+          y: value => formatTick('y', value),
+          z: value => formatTick('z', value)
+        };
+        renderSeries3d = seriesWithData.map(seriesEntry => ({
+          ...seriesEntry,
+          points: seriesEntry.points.map(pt => {
+            if(!pt){
+              return null;
+            }
+            return {
+              ...pt,
+              x: scaleValue('x', pt.x),
+              y: scaleValue('y', pt.y),
+              z: scaleValue('z', pt.z)
+            };
+          })
+        }));
+        lineDebug('Debug: line 3d equal length applied', {
+          maxSpan,
+          axisRanges: axisRanges3d,
+          renderAxisRanges: renderAxisRanges3d,
+          scaleFactors
+        });
+      }
       const allCorners = [
-        { x: axisRanges3d.x.min, y: axisRanges3d.y.min, z: axisRanges3d.z.min },
-        { x: axisRanges3d.x.max, y: axisRanges3d.y.min, z: axisRanges3d.z.min },
-        { x: axisRanges3d.x.min, y: axisRanges3d.y.max, z: axisRanges3d.z.min },
-        { x: axisRanges3d.x.max, y: axisRanges3d.y.max, z: axisRanges3d.z.min },
-        { x: axisRanges3d.x.min, y: axisRanges3d.y.min, z: axisRanges3d.z.max },
-        { x: axisRanges3d.x.max, y: axisRanges3d.y.min, z: axisRanges3d.z.max },
-        { x: axisRanges3d.x.min, y: axisRanges3d.y.max, z: axisRanges3d.z.max },
-        { x: axisRanges3d.x.max, y: axisRanges3d.y.max, z: axisRanges3d.z.max }
+        { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.min },
+        { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.min },
+        { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.min },
+        { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.min },
+        { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.max },
+        { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.max },
+        { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.max },
+        { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.max }
       ];
       const rotatePoint = (pt) => plot3d.rotatePoint(pt, lineViewState.rotation);
       const rotatedCorners = allCorners.map(corner => rotatePoint(corner));
       const rotatedPoints = [];
-      seriesWithData.forEach(s => {
-        s.points.forEach(pt => {
+      renderSeries3d.forEach(seriesEntry => {
+        seriesEntry.points.forEach(pt => {
           if(pt){
             rotatedPoints.push(rotatePoint(pt));
           }
@@ -5387,16 +5920,11 @@
         margin: margin3
       });
 
-      const axisTicks3d = {
-        x: Array.isArray(xScale3d.ticks) ? xScale3d.ticks : [],
-        y: Array.isArray(yScale3d.ticks) ? yScale3d.ticks : [],
-        z: Array.isArray(zScale3d.ticks) ? zScale3d.ticks : []
-      };
       plot3d.renderAxesAndGrid({
         svg: svg3,
         project: projector.project,
         rotatePoint,
-        axisRanges: axisRanges3d,
+        axisRanges: renderAxisRanges3d,
         axisTicks: axisTicks3d,
         axisLabels: { x: lineXLabelText, y: lineYLabelText, z: lineZLabelText },
         fontSize: fs,
@@ -5406,6 +5934,7 @@
         chartStyle,
         showGrid,
         showFrame,
+        axisTickFormatters: axisTickFormatters3d || undefined,
         debugLabel: 'line-3d',
         onAxisLabel: (node, axisKey) => {
           if(!node){
@@ -5436,11 +5965,12 @@
       });
 
       const seriesElems = new Array(seriesCount).fill(null);
-      const renderQueue = seriesWithData.map((s, idx) => {
-        const projectedPoints = s.points.map(pt => pt ? projector.project(rotatePoint(pt)) : null);
+      const renderQueue = renderSeries3d.map((renderSeries, idx) => {
+        const sourceSeries = seriesWithData[idx] || renderSeries;
+        const projectedPoints = renderSeries.points.map(pt => pt ? projector.project(rotatePoint(pt)) : null);
         const depths = projectedPoints.filter(Boolean).map(pt => pt.depth);
         const depthAvg = depths.length ? depths.reduce((sum, v)=>sum + v, 0) / depths.length : 0;
-        return { series: s, index: idx, projectedPoints, depthAvg };
+        return { series: sourceSeries, index: idx, projectedPoints, depthAvg };
       }).sort((a, b) => (a.depthAvg || 0) - (b.depthAvg || 0));
 
       const lineLayer = global.document.createElementNS(NS, 'g');
@@ -5687,7 +6217,7 @@
       const showGrid=!!refs.showGrid?.checked;
       const showFrame=!!refs.showFrame?.checked;
       console.debug('Debug: line showFrame state',{showFrame});
-      ensureLineLegendControlPlacement();
+      ensureLineResizerControls();
       const showLegend=refs.showLegend ? !!refs.showLegend.checked : true;
       console.debug('Debug: line showLegend state',{showLegend});
       const logX=!!refs.logX?.checked;
@@ -6044,6 +6574,17 @@
           console.debug('Debug: line plot aborted due to clipping',{ range: rangeForClipping });
           return;
         }
+      const pointsInRange = [];
+      seriesWithData.forEach(seriesEntry => {
+        seriesEntry.points.forEach(pt => {
+          if(pt){
+            pointsInRange.push(pt);
+          }
+        });
+      });
+      const axisVarianceInfo = lineViewState.axesVarianceScaled
+        ? resolveLineAxisVariance(pointsInRange)
+        : null;
       let areaBaselineValue = null;
       let areaBaselineTransformed = null;
       const areaFillOpacity = isAreaMode ? Math.max(0, Math.min(1, (1 - alpha) * 0.35)) : 0;
@@ -6077,10 +6618,10 @@
       } else {
         console.debug('Debug: line fontControls enableForSvg missing',{ hasFontControls: !!fontControls }); // Debug: font panel missing
       }
-      const xMinT=logX?Math.log10(xMin):xMin;
-      const xMaxT=logX?Math.log10(xMax):xMax;
-      const yMinT=logY?Math.log10(yMin):yMin;
-      const yMaxT=logY?Math.log10(yMax):yMax;
+      let xMinT=logX?Math.log10(xMin):xMin;
+      let xMaxT=logX?Math.log10(xMax):xMax;
+      let yMinT=logY?Math.log10(yMin):yMin;
+      let yMaxT=logY?Math.log10(yMax):yMax;
       const axisTickTools = chartStyle.axisTicks || null;
       const buildAxisScale = opts => {
         if(axisTickTools && typeof axisTickTools.buildScale === 'function'){
@@ -6124,10 +6665,32 @@
       margin.bottom=bottomLayout.bottom;
       plotW=Math.max(20,W-margin.left-margin.right);
       plotH=Math.max(20,H-margin.top-margin.bottom);
-      const manualXMinValue = Number.isFinite(xMinManual) && (!logX || xMinManual > 0) ? (logX ? Math.log10(xMinManual) : xMinManual) : null;
-      const manualXMaxValue = Number.isFinite(xMaxManual) && (!logX || xMaxManual > 0) ? (logX ? Math.log10(xMaxManual) : xMaxManual) : null;
-      const manualYMinValue = Number.isFinite(yMinManual) && (!logY || yMinManual > 0) ? (logY ? Math.log10(yMinManual) : yMinManual) : null;
-      const manualYMaxValue = Number.isFinite(yMaxManual) && (!logY || yMaxManual > 0) ? (logY ? Math.log10(yMaxManual) : yMaxManual) : null;
+      let manualXMinValue = Number.isFinite(xMinManual) && (!logX || xMinManual > 0) ? (logX ? Math.log10(xMinManual) : xMinManual) : null;
+      let manualXMaxValue = Number.isFinite(xMaxManual) && (!logX || xMaxManual > 0) ? (logX ? Math.log10(xMaxManual) : xMaxManual) : null;
+      let manualYMinValue = Number.isFinite(yMinManual) && (!logY || yMinManual > 0) ? (logY ? Math.log10(yMinManual) : yMinManual) : null;
+      let manualYMaxValue = Number.isFinite(yMaxManual) && (!logY || yMaxManual > 0) ? (logY ? Math.log10(yMaxManual) : yMaxManual) : null;
+      const shouldEqualScale = !!lineViewState.equalScaleAxes;
+      const shouldEqualAxes = !!lineViewState.equalAxes;
+      if(shouldEqualScale){
+        const spanX = Number.isFinite(xMaxT) && Number.isFinite(xMinT) ? (xMaxT - xMinT) : NaN;
+        const spanY = Number.isFinite(yMaxT) && Number.isFinite(yMinT) ? (yMaxT - yMinT) : NaN;
+        if(Number.isFinite(spanX) && Number.isFinite(spanY) && spanX > 0 && spanY > 0){
+          const maxSpan = Math.max(spanX, spanY);
+          const centerX = (xMaxT + xMinT) / 2;
+          const centerY = (yMaxT + yMinT) / 2;
+          xMinT = centerX - maxSpan / 2;
+          xMaxT = centerX + maxSpan / 2;
+          yMinT = centerY - maxSpan / 2;
+          yMaxT = centerY + maxSpan / 2;
+          manualXMinValue = null;
+          manualXMaxValue = null;
+          manualYMinValue = null;
+          manualYMaxValue = null;
+          lineDebug('Debug: line equal scale ranges applied',{ spanX, spanY, maxSpan, xMinT, xMaxT, yMinT, yMaxT });
+        }else{
+          lineDebug('Debug: line equal scale ranges skipped',{ spanX, spanY });
+        }
+      }
       let xScale=buildAxisScale({ dataMin: xMinT, dataMax: xMaxT, manualMin: manualXMinValue, manualMax: manualXMaxValue, targetTickCount: xTickTarget });
       let yScale=buildAxisScale({ dataMin: yMinT, dataMax: yMaxT, manualMin: manualYMinValue, manualMax: manualYMaxValue, targetTickCount: yTickTarget });
       applyLogTickOverride('x', xScale, manualXMinValue, manualXMaxValue, xMinT, xMaxT, logX);
@@ -6139,11 +6702,11 @@
       for(let pass=0;pass<2;pass++){
         xScale=buildAxisScale({ dataMin: xMinT, dataMax: xMaxT, manualMin: manualXMinValue, manualMax: manualXMaxValue, targetTickCount: xTickTarget });
         yScale=buildAxisScale({ dataMin: yMinT, dataMax: yMaxT, manualMin: manualYMinValue, manualMax: manualYMaxValue, targetTickCount: yTickTarget });
-        if(isFinite(xMinManual)) xScale.min=xMinT;
-        if(isFinite(xMaxManual)) xScale.max=xMaxT;
-        if(isFinite(yMinManual)) yScale.min=yMinT;
-        if(isFinite(yMaxManual)) yScale.max=yMaxT;
-        if(isFinite(xMinManual)||isFinite(xMaxManual)){
+        if(!shouldEqualScale && isFinite(xMinManual)) xScale.min=xMinT;
+        if(!shouldEqualScale && isFinite(xMaxManual)) xScale.max=xMaxT;
+        if(!shouldEqualScale && isFinite(yMinManual)) yScale.min=yMinT;
+        if(!shouldEqualScale && isFinite(yMaxManual)) yScale.max=yMaxT;
+        if(!shouldEqualScale && (isFinite(xMinManual)||isFinite(xMaxManual))){
           const manualXTicks=[];
           for(let v=Math.ceil(xScale.min/xScale.step)*xScale.step; v<=xScale.max+1e-9; v+=xScale.step){
             manualXTicks.push(v);
@@ -6164,7 +6727,7 @@
             console.debug('Debug: line manual interval applied',{ axis: 'x', interval: manualIntervalX, tickCount: manual.ticks.length });
           }
         }
-        if(isFinite(yMinManual)||isFinite(yMaxManual)){
+        if(!shouldEqualScale && (isFinite(yMinManual)||isFinite(yMaxManual))){
           const manualYTicks=[];
           for(let v=Math.ceil(yScale.min/yScale.step)*yScale.step; v<=yScale.max+1e-9; v+=yScale.step){
             manualYTicks.push(v);
@@ -6211,6 +6774,88 @@
         yTickTarget=refinedY;
       }
       console.debug('Debug: line layout',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate,xTickTarget,yTickTarget,maxXLabelWidth,maxYLabelWidth});
+
+      const enforcePlotAspect = (marginInput, totalWidth, totalHeight, aspectValue) => {
+        const aspect = Number.isFinite(aspectValue) && aspectValue > 0 ? aspectValue : null;
+        const baseMargin = { ...marginInput };
+        const innerW = Math.max(20, totalWidth - baseMargin.left - baseMargin.right);
+        const innerH = Math.max(20, totalHeight - baseMargin.top - baseMargin.bottom);
+        if(!aspect){
+          return { margin: baseMargin, plotW: innerW, plotH: innerH };
+        }
+        const squareSize = Math.min(innerW, innerH);
+        let targetW = squareSize;
+        let targetH = squareSize;
+        if(aspect >= 1){
+          targetW = squareSize;
+          targetH = squareSize / aspect;
+        }else{
+          targetH = squareSize;
+          targetW = squareSize * aspect;
+        }
+        if(!Number.isFinite(targetW) || targetW <= 0 || !Number.isFinite(targetH) || targetH <= 0){
+          return { margin: baseMargin, plotW: innerW, plotH: innerH };
+        }
+        const adjusted = { ...baseMargin };
+        if(innerW > targetW){
+          adjusted.right += innerW - targetW;
+        }
+        if(innerH > targetH){
+          adjusted.bottom += innerH - targetH;
+        }
+        return {
+          margin: adjusted,
+          plotW: Math.max(20, targetW),
+          plotH: Math.max(20, targetH)
+        };
+      };
+      const aspectData = (lineSvgBoxRef || refs.svgBox)?.dataset;
+      const shouldLockAspect = aspectData?.resizerAspectLocked === 'true';
+      lineDebug('Debug: line aspect ratio decision',{
+        shouldEqualAxes,
+        shouldEqualScale,
+        varianceAxesEnabled: !!lineViewState.axesVarianceScaled,
+        lockRatioEnabled: shouldLockAspect,
+        storedRatio: aspectData?.resizerAspectRatio
+      });
+      let varianceAspectApplied = false;
+      if(lineViewState.axesVarianceScaled){
+        const weightX = axisVarianceInfo?.weights?.x;
+        const weightY = axisVarianceInfo?.weights?.y;
+        if(Number.isFinite(weightX) && weightX > 0 && Number.isFinite(weightY) && weightY > 0){
+          const desiredAspect = weightX / weightY;
+          const baseInnerW = Math.max(20, W - margin.left - margin.right);
+          const baseInnerH = Math.max(20, H - margin.top - margin.bottom);
+          const baseSquareSize = Math.min(baseInnerW, baseInnerH);
+          const enforced = enforcePlotAspect(margin, W, H, desiredAspect);
+          margin = enforced.margin;
+          plotW = enforced.plotW;
+          plotH = enforced.plotH;
+          varianceAspectApplied = true;
+          lineDebug('Debug: line layout (variance-enforced)',{
+            desiredAspect,
+            appliedAspect: plotH > 0 ? plotW / plotH : null,
+            squareSize: baseSquareSize,
+            margin,
+            plotW,
+            plotH,
+            weights: axisVarianceInfo.weights
+          });
+        }else{
+          lineDebug('Debug: line variance aspect skipped',{ reason: 'insufficient-weights', weights: axisVarianceInfo?.weights });
+        }
+      }
+      if(!varianceAspectApplied){
+        if(shouldEqualAxes || shouldEqualScale){
+          const square=chartStyle.ensureSquarePlot(W,H,margin);
+          margin=square.margin;
+          plotW=square.plotW;
+          plotH=square.plotH;
+          lineDebug('Debug: line layout (equal-length)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
+        }else{
+          lineDebug('Debug: line layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate});
+        }
+      }
       
       // Broken axis support
       const brokenXEnabled = getBrokenAxisEnabled('x');
@@ -7000,6 +7645,7 @@
     refs.graphPanel=document.getElementById('lineGraphPanel');
     refs.panelResizer=document.getElementById('linePanelResizer');
     refs.svgBox=refs.graphPanel?.querySelector('.svgbox');
+    lineSvgBoxRef = refs.svgBox;
     refs.configPanel=refs.graphPanel?.querySelector('.config-options');
     refs.renderRow=document.getElementById('lineRenderRow');
     refs.renderButton=document.getElementById('lineRenderButton');
@@ -7007,6 +7653,13 @@
     refs.hotContainer=document.getElementById('lineHot');
     refs.hotWrapper=document.getElementById('lineHotWrapper');
     refs.plot=document.getElementById('linePlot');
+    if(refs.plot && !refs.plot.__lineAxesLengthCloseHandler){
+      const onPlotPointerDown = () => {
+        closeLineAxesLengthMenu('plot-pointer');
+      };
+      refs.plot.addEventListener('pointerdown', onPlotPointerDown);
+      refs.plot.__lineAxesLengthCloseHandler = onPlotPointerDown;
+    }
     refs.tooltip=document.getElementById('tooltip');
     refs.statType=document.getElementById('lineStatType');
     refs.statsResults=document.getElementById('lineStatsResults');
@@ -7493,17 +8146,32 @@
     if(lineLayout?.elements?.svgBox){
       refs.svgBox = lineLayout.elements.svgBox;
     }
+    lineSvgBoxRef = refs.svgBox;
     lineLayout?.setScheduleDraw?.(scheduleLineDraw);
     lineLayout?.syncPanels?.();
     scheduleLineNoticeWidth('init');
-    ensureLineLegendControlPlacement();
+    ensureLineResizerControls();
     const scheduleLegendPlacement = typeof Shared.debounceFrame === 'function'
-      ? Shared.debounceFrame(()=>ensureLineLegendControlPlacement())
+      ? Shared.debounceFrame(()=>ensureLineResizerControls())
       : null;
     if(scheduleLegendPlacement){
       scheduleLegendPlacement();
     }else if(typeof global.requestAnimationFrame === 'function'){
-      global.requestAnimationFrame(()=>ensureLineLegendControlPlacement());
+      global.requestAnimationFrame(()=>ensureLineResizerControls());
+    }
+    if(lineLayout && typeof lineLayout.updateSvgBox === 'function'){
+      const originalUpdateSvgBox = lineLayout.updateSvgBox.bind(lineLayout);
+      lineLayout.updateSvgBox = node => {
+        originalUpdateSvgBox(node);
+        if(node){
+          refs.svgBox = node;
+        }else if(lineLayout.elements?.svgBox){
+          refs.svgBox = lineLayout.elements.svgBox;
+        }
+        lineSvgBoxRef = refs.svgBox;
+        ensureLineResizerControls();
+        scheduleLineNoticeWidth('update-svgbox');
+      };
     }
 
     console.debug('Debug: line initHot using shared factory', { hasFactory: typeof Shared.hot?.createStandardTable === 'function' });
@@ -8011,7 +8679,7 @@
     });
     refs.showLegend?.addEventListener('change',e=>{
       console.debug('Debug: line showLegend change',{checked:e.target.checked});
-      ensureLineLegendControlPlacement();
+      ensureLineResizerControls();
       scheduleLineDraw();
     });
 
