@@ -500,6 +500,7 @@
   let pcaLegendControl = null;
   let pcaShowLegendInput = null;
   let pcaEqualAxesInput = null;
+  let pcaEqualScaleAxesInput = null;
   let pcaLockRatioInput = null;
   let pcaVarianceAxisScaleInput = null;
   let pcaViewModeInput = null;
@@ -786,12 +787,16 @@
     pcaAspectSyncing = true;
     try{
       const equalAxesEnabled = !!pcaState.equalAxes;
+      const equalScaleEnabled = !!pcaState.equalScaleAxes;
       const varianceAxesEnabled = !!pcaState.axesVarianceScaled;
       const viewMode = pcaViewModeInput?.value || DEFAULT_VIEW_MODE;
       const is3dView = String(viewMode).toLowerCase() === '3d';
-      const enforceLockRatio = equalAxesEnabled || varianceAxesEnabled || is3dView;
+      const enforceLockRatio = equalAxesEnabled || equalScaleEnabled || varianceAxesEnabled || is3dView;
       if(pcaEqualAxesInput && pcaEqualAxesInput.checked !== equalAxesEnabled){
         pcaEqualAxesInput.checked = equalAxesEnabled;
+      }
+      if(pcaEqualScaleAxesInput && pcaEqualScaleAxesInput.checked !== equalScaleEnabled){
+        pcaEqualScaleAxesInput.checked = equalScaleEnabled;
       }
       if(pcaVarianceAxisScaleInput && pcaVarianceAxisScaleInput.checked !== varianceAxesEnabled){
         pcaVarianceAxisScaleInput.checked = varianceAxesEnabled;
@@ -832,6 +837,7 @@
       }
       debugLog('Debug: pca axes length sync',{
         equalAxesEnabled,
+        equalScaleEnabled,
         varianceAxesEnabled,
         is3dView,
         lockRatioEnabled: lockRatioCheckbox ? !!lockRatioCheckbox.checked : null,
@@ -882,58 +888,163 @@
     }
     const menu = axesControl.querySelector('.resizer-axeslength-menu');
     if(menu){
-      let equalItem = menu.querySelector('.resizer-axeslength-item--equal');
-      if(!equalItem){
-        equalItem = doc.createElement('label');
-        equalItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal';
-        equalItem.title = 'Force equal X and Y axis lengths';
+      let equalScaleItem = menu.querySelector('.resizer-axeslength-item--equal-scale');
+      if(!equalScaleItem){
+        equalScaleItem = doc.createElement('label');
+        equalScaleItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal-scale';
         const checkbox = doc.createElement('input');
         checkbox.type = 'checkbox';
-        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal';
-        checkbox.setAttribute('aria-label', 'Force equal X and Y axis lengths');
+        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-scale';
         const textSpan = doc.createElement('span');
         textSpan.className = 'resizer-axeslength-text';
-        textSpan.textContent = 'Equal axes';
-        equalItem.appendChild(checkbox);
-        equalItem.appendChild(textSpan);
-        menu.insertBefore(equalItem, menu.firstChild);
+        equalScaleItem.appendChild(checkbox);
+        equalScaleItem.appendChild(textSpan);
+        menu.appendChild(equalScaleItem);
+      }else{
+        equalScaleItem.classList.add('resizer-axeslength-item');
       }
-      const checkbox = equalItem.querySelector('input[type="checkbox"]');
-      if(checkbox){
-        pcaEqualAxesInput = checkbox;
-        if(checkbox.__pcaEqualAxesHandler){
-          checkbox.removeEventListener('change', checkbox.__pcaEqualAxesHandler);
+      if(equalScaleItem){
+        equalScaleItem.title = 'Equal axis lengths with the same data scale';
+        const equalScaleCheckbox = equalScaleItem.querySelector('input[type="checkbox"]');
+        if(equalScaleCheckbox){
+          equalScaleCheckbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-scale';
+          equalScaleCheckbox.setAttribute('aria-label', 'Equal axis lengths with the same data scale');
+        }
+        const equalScaleText = equalScaleItem.querySelector('.resizer-axeslength-text');
+        if(equalScaleText){
+          equalScaleText.textContent = 'Equal length / same scale';
+        }
+      }
+      let equalLengthItem = menu.querySelector('.resizer-axeslength-item--equal-length');
+      const legacyEqualItem = equalLengthItem ? null : menu.querySelector('.resizer-axeslength-item--equal');
+      if(!equalLengthItem && legacyEqualItem){
+        equalLengthItem = legacyEqualItem;
+        equalLengthItem.classList.remove('resizer-axeslength-item--equal');
+        equalLengthItem.classList.add('resizer-axeslength-item--equal-length');
+      }
+      if(!equalLengthItem){
+        equalLengthItem = doc.createElement('label');
+        equalLengthItem.className = 'resizer-axeslength-item resizer-axeslength-item--equal-length';
+        const checkbox = doc.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-length';
+        const textSpan = doc.createElement('span');
+        textSpan.className = 'resizer-axeslength-text';
+        equalLengthItem.appendChild(checkbox);
+        equalLengthItem.appendChild(textSpan);
+      }
+      if(equalLengthItem){
+        equalLengthItem.title = 'Equal axis lengths with independent scales';
+        const equalLengthCheckbox = equalLengthItem.querySelector('input[type="checkbox"]');
+        if(equalLengthCheckbox){
+          equalLengthCheckbox.className = 'resizer-axeslength-checkbox resizer-axeslength-checkbox--equal-length';
+          equalLengthCheckbox.setAttribute('aria-label', 'Equal axis lengths with independent scales');
+        }
+        const equalLengthText = equalLengthItem.querySelector('.resizer-axeslength-text');
+        if(equalLengthText){
+          equalLengthText.textContent = 'Equal length / different scale';
+        }
+        if(equalLengthItem.parentNode !== menu){
+          menu.appendChild(equalLengthItem);
+        }
+      }
+      const equalScaleCheckbox = equalScaleItem.querySelector('input[type="checkbox"]');
+      if(equalScaleCheckbox){
+        pcaEqualScaleAxesInput = equalScaleCheckbox;
+        if(equalScaleCheckbox.__pcaEqualScaleAxesHandler){
+          equalScaleCheckbox.removeEventListener('change', equalScaleCheckbox.__pcaEqualScaleAxesHandler);
         }
         const onChange = () => {
-          const enabled = !!checkbox.checked;
-          const previous = !!pcaState.equalAxes;
-          if(enabled && pcaState.axesVarianceScaled){
+          const enabled = !!equalScaleCheckbox.checked;
+          const previous = !!pcaState.equalScaleAxes;
+          if(enabled){
+            pcaState.equalAxes = false;
             pcaState.axesVarianceScaled = false;
+            if(pcaEqualAxesInput){
+              pcaEqualAxesInput.checked = false;
+            }
             if(pcaVarianceAxisScaleInput){
               pcaVarianceAxisScaleInput.checked = false;
             }
-            debugLog('Debug: pca axes length exclusivity enforced',{ disabled: 'variance', reason: 'equal-axes-toggle' });
+            debugLog('Debug: pca axes length exclusivity enforced',{ disabled: 'equal-length/variance', reason: 'equal-scale-toggle' });
+          }
+          pcaState.equalScaleAxes = enabled;
+          debugLog('Debug: pca equal scale toggled',{ enabled, previous });
+          syncPcaAspectControls('equal-scale-toggle');
+          requestPcaViewRefresh('equal-scale-toggle');
+        };
+        equalScaleCheckbox.addEventListener('change', onChange);
+        equalScaleCheckbox.__pcaEqualScaleAxesHandler = onChange;
+      }
+      const equalLengthCheckbox = equalLengthItem ? equalLengthItem.querySelector('input[type="checkbox"]') : null;
+      if(equalLengthCheckbox){
+        pcaEqualAxesInput = equalLengthCheckbox;
+        if(equalLengthCheckbox.__pcaEqualAxesHandler){
+          equalLengthCheckbox.removeEventListener('change', equalLengthCheckbox.__pcaEqualAxesHandler);
+        }
+        const onChange = () => {
+          const enabled = !!equalLengthCheckbox.checked;
+          const previous = !!pcaState.equalAxes;
+          if(enabled){
+            pcaState.equalScaleAxes = false;
+            pcaState.axesVarianceScaled = false;
+            if(pcaEqualScaleAxesInput){
+              pcaEqualScaleAxesInput.checked = false;
+            }
+            if(pcaVarianceAxisScaleInput){
+              pcaVarianceAxisScaleInput.checked = false;
+            }
+            debugLog('Debug: pca axes length exclusivity enforced',{ disabled: 'equal-scale/variance', reason: 'equal-length-toggle' });
           }
           pcaState.equalAxes = enabled;
-          debugLog('Debug: pca equal axes toggled',{ enabled, previous });
-          syncPcaAspectControls('equal-axes-toggle');
-          requestPcaViewRefresh('equal-axes-toggle');
+          debugLog('Debug: pca equal length toggled',{ enabled, previous });
+          syncPcaAspectControls('equal-length-toggle');
+          requestPcaViewRefresh('equal-length-toggle');
         };
-        checkbox.addEventListener('change', onChange);
-        checkbox.__pcaEqualAxesHandler = onChange;
+        equalLengthCheckbox.addEventListener('change', onChange);
+        equalLengthCheckbox.__pcaEqualAxesHandler = onChange;
       }
       const varianceInput = pcaVarianceAxisScaleInput || doc.getElementById('pcaVarianceAxisScale');
       if(varianceInput){
         pcaVarianceAxisScaleInput = varianceInput;
         const varianceLabel = varianceInput.closest('label');
         if(varianceLabel){
+          varianceLabel.title = 'Scale axes by variance';
           varianceLabel.classList.add('resizer-axeslength-item', 'resizer-axeslength-item--variance');
           varianceLabel.classList.remove('config-panel__checkbox', 'config-panel__checkbox--inline');
           varianceLabel.removeAttribute('style');
+          varianceInput.classList.add('resizer-axeslength-checkbox', 'resizer-axeslength-checkbox--variance');
+          varianceInput.setAttribute('aria-label', 'Scale axes by variance');
+          let varianceText = varianceLabel.querySelector('.resizer-axeslength-text');
+          if(!varianceText){
+            varianceText = doc.createElement('span');
+            varianceText.className = 'resizer-axeslength-text';
+            varianceLabel.appendChild(varianceText);
+          }
+          varianceText.textContent = 'Variance-scaled';
+          const nodes = Array.from(varianceLabel.childNodes);
+          nodes.forEach(node => {
+            if(node === varianceInput || node === varianceText){
+              return;
+            }
+            if(node.nodeType === Node.TEXT_NODE){
+              varianceLabel.removeChild(node);
+            }
+          });
           if(varianceLabel.parentNode !== menu){
             menu.appendChild(varianceLabel);
           }
         }
+      }
+      if(equalScaleItem && equalScaleItem.parentNode === menu){
+        menu.appendChild(equalScaleItem);
+      }
+      if(equalLengthItem && equalLengthItem.parentNode === menu){
+        menu.appendChild(equalLengthItem);
+      }
+      const varianceItem = menu.querySelector('.resizer-axeslength-item--variance');
+      if(varianceItem && varianceItem.parentNode === menu){
+        menu.appendChild(varianceItem);
       }
     }
     syncPcaAspectControls('axes-length-ensure');
@@ -2396,7 +2507,8 @@
     rotationPending: false,
     rotationPendingLogged: false,
     axesVarianceScaled: false,
-    equalAxes: true,
+    equalScaleAxes: true,
+    equalAxes: false,
     axisSettings: createDefaultAxisSettings(),
     tableFormat: 'standard',
     grouped: {
@@ -3900,12 +4012,16 @@
         pcaVarianceAxisScale.checked = !!pcaState.axesVarianceScaled;
         pcaVarianceAxisScale.addEventListener('change', () => {
           const enabled = !!pcaVarianceAxisScale.checked;
-          if(enabled && pcaState.equalAxes){
+          if(enabled && (pcaState.equalAxes || pcaState.equalScaleAxes)){
             pcaState.equalAxes = false;
+            pcaState.equalScaleAxes = false;
             if(pcaEqualAxesInput){
               pcaEqualAxesInput.checked = false;
             }
-            debugLog('Debug: pca axes length exclusivity enforced',{ disabled: 'equal-axes', reason: 'variance-axis-toggle' });
+            if(pcaEqualScaleAxesInput){
+              pcaEqualScaleAxesInput.checked = false;
+            }
+            debugLog('Debug: pca axes length exclusivity enforced',{ disabled: 'equal-length/equal-scale', reason: 'variance-axis-toggle' });
           }
           const previous = !!pcaState.axesVarianceScaled;
           pcaState.axesVarianceScaled = enabled;
@@ -5862,10 +5978,30 @@
         };
         const axisCentersOriginal = { ...axisCenters };
         const axisScaleFactors = { x: 1, y: 1, z: 1 };
+        const clampTicks = (ticks, range) => ticks.filter(t => t >= range.min - 1e-9 && t <= range.max + 1e-9);
+        const axisScalesOriginal3d = {
+          x: niceScale(axisRanges.x.min, axisRanges.x.max, 5),
+          y: niceScale(axisRanges.y.min, axisRanges.y.max, 5),
+          z: niceScale(axisRanges.z.min, axisRanges.z.max, 5)
+        };
+        const axisTicksOriginal3d = {
+          x: clampTicks(axisScalesOriginal3d.x.ticks, axisRanges.x),
+          y: clampTicks(axisScalesOriginal3d.y.ticks, axisRanges.y),
+          z: clampTicks(axisScalesOriginal3d.z.ticks, axisRanges.z)
+        };
         const variance3dActive = pcaState.axesVarianceScaled && axisVarianceInfo && axisVarianceInfo.normalized.x != null && axisVarianceInfo.normalized.y != null && axisVarianceInfo.normalized.z != null;
+        const equalScale3d = !!pcaState.equalScaleAxes;
+        const equalLength3d = !!pcaState.equalAxes;
+        let renderAxisRanges3d = {
+          x: { ...axisRanges.x },
+          y: { ...axisRanges.y },
+          z: { ...axisRanges.z }
+        };
+        let axisTickFormatters3d = null;
+        let axisTicks3d = null;
         if(variance3dActive){
           const baseSpan = Math.max(originalSpans3d.x, originalSpans3d.y, originalSpans3d.z, 1);
-          Object.keys(axisRanges).forEach(axisKey => {
+          Object.keys(renderAxisRanges3d).forEach(axisKey => {
             const normalizedWeight = axisVarianceInfo.normalized[axisKey];
             if(normalizedWeight == null){
               return;
@@ -5874,7 +6010,7 @@
             const safeOriginalSpan = Math.max(Math.abs(originalSpans3d[axisKey]) || 0, MIN_VARIANCE_WEIGHT);
             axisScaleFactors[axisKey] = desiredSpan / safeOriginalSpan;
             const half = desiredSpan / 2;
-            axisRanges[axisKey] = {
+            renderAxisRanges3d[axisKey] = {
               min: axisCentersOriginal[axisKey] - half,
               max: axisCentersOriginal[axisKey] + half
             };
@@ -5889,39 +6025,106 @@
           debugLog('Debug: pca variance axis spans applied (3d)', {
             normalized: axisVarianceInfo.normalized,
             baseSpan,
-            axisRanges,
+            axisRanges: renderAxisRanges3d,
             scaleFactors: axisScaleFactors
           });
           debugLog('Debug: pca variance point scaling applied (3d)', {
             scaleFactors: axisScaleFactors,
             centers: axisCentersOriginal
           });
-        } else {
+        } else if(equalScale3d){
           const maxSpan = Math.max(originalSpans3d.x, originalSpans3d.y, originalSpans3d.z, 1);
           const halfSpan = maxSpan / 2;
-          Object.keys(axisRanges).forEach(axisKey => {
-            axisRanges[axisKey] = {
-              min: axisCenters[axisKey] - halfSpan,
-              max: axisCenters[axisKey] + halfSpan
+          Object.keys(renderAxisRanges3d).forEach(axisKey => {
+            renderAxisRanges3d[axisKey] = {
+              min: axisCentersOriginal[axisKey] - halfSpan,
+              max: axisCentersOriginal[axisKey] + halfSpan
             };
           });
-          debugLog('Debug: pca variance axis spans skipped (3d)', {
+          debugLog('Debug: pca equal scale spans applied (3d)', {
+            maxSpan,
+            axisRanges: renderAxisRanges3d
+          });
+        } else if(equalLength3d){
+          const maxSpan = Math.max(originalSpans3d.x, originalSpans3d.y, originalSpans3d.z, 1);
+          const scaleFactors = {
+            x: originalSpans3d.x > 0 ? (maxSpan / originalSpans3d.x) : 1,
+            y: originalSpans3d.y > 0 ? (maxSpan / originalSpans3d.y) : 1,
+            z: originalSpans3d.z > 0 ? (maxSpan / originalSpans3d.z) : 1
+          };
+          const scaleValue = (axisKey, value) => axisCentersOriginal[axisKey] + (value - axisCentersOriginal[axisKey]) * scaleFactors[axisKey];
+          const unscaleValue = (axisKey, value) => axisCentersOriginal[axisKey] + (value - axisCentersOriginal[axisKey]) / (scaleFactors[axisKey] || 1);
+          renderAxisRanges3d = {
+            x: { min: scaleValue('x', axisRanges.x.min), max: scaleValue('x', axisRanges.x.max) },
+            y: { min: scaleValue('y', axisRanges.y.min), max: scaleValue('y', axisRanges.y.max) },
+            z: { min: scaleValue('z', axisRanges.z.min), max: scaleValue('z', axisRanges.z.max) }
+          };
+          axisTicks3d = {
+            x: axisTicksOriginal3d.x.map(value => scaleValue('x', value)),
+            y: axisTicksOriginal3d.y.map(value => scaleValue('y', value)),
+            z: axisTicksOriginal3d.z.map(value => scaleValue('z', value))
+          };
+          const formatTick = (axisKey, scaledValue) => {
+            const originalValue = unscaleValue(axisKey, scaledValue);
+            if(typeof chartStyle.formatAxisValue === 'function'){
+              return chartStyle.formatAxisValue(originalValue, { maxDecimals: 2 });
+            }
+            if(typeof chartStyle.formatScientific === 'function'){
+              return chartStyle.formatScientific(originalValue, { maxDecimals: 2 });
+            }
+            if(!Number.isFinite(originalValue)){
+              return '';
+            }
+            return String(originalValue);
+          };
+          axisTickFormatters3d = {
+            x: value => formatTick('x', value),
+            y: value => formatTick('y', value),
+            z: value => formatTick('z', value)
+          };
+          renderPoints3d = points3d.map(pt => ({
+            x: scaleValue('x', pt.x),
+            y: scaleValue('y', pt.y),
+            z: scaleValue('z', pt.z),
+            label: pt.label,
+            index: pt.index
+          }));
+          debugLog('Debug: pca equal length spans applied (3d)', {
+            maxSpan,
+            axisRanges,
+            renderAxisRanges: renderAxisRanges3d,
+            scaleFactors
+          });
+        } else {
+          debugLog('Debug: pca axes length spans skipped (3d)', {
             reason: variance3dActive ? 'partial-weights' : 'disabled',
             normalized: axisVarianceInfo?.normalized
           });
         }
-        Object.keys(axisRanges).forEach(axisKey => {
-          axisCenters[axisKey] = (axisRanges[axisKey].min + axisRanges[axisKey].max) / 2;
+        if(!axisTicks3d){
+          const axisScales = {
+            x: niceScale(renderAxisRanges3d.x.min, renderAxisRanges3d.x.max, 5),
+            y: niceScale(renderAxisRanges3d.y.min, renderAxisRanges3d.y.max, 5),
+            z: niceScale(renderAxisRanges3d.z.min, renderAxisRanges3d.z.max, 5)
+          };
+          axisTicks3d = {
+            x: clampTicks(axisScales.x.ticks, renderAxisRanges3d.x),
+            y: clampTicks(axisScales.y.ticks, renderAxisRanges3d.y),
+            z: clampTicks(axisScales.z.ticks, renderAxisRanges3d.z)
+          };
+        }
+        Object.keys(renderAxisRanges3d).forEach(axisKey => {
+          axisCenters[axisKey] = (renderAxisRanges3d[axisKey].min + renderAxisRanges3d[axisKey].max) / 2;
         });
         const allCorners = [
-          { x: axisRanges.x.min, y: axisRanges.y.min, z: axisRanges.z.min },
-          { x: axisRanges.x.max, y: axisRanges.y.min, z: axisRanges.z.min },
-          { x: axisRanges.x.min, y: axisRanges.y.max, z: axisRanges.z.min },
-          { x: axisRanges.x.max, y: axisRanges.y.max, z: axisRanges.z.min },
-          { x: axisRanges.x.min, y: axisRanges.y.min, z: axisRanges.z.max },
-          { x: axisRanges.x.max, y: axisRanges.y.min, z: axisRanges.z.max },
-          { x: axisRanges.x.min, y: axisRanges.y.max, z: axisRanges.z.max },
-          { x: axisRanges.x.max, y: axisRanges.y.max, z: axisRanges.z.max }
+          { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.min },
+          { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.min },
+          { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.min },
+          { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.min },
+          { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.max },
+          { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.min, z: renderAxisRanges3d.z.max },
+          { x: renderAxisRanges3d.x.min, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.max },
+          { x: renderAxisRanges3d.x.max, y: renderAxisRanges3d.y.max, z: renderAxisRanges3d.z.max }
         ];
         const add3 = (tag, attrs, text, target) => {
           const el = document.createElementNS(NS, tag);
@@ -5957,23 +6160,13 @@
         if(labelHull3d && labelHull3d.length >= 3){
           debugLog('Debug: pca 3d label hull resolved', { points: labelHull3d.length });
         }
-        const axisScales = {
-          x: niceScale(axisRanges.x.min, axisRanges.x.max, 5),
-          y: niceScale(axisRanges.y.min, axisRanges.y.max, 5),
-          z: niceScale(axisRanges.z.min, axisRanges.z.max, 5)
-        };
-        const clampTicks = (ticks, range) => ticks.filter(t => t >= range.min - 1e-9 && t <= range.max + 1e-9);
-        const axisTicks = {
-          x: clampTicks(axisScales.x.ticks, axisRanges.x),
-          y: clampTicks(axisScales.y.ticks, axisRanges.y),
-          z: clampTicks(axisScales.z.ticks, axisRanges.z)
-        };
+        const axisTicks = axisTicks3d;
         const neutralAxisColor = chartStyle.AXIS_COLOR || chartStyle.TEXT_COLOR || '#333';
         plot3d.renderAxesAndGrid({
           svg: svg3,
           project: (pt) => project3(pt),
           rotatePoint,
-          axisRanges,
+          axisRanges: renderAxisRanges3d,
           axisTicks,
           axisLabels: { x: pcaXLabelText, y: pcaYLabelText, z: pcaZLabelText },
           fontSize: fs,
@@ -5981,6 +6174,7 @@
           chartStyle,
           showGrid,
           showFrame,
+          axisTickFormatters: axisTickFormatters3d || undefined,
           showPanes: showFrame,
           paneFill: 'rgba(0,0,0,0.008)',
           paneOpacityRange: { min: 0.004, max: 0.012 },
@@ -6094,7 +6288,7 @@
           }
         }
         debugLog('Debug: pca title rendered', { mode: '3d', text: pcaTitleText });
-        debugLog('Debug: pca 3d axis ranges',{ axisRanges, ticks: axisTicks });
+        debugLog('Debug: pca 3d axis ranges',{ axisRanges: renderAxisRanges3d, ticks: axisTicks });
         const projectedPoints = rotatedPoints.map((rot, idx) => {
           const base = project3(rot);
           return {
@@ -6379,7 +6573,7 @@
         } else {
           debugLog('Debug: pca legend skipped',{ mode: '3d', legendVisible, entryCount: legendEntries.length });
         }
-        debugLog('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisRanges });
+        debugLog('Debug: pca 3d render complete',{ pointCount: projectedPoints.length, axisRanges: renderAxisRanges3d });
         ensureGraphViewport(svg3, { padding: Math.max(fs, 18), debugLabel: 'pca-3d-graph' });
         pcaLayout?.syncPanels?.({ skipSchedule: true });
         syncPcaAutoDrawNoticeWidth('draw');
@@ -6411,7 +6605,25 @@
       if (xMin === xMax) xMax = xMin + 1;
       if (yMin === yMax) yMax = yMin + 1;
 
-      debugLog('Debug: pca axis range resolved',{ xMin, xMax, yMin, yMax });
+      const shouldEqualScale = !!pcaState.equalScaleAxes;
+      if(shouldEqualScale){
+        const spanX = Number.isFinite(xMax) && Number.isFinite(xMin) ? (xMax - xMin) : NaN;
+        const spanY = Number.isFinite(yMax) && Number.isFinite(yMin) ? (yMax - yMin) : NaN;
+        if(Number.isFinite(spanX) && Number.isFinite(spanY) && spanX > 0 && spanY > 0){
+          const maxSpan = Math.max(spanX, spanY);
+          const centerX = (xMax + xMin) / 2;
+          const centerY = (yMax + yMin) / 2;
+          xMin = centerX - maxSpan / 2;
+          xMax = centerX + maxSpan / 2;
+          yMin = centerY - maxSpan / 2;
+          yMax = centerY + maxSpan / 2;
+          debugLog('Debug: pca equal scale ranges applied',{ spanX, spanY, maxSpan, xMin, xMax, yMin, yMax });
+        }else{
+          debugLog('Debug: pca equal scale ranges skipped',{ spanX, spanY });
+        }
+      }
+
+      debugLog('Debug: pca axis range resolved',{ xMin, xMax, yMin, yMax, equalScaleEnabled: shouldEqualScale });
 
       const W = Math.max(50, Math.floor(plotEl.clientWidth || 50));
       const H = Math.max(40, Math.floor(plotEl.clientHeight || 40));
@@ -6618,6 +6830,8 @@
       const shouldEqualAxes = !!pcaState.equalAxes;
       debugLog('Debug: pca aspect ratio decision',{
         shouldEqualAxes,
+        shouldEqualScale,
+        varianceAxesEnabled: !!pcaState.axesVarianceScaled,
         lockRatioEnabled: shouldLockAspect,
         storedRatio: aspectData?.resizerAspectRatio
       }); // Debug: pca aspect toggle decision
@@ -6649,12 +6863,12 @@
         }
       }
       if(!varianceAspectApplied){
-        if(shouldEqualAxes){
+        if(shouldEqualAxes || shouldEqualScale){
           const square = chartStyle.ensureSquarePlot(W, H, margin);
           margin = square.margin;
           plotW = square.plotW;
           plotH = square.plotH;
-          debugLog('Debug: pca layout (equal-axes)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca square enforcement branch
+          debugLog('Debug: pca layout (equal-length)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca square enforcement branch
         }else{
           debugLog('Debug: pca layout (unlocked)',{margin,plotW,plotH,rotate:bottomLayout.shouldRotate}); // Debug: pca free resize branch
         }
@@ -7268,6 +7482,7 @@
         showLegend: pcaShowLegendInput ? !!pcaShowLegendInput.checked : true,
         scale:pcaScale.checked,
         axesVarianceScaled:pcaState.axesVarianceScaled,
+        equalScaleAxes: pcaState.equalScaleAxes,
         equalAxes: pcaState.equalAxes,
         fontSize:pcaFontSize.value,
         fontStyles: (exportFontStyles('pca') || undefined),
@@ -7454,19 +7669,29 @@
           ensurePcaResizerControls();
         }
         pcaScale.checked=!!c.scale;
-        if(pcaVarianceAxisScale){
-          pcaVarianceAxisScale.checked = !!c.axesVarianceScaled;
-        }
+        const hasEqualScale = Object.prototype.hasOwnProperty.call(c, 'equalScaleAxes');
+        const hasEqualAxes = Object.prototype.hasOwnProperty.call(c, 'equalAxes');
+        const hasVariance = Object.prototype.hasOwnProperty.call(c, 'axesVarianceScaled');
         pcaState.axesVarianceScaled = !!c.axesVarianceScaled;
-        if(typeof c.equalAxes === 'boolean'){
-          pcaState.equalAxes = c.equalAxes;
+        if(hasEqualScale){
+          pcaState.equalScaleAxes = !!c.equalScaleAxes;
         }
-        if(pcaState.equalAxes && pcaState.axesVarianceScaled){
+        if(hasEqualAxes){
+          pcaState.equalAxes = !!c.equalAxes;
+        }
+        if(!hasEqualScale && (hasEqualAxes || hasVariance)){
+          pcaState.equalScaleAxes = false;
+        }
+        if(pcaState.equalScaleAxes){
+          pcaState.equalAxes = false;
           pcaState.axesVarianceScaled = false;
-          if(pcaVarianceAxisScale){
-            pcaVarianceAxisScale.checked = false;
-          }
-          debugLog('Debug: pca axes length payload exclusivity enforced',{ kept: 'equal-axes' });
+          debugLog('Debug: pca axes length payload exclusivity enforced',{ kept: 'equal-scale' });
+        }else if(pcaState.axesVarianceScaled && pcaState.equalAxes){
+          pcaState.equalAxes = false;
+          debugLog('Debug: pca axes length payload exclusivity enforced',{ kept: 'variance' });
+        }
+        if(pcaVarianceAxisScale){
+          pcaVarianceAxisScale.checked = !!pcaState.axesVarianceScaled;
         }
         ensurePcaAxesLengthControlPlacement();
         pcaFontSize.value=c.fontSize||pcaFontSize.value;
