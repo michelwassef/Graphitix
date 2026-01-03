@@ -122,6 +122,23 @@
     return Number.isFinite(num) ? num : fallback;
   }
 
+  function parseSvgLength(value, fontSize, fallback = null) {
+    if (value === null || value === undefined) return fallback;
+    const raw = String(value).trim();
+    if (!raw) return fallback;
+    const num = Number.parseFloat(raw);
+    if (!Number.isFinite(num)) return fallback;
+    if (/em$/i.test(raw)) {
+      const base = Number.isFinite(fontSize) ? fontSize : 12;
+      return num * base;
+    }
+    if (/ex$/i.test(raw)) {
+      const base = Number.isFinite(fontSize) ? fontSize : 12;
+      return num * base * 0.5;
+    }
+    return num;
+  }
+
   function parseOpacity(value, fallback = 1) {
     const num = parseSvgNumber(value, fallback);
     if (num === null || num === undefined) return fallback;
@@ -322,23 +339,31 @@
       try { arr.push(node.outerHTML); } catch (e) { arr.push(node.tagName || 'node'); }
     };
 
-    // Remove dominant-baseline first: replace with dy on tick labels when possible, otherwise remove
+    // Remove dominant-baseline first: replace with dy on tick labels/centered text when possible
     try {
       const dbNodes = svgNode.querySelectorAll('[dominant-baseline]');
       for (let i = 0; i < dbNodes.length; i += 1) {
         const n = dbNodes[i];
         try {
           const val = n.getAttribute && n.getAttribute('dominant-baseline');
+          const baseline = String(val || '').trim().toLowerCase();
           // Detect tick labels heuristically via role or id/class containing 'tick'
           const role = n.getAttribute && n.getAttribute('role');
           const cls = (n.getAttribute && n.getAttribute('class')) || '';
           const id = (n.getAttribute && n.getAttribute('id')) || '';
-          const isTick = role === 'xTick' || role === 'yTick' || /\btick\b/i.test(cls) || /tick/i.test(id);
+          const isTick = role === 'xTick'
+            || role === 'yTick'
+            || /\btick\b/i.test(cls)
+            || /tick/i.test(id)
+            || (n.getAttribute && n.getAttribute('data-axis-tick-label') === '1');
+          const isAxisLabel = n.getAttribute && n.getAttribute('data-axis-label') === '1';
+          const needsCenter = baseline === 'middle' || baseline === 'central' || baseline === 'mathematical';
+          const hasDy = n.getAttribute && n.getAttribute('dy');
           // remove attribute
           n.removeAttribute('dominant-baseline');
           stats.removedDominantBaseline += 1;
           recordExample(stats.examples.dominantBaseline, n);
-          if (isTick) {
+          if (!hasDy && (isTick || isAxisLabel || needsCenter)) {
             // set dy to approximate vertical centering
             try { n.setAttribute('dy', '0.35em'); stats.replacedDominantBaselineWithDy += 1; } catch (e) {}
           }
@@ -1810,6 +1835,169 @@
     return { map: clipMap, unsupported };
   }
 
+  function resolvePaintServerReference(value) {
+    if (!value || typeof value !== 'string') return null;
+    const match = value.match(/url\(\s*['"]?#([^'")]+)['"]?\s*\)/i);
+    return match ? match[1] : null;
+  }
+
+  function parseGradientStopOffset(raw, fallback) {
+    if (raw === null || raw === undefined) return fallback;
+    const trimmed = String(raw).trim();
+    if (!trimmed) return fallback;
+    const isPercent = /%$/.test(trimmed);
+    const num = Number.parseFloat(trimmed);
+    if (!Number.isFinite(num)) return fallback;
+    const value = isPercent ? num / 100 : num;
+    if (!Number.isFinite(value)) return fallback;
+    return Math.max(0, Math.min(1, value));
+  }
+
+  function collectLinearGradients(svgElement) {
+    const gradients = new Map();
+    if (!svgElement || typeof svgElement.getElementsByTagName !== 'function') {
+      return gradients;
+    }
+    const nodes = svgElement.getElementsByTagName('linearGradient');
+    for (let i = 0; i < nodes.length; i += 1) {
+      const node = nodes[i];
+      const id = node.getAttribute('id');
+      if (!id) continue;
+      const stops = [];
+      for (let child = node.firstElementChild; child; child = child.nextElementSibling) {
+        if (!child.tagName || child.tagName.toLowerCase() !== 'stop') continue;
+        const style = {};
+        applyStyleString(style, child.getAttribute('style'));
+        const colorRaw = child.getAttribute('stop-color') || style['stop-color'];
+        const parsedColor = parseCssColor(colorRaw);
+        if (!parsedColor) continue;
+        const stopOpacityRaw = child.getAttribute('stop-opacity') || style['stop-opacity'];
+        const stopOpacity = parseOpacity(stopOpacityRaw, 1);
+        const alpha = Math.max(0, Math.min(1, ((parsedColor.a ?? 255) / 255) * stopOpacity));
+        const offsetRaw = child.getAttribute('offset');
+        const offset = parseGradientStopOffset(offsetRaw, null);
+        stops.push({
+          offset,
+          color: { r: parsedColor.r, g: parsedColor.g, b: parsedColor.b, alpha }
+        });
+      }
+      gradients.set(id, {
+        id,
+        units: (node.getAttribute('gradientUnits') || 'objectBoundingBox').trim(),
+        x1: node.getAttribute('x1'),
+        y1: node.getAttribute('y1'),
+        x2: node.getAttribute('x2'),
+        y2: node.getAttribute('y2'),
+        href: node.getAttribute('href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'href'),
+        stops
+      });
+    }
+    gradients.forEach(def => {
+      if (!def.href || !def.href.startsWith('#')) return;
+      const ref = gradients.get(def.href.slice(1));
+      if (!ref) return;
+      if (!def.x1 && ref.x1) def.x1 = ref.x1;
+      if (!def.y1 && ref.y1) def.y1 = ref.y1;
+      if (!def.x2 && ref.x2) def.x2 = ref.x2;
+      if (!def.y2 && ref.y2) def.y2 = ref.y2;
+      if ((!def.stops || !def.stops.length) && ref.stops?.length) {
+        def.stops = ref.stops.slice();
+      }
+      if (!def.units) def.units = ref.units;
+    });
+    return gradients;
+  }
+
+  function normalizeGradientStops(stops) {
+    if (!Array.isArray(stops) || !stops.length) return [];
+    const filtered = stops
+      .map((stop, index) => {
+        const offset = Number.isFinite(stop.offset) ? stop.offset : (stops.length > 1 ? index / (stops.length - 1) : 0);
+        return { offset, color: stop.color };
+      })
+      .filter(stop => stop?.color && Number.isFinite(stop.offset))
+      .sort((a, b) => a.offset - b.offset);
+    if (!filtered.length) return [];
+    if (filtered[0].offset > 0) {
+      filtered.unshift({ offset: 0, color: filtered[0].color });
+    }
+    if (filtered[filtered.length - 1].offset < 1) {
+      filtered.push({ offset: 1, color: filtered[filtered.length - 1].color });
+    }
+    return filtered;
+  }
+
+  function resolveGradientCoord(raw, axis, units, bounds, dims) {
+    const trimmed = raw != null ? String(raw).trim() : '';
+    if (!trimmed) return null;
+    const isPercent = /%$/.test(trimmed);
+    const num = Number.parseFloat(trimmed);
+    if (!Number.isFinite(num)) return null;
+    if (units === 'userSpaceOnUse') {
+      if (isPercent) {
+        const basis = axis === 'x' ? dims.width : dims.height;
+        return (num / 100) * basis;
+      }
+      return num;
+    }
+    if (!bounds) return null;
+    const ratio = isPercent ? num / 100 : num;
+    const span = axis === 'x' ? bounds.width : bounds.height;
+    const origin = axis === 'x' ? bounds.minX : bounds.minY;
+    return origin + ratio * span;
+  }
+
+  function resolveLinearGradient(def, bounds, dims) {
+    if (!def || !bounds || !dims) return null;
+    const units = def.units || 'objectBoundingBox';
+    const x1 = resolveGradientCoord(def.x1 ?? '0%', 'x', units, bounds, dims);
+    const y1 = resolveGradientCoord(def.y1 ?? '0%', 'y', units, bounds, dims);
+    const x2 = resolveGradientCoord(def.x2 ?? '100%', 'x', units, bounds, dims);
+    const y2 = resolveGradientCoord(def.y2 ?? '0%', 'y', units, bounds, dims);
+    if (![x1, y1, x2, y2].every(Number.isFinite)) {
+      return null;
+    }
+    const stops = normalizeGradientStops(def.stops || []);
+    if (stops.length < 2) {
+      return null;
+    }
+    return {
+      type: 'linear-gradient',
+      id: def.id,
+      coords: { x1, y1, x2, y2 },
+      stops
+    };
+  }
+
+  function computeSubpathsBounds(subpaths) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const sub of subpaths || []) {
+      const pts = sub.points || [];
+      for (let i = 0; i < pts.length; i += 1) {
+        const p = pts[i];
+        if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) continue;
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      }
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+      return null;
+    }
+    return {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      width: Math.max(0, maxX - minX),
+      height: Math.max(0, maxY - minY)
+    };
+  }
+
   function buildVectorSceneFromSvg(xml, options = {}) {
     const svgElement = parseSvgDocument(xml);
     if (!svgElement) {
@@ -1826,6 +2014,7 @@
     const clipRegistry = collectClipPaths(svgElement);
     const clipPaths = clipRegistry.map;
     let vectorUnsupported = clipRegistry.unsupported;
+    const gradientDefs = collectLinearGradients(svgElement);
 
     const resolveClipRect = (style, matrix) => {
       if (!style?.clipPath) {
@@ -1901,6 +2090,16 @@
         if (!clipped || !clipped.length) {
           return;
         }
+        const bounds = computeSubpathsBounds(clipped);
+        let fill = nextStyle.fill;
+        const paintRef = resolvePaintServerReference(fill);
+        if (paintRef && gradientDefs.size && bounds) {
+          const grad = gradientDefs.get(paintRef);
+          const resolved = resolveLinearGradient(grad, bounds, dims);
+          if (resolved) {
+            fill = resolved;
+          }
+        }
         const scale = computeScaleFromMatrix(combinedMatrix);
         const strokeWidth = transformStrokeWidth(combinedMatrix, nextStyle.strokeWidth || 0);
         const dashArray = nextStyle.strokeDasharray ? nextStyle.strokeDasharray.map(value => value * scale) : null;
@@ -1908,7 +2107,7 @@
         shapes.push({
           type: 'path',
           subpaths: clipped,
-          fill: nextStyle.fill,
+          fill,
           fillOpacity: nextStyle.fillOpacity,
           stroke: nextStyle.stroke,
           strokeOpacity: nextStyle.strokeOpacity,
@@ -1920,7 +2119,8 @@
           strokeDashoffset: dashOffset,
           fillRule: nextStyle.fillRule || 'nonzero',
           opacity: nextStyle.opacity,
-          color: nextStyle.color
+          color: nextStyle.color,
+          bounds
         });
       };
 
@@ -2016,9 +2216,11 @@
           if (!raw) return;
           const text = raw.replace(/\s+/g, ' ').trim();
           if (!text) return;
-          const x = parseSvgNumber(node.getAttribute('x'), 0) + parseSvgNumber(node.getAttribute('dx'), 0);
-          const y = parseSvgNumber(node.getAttribute('y'), 0) + parseSvgNumber(node.getAttribute('dy'), 0);
           const fontSize = Number.isFinite(nextStyle.fontSize) ? nextStyle.fontSize : 12;
+          const dx = parseSvgLength(node.getAttribute('dx'), fontSize, 0);
+          const dy = parseSvgLength(node.getAttribute('dy'), fontSize, 0);
+          const x = parseSvgNumber(node.getAttribute('x'), 0) + dx;
+          const y = parseSvgNumber(node.getAttribute('y'), 0) + dy;
           const font = buildFontString(nextStyle);
           const width = measureTextWidth(text, font) || fontSize * text.length * 0.6;
           let anchorOffset = 0;
@@ -4011,6 +4213,31 @@
       }
       return gStateMap.get(key).name;
     };
+    const shadingList = [];
+    const shadingCache = new Map();
+    const registerShading = gradient => {
+      if (!gradient || gradient.type !== 'linear-gradient') return null;
+      if (!gradient.coords || !Array.isArray(gradient.stops) || gradient.stops.length < 2) {
+        return null;
+      }
+      const coords = gradient.coords || {};
+      const stops = gradient.stops || [];
+      const keyParts = [
+        coords.x1, coords.y1, coords.x2, coords.y2,
+        stops.map(stop => {
+          const c = stop.color || {};
+          return `${stop.offset}|${c.r}|${c.g}|${c.b}|${c.alpha}`;
+        }).join(',')
+      ];
+      const key = keyParts.join('|');
+      if (shadingCache.has(key)) {
+        return shadingCache.get(key);
+      }
+      const name = `Sh${shadingList.length + 1}`;
+      shadingList.push({ name, gradient });
+      shadingCache.set(key, name);
+      return name;
+    };
     const encoder = typeof global.TextEncoder === 'function' ? new global.TextEncoder() : null;
     const encode = text => encoder
       ? encoder.encode(text)
@@ -4020,22 +4247,98 @@
     const convertX = x => x * scaleX;
     const convertY = y => (scene.height - y) * scaleY;
     const strokeScale = (scaleX + scaleY) / 2;
+    const backgroundColor = (() => {
+      const parsed = options.backgroundColor ? parseCssColor(options.backgroundColor) : null;
+      return parsed
+        ? { r: parsed.r, g: parsed.g, b: parsed.b }
+        : { r: 255, g: 255, b: 255 };
+    })();
+    const blendRgb = (fg, bg, alpha) => {
+      const a = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 1;
+      return {
+        r: clampByte((fg?.r || 0) * a + (bg?.r || 0) * (1 - a)),
+        g: clampByte((fg?.g || 0) * a + (bg?.g || 0) * (1 - a)),
+        b: clampByte((fg?.b || 0) * a + (bg?.b || 0) * (1 - a))
+      };
+    };
+    const formatPdfColorArray = color => ([
+      formatPdfNumber((color.r || 0) / 255),
+      formatPdfNumber((color.g || 0) / 255),
+      formatPdfNumber((color.b || 0) / 255)
+    ].join(' '));
+    const buildGradientFunction = stops => {
+      if (!Array.isArray(stops) || stops.length < 2) {
+        return null;
+      }
+      const segs = [];
+      for (let i = 0; i < stops.length - 1; i += 1) {
+        const c0 = formatPdfColorArray(stops[i].color || {});
+        const c1 = formatPdfColorArray(stops[i + 1].color || {});
+        segs.push(`<< /FunctionType 2 /Domain [0 1] /C0 [${c0}] /C1 [${c1}] /N 1 >>`);
+      }
+      if (segs.length === 1) {
+        return segs[0];
+      }
+      const bounds = stops.slice(1, -1).map(stop => formatPdfNumber(stop.offset));
+      const encodeEntries = segs.map(() => '0 1').join(' ');
+      return `<< /FunctionType 3 /Domain [0 1] /Functions [${segs.join(' ')}] /Bounds [${bounds.join(' ')}] /Encode [${encodeEntries}] >>`;
+    };
+    const buildShadingDict = gradient => {
+      if (!gradient?.coords || !Array.isArray(gradient.stops) || gradient.stops.length < 2) {
+        return null;
+      }
+      const { x1, y1, x2, y2 } = gradient.coords;
+      const coords = [
+        formatPdfNumber(convertX(x1)),
+        formatPdfNumber(convertY(y1)),
+        formatPdfNumber(convertX(x2)),
+        formatPdfNumber(convertY(y2))
+      ].join(' ');
+      const fn = buildGradientFunction(gradient.stops);
+      if (!fn) return null;
+      return `<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [${coords}] /Function ${fn} /Extend [true true] >>`;
+    };
+    const emitPath = subpaths => {
+      for (const sub of subpaths || []) {
+        const pts = sub.points || [];
+        if (pts.length < 2) continue;
+        const first = pts[0];
+        push(`${formatPdfNumber(convertX(first.x))} ${formatPdfNumber(convertY(first.y))} m`);
+        for (let i = 1; i < pts.length; i += 1) {
+          const p = pts[i];
+          push(`${formatPdfNumber(convertX(p.x))} ${formatPdfNumber(convertY(p.y))} l`);
+        }
+        if (sub.closed) {
+          push('h');
+        }
+      }
+    };
 
     for (const shape of scene.shapes) {
       if (shape.type === 'path') {
-        const fillPaint = resolvePdfPaintColor(shape.fill, shape.fillOpacity, shape.opacity, shape.color);
-        const strokePaint = resolvePdfPaintColor(shape.stroke, shape.strokeOpacity, shape.opacity, shape.color);
-        const hasFill = !!fillPaint;
+        const isGradientFill = !!(shape.fill && typeof shape.fill === 'object' && shape.fill.type === 'linear-gradient');
+        const fillPaint = isGradientFill ? null : resolvePdfPaintColor(shape.fill, shape.fillOpacity, shape.opacity, shape.color);
+        let strokePaint = resolvePdfPaintColor(shape.stroke, shape.strokeOpacity, shape.opacity, shape.color);
+        const canFlattenStroke = !isGradientFill && !!fillPaint && !!strokePaint && (strokePaint.alpha ?? 1) < 0.999;
+        if (canFlattenStroke) {
+          const fillBase = blendRgb(fillPaint, backgroundColor, fillPaint.alpha ?? 1);
+          const blendedStroke = blendRgb(strokePaint, fillBase, strokePaint.alpha ?? 1);
+          strokePaint = { ...blendedStroke, alpha: 1 };
+        }
+        const hasFill = isGradientFill || !!fillPaint;
         const hasStroke = !!strokePaint && shape.strokeWidth > 0;
         if (!hasFill && !hasStroke) {
           continue;
         }
-        const gKey = registerGState(fillPaint?.alpha ?? 1, strokePaint?.alpha ?? 1);
+        const fillAlpha = isGradientFill
+          ? (shape.fillOpacity ?? 1) * (shape.opacity ?? 1)
+          : (fillPaint?.alpha ?? 1);
+        const gKey = registerGState(fillAlpha, strokePaint?.alpha ?? 1);
         push('q');
         if (gKey) {
           push(`/${gKey} gs`);
         }
-        if (hasFill) {
+        if (!isGradientFill && hasFill) {
           const fillColor = toPdfColor(fillPaint);
           if (fillColor) push(`${fillColor} rg`);
         }
@@ -4061,25 +4364,29 @@
             push(`[${dash}] ${formatPdfNumber(dashOffset)} d`);
           }
         }
-        for (const sub of shape.subpaths || []) {
-          const pts = sub.points || [];
-          if (pts.length < 2) continue;
-          const first = pts[0];
-          push(`${formatPdfNumber(convertX(first.x))} ${formatPdfNumber(convertY(first.y))} m`);
-          for (let i = 1; i < pts.length; i += 1) {
-            const p = pts[i];
-            push(`${formatPdfNumber(convertX(p.x))} ${formatPdfNumber(convertY(p.y))} l`);
+        if (isGradientFill) {
+          push('q');
+          emitPath(shape.subpaths);
+          push(shape.fillRule === 'evenodd' ? 'W*' : 'W');
+          push('n');
+          const shadingName = registerShading(shape.fill);
+          if (shadingName) {
+            push(`/${shadingName} sh`);
           }
-          if (sub.closed) {
-            push('h');
+          push('Q');
+          if (hasStroke) {
+            emitPath(shape.subpaths);
+            push('S');
           }
-        }
-        if (hasFill && hasStroke) {
-          push('B');
-        } else if (hasFill) {
-          push(shape.fillRule === 'evenodd' ? 'f*' : 'f');
-        } else if (hasStroke) {
-          push('S');
+        } else {
+          emitPath(shape.subpaths);
+          if (hasFill && hasStroke) {
+            push('B');
+          } else if (hasFill) {
+            push(shape.fillRule === 'evenodd' ? 'f*' : 'f');
+          } else if (hasStroke) {
+            push('S');
+          }
         }
         push('Q');
       } else if (shape.type === 'text') {
@@ -4170,6 +4477,20 @@
       nextId += 1;
     });
 
+    const shadingIds = {};
+    shadingList.forEach(entry => {
+      const dict = buildShadingDict(entry.gradient);
+      if (!dict) {
+        return;
+      }
+      const id = nextId;
+      shadingIds[entry.name] = id;
+      startObj(id);
+      pushText(dict);
+      endObj();
+      nextId += 1;
+    });
+
     const resourceLines = [];
     resourceLines.push('<< /Font <<');
     fontObjects.forEach(font => {
@@ -4181,6 +4502,14 @@
       gStateKeys.forEach(key => {
         const entry = gStateMap.get(key);
         resourceLines.push(`/${entry.name} ${gStateIds[entry.name]} 0 R`);
+      });
+      resourceLines.push('>>');
+    }
+    const shadingNames = Object.keys(shadingIds);
+    if (shadingNames.length) {
+      resourceLines.push('/Shading <<');
+      shadingNames.forEach(name => {
+        resourceLines.push(`/${name} ${shadingIds[name]} 0 R`);
       });
       resourceLines.push('>>');
     }
