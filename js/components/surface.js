@@ -815,7 +815,8 @@
     }
     barHeight = Math.max(60, barHeight);
     const barWidth = Math.max(14, options.fontSize * 0.8);
-    const defaultLegendX = options.width - options.margin.right + 12;
+    const legendRightPad = Math.max(36, options.fontSize * 1.9);
+    const defaultLegendX = options.width - options.margin.right + legendRightPad;
     const defaultLegendY = options.margin.top;
     const position = options.position || null;
     const hasPosition = Number.isFinite(position?.x) && Number.isFinite(position?.y);
