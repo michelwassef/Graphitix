@@ -316,6 +316,8 @@
       removedRootColor: 0,
       removedDominantBaseline: 0,
       replacedDominantBaselineWithDy: 0,
+      convertedRgbaFills: 0,
+      convertedRgbaStrokes: 0,
       flattenedAttributeFreeGroups: 0,
       roundedNumberCount: 0,
       roundingMaxDelta: 0,
@@ -382,6 +384,30 @@
         if (!a || !a.name) continue;
         const name = a.name;
         const val = a.value;
+        if (name === 'fill' || name === 'stroke') {
+          const raw = typeof val === 'string' ? val.trim() : '';
+          if (raw && raw !== 'none' && raw !== 'currentColor') {
+            const parsed = parseCssColor(raw);
+            if (parsed && Number.isFinite(parsed.a) && parsed.a < 255) {
+              const opacityName = name === 'fill' ? 'fill-opacity' : 'stroke-opacity';
+              const existingOpacityRaw = node.getAttribute(opacityName);
+              const existingOpacity = Number.parseFloat(existingOpacityRaw);
+              const alpha = Math.max(0, Math.min(1, parsed.a / 255));
+              const combined = Number.isFinite(existingOpacity)
+                ? Math.max(0, Math.min(1, existingOpacity * alpha))
+                : alpha;
+              try {
+                node.setAttribute(name, `rgb(${parsed.r},${parsed.g},${parsed.b})`);
+                node.setAttribute(opacityName, String(Number(combined.toFixed(3))));
+                if (name === 'fill') {
+                  stats.convertedRgbaFills += 1;
+                } else {
+                  stats.convertedRgbaStrokes += 1;
+                }
+              } catch (e) {}
+            }
+          }
+        }
         // data-* attributes
         if (name.startsWith('data-')) {
           try { node.removeAttribute(name); stats.removedDataAttrs += 1; recordExample(stats.examples.dataAttrs, node); } catch (e) {}
