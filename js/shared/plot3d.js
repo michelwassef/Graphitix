@@ -379,6 +379,40 @@
     svgEl.addEventListener('pointerleave', function(evt){ stopDrag(evt, 'pointerleave'); });
   };
 
+  plot3d.resolveLegendShiftX = function(options){
+    const opts = options || {};
+    if(!opts.legendVisible){
+      return 0;
+    }
+    const margin = opts.margin || {};
+    const marginLeft = Number.isFinite(margin.left) ? margin.left : 0;
+    const fontSize = Number.isFinite(opts.fontSize) ? opts.fontSize : 12;
+    const minLeftPadding = Number.isFinite(opts.minLeftPadding)
+      ? opts.minLeftPadding
+      : Math.max(fontSize * 1.4, 18);
+    const maxShift = Math.max(0, marginLeft - minLeftPadding);
+    if(maxShift <= 0){
+      return 0;
+    }
+    const legendWidth = Number.isFinite(opts.legendWidth) ? opts.legendWidth : 0;
+    const baseShift = Math.max(fontSize * 1.6, 22);
+    const legendBoost = legendWidth > 0 ? Math.min(legendWidth * 0.15, fontSize * 1.6) : 0;
+    const desiredShift = baseShift + legendBoost;
+    const shift = -Math.min(maxShift, desiredShift);
+    if(shift !== 0){
+      debugLog('Debug: plot3d legend shift resolved', {
+        shift,
+        marginLeft,
+        minLeftPadding,
+        baseShift,
+        legendBoost,
+        desiredShift,
+        maxShift
+      });
+    }
+    return shift;
+  };
+
   plot3d.createProjector = function(options){
     const opts = options || {};
     const rotatedPoints = Array.isArray(opts.rotatedPoints) ? opts.rotatedPoints : [];
@@ -414,7 +448,8 @@
     const uniformScale = Math.min(plotWidth / rangeX, plotHeight / rangeY);
     const scaledWidth = rangeX * uniformScale;
     const scaledHeight = rangeY * uniformScale;
-    const offsetX = (margin.left || 0) + (plotWidth - scaledWidth) / 2;
+    const shiftX = Number.isFinite(opts.shiftX) ? opts.shiftX : 0;
+    const offsetX = (margin.left || 0) + (plotWidth - scaledWidth) / 2 + shiftX;
     const offsetY = (margin.top || 0) + (plotHeight - scaledHeight) / 2;
     const project = (pt) => {
       const x = Number.isFinite(pt?.x) ? pt.x : 0;
@@ -430,7 +465,8 @@
       bounds: { minX, maxX, minY, maxY },
       width,
       height,
-      margin
+      margin,
+      shiftX
     });
     return {
       project,

@@ -32,16 +32,19 @@
       const width = Math.max(1, Math.floor(options?.width || 1));
       const height = Math.max(1, Math.floor(options?.height || 1));
       const margin = options?.margin || {};
+      const shiftX = Number.isFinite(options?.shiftX) ? options.shiftX : 0;
+      const baseX = Number(margin.left || 0) + shiftX;
+      const baseY = Number(margin.top || 0);
       const project = (pt = {}) => ({
-        x: Number(margin.left || 0),
-        y: Number(margin.top || 0),
+        x: baseX,
+        y: baseY,
         depth: Number(pt.z) || 0
       });
       return {
         project,
         bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 },
         scale: 1,
-        offsets: { x: Number(margin.left || 0), y: Number(margin.top || 0) },
+        offsets: { x: baseX, y: baseY },
         plotSize: { width, height }
       };
     };
@@ -5940,6 +5943,9 @@
           bottom: Math.max(fs * 3.2, 40),
           left: Math.max(fs * 3.2, 40)
         };
+        const legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+          ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth })
+          : 0;
         const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
         const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
         const rotatePoint = (pt) => plot3d.rotatePoint(pt, pcaState.rotation);
@@ -6142,7 +6148,8 @@
           rotatedCorners,
           width: W3,
           height: H3,
-          margin: margin3
+          margin: margin3,
+          shiftX: legendShiftX
         });
         const project3 = (pt) => projector.project(pt);
         const labelBounds3d = computePcaLabelBounds3d(rotatedCorners, project3);

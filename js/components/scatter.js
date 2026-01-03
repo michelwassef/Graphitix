@@ -41,7 +41,21 @@
     plot3d.renderAxesAndGrid = () => null;
   }
   if(typeof plot3d.createProjector !== 'function'){
-    plot3d.createProjector = () => ({ project: () => ({ x: 0, y: 0, depth: 0 }), bounds: {}, scale: 1, offsets: { x: 0, y: 0 }, plotSize: { width: 1, height: 1 } });
+    plot3d.createProjector = (options) => {
+      const width = Math.max(1, Math.floor(options?.width || 1));
+      const height = Math.max(1, Math.floor(options?.height || 1));
+      const margin = options?.margin || {};
+      const shiftX = Number.isFinite(options?.shiftX) ? options.shiftX : 0;
+      const baseX = Number(margin.left || 0) + shiftX;
+      const baseY = Number(margin.top || 0);
+      return {
+        project: () => ({ x: baseX, y: baseY, depth: 0 }),
+        bounds: {},
+        scale: 1,
+        offsets: { x: baseX, y: baseY },
+        plotSize: { width, height }
+      };
+    };
   }
   if(typeof plot3d.applyLegendPointerGuards !== 'function'){
     plot3d.applyLegendPointerGuards = () => {};
@@ -7073,6 +7087,9 @@
             bottom: Math.max(fs * 3.2, 40),
             left: Math.max(fs * 3.2, 40)
           };
+          const legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+            ? plot3d.resolveLegendShiftX({ legendVisible, margin: margin3, fontSize: fs, legendWidth })
+            : 0;
           const plotW3 = Math.max(20, W3 - margin3.left - margin3.right);
           const plotH3 = Math.max(20, H3 - margin3.top - margin3.bottom);
           const dataBounds = { xMin: Infinity, xMax: -Infinity, yMin: Infinity, yMax: -Infinity, zMin: Infinity, zMax: -Infinity };
@@ -7265,7 +7282,8 @@
             rotatedCorners,
             width: W3,
             height: H3,
-            margin: margin3
+            margin: margin3,
+            shiftX: legendShiftX
           });
           const labelBounds3d = computeScatterLabelBounds3d(rotatedCorners, projector.project);
           if(labelBounds3d){

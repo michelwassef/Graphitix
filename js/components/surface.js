@@ -1157,6 +1157,9 @@
       bottom: Math.max(fs * 3.4, 44),
       left: Math.max(fs * 3.6, 58)
     };
+    const legendShiftX = typeof plot3d.resolveLegendShiftX === 'function'
+      ? plot3d.resolveLegendShiftX({ legendVisible: state.settings.showLegend, margin, fontSize: fs })
+      : 0;
     const plotWidth = Math.max(40, width - margin.left - margin.right);
     const plotHeight = Math.max(40, height - margin.top - margin.bottom);
     const ranges = {
@@ -1186,7 +1189,8 @@
         rotatedCorners,
         width,
         height,
-        margin
+        margin,
+        shiftX: legendShiftX
       });
     } else {
       projector = {
