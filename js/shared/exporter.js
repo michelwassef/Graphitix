@@ -3380,6 +3380,30 @@
     return { width, height };
   }
 
+  function resolveRasterDimensions(svgEl, xml, options = {}) {
+    const fallbackDims = computeSvgDimensions(svgEl, options.fallbackWidth, options.fallbackHeight);
+    const svgElement = parseSvgDocument(xml);
+    const xmlDims = svgElement ? resolveSvgDimensions(svgElement, fallbackDims) : null;
+    const width = Number(xmlDims?.width);
+    const height = Number(xmlDims?.height);
+    const resolvedWidth = Number.isFinite(width) && width > 0 ? width : fallbackDims.width;
+    const resolvedHeight = Number.isFinite(height) && height > 0 ? height : fallbackDims.height;
+    if (isDebugEnabled()) {
+      const deltaWidth = Math.abs(resolvedWidth - fallbackDims.width);
+      const deltaHeight = Math.abs(resolvedHeight - fallbackDims.height);
+      if (deltaWidth > 0.5 || deltaHeight > 0.5) {
+        console.debug('Debug: exporter raster dimensions adjusted', {
+          contextLabel: options.contextLabel || null,
+          width: resolvedWidth,
+          height: resolvedHeight,
+          fallbackWidth: fallbackDims.width,
+          fallbackHeight: fallbackDims.height
+        });
+      }
+    }
+    return { width: resolvedWidth, height: resolvedHeight };
+  }
+
   function blobToDataUrl(blob) {
     const Reader = global.FileReader || (typeof FileReader !== 'undefined' ? FileReader : null);
     if (!Reader) {
@@ -4835,7 +4859,11 @@
     }
     const xml = svgToXml(svgEl, options.contextLabel);
     if (!xml) return null;
-    const dims = computeSvgDimensions(svgEl, options.fallbackWidth, options.fallbackHeight);
+    const dims = resolveRasterDimensions(svgEl, xml, {
+      contextLabel: options.contextLabel,
+      fallbackWidth: options.fallbackWidth,
+      fallbackHeight: options.fallbackHeight
+    });
     return svgStringToPngBlob(xml, {
       width: dims.width,
       height: dims.height,
@@ -4856,7 +4884,11 @@
     }
     const xml = svgToXml(svgEl, options.contextLabel);
     if (!xml) return null;
-    const dims = computeSvgDimensions(svgEl, options.fallbackWidth, options.fallbackHeight);
+    const dims = resolveRasterDimensions(svgEl, xml, {
+      contextLabel: options.contextLabel,
+      fallbackWidth: options.fallbackWidth,
+      fallbackHeight: options.fallbackHeight
+    });
     let backgroundColor = resolveBackgroundColor(options.backgroundColor, svgEl);
     if (!backgroundColor) {
       backgroundColor = '#ffffff';
@@ -4881,7 +4913,11 @@
     }
     const xml = svgToXml(svgEl, options.contextLabel);
     if (!xml) return null;
-    const dims = computeSvgDimensions(svgEl, options.fallbackWidth, options.fallbackHeight);
+    const dims = resolveRasterDimensions(svgEl, xml, {
+      contextLabel: options.contextLabel,
+      fallbackWidth: options.fallbackWidth,
+      fallbackHeight: options.fallbackHeight
+    });
     let backgroundColor = resolveBackgroundColor(options.backgroundColor, svgEl);
     if (!backgroundColor) {
       backgroundColor = '#ffffff';
@@ -4907,7 +4943,11 @@
     }
     const xml = svgToXml(svgEl, options.contextLabel);
     if (!xml) return null;
-    const dims = computeSvgDimensions(svgEl, options.fallbackWidth, options.fallbackHeight);
+    const dims = resolveRasterDimensions(svgEl, xml, {
+      contextLabel: options.contextLabel,
+      fallbackWidth: options.fallbackWidth,
+      fallbackHeight: options.fallbackHeight
+    });
     let backgroundColor = resolveBackgroundColor(options.backgroundColor, svgEl);
     if (!backgroundColor) {
       backgroundColor = '#ffffff';
