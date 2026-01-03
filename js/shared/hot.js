@@ -1925,8 +1925,39 @@
       ? Math.max(0, pinFirstRow)
       : (pinFirstRow === true ? 1 : 0);
     const shouldPinRows = pinRowCount > 0;
+    const isFirefox = (() => {
+      if(typeof navigator === 'undefined'){
+        return false;
+      }
+      const ua = navigator.userAgent || '';
+      if(/firefox/i.test(ua) || /fxios/i.test(ua)){
+        return true;
+      }
+      const brands = navigator.userAgentData && Array.isArray(navigator.userAgentData.brands)
+        ? navigator.userAgentData.brands
+        : [];
+      return brands.some(entry => /firefox/i.test(entry.brand || ''));
+    })();
+    const preferPinnedTransform = isFirefox;
+    const useStickyHeaderRow = shouldPinRows && isFirefox;
+    const usePinnedRows = shouldPinRows && !useStickyHeaderRow;
+    const isPinnedPhysicalRow = (physicalRow)=>(
+      shouldPinRows
+      && Number.isInteger(physicalRow)
+      && physicalRow >= 0
+      && physicalRow < pinRowCount
+    );
     const isPinnedTopRow = (physicalRow)=>(
-      Number.isInteger(physicalRow) && physicalRow >= 0 && physicalRow < pinRowCount
+      usePinnedRows
+      && isPinnedPhysicalRow(physicalRow)
+    );
+    const isStickyRow = (physicalRow)=>(
+      useStickyHeaderRow
+      && isPinnedPhysicalRow(physicalRow)
+    );
+    const isPinnedOrHeaderRow = (physicalRow)=>(
+      isHeaderRow(physicalRow)
+      || isPinnedPhysicalRow(physicalRow)
     );
 
     const buildRowData = ()=>Shared.agGrid?.buildRowData
@@ -1934,11 +1965,19 @@
       : Array.from({ length: dataHandle.current.length }, (_, idx)=>({ __rowIndex: idx }));
     let rowData = buildRowData();
     if(shouldPinRows && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
-      console.debug('Debug: Shared.hot pinFirstRow enabled', { debugLabel, count: pinRowCount });
+      console.debug('Debug: Shared.hot pinFirstRow enabled', {
+        debugLabel,
+        count: pinRowCount,
+        mode: usePinnedRows ? 'pinned' : 'sticky'
+      });
+    }
+    if(useStickyHeaderRow && container?.classList){
+      container.classList.add('hot-sticky-header');
+      cleanupFns.push(()=>container.classList.remove('hot-sticky-header'));
     }
 
     const getPinnedTopRowData = ()=>{
-      if(!shouldPinRows){
+      if(!usePinnedRows){
         return null;
       }
       if(!Array.isArray(rowData) || !rowData.length){
@@ -1948,20 +1987,368 @@
     };
 
     const applyPinnedTopRowData = (api)=>{
-      if(!shouldPinRows || !api){
+      if(!usePinnedRows || !api){
         return;
       }
       const pinned = getPinnedTopRowData() || [];
       try{
+        let updated = false;
         if(typeof api.setPinnedTopRowData === 'function'){
           api.setPinnedTopRowData(pinned);
-          return;
-        }
-        if(typeof api.setGridOption === 'function'){
+          updated = true;
+        }else if(typeof api.setGridOption === 'function'){
           api.setGridOption('pinnedTopRowData', pinned);
+          updated = true;
+        }
+        if(updated){
+          syncPinnedTopRowScroll('pinned-data');
+          schedulePinnedTopRowSync('pinned-data-follow');
         }
       }catch(err){
         console.error('Shared.hot AG pinned top row update error', err);
+      }
+    };
+
+    let pinnedTopScrollLeft = null;
+    let pinnedTopViewport = null;
+    let pinnedTopContainer = null;
+    let centerColsContainer = null;
+    let pinnedTopObserver = null;
+    let pinnedTopObservedTarget = null;
+    let pinnedTopSyncAttempts = 0;
+    let pinnedTopSyncRafId = null;
+    let pinnedTopSyncStableFrames = 0;
+
+    const resolvePinnedTopElements = ()=>{
+      if(!container || typeof container.querySelector !== 'function'){
+        pinnedTopViewport = null;
+        pinnedTopContainer = null;
+        centerColsContainer = null;
+        return;
+      }
+      if(!pinnedTopViewport || !pinnedTopViewport.isConnected){
+        pinnedTopViewport = container.querySelector('.ag-floating-top .ag-center-cols-viewport')
+          || container.querySelector('.ag-pinned-top .ag-center-cols-viewport')
+          || container.querySelector('.ag-floating-top-viewport')
+          || container.querySelector('.ag-pinned-top-viewport')
+          || container.querySelector('.ag-floating-top')
+          || container.querySelector('.ag-pinned-top')
+          || null;
+      }
+      if(!pinnedTopContainer || !pinnedTopContainer.isConnected){
+        pinnedTopContainer = container.querySelector('.ag-floating-top .ag-center-cols-container')
+          || container.querySelector('.ag-pinned-top .ag-center-cols-container')
+          || container.querySelector('.ag-floating-top-container')
+          || container.querySelector('.ag-pinned-top-container')
+          || null;
+      }
+      if(!centerColsContainer || !centerColsContainer.isConnected){
+        centerColsContainer = container.querySelector('.ag-body-viewport .ag-center-cols-container')
+          || container.querySelector('.ag-center-cols-viewport .ag-center-cols-container')
+          || container.querySelector('.ag-body .ag-center-cols-container')
+          || container.querySelector('.ag-center-cols-container')
+          || null;
+      }
+    };
+
+    const attachPinnedTopObserver = ()=>{
+      if(!usePinnedRows || typeof MutationObserver !== 'function'){
+        return;
+      }
+      resolvePinnedTopElements();
+      const target = centerColsContainer;
+      if(!target){
+        return;
+      }
+      if(pinnedTopObservedTarget === target){
+        return;
+      }
+      if(pinnedTopObserver){
+        pinnedTopObserver.disconnect();
+      }
+      pinnedTopObserver = new MutationObserver(() => {
+        syncPinnedTopRowScroll('center-transform');
+      });
+      pinnedTopObserver.observe(target, { attributes: true, attributeFilter: ['style', 'class'] });
+      pinnedTopObservedTarget = target;
+      cleanupFns.push(()=>{
+        if(pinnedTopObserver){
+          pinnedTopObserver.disconnect();
+          pinnedTopObserver = null;
+        }
+        pinnedTopObservedTarget = null;
+      });
+    };
+
+    const parseTranslateX = (value)=>{
+      if(!value || value === 'none'){
+        return null;
+      }
+      const raw = String(value).trim();
+      let match = raw.match(/^matrix3d\((.+)\)$/);
+      if(match){
+        const parts = match[1].split(',').map(part => Number(part.trim()));
+        if(parts.length >= 13 && Number.isFinite(parts[12])){
+          return parts[12];
+        }
+        return null;
+      }
+      match = raw.match(/^matrix\((.+)\)$/);
+      if(match){
+        const parts = match[1].split(',').map(part => Number(part.trim()));
+        if(parts.length >= 6 && Number.isFinite(parts[4])){
+          return parts[4];
+        }
+        return null;
+      }
+      match = raw.match(/translate3d\(([^)]+)\)/i);
+      if(match){
+        const parts = match[1].split(',').map(part => Number(String(part).trim().replace('px', '')));
+        if(parts.length >= 1 && Number.isFinite(parts[0])){
+          return parts[0];
+        }
+        return null;
+      }
+      match = raw.match(/translateX\(([^)]+)\)/i);
+      if(match){
+        const valuePart = Number(String(match[1]).trim().replace('px', ''));
+        return Number.isFinite(valuePart) ? valuePart : null;
+      }
+      match = raw.match(/translate\(([^)]+)\)/i);
+      if(match){
+        const parts = match[1].split(',').map(part => Number(String(part).trim().replace('px', '')));
+        if(parts.length >= 1 && Number.isFinite(parts[0])){
+          return parts[0];
+        }
+      }
+      return null;
+    };
+
+    const resolveTransformTranslateX = (el)=>{
+      if(!el){
+        return null;
+      }
+      const doc = el.ownerDocument || document;
+      const win = doc.defaultView || global;
+      const style = typeof win?.getComputedStyle === 'function' ? win.getComputedStyle(el) : null;
+      const transform = style?.transform || style?.webkitTransform || el.style?.transform || '';
+      return parseTranslateX(transform);
+    };
+
+    const resolveHorizontalScrollLeft = ()=>{
+      if(!container || typeof container.querySelector !== 'function'){
+        return 0;
+      }
+      const centerViewport = container.querySelector('.ag-center-cols-viewport');
+      const horizontalViewport = container.querySelector('.ag-body-horizontal-scroll-viewport');
+      const horizontalScroll = container.querySelector('.ag-body-horizontal-scroll');
+      const bodyViewport = container.querySelector('.ag-body-viewport');
+      const candidates = [
+        centerViewport,
+        horizontalViewport,
+        horizontalScroll,
+        bodyViewport
+      ];
+      let maxLeft = 0;
+      candidates.forEach(el=>{
+        if(el && typeof el.scrollLeft === 'number' && el.scrollLeft > maxLeft){
+          maxLeft = el.scrollLeft;
+        }
+      });
+      if(maxLeft > 0){
+        return maxLeft;
+      }
+      const transformX = resolveTransformTranslateX(centerColsContainer);
+      if(Number.isFinite(transformX) && transformX !== 0){
+        return Math.abs(transformX);
+      }
+      return 0;
+    };
+
+    const applyPinnedTopTranslateX = (el, offset)=>{
+      if(!el || !el.style){
+        return false;
+      }
+      if(!el.style.willChange){
+        el.style.willChange = 'transform';
+      }
+      const next = `translate3d(${offset}px, 0px, 0px)`;
+      const current = el.style.transform || '';
+      if(current && /translate3d\(/i.test(current)){
+        const updated = current.replace(/translate3d\([^)]+\)/i, next);
+        if(updated !== current){
+          el.style.transform = updated;
+        }
+        return true;
+      }
+      if(current && /translateX\(/i.test(current)){
+        const updated = current.replace(/translateX\([^)]+\)/i, next);
+        if(updated !== current){
+          el.style.transform = updated;
+        }
+        return true;
+      }
+      if(current && /translate\(/i.test(current)){
+        const updated = current.replace(/translate\([^)]+\)/i, next);
+        if(updated !== current){
+          el.style.transform = updated;
+        }
+        return true;
+      }
+      if(current && current !== 'none'){
+        el.style.transform = `${current} ${next}`.trim();
+        return true;
+      }
+      el.style.transform = next;
+      return true;
+    };
+
+    const alignPinnedTopByRect = (reason)=>{
+      if(!usePinnedRows || !isFirefox || !pinnedTopContainer || !centerColsContainer){
+        return false;
+      }
+      if(typeof pinnedTopContainer.getBoundingClientRect !== 'function' || typeof centerColsContainer.getBoundingClientRect !== 'function'){
+        return false;
+      }
+      const centerRect = centerColsContainer.getBoundingClientRect();
+      const pinnedRect = pinnedTopContainer.getBoundingClientRect();
+      if(!centerRect || !pinnedRect){
+        return false;
+      }
+      const delta = centerRect.left - pinnedRect.left;
+      if(!Number.isFinite(delta) || Math.abs(delta) < 0.5){
+        return false;
+      }
+      const currentOffset = resolveTransformTranslateX(pinnedTopContainer) || 0;
+      const nextOffset = currentOffset + delta;
+      if(!Number.isFinite(nextOffset)){
+        return false;
+      }
+      pinnedTopScrollLeft = nextOffset;
+      const applied = applyPinnedTopTranslateX(pinnedTopContainer, nextOffset);
+      if(applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot pinFirstRow rect sync', { debugLabel, reason, delta, nextOffset });
+      }
+      return applied;
+    };
+
+    const resolveCellLeft = (root)=>{
+      if(!root || typeof root.querySelector !== 'function'){
+        return null;
+      }
+      const row = root.querySelector('.ag-row');
+      if(!row){
+        return null;
+      }
+      const cell = row.querySelector('.ag-cell');
+      if(!cell || typeof cell.getBoundingClientRect !== 'function'){
+        return null;
+      }
+      const rect = cell.getBoundingClientRect();
+      return Number.isFinite(rect.left) ? rect.left : null;
+    };
+
+    const alignPinnedTopByCells = (reason)=>{
+      if(!usePinnedRows || !isFirefox || !pinnedTopContainer || !centerColsContainer){
+        return false;
+      }
+      const bodyLeft = resolveCellLeft(centerColsContainer);
+      const pinnedLeft = resolveCellLeft(pinnedTopContainer);
+      if(!Number.isFinite(bodyLeft) || !Number.isFinite(pinnedLeft)){
+        return false;
+      }
+      const delta = bodyLeft - pinnedLeft;
+      if(!Number.isFinite(delta) || Math.abs(delta) < 0.5){
+        return false;
+      }
+      const currentOffset = resolveTransformTranslateX(pinnedTopContainer) || 0;
+      const nextOffset = currentOffset + delta;
+      if(!Number.isFinite(nextOffset)){
+        return false;
+      }
+      pinnedTopScrollLeft = nextOffset;
+      const applied = applyPinnedTopTranslateX(pinnedTopContainer, nextOffset);
+      if(applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        console.debug('Debug: Shared.hot pinFirstRow cell sync', { debugLabel, reason, delta, nextOffset });
+      }
+      return applied;
+    };
+
+    const schedulePinnedTopRowSync = (reason)=>{
+      if(!usePinnedRows){
+        return;
+      }
+      const doc = container?.ownerDocument || document;
+      const win = doc.defaultView || global;
+      const raf = typeof win?.requestAnimationFrame === 'function'
+        ? win.requestAnimationFrame.bind(win)
+        : (fn)=>win.setTimeout(fn, 16);
+      if(pinnedTopSyncRafId != null){
+        return;
+      }
+      pinnedTopSyncRafId = raf(()=>{
+        pinnedTopSyncRafId = null;
+        const prev = pinnedTopScrollLeft;
+        syncPinnedTopRowScroll(reason || 'raf');
+        alignPinnedTopByRect(reason || 'raf');
+        alignPinnedTopByCells(reason || 'raf');
+        const current = pinnedTopScrollLeft;
+        if(current === prev){
+          pinnedTopSyncStableFrames += 1;
+        }else{
+          pinnedTopSyncStableFrames = 0;
+        }
+        const stableThreshold = isFirefox ? 6 : 2;
+        if(pinnedTopSyncStableFrames < stableThreshold){
+          schedulePinnedTopRowSync('raf-follow');
+        }
+      });
+    };
+
+    const syncPinnedTopRowScroll = (reason)=>{
+      if(!usePinnedRows || !container || typeof container.querySelector !== 'function'){
+        return;
+      }
+      resolvePinnedTopElements();
+      attachPinnedTopObserver();
+      const hasPinnedTarget = !!(pinnedTopViewport || pinnedTopContainer);
+      if(!hasPinnedTarget){
+        pinnedTopScrollLeft = null;
+        return;
+      }
+      const transformX = resolveTransformTranslateX(centerColsContainer);
+      const useTransformOffset = preferPinnedTransform && Number.isFinite(transformX) && transformX !== 0;
+      const scrollLeft = useTransformOffset ? Math.abs(transformX) : resolveHorizontalScrollLeft();
+      const offset = useTransformOffset ? transformX : -scrollLeft;
+      const needsForceSync = preferPinnedTransform
+        && pinnedTopViewport
+        && typeof pinnedTopViewport.scrollLeft === 'number'
+        && pinnedTopViewport.scrollLeft !== 0;
+      if(offset === pinnedTopScrollLeft && !needsForceSync){
+        return;
+      }
+      pinnedTopScrollLeft = offset;
+      let applied = false;
+      const useTransform = (preferPinnedTransform || useTransformOffset) && !!pinnedTopContainer;
+      if(useTransform){
+        if(pinnedTopViewport && typeof pinnedTopViewport.scrollLeft === 'number' && pinnedTopViewport.scrollLeft !== 0){
+          pinnedTopViewport.scrollLeft = 0;
+        }
+        applied = applyPinnedTopTranslateX(pinnedTopContainer, offset);
+      }else if(pinnedTopViewport && typeof pinnedTopViewport.scrollLeft === 'number'){
+        pinnedTopViewport.scrollLeft = scrollLeft;
+        applied = true;
+      }else if(pinnedTopContainer){
+        applied = applyPinnedTopTranslateX(pinnedTopContainer, offset);
+      }
+      if(!applied && typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled()){
+        pinnedTopSyncAttempts += 1;
+        if(pinnedTopSyncAttempts <= 3){
+          console.debug('Debug: Shared.hot pinFirstRow scroll sync skipped', { debugLabel, reason, scrollLeft });
+        }
+      }
+      if(applied && isFirefox){
+        alignPinnedTopByCells(reason || 'scroll');
       }
     };
 
@@ -2323,7 +2710,7 @@
           if(!Number.isInteger(physicalRow) || physicalRow < 0){
             return false;
           }
-          if(isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
+          if(isPinnedOrHeaderRow(physicalRow)){
             return false;
           }
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
@@ -2339,7 +2726,7 @@
           if(!Number.isInteger(physicalRow) || physicalRow < 0){
             return false;
           }
-          if(isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
+          if(isPinnedOrHeaderRow(physicalRow)){
             return false;
           }
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
@@ -2354,7 +2741,7 @@
           if(!Number.isInteger(physicalRow) || physicalRow < 0){
             return false;
           }
-          if(isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
+          if(isPinnedOrHeaderRow(physicalRow)){
             return false;
           }
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
@@ -2369,7 +2756,7 @@
           if(!Number.isInteger(physicalRow) || physicalRow < 0){
             return false;
           }
-          if(isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
+          if(isPinnedOrHeaderRow(physicalRow)){
             return false;
           }
           const colId = params?.column?.getColId?.() ?? params?.colDef?.colId;
@@ -2536,6 +2923,8 @@
       try{
         viewport.scrollTop = 0;
         viewport.scrollLeft = 0;
+        syncPinnedTopRowScroll('scroll-top');
+        schedulePinnedTopRowSync('scroll-top-follow');
       }catch(err){
         // best effort
       }
@@ -2587,6 +2976,8 @@
         }
         viewport.scrollTop = targetTop;
         viewport.scrollLeft = snapshot.left || 0;
+        syncPinnedTopRowScroll('restore');
+        schedulePinnedTopRowSync('restore-follow');
       });
     };
 
@@ -2700,18 +3091,21 @@
       if(!viewport || !container || typeof container.querySelector !== 'function'){
         return;
       }
+      const centerViewport = container.querySelector('.ag-center-cols-viewport');
       const horizontalViewport = container.querySelector('.ag-body-horizontal-scroll-viewport');
       const horizontalScroll = container.querySelector('.ag-body-horizontal-scroll');
-      if(!autoGrowthState.viewportScrollHandler){
+        if(!autoGrowthState.viewportScrollHandler){
         autoGrowthState.viewportScrollHandler = ()=>{
           maybeGrowRows('scroll');
           maybeGrowCols('scroll');
+          syncPinnedTopRowScroll('scroll');
+          schedulePinnedTopRowSync('scroll-follow');
           scheduleFillHandleUpdate('scroll');
         };
       }
       const handler = autoGrowthState.viewportScrollHandler;
       const existing = Array.isArray(autoGrowthState.scrollElements) ? autoGrowthState.scrollElements : [];
-      const elements = [viewport, horizontalViewport, horizontalScroll].filter((el, idx, list)=>el && list.indexOf(el) === idx);
+      const elements = [viewport, centerViewport, horizontalViewport, horizontalScroll].filter((el, idx, list)=>el && list.indexOf(el) === idx);
       elements.forEach(el=>{
         if(existing.indexOf(el) === -1){
           el.addEventListener('scroll', handler, { passive: true });
@@ -4025,7 +4419,7 @@
 
     const gridOptions = {
       rowData,
-      pinnedTopRowData: shouldPinRows ? getPinnedTopRowData() : null,
+      pinnedTopRowData: usePinnedRows ? getPinnedTopRowData() : null,
       columnDefs,
       defaultColDef: {
         editable: true,
@@ -4036,7 +4430,7 @@
         comparator: valueComparator
       },
       getRowHeight(params){
-        if(!shouldPinRows){
+        if(!usePinnedRows){
           return undefined;
         }
         const node = params?.node;
@@ -4049,6 +4443,26 @@
         }
         return undefined;
       },
+      getRowStyle(params){
+        if(!useStickyHeaderRow){
+          return null;
+        }
+        const physicalRow = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? null;
+        if(!isPinnedPhysicalRow(physicalRow)){
+          return null;
+        }
+        const nodeHeight = Number(params?.node?.rowHeight);
+        const themeHeight = Number(params?.api?.getSizesForCurrentTheme?.()?.rowHeight);
+        const rowHeight = Number.isFinite(nodeHeight) && nodeHeight > 0
+          ? nodeHeight
+          : (Number.isFinite(themeHeight) && themeHeight > 0 ? themeHeight : 28);
+        const offset = Math.max(0, physicalRow) * rowHeight;
+        return {
+          '--hot-sticky-offset': `${offset}px`
+        };
+      },
+      suppressRowVirtualisation: useStickyHeaderRow,
+      suppressRowTransform: useStickyHeaderRow,
       rowSelection: rowSelectionConfig || undefined,
         suppressRowHoverHighlight: true,
         suppressMenuHide: true,
@@ -4067,29 +4481,40 @@
             const columnState = params?.columnApi?.getColumnState?.();
             hasSort = Array.isArray(columnState) && columnState.some(state => state?.sort === 'asc' || state?.sort === 'desc');
           }
+          const pinnedNodes = [];
           const headerNodes = [];
           const dataNodes = [];
-          if(treatFirstRowAsHeader){
-            for(let i = 0; i < nodes.length; i++){
-              const node = nodes[i];
-              const physicalRow = node?.data?.__rowIndex ?? node?.rowIndex;
-              if(isHeaderRow(physicalRow)){
-                headerNodes.push(node);
-              }else{
-                dataNodes.push(node);
-              }
+          const resolvePhysicalRow = (node)=>node?.data?.__rowIndex ?? node?.rowIndex ?? null;
+          for(let i = 0; i < nodes.length; i++){
+            const node = nodes[i];
+            const physicalRow = resolvePhysicalRow(node);
+            if(isPinnedPhysicalRow(physicalRow)){
+              pinnedNodes.push(node);
+            }else if(isHeaderRow(physicalRow)){
+              headerNodes.push(node);
+            }else{
+              dataNodes.push(node);
             }
-          }else{
-            dataNodes.push(...nodes);
           }
           if(!hasSort){
-            if(!headerNodes.length){
+            if(!pinnedNodes.length && !headerNodes.length){
               return;
             }
             nodes.length = 0;
+            pinnedNodes.forEach(node => nodes.push(node));
             headerNodes.forEach(node => nodes.push(node));
             dataNodes.forEach(node => nodes.push(node));
             return;
+          }
+          const pinnedNodesHavePhysical = pinnedNodes.length > 1
+            && pinnedNodes.every(node => Number.isInteger(resolvePhysicalRow(node)));
+          if(pinnedNodesHavePhysical){
+            pinnedNodes.sort((a, b)=>resolvePhysicalRow(a) - resolvePhysicalRow(b));
+          }
+          const headerNodesHavePhysical = headerNodes.length > 1
+            && headerNodes.every(node => Number.isInteger(resolvePhysicalRow(node)));
+          if(headerNodesHavePhysical){
+            headerNodes.sort((a, b)=>resolvePhysicalRow(a) - resolvePhysicalRow(b));
           }
           const matrix = dataHandle.current;
           const isValueEmpty = (value)=>{
@@ -4136,6 +4561,7 @@
           }
 
           nodes.length = 0;
+          pinnedNodes.forEach(node => nodes.push(node));
           headerNodes.forEach(node => nodes.push(node));
           nonEmptyNodes.forEach(node => nodes.push(node));
           emptyNodes.forEach(node => nodes.push(node));
@@ -4148,11 +4574,22 @@
           instance.columnApi = params.columnApi;
           updateSelectionFromApi(params.api);
           ensureViewportScrollHandler();
+          syncPinnedTopRowScroll('grid-ready');
+          schedulePinnedTopRowSync('grid-ready-follow');
           maybeGrowRows('gridReady');
           maybeGrowCols('gridReady');
         },
         onFirstDataRendered(){
           ensureViewportScrollHandler();
+          syncPinnedTopRowScroll('first-data-render');
+          schedulePinnedTopRowSync('first-data-render-follow');
+        },
+        onBodyScroll(params){
+          if(params?.direction && params.direction !== 'horizontal'){
+            return;
+          }
+          syncPinnedTopRowScroll('body-scroll');
+          schedulePinnedTopRowSync('body-scroll-follow');
         },
         onColumnResized(params){
           if(params?.finished === false){
@@ -4414,10 +4851,14 @@
       },
       getRowClass(params){
         const physicalRow = params?.data?.__rowIndex ?? params?.node?.rowIndex ?? 0;
-        if(isHeaderRow(physicalRow)){
-          return firstRowClassName;
+        const classes = [];
+        if(isHeaderRow(physicalRow) && firstRowClassName){
+          classes.push(firstRowClassName);
         }
-        return null;
+        if(isStickyRow(physicalRow)){
+          classes.push('hot-sticky-row');
+        }
+        return classes.length ? classes.join(' ') : null;
       },
       onCellContextMenu(params){
         if(hasEnterprise){
@@ -4432,7 +4873,7 @@
         if(colIdRaw === '__rowHeader'){
           const visualRow = params?.node?.rowIndex ?? 0;
           const physicalRow = params?.node?.data?.__rowIndex ?? visualRow;
-          if(!Number.isInteger(physicalRow) || physicalRow < 0 || isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
+          if(!Number.isInteger(physicalRow) || physicalRow < 0 || isPinnedOrHeaderRow(physicalRow)){
             return;
           }
           const selectionSpan = resolveSelectedRowSpanForHeader(visualRow);
@@ -4447,7 +4888,7 @@
             if(!Number.isInteger(pr) || pr < 0){
               continue;
             }
-            if(isHeaderRow(pr) || isPinnedTopRow(pr)){
+            if(isPinnedOrHeaderRow(pr)){
               continue;
             }
             rowList.push(pr);
@@ -4570,7 +5011,7 @@
             if(!Number.isInteger(physicalRow) || !Number.isInteger(physicalCol) || physicalRow < 0 || physicalCol < 0){
               continue;
             }
-            if(isHeaderRow(physicalRow) || isPinnedTopRow(physicalRow)){
+            if(isPinnedOrHeaderRow(physicalRow)){
               continue;
             }
             pairs.push({ row: physicalRow, col: physicalCol });
@@ -5121,6 +5562,7 @@
 
       const resolveHorizontalScrollTargets = ()=>{
         const candidates = [
+          container?.querySelector?.('.ag-center-cols-viewport'),
           container?.querySelector?.('.ag-body-horizontal-scroll-viewport'),
           container?.querySelector?.('.ag-body-horizontal-scroll'),
           resolveViewport()
