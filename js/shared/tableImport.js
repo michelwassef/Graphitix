@@ -331,6 +331,32 @@
     return text;
   }
 
+  function isPrismReadableLabel(value){
+    if(!value){
+      return false;
+    }
+    const text = String(value).trim();
+    if(!text){
+      return false;
+    }
+    if(!/[A-Za-z]/.test(text)){
+      return false;
+    }
+    return /^[A-Za-z0-9 .,:;()\-]+$/.test(text);
+  }
+
+  function isPrismPlaceholderLabel(value){
+    if(!value){
+      return false;
+    }
+    const trimmed = String(value).trim();
+    if(!trimmed || /\s/.test(trimmed)){
+      return false;
+    }
+    const compact = trimmed.toLowerCase();
+    return compact === 'ytitle' || compact === 'xtitle' || compact === 'y1title' || compact === 'x1title';
+  }
+
   function isPrismColorToken(value){
     if(!value){
       return false;
@@ -504,6 +530,9 @@
         return false;
       }
       if(isPrismColorToken(normalized)){
+        return false;
+      }
+      if(!isPrismReadableLabel(normalized)){
         return false;
       }
       if(excluded.has(normalized)){
@@ -1045,43 +1074,75 @@
         const delimiter = detectDelimiter(dataCsv, ',');
         const rows = parseDelimitedText(dataCsv, delimiter);
         const filtered = filterRows(rows);
-        const dataSetIds = Array.isArray(sheet?.table?.dataSets) ? sheet.table.dataSets : [];
+        const tableInfo = sheet?.table || {};
+        const tableClass = typeof tableInfo?.['@class'] === 'string' ? tableInfo['@class'] : '';
+        const tableFormat = typeof tableInfo?.format === 'string' ? tableInfo.format : '';
+        const dataFormat = typeof tableInfo?.dataFormat === 'string' ? tableInfo.dataFormat : '';
+        const rowTitlesId = tableInfo?.rowTitlesDataSet || '';
+        const xDataSetId = tableInfo?.xDataSet || '';
+        const dataSetIds = Array.isArray(tableInfo?.dataSets) ? tableInfo.dataSets : [];
+        const readDataSetTitle = async uid => {
+          if(!uid){
+            return '';
+          }
+          const setInfo = await readZipJson(zip, `data/sets/${uid}.json`);
+          const rawTitle = setInfo?.title;
+          const title = normalizePrismString(extractPrismText(rawTitle));
+          prismDebug('dataset.title', { uid, rawType: typeof rawTitle, title });
+          return title;
+        };
         let dataSetTitles = [];
         if(dataSetIds.length){
-          const titlePromises = dataSetIds.map(async uid => {
-            const setInfo = await readZipJson(zip, `data/sets/${uid}.json`);
-            const rawTitle = setInfo?.title;
-            const title = extractPrismText(rawTitle);
-            prismDebug('dataset.title', { uid, rawType: typeof rawTitle, title });
-            return title;
-          });
-          const titles = await Promise.all(titlePromises);
-          dataSetTitles = titles.map(title => normalizePrismString(title)).filter(Boolean);
-          if(titles.some(title => String(title).trim() !== '')){
-            filtered.unshift(titles);
-          }
+          const titles = await Promise.all(dataSetIds.map(readDataSetTitle));
+          dataSetTitles = titles.filter(Boolean);
         }
+        const xTitle = await readDataSetTitle(xDataSetId);
+        const rowTitleLabel = await readDataSetTitle(rowTitlesId);
         let prismStyle = null;
+        let prismGraphLabels = { title: '', xLabel: '', yLabel: '' };
+        const sheetTitle = normalizePrismString(sheet?.title || '');
         const graphSheetId = document?.uiSettings?.currentSheets?.graph
           || (Array.isArray(document?.sheets?.graphs) ? document.sheets.graphs[0] : null);
         if(graphSheetId){
+          const graphSheet = await readZipJson(zip, `graphs/${graphSheetId}/sheet.json`);
+          const graphSheetTitle = normalizePrismString(graphSheet?.title || '');
           const graphBuffer = await readZipBuffer(zip, `graphs/${graphSheetId}/data.bin`);
           if(graphBuffer){
             const parsed = extractPrismStringsFromBuffer(graphBuffer);
-            const candidates = filterPrismGraphCandidates(parsed.strings, {
-              sheetTitle: sheet?.title || '',
-              dataSetTitles
-            });
-            let yLabel = normalizePrismString(findPrismLabelAfterMarker(parsed.text, 'Y1Title'));
-            if(yLabel && (dataSetTitles.includes(yLabel) || isPrismColorToken(yLabel) || yLabel === 'Zval' || yLabel === 'Zend')){
-              yLabel = '';
+            const normalizedStrings = (parsed.strings || []).map(item => normalizePrismString(item));
+            const markerIndex = normalizedStrings.indexOf('Y1Title');
+            let yLabel = '';
+            let xLabel = '';
+            let title = '';
+            if(markerIndex > 0){
+              const immediate = normalizedStrings[markerIndex - 1];
+              if(immediate && !isPrismPlaceholderLabel(immediate) && isPrismReadableLabel(immediate)){
+                yLabel = immediate;
+                if(markerIndex > 1){
+                  const xCandidate = normalizedStrings[markerIndex - 2];
+                  if(xCandidate && !isPrismPlaceholderLabel(xCandidate) && isPrismReadableLabel(xCandidate)){
+                    xLabel = xCandidate;
+                    if(markerIndex > 2){
+                      const titleCandidate = normalizedStrings[markerIndex - 3];
+                      const normalizedTitle = normalizePrismString(titleCandidate);
+                      if(normalizedTitle
+                        && !isPrismPlaceholderLabel(normalizedTitle)
+                        && isPrismReadableLabel(normalizedTitle)
+                        && normalizedTitle !== graphSheetTitle
+                        && normalizedTitle !== sheetTitle
+                        && normalizedTitle !== xLabel
+                        && normalizedTitle !== yLabel){
+                        title = titleCandidate;
+                      }
+                    }
+                  }
+                }
+              }
             }
-            const remaining = candidates.filter(item => item !== yLabel);
-            const title = remaining[0] || '';
-            const xLabel = remaining[1] || '';
-            if(!yLabel && remaining.length > 2){
-              yLabel = remaining[2];
+            if(!xLabel && xTitle && isPrismReadableLabel(xTitle)){
+              xLabel = xTitle;
             }
+            prismGraphLabels = { title, xLabel, yLabel };
             const inflated = await inflatePrismGraphData(graphBuffer);
             let fontColor = '';
             let axisColor = '';
@@ -1108,12 +1169,98 @@
                 fontSize,
                 fontColor,
                 axisColor,
-                candidateCount: candidates.length
+                candidateCount: parsed.strings?.length || 0
               });
             }
           }
         }
-        const result = await applyRows(filtered, { delimiter });
+        let prismMeta = null;
+        let importRows = filtered;
+        const isXYTable = tableClass === 'XYDataTable' || tableFormat === 'xy';
+        if(isXYTable && dataFormat === 'y_replicates'){
+          const replicateCountRaw = Number(tableInfo?.replicatesCount);
+          const replicatesCount = Number.isFinite(replicateCountRaw) && replicateCountRaw > 0 ? replicateCountRaw : 1;
+          const groupLabels = dataSetTitles.length
+            ? dataSetTitles.slice()
+            : Array.from({ length: Math.max(1, dataSetIds.length || 1) }, (_, idx) => `Series ${idx + 1}`);
+          const header = [prismGraphLabels.xLabel || xTitle || rowTitleLabel || 'X'];
+          groupLabels.forEach(label => {
+            const base = label || 'Series';
+            for(let rep = 0; rep < replicatesCount; rep += 1){
+              header.push(`${base} Rep ${rep + 1}`);
+            }
+          });
+          const xIndex = rowTitlesId ? 1 : 0;
+          const yStart = xIndex + 1;
+          const targetCols = 1 + groupLabels.length * replicatesCount;
+          const dataRows = filtered.map(row => {
+            const src = Array.isArray(row) ? row : [];
+            const out = new Array(targetCols).fill('');
+            out[0] = src[xIndex] ?? '';
+            for(let s = 0; s < groupLabels.length; s += 1){
+              for(let rep = 0; rep < replicatesCount; rep += 1){
+                const srcIdx = yStart + s * replicatesCount + rep;
+                const outIdx = 1 + s * replicatesCount + rep;
+                out[outIdx] = srcIdx < src.length ? src[srcIdx] : '';
+              }
+            }
+            return out;
+          });
+          importRows = [header, ...dataRows];
+          prismMeta = {
+            kind: 'line',
+            dataFormat,
+            tableClass,
+            replicatesCount,
+            groupLabels: groupLabels.slice(),
+            xTitle: prismGraphLabels.xLabel || xTitle || rowTitleLabel || ''
+          };
+          prismDebug('xy.line', { replicatesCount, seriesCount: groupLabels.length, rows: dataRows.length });
+        }else if(isXYTable && dataFormat === 'y_single'){
+          const hasRowTitles = !!rowTitlesId;
+          const xIndex = hasRowTitles ? 1 : 0;
+          const yStart = xIndex + 1;
+          const seriesCount = Math.max(1, dataSetTitles.length || 1);
+          const headerLabel = rowTitleLabel || 'Labels';
+          const xHeader = prismGraphLabels.xLabel || xTitle || 'X';
+          const yHeader = prismGraphLabels.yLabel || (dataSetTitles[0] || 'Y');
+          const headerRow = [headerLabel, xHeader, yHeader];
+          const scatterRows = [];
+          filtered.forEach(row => {
+            const src = Array.isArray(row) ? row : [];
+            const baseLabel = hasRowTitles ? (src[0] ?? '') : '';
+            for(let s = 0; s < seriesCount; s += 1){
+              const dsLabel = dataSetTitles[s] || '';
+              let label = baseLabel;
+              if(seriesCount > 1 && dsLabel){
+                const trimmedBase = String(baseLabel ?? '').trim();
+                label = trimmedBase ? `${trimmedBase} (${dsLabel})` : dsLabel;
+              }
+              const xValue = src[xIndex] ?? '';
+              const yValue = src[yStart + s] ?? '';
+              scatterRows.push([label ?? '', xValue ?? '', yValue ?? '']);
+            }
+          });
+          importRows = [headerRow, ...scatterRows];
+          prismMeta = {
+            kind: 'scatter',
+            dataFormat,
+            tableClass,
+            seriesCount,
+            xTitle: prismGraphLabels.xLabel || xTitle || rowTitleLabel || '',
+            yTitles: dataSetTitles.slice(),
+            headerRow
+          };
+          prismDebug('xy.scatter', { seriesCount, rows: scatterRows.length, hasRowTitles });
+        }else if(dataSetIds.length){
+          if(dataSetTitles.some(title => String(title).trim() !== '')){
+            importRows = [dataSetTitles.map(title => title), ...filtered];
+          }
+        }
+        const result = await applyRows(importRows, { delimiter });
+        if(result && prismMeta){
+          result.prismMeta = prismMeta;
+        }
         if(result && prismStyle){
           result.prismStyle = prismStyle;
           if(typeof options.onPrismStyle === 'function'){

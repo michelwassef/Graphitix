@@ -8523,6 +8523,29 @@
             forceLineOverlay(renderReason, { message: 'Rendering line graph...' });
           }
         });
+        const prismMeta = result?.prismMeta;
+        if(prismMeta?.kind === 'line'){
+          const replicateCount = clampLineReplicateCount(prismMeta.replicatesCount || LINE_MIN_REPLICATES);
+          const groupLabels = Array.isArray(prismMeta.groupLabels) ? prismMeta.groupLabels : null;
+          if(lineViewState.viewMode === '3d' || refs.replicateMode?.value === '3d'){
+            exitLine3dMode({ skipDraw: true });
+          }
+          lineReplicates = replicateCount;
+          if(lineReplicates > LINE_MIN_REPLICATES){
+            lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, lineReplicates));
+          }
+          if(groupLabels && groupLabels.length){
+            lineSeriesGroupLabels = groupLabels.slice();
+            lineLegendLayoutInfo.entryCount = groupLabels.length;
+          }
+          if(refs.replicatesInput){
+            refs.replicatesInput.value = String(lineReplicates);
+          }
+          updateLineReplicateModeControls();
+          if(lineHot){
+            updateLineNestedHeaders();
+          }
+        }
         if(!result && forcedOverlay){
           resolveLineOverlay('file-import-empty');
         }

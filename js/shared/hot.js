@@ -777,18 +777,15 @@
         const row = Array.isArray(matrix[r]) ? matrix[r] : [];
         let rowHasData = false;
         for(let c = row.length - 1; c >= 0; c -= 1){
-          if(!rowHasData && isMeaningfulValue(row[c])){
+          if(isMeaningfulValue(row[c])){
             rowHasData = true;
-          }
-          if(isMeaningfulValue(row[c]) && c > lastCol){
-            lastCol = c;
+            if(c > lastCol){
+              lastCol = c;
+            }
           }
         }
-        if(rowHasData){
+        if(lastRow < 0 && rowHasData){
           lastRow = r;
-          if(lastCol >= 0){
-            break;
-          }
         }
       }
       return { rows: Math.max(0, lastRow + 1), cols: Math.max(0, lastCol + 1) };
