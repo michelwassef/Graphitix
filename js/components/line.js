@@ -3011,27 +3011,58 @@
     return source;
   }
 
+  function isLinePlaceholderHeader(value){
+    if(value == null) return true;
+    const raw = String(value).trim();
+    if(!raw) return true;
+    const lower = raw.toLowerCase();
+    return /^series\s*\d+$/.test(lower)
+      || /^rep\s*\d+$/.test(lower)
+      || /^column\s*\d+$/.test(lower);
+  }
+
   function computeUsedSeriesColumns(matrix){
     const data = Array.isArray(matrix) ? matrix : [];
     if(!data.length) return 0;
     const header = Array.isArray(data[0]) ? data[0] : [];
     let lastUsed = 0;
     for(let c=1;c<header.length;c++){
-      const headerCell = header[c];
-      if(headerCell != null && String(headerCell).trim() !== ''){
-        lastUsed = c;
-        continue;
-      }
+      let hasData = false;
       for(let r=1;r<data.length;r++){
         const cell = data[r]?.[c];
         if(cell != null && String(cell).trim() !== ''){
+          hasData = true;
           lastUsed = c;
           break;
         }
       }
+      if(hasData){
+        continue;
+      }
+      const headerCell = header[c];
+      if(headerCell != null && String(headerCell).trim() !== '' && !isLinePlaceholderHeader(headerCell)){
+        lastUsed = c;
+      }
     }
     console.debug('Debug: computeUsedSeriesColumns',{ lastUsed, headerLength: header.length, rowCount: data.length });
     return lastUsed;
+  }
+
+  function isLineMatrixEmpty(matrix){
+    const data = Array.isArray(matrix) ? matrix : [];
+    if(data.length <= 1){
+      return true;
+    }
+    for(let r = 1; r < data.length; r += 1){
+      const row = Array.isArray(data[r]) ? data[r] : [];
+      for(let c = 0; c < row.length; c += 1){
+        const cell = row[c];
+        if(cell != null && String(cell).trim() !== ''){
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   function sanitizeLineGroupShape(value, index){
@@ -3041,6 +3072,14 @@
     }
     const safeIndex = Number.isInteger(index) ? index : 0;
     return LINE_GROUP_SHAPE_DEFAULTS[safeIndex % LINE_GROUP_SHAPE_DEFAULTS.length];
+  }
+
+  function getLineGroupedListCount(){
+    if(!refs.groupedList){
+      return 0;
+    }
+    const rows = refs.groupedList.querySelectorAll?.('.grouped-row');
+    return rows ? rows.length : 0;
   }
 
   function ensureLineGroupShapeCapacity(count){
@@ -3177,8 +3216,13 @@
     const safeMatrix = Array.isArray(matrix) ? matrix.map(row=>Array.isArray(row)?row.slice():[]) : [];
     const usedSeriesCols = computeUsedSeriesColumns(safeMatrix);
     const minSeriesCount = Math.max(1, options?.minSeriesCount ?? LINE_DEFAULT_SERIES_COUNT);
+    const desiredSeriesCount = Number.isInteger(options?.seriesCount)
+      ? Math.max(1, options.seriesCount)
+      : (Array.isArray(options?.groupLabels) && options.groupLabels.length
+        ? options.groupLabels.length
+        : null);
     const inferredSeriesCount = Math.max(minSeriesCount, Math.ceil(usedSeriesCols / Math.max(sourceCount, 1)));
-    const seriesCount = Math.max(1, inferredSeriesCount);
+    const seriesCount = Math.max(1, desiredSeriesCount || inferredSeriesCount);
     const targetCols = 1 + seriesCount * targetCount;
     const totalRows = Math.max(safeMatrix.length, DEFAULT_ROWS);
     const headerRow = padRowToLength(safeMatrix[0] || [], Math.max(targetCols, 1));
@@ -4288,7 +4332,19 @@
       console.debug('Debug: line grouped add skipped',{ reason: 'single-mode' });
       return;
     }
+    const replicates = Math.max(lineReplicates, LINE_MIN_REPLICATES);
+    const matrix = lineHot ? lineHot.getData() : [];
+    const usedSeriesCols = computeUsedSeriesColumns(matrix);
+    const inferredSeriesCount = Math.max(1, Math.ceil(usedSeriesCols / Math.max(replicates, 1)));
     const labels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    const listCount = getLineGroupedListCount();
+    const currentSeriesCount = Math.max(listCount || labels.length || inferredSeriesCount, 1);
+    if(labels.length > currentSeriesCount){
+      labels.length = currentSeriesCount;
+    }
+    while(labels.length < currentSeriesCount){
+      labels.push(`Series ${labels.length + 1}`);
+    }
     const nextIndex = labels.length;
     const nextLabel = `Series ${nextIndex + 1}`;
     labels.push(nextLabel);
@@ -4313,6 +4369,14 @@
       return;
     }
     const labels = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.slice() : [];
+    const listCount = getLineGroupedListCount();
+    const currentSeriesCount = Math.max(listCount || labels.length || 1, 1);
+    if(labels.length > currentSeriesCount){
+      labels.length = currentSeriesCount;
+    }
+    while(labels.length < currentSeriesCount){
+      labels.push(`Series ${labels.length + 1}`);
+    }
     if(labels.length <= 1 || !Number.isInteger(index) || index < 0 || index >= labels.length){
       console.debug('Debug: line grouped remove blocked',{ index, length: labels.length });
       return;
@@ -7767,7 +7831,8 @@
     }
     if(refs.groupedRemove){
       refs.groupedRemove.addEventListener('click',()=>{
-        const length = Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0;
+        const listCount = getLineGroupedListCount();
+        const length = listCount || (Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0);
         const targetIndex = length > 0 ? length - 1 : -1;
         console.debug('Debug: line grouped remove button',{ length, targetIndex });
         if(targetIndex >= 0){
@@ -7814,8 +7879,14 @@
           }
         }else{
           const target = lineReplicates > LINE_MIN_REPLICATES ? lineReplicates : lineLastGroupedReplicateCount;
-          if(target !== lineReplicates){
-            applyLineReplicateChange(target);
+          const matrix = lineHot ? lineHot.getData() : [];
+          const shouldResetGroups = isLineMatrixEmpty(matrix);
+          if(target !== lineReplicates || shouldResetGroups){
+            applyLineReplicateChange(target, {
+              minSeriesCount: shouldResetGroups ? 2 : undefined,
+              resetGroupLabels: shouldResetGroups,
+              preserveGroupLabels: !shouldResetGroups
+            });
           }else{
             updateLineReplicateModeControls(requested);
           }
