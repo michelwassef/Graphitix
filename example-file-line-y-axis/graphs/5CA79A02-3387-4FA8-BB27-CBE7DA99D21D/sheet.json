@@ -1,0 +1,14 @@
+{
+	"@class": "FENGraphSheet",
+	"$id": "sheets/graph_sheet.schema.json",
+	"uid": "5CA79A02-3387-4FA8-BB27-CBE7DA99D21D",
+	"fenID": 0,
+	"title": "XY: Entering replicate data",
+	"floatingNotes": [
+		"BAB4C2D9-528D-42E9-9DB1-883A943B7812"
+	],
+	"inputDataSets": [
+		"CF89E008-1556-461D-994B-A7587C58BB88",
+		"B65E9D27-1C1C-407D-9CB4-563EC601E224"
+	]
+}

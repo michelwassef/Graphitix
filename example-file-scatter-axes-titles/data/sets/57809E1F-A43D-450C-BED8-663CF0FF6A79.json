@@ -1,0 +1,34 @@
+{
+	"@class": "DataSet",
+	"$id": "sheets/data_sheet/data_table/data_set.schema.json",
+	"uid": "57809E1F-A43D-450C-BED8-663CF0FF6A79",
+	"fenID": 0,
+	"format": "y_single",
+	"title": {
+		"string": "Y title",
+		"version": 1,
+		"formatting": [
+			{
+				"range": "0~6",
+				"attributes": {}
+			}
+		]
+	},
+	"flags": [],
+	"attributes": [
+		"DS_ATTR_X"
+	],
+	"replicates": [
+		{
+			"@class": "DriverReplicate",
+			"valueType": "real",
+			"commonAttributes": [
+				"NUMERIC"
+			],
+			"decimalsLength": 1,
+			"significantDigitsCount": 7,
+			"lastRow": 7,
+			"firstRow": 0
+		}
+	]
+}

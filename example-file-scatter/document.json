@@ -1,0 +1,101 @@
+{
+	"@class": "Document",
+	"$id": "document.schema.json",
+	"creationDate": "2025-12-28T13:24:48Z",
+	"modificationDate": "2025-12-28T13:25:31Z",
+	"createdBy": {
+		"name": "Prism",
+		"user": "33683",
+		"version": "10.6.1.892",
+		"platform": "Win"
+	},
+	"modifiedBy": {
+		"name": "Prism",
+		"user": "33683",
+		"version": "10.6.1.892",
+		"platform": "Win"
+	},
+	"formatVersion": "1-5-1",
+	"minFormatVersion": "1-2-0",
+	"minPrismVersion": "10.1.0",
+	"compatibility": [
+		{
+			"formatVersion": "1-0-0",
+			"action": "warningOpen"
+		}
+	],
+	"sheets": {
+		"graphs": [
+			"A983BCC9-EA14-42F3-9D15-5127A9E47108"
+		],
+		"info": [
+			"94629A74-E922-48D2-B343-9A1BFD5FB188"
+		],
+		"data": [
+			"49ED69A2-97E7-4ABB-AD1E-F91BE06DE858"
+		]
+	},
+	"uiSettings": {
+		"currentSheetType": "Graph",
+		"viewMode": "sheet",
+		"nextDataSheetNumber": 1,
+		"printer": {
+			"defaultPaperSize": {
+				"width": 8.5,
+				"height": 11.0
+			},
+			"deviceName": "",
+			"driverVersion": 0,
+			"specVersion": 0,
+			"driverExtra": 0
+		},
+		"navigator": {
+			"width": 240,
+			"collapsedFolders": {
+				"data": false,
+				"info": false,
+				"analyses": false,
+				"graphs": false,
+				"layouts": false,
+				"dataAndAnalyses": false,
+				"search": false,
+				"family": false
+			}
+		},
+		"currentSheets": {
+			"data": "49ED69A2-97E7-4ABB-AD1E-F91BE06DE858",
+			"graph": "A983BCC9-EA14-42F3-9D15-5127A9E47108",
+			"info": "94629A74-E922-48D2-B343-9A1BFD5FB188"
+		}
+	},
+	"customColors": [
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff",
+		"#ffffffff"
+	],
+	"sheetAttributesMap": {
+		"94629A74-E922-48D2-B343-9A1BFD5FB188": {
+			"title": "Project info 1"
+		},
+		"49ED69A2-97E7-4ABB-AD1E-F91BE06DE858": {
+			"title": "Data 1"
+		},
+		"A983BCC9-EA14-42F3-9D15-5127A9E47108": {
+			"title": "Data 1",
+			"highlightColor": "#ffffffff"
+		}
+	}
+}

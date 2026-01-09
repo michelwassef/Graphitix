@@ -1,0 +1,46 @@
+{
+	"@class": "DataSheet",
+	"$id": "sheets/data_sheet/data_sheet.schema.json",
+	"uid": "49ED69A2-97E7-4ABB-AD1E-F91BE06DE858",
+	"fenID": 0,
+	"title": "Data 1",
+	"table": {
+		"@class": "XYDataTable",
+		"$id": "sheets/data_sheet/data_table/data_table.schema.json",
+		"uid": "A4DFAC46-7BE8-48B4-B907-C0733DCF9881",
+		"format": "xy",
+		"dataFormat": "y_single",
+		"rowTitlesDataSet": "654760D2-7E70-4E65-989F-9CB8D7012AF7",
+		"dataSets": [
+			"4863C3CE-04EE-4141-BAB8-7A152E8E14F5"
+		],
+		"xDataSetFormat": "y_single",
+		"xDataSet": "57809E1F-A43D-450C-BED8-663CF0FF6A79"
+	},
+	"font": {
+		"family": "Arial",
+		"size": 10.0
+	},
+	"titleWidth": 113,
+	"xSubColWidth": 113,
+	"maxDataSets": 2048,
+	"maxRow": 500000,
+	"selectionRange": {
+		"startCell": {
+			"row": 3,
+			"column": 1,
+			"subcolumn": 0
+		},
+		"endCell": {
+			"row": 3,
+			"column": 1,
+			"subcolumn": 0
+		}
+	},
+	"anchorRow": 0,
+	"anchorColumn": 0,
+	"firstSubColumn": 0,
+	"xRowWidth": 0,
+	"rowTitlesWidth": 46,
+	"subColumnTitleType": "default"
+}

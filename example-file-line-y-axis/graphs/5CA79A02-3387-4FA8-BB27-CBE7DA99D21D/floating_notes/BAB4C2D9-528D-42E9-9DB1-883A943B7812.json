@@ -1,0 +1,48 @@
+{
+	"@class": "FloatingNote",
+	"$id": "floating_note/floating_note.schema.json",
+	"color": "steel",
+	"text": {
+		"string": "Some error bars may not be visible. Why?",
+		"version": 1,
+		"formatting": [
+			{
+				"range": "0~35",
+				"attributes": {
+					"fontSize": 10.0,
+					"indentLeft": 80,
+					"lineBulletStyle": 5,
+					"tabSpacing": 1.5
+				}
+			},
+			{
+				"range": "36~39",
+				"attributes": {
+					"fontSize": 10.0,
+					"textColor": "#0000ffff",
+					"indentLeft": 80,
+					"lineBulletStyle": 5,
+					"urlLink": "https://www.graphpad.com/support/faqid/2041/",
+					"tabSpacing": 1.5
+				}
+			}
+		]
+	},
+	"position": "-1;-1",
+	"positionCollapsed": "0;0",
+	"size": {
+		"width": 278.0,
+		"height": 59.0
+	},
+	"screenWidth": {
+		"width": 1366.0,
+		"height": 768.0
+	},
+	"screenDPI": 96,
+	"isAuto": true,
+	"isCollapsed": false,
+	"isReadOnly": true,
+	"isCompatibilityNote": false,
+	"uid": "BAB4C2D9-528D-42E9-9DB1-883A943B7812",
+	"fenID": 1
+}

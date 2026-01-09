@@ -1,0 +1,6 @@
+{
+    "$id": "sheets/data_sheet/data_table/data_table_storage.schema.json",
+    "numberOfColumns": 3,
+    "numberOfRows": 8,
+    "version": 1
+}

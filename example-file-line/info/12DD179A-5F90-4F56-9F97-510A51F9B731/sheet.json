@@ -1,0 +1,50 @@
+{
+	"@class": "InfoSheet",
+	"$id": "sheets/info_sheet/info_sheet.schema.json",
+	"uid": "12DD179A-5F90-4F56-9F97-510A51F9B731",
+	"fenID": 0,
+	"title": "Project info 1",
+	"experimentDate": "2025-12-28",
+	"notesText": "",
+	"uiState": {
+		"columnNamesWidth": 0.5,
+		"columnValuesWidth": 0.5,
+		"constantPanelProportion": 0.4000000059604645
+	},
+	"selectedCellsRange": {
+		"endCell": {
+			"row": 0,
+			"column": 0
+		},
+		"startCell": {
+			"row": 0,
+			"column": 0
+		}
+	},
+	"constants": [
+		{
+			"name": "Experiment Date",
+			"value": "28/12/2025"
+		},
+		{
+			"name": "Experiment ID",
+			"value": ""
+		},
+		{
+			"name": "Notebook ID",
+			"value": ""
+		},
+		{
+			"name": "Project",
+			"value": ""
+		},
+		{
+			"name": "Experimenter",
+			"value": ""
+		},
+		{
+			"name": "Protocol",
+			"value": ""
+		}
+	]
+}
