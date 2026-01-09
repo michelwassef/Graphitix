@@ -2513,8 +2513,9 @@
     equalScaleAxes: true,
     equalAxes: false,
     axisSettings: createDefaultAxisSettings(),
-    tableFormat: 'standard',
-    grouped: {
+      tableFormat: 'standard',
+      groupedControlsCollapsed: false,
+      grouped: {
       replicatesPerGroup: 2,
       groups: ['Group 1', 'Group 2'],
       colors: [],
@@ -3018,9 +3019,10 @@
       let pcaSvgBox=pcaGraphPanel?.querySelector('.svgbox');
       const pcaConfigPanel=pcaGraphPanel?.querySelector('.config-options');
       bindPcaPlotContextMenuSuppression(pcaSvgBox);
-      const pcaEls = {
-        tableFormat: document.getElementById('pcaTableFormat'),
-        groupedControls: document.getElementById('pcaGroupedControls'),
+        const pcaEls = {
+          tableFormat: document.getElementById('pcaTableFormat'),
+          groupedToggle: document.getElementById('pcaGroupedToggle'),
+          groupedControls: document.getElementById('pcaGroupedControls'),
         groupedReplicates: document.getElementById('pcaGroupedReplicates'),
         groupedList: document.getElementById('pcaGroupedList'),
         groupedAdd: document.getElementById('pcaGroupedAdd'),
@@ -3283,17 +3285,40 @@
         }
       }
 
-      function updatePcaTableFormatUI(){
-        if(pcaEls.tableFormat){
-          pcaEls.tableFormat.value = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
+        function updatePcaGroupedToggleUI(){
+          if(!pcaEls.groupedToggle){
+            return;
+          }
+          const groupedActive = pcaState.tableFormat === 'grouped';
+          const expanded = groupedActive && !pcaState.groupedControlsCollapsed;
+          if(!groupedActive){
+            pcaEls.groupedToggle.hidden = true;
+            pcaEls.groupedToggle.disabled = true;
+            pcaEls.groupedToggle.setAttribute('aria-expanded', 'false');
+            pcaEls.groupedToggle.textContent = 'Show group settings';
+            return;
+          }
+          pcaEls.groupedToggle.hidden = false;
+          pcaEls.groupedToggle.disabled = false;
+          pcaEls.groupedToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+          pcaEls.groupedToggle.textContent = expanded ? 'Hide group settings' : 'Show group settings';
         }
-        if(pcaEls.groupedControls){
-          pcaEls.groupedControls.style.display = pcaState.tableFormat === 'grouped' ? '' : 'none';
+
+        function updatePcaTableFormatUI(){
+          if(pcaEls.tableFormat){
+            pcaEls.tableFormat.value = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
+          }
+          const groupedActive = pcaState.tableFormat === 'grouped';
+          const showGroupedControls = groupedActive && !pcaState.groupedControlsCollapsed;
+          if(pcaEls.groupedControls){
+            pcaEls.groupedControls.style.display = showGroupedControls ? '' : 'none';
+            pcaEls.groupedControls.setAttribute('aria-hidden', showGroupedControls ? 'false' : 'true');
+          }
+          if(groupedActive){
+            renderPcaGroupedList();
+          }
+          updatePcaGroupedToggleUI();
         }
-        if(pcaState.tableFormat === 'grouped'){
-          renderPcaGroupedList();
-        }
-      }
 
       function buildPcaGroupedNestedHeaders(){
         ensurePcaGroupedDefaults();
@@ -3527,11 +3552,21 @@
       updatePcaTableFormatUI();
       applyPcaTableFormatToHot();
 
-      if(pcaEls.tableFormat){
-        pcaEls.tableFormat.addEventListener('change', e=>{
-          setPcaTableFormat(e.target.value);
-        });
-      }
+        if(pcaEls.tableFormat){
+          pcaEls.tableFormat.addEventListener('change', e=>{
+            setPcaTableFormat(e.target.value);
+          });
+        }
+        if(pcaEls.groupedToggle){
+          pcaEls.groupedToggle.addEventListener('click', ()=>{
+            if(pcaState.tableFormat !== 'grouped'){
+              return;
+            }
+            pcaState.groupedControlsCollapsed = !pcaState.groupedControlsCollapsed;
+            debugLog('Debug: pca grouped controls toggled',{ collapsed: pcaState.groupedControlsCollapsed });
+            updatePcaTableFormatUI();
+          });
+        }
       if(pcaEls.groupedReplicates){
         pcaEls.groupedReplicates.addEventListener('change', e=>{
           const raw = Number(e.target.value);

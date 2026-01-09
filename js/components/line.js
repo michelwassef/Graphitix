@@ -335,10 +335,11 @@
     const numeric = Number(value);
     return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : null;
   }
-  let lineFileHandle = null;
-  let lineFileName = 'line.graph';
-  let lineReplicates = LINE_MIN_REPLICATES;
-  let lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, LINE_MIN_REPLICATES + 1));
+    let lineFileHandle = null;
+    let lineFileName = 'line.graph';
+    let lineReplicates = LINE_MIN_REPLICATES;
+    let lineGroupedControlsCollapsed = false;
+    let lineLastGroupedReplicateCount = Math.min(LINE_MAX_REPLICATES, Math.max(2, LINE_MIN_REPLICATES + 1));
   let lineLayout = null;
   let lineSeriesGroupLabels = [];
   let lineGroupShapes = [];
@@ -3496,23 +3497,44 @@
     return structure;
   }
 
-  function updateLineReplicateModeControls(modeOverride){
-    const wants3d = modeOverride === '3d'
-      || lineViewState.viewMode === '3d'
-      || refs.replicateMode?.value === '3d';
-    const mode = wants3d ? '3d' : (modeOverride || (lineReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single'));
-    if(refs.replicateMode && refs.replicateMode.value !== mode){
-      refs.replicateMode.value = mode;
-    }
-    if(refs.replicatesContainer){
-      if(mode === 'grouped'){
-        refs.replicatesContainer.style.display = '';
-        refs.replicatesContainer.setAttribute('aria-hidden', 'false');
-      }else{
-        refs.replicatesContainer.style.display = 'none';
-        refs.replicatesContainer.setAttribute('aria-hidden', 'true');
+    function updateLineGroupedToggleUI(mode){
+      if(!refs.groupedToggle){
+        return;
       }
+      const groupedActive = mode === 'grouped';
+      const expanded = groupedActive && !lineGroupedControlsCollapsed;
+      if(!groupedActive){
+        refs.groupedToggle.hidden = true;
+        refs.groupedToggle.disabled = true;
+        refs.groupedToggle.setAttribute('aria-expanded', 'false');
+        refs.groupedToggle.textContent = 'Show group settings';
+        return;
+      }
+      refs.groupedToggle.hidden = false;
+      refs.groupedToggle.disabled = false;
+      refs.groupedToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      refs.groupedToggle.textContent = expanded ? 'Hide group settings' : 'Show group settings';
     }
+
+    function updateLineReplicateModeControls(modeOverride){
+      const wants3d = modeOverride === '3d'
+        || lineViewState.viewMode === '3d'
+        || refs.replicateMode?.value === '3d';
+      const mode = wants3d ? '3d' : (modeOverride || (lineReplicates > LINE_MIN_REPLICATES ? 'grouped' : 'single'));
+      if(refs.replicateMode && refs.replicateMode.value !== mode){
+        refs.replicateMode.value = mode;
+      }
+      if(refs.replicatesContainer){
+        const showGroupedControls = mode === 'grouped' && !lineGroupedControlsCollapsed;
+        if(showGroupedControls){
+          refs.replicatesContainer.style.display = '';
+          refs.replicatesContainer.setAttribute('aria-hidden', 'false');
+        }else{
+          refs.replicatesContainer.style.display = 'none';
+          refs.replicatesContainer.setAttribute('aria-hidden', 'true');
+        }
+      }
+      updateLineGroupedToggleUI(mode);
     if(refs.threeDControls){
       if(mode === '3d'){
         refs.threeDControls.style.display = '';
@@ -7769,10 +7791,11 @@
     refs.forecastHorizon=document.getElementById('lineForecastHorizon');
     refs.forecastSeasonLength=document.getElementById('lineForecastSeasonLength');
     refs.forecastAuto=document.getElementById('lineForecastAuto');
-    refs.forecastCriterion=document.getElementById('lineForecastCriterion');
-    refs.replicateMode=document.getElementById('lineTableFormat');
-    refs.replicatesContainer=document.getElementById('lineGroupedControls');
-    refs.replicatesInput=document.getElementById('lineReplicates');
+      refs.forecastCriterion=document.getElementById('lineForecastCriterion');
+      refs.replicateMode=document.getElementById('lineTableFormat');
+      refs.groupedToggle=document.getElementById('lineGroupedToggle');
+      refs.replicatesContainer=document.getElementById('lineGroupedControls');
+      refs.replicatesInput=document.getElementById('lineReplicates');
     refs.groupedList=document.getElementById('lineGroupedList');
     refs.groupedAdd=document.getElementById('lineGroupedAdd');
     refs.groupedRemove=document.getElementById('lineGroupedRemove');
@@ -7823,23 +7846,35 @@
         }
       });
     }
-    if(refs.groupedAdd){
-      refs.groupedAdd.addEventListener('click',()=>{
-        console.debug('Debug: line grouped add button');
-        addLineGroup();
-      });
-    }
-    if(refs.groupedRemove){
-      refs.groupedRemove.addEventListener('click',()=>{
-        const listCount = getLineGroupedListCount();
-        const length = listCount || (Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0);
-        const targetIndex = length > 0 ? length - 1 : -1;
-        console.debug('Debug: line grouped remove button',{ length, targetIndex });
-        if(targetIndex >= 0){
-          removeLineGroupAt(targetIndex);
-        }
-      });
-    }
+      if(refs.groupedAdd){
+        refs.groupedAdd.addEventListener('click',()=>{
+          console.debug('Debug: line grouped add button');
+          addLineGroup();
+        });
+      }
+      if(refs.groupedRemove){
+        refs.groupedRemove.addEventListener('click',()=>{
+          const listCount = getLineGroupedListCount();
+          const length = listCount || (Array.isArray(lineSeriesGroupLabels) ? lineSeriesGroupLabels.length : 0);
+          const targetIndex = length > 0 ? length - 1 : -1;
+          console.debug('Debug: line grouped remove button',{ length, targetIndex });
+          if(targetIndex >= 0){
+            removeLineGroupAt(targetIndex);
+          }
+        });
+      }
+      if(refs.groupedToggle){
+        refs.groupedToggle.addEventListener('click', ()=>{
+          if(refs.replicateMode?.value !== 'grouped'){
+            return;
+          }
+          lineGroupedControlsCollapsed = !lineGroupedControlsCollapsed;
+          if(Shared.isDebugEnabled?.()){
+            console.debug('Debug: line grouped controls toggled',{ collapsed: lineGroupedControlsCollapsed });
+          }
+          updateLineReplicateModeControls('grouped');
+        });
+      }
     if(refs.threeDAdd){
       refs.threeDAdd.addEventListener('click', () => {
         console.debug('Debug: line 3d add dataset button');

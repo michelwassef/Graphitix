@@ -312,6 +312,7 @@
             <option value="single" selected>Single replicates</option>
             <option value="grouped">Grouped replicates</option>
           </select>
+          <button type="button" class="btn grouped-toggle" id="boxGroupedToggle" aria-controls="boxGroupedControls" aria-expanded="false" hidden>Show group settings</button>
         </div>
         <div id="boxGroupedControls" class="grouped-controls" style="display:none;">
           <div class="grouped-config-row">
@@ -742,14 +743,15 @@
       <input type="file" id="pcaFile" accept=".csv,.tsv,.txt,.xls,.xlsx,.ods,.odg" style="display:none;" />
     </div>
     <div class="wrap">
-      <div class="panel" id="pcaTablePanel">
-        <div class="table-format-controls">
-          <label for="pcaTableFormat" style="margin:0;">Table format</label>
-          <select id="pcaTableFormat">
-            <option value="standard" selected>Standard</option>
-            <option value="grouped">Grouped samples</option>
-          </select>
-        </div>
+        <div class="panel" id="pcaTablePanel">
+          <div class="table-format-controls">
+            <label for="pcaTableFormat" style="margin:0;">Table format</label>
+            <select id="pcaTableFormat">
+              <option value="standard" selected>Standard</option>
+              <option value="grouped">Grouped samples</option>
+            </select>
+            <button type="button" class="btn grouped-toggle" id="pcaGroupedToggle" aria-controls="pcaGroupedControls" aria-expanded="false" hidden>Show group settings</button>
+          </div>
         <div id="pcaGroupedControls" class="grouped-controls" style="display:none;">
           <div class="grouped-config-row">
             <label for="pcaGroupedReplicates" class="grouped-config-inline">
@@ -1078,15 +1080,16 @@
     </div>
 
     <div class="wrap">
-      <div class="panel" id="lineTablePanel">
-        <div class="table-format-controls">
-          <label for="lineTableFormat" style="margin:0;">Table format</label>
-          <select id="lineTableFormat">
-            <option value="single" selected>Single replicates</option>
-            <option value="grouped">Grouped replicates</option>
-            <option value="3d">3D datasets (Y+Z columns)</option>
-          </select>
-        </div>
+        <div class="panel" id="lineTablePanel">
+          <div class="table-format-controls">
+            <label for="lineTableFormat" style="margin:0;">Table format</label>
+            <select id="lineTableFormat">
+              <option value="single" selected>Single replicates</option>
+              <option value="grouped">Grouped replicates</option>
+              <option value="3d">3D datasets (Y+Z columns)</option>
+            </select>
+            <button type="button" class="btn grouped-toggle" id="lineGroupedToggle" aria-controls="lineGroupedControls" aria-expanded="false" hidden>Show group settings</button>
+          </div>
         <div id="lineGroupedControls" class="grouped-controls" style="display:none;" aria-hidden="true">
           <div class="grouped-config-row">
             <label for="lineReplicates" class="grouped-config-inline">
