@@ -4559,6 +4559,9 @@
       }
       let pcaLabelColors={};
       let pcaLabelShapes={};
+      let pcaLabelStyleMode = null;
+      let pcaLabelColorsBackup = null;
+      let pcaLabelShapesBackup = null;
       const applyPcaLabelColor = (label, value) => {
         const nextValue = value != null ? String(value) : '';
         const previousValue = pcaLabelColors[label] || '';
@@ -4677,39 +4680,20 @@
       });
       function ensurePcaLabelStyles(labels, groupMeta){
         const labelArray = Array.isArray(labels) ? labels : [];
-        if(groupMeta && groupMeta.assignments){
-          const assigned = new Set();
-          labelArray.forEach((lab, idx)=>{
-            if(!lab){ return; }
-            const groupIndex = groupMeta.assignments[idx];
-            if(Number.isInteger(groupIndex) && groupIndex >= 0){
-              const style = groupMeta.styleByIndex?.[groupIndex];
-              if(style){
-                if(style.color){
-                  pcaLabelColors[lab] = style.color;
-                }
-                if(style.shape){
-                  pcaLabelShapes[lab] = style.shape;
-                }
-                assigned.add(lab);
-              }
-            }
-          });
-          Object.keys(pcaLabelColors).forEach(existing=>{
-            if(!assigned.has(existing)){
-              delete pcaLabelColors[existing];
-            }
-          });
-          Object.keys(pcaLabelShapes).forEach(existing=>{
-            if(!assigned.has(existing)){
-              delete pcaLabelShapes[existing];
-            }
-          });
-          debugLog('Debug: ensurePcaLabelStyles sync complete',{
-            colors:Object.keys(pcaLabelColors).length,
-            shapes:Object.keys(pcaLabelShapes).length,
-            grouped:true
-          });
+        const targetMode = pcaState.tableFormat === 'grouped' ? 'grouped' : 'standard';
+        if(targetMode !== pcaLabelStyleMode){
+          if(targetMode === 'grouped'){
+            pcaLabelColorsBackup = { ...pcaLabelColors };
+            pcaLabelShapesBackup = { ...pcaLabelShapes };
+          }else if(pcaLabelStyleMode === 'grouped'){
+            pcaLabelColors = pcaLabelColorsBackup ? { ...pcaLabelColorsBackup } : {};
+            pcaLabelShapes = pcaLabelShapesBackup ? { ...pcaLabelShapesBackup } : {};
+          }
+          pcaLabelStyleMode = targetMode;
+          debugLog('Debug: pca label style mode updated',{ mode: targetMode });
+        }
+        if(targetMode === 'grouped'){
+          debugLog('Debug: ensurePcaLabelStyles skipped',{ grouped: true, labels: labelArray.length });
           return;
         }
         const labelSet = new Set();
@@ -5253,7 +5237,7 @@
         return;
       }
 
-      const groupMeta = resolvePcaGroupMeta(nSamples, labels);
+      groupMeta = resolvePcaGroupMeta(nSamples, labels);
       if(pcaState.tableFormat === 'grouped'){
         updatePcaGroupedHeaders();
       }
