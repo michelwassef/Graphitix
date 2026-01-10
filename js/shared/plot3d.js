@@ -1061,6 +1061,7 @@
         axisTickMeta.angle = tickLabelAngle;
         axisTickMeta.axisAngle = readableAngle;
         axisTickMeta.unitAxis2d = unitAxis2d;
+        axisTickMeta.outwardPerp = outwardPerp;
       }
       const tickValues = Array.isArray(def.ticks) ? def.ticks : [];
       const startAxisValue = Number(def.start[def.key]);
@@ -1134,6 +1135,7 @@
                 el: tickLabelEl,
                 text: labelText,
                 axisCoord: (tickPos.x * unitAxis2d.x) + (tickPos.y * unitAxis2d.y),
+                tickPos: { x: tickPos.x, y: tickPos.y },
                 x: labelX,
                 y: labelY
               });
@@ -1201,9 +1203,12 @@
       while(value > 180){ value -= 360; }
       return value;
     };
-    const tiltMax = Number.isFinite(cfg.tickLabelTiltMax) ? cfg.tickLabelTiltMax : 55;
-    const tiltMin = Number.isFinite(cfg.tickLabelTiltMin) ? cfg.tickLabelTiltMin : 12;
-    const minGap = Number.isFinite(cfg.tickLabelMinGap) ? cfg.tickLabelMinGap : Math.max(2, Math.round(tickFontSize * 0.15));
+      const tiltMax = Number.isFinite(cfg.tickLabelTiltMax) ? cfg.tickLabelTiltMax : 55;
+      const tiltMin = Number.isFinite(cfg.tickLabelTiltMin) ? cfg.tickLabelTiltMin : 12;
+      const minGap = Number.isFinite(cfg.tickLabelMinGap) ? cfg.tickLabelMinGap : Math.max(2, Math.round(tickFontSize * 0.15));
+      const tickLabelClearance = Number.isFinite(cfg.tickLabelTickClearance)
+        ? cfg.tickLabelTickClearance
+        : tickLabelGap;
     const axisKeys = ['x', 'y', 'z'];
     for(let k = 0; k < axisKeys.length; k += 1){
       const axisKey = axisKeys[k];
@@ -1283,9 +1288,61 @@
         });
       }
     }
-    const axisLabelPad = Number.isFinite(cfg.axisLabelTickGap)
-      ? cfg.axisLabelTickGap
-      : Math.max(6, Math.round(tickFontSize * 0.5));
+      for(let k = 0; k < axisKeys.length; k += 1){
+        const axisKey = axisKeys[k];
+        const meta = axisTickLabelRegistry[axisKey];
+        const entries = meta && Array.isArray(meta.entries) ? meta.entries : [];
+        const outwardPerp = meta?.outwardPerp;
+        if(!entries.length || !outwardPerp){ continue; }
+        const desiredMin = tickLength + tickLabelClearance;
+        let alignedCount = 0;
+        for(let j = 0; j < entries.length; j += 1){
+          const entry = entries[j];
+          const el = entry && entry.el;
+          const tickPos = entry && entry.tickPos;
+          if(!el || !tickPos || typeof el.getBBox !== 'function'){ continue; }
+          const box = el.getBBox();
+          const corners = [
+            { x: box.x, y: box.y },
+            { x: box.x + box.width, y: box.y },
+            { x: box.x, y: box.y + box.height },
+            { x: box.x + box.width, y: box.y + box.height }
+          ];
+          let minProjection = Infinity;
+          for(let c = 0; c < corners.length; c += 1){
+            const corner = corners[c];
+            const dx = corner.x - tickPos.x;
+            const dy = corner.y - tickPos.y;
+            const projection = (dx * outwardPerp.x) + (dy * outwardPerp.y);
+            if(projection < minProjection){
+              minProjection = projection;
+            }
+          }
+          if(!Number.isFinite(minProjection)){ continue; }
+          const shift = desiredMin - minProjection;
+          if(Math.abs(shift) <= 0.05){ continue; }
+          const x = entry.x + outwardPerp.x * shift;
+          const y = entry.y + outwardPerp.y * shift;
+          entry.x = x;
+          entry.y = y;
+          el.setAttribute('x', String(x));
+          el.setAttribute('y', String(y));
+          const angle = Number.isFinite(meta.angle) ? meta.angle : 0;
+          el.setAttribute('transform', `rotate(${angle} ${x} ${y})`);
+          alignedCount += 1;
+        }
+        if(alignedCount){
+          debugLog('Debug: plot3d tick label offset updated', {
+            label: debugLabel,
+            axis: axisKey,
+            desiredMin,
+            alignedCount
+          });
+        }
+      }
+      const axisLabelPad = Number.isFinite(cfg.axisLabelTickGap)
+        ? cfg.axisLabelTickGap
+        : Math.max(6, Math.round(tickFontSize * 0.5));
     for(let k = 0; k < axisKeys.length; k += 1){
       const axisKey = axisKeys[k];
       const labelMeta = axisLabelRegistry[axisKey];
