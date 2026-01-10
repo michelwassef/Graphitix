@@ -527,6 +527,15 @@
     const tickLabelGap = Number.isFinite(cfg.tickLabelGap) ? cfg.tickLabelGap : Math.max(2, Math.round(fontSize * 0.3));
     const axisTitleGap = Number.isFinite(cfg.axisTitleGap) ? cfg.axisTitleGap : Math.max(4, Math.round(fontSize * 0.75));
     const tickTextColor = cfg.tickTextColor || chartStyle.TEXT_COLOR || '#333';
+    const tickFont = typeof chartStyle.makeFont === 'function'
+      ? chartStyle.makeFont(tickFontSize)
+      : `${tickFontSize}px Arial, Helvetica, sans-serif`;
+    const axisTickLabelRegistry = {
+      x: { entries: [], angle: 0, unitAxis2d: null },
+      y: { entries: [], angle: 0, unitAxis2d: null },
+      z: { entries: [], angle: 0, unitAxis2d: null }
+    };
+    const axisLabelRegistry = { x: null, y: null, z: null };
     const formatTickLabel = (axisKey, value) => {
       const formatter = axisTickFormatters && axisTickFormatters[axisKey];
       if(typeof formatter === 'function'){
@@ -1043,6 +1052,16 @@
       if(readableAngle > 90 || readableAngle < -90){
         readableAngle += readableAngle > 0 ? -180 : 180;
       }
+      let tickLabelAngle = readableAngle + 90;
+      if(tickLabelAngle > 90 || tickLabelAngle < -90){
+        tickLabelAngle += tickLabelAngle > 0 ? -180 : 180;
+      }
+      const axisTickMeta = axisTickLabelRegistry[def.key];
+      if(axisTickMeta){
+        axisTickMeta.angle = tickLabelAngle;
+        axisTickMeta.axisAngle = readableAngle;
+        axisTickMeta.unitAxis2d = unitAxis2d;
+      }
       const tickValues = Array.isArray(def.ticks) ? def.ticks : [];
       const startAxisValue = Number(def.start[def.key]);
       const endAxisValue = Number(def.end[def.key]);
@@ -1102,14 +1121,23 @@
               'text-anchor': 'middle',
               'dominant-baseline': 'middle',
               fill: tickTextColor,
-              transform: `rotate(${readableAngle} ${labelX} ${labelY})`,
+              transform: `rotate(${tickLabelAngle} ${labelX} ${labelY})`,
               'data-axis-tick-label': '1',
               'data-axis-key': def.key
             };
             if(isOccludedAxis && Number.isFinite(backOpacity)){
               labelAttrs['fill-opacity'] = backOpacity;
             }
-            createElement('text', labelAttrs, labelText, labelTarget);
+            const tickLabelEl = createElement('text', labelAttrs, labelText, labelTarget);
+            if(axisTickMeta && tickLabelEl){
+              axisTickMeta.entries.push({
+                el: tickLabelEl,
+                text: labelText,
+                axisCoord: (tickPos.x * unitAxis2d.x) + (tickPos.y * unitAxis2d.y),
+                x: labelX,
+                y: labelY
+              });
+            }
           }
           tickCount += 1;
         }
@@ -1146,6 +1174,13 @@
         appliedAngle: readableAngle,
         flipped: readableAngle !== angleDeg
       });
+      axisLabelRegistry[def.key] = {
+        el: axisLabelEl,
+        basePos: axisMidPos,
+        outwardPerp,
+        baseAngle: readableAngle,
+        baseOffset: offsetMagnitude
+      };
       if(onAxisLabel){
         try {
           onAxisLabel(axisLabelEl, def.key, def.label);
@@ -1153,6 +1188,147 @@
           debugLog('Debug: plot3d axis label callback error', { label: debugLabel, axis: def.key, message: err && err.message });
         }
       }
+    }
+    const measureTickLabel = (text) => {
+      if(typeof chartStyle.measureText === 'function'){
+        return chartStyle.measureText(text || '', tickFont);
+      }
+      return (String(text || '').length || 0) * tickFontSize * 0.6;
+    };
+    const normalizeDeg = (deg) => {
+      let value = Number.isFinite(deg) ? deg : 0;
+      while(value <= -180){ value += 360; }
+      while(value > 180){ value -= 360; }
+      return value;
+    };
+    const tiltMax = Number.isFinite(cfg.tickLabelTiltMax) ? cfg.tickLabelTiltMax : 55;
+    const tiltMin = Number.isFinite(cfg.tickLabelTiltMin) ? cfg.tickLabelTiltMin : 12;
+    const minGap = Number.isFinite(cfg.tickLabelMinGap) ? cfg.tickLabelMinGap : Math.max(2, Math.round(tickFontSize * 0.15));
+    const axisKeys = ['x', 'y', 'z'];
+    for(let k = 0; k < axisKeys.length; k += 1){
+      const axisKey = axisKeys[k];
+      const meta = axisTickLabelRegistry[axisKey];
+      const entries = meta && Array.isArray(meta.entries) ? meta.entries : [];
+      if(entries.length < 2){ continue; }
+      const unitAxis2d = meta.unitAxis2d || { x: 1, y: 0 };
+      const baseAngle = Number.isFinite(meta.angle) ? meta.angle : 0;
+      const axisAngle = Number.isFinite(meta.axisAngle) ? meta.axisAngle : baseAngle;
+      const baseRelDeg = Math.abs(normalizeDeg(baseAngle - axisAngle));
+      const sorted = entries.slice().sort((a, b) => (a.axisCoord || 0) - (b.axisCoord || 0));
+      let requiredAngle = 0;
+      let overlapPairs = 0;
+      for(let j = 1; j < sorted.length; j += 1){
+        const prev = sorted[j - 1];
+        const curr = sorted[j];
+        if(!prev || !curr){ continue; }
+        if(!Number.isFinite(prev.width)){
+          prev.width = measureTickLabel(prev.text);
+        }
+        if(!Number.isFinite(curr.width)){
+          curr.width = measureTickLabel(curr.text);
+        }
+        const spacing = (curr.axisCoord || 0) - (prev.axisCoord || 0);
+        const denom = prev.width + curr.width;
+        if(!(denom > 0)){ continue; }
+        const ratio = ((spacing - minGap) * 2) / denom;
+        if(ratio < 1){
+          const angle = Math.acos(clamp(ratio, 0, 1));
+          if(angle > requiredAngle){
+            requiredAngle = angle;
+          }
+          overlapPairs += 1;
+        }
+      }
+      if(requiredAngle <= 1e-3){ continue; }
+      const requiredDeg = requiredAngle * (180 / Math.PI);
+      const cappedRequiredDeg = Math.min(90, requiredDeg);
+      if(cappedRequiredDeg <= baseRelDeg + 0.1){ continue; }
+      const tiltDeg = Math.min(tiltMax, Math.max(0, cappedRequiredDeg - baseRelDeg));
+      if(tiltDeg <= 0.01){ continue; }
+      const relSign = normalizeDeg(baseAngle - axisAngle) >= 0 ? 1 : -1;
+      let appliedAngle = baseAngle + relSign * tiltDeg;
+      if(appliedAngle > 90 || appliedAngle < -90){
+        appliedAngle += appliedAngle > 0 ? -180 : 180;
+      }
+      const anchor = Math.abs(unitAxis2d.x) >= 0.2
+        ? (unitAxis2d.x >= 0 ? 'end' : 'start')
+        : 'middle';
+      for(let j = 0; j < entries.length; j += 1){
+        const entry = entries[j];
+        const el = entry && entry.el;
+        if(!el){ continue; }
+        const x = entry.x;
+        const y = entry.y;
+        if(!Number.isFinite(x) || !Number.isFinite(y)){ continue; }
+        el.setAttribute('transform', `rotate(${appliedAngle} ${x} ${y})`);
+        if(anchor !== 'middle'){
+          el.setAttribute('text-anchor', anchor);
+          el.setAttribute('dy', '0.35em');
+        }
+      }
+      debugLog('Debug: plot3d tick label tilt applied', {
+        label: debugLabel,
+        axis: axisKey,
+        baseAngle,
+        appliedAngle,
+        tiltDeg,
+        overlapPairs
+      });
+      if(cappedRequiredDeg > tiltMax + 0.01){
+        debugLog('Debug: plot3d tick label tilt capped', {
+          label: debugLabel,
+          axis: axisKey,
+          requiredDeg: cappedRequiredDeg,
+          tiltMax
+        });
+      }
+    }
+    const axisLabelPad = Number.isFinite(cfg.axisLabelTickGap)
+      ? cfg.axisLabelTickGap
+      : Math.max(6, Math.round(tickFontSize * 0.5));
+    for(let k = 0; k < axisKeys.length; k += 1){
+      const axisKey = axisKeys[k];
+      const labelMeta = axisLabelRegistry[axisKey];
+      if(!labelMeta || !labelMeta.el || !labelMeta.basePos || !labelMeta.outwardPerp){ continue; }
+      const tickEntries = axisTickLabelRegistry[axisKey]?.entries || [];
+      if(!tickEntries.length){ continue; }
+      let maxProjection = 0;
+      for(let j = 0; j < tickEntries.length; j += 1){
+        const entry = tickEntries[j];
+        const el = entry && entry.el;
+        if(!el || typeof el.getBBox !== 'function'){ continue; }
+        const box = el.getBBox();
+        const corners = [
+          { x: box.x, y: box.y },
+          { x: box.x + box.width, y: box.y },
+          { x: box.x, y: box.y + box.height },
+          { x: box.x + box.width, y: box.y + box.height }
+        ];
+        for(let c = 0; c < corners.length; c += 1){
+          const corner = corners[c];
+          const dx = corner.x - labelMeta.basePos.x;
+          const dy = corner.y - labelMeta.basePos.y;
+          const projection = (dx * labelMeta.outwardPerp.x) + (dy * labelMeta.outwardPerp.y);
+          if(projection > maxProjection){
+            maxProjection = projection;
+          }
+        }
+      }
+      const minOffset = Math.max(labelMeta.baseOffset || 0, maxProjection + axisTitleGap + axisLabelPad);
+      const labelPos = {
+        x: labelMeta.basePos.x + labelMeta.outwardPerp.x * minOffset,
+        y: labelMeta.basePos.y + labelMeta.outwardPerp.y * minOffset
+      };
+      labelMeta.el.setAttribute('x', String(labelPos.x));
+      labelMeta.el.setAttribute('y', String(labelPos.y));
+      labelMeta.el.setAttribute('transform', `rotate(${labelMeta.baseAngle} ${labelPos.x} ${labelPos.y})`);
+      debugLog('Debug: plot3d axis label offset updated', {
+        label: debugLabel,
+        axis: axisKey,
+        baseOffset: labelMeta.baseOffset,
+        appliedOffset: minOffset,
+        maxProjection
+      });
     }
     debugLog('Debug: plot3d axes rendered', { label: debugLabel });
     return {
