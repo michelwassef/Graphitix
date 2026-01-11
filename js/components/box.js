@@ -8433,7 +8433,7 @@
   }
   function getAdvisorState(){
     if(!state.statsAdvisor || typeof state.statsAdvisor!=='object'){
-      state.statsAdvisor={ open:false, activated:false, answers:{} };
+      state.statsAdvisor={ open:false, activated:false, answers:{}, normality:{}, variance:{} };
     }
     if(typeof state.statsAdvisor.activated!=='boolean'){
       state.statsAdvisor.activated=false;
@@ -8441,7 +8441,191 @@
     if(!state.statsAdvisor.answers || typeof state.statsAdvisor.answers!=='object'){
       state.statsAdvisor.answers={};
     }
+    if(!state.statsAdvisor.normality || typeof state.statsAdvisor.normality!=='object'){
+      state.statsAdvisor.normality={ signature:null, results:null, updatedAt:null };
+    }
+    if(!state.statsAdvisor.variance || typeof state.statsAdvisor.variance!=='object'){
+      state.statsAdvisor.variance={ signature:null, results:null, updatedAt:null };
+    }
     return state.statsAdvisor;
+  }
+  function buildAdvisorNormalitySignature(traces,indices){
+    return indices.map(idx=>{
+      const trace=traces[idx] || {};
+      const values=Array.isArray(trace.rawY)?trace.rawY:(Array.isArray(trace.y)?trace.y:[]);
+      const count=countFiniteValues(values);
+      const label=trace.name || '';
+      return `${idx}:${count}:${label}`;
+    }).join('|');
+  }
+  function computeAdvisorNormalityResults(traces,indices,debugEnabled){
+    if(!Array.isArray(indices) || !indices.length){
+      return null;
+    }
+    const groups=indices.map(idx=>{
+      const trace=traces[idx] || {};
+      return Array.isArray(trace.rawY)?trace.rawY:(Array.isArray(trace.y)?trace.y:[]);
+    });
+    const labels=indices.map(idx=>traces[idx]?.name || `Group ${idx + 1}`);
+    const summaryList=indices.map(idx=>{
+      const trace=traces[idx] || {};
+      if(!trace.summary){
+        trace.summary=computeTraceSummary(Array.isArray(trace.rawY)?trace.rawY:(Array.isArray(trace.y)?trace.y:[]),{ requireSorted:false });
+      }
+      return trace.summary;
+    });
+    const results={
+      normalityMethod:'dagostino',
+      alpha:ASSUMPTION_ALPHA,
+      groups:[]
+    };
+    groups.forEach((group,idx)=>{
+      const label=labels[idx] || `Group ${idx + 1}`;
+      const summaryRef=summaryList && summaryList[idx];
+      const dagostino=computeDagostino(group,summaryRef);
+      const sampleSize=Number.isFinite(dagostino?.sampleSize)
+        ? dagostino.sampleSize
+        : Number.isFinite(summaryRef?.count)
+          ? summaryRef.count
+          : countFiniteValues(group);
+      results.groups.push({
+        label,
+        size:sampleSize,
+        normality:dagostino
+      });
+    });
+    if(debugEnabled){
+      console.debug('Debug: box stats advisor normality results',{ groupCount: groups.length });
+    }
+    return results;
+  }
+  function computeAdvisorVarianceResults(traces,indices,debugEnabled){
+    if(!Array.isArray(indices) || indices.length < 2){
+      return null;
+    }
+    const groups=indices.map(idx=>{
+      const trace=traces[idx] || {};
+      return Array.isArray(trace.rawY)?trace.rawY:(Array.isArray(trace.y)?trace.y:[]);
+    });
+    const labels=indices.map(idx=>traces[idx]?.name || `Group ${idx + 1}`);
+    const summaryList=indices.map(idx=>{
+      const trace=traces[idx] || {};
+      if(!trace.summary){
+        trace.summary=computeTraceSummary(Array.isArray(trace.rawY)?trace.rawY:(Array.isArray(trace.y)?trace.y:[]),{ requireSorted:false });
+      }
+      return trace.summary;
+    });
+    const variance=computeVarianceDiagnostics(groups,labels,{ summaries: summaryList });
+    if(debugEnabled){
+      console.debug('Debug: box stats advisor variance results',{
+        groupCount: groups.length,
+        passed: variance?.passed
+      });
+    }
+    return variance;
+  }
+  function renderAdvisorNormalityResults(results){
+    const wrapper=document.createElement('div');
+    wrapper.className='stats-advisor__inline-results';
+    const heading=document.createElement('div');
+    heading.className='stats-advisor__inline-label';
+    heading.textContent='Normality test results (D\'Agostino)';
+    wrapper.appendChild(heading);
+    if(!results || !Array.isArray(results.groups) || !results.groups.length){
+      const empty=document.createElement('div');
+      empty.className='stats-advisor__inline-empty';
+      empty.textContent='No groups available for normality testing.';
+      wrapper.appendChild(empty);
+      return wrapper;
+    }
+    const table=document.createElement('table');
+    table.className='stats-table stats-advisor__inline-table';
+    const thead=document.createElement('thead');
+    const headRow=document.createElement('tr');
+    ;[
+      { label:'Group', align:'left' },
+      { label:'Normality', align:'center' },
+      { label:'p-value', align:'right' },
+      { label:'n', align:'right' }
+    ].forEach(col=>{
+      const th=document.createElement('th');
+      th.textContent=col.label;
+      if(col.align){
+        th.style.textAlign=col.align;
+      }
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    const tbody=document.createElement('tbody');
+    results.groups.forEach(group=>{
+      const tr=document.createElement('tr');
+      const labelCell=document.createElement('td');
+      labelCell.textContent=group.label || '';
+      tr.appendChild(labelCell);
+      const badgeCell=document.createElement('td');
+      badgeCell.style.textAlign='center';
+      badgeCell.appendChild(createAssumptionBadge(group.normality?.passed));
+      tr.appendChild(badgeCell);
+      const pCell=document.createElement('td');
+      pCell.style.textAlign='right';
+      pCell.textContent=Number.isFinite(group.normality?.pValue) ? formatP(group.normality.pValue) : '-';
+      tr.appendChild(pCell);
+      const nCell=document.createElement('td');
+      nCell.style.textAlign='right';
+      nCell.textContent=Number.isFinite(group.size) ? String(group.size) : '-';
+      tr.appendChild(nCell);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    return wrapper;
+  }
+  function renderAdvisorVarianceResults(variance){
+    const wrapper=document.createElement('div');
+    wrapper.className='stats-advisor__inline-results';
+    const heading=document.createElement('div');
+    heading.className='stats-advisor__inline-label';
+    heading.textContent='Variance test results (Brown–Forsythe)';
+    wrapper.appendChild(heading);
+    if(!variance){
+      const empty=document.createElement('div');
+      empty.className='stats-advisor__inline-empty';
+      empty.textContent='Variance test unavailable for the current selection.';
+      wrapper.appendChild(empty);
+      return wrapper;
+    }
+    const table=document.createElement('table');
+    table.className='stats-table stats-advisor__inline-table';
+    const thead=document.createElement('thead');
+    const headRow=document.createElement('tr');
+    ;[
+      { label:'Equality', align:'center' },
+      { label:'p-value', align:'right' }
+    ].forEach(col=>{
+      const th=document.createElement('th');
+      th.textContent=col.label;
+      if(col.align){
+        th.style.textAlign=col.align;
+      }
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    const tbody=document.createElement('tbody');
+    const tr=document.createElement('tr');
+    const badgeCell=document.createElement('td');
+    badgeCell.style.textAlign='center';
+    badgeCell.appendChild(createAssumptionBadge(variance.passed));
+    tr.appendChild(badgeCell);
+    const pCell=document.createElement('td');
+    pCell.style.textAlign='right';
+    pCell.textContent=Number.isFinite(variance.pValue) ? formatP(variance.pValue) : '-';
+    tr.appendChild(pCell);
+    tbody.appendChild(tr);
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    return wrapper;
   }
   function buildAdvisorContext(traces){
     if(state.tableFormat==='grouped'){
@@ -8684,6 +8868,12 @@
     container.appendChild(summary);
 
     if(advisorState.open){
+      const selectionIndices=[...state.selectedCols].filter(idx=>Number.isInteger(idx) && idx>=0 && idx<traces.length);
+      const assumptionSignature=buildAdvisorNormalitySignature(traces,selectionIndices);
+      const normalityState=advisorState.normality || {};
+      const varianceState=advisorState.variance || {};
+      const normalityReady=!!(selectionIndices.length && normalityState.results && normalityState.signature===assumptionSignature);
+      const varianceReady=!!(selectionIndices.length && varianceState.results && varianceState.signature===assumptionSignature);
       const questionsWrap=document.createElement('div');
       questionsWrap.className='stats-advisor__questions';
       const questions=buildAdvisorQuestions(context,answers);
@@ -8718,6 +8908,73 @@
           optionWrap.appendChild(span);
           fieldset.appendChild(optionWrap);
         });
+        if(question.id==='distribution' && context?.format!=='grouped'){
+          const inlineWrap=document.createElement('div');
+          inlineWrap.className='stats-advisor__inline';
+          const btn=document.createElement('button');
+          btn.type='button';
+          btn.className='stats-advisor__inline-button';
+          btn.textContent='Run normality tests';
+          btn.disabled=selectionIndices.length===0;
+          btn.addEventListener('click',()=>{
+            const results=computeAdvisorNormalityResults(traces,selectionIndices,debugEnabled);
+            advisorState.normality={
+              signature: buildAdvisorNormalitySignature(traces,selectionIndices),
+              results,
+              updatedAt: Date.now()
+            };
+            if(debugEnabled){
+              console.debug('Debug: box stats advisor normality run',{
+                groupCount: selectionIndices.length,
+                hasResults: !!results
+              });
+            }
+            renderStatsControls(traces);
+          });
+          inlineWrap.appendChild(btn);
+          if(normalityReady){
+            inlineWrap.appendChild(renderAdvisorNormalityResults(normalityState.results));
+          }else if(selectionIndices.length && normalityState.results){
+            const stale=document.createElement('div');
+            stale.className='stats-advisor__inline-stale';
+            stale.textContent='Normality results are out of date. Run the tests again to refresh.';
+            inlineWrap.appendChild(stale);
+          }
+          fieldset.appendChild(inlineWrap);
+        }else if(question.id==='equalVariance' && context?.format!=='grouped'){
+          const inlineWrap=document.createElement('div');
+          inlineWrap.className='stats-advisor__inline';
+          const btn=document.createElement('button');
+          btn.type='button';
+          btn.className='stats-advisor__inline-button';
+          btn.textContent='Run variance test';
+          btn.disabled=selectionIndices.length<2;
+          btn.addEventListener('click',()=>{
+            const results=computeAdvisorVarianceResults(traces,selectionIndices,debugEnabled);
+            advisorState.variance={
+              signature: buildAdvisorNormalitySignature(traces,selectionIndices),
+              results,
+              updatedAt: Date.now()
+            };
+            if(debugEnabled){
+              console.debug('Debug: box stats advisor variance run',{
+                groupCount: selectionIndices.length,
+                hasResults: !!results
+              });
+            }
+            renderStatsControls(traces);
+          });
+          inlineWrap.appendChild(btn);
+          if(varianceReady){
+            inlineWrap.appendChild(renderAdvisorVarianceResults(varianceState.results));
+          }else if(selectionIndices.length && varianceState.results){
+            const stale=document.createElement('div');
+            stale.className='stats-advisor__inline-stale';
+            stale.textContent='Variance results are out of date. Run the tests again to refresh.';
+            inlineWrap.appendChild(stale);
+          }
+          fieldset.appendChild(inlineWrap);
+        }
         questionsWrap.appendChild(fieldset);
       });
       container.appendChild(questionsWrap);

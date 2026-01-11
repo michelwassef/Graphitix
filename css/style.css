@@ -2190,6 +2190,14 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 .stats-advisor__hint{margin:0;font-size:12px;color:#475569}
 .stats-advisor__option{display:flex;align-items:center;gap:8px;font-size:13px;color:#1e293b;cursor:pointer}
 .stats-advisor__option input{accent-color:#2563eb;cursor:pointer}
+.stats-advisor__inline{display:flex;flex-direction:column;gap:8px}
+.stats-advisor__inline-button{align-self:flex-start;border:1px solid #cbd5e1;border-radius:0;background:#fff;color:#1e293b;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:background .2s ease,border-color .2s ease}
+.stats-advisor__inline-button:hover,.stats-advisor__inline-button:focus-visible{background:#f1f5f9;border-color:#94a3b8}
+.stats-advisor__inline-button:disabled{opacity:.5;cursor:not-allowed}
+.stats-advisor__inline-results{border:1px solid #e2e8f0;background:#f8fafc;padding:8px}
+.stats-advisor__inline-label{font-size:12px;font-weight:600;color:#1d2735}
+.stats-advisor__inline-empty,.stats-advisor__inline-stale{font-size:12px;color:#b45309}
+.stats-advisor__inline-table{margin-top:6px;font-size:12px}
 .stats-advisor__actions{display:flex;gap:8px;flex-wrap:wrap}
 .stats-advisor__actions button{border:none;border-radius:0;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:background .2s ease,color .2s ease,border-color .2s ease}
 .stats-advisor__actions button:disabled{opacity:.5;cursor:not-allowed}
