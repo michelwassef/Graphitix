@@ -2934,6 +2934,7 @@
     const widthScaleMode = options?.widthScaleMode || 'none';
     const maxHalfWidthOverride = Number(options?.maxHalfWidth);
     const allowRadiusAdjustment = options?.allowRadiusAdjustment !== false;
+    const radiusCountExponent = Number(options?.radiusCountExponent);
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const spreadFactor = computeSampleSpreadFactor(sampleSize, debugEnabled);
     const PREFERRED_GAP_FACTOR = 2.05;
@@ -3052,7 +3053,10 @@
     if(maxCount > 1 && allowRadiusAdjustment){
       const initialRadius = pointRadiusValue;
       const minRadius = Math.max(0.15, basePointRadius * 0.45);
-      const maxAllowedRadius = (globalMaxHalfWidth * 2) / ((maxCount - 1) * PREFERRED_GAP_FACTOR);
+      const effectiveCount = (Number.isFinite(radiusCountExponent) && radiusCountExponent > 0 && radiusCountExponent !== 1)
+        ? (maxCount <= 1 ? maxCount : (1 + Math.pow(maxCount - 1, radiusCountExponent)))
+        : maxCount;
+      const maxAllowedRadius = (globalMaxHalfWidth * 2) / ((Math.max(1, effectiveCount) - 1) * PREFERRED_GAP_FACTOR);
       if(Number.isFinite(maxAllowedRadius) && maxAllowedRadius < pointRadiusValue){
         const adjusted = Math.max(minRadius, Math.min(pointRadiusValue, maxAllowedRadius));
         if(adjusted < pointRadiusValue){
@@ -12070,7 +12074,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           sampleSize: maxCount,
           orientation: 'vertical',
           widthScaleMode: 'density',
-          allowRadiusAdjustment: true
+          allowRadiusAdjustment: true,
+          radiusCountExponent: 0.85
         });
         const adjusted = Number(swarm?.adjustedRadius);
         if(debugEnabled){
@@ -12375,6 +12380,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const allowAdjustment = allowRadiusAdjustment != null
           ? !!allowRadiusAdjustment
           : (autoSize ? allowAutoSize : true);
+        const radiusCountExponent = allowAutoSize ? 0.85 : null;
         const swarm = computeSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
@@ -12382,7 +12388,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           orientation: 'vertical',
           widthScaleMode,
           maxHalfWidth,
-          allowRadiusAdjustment: allowAdjustment
+          allowRadiusAdjustment: allowAdjustment,
+          radiusCountExponent
         });
         const effectiveRadius = resolvedRadius != null
           ? resolvedRadius
@@ -13112,6 +13119,7 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         const allowAdjustment = allowRadiusAdjustment != null
           ? !!allowRadiusAdjustment
           : (autoSize ? allowAutoSize : true);
+        const radiusCountExponent = allowAutoSize ? 0.85 : null;
         const swarm = computeSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
@@ -13119,7 +13127,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           orientation: 'horizontal',
           widthScaleMode,
           maxHalfWidth,
-          allowRadiusAdjustment: allowAdjustment
+          allowRadiusAdjustment: allowAdjustment,
+          radiusCountExponent
         });
         const effectiveRadius = resolvedRadius != null
           ? resolvedRadius
@@ -13297,7 +13306,8 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           sampleSize: maxCount,
           orientation: 'horizontal',
           widthScaleMode: 'density',
-          allowRadiusAdjustment: true
+          allowRadiusAdjustment: true,
+          radiusCountExponent: 0.85
         });
         const adjusted = Number(swarm?.adjustedRadius);
         if(debugEnabled){
