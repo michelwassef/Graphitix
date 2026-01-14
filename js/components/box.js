@@ -2933,6 +2933,7 @@
     const orientation = options?.orientation || 'vertical';
     const widthScaleMode = options?.widthScaleMode || 'none';
     const maxHalfWidthOverride = Number(options?.maxHalfWidth);
+    const allowRadiusAdjustment = options?.allowRadiusAdjustment !== false;
     const debugEnabled = typeof Shared.isDebugEnabled === 'function' && Shared.isDebugEnabled();
     const spreadFactor = computeSampleSpreadFactor(sampleSize, debugEnabled);
     const PREFERRED_GAP_FACTOR = 2.05;
@@ -3048,9 +3049,9 @@
       return { offsets: entries.map(()=>0), maxOffsetUsed: 0, spreadFactor, maxOffset: 0 };
     }
 
-    if(maxCount > 1){
+    if(maxCount > 1 && allowRadiusAdjustment){
       const initialRadius = pointRadiusValue;
-      const minRadius = 0.15;
+      const minRadius = Math.max(0.15, basePointRadius * 0.45);
       const maxAllowedRadius = (globalMaxHalfWidth * 2) / ((maxCount - 1) * PREFERRED_GAP_FACTOR);
       if(Number.isFinite(maxAllowedRadius) && maxAllowedRadius < pointRadiusValue){
         const adjusted = Math.max(minRadius, Math.min(pointRadiusValue, maxAllowedRadius));
@@ -12032,6 +12033,51 @@ function renderGroupedStatsControls(traces, controls, precomputed){
       let stackOffsets = null;
       const yAxisX = marginLocal.left;
       const xAxisY = graphTypeRaw === 'bar' ? y2px(0) : marginLocal.top + plotHLocal;
+      const stripAutoSizeRadius = (() => {
+        if(graphTypeRaw !== 'strip'){
+          return null;
+        }
+        if(hasExplicitPointSize(null)){
+          return null;
+        }
+        let maxIndex = null;
+        let maxCount = 0;
+        for(let i = 0; i < traces.length; i++){
+          if(hasExplicitPointSize(i)){
+            continue;
+          }
+          const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
+          if(values.length > maxCount){
+            maxCount = values.length;
+            maxIndex = i;
+          }
+        }
+        if(maxIndex == null || maxCount <= 1){
+          return null;
+        }
+        const values = Array.isArray(traces[maxIndex]?.y) ? traces[maxIndex].y : [];
+        if(!values.length){
+          return null;
+        }
+        const pointCoords = new Float64Array(values.length);
+        for(let idx = 0; idx < values.length; idx++){
+          pointCoords[idx] = y2px(values[idx]);
+        }
+        const localBand = localBandWidthForTrace();
+        const swarm = computeSwarmOffsets({ coords: pointCoords, raws: values }, {
+          axisSpacing: localBand,
+          pointRadius,
+          sampleSize: maxCount,
+          orientation: 'vertical',
+          widthScaleMode: 'density',
+          allowRadiusAdjustment: true
+        });
+        const adjusted = Number(swarm?.adjustedRadius);
+        if(debugEnabled){
+          console.debug('Debug: box strip auto size base',{ orientation: 'vertical', traceIndex: maxIndex, pointCount: maxCount, adjustedRadius: Number.isFinite(adjusted) ? adjusted : null, baseRadius: pointRadius });
+        }
+        return Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null;
+      })();
       if(showGrid){
         yScale.ticks.forEach(t => {
           const y = y2px(t);
@@ -12307,7 +12353,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           mean: meanValue = null,
           widthScaleMode = 'none',
           maxHalfWidth = null,
-          pointRadiusOverride = null
+          pointRadiusOverride = null,
+          autoSize = false,
+          allowRadiusAdjustment = null
         } = params || {};
         const rawValues = Array.isArray(valueList) ? valueList : [];
         const pointCount = rawValues.length;
@@ -12317,18 +12365,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         const traceStyle = getPointStyle(traceIndex);
         const overrideRadius = Number(pointRadiusOverride);
-        const styleRadius = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
+        const styleRadiusRaw = traceStyle && Number.isFinite(Number(traceStyle.size)) ? Number(traceStyle.size) : null;
+        const allowAutoSize = !!autoSize && !hasExplicitPointSize(traceIndex);
+        const styleRadius = allowAutoSize ? null : styleRadiusRaw;
         const resolvedRadius = Number.isFinite(overrideRadius) && overrideRadius > 0
           ? overrideRadius
           : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
         const fallbackRadius = pointRadius;
+        const allowAdjustment = allowRadiusAdjustment != null
+          ? !!allowRadiusAdjustment
+          : (autoSize ? allowAutoSize : true);
         const swarm = computeSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
           sampleSize: sampleCount,
           orientation: 'vertical',
           widthScaleMode,
-          maxHalfWidth
+          maxHalfWidth,
+          allowRadiusAdjustment: allowAdjustment
         });
         const effectiveRadius = resolvedRadius != null
           ? resolvedRadius
@@ -12434,6 +12488,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             }
           }
           group.appendChild(frag);
+        }
+        if(debugEnabled && allowAutoSize){
+          console.debug('Debug: box auto point sizing',{ orientation: 'vertical', index: traceIndex, pointCount: sampleCount, baseRadius: fallbackRadius, adjustedRadius: swarm?.adjustedRadius ?? null, effectiveRadius });
         }
         if(debugEnabled){
           console.debug('Debug: box individual vertical render',{ index: traceIndex, mean: meanValue, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), spreadFactor: swarm?.spreadFactor, pointCount: sampleCount, mode: debugLabel, bounded: !!violinBounds });
@@ -12745,6 +12802,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
         }else if(graphTypeRaw === 'strip'){
           annotationMaxByTrace[i] = summary.max;
+          const useGlobalAutoSize = stripAutoSizeRadius != null;
+          const overrideRadius = useGlobalAutoSize && !hasExplicitPointSize(i)
+            ? stripAutoSizeRadius
+            : null;
           const swarmResult = renderSwarmPointsVertical({
             valueList,
             cx,
@@ -12760,7 +12821,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             opacityMultiplier: 1,
             debugLabel: 'individual',
             mean,
-            widthScaleMode: 'density'
+            widthScaleMode: 'density',
+            pointRadiusOverride: overrideRadius,
+            autoSize: !useGlobalAutoSize,
+            allowRadiusAdjustment: useGlobalAutoSize ? false : null
           });
           if(individualSummaryMode !== 'none'){
             const swarm = swarmResult?.swarm;
@@ -13026,7 +13090,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           mean: meanValue = null,
           widthScaleMode = 'none',
           maxHalfWidth = null,
-          pointRadiusOverride = null
+          pointRadiusOverride = null,
+          autoSize = false,
+          allowRadiusAdjustment = null
         } = params || {};
         const rawValues = Array.isArray(valueList) ? valueList : [];
         const pointCount = rawValues.length;
@@ -13036,18 +13102,24 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         const traceStyleH = getPointStyle(traceIndex);
         const overrideRadius = Number(pointRadiusOverride);
-        const styleRadius = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : null;
+        const styleRadiusRaw = traceStyleH && Number.isFinite(Number(traceStyleH.size)) ? Number(traceStyleH.size) : null;
+        const allowAutoSize = !!autoSize && !hasExplicitPointSize(traceIndex);
+        const styleRadius = allowAutoSize ? null : styleRadiusRaw;
         const resolvedRadius = Number.isFinite(overrideRadius) && overrideRadius > 0
           ? overrideRadius
           : (Number.isFinite(styleRadius) && styleRadius > 0 ? styleRadius : null);
         const fallbackRadius = pointRadius;
+        const allowAdjustment = allowRadiusAdjustment != null
+          ? !!allowRadiusAdjustment
+          : (autoSize ? allowAutoSize : true);
         const swarm = computeSwarmOffsets({ coords: pointCoords, raws: rawValues }, {
           axisSpacing: localBand,
           pointRadius: resolvedRadius != null ? resolvedRadius : fallbackRadius,
           sampleSize: sampleCount,
           orientation: 'horizontal',
           widthScaleMode,
-          maxHalfWidth
+          maxHalfWidth,
+          allowRadiusAdjustment: allowAdjustment
         });
         const effectiveRadius = resolvedRadius != null
           ? resolvedRadius
@@ -13154,6 +13226,9 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
           group.appendChild(frag);
         }
+        if(debugEnabled && allowAutoSize){
+          console.debug('Debug: box auto point sizing',{ orientation: 'horizontal', index: traceIndex, pointCount: sampleCount, baseRadius: fallbackRadius, adjustedRadius: swarm?.adjustedRadius ?? null, effectiveRadius });
+        }
         if(debugEnabled){
           console.debug('Debug: box individual horizontal render',{ index: traceIndex, mean: meanValue, maxOffsetUsed: Math.max(maxOffsetUsed, swarm?.maxOffsetUsed || 0), spreadFactor: swarm?.spreadFactor, pointCount: sampleCount, mode: debugLabel, bounded: !!violinBounds });
         }
@@ -13185,6 +13260,51 @@ function renderGroupedStatsControls(traces, controls, precomputed){
         }
         return usesGroupedSpacing ? perGroupBand : bandH;
       };
+      const stripAutoSizeRadius = (() => {
+        if(graphTypeRaw !== 'strip'){
+          return null;
+        }
+        if(hasExplicitPointSize(null)){
+          return null;
+        }
+        let maxIndex = null;
+        let maxCount = 0;
+        for(let i = 0; i < traces.length; i++){
+          if(hasExplicitPointSize(i)){
+            continue;
+          }
+          const values = Array.isArray(traces[i]?.y) ? traces[i].y : [];
+          if(values.length > maxCount){
+            maxCount = values.length;
+            maxIndex = i;
+          }
+        }
+        if(maxIndex == null || maxCount <= 1){
+          return null;
+        }
+        const values = Array.isArray(traces[maxIndex]?.y) ? traces[maxIndex].y : [];
+        if(!values.length){
+          return null;
+        }
+        const pointCoords = new Float64Array(values.length);
+        for(let idx = 0; idx < values.length; idx++){
+          pointCoords[idx] = valueToX(values[idx]);
+        }
+        const localBand = localBandHeightForTrace();
+        const swarm = computeSwarmOffsets({ coords: pointCoords, raws: values }, {
+          axisSpacing: localBand,
+          pointRadius,
+          sampleSize: maxCount,
+          orientation: 'horizontal',
+          widthScaleMode: 'density',
+          allowRadiusAdjustment: true
+        });
+        const adjusted = Number(swarm?.adjustedRadius);
+        if(debugEnabled){
+          console.debug('Debug: box strip auto size base',{ orientation: 'horizontal', traceIndex: maxIndex, pointCount: maxCount, adjustedRadius: Number.isFinite(adjusted) ? adjusted : null, baseRadius: pointRadius });
+        }
+        return Number.isFinite(adjusted) && adjusted > 0 ? adjusted : null;
+      })();
       const categoryCenter = (trace, traceIndex) => {
         if(usesGroupedSpacing){
           const categoryIdx = Number.isFinite(trace?.categoryIndex) ? trace.categoryIndex : traceIndex;
@@ -13655,6 +13775,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
           }
         }else if(graphTypeRaw === 'strip'){
           annotationMaxByTrace[i] = summary.max;
+          const useGlobalAutoSize = stripAutoSizeRadius != null;
+          const overrideRadius = useGlobalAutoSize && !hasExplicitPointSize(i)
+            ? stripAutoSizeRadius
+            : null;
           const swarmResult = renderSwarmPointsHorizontal({
             valueList,
             cy,
@@ -13670,7 +13794,10 @@ function renderGroupedStatsControls(traces, controls, precomputed){
             opacityMultiplier: 1,
             debugLabel: 'individual',
             mean,
-            widthScaleMode: 'density'
+            widthScaleMode: 'density',
+            pointRadiusOverride: overrideRadius,
+            autoSize: !useGlobalAutoSize,
+            allowRadiusAdjustment: useGlobalAutoSize ? false : null
           });
           if(individualSummaryMode !== 'none'){
             const swarm = swarmResult?.swarm;
