@@ -286,6 +286,12 @@
   }
 
   const scatterRefs = {};
+  // Merge the second scatterState declaration with the first one
+  scatterState.hot = null;
+  scatterState.xLabelText = 'X';
+  scatterState.yLabelText = 'Y';
+  scatterState.zLabelText = 'Z';
+  scatterState.titleText = 'Scatter plot';
   let scatterSvgBoxRef = null;
   let scatterLegendControl = null;
   let scatterLockRatioInput = null;
@@ -6414,17 +6420,17 @@
         const yLabelRaw=yCol[0];
         const extraLabelRaw=extraCol[0];
         if(graphType==='volcano'){
-          scatterXLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'log2 Fold Change';
+          scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'log2 Fold Change';
           const basePLabel=(yLabelRaw&&String(yLabelRaw).trim())||'p-value';
-          scatterYLabelText=`-log10(${basePLabel})`;
+          scatterState.yLabelText=`-log10(${basePLabel})`;
         }else if(graphType==='ma'){
-          scatterXLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'Mean Expression';
-          scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'log2 Fold Change';
+          scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'Mean Expression';
+          scatterState.yLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'log2 Fold Change';
         }else{
-          scatterXLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
-          scatterYLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
+          scatterState.xLabelText=(xLabelRaw&&String(xLabelRaw).trim())||'X';
+          scatterState.yLabelText=(yLabelRaw&&String(yLabelRaw).trim())||'Y';
           const zHeader = extraLabelRaw && String(extraLabelRaw).trim();
-          scatterZLabelText = zHeader || 'Z';
+          scatterState.zLabelText = zHeader || 'Z';
         }
         const maxLen=rowCount;
         let points=[];
@@ -8524,11 +8530,11 @@
         const defaultXLabelY = xAxisBase + bottomLayout.titleOffset + rotationSeparation;
         const xLabelPos = scatterLabelPositions?.xLabel;
         const xText=add('text',{x: xLabelPos?.x ?? defaultXLabelX, y: xLabelPos?.y ?? defaultXLabelY,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
-        xText.textContent=scatterXLabelText;
+        xText.textContent=scatterState.xLabelText;
         markFontEditable(xText,'xTitle','xTitle');
         const applyScatterXLabel=value=>{
           const nextValue=value!=null?String(value):'';
-          scatterXLabelText=nextValue;
+          scatterState.xLabelText=nextValue;
           if(xText.textContent!==nextValue){
             xText.textContent=nextValue;
           }
@@ -8785,11 +8791,11 @@
         const yTextY = yLabelPos?.y ?? defaultYY;
         info('scatter y-axis position',yTextX);
         const yText=add('text',{x:yTextX,y:yTextY,transform:`rotate(-90 ${yTextX} ${yTextY})`,'text-anchor':'middle','font-size':fs,fill:chartStyle.TEXT_COLOR});
-        yText.textContent=scatterYLabelText;
+        yText.textContent=scatterState.yLabelText;
         markFontEditable(yText,'yTitle','yTitle');
         const applyScatterYLabel=value=>{
           const nextValue=value!=null?String(value):'';
-          scatterYLabelText=nextValue;
+          scatterState.yLabelText=nextValue;
           if(yText.textContent!==nextValue){
             yText.textContent=nextValue;
           }
@@ -9509,9 +9515,9 @@
         exclusions: scatterHot?.exportExclusions?.() || Shared.hot.exportExclusions(scatterHot),
         config:{
           title:scatterTitleText,
-            xLabel:scatterXLabelText,
-            yLabel:scatterYLabelText,
-            zLabel:scatterZLabelText,
+            xLabel:scatterState.xLabelText,
+            yLabel:scatterState.yLabelText,
+            zLabel:scatterState.zLabelText,
             dotSize:scatterDotSize.value,
             fill:scatterFill.value,
             colorMode: scatterColorMode ? normalizeScatterColorMode(scatterColorMode.value) : SCATTER_DENSITY_MODE_DEFAULT,
