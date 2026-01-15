@@ -8540,8 +8540,109 @@
           if(previous===nextValue){
             return;
           }
-          applyScatterXLabel(nextValue);
-          recordScatterChange('scatter:x-label',previous,nextValue,applyScatterXLabel);
+          
+          // Create a combined apply function that updates both visual and table header
+          const applyBoth = (value) => {
+            console.log('applyBoth called with value:', value);
+            
+            // Update visual title
+            applyScatterXLabel(value);
+            
+            // Also update the table header to maintain consistency
+            const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+            console.log('Undo sync - HOT instance:', hot);
+            
+            if(hot && typeof hot.setDataAtCell === 'function'){
+              try {
+                const data = hot.getData() || [];
+                console.log('Undo sync - Current table data:', data);
+                
+                if(Array.isArray(data) && data.length > 0) {
+                  const headerRow = Array.isArray(data[0]) ? data[0] : [];
+                  console.log('Undo sync - Current header row:', headerRow);
+                  
+                  const layout = resolveScatterColumnLayout(data);
+                  console.log('Undo sync - Column layout:', layout);
+                  
+                  if(layout && Number.isInteger(layout.xCol) && layout.xCol >= 0 && layout.xCol < headerRow.length){
+                    console.log('Undo sync - Updating x-axis header to:', value);
+                    
+                    // Try multiple approaches to ensure the update works
+                    let updateSuccessful = false;
+                    
+                    // Approach 1: setDataAtCell
+                    try {
+                      const result = hot.setDataAtCell([0, layout.xCol, value], 'scatter-x-axis-undo-sync');
+                      console.log('Undo sync - setDataAtCell result:', result);
+                      
+                      // Verify the update
+                      const verifyData = hot.getData() || [];
+                      const verifyHeader = Array.isArray(verifyData[0]) ? verifyData[0] : [];
+                      if(verifyHeader[layout.xCol] === value) {
+                        updateSuccessful = true;
+                        console.log('Undo sync - Successfully updated with setDataAtCell');
+                      }
+                    } catch(err) {
+                      console.log('Undo sync - setDataAtCell failed:', err.message);
+                    }
+                    
+                    // Approach 2: Direct data manipulation if setDataAtCell failed
+                    if(!updateSuccessful) {
+                      try {
+                        const currentData = hot.getData() || [];
+                        const newData = JSON.parse(JSON.stringify(currentData));
+                        
+                        if(Array.isArray(newData[0]) && layout.xCol >= 0 && layout.xCol < newData[0].length) {
+                          newData[0][layout.xCol] = value;
+                          
+                          // Try different update methods
+                          if(typeof hot.setData === 'function') {
+                            hot.setData(newData);
+                            console.log('Undo sync - Used setData method');
+                          } else if(typeof hot.updateSettings === 'function') {
+                            hot.updateSettings({ data: newData });
+                            console.log('Undo sync - Used updateSettings method');
+                          } else if(typeof hot.gridApi?.setRowData === 'function') {
+                            hot.gridApi.setRowData(newData);
+                            console.log('Undo sync - Used gridApi.setRowData method');
+                          }
+                          
+                          // Verify the update
+                          const verifyData = hot.getData() || [];
+                          const verifyHeader = Array.isArray(verifyData[0]) ? verifyData[0] : [];
+                          if(verifyHeader[layout.xCol] === value) {
+                            updateSuccessful = true;
+                            console.log('Undo sync - Successfully updated with direct manipulation');
+                          }
+                        }
+                      } catch(err) {
+                        console.error('Undo sync - Direct manipulation failed:', err);
+                      }
+                    }
+                    
+                    if(!updateSuccessful) {
+                      console.error('Undo sync - Failed to update x-axis header in table');
+                    }
+                  }
+                }
+              } catch(err) {
+                console.error('Failed to sync x-axis header during undo:', err);
+              }
+            } else {
+              console.error('Undo sync - HOT instance or setDataAtCell not available');
+            }
+            
+            // Force a redraw to ensure consistency
+            if(typeof scheduleDrawScatter === 'function'){
+              scheduleDrawScatter({ reason: 'x-axis-undo-sync' });
+            }
+            
+            console.log('Undo sync - Completed x-axis update');
+            return true;
+          };
+          
+          applyBoth(nextValue);
+          recordScatterChange('scatter:x-label',previous,nextValue,applyBoth);
           
           // IMMEDIATE DEBUG: Check if this function is being called
           console.log('X-AXIS EDIT HANDLER CALLED!', { previous, nextValue });
@@ -8700,8 +8801,109 @@
           if(previous===nextValue){
             return;
           }
-          applyScatterYLabel(nextValue);
-          recordScatterChange('scatter:y-label',previous,nextValue,applyScatterYLabel);
+          
+          // Create a combined apply function that updates both visual and table header
+          const applyBoth = (value) => {
+            console.log('applyBoth called with value:', value);
+            
+            // Update visual title
+            applyScatterYLabel(value);
+            
+            // Also update the table header to maintain consistency
+            const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+            console.log('Undo sync - HOT instance:', hot);
+            
+            if(hot && typeof hot.setDataAtCell === 'function'){
+              try {
+                const data = hot.getData() || [];
+                console.log('Undo sync - Current table data:', data);
+                
+                if(Array.isArray(data) && data.length > 0) {
+                  const headerRow = Array.isArray(data[0]) ? data[0] : [];
+                  console.log('Undo sync - Current header row:', headerRow);
+                  
+                  const layout = resolveScatterColumnLayout(data);
+                  console.log('Undo sync - Column layout:', layout);
+                  
+                  if(layout && Number.isInteger(layout.yCol) && layout.yCol >= 0 && layout.yCol < headerRow.length){
+                    console.log('Undo sync - Updating y-axis header to:', value);
+                    
+                    // Try multiple approaches to ensure the update works
+                    let updateSuccessful = false;
+                    
+                    // Approach 1: setDataAtCell
+                    try {
+                      const result = hot.setDataAtCell([0, layout.yCol, value], 'scatter-y-axis-undo-sync');
+                      console.log('Undo sync - setDataAtCell result:', result);
+                      
+                      // Verify the update
+                      const verifyData = hot.getData() || [];
+                      const verifyHeader = Array.isArray(verifyData[0]) ? verifyData[0] : [];
+                      if(verifyHeader[layout.yCol] === value) {
+                        updateSuccessful = true;
+                        console.log('Undo sync - Successfully updated with setDataAtCell');
+                      }
+                    } catch(err) {
+                      console.log('Undo sync - setDataAtCell failed:', err.message);
+                    }
+                    
+                    // Approach 2: Direct data manipulation if setDataAtCell failed
+                    if(!updateSuccessful) {
+                      try {
+                        const currentData = hot.getData() || [];
+                        const newData = JSON.parse(JSON.stringify(currentData));
+                        
+                        if(Array.isArray(newData[0]) && layout.yCol >= 0 && layout.yCol < newData[0].length) {
+                          newData[0][layout.yCol] = value;
+                          
+                          // Try different update methods
+                          if(typeof hot.setData === 'function') {
+                            hot.setData(newData);
+                            console.log('Undo sync - Used setData method');
+                          } else if(typeof hot.updateSettings === 'function') {
+                            hot.updateSettings({ data: newData });
+                            console.log('Undo sync - Used updateSettings method');
+                          } else if(typeof hot.gridApi?.setRowData === 'function') {
+                            hot.gridApi.setRowData(newData);
+                            console.log('Undo sync - Used gridApi.setRowData method');
+                          }
+                          
+                          // Verify the update
+                          const verifyData = hot.getData() || [];
+                          const verifyHeader = Array.isArray(verifyData[0]) ? verifyData[0] : [];
+                          if(verifyHeader[layout.yCol] === value) {
+                            updateSuccessful = true;
+                            console.log('Undo sync - Successfully updated with direct manipulation');
+                          }
+                        }
+                      } catch(err) {
+                        console.error('Undo sync - Direct manipulation failed:', err);
+                      }
+                    }
+                    
+                    if(!updateSuccessful) {
+                      console.error('Undo sync - Failed to update y-axis header in table');
+                    }
+                  }
+                }
+              } catch(err) {
+                console.error('Failed to sync y-axis header during undo:', err);
+              }
+            } else {
+              console.error('Undo sync - HOT instance or setDataAtCell not available');
+            }
+            
+            // Force a redraw to ensure consistency
+            if(typeof scheduleDrawScatter === 'function'){
+              scheduleDrawScatter({ reason: 'y-axis-undo-sync' });
+            }
+            
+            console.log('Undo sync - Completed y-axis update');
+            return true;
+          };
+          
+          applyBoth(nextValue);
+          recordScatterChange('scatter:y-label',previous,nextValue,applyBoth);
           
           // IMMEDIATE DEBUG: Check if this function is being called
           console.log('Y-AXIS EDIT HANDLER CALLED!', { previous, nextValue });
