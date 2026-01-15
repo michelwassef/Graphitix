@@ -1115,30 +1115,7 @@
     return { minX, maxX, minY, maxY };
   }
 
-  function parseScatterPointLabelFlag(value){
-    if(value === null || value === undefined){
-      return false;
-    }
-    if(typeof value === 'boolean'){
-      return value;
-    }
-    if(typeof value === 'number'){
-      return Number.isFinite(value) && value !== 0;
-    }
-    const text = String(value).trim();
-    if(!text){
-      return false;
-    }
-    if(text === SCATTER_POINT_LABEL_MARK){
-      return true;
-    }
-    const normalized = text.toLowerCase();
-    return normalized === '1'
-      || normalized === 'true'
-      || normalized === 'yes'
-      || normalized === 'y'
-      || normalized === 'x';
-  }
+
 
   function normalizeScatterHeader(value){
     return String(value ?? '').trim().toLowerCase();
@@ -1149,12 +1126,7 @@
     return normalized === 'label' || normalized === 'gene' || normalized === 'name';
   }
 
-  function isScatterLabelFlagHeader(value){
-    const normalized = normalizeScatterHeader(value);
-    return normalized === 'label point'
-      || normalized === 'label points'
-      || normalized === 'labelpoint';
-  }
+
 
   function ensureScatterHeaderTitles(hotInstance, options = {}){
     const hot = hotInstance;
@@ -1165,9 +1137,6 @@
     const headerRow = Array.isArray(data[0]) ? data[0] : [];
     const shouldFill = value => value == null || String(value).trim() === '';
     const changes = [];
-    if(isScatterLabelFlagHeader(headerRow[SCATTER_POINT_LABEL_COL])){
-      changes.push([0, SCATTER_POINT_LABEL_COL, '']);
-    }
     const hasHeaderValues = [0, 1, 2, 3].some(idx => !shouldFill(headerRow[idx]));
     const hasData = data.some((row, rowIdx) => {
       if(rowIdx === 0 || !Array.isArray(row)){
@@ -1193,35 +1162,10 @@
       labelCol: 0,
       xCol: 1,
       yCol: 2,
-      extraCol: 3,
-      pointLabelCol: null
+      extraCol: 3
     };
-    if(colCount <= 4){
-      return layout;
-    }
-    const header0 = headerRow[0];
-    const header1 = headerRow[1];
-    const header4 = headerRow[4];
-    const header0Empty = header0 == null
-      || header0 === ''
-      || header0 === false
-      || header0 === 0
-      || normalizeScatterHeader(header0) === '';
-    const hasLeadingFlag = isScatterLabelFlagHeader(header0) || header0Empty;
-    const hasLabelSecond = isScatterLabelHeader(header1);
-    if(hasLeadingFlag && hasLabelSecond){
-      layout.pointLabelCol = SCATTER_POINT_LABEL_COL_ALT;
-      layout.labelCol = 1;
-      layout.xCol = 2;
-      layout.yCol = 3;
-      layout.extraCol = 4;
-      return layout;
-    }
-    if(isScatterLabelFlagHeader(header4)){
-      layout.pointLabelCol = SCATTER_POINT_LABEL_COL;
-      return layout;
-    }
-    layout.pointLabelCol = colCount > SCATTER_POINT_LABEL_COL ? SCATTER_POINT_LABEL_COL : null;
+    // Since we now use row selection checkboxes exclusively for point labeling,
+    // we don't need to resolve the point label column anymore
     return layout;
   }
 
@@ -3995,9 +3939,6 @@
         data[0][1] = 'X title';
         data[0][2] = 'Y title';
         data[0][3] = 'Z title';
-        if(data[0].length > SCATTER_POINT_LABEL_COL){
-          data[0][SCATTER_POINT_LABEL_COL] = '';
-        }
       }
       let scatterScheduleProxyCount = 0;
       const scheduleDrawScatterProxy = () => {
@@ -4024,39 +3965,11 @@
             beforeKeyDown(){
               lastKeyDownAt = Date.now();
             },
-            afterSelectionEnd(r1, c1, r2, c2){
-              const hot = hotInstance;
-              if(!hot || typeof hot.setDataAtCell !== 'function'){
-                return;
-              }
-              const now = Date.now();
-              if(now - lastKeyDownAt < 80){
-                return;
-              }
-              const fromRow = Math.min(r1, r2);
-              const toRow = Math.max(r1, r2);
-              const fromCol = Math.min(c1, c2);
-              const toCol = Math.max(c1, c2);
-              const layout = resolveScatterColumnLayout(hot.getData?.() || [], hot.countCols?.());
-              const labelCol = Number.isInteger(layout?.pointLabelCol) ? layout.pointLabelCol : null;
-              if(labelCol === null || fromCol !== labelCol || toCol !== labelCol){
-                return;
-              }
-              if(toRow < 1){
-                return;
-              }
-              const changes = [];
-              for(let r = Math.max(1, fromRow); r <= toRow; r += 1){
-                const current = typeof hot.getDataAtCell === 'function'
-                  ? hot.getDataAtCell(r, labelCol)
-                  : (hot.getData?.()?.[r]?.[labelCol]);
-                const next = parseScatterPointLabelFlag(current) ? '' : SCATTER_POINT_LABEL_MARK;
-                changes.push([r, labelCol, next]);
-              }
-              if(changes.length){
-                hot.setDataAtCell(changes, 'point-label-toggle');
-              }
-            },
+            // Configure checkbox selection for row selection
+            rowSelection: 'multiple',
+            checkboxSelection: true,
+            // Remove the column 5 selection handler completely
+            // Row selection checkboxes now control point labeling exclusively
             afterChange(changes,source){
               if(!changes||source==='loadData') return;
               console.log('scatter afterChange', {count:changes.length, source});
@@ -4173,7 +4086,7 @@
         scatter:[
           ['','X title','Y title','Z title',''],
           ['Cat',4.5,23,'',''],
-          ['Dog',20,45,'',SCATTER_POINT_LABEL_MARK],
+          ['Dog',20,45,'',''],
           ['Rabbit',2.5,35,'',''],
           ['Cat',5,25,'',''],
           ['Dog',22,50,'',''],
@@ -4183,7 +4096,7 @@
         ],
         scatter3d:[
           ['','X title','Y title','Z title',''],
-          ['Orion',2.5,18,4.5,SCATTER_POINT_LABEL_MARK],
+          ['Orion',2.5,18,4.5,''],
           ['Lyra',6.2,25,9.1,''],
           ['Cygnus',4.1,14,6.8,''],
           ['Andromeda',8.6,32,12.4,''],
@@ -4197,7 +4110,7 @@
           ['Comet A',1.8,12,25,''],
           ['Comet B',4.2,18,40,''],
           ['Comet C',2.5,22,55,''],
-          ['Comet D',5.7,28,70,SCATTER_POINT_LABEL_MARK],
+          ['Comet D',5.7,28,70,''],
           ['Comet E',3.9,16,35,''],
           ['Comet F',6.4,24,90,''],
           ['Comet G',4.8,30,65,''],
@@ -4207,7 +4120,7 @@
           ['Gene','log2FoldChange','pValue','',''],
           ['GeneA',1.6,0.0005,'',''],
           ['GeneB',-1.2,0.002,'',''],
-          ['GeneC',0.2,0.8,'',SCATTER_POINT_LABEL_MARK],
+          ['GeneC',0.2,0.8,'',''],
           ['GeneD',-2.1,0.0001,'',''],
           ['GeneE',0.5,0.4,'',''],
           ['GeneF',1.1,0.03,'',''],
@@ -4217,7 +4130,7 @@
           ['Gene','MeanExpression','log2FoldChange','pValue',''],
           ['GeneA',8.5,1.4,0.0005,''],
           ['GeneB',5.3,-1.1,0.002,''],
-          ['GeneC',3.9,0.1,0.4,SCATTER_POINT_LABEL_MARK],
+          ['GeneC',3.9,0.1,0.4,''],
           ['GeneD',9.2,-2.0,0.00005,''],
           ['GeneE',6.1,0.3,0.2,''],
           ['GeneF',7.4,1.2,0.015,''],
@@ -6398,22 +6311,14 @@
         const xCol = extractColumn(layout.xCol);
         const yCol = extractColumn(layout.yCol);
         const extraCol = extractColumn(layout.extraCol);
-        const pointLabelCol = Number.isInteger(layout.pointLabelCol)
-          ? extractColumn(layout.pointLabelCol)
-          : [];
         const selectedRowSet = getScatterSelectedRowSet(scatterHot);
-        const hasPointLabelFlags = pointLabelCol.some((value, idx) => (
-          idx > 0 && parseScatterPointLabelFlag(value)
-        ));
-        const useSelectionFallback = !hasPointLabelFlags
-          && selectedRowSet
-          && selectedRowSet.size > 0;
+        // Use row selection checkboxes exclusively for point labeling
+        const useSelectionFallback = selectedRowSet && selectedRowSet.size > 0;
         info('scatter column lengths',{
           label:labelCol.length,
           x:xCol.length,
           y:yCol.length,
           extra:extraCol.length,
-          pointLabel:pointLabelCol.length,
           layout
         });
         const xLabelRaw=xCol[0];
@@ -6464,8 +6369,8 @@
         for(let r=1;r<maxLen;r++){
           const labelValue = labelCol[r];
           const lab=labelValue ? String(labelValue).trim() : '';
-          const isManualLabel = parseScatterPointLabelFlag(pointLabelCol[r])
-            || (useSelectionFallback && selectedRowSet?.has(r));
+          // Use row selection checkboxes exclusively for point labeling
+          const isManualLabel = useSelectionFallback && selectedRowSet?.has(r);
           const rawX=xCol[r];
           const rawY=yCol[r];
           if(graphType==='scatter'){
@@ -9943,9 +9848,7 @@
         emptyData[0][1] = 'X title';
         emptyData[0][2] = 'Y title';
         emptyData[0][3] = 'Z title';
-        if(emptyData[0].length > SCATTER_POINT_LABEL_COL){
-          emptyData[0][SCATTER_POINT_LABEL_COL] = '';
-        }
+
       }
       payload.data = emptyData;
       payload.exclusions = [];
