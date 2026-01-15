@@ -8542,6 +8542,131 @@
           }
           applyScatterXLabel(nextValue);
           recordScatterChange('scatter:x-label',previous,nextValue,applyScatterXLabel);
+          
+          // IMMEDIATE DEBUG: Check if this function is being called
+          console.log('X-AXIS EDIT HANDLER CALLED!', { previous, nextValue });
+          
+          // Update the table header to make the change permanent
+          const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+          console.log('HOT instance:', hot, 'scatterRefs.hot:', scatterRefs.hot);
+          
+          if(hot && typeof hot.setDataAtCell === 'function'){
+            try {
+              console.log('Attempting to update table header...');
+              const data = hot.getData() || [];
+              console.log('Table data:', data);
+              
+              if(!Array.isArray(data) || data.length === 0) {
+                console.warn('No table data available for x-axis header update');
+                return;
+              }
+              
+              const headerRow = Array.isArray(data[0]) ? data[0] : [];
+              console.log('Header row:', headerRow);
+              
+              if(!Array.isArray(headerRow) || headerRow.length === 0) {
+                console.warn('No header row available for x-axis header update');
+                return;
+              }
+              
+              const layout = resolveScatterColumnLayout(data);
+              console.log('Column layout:', layout);
+              
+              if(!layout || !Number.isInteger(layout.xCol)) {
+                console.warn('Invalid column layout for x-axis:', layout);
+                return;
+              }
+              
+              if(layout.xCol < 0 || layout.xCol >= headerRow.length) {
+                console.warn('X-axis column index out of bounds:', { index: layout.xCol, headerLength: headerRow.length });
+                return;
+              }
+              
+              console.log('Updating x-axis header:', { 
+                row: 0, 
+                col: layout.xCol, 
+                oldValue: headerRow[layout.xCol], 
+                newValue: nextValue 
+              });
+              
+              // Try multiple approaches to update the cell
+              let updateSuccessful = false;
+              
+              // Approach 1: Try the original setDataAtCell
+              try {
+                const result = hot.setDataAtCell([0, layout.xCol, nextValue], 'scatter-x-axis-edit');
+                console.log('setDataAtCell result:', result);
+                
+                // Check if the update worked
+                const updatedData1 = hot.getData() || [];
+                const updatedHeader1 = Array.isArray(updatedData1[0]) ? updatedData1[0] : [];
+                if(updatedHeader1[layout.xCol] === nextValue) {
+                  updateSuccessful = true;
+                  console.log('Update successful with setDataAtCell');
+                }
+              } catch(err) {
+                console.log('setDataAtCell failed, trying alternative approach:', err.message);
+              }
+              
+              // Approach 2: If setDataAtCell didn't work, try updating the data directly
+              if(!updateSuccessful) {
+                try {
+                  const currentData = hot.getData() || [];
+                  const newData = JSON.parse(JSON.stringify(currentData)); // Deep clone
+                  
+                  if(Array.isArray(newData[0]) && layout.xCol >= 0 && layout.xCol < newData[0].length) {
+                    newData[0][layout.xCol] = nextValue;
+                    
+                    // Try different AG Grid update methods
+                    if(typeof hot.setData === 'function') {
+                      hot.setData(newData);
+                      console.log('Used setData method');
+                    } else if(typeof hot.updateSettings === 'function') {
+                      hot.updateSettings({ data: newData });
+                      console.log('Used updateSettings method');
+                    } else if(typeof hot.gridApi?.setRowData === 'function') {
+                      hot.gridApi.setRowData(newData);
+                      console.log('Used gridApi.setRowData method');
+                    } else {
+                      console.warn('No suitable update method found');
+                    }
+                    
+                    // Verify the update
+                    const updatedData2 = hot.getData() || [];
+                    const updatedHeader2 = Array.isArray(updatedData2[0]) ? updatedData2[0] : [];
+                    if(updatedHeader2[layout.xCol] === nextValue) {
+                      updateSuccessful = true;
+                      console.log('Update successful with direct data manipulation');
+                    }
+                  }
+                } catch(err) {
+                  console.error('Direct data manipulation failed:', err);
+                }
+              }
+              
+              // Final verification
+              const finalData = hot.getData() || [];
+              const finalHeader = Array.isArray(finalData[0]) ? finalData[0] : [];
+              console.log('Final header row:', finalHeader);
+              console.log('Header at xCol after all attempts:', finalHeader[layout.xCol]);
+              
+              if(finalHeader[layout.xCol] === nextValue) {
+                console.log('SUCCESS: X-axis header updated to:', nextValue);
+              } else {
+                console.error('FAILED: X-axis header still shows:', finalHeader[layout.xCol]);
+              }
+              
+              // Force a redraw to ensure the changes are reflected
+              if(typeof scheduleDrawScatter === 'function'){
+                setTimeout(() => scheduleDrawScatter({ reason: 'x-axis-header-update' }), 100);
+              }
+              
+            } catch(err) {
+              console.error('Failed to update table header for x-axis:', err);
+            }
+          } else {
+            console.error('HOT instance or setDataAtCell function not available!');
+          }
         });
         // Enable drag for x-axis label
         if(typeof Shared.enableLabelDrag === 'function'){
@@ -8577,6 +8702,131 @@
           }
           applyScatterYLabel(nextValue);
           recordScatterChange('scatter:y-label',previous,nextValue,applyScatterYLabel);
+          
+          // IMMEDIATE DEBUG: Check if this function is being called
+          console.log('Y-AXIS EDIT HANDLER CALLED!', { previous, nextValue });
+          
+          // Update the table header to make the change permanent
+          const hot = scatterRefs.hot || scatter.__ensureHotForActiveTab?.();
+          console.log('HOT instance:', hot, 'scatterRefs.hot:', scatterRefs.hot);
+          
+          if(hot && typeof hot.setDataAtCell === 'function'){
+            try {
+              console.log('Attempting to update table header...');
+              const data = hot.getData() || [];
+              console.log('Table data:', data);
+              
+              if(!Array.isArray(data) || data.length === 0) {
+                console.warn('No table data available for y-axis header update');
+                return;
+              }
+              
+              const headerRow = Array.isArray(data[0]) ? data[0] : [];
+              console.log('Header row:', headerRow);
+              
+              if(!Array.isArray(headerRow) || headerRow.length === 0) {
+                console.warn('No header row available for y-axis header update');
+                return;
+              }
+              
+              const layout = resolveScatterColumnLayout(data);
+              console.log('Column layout:', layout);
+              
+              if(!layout || !Number.isInteger(layout.yCol)) {
+                console.warn('Invalid column layout for y-axis:', layout);
+                return;
+              }
+              
+              if(layout.yCol < 0 || layout.yCol >= headerRow.length) {
+                console.warn('Y-axis column index out of bounds:', { index: layout.yCol, headerLength: headerRow.length });
+                return;
+              }
+              
+              console.log('Updating y-axis header:', { 
+                row: 0, 
+                col: layout.yCol, 
+                oldValue: headerRow[layout.yCol], 
+                newValue: nextValue 
+              });
+              
+              // Try multiple approaches to update the cell
+              let updateSuccessful = false;
+              
+              // Approach 1: Try the original setDataAtCell
+              try {
+                const result = hot.setDataAtCell([0, layout.yCol, nextValue], 'scatter-y-axis-edit');
+                console.log('setDataAtCell result:', result);
+                
+                // Check if the update worked
+                const updatedData1 = hot.getData() || [];
+                const updatedHeader1 = Array.isArray(updatedData1[0]) ? updatedData1[0] : [];
+                if(updatedHeader1[layout.yCol] === nextValue) {
+                  updateSuccessful = true;
+                  console.log('Update successful with setDataAtCell');
+                }
+              } catch(err) {
+                console.log('setDataAtCell failed, trying alternative approach:', err.message);
+              }
+              
+              // Approach 2: If setDataAtCell didn't work, try updating the data directly
+              if(!updateSuccessful) {
+                try {
+                  const currentData = hot.getData() || [];
+                  const newData = JSON.parse(JSON.stringify(currentData)); // Deep clone
+                  
+                  if(Array.isArray(newData[0]) && layout.yCol >= 0 && layout.yCol < newData[0].length) {
+                    newData[0][layout.yCol] = nextValue;
+                    
+                    // Try different AG Grid update methods
+                    if(typeof hot.setData === 'function') {
+                      hot.setData(newData);
+                      console.log('Used setData method');
+                    } else if(typeof hot.updateSettings === 'function') {
+                      hot.updateSettings({ data: newData });
+                      console.log('Used updateSettings method');
+                    } else if(typeof hot.gridApi?.setRowData === 'function') {
+                      hot.gridApi.setRowData(newData);
+                      console.log('Used gridApi.setRowData method');
+                    } else {
+                      console.warn('No suitable update method found');
+                    }
+                    
+                    // Verify the update
+                    const updatedData2 = hot.getData() || [];
+                    const updatedHeader2 = Array.isArray(updatedData2[0]) ? updatedData2[0] : [];
+                    if(updatedHeader2[layout.yCol] === nextValue) {
+                      updateSuccessful = true;
+                      console.log('Update successful with direct data manipulation');
+                    }
+                  }
+                } catch(err) {
+                  console.error('Direct data manipulation failed:', err);
+                }
+              }
+              
+              // Final verification
+              const finalData = hot.getData() || [];
+              const finalHeader = Array.isArray(finalData[0]) ? finalData[0] : [];
+              console.log('Final header row:', finalHeader);
+              console.log('Header at yCol after all attempts:', finalHeader[layout.yCol]);
+              
+              if(finalHeader[layout.yCol] === nextValue) {
+                console.log('SUCCESS: Y-axis header updated to:', nextValue);
+              } else {
+                console.error('FAILED: Y-axis header still shows:', finalHeader[layout.yCol]);
+              }
+              
+              // Force a redraw to ensure the changes are reflected
+              if(typeof scheduleDrawScatter === 'function'){
+                setTimeout(() => scheduleDrawScatter({ reason: 'y-axis-header-update' }), 100);
+              }
+              
+            } catch(err) {
+              console.error('Failed to update table header for y-axis:', err);
+            }
+          } else {
+            console.error('HOT instance or setDataAtCell function not available!');
+          }
         });
         // Enable drag for y-axis label
         if(typeof Shared.enableLabelDrag === 'function'){
