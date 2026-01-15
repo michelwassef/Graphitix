@@ -1850,13 +1850,139 @@
     };
     if(global.makeEditable){
       makeEditable(xText,txt=>{
+        console.log('HIST X-AXIS EDIT HANDLER CALLED!');
+        
         const previous=state.xLabelText!=null?String(state.xLabelText):'';
         const nextValue=txt!=null?String(txt):'';
+        
+        console.log('HIST X-AXIS EDIT - Previous:', previous, 'Next:', nextValue);
+        
         if(previous===nextValue){
+          console.log('HIST X-AXIS EDIT - No change, returning');
           return;
         }
-        applyHistXLabel(nextValue);
-        recordHistChange('hist:x-label',previous,nextValue,applyHistXLabel);
+        
+        // Create a combined apply function that updates both visual and table header
+        const applyBoth = (value) => {
+          console.log('HIST applyBoth called with value:', value);
+          
+          // Update visual title
+          applyHistXLabel(value);
+          console.log('HIST applyBoth - Visual title updated to:', value);
+          
+          // Also update the table header to maintain consistency
+          const hot = state.hot;
+          console.log('HIST applyBoth - HOT instance:', hot);
+          
+          if(hot && typeof hot.setDataAtCell === 'function'){
+            try {
+              const data = hot.getData() || [];
+              console.log('HIST applyBoth - Table data:', data);
+              
+              if(Array.isArray(data) && data.length > 0) {
+                const headerRow = Array.isArray(data[0]) ? data[0] : [];
+                console.log('HIST applyBoth - Header row:', headerRow);
+                
+                if(headerRow.length > 0) {
+                  console.log('HIST applyBoth - Current header[0]:', headerRow[0], 'New value:', value);
+                  
+                  // For histogram, the data is in column 0, so header is at [0][0]
+                  if(headerRow[0] !== value) {
+                    console.log('HIST applyBoth - Updating table header...');
+                    
+                    // Try multiple approaches to ensure the update works
+                    let updateSuccessful = false;
+                    
+                    // Approach 1: setDataAtCell (primary method)
+                    try {
+                      const result = hot.setDataAtCell([0, 0, value], 'hist-x-axis-edit');
+                      console.log('HIST applyBoth - setDataAtCell result:', result);
+                      
+                      // Verify the update
+                      const verifyData1 = hot.getData() || [];
+                      const verifyHeader1 = Array.isArray(verifyData1[0]) ? verifyData1[0] : [];
+                      if(verifyHeader1[0] === value) {
+                        updateSuccessful = true;
+                        console.log('HIST applyBoth - SUCCESS with setDataAtCell');
+                      }
+                    } catch(err) {
+                      console.log('HIST applyBoth - setDataAtCell failed:', err.message);
+                    }
+                    
+                    // Approach 2: Direct data manipulation (fallback)
+                    if(!updateSuccessful) {
+                      try {
+                        const currentData = hot.getData() || [];
+                        const newData = JSON.parse(JSON.stringify(currentData));
+                        
+                        if(Array.isArray(newData[0]) && newData[0].length > 0) {
+                          newData[0][0] = value;
+                          
+                          // Try different update methods
+                          if(typeof hot.setData === 'function') {
+                            hot.setData(newData);
+                            console.log('HIST applyBoth - Used setData method');
+                          } else if(typeof hot.updateSettings === 'function') {
+                            hot.updateSettings({ data: newData });
+                            console.log('HIST applyBoth - Used updateSettings method');
+                          } else if(typeof hot.gridApi?.setRowData === 'function') {
+                            hot.gridApi.setRowData(newData);
+                            console.log('HIST applyBoth - Used gridApi.setRowData method');
+                          } else {
+                            console.warn('HIST applyBoth - No suitable update method found');
+                          }
+                          
+                          // Verify the update
+                          const verifyData2 = hot.getData() || [];
+                          const verifyHeader2 = Array.isArray(verifyData2[0]) ? verifyData2[0] : [];
+                          if(verifyHeader2[0] === value) {
+                            updateSuccessful = true;
+                            console.log('HIST applyBoth - SUCCESS with direct manipulation');
+                          }
+                        }
+                      } catch(err) {
+                        console.error('HIST applyBoth - Direct manipulation failed:', err);
+                      }
+                    }
+                    
+                    if(!updateSuccessful) {
+                      console.error('HIST applyBoth - FAILED: All update methods failed');
+                    }
+                  } else {
+                    console.log('HIST applyBoth - Header already matches, no update needed');
+                  }
+                } else {
+                  console.error('HIST applyBoth - Header row is empty');
+                }
+              } else {
+                console.error('HIST applyBoth - No table data available');
+              }
+            } catch(err) {
+              console.error('HIST applyBoth - Failed to update histogram x-axis header:', err);
+            }
+          } else {
+            console.error('HIST applyBoth - HOT instance or setDataAtCell not available');
+          }
+          
+          // Force a redraw to ensure consistency
+          if(typeof state.scheduleDraw === 'function'){
+            console.log('HIST applyBoth - Scheduling redraw');
+            state.scheduleDraw();
+          } else {
+            console.warn('HIST applyBoth - scheduleDraw not available');
+          }
+          
+          console.log('HIST applyBoth - Completed');
+          return true;
+        };
+        
+        console.log('HIST X-AXIS EDIT - Calling applyBoth with:', nextValue);
+        applyBoth(nextValue);
+        
+        console.log('HIST X-AXIS EDIT - Recording change for undo');
+        recordHistChange('hist:x-label',previous,nextValue,applyBoth);
+        
+        console.log('HIST X-AXIS EDIT - Completed');
       });
     }
     // Enable drag for x-axis label
