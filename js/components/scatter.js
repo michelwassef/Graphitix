@@ -8512,9 +8512,7 @@
               cx: cxVal,
               cy: cyVal,
               radius: markerRadius,
-              labelColor: scatterCurrentGraphType === 'volcano' && p.isSignificant
-                ? (Number.isFinite(p.x) && p.x < 0 ? SIGNIFICANT_NEGATIVE_COLOR : SIGNIFICANT_COLOR)
-                : null
+              labelColor: null
             });
           }
           attachScatterPointTooltip(marker, {
@@ -8562,7 +8560,7 @@
               textNode.setAttribute('x',entry.textX);
               textNode.setAttribute('y',entry.anchorY);
               textNode.setAttribute('font-size',annotationFontPx);
-              textNode.setAttribute('fill',SIGNIFICANT_COLOR);
+              textNode.setAttribute('fill',chartStyle.TEXT_COLOR || '#333333');
               textNode.setAttribute('text-anchor',entry.textAnchor);
               textNode.setAttribute('dominant-baseline','middle');
               textNode.textContent=entry.label;
@@ -8572,7 +8570,7 @@
               const path=`M ${entry.attachX} ${entry.anchorY} L ${entry.pointX} ${entry.pointY}`;
               connector.setAttribute('d',path);
               connector.setAttribute('fill','none');
-              connector.setAttribute('stroke',SIGNIFICANT_COLOR);
+              connector.setAttribute('stroke',chartStyle.TEXT_COLOR || '#333333');
               connector.setAttribute('stroke-width',annotationStrokeWidth);
               connector.setAttribute('stroke-linecap','round');
               annotationLayer.appendChild(connector);
