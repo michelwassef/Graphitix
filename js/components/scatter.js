@@ -217,8 +217,26 @@
   let scatterLabelShapes = {};
   let scatterLabelStyles = {};
   const scatterRowSelectionsByTab = new Map();
+  const scatterThresholdSelectionsByTab = new Map();
   let scatterSelectionSyncInProgress = false;
   let scatterThresholdSelectionPending = false;
+  let scatterSelectionEventSuppressUntil = 0;
+
+  function markScatterThresholdSelectionPending(reason){
+    scatterThresholdSelectionPending = true;
+    scatterDebug('Debug: scatter threshold selection pending', { reason: reason || 'unspecified' });
+  }
+
+  function suppressScatterSelectionEvents(reason){
+    const now = (global.performance && typeof global.performance.now === 'function')
+      ? global.performance.now()
+      : Date.now();
+    scatterSelectionEventSuppressUntil = now + 50;
+    scatterDebug('Debug: scatter selection events suppressed', {
+      reason: reason || 'sync',
+      until: scatterSelectionEventSuppressUntil
+    });
+  }
 
   function clampScatterAlpha(value){
     const numeric = Number(value);
@@ -1181,7 +1199,7 @@
       }
       const set = new Set();
       nodes.forEach(node => {
-        const rowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
+        const rowIndex = resolveScatterNodeRowIndex(node);
         if(Number.isInteger(rowIndex) && rowIndex >= 0){
           set.add(rowIndex);
         }
@@ -1234,7 +1252,7 @@
     }
     const rowSet = new Set(rows);
     api.forEachNode(node => {
-      const rowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
+      const rowIndex = resolveScatterNodeRowIndex(node);
       if(Number.isInteger(rowIndex) && rowSet.has(rowIndex) && typeof node.setSelected === 'function'){
         node.setSelected(true);
       }
@@ -1261,7 +1279,196 @@
   }
 
   function syncScatterThresholdSelection(){
-    // Significant label selection no longer controls table row selection.
+    const hotInstance = scatter.__ensureHotForActiveTab?.() || scatterHot;
+    if(!hotInstance){
+      scatterDebug('Debug: scatter threshold selection skipped', { reason: 'missing-hot' });
+      return false;
+    }
+    const tabId = resolveScatterTabId(hotInstance);
+    if(!tabId){
+      scatterDebug('Debug: scatter threshold selection skipped', { reason: 'missing-tab' });
+      return false;
+    }
+    const api = hotInstance?.gridApi;
+    if(!api || typeof api.forEachNode !== 'function'){
+      scatterDebug('Debug: scatter threshold selection skipped', { reason: 'missing-api' });
+      return false;
+    }
+    const graphTypeRaw = global.document?.getElementById('scatterGraphType')?.value
+      || scatterCurrentGraphType
+      || 'scatter';
+    const graphType = String(graphTypeRaw).toLowerCase();
+    const showSignificant = !!(scatterShowSignificantLabels && scatterShowSignificantLabels.checked);
+    const prevAuto = scatterThresholdSelectionsByTab.get(tabId) || new Set();
+    if(graphType !== 'volcano' || !showSignificant){
+      if(prevAuto.size){
+        const nodesToClear = [];
+        const iterate = typeof api.forEachNodeAfterFilterAndSort === 'function'
+          ? api.forEachNodeAfterFilterAndSort.bind(api)
+          : api.forEachNode.bind(api);
+        iterate(node => {
+          const rowIndex = resolveScatterNodeRowIndex(node);
+          if(!Number.isInteger(rowIndex) || rowIndex <= 0 || node?.rowPinned){
+            return;
+          }
+          if(prevAuto.has(rowIndex)){
+            nodesToClear.push(node);
+          }
+        });
+        scatterSelectionSyncInProgress = true;
+        try{
+          if(nodesToClear.length){
+            suppressScatterSelectionEvents('threshold-clear');
+            if(typeof api.setNodesSelected === 'function'){
+              api.setNodesSelected({ nodes: nodesToClear, newValue: false });
+            }else{
+              nodesToClear.forEach(node => {
+                if(typeof node.setSelected === 'function'){
+                  node.setSelected(false);
+                }
+              });
+            }
+            if(typeof api.refreshCells === 'function'){
+              try{
+                api.refreshCells({ force: true });
+              }catch(err){
+                api.refreshCells();
+              }
+            }
+          }
+        }finally{
+          scatterSelectionSyncInProgress = false;
+        }
+        scatterThresholdSelectionsByTab.delete(tabId);
+        storeScatterRowSelection(hotInstance, 'threshold-clear');
+        scatterDebug('Debug: scatter threshold selection cleared', {
+          tabId,
+          cleared: prevAuto.size,
+          reason: graphType !== 'volcano' ? 'graph-type' : 'toggle-off'
+        });
+      }
+      return false;
+    }
+    const log2fcThresholdValue = parseFloat(scatterLog2FCThreshold?.value);
+    const negLogPThresholdValue = parseFloat(scatterNegLogPThreshold?.value);
+    const log2fcThreshold = Number.isFinite(log2fcThresholdValue) ? log2fcThresholdValue : 0;
+    const negLogPThreshold = Number.isFinite(negLogPThresholdValue) ? negLogPThresholdValue : 0;
+    const selectedRowSet = getScatterSelectedRowSet(hotInstance) || new Set();
+    const significantRows = new Set();
+    const nextAuto = new Set();
+    const targetSelection = new Set(selectedRowSet);
+    let examinedCount = 0;
+    let selectedCount = 0;
+    let clearedCount = 0;
+    let selectionUnchanged = false;
+    const iterate = typeof api.forEachNodeAfterFilterAndSort === 'function'
+      ? api.forEachNodeAfterFilterAndSort.bind(api)
+      : api.forEachNode.bind(api);
+    scatterSelectionSyncInProgress = true;
+    try{
+      iterate(node => {
+        const visualRow = Number.isInteger(node?.rowIndex) ? node.rowIndex : null;
+        const rowIndex = resolveScatterNodeRowIndex(node);
+        if(!Number.isInteger(visualRow) || !Number.isInteger(rowIndex)){
+          return;
+        }
+        if(node?.rowPinned || visualRow <= 0 || rowIndex <= 0){
+          return;
+        }
+        examinedCount += 1;
+        const log2fc = parseFloat(hotInstance.getDataAtCell(visualRow, 1));
+        const pRaw = parseFloat(hotInstance.getDataAtCell(visualRow, 2));
+        if(!Number.isFinite(log2fc) || !Number.isFinite(pRaw) || pRaw <= 0){
+          return;
+        }
+        const negLogP = -Math.log10(pRaw);
+        const isSignificant = Number.isFinite(negLogP)
+          && Math.abs(log2fc) >= log2fcThreshold
+          && negLogP >= negLogPThreshold;
+        if(isSignificant){
+          significantRows.add(rowIndex);
+        }
+      });
+      significantRows.forEach(rowIndex => {
+        if(prevAuto.has(rowIndex) && !selectedRowSet.has(rowIndex)){
+          return; // user deselected an auto-labeled row
+        }
+        nextAuto.add(rowIndex);
+        if(!targetSelection.has(rowIndex)){
+          targetSelection.add(rowIndex);
+          selectedCount += 1;
+        }
+      });
+      prevAuto.forEach(rowIndex => {
+        if(!significantRows.has(rowIndex) && !selectedRowSet.has(rowIndex)){
+          if(targetSelection.delete(rowIndex)){
+            clearedCount += 1;
+          }
+        }
+      });
+      selectionUnchanged = targetSelection.size === selectedRowSet.size;
+      if(selectionUnchanged){
+        for(const rowIndex of targetSelection){
+          if(!selectedRowSet.has(rowIndex)){
+            selectionUnchanged = false;
+            break;
+          }
+        }
+      }
+      if(!selectionUnchanged){
+        const nodesToSelect = [];
+        iterate(node => {
+          const rowIndex = resolveScatterNodeRowIndex(node);
+          if(!Number.isInteger(rowIndex) || rowIndex <= 0 || node?.rowPinned){
+            return;
+          }
+          if(targetSelection.has(rowIndex)){
+            nodesToSelect.push(node);
+          }
+        });
+        suppressScatterSelectionEvents('threshold-sync');
+        if(typeof api.deselectAll === 'function'){
+          api.deselectAll();
+        }
+        if(nodesToSelect.length){
+          if(typeof api.setNodesSelected === 'function'){
+            api.setNodesSelected({ nodes: nodesToSelect, newValue: true, clearSelection: false });
+          }else{
+            nodesToSelect.forEach(node => {
+              if(typeof node.setSelected === 'function'){
+                node.setSelected(true, false);
+              }
+            });
+          }
+        }
+        if(typeof api.refreshCells === 'function'){
+          try{
+            api.refreshCells({ force: true });
+          }catch(err){
+            api.refreshCells();
+          }
+        }
+      }
+    }finally{
+      scatterSelectionSyncInProgress = false;
+    }
+    if(nextAuto.size){
+      scatterThresholdSelectionsByTab.set(tabId, nextAuto);
+    }else{
+      scatterThresholdSelectionsByTab.delete(tabId);
+    }
+    storeScatterRowSelection(hotInstance, 'threshold-sync');
+    scatterDebug('Debug: scatter threshold selection synced', {
+      tabId,
+      significantCount: significantRows.size,
+      autoSelectedCount: nextAuto.size,
+      examinedCount,
+      selectedCount,
+      clearedCount,
+      selectionUnchanged,
+      thresholds: { log2fcThreshold, negLogPThreshold }
+    });
+    return true;
   }
 
   function buildScatterAnnotationRequests(points, options){
@@ -2655,13 +2862,24 @@
       if(selected){
         return;
       }
-      const nodeRowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
+      const nodeRowIndex = resolveScatterNodeRowIndex(node);
       if(nodeRowIndex !== rowIndex){
         return;
       }
       selected = !!node?.isSelected?.();
     });
     return selected;
+  }
+
+  function resolveScatterNodeRowIndex(node){
+    if(Number.isInteger(node?.data?.__rowIndex)){
+      return node.data.__rowIndex;
+    }
+    if(Number.isInteger(node?.rowIndex)){
+      return node.rowIndex;
+    }
+    const fallback = node?.data?.__rowIndex ?? node?.rowIndex;
+    return Number.isInteger(fallback) ? fallback : null;
   }
 
   function setScatterRowSelected(hotInstance, rowIndex, desiredSelected, options){
@@ -2671,20 +2889,34 @@
     }
     const preserveExisting = options?.preserveExisting !== false;
     let matched = false;
+    const targetNodes = [];
     api.forEachNode(node => {
-      const nodeRowIndex = Number.isInteger(node?.rowIndex) ? node.rowIndex : node?.data?.__rowIndex;
+      const nodeRowIndex = resolveScatterNodeRowIndex(node);
       if(nodeRowIndex !== rowIndex){
         return;
       }
       matched = true;
-      if(typeof node.setSelected === 'function'){
-        try{
-          node.setSelected(!!desiredSelected, !preserveExisting);
-        }catch(err){
-          node.setSelected(!!desiredSelected);
-        }
-      }
+      targetNodes.push(node);
     });
+    if(matched && targetNodes.length){
+      if(typeof api.setNodesSelected === 'function'){
+        api.setNodesSelected({
+          nodes: targetNodes,
+          newValue: !!desiredSelected,
+          clearSelection: !preserveExisting
+        });
+      }else{
+        targetNodes.forEach(node => {
+          if(typeof node.setSelected === 'function'){
+            try{
+              node.setSelected(!!desiredSelected, !preserveExisting);
+            }catch(err){
+              node.setSelected(!!desiredSelected);
+            }
+          }
+        });
+      }
+    }
     if(matched && desiredSelected && options?.ensureVisible){
       if(typeof api.ensureIndexVisible === 'function'){
         try{ api.ensureIndexVisible(rowIndex, 'middle'); }catch(e){ api.ensureIndexVisible(rowIndex); }
@@ -3975,6 +4207,16 @@
               console.log('scatter afterChange', {count:changes.length, source});
               revalidateActiveScatterLogAxis('x','data-edit');
               revalidateActiveScatterLogAxis('y','data-edit');
+              const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType || 'scatter';
+              if(graphType === 'volcano' && scatterShowSignificantLabels?.checked){
+                markScatterThresholdSelectionPending('data-edit');
+              }
+            },
+            afterLoadData(){
+              const graphType = scatterGraphTypeSelect?.value || scatterCurrentGraphType || 'scatter';
+              if(graphType === 'volcano' && scatterShowSignificantLabels?.checked){
+                markScatterThresholdSelectionPending('data-load');
+              }
             },
             afterUndo(){
               console.log('scatter undo');
@@ -3996,6 +4238,14 @@
               const handler = () => {
                 if(scatterSelectionSyncInProgress){
                   return;
+                }
+                if(scatterSelectionEventSuppressUntil){
+                  const now = (global.performance && typeof global.performance.now === 'function')
+                    ? global.performance.now()
+                    : Date.now();
+                  if(now < scatterSelectionEventSuppressUntil){
+                    return;
+                  }
                 }
                 storeScatterRowSelection(hotInstance, 'row-selection');
                 scheduleDrawScatter({ reason: 'row-selection' });
@@ -5068,6 +5318,9 @@
         if(scatterShowSignificantLabels){
           scatterShowSignificantLabels.disabled = type !== 'volcano';
         }
+        if(type === 'volcano' && scatterShowSignificantLabels?.checked){
+          markScatterThresholdSelectionPending('graph-type-ui');
+        }
         if(scatterViewControls){
           scatterViewControls.style.display = type === 'scatter' ? '' : 'none';
         }
@@ -5621,46 +5874,36 @@
         scatterGraphTypeSelect.addEventListener('change',()=>{
           console.debug('Debug: scatter graph type change event',{value:scatterGraphTypeSelect.value});
           syncScatterGraphTypeUI();
-          scheduleDrawScatter();
-          if(!scatterAutoDrawState.autoDrawEnabled){
-            scatterThresholdSelectionPending = true;
-            return;
-          }
+          scatterThresholdSelectionPending = false;
           syncScatterThresholdSelection();
+          scheduleDrawScatter();
         });
       }
       if(scatterLog2FCThreshold){
         scatterLog2FCThreshold.addEventListener('input',()=>{
           console.debug('Debug: scatter log2FC threshold input',{value:scatterLog2FCThreshold.value});
-          scheduleDrawScatter();
-          if(!scatterAutoDrawState.autoDrawEnabled){
-            scatterThresholdSelectionPending = true;
-            persistTabState('scatter-log2fc-input');
-            return;
-          }
+          scatterThresholdSelectionPending = false;
           syncScatterThresholdSelection();
+          scheduleDrawScatter();
+          persistTabState('scatter-log2fc-input');
         });
       }
       if(scatterNegLogPThreshold){
         scatterNegLogPThreshold.addEventListener('input',()=>{
           console.debug('Debug: scatter negLogP threshold input',{value:scatterNegLogPThreshold.value});
-          scheduleDrawScatter();
-          if(!scatterAutoDrawState.autoDrawEnabled){
-            scatterThresholdSelectionPending = true;
-            persistTabState('scatter-neglogp-input');
-            return;
-          }
+          scatterThresholdSelectionPending = false;
           syncScatterThresholdSelection();
+          scheduleDrawScatter();
+          persistTabState('scatter-neglogp-input');
         });
       }
       if(scatterShowSignificantLabels){
         scatterShowSignificantLabels.addEventListener('change',()=>{
           console.debug('Debug: scatter significant label toggle',{checked:scatterShowSignificantLabels.checked});
+          scatterThresholdSelectionPending = false;
+          syncScatterThresholdSelection();
           scheduleDrawScatter();
-          if(!scatterAutoDrawState.autoDrawEnabled){
-            scatterThresholdSelectionPending = true;
-            persistTabState('scatter-significant-labels-change');
-          }
+          persistTabState('scatter-significant-labels-change');
         });
       }
       if(scatterColorMode){
@@ -6287,9 +6530,22 @@
         const originXInput=parseFloat(scatterOriginX.value);
         const originYInput=parseFloat(scatterOriginY.value);
         info('scatter origin inputs',{originMode,originXInput,originYInput});
+        if(scatterThresholdSelectionPending){
+          scatterThresholdSelectionPending = false;
+          syncScatterThresholdSelection();
+        }
         const analysis = scatterHot?.getAnalysisData?.() || Shared.hot.getAnalysisData(scatterHot);
         const rowCount = analysis.rowCount || 0;
         const colCount = analysis.colCount || 0;
+        const resolvePhysicalRow = (visualRow)=>{
+          if(typeof analysis.toPhysicalRow === 'function'){
+            const mapped = analysis.toPhysicalRow(visualRow);
+            if(Number.isInteger(mapped) && mapped >= 0){
+              return mapped;
+            }
+          }
+          return visualRow;
+        };
         const extractColumn = (colIndex)=>{
           if(colIndex >= colCount){
             return [];
@@ -6314,6 +6570,8 @@
         const selectedRowSet = getScatterSelectedRowSet(scatterHot);
         // Use row selection checkboxes exclusively for point labeling
         const useSelectionFallback = selectedRowSet && selectedRowSet.size > 0;
+        const thresholdLabelEnabled = scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true;
+        const useSelectionForThresholdLabels = thresholdLabelEnabled && graphType === 'volcano';
         info('scatter column lengths',{
           label:labelCol.length,
           x:xCol.length,
@@ -6369,8 +6627,9 @@
         for(let r=1;r<maxLen;r++){
           const labelValue = labelCol[r];
           const lab=labelValue ? String(labelValue).trim() : '';
+          const physicalRow = resolvePhysicalRow(r);
           // Use row selection checkboxes exclusively for point labeling
-          const isManualLabel = useSelectionFallback && selectedRowSet?.has(r);
+          const isManualLabel = useSelectionFallback && selectedRowSet?.has(physicalRow);
           const rawX=xCol[r];
           const rawY=yCol[r];
           if(graphType==='scatter'){
@@ -6385,11 +6644,11 @@
             const hasZValue = hasZColumn && rawZ !== null && typeof rawZ !== 'undefined' && rawZ !== '';
             const zv = hasZValue ? Number(rawZ) : NaN;
             if(!Number.isNaN(xv) && Number.isFinite(xv) && !Number.isNaN(yv) && Number.isFinite(yv)){
-              const pointRecord = {x:xv,y:yv,label:lab,pointName:lab,rowIndex:r,isManualLabel};
+              const pointRecord = {x:xv,y:yv,label:lab,pointName:lab,rowIndex:physicalRow,isManualLabel};
               if(hasZValue && Number.isFinite(zv)){
                 pointRecord.z = zv;
                 pointRecord.bubbleValue = zv;
-                scatter3dCandidates.push({ x: xv, y: yv, z: zv, label: lab, pointName: lab, rowIndex: r, isManualLabel, index: scatter3dCandidates.length });
+                scatter3dCandidates.push({ x: xv, y: yv, z: zv, label: lab, pointName: lab, rowIndex: physicalRow, isManualLabel, index: scatter3dCandidates.length });
                 if(zv<zMinRaw) zMinRaw=zv;
                 if(zv>zMaxRaw) zMaxRaw=zv;
                 if(zv<bubbleMinRaw) bubbleMinRaw = zv;
@@ -6436,8 +6695,8 @@
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=Math.abs(log2fc)>=log2fcThreshold && negLogP>=negLogPThreshold;
-              const isThresholdLabel = (scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true) && isSignificant;
-              points.push({x:log2fc,y:negLogP,label:'',pointName:lab,rowIndex:r,isManualLabel,isSignificant,isThresholdLabel});
+              const isThresholdLabel = thresholdLabelEnabled && isSignificant && !useSelectionForThresholdLabels;
+              points.push({x:log2fc,y:negLogP,label:'',pointName:lab,rowIndex:physicalRow,isManualLabel,isSignificant,isThresholdLabel});
               if(isSignificant){
                 significantCount++;
               }
@@ -6467,9 +6726,9 @@
                 negLogP=-Math.log10(Number.MIN_VALUE);
               }
               const isSignificant=hasPositiveP && Math.abs(log2fcVal)>=log2fcThreshold && Number.isFinite(negLogP) && negLogP>=negLogPThreshold;
-              const isThresholdLabel = (scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true) && isSignificant;
+              const isThresholdLabel = thresholdLabelEnabled && isSignificant && !useSelectionForThresholdLabels;
               const labelValueFinal = lab && shouldCollectLabelSet ? lab : '';
-              points.push({x:meanExpr,y:log2fcVal,label:labelValueFinal,pointName:lab,rowIndex:r,isManualLabel,isSignificant,isThresholdLabel});
+              points.push({x:meanExpr,y:log2fcVal,label:labelValueFinal,pointName:lab,rowIndex:physicalRow,isManualLabel,isSignificant,isThresholdLabel});
               if(isSignificant) significantCount++;
               if(!hasPositiveP){
                 maMissingPCount++;
@@ -7319,7 +7578,7 @@
             const manualLabelText = (entry.data?.pointName || entry.data?.label || '').trim();
             const markerRadius = markerSize != null ? markerSize : dotSizePx;
             pointBounds3d.push({ cx: entry.projected?.x, cy: entry.projected?.y, r: markerRadius });
-            if((entry.data?.isManualLabel || entry.data?.isThresholdLabel) && manualLabelText){
+            if((entry.data?.isManualLabel || (entry.data?.isThresholdLabel && !useSelectionForThresholdLabels)) && manualLabelText){
               manualLabelEntries3d.push({
                 text: manualLabelText,
                 cx: entry.projected?.x,
@@ -8238,7 +8497,7 @@
           bbox.minY=Math.min(bbox.minY,cyVal-bboxRadius);
           bbox.maxY=Math.max(bbox.maxY,cyVal+bboxRadius);
           const manualLabelText = (p.pointName || p.label || '').trim();
-          if((p.isManualLabel || p.isThresholdLabel) && manualLabelText){
+          if((p.isManualLabel || (p.isThresholdLabel && !useSelectionForThresholdLabels)) && manualLabelText){
             manualLabelEntries.push({
               text: manualLabelText,
               cx: cxVal,
