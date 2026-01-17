@@ -1300,7 +1300,7 @@
     const graphType = String(graphTypeRaw).toLowerCase();
     const showSignificant = !!(scatterShowSignificantLabels && scatterShowSignificantLabels.checked);
     const prevAuto = scatterThresholdSelectionsByTab.get(tabId) || new Set();
-    if(graphType !== 'volcano' || !showSignificant){
+    if((graphType !== 'volcano' && graphType !== 'ma') || !showSignificant){
       if(prevAuto.size){
         const nodesToClear = [];
         const iterate = typeof api.forEachNodeAfterFilterAndSort === 'function'
@@ -1344,7 +1344,7 @@
         scatterDebug('Debug: scatter threshold selection cleared', {
           tabId,
           cleared: prevAuto.size,
-          reason: graphType !== 'volcano' ? 'graph-type' : 'toggle-off'
+          reason: (graphType !== 'volcano' && graphType !== 'ma') ? 'graph-type' : 'toggle-off'
         });
       }
       return false;
@@ -1376,8 +1376,16 @@
           return;
         }
         examinedCount += 1;
-        const log2fc = parseFloat(hotInstance.getDataAtCell(visualRow, 1));
-        const pRaw = parseFloat(hotInstance.getDataAtCell(visualRow, 2));
+        let log2fc, pRaw;
+        if(graphType === 'ma'){
+          // For MA plots: Column 1 = Mean Expression, Column 2 = log2FC, Column 3 = p-value
+          log2fc = parseFloat(hotInstance.getDataAtCell(visualRow, 2)); // log2FC is in column 2 for MA
+          pRaw = parseFloat(hotInstance.getDataAtCell(visualRow, 3)); // p-value is in column 3 for MA
+        }else{
+          // For Volcano plots: Column 1 = log2FC, Column 2 = p-value
+          log2fc = parseFloat(hotInstance.getDataAtCell(visualRow, 1));
+          pRaw = parseFloat(hotInstance.getDataAtCell(visualRow, 2));
+        }
         if(!Number.isFinite(log2fc) || !Number.isFinite(pRaw) || pRaw <= 0){
           return;
         }
@@ -4460,7 +4468,7 @@
 
       const scatterGraphTypeSelect=$('#scatterGraphType');
       const scatterThresholdControls=$('#scatterThresholdControls');
-        const scatterVolcanoOptions=$('#scatterVolcanoOptions');
+        const scatterSignificantOptions=$('#scatterSignificantOptions');
         const scatterShowSignificantLabels=$('#scatterShowSignificantLabels');
       const scatterLog2FCThreshold=$('#scatterLog2FCThreshold');
       const scatterNegLogPThreshold=$('#scatterNegLogPThreshold');
@@ -5312,13 +5320,13 @@
         if(scatterThresholdControls){
           scatterThresholdControls.style.display=showThresholds?'':'none';
         }
-        if(scatterVolcanoOptions){
-          scatterVolcanoOptions.style.display = type === 'volcano' ? '' : 'none';
+        if(scatterSignificantOptions){
+          scatterSignificantOptions.style.display = (type === 'volcano' || type === 'ma') ? '' : 'none';
         }
         if(scatterShowSignificantLabels){
-          scatterShowSignificantLabels.disabled = type !== 'volcano';
+          scatterShowSignificantLabels.disabled = type !== 'volcano' && type !== 'ma';
         }
-        if(type === 'volcano' && scatterShowSignificantLabels?.checked){
+        if((type === 'volcano' || type === 'ma') && scatterShowSignificantLabels?.checked){
           markScatterThresholdSelectionPending('graph-type-ui');
         }
         if(scatterViewControls){
@@ -6571,7 +6579,7 @@
         // Use row selection checkboxes exclusively for point labeling
         const useSelectionFallback = selectedRowSet && selectedRowSet.size > 0;
         const thresholdLabelEnabled = scatterShowSignificantLabels ? !!scatterShowSignificantLabels.checked : true;
-        const useSelectionForThresholdLabels = thresholdLabelEnabled && graphType === 'volcano';
+        const useSelectionForThresholdLabels = thresholdLabelEnabled && (graphType === 'volcano' || graphType === 'ma');
         info('scatter column lengths',{
           label:labelCol.length,
           x:xCol.length,
@@ -6727,7 +6735,8 @@
               }
               const isSignificant=hasPositiveP && Math.abs(log2fcVal)>=log2fcThreshold && Number.isFinite(negLogP) && negLogP>=negLogPThreshold;
               const isThresholdLabel = thresholdLabelEnabled && isSignificant && !useSelectionForThresholdLabels;
-              const labelValueFinal = lab && shouldCollectLabelSet ? lab : '';
+              // Match volcano plot behavior - use empty label and let AG Grid selection handle labeling
+              const labelValueFinal = '';
               points.push({x:meanExpr,y:log2fcVal,label:labelValueFinal,pointName:lab,rowIndex:physicalRow,isManualLabel,isSignificant,isThresholdLabel});
               if(isSignificant) significantCount++;
               if(!hasPositiveP){
